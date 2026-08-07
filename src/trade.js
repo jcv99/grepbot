@@ -8,6 +8,7 @@
       if (!t) return null;
       const r = t.resources && t.resources();
       let cap = null, tradeCap = null, pop = null, small = false;
+      let island = null, ix = null, iy = null;
       try { if (t.getStorageCapacity) cap = +t.getStorageCapacity(); } catch (_) {}
       if (!(cap > 0)) { const shared = townResState(townId); if (shared) cap = shared.cap; }
       try { if (t.getAvailableTradeCapacity) tradeCap = +t.getAvailableTradeCapacity(); } catch (_) {}
@@ -15,11 +16,28 @@
       try {
         const a = t.attributes || (t.get && t.get('on_small_island') != null ? { on_small_island: t.get('on_small_island') } : {});
         small = !!(a.on_small_island || (t.isOnSmallIsland && t.isOnSmallIsland()));
+        if (a.island_id != null) island = a.island_id;
+        else if (typeof t.getIslandId === 'function') island = t.getIslandId();
+        if (a.island_x != null) ix = +a.island_x;
+        if (a.island_y != null) iy = +a.island_y;
       } catch (_) {}
+      if (island == null || ix == null || iy == null) {
+        try {
+          const list = state.towns || [];
+          const st = list.find(x => String(x.id) === String(townId));
+          if (st) {
+            if (island == null && st.island != null) island = st.island;
+            if (ix == null && st.x != null) ix = +st.x;
+            if (iy == null && st.y != null) iy = +st.y;
+          }
+        } catch (_) {}
+      }
       return {
         id: +townId,
         wood: r && +r.wood || 0, stone: r && +r.stone || 0, iron: r && +r.iron || 0,
         cap: cap || 0, tradeCap: tradeCap || 0, pop: pop || 0, small,
+        island: island != null ? island : null,
+        x: ix, y: iy,
       };
     } catch (_) { return null; }
   }
@@ -54,6 +72,7 @@
       L[t.id] = {
         wood: t.wood, stone: t.stone, iron: t.iron,
         cap: t.cap, tradeCap: t.tradeCap, small: t.small,
+        island: t.island, x: t.x, y: t.y,
       };
     }
     return L;
@@ -65,23 +84,47 @@
     src.tradeCap = Math.max(0, src.tradeCap - (job.wood + job.stone + job.iron));
     tgt.wood += job.wood; tgt.stone += job.stone; tgt.iron += job.iron;
   }
-  function tradeFillStorageJobs(towns, L) {
+  // Local island distance (attack.js comes later in concat; do not rely on it at parse time).
+  function tradeIslandDist(a, b) {
+    if (!a || !b) return null;
+    if (a.island != null && b.island != null) {
+      if (String(a.island) === String(b.island)) return 0;
+    }
+    if (a.x == null || a.y == null || b.x == null || b.y == null) return null;
+    const dx = a.x - b.x, dy = a.y - b.y;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+  function tradeFillStorageJobs(towns, L, opts) {
     const ledger = L || tradeLedger(towns);
     const reserve = Math.min(80, Math.max(0, gbCfgNum(state.tradeReservePct, 20))) / 100;
     const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
+    const maxHops = Math.max(0, gbCfgNum(state.tradeMaxHops, 15));
+    const urgent = !!(opts && opts.deadlock);
+    const byId = Object.create(null);
+    towns.forEach(t => { byId[t.id] = t; });
     const jobs = [];
     const ids = towns.map(t => t.id);
     for (const tgtId of ids) {
       const tgt = ledger[tgtId];
       if (!tgt || !(tgt.cap > 0)) continue;
       const empty = Math.min(tgt.wood, tgt.stone, tgt.iron) / tgt.cap;
-      if (empty >= 0.25) continue;
+      if (!urgent && empty >= 0.25) continue;
+      const candidates = [];
       for (const srcId of ids) {
         if (srcId === tgtId) continue;
         const src = ledger[srcId];
         if (!src || !(src.cap > 0)) continue;
         const fill = Math.max(src.wood, src.stone, src.iron) / src.cap;
         if (fill <= 0.85 || src.tradeCap < minBatch) continue;
+        const srcTown = byId[srcId], tgtTown = byId[tgtId];
+        const dist = tradeIslandDist(srcTown || src, tgtTown || tgt);
+        if (dist == null) {
+          gbLogT('trade-island-blind', 300000, 'trade: island unreadable - allowing hop (blind ≠ refuse)');
+        } else if (!urgent && dist > maxHops) {
+          gbLogT('trade-hop-' + srcId + '-' + tgtId, 300000,
+            `trade: refuse ${srcId}->${tgtId} hops ${dist.toFixed(1)} > max ${maxHops}`);
+          continue;
+        }
         const keep = Math.floor(src.cap * reserve);
         const send = {
           wood: Math.max(0, Math.min(src.tradeCap, src.wood - keep, tgt.cap - tgt.wood)),
@@ -92,16 +135,139 @@
         if (total < minBatch) continue;
         let scale = 1;
         if (total > src.tradeCap) scale = src.tradeCap / total;
-        const job = {
+        const surplus = Math.max(src.wood, src.stone, src.iron) - keep;
+        candidates.push({
           from: srcId, to: tgtId,
           wood: Math.floor(send.wood * scale),
           stone: Math.floor(send.stone * scale),
           iron: Math.floor(send.iron * scale),
-        };
-        if (job.wood + job.stone + job.iron < minBatch) continue;
+          dist: dist == null ? 9999 : dist,
+          surplus,
+        });
+      }
+      candidates.sort((a, b) => {
+        if (a.dist !== b.dist) return a.dist - b.dist;
+        return b.surplus - a.surplus;
+      });
+      for (const c of candidates) {
+        if (c.wood + c.stone + c.iron < minBatch) continue;
+        const job = { from: c.from, to: c.to, wood: c.wood, stone: c.stone, iron: c.iron };
         jobs.push(job);
         tradeApplyJob(ledger, job);
         if (jobs.length >= 6) return jobs;
+        break; // one donor per target per pass
+      }
+    }
+    return jobs;
+  }
+  function tradeGoalDeficit(townId, preset) {
+    // → {wood,stone,iron} | null (blind / nothing)
+    if (preset === 'party') {
+      if (typeof ironReservedForCave === 'function') {
+        const r = ironReservedForCave(townId);
+        if (r && r.reserved) {
+          gbLogT('trade-party-cave-' + townId, 120000, `trade party: skip town ${townId} - iron reserved for cave`);
+          return { wood: 0, stone: 0, iron: 0 };
+        }
+      }
+      const types = state.cultureTypes || {};
+      const order = ['festival', 'theater', 'procession']; // olympic excluded (gold)
+      let ctype = null;
+      for (const ui of order) {
+        if (!types[ui]) continue;
+        ctype = ({ festival: 'party', procession: 'triumph', theater: 'theater' })[ui] || ui;
+        if (ctype === 'triumph') continue; // killpoints, not resources
+        break;
+      }
+      if (!ctype || !CULTURE_COSTS[ctype]) return { wood: 0, stone: 0, iron: 0 };
+      const cost = CULTURE_COSTS[ctype];
+      return {
+        wood: +cost.wood || 0,
+        stone: +cost.stone || 0,
+        iron: +cost.iron || 0,
+      };
+    }
+    if (preset === 'unit') {
+      const want = (state.recruitTargets || {})[townId] || (state.recruitTargets || {})[String(townId)];
+      if (!want || typeof want !== 'object') return { wood: 0, stone: 0, iron: 0 };
+      let wood = 0, stone = 0, iron = 0;
+      for (const unit of Object.keys(want)) {
+        const count = +want[unit] || 0;
+        if (!(count > 0)) continue;
+        let def = null;
+        try { def = typeof recruitUnitDef === 'function' ? recruitUnitDef(unit) : null; } catch (_) {}
+        if (!def || !def.resources) {
+          gbLogT('trade-unit-nocost-' + unit, 120000, `trade unit: unknown cost for ${unit} - town ${townId} blind`);
+          return null;
+        }
+        wood += (+def.resources.wood || 0) * count;
+        stone += (+def.resources.stone || 0) * count;
+        iron += (+def.resources.iron || 0) * count;
+      }
+      return { wood, stone, iron };
+    }
+    return null;
+  }
+  function tradeGoalJobs(towns, L, preset) {
+    const ledger = L || tradeLedger(towns);
+    const reserve = Math.min(80, Math.max(0, gbCfgNum(state.tradeReservePct, 20))) / 100;
+    const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
+    const byId = Object.create(null);
+    towns.forEach(t => { byId[t.id] = t; });
+    const jobs = [];
+    for (const tgt of towns) {
+      const goal = tradeGoalDeficit(tgt.id, preset);
+      if (goal == null) continue; // blind
+      const cur = ledger[tgt.id];
+      if (!cur) continue;
+      const deficit = {
+        wood: Math.max(0, goal.wood - cur.wood),
+        stone: Math.max(0, goal.stone - cur.stone),
+        iron: Math.max(0, goal.iron - cur.iron),
+      };
+      const needTotal = deficit.wood + deficit.stone + deficit.iron;
+      if (needTotal < minBatch) continue;
+      // Prefer donor with largest surplus of the scarcest needed resource
+      const needKey = ['wood', 'stone', 'iron'].sort((a, b) => deficit[b] - deficit[a])[0];
+      const donors = towns.filter(s => s.id !== tgt.id).map(s => {
+        const src = ledger[s.id];
+        if (!src || !(src.cap > 0) || src.tradeCap < minBatch) return null;
+        const keep = Math.floor(src.cap * reserve);
+        const surplus = Math.max(0, (src[needKey] || 0) - keep);
+        if (surplus < minBatch / 3) return null;
+        return { s, src, surplus, keep };
+      }).filter(Boolean);
+      donors.sort((a, b) => b.surplus - a.surplus);
+      for (const d of donors) {
+        if (jobs.length >= 6) return jobs;
+        const src = d.src;
+        const send = {
+          wood: Math.min(deficit.wood, Math.max(0, src.wood - d.keep), src.tradeCap),
+          stone: Math.min(deficit.stone, Math.max(0, src.stone - d.keep), src.tradeCap),
+          iron: Math.min(deficit.iron, Math.max(0, src.iron - d.keep), src.tradeCap),
+        };
+        let total = send.wood + send.stone + send.iron;
+        if (total < minBatch) continue;
+        if (total > src.tradeCap) {
+          const scale = src.tradeCap / total;
+          send.wood = Math.floor(send.wood * scale);
+          send.stone = Math.floor(send.stone * scale);
+          send.iron = Math.floor(send.iron * scale);
+          total = send.wood + send.stone + send.iron;
+        }
+        if (total < minBatch) continue;
+        if (needTotal > src.tradeCap * 4) {
+          gbLogT('trade-goal-far-' + tgt.id, 300000,
+            `trade ${preset}: deficit ${needTotal} >> tradeCap - skip unreachable goal this session`);
+          break;
+        }
+        const job = { from: d.s.id, to: tgt.id, wood: send.wood, stone: send.stone, iron: send.iron };
+        jobs.push(job);
+        tradeApplyJob(ledger, job);
+        deficit.wood = Math.max(0, deficit.wood - job.wood);
+        deficit.stone = Math.max(0, deficit.stone - job.stone);
+        deficit.iron = Math.max(0, deficit.iron - job.iron);
+        if (deficit.wood + deficit.stone + deficit.iron < minBatch) break;
       }
     }
     return jobs;
@@ -149,11 +315,12 @@
     const ledger = tradeLedger(towns);
     let jobs = [];
     const preset = state.tradePreset || 'storage';
+    const dl = (typeof econDeadlock === 'function') ? econDeadlock() : null;
     // storage = fill WH; party/unit are unimplemented planners (do not silently run storage)
     if (state.autoTrade && preset === 'storage') {
-      jobs = jobs.concat(tradeFillStorageJobs(towns, ledger));
+      jobs = jobs.concat(tradeFillStorageJobs(towns, ledger, { deadlock: !!(dl && dl.open) }));
     } else if (state.autoTrade && (preset === 'party' || preset === 'unit')) {
-      gbLogT('trade-preset-' + preset, 300000, `trade: preset=${preset} - unimplemented, fill-storage skipped`);
+      jobs = jobs.concat(tradeGoalJobs(towns, ledger, preset));
     }
     if (state.islandShip) jobs = jobs.concat(tradeIslandShipJobs(towns, ledger));
     if (!jobs.length) {

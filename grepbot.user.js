@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      1.5.14
+// @version      1.5.19
 // @description  Grepolis scout/farm/build/trade/culture/recruit automation. ToS forbid automation; risk = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -68,6 +68,7 @@ const STORE = {
     AB_AUTO: 'grepbot:ab-auto',
     AB_TARGETS: 'grepbot:ab-targets',
     AB_NEXT: 'grepbot:ab-next',
+    BUILD_PIN: 'grepbot:build-pin',
     AUTO_CAVE: 'grepbot:auto-cave',
     CAVE_THRESH: 'grepbot:cave-thresh',
     CAVE_TOWNS: 'grepbot:cave-towns',
@@ -76,6 +77,8 @@ const STORE = {
     FARM_OPTION_MAP: 'grepbot:farm-option-map',
     FARM_LONG_CLAIMS: 'grepbot:farm-long-claims',
     FARM_LOYALTY_TECH: 'grepbot:farm-loyalty-tech',
+    FARM_LOYALTY_SEEN: 'grepbot:farm-loyalty-seen',
+    FARM_TEACH_BANNER: 'grepbot:farm-teach-banner',
     FARM_SLEEP_DUR: 'grepbot:farm-sleep-dur',
     FARM_SLEEP_AUTO: 'grepbot:farm-sleep-auto',
     FARM_SLEEP_FILL: 'grepbot:farm-sleep-fill',
@@ -91,6 +94,7 @@ const STORE = {
     TRADE_PRESET: 'grepbot:trade-preset',
     TRADE_RESERVE: 'grepbot:trade-reserve',
     TRADE_MIN: 'grepbot:trade-min',
+    TRADE_MAX_HOPS: 'grepbot:trade-max-hops',
     AUTO_RURAL_TRADE: 'grepbot:auto-rural-trade',
     RURAL_TRADE_RATIO: 'grepbot:rural-trade-ratio',
     RURAL_TRADE_RES: 'grepbot:rural-trade-res',
@@ -130,12 +134,21 @@ const STORE = {
     CAPTCHA_GLOBAL_UNTIL: 'grepbot:captcha-global-until',
     REQ_BUDGET: 'grepbot:req-budget',
     ALLIANCE_NOTES: 'grepbot:alliance-notes',
+    LAST_SEEN_TS: 'grepbot:last-seen-ts',
+    WATCH_HITS: 'grepbot:watch-hits',
+    WONDER_FAVOR_TPL: 'grepbot:wonder-favor-tpl',
+    AUTO_WONDER_FAVOR: 'grepbot:auto-wonder-favor',
     CONFIG_VER: 'grepbot:config-ver',
     WONDER_SPENT: 'grepbot:wonder-spent',
 
     DECISIONS: 'grepbot:decisions',
     DECISION_SKIPS: 'grepbot:decision-skips',
     DECISION_MEM: 'grepbot:decision-memory',
+    TPL_HEALTH: 'grepbot:tpl-health',
+    ORCH_DEADLOCK: 'grepbot:orch-deadlock',
+    CAPTCHA_LADDER: 'grepbot:captcha-ladder',
+    POSTS_SOFT_PCT: 'grepbot:posts-soft-pct',
+    TAB_FILTERS: 'grepbot:tab-filters',
     DRY_RUN: 'grepbot:dry-run',
     EXPORT_REDACT: 'grepbot:export-redact',
     ORCH_ADAPTIVE: 'grepbot:orch-adaptive',
@@ -154,12 +167,14 @@ const STORE = {
     STORE.NEXT_FARM, STORE.NEXT_TOWNS, STORE.BANDIT_LOG,
     STORE.QUEST_REWARDS, STORE.QUEST_HISTORY,
     STORE.ATTACK_PLAN, STORE.ATTACK_HISTORY, STORE.ATTACK_RECENT,
-    STORE.AB_TARGETS, STORE.AB_NEXT, STORE.CAVE_TOWNS,
+    STORE.AB_TARGETS, STORE.AB_NEXT, STORE.BUILD_PIN, STORE.CAVE_TOWNS,
     STORE.RESEARCH_TARGETS, STORE.CITY_TEMPLATES, STORE.TOWN_GROUPS,
     STORE.MERCHANT_WISH, STORE.FAVOR_CFG, STORE.WONDER_CFG, STORE.WONDER_SPENT,
     STORE.CULTURE_GOLD_SPENT,
     STORE.RECRUIT_TARGETS, STORE.PRIORITY_ORDER,
     STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES,
+    STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
+    STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
     STORE.CAPTCHA_GLOBAL_UNTIL,
     STORE.SERVER_COOLDOWN, STORE.QUEST_CLAIM_FAIL, STORE.DODGE_QUEUE,
   ]);
@@ -270,6 +285,7 @@ const STORE = {
     merchant: 120000,
     favor: 120000,
     wonder: 120000,
+    'wonder-favor': 120000,
     dodge: 120000,
     recruit: 120000,
     'defense-pull': 120000,
@@ -337,6 +353,8 @@ const STORE = {
     farmOptionMap: load(wkey(STORE.FARM_OPTION_MAP), null) || { 300: 1 },
     farmLongClaims: load(STORE.FARM_LONG_CLAIMS, true),
     farmLoyaltyTech: load(wkey(STORE.FARM_LOYALTY_TECH), '') || '',
+    farmLoyaltySeen: load(STORE.FARM_LOYALTY_SEEN, false),
+    farmTeachBanner: load(STORE.FARM_TEACH_BANNER, ''),
     farmSleepDur: load(STORE.FARM_SLEEP_DUR, 'auto'),
     farmSleepAuto: load(STORE.FARM_SLEEP_AUTO, false),
     farmSleepFillPct: load(STORE.FARM_SLEEP_FILL, 60),
@@ -367,6 +385,7 @@ const STORE = {
     abAuto: load(STORE.AB_AUTO, false),
     abTargets: load(STORE.AB_TARGETS, null),
     abNextAt: load(STORE.AB_NEXT, {}),
+    abBuildPin: load(STORE.BUILD_PIN, {}),
     autoCave: load(STORE.AUTO_CAVE, false),
     caveThreshPct: load(STORE.CAVE_THRESH, 90),
     caveTowns: load(STORE.CAVE_TOWNS, {}),
@@ -378,6 +397,7 @@ const STORE = {
     tradePreset: load(STORE.TRADE_PRESET, 'storage'),
     tradeReservePct: load(STORE.TRADE_RESERVE, 20),
     tradeMinBatch: load(STORE.TRADE_MIN, 1000),
+    tradeMaxHops: load(STORE.TRADE_MAX_HOPS, 15),
     autoRuralTrade: load(STORE.AUTO_RURAL_TRADE, false),
     ruralTradeRatio: load(STORE.RURAL_TRADE_RATIO, 1.0),
     ruralTradeRes: load(STORE.RURAL_TRADE_RES, 'iron'),
@@ -393,7 +413,9 @@ const STORE = {
     cityTemplates: load(STORE.CITY_TEMPLATES, {}),
     townGroups: load(STORE.TOWN_GROUPS, {}),
     webhookUrl: load(STORE.WEBHOOK_URL, ''),
-    webhookEvents: load(STORE.WEBHOOK_EVENTS, { captcha: true, attack: true, warehouse: false, culture: false }),
+    webhookEvents: load(STORE.WEBHOOK_EVENTS, { captcha: true, attack: true, warehouse: false, culture: false, pattern: true }),
+    lastSeenTs: load(STORE.LAST_SEEN_TS, 0),
+    watchHits: load(STORE.WATCH_HITS, {}) || {},
     autoMerchant: load(STORE.AUTO_MERCHANT, false),
     merchantWish: load(STORE.MERCHANT_WISH, []),
     autoFavor: load(STORE.AUTO_FAVOR, false),
@@ -423,6 +445,13 @@ const STORE = {
     dryRun: load(STORE.DRY_RUN, false),
     exportRedact: load(STORE.EXPORT_REDACT, true),
     orchAdaptive: load(STORE.ORCH_ADAPTIVE, true),
+    orchDeadlockResolve: load(STORE.ORCH_DEADLOCK, true),
+    captchaLadder: load(STORE.CAPTCHA_LADDER, [5, 15, 60]),
+    postsPerMinSoftPct: load(STORE.POSTS_SOFT_PCT, 60),
+    tabFilters: load(STORE.TAB_FILTERS, {}) || {},
+    wonderFavorTpl: load(STORE.WONDER_FAVOR_TPL, null),
+    autoWonderFavor: load(STORE.AUTO_WONDER_FAVOR, false),
+    tplHealth: load(STORE.TPL_HEALTH, {}) || {},
   };
 
   let panel = null;
@@ -538,12 +567,126 @@ const STORE = {
     }
     return (reqBudgetWindow.length - reqBudgetHead) < (state.reqBudgetPerMin || 40);
   }
+  function reqBudgetSoftDelayMs() {
+    const soft = Math.max(5, Math.floor((state.reqBudgetPerMin || 40) *
+      ((state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60) / 100)));
+    const used = reqBudgetUsed();
+    if (used < soft) return 0;
+    return Math.min(8000, 400 * (used - soft + 1) + Math.floor(Math.random() * 300));
+  }
   function reqBudgetMark() { reqBudgetWindow.push(Date.now()); }
   function reqBudgetUsed() {
     const cutoff = Date.now() - 60000;
     let n = 0;
     for (let i = reqBudgetHead; i < reqBudgetWindow.length; i++) if (reqBudgetWindow[i] >= cutoff) n++;
     return n;
+  }
+
+  const WAKE_SPACING_MS = 800;
+  const gbWakeQueue = [];
+  let gbWakeDraining = false;
+  let gbWakeLastTickAt = Date.now();
+  let gbWakeBurstUntil = 0;
+  function gbWakeDepth() { return gbWakeQueue.length; }
+  function gbWake(key, fn, opts) {
+    if (!key || typeof fn !== 'function') return;
+    const priority = (opts && opts.priority != null) ? +opts.priority : 50;
+    const i = gbWakeQueue.findIndex(e => e.key === key);
+    if (i >= 0) {
+      if (priority < gbWakeQueue[i].priority) gbWakeQueue[i].priority = priority;
+      gbWakeQueue[i].fn = fn;
+      return;
+    }
+    gbWakeQueue.push({ key, fn, priority, enqueuedAt: Date.now() });
+    gbWakeQueue.sort((a, b) => a.priority - b.priority);
+    if (!gbWakeDraining) gbWakeDrain();
+  }
+  function gbWakeDrain() {
+    if (gbWakeDraining) return;
+    gbWakeDraining = true;
+    (function step() {
+      if (!gbWakeQueue.length) { gbWakeDraining = false; return; }
+      if (automationPaused({})) {
+        gbLogT('wake-paused', 60000, 'wake: paused - draining later');
+        gbWakeDraining = false;
+        return;
+      }
+      if (!reqBudgetOk()) {
+        gbTimeout(step, 1500 + Math.floor(Math.random() * 500));
+        return;
+      }
+      const item = gbWakeQueue.shift();
+      try { item.fn(); } catch (e) { gbLogT('wake-err', 30000, 'wake: ' + item.key + ' ' + String(e).slice(0, 60)); }
+      const spacing = WAKE_SPACING_MS + Math.floor(Math.random() * 400);
+      if (gbWakeQueue.length) gbTimeout(step, spacing);
+      else gbWakeDraining = false;
+    })();
+  }
+  function gbWakeMarkResume(why) {
+    gbWakeBurstUntil = Date.now() + 8000;
+    gbLogT('wake-resume', 10000, 'wake: resume (' + (why || 'visible') + ') - serializing catch-up');
+  }
+  function gbInWakeBurst() { return Date.now() < gbWakeBurstUntil; }
+  function gbWakeGapTick() {
+    const now = Date.now();
+    const gap = now - gbWakeLastTickAt;
+    gbWakeLastTickAt = now;
+    if (gap > 45000) gbWakeMarkResume('timer-gap ' + Math.round(gap / 1000) + 's');
+  }
+
+  const TPL_HEALTH_FAILS = 5;
+  const TPL_FEATURE_MAP = {
+    farm: 'claimTpl', claim: 'claimTpl',
+    build: 'ibAction', 'instant-build': 'ibAction', 'instant-research': 'ibActionR',
+    attack: 'attackTpl', cancel: 'cancelTpl', hero: 'heroTpl',
+    collect: 'collectTpl',
+  };
+  function tplHealthSave() { save(STORE.TPL_HEALTH, state.tplHealth || {}); }
+  function tplHealthEnsure(name) {
+    if (!state.tplHealth) state.tplHealth = {};
+    if (!state.tplHealth[name]) {
+      state.tplHealth[name] = { learnedAt: 0, lastOkAt: 0, lastErrAt: 0, hardFails: 0, invalidated: false };
+    }
+    return state.tplHealth[name];
+  }
+  function tplHealthMarkLearned(name) {
+    const h = tplHealthEnsure(name);
+    h.learnedAt = Date.now();
+    h.hardFails = 0;
+    h.invalidated = false;
+    h.lastOkAt = 0;
+    tplHealthSave();
+  }
+  function tplHealthNote(feature, result) {
+    const name = TPL_FEATURE_MAP[feature];
+    if (!name) return;
+    if (!state[name] && name !== 'farmAction') return;
+    const h = tplHealthEnsure(name);
+    if (!result || result === 'ok') {
+      h.lastOkAt = Date.now();
+      h.hardFails = 0;
+      if (h.invalidated) { h.invalidated = false; gbLog('tpl: ' + name + ' recovered'); }
+      tplHealthSave();
+      return;
+    }
+    if (!jrnHard(result)) return;
+    h.lastErrAt = Date.now();
+    h.hardFails = (h.hardFails || 0) + 1;
+    if (h.hardFails >= TPL_HEALTH_FAILS && !h.invalidated) {
+      h.invalidated = true;
+      gbLog('tpl: ' + name + ' invalidated after ' + h.hardFails + ' hard fails - hand-click to re-learn');
+    }
+    tplHealthSave();
+  }
+  function tplHealthOk(name) {
+    const h = state.tplHealth && state.tplHealth[name];
+    return !(h && h.invalidated);
+  }
+  function tplHealthBannerText() {
+    const h = state.tplHealth || {};
+    const bad = Object.keys(h).filter(k => h[k] && h[k].invalidated);
+    if (!bad.length) return '';
+    return 'Template stale: ' + bad.join(', ') + ' — hand-click once to re-learn';
   }
 
   const logBuf = [];
@@ -842,7 +985,14 @@ const STORE = {
   }
   function i18n(key) { return (marketLocale()[key] || I18N.en[key] || key); }
 
-  const CAPTCHA_BACKOFF = [5, 15, 60];
+  function captchaLadder() {
+    const raw = state.captchaLadder;
+    if (Array.isArray(raw) && raw.length >= 1) {
+      const nums = raw.map(n => Math.max(1, Math.min(24 * 60, +n || 0))).filter(n => n >= 1);
+      if (nums.length) return nums;
+    }
+    return [5, 15, 60];
+  }
   const BRIDGE_TIMEOUT_MS = 15000;
   function saveCaptcha() { save(wkey(STORE.CAPTCHA), state.captchaBreakers); }
   function captchaPaused(feature) {
@@ -857,6 +1007,11 @@ const STORE = {
       }
       return false;
     }
+
+    if (b.lastCaptchaAt && Date.now() - b.lastCaptchaAt > 3600000 && (b.trips || 0) > 1) {
+      b.trips = Math.max(1, (b.trips || 1) - 1);
+      saveCaptcha();
+    }
     return true;
   }
 
@@ -868,10 +1023,14 @@ const STORE = {
     return false;
   }
   function captchaTrip(feature, detail) {
+    const ladder = captchaLadder();
     const prev = state.captchaBreakers[feature] || { trips: 0 };
-    const trips = Math.min((prev.trips || 0) + 1, CAPTCHA_BACKOFF.length);
-    const mins = CAPTCHA_BACKOFF[trips - 1];
-    state.captchaBreakers[feature] = { trips, until: Date.now() + mins * 60000, detail: detail || null };
+    const trips = Math.min((prev.trips || 0) + 1, ladder.length);
+    const mins = ladder[trips - 1];
+    state.captchaBreakers[feature] = {
+      trips, until: Date.now() + mins * 60000, detail: detail || null,
+      lastCaptchaAt: Date.now(),
+    };
     saveCaptcha();
 
     state.csrf = null;
@@ -951,9 +1110,22 @@ const STORE = {
       gbLogT('mem-skip-' + jrnId(jtag), 60000, feature + ': skipped from memory (' + jrnWhy(jtag) + ')');
       return bail('remembered');
     }
+    {
+      const tplName = TPL_FEATURE_MAP[feature];
+      if (tplName && !tplHealthOk(tplName)) {
+        gbLogT('tpl-stale-' + tplName, 120000, feature + ': template ' + tplName + ' invalidated - re-learn by hand');
+        return bail('tpl-stale');
+      }
+    }
     if (!reqBudgetOk()) {
       gbLogT('req-budget-' + feature, 30000, feature + ': request budget exceeded');
       return bail('budget');
+    }
+    const softMs = reqBudgetSoftDelayMs();
+    if (softMs > 0) {
+      gbLogT('req-soft-' + feature, 30000, feature + ': soft ceiling - delaying ' + softMs + 'ms');
+      gbTimeout(() => bridgePost(feature, payload, onDone), softMs);
+      return;
     }
 
     if (state.dryRun) {
@@ -974,6 +1146,7 @@ const STORE = {
       else if (err === 'captcha' || err === 'captcha-pause') markModuleHealth(feature, 'captcha');
       else markModuleHealth(feature, 'err');
       jrnPush(jtag, jrnResult(err), err);
+      try { tplHealthNote(feature, jrnResult(err)); } catch (_) {}
       if (onDone) onDone(err, data);
     };
     const timer = setTimeout(() => {
@@ -1018,6 +1191,10 @@ const STORE = {
       gbLogT('mem-skip-' + jrnId(jtag), 60000, feature + ': skipped from memory (' + jrnWhy(jtag) + ')');
       return bail('remembered');
     }
+    {
+      const tplName = TPL_FEATURE_MAP[feature];
+      if (tplName && !tplHealthOk(tplName)) return bail('tpl-stale');
+    }
     if (!reqBudgetOk()) return bail('budget');
     if (state.dryRun) {
       gbLog(`DRY-RUN ${feature}: ${controller}/${action} ${dryRunFmt(data)}`);
@@ -1034,6 +1211,7 @@ const STORE = {
       if (!err) markModuleHealth(feature, 'ok');
       else markModuleHealth(feature, err === 'captcha' ? 'captcha' : 'err');
       jrnPush(jtag, jrnResult(err), err);
+      try { tplHealthNote(feature, jrnResult(err)); } catch (_) {}
       if (onDone) onDone(err, res);
     };
     const timer = setTimeout(() => finish('timeout'), BRIDGE_TIMEOUT_MS);
@@ -1136,6 +1314,85 @@ const STORE = {
   function townFillPct(townId) {
     const st = townResState(townId);
     return st ? st.fillPct : null;
+  }
+
+  function townIsPinned(townId) {
+    const st = townResState(townId);
+    if (!st || !(st.cap > 0)) {
+      gbLogT('pin-blind-' + townId, 300000, 'econ: cap unreadable town ' + townId + ' - not pinned (blind)');
+      return false;
+    }
+    return Math.max(st.wood, st.stone, st.iron) / st.cap >= 0.97;
+  }
+  function townIronReserveForCave(townId) {
+
+    const st = townResState(townId);
+    if (!st || !(st.cap > 0)) return null;
+    const thresh = Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100;
+    const need = Math.ceil(st.cap * thresh);
+    return Math.max(0, need - (st.iron || 0));
+  }
+  const CAVE_SOON_MS = 15 * 60 * 1000;
+  const cultureCaveDeferCount = Object.create(null);
+  function ironReservedForCave(townId) {
+
+    if (!state.autoCave) return { reserved: false, etaMs: null, blind: false };
+    const st = townResState(townId);
+    if (!st || !(st.cap > 0) || st.iron == null) {
+      gbLogT('cave-res-blind-' + townId, 300000, 'ironReservedForCave: blind - culture proceeds');
+      return { reserved: false, etaMs: null, blind: true };
+    }
+    let hideLvl = 0, hideFull = false;
+    try {
+      if (typeof caveTownInfo === 'function') {
+        const info = caveTownInfo(townId);
+        if (info) {
+          hideLvl = +info.hideLvl || 0;
+          if (info.unlimited) hideFull = false;
+          else if (info.hideCap > 0 && info.stored != null && info.stored >= info.hideCap) hideFull = true;
+        }
+      }
+    } catch (_) {}
+    if (!(hideLvl > 0) || hideFull) return { reserved: false, etaMs: null, blind: false };
+    const thresh = Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100;
+    const need = Math.ceil(st.cap * thresh);
+    if (st.iron >= need) return { reserved: true, etaMs: 0, blind: false };
+
+    let ironPerSec = null;
+    try {
+      const uw = gameUw();
+      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      if (t) {
+        const p = t.getProduction ? t.getProduction() : (t.production && t.production());
+        if (p && p.iron != null) ironPerSec = +p.iron / 3600;
+        if (p && p.iron != null && p.iron > 100) ironPerSec = +p.iron / 3600;
+        else if (p && p.iron != null) ironPerSec = +p.iron;
+      }
+    } catch (_) {}
+    if (!(ironPerSec > 0)) {
+      return { reserved: false, etaMs: null, blind: true };
+    }
+    const short = need - st.iron;
+    const etaMs = (short / ironPerSec) * 1000;
+    return { reserved: etaMs <= CAVE_SOON_MS, etaMs, blind: false };
+  }
+  function cultureShouldDeferForCave(townId) {
+    const r = ironReservedForCave(townId);
+    if (!r.reserved) {
+      cultureCaveDeferCount[townId] = 0;
+      return false;
+    }
+    const n = (cultureCaveDeferCount[townId] || 0) + 1;
+    cultureCaveDeferCount[townId] = n;
+    if (n > 3) {
+      gbLogT('culture-cave-override-' + townId, 120000,
+        `culture: defer cap hit for town ${townId} - culture wins over cave reserve`);
+      cultureCaveDeferCount[townId] = 0;
+      return false;
+    }
+    gbLogT('culture-defer-' + townId, 60000,
+      `culture: defer town ${townId} - iron reserved for cave (eta ${r.etaMs != null ? Math.round(r.etaMs / 1000) + 's' : '?'})`);
+    return true;
   }
 
   function gbProbeNum(obj, names, args) {
@@ -1679,6 +1936,10 @@ const STORE = {
     rememberSeen(id);
     delete reportRetry[id];
     save(STORE.SEEN, state.seen);
+    if (parsed.ts && (!state.lastSeenTs || parsed.ts > state.lastSeenTs)) {
+      state.lastSeenTs = parsed.ts;
+      save(STORE.LAST_SEEN_TS, state.lastSeenTs);
+    }
     state.findings.unshift(parsed);
     if (state.findings.length > 500) {
 
@@ -1804,6 +2065,61 @@ const STORE = {
     const csrf = state.csrf || (uw.Game && (uw.Game.csrfToken || uw.Game.h));
     if (csrf) params.set('h', csrf);
     return '/game/report?' + params.toString();
+  }
+
+  let reportCatchUpRunning = false;
+  function reportCatchUpEnqueue() {
+    if (!hostEnabled() || reportCatchUpRunning) return;
+    if (typeof gbWake === 'function') {
+      gbWake('reportCatchUp', () => reportCatchUpRun(), { priority: 80 });
+    } else {
+      reportCatchUpRun();
+    }
+  }
+  function reportCatchUpRun() {
+    if (!hostEnabled() || reportCatchUpRunning || automationPaused({}) || captchaPaused('report')) return;
+    reportCatchUpRunning = true;
+    const maxN = 25;
+    const maxAgeMs = 72 * 3600000;
+    const cut = Date.now() - maxAgeMs;
+    const ids = [];
+    try {
+      document.querySelectorAll('a[href*="report"], a[href*="Report"]').forEach(a => {
+        const m = /[?&]id=(\d+)/.exec(a.href || '') || /report\/(\d+)/.exec(a.href || '');
+        if (!m) return;
+        const id = m[1];
+        if (state.seen[seenKey(id)] || state.seen[id] || seenThisRun.has(seenKey(id))) return;
+        ids.push(id);
+      });
+    } catch (_) {}
+    const batch = ids.slice(0, maxN);
+    if (!batch.length) {
+      reportCatchUpRunning = false;
+      gbLogT('catchup-empty', 120000, 'report catch-up: nothing new in inbox DOM');
+      return;
+    }
+    gbLog(`report catch-up: fetching up to ${batch.length} (cap ${maxN}, age≤72h, lastSeen=${state.lastSeenTs || 0})`);
+    let i = 0, fetched = 0;
+    (function step() {
+      if (i >= batch.length) {
+        reportCatchUpRunning = false;
+        gbLog(`report catch-up done: ${fetched}/${batch.length}`);
+        return;
+      }
+      if (!hostEnabled() || automationPaused({}) || captchaPaused('report') || !reqBudgetOk()) {
+        reportCatchUpRunning = false;
+        gbLog(`report catch-up paused mid-run at ${i}/${batch.length}`);
+        return;
+      }
+      const id = batch[i++];
+
+      if (state.lastSeenTs && state.lastSeenTs < cut) {
+
+      }
+      fetchReport(id);
+      fetched++;
+      gbTimeout(step, 700 + Math.random() * 300);
+    })();
   }
 
   function nameOf(p) {
@@ -1972,6 +2288,7 @@ const STORE = {
           };
           save(wkey(STORE.CLAIM_TPL), state.claimTpl);
           gbLog('learned claim template:', JSON.stringify(state.claimTpl).slice(0, 200));
+          try { tplHealthMarkLearned('claimTpl'); } catch (_) {}
 
           if (!isSelfBridge(j)) farmLearnOptionFromClaim(j);
         }
@@ -2015,6 +2332,7 @@ const STORE = {
           };
           save(wkey(STORE.ATTACK_TPL), state.attackTpl);
           gbLog('learned attack template:', JSON.stringify(state.attackTpl).slice(0, 200));
+          try { tplHealthMarkLearned('attackTpl'); } catch (_) {}
           const destId = j.arguments && j.arguments.id;
           if (destId != null && typeof attackRememberTarget === 'function') {
             attackRememberTarget(destId, { src: 'learned' });
@@ -2032,6 +2350,17 @@ const STORE = {
           };
           save(wkey(STORE.CANCEL_TPL), state.cancelTpl);
           gbLog('learned cancel template:', JSON.stringify(state.cancelTpl).slice(0, 200));
+        }
+      } else if (/Wonder|wonder/i.test(body) && /cast|devote|contribute|favor/i.test(body) && /power|cast/i.test(body)) {
+        const j = parseBodyLoose(body);
+        if (j && j.action_name && !isSelfBridge(j)) {
+          state.wonderFavorTpl = {
+            model_url: j.model_url, action_name: j.action_name,
+            arguments: j.arguments || {}, town_id: j.town_id,
+            version: 1, learned_at: Date.now(),
+          };
+          save(wkey(STORE.WONDER_FAVOR_TPL), state.wonderFavorTpl);
+          gbLog('learned wonder favor template:', j.action_name);
         }
       } else if (/PlayerHero/.test(body) && /assignToTown|unassignFromTown|cancelTownTravel/i.test(body)) {
         const j = parseBodyLoose(body);
@@ -2240,6 +2569,7 @@ const STORE = {
         state.farmOptionMap = map;
         save(wkey(STORE.FARM_OPTION_MAP), map);
         gbLog(`farm: learned claim option ${opt} = ${farmDurLabel(sec)} (map: ${farmOptionMapText()})`);
+        if (sec === 600 && state.farmTeachBanner) farmSetTeachBanner('');
       }, 4000);
     } catch (_) {}
   }
@@ -2296,6 +2626,94 @@ const STORE = {
   function farmDesiredDuration(townId) {
     if (!state.farmLongClaims) return 300;
     return farmLoyaltyResearched(townId) ? 600 : 300;
+  }
+
+  function farmTryDeriveOptionMap() {
+    const out = {};
+    try {
+      const uw = gameUw();
+      const gd = uw.GameData || {};
+      const candidates = [
+        gd.farm_town_offers, gd.FarmTownOffers, gd.farm_town_claim_options,
+        gd.farm_towns && gd.farm_towns.offers,
+      ];
+      for (const c of candidates) {
+        if (!c) continue;
+        const list = Array.isArray(c) ? c : (typeof c === 'object' ? Object.keys(c).map(k => c[k]) : null);
+        if (!list || !list.length) continue;
+        list.forEach((opt, i) => {
+          if (opt == null) return;
+          const idx = opt.option != null ? +opt.option : (opt.id != null ? +opt.id : i + 1);
+          const sec = +opt.duration || +opt.time || +opt.booty_duration || +opt.collect_time;
+          if (!(idx > 0) || !(sec > 0)) return;
+          const snapped = farmSnapDuration(sec);
+          if (snapped != null) out[String(snapped)] = idx;
+        });
+        if (out['600'] != null) break;
+      }
+    } catch (_) {}
+    return out['600'] != null ? out : null;
+  }
+  function farmSetTeachBanner(msg) {
+    state.farmTeachBanner = msg || '';
+    save(STORE.FARM_TEACH_BANNER, state.farmTeachBanner);
+    try { renderFarmTeachBanner(); } catch (_) {}
+  }
+  function renderFarmTeachBanner() {
+    const el = panel && panel.querySelector('#gb-farm-teach-banner');
+    if (!el) return;
+    if (farmOptionFor(600) != null && state.farmTeachBanner) {
+      state.farmTeachBanner = '';
+      save(STORE.FARM_TEACH_BANNER, '');
+    }
+    const msg = state.farmTeachBanner || '';
+    if (!msg) {
+      el.hidden = true;
+      el.textContent = '';
+      return;
+    }
+    el.hidden = false;
+    el.textContent = msg;
+  }
+
+  function farmLoyaltyAutoTeachTick() {
+    if (!state.farmLongClaims) return;
+    let anyLoyalty = false;
+    try {
+      const towns = townsFromGame() || state.towns || [];
+      for (const t of towns) {
+        if (farmLoyaltyResearched(t.id)) { anyLoyalty = true; break; }
+      }
+    } catch (_) {}
+    const seen = !!state.farmLoyaltySeen;
+    if (!anyLoyalty) {
+      if (seen) {
+        state.farmLoyaltySeen = false;
+        save(STORE.FARM_LOYALTY_SEEN, false);
+      }
+      return;
+    }
+    if (farmOptionFor(600) != null) {
+      if (!seen) { state.farmLoyaltySeen = true; save(STORE.FARM_LOYALTY_SEEN, true); }
+      if (state.farmTeachBanner) farmSetTeachBanner('');
+      return;
+    }
+    const flip = !seen;
+    if (!flip && state.farmTeachBanner) return;
+    state.farmLoyaltySeen = true;
+    save(STORE.FARM_LOYALTY_SEEN, true);
+    const derived = farmTryDeriveOptionMap();
+    if (derived && derived['600'] != null) {
+
+      const map = Object.assign({}, state.farmOptionMap || {}, derived);
+      state.farmOptionMap = map;
+      save(wkey(STORE.FARM_OPTION_MAP), map);
+      gbLog(`farm: loyalty auto-teach provisional 10min option=${derived['600']} (confirm on next claim)`);
+      farmSetTeachBanner('');
+      return;
+    }
+    farmSetTeachBanner('Loyalty research done. Click one 10-minute claim by hand to teach the bot.');
+    gbLog('farm: loyalty researched - 10min option unknown; hand-claim once to teach');
   }
 
   function claimFarm(farm, islandMap, whCache, durOverride, onDone) {
@@ -2634,12 +3052,22 @@ const STORE = {
   }
 
   function farmTick() {
-    const now = Date.now();
-    if (hostEnabled() && !automationPaused({})) {
-      if (now >= state.nextFarmScrape) scrapeAllFarms();
-      if (now >= state.nextTownsScrape) scrapeAllTowns();
+    try { gbWakeGapTick(); } catch (_) {}
+    const run = () => {
+      const now = Date.now();
+      if (hostEnabled() && !automationPaused({})) {
+        if (now >= state.nextFarmScrape) scrapeAllFarms();
+        if (now >= state.nextTownsScrape) scrapeAllTowns();
+      }
+      try { farmSleepAutoTick(); } catch (_) {}
+      try { farmLoyaltyAutoTeachTick(); } catch (_) {}
+      try { renderFarmTeachBanner(); } catch (_) {}
+    };
+    if (typeof gbInWakeBurst === 'function' && gbInWakeBurst()) {
+      gbWake('farmTick', run, { priority: 20 });
+      return;
     }
-    try { farmSleepAutoTick(); } catch (_) {}
+    run();
   }
 
   function townsFromGame() {
@@ -3628,6 +4056,312 @@ const STORE = {
   const AB_EXTRA_MS = 5 * 60 * 1000;
   function abRandMs() { return Math.floor(Math.random() * 3 * 60 * 1000); }
 
+  const AB_PHASE_WEIGHT = {
+    lumber: 1.25, stoner: 1.25, ironer: 1.25,
+    storage: 1.35, farm: 1.45,
+    main: 1.05, market: 0.95, hide: 0.85, temple: 0.75, wall: 0.65,
+    academy: 1.15, docks: 1.1,
+    barracks: 0.9,
+  };
+  const AB_ETA_UNKNOWN_MS = 24 * 3600 * 1000;
+  const AB_ETA_POP_BLOCK_MS = 7 * 86400000;
+  function phaseWeight(building, levels) {
+    let w = AB_PHASE_WEIGHT[building] || 1;
+    const lv = levels && levels[building] != null ? levels[building] : 0;
+
+    if (lv < 8 && (building === 'lumber' || building === 'stoner' || building === 'ironer' || building === 'storage')) w *= 1.15;
+
+    const core = ((levels && levels.main) || 0) + ((levels && levels.storage) || 0);
+    if (core >= 12 && (building === 'academy' || building === 'docks')) w *= 1.12;
+
+    if (((levels && levels.academy) || 0) >= 20 && (building === 'barracks' || building === 'docks')) w *= 1.08;
+    return w;
+  }
+  function abGetPin(townId) {
+    if (!state.abBuildPin || typeof state.abBuildPin !== 'object') return null;
+    const p = state.abBuildPin[String(townId)];
+    return p || null;
+  }
+  function abSetPin(townId, building) {
+    if (!state.abBuildPin || typeof state.abBuildPin !== 'object') state.abBuildPin = {};
+    if (!building) {
+      delete state.abBuildPin[String(townId)];
+    } else {
+      state.abBuildPin[String(townId)] = building;
+    }
+    save(STORE.BUILD_PIN, state.abBuildPin);
+  }
+  function abTownProduction(townId) {
+    const t = abGetTown(townId);
+    if (!t) return null;
+    try {
+      const fn = t.getResourcesPerHour || t.getResourceProduction;
+      if (typeof fn === 'function') {
+        const r = fn.call(t);
+        if (r && (r.wood != null || r.stone != null || r.iron != null)) {
+          return { wood: +r.wood || 0, stone: +r.stone || 0, iron: +r.iron || 0 };
+        }
+      }
+    } catch (_) {}
+    try {
+      const r = t.resources && t.resources();
+      if (r) {
+        const wood = +(r.wood_production || r.woodProduction || 0);
+        const stone = +(r.stone_production || r.stoneProduction || 0);
+        const iron = +(r.iron_production || r.ironProduction || 0);
+        if (wood || stone || iron) return { wood, stone, iron };
+      }
+    } catch (_) {}
+    const wood = gbProbeNum(t, ['getWoodProduction', 'getWoodPerHour', 'getProductionWood']);
+    const stone = gbProbeNum(t, ['getStoneProduction', 'getStonePerHour', 'getProductionStone']);
+    const iron = gbProbeNum(t, ['getIronProduction', 'getIronPerHour', 'getProductionIron']);
+    if (wood != null || stone != null || iron != null) {
+      return { wood: wood || 0, stone: stone || 0, iron: iron || 0 };
+    }
+    return null;
+  }
+  function abScratchStart(townId) {
+    const st = townResState(townId);
+    return {
+      wood: st ? st.wood : null,
+      stone: st ? st.stone : null,
+      iron: st ? st.iron : null,
+      pop: gbTownPop(townId),
+      production: abTownProduction(townId),
+    };
+  }
+  function abAffordScratch(scratch, cost, margin) {
+    const m = margin != null ? +margin : 0;
+    if (!cost) return { ok: true, blind: true, short: [], detail: 'no cost data' };
+    const short = [];
+    let blind = false;
+    ['wood', 'stone', 'iron'].forEach(k => {
+      const need = +cost[k] || 0;
+      if (need <= 0) return;
+      const have = scratch[k];
+      if (have == null) { blind = true; return; }
+      if (have < need + m) short.push(`${k} ${Math.floor(have)}/${need}`);
+    });
+    const needPop = +cost.pop || 0;
+    if (needPop > 0) {
+      if (scratch.pop == null) blind = true;
+      else if (scratch.pop < needPop) short.push(`pop ${scratch.pop}/${needPop}`);
+    }
+    return { ok: short.length === 0, blind, short, detail: short.join(', ') };
+  }
+  function abEtaMs(scratch, afford) {
+    if (afford.ok || afford.blind) return 0;
+    const prod = scratch.production;
+    let maxMs = 60000;
+    (afford.short || []).forEach(s => {
+      if (s.startsWith('pop ')) {
+        maxMs = Math.max(maxMs, AB_ETA_POP_BLOCK_MS);
+        return;
+      }
+      const m = s.match(/^(wood|stone|iron)\s+(\d+)\/(\d+)/);
+      if (!m) return;
+      const res = m[1];
+      const have = +m[2];
+      const need = +m[3];
+      const deficit = need - have + 10;
+      if (deficit <= 0) return;
+      const rate = prod && prod[res];
+      if (!(rate > 0)) {
+        maxMs = Math.max(maxMs, AB_ETA_UNKNOWN_MS);
+        return;
+      }
+      maxMs = Math.max(maxMs, (deficit / rate) * 3600000);
+    });
+    return maxMs;
+  }
+  function abQueueWaitMs(townId) {
+    const q = abQueueInfo(townId);
+    const now = gameNow();
+    let wait = 0;
+    q.orders.forEach(o => {
+      const done = o.to_be_completed_at;
+      if (done > now) wait += (done - now) * 1000;
+      else wait += Math.max(0, o.building_time || 0) * 1000;
+    });
+    return wait;
+  }
+  function abPlanCandidates(levels) {
+    const targets = abEnsureTargets();
+    const out = [];
+    AB_BUILDINGS.forEach(building => {
+      const want = Math.min(targets[building] != null ? targets[building] : 0, abMaxLevel(building));
+      if (want <= 0) return;
+      if (levels[building] < want) out.push({ building, level: levels[building] + 1 });
+    });
+    return out;
+  }
+  function abScratchApply(scratch, cost) {
+    if (!cost) return;
+    if (scratch.wood != null) scratch.wood -= +cost.wood || 0;
+    if (scratch.stone != null) scratch.stone -= +cost.stone || 0;
+    if (scratch.iron != null) scratch.iron -= +cost.iron || 0;
+    if (scratch.pop != null) scratch.pop -= +cost.pop || 0;
+  }
+  function abPlanEntryAfford(townId, building, scratch) {
+    const raw = abBuildingCost(townId, building);
+    const cost = raw ? {
+      wood: raw.wood, stone: raw.stone, iron: raw.iron, pop: raw.pop || 0,
+      buildTime: raw.buildTime,
+    } : null;
+    const afford = scratch
+      ? abAffordScratch(scratch, cost, 10)
+      : gbAfford(townId, cost ? { wood: cost.wood, stone: cost.stone, iron: cost.iron, population: cost.pop } : null, { margin: 10 });
+    if (afford.blind) {
+      gbLogT('ab-plan-blind', 300000, 'build plan: blind cost read - scoring as affordable');
+    }
+    return { cost, afford };
+  }
+  function buildPlanNext(townId, n) {
+    n = n || 3;
+    const levels = abCurrentLevels(townId);
+    if (!levels) return [];
+    const simLevels = Object.assign({}, levels);
+    const scratch = abScratchStart(townId);
+    let queueWait = abQueueWaitMs(townId);
+    const plan = [];
+    const pin = abGetPin(townId);
+    for (let slot = 0; slot < n; slot++) {
+      const candidates = abPlanCandidates(simLevels);
+      if (!candidates.length) break;
+      const popBlockedExists = candidates.some(c => {
+        const { afford } = abPlanEntryAfford(townId, c.building, scratch);
+        return !afford.ok && !afford.blind && (afford.short || []).some(s => s.startsWith('pop '));
+      });
+      let pick = null;
+      if (slot === 0 && pin) {
+        const pinned = candidates.find(c => c.building === pin);
+        if (pinned) {
+          const { cost, afford } = abPlanEntryAfford(townId, pinned.building, scratch);
+          const etaMs = abEtaMs(scratch, afford);
+          pick = Object.assign({}, pinned, { cost, afford, etaMs, score: Infinity, pinned: true });
+        }
+      }
+      if (!pick) {
+        let bestScore = -1;
+        candidates.forEach(cand => {
+          const { cost, afford } = abPlanEntryAfford(townId, cand.building, scratch);
+          let etaMs = abEtaMs(scratch, afford);
+          let weight = phaseWeight(cand.building, simLevels);
+          if (popBlockedExists) {
+            if (cand.building === 'farm') weight *= 3;
+            else if (!afford.ok && !afford.blind && (afford.short || []).some(s => s.startsWith('pop '))) {
+              etaMs += AB_ETA_POP_BLOCK_MS;
+            }
+          }
+          const score = weight / (etaMs + queueWait + 60000);
+          if (score > bestScore) {
+            bestScore = score;
+            pick = Object.assign({}, cand, { cost, afford, etaMs, score });
+          }
+        });
+      }
+      if (!pick) break;
+      plan.push(pick);
+      abScratchApply(scratch, pick.cost);
+      simLevels[pick.building] = (simLevels[pick.building] || 0) + 1;
+      const btMs = pick.cost && pick.cost.buildTime ? Math.max(0, pick.cost.buildTime) * 1000 : 0;
+      queueWait += btMs;
+    }
+    return plan;
+  }
+  function abPlanVerdictLabel(afford) {
+    if (!afford) return '?';
+    if (afford.ok) return 'ok';
+    if (afford.blind) return 'blind';
+    if (afford.detail) return 'short ' + afford.detail;
+    return 'short';
+  }
+  function abPlanCostLabel(cost) {
+    if (!cost) return '?';
+    const parts = [];
+    if (cost.wood) parts.push('w' + cost.wood);
+    if (cost.stone) parts.push('s' + cost.stone);
+    if (cost.iron) parts.push('i' + cost.iron);
+    if (cost.pop) parts.push('pop' + cost.pop);
+    return parts.length ? parts.join('/') : '0';
+  }
+  function renderAbPlan() {
+    const sec = panel && panel.querySelector('section[data-tab=build]');
+    if (!sec || sec.hidden) return;
+    const box = sec.querySelector('.ab-plan');
+    if (!box) return;
+    const townId = abCurrentTownId() || (abTownIds()[0]);
+    if (!townId) {
+      box.replaceChildren();
+      const e = document.createElement('div');
+      e.style.cssText = 'color:#888;font-size:10px;padding:2px 0';
+      e.textContent = 'no town';
+      box.appendChild(e);
+      return;
+    }
+    const plan = buildPlanNext(townId, 3);
+    const pin = abGetPin(townId);
+    const wantKeys = plan.map((p, i) => `ab-plan-${townId}-${i}`);
+    const sameSet = box.querySelectorAll('.ab-plan-row[data-key]').length === wantKeys.length
+      && wantKeys.every(k => box.querySelector(`.ab-plan-row[data-key="${k}"]`));
+    if (!sameSet) box.replaceChildren();
+    if (!plan.length) {
+      if (!sameSet) {
+        const e = document.createElement('div');
+        e.style.cssText = 'color:#888;font-size:10px;padding:2px 0';
+        e.textContent = 'all targets met';
+        box.appendChild(e);
+      }
+      return;
+    }
+    const mk = (cls, txt, color) => {
+      const s = document.createElement('span');
+      if (cls) s.className = cls;
+      s.textContent = txt;
+      if (color) s.style.color = color;
+      return s;
+    };
+    plan.forEach((p, i) => {
+      const key = wantKeys[i];
+      let row = sameSet ? box.querySelector(`.ab-plan-row[data-key="${key}"]`) : null;
+      if (!row) {
+        row = document.createElement('div');
+        row.className = 'ab-plan-row' + (p.pinned ? ' pinned' : '');
+        row.dataset.key = key;
+        row.appendChild(mk('ab-plan-name', '', null));
+        row.appendChild(mk('ab-plan-lvl', '', '#888'));
+        row.appendChild(mk('ab-plan-cost', '', '#aaa'));
+        row.appendChild(mk('ab-plan-verdict', '', null));
+        row.appendChild(mk('ab-plan-eta', '', '#888'));
+        const pinBtn = document.createElement('button');
+        pinBtn.type = 'button';
+        pinBtn.style.cssText = 'background:#333;border:1px solid #555;color:#fc6;padding:0 4px;cursor:pointer;font-size:9px';
+        pinBtn.addEventListener('click', () => {
+          abSetPin(townId, abGetPin(townId) === p.building ? null : p.building);
+          renderAbPlan();
+          renderAbQueue();
+        });
+        row.appendChild(pinBtn);
+        box.appendChild(row);
+      } else {
+        row.className = 'ab-plan-row' + (p.pinned || pin === p.building ? ' pinned' : '');
+      }
+      row.querySelector('.ab-plan-name').textContent = AB_LABELS[p.building] || p.building;
+      row.querySelector('.ab-plan-lvl').textContent = '->' + p.level;
+      row.querySelector('.ab-plan-cost').textContent = abPlanCostLabel(p.cost);
+      const verdictEl = row.querySelector('.ab-plan-verdict');
+      const verdict = abPlanVerdictLabel(p.afford);
+      verdictEl.textContent = verdict;
+      verdictEl.style.color = p.afford && p.afford.ok ? '#6dda7e' : (p.afford && p.afford.blind ? '#fc6' : '#f08080');
+      row.querySelector('.ab-plan-eta').textContent = p.etaMs ? fmtSec(Math.ceil(p.etaMs / 1000)) : 'now';
+      const pinBtn = row.querySelector('button');
+      if (pinBtn) {
+        pinBtn.textContent = (pin === p.building) ? 'unpin' : 'pin';
+        pinBtn.title = 'Pin to slot 1 (world-scoped, per town)';
+      }
+    });
+  }
+
   function abDefaultTargets() {
     return Object.assign({}, AB_CS_FAST);
   }
@@ -3768,6 +4502,7 @@ const STORE = {
         stone: +need.stone || 0,
         iron: +need.iron || 0,
         pop: bd.population_for != null ? +bd.population_for : 0,
+        buildTime: bd.building_time != null ? +bd.building_time : null,
       };
     } catch (_) { return null; }
   }
@@ -3791,61 +4526,30 @@ const STORE = {
     return res.wood >= need.wood + margin && res.stone >= need.stone + margin && res.iron >= need.iron + margin;
   }
   function abPickNextFromLevels(townId, levels, ledger) {
-    if (!levels) return null;
-    const targets = abEnsureTargets();
-    for (const phase of AB_PHASES) {
-      for (const building of Object.keys(phase)) {
-        const want = Math.min(phase[building], targets[building] != null ? targets[building] : 0, abMaxLevel(building));
-        if (want <= 0) continue;
-        if (levels[building] < want && levels[building] < abMaxLevel(building)) {
-          if (!abCanAfford(townId, building, ledger)) continue;
-          return building;
-        }
-      }
-    }
-    for (const building of AB_BUILDINGS) {
-      const want = Math.min(targets[building] || 0, abMaxLevel(building));
-      if (levels[building] < want) {
-        if (!abCanAfford(townId, building, ledger)) continue;
-        return building;
-      }
-    }
-    return null;
+    const plan = buildPlanNext(townId, 1);
+    const first = plan[0];
+    if (!first) return null;
+    const scratch = ledger ? {
+      wood: ledger.wood, stone: ledger.stone, iron: ledger.iron, pop: ledger.pop,
+      production: abTownProduction(townId),
+    } : null;
+    const { afford } = scratch
+      ? abPlanEntryAfford(townId, first.building, scratch)
+      : abPlanEntryAfford(townId, first.building, null);
+    if (!afford.ok && !afford.blind) return null;
+    return first.building;
   }
   function abPickNext(townId) {
-    return abPickNextFromLevels(townId, abCurrentLevels(townId));
+    const plan = buildPlanNext(townId, 1);
+    return plan[0] ? plan[0].building : null;
   }
   function abPickBatch(townId, n) {
-    const levels = abCurrentLevels(townId);
-    if (!levels || n <= 0) return [];
-    const t = abGetTown(townId);
-    let ledger = null;
-    try {
-      const res = t && t.resources && t.resources();
-      if (res) {
-        ledger = {
-          wood: +res.wood || 0,
-          stone: +res.stone || 0,
-          iron: +res.iron || 0,
-          pop: t.getAvailablePopulation ? +t.getAvailablePopulation() : (+res.population || 0),
-        };
-      }
-    } catch (_) {}
+    if (n <= 0) return [];
+    const plan = buildPlanNext(townId, n);
     const out = [];
-    for (let i = 0; i < n; i++) {
-      const b = abPickNextFromLevels(townId, levels, ledger);
-      if (!b) break;
-      out.push(b);
-      levels[b] = (levels[b] || 0) + 1;
-      if (ledger) {
-        const cost = abBuildingCost(townId, b);
-        if (cost) {
-          ledger.wood -= cost.wood;
-          ledger.stone -= cost.stone;
-          ledger.iron -= cost.iron;
-          ledger.pop -= cost.pop;
-        }
-      }
+    for (const entry of plan) {
+      if (!entry.afford.ok && !entry.afford.blind) break;
+      out.push(entry.building);
     }
     return out;
   }
@@ -4484,6 +5188,7 @@ const STORE = {
       for (const id of ids) {
         if (busy.has(+id)) continue;
         if (townHasJob.has(String(id))) continue;
+        if (cultureShouldDeferForCave(id)) continue;
         if (!cultureCanAfford(id, ctype, ledger)) continue;
         jobs.push({ type, ctype, id });
         townHasJob.add(String(id));
@@ -4557,6 +5262,7 @@ const STORE = {
       if (!t) return null;
       const r = t.resources && t.resources();
       let cap = null, tradeCap = null, pop = null, small = false;
+      let island = null, ix = null, iy = null;
       try { if (t.getStorageCapacity) cap = +t.getStorageCapacity(); } catch (_) {}
       if (!(cap > 0)) { const shared = townResState(townId); if (shared) cap = shared.cap; }
       try { if (t.getAvailableTradeCapacity) tradeCap = +t.getAvailableTradeCapacity(); } catch (_) {}
@@ -4564,11 +5270,28 @@ const STORE = {
       try {
         const a = t.attributes || (t.get && t.get('on_small_island') != null ? { on_small_island: t.get('on_small_island') } : {});
         small = !!(a.on_small_island || (t.isOnSmallIsland && t.isOnSmallIsland()));
+        if (a.island_id != null) island = a.island_id;
+        else if (typeof t.getIslandId === 'function') island = t.getIslandId();
+        if (a.island_x != null) ix = +a.island_x;
+        if (a.island_y != null) iy = +a.island_y;
       } catch (_) {}
+      if (island == null || ix == null || iy == null) {
+        try {
+          const list = state.towns || [];
+          const st = list.find(x => String(x.id) === String(townId));
+          if (st) {
+            if (island == null && st.island != null) island = st.island;
+            if (ix == null && st.x != null) ix = +st.x;
+            if (iy == null && st.y != null) iy = +st.y;
+          }
+        } catch (_) {}
+      }
       return {
         id: +townId,
         wood: r && +r.wood || 0, stone: r && +r.stone || 0, iron: r && +r.iron || 0,
         cap: cap || 0, tradeCap: tradeCap || 0, pop: pop || 0, small,
+        island: island != null ? island : null,
+        x: ix, y: iy,
       };
     } catch (_) { return null; }
   }
@@ -4603,6 +5326,7 @@ const STORE = {
       L[t.id] = {
         wood: t.wood, stone: t.stone, iron: t.iron,
         cap: t.cap, tradeCap: t.tradeCap, small: t.small,
+        island: t.island, x: t.x, y: t.y,
       };
     }
     return L;
@@ -4614,23 +5338,47 @@ const STORE = {
     src.tradeCap = Math.max(0, src.tradeCap - (job.wood + job.stone + job.iron));
     tgt.wood += job.wood; tgt.stone += job.stone; tgt.iron += job.iron;
   }
-  function tradeFillStorageJobs(towns, L) {
+
+  function tradeIslandDist(a, b) {
+    if (!a || !b) return null;
+    if (a.island != null && b.island != null) {
+      if (String(a.island) === String(b.island)) return 0;
+    }
+    if (a.x == null || a.y == null || b.x == null || b.y == null) return null;
+    const dx = a.x - b.x, dy = a.y - b.y;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+  function tradeFillStorageJobs(towns, L, opts) {
     const ledger = L || tradeLedger(towns);
     const reserve = Math.min(80, Math.max(0, gbCfgNum(state.tradeReservePct, 20))) / 100;
     const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
+    const maxHops = Math.max(0, gbCfgNum(state.tradeMaxHops, 15));
+    const urgent = !!(opts && opts.deadlock);
+    const byId = Object.create(null);
+    towns.forEach(t => { byId[t.id] = t; });
     const jobs = [];
     const ids = towns.map(t => t.id);
     for (const tgtId of ids) {
       const tgt = ledger[tgtId];
       if (!tgt || !(tgt.cap > 0)) continue;
       const empty = Math.min(tgt.wood, tgt.stone, tgt.iron) / tgt.cap;
-      if (empty >= 0.25) continue;
+      if (!urgent && empty >= 0.25) continue;
+      const candidates = [];
       for (const srcId of ids) {
         if (srcId === tgtId) continue;
         const src = ledger[srcId];
         if (!src || !(src.cap > 0)) continue;
         const fill = Math.max(src.wood, src.stone, src.iron) / src.cap;
         if (fill <= 0.85 || src.tradeCap < minBatch) continue;
+        const srcTown = byId[srcId], tgtTown = byId[tgtId];
+        const dist = tradeIslandDist(srcTown || src, tgtTown || tgt);
+        if (dist == null) {
+          gbLogT('trade-island-blind', 300000, 'trade: island unreadable - allowing hop (blind ≠ refuse)');
+        } else if (!urgent && dist > maxHops) {
+          gbLogT('trade-hop-' + srcId + '-' + tgtId, 300000,
+            `trade: refuse ${srcId}->${tgtId} hops ${dist.toFixed(1)} > max ${maxHops}`);
+          continue;
+        }
         const keep = Math.floor(src.cap * reserve);
         const send = {
           wood: Math.max(0, Math.min(src.tradeCap, src.wood - keep, tgt.cap - tgt.wood)),
@@ -4641,16 +5389,139 @@ const STORE = {
         if (total < minBatch) continue;
         let scale = 1;
         if (total > src.tradeCap) scale = src.tradeCap / total;
-        const job = {
+        const surplus = Math.max(src.wood, src.stone, src.iron) - keep;
+        candidates.push({
           from: srcId, to: tgtId,
           wood: Math.floor(send.wood * scale),
           stone: Math.floor(send.stone * scale),
           iron: Math.floor(send.iron * scale),
-        };
-        if (job.wood + job.stone + job.iron < minBatch) continue;
+          dist: dist == null ? 9999 : dist,
+          surplus,
+        });
+      }
+      candidates.sort((a, b) => {
+        if (a.dist !== b.dist) return a.dist - b.dist;
+        return b.surplus - a.surplus;
+      });
+      for (const c of candidates) {
+        if (c.wood + c.stone + c.iron < minBatch) continue;
+        const job = { from: c.from, to: c.to, wood: c.wood, stone: c.stone, iron: c.iron };
         jobs.push(job);
         tradeApplyJob(ledger, job);
         if (jobs.length >= 6) return jobs;
+        break;
+      }
+    }
+    return jobs;
+  }
+  function tradeGoalDeficit(townId, preset) {
+
+    if (preset === 'party') {
+      if (typeof ironReservedForCave === 'function') {
+        const r = ironReservedForCave(townId);
+        if (r && r.reserved) {
+          gbLogT('trade-party-cave-' + townId, 120000, `trade party: skip town ${townId} - iron reserved for cave`);
+          return { wood: 0, stone: 0, iron: 0 };
+        }
+      }
+      const types = state.cultureTypes || {};
+      const order = ['festival', 'theater', 'procession'];
+      let ctype = null;
+      for (const ui of order) {
+        if (!types[ui]) continue;
+        ctype = ({ festival: 'party', procession: 'triumph', theater: 'theater' })[ui] || ui;
+        if (ctype === 'triumph') continue;
+        break;
+      }
+      if (!ctype || !CULTURE_COSTS[ctype]) return { wood: 0, stone: 0, iron: 0 };
+      const cost = CULTURE_COSTS[ctype];
+      return {
+        wood: +cost.wood || 0,
+        stone: +cost.stone || 0,
+        iron: +cost.iron || 0,
+      };
+    }
+    if (preset === 'unit') {
+      const want = (state.recruitTargets || {})[townId] || (state.recruitTargets || {})[String(townId)];
+      if (!want || typeof want !== 'object') return { wood: 0, stone: 0, iron: 0 };
+      let wood = 0, stone = 0, iron = 0;
+      for (const unit of Object.keys(want)) {
+        const count = +want[unit] || 0;
+        if (!(count > 0)) continue;
+        let def = null;
+        try { def = typeof recruitUnitDef === 'function' ? recruitUnitDef(unit) : null; } catch (_) {}
+        if (!def || !def.resources) {
+          gbLogT('trade-unit-nocost-' + unit, 120000, `trade unit: unknown cost for ${unit} - town ${townId} blind`);
+          return null;
+        }
+        wood += (+def.resources.wood || 0) * count;
+        stone += (+def.resources.stone || 0) * count;
+        iron += (+def.resources.iron || 0) * count;
+      }
+      return { wood, stone, iron };
+    }
+    return null;
+  }
+  function tradeGoalJobs(towns, L, preset) {
+    const ledger = L || tradeLedger(towns);
+    const reserve = Math.min(80, Math.max(0, gbCfgNum(state.tradeReservePct, 20))) / 100;
+    const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
+    const byId = Object.create(null);
+    towns.forEach(t => { byId[t.id] = t; });
+    const jobs = [];
+    for (const tgt of towns) {
+      const goal = tradeGoalDeficit(tgt.id, preset);
+      if (goal == null) continue;
+      const cur = ledger[tgt.id];
+      if (!cur) continue;
+      const deficit = {
+        wood: Math.max(0, goal.wood - cur.wood),
+        stone: Math.max(0, goal.stone - cur.stone),
+        iron: Math.max(0, goal.iron - cur.iron),
+      };
+      const needTotal = deficit.wood + deficit.stone + deficit.iron;
+      if (needTotal < minBatch) continue;
+
+      const needKey = ['wood', 'stone', 'iron'].sort((a, b) => deficit[b] - deficit[a])[0];
+      const donors = towns.filter(s => s.id !== tgt.id).map(s => {
+        const src = ledger[s.id];
+        if (!src || !(src.cap > 0) || src.tradeCap < minBatch) return null;
+        const keep = Math.floor(src.cap * reserve);
+        const surplus = Math.max(0, (src[needKey] || 0) - keep);
+        if (surplus < minBatch / 3) return null;
+        return { s, src, surplus, keep };
+      }).filter(Boolean);
+      donors.sort((a, b) => b.surplus - a.surplus);
+      for (const d of donors) {
+        if (jobs.length >= 6) return jobs;
+        const src = d.src;
+        const send = {
+          wood: Math.min(deficit.wood, Math.max(0, src.wood - d.keep), src.tradeCap),
+          stone: Math.min(deficit.stone, Math.max(0, src.stone - d.keep), src.tradeCap),
+          iron: Math.min(deficit.iron, Math.max(0, src.iron - d.keep), src.tradeCap),
+        };
+        let total = send.wood + send.stone + send.iron;
+        if (total < minBatch) continue;
+        if (total > src.tradeCap) {
+          const scale = src.tradeCap / total;
+          send.wood = Math.floor(send.wood * scale);
+          send.stone = Math.floor(send.stone * scale);
+          send.iron = Math.floor(send.iron * scale);
+          total = send.wood + send.stone + send.iron;
+        }
+        if (total < minBatch) continue;
+        if (needTotal > src.tradeCap * 4) {
+          gbLogT('trade-goal-far-' + tgt.id, 300000,
+            `trade ${preset}: deficit ${needTotal} >> tradeCap - skip unreachable goal this session`);
+          break;
+        }
+        const job = { from: d.s.id, to: tgt.id, wood: send.wood, stone: send.stone, iron: send.iron };
+        jobs.push(job);
+        tradeApplyJob(ledger, job);
+        deficit.wood = Math.max(0, deficit.wood - job.wood);
+        deficit.stone = Math.max(0, deficit.stone - job.stone);
+        deficit.iron = Math.max(0, deficit.iron - job.iron);
+        if (deficit.wood + deficit.stone + deficit.iron < minBatch) break;
       }
     }
     return jobs;
@@ -4698,11 +5569,12 @@ const STORE = {
     const ledger = tradeLedger(towns);
     let jobs = [];
     const preset = state.tradePreset || 'storage';
+    const dl = (typeof econDeadlock === 'function') ? econDeadlock() : null;
 
     if (state.autoTrade && preset === 'storage') {
-      jobs = jobs.concat(tradeFillStorageJobs(towns, ledger));
+      jobs = jobs.concat(tradeFillStorageJobs(towns, ledger, { deadlock: !!(dl && dl.open) }));
     } else if (state.autoTrade && (preset === 'party' || preset === 'unit')) {
-      gbLogT('trade-preset-' + preset, 300000, `trade: preset=${preset} - unimplemented, fill-storage skipped`);
+      jobs = jobs.concat(tradeGoalJobs(towns, ledger, preset));
     }
     if (state.islandShip) jobs = jobs.concat(tradeIslandShipJobs(towns, ledger));
     if (!jobs.length) {
@@ -5609,6 +6481,36 @@ const STORE = {
     });
   }
 
+  function wonderFavorScan(reason) {
+    if (!hostEnabled() || !state.autoWonderFavor || captchaPaused('wonder')) return;
+    if (automationPaused({})) return;
+    if (gbLocked('wonder-favor')) return;
+    const tpl = state.wonderFavorTpl;
+    if (!tpl || !tpl.action_name) {
+      gbLogT('wonder-favor-tpl', 300000, 'wonder favor: hand-cast once to teach wonderFavorTpl');
+      return;
+    }
+    const cfg = state.wonderCfg || {};
+    if (!cfg.wonderId) {
+      gbLogT('wonder-favor-id', 300000, 'wonder favor: set wonderCfg.wonderId');
+      return;
+    }
+    gbLock('wonder-favor');
+    const payload = Object.assign({}, tpl, {
+      arguments: Object.assign({}, tpl.arguments || {}, {
+        wonder_id: +cfg.wonderId,
+      }),
+      town_id: tpl.town_id,
+    });
+    bridgePost('wonder', payload, (err) => {
+      gbUnlock('wonder-favor');
+      if (!err) gbLog('wonder favor: cast OK (' + (reason || 'scan') + ')');
+      else if (err !== 'captcha' && err !== 'captcha-pause' && err !== 'dryrun') {
+        gbLogT('wonder-favor-err', 60000, 'wonder favor err ' + err);
+      }
+    });
+  }
+
   const DODGE_CHECK_MS = 5000;
   const DODGE_RETRY_MS = 15000;
   const DODGE_FAIL_BACKOFF = [15000, 45000, 120000];
@@ -5660,9 +6562,10 @@ const STORE = {
     if (a.command_type === 'attack' || a.movement_type === 'attack') return true;
     return false;
   }
-  function dodgeIncomingMovements() {
+  function dodgeIncomingMovements(opts) {
     const uw = gameUw();
     const out = [];
+    const includeFriendly = !!(opts && opts.includeFriendly);
     try {
       const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits');
       if (!col || !col.models) return out;
@@ -5671,7 +6574,14 @@ const STORE = {
         const a = m.attributes || {};
         const dest = String(a.destination_town_id || a.target_town_id || '');
         if (!myTowns.has(dest)) return;
-        if (!dodgeIsHostileMovement(a)) return;
+        const hostile = dodgeIsHostileMovement(a);
+        if (!hostile) {
+          if (!includeFriendly) return;
+          const type0 = String(a.command_name || a.type || a.movement_type || '').toLowerCase().trim();
+          if (!/^support/.test(type0) && !DODGE_FRIENDLY_TYPES.test(type0)) return;
+
+          if (!/^support/.test(type0)) return;
+        }
 
         const origin = String(a.origin_town_id || a.home_town_id || '');
         if (myTowns.has(origin) && a.is_attack !== true && a.is_attack !== 1) return;
@@ -5679,10 +6589,15 @@ const STORE = {
         const type = String(a.command_name || a.type || a.movement_type || '').toLowerCase();
         const units = a.units || {};
         const hasCs = !!(units.colonize_ship || units.colony_ship);
+        let arrival = a.arrived_at || a.arrival_at || a.finished_at;
+        try {
+          if (arrival == null && typeof m.getArrivalAt === 'function') arrival = m.getArrivalAt();
+        } catch (_) {}
         out.push({
           id: a.id || m.id,
           dest, origin, type, hasCs,
-          arrival: a.arrived_at || a.arrival_at || a.finished_at,
+          hostile,
+          arrival,
           units,
           model: m,
         });
@@ -6193,6 +7108,7 @@ const STORE = {
       merchantWish: state.merchantWish,
       priorityOrder: state.priorityOrder,
       playerNotes: state.playerNotes,
+      allianceNotes: state.allianceNotes,
       watchlist: state.watchlist,
     };
     return dump;
@@ -6200,7 +7116,8 @@ const STORE = {
   function qolImportConfig(obj) {
     if (!obj || typeof obj !== 'object') return false;
     const keys = ['abTargets', 'researchTargets', 'recruitTargets', 'cityTemplates', 'townGroups',
-      'cultureTypes', 'favorCfg', 'wonderCfg', 'merchantWish', 'priorityOrder', 'playerNotes', 'watchlist'];
+      'cultureTypes', 'favorCfg', 'wonderCfg', 'merchantWish', 'priorityOrder', 'playerNotes',
+      'allianceNotes', 'watchlist'];
     keys.forEach(k => {
       if (obj[k] != null) {
         state[k] = obj[k];
@@ -6216,6 +7133,7 @@ const STORE = {
           merchantWish: STORE.MERCHANT_WISH,
           priorityOrder: STORE.PRIORITY_ORDER,
           playerNotes: STORE.PLAYER_NOTES,
+          allianceNotes: STORE.ALLIANCE_NOTES,
           watchlist: STORE.WATCHLIST,
         }[k];
         if (storeKey) save(storeKey, state[k]);
@@ -6272,9 +7190,12 @@ const STORE = {
     rurallevel: () => { try { ruralLevelScan('orch'); } catch (_) {} },
     recruit: () => { try { recruitScan('orch'); } catch (_) {} },
     merchant: () => { try { merchantScan('orch'); } catch (_) {} },
-    favor: () => { try { favorScan('orch'); } catch (_) {} },
-    wonder: () => { try { wonderScan('orch'); } catch (_) {} },
-  };
+      favor: () => { try { favorScan('orch'); } catch (_) {} },
+      wonder: () => {
+        try { wonderScan('orch'); } catch (_) {}
+        try { wonderFavorScan('orch'); } catch (_) {}
+      },
+    };
   function orchFeatureEnabled(key) {
     return {
       culture: state.autoCulture,
@@ -6306,8 +7227,40 @@ const STORE = {
     return n;
   }
 
+  let _econDeadlock = { open: false, towns: [], at: 0 };
+  function econDeadlock() {
+    if (state.orchDeadlockResolve === false) {
+      if (_econDeadlock.open) {
+        _econDeadlock = { open: false, towns: [], at: Date.now() };
+        gbLog('orch: deadlock resolve OFF - cleared');
+      }
+      return _econDeadlock;
+    }
+    const pinned = [];
+    try {
+      const towns = (typeof townsFromGame === 'function' ? townsFromGame() : null) || state.towns || [];
+      towns.forEach(t => {
+        const id = t && t.id != null ? t.id : t;
+        if (id == null) return;
+        if (townIsPinned(id)) pinned.push(String(id));
+      });
+    } catch (_) {}
+    const farmOn = !!state.autoFarm;
+    const farmIdle = (orchIdle.farm || 0) >= 2;
+    const open = pinned.length > 0 && farmOn && farmIdle;
+    if (open && !_econDeadlock.open) {
+      gbLog('orch: warehouse deadlock OPEN towns=' + pinned.join(','));
+    } else if (!open && _econDeadlock.open) {
+      gbLog('orch: warehouse deadlock CLOSED');
+    }
+    _econDeadlock = { open, towns: pinned, at: Date.now() };
+    return _econDeadlock;
+  }
   function orchIdleFactor(key) {
     if (state.orchAdaptive === false) return 1;
+
+    const dl = _econDeadlock;
+    if (dl && dl.open && (key === 'cave' || key === 'trade' || key === 'ruraltrade')) return 1;
     const streak = orchIdle[key] || 0;
     if (streak < ORCH_IDLE_TRIP) return 1;
     return Math.min(ORCH_IDLE_MAX, 1 << Math.min(3, streak - ORCH_IDLE_TRIP + 1));
@@ -6349,6 +7302,7 @@ const STORE = {
   function orchTick() {
     if (!hostEnabled()) return;
     if (automationPaused({})) return;
+    const dl = econDeadlock();
     const configured = (state.priorityOrder && state.priorityOrder.length)
       ? state.priorityOrder : orchDefaultOrder();
 
@@ -6368,12 +7322,21 @@ const STORE = {
       due.push({ key, rank: i, overdue });
     }
     if (!due.length) return;
-
+    const DRAIN_RANK = { cave: 0, trade: 1, ruraltrade: 2, farm: 99 };
     due.sort((a, b) => {
+      if (dl && dl.open) {
+        const da = DRAIN_RANK[a.key], db = DRAIN_RANK[b.key];
+        if (da != null && db != null && da !== db) return da - db;
+        if (da != null && db == null) return -1;
+        if (db != null && da == null) return 1;
+      }
       const gap = b.overdue - a.overdue;
       if (Math.abs(gap) > ORCH_MS * 2) return gap;
       return a.rank - b.rank;
     });
+    if (dl && dl.open && !due.some(d => d.key === 'cave' || d.key === 'trade' || d.key === 'ruraltrade')) {
+      gbLogT('deadlock-stuck', 300000, 'orch: deadlock open but nothing can drain - spend resources manually');
+    }
     const run = due.slice(0, ORCH_MAX_PER_TICK);
     run.forEach((item, idx) => {
       const fire = () => {
@@ -6437,8 +7400,50 @@ const STORE = {
     }
     return Object.values(byPlayer).sort((a, b) => b.last - a.last);
   }
+  function intelFmtLandsIn(secLeft) {
+    if (secLeft == null || !isFinite(secLeft)) return null;
+    const s = Math.max(0, Math.floor(secLeft));
+    if (s < 600) {
+      const m = Math.floor(s / 60), r = s % 60;
+      return m + 'm ' + String(r).padStart(2, '0') + 's';
+    }
+    if (s < 3600) return Math.floor(s / 60) + 'm';
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return h + 'h ' + m + 'm';
+  }
   function intelThreatBoard() {
-    return (typeof dodgeIncomingMovements === 'function') ? dodgeIncomingMovements() : [];
+    const raw = (typeof dodgeIncomingMovements === 'function')
+      ? dodgeIncomingMovements({ includeFriendly: true })
+      : [];
+    const now = gameNow();
+    const rows = raw.map(t => {
+      const arrival = t.arrival != null ? +t.arrival : null;
+      let etaSec = null, landsIn = 'eta unknown', abs = '';
+      if (arrival != null && isFinite(arrival) && arrival > 0) {
+
+        const arrMs = arrival > 1e12 ? arrival : arrival * 1000;
+        const nowMs = now > 1e12 ? now : now * 1000;
+        etaSec = Math.max(0, Math.round((arrMs - nowMs) / 1000));
+        landsIn = intelFmtLandsIn(etaSec) || 'eta unknown';
+        try { abs = new Date(arrMs).toLocaleTimeString(); } catch (_) { abs = ''; }
+      }
+      const kind = t.hostile === false || /^support/.test(String(t.type || ''))
+        ? 'support'
+        : (t.hasCs ? 'CS' : 'attack');
+      return Object.assign({}, t, {
+        kind,
+        etaSec,
+        landsIn,
+        absTime: abs,
+        urgent: etaSec != null && etaSec < 1800,
+      });
+    });
+    rows.sort((a, b) => {
+      const ae = a.etaSec == null ? 1e15 : a.etaSec;
+      const be = b.etaSec == null ? 1e15 : b.etaSec;
+      return ae - be;
+    });
+    return rows;
   }
   function renderIntel() {
     const box = panel && panel.querySelector('.intel-panel');
@@ -6452,8 +7457,11 @@ const STORE = {
     if (!threats.length) html += '(none)\n';
     else {
       threats.forEach(t => {
-        html += `${t.hasCs ? '[CS] ' : ''}${t.type || 'atk'} -> ${t.dest} from ${t.origin || '?'}` +
-          (t.arrival ? ` @${t.arrival}` : '') + '\n';
+        const tag = t.hasCs ? '[CS] ' : (t.kind === 'support' ? '[sup] ' : '');
+        const urgent = t.urgent ? '!' : ' ';
+        html += `${urgent}${tag}${t.kind || t.type || 'atk'} -> ${t.dest} from ${t.origin || '?'}` +
+          `  lands in ${t.landsIn}` +
+          (t.absTime ? ` (${t.absTime})` : '') + '\n';
       });
     }
     html += '\n=== Dossiers ===\n';
@@ -6463,9 +7471,16 @@ const STORE = {
         (d.allianceNote ? ` [ally: ${d.allianceNote}]` : '') + '\n';
     });
     if (state.watchlist && state.watchlist.length) {
-      html += '\n=== Watchlist ===\n' + state.watchlist.map(w =>
-        typeof w === 'object' ? `${w.id || w.townId} ${w.name || ''}` : String(w)
-      ).join('\n') + '\n';
+      html += '\n=== Watchlist ===\n';
+      state.watchlist.forEach(w => {
+        const rule = typeof w === 'object'
+          ? String(w.id || w.townId || w.name || w.player || w.alliance || '')
+          : String(w);
+        const last = state.watchHits && state.watchHits[rule];
+        const lastTxt = last ? new Date(last).toLocaleString() : 'never';
+        html += (typeof w === 'object' ? `${rule} ${w.name || ''}` : rule) +
+          `  (last hit: ${lastTxt})\n`;
+      });
     }
     if (state.allianceNotes && Object.keys(state.allianceNotes).length) {
       html += '\n=== Alliance notes ===\n';
@@ -6473,7 +7488,11 @@ const STORE = {
         html += `${k}: ${state.allianceNotes[k]}\n`;
       });
     }
+    if (state.attackPatternNote) {
+      html += '\n=== Attack patterns ===\n' + state.attackPatternNote + '\n';
+    }
     box.textContent = html;
+    try { intelPatternScan(); } catch (_) {}
   }
   function intelSetNote(player, note) {
     if (!state.playerNotes) state.playerNotes = {};
@@ -6499,27 +7518,105 @@ const STORE = {
       }
     } catch (_) {}
   }
+  function intelPatternScan() {
+    const now = Date.now();
+    const windowMs = 24 * 3600000;
+    const cut = now - windowMs;
+    const by = {};
+    (state.findings || []).forEach(f => {
+      if (!f || !(f.ts >= cut)) return;
+      const key = intelPlayerKey(f.attacker || f.player) || null;
+      if (!key || key === 'unknown') return;
+      if (!by[key]) by[key] = { key, name: intelPlayerLabel(f.attacker || f.player, key), n: 0, towns: [], first: f.ts, last: f.ts };
+      const b = by[key];
+      b.n++;
+      b.last = Math.max(b.last, f.ts);
+      b.first = Math.min(b.first, f.ts);
+      const tid = f.town && (f.town.id || f.town.name);
+      if (tid != null && b.towns.indexOf(String(tid)) < 0) b.towns.push(String(tid));
+    });
+    const hits = Object.values(by).filter(b => b.n >= 3);
+    state.attackPatternNote = hits.length
+      ? hits.map(h => `${h.name}×${h.n}/24h`).join(', ')
+      : '';
+    hits.forEach(h => {
+      const bucket = Math.floor(now / windowMs);
+      const ak = 'pattern:' + h.key + ':' + bucket;
+      if (state.alerted && state.alerted[ak]) return;
+      if (!state.alerted) state.alerted = {};
+      state.alerted[ak] = now;
+      save(STORE.ALERTED, state.alerted);
+      const payload = {
+        attacker: state.exportRedact !== false ? String(h.name).slice(0, 2) + '***' : h.name,
+        hits: h.n,
+        window: '24h',
+        towns: (h.towns || []).slice(0, 8).map(t => state.exportRedact !== false ? String(t).slice(0, 2) + '***' : t),
+        first: h.first, last: h.last,
+      };
+      gbLog(`pattern: ${h.name} hit ${h.n}× in 24h`);
+      try { alertWebhook('pattern', payload); } catch (_) {}
+    });
+    return hits;
+  }
+  function watchMatch(finding) {
+    if (!finding || !state.watchlist || !state.watchlist.length) return null;
+    const hits = [];
+    for (const w of state.watchlist) {
+      const entry = typeof w === 'object' ? w : { id: w };
+      const rule = String(entry.id || entry.townId || entry.name || entry.player || entry.alliance || entry.coords || w);
+      const tid = finding.town && finding.town.id;
+      const vid = finding.vill_id != null ? finding.vill_id : (finding.vill && finding.vill.id);
+      if (entry.id != null || entry.townId != null) {
+        const id = String(entry.id || entry.townId);
+        if (String(tid) === id || String(vid) === id || String(finding.town_id) === id) {
+          hits.push({ kind: 'town', rule, specificity: 4 });
+        }
+      }
+      if (entry.coords || (entry.x != null && entry.y != null)) {
+        const c = entry.coords || (entry.x + ' ' + entry.y);
+        const fx = finding.town && finding.town.x;
+        const fy = finding.town && finding.town.y;
+        if (fx != null && fy != null && String(c).indexOf(String(fx)) >= 0 && String(c).indexOf(String(fy)) >= 0) {
+          hits.push({ kind: 'coords', rule: String(c), specificity: 3 });
+        }
+      }
+      const pname = finding.attacker && (finding.attacker.name || finding.attacker.player_name);
+      if ((entry.player || entry.name) && pname && String(pname).toLowerCase() === String(entry.player || entry.name).toLowerCase()) {
+        hits.push({ kind: 'player', rule: String(entry.player || entry.name), specificity: 2 });
+      }
+      if (entry.alliance && finding.alliance && String(finding.alliance).toLowerCase() === String(entry.alliance).toLowerCase()) {
+        hits.push({ kind: 'alliance', rule: String(entry.alliance), specificity: 1 });
+      }
+
+      if (typeof w !== 'object') {
+        const id = String(w);
+        if (String(tid) === id || String(vid) === id || String(finding.town_id) === id) {
+          hits.push({ kind: 'town', rule: id, specificity: 4 });
+        }
+      }
+    }
+    if (!hits.length) return null;
+    hits.sort((a, b) => b.specificity - a.specificity);
+    return { hit: true, kind: hits[0].kind, rule: hits[0].rule, extra: hits.length - 1 };
+  }
   function intelWatchlistScan() {
     if (!state.watchlist || !state.watchlist.length) return;
-
-    for (const w of state.watchlist) {
-      const id = String(w.id || w.townId || w);
-      const hit = (state.findings || []).find(f => {
-        const tid = f.town && f.town.id;
-        const vid = f.vill_id != null ? f.vill_id : (f.vill && f.vill.id);
-        return String(tid) === id || String(vid) === id || String(f.town_id) === id;
-      });
-      if (!hit) continue;
-
+    for (const f of (state.findings || []).slice(0, 80)) {
+      const m = watchMatch(f);
+      if (!m) continue;
+      const id = String((f.town && f.town.id) || f.vill_id || f.town_id || m.rule);
       let onVac = null;
       try {
-        if (hit.vacation === true || hit.on_vacation === true) onVac = true;
-        else if (hit.attacker && (hit.attacker.vacation === true || hit.attacker.on_vacation === true)) onVac = true;
-        else if (hit.defender && (hit.defender.vacation === true || hit.defender.on_vacation === true)) onVac = true;
+        if (f.vacation === true || f.on_vacation === true) onVac = true;
+        else if (f.attacker && (f.attacker.vacation === true || f.attacker.on_vacation === true)) onVac = true;
       } catch (_) {}
       if (onVac === true) continue;
-      gbLog(`watchlist: ${id} seen in findings`);
-      try { alertWebhook('attack', { watchlist: id, finding: hit }); } catch (_) {}
+      if (!state.watchHits) state.watchHits = {};
+      state.watchHits[m.rule] = Date.now();
+      save(STORE.WATCH_HITS, state.watchHits);
+      gbLog(`watchlist: ${id} matched (${m.kind}: ${m.rule}${m.extra ? ' +' + m.extra + ' more' : ''})`);
+      try { alertWebhook('attack', { watchlist: id, why: m, finding: { type: f.type, ts: f.ts } }); } catch (_) {}
+      break;
     }
   }
 
@@ -8930,6 +10027,182 @@ const STORE = {
     box.textContent = lines.join('\n');
   }
 
+  function evidenceTplShape(v) {
+    if (v == null) return { present: false };
+    const t = Array.isArray(v) ? 'array' : typeof v;
+    if (t === 'object') return { present: true, type: 'object', keys: Object.keys(v).sort() };
+    if (t === 'array') return { present: true, type: 'array', length: v.length };
+    return { present: true, type: t };
+  }
+  function evidenceMask(id) {
+    if (state.exportRedact === false) return id;
+    if (id == null || id === '') return id;
+    const s = String(id);
+    if (/^\d+$/.test(s)) return s.length <= 2 ? '**' : s.slice(0, 2) + '***';
+    if (s.length <= 3) return '***';
+    return s.slice(0, 2) + '***';
+  }
+  function evidenceLastByFeature(maxPer) {
+    const lim = maxPer || 20;
+    const by = {};
+    const list = state.decisions || [];
+    for (let i = list.length - 1; i >= 0; i--) {
+      const r = list[i];
+      if (!r || !r.f) continue;
+      if (!by[r.f]) by[r.f] = [];
+      if (by[r.f].length >= lim) continue;
+      by[r.f].push({
+        ts: r.ts, a: r.a, k: evidenceMask(r.k), r: r.r, n: r.n,
+        d: r.d ? String(r.d).slice(0, 80) : undefined,
+      });
+    }
+    return by;
+  }
+  function gbEvidence() {
+    const now = Date.now();
+    const csrf = state.csrf ? String(state.csrf) : '';
+    const tplKeys = [
+      'claimTpl', 'ibAction', 'ibActionR', 'attackTpl', 'cancelTpl',
+      'heroTpl', 'collectTpl', 'farmAction', 'farmOptionMap',
+    ];
+    const templates = {};
+    tplKeys.forEach(k => { templates[k] = evidenceTplShape(state[k]); });
+    const breakers = {};
+    Object.keys(state.captchaBreakers || {}).forEach(f => {
+      const b = state.captchaBreakers[f];
+      if (!b) return;
+      breakers[f] = {
+        trips: b.trips || 0,
+        until: b.until || 0,
+        leftMs: Math.max(0, (b.until || 0) - now),
+        detail: b.detail ? String(b.detail).slice(0, 60) : null,
+      };
+    });
+    const locks = (gbLockList() || []).map(name => ({
+      name,
+      ageMs: typeof gbLockAge === 'function' ? gbLockAge(name) : null,
+      ttlMs: (GB_LOCK_TTL && GB_LOCK_TTL[name]) || 120000,
+    }));
+    const toggles = {};
+    Object.keys(state).forEach(k => {
+      if (/^auto[A-Z]/.test(k) || k === 'dryRun' || k === 'ibAuto' || k === 'ibResearch' ||
+          k === 'collectAll' || k === 'decisionMemory' || k === 'captchaGlobalKill' ||
+          k === 'orchAdaptive' || k === 'farmLongClaims' || k === 'farmSleepAuto') {
+        toggles[k] = !!state[k];
+      }
+    });
+    toggles.hostEnabled = !!hostEnabled();
+    const last = evidenceLastByFeature(20);
+    const lastOk = {};
+    const lastSkip = {};
+    Object.keys(last).forEach(f => {
+      const ok = last[f].find(r => r.r === 'ok');
+      const sk = last[f].find(r => String(r.r || '').indexOf('skip:') === 0);
+      if (ok) lastOk[f] = ok;
+      if (sk) lastSkip[f] = sk;
+    });
+    return {
+      at: new Date(now).toISOString(),
+      build: {
+        version: runningVersion(),
+        host: location.host,
+        worldKey: wkey(''),
+        configVer: state.configVer,
+        exportRedact: state.exportRedact !== false,
+      },
+      csrf: { present: !!csrf, prefix: csrf ? csrf.slice(0, 6) : null },
+      toggles,
+      scheduler: typeof orchStatus === 'function' ? orchStatus() : [],
+      templates,
+      captcha: {
+        globalKill: state.captchaGlobalKill !== false,
+        globalUntil: captchaGlobalUntil || 0,
+        globalLeftMs: Math.max(0, (captchaGlobalUntil || 0) - now),
+        breakers,
+      },
+      server: {
+        paused: typeof gbServerPaused === 'function' ? gbServerPaused() : false,
+        leftMs: typeof gbServerCooldownLeftMs === 'function' ? gbServerCooldownLeftMs() : 0,
+      },
+      locks,
+      budget: {
+        perMin: state.reqBudgetPerMin || 40,
+        usedLastMin: typeof reqBudgetUsed === 'function' ? reqBudgetUsed() : 0,
+      },
+      lastOk,
+      lastSkip,
+      recentByFeature: last,
+      decisionSkips: (typeof jrnActiveSkips === 'function' ? jrnActiveSkips() : []).map(s => ({
+        key: evidenceMask(s.key),
+        until: s.until,
+        leftMs: Math.max(0, s.until - now),
+        trips: s.trips,
+        r: s.r,
+      })),
+      scrapes: {
+        nextFarmScrape: state.nextFarmScrape || 0,
+        farmDueInMs: state.nextFarmScrape ? Math.max(0, state.nextFarmScrape - now) : null,
+        nextTownsScrape: state.nextTownsScrape || 0,
+        townsDueInMs: state.nextTownsScrape ? Math.max(0, state.nextTownsScrape - now) : null,
+      },
+      counts: {
+        findings: (state.findings || []).length,
+        seen: Object.keys(state.seen || {}).length,
+        farms: (state.farmsParsed || []).length,
+        towns: (state.towns || []).length,
+        decisions: (state.decisions || []).length,
+      },
+      deadlock: (typeof econDeadlock === 'function') ? (() => {
+        const d = econDeadlock();
+        return { open: !!d.open, towns: (d.towns || []).map(evidenceMask) };
+      })() : null,
+      wake: {
+        depth: typeof gbWakeDepth === 'function' ? gbWakeDepth() : 0,
+        burst: typeof gbInWakeBurst === 'function' ? gbInWakeBurst() : false,
+      },
+      tplHealth: (() => {
+        const h = state.tplHealth || {};
+        const out = {};
+        Object.keys(h).forEach(k => {
+          const v = h[k] || {};
+          out[k] = {
+            learnedAt: v.learnedAt || 0,
+            lastOkAt: v.lastOkAt || 0,
+            hardFails: v.hardFails || 0,
+            invalidated: !!v.invalidated,
+            ageMs: v.learnedAt ? now - v.learnedAt : null,
+          };
+        });
+        return out;
+      })(),
+    };
+  }
+  function gbEvidenceText() {
+    try { return JSON.stringify(gbEvidence(), null, 2); }
+    catch (e) { return '{"error":' + JSON.stringify(String(e).slice(0, 120)) + '}'; }
+  }
+  function evidenceCopy() {
+    const text = gbEvidenceText();
+    const ok = () => {
+      flash('evidence copied');
+      gbLog('evidence: copied ' + text.length + ' chars');
+    };
+    const fail = () => {
+      console.groupCollapsed('[grepbot] evidence');
+      console.log(text);
+      console.groupEnd();
+      flash('evidence in console');
+      gbLog('evidence: clipboard fail - expand [grepbot] evidence in console');
+    };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(ok, fail);
+        return;
+      }
+    } catch (_) {}
+    fail();
+  }
+
   function makeSortable(table, rowDataFn) {
     const thead = table.querySelector('thead');
     if (!thead) return;
@@ -8962,6 +10235,7 @@ const STORE = {
     el.textContent = `${farmDurLabel(sec)} | ${known ? 'option ' + farmOptionFor(sec) : 'not learned - click that timer once in game'}` +
       ` | auto ${state.farmSleepAuto ? 'ON' : 'OFF'}${state.farmSleepDay ? ' | last ' + state.farmSleepDay : ''}`;
     el.style.color = known ? '#888' : '#fc6';
+    try { renderFarmTeachBanner(); } catch (_) {}
   }
 
   function tableShell(list, headers) {
@@ -9377,6 +10651,9 @@ const STORE = {
     #grepbot-panel #gb-ib-btn{background:#333;border:1px solid #555;color:#80e090;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px}
     #grepbot-panel #gb-ib-btn:disabled{opacity:.4;cursor:default}
     #grepbot-panel .ab-queue{max-height:220px;overflow:auto;margin-top:2px}
+    #grepbot-panel .ab-plan{max-height:120px;overflow:auto;margin:2px 0 6px}
+    #grepbot-panel .ab-plan-row{display:grid;grid-template-columns:1.2fr .4fr .8fr .6fr auto;gap:4px;align-items:center;padding:2px 0;border-bottom:1px solid #2a2a2a;font-size:10px}
+    #grepbot-panel .ab-plan-row.pinned{background:#1a1a10}
     #grepbot-panel .atk-sched{max-height:160px;overflow:auto;margin-top:6px}
     #grepbot-panel .atk-sources{max-height:80px;overflow:auto;display:flex;flex-wrap:wrap;gap:4px 8px;margin:4px 0}
     #grepbot-panel .atk-roles{max-height:110px;overflow:auto;margin:4px 0}
@@ -9407,6 +10684,7 @@ const STORE = {
         <button id="gb-sleep-claim" style="background:#333;border:1px solid #555;color:#8cf;padding:2px 8px;cursor:pointer;font-size:11px">Sleep claim (4h/8h)</button>
         <span id="gb-sleep-status" style="font-size:10px;color:#888"></span>
       </div>
+      <div id="gb-farm-teach-banner" hidden style="font-size:10px;color:#fc6;background:#2a2211;border:1px solid #664;padding:4px 6px;margin-bottom:4px;border-radius:3px"></div>
       <div class="farms-list"></div>
       <textarea placeholder="vill_id | x y | ETA | notes&#10;12345 | 500 600 | 2h | safe"></textarea>
     </section>
@@ -9507,6 +10785,8 @@ const STORE = {
         <button id="gb-ab-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Queue now</button>
       </div>
       <div style="font-size:9px;color:#888;margin-bottom:4px">Auto only fills when <=1 order left: adds up to 6 (or queue max). Next fill waits half(build time)+5min+rand - not right when a build finishes. Targets = cur/tgt/max.</div>
+      <div style="font-size:10px;color:#f5a623;margin:4px 0 2px">Next 3 <span style="color:#666;font-weight:normal">(heuristic plan)</span></div>
+      <div class="ab-plan"></div>
       <div class="ab-queue"></div>
       <div id="gb-ab-status" style="font-size:10px;color:#888;margin-top:4px"></div>
     </section>
@@ -9526,8 +10806,13 @@ const STORE = {
       <pre class="intel-panel" style="font-size:10px;white-space:pre-wrap;background:#111;padding:6px;border:1px solid #333;max-height:280px;overflow:auto;color:#cfc"></pre>
       <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <input id="gb-note-player" placeholder="player" style="width:80px;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
-        <input id="gb-note-text" placeholder="note" style="flex:1;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
+        <input id="gb-note-text" placeholder="note" maxlength="200" style="flex:1;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
         <button id="gb-note-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Save note</button>
+      </div>
+      <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <input id="gb-ally-name" placeholder="alliance" style="width:80px;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
+        <input id="gb-ally-note" placeholder="alliance note" maxlength="200" style="flex:1;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
+        <button id="gb-ally-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Save ally note</button>
       </div>
     </section>
     <section data-tab="config" hidden>
@@ -9587,11 +10872,12 @@ const STORE = {
         <label style="margin-left:12px;flex-wrap:wrap">Preset
           <select data-cfg="trade-preset" style="background:#111;color:#cfc;border:1px solid #333;margin-left:4px">
             <option value="storage">storage</option>
-            <option value="party">party (unimplemented)</option>
-            <option value="unit">unit (unimplemented)</option>
+            <option value="party">party (fund culture)</option>
+            <option value="unit">unit (fund recruit)</option>
           </select>
           Reserve % <input type="number" data-cfg="trade-reserve" min="0" max="80" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
           Min batch <input type="number" data-cfg="trade-min" min="100" max="50000" step="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
+          Max island hops <input type="number" data-cfg="trade-max-hops" min="0" max="200" step="1" title="Refuse fill-storage across islands farther than this (0 = same-island only). Unreadable island never blocks." style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="island-ship"/> Mainland->island res ship</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-trade"/> Rural village trade</label>
@@ -9609,14 +10895,27 @@ const STORE = {
         <label style="margin-left:12px">Hours <input type="number" data-cfg="night-start" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/>-<input type="number" data-cfg="night-end" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Log every payload the bot would send and send nothing. Use it to compare bot payloads against a hand-clicked action before enabling a risky feature."><input type="checkbox" data-cfg="dry-run"/> <b style="color:#6cf">Dry run (log payloads, send nothing)</b></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="A feature that keeps finding nothing to do doubles its own interval (up to 8x) until it acts again."><input type="checkbox" data-cfg="orch-adaptive"/> Adaptive cadence (back off idle features)</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="When a warehouse is pinned full, promote cave→trade→rural ahead of farm and suppress idle backoff on the drain path."><input type="checkbox" data-cfg="orch-deadlock"/> Warehouse deadlock resolve</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Copy/Export replace player names and ids with short hashes. Turn OFF only for local debugging."><input type="checkbox" data-cfg="export-redact"/> Redact names/ids in Copy + Export</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="captcha-global"/> Global captcha kill-switch</label>
+        <label>Captcha backoff (min) <input type="text" data-cfg="captcha-ladder" placeholder="5,15,60" title="Comma-separated minutes; min 1 each. Floor prevents disabling the breaker." style="width:100px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
+        <button type="button" data-cfg="captcha-clear" style="align-self:flex-start;background:#333;border:1px solid #555;color:#fc6;padding:2px 6px;cursor:pointer;font-size:10px">Clear captcha pauses</button>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Skip an action that failed the same way 3x in a row (5/15/60min backoff). Journal keeps recording either way."><input type="checkbox" data-cfg="decision-memory"/> Decision memory (skip repeat failures)</label>
-        <label>Req budget / min <input type="number" data-cfg="req-budget" min="5" max="120" style="width:50px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
+        <label>Req budget / min <input type="number" data-cfg="req-budget" min="5" max="120" style="width:50px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
+          Soft % <input type="number" data-cfg="posts-soft" min="20" max="95" title="Delay (not reject) when trailing-minute posts exceed this % of the hard budget" style="width:45px;background:#111;color:#cfc;border:1px solid #333;margin-left:4px"/></label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:10px">
+          Presets
+          <button type="button" data-preset="afk" style="background:#333;border:1px solid #555;color:#8cf;padding:2px 6px;cursor:pointer">AFK overnight</button>
+          <button type="button" data-preset="farm" style="background:#333;border:1px solid #555;color:#8cf;padding:2px 6px;cursor:pointer">Active farming</button>
+          <button type="button" data-preset="war" style="background:#333;border:1px solid #555;color:#fc6;padding:2px 6px;cursor:pointer">War</button>
+          <button type="button" data-preset="undo" style="background:#333;border:1px solid #555;color:#aaa;padding:2px 6px;cursor:pointer">Undo preset</button>
+        </div>
+        <button type="button" data-cfg="storage-prune" style="align-self:flex-start;background:#333;border:1px solid #555;color:#fc6;padding:2px 6px;cursor:pointer;font-size:10px">Prune seen/alerted (storage)</button>
         <label>Webhook URL <input type="text" data-cfg="webhook-url" placeholder="Discord webhook or https://api.telegram.org/bot.../sendMessage" style="width:100%;background:#111;color:#cfc;border:1px solid #333;margin-top:2px;font-size:10px"/></label>
         <label style="margin-left:0;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">Events
           <label><input type="checkbox" data-cfg="wh-captcha"/> captcha</label>
           <label><input type="checkbox" data-cfg="wh-attack"/> attack</label>
+          <label><input type="checkbox" data-cfg="wh-pattern"/> pattern (3×/24h)</label>
           <label><input type="checkbox" data-cfg="wh-warehouse"/> warehouse</label>
           <label><input type="checkbox" data-cfg="wh-culture"/> culture</label>
         </label>
@@ -9625,6 +10924,7 @@ const STORE = {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-merchant"/> Merchant sniper</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-favor"/> Favor farm (godsent)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-wonder"/> WW donations</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Spend favor on alliance wonder. Requires sniffed wonderFavorTpl. Default OFF."><input type="checkbox" data-cfg="auto-wonder-favor"/> WW favor cast (sniff power first)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="cs-alert"/> CS / incoming alerts</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-militia"/> Auto-militia on incoming</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-dodge"/> Auto-dodge</label>
@@ -9656,6 +10956,7 @@ const STORE = {
       <div class="gb-logsub">
         <button data-logsub="live" class="on">Live log</button>
         <button data-logsub="mem">Decisions</button>
+        <button type="button" data-act="evidence" title="Read-only redacted snapshot for TASKS gates. Copies JSON. Posts nothing.">Evidence</button>
         <input class="jrn-filter" placeholder="filter feature/action/target"/>
       </div>
       <div class="log-list"></div>
@@ -9673,6 +10974,7 @@ const STORE = {
       <div class="gb-status-row">
         <span id="gb-next-farms" style="color:#6cf"></span>
         <span id="gb-next-towns" style="color:#fc6"></span>
+        <span id="gb-last-action" style="color:#8c8"></span>
         <span id="gb-collect-state" style="color:#f96;font-weight:bold"></span>
         <span id="gb-status" style="color:#888"></span>
       </div>
@@ -9685,6 +10987,7 @@ const STORE = {
           <button type="button" data-act="scrape-farms">Farms now</button>
           <button type="button" data-act="scrape-towns">Towns now</button>
           <button type="button" data-act="diag">Diag</button>
+          <button type="button" data-act="evidence" title="Read-only redacted snapshot for TASKS gates">Evidence</button>
           <button type="button" data-act="preflight">Preflight</button>
           <button type="button" data-act="clear">Clear findings</button>
           <button type="button" data-act="reset-pos" title="Reset panel position">Reset position</button>
@@ -9784,6 +11087,11 @@ const STORE = {
     const n = panel.querySelector('#gb-note-text')?.value?.trim();
     if (p) { intelSetNote(p, n); renderIntel(); flash('note saved'); }
   });
+  panel.querySelector('#gb-ally-save')?.addEventListener('click', () => {
+    const a = panel.querySelector('#gb-ally-name')?.value?.trim();
+    const n = panel.querySelector('#gb-ally-note')?.value?.trim();
+    if (a) { intelSetAllianceNote(a, n); renderIntel(); flash('alliance note saved'); }
+  });
   panel.querySelector('#gb-quest-scan')?.addEventListener('click', () => {
     questScanTick('manual');
     gbTimeout(renderQuests, 600);
@@ -9868,6 +11176,9 @@ const STORE = {
   panel.querySelector('footer button[data-act=diag]').addEventListener('click', () => {
     diagRun();
   });
+  panel.querySelectorAll('button[data-act=evidence]').forEach(btn => {
+    btn.addEventListener('click', () => { evidenceCopy(); });
+  });
   panel.querySelector('footer button[data-act=preflight]')?.addEventListener('click', () => {
     showTab('stats');
     preflightRunAndRender();
@@ -9925,6 +11236,7 @@ const STORE = {
       const ct = sec.querySelector('[data-cfg=cave-thresh]'); if (ct) ct.value = state.caveThreshPct;
       const dr = sec.querySelector('[data-cfg=dry-run]'); if (dr) dr.checked = !!state.dryRun;
       const oa = sec.querySelector('[data-cfg=orch-adaptive]'); if (oa) oa.checked = state.orchAdaptive !== false;
+      const od = sec.querySelector('[data-cfg=orch-deadlock]'); if (od) od.checked = state.orchDeadlockResolve !== false;
       const er = sec.querySelector('[data-cfg=export-redact]'); if (er) er.checked = state.exportRedact !== false;
       renderCaveTowns();
       return;
@@ -10065,6 +11377,7 @@ const STORE = {
     setChk('[data-cfg=decision-memory]', state.decisionMemory !== false);
     setChk('[data-cfg=dry-run]', !!state.dryRun);
     setChk('[data-cfg=orch-adaptive]', state.orchAdaptive !== false);
+    setChk('[data-cfg=orch-deadlock]', state.orchDeadlockResolve !== false);
     setChk('[data-cfg=export-redact]', state.exportRedact !== false);
     setChk('[data-cfg=auto-merchant]', state.autoMerchant);
     setChk('[data-cfg=auto-favor]', state.autoFavor);
@@ -10081,6 +11394,10 @@ const STORE = {
     setNum('[data-cfg=night-start]', state.nightStart);
     setNum('[data-cfg=night-end]', state.nightEnd);
     setNum('[data-cfg=req-budget]', state.reqBudgetPerMin);
+    setNum('[data-cfg=posts-soft]', state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60);
+    const cl = sec.querySelector('[data-cfg=captcha-ladder]');
+    if (cl) cl.value = (state.captchaLadder || [5, 15, 60]).join(',');
+    setChk('[data-cfg=auto-wonder-favor]', !!state.autoWonderFavor);
     setNum('[data-cfg=dodge-floor]', state.dodgeFloor);
     const rr = sec.querySelector('[data-cfg=rural-res]'); if (rr) rr.value = state.ruralTradeRes || 'iron';
     const dm = sec.querySelector('[data-cfg=dodge-mode]'); if (dm) dm.value = state.dodgeMode || 'notify';
@@ -10088,12 +11405,14 @@ const STORE = {
     const we = state.webhookEvents || {};
     setChk('[data-cfg=wh-captcha]', we.captcha !== false);
     setChk('[data-cfg=wh-attack]', we.attack !== false);
+    setChk('[data-cfg=wh-pattern]', we.pattern !== false);
     setChk('[data-cfg=wh-warehouse]', !!we.warehouse);
     setChk('[data-cfg=wh-culture]', !!we.culture);
     const tg = sec.querySelector('[data-cfg=wh-tg-chat]'); if (tg) tg.value = we.telegramChatId || '';
     const tp = sec.querySelector('[data-cfg=trade-preset]'); if (tp) tp.value = state.tradePreset || 'storage';
     setNum('[data-cfg=trade-reserve]', state.tradeReservePct);
     setNum('[data-cfg=trade-min]', state.tradeMinBatch);
+    setNum('[data-cfg=trade-max-hops]', state.tradeMaxHops);
     const bindToggle = (sel, key, store, onOn) => {
       sec.querySelector(sel)?.addEventListener('change', e => {
         state[key] = e.target.checked; save(store, state[key]);
@@ -10112,6 +11431,7 @@ const STORE = {
     bindToggle('[data-cfg=captcha-global]', 'captchaGlobalKill', STORE.CAPTCHA_GLOBAL);
     bindToggle('[data-cfg=decision-memory]', 'decisionMemory', STORE.DECISION_MEM);
     bindToggle('[data-cfg=orch-adaptive]', 'orchAdaptive', STORE.ORCH_ADAPTIVE);
+    bindToggle('[data-cfg=orch-deadlock]', 'orchDeadlockResolve', STORE.ORCH_DEADLOCK);
     bindToggle('[data-cfg=export-redact]', 'exportRedact', STORE.EXPORT_REDACT);
     sec.querySelector('[data-cfg=dry-run]')?.addEventListener('change', e => {
       state.dryRun = e.target.checked; save(STORE.DRY_RUN, state.dryRun);
@@ -10151,6 +11471,104 @@ const STORE = {
     saveNum('[data-cfg=night-start]', v => { state.nightStart = v; save(STORE.NIGHT_START, v); });
     saveNum('[data-cfg=night-end]', v => { state.nightEnd = v; save(STORE.NIGHT_END, v); });
     saveNum('[data-cfg=req-budget]', v => { state.reqBudgetPerMin = v; save(STORE.REQ_BUDGET, v); });
+    saveNum('[data-cfg=posts-soft]', v => {
+      state.postsPerMinSoftPct = Math.min(95, Math.max(20, v || 60));
+      save(STORE.POSTS_SOFT_PCT, state.postsPerMinSoftPct);
+    });
+    sec.querySelector('[data-cfg=captcha-ladder]')?.addEventListener('change', e => {
+      const parts = String(e.target.value || '').split(/[,;\s]+/).map(x => Math.max(1, Math.min(24 * 60, +x || 0))).filter(n => n >= 1);
+      if (parts.length < 1) { flash('ladder needs ≥1 value'); return; }
+      if (parts.some(n => n < 2)) gbLog('captcha ladder: values <2min are aggressive');
+      state.captchaLadder = parts;
+      save(STORE.CAPTCHA_LADDER, parts);
+      flash('captcha ladder ' + parts.join(','));
+    });
+    sec.querySelector('[data-cfg=captcha-clear]')?.addEventListener('click', () => {
+      captchaClear();
+      flash('captcha pauses cleared');
+      updateStatus();
+    });
+    sec.querySelector('[data-cfg=storage-prune]')?.addEventListener('click', () => {
+      const before = JSON.stringify(state.seen || {}).length + JSON.stringify(state.alerted || {}).length;
+      const ids = Object.keys(state.seen || {});
+      if (ids.length > 500) {
+        ids.slice(0, ids.length - 500).forEach(k => { delete state.seen[k]; });
+        save(STORE.SEEN, state.seen);
+      }
+      const aks = Object.keys(state.alerted || {});
+      const cut = Date.now() - 7 * 86400000;
+      aks.forEach(k => { if ((state.alerted[k] || 0) < cut) delete state.alerted[k]; });
+      save(STORE.ALERTED, state.alerted);
+      const after = JSON.stringify(state.seen || {}).length + JSON.stringify(state.alerted || {}).length;
+      flash('pruned ~' + Math.max(0, before - after) + 'B');
+      gbLog('storage prune: seen=' + Object.keys(state.seen).length + ' alerted=' + Object.keys(state.alerted).length);
+    });
+    bindToggle('[data-cfg=auto-wonder-favor]', 'autoWonderFavor', STORE.AUTO_WONDER_FAVOR);
+    let _presetUndo = null;
+    sec.querySelectorAll('[data-preset]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const kind = btn.dataset.preset;
+        if (kind === 'undo') {
+          if (!_presetUndo) { flash('nothing to undo'); return; }
+          Object.keys(_presetUndo).forEach(k => { state[k] = _presetUndo[k]; });
+          _presetUndo = null;
+          bindConfig();
+          flash('preset undone');
+          return;
+        }
+        const presets = {
+          afk: {
+            autoFarm: true, farmSleepAuto: true, farmLongClaims: true,
+            autoCave: true, autoTrade: true, islandShip: true, autoCulture: true,
+            autoResearch: true, abAuto: true, ibAuto: false, autoCollect: false,
+            nightPause: true, dodgeMode: 'notify', autoDodge: false,
+            autoRecruit: false, autoFavor: false,
+          },
+          farm: {
+            autoFarm: true, farmSleepAuto: false, farmLongClaims: true,
+            autoCave: true, autoTrade: true, islandShip: true, autoCulture: true,
+            autoResearch: true, abAuto: true, ibAuto: true, autoCollect: true,
+            nightPause: false, dodgeMode: 'notify', autoDodge: false,
+            autoRecruit: false, autoFavor: false,
+          },
+          war: {
+            autoFarm: true, autoCave: true, autoTrade: true, islandShip: true,
+            autoCulture: false, autoResearch: false, abAuto: false, ibAuto: false,
+            autoCollect: true, nightPause: false, dodgeMode: 'notify', autoDodge: false,
+            autoRecruit: false, autoFavor: false,
+          },
+        };
+        const patch = presets[kind];
+        if (!patch) return;
+        const keys = Object.keys(patch);
+        const diff = keys.map(k => `${k}: ${state[k]}→${patch[k]}`).join(', ');
+        if (!confirm('Apply ' + kind + ' preset?\n' + diff + '\n\nHIGH-RISK stays OFF. dryRun/hosts untouched.')) return;
+        _presetUndo = {};
+        keys.forEach(k => { _presetUndo[k] = state[k]; state[k] = patch[k]; });
+
+        try {
+          save(STORE.AUTO_FARM, state.autoFarm);
+          save(STORE.AUTO_CAVE, state.autoCave);
+          save(STORE.AUTO_TRADE, state.autoTrade);
+          save(STORE.ISLAND_SHIP, state.islandShip);
+          save(STORE.AUTO_CULTURE, state.autoCulture);
+          save(STORE.AUTO_RESEARCH, state.autoResearch);
+          save(STORE.AB_AUTO, state.abAuto);
+          save(STORE.IB_AUTO, state.ibAuto);
+          save(STORE.AUTO_COLLECT, state.autoCollect);
+          save(STORE.NIGHT_PAUSE, state.nightPause);
+          save(STORE.DODGE_MODE, state.dodgeMode);
+          save(STORE.AUTO_DODGE, false);
+          save(STORE.AUTO_RECRUIT, false);
+          save(STORE.AUTO_FAVOR, false);
+          save(STORE.FARM_SLEEP_AUTO, state.farmSleepAuto);
+          save(STORE.FARM_LONG_CLAIMS, state.farmLongClaims);
+        } catch (_) {}
+        bindConfig();
+        flash('preset ' + kind + ' applied');
+        gbLog('preset: ' + kind + ' (' + keys.length + ' keys)');
+      });
+    });
     saveNum('[data-cfg=dodge-floor]', v => { state.dodgeFloor = v; save(STORE.DODGE_FLOOR, v); });
     sec.querySelector('[data-cfg=rural-res]')?.addEventListener('change', e => {
       state.ruralTradeRes = e.target.value; save(STORE.RURAL_TRADE_RES, state.ruralTradeRes);
@@ -10166,13 +11584,14 @@ const STORE = {
       state.webhookEvents = {
         captcha: !!sec.querySelector('[data-cfg=wh-captcha]')?.checked,
         attack: !!sec.querySelector('[data-cfg=wh-attack]')?.checked,
+        pattern: !!sec.querySelector('[data-cfg=wh-pattern]')?.checked,
         warehouse: !!sec.querySelector('[data-cfg=wh-warehouse]')?.checked,
         culture: !!sec.querySelector('[data-cfg=wh-culture]')?.checked,
         telegramChatId: (sec.querySelector('[data-cfg=wh-tg-chat]')?.value || '').trim() || undefined,
       };
       save(STORE.WEBHOOK_EVENTS, state.webhookEvents);
     };
-    ['wh-captcha', 'wh-attack', 'wh-warehouse', 'wh-culture'].forEach(k => {
+    ['wh-captcha', 'wh-attack', 'wh-pattern', 'wh-warehouse', 'wh-culture'].forEach(k => {
       sec.querySelector('[data-cfg=' + k + ']')?.addEventListener('change', saveWebhookEvents);
     });
     sec.querySelector('[data-cfg=wh-tg-chat]')?.addEventListener('change', saveWebhookEvents);
@@ -10185,6 +11604,9 @@ const STORE = {
     });
     saveNum('[data-cfg=trade-min]', v => {
       state.tradeMinBatch = Math.max(100, v); save(STORE.TRADE_MIN, state.tradeMinBatch);
+    });
+    saveNum('[data-cfg=trade-max-hops]', v => {
+      state.tradeMaxHops = Math.max(0, Math.min(200, v)); save(STORE.TRADE_MAX_HOPS, state.tradeMaxHops);
     });
     sec.querySelector('[data-cfg=research-csfast]')?.addEventListener('click', () => {
       researchLoadCsFast(); flash('CS-fast research');
@@ -10500,6 +11922,7 @@ const STORE = {
 
   let _statusLast = '';
   let _statusCsLast = '';
+  let _statusLastAction = '';
   function updateStatus() {
     if (!panel) return;
     const el = panel.querySelector('#gb-status');
@@ -10518,12 +11941,44 @@ const STORE = {
     const memSkips = jrnActiveSkips();
     if (memSkips.length) pauseTxt += ` mem:${memSkips.length}`;
     if (gbServerPaused()) pauseTxt += ` ||srv:${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}`;
+    try {
+      const dl = typeof econDeadlock === 'function' ? econDeadlock() : null;
+      if (dl && dl.open) pauseTxt += ' WH';
+    } catch (_) {}
+    try {
+      const tb = typeof tplHealthBannerText === 'function' ? tplHealthBannerText() : '';
+      if (tb) pauseTxt += ' tpl!';
+    } catch (_) {}
     const dryTxt = state.dryRun ? ' DRY' : '';
     const txt = `csrf:${csrfShort} farms:${okFarms}/${farms}${errTxt}${dryTxt}${pauseTxt}`;
     if (txt !== _statusLast) {
       _statusLast = txt;
       el.textContent = txt;
-      el.title = JSON.stringify({ csrf: !!state.csrf, captcha: state.captchaBreakers, pause: pauseInfo.reason, memory: memSkips.map(s => s.key) });
+      let titleExtra = '';
+      try { titleExtra = tplHealthBannerText() || ''; } catch (_) {}
+      el.title = (titleExtra ? titleExtra + ' | ' : '') + JSON.stringify({ csrf: !!state.csrf, captcha: state.captchaBreakers, pause: pauseInfo.reason, memory: memSkips.map(s => s.key) });
+    }
+    const la = panel.querySelector('#gb-last-action');
+    if (la) {
+      let chip = '';
+      try {
+        const list = state.decisions || [];
+        for (let i = list.length - 1; i >= 0; i--) {
+          const r = list[i];
+          if (!r || r.r !== 'ok') continue;
+          const ago = Math.max(0, Math.round((Date.now() - r.ts) / 1000));
+          const agoTxt = ago < 60 ? ago + 's' : (ago < 3600 ? Math.round(ago / 60) + 'm' : Math.round(ago / 3600) + 'h');
+          const act = String(r.a || '').slice(0, 18);
+          chip = `${r.f}: ${act} OK ${agoTxt} ago`;
+          la.style.color = ago > 900 && hostEnabled() && !pauseInfo.reason ? '#fc6' : '#8c8';
+          break;
+        }
+        if (!chip && state.dryRun) chip = 'DRY (no live OK)';
+      } catch (_) {}
+      if (chip !== (_statusLastAction || '')) {
+        _statusLastAction = chip;
+        la.textContent = chip;
+      }
     }
     const cs = panel.querySelector('#gb-collect-state');
     if (cs) {
@@ -10718,7 +12173,20 @@ const STORE = {
   if (!state.nextFarmScrape) { state.nextFarmScrape = Date.now() + 20000; save(STORE.NEXT_FARM, state.nextFarmScrape); }
   if (!state.nextTownsScrape) { state.nextTownsScrape = Date.now() + 30000; save(STORE.NEXT_TOWNS, state.nextTownsScrape); }
   gbInterval(farmTick, 15000);
-  gbListen(document, 'visibilitychange', () => { if (!document.hidden) farmTick(); });
+  gbListen(document, 'visibilitychange', () => {
+    if (!document.hidden) {
+      try { gbWakeMarkResume('visible'); } catch (_) {}
+      farmTick();
+      try { reportCatchUpEnqueue(); } catch (_) {}
+    }
+  });
+  gbListen(window, 'pageshow', (e) => {
+    if (e && e.persisted) {
+      try { gbWakeMarkResume('bfcache'); } catch (_) {}
+      farmTick();
+      try { reportCatchUpEnqueue(); } catch (_) {}
+    }
+  });
   gbInterval(checkThresholds, 30000);
   gbInterval(renderTimers, 1000);
   gbInterval(updateStatus, 5000);
@@ -10734,12 +12202,22 @@ const STORE = {
       t = t.parentElement;
     }
   }, true);
-  gbTimeout(() => { ibScan(); gbInterval(ibScan, IB_CHECK_MS); }, 8000);
+  gbTimeout(() => {
+    const scan = () => {
+      if (gbInWakeBurst && gbInWakeBurst()) gbWake('ibScan', () => ibScan(), { priority: 10 });
+      else ibScan();
+    };
+    scan();
+    gbInterval(scan, IB_CHECK_MS);
+  }, 8000);
   gbTimeout(() => { abEnsureTargets(); }, 12000);
   gbInterval(() => dodgeScan('loop'), DODGE_CHECK_MS);
 
   gbTimeout(() => { if (hostEnabled()) orchTick(); }, 15000);
-  gbInterval(() => orchTick(), ORCH_MS);
+  gbInterval(() => {
+    if (gbInWakeBurst && gbInWakeBurst()) gbWake('orchTick', () => orchTick(), { priority: 30 });
+    else orchTick();
+  }, ORCH_MS);
   gbInterval(() => {
 
     renderOverview();

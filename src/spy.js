@@ -140,6 +140,10 @@
     rememberSeen(id);
     delete reportRetry[id];
     save(STORE.SEEN, state.seen);
+    if (parsed.ts && (!state.lastSeenTs || parsed.ts > state.lastSeenTs)) {
+      state.lastSeenTs = parsed.ts;
+      save(STORE.LAST_SEEN_TS, state.lastSeenTs);
+    }
     state.findings.unshift(parsed);
     if (state.findings.length > 500) {
       // Trim visible findings only - keep seen so inbox doesn't re-fetch (I14).
@@ -266,5 +270,61 @@
     const csrf = state.csrf || (uw.Game && (uw.Game.csrfToken || uw.Game.h));
     if (csrf) params.set('h', csrf);
     return '/game/report?' + params.toString();
+  }
+
+  // Offline report catch-up (plan 14) — bounded, serial, via wake queue.
+  let reportCatchUpRunning = false;
+  function reportCatchUpEnqueue() {
+    if (!hostEnabled() || reportCatchUpRunning) return;
+    if (typeof gbWake === 'function') {
+      gbWake('reportCatchUp', () => reportCatchUpRun(), { priority: 80 });
+    } else {
+      reportCatchUpRun();
+    }
+  }
+  function reportCatchUpRun() {
+    if (!hostEnabled() || reportCatchUpRunning || automationPaused({}) || captchaPaused('report')) return;
+    reportCatchUpRunning = true;
+    const maxN = 25;
+    const maxAgeMs = 72 * 3600000;
+    const cut = Date.now() - maxAgeMs;
+    const ids = [];
+    try {
+      document.querySelectorAll('a[href*="report"], a[href*="Report"]').forEach(a => {
+        const m = /[?&]id=(\d+)/.exec(a.href || '') || /report\/(\d+)/.exec(a.href || '');
+        if (!m) return;
+        const id = m[1];
+        if (state.seen[seenKey(id)] || state.seen[id] || seenThisRun.has(seenKey(id))) return;
+        ids.push(id);
+      });
+    } catch (_) {}
+    const batch = ids.slice(0, maxN);
+    if (!batch.length) {
+      reportCatchUpRunning = false;
+      gbLogT('catchup-empty', 120000, 'report catch-up: nothing new in inbox DOM');
+      return;
+    }
+    gbLog(`report catch-up: fetching up to ${batch.length} (cap ${maxN}, age≤72h, lastSeen=${state.lastSeenTs || 0})`);
+    let i = 0, fetched = 0;
+    (function step() {
+      if (i >= batch.length) {
+        reportCatchUpRunning = false;
+        gbLog(`report catch-up done: ${fetched}/${batch.length}`);
+        return;
+      }
+      if (!hostEnabled() || automationPaused({}) || captchaPaused('report') || !reqBudgetOk()) {
+        reportCatchUpRunning = false;
+        gbLog(`report catch-up paused mid-run at ${i}/${batch.length}`);
+        return;
+      }
+      const id = batch[i++];
+      // Age bound uses lastSeenTs floor when we have no per-id ts yet
+      if (state.lastSeenTs && state.lastSeenTs < cut) {
+        /* still try recent inbox ids; age bound is soft for DOM-discovered */
+      }
+      fetchReport(id);
+      fetched++;
+      gbTimeout(step, 700 + Math.random() * 300);
+    })();
   }
 

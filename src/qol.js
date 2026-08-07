@@ -153,6 +153,7 @@
       merchantWish: state.merchantWish,
       priorityOrder: state.priorityOrder,
       playerNotes: state.playerNotes,
+      allianceNotes: state.allianceNotes,
       watchlist: state.watchlist,
     };
     return dump;
@@ -160,7 +161,8 @@
   function qolImportConfig(obj) {
     if (!obj || typeof obj !== 'object') return false;
     const keys = ['abTargets', 'researchTargets', 'recruitTargets', 'cityTemplates', 'townGroups',
-      'cultureTypes', 'favorCfg', 'wonderCfg', 'merchantWish', 'priorityOrder', 'playerNotes', 'watchlist'];
+      'cultureTypes', 'favorCfg', 'wonderCfg', 'merchantWish', 'priorityOrder', 'playerNotes',
+      'allianceNotes', 'watchlist'];
     keys.forEach(k => {
       if (obj[k] != null) {
         state[k] = obj[k];
@@ -176,6 +178,7 @@
           merchantWish: STORE.MERCHANT_WISH,
           priorityOrder: STORE.PRIORITY_ORDER,
           playerNotes: STORE.PLAYER_NOTES,
+          allianceNotes: STORE.ALLIANCE_NOTES,
           watchlist: STORE.WATCHLIST,
         }[k];
         if (storeKey) save(storeKey, state[k]);

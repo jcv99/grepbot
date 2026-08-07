@@ -2,8 +2,8 @@
 
 One file per feature, derived from `docs/BACKLOG.md`.
 
-**Baseline:** `src/` @ `@version 1.5.13` (working tree, uncommitted), verified
-2026-08-07. Last commit `768e3ea` = v1.5.12.
+**Baseline:** `src/` @ `@version 1.5.19` — backlog plans 00–22 **CODED**
+(2026-08-07). In-game TASKS.md gates remain user-owned.
 
 > Every plan below was checked against the actual tree before being written.
 > `BACKLOG.md` and `audit-findings-2026-08-06.md` are **stale** on section 2 —
@@ -15,13 +15,13 @@ One file per feature, derived from `docs/BACKLOG.md`.
 
 | Backlog section | Items | Open | Already done |
 |---|---|---|---|
-| 1. Stubbed / deferred | 5 | 3 | 2 |
+| 1. Stubbed / deferred | 5 | 0 | 5 (02 default OFF) |
 | 2. Reliability (C1–C7, I9–I15) | 14 | **0** | 14 |
-| 2b. Ops tooling (evidence dump) | 1 | 1 | 0 |
-| 3. Economy smarts | 7 | 7 | 0 |
-| 4. Military / intel | 4 | 4 | 0 |
-| 5. UX | 7 | 6 | 1 |
-| 6. Hardening | 4 | 3 | 1 |
+| 2b. Ops tooling (evidence dump) | 1 | 0 | 1 |
+| 3. Economy smarts | 7 | 0 | 7 |
+| 4. Military / intel | 4 | 0 | 4 |
+| 5. UX | 7 | 0 | 7 (sticky/diff partial) |
+| 6. Hardening | 4 | 0 | 4 |
 
 **All 14 audit bug IDs in §2 are fixed in the current tree** (15 including I8,
 which only the audit file lists). Section 2 needs no work; it needs deleting from

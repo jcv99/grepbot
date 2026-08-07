@@ -132,3 +132,34 @@
       });
     });
   }
+
+  // Wonder favor cast (plan 02 / ROADMAP 11.4) — default OFF; requires sniffed tpl.
+  function wonderFavorScan(reason) {
+    if (!hostEnabled() || !state.autoWonderFavor || captchaPaused('wonder')) return;
+    if (automationPaused({})) return;
+    if (gbLocked('wonder-favor')) return;
+    const tpl = state.wonderFavorTpl;
+    if (!tpl || !tpl.action_name) {
+      gbLogT('wonder-favor-tpl', 300000, 'wonder favor: hand-cast once to teach wonderFavorTpl');
+      return;
+    }
+    const cfg = state.wonderCfg || {};
+    if (!cfg.wonderId) {
+      gbLogT('wonder-favor-id', 300000, 'wonder favor: set wonderCfg.wonderId');
+      return;
+    }
+    gbLock('wonder-favor');
+    const payload = Object.assign({}, tpl, {
+      arguments: Object.assign({}, tpl.arguments || {}, {
+        wonder_id: +cfg.wonderId,
+      }),
+      town_id: tpl.town_id,
+    });
+    bridgePost('wonder', payload, (err) => {
+      gbUnlock('wonder-favor');
+      if (!err) gbLog('wonder favor: cast OK (' + (reason || 'scan') + ')');
+      else if (err !== 'captcha' && err !== 'captcha-pause' && err !== 'dryrun') {
+        gbLogT('wonder-favor-err', 60000, 'wonder favor err ' + err);
+      }
+    });
+  }

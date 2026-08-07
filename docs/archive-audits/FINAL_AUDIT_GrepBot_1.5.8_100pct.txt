@@ -1,3 +1,5 @@
+> **ARCHIVED / STALE (2026-08-07).** Written against GrepBot 1.5.8. Spot-check vs v1.5.14: P0-01 dry-run DOM (`gbDomClick`), P0-02 `autoCollect` toggle, P0-03 `sourceTownIds` null-vs-[] are fixed in tree. Do not re-implement from this file — verify each claim with grep first. Live work: `docs/plans/`.
+
 # FINAL AUDIT — GrepBot 1.5.8
 
 **Audited file:** `grepbot (1).user(1).js`  

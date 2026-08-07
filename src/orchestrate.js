@@ -57,9 +57,12 @@
     rurallevel: () => { try { ruralLevelScan('orch'); } catch (_) {} },
     recruit: () => { try { recruitScan('orch'); } catch (_) {} },
     merchant: () => { try { merchantScan('orch'); } catch (_) {} },
-    favor: () => { try { favorScan('orch'); } catch (_) {} },
-    wonder: () => { try { wonderScan('orch'); } catch (_) {} },
-  };
+      favor: () => { try { favorScan('orch'); } catch (_) {} },
+      wonder: () => {
+        try { wonderScan('orch'); } catch (_) {}
+        try { wonderFavorScan('orch'); } catch (_) {}
+      },
+    };
   function orchFeatureEnabled(key) {
     return {
       culture: state.autoCulture,
@@ -94,8 +97,41 @@
   // Adaptive cadence: a feature that keeps finding nothing (cave on a world
   // with no spare iron, wonder outside a WW world) doubles its own interval up
   // to ORCH_IDLE_MAX, freeing budget for features that do act. One post resets it.
+  // Snapshot of scheduler state for the Stats tab / preflight.
+  let _econDeadlock = { open: false, towns: [], at: 0 };
+  function econDeadlock() {
+    if (state.orchDeadlockResolve === false) {
+      if (_econDeadlock.open) {
+        _econDeadlock = { open: false, towns: [], at: Date.now() };
+        gbLog('orch: deadlock resolve OFF - cleared');
+      }
+      return _econDeadlock;
+    }
+    const pinned = [];
+    try {
+      const towns = (typeof townsFromGame === 'function' ? townsFromGame() : null) || state.towns || [];
+      towns.forEach(t => {
+        const id = t && t.id != null ? t.id : t;
+        if (id == null) return;
+        if (townIsPinned(id)) pinned.push(String(id));
+      });
+    } catch (_) {}
+    const farmOn = !!state.autoFarm;
+    const farmIdle = (orchIdle.farm || 0) >= 2;
+    const open = pinned.length > 0 && farmOn && farmIdle;
+    if (open && !_econDeadlock.open) {
+      gbLog('orch: warehouse deadlock OPEN towns=' + pinned.join(','));
+    } else if (!open && _econDeadlock.open) {
+      gbLog('orch: warehouse deadlock CLOSED');
+    }
+    _econDeadlock = { open, towns: pinned, at: Date.now() };
+    return _econDeadlock;
+  }
   function orchIdleFactor(key) {
     if (state.orchAdaptive === false) return 1;
+    // Deadlock drain path must not widen - that is the trap the resolver exists to break.
+    const dl = _econDeadlock;
+    if (dl && dl.open && (key === 'cave' || key === 'trade' || key === 'ruraltrade')) return 1;
     const streak = orchIdle[key] || 0;
     if (streak < ORCH_IDLE_TRIP) return 1;
     return Math.min(ORCH_IDLE_MAX, 1 << Math.min(3, streak - ORCH_IDLE_TRIP + 1));
@@ -137,6 +173,7 @@
   function orchTick() {
     if (!hostEnabled()) return;
     if (automationPaused({})) return;
+    const dl = econDeadlock();
     const configured = (state.priorityOrder && state.priorityOrder.length)
       ? state.priorityOrder : orchDefaultOrder();
     // Anything the user did not rank still runs, just after the ranked ones.
@@ -156,14 +193,21 @@
       due.push({ key, rank: i, overdue });
     }
     if (!due.length) return;
-    // Priority first, but a feature that has been waiting more than 2 full ticks
-    // longer than a higher-ranked one jumps ahead - that is the anti-starvation
-    // rule, without letting a low-priority feature win on a normal tick.
+    const DRAIN_RANK = { cave: 0, trade: 1, ruraltrade: 2, farm: 99 };
     due.sort((a, b) => {
+      if (dl && dl.open) {
+        const da = DRAIN_RANK[a.key], db = DRAIN_RANK[b.key];
+        if (da != null && db != null && da !== db) return da - db;
+        if (da != null && db == null) return -1;
+        if (db != null && da == null) return 1;
+      }
       const gap = b.overdue - a.overdue;
       if (Math.abs(gap) > ORCH_MS * 2) return gap;
       return a.rank - b.rank;
     });
+    if (dl && dl.open && !due.some(d => d.key === 'cave' || d.key === 'trade' || d.key === 'ruraltrade')) {
+      gbLogT('deadlock-stuck', 300000, 'orch: deadlock open but nothing can drain - spend resources manually');
+    }
     const run = due.slice(0, ORCH_MAX_PER_TICK);
     run.forEach((item, idx) => {
       const fire = () => {

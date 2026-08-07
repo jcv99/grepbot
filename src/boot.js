@@ -60,7 +60,20 @@
   if (!state.nextFarmScrape) { state.nextFarmScrape = Date.now() + 20000; save(STORE.NEXT_FARM, state.nextFarmScrape); }
   if (!state.nextTownsScrape) { state.nextTownsScrape = Date.now() + 30000; save(STORE.NEXT_TOWNS, state.nextTownsScrape); }
   gbInterval(farmTick, 15000);
-  gbListen(document, 'visibilitychange', () => { if (!document.hidden) farmTick(); });
+  gbListen(document, 'visibilitychange', () => {
+    if (!document.hidden) {
+      try { gbWakeMarkResume('visible'); } catch (_) {}
+      farmTick();
+      try { reportCatchUpEnqueue(); } catch (_) {}
+    }
+  });
+  gbListen(window, 'pageshow', (e) => {
+    if (e && e.persisted) {
+      try { gbWakeMarkResume('bfcache'); } catch (_) {}
+      farmTick();
+      try { reportCatchUpEnqueue(); } catch (_) {}
+    }
+  });
   gbInterval(checkThresholds, 30000);
   gbInterval(renderTimers, 1000);
   gbInterval(updateStatus, 5000);
@@ -78,12 +91,22 @@
       t = t.parentElement;
     }
   }, true);
-  gbTimeout(() => { ibScan(); gbInterval(ibScan, IB_CHECK_MS); }, 8000);
+  gbTimeout(() => {
+    const scan = () => {
+      if (gbInWakeBurst && gbInWakeBurst()) gbWake('ibScan', () => ibScan(), { priority: 10 });
+      else ibScan();
+    };
+    scan();
+    gbInterval(scan, IB_CHECK_MS);
+  }, 8000);
   gbTimeout(() => { abEnsureTargets(); }, 12000);
   gbInterval(() => dodgeScan('loop'), DODGE_CHECK_MS);
   // First orch probe ~15s after boot so farm/cave don't wait a full cadence
   gbTimeout(() => { if (hostEnabled()) orchTick(); }, 15000);
-  gbInterval(() => orchTick(), ORCH_MS);
+  gbInterval(() => {
+    if (gbInWakeBurst && gbInWakeBurst()) gbWake('orchTick', () => orchTick(), { priority: 30 });
+    else orchTick();
+  }, ORCH_MS);
   gbInterval(() => {
     // Heavy DOM refreshes only when their tabs are visible; watchlist/grepodata stay light
     renderOverview();

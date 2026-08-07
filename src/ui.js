@@ -31,6 +31,7 @@
     el.textContent = `${farmDurLabel(sec)} | ${known ? 'option ' + farmOptionFor(sec) : 'not learned - click that timer once in game'}` +
       ` | auto ${state.farmSleepAuto ? 'ON' : 'OFF'}${state.farmSleepDay ? ' | last ' + state.farmSleepDay : ''}`;
     el.style.color = known ? '#888' : '#fc6';
+    try { renderFarmTeachBanner(); } catch (_) {}
   }
   // ---------- keyed table rendering (v1.4.0) ----------
   // renderFarms/renderWorld ran `replaceChildren()` on every scrape callback and
@@ -453,6 +454,9 @@
     #grepbot-panel #gb-ib-btn{background:#333;border:1px solid #555;color:#80e090;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px}
     #grepbot-panel #gb-ib-btn:disabled{opacity:.4;cursor:default}
     #grepbot-panel .ab-queue{max-height:220px;overflow:auto;margin-top:2px}
+    #grepbot-panel .ab-plan{max-height:120px;overflow:auto;margin:2px 0 6px}
+    #grepbot-panel .ab-plan-row{display:grid;grid-template-columns:1.2fr .4fr .8fr .6fr auto;gap:4px;align-items:center;padding:2px 0;border-bottom:1px solid #2a2a2a;font-size:10px}
+    #grepbot-panel .ab-plan-row.pinned{background:#1a1a10}
     #grepbot-panel .atk-sched{max-height:160px;overflow:auto;margin-top:6px}
     #grepbot-panel .atk-sources{max-height:80px;overflow:auto;display:flex;flex-wrap:wrap;gap:4px 8px;margin:4px 0}
     #grepbot-panel .atk-roles{max-height:110px;overflow:auto;margin:4px 0}
@@ -483,6 +487,7 @@
         <button id="gb-sleep-claim" style="background:#333;border:1px solid #555;color:#8cf;padding:2px 8px;cursor:pointer;font-size:11px">Sleep claim (4h/8h)</button>
         <span id="gb-sleep-status" style="font-size:10px;color:#888"></span>
       </div>
+      <div id="gb-farm-teach-banner" hidden style="font-size:10px;color:#fc6;background:#2a2211;border:1px solid #664;padding:4px 6px;margin-bottom:4px;border-radius:3px"></div>
       <div class="farms-list"></div>
       <textarea placeholder="vill_id | x y | ETA | notes&#10;12345 | 500 600 | 2h | safe"></textarea>
     </section>
@@ -583,6 +588,8 @@
         <button id="gb-ab-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Queue now</button>
       </div>
       <div style="font-size:9px;color:#888;margin-bottom:4px">Auto only fills when <=1 order left: adds up to 6 (or queue max). Next fill waits half(build time)+5min+rand - not right when a build finishes. Targets = cur/tgt/max.</div>
+      <div style="font-size:10px;color:#f5a623;margin:4px 0 2px">Next 3 <span style="color:#666;font-weight:normal">(heuristic plan)</span></div>
+      <div class="ab-plan"></div>
       <div class="ab-queue"></div>
       <div id="gb-ab-status" style="font-size:10px;color:#888;margin-top:4px"></div>
     </section>
@@ -602,8 +609,13 @@
       <pre class="intel-panel" style="font-size:10px;white-space:pre-wrap;background:#111;padding:6px;border:1px solid #333;max-height:280px;overflow:auto;color:#cfc"></pre>
       <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <input id="gb-note-player" placeholder="player" style="width:80px;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
-        <input id="gb-note-text" placeholder="note" style="flex:1;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
+        <input id="gb-note-text" placeholder="note" maxlength="200" style="flex:1;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
         <button id="gb-note-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Save note</button>
+      </div>
+      <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <input id="gb-ally-name" placeholder="alliance" style="width:80px;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
+        <input id="gb-ally-note" placeholder="alliance note" maxlength="200" style="flex:1;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
+        <button id="gb-ally-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Save ally note</button>
       </div>
     </section>
     <section data-tab="config" hidden>
@@ -663,11 +675,12 @@
         <label style="margin-left:12px;flex-wrap:wrap">Preset
           <select data-cfg="trade-preset" style="background:#111;color:#cfc;border:1px solid #333;margin-left:4px">
             <option value="storage">storage</option>
-            <option value="party">party (unimplemented)</option>
-            <option value="unit">unit (unimplemented)</option>
+            <option value="party">party (fund culture)</option>
+            <option value="unit">unit (fund recruit)</option>
           </select>
           Reserve % <input type="number" data-cfg="trade-reserve" min="0" max="80" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
           Min batch <input type="number" data-cfg="trade-min" min="100" max="50000" step="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
+          Max island hops <input type="number" data-cfg="trade-max-hops" min="0" max="200" step="1" title="Refuse fill-storage across islands farther than this (0 = same-island only). Unreadable island never blocks." style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="island-ship"/> Mainland->island res ship</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-trade"/> Rural village trade</label>
@@ -685,14 +698,27 @@
         <label style="margin-left:12px">Hours <input type="number" data-cfg="night-start" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/>-<input type="number" data-cfg="night-end" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Log every payload the bot would send and send nothing. Use it to compare bot payloads against a hand-clicked action before enabling a risky feature."><input type="checkbox" data-cfg="dry-run"/> <b style="color:#6cf">Dry run (log payloads, send nothing)</b></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="A feature that keeps finding nothing to do doubles its own interval (up to 8x) until it acts again."><input type="checkbox" data-cfg="orch-adaptive"/> Adaptive cadence (back off idle features)</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="When a warehouse is pinned full, promote cave→trade→rural ahead of farm and suppress idle backoff on the drain path."><input type="checkbox" data-cfg="orch-deadlock"/> Warehouse deadlock resolve</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Copy/Export replace player names and ids with short hashes. Turn OFF only for local debugging."><input type="checkbox" data-cfg="export-redact"/> Redact names/ids in Copy + Export</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="captcha-global"/> Global captcha kill-switch</label>
+        <label>Captcha backoff (min) <input type="text" data-cfg="captcha-ladder" placeholder="5,15,60" title="Comma-separated minutes; min 1 each. Floor prevents disabling the breaker." style="width:100px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
+        <button type="button" data-cfg="captcha-clear" style="align-self:flex-start;background:#333;border:1px solid #555;color:#fc6;padding:2px 6px;cursor:pointer;font-size:10px">Clear captcha pauses</button>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Skip an action that failed the same way 3x in a row (5/15/60min backoff). Journal keeps recording either way."><input type="checkbox" data-cfg="decision-memory"/> Decision memory (skip repeat failures)</label>
-        <label>Req budget / min <input type="number" data-cfg="req-budget" min="5" max="120" style="width:50px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
+        <label>Req budget / min <input type="number" data-cfg="req-budget" min="5" max="120" style="width:50px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
+          Soft % <input type="number" data-cfg="posts-soft" min="20" max="95" title="Delay (not reject) when trailing-minute posts exceed this % of the hard budget" style="width:45px;background:#111;color:#cfc;border:1px solid #333;margin-left:4px"/></label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:10px">
+          Presets
+          <button type="button" data-preset="afk" style="background:#333;border:1px solid #555;color:#8cf;padding:2px 6px;cursor:pointer">AFK overnight</button>
+          <button type="button" data-preset="farm" style="background:#333;border:1px solid #555;color:#8cf;padding:2px 6px;cursor:pointer">Active farming</button>
+          <button type="button" data-preset="war" style="background:#333;border:1px solid #555;color:#fc6;padding:2px 6px;cursor:pointer">War</button>
+          <button type="button" data-preset="undo" style="background:#333;border:1px solid #555;color:#aaa;padding:2px 6px;cursor:pointer">Undo preset</button>
+        </div>
+        <button type="button" data-cfg="storage-prune" style="align-self:flex-start;background:#333;border:1px solid #555;color:#fc6;padding:2px 6px;cursor:pointer;font-size:10px">Prune seen/alerted (storage)</button>
         <label>Webhook URL <input type="text" data-cfg="webhook-url" placeholder="Discord webhook or https://api.telegram.org/bot.../sendMessage" style="width:100%;background:#111;color:#cfc;border:1px solid #333;margin-top:2px;font-size:10px"/></label>
         <label style="margin-left:0;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">Events
           <label><input type="checkbox" data-cfg="wh-captcha"/> captcha</label>
           <label><input type="checkbox" data-cfg="wh-attack"/> attack</label>
+          <label><input type="checkbox" data-cfg="wh-pattern"/> pattern (3×/24h)</label>
           <label><input type="checkbox" data-cfg="wh-warehouse"/> warehouse</label>
           <label><input type="checkbox" data-cfg="wh-culture"/> culture</label>
         </label>
@@ -701,6 +727,7 @@
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-merchant"/> Merchant sniper</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-favor"/> Favor farm (godsent)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-wonder"/> WW donations</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Spend favor on alliance wonder. Requires sniffed wonderFavorTpl. Default OFF."><input type="checkbox" data-cfg="auto-wonder-favor"/> WW favor cast (sniff power first)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="cs-alert"/> CS / incoming alerts</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-militia"/> Auto-militia on incoming</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-dodge"/> Auto-dodge</label>
@@ -732,6 +759,7 @@
       <div class="gb-logsub">
         <button data-logsub="live" class="on">Live log</button>
         <button data-logsub="mem">Decisions</button>
+        <button type="button" data-act="evidence" title="Read-only redacted snapshot for TASKS gates. Copies JSON. Posts nothing.">Evidence</button>
         <input class="jrn-filter" placeholder="filter feature/action/target"/>
       </div>
       <div class="log-list"></div>
@@ -749,6 +777,7 @@
       <div class="gb-status-row">
         <span id="gb-next-farms" style="color:#6cf"></span>
         <span id="gb-next-towns" style="color:#fc6"></span>
+        <span id="gb-last-action" style="color:#8c8"></span>
         <span id="gb-collect-state" style="color:#f96;font-weight:bold"></span>
         <span id="gb-status" style="color:#888"></span>
       </div>
@@ -761,6 +790,7 @@
           <button type="button" data-act="scrape-farms">Farms now</button>
           <button type="button" data-act="scrape-towns">Towns now</button>
           <button type="button" data-act="diag">Diag</button>
+          <button type="button" data-act="evidence" title="Read-only redacted snapshot for TASKS gates">Evidence</button>
           <button type="button" data-act="preflight">Preflight</button>
           <button type="button" data-act="clear">Clear findings</button>
           <button type="button" data-act="reset-pos" title="Reset panel position">Reset position</button>
@@ -862,6 +892,11 @@
     const n = panel.querySelector('#gb-note-text')?.value?.trim();
     if (p) { intelSetNote(p, n); renderIntel(); flash('note saved'); }
   });
+  panel.querySelector('#gb-ally-save')?.addEventListener('click', () => {
+    const a = panel.querySelector('#gb-ally-name')?.value?.trim();
+    const n = panel.querySelector('#gb-ally-note')?.value?.trim();
+    if (a) { intelSetAllianceNote(a, n); renderIntel(); flash('alliance note saved'); }
+  });
   panel.querySelector('#gb-quest-scan')?.addEventListener('click', () => {
     questScanTick('manual');
     gbTimeout(renderQuests, 600);
@@ -946,6 +981,9 @@
   panel.querySelector('footer button[data-act=diag]').addEventListener('click', () => {
     diagRun();
   });
+  panel.querySelectorAll('button[data-act=evidence]').forEach(btn => {
+    btn.addEventListener('click', () => { evidenceCopy(); });
+  });
   panel.querySelector('footer button[data-act=preflight]')?.addEventListener('click', () => {
     showTab('stats');
     preflightRunAndRender();
@@ -1005,6 +1043,7 @@
       const ct = sec.querySelector('[data-cfg=cave-thresh]'); if (ct) ct.value = state.caveThreshPct;
       const dr = sec.querySelector('[data-cfg=dry-run]'); if (dr) dr.checked = !!state.dryRun;
       const oa = sec.querySelector('[data-cfg=orch-adaptive]'); if (oa) oa.checked = state.orchAdaptive !== false;
+      const od = sec.querySelector('[data-cfg=orch-deadlock]'); if (od) od.checked = state.orchDeadlockResolve !== false;
       const er = sec.querySelector('[data-cfg=export-redact]'); if (er) er.checked = state.exportRedact !== false;
       renderCaveTowns();
       return;
@@ -1145,6 +1184,7 @@
     setChk('[data-cfg=decision-memory]', state.decisionMemory !== false);
     setChk('[data-cfg=dry-run]', !!state.dryRun);
     setChk('[data-cfg=orch-adaptive]', state.orchAdaptive !== false);
+    setChk('[data-cfg=orch-deadlock]', state.orchDeadlockResolve !== false);
     setChk('[data-cfg=export-redact]', state.exportRedact !== false);
     setChk('[data-cfg=auto-merchant]', state.autoMerchant);
     setChk('[data-cfg=auto-favor]', state.autoFavor);
@@ -1161,6 +1201,10 @@
     setNum('[data-cfg=night-start]', state.nightStart);
     setNum('[data-cfg=night-end]', state.nightEnd);
     setNum('[data-cfg=req-budget]', state.reqBudgetPerMin);
+    setNum('[data-cfg=posts-soft]', state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60);
+    const cl = sec.querySelector('[data-cfg=captcha-ladder]');
+    if (cl) cl.value = (state.captchaLadder || [5, 15, 60]).join(',');
+    setChk('[data-cfg=auto-wonder-favor]', !!state.autoWonderFavor);
     setNum('[data-cfg=dodge-floor]', state.dodgeFloor);
     const rr = sec.querySelector('[data-cfg=rural-res]'); if (rr) rr.value = state.ruralTradeRes || 'iron';
     const dm = sec.querySelector('[data-cfg=dodge-mode]'); if (dm) dm.value = state.dodgeMode || 'notify';
@@ -1168,12 +1212,14 @@
     const we = state.webhookEvents || {};
     setChk('[data-cfg=wh-captcha]', we.captcha !== false);
     setChk('[data-cfg=wh-attack]', we.attack !== false);
+    setChk('[data-cfg=wh-pattern]', we.pattern !== false);
     setChk('[data-cfg=wh-warehouse]', !!we.warehouse);
     setChk('[data-cfg=wh-culture]', !!we.culture);
     const tg = sec.querySelector('[data-cfg=wh-tg-chat]'); if (tg) tg.value = we.telegramChatId || '';
     const tp = sec.querySelector('[data-cfg=trade-preset]'); if (tp) tp.value = state.tradePreset || 'storage';
     setNum('[data-cfg=trade-reserve]', state.tradeReservePct);
     setNum('[data-cfg=trade-min]', state.tradeMinBatch);
+    setNum('[data-cfg=trade-max-hops]', state.tradeMaxHops);
     const bindToggle = (sel, key, store, onOn) => {
       sec.querySelector(sel)?.addEventListener('change', e => {
         state[key] = e.target.checked; save(store, state[key]);
@@ -1192,6 +1238,7 @@
     bindToggle('[data-cfg=captcha-global]', 'captchaGlobalKill', STORE.CAPTCHA_GLOBAL);
     bindToggle('[data-cfg=decision-memory]', 'decisionMemory', STORE.DECISION_MEM);
     bindToggle('[data-cfg=orch-adaptive]', 'orchAdaptive', STORE.ORCH_ADAPTIVE);
+    bindToggle('[data-cfg=orch-deadlock]', 'orchDeadlockResolve', STORE.ORCH_DEADLOCK);
     bindToggle('[data-cfg=export-redact]', 'exportRedact', STORE.EXPORT_REDACT);
     sec.querySelector('[data-cfg=dry-run]')?.addEventListener('change', e => {
       state.dryRun = e.target.checked; save(STORE.DRY_RUN, state.dryRun);
@@ -1231,6 +1278,104 @@
     saveNum('[data-cfg=night-start]', v => { state.nightStart = v; save(STORE.NIGHT_START, v); });
     saveNum('[data-cfg=night-end]', v => { state.nightEnd = v; save(STORE.NIGHT_END, v); });
     saveNum('[data-cfg=req-budget]', v => { state.reqBudgetPerMin = v; save(STORE.REQ_BUDGET, v); });
+    saveNum('[data-cfg=posts-soft]', v => {
+      state.postsPerMinSoftPct = Math.min(95, Math.max(20, v || 60));
+      save(STORE.POSTS_SOFT_PCT, state.postsPerMinSoftPct);
+    });
+    sec.querySelector('[data-cfg=captcha-ladder]')?.addEventListener('change', e => {
+      const parts = String(e.target.value || '').split(/[,;\s]+/).map(x => Math.max(1, Math.min(24 * 60, +x || 0))).filter(n => n >= 1);
+      if (parts.length < 1) { flash('ladder needs ≥1 value'); return; }
+      if (parts.some(n => n < 2)) gbLog('captcha ladder: values <2min are aggressive');
+      state.captchaLadder = parts;
+      save(STORE.CAPTCHA_LADDER, parts);
+      flash('captcha ladder ' + parts.join(','));
+    });
+    sec.querySelector('[data-cfg=captcha-clear]')?.addEventListener('click', () => {
+      captchaClear();
+      flash('captcha pauses cleared');
+      updateStatus();
+    });
+    sec.querySelector('[data-cfg=storage-prune]')?.addEventListener('click', () => {
+      const before = JSON.stringify(state.seen || {}).length + JSON.stringify(state.alerted || {}).length;
+      const ids = Object.keys(state.seen || {});
+      if (ids.length > 500) {
+        ids.slice(0, ids.length - 500).forEach(k => { delete state.seen[k]; });
+        save(STORE.SEEN, state.seen);
+      }
+      const aks = Object.keys(state.alerted || {});
+      const cut = Date.now() - 7 * 86400000;
+      aks.forEach(k => { if ((state.alerted[k] || 0) < cut) delete state.alerted[k]; });
+      save(STORE.ALERTED, state.alerted);
+      const after = JSON.stringify(state.seen || {}).length + JSON.stringify(state.alerted || {}).length;
+      flash('pruned ~' + Math.max(0, before - after) + 'B');
+      gbLog('storage prune: seen=' + Object.keys(state.seen).length + ' alerted=' + Object.keys(state.alerted).length);
+    });
+    bindToggle('[data-cfg=auto-wonder-favor]', 'autoWonderFavor', STORE.AUTO_WONDER_FAVOR);
+    let _presetUndo = null;
+    sec.querySelectorAll('[data-preset]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const kind = btn.dataset.preset;
+        if (kind === 'undo') {
+          if (!_presetUndo) { flash('nothing to undo'); return; }
+          Object.keys(_presetUndo).forEach(k => { state[k] = _presetUndo[k]; });
+          _presetUndo = null;
+          bindConfig();
+          flash('preset undone');
+          return;
+        }
+        const presets = {
+          afk: {
+            autoFarm: true, farmSleepAuto: true, farmLongClaims: true,
+            autoCave: true, autoTrade: true, islandShip: true, autoCulture: true,
+            autoResearch: true, abAuto: true, ibAuto: false, autoCollect: false,
+            nightPause: true, dodgeMode: 'notify', autoDodge: false,
+            autoRecruit: false, autoFavor: false,
+          },
+          farm: {
+            autoFarm: true, farmSleepAuto: false, farmLongClaims: true,
+            autoCave: true, autoTrade: true, islandShip: true, autoCulture: true,
+            autoResearch: true, abAuto: true, ibAuto: true, autoCollect: true,
+            nightPause: false, dodgeMode: 'notify', autoDodge: false,
+            autoRecruit: false, autoFavor: false,
+          },
+          war: {
+            autoFarm: true, autoCave: true, autoTrade: true, islandShip: true,
+            autoCulture: false, autoResearch: false, abAuto: false, ibAuto: false,
+            autoCollect: true, nightPause: false, dodgeMode: 'notify', autoDodge: false,
+            autoRecruit: false, autoFavor: false,
+          },
+        };
+        const patch = presets[kind];
+        if (!patch) return;
+        const keys = Object.keys(patch);
+        const diff = keys.map(k => `${k}: ${state[k]}→${patch[k]}`).join(', ');
+        if (!confirm('Apply ' + kind + ' preset?\n' + diff + '\n\nHIGH-RISK stays OFF. dryRun/hosts untouched.')) return;
+        _presetUndo = {};
+        keys.forEach(k => { _presetUndo[k] = state[k]; state[k] = patch[k]; });
+        // Persist allow-listed keys only
+        try {
+          save(STORE.AUTO_FARM, state.autoFarm);
+          save(STORE.AUTO_CAVE, state.autoCave);
+          save(STORE.AUTO_TRADE, state.autoTrade);
+          save(STORE.ISLAND_SHIP, state.islandShip);
+          save(STORE.AUTO_CULTURE, state.autoCulture);
+          save(STORE.AUTO_RESEARCH, state.autoResearch);
+          save(STORE.AB_AUTO, state.abAuto);
+          save(STORE.IB_AUTO, state.ibAuto);
+          save(STORE.AUTO_COLLECT, state.autoCollect);
+          save(STORE.NIGHT_PAUSE, state.nightPause);
+          save(STORE.DODGE_MODE, state.dodgeMode);
+          save(STORE.AUTO_DODGE, false);
+          save(STORE.AUTO_RECRUIT, false);
+          save(STORE.AUTO_FAVOR, false);
+          save(STORE.FARM_SLEEP_AUTO, state.farmSleepAuto);
+          save(STORE.FARM_LONG_CLAIMS, state.farmLongClaims);
+        } catch (_) {}
+        bindConfig();
+        flash('preset ' + kind + ' applied');
+        gbLog('preset: ' + kind + ' (' + keys.length + ' keys)');
+      });
+    });
     saveNum('[data-cfg=dodge-floor]', v => { state.dodgeFloor = v; save(STORE.DODGE_FLOOR, v); });
     sec.querySelector('[data-cfg=rural-res]')?.addEventListener('change', e => {
       state.ruralTradeRes = e.target.value; save(STORE.RURAL_TRADE_RES, state.ruralTradeRes);
@@ -1246,13 +1391,14 @@
       state.webhookEvents = {
         captcha: !!sec.querySelector('[data-cfg=wh-captcha]')?.checked,
         attack: !!sec.querySelector('[data-cfg=wh-attack]')?.checked,
+        pattern: !!sec.querySelector('[data-cfg=wh-pattern]')?.checked,
         warehouse: !!sec.querySelector('[data-cfg=wh-warehouse]')?.checked,
         culture: !!sec.querySelector('[data-cfg=wh-culture]')?.checked,
         telegramChatId: (sec.querySelector('[data-cfg=wh-tg-chat]')?.value || '').trim() || undefined,
       };
       save(STORE.WEBHOOK_EVENTS, state.webhookEvents);
     };
-    ['wh-captcha', 'wh-attack', 'wh-warehouse', 'wh-culture'].forEach(k => {
+    ['wh-captcha', 'wh-attack', 'wh-pattern', 'wh-warehouse', 'wh-culture'].forEach(k => {
       sec.querySelector('[data-cfg=' + k + ']')?.addEventListener('change', saveWebhookEvents);
     });
     sec.querySelector('[data-cfg=wh-tg-chat]')?.addEventListener('change', saveWebhookEvents);
@@ -1265,6 +1411,9 @@
     });
     saveNum('[data-cfg=trade-min]', v => {
       state.tradeMinBatch = Math.max(100, v); save(STORE.TRADE_MIN, state.tradeMinBatch);
+    });
+    saveNum('[data-cfg=trade-max-hops]', v => {
+      state.tradeMaxHops = Math.max(0, Math.min(200, v)); save(STORE.TRADE_MAX_HOPS, state.tradeMaxHops);
     });
     sec.querySelector('[data-cfg=research-csfast]')?.addEventListener('click', () => {
       researchLoadCsFast(); flash('CS-fast research');
@@ -1592,6 +1741,7 @@
 
   let _statusLast = '';
   let _statusCsLast = '';
+  let _statusLastAction = '';
   function updateStatus() {
     if (!panel) return;
     const el = panel.querySelector('#gb-status');
@@ -1610,12 +1760,44 @@
     const memSkips = jrnActiveSkips();
     if (memSkips.length) pauseTxt += ` mem:${memSkips.length}`;
     if (gbServerPaused()) pauseTxt += ` ||srv:${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}`;
+    try {
+      const dl = typeof econDeadlock === 'function' ? econDeadlock() : null;
+      if (dl && dl.open) pauseTxt += ' WH';
+    } catch (_) {}
+    try {
+      const tb = typeof tplHealthBannerText === 'function' ? tplHealthBannerText() : '';
+      if (tb) pauseTxt += ' tpl!';
+    } catch (_) {}
     const dryTxt = state.dryRun ? ' DRY' : '';
     const txt = `csrf:${csrfShort} farms:${okFarms}/${farms}${errTxt}${dryTxt}${pauseTxt}`;
     if (txt !== _statusLast) {
       _statusLast = txt;
       el.textContent = txt;
-      el.title = JSON.stringify({ csrf: !!state.csrf, captcha: state.captchaBreakers, pause: pauseInfo.reason, memory: memSkips.map(s => s.key) });
+      let titleExtra = '';
+      try { titleExtra = tplHealthBannerText() || ''; } catch (_) {}
+      el.title = (titleExtra ? titleExtra + ' | ' : '') + JSON.stringify({ csrf: !!state.csrf, captcha: state.captchaBreakers, pause: pauseInfo.reason, memory: memSkips.map(s => s.key) });
+    }
+    const la = panel.querySelector('#gb-last-action');
+    if (la) {
+      let chip = '';
+      try {
+        const list = state.decisions || [];
+        for (let i = list.length - 1; i >= 0; i--) {
+          const r = list[i];
+          if (!r || r.r !== 'ok') continue;
+          const ago = Math.max(0, Math.round((Date.now() - r.ts) / 1000));
+          const agoTxt = ago < 60 ? ago + 's' : (ago < 3600 ? Math.round(ago / 60) + 'm' : Math.round(ago / 3600) + 'h');
+          const act = String(r.a || '').slice(0, 18);
+          chip = `${r.f}: ${act} OK ${agoTxt} ago`;
+          la.style.color = ago > 900 && hostEnabled() && !pauseInfo.reason ? '#fc6' : '#8c8';
+          break;
+        }
+        if (!chip && state.dryRun) chip = 'DRY (no live OK)';
+      } catch (_) {}
+      if (chip !== (_statusLastAction || '')) {
+        _statusLastAction = chip;
+        la.textContent = chip;
+      }
     }
     const cs = panel.querySelector('#gb-collect-state');
     if (cs) {

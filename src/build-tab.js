@@ -349,6 +349,314 @@
   const AB_EXTRA_MS = 5 * 60 * 1000; // +5min after half construction
   function abRandMs() { return Math.floor(Math.random() * 3 * 60 * 1000); } // 0-3min jitter
 
+  // ---------- build-phase planner v2 (heuristic — not game truth) ----------
+  // One explicit weight table; resist per-world tuning sprawl.
+  const AB_PHASE_WEIGHT = {
+    lumber: 1.25, stoner: 1.25, ironer: 1.25,
+    storage: 1.35, farm: 1.45,
+    main: 1.05, market: 0.95, hide: 0.85, temple: 0.75, wall: 0.65,
+    academy: 1.15, docks: 1.1,
+    barracks: 0.9,
+  };
+  const AB_ETA_UNKNOWN_MS = 24 * 3600 * 1000;
+  const AB_ETA_POP_BLOCK_MS = 7 * 86400000;
+  function phaseWeight(building, levels) {
+    let w = AB_PHASE_WEIGHT[building] || 1;
+    const lv = levels && levels[building] != null ? levels[building] : 0;
+    // Early game nudge: mines + warehouse before military.
+    if (lv < 8 && (building === 'lumber' || building === 'stoner' || building === 'ironer' || building === 'storage')) w *= 1.15;
+    // Mid game nudge: academy/harbour once core infra is up.
+    const core = ((levels && levels.main) || 0) + ((levels && levels.storage) || 0);
+    if (core >= 12 && (building === 'academy' || building === 'docks')) w *= 1.12;
+    // Late game nudge: barracks/docks when academy is mature.
+    if (((levels && levels.academy) || 0) >= 20 && (building === 'barracks' || building === 'docks')) w *= 1.08;
+    return w;
+  }
+  function abGetPin(townId) {
+    if (!state.abBuildPin || typeof state.abBuildPin !== 'object') return null;
+    const p = state.abBuildPin[String(townId)];
+    return p || null;
+  }
+  function abSetPin(townId, building) {
+    if (!state.abBuildPin || typeof state.abBuildPin !== 'object') state.abBuildPin = {};
+    if (!building) {
+      delete state.abBuildPin[String(townId)];
+    } else {
+      state.abBuildPin[String(townId)] = building;
+    }
+    save(STORE.BUILD_PIN, state.abBuildPin);
+  }
+  function abTownProduction(townId) {
+    const t = abGetTown(townId);
+    if (!t) return null;
+    try {
+      const fn = t.getResourcesPerHour || t.getResourceProduction;
+      if (typeof fn === 'function') {
+        const r = fn.call(t);
+        if (r && (r.wood != null || r.stone != null || r.iron != null)) {
+          return { wood: +r.wood || 0, stone: +r.stone || 0, iron: +r.iron || 0 };
+        }
+      }
+    } catch (_) {}
+    try {
+      const r = t.resources && t.resources();
+      if (r) {
+        const wood = +(r.wood_production || r.woodProduction || 0);
+        const stone = +(r.stone_production || r.stoneProduction || 0);
+        const iron = +(r.iron_production || r.ironProduction || 0);
+        if (wood || stone || iron) return { wood, stone, iron };
+      }
+    } catch (_) {}
+    const wood = gbProbeNum(t, ['getWoodProduction', 'getWoodPerHour', 'getProductionWood']);
+    const stone = gbProbeNum(t, ['getStoneProduction', 'getStonePerHour', 'getProductionStone']);
+    const iron = gbProbeNum(t, ['getIronProduction', 'getIronPerHour', 'getProductionIron']);
+    if (wood != null || stone != null || iron != null) {
+      return { wood: wood || 0, stone: stone || 0, iron: iron || 0 };
+    }
+    return null;
+  }
+  function abScratchStart(townId) {
+    const st = townResState(townId);
+    return {
+      wood: st ? st.wood : null,
+      stone: st ? st.stone : null,
+      iron: st ? st.iron : null,
+      pop: gbTownPop(townId),
+      production: abTownProduction(townId),
+    };
+  }
+  function abAffordScratch(scratch, cost, margin) {
+    const m = margin != null ? +margin : 0;
+    if (!cost) return { ok: true, blind: true, short: [], detail: 'no cost data' };
+    const short = [];
+    let blind = false;
+    ['wood', 'stone', 'iron'].forEach(k => {
+      const need = +cost[k] || 0;
+      if (need <= 0) return;
+      const have = scratch[k];
+      if (have == null) { blind = true; return; }
+      if (have < need + m) short.push(`${k} ${Math.floor(have)}/${need}`);
+    });
+    const needPop = +cost.pop || 0;
+    if (needPop > 0) {
+      if (scratch.pop == null) blind = true;
+      else if (scratch.pop < needPop) short.push(`pop ${scratch.pop}/${needPop}`);
+    }
+    return { ok: short.length === 0, blind, short, detail: short.join(', ') };
+  }
+  function abEtaMs(scratch, afford) {
+    if (afford.ok || afford.blind) return 0;
+    const prod = scratch.production;
+    let maxMs = 60000;
+    (afford.short || []).forEach(s => {
+      if (s.startsWith('pop ')) {
+        maxMs = Math.max(maxMs, AB_ETA_POP_BLOCK_MS);
+        return;
+      }
+      const m = s.match(/^(wood|stone|iron)\s+(\d+)\/(\d+)/);
+      if (!m) return;
+      const res = m[1];
+      const have = +m[2];
+      const need = +m[3];
+      const deficit = need - have + 10;
+      if (deficit <= 0) return;
+      const rate = prod && prod[res];
+      if (!(rate > 0)) {
+        maxMs = Math.max(maxMs, AB_ETA_UNKNOWN_MS);
+        return;
+      }
+      maxMs = Math.max(maxMs, (deficit / rate) * 3600000);
+    });
+    return maxMs;
+  }
+  function abQueueWaitMs(townId) {
+    const q = abQueueInfo(townId);
+    const now = gameNow();
+    let wait = 0;
+    q.orders.forEach(o => {
+      const done = o.to_be_completed_at;
+      if (done > now) wait += (done - now) * 1000;
+      else wait += Math.max(0, o.building_time || 0) * 1000;
+    });
+    return wait;
+  }
+  function abPlanCandidates(levels) {
+    const targets = abEnsureTargets();
+    const out = [];
+    AB_BUILDINGS.forEach(building => {
+      const want = Math.min(targets[building] != null ? targets[building] : 0, abMaxLevel(building));
+      if (want <= 0) return;
+      if (levels[building] < want) out.push({ building, level: levels[building] + 1 });
+    });
+    return out;
+  }
+  function abScratchApply(scratch, cost) {
+    if (!cost) return;
+    if (scratch.wood != null) scratch.wood -= +cost.wood || 0;
+    if (scratch.stone != null) scratch.stone -= +cost.stone || 0;
+    if (scratch.iron != null) scratch.iron -= +cost.iron || 0;
+    if (scratch.pop != null) scratch.pop -= +cost.pop || 0;
+  }
+  function abPlanEntryAfford(townId, building, scratch) {
+    const raw = abBuildingCost(townId, building);
+    const cost = raw ? {
+      wood: raw.wood, stone: raw.stone, iron: raw.iron, pop: raw.pop || 0,
+      buildTime: raw.buildTime,
+    } : null;
+    const afford = scratch
+      ? abAffordScratch(scratch, cost, 10)
+      : gbAfford(townId, cost ? { wood: cost.wood, stone: cost.stone, iron: cost.iron, population: cost.pop } : null, { margin: 10 });
+    if (afford.blind) {
+      gbLogT('ab-plan-blind', 300000, 'build plan: blind cost read - scoring as affordable');
+    }
+    return { cost, afford };
+  }
+  function buildPlanNext(townId, n) {
+    n = n || 3;
+    const levels = abCurrentLevels(townId);
+    if (!levels) return [];
+    const simLevels = Object.assign({}, levels);
+    const scratch = abScratchStart(townId);
+    let queueWait = abQueueWaitMs(townId);
+    const plan = [];
+    const pin = abGetPin(townId);
+    for (let slot = 0; slot < n; slot++) {
+      const candidates = abPlanCandidates(simLevels);
+      if (!candidates.length) break;
+      const popBlockedExists = candidates.some(c => {
+        const { afford } = abPlanEntryAfford(townId, c.building, scratch);
+        return !afford.ok && !afford.blind && (afford.short || []).some(s => s.startsWith('pop '));
+      });
+      let pick = null;
+      if (slot === 0 && pin) {
+        const pinned = candidates.find(c => c.building === pin);
+        if (pinned) {
+          const { cost, afford } = abPlanEntryAfford(townId, pinned.building, scratch);
+          const etaMs = abEtaMs(scratch, afford);
+          pick = Object.assign({}, pinned, { cost, afford, etaMs, score: Infinity, pinned: true });
+        }
+      }
+      if (!pick) {
+        let bestScore = -1;
+        candidates.forEach(cand => {
+          const { cost, afford } = abPlanEntryAfford(townId, cand.building, scratch);
+          let etaMs = abEtaMs(scratch, afford);
+          let weight = phaseWeight(cand.building, simLevels);
+          if (popBlockedExists) {
+            if (cand.building === 'farm') weight *= 3;
+            else if (!afford.ok && !afford.blind && (afford.short || []).some(s => s.startsWith('pop '))) {
+              etaMs += AB_ETA_POP_BLOCK_MS;
+            }
+          }
+          const score = weight / (etaMs + queueWait + 60000);
+          if (score > bestScore) {
+            bestScore = score;
+            pick = Object.assign({}, cand, { cost, afford, etaMs, score });
+          }
+        });
+      }
+      if (!pick) break;
+      plan.push(pick);
+      abScratchApply(scratch, pick.cost);
+      simLevels[pick.building] = (simLevels[pick.building] || 0) + 1;
+      const btMs = pick.cost && pick.cost.buildTime ? Math.max(0, pick.cost.buildTime) * 1000 : 0;
+      queueWait += btMs;
+    }
+    return plan;
+  }
+  function abPlanVerdictLabel(afford) {
+    if (!afford) return '?';
+    if (afford.ok) return 'ok';
+    if (afford.blind) return 'blind';
+    if (afford.detail) return 'short ' + afford.detail;
+    return 'short';
+  }
+  function abPlanCostLabel(cost) {
+    if (!cost) return '?';
+    const parts = [];
+    if (cost.wood) parts.push('w' + cost.wood);
+    if (cost.stone) parts.push('s' + cost.stone);
+    if (cost.iron) parts.push('i' + cost.iron);
+    if (cost.pop) parts.push('pop' + cost.pop);
+    return parts.length ? parts.join('/') : '0';
+  }
+  function renderAbPlan() {
+    const sec = panel && panel.querySelector('section[data-tab=build]');
+    if (!sec || sec.hidden) return;
+    const box = sec.querySelector('.ab-plan');
+    if (!box) return;
+    const townId = abCurrentTownId() || (abTownIds()[0]);
+    if (!townId) {
+      box.replaceChildren();
+      const e = document.createElement('div');
+      e.style.cssText = 'color:#888;font-size:10px;padding:2px 0';
+      e.textContent = 'no town';
+      box.appendChild(e);
+      return;
+    }
+    const plan = buildPlanNext(townId, 3);
+    const pin = abGetPin(townId);
+    const wantKeys = plan.map((p, i) => `ab-plan-${townId}-${i}`);
+    const sameSet = box.querySelectorAll('.ab-plan-row[data-key]').length === wantKeys.length
+      && wantKeys.every(k => box.querySelector(`.ab-plan-row[data-key="${k}"]`));
+    if (!sameSet) box.replaceChildren();
+    if (!plan.length) {
+      if (!sameSet) {
+        const e = document.createElement('div');
+        e.style.cssText = 'color:#888;font-size:10px;padding:2px 0';
+        e.textContent = 'all targets met';
+        box.appendChild(e);
+      }
+      return;
+    }
+    const mk = (cls, txt, color) => {
+      const s = document.createElement('span');
+      if (cls) s.className = cls;
+      s.textContent = txt;
+      if (color) s.style.color = color;
+      return s;
+    };
+    plan.forEach((p, i) => {
+      const key = wantKeys[i];
+      let row = sameSet ? box.querySelector(`.ab-plan-row[data-key="${key}"]`) : null;
+      if (!row) {
+        row = document.createElement('div');
+        row.className = 'ab-plan-row' + (p.pinned ? ' pinned' : '');
+        row.dataset.key = key;
+        row.appendChild(mk('ab-plan-name', '', null));
+        row.appendChild(mk('ab-plan-lvl', '', '#888'));
+        row.appendChild(mk('ab-plan-cost', '', '#aaa'));
+        row.appendChild(mk('ab-plan-verdict', '', null));
+        row.appendChild(mk('ab-plan-eta', '', '#888'));
+        const pinBtn = document.createElement('button');
+        pinBtn.type = 'button';
+        pinBtn.style.cssText = 'background:#333;border:1px solid #555;color:#fc6;padding:0 4px;cursor:pointer;font-size:9px';
+        pinBtn.addEventListener('click', () => {
+          abSetPin(townId, abGetPin(townId) === p.building ? null : p.building);
+          renderAbPlan();
+          renderAbQueue();
+        });
+        row.appendChild(pinBtn);
+        box.appendChild(row);
+      } else {
+        row.className = 'ab-plan-row' + (p.pinned || pin === p.building ? ' pinned' : '');
+      }
+      row.querySelector('.ab-plan-name').textContent = AB_LABELS[p.building] || p.building;
+      row.querySelector('.ab-plan-lvl').textContent = '->' + p.level;
+      row.querySelector('.ab-plan-cost').textContent = abPlanCostLabel(p.cost);
+      const verdictEl = row.querySelector('.ab-plan-verdict');
+      const verdict = abPlanVerdictLabel(p.afford);
+      verdictEl.textContent = verdict;
+      verdictEl.style.color = p.afford && p.afford.ok ? '#6dda7e' : (p.afford && p.afford.blind ? '#fc6' : '#f08080');
+      row.querySelector('.ab-plan-eta').textContent = p.etaMs ? fmtSec(Math.ceil(p.etaMs / 1000)) : 'now';
+      const pinBtn = row.querySelector('button');
+      if (pinBtn) {
+        pinBtn.textContent = (pin === p.building) ? 'unpin' : 'pin';
+        pinBtn.title = 'Pin to slot 1 (world-scoped, per town)';
+      }
+    });
+  }
+
   function abDefaultTargets() {
     return Object.assign({}, AB_CS_FAST);
   }
@@ -489,6 +797,7 @@
         stone: +need.stone || 0,
         iron: +need.iron || 0,
         pop: bd.population_for != null ? +bd.population_for : 0,
+        buildTime: bd.building_time != null ? +bd.building_time : null,
       };
     } catch (_) { return null; }
   }
@@ -512,61 +821,30 @@
     return res.wood >= need.wood + margin && res.stone >= need.stone + margin && res.iron >= need.iron + margin;
   }
   function abPickNextFromLevels(townId, levels, ledger) {
-    if (!levels) return null;
-    const targets = abEnsureTargets();
-    for (const phase of AB_PHASES) {
-      for (const building of Object.keys(phase)) {
-        const want = Math.min(phase[building], targets[building] != null ? targets[building] : 0, abMaxLevel(building));
-        if (want <= 0) continue;
-        if (levels[building] < want && levels[building] < abMaxLevel(building)) {
-          if (!abCanAfford(townId, building, ledger)) continue;
-          return building;
-        }
-      }
-    }
-    for (const building of AB_BUILDINGS) {
-      const want = Math.min(targets[building] || 0, abMaxLevel(building));
-      if (levels[building] < want) {
-        if (!abCanAfford(townId, building, ledger)) continue;
-        return building;
-      }
-    }
-    return null;
+    const plan = buildPlanNext(townId, 1);
+    const first = plan[0];
+    if (!first) return null;
+    const scratch = ledger ? {
+      wood: ledger.wood, stone: ledger.stone, iron: ledger.iron, pop: ledger.pop,
+      production: abTownProduction(townId),
+    } : null;
+    const { afford } = scratch
+      ? abPlanEntryAfford(townId, first.building, scratch)
+      : abPlanEntryAfford(townId, first.building, null);
+    if (!afford.ok && !afford.blind) return null;
+    return first.building;
   }
   function abPickNext(townId) {
-    return abPickNextFromLevels(townId, abCurrentLevels(townId));
+    const plan = buildPlanNext(townId, 1);
+    return plan[0] ? plan[0].building : null;
   }
   function abPickBatch(townId, n) {
-    const levels = abCurrentLevels(townId);
-    if (!levels || n <= 0) return [];
-    const t = abGetTown(townId);
-    let ledger = null;
-    try {
-      const res = t && t.resources && t.resources();
-      if (res) {
-        ledger = {
-          wood: +res.wood || 0,
-          stone: +res.stone || 0,
-          iron: +res.iron || 0,
-          pop: t.getAvailablePopulation ? +t.getAvailablePopulation() : (+res.population || 0),
-        };
-      }
-    } catch (_) {}
+    if (n <= 0) return [];
+    const plan = buildPlanNext(townId, n);
     const out = [];
-    for (let i = 0; i < n; i++) {
-      const b = abPickNextFromLevels(townId, levels, ledger);
-      if (!b) break;
-      out.push(b);
-      levels[b] = (levels[b] || 0) + 1; // simulate queued level
-      if (ledger) {
-        const cost = abBuildingCost(townId, b);
-        if (cost) {
-          ledger.wood -= cost.wood;
-          ledger.stone -= cost.stone;
-          ledger.iron -= cost.iron;
-          ledger.pop -= cost.pop;
-        }
-      }
+    for (const entry of plan) {
+      if (!entry.afford.ok && !entry.afford.blind) break;
+      out.push(entry.building);
     }
     return out;
   }

@@ -1,5 +1,7 @@
 # 04 — Evidence dump
 
+**Status:** CODED (v1.5.15)
+
 **Risk:** Low · **Size:** M · **Backlog:** §2 Ops tooling, Top-ROI #2
 
 ## Why this is first

@@ -53,9 +53,10 @@
     if (a.command_type === 'attack' || a.movement_type === 'attack') return true;
     return false;
   }
-  function dodgeIncomingMovements() {
+  function dodgeIncomingMovements(opts) {
     const uw = gameUw();
     const out = [];
+    const includeFriendly = !!(opts && opts.includeFriendly);
     try {
       const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits');
       if (!col || !col.models) return out;
@@ -64,7 +65,14 @@
         const a = m.attributes || {};
         const dest = String(a.destination_town_id || a.target_town_id || '');
         if (!myTowns.has(dest)) return;
-        if (!dodgeIsHostileMovement(a)) return;
+        const hostile = dodgeIsHostileMovement(a);
+        if (!hostile) {
+          if (!includeFriendly) return;
+          const type0 = String(a.command_name || a.type || a.movement_type || '').toLowerCase().trim();
+          if (!/^support/.test(type0) && !DODGE_FRIENDLY_TYPES.test(type0)) return;
+          // board only wants inbound support, not trades/returns
+          if (!/^support/.test(type0)) return;
+        }
         // skip our own outgoing
         const origin = String(a.origin_town_id || a.home_town_id || '');
         if (myTowns.has(origin) && a.is_attack !== true && a.is_attack !== 1) return;
@@ -72,10 +80,15 @@
         const type = String(a.command_name || a.type || a.movement_type || '').toLowerCase();
         const units = a.units || {};
         const hasCs = !!(units.colonize_ship || units.colony_ship);
+        let arrival = a.arrived_at || a.arrival_at || a.finished_at;
+        try {
+          if (arrival == null && typeof m.getArrivalAt === 'function') arrival = m.getArrivalAt();
+        } catch (_) {}
         out.push({
           id: a.id || m.id,
           dest, origin, type, hasCs,
-          arrival: a.arrived_at || a.arrival_at || a.finished_at,
+          hostile,
+          arrival,
           units,
           model: m,
         });

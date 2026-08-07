@@ -1,5 +1,8 @@
 # Project tasks
 
+Evidence for any gate: Actions/Log → **Evidence** (plus Diag). Paste the JSON;
+do not describe state by hand. Evidence is read-only and redacts CSRF/templates.
+
 ## Current phase
 
 - [ ] **v1.5.3 audit gates** (dry-run first; no npm harness)

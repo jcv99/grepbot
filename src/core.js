@@ -46,6 +46,7 @@ const STORE = {
     AB_AUTO: 'grepbot:ab-auto',
     AB_TARGETS: 'grepbot:ab-targets',
     AB_NEXT: 'grepbot:ab-next',
+    BUILD_PIN: 'grepbot:build-pin',
     AUTO_CAVE: 'grepbot:auto-cave',
     CAVE_THRESH: 'grepbot:cave-thresh',
     CAVE_TOWNS: 'grepbot:cave-towns',
@@ -54,6 +55,8 @@ const STORE = {
     FARM_OPTION_MAP: 'grepbot:farm-option-map',
     FARM_LONG_CLAIMS: 'grepbot:farm-long-claims',
     FARM_LOYALTY_TECH: 'grepbot:farm-loyalty-tech',
+    FARM_LOYALTY_SEEN: 'grepbot:farm-loyalty-seen',
+    FARM_TEACH_BANNER: 'grepbot:farm-teach-banner',
     FARM_SLEEP_DUR: 'grepbot:farm-sleep-dur',
     FARM_SLEEP_AUTO: 'grepbot:farm-sleep-auto',
     FARM_SLEEP_FILL: 'grepbot:farm-sleep-fill',
@@ -69,6 +72,7 @@ const STORE = {
     TRADE_PRESET: 'grepbot:trade-preset',
     TRADE_RESERVE: 'grepbot:trade-reserve',
     TRADE_MIN: 'grepbot:trade-min',
+    TRADE_MAX_HOPS: 'grepbot:trade-max-hops',
     AUTO_RURAL_TRADE: 'grepbot:auto-rural-trade',
     RURAL_TRADE_RATIO: 'grepbot:rural-trade-ratio',
     RURAL_TRADE_RES: 'grepbot:rural-trade-res',
@@ -108,12 +112,21 @@ const STORE = {
     CAPTCHA_GLOBAL_UNTIL: 'grepbot:captcha-global-until',
     REQ_BUDGET: 'grepbot:req-budget',
     ALLIANCE_NOTES: 'grepbot:alliance-notes',
+    LAST_SEEN_TS: 'grepbot:last-seen-ts',
+    WATCH_HITS: 'grepbot:watch-hits',
+    WONDER_FAVOR_TPL: 'grepbot:wonder-favor-tpl',
+    AUTO_WONDER_FAVOR: 'grepbot:auto-wonder-favor',
     CONFIG_VER: 'grepbot:config-ver',
     WONDER_SPENT: 'grepbot:wonder-spent',
     // decision memory (world-scoped: a target id means nothing on another world)
     DECISIONS: 'grepbot:decisions',
     DECISION_SKIPS: 'grepbot:decision-skips',
     DECISION_MEM: 'grepbot:decision-memory',
+    TPL_HEALTH: 'grepbot:tpl-health',
+    ORCH_DEADLOCK: 'grepbot:orch-deadlock',
+    CAPTCHA_LADDER: 'grepbot:captcha-ladder',
+    POSTS_SOFT_PCT: 'grepbot:posts-soft-pct',
+    TAB_FILTERS: 'grepbot:tab-filters',
     DRY_RUN: 'grepbot:dry-run',
     EXPORT_REDACT: 'grepbot:export-redact',
     ORCH_ADAPTIVE: 'grepbot:orch-adaptive',
@@ -135,12 +148,14 @@ const STORE = {
     STORE.NEXT_FARM, STORE.NEXT_TOWNS, STORE.BANDIT_LOG,
     STORE.QUEST_REWARDS, STORE.QUEST_HISTORY,
     STORE.ATTACK_PLAN, STORE.ATTACK_HISTORY, STORE.ATTACK_RECENT,
-    STORE.AB_TARGETS, STORE.AB_NEXT, STORE.CAVE_TOWNS,
+    STORE.AB_TARGETS, STORE.AB_NEXT, STORE.BUILD_PIN, STORE.CAVE_TOWNS,
     STORE.RESEARCH_TARGETS, STORE.CITY_TEMPLATES, STORE.TOWN_GROUPS,
     STORE.MERCHANT_WISH, STORE.FAVOR_CFG, STORE.WONDER_CFG, STORE.WONDER_SPENT,
     STORE.CULTURE_GOLD_SPENT,
     STORE.RECRUIT_TARGETS, STORE.PRIORITY_ORDER,
     STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES,
+    STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
+    STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
     STORE.CAPTCHA_GLOBAL_UNTIL,
     STORE.SERVER_COOLDOWN, STORE.QUEST_CLAIM_FAIL, STORE.DODGE_QUEUE,
   ]);
@@ -260,6 +275,7 @@ const STORE = {
     merchant: 120000,
     favor: 120000,
     wonder: 120000,
+    'wonder-favor': 120000,
     dodge: 120000,
     recruit: 120000,
     'defense-pull': 120000,
@@ -327,6 +343,8 @@ const STORE = {
     farmOptionMap: load(wkey(STORE.FARM_OPTION_MAP), null) || { 300: 1 },
     farmLongClaims: load(STORE.FARM_LONG_CLAIMS, true),
     farmLoyaltyTech: load(wkey(STORE.FARM_LOYALTY_TECH), '') || '',
+    farmLoyaltySeen: load(STORE.FARM_LOYALTY_SEEN, false),
+    farmTeachBanner: load(STORE.FARM_TEACH_BANNER, ''),
     farmSleepDur: load(STORE.FARM_SLEEP_DUR, 'auto'),
     farmSleepAuto: load(STORE.FARM_SLEEP_AUTO, false),
     farmSleepFillPct: load(STORE.FARM_SLEEP_FILL, 60),
@@ -357,6 +375,7 @@ const STORE = {
     abAuto: load(STORE.AB_AUTO, false),
     abTargets: load(STORE.AB_TARGETS, null),
     abNextAt: load(STORE.AB_NEXT, {}),
+    abBuildPin: load(STORE.BUILD_PIN, {}),
     autoCave: load(STORE.AUTO_CAVE, false),
     caveThreshPct: load(STORE.CAVE_THRESH, 90),
     caveTowns: load(STORE.CAVE_TOWNS, {}),
@@ -368,6 +387,7 @@ const STORE = {
     tradePreset: load(STORE.TRADE_PRESET, 'storage'), // storage | party | unit
     tradeReservePct: load(STORE.TRADE_RESERVE, 20),
     tradeMinBatch: load(STORE.TRADE_MIN, 1000),
+    tradeMaxHops: load(STORE.TRADE_MAX_HOPS, 15),
     autoRuralTrade: load(STORE.AUTO_RURAL_TRADE, false),
     ruralTradeRatio: load(STORE.RURAL_TRADE_RATIO, 1.0),
     ruralTradeRes: load(STORE.RURAL_TRADE_RES, 'iron'),
@@ -383,7 +403,9 @@ const STORE = {
     cityTemplates: load(STORE.CITY_TEMPLATES, {}),
     townGroups: load(STORE.TOWN_GROUPS, {}),
     webhookUrl: load(STORE.WEBHOOK_URL, ''),
-    webhookEvents: load(STORE.WEBHOOK_EVENTS, { captcha: true, attack: true, warehouse: false, culture: false }),
+    webhookEvents: load(STORE.WEBHOOK_EVENTS, { captcha: true, attack: true, warehouse: false, culture: false, pattern: true }),
+    lastSeenTs: load(STORE.LAST_SEEN_TS, 0),
+    watchHits: load(STORE.WATCH_HITS, {}) || {},
     autoMerchant: load(STORE.AUTO_MERCHANT, false),
     merchantWish: load(STORE.MERCHANT_WISH, []),
     autoFavor: load(STORE.AUTO_FAVOR, false),
@@ -413,6 +435,13 @@ const STORE = {
     dryRun: load(STORE.DRY_RUN, false),
     exportRedact: load(STORE.EXPORT_REDACT, true),
     orchAdaptive: load(STORE.ORCH_ADAPTIVE, true),
+    orchDeadlockResolve: load(STORE.ORCH_DEADLOCK, true),
+    captchaLadder: load(STORE.CAPTCHA_LADDER, [5, 15, 60]),
+    postsPerMinSoftPct: load(STORE.POSTS_SOFT_PCT, 60),
+    tabFilters: load(STORE.TAB_FILTERS, {}) || {},
+    wonderFavorTpl: load(STORE.WONDER_FAVOR_TPL, null),
+    autoWonderFavor: load(STORE.AUTO_WONDER_FAVOR, false),
+    tplHealth: load(STORE.TPL_HEALTH, {}) || {},
   };
 
   let panel = null;
@@ -532,12 +561,128 @@ const STORE = {
     }
     return (reqBudgetWindow.length - reqBudgetHead) < (state.reqBudgetPerMin || 40);
   }
+  function reqBudgetSoftDelayMs() {
+    const soft = Math.max(5, Math.floor((state.reqBudgetPerMin || 40) *
+      ((state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60) / 100)));
+    const used = reqBudgetUsed();
+    if (used < soft) return 0;
+    return Math.min(8000, 400 * (used - soft + 1) + Math.floor(Math.random() * 300));
+  }
   function reqBudgetMark() { reqBudgetWindow.push(Date.now()); }
   function reqBudgetUsed() {
     const cutoff = Date.now() - 60000;
     let n = 0;
     for (let i = reqBudgetHead; i < reqBudgetWindow.length; i++) if (reqBudgetWindow[i] >= cutoff) n++;
     return n;
+  }
+
+  // ---------- resume-burst serializer (plan 10) ----------
+  const WAKE_SPACING_MS = 800;
+  const gbWakeQueue = []; // {key, fn, priority, enqueuedAt}
+  let gbWakeDraining = false;
+  let gbWakeLastTickAt = Date.now();
+  let gbWakeBurstUntil = 0;
+  function gbWakeDepth() { return gbWakeQueue.length; }
+  function gbWake(key, fn, opts) {
+    if (!key || typeof fn !== 'function') return;
+    const priority = (opts && opts.priority != null) ? +opts.priority : 50;
+    const i = gbWakeQueue.findIndex(e => e.key === key);
+    if (i >= 0) {
+      if (priority < gbWakeQueue[i].priority) gbWakeQueue[i].priority = priority;
+      gbWakeQueue[i].fn = fn;
+      return;
+    }
+    gbWakeQueue.push({ key, fn, priority, enqueuedAt: Date.now() });
+    gbWakeQueue.sort((a, b) => a.priority - b.priority);
+    if (!gbWakeDraining) gbWakeDrain();
+  }
+  function gbWakeDrain() {
+    if (gbWakeDraining) return;
+    gbWakeDraining = true;
+    (function step() {
+      if (!gbWakeQueue.length) { gbWakeDraining = false; return; }
+      if (automationPaused({})) {
+        gbLogT('wake-paused', 60000, 'wake: paused - draining later');
+        gbWakeDraining = false;
+        return;
+      }
+      if (!reqBudgetOk()) {
+        gbTimeout(step, 1500 + Math.floor(Math.random() * 500));
+        return;
+      }
+      const item = gbWakeQueue.shift();
+      try { item.fn(); } catch (e) { gbLogT('wake-err', 30000, 'wake: ' + item.key + ' ' + String(e).slice(0, 60)); }
+      const spacing = WAKE_SPACING_MS + Math.floor(Math.random() * 400);
+      if (gbWakeQueue.length) gbTimeout(step, spacing);
+      else gbWakeDraining = false;
+    })();
+  }
+  function gbWakeMarkResume(why) {
+    gbWakeBurstUntil = Date.now() + 8000;
+    gbLogT('wake-resume', 10000, 'wake: resume (' + (why || 'visible') + ') - serializing catch-up');
+  }
+  function gbInWakeBurst() { return Date.now() < gbWakeBurstUntil; }
+  function gbWakeGapTick() {
+    const now = Date.now();
+    const gap = now - gbWakeLastTickAt;
+    gbWakeLastTickAt = now;
+    if (gap > 45000) gbWakeMarkResume('timer-gap ' + Math.round(gap / 1000) + 's');
+  }
+
+  // ---------- learned-payload health (plan 11) ----------
+  const TPL_HEALTH_FAILS = 5;
+  const TPL_FEATURE_MAP = {
+    farm: 'claimTpl', claim: 'claimTpl',
+    build: 'ibAction', 'instant-build': 'ibAction', 'instant-research': 'ibActionR',
+    attack: 'attackTpl', cancel: 'cancelTpl', hero: 'heroTpl',
+    collect: 'collectTpl',
+  };
+  function tplHealthSave() { save(STORE.TPL_HEALTH, state.tplHealth || {}); }
+  function tplHealthEnsure(name) {
+    if (!state.tplHealth) state.tplHealth = {};
+    if (!state.tplHealth[name]) {
+      state.tplHealth[name] = { learnedAt: 0, lastOkAt: 0, lastErrAt: 0, hardFails: 0, invalidated: false };
+    }
+    return state.tplHealth[name];
+  }
+  function tplHealthMarkLearned(name) {
+    const h = tplHealthEnsure(name);
+    h.learnedAt = Date.now();
+    h.hardFails = 0;
+    h.invalidated = false;
+    h.lastOkAt = 0;
+    tplHealthSave();
+  }
+  function tplHealthNote(feature, result) {
+    const name = TPL_FEATURE_MAP[feature];
+    if (!name) return;
+    if (!state[name] && name !== 'farmAction') return;
+    const h = tplHealthEnsure(name);
+    if (!result || result === 'ok') {
+      h.lastOkAt = Date.now();
+      h.hardFails = 0;
+      if (h.invalidated) { h.invalidated = false; gbLog('tpl: ' + name + ' recovered'); }
+      tplHealthSave();
+      return;
+    }
+    if (!jrnHard(result)) return; // captcha/timeout/skip never invalidate
+    h.lastErrAt = Date.now();
+    h.hardFails = (h.hardFails || 0) + 1;
+    if (h.hardFails >= TPL_HEALTH_FAILS && !h.invalidated) {
+      h.invalidated = true;
+      gbLog('tpl: ' + name + ' invalidated after ' + h.hardFails + ' hard fails - hand-click to re-learn');
+    }
+    tplHealthSave();
+  }
+  function tplHealthOk(name) {
+    const h = state.tplHealth && state.tplHealth[name];
+    return !(h && h.invalidated);
+  }
+  function tplHealthBannerText() {
+    const h = state.tplHealth || {};
+    const bad = Object.keys(h).filter(k => h[k] && h[k].invalidated);
+    if (!bad.length) return '';
+    return 'Template stale: ' + bad.join(', ') + ' — hand-click once to re-learn';
   }
 
   // ---------- logging ----------
@@ -851,7 +996,14 @@ const STORE = {
   function i18n(key) { return (marketLocale()[key] || I18N.en[key] || key); }
 
   // ---------- captcha circuit breakers (Phase 2) ----------
-  const CAPTCHA_BACKOFF = [5, 15, 60]; // minutes
+  function captchaLadder() {
+    const raw = state.captchaLadder;
+    if (Array.isArray(raw) && raw.length >= 1) {
+      const nums = raw.map(n => Math.max(1, Math.min(24 * 60, +n || 0))).filter(n => n >= 1);
+      if (nums.length) return nums;
+    }
+    return [5, 15, 60];
+  }
   const BRIDGE_TIMEOUT_MS = 15000;
   function saveCaptcha() { save(wkey(STORE.CAPTCHA), state.captchaBreakers); }
   function captchaPaused(feature) {
@@ -866,6 +1018,11 @@ const STORE = {
       }
       return false;
     }
+    // Clean-hour decay: if last trip was >1h ago and still paused, step down
+    if (b.lastCaptchaAt && Date.now() - b.lastCaptchaAt > 3600000 && (b.trips || 0) > 1) {
+      b.trips = Math.max(1, (b.trips || 1) - 1);
+      saveCaptcha();
+    }
     return true;
   }
   // Parent+child captcha gate (dodge<->militia, recruit<->spell).
@@ -877,10 +1034,14 @@ const STORE = {
     return false;
   }
   function captchaTrip(feature, detail) {
+    const ladder = captchaLadder();
     const prev = state.captchaBreakers[feature] || { trips: 0 };
-    const trips = Math.min((prev.trips || 0) + 1, CAPTCHA_BACKOFF.length);
-    const mins = CAPTCHA_BACKOFF[trips - 1];
-    state.captchaBreakers[feature] = { trips, until: Date.now() + mins * 60000, detail: detail || null };
+    const trips = Math.min((prev.trips || 0) + 1, ladder.length);
+    const mins = ladder[trips - 1];
+    state.captchaBreakers[feature] = {
+      trips, until: Date.now() + mins * 60000, detail: detail || null,
+      lastCaptchaAt: Date.now(),
+    };
     saveCaptcha();
     // CSRF may be stale after captcha challenge
     state.csrf = null;
@@ -964,9 +1125,22 @@ const STORE = {
       gbLogT('mem-skip-' + jrnId(jtag), 60000, feature + ': skipped from memory (' + jrnWhy(jtag) + ')');
       return bail('remembered');
     }
+    {
+      const tplName = TPL_FEATURE_MAP[feature];
+      if (tplName && !tplHealthOk(tplName)) {
+        gbLogT('tpl-stale-' + tplName, 120000, feature + ': template ' + tplName + ' invalidated - re-learn by hand');
+        return bail('tpl-stale');
+      }
+    }
     if (!reqBudgetOk()) {
       gbLogT('req-budget-' + feature, 30000, feature + ': request budget exceeded');
       return bail('budget');
+    }
+    const softMs = reqBudgetSoftDelayMs();
+    if (softMs > 0) {
+      gbLogT('req-soft-' + feature, 30000, feature + ': soft ceiling - delaying ' + softMs + 'ms');
+      gbTimeout(() => bridgePost(feature, payload, onDone), softMs);
+      return;
     }
     // Dry run: the payload is the thing that needs validating on a live world
     // (TASKS.md gates 8.9-8.13). Log it, journal it, send nothing.
@@ -988,6 +1162,7 @@ const STORE = {
       else if (err === 'captcha' || err === 'captcha-pause') markModuleHealth(feature, 'captcha');
       else markModuleHealth(feature, 'err');
       jrnPush(jtag, jrnResult(err), err);
+      try { tplHealthNote(feature, jrnResult(err)); } catch (_) {}
       if (onDone) onDone(err, data);
     };
     const timer = setTimeout(() => {
@@ -1032,6 +1207,10 @@ const STORE = {
       gbLogT('mem-skip-' + jrnId(jtag), 60000, feature + ': skipped from memory (' + jrnWhy(jtag) + ')');
       return bail('remembered');
     }
+    {
+      const tplName = TPL_FEATURE_MAP[feature];
+      if (tplName && !tplHealthOk(tplName)) return bail('tpl-stale');
+    }
     if (!reqBudgetOk()) return bail('budget');
     if (state.dryRun) {
       gbLog(`DRY-RUN ${feature}: ${controller}/${action} ${dryRunFmt(data)}`);
@@ -1048,6 +1227,7 @@ const STORE = {
       if (!err) markModuleHealth(feature, 'ok');
       else markModuleHealth(feature, err === 'captcha' ? 'captcha' : 'err');
       jrnPush(jtag, jrnResult(err), err);
+      try { tplHealthNote(feature, jrnResult(err)); } catch (_) {}
       if (onDone) onDone(err, res);
     };
     const timer = setTimeout(() => finish('timeout'), BRIDGE_TIMEOUT_MS);
@@ -1154,6 +1334,85 @@ const STORE = {
   function townFillPct(townId) {
     const st = townResState(townId);
     return st ? st.fillPct : null;
+  }
+  // Shared pin helper for deadlock resolver (05) and culture↔cave (08).
+  function townIsPinned(townId) {
+    const st = townResState(townId);
+    if (!st || !(st.cap > 0)) {
+      gbLogT('pin-blind-' + townId, 300000, 'econ: cap unreadable town ' + townId + ' - not pinned (blind)');
+      return false;
+    }
+    return Math.max(st.wood, st.stone, st.iron) / st.cap >= 0.97;
+  }
+  function townIronReserveForCave(townId) {
+    // Iron needed to reach caveThreshPct of warehouse (culture must not drain below).
+    const st = townResState(townId);
+    if (!st || !(st.cap > 0)) return null;
+    const thresh = Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100;
+    const need = Math.ceil(st.cap * thresh);
+    return Math.max(0, need - (st.iron || 0));
+  }
+  const CAVE_SOON_MS = 15 * 60 * 1000;
+  const cultureCaveDeferCount = Object.create(null); // townId -> consecutive defers
+  function ironReservedForCave(townId) {
+    // Culture/party-trade defer when cave will want this iron soon.
+    if (!state.autoCave) return { reserved: false, etaMs: null, blind: false };
+    const st = townResState(townId);
+    if (!st || !(st.cap > 0) || st.iron == null) {
+      gbLogT('cave-res-blind-' + townId, 300000, 'ironReservedForCave: blind - culture proceeds');
+      return { reserved: false, etaMs: null, blind: true };
+    }
+    let hideLvl = 0, hideFull = false;
+    try {
+      if (typeof caveTownInfo === 'function') {
+        const info = caveTownInfo(townId);
+        if (info) {
+          hideLvl = +info.hideLvl || 0;
+          if (info.unlimited) hideFull = false;
+          else if (info.hideCap > 0 && info.stored != null && info.stored >= info.hideCap) hideFull = true;
+        }
+      }
+    } catch (_) {}
+    if (!(hideLvl > 0) || hideFull) return { reserved: false, etaMs: null, blind: false };
+    const thresh = Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100;
+    const need = Math.ceil(st.cap * thresh);
+    if (st.iron >= need) return { reserved: true, etaMs: 0, blind: false };
+    // Production rate: prefer model, else assume slow fill (blind-ish but allow)
+    let ironPerSec = null;
+    try {
+      const uw = gameUw();
+      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      if (t) {
+        const p = t.getProduction ? t.getProduction() : (t.production && t.production());
+        if (p && p.iron != null) ironPerSec = +p.iron / 3600; // often per-hour
+        if (p && p.iron != null && p.iron > 100) ironPerSec = +p.iron / 3600;
+        else if (p && p.iron != null) ironPerSec = +p.iron; // already per-sec
+      }
+    } catch (_) {}
+    if (!(ironPerSec > 0)) {
+      return { reserved: false, etaMs: null, blind: true };
+    }
+    const short = need - st.iron;
+    const etaMs = (short / ironPerSec) * 1000;
+    return { reserved: etaMs <= CAVE_SOON_MS, etaMs, blind: false };
+  }
+  function cultureShouldDeferForCave(townId) {
+    const r = ironReservedForCave(townId);
+    if (!r.reserved) {
+      cultureCaveDeferCount[townId] = 0;
+      return false;
+    }
+    const n = (cultureCaveDeferCount[townId] || 0) + 1;
+    cultureCaveDeferCount[townId] = n;
+    if (n > 3) {
+      gbLogT('culture-cave-override-' + townId, 120000,
+        `culture: defer cap hit for town ${townId} - culture wins over cave reserve`);
+      cultureCaveDeferCount[townId] = 0;
+      return false;
+    }
+    gbLogT('culture-defer-' + townId, 60000,
+      `culture: defer town ${townId} - iron reserved for cave (eta ${r.etaMs != null ? Math.round(r.etaMs / 1000) + 's' : '?'})`);
+    return true;
   }
 
   // ---------- shared precondition readers (v1.5.2) ----------

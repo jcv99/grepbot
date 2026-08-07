@@ -1,15 +1,19 @@
 # GrepBot audit — compacted + verified 2026-08-06
 
+> **CLOSED (2026-08-07).** C1–C7 and I8–I15 are fixed in `src/` as of v1.5.13+.
+> Per-item OPEN/PARTIAL labels below are historical and **must not** drive new
+> work. Evidence: [`docs/plans/00-reconciliation.md`](../plans/00-reconciliation.md).
+> Archived from `docs/` so the live backlog stays truthful.
+
 Source: critical review + future backlog. **Verified against `src/` @ v1.4.0**
 (`python3` static checks + spot Read). Old wave P0–P15 (boot-missing fns,
 reinject interval stack, `gameUw` fallback) largely shipped in v1.0–1.4 —
 do not re-open unless reintroduced.
 
-Status: **OPEN** still broken · **PARTIAL** code moved but incomplete ·
-**FIXED** in current tree · **N/A** claim outdated.
+Status legend (historical): **OPEN** · **PARTIAL** · **FIXED** · **N/A**.
 
 **Coded in v1.5.0 (2026-08-06):** C1–C7, I8–I15, Incomplete table.
-Future § + Major optimizations backlog untouched.
+Future § + Major optimizations backlog → see `docs/plans/` (not this file).
 
 Repair order (still valid):  
 1 safe defaults + no credential logs → 2 orch migrate → 3 world-isolate →
