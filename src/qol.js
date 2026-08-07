@@ -138,6 +138,34 @@
     ];
     box.textContent = lines.join('\n');
   }
+  // Config dumps carry other players' names (note keys are player/alliance
+  // names) and watchlist rules. The Config tab "Redact names/ids in Copy +
+  // Export" toggle promised to cover Export but only ever reached the findings
+  // dump, so Export config leaked raw names off-box. Redacted dumps are marked
+  // and refused by qolImportConfig -- importing hashes would corrupt the notes.
+  function qolRedactConfigDump(dump) {
+    if (state.exportRedact === false) {
+      gbLogT('cfg-export-raw', 60000, 'export config: redaction OFF - dump contains player names');
+      return dump;
+    }
+    const cut = (s) => (s ? String(s).slice(0, 1) + '...' : s);
+    const redactNotes = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+      const out = {};
+      Object.keys(obj).forEach((k, i) => { out[cut(k) + i] = '<note>'; });
+      return out;
+    };
+    dump.playerNotes = redactNotes(dump.playerNotes);
+    dump.allianceNotes = redactNotes(dump.allianceNotes);
+    dump.watchlist = (dump.watchlist || []).map((w) => {
+      if (!w || typeof w !== 'object') return cut(w);
+      const out = {};
+      Object.keys(w).forEach((k) => { out[k] = typeof w[k] === 'string' ? cut(w[k]) : w[k]; });
+      return out;
+    });
+    dump.redacted = true;
+    return dump;
+  }
   function qolExportConfig() {
     const dump = {
       ver: state.configVer || 1,
@@ -156,10 +184,14 @@
       allianceNotes: state.allianceNotes,
       watchlist: state.watchlist,
     };
-    return dump;
+    return qolRedactConfigDump(dump);
   }
   function qolImportConfig(obj) {
     if (!obj || typeof obj !== 'object') return false;
+    if (obj.redacted) {
+      gbLog('config import refused: dump is redacted (re-export with redaction OFF)');
+      return false;
+    }
     const keys = ['abTargets', 'researchTargets', 'recruitTargets', 'cityTemplates', 'townGroups',
       'cultureTypes', 'favorCfg', 'wonderCfg', 'merchantWish', 'priorityOrder', 'playerNotes',
       'allianceNotes', 'watchlist'];

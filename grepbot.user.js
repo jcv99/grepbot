@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      1.5.19
+// @version      1.5.20
 // @description  Grepolis scout/farm/build/trade/culture/recruit automation. ToS forbid automation; risk = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -2970,7 +2970,15 @@ const STORE = {
           try {
             const p = parseResourceJson(JSON.parse(res.responseText));
 
-            if (!p.got && i + 1 < guesses.length) return tryGuess(entry, i + 1);
+            if (!p.got) {
+
+              if (i + 1 < guesses.length) return tryGuess(entry, i + 1);
+              state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: 'no resource fields' };
+              save(STORE.FARM_RES, state.farmResources);
+              renderFarms();
+              if (onDone) onDone(false);
+              return;
+            }
             if (state.farmAction !== action) {
               state.farmAction = action;
               save(wkey(STORE.FARM_ACTION), action);
@@ -6088,14 +6096,15 @@ const STORE = {
       };
     }
     try {
+
+      alertLastSent[event] = Date.now();
       gbXhr({
         method: 'POST',
         url,
         headers: { 'Content-Type': 'application/json' },
         data: JSON.stringify(body),
         onload: (r) => {
-          if (r.status >= 200 && r.status < 300) alertLastSent[event] = Date.now();
-          else gbLogT('webhook-fail', 60000, 'webhook status ' + r.status);
+          if (r.status < 200 || r.status >= 300) gbLogT('webhook-fail', 60000, 'webhook status ' + r.status);
         },
         onerror: (e) => {
           if (e && e.captcha) return;
@@ -7093,6 +7102,30 @@ const STORE = {
     ];
     box.textContent = lines.join('\n');
   }
+
+  function qolRedactConfigDump(dump) {
+    if (state.exportRedact === false) {
+      gbLogT('cfg-export-raw', 60000, 'export config: redaction OFF - dump contains player names');
+      return dump;
+    }
+    const cut = (s) => (s ? String(s).slice(0, 1) + '...' : s);
+    const redactNotes = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+      const out = {};
+      Object.keys(obj).forEach((k, i) => { out[cut(k) + i] = '<note>'; });
+      return out;
+    };
+    dump.playerNotes = redactNotes(dump.playerNotes);
+    dump.allianceNotes = redactNotes(dump.allianceNotes);
+    dump.watchlist = (dump.watchlist || []).map((w) => {
+      if (!w || typeof w !== 'object') return cut(w);
+      const out = {};
+      Object.keys(w).forEach((k) => { out[k] = typeof w[k] === 'string' ? cut(w[k]) : w[k]; });
+      return out;
+    });
+    dump.redacted = true;
+    return dump;
+  }
   function qolExportConfig() {
     const dump = {
       ver: state.configVer || 1,
@@ -7111,10 +7144,14 @@ const STORE = {
       allianceNotes: state.allianceNotes,
       watchlist: state.watchlist,
     };
-    return dump;
+    return qolRedactConfigDump(dump);
   }
   function qolImportConfig(obj) {
     if (!obj || typeof obj !== 'object') return false;
+    if (obj.redacted) {
+      gbLog('config import refused: dump is redacted (re-export with redaction OFF)');
+      return false;
+    }
     const keys = ['abTargets', 'researchTargets', 'recruitTargets', 'cityTemplates', 'townGroups',
       'cultureTypes', 'favorCfg', 'wonderCfg', 'merchantWish', 'priorityOrder', 'playerNotes',
       'allianceNotes', 'watchlist'];

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      1.5.19
+// @version      1.5.20
 // @description  Grepolis scout/farm/build/trade/culture/recruit automation. ToS forbid automation; risk = ban.
 // @author       j
 // @match        https://*.grepolis.com/*

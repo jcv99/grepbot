@@ -55,14 +55,17 @@
       };
     }
     try {
+      // Stamp the window on dispatch, not on 2xx: a webhook that is permanently
+      // broken (5xx/4xx/DNS) never refreshes a success-only stamp, so every
+      // later alert for this event would fire immediately and spam the endpoint.
+      alertLastSent[event] = Date.now();
       gbXhr({
         method: 'POST',
         url,
         headers: { 'Content-Type': 'application/json' },
         data: JSON.stringify(body),
         onload: (r) => {
-          if (r.status >= 200 && r.status < 300) alertLastSent[event] = Date.now();
-          else gbLogT('webhook-fail', 60000, 'webhook status ' + r.status);
+          if (r.status < 200 || r.status >= 300) gbLogT('webhook-fail', 60000, 'webhook status ' + r.status);
         },
         onerror: (e) => {
           if (e && e.captcha) return; // captcha trip already logged

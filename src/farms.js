@@ -723,7 +723,17 @@
           try {
             const p = parseResourceJson(JSON.parse(res.responseText));
             // Grepolis overview often returns everything together; success if we got numbers or a name
-            if (!p.got && i + 1 < guesses.length) return tryGuess(entry, i + 1);
+            if (!p.got) {
+              // Never cache an endpoint that parsed clean but yielded nothing --
+              // on the last guess this used to fall through to ok:true and pin a
+              // dead action into state.farmAction for every later scrape.
+              if (i + 1 < guesses.length) return tryGuess(entry, i + 1);
+              state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: 'no resource fields' };
+              save(STORE.FARM_RES, state.farmResources);
+              renderFarms();
+              if (onDone) onDone(false);
+              return;
+            }
             if (state.farmAction !== action) {
               state.farmAction = action;
               save(wkey(STORE.FARM_ACTION), action);
