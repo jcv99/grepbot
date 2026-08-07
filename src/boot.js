@@ -72,6 +72,8 @@
       try { gbWakeMarkResume('bfcache'); } catch (_) {}
       farmTick();
       try { reportCatchUpEnqueue(); } catch (_) {}
+      try { bindQuestObserver(); } catch (_) {}
+      try { banditScheduleNext(); } catch (_) {}
     }
   });
   gbInterval(checkThresholds, 30000);
@@ -79,6 +81,13 @@
   gbInterval(updateStatus, 5000);
   // Econ features (farm/cave/culture/trade/ab/...) owned by cadence-aware orchTick.
   // Time-critical loops stay independent: ibScan, dodge, quest, farmTick scrapes.
+  // DOM auto-collect is also boot-owned (not bandit) so night/captcha pause gates apply.
+  gbInterval(() => {
+    if (!state.autoCollect) return;
+    if (!hostEnabled() || automationPaused({}) || captchaPaused('collect')) return;
+    autoCollectResources();
+  }, 5000);
+  if (state.collectAll) collectAllBackground();
   bindQuestObserver();
   gbTimeout(() => { if (hostEnabled()) questScanTick('boot'); }, 5000);
   gbInterval(() => { if (hostEnabled()) questScanTick('loop'); }, QUEST_SCAN_MS);
@@ -124,6 +133,13 @@
     try { cancelArmedAttack(); } catch (_) {}
     try { gbUnlockAll(); } catch (_) {}
     try { banditAttackSentAt = 0; } catch (_) {}
+    try { banditIdleUntil = 0; } catch (_) {}
+    try {
+      if (banditTimer) { clearTimeout(banditTimer); banditTimer = null; }
+    } catch (_) {}
+    try { banditClearLoop(); } catch (_) {}
+    try { if (typeof questDispose === 'function') questDispose(); } catch (_) {}
+    try { if (typeof orchCancelQueued === 'function') orchCancelQueued(); } catch (_) {}
     try { if (typeof dodgeQueueSave === 'function') dodgeQueueSave(); } catch (_) {}
     try { if (typeof questClaimFailSave === 'function') questClaimFailSave(); } catch (_) {}
     try { if (typeof persistServerCooldown === 'function') persistServerCooldown(); } catch (_) {}

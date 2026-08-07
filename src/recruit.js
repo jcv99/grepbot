@@ -144,6 +144,7 @@
           if (!def || !def.resources) {
             // Unknown cost must block - never resourceCost||1
             gbLogT('recruit-nocost', 120000, `recruit: unknown cost for ${unit}`);
+            try { gbRemember('recruit', 'build/' + unit, tid, 'unknown-cost'); } catch (_) {}
             continue;
           }
           const rw = +def.resources.wood || 0;

@@ -23,6 +23,7 @@
   const TOWN_LIST_GUESSES = ['get_towns', 'towns_overview', 'get_owned_towns', 'overview_towns', 'town_list'];
   function fetchOwnedTowns(i = 0) {
     if (!state.csrf) return;
+    if (captchaPaused('town') || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return;
     if (i >= TOWN_LIST_GUESSES.length) { scrapeTownsDom(); return; }
     const action = TOWN_LIST_GUESSES[i];
     const params = new URLSearchParams();
@@ -96,9 +97,11 @@
     renderWorld();
   }
   function fetchTownResources(town) {
+    if (captchaPaused('town') || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return;
     const TOWN_ACTION_GUESSES = ['town_info', 'get_town_info', 'town_overview', 'overview_towns', 'get_resources', 'resource_header'];
     tryGuess(town, 0);
     function tryGuess(town, i) {
+      if (captchaPaused('town') || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return;
       if (i >= TOWN_ACTION_GUESSES.length) {
         state.townResources[town.id] = { ts: Date.now(), ok: false, err: 'no endpoint' };
         save(STORE.TOWN_RES, state.townResources);
@@ -139,7 +142,7 @@
     }
   }
   function scrapeAllTowns() {
-    if (!hostEnabled() || automationPaused({})) return;
+    if (!hostEnabled() || automationPaused({}) || captchaPaused('town')) return;
     if (gbLocked('town-scrape')) { gbLogT('town-scrape-inflight', 30000, 'town scrape: skipped (in flight)'); return; }
     gbLock('town-scrape');
     const delay = SYNC.TOWN_MIN_MS + Math.random() * (SYNC.TOWN_MAX_MS - SYNC.TOWN_MIN_MS);
@@ -165,7 +168,7 @@
             ts: Date.now(), wood: r.wood ?? null, stone: r.stone ?? null, iron: r.iron ?? null,
             pop: r.population ?? null, cap: r.storage ?? null, ok: true, action: 'game-data',
           };
-        } else if (hostEnabled() && !automationPaused({})) {
+        } else if (hostEnabled() && !automationPaused({}) && !captchaPaused('town')) {
           fromHttp++;
           gbTimeout(() => fetchTownResources(t), fromHttp * 600);
         }

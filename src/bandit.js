@@ -274,5 +274,4 @@
     save(STORE.BANDIT_LOG, state.banditLog);
   }
   banditScheduleNext();
-  if (state.autoCollect) gbInterval(autoCollectResources, 5000);
-  if (state.collectAll) collectAllBackground();
+  // autoCollect interval lives in boot.js (orch ownership + pause gate)

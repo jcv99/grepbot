@@ -118,6 +118,10 @@
         gbUnlock('wonder');
         return;
       }
+      if (captchaPaused('wonder') || automationPaused({}) || !gbLocked('wonder')) {
+        gbUnlock('wonder');
+        return;
+      }
       gameAjaxPost('wonder', 'factions', 'send_resources', {
         wonder_id: +wonderId,
         wood: job.send.wood, stone: job.send.stone, iron: job.send.iron,

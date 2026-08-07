@@ -2,8 +2,6 @@
   const QUEST_SCAN_MS = 12000;
   const QUEST_RESCAN_MS = 6 * 60 * 60 * 1000;
   const QUEST_HISTORY_MAX = 100;
-  let questScanBusy = false;
-  let questAutoBusy = false;
   let questCursor = 0;
   let questMo = null;
   // Per-quest claim backoff. bridgePost timeouts never trip the decision-memory
@@ -352,7 +350,7 @@
     return rows[questCursor++];
   }
   function questAutoClaim(root, entry) {
-    if (questAutoBusy || !entry?.canClaim) return;
+    if (gbLocked('quest-claim') || !entry?.canClaim) return;
     const rewards = entry.rewards || [];
     // ALL rewards must be classified + permitted - mixed packs are never claimed
     if (!rewards.length || !rewards.every(isSafeQuestReward)) return;
@@ -361,7 +359,7 @@
       gbLogT('quest-block-' + entry.questId, 60000, 'quest: claim backoff active', entry.title || entry.questId);
       return;
     }
-    questAutoBusy = true;
+    if (!gbLock('quest-claim')) return;
     const kinds = rewards.map(r => r.kind).join(',');
     const finish = (method, ok, err) => {
       if (ok) questClaimOk(entry.questId);
@@ -377,7 +375,7 @@
       });
       gbLog(`quest: auto-claim ${ok ? 'OK' : 'fail'} via ${method}`, entry.title || entry.questId, kinds);
       if (ok) flash('quest claim: ' + kinds);
-      gbTimeout(() => { questAutoBusy = false; questScanTick('post-claim'); renderQuests(); }, 2500);
+      gbTimeout(() => { gbUnlock('quest-claim'); questScanTick('post-claim'); renderQuests(); }, 2500);
     };
     const questStillClaimable = () => {
       const cur = state.questRewards[entry.questId];
@@ -388,17 +386,22 @@
       } catch (_) {}
       return true;
     };
-    claimQuestViaBridge(entry, (err) => {
-      // No DOM fallback - timeout/unknown must not claim a different quest
-      if (err === 'timeout') {
-        if (!questStillClaimable()) return finish('bridge-reconcile', true);
-        return finish('bridge', false, 'timeout_unknown');
-      }
-      if (err) return finish('bridge', false, err);
-      if (!questStillClaimable()) return finish('bridge', true);
-      // Response OK but quest still claimable -> ambiguous
-      return finish('bridge', false, 'unconfirmed');
-    });
+    try {
+      claimQuestViaBridge(entry, (err) => {
+        // No DOM fallback - timeout/unknown must not claim a different quest
+        if (err === 'timeout') {
+          if (!questStillClaimable()) return finish('bridge-reconcile', true);
+          return finish('bridge', false, 'timeout_unknown');
+        }
+        if (err) return finish('bridge', false, err);
+        if (!questStillClaimable()) return finish('bridge', true);
+        // Response OK but quest still claimable -> ambiguous
+        return finish('bridge', false, 'unconfirmed');
+      });
+    } catch (e) {
+      gbUnlock('quest-claim');
+      gbLog('quest: claim threw', String(e).slice(0, 120));
+    }
   }
   function questSnapshot(row, rewards, canClaim) {
     const questId = questKey(row);
@@ -439,12 +442,19 @@
     questsFromGame().forEach(q => mergeQuestEntry(q));
   }
   function questScanTick(reason) {
-    if (!hostEnabled() || questScanBusy) return;
+    if (!hostEnabled() || gbLocked('quest-scan')) return;
     bindQuestObserver();
     ingestGameQuests();
     // try claim completed safe quests from models without DOM
-    if (!questAutoBusy) {
-      const claimable = Object.values(state.questRewards).filter(e => e.canClaim && e.safeAuto);
+    if (!gbLocked('quest-claim')) {
+      const claimable = Object.values(state.questRewards).filter(e => {
+        if (!(e.canClaim && e.safeAuto)) return false;
+        try {
+          const last = gbRecall('quest', null, e.questId);
+          if (last && last.r && last.r !== 'ok' && (Date.now() - last.ts) < 120000) return false;
+        } catch (_) {}
+        return true;
+      });
       if (claimable.length) {
         questAutoClaim(questRewardRoot(), claimable[0]);
       }
@@ -453,8 +463,8 @@
     if (!rows.length) { renderQuests(); return; }
     const row = chooseQuestRow(rows);
     if (!row) { renderQuests(); return; }
-    questScanBusy = true;
-    const finish = () => { questScanBusy = false; renderQuests(); };
+    if (!gbLock('quest-scan')) return;
+    const finish = () => { gbUnlock('quest-scan'); renderQuests(); };
     if (!row.classList.contains('selected')) {
       clickQuestRow(row);
       gbTimeout(() => {

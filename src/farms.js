@@ -681,9 +681,17 @@
     gbLog('learned farm action', a);
   }
   function fetchFarmResources(entry, onDone) {
+    if (captchaPaused('farm') || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) {
+      if (onDone) onDone(false);
+      return;
+    }
     const guesses = farmGuesses();
     tryGuess(entry, 0);
     function tryGuess(entry, i) {
+      if (captchaPaused('farm') || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) {
+        if (onDone) onDone(false);
+        return;
+      }
       if (i >= guesses.length) {
         state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: 'no endpoint matched' };
         save(STORE.FARM_RES, state.farmResources);
@@ -778,7 +786,7 @@
   // (observed ~20min) in background tabs, so we persist a deadline and let a
   // short ticker fire the scrape. Overshoot is bounded by the tick interval.
   function scrapeAllFarms() {
-    if (!hostEnabled() || automationPaused({})) return;
+    if (!hostEnabled() || automationPaused({}) || captchaPaused('farm')) return;
     if (gbLocked('farm-scrape')) { gbLogT('farm-scrape-inflight', 30000, 'farm scrape: skipped (in flight)'); return; }
     gbLock('farm-scrape');
     refreshFarmsParsed();
@@ -798,7 +806,7 @@
     // strictly sequential: parallel bursts of N farms x endpoint guesses get
     // throttled by the game server, which is why only the first farm updated
     (function step() {
-      if (!hostEnabled() || automationPaused({})) {
+      if (!hostEnabled() || automationPaused({}) || captchaPaused('farm')) {
         gbUnlock('farm-scrape');
         gbLog(`farm scrape aborted (host/pause): ${ok}/${done} ok`);
         return;
@@ -810,11 +818,17 @@
         flash(`farms ${ok}/${done} ok`);
         return;
       }
-      fetchFarmResources(f, (good) => {
-        done++; if (good) ok++;
-        if (!good) gbLog(`  farm ${f.vill_id}: no data (${(state.farmResources[f.vill_id] || {}).err || '?'})`);
+      try {
+        fetchFarmResources(f, (good) => {
+          done++; if (good) ok++;
+          if (!good) gbLogT('farm-nodata-' + f.vill_id, 60000, `  farm ${f.vill_id}: no data (${(state.farmResources[f.vill_id] || {}).err || '?'})`);
+          gbTimeout(step, 700 + Math.random() * 300);
+        });
+      } catch (e) {
+        done++;
+        gbLogT('farm-scrape-throw', 30000, `farm scrape throw ${f.vill_id}: ${String(e).slice(0, 80)}`);
         gbTimeout(step, 700 + Math.random() * 300);
-      });
+      }
     })();
   }
 

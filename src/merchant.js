@@ -66,6 +66,7 @@
     const oid = (job.offer.attributes && (job.offer.attributes.id || job.offer.id)) || job.offer.id;
     if (oid == null || oid === '') {
       gbLogT('merchant-noid', 60000, 'merchant: offer has no id - skip');
+      try { gbRemember('merchant', 'buy', '-', 'no-offer-id'); } catch (_) {}
       return;
     }
     gbLock('merchant');
@@ -88,6 +89,10 @@
       // Only fallback when server says the bridge action/endpoint does not exist
       if (!/unknown.?action|invalid.?action|not.?found|does.?not.?exist/i.test(String(err))) {
         gbLogT('merchant-err', 60000, `merchant err ${err}`);
+        gbUnlock('merchant');
+        return;
+      }
+      if (captchaPaused('merchant') || automationPaused({}) || !gbLocked('merchant')) {
         gbUnlock('merchant');
         return;
       }

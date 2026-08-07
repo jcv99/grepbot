@@ -357,10 +357,12 @@ def version_gate(parts, version):
             prev = {}
     changed = prev.get('src') not in (None, digest)
     if changed and prev.get('version') == version:
-        print(f'warn: src/ changed but @version is still {version} '
-              '- bump src/header.js if behavior changed')
+        print(f'error: src/ changed but @version is still {version} '
+              '- bump src/header.js (TM will not auto-update otherwise)')
+        return False
     with open(STAMP, 'w', encoding='utf-8') as f:
         json.dump({'src': digest, 'version': version}, f)
+    return True
 
 
 def build():
@@ -378,9 +380,11 @@ def build():
     if not node_check(tmp):
         os.remove(tmp)
         raise SystemExit(1)
-    os.replace(tmp, OUT)
     version = version_of(parts)
-    version_gate(parts, version)
+    if not version_gate(parts, version):
+        os.remove(tmp)
+        raise SystemExit(1)
+    os.replace(tmp, OUT)
     print(f'built {OUT} ({len(parts)} modules, v{version})')
 
 

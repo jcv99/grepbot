@@ -21,6 +21,12 @@
   function alertWebhook(event, payload) {
     const url = (state.webhookUrl || '').trim();
     if (!url) return;
+    // Captcha event must still fire (that's how the user learns about the pause).
+    // Everything else yields while a captcha breaker / global kill is open so
+    // webhooks don't burn the shared request budget during the cooldown.
+    if (event !== 'captcha') {
+      if (captchaPaused('alert') || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return;
+    }
     if (!alertWebhookUrlOk(url)) {
       gbLogT('webhook-url', 120000, 'webhook: invalid Discord/Telegram URL');
       return;

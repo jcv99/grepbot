@@ -180,6 +180,12 @@
       if (gbServerPaused()) parts.push('server cooldown ' + fmtSec(Math.round(gbServerCooldownLeftMs() / 1000)));
       const skips = jrnActiveSkips();
       if (skips.length) parts.push(skips.length + ' memory skip windows');
+      try {
+        const last = gbRecall();
+        if (last) parts.push('last decision: ' + last.f + '/' + (last.r || '?'));
+        const recentFails = gbRecallAll().filter(r => r && r.r && r.r !== 'ok' && (Date.now() - r.ts) < 3600000);
+        if (recentFails.length) parts.push(recentFails.length + ' hard fails (1h)');
+      } catch (_) {}
       return { ok: true, warn: parts.length > 0, detail: parts.length ? parts.join(' | ') : 'clear' };
     }));
     return out;

@@ -1760,6 +1760,7 @@
     const memSkips = jrnActiveSkips();
     if (memSkips.length) pauseTxt += ` mem:${memSkips.length}`;
     if (gbServerPaused()) pauseTxt += ` ||srv:${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}`;
+    if (storageWarnUntil > Date.now()) pauseTxt += ` ⚠${storageWarnMsg || 'quota'}`;
     try {
       const dl = typeof econDeadlock === 'function' ? econDeadlock() : null;
       if (dl && dl.open) pauseTxt += ' WH';

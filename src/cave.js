@@ -245,7 +245,7 @@
           i = jobs.length;
         } else if (!err) {
           done++;
-          gbLog(`cave: town ${job.id} stored ${job.amt} iron (was ${job.iron}/${job.cap})`);
+          gbLogT('cave-ok-' + job.id, 30000, `cave: town ${job.id} stored ${job.amt} iron (was ${job.iron}/${job.cap})`);
         } else {
           gbLogT('cave-err-' + job.id, 60000, `cave: town ${job.id} err ${err}`);
         }

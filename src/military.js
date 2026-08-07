@@ -231,9 +231,15 @@
         return finish(err);
       }
       // Fallback paths used by command overview / command_info UI
+      if (captchaPaused('cancel') || captchaPaused('attack') || automationPaused({}) || !gbLocked('cancel')) {
+        return finish('captcha-pause');
+      }
       gameAjaxPost('cancel', 'town_overviews', 'cancel_command', { id: cmdId }, (err2, res) => {
         if (!err2) return finish(null, res);
         if (err2 === 'captcha' || err2 === 'captcha-pause' || err2 === 'dryrun') return finish(err2);
+        if (captchaPaused('cancel') || captchaPaused('attack') || automationPaused({}) || !gbLocked('cancel')) {
+          return finish('captcha-pause');
+        }
         gameAjaxPost('cancel', 'command_info', 'cancel_command', { id: cmdId }, finish);
       });
     });

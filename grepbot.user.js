@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      1.5.20
+// @version      1.5.21
 // @description  Grepolis scout/farm/build/trade/culture/recruit automation. ToS forbid automation; risk = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -293,7 +293,8 @@ const STORE = {
     hero: 60000,
     'collect-bg': 180000,
     'bandit-reward': 60000,
-    'bandit-attack': 30000,
+    'quest-claim': 60000,
+    'quest-scan': 30000,
   };
   const GB_LOCK_DEFAULT_TTL = 120000;
   const gbLocks = Object.create(null);
@@ -861,26 +862,121 @@ const STORE = {
     get TOWN_MAX_MS() { return state.townMaxMs; },
   };
 
+  const LOAD_MAX_CHARS = 2 * 1024 * 1024;
+  let storageWarnUntil = 0;
+  let storageWarnMsg = '';
+  function loadValueOk(v, key) {
+    if (v === null || v === undefined) return true;
+    try {
+      const n = typeof v === 'string' ? v.length : JSON.stringify(v).length;
+      if (n > LOAD_MAX_CHARS) {
+        try {
+          if (typeof gbLogT === 'function') gbLogT('load-huge', 60000, 'storage: refusing huge key', key, n);
+          else console.warn('[grepbot] storage: refusing huge key', key, n);
+        } catch (_) {}
+        return false;
+      }
+    } catch (_) {}
+    return true;
+  }
   function load(key, fallback) {
     try {
       const scopedCall = String(key).indexOf('@') !== -1;
       if (!scopedCall && WORLD_SCOPED_BASES.has(key)) {
         const v = GM_getValue(wkey(key), null);
-        if (v !== null && v !== undefined) return v;
+        if (v !== null && v !== undefined) return loadValueOk(v, key) ? v : fallback;
         const legacy = GM_getValue(key, null);
-        if (legacy !== null && legacy !== undefined) return legacy;
+        if (legacy !== null && legacy !== undefined) return loadValueOk(legacy, key) ? legacy : fallback;
         return fallback;
       }
       const v = GM_getValue(key, null);
-      return v === null || v === undefined ? fallback : v;
+      if (v === null || v === undefined) return fallback;
+      return loadValueOk(v, key) ? v : fallback;
     } catch (e) { return fallback; }
   }
-  function save(key, val) {
+
+  let storagePruneBusy = false;
+  function storageRawSet(k, val) {
+    try { GM_setValue(k, val); return true; } catch (_) { return false; }
+  }
+  function storagePruneForQuota() {
+    if (storagePruneBusy) return 0;
+    storagePruneBusy = true;
+    let bytes = 0;
     try {
-      const scopedCall = String(key).indexOf('@') !== -1;
-      const k = (!scopedCall && WORLD_SCOPED_BASES.has(key)) ? wkey(key) : key;
+      const list = state.decisions;
+      if (Array.isArray(list) && list.length > 50) {
+        const drop = list.length - 50;
+        list.splice(0, drop);
+        bytes += drop * 80;
+        storageRawSet(wkey(STORE.DECISIONS), list);
+      }
+    } catch (_) {}
+    try {
+      const ids = Object.keys(state.seen || {});
+      if (ids.length > SEEN_MAX) {
+        const drop = ids.length - SEEN_MAX;
+        ids.slice(0, drop).forEach(k => { delete state.seen[k]; });
+        bytes += drop * 20;
+        storageRawSet(wkey(STORE.SEEN), state.seen);
+      }
+    } catch (_) {}
+    try {
+      const cut = Date.now() - 3 * 86400000;
+      let n = 0;
+      Object.keys(state.alerted || {}).forEach(k => {
+        if ((state.alerted[k] || 0) < cut) { delete state.alerted[k]; n++; }
+      });
+      if (n) { bytes += n * 24; storageRawSet(wkey(STORE.ALERTED), state.alerted); }
+    } catch (_) {}
+    try {
+      if (Array.isArray(state.findings) && state.findings.length > 100) {
+        const drop = state.findings.length - 100;
+        state.findings.splice(0, drop);
+        bytes += drop * 200;
+        storageRawSet(wkey(STORE.FINDINGS), state.findings);
+      }
+    } catch (_) {}
+    try {
+      const cut = Date.now() - 86400000;
+      let n = 0;
+      Object.keys(state.farmResources || {}).forEach(k => {
+        const r = state.farmResources[k];
+        if (r && r.ts && r.ts < cut) { delete state.farmResources[k]; n++; }
+      });
+      if (n) { bytes += n * 40; storageRawSet(wkey(STORE.FARM_RES), state.farmResources); }
+    } catch (_) {}
+    storagePruneBusy = false;
+    return bytes;
+  }
+  function save(key, val) {
+    const scopedCall = String(key).indexOf('@') !== -1;
+    const k = (!scopedCall && WORLD_SCOPED_BASES.has(key)) ? wkey(key) : key;
+    try {
       GM_setValue(k, val);
-    } catch (e) { console.warn('[grepbot] save fail', key, e); }
+    } catch (e) {
+      const isQuota = e && (e.name === 'QuotaExceededError' || /quota.?exceeded/i.test(String(e.message || e)));
+      if (isQuota) {
+        const pruned = storagePruneForQuota();
+        try {
+          GM_setValue(k, val);
+          storageWarnUntil = Date.now() + 5 * 60000;
+          storageWarnMsg = 'quota:pruned';
+          gbLog('storage: QuotaExceeded on', key, '- pruned ~' + pruned + 'B and retried OK');
+          try { updateStatus(); } catch (_) {}
+          return;
+        } catch (e2) {
+          storageWarnUntil = Date.now() + 30 * 60000;
+          storageWarnMsg = 'quota FULL';
+          console.warn('[grepbot] save fail (quota)', key, e2);
+          gbLog('storage: QuotaExceeded on', key, '- write LOST after prune');
+          try { updateStatus(); } catch (_) {}
+          return;
+        }
+      }
+      console.warn('[grepbot] save fail', key, e);
+      try { gbLog('storage: save fail', key, String(e).slice(0, 80)); } catch (_) {}
+    }
   }
 
   const GM_XHR_DEFAULT_TIMEOUT = 30000;
@@ -1575,6 +1671,19 @@ const STORE = {
   if (!Array.isArray(state.decisions)) state.decisions = [];
   if (!state.decisionSkips || typeof state.decisionSkips !== 'object') state.decisionSkips = {};
 
+  let jrnHost = location.hostname;
+  function jrnCheckHost() {
+    if (location.hostname === jrnHost) return;
+    try { jrnFlush(); } catch (_) {}
+    jrnHost = location.hostname;
+    const next = load(wkey(STORE.DECISIONS), []);
+    state.decisions = Array.isArray(next) ? next : [];
+    const skips = load(wkey(STORE.DECISION_SKIPS), {});
+    state.decisionSkips = (skips && typeof skips === 'object') ? skips : {};
+    gbLog('memory: reloaded for host ' + jrnHost);
+  }
+  try { jrnPrune(); } catch (_) {}
+
   function jrnResult(err) {
     if (!err) return 'ok';
     const s = String(err);
@@ -1631,6 +1740,7 @@ const STORE = {
   function jrnFlush() { if (jrnSaveQueued) { jrnSaveQueued = false; jrnSave(true); } }
 
   function jrnPush(tag, result, detail) {
+    jrnCheckHost();
     const list = state.decisions;
     const now = Date.now();
     for (let i = list.length - 1, seen = 0; i >= 0 && seen < 40; i--, seen++) {
@@ -1711,6 +1821,7 @@ const STORE = {
   }
 
   function jrnSkipped(tag) {
+    jrnCheckHost();
     if (state.decisionMemory === false) return false;
     const s = state.decisionSkips[jrnId(tag)];
     if (!s || !s.until) return false;
@@ -2928,9 +3039,17 @@ const STORE = {
     gbLog('learned farm action', a);
   }
   function fetchFarmResources(entry, onDone) {
+    if (captchaPaused('farm') || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) {
+      if (onDone) onDone(false);
+      return;
+    }
     const guesses = farmGuesses();
     tryGuess(entry, 0);
     function tryGuess(entry, i) {
+      if (captchaPaused('farm') || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) {
+        if (onDone) onDone(false);
+        return;
+      }
       if (i >= guesses.length) {
         state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: 'no endpoint matched' };
         save(STORE.FARM_RES, state.farmResources);
@@ -3020,7 +3139,7 @@ const STORE = {
   }
 
   function scrapeAllFarms() {
-    if (!hostEnabled() || automationPaused({})) return;
+    if (!hostEnabled() || automationPaused({}) || captchaPaused('farm')) return;
     if (gbLocked('farm-scrape')) { gbLogT('farm-scrape-inflight', 30000, 'farm scrape: skipped (in flight)'); return; }
     gbLock('farm-scrape');
     refreshFarmsParsed();
@@ -3039,7 +3158,7 @@ const STORE = {
     let done = 0, ok = 0;
 
     (function step() {
-      if (!hostEnabled() || automationPaused({})) {
+      if (!hostEnabled() || automationPaused({}) || captchaPaused('farm')) {
         gbUnlock('farm-scrape');
         gbLog(`farm scrape aborted (host/pause): ${ok}/${done} ok`);
         return;
@@ -3051,11 +3170,17 @@ const STORE = {
         flash(`farms ${ok}/${done} ok`);
         return;
       }
-      fetchFarmResources(f, (good) => {
-        done++; if (good) ok++;
-        if (!good) gbLog(`  farm ${f.vill_id}: no data (${(state.farmResources[f.vill_id] || {}).err || '?'})`);
+      try {
+        fetchFarmResources(f, (good) => {
+          done++; if (good) ok++;
+          if (!good) gbLogT('farm-nodata-' + f.vill_id, 60000, `  farm ${f.vill_id}: no data (${(state.farmResources[f.vill_id] || {}).err || '?'})`);
+          gbTimeout(step, 700 + Math.random() * 300);
+        });
+      } catch (e) {
+        done++;
+        gbLogT('farm-scrape-throw', 30000, `farm scrape throw ${f.vill_id}: ${String(e).slice(0, 80)}`);
         gbTimeout(step, 700 + Math.random() * 300);
-      });
+      }
     })();
   }
 
@@ -3101,6 +3226,7 @@ const STORE = {
   const TOWN_LIST_GUESSES = ['get_towns', 'towns_overview', 'get_owned_towns', 'overview_towns', 'town_list'];
   function fetchOwnedTowns(i = 0) {
     if (!state.csrf) return;
+    if (captchaPaused('town') || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return;
     if (i >= TOWN_LIST_GUESSES.length) { scrapeTownsDom(); return; }
     const action = TOWN_LIST_GUESSES[i];
     const params = new URLSearchParams();
@@ -3174,9 +3300,11 @@ const STORE = {
     renderWorld();
   }
   function fetchTownResources(town) {
+    if (captchaPaused('town') || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return;
     const TOWN_ACTION_GUESSES = ['town_info', 'get_town_info', 'town_overview', 'overview_towns', 'get_resources', 'resource_header'];
     tryGuess(town, 0);
     function tryGuess(town, i) {
+      if (captchaPaused('town') || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return;
       if (i >= TOWN_ACTION_GUESSES.length) {
         state.townResources[town.id] = { ts: Date.now(), ok: false, err: 'no endpoint' };
         save(STORE.TOWN_RES, state.townResources);
@@ -3217,7 +3345,7 @@ const STORE = {
     }
   }
   function scrapeAllTowns() {
-    if (!hostEnabled() || automationPaused({})) return;
+    if (!hostEnabled() || automationPaused({}) || captchaPaused('town')) return;
     if (gbLocked('town-scrape')) { gbLogT('town-scrape-inflight', 30000, 'town scrape: skipped (in flight)'); return; }
     gbLock('town-scrape');
     const delay = SYNC.TOWN_MIN_MS + Math.random() * (SYNC.TOWN_MAX_MS - SYNC.TOWN_MIN_MS);
@@ -3243,7 +3371,7 @@ const STORE = {
             ts: Date.now(), wood: r.wood ?? null, stone: r.stone ?? null, iron: r.iron ?? null,
             pop: r.population ?? null, cap: r.storage ?? null, ok: true, action: 'game-data',
           };
-        } else if (hostEnabled() && !automationPaused({})) {
+        } else if (hostEnabled() && !automationPaused({}) && !captchaPaused('town')) {
           fromHttp++;
           gbTimeout(() => fetchTownResources(t), fromHttp * 600);
         }
@@ -3298,6 +3426,7 @@ const STORE = {
   function autoCollectResources() {
     if (!state.autoCollect) return;
     if (!hostEnabled()) return;
+    if (automationPaused({}) || captchaPaused('collect')) return;
     if (document.hidden) return;
 
     if (currentTownWarehouseBlocks()) {
@@ -3720,8 +3849,6 @@ const STORE = {
     save(STORE.BANDIT_LOG, state.banditLog);
   }
   banditScheduleNext();
-  if (state.autoCollect) gbInterval(autoCollectResources, 5000);
-  if (state.collectAll) collectAllBackground();
 
   const IB_CHECK_MS = 10000;
   const IB_FREE_ACTIONS = new Set(['completeInstant', 'finishInstantly']);
@@ -4984,7 +5111,7 @@ const STORE = {
           i = jobs.length;
         } else if (!err) {
           done++;
-          gbLog(`cave: town ${job.id} stored ${job.amt} iron (was ${job.iron}/${job.cap})`);
+          gbLogT('cave-ok-' + job.id, 30000, `cave: town ${job.id} stored ${job.amt} iron (was ${job.iron}/${job.cap})`);
         } else {
           gbLogT('cave-err-' + job.id, 60000, `cave: town ${job.id} err ${err}`);
         }
@@ -6062,6 +6189,10 @@ const STORE = {
   function alertWebhook(event, payload) {
     const url = (state.webhookUrl || '').trim();
     if (!url) return;
+
+    if (event !== 'captcha') {
+      if (captchaPaused('alert') || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return;
+    }
     if (!alertWebhookUrlOk(url)) {
       gbLogT('webhook-url', 120000, 'webhook: invalid Discord/Telegram URL');
       return;
@@ -6182,6 +6313,7 @@ const STORE = {
     const oid = (job.offer.attributes && (job.offer.attributes.id || job.offer.id)) || job.offer.id;
     if (oid == null || oid === '') {
       gbLogT('merchant-noid', 60000, 'merchant: offer has no id - skip');
+      try { gbRemember('merchant', 'buy', '-', 'no-offer-id'); } catch (_) {}
       return;
     }
     gbLock('merchant');
@@ -6204,6 +6336,10 @@ const STORE = {
 
       if (!/unknown.?action|invalid.?action|not.?found|does.?not.?exist/i.test(String(err))) {
         gbLogT('merchant-err', 60000, `merchant err ${err}`);
+        gbUnlock('merchant');
+        return;
+      }
+      if (captchaPaused('merchant') || automationPaused({}) || !gbLocked('merchant')) {
         gbUnlock('merchant');
         return;
       }
@@ -6472,6 +6608,10 @@ const STORE = {
 
       if (!/unknown|not.?found|does.?not.?exist|invalid.?controller|invalid.?action/i.test(String(err))) {
         gbLogT('wonder-err', 60000, `wonder err ${err}`);
+        gbUnlock('wonder');
+        return;
+      }
+      if (captchaPaused('wonder') || automationPaused({}) || !gbLocked('wonder')) {
         gbUnlock('wonder');
         return;
       }
@@ -6923,6 +7063,7 @@ const STORE = {
           if (!def || !def.resources) {
 
             gbLogT('recruit-nocost', 120000, `recruit: unknown cost for ${unit}`);
+            try { gbRemember('recruit', 'build/' + unit, tid, 'unknown-cost'); } catch (_) {}
             continue;
           }
           const rw = +def.resources.wood || 0;
@@ -7186,6 +7327,8 @@ const STORE = {
   const ORCH_MAX_PER_TICK = 3;
   const ORCH_SPACING_MS = 450;
   const ORCH_JITTER = 0.2;
+  let orchTickGen = 0;
+  function orchCancelQueued() { orchTickGen++; }
   const ORCH_CADENCE = {
     culture: 90000,
     cave: 30000,
@@ -7375,8 +7518,10 @@ const STORE = {
       gbLogT('deadlock-stuck', 300000, 'orch: deadlock open but nothing can drain - spend resources manually');
     }
     const run = due.slice(0, ORCH_MAX_PER_TICK);
+    const gen = orchTickGen;
     run.forEach((item, idx) => {
       const fire = () => {
+        if (gen !== orchTickGen) return;
 
         if (automationPaused({})) return;
         if (ORCH_CAPTCHA[item.key] && captchaPaused(ORCH_CAPTCHA[item.key])) return;
@@ -7660,8 +7805,6 @@ const STORE = {
   const QUEST_SCAN_MS = 12000;
   const QUEST_RESCAN_MS = 6 * 60 * 60 * 1000;
   const QUEST_HISTORY_MAX = 100;
-  let questScanBusy = false;
-  let questAutoBusy = false;
   let questCursor = 0;
   let questMo = null;
 
@@ -8006,7 +8149,7 @@ const STORE = {
     return rows[questCursor++];
   }
   function questAutoClaim(root, entry) {
-    if (questAutoBusy || !entry?.canClaim) return;
+    if (gbLocked('quest-claim') || !entry?.canClaim) return;
     const rewards = entry.rewards || [];
 
     if (!rewards.length || !rewards.every(isSafeQuestReward)) return;
@@ -8015,7 +8158,7 @@ const STORE = {
       gbLogT('quest-block-' + entry.questId, 60000, 'quest: claim backoff active', entry.title || entry.questId);
       return;
     }
-    questAutoBusy = true;
+    if (!gbLock('quest-claim')) return;
     const kinds = rewards.map(r => r.kind).join(',');
     const finish = (method, ok, err) => {
       if (ok) questClaimOk(entry.questId);
@@ -8031,7 +8174,7 @@ const STORE = {
       });
       gbLog(`quest: auto-claim ${ok ? 'OK' : 'fail'} via ${method}`, entry.title || entry.questId, kinds);
       if (ok) flash('quest claim: ' + kinds);
-      gbTimeout(() => { questAutoBusy = false; questScanTick('post-claim'); renderQuests(); }, 2500);
+      gbTimeout(() => { gbUnlock('quest-claim'); questScanTick('post-claim'); renderQuests(); }, 2500);
     };
     const questStillClaimable = () => {
       const cur = state.questRewards[entry.questId];
@@ -8042,17 +8185,22 @@ const STORE = {
       } catch (_) {}
       return true;
     };
-    claimQuestViaBridge(entry, (err) => {
+    try {
+      claimQuestViaBridge(entry, (err) => {
 
-      if (err === 'timeout') {
-        if (!questStillClaimable()) return finish('bridge-reconcile', true);
-        return finish('bridge', false, 'timeout_unknown');
-      }
-      if (err) return finish('bridge', false, err);
-      if (!questStillClaimable()) return finish('bridge', true);
+        if (err === 'timeout') {
+          if (!questStillClaimable()) return finish('bridge-reconcile', true);
+          return finish('bridge', false, 'timeout_unknown');
+        }
+        if (err) return finish('bridge', false, err);
+        if (!questStillClaimable()) return finish('bridge', true);
 
-      return finish('bridge', false, 'unconfirmed');
-    });
+        return finish('bridge', false, 'unconfirmed');
+      });
+    } catch (e) {
+      gbUnlock('quest-claim');
+      gbLog('quest: claim threw', String(e).slice(0, 120));
+    }
   }
   function questSnapshot(row, rewards, canClaim) {
     const questId = questKey(row);
@@ -8093,12 +8241,19 @@ const STORE = {
     questsFromGame().forEach(q => mergeQuestEntry(q));
   }
   function questScanTick(reason) {
-    if (!hostEnabled() || questScanBusy) return;
+    if (!hostEnabled() || gbLocked('quest-scan')) return;
     bindQuestObserver();
     ingestGameQuests();
 
-    if (!questAutoBusy) {
-      const claimable = Object.values(state.questRewards).filter(e => e.canClaim && e.safeAuto);
+    if (!gbLocked('quest-claim')) {
+      const claimable = Object.values(state.questRewards).filter(e => {
+        if (!(e.canClaim && e.safeAuto)) return false;
+        try {
+          const last = gbRecall('quest', null, e.questId);
+          if (last && last.r && last.r !== 'ok' && (Date.now() - last.ts) < 120000) return false;
+        } catch (_) {}
+        return true;
+      });
       if (claimable.length) {
         questAutoClaim(questRewardRoot(), claimable[0]);
       }
@@ -8107,8 +8262,8 @@ const STORE = {
     if (!rows.length) { renderQuests(); return; }
     const row = chooseQuestRow(rows);
     if (!row) { renderQuests(); return; }
-    questScanBusy = true;
-    const finish = () => { questScanBusy = false; renderQuests(); };
+    if (!gbLock('quest-scan')) return;
+    const finish = () => { gbUnlock('quest-scan'); renderQuests(); };
     if (!row.classList.contains('selected')) {
       clickQuestRow(row);
       gbTimeout(() => {
@@ -9665,9 +9820,15 @@ const STORE = {
         return finish(err);
       }
 
+      if (captchaPaused('cancel') || captchaPaused('attack') || automationPaused({}) || !gbLocked('cancel')) {
+        return finish('captcha-pause');
+      }
       gameAjaxPost('cancel', 'town_overviews', 'cancel_command', { id: cmdId }, (err2, res) => {
         if (!err2) return finish(null, res);
         if (err2 === 'captcha' || err2 === 'captcha-pause' || err2 === 'dryrun') return finish(err2);
+        if (captchaPaused('cancel') || captchaPaused('attack') || automationPaused({}) || !gbLocked('cancel')) {
+          return finish('captcha-pause');
+        }
         gameAjaxPost('cancel', 'command_info', 'cancel_command', { id: cmdId }, finish);
       });
     });
@@ -9991,6 +10152,12 @@ const STORE = {
       if (gbServerPaused()) parts.push('server cooldown ' + fmtSec(Math.round(gbServerCooldownLeftMs() / 1000)));
       const skips = jrnActiveSkips();
       if (skips.length) parts.push(skips.length + ' memory skip windows');
+      try {
+        const last = gbRecall();
+        if (last) parts.push('last decision: ' + last.f + '/' + (last.r || '?'));
+        const recentFails = gbRecallAll().filter(r => r && r.r && r.r !== 'ok' && (Date.now() - r.ts) < 3600000);
+        if (recentFails.length) parts.push(recentFails.length + ' hard fails (1h)');
+      } catch (_) {}
       return { ok: true, warn: parts.length > 0, detail: parts.length ? parts.join(' | ') : 'clear' };
     }));
     return out;
@@ -11978,6 +12145,7 @@ const STORE = {
     const memSkips = jrnActiveSkips();
     if (memSkips.length) pauseTxt += ` mem:${memSkips.length}`;
     if (gbServerPaused()) pauseTxt += ` ||srv:${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}`;
+    if (storageWarnUntil > Date.now()) pauseTxt += ` ⚠${storageWarnMsg || 'quota'}`;
     try {
       const dl = typeof econDeadlock === 'function' ? econDeadlock() : null;
       if (dl && dl.open) pauseTxt += ' WH';
@@ -12222,12 +12390,20 @@ const STORE = {
       try { gbWakeMarkResume('bfcache'); } catch (_) {}
       farmTick();
       try { reportCatchUpEnqueue(); } catch (_) {}
+      try { bindQuestObserver(); } catch (_) {}
+      try { banditScheduleNext(); } catch (_) {}
     }
   });
   gbInterval(checkThresholds, 30000);
   gbInterval(renderTimers, 1000);
   gbInterval(updateStatus, 5000);
 
+  gbInterval(() => {
+    if (!state.autoCollect) return;
+    if (!hostEnabled() || automationPaused({}) || captchaPaused('collect')) return;
+    autoCollectResources();
+  }, 5000);
+  if (state.collectAll) collectAllBackground();
   bindQuestObserver();
   gbTimeout(() => { if (hostEnabled()) questScanTick('boot'); }, 5000);
   gbInterval(() => { if (hostEnabled()) questScanTick('loop'); }, QUEST_SCAN_MS);
@@ -12270,6 +12446,13 @@ const STORE = {
     try { cancelArmedAttack(); } catch (_) {}
     try { gbUnlockAll(); } catch (_) {}
     try { banditAttackSentAt = 0; } catch (_) {}
+    try { banditIdleUntil = 0; } catch (_) {}
+    try {
+      if (banditTimer) { clearTimeout(banditTimer); banditTimer = null; }
+    } catch (_) {}
+    try { banditClearLoop(); } catch (_) {}
+    try { if (typeof questDispose === 'function') questDispose(); } catch (_) {}
+    try { if (typeof orchCancelQueued === 'function') orchCancelQueued(); } catch (_) {}
     try { if (typeof dodgeQueueSave === 'function') dodgeQueueSave(); } catch (_) {}
     try { if (typeof questClaimFailSave === 'function') questClaimFailSave(); } catch (_) {}
     try { if (typeof persistServerCooldown === 'function') persistServerCooldown(); } catch (_) {}

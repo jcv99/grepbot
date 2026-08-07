@@ -47,6 +47,8 @@ const STORE = {
     AB_TARGETS: 'grepbot:ab-targets',
     AB_NEXT: 'grepbot:ab-next',
     BUILD_PIN: 'grepbot:build-pin',
+    AB_CUSTOM_Q: 'grepbot:ab-custom-queue',
+    AB_QUEUE_STRICT: 'grepbot:ab-queue-strict',
     AUTO_CAVE: 'grepbot:auto-cave',
     CAVE_THRESH: 'grepbot:cave-thresh',
     CAVE_TOWNS: 'grepbot:cave-towns',
@@ -91,6 +93,9 @@ const STORE = {
     WEBHOOK_EVENTS: 'grepbot:webhook-events',
     AUTO_MERCHANT: 'grepbot:auto-merchant',
     MERCHANT_WISH: 'grepbot:merchant-wish',
+    AUTO_PT_TRADE: 'grepbot:auto-pt-trade',
+    PT_CFG: 'grepbot:pt-cfg',
+    PT_TRADE_TPL: 'grepbot:pt-trade-tpl',
     AUTO_FAVOR: 'grepbot:auto-favor',
     FAVOR_CFG: 'grepbot:favor-cfg',
     AUTO_WONDER: 'grepbot:auto-wonder',
@@ -141,14 +146,16 @@ const STORE = {
   const CONFIG_VER_CURRENT = 2;
 
   // Id-bearing maps/lists auto-scoped by load/save (C3). Prefs/toggles stay global.
-  // Keys already manually wkey()'d at call sites (csrf, claimTpl, ...) stay caller-scoped.
+  // Caller-scoped learned keys (NOT in this set — call sites pass wkey(base) themselves):
+  //   CSRF, FARM_ACTION, CLAIM_TPL, COLLECT_TPL, IB_ACTION, IB_ACTION_R, ATTACK_TPL,
+  //   CANCEL_TPL, HERO_TPL, CAPTCHA, DECISIONS, DECISION_SKIPS, FARM_OPTION_MAP, …
   const WORLD_SCOPED_BASES = new Set([
     STORE.FINDINGS, STORE.FARMS, STORE.FARMS_PARSED, STORE.FARM_RES, STORE.SEEN,
     STORE.TOWNS, STORE.TOWN_RES, STORE.THRESH, STORE.ALERTED,
     STORE.NEXT_FARM, STORE.NEXT_TOWNS, STORE.BANDIT_LOG,
     STORE.QUEST_REWARDS, STORE.QUEST_HISTORY,
     STORE.ATTACK_PLAN, STORE.ATTACK_HISTORY, STORE.ATTACK_RECENT,
-    STORE.AB_TARGETS, STORE.AB_NEXT, STORE.BUILD_PIN, STORE.CAVE_TOWNS,
+    STORE.AB_TARGETS, STORE.AB_NEXT, STORE.BUILD_PIN, STORE.AB_CUSTOM_Q, STORE.CAVE_TOWNS,
     STORE.RESEARCH_TARGETS, STORE.CITY_TEMPLATES, STORE.TOWN_GROUPS,
     STORE.MERCHANT_WISH, STORE.FAVOR_CFG, STORE.WONDER_CFG, STORE.WONDER_SPENT,
     STORE.CULTURE_GOLD_SPENT,
@@ -283,7 +290,8 @@ const STORE = {
     hero: 60000,
     'collect-bg': 180000,
     'bandit-reward': 60000,
-    'bandit-attack': 30000, // optimistic guard until the movement shows up
+    'quest-claim': 60000,
+    'quest-scan': 30000,
   };
   const GB_LOCK_DEFAULT_TTL = 120000;
   const gbLocks = Object.create(null); // name -> acquired-at ms
@@ -870,26 +878,122 @@ const STORE = {
   // ---------- storage ----------
   // WORLD_SCOPED_BASES auto-key under wkey(); callers that already pass wkey(base)
   // keep working (key contains '@'). Legacy unscoped values are read once as fallback.
+  const LOAD_MAX_CHARS = 2 * 1024 * 1024; // refuse corrupt/huge values (~2MB)
+  let storageWarnUntil = 0;
+  let storageWarnMsg = '';
+  function loadValueOk(v, key) {
+    if (v === null || v === undefined) return true;
+    try {
+      const n = typeof v === 'string' ? v.length : JSON.stringify(v).length;
+      if (n > LOAD_MAX_CHARS) {
+        try {
+          if (typeof gbLogT === 'function') gbLogT('load-huge', 60000, 'storage: refusing huge key', key, n);
+          else console.warn('[grepbot] storage: refusing huge key', key, n);
+        } catch (_) {}
+        return false;
+      }
+    } catch (_) {}
+    return true;
+  }
   function load(key, fallback) {
     try {
       const scopedCall = String(key).indexOf('@') !== -1;
       if (!scopedCall && WORLD_SCOPED_BASES.has(key)) {
         const v = GM_getValue(wkey(key), null);
-        if (v !== null && v !== undefined) return v;
+        if (v !== null && v !== undefined) return loadValueOk(v, key) ? v : fallback;
         const legacy = GM_getValue(key, null);
-        if (legacy !== null && legacy !== undefined) return legacy;
+        if (legacy !== null && legacy !== undefined) return loadValueOk(legacy, key) ? legacy : fallback;
         return fallback;
       }
       const v = GM_getValue(key, null);
-      return v === null || v === undefined ? fallback : v;
+      if (v === null || v === undefined) return fallback;
+      return loadValueOk(v, key) ? v : fallback;
     } catch (e) { return fallback; }
   }
-  function save(key, val) {
+  // Drop regenerable bulk so a QuotaExceeded write can retry. Never touch seen
+  // aggressively (I14 inbox re-fetch loop) — trim to SEEN_MAX only.
+  let storagePruneBusy = false;
+  function storageRawSet(k, val) {
+    try { GM_setValue(k, val); return true; } catch (_) { return false; }
+  }
+  function storagePruneForQuota() {
+    if (storagePruneBusy) return 0;
+    storagePruneBusy = true;
+    let bytes = 0;
     try {
-      const scopedCall = String(key).indexOf('@') !== -1;
-      const k = (!scopedCall && WORLD_SCOPED_BASES.has(key)) ? wkey(key) : key;
+      const list = state.decisions;
+      if (Array.isArray(list) && list.length > 50) {
+        const drop = list.length - 50;
+        list.splice(0, drop);
+        bytes += drop * 80;
+        storageRawSet(wkey(STORE.DECISIONS), list);
+      }
+    } catch (_) {}
+    try {
+      const ids = Object.keys(state.seen || {});
+      if (ids.length > SEEN_MAX) {
+        const drop = ids.length - SEEN_MAX;
+        ids.slice(0, drop).forEach(k => { delete state.seen[k]; });
+        bytes += drop * 20;
+        storageRawSet(wkey(STORE.SEEN), state.seen);
+      }
+    } catch (_) {}
+    try {
+      const cut = Date.now() - 3 * 86400000;
+      let n = 0;
+      Object.keys(state.alerted || {}).forEach(k => {
+        if ((state.alerted[k] || 0) < cut) { delete state.alerted[k]; n++; }
+      });
+      if (n) { bytes += n * 24; storageRawSet(wkey(STORE.ALERTED), state.alerted); }
+    } catch (_) {}
+    try {
+      if (Array.isArray(state.findings) && state.findings.length > 100) {
+        const drop = state.findings.length - 100;
+        state.findings.splice(0, drop);
+        bytes += drop * 200;
+        storageRawSet(wkey(STORE.FINDINGS), state.findings);
+      }
+    } catch (_) {}
+    try {
+      const cut = Date.now() - 86400000;
+      let n = 0;
+      Object.keys(state.farmResources || {}).forEach(k => {
+        const r = state.farmResources[k];
+        if (r && r.ts && r.ts < cut) { delete state.farmResources[k]; n++; }
+      });
+      if (n) { bytes += n * 40; storageRawSet(wkey(STORE.FARM_RES), state.farmResources); }
+    } catch (_) {}
+    storagePruneBusy = false;
+    return bytes;
+  }
+  function save(key, val) {
+    const scopedCall = String(key).indexOf('@') !== -1;
+    const k = (!scopedCall && WORLD_SCOPED_BASES.has(key)) ? wkey(key) : key;
+    try {
       GM_setValue(k, val);
-    } catch (e) { console.warn('[grepbot] save fail', key, e); }
+    } catch (e) {
+      const isQuota = e && (e.name === 'QuotaExceededError' || /quota.?exceeded/i.test(String(e.message || e)));
+      if (isQuota) {
+        const pruned = storagePruneForQuota();
+        try {
+          GM_setValue(k, val);
+          storageWarnUntil = Date.now() + 5 * 60000;
+          storageWarnMsg = 'quota:pruned';
+          gbLog('storage: QuotaExceeded on', key, '- pruned ~' + pruned + 'B and retried OK');
+          try { updateStatus(); } catch (_) {}
+          return;
+        } catch (e2) {
+          storageWarnUntil = Date.now() + 30 * 60000;
+          storageWarnMsg = 'quota FULL';
+          console.warn('[grepbot] save fail (quota)', key, e2);
+          gbLog('storage: QuotaExceeded on', key, '- write LOST after prune');
+          try { updateStatus(); } catch (_) {}
+          return;
+        }
+      }
+      console.warn('[grepbot] save fail', key, e);
+      try { gbLog('storage: save fail', key, String(e).slice(0, 80)); } catch (_) {}
+    }
   }
   // Central GM_xmlhttpRequest: timeout, abort-on-dispose, captcha sniff (I11/I12).
   const GM_XHR_DEFAULT_TIMEOUT = 30000;

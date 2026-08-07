@@ -18,6 +18,20 @@
   // Storage can come back as anything after a bad write / hand edit.
   if (!Array.isArray(state.decisions)) state.decisions = [];
   if (!state.decisionSkips || typeof state.decisionSkips !== 'object') state.decisionSkips = {};
+  // Stamp the host these buffers were loaded for. Town ids collide across worlds;
+  // if the document host ever changes without a full reinject, reload from storage.
+  let jrnHost = location.hostname;
+  function jrnCheckHost() {
+    if (location.hostname === jrnHost) return;
+    try { jrnFlush(); } catch (_) {}
+    jrnHost = location.hostname;
+    const next = load(wkey(STORE.DECISIONS), []);
+    state.decisions = Array.isArray(next) ? next : [];
+    const skips = load(wkey(STORE.DECISION_SKIPS), {});
+    state.decisionSkips = (skips && typeof skips === 'object') ? skips : {};
+    gbLog('memory: reloaded for host ' + jrnHost);
+  }
+  try { jrnPrune(); } catch (_) {}
 
   function jrnResult(err) {
     if (!err) return 'ok';
@@ -80,6 +94,7 @@
   // repeat counter instead of burning a slot (a night pause would otherwise
   // flush the whole journal in one night).
   function jrnPush(tag, result, detail) {
+    jrnCheckHost();
     const list = state.decisions;
     const now = Date.now();
     for (let i = list.length - 1, seen = 0; i >= 0 && seen < 40; i--, seen++) {
@@ -165,6 +180,7 @@
   // True when this exact decision is inside its backoff window. Trips decay on
   // expiry so a fixed endpoint does not stay stuck at 60m forever.
   function jrnSkipped(tag) {
+    jrnCheckHost();
     if (state.decisionMemory === false) return false;
     const s = state.decisionSkips[jrnId(tag)];
     if (!s || !s.until) return false;

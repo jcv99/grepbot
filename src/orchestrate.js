@@ -15,6 +15,8 @@
   const ORCH_MAX_PER_TICK = 3;
   const ORCH_SPACING_MS = 450;
   const ORCH_JITTER = 0.2;
+  let orchTickGen = 0;
+  function orchCancelQueued() { orchTickGen++; }
   const ORCH_CADENCE = {
     culture: 90000,
     cave: 30000,
@@ -209,8 +211,10 @@
       gbLogT('deadlock-stuck', 300000, 'orch: deadlock open but nothing can drain - spend resources manually');
     }
     const run = due.slice(0, ORCH_MAX_PER_TICK);
+    const gen = orchTickGen;
     run.forEach((item, idx) => {
       const fire = () => {
+        if (gen !== orchTickGen) return;
         // Re-check: the earlier feature in this same tick may have tripped a
         // captcha breaker or a server cooldown between the sort and now.
         if (automationPaused({})) return;

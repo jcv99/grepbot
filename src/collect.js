@@ -42,6 +42,7 @@
   function autoCollectResources() {
     if (!state.autoCollect) return;
     if (!hostEnabled()) return;
+    if (automationPaused({}) || captchaPaused('collect')) return;
     if (document.hidden) return;
     // Opening a farm village shows Recoger - that DOM path used to ignore warehouse.
     if (currentTownWarehouseBlocks()) {
