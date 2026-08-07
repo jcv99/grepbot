@@ -50,7 +50,7 @@
     const now = gameNow();
     const out = [];
     const uw = uwCached();
-    const cols = [];
+    const cols = ibTownCollections('research');
     try {
       const col = mmCol('ResearchOrder');
       if (col && col.models && col.models.length) cols.push(col);
@@ -86,12 +86,46 @@
           townName: names[r.town_id] || ('Town ' + r.town_id),
           type: 'res:' + (r.research_type || r.research_id || '?'),
           display,
+          active: isFirst,
           isFree: ibIsFreeOrder(doneAt, timeLeft, gold),
           gold,
         });
       });
     });
     return out;
+  }
+  // Per-town building order collections. The MM `BuildingOrder` collection only
+  // carries loaded towns, so free orders in the other towns were never seen;
+  // ITowns holds every town and `buildingOrders()` is the same path abQueueInfo
+  // already uses successfully town-by-town.
+  function ibTownCollections(kind) {
+    const out = [];
+    let ids = [];
+    try { ids = abTownIds() || []; } catch (_) {}
+    ids.forEach(id => {
+      let t = null;
+      try { t = abGetTown(id); } catch (_) {}
+      if (!t) return;
+      let col = null;
+      try {
+        if (kind === 'research') col = t.researchOrders ? t.researchOrders() : null;
+        else col = t.buildingOrders ? t.buildingOrders() : null;
+      } catch (_) { col = null; }
+      if (col && col.models && col.models.length) out.push(col);
+    });
+    return out;
+  }
+  function ibTownCoverage() {
+    let ids = [];
+    try { ids = abTownIds() || []; } catch (_) {}
+    let readable = 0;
+    ids.forEach(id => {
+      try {
+        const t = abGetTown(id);
+        if (t && typeof t.buildingOrders === 'function' && t.buildingOrders()) readable++;
+      } catch (_) {}
+    });
+    return { readable, total: ids.length };
   }
   function ibOrders() {
     const now = gameNow();
@@ -100,9 +134,11 @@
     const names = ibTownNames(uw);
     const research = state.ibResearch ? ibResearchOrders(names) : [];
     let candidates = [], src = null;
+    const perTown = ibTownCollections('build');
+    if (perTown.length) { candidates = candidates.concat(perTown); src = 'ITowns'; }
     try {
       const col = mmCol('BuildingOrder');
-      if (col && col.models && col.models.length) { candidates.push(col); src = 'MM'; }
+      if (col && col.models && col.models.length) { candidates.push(col); src = src ? src + '+MM' : 'MM'; }
     } catch (_) {}
     let gpCols = null;
     try { gpCols = uw.GPWindowMgr && uw.GPWindowMgr._collections; } catch (_) {}
@@ -137,6 +173,7 @@
           townName: names[r.town_id] || ('Town ' + r.town_id),
           type: r.building_type || '?',
           display,
+          active: isFirst,
           isFree: ibIsFreeOrder(doneAt, timeLeft, gold),
           gold,
         });
@@ -261,9 +298,50 @@
       });
     })();
   }
+  // ---------- precise arming ----------
+  // A 10s poll catches the free window anywhere in the first 10s (worse in a
+  // background tab, where the interval is clamped to ~60s). So schedule one
+  // timer on the nearest order still counting down to its free point: it lands
+  // the post at ~4:58 remaining. The interval stays as the safety net - this
+  // timer only ever *accelerates* a scan, it never gates one.
+  let ibFreeTimer = null;
+  let ibFreeArmedAt = 0;
+  function ibArmedAt() { return ibFreeArmedAt; }
+  function ibArmNext(orders) {
+    const now = Date.now();
+    const thresh = ibFreeThresh() * 1000;
+    let best = 0;
+    (orders || []).forEach(o => {
+      // Only the active order of each town is counting down; a queued order
+      // reports its full build time and its clock has not started yet.
+      if (o.isFree || !o.active || !(o.display > 0)) return;
+      const armIn = (o.display * 1000) - thresh;
+      if (armIn <= 0) return;
+      const at = now + armIn;
+      if (!best || at < best) best = at;
+    });
+    if (!best) {
+      if (ibFreeTimer) { try { clearTimeout(ibFreeTimer); } catch (_) {} }
+      ibFreeTimer = null;
+      ibFreeArmedAt = 0;
+      return;
+    }
+    // +1.2s so the server clock is past the boundary, plus jitter.
+    const fireAt = best + 1200 + Math.floor(Math.random() * 1500);
+    if (ibFreeTimer && ibFreeArmedAt && Math.abs(ibFreeArmedAt - fireAt) < 3000) return;
+    if (ibFreeTimer) { try { clearTimeout(ibFreeTimer); } catch (_) {} }
+    ibFreeArmedAt = fireAt;
+    ibFreeTimer = gbTimeout(() => {
+      ibFreeTimer = null;
+      ibFreeArmedAt = 0;
+      ibScan();
+    }, Math.max(500, fireAt - now));
+    gbLogT('ib-arm', 60000, `instant: armed in ${fmtSec((fireAt - now) / 1000)} (free window at <=${ibFreeThresh()}s)`);
+  }
   function ibScan() {
     const orders = ibOrders();
     renderBuild(orders);
+    ibArmNext(orders);
     if (!state.ibAuto || gbLocked('ib')) return;
     const free = orders.filter(o => o.isFree);
     if (free.length) {
@@ -385,6 +463,71 @@
       state.abBuildPin[String(townId)] = building;
     }
     save(STORE.BUILD_PIN, state.abBuildPin);
+  }
+  // ---------- custom per-town build queue ----------
+  // An explicit ordered list beats the weight/ETA heuristic: entries are consumed
+  // top-down and only the tail of the plan falls back to abPlanCandidates scoring.
+  // World-scoped (STORE.AB_CUSTOM_Q is in WORLD_SCOPED_BASES) - a town id means
+  // nothing on another world.
+  function abCqSave() { save(STORE.AB_CUSTOM_Q, state.abCustomQueue || {}); }
+  function abCqGet(townId) {
+    if (!state.abCustomQueue || typeof state.abCustomQueue !== 'object') state.abCustomQueue = {};
+    const list = state.abCustomQueue[String(townId)];
+    return Array.isArray(list) ? list : [];
+  }
+  function abCqSet(townId, list) {
+    if (!state.abCustomQueue || typeof state.abCustomQueue !== 'object') state.abCustomQueue = {};
+    const clean = (list || []).filter(e => e && AB_BUILDINGS.indexOf(e.b) !== -1);
+    if (clean.length) state.abCustomQueue[String(townId)] = clean;
+    else delete state.abCustomQueue[String(townId)];
+    abCqSave();
+  }
+  function abCqAdd(townId, building, lvl) {
+    if (AB_BUILDINGS.indexOf(building) === -1) return;
+    const list = abCqGet(townId).slice();
+    list.push({ b: building, lvl: lvl == null ? null : abClampTarget(building, lvl) });
+    abCqSet(townId, list);
+  }
+  function abCqRemove(townId, idx) {
+    const list = abCqGet(townId).slice();
+    if (idx < 0 || idx >= list.length) return;
+    list.splice(idx, 1);
+    abCqSet(townId, list);
+  }
+  function abCqMove(townId, idx, dir) {
+    const list = abCqGet(townId).slice();
+    const to = idx + dir;
+    if (idx < 0 || idx >= list.length || to < 0 || to >= list.length) return;
+    const tmp = list[idx];
+    list[idx] = list[to];
+    list[to] = tmp;
+    abCqSet(townId, list);
+  }
+  // An entry without an explicit level means "+1 from where the town is now";
+  // resolve against the *simulated* levels so repeated entries stack.
+  function abCqWantLevel(entry, levels) {
+    const cur = +((levels && levels[entry.b]) || 0);
+    const want = entry.lvl == null ? cur + 1 : +entry.lvl;
+    return Math.min(want, abMaxLevel(entry.b));
+  }
+  // Satisfied entries (level reached - abCurrentLevels already counts queued
+  // orders) drop off the list, so the queue needs no manual pruning.
+  function abCqPrune(townId, levels) {
+    if (!levels) return;
+    const list = abCqGet(townId);
+    if (!list.length) return;
+    const keep = [];
+    let dropped = 0;
+    const sim = Object.assign({}, levels);
+    list.forEach(e => {
+      const want = abCqWantLevel(e, sim);
+      if ((sim[e.b] || 0) >= want) { dropped++; return; }
+      sim[e.b] = want;
+      keep.push(e);
+    });
+    if (!dropped) return;
+    abCqSet(townId, keep);
+    gbLog(`auto-queue: town ${townId} custom queue - ${dropped} done, ${keep.length} left`);
   }
   function abTownProduction(townId) {
     const t = abGetTown(townId);
@@ -520,7 +663,30 @@
     let queueWait = abQueueWaitMs(townId);
     const plan = [];
     const pin = abGetPin(townId);
+    // Custom queue owns the head of the plan; the heuristic fills what is left.
+    const custom = abCqGet(townId).slice();
+    if (custom.length && pin) {
+      gbLogT('ab-cq-pin-' + townId, 300000,
+        `auto-queue: town ${townId} has a custom queue - pin ${pin} ignored`);
+    }
+    let ci = 0;
     for (let slot = 0; slot < n; slot++) {
+      // Walk past entries the simulation already satisfied (queued or built).
+      while (ci < custom.length && (simLevels[custom[ci].b] || 0) >= abCqWantLevel(custom[ci], simLevels)) ci++;
+      if (ci < custom.length) {
+        const entry = custom[ci];
+        const want = abCqWantLevel(entry, simLevels);
+        const { cost, afford } = abPlanEntryAfford(townId, entry.b, scratch);
+        const etaMs = abEtaMs(scratch, afford);
+        plan.push({
+          building: entry.b, level: (simLevels[entry.b] || 0) + 1,
+          cost, afford, etaMs, score: Infinity, custom: true, cqTarget: want,
+        });
+        abScratchApply(scratch, cost);
+        simLevels[entry.b] = (simLevels[entry.b] || 0) + 1;
+        queueWait += cost && cost.buildTime ? Math.max(0, cost.buildTime) * 1000 : 0;
+        continue;
+      }
       const candidates = abPlanCandidates(simLevels);
       if (!candidates.length) break;
       const popBlockedExists = candidates.some(c => {
@@ -621,7 +787,7 @@
       let row = sameSet ? box.querySelector(`.ab-plan-row[data-key="${key}"]`) : null;
       if (!row) {
         row = document.createElement('div');
-        row.className = 'ab-plan-row' + (p.pinned ? ' pinned' : '');
+        row.className = 'ab-plan-row' + (p.custom ? ' custom' : (p.pinned ? ' pinned' : ''));
         row.dataset.key = key;
         row.appendChild(mk('ab-plan-name', '', null));
         row.appendChild(mk('ab-plan-lvl', '', '#888'));
@@ -639,7 +805,7 @@
         row.appendChild(pinBtn);
         box.appendChild(row);
       } else {
-        row.className = 'ab-plan-row' + (p.pinned || pin === p.building ? ' pinned' : '');
+        row.className = 'ab-plan-row' + (p.custom ? ' custom' : (p.pinned || pin === p.building ? ' pinned' : ''));
       }
       row.querySelector('.ab-plan-name').textContent = AB_LABELS[p.building] || p.building;
       row.querySelector('.ab-plan-lvl').textContent = '->' + p.level;
@@ -654,6 +820,84 @@
         pinBtn.textContent = (pin === p.building) ? 'unpin' : 'pin';
         pinBtn.title = 'Pin to slot 1 (world-scoped, per town)';
       }
+    });
+  }
+
+  // Ordered rows for the Build tab custom queue. Rebuilt whole on change - the
+  // list is short (user-authored) and every row carries mutable controls.
+  function renderCqRows() {
+    const sec = panel && panel.querySelector('section[data-tab=build]');
+    if (!sec || sec.hidden) return;
+    const box = sec.querySelector('.cq-rows');
+    if (!box) return;
+    const townId = abCurrentTownId() || abTownIds()[0];
+    const label = sec.querySelector('#gb-cq-town');
+    if (label) label.textContent = townId ? `town ${townId}` : 'no town';
+    const strict = sec.querySelector('#gb-cq-strict');
+    if (strict) strict.checked = state.abQueueStrict !== false;
+    const pick = sec.querySelector('#gb-cq-b');
+    const levels = townId ? abCurrentLevels(townId) : null;
+    if (pick && !pick.options.length) {
+      AB_BUILDINGS.forEach(b => {
+        const o = document.createElement('option');
+        o.value = b;
+        o.textContent = AB_LABELS[b] || b;
+        pick.appendChild(o);
+      });
+    }
+    const lvlEl = sec.querySelector('#gb-cq-lvl');
+    if (lvlEl && pick && document.activeElement !== lvlEl) {
+      const cur = levels ? (levels[pick.value] || 0) : 0;
+      lvlEl.value = String(Math.min(abMaxLevel(pick.value), cur + 1));
+    }
+    box.replaceChildren();
+    const list = townId ? abCqGet(townId) : [];
+    if (!list.length) {
+      const e = document.createElement('div');
+      e.style.cssText = 'color:#888;font-size:10px;padding:2px 0';
+      e.textContent = 'no custom queue - heuristic plan is used';
+      box.appendChild(e);
+      return;
+    }
+    const sim = Object.assign({}, levels || {});
+    list.forEach((entry, i) => {
+      const want = abCqWantLevel(entry, sim);
+      sim[entry.b] = want;
+      const row = document.createElement('div');
+      row.className = 'cq-row';
+      row.dataset.key = `cq-${townId}-${i}`;
+      const idx = document.createElement('span');
+      idx.textContent = String(i + 1) + '.';
+      idx.style.color = '#666';
+      const name = document.createElement('span');
+      name.textContent = AB_LABELS[entry.b] || entry.b;
+      name.style.color = '#aaa';
+      const lvl = document.createElement('span');
+      lvl.textContent = '->' + want;
+      lvl.style.color = '#cfc';
+      const cur = document.createElement('span');
+      cur.textContent = levels ? String(levels[entry.b] != null ? levels[entry.b] : '?') : '?';
+      cur.style.color = '#888';
+      const btns = document.createElement('span');
+      btns.style.cssText = 'display:flex;gap:2px';
+      const mk = (txt, title, fn) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = txt;
+        b.title = title;
+        b.style.cssText = 'background:#333;border:1px solid #555;color:#eee;padding:0 4px;cursor:pointer;font-size:10px';
+        b.addEventListener('click', () => { fn(); renderCqRows(); renderAbPlan(); });
+        return b;
+      };
+      btns.appendChild(mk('^', 'move up', () => abCqMove(townId, i, -1)));
+      btns.appendChild(mk('v', 'move down', () => abCqMove(townId, i, 1)));
+      btns.appendChild(mk('x', 'remove', () => abCqRemove(townId, i)));
+      row.appendChild(idx);
+      row.appendChild(name);
+      row.appendChild(cur);
+      row.appendChild(lvl);
+      row.appendChild(btns);
+      box.appendChild(row);
     });
   }
 
@@ -843,7 +1087,20 @@
     const plan = buildPlanNext(townId, n);
     const out = [];
     for (const entry of plan) {
-      if (!entry.afford.ok && !entry.afford.blind) break;
+      if (!entry.afford.ok && !entry.afford.blind) {
+        // Strict (default): a custom queue is an order, so wait for the head
+        // entry instead of building past it. Loose: skip it and keep going.
+        if (state.abQueueStrict !== false) {
+          if (entry.custom) {
+            gbLogT('ab-cq-wait-' + townId + '-' + entry.building, 120000,
+              `auto-queue: town ${townId} waiting for ${AB_LABELS[entry.building] || entry.building} (${abPlanVerdictLabel(entry.afford)})`);
+          }
+          break;
+        }
+        gbLogT('ab-cq-skip-' + townId + '-' + entry.building, 120000,
+          `auto-queue: town ${townId} skipping ${AB_LABELS[entry.building] || entry.building} (${abPlanVerdictLabel(entry.afford)}, strict off)`);
+        continue;
+      }
       out.push(entry.building);
     }
     return out;
@@ -881,6 +1138,7 @@
     const jobs = [];
     const now = Date.now();
     ids.forEach(id => {
+      if (abCqGet(id).length) abCqPrune(id, abCurrentLevels(id));
       const q = abQueueInfo(id);
       if (q.len > 1 && !force) {
         // still buffered - clear any stale arm so we re-arm when we hit 1 again
@@ -955,6 +1213,8 @@
     abEnsureTargets();
     const townId = abCurrentTownId() || (abTownIds()[0]);
     const levels = townId ? abCurrentLevels(townId) : null;
+    if (townId) abCqPrune(townId, levels);
+    renderCqRows();
     box.replaceChildren();
     const head = document.createElement('div');
     head.style.cssText = 'display:grid;grid-template-columns:1.2fr .5fr .5fr .5fr auto;gap:4px;font-size:9px;color:#888;margin-bottom:2px';

@@ -58,7 +58,16 @@
     out.push(preflightProbe('instant build', () => {
       const orders = ibOrders() || [];
       const free = orders.filter(o => o.isFree).length;
-      return { ok: true, detail: `${orders.length} orders, ${free} free now, action ${state.ibAction}` };
+      const cov = typeof ibTownCoverage === 'function' ? ibTownCoverage() : null;
+      const armed = typeof ibArmedAt === 'function' ? ibArmedAt() : 0;
+      const armTxt = armed ? `next arm in ${fmtSec((armed - Date.now()) / 1000)}` : 'no order counting down';
+      return {
+        ok: true,
+        warn: !!(cov && cov.total && cov.readable < cov.total),
+        detail: `${orders.length} orders, ${free} free now, action ${state.ibAction}`
+          + (cov ? `, order queues readable ${cov.readable}/${cov.total} towns` : '')
+          + `, ${armTxt}`,
+      };
     }));
     out.push(preflightProbe('instant research', () => {
       const r = (typeof ibResearchOrders === 'function' ? (ibResearchOrders({}) || []) : []);
@@ -119,6 +128,18 @@
       if (bc) parts.push('building costs ok');
       else { parts.push('building costs unreadable (open a build window once)'); blind++; }
       return { ok: blind < 5, warn: blind > 0, detail: parts.join(', ') };
+    }));
+    out.push(preflightProbe('merchant ship', () => {
+      const town = typeof ptSalesmanTown === 'function' ? ptSalesmanTown() : null;
+      const tpl = !!state.ptTradeTpl;
+      const view = !!state.ptViewUrl;
+      return {
+        ok: true,
+        warn: !tpl || !view,
+        detail: (town == null ? 'no ship readable' : 'ship in town ' + town)
+          + (tpl ? ', trade payload learned' : ', trade payload NOT learned (trade once by hand)')
+          + (view ? ', view URL learned' : ', view URL NOT learned (open the window once)'),
+      };
     }));
     out.push(preflightProbe('attack', () => ({
       ok: !!state.attackTpl,

@@ -65,6 +65,9 @@
       try { gbWakeMarkResume('visible'); } catch (_) {}
       farmTick();
       try { reportCatchUpEnqueue(); } catch (_) {}
+      // Hidden tabs clamp timers, so the armed free-instant timer can fire
+      // late. Re-read orders the moment the tab is back.
+      try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
     }
   });
   gbListen(window, 'pageshow', (e) => {
@@ -74,6 +77,7 @@
       try { reportCatchUpEnqueue(); } catch (_) {}
       try { bindQuestObserver(); } catch (_) {}
       try { banditScheduleNext(); } catch (_) {}
+      try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
     }
   });
   gbInterval(checkThresholds, 30000);

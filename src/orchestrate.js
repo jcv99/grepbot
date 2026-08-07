@@ -28,20 +28,21 @@
     rurallevel: 120000,
     recruit: 30000,
     merchant: 45000,
+    pttrade: 120000,
     favor: 60000,
     wonder: 180000,
   };
   const ORCH_CAPTCHA = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', merchant: 'merchant', favor: 'favor', wonder: 'wonder',
+    recruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder',
   };
   // Journal feature key each handler posts under - used to tell "ran and acted"
   // from "ran and found nothing to do".
   const ORCH_JRN = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', merchant: 'merchant', favor: 'favor', wonder: 'wonder',
+    recruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder',
   };
   const ORCH_IDLE_TRIP = 4; // consecutive no-op runs before widening
   const ORCH_IDLE_MAX = 8; // cadence multiplier ceiling
@@ -59,6 +60,7 @@
     rurallevel: () => { try { ruralLevelScan('orch'); } catch (_) {} },
     recruit: () => { try { recruitScan('orch'); } catch (_) {} },
     merchant: () => { try { merchantScan('orch'); } catch (_) {} },
+    pttrade: () => { try { ptTradeScan('orch'); } catch (_) {} },
       favor: () => { try { favorScan('orch'); } catch (_) {} },
       wonder: () => {
         try { wonderScan('orch'); } catch (_) {}

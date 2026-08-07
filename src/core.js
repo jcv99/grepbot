@@ -96,6 +96,7 @@ const STORE = {
     AUTO_PT_TRADE: 'grepbot:auto-pt-trade',
     PT_CFG: 'grepbot:pt-cfg',
     PT_TRADE_TPL: 'grepbot:pt-trade-tpl',
+    PT_VIEW_URL: 'grepbot:pt-view-url',
     AUTO_FAVOR: 'grepbot:auto-favor',
     FAVOR_CFG: 'grepbot:favor-cfg',
     AUTO_WONDER: 'grepbot:auto-wonder',
@@ -142,7 +143,7 @@ const STORE = {
 
   // Full orch order - also the load/migrate default for priorityOrder (C1).
   const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
-    'ruraltrade', 'rurallevel', 'recruit', 'merchant', 'favor', 'wonder'];
+    'ruraltrade', 'rurallevel', 'recruit', 'merchant', 'pttrade', 'favor', 'wonder'];
   const CONFIG_VER_CURRENT = 2;
 
   // Id-bearing maps/lists auto-scoped by load/save (C3). Prefs/toggles stay global.
@@ -286,6 +287,7 @@ const STORE = {
     dodge: 120000,
     recruit: 120000,
     'defense-pull': 120000,
+    'pt-trade': 180000,
     cancel: 60000,
     hero: 60000,
     'collect-bg': 180000,
@@ -384,6 +386,8 @@ const STORE = {
     abTargets: load(STORE.AB_TARGETS, null),
     abNextAt: load(STORE.AB_NEXT, {}),
     abBuildPin: load(STORE.BUILD_PIN, {}),
+    abCustomQueue: load(STORE.AB_CUSTOM_Q, {}) || {},
+    abQueueStrict: load(STORE.AB_QUEUE_STRICT, true),
     autoCave: load(STORE.AUTO_CAVE, false),
     caveThreshPct: load(STORE.CAVE_THRESH, 90),
     caveTowns: load(STORE.CAVE_TOWNS, {}),
@@ -416,6 +420,13 @@ const STORE = {
     watchHits: load(STORE.WATCH_HITS, {}) || {},
     autoMerchant: load(STORE.AUTO_MERCHANT, false),
     merchantWish: load(STORE.MERCHANT_WISH, []),
+    autoPtTrade: load(STORE.AUTO_PT_TRADE, false),
+    ptCfg: load(STORE.PT_CFG, null) || {
+      targetRatio: 1.0, pumpAmount: 1, maxPumps: 6, reservePct: 10,
+      wantRes: { wood: true, stone: true, iron: false },
+    },
+    ptTradeTpl: load(wkey(STORE.PT_TRADE_TPL), null),
+    ptViewUrl: load(wkey(STORE.PT_VIEW_URL), null),
     autoFavor: load(STORE.AUTO_FAVOR, false),
     favorCfg: load(STORE.FAVOR_CFG, { god: 'athena', unit: 'harpy', thresh: 200, maxConcurrent: 2 }),
     autoWonder: load(STORE.AUTO_WONDER, false),
@@ -644,6 +655,7 @@ const STORE = {
     build: 'ibAction', 'instant-build': 'ibAction', 'instant-research': 'ibActionR',
     attack: 'attackTpl', cancel: 'cancelTpl', hero: 'heroTpl',
     collect: 'collectTpl',
+    pttrade: 'ptTradeTpl',
   };
   function tplHealthSave() { save(STORE.TPL_HEALTH, state.tplHealth || {}); }
   function tplHealthEnsure(name) {

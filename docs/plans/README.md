@@ -80,6 +80,13 @@ Section 6 overlaps section 5 by design: its captcha-backoff, quota and
 |---|---|---|---|
 | 22 | [Humanization jitter + posts/min ceiling](22-humanization-ceiling.md) | Low | M |
 
+### v1.6 user requests (CODED)
+| # | Plan | Risk | Size |
+|---|---|---|---|
+| 23 | [Custom per-town build queue](23-custom-build-queue.md) | Low | M |
+| 24 | [Instant build precision + all towns](24-instant-build-precision.md) | Low | M |
+| 25 | [Phoenician salesman ratio pump](25-phoenician-ratio-pump.md) | Med | L |
+
 ---
 
 ## Recommended order

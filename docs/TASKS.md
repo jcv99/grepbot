@@ -5,6 +5,18 @@ do not describe state by hand. Evidence is read-only and redacts CSRF/templates.
 
 ## Current phase
 
+- [ ] **v1.6 gates** (dry-run first)
+  - Custom queue: three entries in one town → `DRY-RUN build … buildUp` fires in
+    list order; entries vanish as their orders queue; strict ON waits on an
+    unaffordable head entry instead of skipping it
+  - Instant build: Preflight shows `order queues readable N/M towns` with N=M;
+    a build in a **non-current** town completes free, and the post lands with
+    4:50-5:00 remaining (Log `instant: armed in …` precedes it)
+  - Merchant ship: open the window once (view URL learned) → **Copy offer HTML**
+    → confirm the parser; one hand trade teaches `ptTradeTpl`; dry run shows
+    5 × amount-1 posts then one bulk post; refuses everything before the
+    template exists, and aborts when the ratio does not move
+
 - [ ] **v1.5.3 audit gates** (dry-run first; no npm harness)
   - Host OFF 10min → zero bot-originated requests/clicks
   - Instant: price>0 or >5min left → zero posts; free+gold0 → one post; timeout → no buyInstant

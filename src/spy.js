@@ -24,6 +24,7 @@
       else if (m || reportCtrl) queueReportList(u);
       learnCollectAction(u);
       learnFarmAction(u);
+      try { ptLearnFromXhr(u, opts && opts.body); } catch (_) {}
       return orig.apply(uw, args);
     };
     uw.fetch._grepbot = true;
@@ -54,6 +55,7 @@
       learnCollectAction(u);
       learnFarmAction(u);
       sniffBridgeBody(u, arguments[0]);
+      try { ptLearnFromXhr(u, arguments[0]); } catch (_) {}
       this.addEventListener('load', () => {
         try {
           const txt = this.responseText || '';

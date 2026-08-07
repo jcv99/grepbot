@@ -457,6 +457,9 @@
     #grepbot-panel .ab-plan{max-height:120px;overflow:auto;margin:2px 0 6px}
     #grepbot-panel .ab-plan-row{display:grid;grid-template-columns:1.2fr .4fr .8fr .6fr auto;gap:4px;align-items:center;padding:2px 0;border-bottom:1px solid #2a2a2a;font-size:10px}
     #grepbot-panel .ab-plan-row.pinned{background:#1a1a10}
+    #grepbot-panel .ab-plan-row.custom{background:#101a1a}
+    #grepbot-panel .cq-rows{max-height:140px;overflow:auto}
+    #grepbot-panel .cq-row{display:grid;grid-template-columns:24px 1.2fr .5fr .6fr auto;gap:4px;align-items:center;padding:1px 0;border-bottom:1px solid #2a2a2a;font-size:10px}
     #grepbot-panel .atk-sched{max-height:160px;overflow:auto;margin-top:6px}
     #grepbot-panel .atk-sources{max-height:80px;overflow:auto;display:flex;flex-wrap:wrap;gap:4px 8px;margin:4px 0}
     #grepbot-panel .atk-roles{max-height:110px;overflow:auto;margin:4px 0}
@@ -588,8 +591,23 @@
         <button id="gb-ab-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Queue now</button>
       </div>
       <div style="font-size:9px;color:#888;margin-bottom:4px">Auto only fills when <=1 order left: adds up to 6 (or queue max). Next fill waits half(build time)+5min+rand - not right when a build finishes. Targets = cur/tgt/max.</div>
-      <div style="font-size:10px;color:#f5a623;margin:4px 0 2px">Next 3 <span style="color:#666;font-weight:normal">(heuristic plan)</span></div>
+      <div style="font-size:10px;color:#f5a623;margin:4px 0 2px">Next 3 <span style="color:#666;font-weight:normal">(custom queue first, then heuristic)</span></div>
       <div class="ab-plan"></div>
+      <div style="border-top:1px solid #333;margin:8px 0 4px;padding-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <b style="font-size:11px;color:#f5a623">Custom queue</b>
+        <span id="gb-cq-town" style="font-size:10px;color:#888"></span>
+        <span style="flex:1"></span>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:10px" title="Strict: wait for the head entry instead of building past it"><input type="checkbox" id="gb-cq-strict"/> strict</label>
+        <button id="gb-cq-copy" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Copy to all</button>
+        <button id="gb-cq-clear" style="background:#333;border:1px solid #555;color:#f08080;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Clear</button>
+      </div>
+      <div class="cq-rows"></div>
+      <div style="display:flex;align-items:center;gap:4px;margin:4px 0">
+        <select id="gb-cq-b" style="background:#111;color:#cfc;border:1px solid #333;font:10px monospace"></select>
+        <input id="gb-cq-lvl" type="number" min="1" style="width:48px;background:#111;color:#cfc;border:1px solid #333;font:10px monospace"/>
+        <button id="gb-cq-add" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Add</button>
+        <span style="font-size:9px;color:#888">ordered - built top-down, then heuristic</span>
+      </div>
       <div class="ab-queue"></div>
       <div id="gb-ab-status" style="font-size:10px;color:#888;margin-top:4px"></div>
     </section>
@@ -725,6 +743,22 @@
         <label>Telegram chat_id <input type="text" data-cfg="wh-tg-chat" placeholder="optional if not in URL" style="width:140px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px;font-size:10px"/></label>
         <div style="border-top:1px solid #333;padding-top:6px;color:#f96;font-size:10px">HIGH RISK (default OFF)</div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-merchant"/> Merchant sniper</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Merchant ship resource offers open at 0.5:1 and gain +0.1 per trade. Pump with 1-unit trades, then send the bulk trade at 1:1."><input type="checkbox" data-cfg="auto-pt-trade"/> Merchant ship ratio pump</label>
+        <label style="margin-left:12px;font-size:10px">target ratio <input type="number" step="0.1" min="0.5" max="2" data-cfg="pt-ratio" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
+          pump amt <input type="number" min="1" max="100" data-cfg="pt-pump" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
+          max pumps <input type="number" min="0" max="20" data-cfg="pt-maxpumps" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
+          reserve % <input type="number" min="0" max="90" data-cfg="pt-reserve" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
+        </label>
+        <label style="margin-left:12px;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">receive
+          <label><input type="checkbox" data-cfg="pt-want-wood"/> wood</label>
+          <label><input type="checkbox" data-cfg="pt-want-stone"/> stone</label>
+          <label><input type="checkbox" data-cfg="pt-want-iron"/> silver</label>
+        </label>
+        <div style="margin-left:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span id="gb-pt-status" style="font-size:10px;color:#888"></span>
+          <button data-cfg="pt-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Pump + trade now</button>
+          <button data-cfg="pt-copy" title="Copy the open merchant window markup - needed once to confirm the offer parser" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Copy offer HTML</button>
+        </div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-favor"/> Favor farm (godsent)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-wonder"/> WW donations</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Spend favor on alliance wonder. Requires sniffed wonderFavorTpl. Default OFF."><input type="checkbox" data-cfg="auto-wonder-favor"/> WW favor cast (sniff power first)</label>
@@ -941,6 +975,39 @@
     renderAbQueue();
   });
   panel.querySelector('#gb-ab-csfast')?.addEventListener('click', () => { abLoadCsFast(); flash('CS-fast targets'); });
+  panel.querySelector('#gb-cq-b')?.addEventListener('change', () => renderCqRows());
+  panel.querySelector('#gb-cq-strict')?.addEventListener('change', e => {
+    state.abQueueStrict = e.target.checked;
+    save(STORE.AB_QUEUE_STRICT, state.abQueueStrict);
+    gbLog('auto-queue: strict order', state.abQueueStrict ? 'ON' : 'OFF');
+  });
+  panel.querySelector('#gb-cq-add')?.addEventListener('click', () => {
+    const townId = abCurrentTownId() || abTownIds()[0];
+    if (!townId) { flash('no town'); return; }
+    const b = panel.querySelector('#gb-cq-b')?.value;
+    const lvlEl = panel.querySelector('#gb-cq-lvl');
+    const lvl = lvlEl && lvlEl.value !== '' ? +lvlEl.value : null;
+    abCqAdd(townId, b, lvl);
+    renderCqRows();
+    renderAbPlan();
+  });
+  panel.querySelector('#gb-cq-clear')?.addEventListener('click', () => {
+    const townId = abCurrentTownId() || abTownIds()[0];
+    if (!townId) return;
+    abCqSet(townId, []);
+    renderCqRows();
+    renderAbPlan();
+  });
+  panel.querySelector('#gb-cq-copy')?.addEventListener('click', () => {
+    const townId = abCurrentTownId() || abTownIds()[0];
+    if (!townId) return;
+    const list = abCqGet(townId);
+    if (!list.length) { flash('queue empty'); return; }
+    if (!confirm(`Copy this ${list.length}-entry queue to ALL towns? Existing custom queues are replaced.`)) return;
+    abTownIds().forEach(id => { if (String(id) !== String(townId)) abCqSet(id, list.map(e => ({ b: e.b, lvl: e.lvl }))); });
+    gbLog(`auto-queue: custom queue copied to ${abTownIds().length} town(s)`);
+    flash('queue copied');
+  });
   panel.querySelector('#gb-ab-now')?.addEventListener('click', () => {
     const was = state.abAuto;
     if (!was) { state.abAuto = true; save(STORE.AB_AUTO, true); }
@@ -1187,6 +1254,20 @@
     setChk('[data-cfg=orch-deadlock]', state.orchDeadlockResolve !== false);
     setChk('[data-cfg=export-redact]', state.exportRedact !== false);
     setChk('[data-cfg=auto-merchant]', state.autoMerchant);
+    setChk('[data-cfg=auto-pt-trade]', state.autoPtTrade);
+    {
+      const c = state.ptCfg || {};
+      const want = c.wantRes || {};
+      setNum('[data-cfg=pt-ratio]', c.targetRatio != null ? c.targetRatio : 1);
+      setNum('[data-cfg=pt-pump]', c.pumpAmount != null ? c.pumpAmount : 1);
+      setNum('[data-cfg=pt-maxpumps]', c.maxPumps != null ? c.maxPumps : 6);
+      setNum('[data-cfg=pt-reserve]', c.reservePct != null ? c.reservePct : 10);
+      setChk('[data-cfg=pt-want-wood]', want.wood !== false);
+      setChk('[data-cfg=pt-want-stone]', want.stone !== false);
+      setChk('[data-cfg=pt-want-iron]', !!want.iron);
+      const st = sec.querySelector('#gb-pt-status');
+      if (st) st.textContent = typeof ptStatusText === 'function' ? ptStatusText() : '';
+    }
     setChk('[data-cfg=auto-favor]', state.autoFavor);
     setChk('[data-cfg=auto-wonder]', state.autoWonder);
     setChk('[data-cfg=cs-alert]', state.csAlert !== false);
@@ -1247,6 +1328,40 @@
       updateStatus();
     });
     bindToggle('[data-cfg=auto-merchant]', 'autoMerchant', STORE.AUTO_MERCHANT, () => merchantScan('toggle'));
+    bindToggle('[data-cfg=auto-pt-trade]', 'autoPtTrade', STORE.AUTO_PT_TRADE, () => ptTradeScan('toggle'));
+    const savePt = (key, val) => {
+      if (!state.ptCfg || typeof state.ptCfg !== 'object') state.ptCfg = {};
+      state.ptCfg[key] = val;
+      save(STORE.PT_CFG, state.ptCfg);
+    };
+    saveNum('[data-cfg=pt-ratio]', v => savePt('targetRatio', Math.min(2, Math.max(0.5, v || 1))));
+    saveNum('[data-cfg=pt-pump]', v => savePt('pumpAmount', Math.max(1, Math.floor(v || 1))));
+    saveNum('[data-cfg=pt-maxpumps]', v => savePt('maxPumps', Math.min(20, Math.max(0, Math.floor(v || 0)))));
+    saveNum('[data-cfg=pt-reserve]', v => savePt('reservePct', Math.min(90, Math.max(0, Math.floor(v || 0)))));
+    const savePtWant = () => {
+      savePt('wantRes', {
+        wood: !!sec.querySelector('[data-cfg=pt-want-wood]')?.checked,
+        stone: !!sec.querySelector('[data-cfg=pt-want-stone]')?.checked,
+        iron: !!sec.querySelector('[data-cfg=pt-want-iron]')?.checked,
+      });
+    };
+    ['pt-want-wood', 'pt-want-stone', 'pt-want-iron'].forEach(k => {
+      sec.querySelector('[data-cfg=' + k + ']')?.addEventListener('change', savePtWant);
+    });
+    sec.querySelector('[data-cfg=pt-now]')?.addEventListener('click', () => {
+      if (!state.ptTradeTpl) { flash('trade once by hand first'); return; }
+      if (!confirm('Pump the merchant ship ratio and send the bulk trade now?')) return;
+      const was = state.autoPtTrade;
+      if (!was) { state.autoPtTrade = true; save(STORE.AUTO_PT_TRADE, true); }
+      ptTradeScan('manual');
+    });
+    sec.querySelector('[data-cfg=pt-copy]')?.addEventListener('click', () => {
+      const root = typeof ptWindowRoot === 'function' ? ptWindowRoot() : null;
+      if (!root) { flash('open the merchant window first'); return; }
+      navigator.clipboard.writeText(root.innerHTML.slice(0, 20000))
+        .then(() => flash('offer HTML copied'))
+        .catch(() => flash('copy failed'));
+    });
     bindToggle('[data-cfg=auto-favor]', 'autoFavor', STORE.AUTO_FAVOR, () => favorScan('toggle'));
     bindToggle('[data-cfg=auto-wonder]', 'autoWonder', STORE.AUTO_WONDER, () => wonderScan('toggle'));
     bindToggle('[data-cfg=cs-alert]', 'csAlert', STORE.CS_ALERT);

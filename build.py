@@ -44,6 +44,7 @@ MODULES = [
     'research.js',
     'alerts.js',
     'merchant.js',
+    'phoenician.js',
     'favor.js',
     'wonder.js',
     'dodge.js',

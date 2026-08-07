@@ -133,6 +133,28 @@ Single-script loop pattern:
 - **Auto-farm claims** (`autoClaimFarms`, toggle `autoFarm`, default OFF): every 60s, claims every controlled farm village (`FarmTownPlayerRelation` claim, `arguments:{farm_town_id,type:'resources',option:<idx>}`, `town_id` = own town on the same island) → collects loot + restarts the gather. Success only after bridge callback + `lootable_at` reconcile. Villages auto-discovered into `farmsParsed` (`mergedFarms`), textarea now optional/manual-only.
 - **Claim timers** (v1.3.0): the claim `option` index is world/client specific, so it is **learned**, never guessed — `farmLearnOptionFromClaim` watches a hand-clicked claim, re-reads `lootable_at` 4s later and snaps the delta to `FARM_DURATIONS` (300/600/1200/2400/5400/14400/28800s), storing `state.farmOptionMap` world-scoped. Seed is `{300:1}` (the payload the bot always sent). Unknown duration → log once + fall back to 5min. `farmDesiredDuration` picks **10min where the villager-loyalty research is done, 5min elsewhere** (`farmLoyaltyResearched`, techs read via `researchTownTechs`, loose match `/loyal|lealtad|diplom|conscript/i`, pinnable in Config, 60s cache). Toggle `farmLongClaims` (default ON).
 - **Sleep claim 4h/8h** (`farmSleepClaimNow` / `farmSleepAutoTick`): Farms-tab button, plus optional auto (`farmSleepAuto`, default OFF) that fires **once per local day** when the option is learned, the haul ends before 24:00, ≥80% of villages are claimable, and every owning town is under `farmSleepFillPct`% warehouse fill (default 60). Duration select `farmSleepDur` = auto/4h/8h; `farmSleepDay` (world-scoped) is stamped **after** verified claims, not before. Runs off `farmTick` (15s).
+- **Custom build queue** (v1.6, `state.abCustomQueue`, world-scoped): ordered
+  per-town list `{townId: [{b, lvl}]}` consumed at the head of `buildPlanNext`;
+  the weight/ETA heuristic only fills the slots left over. `abQueueStrict`
+  (default ON) waits on an unaffordable head entry instead of building past it;
+  `blind` cost still never blocks. Entries self-prune via `abCqPrune` once the
+  level is reached (queued orders count). A non-empty queue supersedes the pin.
+- **Instant build arming** (v1.6): each order carries `active` (the only order of
+  a town whose clock runs); `ibArmNext` arms ONE timer at
+  `remaining - ibFreeThresh()` +1.2s +jitter so the free post lands at ~4:58,
+  and `boot.js` re-scans on `visibilitychange`/`pageshow` (hidden tabs clamp
+  timers). The 10s loop stays as the safety net. `ibTownCollections` reads every
+  town's own `buildingOrders()`/`researchOrders()` via `abGetTown`, merged with
+  the MM collection and deduped by id — the MM collection only carries loaded
+  towns, so free orders elsewhere used to be invisible.
+- **Phoenician ratio pump** (v1.6, `phoenician.js`, `autoPtTrade` default OFF):
+  merchant-ship resource offers open at 0.5:1 and gain +0.1 per trade, so the bot
+  fires `pumpAmount` (1) trades until `targetRatio` (1.0) then one bulk trade.
+  The window is server-rendered: the view URL and the trade payload are both
+  **learned** from the player's own traffic (`ptLearnFromXhr`), offers are parsed
+  from markup (`ptParseOffers`, unknown markup = post nothing), and the loop
+  aborts if the ratio does not move after a pump. All posts go through
+  `gameAjaxPost('pttrade', …)`.
 - **Auto-cave** (`caveScan`, toggle `autoCave`, default OFF, v0.7.0 / Phase 8.1): every 30s, for each enabled town with a hide building, if iron ≥ `caveThreshPct`% of warehouse (default 90%), stash excess via `BuildingHide`/`storeIron`. Finite full → skip (`stored >= hideLvl×getMaxStorageLimitPerHideLevel()`; ∞ sentinel is `-1`, never `hideCap >= unlim`). Max-level hide still stashes. Unreadable finite cap/stored → skip (no blind post). Per-town checkboxes in Config. Feature key `cave` on captcha breaker.
 - **Auto-culture** (`cultureScan`, `autoCulture`, default OFF): festival / procession / theater via `building_place`/`start_celebration`. Olympic is **50 gold + Academy 30** — requires `allowPremiumCulture` + daily `cultureGoldBudget`; never modeled as resources. Projected KP/res/gold ledger per sweep.
 - **Inter-city trade** (`tradeScan`, `autoTrade` / `islandShip`): `town_info`/`trade` Fill Storage + mainland→island ship. Presets `party`/`unit` are unimplemented (log+skip), not silent storage aliases.
@@ -238,6 +260,14 @@ In-app SPA navigation (Reports / World / Farms) keeps the tab visible → no `se
   world switch. Skip windows must ignore `skip:*` results: night pause fires
   thousands of times and would otherwise look like a dead endpoint. `renderLog` now
   also bails when `.log-list` is `hidden` (Decisions sub-view active).
+- v1.6 instant arming: the armed timer is an *accelerator*. Never delete the 10s
+  `gbInterval` or the click hook in favour of it — a clamped background timer can
+  fire minutes late, and the interval is what recovers that.
+- v1.6 phoenician: the offer parser (`ptParseOffers`) was written against the
+  server-rendered markup **without a live sample** — treat a parse miss as
+  unknown (post nothing), and confirm with Config → *Copy offer HTML* before
+  trusting a bulk trade. Never let the scraped stock be the only bound on the
+  bulk amount.
 - Memory note: `memory/grepbot-xpi-rebuild.md` predates the v0.5.0 WebExtension retirement — ignore the `.xpi` rebuild steps; `web-ext/` no longer exists.
 
 ## Phase state

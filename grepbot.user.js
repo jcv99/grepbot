@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      1.5.21
+// @version      1.6.0
 // @description  Grepolis scout/farm/build/trade/culture/recruit automation. ToS forbid automation; risk = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -69,6 +69,8 @@ const STORE = {
     AB_TARGETS: 'grepbot:ab-targets',
     AB_NEXT: 'grepbot:ab-next',
     BUILD_PIN: 'grepbot:build-pin',
+    AB_CUSTOM_Q: 'grepbot:ab-custom-queue',
+    AB_QUEUE_STRICT: 'grepbot:ab-queue-strict',
     AUTO_CAVE: 'grepbot:auto-cave',
     CAVE_THRESH: 'grepbot:cave-thresh',
     CAVE_TOWNS: 'grepbot:cave-towns',
@@ -113,6 +115,10 @@ const STORE = {
     WEBHOOK_EVENTS: 'grepbot:webhook-events',
     AUTO_MERCHANT: 'grepbot:auto-merchant',
     MERCHANT_WISH: 'grepbot:merchant-wish',
+    AUTO_PT_TRADE: 'grepbot:auto-pt-trade',
+    PT_CFG: 'grepbot:pt-cfg',
+    PT_TRADE_TPL: 'grepbot:pt-trade-tpl',
+    PT_VIEW_URL: 'grepbot:pt-view-url',
     AUTO_FAVOR: 'grepbot:auto-favor',
     FAVOR_CFG: 'grepbot:favor-cfg',
     AUTO_WONDER: 'grepbot:auto-wonder',
@@ -158,7 +164,7 @@ const STORE = {
   };
 
   const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
-    'ruraltrade', 'rurallevel', 'recruit', 'merchant', 'favor', 'wonder'];
+    'ruraltrade', 'rurallevel', 'recruit', 'merchant', 'pttrade', 'favor', 'wonder'];
   const CONFIG_VER_CURRENT = 2;
 
   const WORLD_SCOPED_BASES = new Set([
@@ -167,7 +173,7 @@ const STORE = {
     STORE.NEXT_FARM, STORE.NEXT_TOWNS, STORE.BANDIT_LOG,
     STORE.QUEST_REWARDS, STORE.QUEST_HISTORY,
     STORE.ATTACK_PLAN, STORE.ATTACK_HISTORY, STORE.ATTACK_RECENT,
-    STORE.AB_TARGETS, STORE.AB_NEXT, STORE.BUILD_PIN, STORE.CAVE_TOWNS,
+    STORE.AB_TARGETS, STORE.AB_NEXT, STORE.BUILD_PIN, STORE.AB_CUSTOM_Q, STORE.CAVE_TOWNS,
     STORE.RESEARCH_TARGETS, STORE.CITY_TEMPLATES, STORE.TOWN_GROUPS,
     STORE.MERCHANT_WISH, STORE.FAVOR_CFG, STORE.WONDER_CFG, STORE.WONDER_SPENT,
     STORE.CULTURE_GOLD_SPENT,
@@ -289,6 +295,7 @@ const STORE = {
     dodge: 120000,
     recruit: 120000,
     'defense-pull': 120000,
+    'pt-trade': 180000,
     cancel: 60000,
     hero: 60000,
     'collect-bg': 180000,
@@ -387,6 +394,8 @@ const STORE = {
     abTargets: load(STORE.AB_TARGETS, null),
     abNextAt: load(STORE.AB_NEXT, {}),
     abBuildPin: load(STORE.BUILD_PIN, {}),
+    abCustomQueue: load(STORE.AB_CUSTOM_Q, {}) || {},
+    abQueueStrict: load(STORE.AB_QUEUE_STRICT, true),
     autoCave: load(STORE.AUTO_CAVE, false),
     caveThreshPct: load(STORE.CAVE_THRESH, 90),
     caveTowns: load(STORE.CAVE_TOWNS, {}),
@@ -419,6 +428,13 @@ const STORE = {
     watchHits: load(STORE.WATCH_HITS, {}) || {},
     autoMerchant: load(STORE.AUTO_MERCHANT, false),
     merchantWish: load(STORE.MERCHANT_WISH, []),
+    autoPtTrade: load(STORE.AUTO_PT_TRADE, false),
+    ptCfg: load(STORE.PT_CFG, null) || {
+      targetRatio: 1.0, pumpAmount: 1, maxPumps: 6, reservePct: 10,
+      wantRes: { wood: true, stone: true, iron: false },
+    },
+    ptTradeTpl: load(wkey(STORE.PT_TRADE_TPL), null),
+    ptViewUrl: load(wkey(STORE.PT_VIEW_URL), null),
     autoFavor: load(STORE.AUTO_FAVOR, false),
     favorCfg: load(STORE.FAVOR_CFG, { god: 'athena', unit: 'harpy', thresh: 200, maxConcurrent: 2 }),
     autoWonder: load(STORE.AUTO_WONDER, false),
@@ -641,6 +657,7 @@ const STORE = {
     build: 'ibAction', 'instant-build': 'ibAction', 'instant-research': 'ibActionR',
     attack: 'attackTpl', cancel: 'cancelTpl', hero: 'heroTpl',
     collect: 'collectTpl',
+    pttrade: 'ptTradeTpl',
   };
   function tplHealthSave() { save(STORE.TPL_HEALTH, state.tplHealth || {}); }
   function tplHealthEnsure(name) {
@@ -1932,6 +1949,7 @@ const STORE = {
       else if (m || reportCtrl) queueReportList(u);
       learnCollectAction(u);
       learnFarmAction(u);
+      try { ptLearnFromXhr(u, opts && opts.body); } catch (_) {}
       return orig.apply(uw, args);
     };
     uw.fetch._grepbot = true;
@@ -1962,6 +1980,7 @@ const STORE = {
       learnCollectAction(u);
       learnFarmAction(u);
       sniffBridgeBody(u, arguments[0]);
+      try { ptLearnFromXhr(u, arguments[0]); } catch (_) {}
       this.addEventListener('load', () => {
         try {
           const txt = this.responseText || '';
@@ -3895,7 +3914,7 @@ const STORE = {
     const now = gameNow();
     const out = [];
     const uw = uwCached();
-    const cols = [];
+    const cols = ibTownCollections('research');
     try {
       const col = mmCol('ResearchOrder');
       if (col && col.models && col.models.length) cols.push(col);
@@ -3931,12 +3950,43 @@ const STORE = {
           townName: names[r.town_id] || ('Town ' + r.town_id),
           type: 'res:' + (r.research_type || r.research_id || '?'),
           display,
+          active: isFirst,
           isFree: ibIsFreeOrder(doneAt, timeLeft, gold),
           gold,
         });
       });
     });
     return out;
+  }
+
+  function ibTownCollections(kind) {
+    const out = [];
+    let ids = [];
+    try { ids = abTownIds() || []; } catch (_) {}
+    ids.forEach(id => {
+      let t = null;
+      try { t = abGetTown(id); } catch (_) {}
+      if (!t) return;
+      let col = null;
+      try {
+        if (kind === 'research') col = t.researchOrders ? t.researchOrders() : null;
+        else col = t.buildingOrders ? t.buildingOrders() : null;
+      } catch (_) { col = null; }
+      if (col && col.models && col.models.length) out.push(col);
+    });
+    return out;
+  }
+  function ibTownCoverage() {
+    let ids = [];
+    try { ids = abTownIds() || []; } catch (_) {}
+    let readable = 0;
+    ids.forEach(id => {
+      try {
+        const t = abGetTown(id);
+        if (t && typeof t.buildingOrders === 'function' && t.buildingOrders()) readable++;
+      } catch (_) {}
+    });
+    return { readable, total: ids.length };
   }
   function ibOrders() {
     const now = gameNow();
@@ -3945,9 +3995,11 @@ const STORE = {
     const names = ibTownNames(uw);
     const research = state.ibResearch ? ibResearchOrders(names) : [];
     let candidates = [], src = null;
+    const perTown = ibTownCollections('build');
+    if (perTown.length) { candidates = candidates.concat(perTown); src = 'ITowns'; }
     try {
       const col = mmCol('BuildingOrder');
-      if (col && col.models && col.models.length) { candidates.push(col); src = 'MM'; }
+      if (col && col.models && col.models.length) { candidates.push(col); src = src ? src + '+MM' : 'MM'; }
     } catch (_) {}
     let gpCols = null;
     try { gpCols = uw.GPWindowMgr && uw.GPWindowMgr._collections; } catch (_) {}
@@ -3982,6 +4034,7 @@ const STORE = {
           townName: names[r.town_id] || ('Town ' + r.town_id),
           type: r.building_type || '?',
           display,
+          active: isFirst,
           isFree: ibIsFreeOrder(doneAt, timeLeft, gold),
           gold,
         });
@@ -4106,9 +4159,44 @@ const STORE = {
       });
     })();
   }
+
+  let ibFreeTimer = null;
+  let ibFreeArmedAt = 0;
+  function ibArmedAt() { return ibFreeArmedAt; }
+  function ibArmNext(orders) {
+    const now = Date.now();
+    const thresh = ibFreeThresh() * 1000;
+    let best = 0;
+    (orders || []).forEach(o => {
+
+      if (o.isFree || !o.active || !(o.display > 0)) return;
+      const armIn = (o.display * 1000) - thresh;
+      if (armIn <= 0) return;
+      const at = now + armIn;
+      if (!best || at < best) best = at;
+    });
+    if (!best) {
+      if (ibFreeTimer) { try { clearTimeout(ibFreeTimer); } catch (_) {} }
+      ibFreeTimer = null;
+      ibFreeArmedAt = 0;
+      return;
+    }
+
+    const fireAt = best + 1200 + Math.floor(Math.random() * 1500);
+    if (ibFreeTimer && ibFreeArmedAt && Math.abs(ibFreeArmedAt - fireAt) < 3000) return;
+    if (ibFreeTimer) { try { clearTimeout(ibFreeTimer); } catch (_) {} }
+    ibFreeArmedAt = fireAt;
+    ibFreeTimer = gbTimeout(() => {
+      ibFreeTimer = null;
+      ibFreeArmedAt = 0;
+      ibScan();
+    }, Math.max(500, fireAt - now));
+    gbLogT('ib-arm', 60000, `instant: armed in ${fmtSec((fireAt - now) / 1000)} (free window at <=${ibFreeThresh()}s)`);
+  }
   function ibScan() {
     const orders = ibOrders();
     renderBuild(orders);
+    ibArmNext(orders);
     if (!state.ibAuto || gbLocked('ib')) return;
     const free = orders.filter(o => o.isFree);
     if (free.length) {
@@ -4225,6 +4313,65 @@ const STORE = {
       state.abBuildPin[String(townId)] = building;
     }
     save(STORE.BUILD_PIN, state.abBuildPin);
+  }
+
+  function abCqSave() { save(STORE.AB_CUSTOM_Q, state.abCustomQueue || {}); }
+  function abCqGet(townId) {
+    if (!state.abCustomQueue || typeof state.abCustomQueue !== 'object') state.abCustomQueue = {};
+    const list = state.abCustomQueue[String(townId)];
+    return Array.isArray(list) ? list : [];
+  }
+  function abCqSet(townId, list) {
+    if (!state.abCustomQueue || typeof state.abCustomQueue !== 'object') state.abCustomQueue = {};
+    const clean = (list || []).filter(e => e && AB_BUILDINGS.indexOf(e.b) !== -1);
+    if (clean.length) state.abCustomQueue[String(townId)] = clean;
+    else delete state.abCustomQueue[String(townId)];
+    abCqSave();
+  }
+  function abCqAdd(townId, building, lvl) {
+    if (AB_BUILDINGS.indexOf(building) === -1) return;
+    const list = abCqGet(townId).slice();
+    list.push({ b: building, lvl: lvl == null ? null : abClampTarget(building, lvl) });
+    abCqSet(townId, list);
+  }
+  function abCqRemove(townId, idx) {
+    const list = abCqGet(townId).slice();
+    if (idx < 0 || idx >= list.length) return;
+    list.splice(idx, 1);
+    abCqSet(townId, list);
+  }
+  function abCqMove(townId, idx, dir) {
+    const list = abCqGet(townId).slice();
+    const to = idx + dir;
+    if (idx < 0 || idx >= list.length || to < 0 || to >= list.length) return;
+    const tmp = list[idx];
+    list[idx] = list[to];
+    list[to] = tmp;
+    abCqSet(townId, list);
+  }
+
+  function abCqWantLevel(entry, levels) {
+    const cur = +((levels && levels[entry.b]) || 0);
+    const want = entry.lvl == null ? cur + 1 : +entry.lvl;
+    return Math.min(want, abMaxLevel(entry.b));
+  }
+
+  function abCqPrune(townId, levels) {
+    if (!levels) return;
+    const list = abCqGet(townId);
+    if (!list.length) return;
+    const keep = [];
+    let dropped = 0;
+    const sim = Object.assign({}, levels);
+    list.forEach(e => {
+      const want = abCqWantLevel(e, sim);
+      if ((sim[e.b] || 0) >= want) { dropped++; return; }
+      sim[e.b] = want;
+      keep.push(e);
+    });
+    if (!dropped) return;
+    abCqSet(townId, keep);
+    gbLog(`auto-queue: town ${townId} custom queue - ${dropped} done, ${keep.length} left`);
   }
   function abTownProduction(townId) {
     const t = abGetTown(townId);
@@ -4360,7 +4507,30 @@ const STORE = {
     let queueWait = abQueueWaitMs(townId);
     const plan = [];
     const pin = abGetPin(townId);
+
+    const custom = abCqGet(townId).slice();
+    if (custom.length && pin) {
+      gbLogT('ab-cq-pin-' + townId, 300000,
+        `auto-queue: town ${townId} has a custom queue - pin ${pin} ignored`);
+    }
+    let ci = 0;
     for (let slot = 0; slot < n; slot++) {
+
+      while (ci < custom.length && (simLevels[custom[ci].b] || 0) >= abCqWantLevel(custom[ci], simLevels)) ci++;
+      if (ci < custom.length) {
+        const entry = custom[ci];
+        const want = abCqWantLevel(entry, simLevels);
+        const { cost, afford } = abPlanEntryAfford(townId, entry.b, scratch);
+        const etaMs = abEtaMs(scratch, afford);
+        plan.push({
+          building: entry.b, level: (simLevels[entry.b] || 0) + 1,
+          cost, afford, etaMs, score: Infinity, custom: true, cqTarget: want,
+        });
+        abScratchApply(scratch, cost);
+        simLevels[entry.b] = (simLevels[entry.b] || 0) + 1;
+        queueWait += cost && cost.buildTime ? Math.max(0, cost.buildTime) * 1000 : 0;
+        continue;
+      }
       const candidates = abPlanCandidates(simLevels);
       if (!candidates.length) break;
       const popBlockedExists = candidates.some(c => {
@@ -4461,7 +4631,7 @@ const STORE = {
       let row = sameSet ? box.querySelector(`.ab-plan-row[data-key="${key}"]`) : null;
       if (!row) {
         row = document.createElement('div');
-        row.className = 'ab-plan-row' + (p.pinned ? ' pinned' : '');
+        row.className = 'ab-plan-row' + (p.custom ? ' custom' : (p.pinned ? ' pinned' : ''));
         row.dataset.key = key;
         row.appendChild(mk('ab-plan-name', '', null));
         row.appendChild(mk('ab-plan-lvl', '', '#888'));
@@ -4479,7 +4649,7 @@ const STORE = {
         row.appendChild(pinBtn);
         box.appendChild(row);
       } else {
-        row.className = 'ab-plan-row' + (p.pinned || pin === p.building ? ' pinned' : '');
+        row.className = 'ab-plan-row' + (p.custom ? ' custom' : (p.pinned || pin === p.building ? ' pinned' : ''));
       }
       row.querySelector('.ab-plan-name').textContent = AB_LABELS[p.building] || p.building;
       row.querySelector('.ab-plan-lvl').textContent = '->' + p.level;
@@ -4494,6 +4664,82 @@ const STORE = {
         pinBtn.textContent = (pin === p.building) ? 'unpin' : 'pin';
         pinBtn.title = 'Pin to slot 1 (world-scoped, per town)';
       }
+    });
+  }
+
+  function renderCqRows() {
+    const sec = panel && panel.querySelector('section[data-tab=build]');
+    if (!sec || sec.hidden) return;
+    const box = sec.querySelector('.cq-rows');
+    if (!box) return;
+    const townId = abCurrentTownId() || abTownIds()[0];
+    const label = sec.querySelector('#gb-cq-town');
+    if (label) label.textContent = townId ? `town ${townId}` : 'no town';
+    const strict = sec.querySelector('#gb-cq-strict');
+    if (strict) strict.checked = state.abQueueStrict !== false;
+    const pick = sec.querySelector('#gb-cq-b');
+    const levels = townId ? abCurrentLevels(townId) : null;
+    if (pick && !pick.options.length) {
+      AB_BUILDINGS.forEach(b => {
+        const o = document.createElement('option');
+        o.value = b;
+        o.textContent = AB_LABELS[b] || b;
+        pick.appendChild(o);
+      });
+    }
+    const lvlEl = sec.querySelector('#gb-cq-lvl');
+    if (lvlEl && pick && document.activeElement !== lvlEl) {
+      const cur = levels ? (levels[pick.value] || 0) : 0;
+      lvlEl.value = String(Math.min(abMaxLevel(pick.value), cur + 1));
+    }
+    box.replaceChildren();
+    const list = townId ? abCqGet(townId) : [];
+    if (!list.length) {
+      const e = document.createElement('div');
+      e.style.cssText = 'color:#888;font-size:10px;padding:2px 0';
+      e.textContent = 'no custom queue - heuristic plan is used';
+      box.appendChild(e);
+      return;
+    }
+    const sim = Object.assign({}, levels || {});
+    list.forEach((entry, i) => {
+      const want = abCqWantLevel(entry, sim);
+      sim[entry.b] = want;
+      const row = document.createElement('div');
+      row.className = 'cq-row';
+      row.dataset.key = `cq-${townId}-${i}`;
+      const idx = document.createElement('span');
+      idx.textContent = String(i + 1) + '.';
+      idx.style.color = '#666';
+      const name = document.createElement('span');
+      name.textContent = AB_LABELS[entry.b] || entry.b;
+      name.style.color = '#aaa';
+      const lvl = document.createElement('span');
+      lvl.textContent = '->' + want;
+      lvl.style.color = '#cfc';
+      const cur = document.createElement('span');
+      cur.textContent = levels ? String(levels[entry.b] != null ? levels[entry.b] : '?') : '?';
+      cur.style.color = '#888';
+      const btns = document.createElement('span');
+      btns.style.cssText = 'display:flex;gap:2px';
+      const mk = (txt, title, fn) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = txt;
+        b.title = title;
+        b.style.cssText = 'background:#333;border:1px solid #555;color:#eee;padding:0 4px;cursor:pointer;font-size:10px';
+        b.addEventListener('click', () => { fn(); renderCqRows(); renderAbPlan(); });
+        return b;
+      };
+      btns.appendChild(mk('^', 'move up', () => abCqMove(townId, i, -1)));
+      btns.appendChild(mk('v', 'move down', () => abCqMove(townId, i, 1)));
+      btns.appendChild(mk('x', 'remove', () => abCqRemove(townId, i)));
+      row.appendChild(idx);
+      row.appendChild(name);
+      row.appendChild(cur);
+      row.appendChild(lvl);
+      row.appendChild(btns);
+      box.appendChild(row);
     });
   }
 
@@ -4683,7 +4929,19 @@ const STORE = {
     const plan = buildPlanNext(townId, n);
     const out = [];
     for (const entry of plan) {
-      if (!entry.afford.ok && !entry.afford.blind) break;
+      if (!entry.afford.ok && !entry.afford.blind) {
+
+        if (state.abQueueStrict !== false) {
+          if (entry.custom) {
+            gbLogT('ab-cq-wait-' + townId + '-' + entry.building, 120000,
+              `auto-queue: town ${townId} waiting for ${AB_LABELS[entry.building] || entry.building} (${abPlanVerdictLabel(entry.afford)})`);
+          }
+          break;
+        }
+        gbLogT('ab-cq-skip-' + townId + '-' + entry.building, 120000,
+          `auto-queue: town ${townId} skipping ${AB_LABELS[entry.building] || entry.building} (${abPlanVerdictLabel(entry.afford)}, strict off)`);
+        continue;
+      }
       out.push(entry.building);
     }
     return out;
@@ -4718,6 +4976,7 @@ const STORE = {
     const jobs = [];
     const now = Date.now();
     ids.forEach(id => {
+      if (abCqGet(id).length) abCqPrune(id, abCurrentLevels(id));
       const q = abQueueInfo(id);
       if (q.len > 1 && !force) {
 
@@ -4791,6 +5050,8 @@ const STORE = {
     abEnsureTargets();
     const townId = abCurrentTownId() || (abTownIds()[0]);
     const levels = townId ? abCurrentLevels(townId) : null;
+    if (townId) abCqPrune(townId, levels);
+    renderCqRows();
     box.replaceChildren();
     const head = document.createElement('div');
     head.style.cssText = 'display:grid;grid-template-columns:1.2fr .5fr .5fr .5fr auto;gap:4px;font-size:9px;color:#888;margin-bottom:2px';
@@ -6354,6 +6615,419 @@ const STORE = {
     });
   }
 
+  const PT_VIEW_TTL_MS = 30000;
+  const PT_RES = ['wood', 'stone', 'iron'];
+  let ptViewCache = null;
+
+  function ptCfg() {
+    const c = state.ptCfg || {};
+    return {
+      targetRatio: +c.targetRatio > 0 ? +c.targetRatio : 1.0,
+      pumpAmount: Math.max(1, Math.floor(+c.pumpAmount || 1)),
+      maxPumps: Math.max(0, Math.floor(+c.maxPumps != null ? +c.maxPumps : 6)),
+      reservePct: Math.min(90, Math.max(0, gbCfgNum(c.reservePct, 10))),
+      wantRes: c.wantRes && typeof c.wantRes === 'object' ? c.wantRes : { wood: true, stone: true, iron: false },
+    };
+  }
+  function ptCfgSave() { save(STORE.PT_CFG, state.ptCfg); }
+
+  function ptSalesmanTown() {
+    const uw = gameUw();
+    let m = null;
+    try {
+      m = (uw.MM && uw.MM.getModelByNameAndPlayerId && uw.MM.getModelByNameAndPlayerId('PhoenicianSalesman'))
+        || (uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('PhoenicianSalesman'))
+        || null;
+    } catch (_) { m = null; }
+    if (m && m.models && m.models.length) m = m.models[0];
+    if (!m) return null;
+    const a = m.attributes || m;
+    const tid = gbProbeAttr(a, ['town_id', 'current_town_id', 'in_town_id']);
+    if (tid != null && +tid > 0) return +tid;
+
+    try {
+      if (typeof m.isInCurrentTown === 'function' && m.isInCurrentTown()) {
+        return +(uw.Game && uw.Game.townId) || null;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function ptResFromText(s) {
+    const t = String(s || '').toLowerCase();
+    for (const r of PT_RES) {
+      if (t.indexOf(r) !== -1) return r;
+    }
+    if (/silver|plata|argent/.test(t)) return 'iron';
+    if (/wood|madera|holz|bois/.test(t)) return 'wood';
+    if (/stone|piedra|stein|pierre/.test(t)) return 'stone';
+    return null;
+  }
+  function ptRatioFromText(s) {
+    const t = String(s || '').replace(',', '.');
+    let m = t.match(/(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)/);
+    if (m) {
+      const give = +m[1], get = +m[2];
+      if (give > 0 && get >= 0) return get / give;
+    }
+    m = t.match(/(\d+\.\d+)/);
+    if (m) return +m[1];
+    return null;
+  }
+
+  function ptParseOffers(root) {
+    if (!root) return null;
+    let nodes = [];
+    try {
+      nodes = Array.from(root.querySelectorAll('[class*="offer"],[class*="trade_row"],[class*="exchange"]'));
+    } catch (_) { return null; }
+    const offers = [];
+    nodes.forEach((el, i) => {
+      const txt = (el.textContent || '').trim();
+      if (!txt) return;
+      const ratio = ptRatioFromText(txt);
+      if (ratio == null) return;
+      const html = el.innerHTML || '';
+
+      const resHits = [];
+      try {
+        Array.from(el.querySelectorAll('[class*="wood"],[class*="stone"],[class*="iron"],[class*="resource"]')).forEach(r => {
+          const hit = ptResFromText(r.className) || ptResFromText(r.getAttribute('data-resource') || '');
+          if (hit) resHits.push(hit);
+        });
+      } catch (_) {}
+      const give = resHits[0] || null;
+      const get = resHits[1] || null;
+      const stockM = txt.replace(/\./g, '').match(/(\d{2,7})/);
+      const id = el.getAttribute('data-offer-id') || el.getAttribute('data-id')
+        || el.getAttribute('data-offer_id') || String(i);
+      offers.push({
+        id: String(id),
+        give, get, ratio,
+        stock: stockM ? +stockM[1] : null,
+        raw: html.slice(0, 200),
+      });
+    });
+    if (!offers.length) return null;
+    return offers;
+  }
+  function ptWindowRoot() {
+
+    try {
+      const sel = '[class*="phoenician"],[class*="salesman"]';
+      const nodes = Array.from(document.querySelectorAll(sel));
+      for (const n of nodes) {
+        if (n.querySelector && n.querySelector('[class*="offer"],[class*="exchange"]')) return n;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function ptViewUrlFor(townId) {
+    const learned = state.ptViewUrl;
+    if (!learned) return null;
+    try {
+      return String(learned).replace(/([?&]town_id=)\d+/, '$1' + townId);
+    } catch (_) { return null; }
+  }
+  function ptOffersNow(townId, cb) {
+    const dom = ptParseOffers(ptWindowRoot());
+    if (dom) { cb(dom, 'window'); return; }
+    const url = ptViewUrlFor(townId);
+    if (!url) {
+      gbLogT('pt-noview', 600000,
+        'phoenician: offers unreadable - open the merchant window once so the view URL is learned');
+      cb(null, 'noview');
+      return;
+    }
+    gbXhr({
+      method: 'GET', url,
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      onload(res) {
+        if (res.status && res.status >= 400) { cb(null, 'http' + res.status); return; }
+        let html = res.responseText || '';
+        try {
+          const j = JSON.parse(html);
+          html = (j && (j.html || (j.json && j.json.html))) || html;
+        } catch (_) {}
+        let doc = null;
+        try { doc = new DOMParser().parseFromString(String(html), 'text/html'); } catch (_) {}
+        const offers = ptParseOffers(doc && doc.body);
+        if (!offers) {
+          gbLogT('pt-parse', 600000,
+            'phoenician: offer markup not understood - Log > Diag and paste the window HTML');
+        }
+        cb(offers, 'fetch');
+      },
+      onerror() { cb(null, 'err'); },
+    });
+  }
+  function ptOffers(townId, cb, force) {
+    const now = Date.now();
+    if (!force && ptViewCache && ptViewCache.townId === townId && (now - ptViewCache.at) < PT_VIEW_TTL_MS) {
+      cb(ptViewCache.offers, 'memo');
+      return;
+    }
+    ptOffersNow(townId, (offers, src) => {
+      if (offers) ptViewCache = { townId, at: Date.now(), offers };
+      cb(offers, src);
+    });
+  }
+
+  function ptParseParams(url, body) {
+    const args = {};
+    const take = (sp) => {
+      sp.forEach((v, k) => {
+        if (/^(h|action|controller|_|json)$/i.test(k)) return;
+        args[k] = /^-?\d+$/.test(v) ? +v : v;
+      });
+      const j = sp.get && sp.get('json');
+      if (j) {
+        try {
+          const obj = JSON.parse(j);
+          if (obj && typeof obj === 'object') Object.keys(obj).forEach(k => { args[k] = obj[k]; });
+        } catch (_) {}
+      }
+    };
+    try {
+      const q = String(url).split('?')[1];
+      if (q) take(new URLSearchParams(q));
+    } catch (_) {}
+    if (typeof body === 'string' && body) {
+      try { take(new URLSearchParams(body)); } catch (_) {}
+      if (body.charAt(0) === '{') {
+        try {
+          const obj = JSON.parse(body);
+          if (obj && typeof obj === 'object') Object.keys(obj).forEach(k => { args[k] = obj[k]; });
+        } catch (_) {}
+      }
+    }
+    return args;
+  }
+  function ptLearnFromXhr(u, body) {
+    const url = String(u || '');
+    if (!/phoenician_salesman/i.test(url)) return;
+    const action = (url.match(/[?&]action=([A-Za-z_]+)/) || [])[1] || '';
+    if (!action || /^(index|view|show|load)$/i.test(action)) {
+      if (state.ptViewUrl !== url) {
+        state.ptViewUrl = url;
+        save(wkey(STORE.PT_VIEW_URL), url);
+        gbLog('phoenician: learned view URL');
+      }
+      return;
+    }
+    if (!/trade|exchange|swap/i.test(action)) return;
+
+    if (gbLocked('pt-trade')) return;
+    const args = ptParseParams(url, body);
+    const townId = args.town_id != null ? +args.town_id : null;
+    delete args.town_id;
+    const tpl = {
+      controller: 'phoenician_salesman',
+      action,
+      arguments: args,
+      town_id: townId,
+      version: 1,
+      learned_at: Date.now(),
+    };
+    tpl.amountKey = ptAmountKey(tpl);
+    state.ptTradeTpl = tpl;
+    save(wkey(STORE.PT_TRADE_TPL), tpl);
+    gbLog('phoenician: learned trade payload: ' + JSON.stringify(tpl).slice(0, 200));
+    try { tplHealthMarkLearned('ptTradeTpl'); } catch (_) {}
+  }
+  function ptAmountKey(tpl) {
+    if (!tpl) return null;
+    if (tpl.amountKey) return tpl.amountKey;
+    const args = tpl.arguments || {};
+    const named = Object.keys(args).find(k => /^(amount|count|quantity|menge|cantidad|trade_amount|res_amount)$/i.test(k));
+    if (named) return named;
+    let best = null, bestVal = -1;
+    Object.keys(args).forEach(k => {
+      const v = +args[k];
+      if (Number.isFinite(v) && v > bestVal) { bestVal = v; best = k; }
+    });
+    return best;
+  }
+  function ptTradePost(townId, offer, amount, onDone) {
+    const tpl = state.ptTradeTpl;
+    if (!tpl || !tpl.action) {
+      gbLogT('pt-notpl', 600000,
+        'phoenician: no learned trade payload - do ONE trade by hand to teach it');
+      onDone('no-template');
+      return;
+    }
+    const key = ptAmountKey(tpl);
+    if (!key) {
+      gbLogT('pt-noamount', 600000, 'phoenician: learned payload has no amount field - refusing to post');
+      onDone('no-amount');
+      return;
+    }
+    const data = Object.assign({}, tpl.arguments || {});
+    data[key] = Math.max(1, Math.floor(amount));
+    if (townId != null) data.town_id = +townId;
+
+    if (offer && offer.id != null) {
+      Object.keys(data).forEach(k => {
+        if (/offer(_id)?$/i.test(k)) data[k] = offer.id;
+      });
+    }
+    gameAjaxPost('pttrade', tpl.controller || 'phoenician_salesman', tpl.action, data, onDone);
+  }
+
+  function ptTownCaps(townId) {
+    const uw = gameUw();
+    let t = null;
+    try { t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]); } catch (_) {}
+    let tradeCap = null;
+    try { if (t && t.getAvailableTradeCapacity) tradeCap = +t.getAvailableTradeCapacity(); } catch (_) {}
+    const st = townResState(townId);
+    return { tradeCap: Number.isFinite(tradeCap) ? tradeCap : null, res: st };
+  }
+
+  function ptRoom(townId, give, get) {
+    const caps = ptTownCaps(townId);
+    const cfg = ptCfg();
+    const st = caps.res;
+    let out = null, room = null;
+    if (st) {
+      const cap = +st.cap || 0;
+      const keep = Math.floor(cap * (cfg.reservePct / 100));
+      const have = +st[give];
+      if (Number.isFinite(have)) out = Math.max(0, have - keep);
+      const cur = +st[get];
+      if (cap > 0 && Number.isFinite(cur)) room = Math.max(0, cap - cur);
+    }
+    return { out, room, tradeCap: caps.tradeCap };
+  }
+
+  function ptTradeScan(reason) {
+    if (!hostEnabled() || !state.autoPtTrade || captchaPaused('pttrade')) return;
+    if (automationPaused({})) return;
+    if (gbLocked('pt-trade')) return;
+    const townId = ptSalesmanTown();
+    if (townId == null) {
+      gbLogT('pt-noship', 600000, `phoenician: no merchant ship readable (${reason || 'scan'})`);
+      return;
+    }
+    if (!state.ptTradeTpl) {
+      gbLogT('pt-notpl-scan', 600000,
+        'phoenician: ship is here but no trade payload learned - trade once by hand');
+      return;
+    }
+    const cfg = ptCfg();
+    ptOffers(townId, (offers) => {
+      if (!offers || !offers.length) return;
+      const pick = offers.find(o => {
+        if (!(o.ratio >= 0)) return false;
+        if (o.get && !cfg.wantRes[o.get]) return false;
+        if (o.stock != null && o.stock <= 0) return false;
+        return true;
+      });
+      if (!pick) {
+        gbLogT('pt-nooffer', 300000, 'phoenician: no offer matches the wanted resources');
+        return;
+      }
+      const give = pick.give || 'iron';
+      const get = pick.get || 'wood';
+      const room = ptRoom(townId, give, get);
+      if (room.tradeCap != null && room.tradeCap < cfg.pumpAmount) {
+        gbLogT('pt-nocap', 300000, `phoenician: no free trade capacity in town ${townId}`);
+        return;
+      }
+      if (room.room != null && room.room <= 0) {
+        gbLogT('pt-full', 300000, `phoenician: town ${townId} ${get} already at capacity - skip`);
+        return;
+      }
+      if (room.out != null && room.out < cfg.pumpAmount) {
+        gbLogT('pt-nostock', 300000, `phoenician: town ${townId} ${give} below reserve - skip`);
+        return;
+      }
+      gbLock('pt-trade');
+      ptRunPump(townId, pick, give, get, cfg);
+    });
+  }
+  function ptRunPump(townId, offer, give, get, cfg) {
+    let pumps = 0;
+    let lastRatio = offer.ratio;
+    const finish = (why) => {
+      gbUnlock('pt-trade');
+      if (why) gbLog(`phoenician: ${why}`);
+    };
+    const bulk = () => {
+      const room = ptRoom(townId, give, get);
+
+      if (room.tradeCap == null && room.room == null && room.out == null) {
+        finish('bulk skipped - trade capacity and warehouse unreadable');
+        return;
+      }
+      const parts = [offer.stock, room.room, room.tradeCap, room.out].filter(v => v != null && Number.isFinite(v));
+      if (!parts.length) {
+        finish('bulk skipped - capacity/stock unreadable');
+        return;
+      }
+      const amount = Math.floor(Math.min.apply(null, parts));
+      if (!(amount > 0)) { finish('bulk skipped - nothing tradeable'); return; }
+      ptTradePost(townId, offer, amount, (err) => {
+        if (err === 'dryrun') {
+          finish(`DRY-RUN bulk trade would send ${amount} ${give} -> ${get} at ratio ${lastRatio}`);
+          return;
+        }
+        if (err) {
+          gbLogT('pt-bulk-err', 60000, `phoenician: bulk trade ${err}`);
+          finish(null);
+          return;
+        }
+        ptViewCache = null;
+        finish(`bulk trade ${amount} ${give} -> ${get} at ratio ${lastRatio}`);
+      });
+    };
+    const step = () => {
+      if (lastRatio >= cfg.targetRatio) { bulk(); return; }
+      if (pumps >= cfg.maxPumps) {
+        finish(`ratio stuck at ${lastRatio} after ${pumps} pumps - no bulk trade`);
+        return;
+      }
+      pumps++;
+      ptTradePost(townId, offer, cfg.pumpAmount, (err) => {
+
+        if (err === 'dryrun' || (!err && state.dryRun)) {
+          lastRatio = Math.round((lastRatio + 0.1) * 100) / 100;
+          gbLog(`phoenician: DRY-RUN pump ${pumps}/${cfg.maxPumps}, assumed ratio ${lastRatio}`);
+          gbTimeout(step, 900);
+          return;
+        }
+        if (err) {
+          gbLogT('pt-pump-err', 60000, `phoenician: pump ${pumps} ${err}`);
+          finish(null);
+          return;
+        }
+        gbTimeout(() => {
+          ptOffers(townId, (offers) => {
+            const again = (offers || []).find(o => String(o.id) === String(offer.id));
+            const now = again && again.ratio != null ? again.ratio : null;
+            if (now == null) { finish(`ratio unreadable after pump ${pumps}`); return; }
+            if (now <= lastRatio) {
+              finish(`ratio did not move (${lastRatio} -> ${now}) after pump ${pumps} - aborting`);
+              return;
+            }
+            gbLog(`phoenician: pump ${pumps}/${cfg.maxPumps} ratio ${lastRatio} -> ${now}`);
+            lastRatio = now;
+            if (again.stock != null) offer.stock = again.stock;
+            step();
+          }, true);
+        }, 900 + Math.floor(Math.random() * 600));
+      });
+    };
+    step();
+  }
+  function ptStatusText() {
+    const townId = ptSalesmanTown();
+    const tpl = state.ptTradeTpl ? 'payload learned' : 'payload NOT learned';
+    const view = state.ptViewUrl ? 'view learned' : 'view NOT learned';
+    return (townId == null ? 'no ship' : `ship in town ${townId}`) + `  |  ${tpl}  |  ${view}`;
+  }
+
   const FAVOR_CHECK_MS = 60000;
   const FAVOR_TEMPLE_PLUNDER = /temple_plunder|plunder_temple|templeplunder|saqueo.?templo|plunderung.?tempel/i;
 
@@ -7340,19 +8014,20 @@ const STORE = {
     rurallevel: 120000,
     recruit: 30000,
     merchant: 45000,
+    pttrade: 120000,
     favor: 60000,
     wonder: 180000,
   };
   const ORCH_CAPTCHA = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', merchant: 'merchant', favor: 'favor', wonder: 'wonder',
+    recruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder',
   };
 
   const ORCH_JRN = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', merchant: 'merchant', favor: 'favor', wonder: 'wonder',
+    recruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder',
   };
   const ORCH_IDLE_TRIP = 4;
   const ORCH_IDLE_MAX = 8;
@@ -7370,6 +8045,7 @@ const STORE = {
     rurallevel: () => { try { ruralLevelScan('orch'); } catch (_) {} },
     recruit: () => { try { recruitScan('orch'); } catch (_) {} },
     merchant: () => { try { merchantScan('orch'); } catch (_) {} },
+    pttrade: () => { try { ptTradeScan('orch'); } catch (_) {} },
       favor: () => { try { favorScan('orch'); } catch (_) {} },
       wonder: () => {
         try { wonderScan('orch'); } catch (_) {}
@@ -10033,7 +10709,16 @@ const STORE = {
     out.push(preflightProbe('instant build', () => {
       const orders = ibOrders() || [];
       const free = orders.filter(o => o.isFree).length;
-      return { ok: true, detail: `${orders.length} orders, ${free} free now, action ${state.ibAction}` };
+      const cov = typeof ibTownCoverage === 'function' ? ibTownCoverage() : null;
+      const armed = typeof ibArmedAt === 'function' ? ibArmedAt() : 0;
+      const armTxt = armed ? `next arm in ${fmtSec((armed - Date.now()) / 1000)}` : 'no order counting down';
+      return {
+        ok: true,
+        warn: !!(cov && cov.total && cov.readable < cov.total),
+        detail: `${orders.length} orders, ${free} free now, action ${state.ibAction}`
+          + (cov ? `, order queues readable ${cov.readable}/${cov.total} towns` : '')
+          + `, ${armTxt}`,
+      };
     }));
     out.push(preflightProbe('instant research', () => {
       const r = (typeof ibResearchOrders === 'function' ? (ibResearchOrders({}) || []) : []);
@@ -10091,6 +10776,18 @@ const STORE = {
       if (bc) parts.push('building costs ok');
       else { parts.push('building costs unreadable (open a build window once)'); blind++; }
       return { ok: blind < 5, warn: blind > 0, detail: parts.join(', ') };
+    }));
+    out.push(preflightProbe('merchant ship', () => {
+      const town = typeof ptSalesmanTown === 'function' ? ptSalesmanTown() : null;
+      const tpl = !!state.ptTradeTpl;
+      const view = !!state.ptViewUrl;
+      return {
+        ok: true,
+        warn: !tpl || !view,
+        detail: (town == null ? 'no ship readable' : 'ship in town ' + town)
+          + (tpl ? ', trade payload learned' : ', trade payload NOT learned (trade once by hand)')
+          + (view ? ', view URL learned' : ', view URL NOT learned (open the window once)'),
+      };
     }));
     out.push(preflightProbe('attack', () => ({
       ok: !!state.attackTpl,
@@ -10858,6 +11555,9 @@ const STORE = {
     #grepbot-panel .ab-plan{max-height:120px;overflow:auto;margin:2px 0 6px}
     #grepbot-panel .ab-plan-row{display:grid;grid-template-columns:1.2fr .4fr .8fr .6fr auto;gap:4px;align-items:center;padding:2px 0;border-bottom:1px solid #2a2a2a;font-size:10px}
     #grepbot-panel .ab-plan-row.pinned{background:#1a1a10}
+    #grepbot-panel .ab-plan-row.custom{background:#101a1a}
+    #grepbot-panel .cq-rows{max-height:140px;overflow:auto}
+    #grepbot-panel .cq-row{display:grid;grid-template-columns:24px 1.2fr .5fr .6fr auto;gap:4px;align-items:center;padding:1px 0;border-bottom:1px solid #2a2a2a;font-size:10px}
     #grepbot-panel .atk-sched{max-height:160px;overflow:auto;margin-top:6px}
     #grepbot-panel .atk-sources{max-height:80px;overflow:auto;display:flex;flex-wrap:wrap;gap:4px 8px;margin:4px 0}
     #grepbot-panel .atk-roles{max-height:110px;overflow:auto;margin:4px 0}
@@ -10989,8 +11689,23 @@ const STORE = {
         <button id="gb-ab-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Queue now</button>
       </div>
       <div style="font-size:9px;color:#888;margin-bottom:4px">Auto only fills when <=1 order left: adds up to 6 (or queue max). Next fill waits half(build time)+5min+rand - not right when a build finishes. Targets = cur/tgt/max.</div>
-      <div style="font-size:10px;color:#f5a623;margin:4px 0 2px">Next 3 <span style="color:#666;font-weight:normal">(heuristic plan)</span></div>
+      <div style="font-size:10px;color:#f5a623;margin:4px 0 2px">Next 3 <span style="color:#666;font-weight:normal">(custom queue first, then heuristic)</span></div>
       <div class="ab-plan"></div>
+      <div style="border-top:1px solid #333;margin:8px 0 4px;padding-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <b style="font-size:11px;color:#f5a623">Custom queue</b>
+        <span id="gb-cq-town" style="font-size:10px;color:#888"></span>
+        <span style="flex:1"></span>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:10px" title="Strict: wait for the head entry instead of building past it"><input type="checkbox" id="gb-cq-strict"/> strict</label>
+        <button id="gb-cq-copy" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Copy to all</button>
+        <button id="gb-cq-clear" style="background:#333;border:1px solid #555;color:#f08080;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Clear</button>
+      </div>
+      <div class="cq-rows"></div>
+      <div style="display:flex;align-items:center;gap:4px;margin:4px 0">
+        <select id="gb-cq-b" style="background:#111;color:#cfc;border:1px solid #333;font:10px monospace"></select>
+        <input id="gb-cq-lvl" type="number" min="1" style="width:48px;background:#111;color:#cfc;border:1px solid #333;font:10px monospace"/>
+        <button id="gb-cq-add" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Add</button>
+        <span style="font-size:9px;color:#888">ordered - built top-down, then heuristic</span>
+      </div>
       <div class="ab-queue"></div>
       <div id="gb-ab-status" style="font-size:10px;color:#888;margin-top:4px"></div>
     </section>
@@ -11126,6 +11841,22 @@ const STORE = {
         <label>Telegram chat_id <input type="text" data-cfg="wh-tg-chat" placeholder="optional if not in URL" style="width:140px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px;font-size:10px"/></label>
         <div style="border-top:1px solid #333;padding-top:6px;color:#f96;font-size:10px">HIGH RISK (default OFF)</div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-merchant"/> Merchant sniper</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Merchant ship resource offers open at 0.5:1 and gain +0.1 per trade. Pump with 1-unit trades, then send the bulk trade at 1:1."><input type="checkbox" data-cfg="auto-pt-trade"/> Merchant ship ratio pump</label>
+        <label style="margin-left:12px;font-size:10px">target ratio <input type="number" step="0.1" min="0.5" max="2" data-cfg="pt-ratio" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
+          pump amt <input type="number" min="1" max="100" data-cfg="pt-pump" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
+          max pumps <input type="number" min="0" max="20" data-cfg="pt-maxpumps" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
+          reserve % <input type="number" min="0" max="90" data-cfg="pt-reserve" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
+        </label>
+        <label style="margin-left:12px;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">receive
+          <label><input type="checkbox" data-cfg="pt-want-wood"/> wood</label>
+          <label><input type="checkbox" data-cfg="pt-want-stone"/> stone</label>
+          <label><input type="checkbox" data-cfg="pt-want-iron"/> silver</label>
+        </label>
+        <div style="margin-left:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span id="gb-pt-status" style="font-size:10px;color:#888"></span>
+          <button data-cfg="pt-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Pump + trade now</button>
+          <button data-cfg="pt-copy" title="Copy the open merchant window markup - needed once to confirm the offer parser" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Copy offer HTML</button>
+        </div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-favor"/> Favor farm (godsent)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-wonder"/> WW donations</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Spend favor on alliance wonder. Requires sniffed wonderFavorTpl. Default OFF."><input type="checkbox" data-cfg="auto-wonder-favor"/> WW favor cast (sniff power first)</label>
@@ -11340,6 +12071,39 @@ const STORE = {
     renderAbQueue();
   });
   panel.querySelector('#gb-ab-csfast')?.addEventListener('click', () => { abLoadCsFast(); flash('CS-fast targets'); });
+  panel.querySelector('#gb-cq-b')?.addEventListener('change', () => renderCqRows());
+  panel.querySelector('#gb-cq-strict')?.addEventListener('change', e => {
+    state.abQueueStrict = e.target.checked;
+    save(STORE.AB_QUEUE_STRICT, state.abQueueStrict);
+    gbLog('auto-queue: strict order', state.abQueueStrict ? 'ON' : 'OFF');
+  });
+  panel.querySelector('#gb-cq-add')?.addEventListener('click', () => {
+    const townId = abCurrentTownId() || abTownIds()[0];
+    if (!townId) { flash('no town'); return; }
+    const b = panel.querySelector('#gb-cq-b')?.value;
+    const lvlEl = panel.querySelector('#gb-cq-lvl');
+    const lvl = lvlEl && lvlEl.value !== '' ? +lvlEl.value : null;
+    abCqAdd(townId, b, lvl);
+    renderCqRows();
+    renderAbPlan();
+  });
+  panel.querySelector('#gb-cq-clear')?.addEventListener('click', () => {
+    const townId = abCurrentTownId() || abTownIds()[0];
+    if (!townId) return;
+    abCqSet(townId, []);
+    renderCqRows();
+    renderAbPlan();
+  });
+  panel.querySelector('#gb-cq-copy')?.addEventListener('click', () => {
+    const townId = abCurrentTownId() || abTownIds()[0];
+    if (!townId) return;
+    const list = abCqGet(townId);
+    if (!list.length) { flash('queue empty'); return; }
+    if (!confirm(`Copy this ${list.length}-entry queue to ALL towns? Existing custom queues are replaced.`)) return;
+    abTownIds().forEach(id => { if (String(id) !== String(townId)) abCqSet(id, list.map(e => ({ b: e.b, lvl: e.lvl }))); });
+    gbLog(`auto-queue: custom queue copied to ${abTownIds().length} town(s)`);
+    flash('queue copied');
+  });
   panel.querySelector('#gb-ab-now')?.addEventListener('click', () => {
     const was = state.abAuto;
     if (!was) { state.abAuto = true; save(STORE.AB_AUTO, true); }
@@ -11584,6 +12348,20 @@ const STORE = {
     setChk('[data-cfg=orch-deadlock]', state.orchDeadlockResolve !== false);
     setChk('[data-cfg=export-redact]', state.exportRedact !== false);
     setChk('[data-cfg=auto-merchant]', state.autoMerchant);
+    setChk('[data-cfg=auto-pt-trade]', state.autoPtTrade);
+    {
+      const c = state.ptCfg || {};
+      const want = c.wantRes || {};
+      setNum('[data-cfg=pt-ratio]', c.targetRatio != null ? c.targetRatio : 1);
+      setNum('[data-cfg=pt-pump]', c.pumpAmount != null ? c.pumpAmount : 1);
+      setNum('[data-cfg=pt-maxpumps]', c.maxPumps != null ? c.maxPumps : 6);
+      setNum('[data-cfg=pt-reserve]', c.reservePct != null ? c.reservePct : 10);
+      setChk('[data-cfg=pt-want-wood]', want.wood !== false);
+      setChk('[data-cfg=pt-want-stone]', want.stone !== false);
+      setChk('[data-cfg=pt-want-iron]', !!want.iron);
+      const st = sec.querySelector('#gb-pt-status');
+      if (st) st.textContent = typeof ptStatusText === 'function' ? ptStatusText() : '';
+    }
     setChk('[data-cfg=auto-favor]', state.autoFavor);
     setChk('[data-cfg=auto-wonder]', state.autoWonder);
     setChk('[data-cfg=cs-alert]', state.csAlert !== false);
@@ -11644,6 +12422,40 @@ const STORE = {
       updateStatus();
     });
     bindToggle('[data-cfg=auto-merchant]', 'autoMerchant', STORE.AUTO_MERCHANT, () => merchantScan('toggle'));
+    bindToggle('[data-cfg=auto-pt-trade]', 'autoPtTrade', STORE.AUTO_PT_TRADE, () => ptTradeScan('toggle'));
+    const savePt = (key, val) => {
+      if (!state.ptCfg || typeof state.ptCfg !== 'object') state.ptCfg = {};
+      state.ptCfg[key] = val;
+      save(STORE.PT_CFG, state.ptCfg);
+    };
+    saveNum('[data-cfg=pt-ratio]', v => savePt('targetRatio', Math.min(2, Math.max(0.5, v || 1))));
+    saveNum('[data-cfg=pt-pump]', v => savePt('pumpAmount', Math.max(1, Math.floor(v || 1))));
+    saveNum('[data-cfg=pt-maxpumps]', v => savePt('maxPumps', Math.min(20, Math.max(0, Math.floor(v || 0)))));
+    saveNum('[data-cfg=pt-reserve]', v => savePt('reservePct', Math.min(90, Math.max(0, Math.floor(v || 0)))));
+    const savePtWant = () => {
+      savePt('wantRes', {
+        wood: !!sec.querySelector('[data-cfg=pt-want-wood]')?.checked,
+        stone: !!sec.querySelector('[data-cfg=pt-want-stone]')?.checked,
+        iron: !!sec.querySelector('[data-cfg=pt-want-iron]')?.checked,
+      });
+    };
+    ['pt-want-wood', 'pt-want-stone', 'pt-want-iron'].forEach(k => {
+      sec.querySelector('[data-cfg=' + k + ']')?.addEventListener('change', savePtWant);
+    });
+    sec.querySelector('[data-cfg=pt-now]')?.addEventListener('click', () => {
+      if (!state.ptTradeTpl) { flash('trade once by hand first'); return; }
+      if (!confirm('Pump the merchant ship ratio and send the bulk trade now?')) return;
+      const was = state.autoPtTrade;
+      if (!was) { state.autoPtTrade = true; save(STORE.AUTO_PT_TRADE, true); }
+      ptTradeScan('manual');
+    });
+    sec.querySelector('[data-cfg=pt-copy]')?.addEventListener('click', () => {
+      const root = typeof ptWindowRoot === 'function' ? ptWindowRoot() : null;
+      if (!root) { flash('open the merchant window first'); return; }
+      navigator.clipboard.writeText(root.innerHTML.slice(0, 20000))
+        .then(() => flash('offer HTML copied'))
+        .catch(() => flash('copy failed'));
+    });
     bindToggle('[data-cfg=auto-favor]', 'autoFavor', STORE.AUTO_FAVOR, () => favorScan('toggle'));
     bindToggle('[data-cfg=auto-wonder]', 'autoWonder', STORE.AUTO_WONDER, () => wonderScan('toggle'));
     bindToggle('[data-cfg=cs-alert]', 'csAlert', STORE.CS_ALERT);
@@ -12383,6 +13195,8 @@ const STORE = {
       try { gbWakeMarkResume('visible'); } catch (_) {}
       farmTick();
       try { reportCatchUpEnqueue(); } catch (_) {}
+
+      try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
     }
   });
   gbListen(window, 'pageshow', (e) => {
@@ -12392,6 +13206,7 @@ const STORE = {
       try { reportCatchUpEnqueue(); } catch (_) {}
       try { bindQuestObserver(); } catch (_) {}
       try { banditScheduleNext(); } catch (_) {}
+      try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
     }
   });
   gbInterval(checkThresholds, 30000);

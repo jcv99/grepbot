@@ -127,6 +127,16 @@ Plans **16–21**. (`tradeReservePct` / `tradeMinBatch` already wired — droppe
 
 ---
 
+## 6b. v1.6 user requests (CODED, validation open)
+
+| # | Feature | Notes | Plan |
+|---|---------|-------|------|
+| 1 | **Custom per-town build queue** | Ordered list beats the heuristic; strict order by default | 23 |
+| 2 | **Instant build precision** | Timer armed at doneAt-5min; per-town order queues (all towns) | 24 |
+| 3 | **Phoenician ratio pump** | 5×1-unit trades lift 0.5:1 to 1:1, then bulk. Default OFF, offer parser unconfirmed | 25 |
+
+---
+
 ## 7. Out of scope forever
 
 Per ROADMAP / CLAUDE — do not implement:
