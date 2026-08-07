@@ -1,0 +1,388 @@
+#!/usr/bin/env python3
+"""Concat src modules into grepbot.user.js (Phase 6 modularity).
+
+Gates (v1.4.0): the build used to be a blind concat, so a syntax error or a
+duplicate top-level declaration only surfaced after pasting into Tampermonkey.
+Now the artifact is checked before it is written off as done:
+
+  1. `node --check` on the output (skipped with a warning if node is missing)
+  2. duplicate top-level `function`/`const`/`let` names across modules — the
+     concat order makes those a hard TDZ/redeclare failure inside one IIFE
+  3. reminder when src/ changed but @version in src/header.js did not
+
+Also strips // and /* */ comments from the artifact (UserScript header kept).
+src/ retains comments for humans; only grepbot.user.js is cleaned.
+"""
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+SRC = os.path.join(ROOT, 'src')
+OUT = os.path.join(ROOT, 'grepbot.user.js')
+STAMP = os.path.join(ROOT, '.build-stamp.json')
+
+MODULES = [
+    'header.js',
+    'core.js',
+    'journal.js',
+    'spy.js',
+    'parse-inline.js',
+    'farms.js',
+    'towns.js',
+    'collect.js',
+    'bandit.js',
+    'build-tab.js',
+    'cave.js',
+    'culture.js',
+    'trade.js',
+    'rural.js',
+    'research.js',
+    'alerts.js',
+    'merchant.js',
+    'favor.js',
+    'wonder.js',
+    'dodge.js',
+    'recruit.js',
+    'qol.js',
+    'orchestrate.js',
+    'intel.js',
+    'quests.js',
+    'attack.js',
+    'military.js',
+    'stats.js',
+    'ui.js',
+    'boot.js',
+    'footer.js',
+]
+
+# Top-level here means "two spaces of indent" — the whole script is one IIFE and
+# every module body is written at that depth.
+DECL_RE = re.compile(r'^  (?:function\s+([A-Za-z_$][\w$]*)|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=)')
+VERSION_RE = re.compile(r'^// @version\s+(\S+)', re.M)
+USERSCRIPT_HEADER_RE = re.compile(r'^// ==UserScript==.*?// ==/UserScript==\n?', re.S)
+
+# '/' starts a regex after these punctuation tokens (not after values like ) ] ).
+_RE_PREV = frozenset('([{;=,:!&|?~^%*+\n\r-')
+_RE_KEYWORDS = frozenset({
+    'return', 'throw', 'case', 'else', 'do', 'typeof', 'void', 'new',
+    'delete', 'await', 'yield', 'in', 'of', 'instanceof',
+})
+
+
+def strip_js_comments(src):
+    """Remove // and /* */ outside strings, templates, and regex literals."""
+    n = len(src)
+    out = []
+    i = 0
+
+    def last_non_ws():
+        for c in reversed(out):
+            if c not in ' \t\n\r':
+                return c
+        return ''
+
+    def prev_word():
+        j = len(out) - 1
+        while j >= 0 and out[j] in ' \t':
+            j -= 1
+        end = j
+        while j >= 0 and (out[j].isalnum() or out[j] in '_$'):
+            j -= 1
+        return ''.join(out[j + 1:end + 1]) if end >= 0 else ''
+
+    def can_regex():
+        c = last_non_ws()
+        if c == '' or c in _RE_PREV:
+            return True
+        return prev_word() in _RE_KEYWORDS
+
+    while i < n:
+        c = src[i]
+        nxt = src[i + 1] if i + 1 < n else ''
+
+        if c == '/' and nxt == '/':
+            i += 2
+            while i < n and src[i] not in '\n\r':
+                i += 1
+            continue
+
+        if c == '/' and nxt == '*':
+            i += 2
+            while i < n - 1 and not (src[i] == '*' and src[i + 1] == '/'):
+                i += 1
+            i = i + 2 if i < n - 1 else n
+            if out and out[-1] not in ' \t\n\r' and i < n and src[i] not in ' \t\n\r;,)}]:':
+                out.append(' ')
+            continue
+
+        if c in "'\"":
+            quote = c
+            out.append(c)
+            i += 1
+            while i < n:
+                ch = src[i]
+                out.append(ch)
+                if ch == '\\':
+                    i += 1
+                    if i < n:
+                        out.append(src[i])
+                        i += 1
+                    continue
+                if ch == quote:
+                    i += 1
+                    break
+                i += 1
+            continue
+
+        if c == '`':
+            out.append(c)
+            i += 1
+            while i < n:
+                ch = src[i]
+                out.append(ch)
+                if ch == '\\':
+                    i += 1
+                    if i < n:
+                        out.append(src[i])
+                        i += 1
+                    continue
+                if ch == '`':
+                    i += 1
+                    break
+                if ch == '$' and i + 1 < n and src[i + 1] == '{':
+                    out.append('{')
+                    i += 2
+                    depth = 1
+                    expr = []
+                    while i < n and depth:
+                        ec = src[i]
+                        if ec in "'\"":
+                            q = ec
+                            expr.append(ec)
+                            i += 1
+                            while i < n:
+                                x = src[i]
+                                expr.append(x)
+                                if x == '\\':
+                                    i += 1
+                                    if i < n:
+                                        expr.append(src[i])
+                                        i += 1
+                                    continue
+                                if x == q:
+                                    i += 1
+                                    break
+                                i += 1
+                            continue
+                        if ec == '`':
+                            expr.append(ec)
+                            i += 1
+                            while i < n:
+                                x = src[i]
+                                expr.append(x)
+                                if x == '\\':
+                                    i += 1
+                                    if i < n:
+                                        expr.append(src[i])
+                                        i += 1
+                                    continue
+                                if x == '`':
+                                    i += 1
+                                    break
+                                if x == '$' and i + 1 < n and src[i + 1] == '{':
+                                    expr.append('{')
+                                    i += 2
+                                    d2 = 1
+                                    while i < n and d2:
+                                        y = src[i]
+                                        if y == '{':
+                                            d2 += 1
+                                        elif y == '}':
+                                            d2 -= 1
+                                        expr.append(y)
+                                        i += 1
+                                    continue
+                                i += 1
+                            continue
+                        if ec == '{':
+                            depth += 1
+                            expr.append(ec)
+                            i += 1
+                            continue
+                        if ec == '}':
+                            depth -= 1
+                            if depth == 0:
+                                out.append(strip_js_comments(''.join(expr)))
+                                out.append('}')
+                                i += 1
+                                break
+                            expr.append(ec)
+                            i += 1
+                            continue
+                        if ec == '/' and i + 1 < n and src[i + 1] == '/':
+                            i += 2
+                            while i < n and src[i] not in '\n\r':
+                                i += 1
+                            continue
+                        if ec == '/' and i + 1 < n and src[i + 1] == '*':
+                            i += 2
+                            while i < n - 1 and not (src[i] == '*' and src[i + 1] == '/'):
+                                i += 1
+                            i = i + 2 if i < n - 1 else n
+                            continue
+                        expr.append(ec)
+                        i += 1
+                    continue
+                i += 1
+            continue
+
+        if c == '/' and can_regex():
+            out.append(c)
+            i += 1
+            while i < n:
+                ch = src[i]
+                out.append(ch)
+                if ch == '\\':
+                    i += 1
+                    if i < n:
+                        out.append(src[i])
+                        i += 1
+                    continue
+                if ch == '[':
+                    i += 1
+                    while i < n:
+                        x = src[i]
+                        out.append(x)
+                        if x == '\\':
+                            i += 1
+                            if i < n:
+                                out.append(src[i])
+                                i += 1
+                            continue
+                        if x == ']':
+                            i += 1
+                            break
+                        i += 1
+                    continue
+                if ch == '/':
+                    i += 1
+                    while i < n and src[i].isalpha():
+                        out.append(src[i])
+                        i += 1
+                    break
+                i += 1
+            continue
+
+        out.append(c)
+        i += 1
+
+    text = ''.join(out)
+    text = re.sub(r'\n[ \t]*\n(?:[ \t]*\n)+', '\n\n', text)
+    text = re.sub(r'[ \t]+\n', '\n', text)
+    return text
+
+
+def strip_artifact_comments(body):
+    """Keep ==UserScript== metadata; strip every other JS comment."""
+    m = USERSCRIPT_HEADER_RE.match(body)
+    if not m:
+        return strip_js_comments(body)
+    header = m.group(0)
+    if not header.endswith('\n'):
+        header += '\n'
+    return header + strip_js_comments(body[m.end():])
+
+
+def read_modules():
+    parts = []
+    for name in MODULES:
+        path = os.path.join(SRC, name)
+        if not os.path.exists(path):
+            raise SystemExit(f'missing module: {path}')
+        with open(path, encoding='utf-8') as f:
+            parts.append((name, f.read()))
+    return parts
+
+
+def check_duplicate_decls(parts):
+    seen = {}
+    dupes = []
+    for name, text in parts:
+        for line in text.splitlines():
+            m = DECL_RE.match(line)
+            if not m:
+                continue
+            ident = m.group(1) or m.group(2)
+            if ident in seen and seen[ident] != name:
+                dupes.append((ident, seen[ident], name))
+            else:
+                seen.setdefault(ident, name)
+    return dupes
+
+
+def node_check(path):
+    node = shutil.which('node')
+    if not node:
+        print('warn: node not found - skipped syntax check')
+        return True
+    res = subprocess.run([node, '--check', path], capture_output=True, text=True)
+    if res.returncode != 0:
+        print('SYNTAX ERROR in built artifact:')
+        print(res.stderr.strip())
+        return False
+    return True
+
+
+def version_of(parts):
+    for name, text in parts:
+        if name == 'header.js':
+            m = VERSION_RE.search(text)
+            return m.group(1) if m else None
+    return None
+
+
+def version_gate(parts, version):
+    digest = hashlib.sha256(''.join(t for _, t in parts).encode('utf-8')).hexdigest()
+    prev = {}
+    if os.path.exists(STAMP):
+        try:
+            with open(STAMP, encoding='utf-8') as f:
+                prev = json.load(f)
+        except Exception:
+            prev = {}
+    changed = prev.get('src') not in (None, digest)
+    if changed and prev.get('version') == version:
+        print(f'warn: src/ changed but @version is still {version} '
+              '- bump src/header.js if behavior changed')
+    with open(STAMP, 'w', encoding='utf-8') as f:
+        json.dump({'src': digest, 'version': version}, f)
+
+
+def build():
+    parts = read_modules()
+    dupes = check_duplicate_decls(parts)
+    if dupes:
+        print('duplicate top-level declarations (one IIFE - these collide):')
+        for ident, a, b in dupes:
+            print(f'  {ident}: {a} and {b}')
+        raise SystemExit(1)
+    body = strip_artifact_comments('\n'.join(t.rstrip() for _, t in parts).rstrip() + '\n')
+    tmp = OUT.replace('.user.js', '.build.js')  # node --check needs a .js name
+    with open(tmp, 'w', encoding='utf-8') as f:
+        f.write(body)
+    if not node_check(tmp):
+        os.remove(tmp)
+        raise SystemExit(1)
+    os.replace(tmp, OUT)
+    version = version_of(parts)
+    version_gate(parts, version)
+    print(f'built {OUT} ({len(parts)} modules, v{version})')
+
+
+if __name__ == '__main__':
+    sys.exit(build())
