@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      1.5.8
+// @version      1.5.9
 // @description  Grepolis scout/farm/build/trade/culture/recruit automation. ToS forbid automation; risk = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -52,6 +52,8 @@ const STORE = {
     TOWN_MAX: 'grepbot:town-max-ms',
     ENABLED_HOSTS: 'grepbot:enabled-hosts',
     ATTACK_TPL: 'grepbot:attack-tpl',
+    CANCEL_TPL: 'grepbot:cancel-tpl',
+    HERO_TPL: 'grepbot:hero-tpl',
     ATTACK_PLAN: 'grepbot:attack-plan',
     ATTACK_HISTORY: 'grepbot:attack-history',
     CAPTCHA: 'grepbot:captcha-breakers',
@@ -269,6 +271,8 @@ const STORE = {
     dodge: 120000,
     recruit: 120000,
     'defense-pull': 120000,
+    cancel: 60000,
+    hero: 60000,
     'collect-bg': 180000,
     'bandit-reward': 60000,
     'bandit-attack': 30000,
@@ -346,6 +350,8 @@ const STORE = {
     townMaxMs: load(STORE.TOWN_MAX, 7 * 60 * 1000),
     enabledHosts: load(STORE.ENABLED_HOSTS, {}),
     attackTpl: load(wkey(STORE.ATTACK_TPL), null) || load(STORE.ATTACK_TPL, null),
+    cancelTpl: load(wkey(STORE.CANCEL_TPL), null) || load(STORE.CANCEL_TPL, null),
+    heroTpl: load(wkey(STORE.HERO_TPL), null) || load(STORE.HERO_TPL, null) || {},
     attackPlan: load(STORE.ATTACK_PLAN, null),
     attackHistory: load(STORE.ATTACK_HISTORY, []),
     captchaBreakers: load(wkey(STORE.CAPTCHA), null) || {},
@@ -1987,6 +1993,33 @@ const STORE = {
           };
           save(wkey(STORE.ATTACK_TPL), state.attackTpl);
           gbLog('learned attack template:', JSON.stringify(state.attackTpl).slice(0, 200));
+        }
+      } else if (/Command/.test(body) && /cancelCommand/i.test(body)) {
+        const j = parseBodyLoose(body);
+        if (j && j.action_name && /cancelCommand/i.test(j.action_name) && !isSelfBridge(j)) {
+          state.cancelTpl = {
+            model_url: j.model_url || 'Command',
+            action_name: j.action_name,
+            arguments: j.arguments || {},
+            town_id: j.town_id,
+            version: 1, learned_at: Date.now(),
+          };
+          save(wkey(STORE.CANCEL_TPL), state.cancelTpl);
+          gbLog('learned cancel template:', JSON.stringify(state.cancelTpl).slice(0, 200));
+        }
+      } else if (/PlayerHero/.test(body) && /assignToTown|unassignFromTown|cancelTownTravel/i.test(body)) {
+        const j = parseBodyLoose(body);
+        if (j && j.action_name && !isSelfBridge(j)) {
+          if (!state.heroTpl || typeof state.heroTpl !== 'object') state.heroTpl = {};
+          state.heroTpl[j.action_name] = {
+            model_url: j.model_url || 'PlayerHero',
+            action_name: j.action_name,
+            arguments: j.arguments || {},
+            town_id: j.town_id,
+            version: 1, learned_at: Date.now(),
+          };
+          save(wkey(STORE.HERO_TPL), state.heroTpl);
+          gbLog('learned hero template:', j.action_name, JSON.stringify(state.heroTpl[j.action_name]).slice(0, 160));
         }
       } else if (/IslandQuest|Progressable|claimReward|island_quest/i.test(body)) {
         const j = parseBodyLoose(body);
@@ -7114,9 +7147,12 @@ const STORE = {
     if (/^(sword|archer|hoplite|centaur|pegasus|cerberus|calydonian|medusa)$/.test(id)) return 'defense';
     return 'both';
   }
-  function selectUnitsForTown(townId, troopMode, unitType, perTownMap) {
+  function selectUnitsForTown(townId, troopMode, unitType, perTownMap, harassPreset) {
     const live = townLiveUnits(townId);
     const out = {};
+    if (troopMode === 'harass') {
+      return selectHarassmentUnits(townId, harassPreset || 'light');
+    }
     if (troopMode === 'per_town') {
       const custom = (perTownMap && perTownMap[townId]) || {};
       Object.keys(custom).forEach(k => {
@@ -7171,6 +7207,7 @@ const STORE = {
       latencyPadMs: 200,
       staggerMs: 25,
       troopMode: 'offense',
+      harassPreset: 'light',
       unitType: 'sword',
       sourceTownIds: [],
       perTownUnits: {},
@@ -7252,7 +7289,7 @@ const STORE = {
     const skew = clientServerSkewMs();
     const rows = sources.map((townId, idx) => {
       const town = (state.towns || []).find(t => String(t.id) === townId) || { id: townId, name: townId };
-      const units = selectUnitsForTown(townId, plan.troopMode, plan.unitType, plan.perTownUnits);
+      const units = selectUnitsForTown(townId, plan.troopMode, plan.unitType, plan.perTownUnits, plan.harassPreset);
       const travel = computeTravelSeconds(townId, target, units);
       const same = isSameIsland(townId, target);
       const boats = boatCapacityCheck(units, same);
@@ -7413,7 +7450,7 @@ const STORE = {
           patchAttackFireStatus();
           return;
         }
-        const freshUnits = selectUnitsForTown(row.townId, plan.troopMode, plan.unitType, plan.perTownUnits);
+        const freshUnits = selectUnitsForTown(row.townId, plan.troopMode, plan.unitType, plan.perTownUnits, plan.harassPreset);
         row.fireStatus = 'firing';
         patchAttackFireStatus();
         sendAttackViaBridge(liveTarget, row.townId, freshUnits, plan.mission, (err) => {
@@ -7451,7 +7488,7 @@ const STORE = {
         return;
       }
       const row = okRows[i++];
-      const freshUnits = selectUnitsForTown(row.townId, plan.troopMode, plan.unitType, plan.perTownUnits);
+      const freshUnits = selectUnitsForTown(row.townId, plan.troopMode, plan.unitType, plan.perTownUnits, plan.harassPreset);
       sendAttackViaBridge(target, row.townId, freshUnits, plan.mission, () => {
         gbTimeout(next, (plan.staggerMs || 25) + Math.random() * 20);
       });
@@ -7588,6 +7625,7 @@ const STORE = {
       const utLab = ut.closest('label');
       if (utLab) utLab.style.color = ut.disabled ? '#666' : '#ccc';
     }
+    renderMilitaryHelpers(sec, plan);
     const arr = sec.querySelector('[data-atk=arrival]');
     if (arr && document.activeElement !== arr && plan.arrivalUnix) {
       try {
@@ -7674,6 +7712,7 @@ const STORE = {
     plan.latencyPadMs = +(sec.querySelector('[data-atk=pad]')?.value || 200);
     plan.troopMode = sec.querySelector('[data-atk=troop]')?.value || 'offense';
     plan.unitType = sec.querySelector('[data-atk=unit-type]')?.value || 'sword';
+    if (plan.troopMode === 'harass' && !plan.harassPreset) plan.harassPreset = 'light';
     const arr = sec.querySelector('[data-atk=arrival]')?.value;
     if (arr) {
       const ms = Date.parse(arr);
@@ -7685,6 +7724,138 @@ const STORE = {
     }
     saveAttackPlan();
     return plan;
+  }
+  function townNameById(id) {
+    const t = (state.towns || []).find(x => String(x.id) === String(id));
+    return (t && t.name) || String(id || '-');
+  }
+  function renderMilitaryHelpers(sec, plan) {
+    if (!sec) return;
+
+    const har = sec.querySelector('.atk-harass');
+    if (har) {
+      har.querySelectorAll('[data-harass]').forEach(btn => {
+        const on = plan.troopMode === 'harass' && plan.harassPreset === btn.dataset.harass;
+        btn.style.outline = on ? '1px solid #6cf' : '';
+        btn.style.color = on ? '#6cf' : '';
+      });
+    }
+
+    const box = sec.querySelector('.atk-cmds');
+    if (box) {
+      const rows = militaryOutgoingMovements();
+      box.replaceChildren();
+      if (!rows.length) {
+        const e = document.createElement('div');
+        e.style.cssText = 'color:#666;font-size:10px';
+        e.textContent = 'No cancelable outgoing movements';
+        box.appendChild(e);
+      } else {
+        rows.forEach(r => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr .7fr auto;gap:4px;font-size:10px;border-bottom:1px solid #2a2a2a;padding:2px 0;align-items:center';
+          const c1 = document.createElement('span');
+          c1.textContent = `${townNameById(r.home)} → ${r.target}`;
+          c1.title = `cmd ${r.commandId}`;
+          const c2 = document.createElement('span');
+          c2.textContent = r.type || 'move';
+          const c3 = document.createElement('span');
+          c3.style.color = '#888';
+          c3.textContent = r.cancelLeft != null ? (`${Math.round(r.cancelLeft)}s`) : 'ok';
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = 'Cancel';
+          btn.style.cssText = 'background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px';
+          btn.addEventListener('click', () => {
+            if (!confirm(`Cancel outgoing ${r.type || 'command'} ${r.commandId}?\n${townNameById(r.home)} → ${r.target}`)) return;
+            militaryCancelCommand(r.commandId, { confirmed: true, townId: r.home }, (err) => {
+              flash(err ? ('cancel failed: ' + err) : 'command cancelled');
+              renderAttack();
+            });
+          });
+          row.appendChild(c1); row.appendChild(c2); row.appendChild(c3); row.appendChild(btn);
+          box.appendChild(row);
+        });
+      }
+    }
+
+    const hbox = sec.querySelector('.atk-heroes');
+    if (!hbox) return;
+    hbox.replaceChildren();
+    if (!heroesEnabled()) {
+      const e = document.createElement('div');
+      e.style.cssText = 'color:#666;font-size:10px';
+      e.textContent = 'Heroes disabled on this world';
+      hbox.appendChild(e);
+      return;
+    }
+    const heroes = playerHeroesList();
+    if (!heroes.length) {
+      const e = document.createElement('div');
+      e.style.cssText = 'color:#666;font-size:10px';
+      e.textContent = 'No PlayerHero models (open Council once, or world has none)';
+      hbox.appendChild(e);
+      return;
+    }
+    const townSel = document.createElement('select');
+    townSel.style.cssText = 'background:#111;color:#cfc;border:1px solid #333;font-size:10px;margin-bottom:4px;max-width:100%';
+    (state.towns || []).forEach(t => {
+      const o = document.createElement('option');
+      o.value = String(t.id);
+      o.textContent = t.name || t.id;
+      townSel.appendChild(o);
+    });
+    hbox.appendChild(townSel);
+    heroes.forEach(h => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:10px;border-bottom:1px solid #2a2a2a;padding:3px 0';
+      const lab = document.createElement('span');
+      lab.style.flex = '1';
+      lab.textContent = `${h.name} Lv${h.level} · ${h.status}` +
+        (h.home ? ` @${townNameById(h.home)}` : '');
+      row.appendChild(lab);
+      if (h.traveling) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.textContent = 'Cancel travel';
+        b.style.cssText = 'background:#333;border:1px solid #555;color:#fc6;padding:1px 6px;cursor:pointer;font-size:10px';
+        b.addEventListener('click', () => {
+          if (!confirm(`Cancel transfer of ${h.name}?`)) return;
+          heroCancelTravel(h.type, { confirmed: true }, (err) => {
+            flash(err ? ('hero cancel failed: ' + err) : 'hero travel cancelled');
+            renderAttack();
+          });
+        });
+        row.appendChild(b);
+      } else if (h.assigned || h.attacking) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.textContent = 'Unassign';
+        b.style.cssText = 'background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px';
+        b.addEventListener('click', () => {
+          if (!confirm(`Unassign ${h.name} from ${townNameById(h.home || h.origin)}?`)) return;
+          heroUnassign(h.type, { confirmed: true }, (err) => {
+            flash(err ? ('hero unassign failed: ' + err) : 'hero unassigned');
+            renderAttack();
+          });
+        });
+        row.appendChild(b);
+      }
+      if (!h.injured && !h.attacking && !h.traveling) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.textContent = 'Assign';
+        b.style.cssText = 'background:#333;border:1px solid #555;color:#6cf;padding:1px 6px;cursor:pointer;font-size:10px';
+        b.addEventListener('click', () => {
+          const tid = townSel.value;
+          if (!tid) { flash('pick a town'); return; }
+          if (!confirm(`Assign ${h.name} → ${townNameById(tid)}?\n(travel time applies)`)) return;
+          heroAssignToTown(h.type, tid, { confirmed: true }, (err) => {
+            flash(err ? ('hero assign failed: ' + err) : 'hero transfer started');
+            renderAttack();
+          });
+        });
+        row.appendChild(b);
+      }
+      hbox.appendChild(row);
+    });
   }
   function bindAttackTab() {
     const sec = panel && panel.querySelector('section[data-tab=attack]');
@@ -7721,7 +7892,20 @@ const STORE = {
       readAttackForm();
       renderAttack();
     });
+    sec.querySelectorAll('[data-harass]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        applyHarassPreset(btn.dataset.harass);
+        const troop = sec.querySelector('[data-atk=troop]');
+        if (troop) troop.value = 'harass';
+        renderAttack();
+      });
+    });
+    sec.querySelector('#gb-atk-cmds-refresh')?.addEventListener('click', () => renderAttack());
+    sec.querySelector('#gb-atk-heroes-refresh')?.addEventListener('click', () => renderAttack());
   }
+
+  const HARASS_CAPS = { '1sling': 1, '5sling': 5, light: 8 };
+  const HARASS_PREF = ['slinger', 'rider', 'archer', 'hoplite', 'sword'];
 
   function militaryDefensePull(targetTownId, onDone) {
     if (!hostEnabled() || captchaPaused('attack') || automationPaused({})) return onDone && onDone('paused');
@@ -7780,6 +7964,326 @@ const STORE = {
         gbTimeout(next, 700 + Math.random() * 400);
       });
     })();
+  }
+
+  function selectHarassmentUnits(townId, preset) {
+    const live = townLiveUnits(townId);
+    const out = {};
+    const key = String(preset || 'light');
+    const cap = HARASS_CAPS[key] != null ? HARASS_CAPS[key] : (+preset || 5);
+    if (key === '1sling' || key === '5sling') {
+      const have = +live.slinger || 0;
+      if (have > 0) out.slinger = Math.min(have, cap);
+    } else {
+      let left = Math.max(1, cap);
+      for (const id of HARASS_PREF) {
+        if (left <= 0) break;
+        const have = +live[id] || 0;
+        if (!have) continue;
+        const n = Math.min(have, left);
+        out[id] = n;
+        left -= n;
+      }
+    }
+    if (!Object.keys(out).length) return out;
+
+    let needBoat = false;
+    Object.keys(out).forEach(id => {
+      const m = unitMeta(id);
+      if (m && !m.is_naval) needBoat = true;
+    });
+    if (needBoat) {
+      Object.keys(live).forEach(id => {
+        const m = unitMeta(id);
+        if (m && m.capacity > 0 && +live[id] > 0) out[id] = +live[id];
+      });
+    }
+    return out;
+  }
+
+  function applyHarassPreset(preset) {
+    const plan = ensureAttackPlan();
+    plan.troopMode = 'harass';
+    plan.harassPreset = String(preset || 'light');
+    plan.mission = plan.mission || 'attack';
+    saveAttackPlan();
+    flash('harass preset: ' + plan.harassPreset + ' (confirm Send now)');
+    gbLog('attack: harass preset ' + plan.harassPreset);
+    return plan;
+  }
+
+  function militaryMovementsUnitsModels() {
+    const uw = gameUw();
+    const models = [];
+    const seen = new Set();
+    const push = (m) => {
+      if (!m) return;
+      const id = m.id != null ? m.id : (m.attributes && m.attributes.id);
+      const k = String(id != null ? id : '');
+      if (k && seen.has(k)) return;
+      if (k) seen.add(k);
+      models.push(m);
+    };
+    try {
+      const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits');
+      if (col && col.models) col.models.forEach(push);
+    } catch (_) {}
+    try {
+      const cols = uw.MM && uw.MM.getCollections && uw.MM.getCollections().MovementsUnits;
+      if (cols) {
+        const list = Array.isArray(cols) ? cols : [cols];
+        list.forEach(c => { if (c && c.models) c.models.forEach(push); });
+      }
+    } catch (_) {}
+    try {
+      const map = uw.MM && uw.MM.getModels && uw.MM.getModels().MovementsUnits;
+      if (map) Object.keys(map).forEach(k => push(map[k]));
+    } catch (_) {}
+    return models;
+  }
+
+  function militaryOutgoingMovements() {
+    const uw = gameUw();
+    const out = [];
+    const myTowns = new Set(Object.keys((uw.ITowns && uw.ITowns.towns) || {}).map(String));
+    const now = gameNow();
+    militaryMovementsUnitsModels().forEach(m => {
+      try {
+        const a = (m.attributes) || {};
+        const home = String(
+          (typeof m.getHomeTownId === 'function' && m.getHomeTownId()) ||
+          a.home_town_id || a.origin_town_id || ''
+        );
+        if (!myTowns.has(home)) return;
+        const target = String(
+          (typeof m.getTargetTownId === 'function' && m.getTargetTownId()) ||
+          a.target_town_id || a.destination_town_id || ''
+        );
+        const incoming = typeof m.isIncomingMovement === 'function'
+          ? !!m.isIncomingMovement()
+          : (myTowns.has(target) && home !== target);
+        if (incoming) return;
+        let cancelable = typeof m.isCancelable === 'function'
+          ? !!m.isCancelable()
+          : (a.cancelable === true || a.cancelable === 1);
+        const until = +(typeof m.getCancelableUntil === 'function'
+          ? m.getCancelableUntil()
+          : a.cancelable_until) || 0;
+        if (until > 0 && until <= now) cancelable = false;
+        if (!cancelable) return;
+        const cmdId = (typeof m.getCommandId === 'function' && m.getCommandId()) ||
+          a.command_id || a.id || m.id;
+        if (cmdId == null) return;
+        const type = String(
+          (typeof m.getType === 'function' && m.getType()) ||
+          a.type || a.command_name || a.movement_type || ''
+        ).toLowerCase();
+        const arrival = +(typeof m.getArrivalAt === 'function' && m.getArrivalAt()) ||
+          +a.arrival_at || +a.arrived_at || 0;
+        out.push({
+          id: a.id || m.id,
+          commandId: cmdId,
+          home, target, type, arrival, until,
+          cancelLeft: until > 0 ? Math.max(0, until - now) : null,
+        });
+      } catch (_) {}
+    });
+    out.sort((a, b) => (a.arrival || 0) - (b.arrival || 0));
+    return out;
+  }
+
+  function militaryCancelCommand(commandId, opts, onDone) {
+    if (!opts || !opts.confirmed) {
+      gbLog('cancel: refused without confirm');
+      return onDone && onDone('need-confirm');
+    }
+    if (!hostEnabled()) return onDone && onDone('disabled');
+    if (captchaPaused('cancel') || captchaPaused('attack')) return onDone && onDone('captcha');
+    if (automationPaused({})) return onDone && onDone('paused');
+    if (gbLocked('cancel')) return onDone && onDone('busy');
+    const cmdId = commandId;
+    if (cmdId == null || cmdId === '') return onDone && onDone('no-id');
+
+    const live = militaryOutgoingMovements().find(m => String(m.commandId) === String(cmdId));
+    if (!live) {
+      gbLog('cancel: command ' + cmdId + ' not cancelable / not found');
+      return onDone && onDone('not-cancelable');
+    }
+    gbLock('cancel');
+    const tpl = state.cancelTpl;
+    const townId = +(live.home) || +(opts.townId) || undefined;
+    const payload = {
+      model_url: (tpl && tpl.model_url) || 'Command',
+      action_name: (tpl && tpl.action_name) || 'cancelCommand',
+      arguments: { id: cmdId },
+      town_id: townId,
+    };
+    const finish = (err, data) => {
+      gbUnlock('cancel');
+      if (!err) gbLog(`cancel: command ${cmdId} OK`);
+      else gbLog(`cancel: command ${cmdId} err ${err}`);
+      if (onDone) onDone(err, data);
+    };
+    bridgePost('cancel', payload, (err, data) => {
+      if (!err) return finish(null, data);
+      if (err === 'captcha' || err === 'captcha-pause' || err === 'paused' ||
+          err === 'budget' || err === 'remembered' || err === 'disabled' || err === 'dryrun') {
+        return finish(err);
+      }
+
+      gameAjaxPost('cancel', 'town_overviews', 'cancel_command', { id: cmdId }, (err2, res) => {
+        if (!err2) return finish(null, res);
+        if (err2 === 'captcha' || err2 === 'captcha-pause' || err2 === 'dryrun') return finish(err2);
+        gameAjaxPost('cancel', 'command_info', 'cancel_command', { id: cmdId }, finish);
+      });
+    });
+  }
+
+  function heroesEnabled() {
+    try {
+      const uw = gameUw();
+      if (uw.GameDataHeroes && typeof uw.GameDataHeroes.areHeroesEnabled === 'function') {
+        return !!uw.GameDataHeroes.areHeroesEnabled();
+      }
+      return !!(uw.Game && uw.Game.features && uw.Game.features.heroes_enabled);
+    } catch (_) { return false; }
+  }
+
+  function playerHeroModels() {
+    const out = [];
+    const seen = new Set();
+    const push = (m) => {
+      if (!m) return;
+      const id = (typeof m.getId === 'function' && m.getId()) ||
+        (m.attributes && (m.attributes.type || m.attributes.id)) || m.id;
+      const k = String(id || '');
+      if (!k || seen.has(k)) return;
+      seen.add(k);
+      out.push(m);
+    };
+    try {
+      const col = mmCol('PlayerHero') || mmCol('PlayerHeroes');
+      if (col && col.models) col.models.forEach(push);
+      if (col && typeof col.getHero === 'function') {
+
+      }
+    } catch (_) {}
+    try {
+      const uw = gameUw();
+      const map = uw.MM && uw.MM.getModels && uw.MM.getModels().PlayerHero;
+      if (map) Object.keys(map).forEach(k => push(map[k]));
+    } catch (_) {}
+    return out;
+  }
+
+  function playerHeroesList() {
+    if (!heroesEnabled()) return [];
+    const now = gameNow();
+    return playerHeroModels().map(m => {
+      const a = m.attributes || {};
+      const type = (typeof m.getId === 'function' && m.getId()) || a.type || '';
+      const name = (typeof m.getName === 'function' && m.getName()) ||
+        (a.name) || type;
+      const home = +(typeof m.getHomeTownId === 'function' && m.getHomeTownId()) ||
+        +a.home_town_id || null;
+      const origin = +(typeof m.getOriginTownId === 'function' && m.getOriginTownId()) ||
+        +a.origin_town_id || home;
+      const arrival = +(typeof m.getArrivalAt === 'function' && m.getArrivalAt()) ||
+        +a.town_arrival_at || 0;
+      const traveling = typeof m.isTravelingToTown === 'function'
+        ? !!m.isTravelingToTown()
+        : (arrival > now);
+      const injured = typeof m.isInjured === 'function'
+        ? !!m.isInjured()
+        : (+a.cured_at > now);
+      const attacking = typeof m.attacksTown === 'function'
+        ? !!m.attacksTown()
+        : (a.assignment_type === 'command');
+      const assigned = typeof m.isAssignedToTown === 'function'
+        ? !!m.isAssignedToTown()
+        : (home != null && a.assignment_type === 'town');
+      let status = 'free';
+      if (injured) status = 'injured';
+      else if (attacking) status = 'attacking';
+      else if (traveling) status = 'transferring';
+      else if (assigned) status = 'assigned';
+      return {
+        type: String(type),
+        name: String(name),
+        home, origin, arrival, traveling, injured, attacking, assigned, status,
+        level: +(typeof m.getLevel === 'function' && m.getLevel()) || +a.level || 0,
+      };
+    }).filter(h => h.type);
+  }
+
+  function heroTownOccupied(townId, exceptType) {
+    const tid = +townId;
+    return playerHeroesList().some(h =>
+      h.type !== exceptType &&
+      ((h.assigned && +h.home === tid) || (h.traveling && +h.home === tid))
+    );
+  }
+
+  function heroBridgePost(action, heroType, targetTownId, onDone) {
+    if (!heroesEnabled()) return onDone && onDone('heroes-off');
+    if (!hostEnabled()) return onDone && onDone('disabled');
+    if (captchaPaused('hero') || captchaPaused('attack')) return onDone && onDone('captcha');
+    if (automationPaused({})) return onDone && onDone('paused');
+    if (gbLocked('hero')) return onDone && onDone('busy');
+    const type = String(heroType || '');
+    if (!type) return onDone && onDone('no-hero');
+    const tplMap = state.heroTpl || {};
+    const tpl = tplMap[action] || null;
+    const args = { type };
+    if (targetTownId != null) args.target_town_id = +targetTownId;
+    gbLock('hero');
+    const payload = {
+      model_url: (tpl && tpl.model_url) || 'PlayerHero',
+      action_name: (tpl && tpl.action_name) || action,
+      arguments: args,
+      town_id: targetTownId != null ? +targetTownId : undefined,
+    };
+    bridgePost('hero', payload, (err, data) => {
+      gbUnlock('hero');
+      if (!err) gbLog(`hero: ${action} ${type} → ${targetTownId || '-'} OK`);
+      else gbLog(`hero: ${action} ${type} err ${err}`);
+      if (onDone) onDone(err, data);
+    });
+  }
+
+  function heroAssignToTown(heroType, targetTownId, opts, onDone) {
+    if (!opts || !opts.confirmed) return onDone && onDone('need-confirm');
+    const tid = +targetTownId;
+    if (!tid) return onDone && onDone('no-town');
+    const hero = playerHeroesList().find(h => h.type === String(heroType));
+    if (!hero) return onDone && onDone('missing');
+    if (hero.injured) return onDone && onDone('injured');
+    if (hero.attacking) return onDone && onDone('attacking');
+    if (hero.traveling) return onDone && onDone('transferring');
+    if (hero.assigned && +hero.home === tid) return onDone && onDone('already');
+    if (heroTownOccupied(tid, hero.type)) {
+      gbLog(`hero: town ${tid} already has a hero`);
+      return onDone && onDone('town-occupied');
+    }
+    return heroBridgePost('assignToTown', heroType, tid, onDone);
+  }
+
+  function heroUnassign(heroType, opts, onDone) {
+    if (!opts || !opts.confirmed) return onDone && onDone('need-confirm');
+    const hero = playerHeroesList().find(h => h.type === String(heroType));
+    if (!hero) return onDone && onDone('missing');
+    if (!hero.assigned && !hero.attacking) return onDone && onDone('not-assigned');
+    const townId = hero.origin || hero.home;
+    return heroBridgePost('unassignFromTown', heroType, townId, onDone);
+  }
+
+  function heroCancelTravel(heroType, opts, onDone) {
+    if (!opts || !opts.confirmed) return onDone && onDone('need-confirm');
+    const hero = playerHeroesList().find(h => h.type === String(heroType));
+    if (!hero) return onDone && onDone('missing');
+    if (!hero.traveling) return onDone && onDone('not-traveling');
+    const townId = hero.origin || hero.home;
+    return heroBridgePost('cancelTownTravel', heroType, townId, onDone);
   }
 
   const STATS_WINDOWS = { '1h': 3600000, '24h': 86400000, '7d': 604800000 };
@@ -7897,6 +8401,29 @@ const STORE = {
       warn: !state.attackTpl,
       detail: state.attackTpl ? 'template learned' : 'template NOT learned (send one attack by hand)',
     })));
+    out.push(preflightProbe('cancel', () => {
+      let n = 0;
+      try { n = militaryOutgoingMovements().length; } catch (_) {}
+      return {
+        ok: true,
+        warn: !state.cancelTpl && n === 0,
+        detail: state.cancelTpl
+          ? `template learned; ${n} cancelable outgoing`
+          : (n ? `${n} cancelable outgoing (hand-cancel once to learn tpl)` : 'no cancelable outgoing; tpl not learned'),
+      };
+    }));
+    out.push(preflightProbe('heroes', () => {
+      if (!heroesEnabled()) return { ok: true, warn: true, detail: 'heroes disabled on this world' };
+      const list = playerHeroesList();
+      const acts = state.heroTpl && typeof state.heroTpl === 'object' ? Object.keys(state.heroTpl) : [];
+      return {
+        ok: list.length > 0 || acts.length > 0,
+        warn: list.length === 0,
+        detail: list.length
+          ? `${list.length} hero(es); tpl=${acts.join(',') || 'none'}`
+          : 'PlayerHero collection empty (open Council once)',
+      };
+    }));
     out.push(preflightProbe('incoming', () => {
       const mv = (typeof dodgeIncomingMovements === 'function' ? (dodgeIncomingMovements() || []) : []);
       return { ok: true, detail: `${mv.length} incoming movements visible` };
@@ -8510,11 +9037,18 @@ const STORE = {
           <option value="defense">defense</option>
           <option value="all">all troops</option>
           <option value="all_of_type">all of type</option>
+          <option value="harass">harass</option>
           <option value="per_town">per town edit</option>
         </select>
         <label style="display:flex;align-items:center;gap:3px">unit
           <select data-atk="unit-type" title="only used when troop mode is 'all of type'"></select>
         </label>
+      </div>
+      <div class="atk-harass" style="display:flex;gap:4px;flex-wrap:wrap;margin:4px 0">
+        <span style="font-size:9px;color:#888;align-self:center">harass</span>
+        <button type="button" data-harass="1sling" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">1 sling</button>
+        <button type="button" data-harass="5sling" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">5 sling</button>
+        <button type="button" data-harass="light" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">light (≤8)</button>
       </div>
       <div style="font-size:9px;color:#888;margin-top:2px">sources</div>
       <div class="atk-sources"></div>
@@ -8526,6 +9060,16 @@ const STORE = {
         <button id="gb-atk-now">Send now</button>
       </div>
       <div class="atk-sched"></div>
+      <div style="border-top:1px solid #333;margin:8px 0 4px;padding-top:6px;display:flex;align-items:center;gap:6px">
+        <b style="font-size:11px;color:#f5a623">Outgoing (cancel)</b>
+        <button type="button" id="gb-atk-cmds-refresh" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px;margin-left:auto">Refresh</button>
+      </div>
+      <div class="atk-cmds" style="max-height:120px;overflow:auto"></div>
+      <div style="border-top:1px solid #333;margin:8px 0 4px;padding-top:6px;display:flex;align-items:center;gap:6px">
+        <b style="font-size:11px;color:#f5a623">Heroes</b>
+        <button type="button" id="gb-atk-heroes-refresh" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px;margin-left:auto">Refresh</button>
+      </div>
+      <div class="atk-heroes" style="max-height:160px;overflow:auto"></div>
     </section>
     <section data-tab="quests" hidden>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">

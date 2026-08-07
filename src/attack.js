@@ -157,9 +157,12 @@
     if (/^(sword|archer|hoplite|centaur|pegasus|cerberus|calydonian|medusa)$/.test(id)) return 'defense';
     return 'both';
   }
-  function selectUnitsForTown(townId, troopMode, unitType, perTownMap) {
+  function selectUnitsForTown(townId, troopMode, unitType, perTownMap, harassPreset) {
     const live = townLiveUnits(townId);
     const out = {};
+    if (troopMode === 'harass') {
+      return selectHarassmentUnits(townId, harassPreset || 'light');
+    }
     if (troopMode === 'per_town') {
       const custom = (perTownMap && perTownMap[townId]) || {};
       Object.keys(custom).forEach(k => {
@@ -213,7 +216,8 @@
       arrivalUnix: null,
       latencyPadMs: 200,
       staggerMs: 25,
-      troopMode: 'offense', // all | offense | defense | all_of_type | per_town
+      troopMode: 'offense', // all | offense | defense | all_of_type | per_town | harass
+      harassPreset: 'light',
       unitType: 'sword',
       sourceTownIds: [],
       perTownUnits: {},
@@ -298,7 +302,7 @@
     const skew = clientServerSkewMs();
     const rows = sources.map((townId, idx) => {
       const town = (state.towns || []).find(t => String(t.id) === townId) || { id: townId, name: townId };
-      const units = selectUnitsForTown(townId, plan.troopMode, plan.unitType, plan.perTownUnits);
+      const units = selectUnitsForTown(townId, plan.troopMode, plan.unitType, plan.perTownUnits, plan.harassPreset);
       const travel = computeTravelSeconds(townId, target, units);
       const same = isSameIsland(townId, target);
       const boats = boatCapacityCheck(units, same);
@@ -460,7 +464,7 @@
           patchAttackFireStatus();
           return;
         }
-        const freshUnits = selectUnitsForTown(row.townId, plan.troopMode, plan.unitType, plan.perTownUnits);
+        const freshUnits = selectUnitsForTown(row.townId, plan.troopMode, plan.unitType, plan.perTownUnits, plan.harassPreset);
         row.fireStatus = 'firing';
         patchAttackFireStatus();
         sendAttackViaBridge(liveTarget, row.townId, freshUnits, plan.mission, (err) => {
@@ -498,7 +502,7 @@
         return;
       }
       const row = okRows[i++];
-      const freshUnits = selectUnitsForTown(row.townId, plan.troopMode, plan.unitType, plan.perTownUnits);
+      const freshUnits = selectUnitsForTown(row.townId, plan.troopMode, plan.unitType, plan.perTownUnits, plan.harassPreset);
       sendAttackViaBridge(target, row.townId, freshUnits, plan.mission, () => {
         gbTimeout(next, (plan.staggerMs || 25) + Math.random() * 20);
       });
@@ -637,6 +641,7 @@
       const utLab = ut.closest('label');
       if (utLab) utLab.style.color = ut.disabled ? '#666' : '#ccc';
     }
+    renderMilitaryHelpers(sec, plan);
     const arr = sec.querySelector('[data-atk=arrival]');
     if (arr && document.activeElement !== arr && plan.arrivalUnix) {
       try {
@@ -724,6 +729,7 @@
     plan.latencyPadMs = +(sec.querySelector('[data-atk=pad]')?.value || 200);
     plan.troopMode = sec.querySelector('[data-atk=troop]')?.value || 'offense';
     plan.unitType = sec.querySelector('[data-atk=unit-type]')?.value || 'sword';
+    if (plan.troopMode === 'harass' && !plan.harassPreset) plan.harassPreset = 'light';
     const arr = sec.querySelector('[data-atk=arrival]')?.value;
     if (arr) {
       const ms = Date.parse(arr);
@@ -735,6 +741,138 @@
     }
     saveAttackPlan();
     return plan;
+  }
+  function townNameById(id) {
+    const t = (state.towns || []).find(x => String(x.id) === String(id));
+    return (t && t.name) || String(id || '-');
+  }
+  function renderMilitaryHelpers(sec, plan) {
+    if (!sec) return;
+    // Harassment preset chips
+    const har = sec.querySelector('.atk-harass');
+    if (har) {
+      har.querySelectorAll('[data-harass]').forEach(btn => {
+        const on = plan.troopMode === 'harass' && plan.harassPreset === btn.dataset.harass;
+        btn.style.outline = on ? '1px solid #6cf' : '';
+        btn.style.color = on ? '#6cf' : '';
+      });
+    }
+    // Outgoing cancelable commands
+    const box = sec.querySelector('.atk-cmds');
+    if (box) {
+      const rows = militaryOutgoingMovements();
+      box.replaceChildren();
+      if (!rows.length) {
+        const e = document.createElement('div');
+        e.style.cssText = 'color:#666;font-size:10px';
+        e.textContent = 'No cancelable outgoing movements';
+        box.appendChild(e);
+      } else {
+        rows.forEach(r => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr .7fr auto;gap:4px;font-size:10px;border-bottom:1px solid #2a2a2a;padding:2px 0;align-items:center';
+          const c1 = document.createElement('span');
+          c1.textContent = `${townNameById(r.home)} → ${r.target}`;
+          c1.title = `cmd ${r.commandId}`;
+          const c2 = document.createElement('span');
+          c2.textContent = r.type || 'move';
+          const c3 = document.createElement('span');
+          c3.style.color = '#888';
+          c3.textContent = r.cancelLeft != null ? (`${Math.round(r.cancelLeft)}s`) : 'ok';
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = 'Cancel';
+          btn.style.cssText = 'background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px';
+          btn.addEventListener('click', () => {
+            if (!confirm(`Cancel outgoing ${r.type || 'command'} ${r.commandId}?\n${townNameById(r.home)} → ${r.target}`)) return;
+            militaryCancelCommand(r.commandId, { confirmed: true, townId: r.home }, (err) => {
+              flash(err ? ('cancel failed: ' + err) : 'command cancelled');
+              renderAttack();
+            });
+          });
+          row.appendChild(c1); row.appendChild(c2); row.appendChild(c3); row.appendChild(btn);
+          box.appendChild(row);
+        });
+      }
+    }
+    // Heroes
+    const hbox = sec.querySelector('.atk-heroes');
+    if (!hbox) return;
+    hbox.replaceChildren();
+    if (!heroesEnabled()) {
+      const e = document.createElement('div');
+      e.style.cssText = 'color:#666;font-size:10px';
+      e.textContent = 'Heroes disabled on this world';
+      hbox.appendChild(e);
+      return;
+    }
+    const heroes = playerHeroesList();
+    if (!heroes.length) {
+      const e = document.createElement('div');
+      e.style.cssText = 'color:#666;font-size:10px';
+      e.textContent = 'No PlayerHero models (open Council once, or world has none)';
+      hbox.appendChild(e);
+      return;
+    }
+    const townSel = document.createElement('select');
+    townSel.style.cssText = 'background:#111;color:#cfc;border:1px solid #333;font-size:10px;margin-bottom:4px;max-width:100%';
+    (state.towns || []).forEach(t => {
+      const o = document.createElement('option');
+      o.value = String(t.id);
+      o.textContent = t.name || t.id;
+      townSel.appendChild(o);
+    });
+    hbox.appendChild(townSel);
+    heroes.forEach(h => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:10px;border-bottom:1px solid #2a2a2a;padding:3px 0';
+      const lab = document.createElement('span');
+      lab.style.flex = '1';
+      lab.textContent = `${h.name} Lv${h.level} · ${h.status}` +
+        (h.home ? ` @${townNameById(h.home)}` : '');
+      row.appendChild(lab);
+      if (h.traveling) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.textContent = 'Cancel travel';
+        b.style.cssText = 'background:#333;border:1px solid #555;color:#fc6;padding:1px 6px;cursor:pointer;font-size:10px';
+        b.addEventListener('click', () => {
+          if (!confirm(`Cancel transfer of ${h.name}?`)) return;
+          heroCancelTravel(h.type, { confirmed: true }, (err) => {
+            flash(err ? ('hero cancel failed: ' + err) : 'hero travel cancelled');
+            renderAttack();
+          });
+        });
+        row.appendChild(b);
+      } else if (h.assigned || h.attacking) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.textContent = 'Unassign';
+        b.style.cssText = 'background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px';
+        b.addEventListener('click', () => {
+          if (!confirm(`Unassign ${h.name} from ${townNameById(h.home || h.origin)}?`)) return;
+          heroUnassign(h.type, { confirmed: true }, (err) => {
+            flash(err ? ('hero unassign failed: ' + err) : 'hero unassigned');
+            renderAttack();
+          });
+        });
+        row.appendChild(b);
+      }
+      if (!h.injured && !h.attacking && !h.traveling) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.textContent = 'Assign';
+        b.style.cssText = 'background:#333;border:1px solid #555;color:#6cf;padding:1px 6px;cursor:pointer;font-size:10px';
+        b.addEventListener('click', () => {
+          const tid = townSel.value;
+          if (!tid) { flash('pick a town'); return; }
+          if (!confirm(`Assign ${h.name} → ${townNameById(tid)}?\n(travel time applies)`)) return;
+          heroAssignToTown(h.type, tid, { confirmed: true }, (err) => {
+            flash(err ? ('hero assign failed: ' + err) : 'hero transfer started');
+            renderAttack();
+          });
+        });
+        row.appendChild(b);
+      }
+      hbox.appendChild(row);
+    });
   }
   function bindAttackTab() {
     const sec = panel && panel.querySelector('section[data-tab=attack]');
@@ -771,5 +909,15 @@
       readAttackForm();
       renderAttack();
     });
+    sec.querySelectorAll('[data-harass]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        applyHarassPreset(btn.dataset.harass);
+        const troop = sec.querySelector('[data-atk=troop]');
+        if (troop) troop.value = 'harass';
+        renderAttack();
+      });
+    });
+    sec.querySelector('#gb-atk-cmds-refresh')?.addEventListener('click', () => renderAttack());
+    sec.querySelector('#gb-atk-heroes-refresh')?.addEventListener('click', () => renderAttack());
   }
 

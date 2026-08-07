@@ -78,13 +78,16 @@
 - [ ] **8.8** Webhook — captcha trip → one Discord POST
 - [ ] **9.1–9.4** Orch overnight + island ship + night pause
 - [ ] **8.9–8.11** Merchant / favor / WW (default OFF)
+- [ ] **10.4 / 10.5 / 11.2** Harassment + cancel + hero (v1.5.9)
+  - Attack tab harass chips → Preview shows small stack; Send now still confirms
+  - Outgoing list shows cancelable movements; Cancel asks confirm; Log `cancel: command … OK`
+  - Heroes list Assign/Unassign/Cancel travel with confirm; dry-run logs `DRY-RUN hero:`
+  - Hand-cancel once → Preflight `cancel` shows template learned; hand hero assign → `heroTpl`
 - [ ] **10.x / 8.12 notify** CS alert + threat board
 - [ ] **8.13** Recruit one unit on curator town (payload match UI)
 - [ ] **8.12 auto** Dodge only on throwaway / accepted risk
 - [ ] **13.x** Intel dossiers + Grepodata assist
 - [ ] **14.x** Confirm global kill + budget + config import/export
-
-## Completed (coding)
 
 - [x] Phases 1–7 (v0.6.0)
 - [x] v0.6.7 warehouse-full farm gate + auto-queue builds

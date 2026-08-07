@@ -56,6 +56,33 @@
           save(wkey(STORE.ATTACK_TPL), state.attackTpl);
           gbLog('learned attack template:', JSON.stringify(state.attackTpl).slice(0, 200));
         }
+      } else if (/Command/.test(body) && /cancelCommand/i.test(body)) {
+        const j = parseBodyLoose(body);
+        if (j && j.action_name && /cancelCommand/i.test(j.action_name) && !isSelfBridge(j)) {
+          state.cancelTpl = {
+            model_url: j.model_url || 'Command',
+            action_name: j.action_name,
+            arguments: j.arguments || {},
+            town_id: j.town_id,
+            version: 1, learned_at: Date.now(),
+          };
+          save(wkey(STORE.CANCEL_TPL), state.cancelTpl);
+          gbLog('learned cancel template:', JSON.stringify(state.cancelTpl).slice(0, 200));
+        }
+      } else if (/PlayerHero/.test(body) && /assignToTown|unassignFromTown|cancelTownTravel/i.test(body)) {
+        const j = parseBodyLoose(body);
+        if (j && j.action_name && !isSelfBridge(j)) {
+          if (!state.heroTpl || typeof state.heroTpl !== 'object') state.heroTpl = {};
+          state.heroTpl[j.action_name] = {
+            model_url: j.model_url || 'PlayerHero',
+            action_name: j.action_name,
+            arguments: j.arguments || {},
+            town_id: j.town_id,
+            version: 1, learned_at: Date.now(),
+          };
+          save(wkey(STORE.HERO_TPL), state.heroTpl);
+          gbLog('learned hero template:', j.action_name, JSON.stringify(state.heroTpl[j.action_name]).slice(0, 160));
+        }
       } else if (/IslandQuest|Progressable|claimReward|island_quest/i.test(body)) {
         const j = parseBodyLoose(body);
         if (j && !isSelfBridge(j)) {

@@ -514,11 +514,18 @@
           <option value="defense">defense</option>
           <option value="all">all troops</option>
           <option value="all_of_type">all of type</option>
+          <option value="harass">harass</option>
           <option value="per_town">per town edit</option>
         </select>
         <label style="display:flex;align-items:center;gap:3px">unit
           <select data-atk="unit-type" title="only used when troop mode is 'all of type'"></select>
         </label>
+      </div>
+      <div class="atk-harass" style="display:flex;gap:4px;flex-wrap:wrap;margin:4px 0">
+        <span style="font-size:9px;color:#888;align-self:center">harass</span>
+        <button type="button" data-harass="1sling" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">1 sling</button>
+        <button type="button" data-harass="5sling" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">5 sling</button>
+        <button type="button" data-harass="light" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">light (≤8)</button>
       </div>
       <div style="font-size:9px;color:#888;margin-top:2px">sources</div>
       <div class="atk-sources"></div>
@@ -530,6 +537,16 @@
         <button id="gb-atk-now">Send now</button>
       </div>
       <div class="atk-sched"></div>
+      <div style="border-top:1px solid #333;margin:8px 0 4px;padding-top:6px;display:flex;align-items:center;gap:6px">
+        <b style="font-size:11px;color:#f5a623">Outgoing (cancel)</b>
+        <button type="button" id="gb-atk-cmds-refresh" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px;margin-left:auto">Refresh</button>
+      </div>
+      <div class="atk-cmds" style="max-height:120px;overflow:auto"></div>
+      <div style="border-top:1px solid #333;margin:8px 0 4px;padding-top:6px;display:flex;align-items:center;gap:6px">
+        <b style="font-size:11px;color:#f5a623">Heroes</b>
+        <button type="button" id="gb-atk-heroes-refresh" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px;margin-left:auto">Refresh</button>
+      </div>
+      <div class="atk-heroes" style="max-height:160px;overflow:auto"></div>
     </section>
     <section data-tab="quests" hidden>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">

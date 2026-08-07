@@ -91,7 +91,8 @@ Multi-town overnight econ without warehouse deadlock; Overview shows module heal
 - **10.1** Timed attack/support — existing Attack tab (confirm / arm).
 - **10.2** CS detect + alerts — `dodge.js` + webhook.
 - **10.3** Defense pull — `military.js` `militaryDefensePull`.
-- **10.4–10.5** Harassment / cancel helpers — deferred (use Attack tab).
+- **10.4** Harassment presets — Attack tab chips (1/5 sling, light ≤8); confirm-send only.
+- **10.5** Cancel/recall — list cancelable outgoing `MovementsUnits`; confirm → `Command/cancelCommand` (sniff `cancelTpl`, overview/command_info fallback).
 - **10.6** Dodge v2 — notify vs auto + defense floor.
 
 ### Exit
@@ -103,7 +104,7 @@ Notify-mode CS alert verified; auto-dodge only after risk acceptance.
 ## Phase 11: Gods, spells, heroes — CODED (partial v1.0.0)
 
 - **11.1** Recruit spell cast before train (`recruit.js` + `recruitSpells`).
-- **11.2** Hero transfer gate — deferred (needs hero model sniff).
+- **11.2** Hero transfer — Attack tab: assign / unassign / cancel travel via `PlayerHero` bridge (confirm; sniff `heroTpl`).
 - **11.3** Mythic favor loops (`favor.js`).
 - **11.4** Wonder favor cast — deferred (tie to wonder worlds).
 

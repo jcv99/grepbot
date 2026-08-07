@@ -124,6 +124,29 @@
       warn: !state.attackTpl,
       detail: state.attackTpl ? 'template learned' : 'template NOT learned (send one attack by hand)',
     })));
+    out.push(preflightProbe('cancel', () => {
+      let n = 0;
+      try { n = militaryOutgoingMovements().length; } catch (_) {}
+      return {
+        ok: true,
+        warn: !state.cancelTpl && n === 0,
+        detail: state.cancelTpl
+          ? `template learned; ${n} cancelable outgoing`
+          : (n ? `${n} cancelable outgoing (hand-cancel once to learn tpl)` : 'no cancelable outgoing; tpl not learned'),
+      };
+    }));
+    out.push(preflightProbe('heroes', () => {
+      if (!heroesEnabled()) return { ok: true, warn: true, detail: 'heroes disabled on this world' };
+      const list = playerHeroesList();
+      const acts = state.heroTpl && typeof state.heroTpl === 'object' ? Object.keys(state.heroTpl) : [];
+      return {
+        ok: list.length > 0 || acts.length > 0,
+        warn: list.length === 0,
+        detail: list.length
+          ? `${list.length} hero(es); tpl=${acts.join(',') || 'none'}`
+          : 'PlayerHero collection empty (open Council once)',
+      };
+    }));
     out.push(preflightProbe('incoming', () => {
       const mv = (typeof dodgeIncomingMovements === 'function' ? (dodgeIncomingMovements() || []) : []);
       return { ok: true, detail: `${mv.length} incoming movements visible` };
