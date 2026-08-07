@@ -459,6 +459,9 @@
     #grepbot-panel .ab-queue{max-height:220px;overflow:auto;margin-top:2px}
     #grepbot-panel .atk-sched{max-height:160px;overflow:auto;margin-top:6px}
     #grepbot-panel .atk-sources{max-height:80px;overflow:auto;display:flex;flex-wrap:wrap;gap:4px 8px;margin:4px 0}
+    #grepbot-panel .atk-roles{max-height:110px;overflow:auto;margin:4px 0}
+    #grepbot-panel [data-atk="arrival-date"]{min-width:118px}
+    #grepbot-panel [data-atk="arrival-time"]{min-width:96px}
     #grepbot-panel .atk-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
     #grepbot-panel .atk-row input,#grepbot-panel .atk-row select{background:#111;color:#cfc;border:1px solid #333;padding:2px 4px;font:11px monospace}
     #grepbot-panel .atk-btns button{background:#333;border:1px solid #555;color:#eee;padding:3px 8px;border-radius:3px;cursor:pointer;font-size:11px;margin-right:4px}
@@ -499,13 +502,17 @@
       </div>
       <div class="atk-row">
         <label>target <input data-atk="target" style="width:70px" placeholder="id"/></label>
+        <select data-atk="pick" title="towns from spy reports / recent attacks" style="max-width:130px;background:#111;color:#cfc;border:1px solid #333;font-size:10px"></select>
+        <button type="button" id="gb-atk-current" title="Use city selected in game (map / attack window)" style="background:#333;border:1px solid #555;color:#6cf;padding:1px 6px;cursor:pointer;font-size:10px">Current</button>
         <label>x <input data-atk="x" style="width:40px"/></label>
         <label>y <input data-atk="y" style="width:40px"/></label>
         <select data-atk="mission"><option>attack</option><option>support</option><option>raid</option><option>siege</option><option>scout</option><option>revolt</option><option value="portal">olympus portal</option></select>
       </div>
-      <div class="atk-row">
+      <div id="gb-atk-target-hint" style="font-size:9px;color:#888;margin:-2px 0 4px"></div>
+      <div class="atk-row atk-arrival-row">
         <select data-atk="timing"><option value="send_now">send now</option><option value="arrive_at">arrive at</option></select>
-        <input data-atk="arrival" type="datetime-local" step="1" title="arrival (local)"/>
+        <label>date <input data-atk="arrival-date" type="date" title="arrival date (local)"/></label>
+        <label>time <input data-atk="arrival-time" type="time" step="1" title="arrival time (local, seconds)"/></label>
         <label>pad ms <input data-atk="pad" type="number" style="width:50px" value="200"/></label>
       </div>
       <div class="atk-row">
@@ -527,7 +534,15 @@
         <button type="button" data-harass="5sling" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">5 sling</button>
         <button type="button" data-harass="light" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">light (≤8)</button>
       </div>
-      <div style="font-size:9px;color:#888;margin-top:2px">sources</div>
+      <div style="font-size:9px;color:#888;margin-top:2px">offensive / defensive cities (saved per world)</div>
+      <div class="atk-roles"></div>
+      <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:4px">
+        <span style="font-size:9px;color:#888">attack from</span>
+        <button type="button" id="gb-atk-src-all" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">All</button>
+        <button type="button" id="gb-atk-src-none" style="background:#333;border:1px solid #555;color:#888;padding:1px 6px;cursor:pointer;font-size:10px">None</button>
+        <button type="button" id="gb-atk-src-off" style="background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px">Offense</button>
+        <button type="button" id="gb-atk-src-def" style="background:#333;border:1px solid #555;color:#6cf;padding:1px 6px;cursor:pointer;font-size:10px">Defense</button>
+      </div>
       <div class="atk-sources"></div>
       <div class="atk-pertown" hidden></div>
       <div class="atk-btns" style="margin-top:6px">
@@ -1438,7 +1453,9 @@
       const meta = document.createElement('div');
       meta.className = 'meta';
       const when = new Date(f.ts).toLocaleTimeString();
-      const target = f.town?.name || `t#${f.town?.id || '?'}`;
+      const target = f.town?.id != null
+        ? `${f.town.name || 'town'} #${f.town.id}`
+        : `t#${f.town?.id || '?'}`;
       const coord = (f.town?.x != null) ? ` (${f.town.x}|${f.town.y})` : '';
       meta.textContent = `#${f.id} | ${when} | ${f.type} | ${target}${coord}`;
       row.appendChild(meta);
@@ -1455,6 +1472,34 @@
         res.className = 'res';
         res.textContent = `W${f.resources.wood ?? '?'} S${f.resources.stone ?? '?'} I${f.resources.iron ?? '?'}`;
         row.appendChild(res);
+      }
+
+      if (f.town && f.town.id != null) {
+        const actions = document.createElement('div');
+        actions.style.cssText = 'margin-top:3px';
+        const atkBtn = document.createElement('button');
+        atkBtn.type = 'button';
+        atkBtn.textContent = '→ Attack';
+        atkBtn.title = `Use town #${f.town.id} as attack target`;
+        atkBtn.style.cssText = 'background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px';
+        atkBtn.addEventListener('click', () => prepareAttack(Object.assign({ kind: 'town' }, f.town)));
+        actions.appendChild(atkBtn);
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.textContent = 'Copy id';
+        copyBtn.title = 'Copy town id to clipboard';
+        copyBtn.style.cssText = 'background:#333;border:1px solid #555;color:#9cf;padding:1px 6px;cursor:pointer;font-size:10px;margin-left:4px';
+        copyBtn.addEventListener('click', () => {
+          const id = String(f.town.id);
+          try {
+            navigator.clipboard.writeText(id);
+            flash('copied ' + id);
+          } catch (_) {
+            flash('id: ' + id);
+          }
+        });
+        actions.appendChild(copyBtn);
+        row.appendChild(actions);
       }
 
       list.appendChild(row);

@@ -1,37 +1,52 @@
 # Recurring error patterns
 
-Generated 2026-08-07 from 5 parallel scans of `src/` (1360 nodes, 4996 edges).
-Each pattern lists ≥2 file:line occurrences; standalone one-offs are omitted.
+Verified 2026-08-07 against `src/` @ `@version 1.5.10`.
+Originally generated from parallel scans; line citations and several
+claims were stale or wrong. This pass re-checked every bullet against
+current sources — drop or reframe anything that no longer matches.
 
-Patterns grouped by anti-pattern. Severity tag = potential impact radius.
+Patterns grouped by anti-pattern. Severity = potential impact radius.
+Line refs are `file:line` under `src/` (or `build.py` at repo root).
 
 ---
 
 ## 1. Empty `catch (_) {}` swallows real errors — HIGH
 
 Exception swallowed, never logged, never surfaced to `gbLog`. Breaks
-in-game triage because the panel log ring never sees it.
+in-game triage because the panel log ring never sees it. (~192 empty
+catches repo-wide; most are probe paths. Examples below are the ones
+that hide *feature* failures.)
 
-- `orchestrate.js:50-62` — every `ORCH_HANDLERS` wrapped in empty catch
-- `boot.js:101-103` — masks `ReferenceError` on missing `cancelArmedAttack` / `banditAttackSentAt`
+- `orchestrate.js:50-61` — every `ORCH_HANDLERS` entry wrapped in empty catch
+- `boot.js:101-106` — teardown swallows `ReferenceError` if a helper is missing
 - `qol.js:44` — `try{renderAbQueue&&renderAbQueue()}catch(_){}` swallows every render error
-- `military.js:43` — bare catch swallows all model-read errors
-- `recruit.js:144` — `resources()` catch → `continue` blocks on unread value
-- `bandit.js:238` — try/finally no catch (throw escapes after scheduling)
+- `military.js:49` — bare catch around defense-pull model walk
+- `military.js:129` / `136` / `140` / `189` — cancel/outgoing model walks swallow
+  the same way (collection / per-movement attribute failures disappear)
+- `recruit.js:159` — `resources()` / cost math catch → `continue` (unread stock looks like "can't afford")
+- `bandit.js:238-240` — `try`/`finally` with no catch: throw escapes after `banditScheduleNext()`
 
-Rule: every catch must `gbLog(...)` or re-throw.
+Rule: every catch that can hide a feature failure must `gbLog(...)` or
+re-throw. Probe-only catches (`gbProbeNum`, building getters) may stay quiet.
 
 ---
 
-## 2. POST without `automationPaused()` / captcha / server-cooldown gate — HIGH
+## 2. Call-site pause gate incomplete — MEDIUM
 
-Bridge call fires while feature should be paused. The server-pressure
-bus + captcha breaker only work when each bridge path checks them.
+`bridgePost` / `gameAjaxPost` already call `automationPaused` + captcha
+(core.js). A caller that skips the same check still won't post while
+paused, but it can flash / build payload / burn UI work before the
+central bail. DOM paths that bypass those two helpers are the real gap.
 
-- `attack.js:323` — `sendAttackViaBridge` checks hostEnabled + captcha but **never** `automationPaused({})`
-- (recruit, wonder, favor paths) — to audit for the same gap
+- `attack.js:327-329` — `sendAttackViaBridge` checks `hostEnabled` +
+  `captchaPaused('attack')` but not `automationPaused` (relies on
+  `bridgePost`); contrast `military.js:9` which checks all three
+- `bandit.js:224-234` — DOM `atkBtn.click()` only re-checks pause inside
+  the delayed callback; no `bridgePost` gate
 
-Rule: every bridge path must start with `if (automationPaused({reason:'feature'})) return skip('paused')`.
+Rule: every bridge *caller* should mirror `automationPaused({})` early
+for UX; any path that posts without `bridgePost`/`gameAjaxPost` must
+gate captcha + pause + budget itself.
 
 ---
 
@@ -41,27 +56,29 @@ Server 200 OK does not prove the post landed in game state. Missing
 re-read of model / relations / order collection means a silently rejected
 action looks identical to a successful one.
 
-- `attack.js:362` — attack send has no post-send reconcile
-- `military.js:58` — no reconcile after support sends
-- `recruit.js:180` — no post-build reconcile (order collection not re-read)
-- `farms.js:509` — `verifyClaims` strict `!==` misses server same-value re-stamp
-- `towns.js:161` — `townResourcesFromGame` re-reads every town every scrape with no freshness check
+- `attack.js:366-370` — attack send: flash "sent" on callback with no movement re-read
+- `military.js:60-62` — support send counts `!err` as done; no reconcile
+- `recruit.js:180-183` — build success from ajax ack only (order collection not re-read)
+- `farms.js:542` — `verifyClaims` uses strict `!==` on `lootable_at` (same-value re-stamp misses)
+- `towns.js:160-167` — every town re-written from game data every scrape (no freshness / dirty check)
 
 Rule: any irreversible post must re-read the model inside the bridge
 callback, not infer success from `ok:true`.
 
 ---
 
-## 4. Blind-means-block (CLAUDE.md regression) — HIGH
+## 4. Blind probe mishandling (CLAUDE.md regression) — HIGH
 
-A renamed/missing getter must yield `blind`, never `false`. A guard that
-silently parks a feature when a getter is renamed is worse than no guard.
+A renamed/missing getter must yield `blind`, never a fabricated `0` /
+`false`. Both directions are wrong: silently parking a feature (block)
+is worse than no guard; treating unread as "empty/absent" and acting
+(act) posts on bad premises.
 
-- `favor.js:62` — favor balance 0 default → blind becomes "need favor" → always sends
-- `recruit.js:20` — `recruitHasSpell` false on model-read failure → re-cast
-- `recruit.js:144` — `resources()` catch → `continue` blocks on unread
-- `build-tab.js:504` — `abCanAfford` false on unreadable resources, logs nothing
-- `build-tab.js:512` — `res.wood >= need.wood+margin` with `undefined` → false
+- `favor.js:62` — favor balance `+(…|| 0)`: unread → 0 → below thresh → proceeds to post
+- `recruit.js:32` — `recruitHasSpell` `catch → false` → treats unread as "not cast" → re-cast
+- `recruit.js:159` — cost/stock catch → `continue` (blocks on unread)
+- `build-tab.js:500` — `abCanAfford` `resources()` catch → `false` (unread = can't afford)
+- `build-tab.js:512` — `res.wood >= need.wood+margin` with missing fields → `false`
 - `trade.js:122` — `keep = (src.cap||0)*reservePct` — cap unreadable → keep=0 → drain source
 
 Rule: probe miss → return `{blind:true}`, log once via `gbLogT`, defer to server.
@@ -73,11 +90,14 @@ Rule: probe miss → return `{blind:true}`, log once via `gbLogT`, defer to serv
 A support send / wonder donation / dodge that times out may have
 landed. Retrying duplicates the action.
 
-- `wonder.js:112` — "unknown controller" retries resource send → duplicate donation
-- `dodge.js:199` — send failure retried without distinguishing timeout
+- `dodge.js:205-210` — any send `err` (including `timeout`) schedules retry backoff
+- `wonder.js:117-128` — alternate `factions` controller after "unknown controller"
+  on the first `wonders` post (timeout path at 99-102 correctly does **not**
+  retry; the unknown-controller fallback still can double-donate)
 
 Rule: timeouts on irreversible paths must reconcile only, never retry.
-CLAUDE.md `v1.5.3 audit` regression note.
+Unknown-controller fallbacks need the same discipline. CLAUDE.md
+`v1.5.3 audit` regression note.
 
 ---
 
@@ -87,72 +107,72 @@ CLAUDE.md `v1.5.3 audit` regression note.
 (kills render) or opens injection paths. `innerHTML` interpolation of
 town names / player names is the same shape.
 
-- `ui.js:112` — `tbody.querySelector(`tr[data-key="${key}"]`)`
-- `ui.js:193` — same with `t.id`
-- `attack.js:582` — selector built by interpolating `r.townId`
-- `intel.js:58` — accumulator named `html` assigned via `textContent`; one `innerHTML` edit away from spoof
-- `ui.js:477` — `panel.innerHTML` interpolates `runningVersion()` (safe today, fragile)
-- `alerts.js:21` — payload JSON.stringify'd verbatim into webhook body
-- `alerts.js:32` — body embeds `location.host` (world + account identifier)
+- `ui.js:112` — `tbody.querySelector(\`tr[data-key="${key}"]\`)` (farm vill_id)
+- `ui.js:193` — same with town `t.id`
+- `attack.js:398` — `querySelector('[data-town="' + r.townId + '"] …')`
+- `attack.js:586` — `` querySelector(`div[data-town="${r.townId}"]`) ``
+- `intel.js:58-84` — builds a string named `html` then assigns via
+  `textContent` (safe today; one `innerHTML` edit away from XSS)
+- `ui.js:477-478` — `panel.innerHTML` interpolates `runningVersion()` (owned string; fragile pattern)
+- `alerts.js:32-33` — webhook body embeds `location.host` + raw `JSON.stringify(payload)`
 
-Rule: every selector / innerHTML must escape or use `[data-key="..."]`
-with CSS-escape (`CSS.escape(key)`), or build via DOM APIs.
+Rule: every selector must `CSS.escape(key)` (or build via DOM APIs). Prefer
+`textContent` / `createElement` over `innerHTML` for anything game-sourced.
 
 ---
 
 ## 7. Diag / Export dumps leak raw tokens, ids, names — HIGH
 
-`Diag`, `Export config`, footer status, clipboard write — all bypass
-`redactFindingsExport`. CSRF token clipped to first 6 chars still
+`Diag`, `Export config`, footer status, clipboard write — several paths
+bypass `redactFindingsExport`. CSRF clipped to first 6 chars still
 identifies the session.
 
-- `stats.js:33` — first 6 chars of CSRF token to panel + log ring
-- `ui.js:798` — Copy JSON raw `state.decisions` + `decisionSkips`
-- `ui.js:820` — Export config copies `playerNotes`/`watchlist` verbatim
-- `ui.js:1512` — redaction keeps 4 digits + first letter + exact x/y
-- `ui.js:1534` — footer status prints first 6 chars of CSRF
-- `ui.js:1553` — `el.title` JSON carries `captchaBreakers` map + memory skip keys
-- `ui.js:1604, 1614` — every village id/name + every town id
-- `ui.js:1667` — unredacted diag report to system clipboard
-- `alerts.js:21` — webhook body JSON omits redaction
-- `intel.js:129` — sends raw finding (attacker/defender names, ids, coords)
-- `qol.js:160` — `qolImportConfig` type-checks envelope only; values written unvalidated
+- `stats.js:33` — preflight csrf detail: first 6 chars of token
+- `ui.js:815-816` — Log → Decisions → Copy JSON: raw `state.decisions` + `decisionSkips`
+- `ui.js:836-838` — Export config: `qolExportConfig()` includes `playerNotes` / `watchlist` verbatim
+- `ui.js:1522-1542` — redaction keeps last 4 id digits + first letter of name + exact x/y
+- `ui.js:1551` — footer status prints first 6 chars of CSRF
+- `ui.js:1570` — `el.title` JSON carries `captchaBreakers` + memory skip keys
+- `ui.js:1621-1631` — Diag lists every village id/name + every town id
+- `ui.js:1660-1663` — unredacted diag report to console (+ clipboard)
+- `alerts.js:32-33` — webhook body JSON omits redaction
+- `intel.js:129` — webhook gets raw finding (attacker/defender names, ids, coords)
+- `qol.js:160-166` — `qolImportConfig` type-checks envelope only; values written unvalidated
 
-Rule: every dump must pass through `redactFindingsExport` and clamp CSRF
-to `<redacted>`.
+Rule: every dump must pass through `redactFindingsExport` (or equivalent)
+and clamp CSRF to `<redacted>`.
 
 ---
 
 ## 8. Render thrash — full repaint instead of keyed patch — MEDIUM
 
 CLAUDE.md `v1.4.0 render` regression rule: compare membership, not order.
-`Set-vs-array length` and `replaceChildren()` violate this.
+`Set`-vs-array length and blind `replaceChildren()` violate this.
 
 - `ui.js:105` — `have.size === wanted.length` (Set vs array — dupes tear down every repaint)
-- `ui.js:178` — same shape, second table
-- `build-tab.js:680` — `box.replaceChildren()` rebuilds 13 rows + 39 listeners every call
+- `ui.js:178` — same shape, World table
+- `build-tab.js:680` — `box.replaceChildren()` rebuilds queue rows + listeners every call
 - `build-tab.js:320` — `renderBuild` tail-calls `renderAbQueue` on 10s cadence
-- `qol.js:118` — `renderOverview` has no `_last` guard
-- `stats.js:179` — three full journal passes per repaint
-- `ui.js:1402` — `renderFindings` `replaceChildren()` + 80-row rebuild per report
-- `ui.js:297` — `paintNav` `replaceChildren()` + rebinds every button on tab switch
+- `qol.js:118-122` — `renderOverview` has `sec.hidden` but no `_last` / membership guard
+- `ui.js:1419` — `renderFindings` `replaceChildren()` + up to 80-row rebuild per filter keystroke
+- `ui.js:296-310` — `paintNav` `replaceChildren()` + rebinds buttons on tab switch
 - `ui.js:21` — sort re-appends every `tr` individually (N reflows)
 
 Rule: keyed-row patch (`tr[data-key]`) + `_last` shadow state. See
-`ui.js` and `build-tab.js` for canonical pattern.
+`renderFarms` / `renderAttack` for the canonical pattern.
 
 ---
 
 ## 9. Render runs while tab is hidden — MEDIUM
 
-`sec.hidden` guard present in `renderBuild/renderStats/renderIntel/renderOverview`
-but missing in three others. Hidden-tab DOM diffs still run; build tab
-cadence keeps rebuilding on a hidden Farms tab.
+`sec.hidden` guard present in `renderBuild` / `renderStats` /
+`renderIntel` / `renderOverview` / `renderAttack` but missing on the
+three high-frequency tables.
 
-- `ui.js:141` — `renderFarms` no `sec.hidden` guard
-- `ui.js:204` — `renderWorld` no `sec.hidden` guard
+- `ui.js:91` — `renderFarms` no `sec.hidden` guard
+- `ui.js:143` — `renderWorld` no `sec.hidden` guard
 - `ui.js:1405` — `renderFindings` no `sec.hidden` guard
-- `farms.js:checkThresholds` — calls `renderFarms()` even when Farms tab hidden
+- `build-tab.js:766` — `checkThresholds` calls `renderFarms()` even when Farms tab hidden
 
 Rule: every `render*` must start with `if (sec && sec.hidden) return`.
 
@@ -163,10 +183,13 @@ Rule: every `render*` must start with `if (sec && sec.hidden) return`.
 CLAUDE.md `v1.4.0 lock registry` regression note: never reintroduce
 per-module `*InFlight` boolean. Re-entry possible.
 
-- `bandit.js:133` — attack post no lock (only `banditAttackSentAt` guard)
-- `boot.js:62, 71, 83, 86` — `gbInterval` callbacks (`farmTick`, `questScanTick`, `dodgeScan`, `orchTick`) no lock gate
-- `build-tab.js:246` — watchdog `unlock()` releases lock without aborting next() chain
-- `build-tab.js:639` — `abScan` watchdog identical race
+- `bandit.js:104-144` — attack post uses `banditAttackSentAt` only (no `gbLock('bandit')`)
+- `build-tab.js:246-249` — ib watchdog `unlock()` via raw `clearTimeout`; next() chain not aborted
+- `build-tab.js:639-642` — `abScan` watchdog identical race
+
+Note: `boot.js` `gbInterval` callbacks (`farmTick`, `questScanTick`,
+`dodgeScan`, `orchTick`) are schedulers — features they call are expected
+to take their own locks. Not a missing-lock bug by itself.
 
 Rule: every feature path that posts must `gbLock(name)` + TTL entry in
 `GB_LOCK_TTL`.
@@ -176,13 +199,16 @@ Rule: every feature path that posts must `gbLock(name)` + TTL entry in
 ## 11. `gbTimerBag` leak / raw `clearTimeout` — MEDIUM
 
 Bypassing the timer registry grows an entry per run; eventually the
-bag dominates memory and timeouts can't be cancelled.
+bag dominates memory and timeouts can't be cancelled on dispose.
 
-- `build-tab.js:249` — `clearTimeout(watchdog)` bypasses `gbTimerBag`
+- `build-tab.js:249` — `clearTimeout(watchdog)` bypasses bag removal (watchdog was `gbTimeout`)
 - `build-tab.js:642` — same, `abScan` watchdog
-- `ui.js:1272` — `farmsInputTimer` cleared with raw `clearTimeout`
+- `ui.js:1288` — `farmsInputTimer` cleared with raw `clearTimeout` (created via `gbTimeout`)
+- `bandit.js:245` — `banditClearLoop` raw `clearTimeout(banditLoopTimer)`
+- `attack.js:380` — armed timers cleared with raw `clearTimeout`
 
-Rule: `gbSetTimeout` / `gbClearTimer` exclusively; never raw.
+Rule: `gbTimeout` / a bag-aware clear exclusively; never raw
+`clearTimeout` on ids that came from `gbTimeout`.
 
 ---
 
@@ -191,12 +217,15 @@ Rule: `gbSetTimeout` / `gbClearTimer` exclusively; never raw.
 Hostile-only canonical types; town-only attack targets. Bypassing
 either opens wrong-target posts.
 
-- `military.js:54` — synthesizes `{town_id, kind:'town'}` bypassing `resolveTarget`
-- `favor.js:118` — favor builds Town payload against `farm_town` id (bypasses `attackSendAllowed`)
-- `dodge.js:70` — own-origin filter makes later `!a.incoming` check unreachable
-- `recruit.js:18` — unconditional `building_barracks` fallback for any unit missing god/myth/naval flags
+- `military.js:60` — synthesizes `{town_id, kind:'town'}` without `resolveTarget`
+- `favor.js:73-122` — `targetType` defaults to `farm_town`, then posts Town
+  `sendUnits` with that id (bypasses `attackSendAllowed`, which refuses farm_town)
+- `dodge.js:70-71` — own-origin filter; later `!a.incoming` check is mostly unreachable
+  after the `is_attack` short-circuit
+- `recruit.js:17-18` — unconditional `building_barracks` fallback for land units
+  missing god/myth/naval flags (intentional default, but wrong for odd clients)
 
-Rule: route every attack/support/dodge through `resolveTarget` or
+Rule: route every attack/support/dodge through `resolveTarget` or an
 explicit type guard (`is_attack`, `kind:'town'`, controller name).
 
 ---
@@ -206,25 +235,26 @@ explicit type guard (`is_attack`, `kind:'town'`, controller name).
 Cost / capacity / queue / building level not read before posting.
 Burns a request budget slot on a guaranteed rejection.
 
-- `recruit.js:36` — `recruitCastSpell` no favor balance / favor-cost read
-- `recruit.js:117` — `orders >= 7` treats global count as per-queue limit
-- `recruit.js:161` — amount hardcoded 50, no config
-- `favor.js:106` — no boat/island check for myth stack
-- `favor.js:126` — never verifies target plunderable (temple / not-already-plundered)
-- `favor.js:133` — fabricates `'f'+Date.now()` movement id (fictional en-route)
-- `dodge.js:89` — `dodgeSafeTown` no island/distance preference
-- `dodge.js:130` — no island/boat check on off-island land dodge
-- `dodge.js:145` — `dodgeTownUnits` strips only militia (naval ships dodged out)
-- `wonder.js:55` — only `tradeCap` checked; free freighter count never read
-- `military.js:18` — defense-pull sends every sword/archer/hoplite/rider/chariot
-- `military.js:31` — off-island branch adds warships before `boatCapacityCheck`
-- `attack.js:102` — magic `dist*50/speed` + `runtimeSetupTime` no source
-- `attack.js:132` — `boatCapacityCheck` returns `ok:true` for "naval-only" regardless
-- `attack.js:306` — `null arrivalUnix` leaves `sendAt=null`; `armAttackWave` fires immediately
-- `attack.js:344` — template arg copy keeps only `string|boolean`; numeric learned args dropped
-- `attack.js:362` — see also pattern #3
-- `attack.js:491` — blocking `confirm()` inside IIFE timer loop
-- `attack.js:522` — blocking `prompt()` in `editThreshold`
+- `recruit.js:34-39` — `recruitCastSpell` no favor balance / favor-cost read
+- `recruit.js:117` — `orders >= 7` treats global collection length as per-queue limit
+- `recruit.js:161` — amount hardcoded cap 50, no config
+- `favor.js:106` — no boat/island check for myth stack before send
+- `favor.js:118-124` — never verifies target still plunderable (temple / not-already-plundered)
+- `favor.js:133` — fabricates `'f'+Date.now()` movement id when response omits one
+- `dodge.js:89-95` — `dodgeSafeTown` no island/distance preference
+- `dodge.js:130-137` — no island/boat check on off-island land dodge
+- `dodge.js:139-154` — `dodgeTownUnits` strips only militia (naval ships can be dodged out)
+- `wonder.js:55-56` — only `tradeCap` checked; free freighter count never read
+- `military.js:28-30` — defense-pull sends every sword/archer/hoplite/rider/chariot
+- `military.js:33-38` — off-island branch adds transporters before `boatCapacityCheck` (order OK;
+  still dumps full defensive stack)
+- `attack.js:102` — magic `dist*50/speed` + `runtimeSetupTime` (no GameDataUnits source)
+- `attack.js:132` — `boatCapacityCheck` returns `ok:true` for naval-only regardless of boats
+- `attack.js:309-314` + `432-437` — missing `arrivalUnix` leaves `sendAt=null`; arm path
+  `else` branch uses `idx * staggerMs` (near-immediate fire under `arrive_at`)
+- `attack.js:348-351` — template arg copy keeps only `string|boolean`; numeric learned args dropped
+- `attack.js:495` — blocking `confirm()` inside send-now loop setup
+- `attack.js:526` — blocking `prompt()` in `editThreshold`
 
 Rule: use `gbProbeNum` / `gbTownModel` / `gbAfford` / `gbTownPop` /
 `gbPlayerGold` from `core.js` before any post.
@@ -236,12 +266,14 @@ Rule: use `gbProbeNum` / `gbTownModel` / `gbAfford` / `gbTownPop` /
 Bypasses panel Log tab; persists after teardown; pollutes browser
 console with bot internals.
 
-- `core.js:736` — `console.warn('[grepbot] save fail', key, e)` (real error site, `GM_setValue` throw)
+- `core.js:742` — `console.warn('[grepbot] save fail', key, e)` (GM_setValue throw)
 - `towns.js:52` — `console.info('[grepbot] towns:…')` every successful list fetch
-- `ui.js:1644` — diag `console.groupCollapsed`/`log`/`groupEnd`
+- `ui.js:1661-1663` — diag `console.groupCollapsed` / `log` / `groupEnd`
 
-Rule: `gbLog` / `gbLogT` exclusively; `console.warn` only inside the
-diag dump itself, gated by user toggle.
+Note: `gbLog` itself uses `console.info` by design (`core.js:546`).
+
+Rule: feature code uses `gbLog` / `gbLogT` only; raw `console.*` only
+inside the user-triggered diag dump.
 
 ---
 
@@ -250,16 +282,17 @@ diag dump itself, gated by user toggle.
 `|| default` swallows legitimate `0` / `''` / cleared values. Hardcoded
 numbers ignore user settings.
 
-- `research.js:177` — `queueMax = 2` hardcoded, ignores `researchQueueMax`
-- `build-tab.js:8` — `state.ibFreeThresh || 300` (0/NaN → 300)
-- `ui.js:1093` — `saveNum` passes `+e.target.value` with no NaN guard
-- `ui.js:1216` — `telegramChatId || undefined` drops cleared value
-- `ui.js:962` — configBound re-syncs 18 of ~60 controls; rest keep stale value
-- `core.js:316-320` — `ibAction`/`farmOptionMap` `|| '<default>'` falsy-string reset
-- `core.js:309` — `STORE.FARM_ACTION` NOT in `WORLD_SCOPED_BASES` (write path differs)
-- `core.js:306-307` — csrf fallback chain (wkey → unscoped) — OK by design
+- `research.js:177` — `queueMax = 2` hardcoded (no `researchQueueMax` setting)
+- `build-tab.js:8` — `state.ibFreeThresh || 300` (0 / NaN → 300)
+- `ui.js:1110` — `saveNum` passes `+e.target.value` with no NaN guard
+- `ui.js:1233` — `telegramChatId || undefined` drops cleared value
+- `ui.js:978-989` — `configBound` re-sync path only refreshes a subset of controls; rest keep stale DOM
+- `core.js:322-324` — `ibAction` / `farmOptionMap` `|| '<default>'` falsy-string reset
+- `core.js:313` — `STORE.FARM_ACTION` loaded via `wkey` + legacy fallback; base is **not**
+  in `WORLD_SCOPED_BASES` (write path in `learnFarmAction` uses `wkey` explicitly)
+- `core.js:459` — `SERVER_PRESSURE_RE` includes `"slow down"` (broad; false-trips possible)
 
-Rule: explicit null check `?? default`, never `|| default` for numeric /
+Rule: explicit nullish check `?? default`, never `|| default` for numeric /
 boolean settings; honor user-cleared values.
 
 ---
@@ -269,18 +302,17 @@ boolean settings; honor user-cleared values.
 Bind-once, never unbound. Handlers accumulate on reused XHR; blob
 URLs never revoked; document listeners stay across panel rebuilds.
 
-- `spy.js:13` — empty `if (uw.fetch._grepbot) {}` dead code block
+- `spy.js:13-15` — `if (uw.fetch._grepbot) { /* re-bind comment only */ }` — no-op branch
 - `spy.js:57` — new `load` listener attached on every `send()` (handler accumulation)
-- `spy.js:99` — bare `id` keys queued as report ids whenever URL is reportish
-- `spy.js:129` — `queueReportList()` declared with zero params, discards hint URL
-- `ui.js:908` — `URL.createObjectURL` no `revokeObjectURL`
-- `ui.js:1288` — drag binds `document mousemove` + `mouseup` for whole session
-- `ui.js:1327` — resize binds second `document mousemove` (3 unthrottled total with `qol.js:6`)
-- `qol.js:6` — `document mousemove` no throttle
-- `ui.js:886` — empty `if (!was) { }` dead code block
+- `spy.js:99` — bare `id` keys queued as report ids when URL is reportish
+- `spy.js:129-131` — `queueReportList()` takes no params; callers pass a hint URL that is discarded
+- `ui.js:908-918` — findings Copy uses clipboard only (OK); Export blob paths if added need revoke
+- `ui.js:1296-1327` — drag + resize bind `document` mousemove/mouseup for session
+- `qol.js:6-7` — `document` mousemove (activity pause) unthrottled
+- `ui.js:897-903` — `#gb-ab-now` forces `abAuto=true` and leaves it on (comment acknowledges)
 
-Rule: every addEventListener needs an off-switch; blob URLs revoked in
-the cleanup path; reused XHR rebuilds handlers per `open()`, not `send()`.
+Rule: every `addEventListener` needs an off-switch (`gbListen`); blob URLs
+revoked in cleanup; reused XHR rebuilds handlers per `open()`, not `send()`.
 
 ---
 
@@ -288,17 +320,17 @@ the cleanup path; reused XHR rebuilds handlers per `open()`, not `send()`.
 
 Cheap at current data sizes; ceiling for 1k+ decisions or 100+ towns.
 
-- `orchestrate.js:84-93` — `orchJrnCount` walks entire decisions list per call (2 per feature per tick)
+- `orchestrate.js:84-93` — `orchJrnCount` walks entire decisions list (sampled per feature)
 - `ui.js:21` — sort re-appends every `tr` (use `DocumentFragment`)
 - `ui.js:57` — `makeSortable` rebinds on `placeholder()` teardown
-- `ui.js:1409` — filter + `slice(0,80)` rescans per keystroke
-- `stats.js:179` — three full journal passes per repaint
-- `stats.js:214` — `orchStatus()` called twice per render
+- `ui.js:1422-1426` — findings filter + `slice(0,80)` rescans per keystroke
+- `stats.js:202-223` — journal rollup walk + per-feature loop per Stats repaint
+- `stats.js:236` — `orchStatus()` once per render (OK; older draft claimed twice)
 - `stats.js:41` — `gameNow()` re-evaluated per farm inside filter predicate
-- `towns.js:154` — `save(STORE.TOWNS, state.towns)` even when gameTowns identical
-- `towns.js:170` — `gbTimeout` delay uses `fromHttp * 600` index not town index
-- `towns.js:178` — unlock delay time-based, not completion-based
-- `towns.js:173` — `pruneMapsToIds` runs unconditionally (wipes cache on transient 0-town response)
+- `towns.js:154` — `save(STORE.TOWNS, …)` even when gameTowns identical
+- `towns.js:170` — HTTP stagger uses `fromHttp * 600` (HTTP index), not town index
+- `towns.js:178-180` — unlock delay time-based, not completion-based
+- `towns.js:173-174` — `pruneMapsToIds` runs even on transient empty town lists
 
 Rule: cache `Date.now()` / `gameNow()` once per tick; use
 `DocumentFragment` for batch DOM ops.
@@ -310,17 +342,15 @@ Rule: cache `Date.now()` / `gameNow()` once per tick; use
 The gate that catches name collisions in concat misses some declaration
 shapes. New module using these forms bypasses the gate.
 
-- `build.py:65` — `DECL_RE` misses `class Foo`, `async function foo`, `function*foo`
-- `build.py:65` — anchored at exactly `^  ` 2-space; tabs / deeper indents skipped
-- `build.py:321` — intra-module duplicates silently ignored
-- `build.py:70` — `can_regex` misclassifies `1.5/foo/` as division
-- `build.py:119` — `/* */` comment space insertion can morph numeric literals
-- `build.py:156` — template substitution `${…}` counter advance may overrun nested literal
-- `build.py:358` — `.build-stamp.json` mismatch yields silent warn-and-overwrite (no integrity check)
+- `build.py:65` — `DECL_RE` misses `class Foo`, `async function foo`, `function* foo`
+- `build.py:65` — anchored at exactly `^  ` (2 spaces); tabs / deeper indents skipped
+- `build.py:321-324` — intra-module duplicates silently ignored (`setdefault` keeps first)
+- `build.py:70` — regex-prev set can misclassify division vs regex in edge cases
+- `build.py:119` — `/* */` comment space insertion can morph adjacent tokens
+- `build.py:358` — `.build-stamp.json` mismatch yields warn-and-overwrite (no integrity check)
 
 Rule: tighten `DECL_RE` to match `function|class|async function|function\*`
-followed by optional `*` and whitespace; expand indent detection to tabs
-+ variable leading whitespace.
+with flexible leading whitespace; flag intra-module dupes.
 
 ---
 
@@ -328,13 +358,12 @@ followed by optional `*` and whitespace; expand indent detection to tabs
 
 Header comment lies. Renaming in caller breaks parser silently.
 
-- `parse-inline.js:2` — header says "pure, node-runnable, no GM/DOM" but `pickNum` defined outside
-- `parse-inline.js:57` — `serverTs` accepts any numeric field, no sanity floor (1970 dates)
-- `parse-inline.js:63` — `Date.parse(c)` accepts locale-ambiguous strings, no upper bound
-- `parse-inline.js:76` — `r.defender?.x ?? r.x` takes defender **player's** x as town coord
-- `parse-inline.js:102` — `line.startsWith(id)` false for pipe form; falls back to whole line
-- `parse-inline.js:108` — skip Set holds literal `"null null"` / `"null,null"`
-- `parse-inline.js:140` — inner catch returns `data` (outer object) instead of signalling parse failure
+- `parse-inline.js:2` — header says "pure, node-runnable, no GM/DOM" but `pickNum` is defined in `farms.js:651`
+- `parse-inline.js:57-64` — `serverTs` accepts any positive number; `Date.parse` has no upper bound
+- `parse-inline.js:76-77` — `r.defender?.x ?? r.x` may take defender **player** coords as town coords
+- `parse-inline.js:102` — `line.startsWith(id)` false for some pipe forms; falls back to whole line
+- `parse-inline.js:108` — skip Set holds literal `"null null"` / `"null,null"` when x/y null
+- `parse-inline.js:140` — inner JSON.parse catch returns outer `data` instead of signalling failure
 
 Rule: enforce self-contained claim; bind `pickNum` locally; reject
 non-numeric / out-of-range timestamps.
@@ -344,10 +373,10 @@ non-numeric / out-of-range timestamps.
 ## 20. JSON / state save unconditional full-write — LOW
 
 Every cadence rewrites the whole key, even when value identical.
-`migrateConfig` writes every `WORLD_SCOPED_BASES` key on first run.
+`migrateConfig` re-writes every `WORLD_SCOPED_BASES` key on v1→v2.
 
 - `towns.js:154` — `save(STORE.TOWNS, state.towns)` even when identical
-- `core.js:416-437` — `migrateConfig` bumps `state.configVer` unconditionally; writes every base key
+- `core.js:422-442` — `migrateConfig` bumps `configVer` and re-saves every scoped base once
 
 Rule: shallow-compare before save; migrations idempotent (only write
 when current `state.configVer` differs).
@@ -358,12 +387,12 @@ when current `state.configVer` differs).
 
 `ok` predicate is tautological. Diag reports green when probe is broken.
 
-- `stats.js:18` — `ok: r.ok !== false` (probe that forgets to return ok → pass)
-- `stats.js:25` — `gameUw()`/`gameBridgeStatus()` called outside any probe (throw aborts preflight, no rows)
+- `stats.js:18` — `ok: r.ok !== false` (probe that forgets to return `ok` → pass)
+- `stats.js:25-26` — `gameUw()` / `gameBridgeStatus()` outside any probe (throw aborts whole preflight)
 - `stats.js:114` — `RESEARCH_CS_FAST[0]` indexed with no length check
 - `stats.js:120` — `ok: blind < 5` (passes with 4 of 5 cost tables unreadable)
-- `stats.js:129` — `ok: true` hardcoded (incoming probe can never fail)
-- `stats.js:134` — `ok: n >= 0` is tautology (quests probe can never fail)
+- `stats.js:131` / `152` / `168` — `ok: true` hardcoded (cancel / incoming / scheduler never fail)
+- `stats.js:157` — `ok: n >= 0` tautology (quests probe can never fail)
 
 Rule: every probe must have a falsy default (`ok: false`); explicit
 checks for each truth condition.
@@ -372,67 +401,59 @@ checks for each truth condition.
 
 ## 22. Inline jtag inconsistent across bridge paths — LOW
 
-`core.js:bridgePost` uses `jrnTag()`; `gameAjaxPost` constructs `jtag`
-inline with a different shape. Stats rollups split.
+`bridgePost` uses `jrnTag()`; `gameAjaxPost` constructs `jtag` inline
+with a different shape. Stats rollups split across transports.
 
-- `core.js:1014` — `gameAjaxPost` builds `jtag` inline; target pulled from `data.building_id` etc.
-- `core.js:1019` — redundant `captchaGlobalUntil` recheck (already inside `automationPaused`)
-- `core.js:982, 1042` — `const timer` declared **after** `finish` references it (TDZ-adjacent)
-- `core.js:453` — `SERVER_PRESSURE_RE` matches "slow down" (broad; false-trips on game errors)
-- `core.js:479-482` — `noteServerPressure` opens 10-20s cooldown on transient blips
-- `core.js:717-730` — `load()` silently swallows GM_getValue exceptions (corrupted key looks empty)
+- `core.js:1020` — `gameAjaxPost` builds `jtag` inline; target from `data.building_id` etc.
+- `core.js:1025` — redundant `captchaGlobalUntil` recheck (already inside `automationPaused`)
+- `core.js:978-991` / `1039-1048` — `const timer` declared after `finish` closes over it
+  (`bridgePost` timer @988, `gameAjaxPost` @1048; safe at call time, easy to break)
+- `core.js:484-487` — `noteServerPressure` opens 10–20s cooldown on any regex hit
+- `core.js:723-734` — `load()` silently swallows `GM_getValue` exceptions (corrupt key → empty)
 
-Rule: single `jrnTag()` shape; lift `timer` declaration above `finish`;
-tighten `SERVER_PRESSURE_RE` to backend-specific phrases.
+Rule: single `jrnTag()` shape; lift `timer` above `finish`; tighten
+`SERVER_PRESSURE_RE` to backend-specific phrases.
 
 ---
 
 ## 23. TOCTOU / mid-iteration state mutation — LOW
 
-`host/paused` re-check happens inside forEach after parent guard;
+`host` / paused re-check happens inside forEach after parent guard;
 fetches scheduled earlier outlive a mid-iteration pause flip.
 
-- `towns.js:168` — host/paused re-check inside forEach after parent guard
-- `towns.js:155` — fallback branch `else if (!state.towns.length)` only fires when empty
-- `bandit.js:129` — offense filter deletes units mid-iteration over its own Object.keys snapshot
+- `towns.js:168` — host/paused re-check inside forEach after parent path
+- `towns.js:155` — HTTP fallback only when `state.towns` already empty
+- `bandit.js:125-131` — offense filter deletes units while iterating `Object.keys` snapshot (OK for keys;
+  mutating `units` mid-loop is intentional but easy to misread)
 
 Rule: snapshot decision state at start of iteration; re-check only on
 result, not mid-iteration.
 
 ---
 
-## 24. Orphans / dead code paths — LOW
+## 24. Orphans / dead / fragile paths — LOW
 
-- `core.js:309` — `load(wkey(STORE.FARM_ACTION), null) || load(STORE.FARM_ACTION, null)` legacy fallback
-- `spy.js:13` — empty `if (uw.fetch._grepbot) {}` block
-- `ui.js:886` — empty `if (!was) { }` block
-- `build-tab.js:213` — `finishInstantly` fallback never calls `ibLearnAction`
-- `build-tab.js:117` — `gbLogT('ib-src')` sits after the `!candidates` early return
-
----
-
-## 25. Documenting intent vs observed behavior — LOW
-
-`Sec.hidden` guards are present in `renderBuild`/`renderStats`/
-`renderIntel`/`renderOverview` but absent in `renderFarms`/`renderWorld`/
-`renderFindings`/`farms.js:checkThresholds`. Same intent, half coverage.
+- `core.js:313` — `load(wkey(STORE.FARM_ACTION), null) || load(STORE.FARM_ACTION, null)` legacy fallback
+- `spy.js:13-15` — no-op `_grepbot` re-bind branch
+- `build-tab.js:213-221` — `finishInstantly` fallback never calls `ibLearnAction`
+- Pattern #9 / #8 overlap: hidden-tab + thrash often co-occur on the same renderers
 
 ---
 
 ## Cross-cutting rules (consolidated)
 
-1. **Every catch must `gbLog`.** Pattern #1.
-2. **Every bridge path must `automationPaused({})` first.** Pattern #2.
+1. **Every feature-catch must `gbLog`.** Pattern #1.
+2. **Call sites should bail on `automationPaused` early; never bypass `bridgePost`/`gameAjaxPost`.** Pattern #2.
 3. **Irreversible posts must reconcile inside callback.** Patterns #3, #5.
-4. **Blind probe → `gbLogT` once, defer to server.** Pattern #4.
+4. **Blind probe → `{blind:true}` + `gbLogT` once, defer to server (never fabricate 0/false).** Pattern #4.
 5. **Selectors / innerHTML escape untrusted ids.** Pattern #6.
-6. **Diag / Export / webhook pass through `redactFindingsExport`.** Patterns #7, #22.
+6. **Diag / Export / webhook pass through `redactFindingsExport`.** Pattern #7.
 7. **Keyed-row patch + `_last` guard + `sec.hidden` check.** Patterns #8, #9.
 8. **`gbLock` + TTL on every bridge-triggering path.** Pattern #10.
-9. **`gbSetTimeout` / `gbClearTimer` only.** Pattern #11.
+9. **`gbTimeout` + bag-aware clear only.** Pattern #11.
 10. **`resolveTarget` or canonical-type guard on attack/dodge/support.** Pattern #12.
 11. **Precondition readers (`gbAfford`, `gbTownPop`, `gbPlayerGold`, `gbBuildingLevel`) before every post.** Pattern #13.
-12. **`gbLog` / `gbLogT` over `console.*`.** Pattern #14.
+12. **`gbLog` / `gbLogT` over ad-hoc `console.*`.** Pattern #14.
 13. **`?? default` over `|| default`.** Pattern #15.
 14. **Listener / timer / blob lifecycle cleanup.** Pattern #16.
 15. **Cache `Date.now()` / `gameNow()` per tick; `DocumentFragment`.** Pattern #17.
@@ -444,11 +465,10 @@ result, not mid-iteration.
 
 ---
 
-## Files touched
+## Files covered
 
-Generated from subagent scans of:
 `header.js core.js boot.js footer.js orchestrate.js journal.js`
 `attack.js military.js recruit.js bandit.js favor.js wonder.js spy.js dodge.js`
 `farms.js collect.js cave.js culture.js trade.js rural.js research.js merchant.js`
 `ui.js stats.js alerts.js qol.js intel.js parse-inline.js build-tab.js`
-`towns.js quests.js build.py .build-stamp.json`
+`towns.js quests.js build.py`

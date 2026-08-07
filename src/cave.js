@@ -18,10 +18,36 @@
 
   // Method names differ per client build, so every read below is a probe list,
   // never one hardcoded call (`gbProbeNum` / `gbProbeAttr` live in core.js).
+  // Town API (game.min): getHideStorageCapacity / getEspionageStorage;
+  // capacity = hideLvl * getMaxStorageLimitPerHideLevel() unless max hide,
+  // which returns getHideStorageLevelUnlimited() === -1 (∞ sentinel).
   const CAVE_CAP_FNS = ['getHideStorageCapacity', 'getEspionageStorageCapacity', 'getHideCapacity',
     'getMaxEspionageStorage', 'getEspionageStoreCapacity'];
   const CAVE_STORED_FNS = ['getEspionageStorage', 'getHideStorage', 'getEspionageStore',
     'getStoredIron', 'getHideIron'];
+
+  // GameData.constants.common.hide_storage_level_unlimited — always -1 on live.
+  // MUST compare with === / < 0, never >= : any positive hideCap is >= -1.
+  function caveUnlimSentinel() {
+    try {
+      const gdb = uwCached().GameDataBuildings;
+      if (gdb && typeof gdb.getHideStorageLevelUnlimited === 'function') {
+        const v = +gdb.getHideStorageLevelUnlimited();
+        if (isFinite(v)) return v;
+      }
+    } catch (_) {}
+    return -1;
+  }
+  function cavePerLevelLimit() {
+    try {
+      const gdb = uwCached().GameDataBuildings;
+      if (gdb && typeof gdb.getMaxStorageLimitPerHideLevel === 'function') {
+        const v = +gdb.getMaxStorageLimitPerHideLevel();
+        if (isFinite(v) && v > 0) return v;
+      }
+    } catch (_) {}
+    return null;
+  }
 
   function caveTownInfo(townId) {
     const uw = uwCached();
@@ -70,18 +96,30 @@
     } catch (_) {}
     try {
       const gdb = uw.GameDataBuildings;
-      if (hideCap == null && gdb) hideCap = gbProbeNum(gdb, ['getHideStorageCapacity', 'getEspionageStorage'], [hideLvl]);
       const gd = uw.GameData && uw.GameData.buildings && uw.GameData.buildings.hide;
-      if (hideCap == null && gd && gd.storage != null) {
+      const maxHide = gd && gd.max_level;
+      if (maxHide != null && hideLvl >= +maxHide) unlimited = true;
+      // Town.getHideStorageCapacity at max level returns the ∞ sentinel (-1).
+      const unlim = caveUnlimSentinel();
+      if (hideCap != null && (hideCap === unlim || hideCap < 0)) unlimited = true;
+      // Formula fallback when the town method is missing / throws (Diag saw hideCap=null
+      // with stored=5000 on hide5 → 5×1000, i.e. already full and still posting).
+      if (!unlimited && !(hideCap > 0) && hideLvl > 0) {
+        const per = cavePerLevelLimit();
+        if (per > 0) hideCap = hideLvl * per;
+      }
+      if (!unlimited && !(hideCap > 0) && gd && gd.storage != null) {
         const s = gd.storage;
         const v = +(Array.isArray(s) || typeof s === 'object' ? s[hideLvl] : s);
         if (isFinite(v) && v > 0) hideCap = v;
       }
-      const maxHide = gd && gd.max_level;
-      if (maxHide != null && hideLvl >= +maxHide) unlimited = true;
-      const unlimFn = gdb && gdb.getHideStorageLevelUnlimited;
-      if (typeof unlimFn === 'function' && hideCap != null && hideCap >= +unlimFn()) unlimited = true;
+      // Never probe getEspionageStorage on GameDataBuildings — that is the town
+      // *stored* reader, not a capacity table.
+      if (!unlimited && !(hideCap > 0) && gdb) {
+        hideCap = gbProbeNum(gdb, ['getHideStorageCapacity'], [hideLvl]);
+      }
     } catch (_) {}
+    if (unlimited) hideCap = null; // UI shows ∞; free-space math must not use -1
     return { town: t, hideLvl, iron, cap, hideCap, stored, unlimited };
   }
 
@@ -115,8 +153,10 @@
     if (info.iron < keep) return 0; // not at threshold yet
     let excess = Math.floor(info.iron - keep);
     if (excess < CAVE_MIN_STORE) return 0;
-    // Finite cave: don't overflow. Unlimited (max hide) → stash all excess.
-    if (!info.unlimited && info.hideCap != null && info.hideCap > 0 && info.stored != null) {
+    // Unlimited (max hide) → stash all excess. Finite → clamp / refuse when full.
+    // Unknown finite capacity or stored → refuse (don't burn budget on a full cave).
+    if (!info.unlimited) {
+      if (!(info.hideCap > 0) || info.stored == null) return 0;
       const free = Math.floor(info.hideCap - info.stored);
       if (free <= 0) return 0; // cave full
       excess = Math.min(excess, free);
@@ -172,8 +212,13 @@
         gbLogT('cave-nohide-' + id, 300000, `cave: town ${id} has no hide building`);
         continue;
       }
-      if (!info.unlimited && info.hideCap != null && info.stored != null && info.stored >= info.hideCap) {
+      if (!info.unlimited && info.hideCap > 0 && info.stored != null && info.stored >= info.hideCap) {
         gbLogT('cave-full-' + id, 120000, `cave: town ${id} hide full (${info.stored}/${info.hideCap})`);
+        continue;
+      }
+      if (!info.unlimited && (!(info.hideCap > 0) || info.stored == null)) {
+        gbLogT('cave-unknown-' + id, 300000,
+          `cave: town ${id} skip stash (hideCap=${info.hideCap} stored=${info.stored}) — open cave once or run caveDiag()`);
         continue;
       }
       const amt = caveExcessAmount(info);

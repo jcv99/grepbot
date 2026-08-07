@@ -55,6 +55,10 @@
           };
           save(wkey(STORE.ATTACK_TPL), state.attackTpl);
           gbLog('learned attack template:', JSON.stringify(state.attackTpl).slice(0, 200));
+          const destId = j.arguments && j.arguments.id;
+          if (destId != null && typeof attackRememberTarget === 'function') {
+            attackRememberTarget(destId, { src: 'learned' });
+          }
         }
       } else if (/Command/.test(body) && /cancelCommand/i.test(body)) {
         const j = parseBodyLoose(body);
