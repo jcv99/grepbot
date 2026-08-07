@@ -113,7 +113,7 @@
         return true;
       }
       if (banditWrongIsland(uw, m)) {
-        gbLogT('bandit-island', 60000, 'bandit: camp on other island — switch town or skip');
+        gbLogT('bandit-island', 60000, 'bandit: camp on other island - switch town or skip');
         banditIdle(30000);
         return true;
       }
@@ -162,10 +162,11 @@
       const victory = document.querySelector('.attack_spot_victory .btn_collect, .attack_spot_victory .button_new.double_border');
       if (victory && !victory.dataset.grepbotClicked) {
         victory.dataset.grepbotClicked = String(Date.now());
-        victory.click();
-        gbLog('bandit: collected reward (DOM)');
-        flash('bandit: collected reward');
-        logBandit('collected');
+        if (gbDomClick(victory, 'bandit-reward')) {
+          gbLog('bandit: collected reward (DOM)');
+          flash('bandit: collected reward');
+          logBandit('collected');
+        }
         return;
       }
       try {
@@ -227,10 +228,11 @@
           const stillOff = atkBtn && (atkBtn.getAttribute('disabled') != null || atkBtn.disabled === true);
           if (atkBtn && !stillOff) {
             atkBtn.dataset.grepbotClicked = String(Date.now());
-            atkBtn.click();
-            gbLog('bandit: attack sent (DOM, offense-only)');
-            flash('bandit: attack sent');
-            logBandit('attack');
+            if (gbDomClick(atkBtn, 'bandit-attack')) {
+              gbLog('bandit: attack sent (DOM, offense-only)');
+              flash('bandit: attack sent');
+              logBandit('attack');
+            }
           }
         }, 250);
         return;
@@ -272,5 +274,5 @@
     save(STORE.BANDIT_LOG, state.banditLog);
   }
   banditScheduleNext();
-  gbInterval(autoCollectResources, 5000);
+  if (state.autoCollect) gbInterval(autoCollectResources, 5000);
   if (state.collectAll) collectAllBackground();

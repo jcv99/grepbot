@@ -221,7 +221,7 @@
       troopMode: 'offense', // all | offense | defense | all_of_type | per_town | harass
       harassPreset: 'light',
       unitType: 'sword',
-      sourceTownIds: [],
+      sourceTownIds: null, // null = all towns; [] = explicitly none
       perTownUnits: {},
     };
   }
@@ -304,7 +304,7 @@
     saveAttackPlan();
     renderAttack();
     const label = t.name ? `${t.name} (#${t.id})` : String(t.id);
-    flash('target → ' + label);
+    flash('target -> ' + label);
   }
   function attackTownGroup(name) {
     return ((state.townGroups && state.townGroups[name]) || []).map(String);
@@ -332,7 +332,7 @@
   function attackSelectRoleSources(role) {
     const ids = attackTownGroup(role);
     if (!ids.length) {
-      flash(`no ${role} cities tagged — check boxes below first`);
+      flash(`no ${role} cities tagged - check boxes below first`);
       return;
     }
     attackSelectSources(ids);
@@ -402,7 +402,7 @@
     if (!towns.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#666;font-size:10px';
-      e.textContent = 'load towns first (World tab → refresh)';
+      e.textContent = 'load towns first (World tab -> refresh)';
       box.appendChild(e);
       return;
     }
@@ -478,7 +478,7 @@
       return { id, vill_id: id, town_id: null, kind: 'farm_town', x: x != null ? +x : null, y: y != null ? +y : null, island };
     }
 
-    // Town seen in spy reports / recent targets — player cities, not farm villages
+    // Town seen in spy reports / recent targets - player cities, not farm villages
     const finding = (state.findings || []).find(f => f.town && String(f.town.id) === id);
     if (finding && finding.town) {
       kind = kind || 'town';
@@ -492,9 +492,29 @@
       return { id, vill_id: null, town_id: id, kind: 'town', x: x != null ? +x : null, y: y != null ? +y : null, island };
     }
 
+    // Town model (enemy city open on map / cached in MM)
+    try {
+      const uw = gameUw();
+      const m = uw.MM && uw.MM.getModel && uw.MM.getModel('Town', id);
+      if (m) {
+        const a = m.attributes || {};
+        return {
+          id, vill_id: null, town_id: id, kind: 'town',
+          x: x != null ? +x : (a.x != null ? +a.x : null),
+          y: y != null ? +y : (a.y != null ? +a.y : null),
+          island: a.island_id || a.island || island,
+        };
+      }
+    } catch (_) {}
+
+    // Manual numeric town id - player city, not a farm village
+    if (/^\d+$/.test(id) && explicitType !== 'farm_town' && explicitType !== 'farm' && explicitType !== 'village') {
+      return { id, vill_id: null, town_id: id, kind: 'town', x: x != null ? +x : null, y: y != null ? +y : null, island };
+    }
+
     // Explicit type required when not resolvable from known models
     if (!kind) {
-      gbLogT('atk-target', 30000, `attack: id ${id} has no canonical type — blocked`);
+      gbLogT('atk-target', 30000, `attack: id ${id} has no canonical type - blocked`);
       return null;
     }
     if (kind === 'farm_town' || kind === 'farm' || kind === 'village') {
@@ -508,16 +528,19 @@
   }
   function attackSendAllowed(target) {
     if (!target || !target.kind) return false;
-    // Town/sendUnits path requires a town destination — villages must not use it
+    // Town/sendUnits path requires a town destination - villages must not use it
     if (target.kind === 'farm_town') return false;
     return target.kind === 'town' && target.town_id;
   }
   function buildAttackSchedule(plan) {
     const target = resolveTarget(plan);
     if (!target) return { error: 'no target', rows: [] };
-    let sources = (plan.sourceTownIds && plan.sourceTownIds.length)
-      ? plan.sourceTownIds.map(String)
-      : (state.towns || []).map(t => String(t.id));
+    let sources;
+    if (plan.sourceTownIds == null) {
+      sources = (state.towns || []).map(t => String(t.id));
+    } else {
+      sources = (plan.sourceTownIds || []).map(String);
+    }
     if (!sources.length) return { error: 'no source towns', rows: [] };
     const now = serverNow();
     const skew = clientServerSkewMs();
@@ -605,7 +628,7 @@
     attackArmed = null;
     renderAttack();
   }
-  // Fire-wave status only — avoid rebuilding source checkboxes on every tick
+  // Fire-wave status only - avoid rebuilding source checkboxes on every tick
   function patchAttackFireStatus() {
     const sec = panel && panel.querySelector('section[data-tab=attack]');
     if (!sec || sec.hidden) return;
@@ -622,7 +645,7 @@
     const armed = sec.querySelector('#gb-atk-armed');
     if (armed) armed.textContent = attackArmed ? `ARMED (${attackArmed.rows.length})` : '';
   }
-  // Max arm-ahead window — long timers are not military-grade; overdue after
+  // Max arm-ahead window - long timers are not military-grade; overdue after
   // tab suspend must not auto-fire.
   const ATTACK_ARM_MAX_MS = 90000;
   function armAttackWave(plan, rows) {
@@ -630,7 +653,7 @@
     const target = resolveTarget(plan);
     if (!target || !attackSendAllowed(target)) {
       flash('cannot arm: target unresolved or not a town');
-      gbLog('attack: arm blocked — need canonical town target (villages unsupported)');
+      gbLog('attack: arm blocked - need canonical town target (villages unsupported)');
       return;
     }
     const timers = [];
@@ -639,7 +662,7 @@
     attackArmed = { timers, rows, plan, cancel: cancelArmedAttack, armedAt };
     const skew0 = clientServerSkewMs();
     gbLog(`attack: armed ${rows.length} towns mode=${plan.timingMode} skew=${Math.round(skew0)}ms (max window ${ATTACK_ARM_MAX_MS}ms)`);
-    flash('Browser timers are not military-precise — long waits will not auto-fire');
+    flash('Browser timers are not military-precise - long waits will not auto-fire');
     rows.forEach((row, idx) => {
       if (!row.unitCount || !row.boats.ok) {
         gbLog(`attack: skip ${row.townId} status=${row.status}`);
@@ -663,7 +686,7 @@
         return;
       }
       if (delayMs > ATTACK_ARM_MAX_MS) {
-        gbLog(`attack: ${row.townId} delay ${Math.round(delayMs)}ms > ${ATTACK_ARM_MAX_MS}ms — not arming (re-arm closer to send)`);
+        gbLog(`attack: ${row.townId} delay ${Math.round(delayMs)}ms > ${ATTACK_ARM_MAX_MS}ms - not arming (re-arm closer to send)`);
         row.fireStatus = 'too-far';
         return;
       }
@@ -741,7 +764,7 @@
     }
     plan.targetX = target.x ?? plan.targetX;
     plan.targetY = target.y ?? plan.targetY;
-    if (!plan.sourceTownIds.length) plan.sourceTownIds = (state.towns || []).map(t => String(t.id));
+    if (plan.sourceTownIds == null) plan.sourceTownIds = (state.towns || []).map(t => String(t.id));
     saveAttackPlan();
     // switch to Attack tab
     if (typeof showTab === 'function') showTab('attack');
@@ -788,7 +811,7 @@
     const rows = attackPreviewRows.length ? attackPreviewRows : [];
     // This runs on every fire-status tick while a wave is armed. Rebuilding the
     // whole schedule each time threw away rows that only needed their status
-    // cell changed — patch by town id, rebuild only when the row set changes.
+    // cell changed - patch by town id, rebuild only when the row set changes.
     if (!rows.length) {
       if (!table.dataset.empty) {
         table.replaceChildren();
@@ -850,7 +873,7 @@
         pick.replaceChildren();
         const o0 = document.createElement('option');
         o0.value = '';
-        o0.textContent = targets.length ? `pick town (${targets.length})…` : 'no known towns yet';
+        o0.textContent = targets.length ? `pick town (${targets.length})...` : 'no known towns yet';
         pick.appendChild(o0);
         targets.forEach(t => {
           const o = document.createElement('option');
@@ -870,12 +893,12 @@
       if (resolved && resolved.kind === 'town') {
         const nm = known?.name || '';
         const coord = (resolved.x != null && resolved.y != null) ? ` (${resolved.x}|${resolved.y})` : '';
-        hint.textContent = `town #${plan.targetId}${nm ? ' · ' + nm : ''}${coord}`;
+        hint.textContent = `town #${plan.targetId}${nm ? '  |  ' + nm : ''}${coord}`;
         hint.style.color = '#6dda7e';
       } else if (plan.targetId) {
         hint.textContent = resolved
-          ? `${resolved.kind} #${plan.targetId} — city attacks need kind=town`
-          : 'unresolved — pick from list, click Current in-game, or add x/y';
+          ? `${resolved.kind} #${plan.targetId} - city attacks need kind=town`
+          : 'unresolved - pick from list, click Current in-game, or add x/y';
         hint.style.color = '#f96';
       } else {
         hint.textContent = 'pick a town from spy reports, or click a city in-game then Current';
@@ -919,8 +942,9 @@
       // rebuilt below when needed
     }
     if (srcBox) {
-      const selected = new Set((plan.sourceTownIds || []).map(String));
-      if (!selected.size) (state.towns || []).forEach(t => selected.add(String(t.id)));
+      const selected = plan.sourceTownIds == null
+        ? new Set((state.towns || []).map(t => String(t.id)))
+        : new Set((plan.sourceTownIds || []).map(String));
       // Checkbox list only needs rebuilding when the town list changes; otherwise
       // just re-sync checked state (a rebuild mid-click dropped the user's edit).
       const sig = (state.towns || []).map(t => t.id + ':' + (t.name || '')).join('|') +
@@ -967,8 +991,9 @@
       per.hidden = plan.troopMode !== 'per_town';
       if (plan.troopMode === 'per_town') {
         per.replaceChildren();
-        const ids = (plan.sourceTownIds && plan.sourceTownIds.length)
-          ? plan.sourceTownIds : (state.towns || []).map(t => String(t.id));
+        const ids = plan.sourceTownIds == null
+          ? (state.towns || []).map(t => String(t.id))
+          : (plan.sourceTownIds || []).map(String);
         ids.forEach(tid2 => {
           const town = (state.towns || []).find(t => String(t.id) === String(tid2)) || { id: tid2, name: tid2 };
           const wrap = document.createElement('div');
@@ -1048,7 +1073,7 @@
           const row = document.createElement('div');
           row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr .7fr auto;gap:4px;font-size:10px;border-bottom:1px solid #2a2a2a;padding:2px 0;align-items:center';
           const c1 = document.createElement('span');
-          c1.textContent = `${townNameById(r.home)} → ${r.target}`;
+          c1.textContent = `${townNameById(r.home)} -> ${r.target}`;
           c1.title = `cmd ${r.commandId}`;
           const c2 = document.createElement('span');
           c2.textContent = r.type || 'move';
@@ -1060,7 +1085,7 @@
           btn.textContent = 'Cancel';
           btn.style.cssText = 'background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px';
           btn.addEventListener('click', () => {
-            if (!confirm(`Cancel outgoing ${r.type || 'command'} ${r.commandId}?\n${townNameById(r.home)} → ${r.target}`)) return;
+            if (!confirm(`Cancel outgoing ${r.type || 'command'} ${r.commandId}?\n${townNameById(r.home)} -> ${r.target}`)) return;
             militaryCancelCommand(r.commandId, { confirmed: true, townId: r.home }, (err) => {
               flash(err ? ('cancel failed: ' + err) : 'command cancelled');
               renderAttack();
@@ -1104,7 +1129,7 @@
       row.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:10px;border-bottom:1px solid #2a2a2a;padding:3px 0';
       const lab = document.createElement('span');
       lab.style.flex = '1';
-      lab.textContent = `${h.name} Lv${h.level} · ${h.status}` +
+      lab.textContent = `${h.name} Lv${h.level}  |  ${h.status}` +
         (h.home ? ` @${townNameById(h.home)}` : '');
       row.appendChild(lab);
       if (h.traveling) {
@@ -1139,7 +1164,7 @@
         b.addEventListener('click', () => {
           const tid = townSel.value;
           if (!tid) { flash('pick a town'); return; }
-          if (!confirm(`Assign ${h.name} → ${townNameById(tid)}?\n(travel time applies)`)) return;
+          if (!confirm(`Assign ${h.name} -> ${townNameById(tid)}?\n(travel time applies)`)) return;
           heroAssignToTown(h.type, tid, { confirmed: true }, (err) => {
             flash(err ? ('hero assign failed: ' + err) : 'hero transfer started');
             renderAttack();
@@ -1206,7 +1231,7 @@
       const cur = attackCurrentTownId();
       if (!cur) { flash('no town selected in game'); return; }
       if (cur.own) {
-        flash('current town is yours — open an enemy city on the map first');
+        flash('current town is yours - open an enemy city on the map first');
         return;
       }
       applyAttackTarget(cur);

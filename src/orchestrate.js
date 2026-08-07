@@ -4,13 +4,13 @@
   //
   // v1.4.0 fixes three scheduling bugs:
   //   1. one feature per 20s tick = 3 actions/min ceiling, while cave+build+
-  //      recruit alone want 6/min → the tail of the priority order starved.
+  //      recruit alone want 6/min -> the tail of the priority order starved.
   //      A tick now runs up to ORCH_MAX_PER_TICK due features, spaced out.
   //   2. features were picked strictly by list order, so a permanently-due
   //      high-priority feature could hold the front forever. Overdue-ness
   //      (now - due) now breaks ties, so waiting climbs.
   //   3. exact constant cadences put every feature back in lockstep after the
-  //      first alignment, producing periodic bursts. Cadences carry ±20% jitter.
+  //      first alignment, producing periodic bursts. Cadences carry +/-20% jitter.
   const ORCH_MS = 20000;
   const ORCH_MAX_PER_TICK = 3;
   const ORCH_SPACING_MS = 450;
@@ -34,7 +34,7 @@
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
     recruit: 'recruit', merchant: 'merchant', favor: 'favor', wonder: 'wonder',
   };
-  // Journal feature key each handler posts under — used to tell "ran and acted"
+  // Journal feature key each handler posts under - used to tell "ran and acted"
   // from "ran and found nothing to do".
   const ORCH_JRN = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
@@ -44,8 +44,8 @@
   const ORCH_IDLE_TRIP = 4; // consecutive no-op runs before widening
   const ORCH_IDLE_MAX = 8; // cadence multiplier ceiling
   const orchLastRun = {};
-  const orchIdle = {}; // key → consecutive runs that posted nothing
-  const orchJrnMark = {}; // key → journal entry count seen at last run
+  const orchIdle = {}; // key -> consecutive runs that posted nothing
+  const orchJrnMark = {}; // key -> journal entry count seen at last run
   const ORCH_HANDLERS = {
     culture: () => { try { cultureScan('orch'); } catch (_) {} },
     cave: () => { try { caveScan('orch'); } catch (_) {} },
@@ -157,7 +157,7 @@
     }
     if (!due.length) return;
     // Priority first, but a feature that has been waiting more than 2 full ticks
-    // longer than a higher-ranked one jumps ahead — that is the anti-starvation
+    // longer than a higher-ranked one jumps ahead - that is the anti-starvation
     // rule, without letting a low-priority feature win on a normal tick.
     due.sort((a, b) => {
       const gap = b.overdue - a.overdue;

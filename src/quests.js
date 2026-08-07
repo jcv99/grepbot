@@ -234,7 +234,7 @@
     const nextTitle = entry.title != null ? entry.title : prev.title;
     const nextName = entry.name != null ? entry.name : prev.name;
     const nextSig = questRewardsSig(rewards);
-    // Cheap equality — skip stringify + GM_setValue on every 12s ingest tick
+    // Cheap equality - skip stringify + GM_setValue on every 12s ingest tick
     const unchanged = prev.questId != null
       && prev.progress === nextProgress
       && !!prev.canClaim === nextCanClaim
@@ -304,7 +304,7 @@
     const pid = entry.progressableId || entry.questId;
     if (!pid || !(uw.gpAjax && uw.gpAjax.ajaxPost)) return onDone && onDone('noajax');
     // model_url needs the model's own numeric id (130950), not the progressable
-    // NAME ('BuildCaveLevel5') — a name-keyed url never resolves, gpAjax never
+    // NAME ('BuildCaveLevel5') - a name-keyed url never resolves, gpAjax never
     // calls back, and the game pops its own error dialog on every retry.
     const mid = /^\d+$/.test(String(entry.questId)) ? String(entry.questId) : String(pid);
     if (!/^\d+$/.test(mid)) return onDone && onDone('no-numeric-id');
@@ -354,7 +354,7 @@
   function questAutoClaim(root, entry) {
     if (questAutoBusy || !entry?.canClaim) return;
     const rewards = entry.rewards || [];
-    // ALL rewards must be classified + permitted — mixed packs are never claimed
+    // ALL rewards must be classified + permitted - mixed packs are never claimed
     if (!rewards.length || !rewards.every(isSafeQuestReward)) return;
     if (!state.questAutoBuild && !state.questAutoRes) return;
     if (questClaimBlocked(entry.questId)) {
@@ -389,14 +389,14 @@
       return true;
     };
     claimQuestViaBridge(entry, (err) => {
-      // No DOM fallback — timeout/unknown must not claim a different quest
+      // No DOM fallback - timeout/unknown must not claim a different quest
       if (err === 'timeout') {
         if (!questStillClaimable()) return finish('bridge-reconcile', true);
         return finish('bridge', false, 'timeout_unknown');
       }
       if (err) return finish('bridge', false, err);
       if (!questStillClaimable()) return finish('bridge', true);
-      // Response OK but quest still claimable → ambiguous
+      // Response OK but quest still claimable -> ambiguous
       return finish('bridge', false, 'unconfirmed');
     });
   }

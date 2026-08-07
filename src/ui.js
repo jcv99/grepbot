@@ -35,7 +35,7 @@
   // ---------- keyed table rendering (v1.4.0) ----------
   // renderFarms/renderWorld ran `replaceChildren()` on every scrape callback and
   // every 15s repaint: full table teardown, new nodes, new listeners, lost sort
-  // order and lost scroll position. Rows are now keyed by id — the table is only
+  // order and lost scroll position. Rows are now keyed by id - the table is only
   // rebuilt when the id set itself changes, otherwise cells are patched in place
   // and untouched cells are never written.
   function tableShell(list, headers) {
@@ -115,15 +115,11 @@
         tr.dataset.key = key;
         cells.forEach(() => tr.appendChild(document.createElement('td')));
         const actions = document.createElement('td');
-        const atkBtn = document.createElement('button');
-        atkBtn.textContent = 'ATK'; atkBtn.title = 'Prepare attack';
-        atkBtn.style.cssText = 'background:none;border:1px solid #555;color:#f96;padding:1px 5px;cursor:pointer;font-size:11px';
-        atkBtn.addEventListener('click', () => prepareAttack(f));
         const thrBtn = document.createElement('button');
         thrBtn.textContent = 'THR'; thrBtn.title = 'Set threshold';
-        thrBtn.style.cssText = 'background:none;border:1px solid #555;color:#fc6;padding:1px 5px;cursor:pointer;font-size:11px;margin-left:2px';
+        thrBtn.style.cssText = 'background:none;border:1px solid #555;color:#fc6;padding:1px 5px;cursor:pointer;font-size:11px';
         thrBtn.addEventListener('click', () => editThreshold(f));
-        actions.appendChild(atkBtn); actions.appendChild(thrBtn);
+        actions.appendChild(thrBtn);
         tr.appendChild(actions);
         tbody.appendChild(tr);
       }
@@ -532,7 +528,7 @@
         <span style="font-size:9px;color:#888;align-self:center">harass</span>
         <button type="button" data-harass="1sling" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">1 sling</button>
         <button type="button" data-harass="5sling" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">5 sling</button>
-        <button type="button" data-harass="light" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">light (≤8)</button>
+        <button type="button" data-harass="light" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">light (<=8)</button>
       </div>
       <div style="font-size:9px;color:#888;margin-top:2px">offensive / defensive cities (saved per world)</div>
       <div class="atk-roles"></div>
@@ -586,7 +582,7 @@
         <button id="gb-ab-csfast" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Load CS-fast</button>
         <button id="gb-ab-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Queue now</button>
       </div>
-      <div style="font-size:9px;color:#888;margin-bottom:4px">Auto only fills when ≤1 order left: adds up to 6 (or queue max). Next fill waits half(build time)+5min+rand — not right when a build finishes. Targets = cur/tgt/max.</div>
+      <div style="font-size:9px;color:#888;margin-bottom:4px">Auto only fills when <=1 order left: adds up to 6 (or queue max). Next fill waits half(build time)+5min+rand - not right when a build finishes. Targets = cur/tgt/max.</div>
       <div class="ab-queue"></div>
       <div id="gb-ab-status" style="font-size:10px;color:#888;margin-top:4px"></div>
     </section>
@@ -613,6 +609,7 @@
     <section data-tab="config" hidden>
       <div class="config-panel" style="font-size:11px;display:flex;flex-direction:column;gap:8px">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="enabled-host"/> Enable on <span class="cfg-host"></span></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-collect"/> Auto-collect Recoger (DOM)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="collect-all"/> Recolect all (ignore timer cap)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-bandit"/> Auto-bandit</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-farm"/> Auto-farm</label>
@@ -645,7 +642,7 @@
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-build"/> Auto-claim quest build discount</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-res"/> Auto-claim quest resources/favor</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-cave"/> Auto-cave (stash excess iron)</label>
-        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Cave when iron ≥ % of warehouse
+        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Cave when iron >= % of warehouse
           <input type="number" data-cfg="cave-thresh" min="50" max="99" style="width:50px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
         </label>
         <div style="margin-left:12px;font-size:10px;color:#888">Per-town (unchecked = skip that town):</div>
@@ -672,7 +669,7 @@
           Reserve % <input type="number" data-cfg="trade-reserve" min="0" max="80" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
           Min batch <input type="number" data-cfg="trade-min" min="100" max="50000" step="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="island-ship"/> Mainland→island res ship</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="island-ship"/> Mainland->island res ship</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-trade"/> Rural village trade</label>
         <label style="margin-left:12px;flex-wrap:wrap">Min ratio <input type="number" data-cfg="rural-ratio" step="0.25" min="0.25" max="2" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>
           Res <select data-cfg="rural-res" style="background:#111;color:#cfc;border:1px solid #333"><option>iron</option><option>stone</option><option>wood</option></select>
@@ -685,14 +682,14 @@
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="pause-activity"/> Pause when I am active</label>
         <label style="margin-left:12px">Pause min <input type="number" data-cfg="pause-ms" min="1" max="60" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="night-pause"/> Night pause</label>
-        <label style="margin-left:12px">Hours <input type="number" data-cfg="night-start" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/>–<input type="number" data-cfg="night-end" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
+        <label style="margin-left:12px">Hours <input type="number" data-cfg="night-start" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/>-<input type="number" data-cfg="night-end" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Log every payload the bot would send and send nothing. Use it to compare bot payloads against a hand-clicked action before enabling a risky feature."><input type="checkbox" data-cfg="dry-run"/> <b style="color:#6cf">Dry run (log payloads, send nothing)</b></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="A feature that keeps finding nothing to do doubles its own interval (up to 8x) until it acts again."><input type="checkbox" data-cfg="orch-adaptive"/> Adaptive cadence (back off idle features)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Copy/Export replace player names and ids with short hashes. Turn OFF only for local debugging."><input type="checkbox" data-cfg="export-redact"/> Redact names/ids in Copy + Export</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="captcha-global"/> Global captcha kill-switch</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Skip an action that failed the same way 3x in a row (5/15/60min backoff). Journal keeps recording either way."><input type="checkbox" data-cfg="decision-memory"/> Decision memory (skip repeat failures)</label>
         <label>Req budget / min <input type="number" data-cfg="req-budget" min="5" max="120" style="width:50px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
-        <label>Webhook URL <input type="text" data-cfg="webhook-url" placeholder="Discord webhook or https://api.telegram.org/bot…/sendMessage" style="width:100%;background:#111;color:#cfc;border:1px solid #333;margin-top:2px;font-size:10px"/></label>
+        <label>Webhook URL <input type="text" data-cfg="webhook-url" placeholder="Discord webhook or https://api.telegram.org/bot.../sendMessage" style="width:100%;background:#111;color:#cfc;border:1px solid #333;margin-top:2px;font-size:10px"/></label>
         <label style="margin-left:0;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">Events
           <label><input type="checkbox" data-cfg="wh-captcha"/> captcha</label>
           <label><input type="checkbox" data-cfg="wh-attack"/> attack</label>
@@ -915,7 +912,7 @@
     const el = panel.querySelector('#gb-ab-auto'); if (el) el.checked = true;
     const cfg = panel.querySelector('[data-cfg=auto-queue]'); if (cfg) cfg.checked = true;
     abScan('manual');
-    if (!was) { /* leave ON after manual — user asked for queue */ }
+    if (!was) { /* leave ON after manual - user asked for queue */ }
   });
   panel.querySelector('footer button[data-act=copy]').addEventListener('click', () => {
     const dump = redactFindingsExport({ findings: state.findings, farms: state.farms });
@@ -993,6 +990,7 @@
     if (configBound) {
       sec.querySelector('[data-cfg=enabled-host]').checked = state.enabledHosts[location.host] === true;
       sec.querySelector('[data-cfg=collect-all]').checked = state.collectAll;
+      const acol = sec.querySelector('[data-cfg=auto-collect]'); if (acol) acol.checked = state.autoCollect;
       sec.querySelector('[data-cfg=auto-bandit]').checked = state.autoBandit;
       sec.querySelector('[data-cfg=auto-farm]').checked = state.autoFarm;
       sec.querySelector('[data-cfg=farm-skip-full]').checked = state.farmSkipFull;
@@ -1017,6 +1015,7 @@
     const setChk = (sel, val) => { const el = sec.querySelector(sel); if (el) el.checked = !!val; };
     setChk('[data-cfg=enabled-host]', state.enabledHosts[location.host] === true);
     setChk('[data-cfg=collect-all]', state.collectAll);
+    setChk('[data-cfg=auto-collect]', state.autoCollect);
     setChk('[data-cfg=auto-bandit]', state.autoBandit);
     setChk('[data-cfg=auto-farm]', state.autoFarm);
     setChk('[data-cfg=farm-skip-full]', state.farmSkipFull);
@@ -1040,6 +1039,10 @@
       state.enabledHosts[location.host] = e.target.checked;
       save(STORE.ENABLED_HOSTS, state.enabledHosts);
       flash(e.target.checked ? 'enabled on ' + location.host : 'disabled on ' + location.host);
+    });
+    sec.querySelector('[data-cfg=auto-collect]')?.addEventListener('change', e => {
+      state.autoCollect = e.target.checked; save(STORE.AUTO_COLLECT, state.autoCollect);
+      flash(state.autoCollect ? 'auto-collect ON' : 'auto-collect OFF');
     });
     sec.querySelector('[data-cfg=collect-all]')?.addEventListener('change', e => {
       state.collectAll = e.target.checked; save(STORE.COLLECT_ALL, state.collectAll);
@@ -1192,7 +1195,7 @@
     bindToggle('[data-cfg=export-redact]', 'exportRedact', STORE.EXPORT_REDACT);
     sec.querySelector('[data-cfg=dry-run]')?.addEventListener('change', e => {
       state.dryRun = e.target.checked; save(STORE.DRY_RUN, state.dryRun);
-      gbLog('DRY RUN ' + (state.dryRun ? 'ON - payloads logged, nothing sent' : 'OFF - posts go to the server'));
+      gbLog('DRY RUN ' + (state.dryRun ? 'ON - payloads logged, DOM clicks blocked' : 'OFF - posts go to the server'));
       flash(state.dryRun ? 'dry run ON' : 'dry run OFF');
       updateStatus();
     });
@@ -1331,7 +1334,7 @@
     });
   })(panel, panel.querySelector('header'));
 
-  // resize — all edges + corners
+  // resize - all edges + corners
   (function resize(el) {
     const DIRS = {
       n: { t: 1 }, s: { b: 1 }, e: { r: 1 }, w: { l: 1 },
@@ -1479,7 +1482,7 @@
         actions.style.cssText = 'margin-top:3px';
         const atkBtn = document.createElement('button');
         atkBtn.type = 'button';
-        atkBtn.textContent = '→ Attack';
+        atkBtn.textContent = '-> Attack';
         atkBtn.title = `Use town #${f.town.id} as attack target`;
         atkBtn.style.cssText = 'background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px';
         atkBtn.addEventListener('click', () => prepareAttack(Object.assign({ kind: 'town' }, f.town)));
@@ -1505,7 +1508,7 @@
       list.appendChild(row);
     }
   }
-  // Decision journal view (Log tab → Decisions). Built as DOM nodes, not HTML:
+  // Decision journal view (Log tab -> Decisions). Built as DOM nodes, not HTML:
   // r/d carry raw server error strings.
   function renderJournal() {
     const pane = panel && panel.querySelector('.jrn-pane');
@@ -1517,7 +1520,7 @@
     if (head) {
       head.textContent = '';
       head.appendChild(document.createTextNode(
-        `${state.decisions.length} decisions · memory ${state.decisionMemory === false ? 'OFF' : 'ON'} · `));
+        `${state.decisions.length} decisions  |  memory ${state.decisionMemory === false ? 'OFF' : 'ON'}  |  `));
       const b = document.createElement('b');
       b.textContent = `${skips.length} skipping`;
       head.appendChild(b);
@@ -1561,7 +1564,7 @@
   }
 
   // Strip PII from export/copy dumps (player names/ids kept as hashes).
-  // Opt-out via Config → "Redact names/ids in Copy + Export" (default ON): raw
+  // Opt-out via Config -> "Redact names/ids in Copy + Export" (default ON): raw
   // dumps carry other players' names, ids and town coordinates off-box the
   // moment they are pasted anywhere.
   function redactFindingsExport(dump) {
@@ -1571,7 +1574,7 @@
     }
     const redactPlayer = (p) => {
       if (!p || typeof p !== 'object') return p;
-      return { id: p.id != null ? 'p' + String(p.id).slice(-4) : null, name: p.name ? String(p.name).slice(0, 1) + '…' : null };
+      return { id: p.id != null ? 'p' + String(p.id).slice(-4) : null, name: p.name ? String(p.name).slice(0, 1) + '...' : null };
     };
     const findings = (dump.findings || []).map(f => {
       if (!f || typeof f !== 'object') return f;
@@ -1579,7 +1582,7 @@
       out.attacker = redactPlayer(f.attacker);
       out.defender = redactPlayer(f.defender);
       if (out.town && typeof out.town === 'object') {
-        out.town = { id: out.town.id, name: out.town.name ? String(out.town.name).slice(0, 1) + '…' : null, x: out.town.x, y: out.town.y };
+        out.town = { id: out.town.id, name: out.town.name ? String(out.town.name).slice(0, 1) + '...' : null, x: out.town.x, y: out.town.y };
       }
       delete out.raw;
       return out;
@@ -1593,7 +1596,7 @@
     if (!panel) return;
     const el = panel.querySelector('#gb-status');
     if (!el) return;
-    const csrfShort = state.csrf ? state.csrf.slice(0, 6) + '…' : 'NONE';
+    const csrfShort = state.csrf ? state.csrf.slice(0, 6) + '...' : 'NONE';
     const farms = state.farmsParsed.length;
     const okFarms = Object.values(state.farmResources).filter(r => r && r.ok).length;
     const lastErr = Object.values(state.farmResources).filter(r => r && !r.ok).slice(-1)[0];
@@ -1601,13 +1604,13 @@
     const paused = Object.keys(state.captchaBreakers || {}).filter(k => captchaPaused(k));
     const pauseInfo = {};
     automationPaused(pauseInfo);
-    let pauseTxt = paused.length ? ` ⏸${paused.join(',')}` : '';
-    if (pauseInfo.reason) pauseTxt += ` ⏸${pauseInfo.reason}`;
-    if (captchaGlobalUntil > Date.now()) pauseTxt += ' ⏸ALL';
+    let pauseTxt = paused.length ? ` ||${paused.join(',')}` : '';
+    if (pauseInfo.reason) pauseTxt += ` ||${pauseInfo.reason}`;
+    if (captchaGlobalUntil > Date.now()) pauseTxt += ' ||ALL';
     const memSkips = jrnActiveSkips();
     if (memSkips.length) pauseTxt += ` mem:${memSkips.length}`;
-    if (gbServerPaused()) pauseTxt += ` ⏸srv:${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}`;
-    const dryTxt = state.dryRun ? ' 🅳DRY' : '';
+    if (gbServerPaused()) pauseTxt += ` ||srv:${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}`;
+    const dryTxt = state.dryRun ? ' DRY' : '';
     const txt = `csrf:${csrfShort} farms:${okFarms}/${farms}${errTxt}${dryTxt}${pauseTxt}`;
     if (txt !== _statusLast) {
       _statusLast = txt;
@@ -1630,14 +1633,14 @@
     const te = panel.querySelector('#gb-next-towns');
     if (fe) {
       const t = state.nextFarmScrape
-        ? `⏱ farms: ${fmtSec(Math.max(0, Math.round((state.nextFarmScrape - Date.now()) / 1000)))}`
-        : '⏱ farms: —';
+        ? `~ farms: ${fmtSec(Math.max(0, Math.round((state.nextFarmScrape - Date.now()) / 1000)))}`
+        : '~ farms: -';
       if (t !== _timerFarmLast) { _timerFarmLast = t; fe.textContent = t; }
     }
     if (te) {
       const t = state.nextTownsScrape
-        ? `⏱ towns: ${fmtSec(Math.max(0, Math.round((state.nextTownsScrape - Date.now()) / 1000)))}`
-        : '⏱ towns: —';
+        ? `~ towns: ${fmtSec(Math.max(0, Math.round((state.nextTownsScrape - Date.now()) / 1000)))}`
+        : '~ towns: -';
       if (t !== _timerTownLast) { _timerTownLast = t; te.textContent = t; }
     }
   }
@@ -1711,8 +1714,8 @@
         gbLog('diag: copied ' + farms.length + ' farms, csrf=' + (state.csrf ? 'yes' : 'NO'));
       };
       const failFlash = () => {
-        flash('diag ready — paste from console');
-        gbLog('diag: clipboard fail — expand [grepbot] diag in console');
+        flash('diag ready - paste from console');
+        gbLog('diag: clipboard fail - expand [grepbot] diag in console');
       };
       const tryExecCopy = () => {
         try {

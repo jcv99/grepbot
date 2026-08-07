@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      1.5.12
+// @version      1.5.14
 // @description  Grepolis scout/farm/build/trade/culture/recruit automation. ToS forbid automation; risk = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -31,6 +31,7 @@ const STORE = {
     THRESH:   'grepbot:thresholds',
     ALERTED:  'grepbot:alerted',
     COLLECT_ALL: 'grepbot:collect-all',
+    AUTO_COLLECT: 'grepbot:auto-collect',
     COLLECT_TPL: 'grepbot:collect-tpl',
     AUTO_BANDIT: 'grepbot:auto-bandit',
     BANDIT_LOG:  'grepbot:bandit-log',
@@ -323,6 +324,7 @@ const STORE = {
     nextTownsScrape: load(STORE.NEXT_TOWNS, 0),
     farmAction: load(wkey(STORE.FARM_ACTION), null) || load(STORE.FARM_ACTION, null),
     collectAll: load(STORE.COLLECT_ALL, false),
+    autoCollect: load(STORE.AUTO_COLLECT, false),
     collectTpl: load(wkey(STORE.COLLECT_TPL), null) || load(STORE.COLLECT_TPL, null),
     autoBandit: load(STORE.AUTO_BANDIT, false),
     banditLog:  load(STORE.BANDIT_LOG, []),
@@ -450,7 +452,7 @@ const STORE = {
     if (ver !== state.configVer) {
       state.configVer = ver;
       save(STORE.CONFIG_VER, ver);
-      gbLog('config migrated → v' + ver);
+      gbLog('config migrated -> v' + ver);
     }
   }
 
@@ -510,7 +512,8 @@ const STORE = {
     }
     if (state.nightPause) {
       const h = new Date().getHours();
-      const a = +state.nightStart || 0, b = +state.nightEnd || 7;
+      const a = Number.isFinite(+state.nightStart) ? +state.nightStart : 0;
+      const b = Number.isFinite(+state.nightEnd) ? +state.nightEnd : 7;
       const inNight = a < b ? (h >= a && h < b) : (h >= a || h < b);
       if (inNight) {
         if (reasonOut) reasonOut.reason = 'night';
@@ -1057,8 +1060,25 @@ const STORE = {
   function dryRunFmt(payload) {
     try {
       const s = JSON.stringify(payload);
-      return s.length > 220 ? s.slice(0, 220) + '…' : s;
+      return s.length > 220 ? s.slice(0, 220) + '...' : s;
     } catch (_) { return String(payload); }
+  }
+
+  function gbCfgNum(v, fallback) {
+    const n = +v;
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  function gbDomClick(el, feature) {
+    if (!el) return false;
+    if (state.dryRun) {
+      const tag = el.tagName || '?';
+      const hint = el.className ? String(el.className).split(/\s+/)[0] : '';
+      gbLog(`DRY-RUN ${feature || 'dom'}: click blocked (${tag}${hint ? '.' + hint : ''})`);
+      return false;
+    }
+    el.click();
+    return true;
   }
 
   function httpRetryAfterMs(res) {
@@ -1216,7 +1236,7 @@ const STORE = {
     if (state.enabledHosts[h] === undefined) {
       state.enabledHosts[h] = false;
       save(STORE.ENABLED_HOSTS, state.enabledHosts);
-      gbLog('host ' + h + ' disabled by default — enable in Config');
+      gbLog('host ' + h + ' disabled by default - enable in Config');
     }
   }
 
@@ -1961,7 +1981,7 @@ const STORE = {
         const j = parseBodyLoose(body);
         if (j && j.action_name && /instant/i.test(j.action_name)) {
           if (/buyInstant|buy_instant/i.test(j.action_name)) {
-            gbLogT('ib-sniff-refuse', 60000, 'instant: sniffed buyInstant — not saved as free-complete action');
+            gbLogT('ib-sniff-refuse', 60000, 'instant: sniffed buyInstant - not saved as free-complete action');
           } else if (typeof ibLearnAction === 'function') {
             ibLearnAction('build', j.action_name);
             gbLog('learned instant-build action:', j.action_name);
@@ -1975,7 +1995,7 @@ const STORE = {
         const j = parseBodyLoose(body);
         if (j && j.action_name && /instant/i.test(j.action_name)) {
           if (/buyInstant|buy_instant/i.test(j.action_name)) {
-            gbLogT('ib-sniff-refuse', 60000, 'instant-research: sniffed buyInstant — not saved');
+            gbLogT('ib-sniff-refuse', 60000, 'instant-research: sniffed buyInstant - not saved');
           } else if (typeof ibLearnAction === 'function') {
             ibLearnAction('research', j.action_name);
             gbLog('learned instant-research action:', j.action_name);
@@ -2177,7 +2197,7 @@ const STORE = {
     } catch (_) { return false; }
   }
 
-  const FARM_DURATIONS = [300, 600, 1200, 2400, 5400, 14400, 28800];
+  const FARM_DURATIONS = [300, 600, 1200, 2400, 5400, 10800, 14400, 28800];
   function farmDurLabel(sec) {
     if (sec >= 3600) return (sec / 3600) + 'h';
     return Math.round(sec / 60) + 'min';
@@ -2224,8 +2244,8 @@ const STORE = {
     } catch (_) {}
   }
 
-  const FARM_LOYALTY_IDS = ['rural_loyalty', 'diplomacy', 'conscription', 'loyalty'];
-  const FARM_LOYALTY_RE = /loyal|lealtad|leal(?:tad)?|diplom|conscript|treue|fidel|aldean|villager/i;
+  const FARM_LOYALTY_IDS = ['rural_loyalty', 'loyalty', 'villagers_loyalty'];
+  const FARM_LOYALTY_RE = /loyal|lealtad|leal(?:tad)?|treue|fidel|aldean|villager|rural_loyalty/i;
   const farmLoyaltyCache = Object.create(null);
   function farmLoyaltyReset() {
     Object.keys(farmLoyaltyCache).forEach(k => { delete farmLoyaltyCache[k]; });
@@ -2840,6 +2860,7 @@ const STORE = {
     }
   }
   function autoCollectResources() {
+    if (!state.autoCollect) return;
     if (!hostEnabled()) return;
     if (document.hidden) return;
 
@@ -2868,8 +2889,7 @@ const STORE = {
         continue;
       }
       btn.dataset.grepbotClicked = String(Date.now());
-      btn.click();
-      clicked++;
+      if (gbDomClick(btn, 'collect')) clicked++;
     }
     updateCollectStateBadge(scanned, clicked);
     if (clicked) { gbLog(`auto-collect: clicked ${clicked}/${scanned} Recoger buttons`); flash(`auto-collect x${clicked}`); }
@@ -2919,7 +2939,7 @@ const STORE = {
       collectCtrl = parts.length >= 2 && parts[0] === 'game' ? parts[1] : parts[parts.length - 1];
     } catch (_) {}
     if (!collectCtrl || !collectAction) {
-      gbLogT('collect-bg-nomethod', 120000, 'bg-collect: skip (learned URL method/controller unknown — no blind GET)');
+      gbLogT('collect-bg-nomethod', 120000, 'bg-collect: skip (learned URL method/controller unknown - no blind GET)');
       scheduleCollectBg(collectBgBackoff + Math.random() * 30_000);
       return;
     }
@@ -2968,7 +2988,7 @@ const STORE = {
     if (!gbDomObserver) {
       gbDomObserver = new MutationObserver(() => {
         if (document.hidden) return;
-        scheduleAutoCollect();
+        if (state.autoCollect) scheduleAutoCollect();
         if (state.autoBandit) scheduleBanditScan();
       });
     }
@@ -3103,7 +3123,7 @@ const STORE = {
         return true;
       }
       if (banditWrongIsland(uw, m)) {
-        gbLogT('bandit-island', 60000, 'bandit: camp on other island — switch town or skip');
+        gbLogT('bandit-island', 60000, 'bandit: camp on other island - switch town or skip');
         banditIdle(30000);
         return true;
       }
@@ -3152,10 +3172,11 @@ const STORE = {
       const victory = document.querySelector('.attack_spot_victory .btn_collect, .attack_spot_victory .button_new.double_border');
       if (victory && !victory.dataset.grepbotClicked) {
         victory.dataset.grepbotClicked = String(Date.now());
-        victory.click();
-        gbLog('bandit: collected reward (DOM)');
-        flash('bandit: collected reward');
-        logBandit('collected');
+        if (gbDomClick(victory, 'bandit-reward')) {
+          gbLog('bandit: collected reward (DOM)');
+          flash('bandit: collected reward');
+          logBandit('collected');
+        }
         return;
       }
       try {
@@ -3217,10 +3238,11 @@ const STORE = {
           const stillOff = atkBtn && (atkBtn.getAttribute('disabled') != null || atkBtn.disabled === true);
           if (atkBtn && !stillOff) {
             atkBtn.dataset.grepbotClicked = String(Date.now());
-            atkBtn.click();
-            gbLog('bandit: attack sent (DOM, offense-only)');
-            flash('bandit: attack sent');
-            logBandit('attack');
+            if (gbDomClick(atkBtn, 'bandit-attack')) {
+              gbLog('bandit: attack sent (DOM, offense-only)');
+              flash('bandit: attack sent');
+              logBandit('attack');
+            }
           }
         }, 250);
         return;
@@ -3262,7 +3284,7 @@ const STORE = {
     save(STORE.BANDIT_LOG, state.banditLog);
   }
   banditScheduleNext();
-  gbInterval(autoCollectResources, 5000);
+  if (state.autoCollect) gbInterval(autoCollectResources, 5000);
   if (state.collectAll) collectAllBackground();
 
   const IB_CHECK_MS = 10000;
@@ -3419,7 +3441,7 @@ const STORE = {
       return;
     }
     if (!IB_FREE_ACTIONS.has(String(action))) {
-      gbLogT('ib-learn-refuse', 60000, 'instant: unknown free action ' + action + ' — learn manually via free click');
+      gbLogT('ib-learn-refuse', 60000, 'instant: unknown free action ' + action + ' - learn manually via free click');
       return;
     }
     if (kind === 'research') { state.ibActionR = action; save(wkey(STORE.IB_ACTION_R), action); }
@@ -3442,7 +3464,7 @@ const STORE = {
       const finishOk = () => {
 
         if (ibOrderStillPresent(order.id)) {
-          gbLog(`${tag}: ${live.type} #${order.id} response OK but order still present — unknown_outcome`);
+          gbLog(`${tag}: ${live.type} #${order.id} response OK but order still present - unknown_outcome`);
           resolve('unknown');
           return;
         }
@@ -3461,10 +3483,10 @@ const STORE = {
           if (err === 'timeout') {
 
             if (!ibOrderStillPresent(order.id)) {
-              gbLog(`${tag}: #${order.id} timeout but order gone — treating as OK`);
+              gbLog(`${tag}: #${order.id} timeout but order gone - treating as OK`);
               resolve('ok');
             } else {
-              gbLog(`${tag}: #${order.id} timeout_unknown — no fallback`);
+              gbLog(`${tag}: #${order.id} timeout_unknown - no fallback`);
               resolve('unknown');
             }
             return;
@@ -3473,11 +3495,11 @@ const STORE = {
           if (err && !isFallback && actionName === 'completeInstant' && ibUnknownActionErr(err)) {
             const again = ibFindLiveOrder(order.id, kind);
             if (!again || !again.isFree || again.gold !== 0) {
-              gbLog(`${tag}: completeInstant unknown, order no longer free — inactive`);
+              gbLog(`${tag}: completeInstant unknown, order no longer free - inactive`);
               resolve('err');
               return;
             }
-            gbLog(`${tag}: completeInstant unknown — trying finishInstantly (gold=0 only)`);
+            gbLog(`${tag}: completeInstant unknown - trying finishInstantly (gold=0 only)`);
             postFree('finishInstantly', true);
             return;
           }
@@ -3887,7 +3909,7 @@ const STORE = {
       return;
     }
     gbLock('ab');
-    gbLog(`auto-queue${reason ? ' (' + reason + ')' : ''}: ${jobs.length} job(s) (batch≤${AB_FILL_BATCH})`);
+    gbLog(`auto-queue${reason ? ' (' + reason + ')' : ''}: ${jobs.length} job(s) (batch<=${AB_FILL_BATCH})`);
     let i = 0, done = 0, captcha = false;
     const unlock = () => { gbUnlock('ab'); };
     const watchdog = gbTimeout(unlock, Math.max(30000, jobs.length * (BRIDGE_TIMEOUT_MS + 1000)));
@@ -3973,7 +3995,7 @@ const STORE = {
         b2.addEventListener('click', fn);
         return b2;
       };
-      btns.appendChild(mkBtn('−', () => { abSetTarget(b, (state.abTargets[b] || 0) - 1); renderAbQueue(); }));
+      btns.appendChild(mkBtn('-', () => { abSetTarget(b, (state.abTargets[b] || 0) - 1); renderAbQueue(); }));
       btns.appendChild(mkBtn('+', () => { abSetTarget(b, (state.abTargets[b] || 0) + 1); renderAbQueue(); }));
       btns.appendChild(mkBtn('max', () => { abSetTarget(b, max); renderAbQueue(); }));
       row.appendChild(name);
@@ -3988,14 +4010,14 @@ const STORE = {
       const due = townId && state.abNextAt[townId];
       const next = townId && q && q.len <= 1 ? abPickNext(townId) : null;
       let waitTxt = '';
-      if (due && Date.now() < due) waitTxt = ` · refill in ${fmtSec((due - Date.now()) / 1000)}`;
-      else if (q && q.len > 1) waitTxt = ` · wait until 1 left (${q.len}/${q.max})`;
+      if (due && Date.now() < due) waitTxt = `  |  refill in ${fmtSec((due - Date.now()) / 1000)}`;
+      else if (q && q.len > 1) waitTxt = `  |  wait until 1 left (${q.len}/${q.max})`;
       status.textContent = (gbLocked('ab') ? 'queueing... ' : '')
         + (townId ? `town ${townId}` : 'no town')
-        + (q ? ` · queue ${q.len}/${q.max}` : '')
-        + (next ? ` · next: ${AB_LABELS[next] || next}` : ' · idle')
+        + (q ? `  |  queue ${q.len}/${q.max}` : '')
+        + (next ? `  |  next: ${AB_LABELS[next] || next}` : '  |  idle')
         + waitTxt
-        + (state.abAuto ? ' · AUTO' : ' · off');
+        + (state.abAuto ? '  |  AUTO' : '  |  off');
     }
   }
 
@@ -4223,7 +4245,7 @@ const STORE = {
       }
       if (!info.unlimited && (!(info.hideCap > 0) || info.stored == null)) {
         gbLogT('cave-unknown-' + id, 300000,
-          `cave: town ${id} skip stash (hideCap=${info.hideCap} stored=${info.stored}) — open cave once or run caveDiag()`);
+          `cave: town ${id} skip stash (hideCap=${info.hideCap} stored=${info.stored}) - open cave once or run caveDiag()`);
         continue;
       }
       const amt = caveExcessAmount(info);
@@ -4299,13 +4321,13 @@ const STORE = {
       let extra = '';
       if (info) {
         const pct = info.cap > 0 && info.iron != null ? Math.round(100 * info.iron / info.cap) : '?';
-        const cave = info.unlimited ? '∞'
+        const cave = info.unlimited ? 'inf'
           : (info.stored != null && info.hideCap != null ? `${info.stored}/${info.hideCap}`
             : (info.hideCap != null ? `?/${info.hideCap}` : 'n/a'));
-        extra = ` — hide${info.hideLvl} iron ${pct}% cave ${cave}`;
+        extra = ` - hide${info.hideLvl} iron ${pct}% cave ${cave}`;
         if (pct === '?' || (!info.unlimited && info.hideCap == null)) {
           gbLogT('cave-unknown-' + id, 300000,
-            `cave: town ${id} unread fields (iron=${info.iron} cap=${info.cap} hideCap=${info.hideCap} stored=${info.stored}) — run caveDiag()`);
+            `cave: town ${id} unread fields (iron=${info.iron} cap=${info.cap} hideCap=${info.hideCap} stored=${info.stored}) - run caveDiag()`);
         }
       }
       span.textContent = `${name} (#${id})${extra}`;
@@ -4504,7 +4526,7 @@ const STORE = {
       cultureStart(job.type, job.id, (err) => {
         if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('culture'); return; }
         if (err === 'timeout') {
-          gbLogT('culture-timeout', 60000, `culture: ${job.type} ${job.id} timeout_unknown — stopping batch`);
+          gbLogT('culture-timeout', 60000, `culture: ${job.type} ${job.id} timeout_unknown - stopping batch`);
           gbUnlock('culture');
           return;
         }
@@ -4594,7 +4616,7 @@ const STORE = {
   }
   function tradeFillStorageJobs(towns, L) {
     const ledger = L || tradeLedger(towns);
-    const reserve = Math.min(80, Math.max(0, +state.tradeReservePct || 20)) / 100;
+    const reserve = Math.min(80, Math.max(0, gbCfgNum(state.tradeReservePct, 20))) / 100;
     const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
     const jobs = [];
     const ids = towns.map(t => t.id);
@@ -4638,7 +4660,7 @@ const STORE = {
     const ledger = L || tradeLedger(towns);
     const jobs = [];
     const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
-    const reservePct = (+state.tradeReservePct || 20) / 100;
+    const reservePct = gbCfgNum(state.tradeReservePct, 20) / 100;
     const ids = towns.map(t => t.id);
     for (const tgtId of ids) {
       const tgt = ledger[tgtId];
@@ -4672,7 +4694,7 @@ const STORE = {
     if (automationPaused({})) return;
     if (gbLocked('trade')) return;
     const towns = tradeListTowns();
-    if (towns.length < 2) { gbLogT('trade-towns', 180000, 'trade: need ≥2 towns'); return; }
+    if (towns.length < 2) { gbLogT('trade-towns', 180000, 'trade: need >=2 towns'); return; }
     const ledger = tradeLedger(towns);
     let jobs = [];
     const preset = state.tradePreset || 'storage';
@@ -4680,7 +4702,7 @@ const STORE = {
     if (state.autoTrade && preset === 'storage') {
       jobs = jobs.concat(tradeFillStorageJobs(towns, ledger));
     } else if (state.autoTrade && (preset === 'party' || preset === 'unit')) {
-      gbLogT('trade-preset-' + preset, 300000, `trade: preset=${preset} — unimplemented, fill-storage skipped`);
+      gbLogT('trade-preset-' + preset, 300000, `trade: preset=${preset} - unimplemented, fill-storage skipped`);
     }
     if (state.islandShip) jobs = jobs.concat(tradeIslandShipJobs(towns, ledger));
     if (!jobs.length) {
@@ -4700,7 +4722,7 @@ const STORE = {
         if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('trade'); return; }
         if (!err) {
           done++;
-          gbLog(`trade: ${j.from}→${j.to} w${j.wood}/s${j.stone}/i${j.iron}`);
+          gbLog(`trade: ${j.from}->${j.to} w${j.wood}/s${j.stone}/i${j.iron}`);
         } else gbLogT('trade-err', 60000, `trade err ${err}`);
         gbTimeout(next, 800 + Math.random() * 600);
       });
@@ -4790,7 +4812,7 @@ const STORE = {
       const st = townResState(tid);
       if (st && st.full && st.full[wantRes]) {
         gbLogT('ruraltrade-full-' + tid, 120000,
-          `rural-trade: town ${tid} ${wantRes} already at capacity — skip`);
+          `rural-trade: town ${tid} ${wantRes} already at capacity - skip`);
         continue;
       }
       const now = gameNow();
@@ -4830,7 +4852,7 @@ const STORE = {
         if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('rural-trade'); return; }
         if (!err) {
           done++;
-          gbLog(`rural-trade: town ${j.townId} farm ${j.farmId} amt ${j.amount} (≥${minRatio})`);
+          gbLog(`rural-trade: town ${j.townId} farm ${j.farmId} amt ${j.amount} (>=${minRatio})`);
         }
         gbTimeout(next, 700 + Math.random() * 400);
       });
@@ -5028,7 +5050,7 @@ const STORE = {
     const cost = researchCost(tech);
     if (!cost) {
       gbLogT('research-nocost-' + tech, 900000,
-        `research: no cost data for ${tech} — resource check skipped, server decides`);
+        `research: no cost data for ${tech} - resource check skipped, server decides`);
       return { ok: true, why: null };
     }
     const aff = gbAfford(townId, cost);
@@ -5126,7 +5148,7 @@ const STORE = {
     gbLock('research');
     researchPost(job.townId, job.tech, (err) => {
       gbUnlock('research');
-      if (!err) gbLog(`research: town ${job.townId} → ${job.tech}`);
+      if (!err) gbLog(`research: town ${job.townId} -> ${job.tech}`);
       else gbLogT('research-err', 60000, `research err ${err}`);
     });
   }
@@ -5264,7 +5286,7 @@ const STORE = {
         if (!Number.isFinite(price) || price < 0) continue;
         if (price > maxPrice) continue;
         if (gold != null && gold < price) {
-          gbLogT('merchant-gold', 300000, `merchant: ${id} costs ${price}, gold ${gold} — skip`);
+          gbLogT('merchant-gold', 300000, `merchant: ${id} costs ${price}, gold ${gold} - skip`);
           continue;
         }
         const townId = a.town_id || (uw.Game && uw.Game.townId);
@@ -5278,7 +5300,7 @@ const STORE = {
 
     const oid = (job.offer.attributes && (job.offer.attributes.id || job.offer.id)) || job.offer.id;
     if (oid == null || oid === '') {
-      gbLogT('merchant-noid', 60000, 'merchant: offer has no id — skip');
+      gbLogT('merchant-noid', 60000, 'merchant: offer has no id - skip');
       return;
     }
     gbLock('merchant');
@@ -5289,7 +5311,7 @@ const STORE = {
       town_id: +job.townId,
     }, (err) => {
       if (err === 'timeout') {
-        gbLogT('merchant-timeout', 60000, `merchant: timeout_unknown for ${job.itemId} — no fallback`);
+        gbLogT('merchant-timeout', 60000, `merchant: timeout_unknown for ${job.itemId} - no fallback`);
         gbUnlock('merchant');
         return;
       }
@@ -5366,6 +5388,10 @@ const STORE = {
   function favorScan(reason) {
     if (!hostEnabled() || !state.autoFavor || captchaPaused('favor')) return;
     if (automationPaused({})) return;
+
+    gbLogT('favor-disabled', 300000,
+      'favor: module disabled (needs enemy-town target + canonical temple_plunder payload)');
+    return;
     if (gbLocked('favor')) return;
     const cfg = state.favorCfg || {};
     const thresh = +cfg.thresh || 200;
@@ -5376,7 +5402,7 @@ const STORE = {
     const cur = +(fav[god] || fav['favor_' + god] || fav.favor || 0);
 
     if (cur >= thresh && !cfg.force) {
-      gbLogT('favor-ok', 180000, `favor: ${god}=${cur} ≥ ${thresh}`);
+      gbLogT('favor-ok', 180000, `favor: ${god}=${cur} >= ${thresh}`);
       return;
     }
     if (!favorUnitOk(unit, god)) {
@@ -5403,7 +5429,7 @@ const STORE = {
       else enroute++;
     });
     if (enroute >= maxC) {
-      gbLogT('favor-enroute', 120000, `favor: ${enroute} own en-route (≥${maxC})`);
+      gbLogT('favor-enroute', 120000, `favor: ${enroute} own en-route (>=${maxC})`);
       return;
     }
 
@@ -5440,13 +5466,13 @@ const STORE = {
     bridgePost('favor', payload, (err, data) => {
       gbUnlock('favor');
       if (err === 'timeout') {
-        gbLogT('favor-timeout', 60000, 'favor: timeout_unknown — not retrying');
+        gbLogT('favor-timeout', 60000, 'favor: timeout_unknown - not retrying');
         return;
       }
       if (!err) {
         const mid = (data && (data.command_id || data.id || data.movement_id)) || ('f' + Date.now());
         favorOwnMoves[String(mid)] = Date.now();
-        gbLog(`favor: sent ${JSON.stringify(units)} from ${townId} → ${targetId}`);
+        gbLog(`favor: sent ${JSON.stringify(units)} from ${townId} -> ${targetId}`);
       } else gbLogT('favor-err', 60000, `favor err ${err}`);
     });
   }
@@ -5483,20 +5509,24 @@ const STORE = {
     }
     const day = wonderServerDay();
     if (wonderSpentToday.day !== day) wonderSpentToday = { day, amount: 0 };
-    const budget = +cfg.budget || 50000;
+    const budget = gbCfgNum(cfg.budget, 50000);
+    if (budget <= 0) {
+      gbLogT('wonder-budget0', 300000, 'wonder: budget is 0 - no donations');
+      return;
+    }
     if (wonderSpentToday.amount >= budget) {
       gbLogT('wonder-budget', 300000, `wonder: daily budget ${budget} reached`);
       return;
     }
-    const reserve = +cfg.reserve || 5000;
+    const reserve = gbCfgNum(cfg.reserve, 5000);
     const want = {
-      wood: +cfg.wood || 0,
-      stone: +cfg.stone || 0,
-      iron: +cfg.iron || 0,
+      wood: gbCfgNum(cfg.wood, 0),
+      stone: gbCfgNum(cfg.stone, 0),
+      iron: gbCfgNum(cfg.iron, 0),
     };
-    if (!(want.wood || want.stone || want.iron)) {
-
-      want.wood = want.stone = want.iron = 2000;
+    if (!(want.wood > 0 || want.stone > 0 || want.iron > 0)) {
+      gbLogT('wonder-noconf', 300000, 'wonder: set wood/stone/iron > 0 in config (no default amounts)');
+      return;
     }
     const towns = (typeof tradeListTowns === 'function') ? tradeListTowns() : [];
     let job = null;
@@ -5547,7 +5577,7 @@ const STORE = {
       town_id: +job.townId,
     }, (err) => {
       if (err === 'timeout') {
-        gbLogT('wonder-timeout', 60000, `wonder: timeout_unknown town ${job.townId} — no fallback/duplicate`);
+        gbLogT('wonder-timeout', 60000, `wonder: timeout_unknown town ${job.townId} - no fallback/duplicate`);
         gbUnlock('wonder');
         return;
       }
@@ -5672,8 +5702,8 @@ const STORE = {
       if (clean.length) return clean[0];
       if (ids.length) {
         gbLogT('dodge-nosafe', 120000,
-          `dodge: every other town has incoming — falling back to ${ids[0]}`);
-        return ids[0];
+          'dodge: every other town has incoming - no safe destination');
+        return null;
       }
     } catch (_) {}
     return null;
@@ -5688,8 +5718,6 @@ const STORE = {
       const u = (t && t.units && t.units()) || null;
       if (u && +u.militia > 0) return { ok: false, why: 'militia already standing' };
     } catch (_) {}
-    const pop = gbTownPop(townId);
-    if (pop != null && pop <= 0) return { ok: false, why: 'no free population' };
     return { ok: true, why: null };
   }
   function dodgeRaiseMilitia(townId, onDone) {
@@ -5730,7 +5758,7 @@ const STORE = {
   function dodgeNotify(mov, entry) {
     if (entry.notified) return;
     entry.notified = true;
-    const msg = `incoming ${mov.type || 'atk'} → town ${mov.dest}` + (mov.hasCs ? ' [CS]' : '') +
+    const msg = `incoming ${mov.type || 'atk'} -> town ${mov.dest}` + (mov.hasCs ? ' [CS]' : '') +
       (mov.arrival ? ` ETA ${mov.arrival}` : '');
     gbLog('dodge: ' + msg);
     flash(msg);
@@ -5774,7 +5802,7 @@ const STORE = {
       if (!err) {
         entry.state = 'sent';
         entry.ts = Date.now();
-        gbLog(`dodge: sent units from ${mov.dest} → ${safe}`);
+        gbLog(`dodge: sent units from ${mov.dest} -> ${safe}`);
       } else {
         entry.state = 'failed';
         entry.tries = (entry.tries || 0) + 1;
@@ -6006,7 +6034,7 @@ const STORE = {
     }
     recruitBuild(job.townId, job.unit, job.amount, (err) => {
       gbUnlock('recruit');
-      if (!err) gbLog(`recruit: town ${job.townId} ${job.amount}× ${job.unit}`);
+      if (!err) gbLog(`recruit: town ${job.townId} ${job.amount}x ${job.unit}`);
       else gbLogT('recruit-err', 60000, `recruit err ${err}`);
     });
   }
@@ -6079,7 +6107,7 @@ const STORE = {
       state.researchTargets = JSON.parse(JSON.stringify(t.researchTargets));
       save(STORE.RESEARCH_TARGETS, state.researchTargets);
     }
-    gbLog(`group "${groupName}": applied template "${templateName}" → ${ids.length} towns`);
+    gbLog(`group "${groupName}": applied template "${templateName}" -> ${ids.length} towns`);
   }
   function qolOverviewData() {
     const uw = gameUw();
@@ -6138,14 +6166,14 @@ const STORE = {
       `Farms ready: ${d.farmReady}/${d.farmTotal}`,
       `Culture busy: ${d.cultureBusy}`,
       `Build queue: ${d.buildQ} | Research queue: ${d.researchQ}`,
-      d.pause ? `⏸ paused: ${d.pause}` : 'Automation: active',
+      d.pause ? `|| paused: ${d.pause}` : 'Automation: active',
       d.breakers.length ? `Captcha: ${d.breakers.join(',')}` : 'Captcha: clear',
       (() => {
         const parts = Object.keys(d.health).map(k => {
           const h = d.health[k];
           return `${k} ok${h.ok}/err${h.err}/cap${h.captcha}`;
         });
-        return 'Health: ' + (parts.length ? parts.join(' · ') : '(none yet)');
+        return 'Health: ' + (parts.length ? parts.join('  |  ') : '(none yet)');
       })(),
     ];
     box.textContent = lines.join('\n');
@@ -6424,14 +6452,14 @@ const STORE = {
     if (!threats.length) html += '(none)\n';
     else {
       threats.forEach(t => {
-        html += `${t.hasCs ? '[CS] ' : ''}${t.type || 'atk'} → ${t.dest} from ${t.origin || '?'}` +
+        html += `${t.hasCs ? '[CS] ' : ''}${t.type || 'atk'} -> ${t.dest} from ${t.origin || '?'}` +
           (t.arrival ? ` @${t.arrival}` : '') + '\n';
       });
     }
     html += '\n=== Dossiers ===\n';
     dossiers.forEach(d => {
       html += `${d.player}: ${d.reports} reports` +
-        (d.note ? ` — ${d.note}` : '') +
+        (d.note ? ` - ${d.note}` : '') +
         (d.allianceNote ? ` [ally: ${d.allianceNote}]` : '') + '\n';
     });
     if (state.watchlist && state.watchlist.length) {
@@ -6465,8 +6493,9 @@ const STORE = {
       const btn = document.querySelector('.grepodata_index, a.index_report, [data-action="index"], .btn_index');
       if (btn && !btn.dataset.grepbotIndexed) {
         btn.dataset.grepbotIndexed = '1';
-        btn.click();
-        gbLogT('grepodata', 10000, 'intel: Grepodata Index+ clicked');
+        if (gbDomClick(btn, 'grepodata')) {
+          gbLogT('grepodata', 10000, 'intel: Grepodata Index+ clicked');
+        }
       }
     } catch (_) {}
   }
@@ -7254,7 +7283,7 @@ const STORE = {
       troopMode: 'offense',
       harassPreset: 'light',
       unitType: 'sword',
-      sourceTownIds: [],
+      sourceTownIds: null,
       perTownUnits: {},
     };
   }
@@ -7337,7 +7366,7 @@ const STORE = {
     saveAttackPlan();
     renderAttack();
     const label = t.name ? `${t.name} (#${t.id})` : String(t.id);
-    flash('target → ' + label);
+    flash('target -> ' + label);
   }
   function attackTownGroup(name) {
     return ((state.townGroups && state.townGroups[name]) || []).map(String);
@@ -7365,7 +7394,7 @@ const STORE = {
   function attackSelectRoleSources(role) {
     const ids = attackTownGroup(role);
     if (!ids.length) {
-      flash(`no ${role} cities tagged — check boxes below first`);
+      flash(`no ${role} cities tagged - check boxes below first`);
       return;
     }
     attackSelectSources(ids);
@@ -7435,7 +7464,7 @@ const STORE = {
     if (!towns.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#666;font-size:10px';
-      e.textContent = 'load towns first (World tab → refresh)';
+      e.textContent = 'load towns first (World tab -> refresh)';
       box.appendChild(e);
       return;
     }
@@ -7522,8 +7551,26 @@ const STORE = {
       return { id, vill_id: null, town_id: id, kind: 'town', x: x != null ? +x : null, y: y != null ? +y : null, island };
     }
 
+    try {
+      const uw = gameUw();
+      const m = uw.MM && uw.MM.getModel && uw.MM.getModel('Town', id);
+      if (m) {
+        const a = m.attributes || {};
+        return {
+          id, vill_id: null, town_id: id, kind: 'town',
+          x: x != null ? +x : (a.x != null ? +a.x : null),
+          y: y != null ? +y : (a.y != null ? +a.y : null),
+          island: a.island_id || a.island || island,
+        };
+      }
+    } catch (_) {}
+
+    if (/^\d+$/.test(id) && explicitType !== 'farm_town' && explicitType !== 'farm' && explicitType !== 'village') {
+      return { id, vill_id: null, town_id: id, kind: 'town', x: x != null ? +x : null, y: y != null ? +y : null, island };
+    }
+
     if (!kind) {
-      gbLogT('atk-target', 30000, `attack: id ${id} has no canonical type — blocked`);
+      gbLogT('atk-target', 30000, `attack: id ${id} has no canonical type - blocked`);
       return null;
     }
     if (kind === 'farm_town' || kind === 'farm' || kind === 'village') {
@@ -7544,9 +7591,12 @@ const STORE = {
   function buildAttackSchedule(plan) {
     const target = resolveTarget(plan);
     if (!target) return { error: 'no target', rows: [] };
-    let sources = (plan.sourceTownIds && plan.sourceTownIds.length)
-      ? plan.sourceTownIds.map(String)
-      : (state.towns || []).map(t => String(t.id));
+    let sources;
+    if (plan.sourceTownIds == null) {
+      sources = (state.towns || []).map(t => String(t.id));
+    } else {
+      sources = (plan.sourceTownIds || []).map(String);
+    }
     if (!sources.length) return { error: 'no source towns', rows: [] };
     const now = serverNow();
     const skew = clientServerSkewMs();
@@ -7658,7 +7708,7 @@ const STORE = {
     const target = resolveTarget(plan);
     if (!target || !attackSendAllowed(target)) {
       flash('cannot arm: target unresolved or not a town');
-      gbLog('attack: arm blocked — need canonical town target (villages unsupported)');
+      gbLog('attack: arm blocked - need canonical town target (villages unsupported)');
       return;
     }
     const timers = [];
@@ -7667,7 +7717,7 @@ const STORE = {
     attackArmed = { timers, rows, plan, cancel: cancelArmedAttack, armedAt };
     const skew0 = clientServerSkewMs();
     gbLog(`attack: armed ${rows.length} towns mode=${plan.timingMode} skew=${Math.round(skew0)}ms (max window ${ATTACK_ARM_MAX_MS}ms)`);
-    flash('Browser timers are not military-precise — long waits will not auto-fire');
+    flash('Browser timers are not military-precise - long waits will not auto-fire');
     rows.forEach((row, idx) => {
       if (!row.unitCount || !row.boats.ok) {
         gbLog(`attack: skip ${row.townId} status=${row.status}`);
@@ -7691,7 +7741,7 @@ const STORE = {
         return;
       }
       if (delayMs > ATTACK_ARM_MAX_MS) {
-        gbLog(`attack: ${row.townId} delay ${Math.round(delayMs)}ms > ${ATTACK_ARM_MAX_MS}ms — not arming (re-arm closer to send)`);
+        gbLog(`attack: ${row.townId} delay ${Math.round(delayMs)}ms > ${ATTACK_ARM_MAX_MS}ms - not arming (re-arm closer to send)`);
         row.fireStatus = 'too-far';
         return;
       }
@@ -7769,7 +7819,7 @@ const STORE = {
     }
     plan.targetX = target.x ?? plan.targetX;
     plan.targetY = target.y ?? plan.targetY;
-    if (!plan.sourceTownIds.length) plan.sourceTownIds = (state.towns || []).map(t => String(t.id));
+    if (plan.sourceTownIds == null) plan.sourceTownIds = (state.towns || []).map(t => String(t.id));
     saveAttackPlan();
 
     if (typeof showTab === 'function') showTab('attack');
@@ -7876,7 +7926,7 @@ const STORE = {
         pick.replaceChildren();
         const o0 = document.createElement('option');
         o0.value = '';
-        o0.textContent = targets.length ? `pick town (${targets.length})…` : 'no known towns yet';
+        o0.textContent = targets.length ? `pick town (${targets.length})...` : 'no known towns yet';
         pick.appendChild(o0);
         targets.forEach(t => {
           const o = document.createElement('option');
@@ -7896,12 +7946,12 @@ const STORE = {
       if (resolved && resolved.kind === 'town') {
         const nm = known?.name || '';
         const coord = (resolved.x != null && resolved.y != null) ? ` (${resolved.x}|${resolved.y})` : '';
-        hint.textContent = `town #${plan.targetId}${nm ? ' · ' + nm : ''}${coord}`;
+        hint.textContent = `town #${plan.targetId}${nm ? '  |  ' + nm : ''}${coord}`;
         hint.style.color = '#6dda7e';
       } else if (plan.targetId) {
         hint.textContent = resolved
-          ? `${resolved.kind} #${plan.targetId} — city attacks need kind=town`
-          : 'unresolved — pick from list, click Current in-game, or add x/y';
+          ? `${resolved.kind} #${plan.targetId} - city attacks need kind=town`
+          : 'unresolved - pick from list, click Current in-game, or add x/y';
         hint.style.color = '#f96';
       } else {
         hint.textContent = 'pick a town from spy reports, or click a city in-game then Current';
@@ -7945,8 +7995,9 @@ const STORE = {
 
     }
     if (srcBox) {
-      const selected = new Set((plan.sourceTownIds || []).map(String));
-      if (!selected.size) (state.towns || []).forEach(t => selected.add(String(t.id)));
+      const selected = plan.sourceTownIds == null
+        ? new Set((state.towns || []).map(t => String(t.id)))
+        : new Set((plan.sourceTownIds || []).map(String));
 
       const sig = (state.towns || []).map(t => t.id + ':' + (t.name || '')).join('|') +
         '|O:' + attackTownGroup(ATTACK_ROLE_OFFENSE).join(',') +
@@ -7992,8 +8043,9 @@ const STORE = {
       per.hidden = plan.troopMode !== 'per_town';
       if (plan.troopMode === 'per_town') {
         per.replaceChildren();
-        const ids = (plan.sourceTownIds && plan.sourceTownIds.length)
-          ? plan.sourceTownIds : (state.towns || []).map(t => String(t.id));
+        const ids = plan.sourceTownIds == null
+          ? (state.towns || []).map(t => String(t.id))
+          : (plan.sourceTownIds || []).map(String);
         ids.forEach(tid2 => {
           const town = (state.towns || []).find(t => String(t.id) === String(tid2)) || { id: tid2, name: tid2 };
           const wrap = document.createElement('div');
@@ -8073,7 +8125,7 @@ const STORE = {
           const row = document.createElement('div');
           row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr .7fr auto;gap:4px;font-size:10px;border-bottom:1px solid #2a2a2a;padding:2px 0;align-items:center';
           const c1 = document.createElement('span');
-          c1.textContent = `${townNameById(r.home)} → ${r.target}`;
+          c1.textContent = `${townNameById(r.home)} -> ${r.target}`;
           c1.title = `cmd ${r.commandId}`;
           const c2 = document.createElement('span');
           c2.textContent = r.type || 'move';
@@ -8085,7 +8137,7 @@ const STORE = {
           btn.textContent = 'Cancel';
           btn.style.cssText = 'background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px';
           btn.addEventListener('click', () => {
-            if (!confirm(`Cancel outgoing ${r.type || 'command'} ${r.commandId}?\n${townNameById(r.home)} → ${r.target}`)) return;
+            if (!confirm(`Cancel outgoing ${r.type || 'command'} ${r.commandId}?\n${townNameById(r.home)} -> ${r.target}`)) return;
             militaryCancelCommand(r.commandId, { confirmed: true, townId: r.home }, (err) => {
               flash(err ? ('cancel failed: ' + err) : 'command cancelled');
               renderAttack();
@@ -8129,7 +8181,7 @@ const STORE = {
       row.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:10px;border-bottom:1px solid #2a2a2a;padding:3px 0';
       const lab = document.createElement('span');
       lab.style.flex = '1';
-      lab.textContent = `${h.name} Lv${h.level} · ${h.status}` +
+      lab.textContent = `${h.name} Lv${h.level}  |  ${h.status}` +
         (h.home ? ` @${townNameById(h.home)}` : '');
       row.appendChild(lab);
       if (h.traveling) {
@@ -8164,7 +8216,7 @@ const STORE = {
         b.addEventListener('click', () => {
           const tid = townSel.value;
           if (!tid) { flash('pick a town'); return; }
-          if (!confirm(`Assign ${h.name} → ${townNameById(tid)}?\n(travel time applies)`)) return;
+          if (!confirm(`Assign ${h.name} -> ${townNameById(tid)}?\n(travel time applies)`)) return;
           heroAssignToTown(h.type, tid, { confirmed: true }, (err) => {
             flash(err ? ('hero assign failed: ' + err) : 'hero transfer started');
             renderAttack();
@@ -8231,7 +8283,7 @@ const STORE = {
       const cur = attackCurrentTownId();
       if (!cur) { flash('no town selected in game'); return; }
       if (cur.own) {
-        flash('current town is yours — open an enemy city on the map first');
+        flash('current town is yours - open an enemy city on the map first');
         return;
       }
       applyAttackTarget(cur);
@@ -8289,7 +8341,7 @@ const STORE = {
           const boats = boatCapacityCheck(send, false);
           if (!boats.ok) {
             gbLogT('def-pull-boats-' + id, 60000,
-              `defense-pull: skip town ${id} → ${targetTownId} (${boats.reason || 'no transport'})`);
+              `defense-pull: skip town ${id} -> ${targetTownId} (${boats.reason || 'no transport'})`);
             continue;
           }
         }
@@ -8303,7 +8355,7 @@ const STORE = {
     (function next() {
       if (i >= jobs.length) {
         gbUnlock('defense-pull');
-        gbLog(`defense-pull: ${done}/${jobs.length} → ${targetTownId}`);
+        gbLog(`defense-pull: ${done}/${jobs.length} -> ${targetTownId}`);
         return onDone && onDone(null, done);
       }
       const j = jobs[i++];
@@ -8593,7 +8645,7 @@ const STORE = {
     };
     bridgePost('hero', payload, (err, data) => {
       gbUnlock('hero');
-      if (!err) gbLog(`hero: ${action} ${type} → ${targetTownId || '-'} OK`);
+      if (!err) gbLog(`hero: ${action} ${type} -> ${targetTownId || '-'} OK`);
       else gbLog(`hero: ${action} ${type} err ${err}`);
       if (onDone) onDone(err, data);
     });
@@ -8658,7 +8710,7 @@ const STORE = {
     })));
     out.push(preflightProbe('csrf', () => ({
       ok: !!state.csrf,
-      detail: state.csrf ? state.csrf.slice(0, 6) + '…' : 'not found (GM_xmlhttpRequest report fetch needs it)',
+      detail: state.csrf ? state.csrf.slice(0, 6) + '...' : 'not found (GM_xmlhttpRequest report fetch needs it)',
     })));
     out.push(preflightProbe('towns', () => {
       const t = (townsFromGame() || []);
@@ -8717,8 +8769,9 @@ const STORE = {
     }));
     out.push(preflightProbe('research', () => {
       const ids = (townsFromGame() || []).map(t => t.id);
-      const techs = ids.length ? researchTownTechs(ids[0]) : null;
-      const n = techs ? Object.keys(techs).length : 0;
+      const info = ids.length ? researchTownTechs(ids[0]) : null;
+      const techMap = info && info.techs ? info.techs : null;
+      const n = techMap ? Object.keys(techMap).length : 0;
       return { ok: n > 0, detail: n ? n + ' techs readable in first town' : 'academy techs unreadable' };
     }));
 
@@ -8798,7 +8851,7 @@ const STORE = {
       const locks = gbLockList();
       const paused = Object.keys(state.captchaBreakers || {}).filter(k => captchaPaused(k));
       const parts = [];
-      if (state.dryRun) parts.push('DRY-RUN ON (nothing will be sent)');
+      if (state.dryRun) parts.push('DRY-RUN ON (bridge/AJAX + DOM clicks blocked)');
       if (locks.length) parts.push('locks held: ' + locks.join(','));
       if (paused.length) parts.push('captcha: ' + paused.join(','));
       if (gbServerPaused()) parts.push('server cooldown ' + fmtSec(Math.round(gbServerCooldownLeftMs() / 1000)));
@@ -8987,15 +9040,11 @@ const STORE = {
         tr.dataset.key = key;
         cells.forEach(() => tr.appendChild(document.createElement('td')));
         const actions = document.createElement('td');
-        const atkBtn = document.createElement('button');
-        atkBtn.textContent = 'ATK'; atkBtn.title = 'Prepare attack';
-        atkBtn.style.cssText = 'background:none;border:1px solid #555;color:#f96;padding:1px 5px;cursor:pointer;font-size:11px';
-        atkBtn.addEventListener('click', () => prepareAttack(f));
         const thrBtn = document.createElement('button');
         thrBtn.textContent = 'THR'; thrBtn.title = 'Set threshold';
-        thrBtn.style.cssText = 'background:none;border:1px solid #555;color:#fc6;padding:1px 5px;cursor:pointer;font-size:11px;margin-left:2px';
+        thrBtn.style.cssText = 'background:none;border:1px solid #555;color:#fc6;padding:1px 5px;cursor:pointer;font-size:11px';
         thrBtn.addEventListener('click', () => editThreshold(f));
-        actions.appendChild(atkBtn); actions.appendChild(thrBtn);
+        actions.appendChild(thrBtn);
         tr.appendChild(actions);
         tbody.appendChild(tr);
       }
@@ -9403,7 +9452,7 @@ const STORE = {
         <span style="font-size:9px;color:#888;align-self:center">harass</span>
         <button type="button" data-harass="1sling" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">1 sling</button>
         <button type="button" data-harass="5sling" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">5 sling</button>
-        <button type="button" data-harass="light" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">light (≤8)</button>
+        <button type="button" data-harass="light" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">light (<=8)</button>
       </div>
       <div style="font-size:9px;color:#888;margin-top:2px">offensive / defensive cities (saved per world)</div>
       <div class="atk-roles"></div>
@@ -9457,7 +9506,7 @@ const STORE = {
         <button id="gb-ab-csfast" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Load CS-fast</button>
         <button id="gb-ab-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Queue now</button>
       </div>
-      <div style="font-size:9px;color:#888;margin-bottom:4px">Auto only fills when ≤1 order left: adds up to 6 (or queue max). Next fill waits half(build time)+5min+rand — not right when a build finishes. Targets = cur/tgt/max.</div>
+      <div style="font-size:9px;color:#888;margin-bottom:4px">Auto only fills when <=1 order left: adds up to 6 (or queue max). Next fill waits half(build time)+5min+rand - not right when a build finishes. Targets = cur/tgt/max.</div>
       <div class="ab-queue"></div>
       <div id="gb-ab-status" style="font-size:10px;color:#888;margin-top:4px"></div>
     </section>
@@ -9484,6 +9533,7 @@ const STORE = {
     <section data-tab="config" hidden>
       <div class="config-panel" style="font-size:11px;display:flex;flex-direction:column;gap:8px">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="enabled-host"/> Enable on <span class="cfg-host"></span></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-collect"/> Auto-collect Recoger (DOM)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="collect-all"/> Recolect all (ignore timer cap)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-bandit"/> Auto-bandit</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-farm"/> Auto-farm</label>
@@ -9516,7 +9566,7 @@ const STORE = {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-build"/> Auto-claim quest build discount</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-res"/> Auto-claim quest resources/favor</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-cave"/> Auto-cave (stash excess iron)</label>
-        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Cave when iron ≥ % of warehouse
+        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Cave when iron >= % of warehouse
           <input type="number" data-cfg="cave-thresh" min="50" max="99" style="width:50px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
         </label>
         <div style="margin-left:12px;font-size:10px;color:#888">Per-town (unchecked = skip that town):</div>
@@ -9543,7 +9593,7 @@ const STORE = {
           Reserve % <input type="number" data-cfg="trade-reserve" min="0" max="80" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
           Min batch <input type="number" data-cfg="trade-min" min="100" max="50000" step="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="island-ship"/> Mainland→island res ship</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="island-ship"/> Mainland->island res ship</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-trade"/> Rural village trade</label>
         <label style="margin-left:12px;flex-wrap:wrap">Min ratio <input type="number" data-cfg="rural-ratio" step="0.25" min="0.25" max="2" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>
           Res <select data-cfg="rural-res" style="background:#111;color:#cfc;border:1px solid #333"><option>iron</option><option>stone</option><option>wood</option></select>
@@ -9556,14 +9606,14 @@ const STORE = {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="pause-activity"/> Pause when I am active</label>
         <label style="margin-left:12px">Pause min <input type="number" data-cfg="pause-ms" min="1" max="60" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="night-pause"/> Night pause</label>
-        <label style="margin-left:12px">Hours <input type="number" data-cfg="night-start" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/>–<input type="number" data-cfg="night-end" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
+        <label style="margin-left:12px">Hours <input type="number" data-cfg="night-start" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/>-<input type="number" data-cfg="night-end" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Log every payload the bot would send and send nothing. Use it to compare bot payloads against a hand-clicked action before enabling a risky feature."><input type="checkbox" data-cfg="dry-run"/> <b style="color:#6cf">Dry run (log payloads, send nothing)</b></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="A feature that keeps finding nothing to do doubles its own interval (up to 8x) until it acts again."><input type="checkbox" data-cfg="orch-adaptive"/> Adaptive cadence (back off idle features)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Copy/Export replace player names and ids with short hashes. Turn OFF only for local debugging."><input type="checkbox" data-cfg="export-redact"/> Redact names/ids in Copy + Export</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="captcha-global"/> Global captcha kill-switch</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Skip an action that failed the same way 3x in a row (5/15/60min backoff). Journal keeps recording either way."><input type="checkbox" data-cfg="decision-memory"/> Decision memory (skip repeat failures)</label>
         <label>Req budget / min <input type="number" data-cfg="req-budget" min="5" max="120" style="width:50px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
-        <label>Webhook URL <input type="text" data-cfg="webhook-url" placeholder="Discord webhook or https://api.telegram.org/bot…/sendMessage" style="width:100%;background:#111;color:#cfc;border:1px solid #333;margin-top:2px;font-size:10px"/></label>
+        <label>Webhook URL <input type="text" data-cfg="webhook-url" placeholder="Discord webhook or https://api.telegram.org/bot.../sendMessage" style="width:100%;background:#111;color:#cfc;border:1px solid #333;margin-top:2px;font-size:10px"/></label>
         <label style="margin-left:0;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">Events
           <label><input type="checkbox" data-cfg="wh-captcha"/> captcha</label>
           <label><input type="checkbox" data-cfg="wh-attack"/> attack</label>
@@ -9860,6 +9910,7 @@ const STORE = {
     if (configBound) {
       sec.querySelector('[data-cfg=enabled-host]').checked = state.enabledHosts[location.host] === true;
       sec.querySelector('[data-cfg=collect-all]').checked = state.collectAll;
+      const acol = sec.querySelector('[data-cfg=auto-collect]'); if (acol) acol.checked = state.autoCollect;
       sec.querySelector('[data-cfg=auto-bandit]').checked = state.autoBandit;
       sec.querySelector('[data-cfg=auto-farm]').checked = state.autoFarm;
       sec.querySelector('[data-cfg=farm-skip-full]').checked = state.farmSkipFull;
@@ -9884,6 +9935,7 @@ const STORE = {
     const setChk = (sel, val) => { const el = sec.querySelector(sel); if (el) el.checked = !!val; };
     setChk('[data-cfg=enabled-host]', state.enabledHosts[location.host] === true);
     setChk('[data-cfg=collect-all]', state.collectAll);
+    setChk('[data-cfg=auto-collect]', state.autoCollect);
     setChk('[data-cfg=auto-bandit]', state.autoBandit);
     setChk('[data-cfg=auto-farm]', state.autoFarm);
     setChk('[data-cfg=farm-skip-full]', state.farmSkipFull);
@@ -9907,6 +9959,10 @@ const STORE = {
       state.enabledHosts[location.host] = e.target.checked;
       save(STORE.ENABLED_HOSTS, state.enabledHosts);
       flash(e.target.checked ? 'enabled on ' + location.host : 'disabled on ' + location.host);
+    });
+    sec.querySelector('[data-cfg=auto-collect]')?.addEventListener('change', e => {
+      state.autoCollect = e.target.checked; save(STORE.AUTO_COLLECT, state.autoCollect);
+      flash(state.autoCollect ? 'auto-collect ON' : 'auto-collect OFF');
     });
     sec.querySelector('[data-cfg=collect-all]')?.addEventListener('change', e => {
       state.collectAll = e.target.checked; save(STORE.COLLECT_ALL, state.collectAll);
@@ -10059,7 +10115,7 @@ const STORE = {
     bindToggle('[data-cfg=export-redact]', 'exportRedact', STORE.EXPORT_REDACT);
     sec.querySelector('[data-cfg=dry-run]')?.addEventListener('change', e => {
       state.dryRun = e.target.checked; save(STORE.DRY_RUN, state.dryRun);
-      gbLog('DRY RUN ' + (state.dryRun ? 'ON - payloads logged, nothing sent' : 'OFF - posts go to the server'));
+      gbLog('DRY RUN ' + (state.dryRun ? 'ON - payloads logged, DOM clicks blocked' : 'OFF - posts go to the server'));
       flash(state.dryRun ? 'dry run ON' : 'dry run OFF');
       updateStatus();
     });
@@ -10339,7 +10395,7 @@ const STORE = {
         actions.style.cssText = 'margin-top:3px';
         const atkBtn = document.createElement('button');
         atkBtn.type = 'button';
-        atkBtn.textContent = '→ Attack';
+        atkBtn.textContent = '-> Attack';
         atkBtn.title = `Use town #${f.town.id} as attack target`;
         atkBtn.style.cssText = 'background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px';
         atkBtn.addEventListener('click', () => prepareAttack(Object.assign({ kind: 'town' }, f.town)));
@@ -10376,7 +10432,7 @@ const STORE = {
     if (head) {
       head.textContent = '';
       head.appendChild(document.createTextNode(
-        `${state.decisions.length} decisions · memory ${state.decisionMemory === false ? 'OFF' : 'ON'} · `));
+        `${state.decisions.length} decisions  |  memory ${state.decisionMemory === false ? 'OFF' : 'ON'}  |  `));
       const b = document.createElement('b');
       b.textContent = `${skips.length} skipping`;
       head.appendChild(b);
@@ -10426,7 +10482,7 @@ const STORE = {
     }
     const redactPlayer = (p) => {
       if (!p || typeof p !== 'object') return p;
-      return { id: p.id != null ? 'p' + String(p.id).slice(-4) : null, name: p.name ? String(p.name).slice(0, 1) + '…' : null };
+      return { id: p.id != null ? 'p' + String(p.id).slice(-4) : null, name: p.name ? String(p.name).slice(0, 1) + '...' : null };
     };
     const findings = (dump.findings || []).map(f => {
       if (!f || typeof f !== 'object') return f;
@@ -10434,7 +10490,7 @@ const STORE = {
       out.attacker = redactPlayer(f.attacker);
       out.defender = redactPlayer(f.defender);
       if (out.town && typeof out.town === 'object') {
-        out.town = { id: out.town.id, name: out.town.name ? String(out.town.name).slice(0, 1) + '…' : null, x: out.town.x, y: out.town.y };
+        out.town = { id: out.town.id, name: out.town.name ? String(out.town.name).slice(0, 1) + '...' : null, x: out.town.x, y: out.town.y };
       }
       delete out.raw;
       return out;
@@ -10448,7 +10504,7 @@ const STORE = {
     if (!panel) return;
     const el = panel.querySelector('#gb-status');
     if (!el) return;
-    const csrfShort = state.csrf ? state.csrf.slice(0, 6) + '…' : 'NONE';
+    const csrfShort = state.csrf ? state.csrf.slice(0, 6) + '...' : 'NONE';
     const farms = state.farmsParsed.length;
     const okFarms = Object.values(state.farmResources).filter(r => r && r.ok).length;
     const lastErr = Object.values(state.farmResources).filter(r => r && !r.ok).slice(-1)[0];
@@ -10456,13 +10512,13 @@ const STORE = {
     const paused = Object.keys(state.captchaBreakers || {}).filter(k => captchaPaused(k));
     const pauseInfo = {};
     automationPaused(pauseInfo);
-    let pauseTxt = paused.length ? ` ⏸${paused.join(',')}` : '';
-    if (pauseInfo.reason) pauseTxt += ` ⏸${pauseInfo.reason}`;
-    if (captchaGlobalUntil > Date.now()) pauseTxt += ' ⏸ALL';
+    let pauseTxt = paused.length ? ` ||${paused.join(',')}` : '';
+    if (pauseInfo.reason) pauseTxt += ` ||${pauseInfo.reason}`;
+    if (captchaGlobalUntil > Date.now()) pauseTxt += ' ||ALL';
     const memSkips = jrnActiveSkips();
     if (memSkips.length) pauseTxt += ` mem:${memSkips.length}`;
-    if (gbServerPaused()) pauseTxt += ` ⏸srv:${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}`;
-    const dryTxt = state.dryRun ? ' 🅳DRY' : '';
+    if (gbServerPaused()) pauseTxt += ` ||srv:${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}`;
+    const dryTxt = state.dryRun ? ' DRY' : '';
     const txt = `csrf:${csrfShort} farms:${okFarms}/${farms}${errTxt}${dryTxt}${pauseTxt}`;
     if (txt !== _statusLast) {
       _statusLast = txt;
@@ -10485,14 +10541,14 @@ const STORE = {
     const te = panel.querySelector('#gb-next-towns');
     if (fe) {
       const t = state.nextFarmScrape
-        ? `⏱ farms: ${fmtSec(Math.max(0, Math.round((state.nextFarmScrape - Date.now()) / 1000)))}`
-        : '⏱ farms: —';
+        ? `~ farms: ${fmtSec(Math.max(0, Math.round((state.nextFarmScrape - Date.now()) / 1000)))}`
+        : '~ farms: -';
       if (t !== _timerFarmLast) { _timerFarmLast = t; fe.textContent = t; }
     }
     if (te) {
       const t = state.nextTownsScrape
-        ? `⏱ towns: ${fmtSec(Math.max(0, Math.round((state.nextTownsScrape - Date.now()) / 1000)))}`
-        : '⏱ towns: —';
+        ? `~ towns: ${fmtSec(Math.max(0, Math.round((state.nextTownsScrape - Date.now()) / 1000)))}`
+        : '~ towns: -';
       if (t !== _timerTownLast) { _timerTownLast = t; te.textContent = t; }
     }
   }
@@ -10566,8 +10622,8 @@ const STORE = {
         gbLog('diag: copied ' + farms.length + ' farms, csrf=' + (state.csrf ? 'yes' : 'NO'));
       };
       const failFlash = () => {
-        flash('diag ready — paste from console');
-        gbLog('diag: clipboard fail — expand [grepbot] diag in console');
+        flash('diag ready - paste from console');
+        gbLog('diag: clipboard fail - expand [grepbot] diag in console');
       };
       const tryExecCopy = () => {
         try {

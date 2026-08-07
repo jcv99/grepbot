@@ -1,8 +1,8 @@
   // ---------- stats + preflight (v1.4.0) ----------
   // Two read-only views over data the bot already produces:
-  //   * Stats  — journal rollups (per-feature reliability, skip/error reasons,
+  //   * Stats  - journal rollups (per-feature reliability, skip/error reasons,
   //              scheduler state, budget, locks). Nothing here posts.
-  //   * Preflight — probes every module's *read* path and reports whether it
+  //   * Preflight - probes every module's *read* path and reports whether it
   //              could act at all: is the collection there, is the learned
   //              action key present, would a payload be buildable. This is the
   //              in-game validation checklist (docs/TASKS.md) as one button.
@@ -30,7 +30,7 @@
     })));
     out.push(preflightProbe('csrf', () => ({
       ok: !!state.csrf,
-      detail: state.csrf ? state.csrf.slice(0, 6) + '…' : 'not found (GM_xmlhttpRequest report fetch needs it)',
+      detail: state.csrf ? state.csrf.slice(0, 6) + '...' : 'not found (GM_xmlhttpRequest report fetch needs it)',
     })));
     out.push(preflightProbe('towns', () => {
       const t = (townsFromGame() || []);
@@ -89,12 +89,13 @@
     }));
     out.push(preflightProbe('research', () => {
       const ids = (townsFromGame() || []).map(t => t.id);
-      const techs = ids.length ? researchTownTechs(ids[0]) : null;
-      const n = techs ? Object.keys(techs).length : 0;
+      const info = ids.length ? researchTownTechs(ids[0]) : null;
+      const techMap = info && info.techs ? info.techs : null;
+      const n = techMap ? Object.keys(techMap).length : 0;
       return { ok: n > 0, detail: n ? n + ' techs readable in first town' : 'academy techs unreadable' };
     }));
     // Affordability guards are only as good as the fields they can read. A
-    // blind guard does not block — it lets the server decide — so surfacing
+    // blind guard does not block - it lets the server decide - so surfacing
     // which cost tables are readable is the difference between "nothing to do"
     // and "posting things the town cannot pay for".
     out.push(preflightProbe('cost reads', () => {
@@ -173,7 +174,7 @@
       const locks = gbLockList();
       const paused = Object.keys(state.captchaBreakers || {}).filter(k => captchaPaused(k));
       const parts = [];
-      if (state.dryRun) parts.push('DRY-RUN ON (nothing will be sent)');
+      if (state.dryRun) parts.push('DRY-RUN ON (bridge/AJAX + DOM clicks blocked)');
       if (locks.length) parts.push('locks held: ' + locks.join(','));
       if (paused.length) parts.push('captcha: ' + paused.join(','));
       if (gbServerPaused()) parts.push('server cooldown ' + fmtSec(Math.round(gbServerCooldownLeftMs() / 1000)));

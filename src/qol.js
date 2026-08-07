@@ -26,7 +26,7 @@
   function qolApplyTemplate(name) {
     const t = state.cityTemplates && state.cityTemplates[name];
     if (!t) { flash('template missing'); return; }
-    // Clone — never share references with the stored template (mutate-one = mutate-all).
+    // Clone - never share references with the stored template (mutate-one = mutate-all).
     if (t.abTargets) {
       state.abTargets = JSON.parse(JSON.stringify(t.abTargets));
       save(STORE.AB_TARGETS, state.abTargets);
@@ -67,7 +67,7 @@
       state.researchTargets = JSON.parse(JSON.stringify(t.researchTargets));
       save(STORE.RESEARCH_TARGETS, state.researchTargets);
     }
-    gbLog(`group "${groupName}": applied template "${templateName}" → ${ids.length} towns`);
+    gbLog(`group "${groupName}": applied template "${templateName}" -> ${ids.length} towns`);
   }
   function qolOverviewData() {
     const uw = gameUw();
@@ -126,14 +126,14 @@
       `Farms ready: ${d.farmReady}/${d.farmTotal}`,
       `Culture busy: ${d.cultureBusy}`,
       `Build queue: ${d.buildQ} | Research queue: ${d.researchQ}`,
-      d.pause ? `⏸ paused: ${d.pause}` : 'Automation: active',
+      d.pause ? `|| paused: ${d.pause}` : 'Automation: active',
       d.breakers.length ? `Captcha: ${d.breakers.join(',')}` : 'Captcha: clear',
       (() => {
         const parts = Object.keys(d.health).map(k => {
           const h = d.health[k];
           return `${k} ok${h.ok}/err${h.err}/cap${h.captcha}`;
         });
-        return 'Health: ' + (parts.length ? parts.join(' · ') : '(none yet)');
+        return 'Health: ' + (parts.length ? parts.join('  |  ') : '(none yet)');
       })(),
     ];
     box.textContent = lines.join('\n');

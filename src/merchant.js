@@ -31,7 +31,7 @@
       return;
     }
     // Offers are paid in gold. Buying without the balance is a guaranteed
-    // rejection, so read it once per scan; null = unreadable → server decides.
+    // rejection, so read it once per scan; null = unreadable -> server decides.
     const gold = gbPlayerGold();
     let job = null;
     for (const w of wish) {
@@ -40,18 +40,18 @@
       if (!name || !(maxPrice > 0)) continue;
       for (const o of offers) {
         const a = o.attributes || {};
-        // Require canonical item id — never fall back to empty / ambiguous substring
+        // Require canonical item id - never fall back to empty / ambiguous substring
         const id = String(a.item_id || a.offer_id || '').toLowerCase().trim();
         if (!id) continue;
         if (!merchantExactMatch(name, id) && !merchantExactMatch(name, String(a.type || '').toLowerCase())) continue;
-        // Price must be explicitly present and finite — missing → 0 is forbidden
+        // Price must be explicitly present and finite - missing -> 0 is forbidden
         const priceRaw = a.price != null ? a.price : (a.gold != null ? a.gold : null);
         if (priceRaw == null || priceRaw === '') continue;
         const price = +priceRaw;
         if (!Number.isFinite(price) || price < 0) continue;
         if (price > maxPrice) continue;
         if (gold != null && gold < price) {
-          gbLogT('merchant-gold', 300000, `merchant: ${id} costs ${price}, gold ${gold} — skip`);
+          gbLogT('merchant-gold', 300000, `merchant: ${id} costs ${price}, gold ${gold} - skip`);
           continue;
         }
         const townId = a.town_id || (uw.Game && uw.Game.townId);
@@ -65,7 +65,7 @@
     // Reconfirm offer still present before buy
     const oid = (job.offer.attributes && (job.offer.attributes.id || job.offer.id)) || job.offer.id;
     if (oid == null || oid === '') {
-      gbLogT('merchant-noid', 60000, 'merchant: offer has no id — skip');
+      gbLogT('merchant-noid', 60000, 'merchant: offer has no id - skip');
       return;
     }
     gbLock('merchant');
@@ -76,7 +76,7 @@
       town_id: +job.townId,
     }, (err) => {
       if (err === 'timeout') {
-        gbLogT('merchant-timeout', 60000, `merchant: timeout_unknown for ${job.itemId} — no fallback`);
+        gbLogT('merchant-timeout', 60000, `merchant: timeout_unknown for ${job.itemId} - no fallback`);
         gbUnlock('merchant');
         return;
       }

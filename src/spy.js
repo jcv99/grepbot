@@ -60,7 +60,7 @@
           const reportish = /(?:^|\/)report(?:s)?(?:\?|$)|[?&](?:controller|action)=(report|reports|combat_reports|tombstone|attack_planner)/.test(u)
             || /\/game\/report/.test(u);
           if (txt.length > 100000 && !reportish) {
-            // cheap harvest — only report_id (bare "id" matches towns/farms → 404 spam)
+            // cheap harvest - only report_id (bare "id" matches towns/farms -> 404 spam)
             const re = /"report_id"\s*:\s*(\d+)/g;
             let m; let n = 0;
             while ((m = re.exec(txt)) && n < 50) { queueReport(m[1], u); n++; }
@@ -142,7 +142,7 @@
     save(STORE.SEEN, state.seen);
     state.findings.unshift(parsed);
     if (state.findings.length > 500) {
-      // Trim visible findings only — keep seen so inbox doesn't re-fetch (I14).
+      // Trim visible findings only - keep seen so inbox doesn't re-fetch (I14).
       state.findings.splice(500);
     }
     save(STORE.FINDINGS, state.findings);
@@ -157,7 +157,7 @@
     else gbLogT('report-retry-cap', 60000, 'report retry capped for', id);
   }
   // Prefer gameAjaxPost (host/pause/budget/captcha). HTTP only when gpAjax missing.
-  // Old GET /index.php?action=report returned "404 Not Found" → JSON.parse column-5 noise.
+  // Old GET /index.php?action=report returned "404 Not Found" -> JSON.parse column-5 noise.
   function fetchReport(id, hintUrl) {
     if (state.seen[seenKey(id)] || state.seen[id]) return;
     if (!hostEnabled() || automationPaused({}) || captchaPaused('report')) {

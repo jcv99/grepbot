@@ -9,6 +9,7 @@ const STORE = {
     THRESH:   'grepbot:thresholds',
     ALERTED:  'grepbot:alerted',
     COLLECT_ALL: 'grepbot:collect-all',
+    AUTO_COLLECT: 'grepbot:auto-collect',
     COLLECT_TPL: 'grepbot:collect-tpl',
     AUTO_BANDIT: 'grepbot:auto-bandit',
     BANDIT_LOG:  'grepbot:bandit-log',
@@ -58,7 +59,7 @@ const STORE = {
     FARM_SLEEP_FILL: 'grepbot:farm-sleep-fill',
     FARM_SLEEP_DAY: 'grepbot:farm-sleep-day',
     IB_ACTION_R: 'grepbot:ib-action-r',
-    // Phase 8.2+ / 9–14
+    // Phase 8.2+ / 9-14
     AUTO_CULTURE: 'grepbot:auto-culture',
     CULTURE_TYPES: 'grepbot:culture-types',
     ALLOW_PREMIUM_CULTURE: 'grepbot:allow-premium-culture',
@@ -121,13 +122,13 @@ const STORE = {
     DODGE_QUEUE: 'grepbot:dodge-queue',
   };
 
-  // Full orch order — also the load/migrate default for priorityOrder (C1).
+  // Full orch order - also the load/migrate default for priorityOrder (C1).
   const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
     'ruraltrade', 'rurallevel', 'recruit', 'merchant', 'favor', 'wonder'];
   const CONFIG_VER_CURRENT = 2;
 
   // Id-bearing maps/lists auto-scoped by load/save (C3). Prefs/toggles stay global.
-  // Keys already manually wkey()'d at call sites (csrf, claimTpl, …) stay caller-scoped.
+  // Keys already manually wkey()'d at call sites (csrf, claimTpl, ...) stay caller-scoped.
   const WORLD_SCOPED_BASES = new Set([
     STORE.FINDINGS, STORE.FARMS, STORE.FARMS_PARSED, STORE.FARM_RES, STORE.SEEN,
     STORE.TOWNS, STORE.TOWN_RES, STORE.THRESH, STORE.ALERTED,
@@ -144,7 +145,7 @@ const STORE = {
     STORE.SERVER_COOLDOWN, STORE.QUEST_CLAIM_FAIL, STORE.DODGE_QUEUE,
   ]);
 
-  // World-scoped STORE keys — must not leak across hosts/worlds
+  // World-scoped STORE keys - must not leak across hosts/worlds
   function wkey(base) { return base + '@' + location.hostname; }
 
   // ---------- reinject registry (Tampermonkey re-runs stack intervals otherwise) ----------
@@ -269,7 +270,7 @@ const STORE = {
     'bandit-attack': 30000, // optimistic guard until the movement shows up
   };
   const GB_LOCK_DEFAULT_TTL = 120000;
-  const gbLocks = Object.create(null); // name → acquired-at ms
+  const gbLocks = Object.create(null); // name -> acquired-at ms
   function gbLockTtl(name) { return GB_LOCK_TTL[name] || GB_LOCK_DEFAULT_TTL; }
   function gbLocked(name) {
     const at = gbLocks[name];
@@ -281,7 +282,7 @@ const STORE = {
     }
     return true;
   }
-  // Returns false when the lock is already held — callers use it as the guard.
+  // Returns false when the lock is already held - callers use it as the guard.
   function gbLock(name) {
     if (gbLocked(name)) return false;
     gbLocks[name] = Date.now();
@@ -313,6 +314,7 @@ const STORE = {
     nextTownsScrape: load(STORE.NEXT_TOWNS, 0),
     farmAction: load(wkey(STORE.FARM_ACTION), null) || load(STORE.FARM_ACTION, null),
     collectAll: load(STORE.COLLECT_ALL, false),
+    autoCollect: load(STORE.AUTO_COLLECT, false),
     collectTpl: load(wkey(STORE.COLLECT_TPL), null) || load(STORE.COLLECT_TPL, null),
     autoBandit: load(STORE.AUTO_BANDIT, false),
     banditLog:  load(STORE.BANDIT_LOG, []),
@@ -416,7 +418,7 @@ const STORE = {
   let panel = null;
   let userPausedUntil = 0;
   let captchaGlobalUntil = +load(STORE.CAPTCHA_GLOBAL_UNTIL, 0) || 0;
-  const moduleHealth = {}; // feature → { ok, err, captcha, last }
+  const moduleHealth = {}; // feature -> { ok, err, captcha, last }
   const reqBudgetWindow = []; // timestamps of recent bridge posts
   function saveCaptchaGlobalUntil() {
     save(STORE.CAPTCHA_GLOBAL_UNTIL, captchaGlobalUntil || 0);
@@ -440,7 +442,7 @@ const STORE = {
     if (ver !== state.configVer) {
       state.configVer = ver;
       save(STORE.CONFIG_VER, ver);
-      gbLog('config migrated → v' + ver);
+      gbLog('config migrated -> v' + ver);
     }
   }
 
@@ -482,7 +484,7 @@ const STORE = {
   }
   function gbServerPaused() { return serverCooldownUntil > Date.now(); }
   function gbServerCooldownLeftMs() { return Math.max(0, serverCooldownUntil - Date.now()); }
-  // Bridge/gpAjax replies carry no status code — match the error text instead.
+  // Bridge/gpAjax replies carry no status code - match the error text instead.
   function noteServerPressure(msg) {
     if (!msg || !SERVER_PRESSURE_RE.test(String(msg))) return false;
     gbServerCooldown(10000 + Math.floor(Math.random() * 10000), String(msg).slice(0, 40));
@@ -503,7 +505,8 @@ const STORE = {
     }
     if (state.nightPause) {
       const h = new Date().getHours();
-      const a = +state.nightStart || 0, b = +state.nightEnd || 7;
+      const a = Number.isFinite(+state.nightStart) ? +state.nightStart : 0;
+      const b = Number.isFinite(+state.nightEnd) ? +state.nightEnd : 7;
       const inNight = a < b ? (h >= a && h < b) : (h >= a || h < b);
       if (inNight) {
         if (reasonOut) reasonOut.reason = 'night';
@@ -628,7 +631,7 @@ const STORE = {
   // ModernBot-style: read the game's own backbone models instead of scraping
   // DOM/guessing endpoints, and send actions through gpAjax (auto-signs csrf).
   function gameUw() {
-    // Never fall back to the sandboxed content-script `window` — it has no
+    // Never fall back to the sandboxed content-script `window` - it has no
     // MM/Game/gpAjax and returning it makes every bridge check look "ready"
     // while reading null forever.
     try {
@@ -639,7 +642,7 @@ const STORE = {
     } catch (_) {}
     return Object.create(null);
   }
-  // Short-TTL memo of gameUw / MM collections — hot loops call these dozens of times per tick.
+  // Short-TTL memo of gameUw / MM collections - hot loops call these dozens of times per tick.
   let _uwCache = null, _uwCacheAt = 0;
   const UW_CACHE_MS = 400;
   function uwCached() {
@@ -692,7 +695,7 @@ const STORE = {
     const s = gameBridgeStatus();
     return s.MM && s.gpAjax && s.ITowns;
   }
-  // Game clocks are unix seconds (Timestamp.now → Game.server_time). Wall clock
+  // Game clocks are unix seconds (Timestamp.now -> Game.server_time). Wall clock
   // skew vs the server makes early/late lootable_at / cooldown checks.
   function gameNow() {
     const uw = gameUw();
@@ -786,7 +789,7 @@ const STORE = {
           try { captcha = noteCaptchaBody(res && res.responseText); } catch (_) {}
           drop();
           if (captcha) {
-            // Do not deliver a normal success to consumers — typed captcha skip.
+            // Do not deliver a normal success to consumers - typed captcha skip.
             if (userOnerror) userOnerror({ error: 'captcha', captcha: true, status: res && res.status });
             return;
           }
@@ -855,7 +858,7 @@ const STORE = {
     const b = state.captchaBreakers[feature];
     if (!b || !b.until) return false;
     if (Date.now() >= b.until) {
-      // window expired — allow a probe; decay trips so we don't stick at 60m forever
+      // window expired - allow a probe; decay trips so we don't stick at 60m forever
       if ((b.trips || 0) > 0) {
         b.trips = Math.max(0, (b.trips || 1) - 1);
         delete b.until;
@@ -865,7 +868,7 @@ const STORE = {
     }
     return true;
   }
-  // Parent+child captcha gate (dodge↔militia, recruit↔spell).
+  // Parent+child captcha gate (dodge<->militia, recruit<->spell).
   function captchaPausedAny(...features) {
     for (let i = 0; i < features.length; i++) {
       const f = features[i];
@@ -923,7 +926,7 @@ const STORE = {
     if (d.captcha === true || d.captcha === 1) return true;
     if (typeof d.captcha === 'string' && d.captcha.length) return true;
     if (d.json === 'captcha_required' || d.status === 'captcha_required') return true;
-    // Real Grepolis signals — do NOT JSON.stringify entire objects (false trips
+    // Real Grepolis signals - do NOT JSON.stringify entire objects (false trips
     // on any nested string containing "captcha", e.g. help text / i18n keys).
     if (d.exception != null && /captcha/i.test(String(d.exception))) return true;
     if (typeof d.html === 'string' && /captcha/i.test(d.html)) return true;
@@ -937,7 +940,7 @@ const STORE = {
     return false;
   }
   // The XHR spy sees our own bridge posts too. Stamp each outgoing payload so
-  // sniffBridgeBody can ignore it — otherwise the bot "learns" a template from
+  // sniffBridgeBody can ignore it - otherwise the bot "learns" a template from
   // a payload it invented itself, and echoes every retry into the log.
   const lastSelfBridge = { sig: '', at: 0 };
   function isSelfBridge(j) {
@@ -946,7 +949,7 @@ const STORE = {
     return (String(j.model_url || '') + '|' + String(j.action_name || '')) === lastSelfBridge.sig;
   }
   function bridgePost(feature, payload, onDone) {
-    // Every exit path is journaled — skips are decisions too, and "why did the
+    // Every exit path is journaled - skips are decisions too, and "why did the
     // bot do nothing" is the question the Log tab could never answer after a reload.
     const jtag = jrnTag(feature, payload);
     const bail = (err, why) => { jrnPush(jtag, jrnResult(why || err)); return onDone && onDone(err); };
@@ -1071,8 +1074,25 @@ const STORE = {
   function dryRunFmt(payload) {
     try {
       const s = JSON.stringify(payload);
-      return s.length > 220 ? s.slice(0, 220) + '…' : s;
+      return s.length > 220 ? s.slice(0, 220) + '...' : s;
     } catch (_) { return String(payload); }
+  }
+  // Finite numeric config - preserves 0 (unlike `+v || default`).
+  function gbCfgNum(v, fallback) {
+    const n = +v;
+    return Number.isFinite(n) ? n : fallback;
+  }
+  // DOM side effects must respect dry-run (bridgePost/gameAjaxPost already do).
+  function gbDomClick(el, feature) {
+    if (!el) return false;
+    if (state.dryRun) {
+      const tag = el.tagName || '?';
+      const hint = el.className ? String(el.className).split(/\s+/)[0] : '';
+      gbLog(`DRY-RUN ${feature || 'dom'}: click blocked (${tag}${hint ? '.' + hint : ''})`);
+      return false;
+    }
+    el.click();
+    return true;
   }
   // Parse Retry-After / treat 429+5xx as retryable for GM_xmlhttpRequest paths.
   // Also feeds the global cooldown so bridge posts back off with the scrapers.
@@ -1114,11 +1134,11 @@ const STORE = {
         }
       } catch (_) {}
       if (wood != null) {
-        // Prefer real capacity APIs — resources().storage is sometimes the building level.
+        // Prefer real capacity APIs - resources().storage is sometimes the building level.
         let cap = null;
         try { if (t.getStorageCapacity) cap = +t.getStorageCapacity(); } catch (_) {}
         try { if (!(cap > 0) && t.storage && t.storage.getCapacity) cap = +t.storage.getCapacity(); } catch (_) {}
-        if (!(cap > 0) && resStorage > 100) cap = resStorage; // large value ≈ capacity
+        if (!(cap > 0) && resStorage > 100) cap = resStorage; // large value ~ capacity
         if (cap > 0) {
           const isFull = (v) => v >= cap || v / cap >= 0.99;
           const full = { wood: isFull(wood), stone: isFull(stone), iron: isFull(iron) };
@@ -1143,7 +1163,7 @@ const STORE = {
   //
   // Rule for every precondition in this codebase: only BLOCK on a value that was
   // actually read. Method names differ per client build, so a missing field means
-  // "unknown", not "no" — the verdict carries `blind` and the feature logs once
+  // "unknown", not "no" - the verdict carries `blind` and the feature logs once
   // and lets the server be the authority. A guard that goes silently dead when a
   // client renames a getter is worse than no guard.
   function gbProbeNum(obj, names, args) {
@@ -1196,8 +1216,8 @@ const STORE = {
     return null;
   }
   const GB_RES_KEYS = ['wood', 'stone', 'iron'];
-  // cost: { wood, stone, iron, population } — any subset; 0/absent = no requirement.
-  // → { ok, blind, short: ['wood 120/500', …], detail }
+  // cost: { wood, stone, iron, population } - any subset; 0/absent = no requirement.
+  // -> { ok, blind, short: ['wood 120/500', ...], detail }
   function gbAfford(townId, cost, opts) {
     const o = opts || {};
     const margin = o.margin != null ? +o.margin : 0;
@@ -1238,7 +1258,7 @@ const STORE = {
 
   // ---------- per-host enable (Phase 5 / C7) ----------
   function hostEnabled() {
-    // Explicit opt-in only — undefined/false = OFF (safe default).
+    // Explicit opt-in only - undefined/false = OFF (safe default).
     return state.enabledHosts[location.host] === true;
   }
   function ensureHostDefault() {
@@ -1246,7 +1266,7 @@ const STORE = {
     if (state.enabledHosts[h] === undefined) {
       state.enabledHosts[h] = false;
       save(STORE.ENABLED_HOSTS, state.enabledHosts);
-      gbLog('host ' + h + ' disabled by default — enable in Config');
+      gbLog('host ' + h + ' disabled by default - enable in Config');
     }
   }
 
@@ -1275,7 +1295,7 @@ const STORE = {
     [() => document.querySelector('meta[name="h"]')?.content, 16],
     [() => document.querySelector('input[name="h"]')?.value, 16],
     [() => document.querySelector('input[name="csrfToken"]')?.value, 16],
-    // cookie — exact name, hex ≥32 (skip short analytics crumbs)
+    // cookie - exact name, hex >=32 (skip short analytics crumbs)
     [() => {
       const m = document.cookie.match(CSRF_COOKIE_H) || document.cookie.match(CSRF_COOKIE_C);
       return m ? m[1] : null;
@@ -1318,7 +1338,7 @@ const STORE = {
       gbLog('csrf found', fresh.slice(0,6)+'...');
     }
     else if (!fresh && !state.csrf) gbLogT('csrf-miss', 60000, 'csrf not found yet - retrying');
-    // Stable token → 120s (DOM probes are wasteful); miss → 5s
+    // Stable token -> 120s (DOM probes are wasteful); miss -> 5s
     gbTimeout(csrfLoop, state.csrf ? 120000 : 5000);
   })();
 

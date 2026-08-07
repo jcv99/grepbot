@@ -6,7 +6,7 @@
     party: { wood: 15000, stone: 18000, iron: 15000, academy: 30 },
     triumph: { killpoints: 300 },
     theater: { wood: 10000, stone: 12000, iron: 10000, theater: 1, academy: 30 },
-    olympic: { gold: 50, academy: 30 }, // premium — never resource-based
+    olympic: { gold: 50, academy: 30 }, // premium - never resource-based
   };
   const OLYMPIC_GOLD = 50;
   let cultureLast = null;
@@ -29,7 +29,7 @@
   function cultureGoldSpentSave(spent) {
     save(wkey(STORE.CULTURE_GOLD_SPENT), { day: spent.day, amount: spent.amount });
   }
-  // One gold reader for the whole bot (core `gbPlayerGold`) — culture and the
+  // One gold reader for the whole bot (core `gbPlayerGold`) - culture and the
   // merchant sniper must not disagree about how much gold is actually there.
   function culturePlayerGold() { return gbPlayerGold(); }
   function cultureBusyTowns(type) {
@@ -93,7 +93,7 @@
     } catch (_) { return false; }
   }
   function cultureStart(type, townId, onDone) {
-    // Map UI names → game celebration_type
+    // Map UI names -> game celebration_type
     const map = { festival: 'party', procession: 'triumph', theater: 'theater', olympic: 'olympic' };
     const ctype = map[type] || type;
     if (ctype === 'olympic' && !state.allowPremiumCulture) {
@@ -191,7 +191,7 @@
       cultureStart(job.type, job.id, (err) => {
         if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('culture'); return; }
         if (err === 'timeout') {
-          gbLogT('culture-timeout', 60000, `culture: ${job.type} ${job.id} timeout_unknown — stopping batch`);
+          gbLogT('culture-timeout', 60000, `culture: ${job.type} ${job.id} timeout_unknown - stopping batch`);
           gbUnlock('culture');
           return;
         }
@@ -208,7 +208,7 @@
           gbTimeout(next, 600 + Math.random() * 400);
         } else {
           gbLogT('culture-err-' + job.id, 60000, `culture: ${job.type} ${job.id} err ${err}`);
-          // Non-deterministic → stop batch
+          // Non-deterministic -> stop batch
           gbUnlock('culture');
         }
       });

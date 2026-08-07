@@ -8,7 +8,7 @@
   function ibFreeThresh() { return state.ibFreeThresh || 300; } // seconds - Grepolis free-complete threshold (~5min)
   // Instant-buy gold from GameDataInstantBuy price table (same as queue buttons).
   // kind: 'build'|'research'; seconds = timeLeft (active) or full duration (queued).
-  // null = unknown — never treat as free.
+  // null = unknown - never treat as free.
   function ibGoldCost(kind, seconds) {
     try {
       const uw = uwCached();
@@ -159,7 +159,7 @@
       return;
     }
     if (!IB_FREE_ACTIONS.has(String(action))) {
-      gbLogT('ib-learn-refuse', 60000, 'instant: unknown free action ' + action + ' — learn manually via free click');
+      gbLogT('ib-learn-refuse', 60000, 'instant: unknown free action ' + action + ' - learn manually via free click');
       return;
     }
     if (kind === 'research') { state.ibActionR = action; save(wkey(STORE.IB_ACTION_R), action); }
@@ -170,7 +170,7 @@
       if (!hostEnabled() || captchaPaused('build')) { resolve('pause'); return; }
       const kind = order.kind || 'build';
       const tag = kind === 'research' ? 'instant-research' : 'instant-build';
-      // Re-read live model immediately before post — snapshot may be stale
+      // Re-read live model immediately before post - snapshot may be stale
       const live = ibFindLiveOrder(order.id, kind);
       if (!live || !live.isFree) {
         gbLogT('ib-stale', 30000, `${tag}: #${order.id} no longer free (gold=${live && live.gold})`);
@@ -182,7 +182,7 @@
       const finishOk = () => {
         // Reconcile: order must disappear (or no longer be free) before success
         if (ibOrderStillPresent(order.id)) {
-          gbLog(`${tag}: ${live.type} #${order.id} response OK but order still present — unknown_outcome`);
+          gbLog(`${tag}: ${live.type} #${order.id} response OK but order still present - unknown_outcome`);
           resolve('unknown');
           return;
         }
@@ -199,12 +199,12 @@
         }, (err, data) => {
           if (err === 'captcha' || err === 'captcha-pause') { resolve('captcha'); return; }
           if (err === 'timeout') {
-            // Timeout = unknown_outcome — do NOT retry / fallback; reconcile only
+            // Timeout = unknown_outcome - do NOT retry / fallback; reconcile only
             if (!ibOrderStillPresent(order.id)) {
-              gbLog(`${tag}: #${order.id} timeout but order gone — treating as OK`);
+              gbLog(`${tag}: #${order.id} timeout but order gone - treating as OK`);
               resolve('ok');
             } else {
-              gbLog(`${tag}: #${order.id} timeout_unknown — no fallback`);
+              gbLog(`${tag}: #${order.id} timeout_unknown - no fallback`);
               resolve('unknown');
             }
             return;
@@ -213,11 +213,11 @@
           if (err && !isFallback && actionName === 'completeInstant' && ibUnknownActionErr(err)) {
             const again = ibFindLiveOrder(order.id, kind);
             if (!again || !again.isFree || again.gold !== 0) {
-              gbLog(`${tag}: completeInstant unknown, order no longer free — inactive`);
+              gbLog(`${tag}: completeInstant unknown, order no longer free - inactive`);
               resolve('err');
               return;
             }
-            gbLog(`${tag}: completeInstant unknown — trying finishInstantly (gold=0 only)`);
+            gbLog(`${tag}: completeInstant unknown - trying finishInstantly (gold=0 only)`);
             postFree('finishInstantly', true);
             return;
           }
@@ -242,7 +242,7 @@
     renderBuild();
     let i = 0, done = 0, captcha = false;
     const unlock = () => { gbUnlock('ib'); };
-    // Hard unlock if chain stalls (bridge timeout × N + slack)
+    // Hard unlock if chain stalls (bridge timeout x N + slack)
     const watchdog = gbTimeout(unlock, Math.max(30000, free.length * (BRIDGE_TIMEOUT_MS + 1000)));
     (function next() {
       if (i >= free.length || captcha) {
@@ -322,7 +322,7 @@
 
   // ---------- auto-queue builds (buildUp via bridge) ----------
   // CS-fast targets from wiki CS-ready guides: academy 28, docks 20, farm 22,
-  // storage 20, main 15; mines capped ~15–20 (income mainly from farms).
+  // storage 20, main 15; mines capped ~15-20 (income mainly from farms).
   const AB_BUILDINGS = ['main', 'storage', 'farm', 'academy', 'temple', 'barracks', 'docks', 'market', 'hide', 'lumber', 'stoner', 'ironer', 'wall'];
   const AB_LABELS = {
     main: 'Senate', storage: 'Warehouse', farm: 'Farm', academy: 'Academy',
@@ -347,7 +347,7 @@
   const AB_CHECK_MS = 30000;
   const AB_FILL_BATCH = 6; // how many to add when 1 left (capped by queue max)
   const AB_EXTRA_MS = 5 * 60 * 1000; // +5min after half construction
-  function abRandMs() { return Math.floor(Math.random() * 3 * 60 * 1000); } // 0–3min jitter
+  function abRandMs() { return Math.floor(Math.random() * 3 * 60 * 1000); } // 0-3min jitter
 
   function abDefaultTargets() {
     return Object.assign({}, AB_CS_FAST);
@@ -459,7 +459,7 @@
     return q.len >= q.max;
   }
   function abDelayFromOrder(order) {
-    // half of that construction's duration + 5min + rand — not "right when it finishes"
+    // half of that construction's duration + 5min + rand - not "right when it finishes"
     const btSec = Math.max(0, +(order && order.building_time) || 0);
     return Math.floor(btSec / 2) * 1000 + AB_EXTRA_MS + abRandMs();
   }
@@ -501,7 +501,7 @@
     }
     if (!res) return false;
     const need = abBuildingCost(townId, building);
-    if (!need) return false; // unknown cost blocks — never guess affordability
+    if (!need) return false; // unknown cost blocks - never guess affordability
     if (need.pop > 0) {
       const pop = ledger && ledger.pop != null
         ? ledger.pop
@@ -591,8 +591,8 @@
     if (fromGame && fromGame.length) return fromGame.map(t => t.id);
     return (state.towns || []).map(t => t.id);
   }
-  // Auto: only when ≤1 order left; then add up to 6 (or queue max).
-  // Timing: when 1 left, arm deadline = half(building_time)+5min+rand — do NOT
+  // Auto: only when <=1 order left; then add up to 6 (or queue max).
+  // Timing: when 1 left, arm deadline = half(building_time)+5min+rand - do NOT
   // refill the instant a construction finishes.
   // Manual (force): ignore deadline, still batch-fill available slots.
   function abScan(reason) {
@@ -605,7 +605,7 @@
     ids.forEach(id => {
       const q = abQueueInfo(id);
       if (q.len > 1 && !force) {
-        // still buffered — clear any stale arm so we re-arm when we hit 1 again
+        // still buffered - clear any stale arm so we re-arm when we hit 1 again
         if (state.abNextAt[id] != null) abClearDeadline(id);
         return;
       }
@@ -633,7 +633,7 @@
       return;
     }
     gbLock('ab');
-    gbLog(`auto-queue${reason ? ' (' + reason + ')' : ''}: ${jobs.length} job(s) (batch≤${AB_FILL_BATCH})`);
+    gbLog(`auto-queue${reason ? ' (' + reason + ')' : ''}: ${jobs.length} job(s) (batch<=${AB_FILL_BATCH})`);
     let i = 0, done = 0, captcha = false;
     const unlock = () => { gbUnlock('ab'); };
     const watchdog = gbTimeout(unlock, Math.max(30000, jobs.length * (BRIDGE_TIMEOUT_MS + 1000)));
@@ -720,7 +720,7 @@
         b2.addEventListener('click', fn);
         return b2;
       };
-      btns.appendChild(mkBtn('−', () => { abSetTarget(b, (state.abTargets[b] || 0) - 1); renderAbQueue(); }));
+      btns.appendChild(mkBtn('-', () => { abSetTarget(b, (state.abTargets[b] || 0) - 1); renderAbQueue(); }));
       btns.appendChild(mkBtn('+', () => { abSetTarget(b, (state.abTargets[b] || 0) + 1); renderAbQueue(); }));
       btns.appendChild(mkBtn('max', () => { abSetTarget(b, max); renderAbQueue(); }));
       row.appendChild(name);
@@ -735,14 +735,14 @@
       const due = townId && state.abNextAt[townId];
       const next = townId && q && q.len <= 1 ? abPickNext(townId) : null;
       let waitTxt = '';
-      if (due && Date.now() < due) waitTxt = ` · refill in ${fmtSec((due - Date.now()) / 1000)}`;
-      else if (q && q.len > 1) waitTxt = ` · wait until 1 left (${q.len}/${q.max})`;
+      if (due && Date.now() < due) waitTxt = `  |  refill in ${fmtSec((due - Date.now()) / 1000)}`;
+      else if (q && q.len > 1) waitTxt = `  |  wait until 1 left (${q.len}/${q.max})`;
       status.textContent = (gbLocked('ab') ? 'queueing... ' : '')
         + (townId ? `town ${townId}` : 'no town')
-        + (q ? ` · queue ${q.len}/${q.max}` : '')
-        + (next ? ` · next: ${AB_LABELS[next] || next}` : ' · idle')
+        + (q ? `  |  queue ${q.len}/${q.max}` : '')
+        + (next ? `  |  next: ${AB_LABELS[next] || next}` : '  |  idle')
         + waitTxt
-        + (state.abAuto ? ' · AUTO' : ' · off');
+        + (state.abAuto ? '  |  AUTO' : '  |  off');
     }
   }
 

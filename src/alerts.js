@@ -1,5 +1,5 @@
   // ---------- Discord/Telegram webhooks (Phase 8.8) ----------
-  const alertLastSent = {}; // event → ts
+  const alertLastSent = {}; // event -> ts
   function alertIsTelegram(url) {
     return /api\.telegram\.org\/bot/i.test(url) || /telegram/i.test(url);
   }

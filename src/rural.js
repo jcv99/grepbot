@@ -51,7 +51,7 @@
   }
   // A relation that was just traded with is on a cooldown; the client parks the
   // next-allowed stamp on the relation model under a build-specific name. Unknown
-  // field → null → no block (server stays the authority).
+  // field -> null -> no block (server stays the authority).
   function ruralTradeReadyAt(a) {
     const v = gbProbeAttr(a, ['trade_at', 'tradeable_at', 'next_trade_at', 'lootable_at']);
     return v != null && v > 0 ? v : null;
@@ -83,12 +83,12 @@
       capLeft[tid] = tradeCap;
       // The trade *receives* `wantRes` into this town. If that stock is already
       // at capacity the haul evaporates on arrival, so spend the freighters
-      // elsewhere. (Warehouse-full is the reason rural trade exists — but only
+      // elsewhere. (Warehouse-full is the reason rural trade exists - but only
       // for the resources that still have room.)
       const st = townResState(tid);
       if (st && st.full && st.full[wantRes]) {
         gbLogT('ruraltrade-full-' + tid, 120000,
-          `rural-trade: town ${tid} ${wantRes} already at capacity — skip`);
+          `rural-trade: town ${tid} ${wantRes} already at capacity - skip`);
         continue;
       }
       const now = gameNow();
@@ -128,7 +128,7 @@
         if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('rural-trade'); return; }
         if (!err) {
           done++;
-          gbLog(`rural-trade: town ${j.townId} farm ${j.farmId} amt ${j.amount} (≥${minRatio})`);
+          gbLog(`rural-trade: town ${j.townId} farm ${j.farmId} amt ${j.amount} (>=${minRatio})`);
         }
         gbTimeout(next, 700 + Math.random() * 400);
       });
@@ -170,7 +170,7 @@
       }
     } catch (_) {}
     const locked = relations.filter(r => +((r.attributes || {}).relation_status) === 0);
-    // Unlock and upgrade are independent candidates — don't block upgrades while locked villages remain.
+    // Unlock and upgrade are independent candidates - don't block upgrades while locked villages remain.
     const candidates = [];
     if (locked.length) {
       const unlocked = relations.length - locked.length;

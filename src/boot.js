@@ -9,7 +9,7 @@
   renderWorld();
 
   gbMenu('GrepBot: copy findings', () => {
-    // Same redaction path as the panel's Copy/Export — this dump used to go out raw.
+    // Same redaction path as the panel's Copy/Export - this dump used to go out raw.
     const dump = redactFindingsExport({ findings: state.findings, farms: state.farms });
     navigator.clipboard.writeText(JSON.stringify(dump, null, 2));
   });
@@ -21,7 +21,7 @@
   });
   gbMenu('GrepBot: clear captcha', () => { captchaClear(); flash('captcha cleared'); });
 
-  // SPA nav: Grepolis swaps body content — remount panel if detached
+  // SPA nav: Grepolis swaps body content - remount panel if detached
   function ensurePanelMounted() {
     if (!panel) return;
     if (!document.body.contains(panel)) {
@@ -64,7 +64,7 @@
   gbInterval(checkThresholds, 30000);
   gbInterval(renderTimers, 1000);
   gbInterval(updateStatus, 5000);
-  // Econ features (farm/cave/culture/trade/ab/…) owned by cadence-aware orchTick.
+  // Econ features (farm/cave/culture/trade/ab/...) owned by cadence-aware orchTick.
   // Time-critical loops stay independent: ibScan, dodge, quest, farmTick scrapes.
   bindQuestObserver();
   gbTimeout(() => { if (hostEnabled()) questScanTick('boot'); }, 5000);
@@ -94,7 +94,7 @@
   }, 15000);
   qolBindActivityPause();
   // Stale-lock sweeper: TTL release is what actually unsticks a feature whose
-  // callback never fired. The unload handlers below are best-effort only —
+  // callback never fired. The unload handlers below are best-effort only -
   // `beforeunload` does not fire on bfcache/mobile exits.
   gbInterval(gbLockSweep, 10000);
   const releaseLocks = () => {

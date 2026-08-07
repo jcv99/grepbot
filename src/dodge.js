@@ -1,6 +1,6 @@
   // ---------- incoming dodge + militia + CS detect (Phase 8.12 / 10.2 / 10.6) ----------
-  // HIGH RISK — default OFF. Mode: notify | auto
-  // C4: queue with states — never mark terminal before send cb; retry failed.
+  // HIGH RISK - default OFF. Mode: notify | auto
+  // C4: queue with states - never mark terminal before send cb; retry failed.
   const DODGE_CHECK_MS = 5000;
   const DODGE_RETRY_MS = 15000;
   const DODGE_FAIL_BACKOFF = [15000, 45000, 120000];
@@ -38,10 +38,10 @@
       save(STORE.DODGE_QUEUE, out);
     } catch (_) {}
   }
-  // movement id → { state, ts, notified, tries, nextAt, dest, ... }
+  // movement id -> { state, ts, notified, tries, nextAt, dest, ... }
   const dodgeQueue = dodgeQueueLoad();
 
-  // Canonical hostile command names — never treat incoming/started_at alone as attack
+  // Canonical hostile command names - never treat incoming/started_at alone as attack
   const DODGE_HOSTILE_TYPES = /^(attack|attack_sea|siege|revolt|colonize|take_over|conquer|portal_attack)$/;
   const DODGE_FRIENDLY_TYPES = /^(support|support_sea|trade|return|spy|farm|reward)$/;
   function dodgeIsHostileMovement(a) {
@@ -83,7 +83,7 @@
     } catch (_) {}
     return out;
   }
-  // Never dodge into a town that is itself under attack — that is how a dodge
+  // Never dodge into a town that is itself under attack - that is how a dodge
   // turns one lost town into two. Falls back to any other town only when every
   // town has something incoming (better out than sitting in the target).
   function dodgeSafeTown(excludeId, incoming) {
@@ -97,15 +97,15 @@
       if (clean.length) return clean[0];
       if (ids.length) {
         gbLogT('dodge-nosafe', 120000,
-          `dodge: every other town has incoming — falling back to ${ids[0]}`);
-        return ids[0];
+          'dodge: every other town has incoming - no safe destination');
+        return null;
       }
     } catch (_) {}
     return null;
   }
   // Militia: needs a farm, spare population, and no militia already standing.
   // Any of those missing makes `request_militia` a guaranteed rejection.
-  // → { ok, why } — unreadable field = no block.
+  // -> { ok, why } - unreadable field = no block.
   function dodgeCanRaiseMilitia(townId) {
     const farm = gbBuildingLevel(townId, 'farm');
     if (farm != null && farm < 1) return { ok: false, why: 'no farm building' };
@@ -115,8 +115,6 @@
       const u = (t && t.units && t.units()) || null;
       if (u && +u.militia > 0) return { ok: false, why: 'militia already standing' };
     } catch (_) {}
-    const pop = gbTownPop(townId);
-    if (pop != null && pop <= 0) return { ok: false, why: 'no free population' };
     return { ok: true, why: null };
   }
   function dodgeRaiseMilitia(townId, onDone) {
@@ -157,7 +155,7 @@
   function dodgeNotify(mov, entry) {
     if (entry.notified) return;
     entry.notified = true;
-    const msg = `incoming ${mov.type || 'atk'} → town ${mov.dest}` + (mov.hasCs ? ' [CS]' : '') +
+    const msg = `incoming ${mov.type || 'atk'} -> town ${mov.dest}` + (mov.hasCs ? ' [CS]' : '') +
       (mov.arrival ? ` ETA ${mov.arrival}` : '');
     gbLog('dodge: ' + msg);
     flash(msg);
@@ -201,7 +199,7 @@
       if (!err) {
         entry.state = 'sent';
         entry.ts = Date.now();
-        gbLog(`dodge: sent units from ${mov.dest} → ${safe}`);
+        gbLog(`dodge: sent units from ${mov.dest} -> ${safe}`);
       } else {
         entry.state = 'failed';
         entry.tries = (entry.tries || 0) + 1;

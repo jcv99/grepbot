@@ -11,7 +11,7 @@
   const JRN_SAVE_MS = 5000; // batch writes: bridge posts fire in waves
   const JRN_FAIL_TRIP = 3; // consecutive identical hard errors before backoff
   const JRN_BACKOFF = [5, 15, 60]; // minutes, same ladder as the captcha breaker
-  // Outcomes that mean "never attempted" — they must not count toward a fail
+  // Outcomes that mean "never attempted" - they must not count toward a fail
   // streak, or a night pause would look like a broken endpoint.
   const JRN_SKIP_ERRS = { disabled: 1, paused: 1, 'captcha-pause': 1, budget: 1, noajax: 1, remembered: 1, dryrun: 1 };
 
@@ -88,7 +88,7 @@
       if (r.r === result && now - r.ts < JRN_DEDUP_MS) {
         r.n = (r.n || 1) + 1;
         r.ts = now;
-        // Move to end so array order tracks recency (I13 — prune/streak/UI).
+        // Move to end so array order tracks recency (I13 - prune/streak/UI).
         list.splice(i, 1);
         list.push(r);
         jrnNote(tag, result);

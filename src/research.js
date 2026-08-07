@@ -38,7 +38,7 @@
     } catch (_) { return null; }
   }
   // Localized display label for a research id. Server tech ids stay English on
-  // the wire (`rural_loyalty`, `conscription`, …) whatever the client locale, so
+  // the wire (`rural_loyalty`, `conscription`, ...) whatever the client locale, so
   // the only place a translated string exists is GameData.
   function researchLabel(key) {
     try {
@@ -61,7 +61,7 @@
       return (uw.GameData && uw.GameData.researches && uw.GameData.researches[tech]) || null;
     } catch (_) { return null; }
   }
-  // → { wood, stone, iron } or null when the client exposes no cost table.
+  // -> { wood, stone, iron } or null when the client exposes no cost table.
   function researchCost(tech) {
     const d = researchDef(tech);
     if (!d) return null;
@@ -97,7 +97,7 @@
     return null;
   }
   // Can this town pay for this tech right now?
-  // → { ok, why } — `why` is null on ok, else a short reason for the log.
+  // -> { ok, why } - `why` is null on ok, else a short reason for the log.
   function researchCanAfford(townId, tech, info) {
     const needPts = researchPointCost(tech);
     if (needPts != null) {
@@ -107,7 +107,7 @@
     const cost = researchCost(tech);
     if (!cost) {
       gbLogT('research-nocost-' + tech, 900000,
-        `research: no cost data for ${tech} — resource check skipped, server decides`);
+        `research: no cost data for ${tech} - resource check skipped, server decides`);
       return { ok: true, why: null };
     }
     const aff = gbAfford(townId, cost);
@@ -130,7 +130,7 @@
     try {
       const uw = gameUw();
       const def = uw.GameData && uw.GameData.researches && uw.GameData.researches[tech];
-      if (!def) return true; // no metadata — don't invent blocks
+      if (!def) return true; // no metadata - don't invent blocks
       const rdeps = def.research_dependencies || def.dependencies || [];
       for (const d of rdeps) {
         const id = typeof d === 'string' ? d : (d && (d.id || d.research_id));
@@ -174,7 +174,7 @@
     for (const tid of townIds) {
       const info = researchTownTechs(tid);
       if (!info || !(info.academy > 0)) continue;
-      const queueMax = 2; // free slot; curator may allow more — keep conservative
+      const queueMax = 2; // free slot; curator may allow more - keep conservative
       if (info.orders.length >= queueMax) continue;
       const queued = new Set();
       info.orders.forEach(o => {
@@ -205,7 +205,7 @@
     gbLock('research');
     researchPost(job.townId, job.tech, (err) => {
       gbUnlock('research');
-      if (!err) gbLog(`research: town ${job.townId} → ${job.tech}`);
+      if (!err) gbLog(`research: town ${job.townId} -> ${job.tech}`);
       else gbLogT('research-err', 60000, `research err ${err}`);
     });
   }

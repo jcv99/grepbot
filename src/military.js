@@ -1,4 +1,4 @@
-  // ---------- military helpers (Phase 10.3–10.5 / 11.2) ----------
+  // ---------- military helpers (Phase 10.3-10.5 / 11.2) ----------
   // Defense pull, outgoing cancel/recall (confirm), harassment presets,
   // hero assign/unassign/cancel-travel (confirm). No auto loops.
 
@@ -31,7 +31,7 @@
         if (!Object.keys(send).length) continue;
         const same = isSameIsland(id, target);
         if (!same) {
-          // Off-island land units need transporters — add boats or skip.
+          // Off-island land units need transporters - add boats or skip.
           Object.keys(u).forEach(uid => {
             const m = unitMeta(uid);
             if (m && (m.capacity > 0 || m.berth > 0) && +u[uid] > 0) send[uid] = +u[uid];
@@ -39,7 +39,7 @@
           const boats = boatCapacityCheck(send, false);
           if (!boats.ok) {
             gbLogT('def-pull-boats-' + id, 60000,
-              `defense-pull: skip town ${id} → ${targetTownId} (${boats.reason || 'no transport'})`);
+              `defense-pull: skip town ${id} -> ${targetTownId} (${boats.reason || 'no transport'})`);
             continue;
           }
         }
@@ -53,7 +53,7 @@
     (function next() {
       if (i >= jobs.length) {
         gbUnlock('defense-pull');
-        gbLog(`defense-pull: ${done}/${jobs.length} → ${targetTownId}`);
+        gbLog(`defense-pull: ${done}/${jobs.length} -> ${targetTownId}`);
         return onDone && onDone(null, done);
       }
       const j = jobs[i++];
@@ -64,7 +64,7 @@
     })();
   }
 
-  // Light harassment stack — small offense only, never full town dump.
+  // Light harassment stack - small offense only, never full town dump.
   function selectHarassmentUnits(townId, preset) {
     const live = townLiveUnits(townId);
     const out = {};
@@ -346,7 +346,7 @@
     };
     bridgePost('hero', payload, (err, data) => {
       gbUnlock('hero');
-      if (!err) gbLog(`hero: ${action} ${type} → ${targetTownId || '-'} OK`);
+      if (!err) gbLog(`hero: ${action} ${type} -> ${targetTownId || '-'} OK`);
       else gbLog(`hero: ${action} ${type} err ${err}`);
       if (onDone) onDone(err, data);
     });

@@ -1,5 +1,5 @@
   // ---------- auto-recruit + spell cast (Phase 8.13 / 11.1) ----------
-  // HIGH RISK — default OFF. Controller from unit metadata: barracks / harbor / temple.
+  // HIGH RISK - default OFF. Controller from unit metadata: barracks / harbor / temple.
   // Spells are a separate policy (recruitSpells) and never auto-picked blindly.
   const RECRUIT_SPELLS = ['call_of_the_ocean', 'spartan_training', 'fertility_improvement'];
 
@@ -102,7 +102,7 @@
       // Spells: only if explicitly configured power matches and not already cast
       if (state.recruitSpells) {
         const wantPower = (state.favorCfg && state.favorCfg.recruitPower) || null;
-        // Without an explicit power id, do not cast — never default to ocean
+        // Without an explicit power id, do not cast - never default to ocean
         if (wantPower && RECRUIT_SPELLS.includes(wantPower) && !recruitHasSpell(tid, wantPower)
             && !captchaPausedAny('recruit', 'spell')) {
           job = { kind: 'spell', townId: tid, power: wantPower };
@@ -142,7 +142,7 @@
           const r = t.resources();
           const pop = t.getAvailablePopulation();
           if (!def || !def.resources) {
-            // Unknown cost must block — never resourceCost||1
+            // Unknown cost must block - never resourceCost||1
             gbLogT('recruit-nocost', 120000, `recruit: unknown cost for ${unit}`);
             continue;
           }
@@ -179,7 +179,7 @@
     }
     recruitBuild(job.townId, job.unit, job.amount, (err) => {
       gbUnlock('recruit');
-      if (!err) gbLog(`recruit: town ${job.townId} ${job.amount}× ${job.unit}`);
+      if (!err) gbLog(`recruit: town ${job.townId} ${job.amount}x ${job.unit}`);
       else gbLogT('recruit-err', 60000, `recruit err ${err}`);
     });
   }

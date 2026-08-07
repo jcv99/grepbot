@@ -32,26 +32,30 @@
     }
     const day = wonderServerDay();
     if (wonderSpentToday.day !== day) wonderSpentToday = { day, amount: 0 };
-    const budget = +cfg.budget || 50000;
+    const budget = gbCfgNum(cfg.budget, 50000);
+    if (budget <= 0) {
+      gbLogT('wonder-budget0', 300000, 'wonder: budget is 0 - no donations');
+      return;
+    }
     if (wonderSpentToday.amount >= budget) {
       gbLogT('wonder-budget', 300000, `wonder: daily budget ${budget} reached`);
       return;
     }
-    const reserve = +cfg.reserve || 5000;
+    const reserve = gbCfgNum(cfg.reserve, 5000);
     const want = {
-      wood: +cfg.wood || 0,
-      stone: +cfg.stone || 0,
-      iron: +cfg.iron || 0,
+      wood: gbCfgNum(cfg.wood, 0),
+      stone: gbCfgNum(cfg.stone, 0),
+      iron: gbCfgNum(cfg.iron, 0),
     };
-    if (!(want.wood || want.stone || want.iron)) {
-      // default: balanced surplus
-      want.wood = want.stone = want.iron = 2000;
+    if (!(want.wood > 0 || want.stone > 0 || want.iron > 0)) {
+      gbLogT('wonder-noconf', 300000, 'wonder: set wood/stone/iron > 0 in config (no default amounts)');
+      return;
     }
     const towns = (typeof tradeListTowns === 'function') ? tradeListTowns() : [];
     let job = null;
     for (const t of towns) {
-      // tradeCap is TOTAL freighter capacity — wood+stone+iron must fit (I10).
-      // tradeCap===0 → no capacity, skip (don't fall through to want.*).
+      // tradeCap is TOTAL freighter capacity - wood+stone+iron must fit (I10).
+      // tradeCap===0 -> no capacity, skip (don't fall through to want.*).
       const cap = +t.tradeCap || 0;
       if (cap <= 0) continue;
       let send = {
@@ -97,7 +101,7 @@
       town_id: +job.townId,
     }, (err) => {
       if (err === 'timeout') {
-        gbLogT('wonder-timeout', 60000, `wonder: timeout_unknown town ${job.townId} — no fallback/duplicate`);
+        gbLogT('wonder-timeout', 60000, `wonder: timeout_unknown town ${job.townId} - no fallback/duplicate`);
         gbUnlock('wonder');
         return;
       }

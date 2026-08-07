@@ -12,7 +12,7 @@
           };
           save(wkey(STORE.CLAIM_TPL), state.claimTpl);
           gbLog('learned claim template:', JSON.stringify(state.claimTpl).slice(0, 200));
-          // A hand-clicked claim is the only reliable teacher of option→duration
+          // A hand-clicked claim is the only reliable teacher of option->duration
           if (!isSelfBridge(j)) farmLearnOptionFromClaim(j);
         }
       } else if (/PlayerAttackSpot/.test(body)) {
@@ -21,7 +21,7 @@
         const j = parseBodyLoose(body);
         if (j && j.action_name && /instant/i.test(j.action_name)) {
           if (/buyInstant|buy_instant/i.test(j.action_name)) {
-            gbLogT('ib-sniff-refuse', 60000, 'instant: sniffed buyInstant — not saved as free-complete action');
+            gbLogT('ib-sniff-refuse', 60000, 'instant: sniffed buyInstant - not saved as free-complete action');
           } else if (typeof ibLearnAction === 'function') {
             ibLearnAction('build', j.action_name);
             gbLog('learned instant-build action:', j.action_name);
@@ -35,7 +35,7 @@
         const j = parseBodyLoose(body);
         if (j && j.action_name && /instant/i.test(j.action_name)) {
           if (/buyInstant|buy_instant/i.test(j.action_name)) {
-            gbLogT('ib-sniff-refuse', 60000, 'instant-research: sniffed buyInstant — not saved');
+            gbLogT('ib-sniff-refuse', 60000, 'instant-research: sniffed buyInstant - not saved');
           } else if (typeof ibLearnAction === 'function') {
             ibLearnAction('research', j.action_name);
             gbLog('learned instant-research action:', j.action_name);
@@ -117,7 +117,7 @@
     } catch (_) {}
     return relCol.models.find(r => (r.id ?? (r.attributes || {}).id) == id) || null;
   }
-  // Client: belongsToPlayer → relation_status > 0; status 1=owned, 2=revolt (still ours).
+  // Client: belongsToPlayer -> relation_status > 0; status 1=owned, 2=revolt (still ours).
   function farmBelongsToPlayer(r, attrs) {
     try {
       if (typeof r.belongsToPlayer === 'function') return !!r.belongsToPlayer();
@@ -216,15 +216,15 @@
     return map;
   }
   function townIdForFarm(farm, islandMap) {
-    // Same-island town only — never fall back to Game.townId (wrong island → captcha).
+    // Same-island town only - never fall back to Game.townId (wrong island -> captcha).
     if (farm.x == null || farm.y == null) return null;
     const map = islandMap || islandTownMap();
     const hit = map[farm.x + ',' + farm.y];
     return hit != null ? hit : null;
   }
   // Warehouse full gate: skip claims when the owning town can't store loot.
-  // mode 'any' = block if ≥1 resource at capacity; 'all' = block only if wood+stone+iron all full.
-  // The reader itself lives in core (`townResState`) — cave/trade/sleep-claim
+  // mode 'any' = block if >=1 resource at capacity; 'all' = block only if wood+stone+iron all full.
+  // The reader itself lives in core (`townResState`) - cave/trade/sleep-claim
   // share it instead of each deriving capacity their own way.
   function townWarehouseState(townId) { return townResState(townId); }
   function townWarehouseBlocks(townId) {
@@ -247,11 +247,11 @@
 
   // ---------- claim durations (5min / 10min / long "sleep" claims) ----------
   // Grepolis encodes the wanted booty timer as an opaque `option` index in the
-  // claim payload. The index→duration mapping is world/client specific, so it is
+  // claim payload. The index->duration mapping is world/client specific, so it is
   // LEARNED from the player's own in-game clicks (sniffBridgeBody below) instead
   // of guessed: a wrong index would claim the wrong timer. option 1 = 5 min is
   // the payload this bot has always sent, so it seeds the map.
-  const FARM_DURATIONS = [300, 600, 1200, 2400, 5400, 14400, 28800];
+  const FARM_DURATIONS = [300, 600, 1200, 2400, 5400, 10800, 14400, 28800];
   function farmDurLabel(sec) {
     if (sec >= 3600) return (sec / 3600) + 'h';
     return Math.round(sec / 60) + 'min';
@@ -275,7 +275,7 @@
     // reject anything not within 20% of a known timer (mood/bonus can shift it slightly)
     return best != null && bestDiff <= best * 0.2 ? best : null;
   }
-  // A manual claim teaches option→duration: read the village's new lootable_at
+  // A manual claim teaches option->duration: read the village's new lootable_at
   // a few seconds after the click and snap the delta to the nearest known timer.
   function farmLearnOptionFromClaim(j) {
     try {
@@ -302,14 +302,14 @@
   // attribute keys are the canonical server ids and stay English on every
   // market (es146 included), so match ids first; the loose regex runs against
   // BOTH the id and the GameData label so a translated name can still hit.
-  const FARM_LOYALTY_IDS = ['rural_loyalty', 'diplomacy', 'conscription', 'loyalty'];
-  const FARM_LOYALTY_RE = /loyal|lealtad|leal(?:tad)?|diplom|conscript|treue|fidel|aldean|villager/i;
+  const FARM_LOYALTY_IDS = ['rural_loyalty', 'loyalty', 'villagers_loyalty'];
+  const FARM_LOYALTY_RE = /loyal|lealtad|leal(?:tad)?|treue|fidel|aldean|villager|rural_loyalty/i;
   const farmLoyaltyCache = Object.create(null);
   function farmLoyaltyReset() {
     Object.keys(farmLoyaltyCache).forEach(k => { delete farmLoyaltyCache[k]; });
   }
   // pin may be an exact id, a differently-cased id, or the localized label the
-  // user copied out of the academy — resolve all three to a researched id.
+  // user copied out of the academy - resolve all three to a researched id.
   function farmLoyaltyPinHit(techs, pin) {
     const want = pin.toLowerCase();
     const keys = Object.keys(techs).filter(k => techs[k]);
@@ -336,7 +336,7 @@
             gbLog(`farm: loyalty tech detected: ${hit}${researchLabel(hit) ? ' (' + researchLabel(hit) + ')' : ''}`);
             val = true;
           } else {
-            // dump id(label) pairs — the id is what the pin field wants.
+            // dump id(label) pairs - the id is what the pin field wants.
             gbLogT('farm-loyalty-miss', 900000, 'farm: loyalty tech not found; researched = ' +
               done.map(k => k + (researchLabel(k) ? '(' + researchLabel(k) + ')' : '')).join(',').slice(0, 600));
           }

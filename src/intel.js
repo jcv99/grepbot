@@ -60,14 +60,14 @@
     if (!threats.length) html += '(none)\n';
     else {
       threats.forEach(t => {
-        html += `${t.hasCs ? '[CS] ' : ''}${t.type || 'atk'} → ${t.dest} from ${t.origin || '?'}` +
+        html += `${t.hasCs ? '[CS] ' : ''}${t.type || 'atk'} -> ${t.dest} from ${t.origin || '?'}` +
           (t.arrival ? ` @${t.arrival}` : '') + '\n';
       });
     }
     html += '\n=== Dossiers ===\n';
     dossiers.forEach(d => {
       html += `${d.player}: ${d.reports} reports` +
-        (d.note ? ` — ${d.note}` : '') +
+        (d.note ? ` - ${d.note}` : '') +
         (d.allianceNote ? ` [ally: ${d.allianceNote}]` : '') + '\n';
     });
     if (state.watchlist && state.watchlist.length) {
@@ -101,8 +101,9 @@
       const btn = document.querySelector('.grepodata_index, a.index_report, [data-action="index"], .btn_index');
       if (btn && !btn.dataset.grepbotIndexed) {
         btn.dataset.grepbotIndexed = '1';
-        btn.click();
-        gbLogT('grepodata', 10000, 'intel: Grepodata Index+ clicked');
+        if (gbDomClick(btn, 'grepodata')) {
+          gbLogT('grepodata', 10000, 'intel: Grepodata Index+ clicked');
+        }
       }
     } catch (_) {}
   }

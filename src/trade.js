@@ -67,7 +67,7 @@
   }
   function tradeFillStorageJobs(towns, L) {
     const ledger = L || tradeLedger(towns);
-    const reserve = Math.min(80, Math.max(0, +state.tradeReservePct || 20)) / 100;
+    const reserve = Math.min(80, Math.max(0, gbCfgNum(state.tradeReservePct, 20))) / 100;
     const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
     const jobs = [];
     const ids = towns.map(t => t.id);
@@ -111,7 +111,7 @@
     const ledger = L || tradeLedger(towns);
     const jobs = [];
     const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
-    const reservePct = (+state.tradeReservePct || 20) / 100;
+    const reservePct = gbCfgNum(state.tradeReservePct, 20) / 100;
     const ids = towns.map(t => t.id);
     for (const tgtId of ids) {
       const tgt = ledger[tgtId];
@@ -145,7 +145,7 @@
     if (automationPaused({})) return;
     if (gbLocked('trade')) return;
     const towns = tradeListTowns();
-    if (towns.length < 2) { gbLogT('trade-towns', 180000, 'trade: need ≥2 towns'); return; }
+    if (towns.length < 2) { gbLogT('trade-towns', 180000, 'trade: need >=2 towns'); return; }
     const ledger = tradeLedger(towns);
     let jobs = [];
     const preset = state.tradePreset || 'storage';
@@ -153,7 +153,7 @@
     if (state.autoTrade && preset === 'storage') {
       jobs = jobs.concat(tradeFillStorageJobs(towns, ledger));
     } else if (state.autoTrade && (preset === 'party' || preset === 'unit')) {
-      gbLogT('trade-preset-' + preset, 300000, `trade: preset=${preset} — unimplemented, fill-storage skipped`);
+      gbLogT('trade-preset-' + preset, 300000, `trade: preset=${preset} - unimplemented, fill-storage skipped`);
     }
     if (state.islandShip) jobs = jobs.concat(tradeIslandShipJobs(towns, ledger));
     if (!jobs.length) {
@@ -173,7 +173,7 @@
         if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('trade'); return; }
         if (!err) {
           done++;
-          gbLog(`trade: ${j.from}→${j.to} w${j.wood}/s${j.stone}/i${j.iron}`);
+          gbLog(`trade: ${j.from}->${j.to} w${j.wood}/s${j.stone}/i${j.iron}`);
         } else gbLogT('trade-err', 60000, `trade err ${err}`);
         gbTimeout(next, 800 + Math.random() * 600);
       });

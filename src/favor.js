@@ -1,9 +1,9 @@
   // ---------- favor plunder (Phase 8.10 + 11.3) ----------
-  // HIGH RISK — default OFF. Mythical units can plunder favor only with
+  // HIGH RISK - default OFF. Mythical units can plunder favor only with
   // Temple Plunder research. Requires god/unit/target and tracks own sends.
   const FAVOR_CHECK_MS = 60000;
   const FAVOR_TEMPLE_PLUNDER = /temple_plunder|plunder_temple|templeplunder|saqueo.?templo|plunderung.?tempel/i;
-  // movement ids we created — only these count as "en route"
+  // movement ids we created - only these count as "en route"
   const favorOwnMoves = Object.create(null);
 
   function favorCurrent() {
@@ -52,6 +52,10 @@
   function favorScan(reason) {
     if (!hostEnabled() || !state.autoFavor || captchaPaused('favor')) return;
     if (automationPaused({})) return;
+    // farm_town + Town/sendUnits is not valid for temple plunder - module disabled until rewritten
+    gbLogT('favor-disabled', 300000,
+      'favor: module disabled (needs enemy-town target + canonical temple_plunder payload)');
+    return;
     if (gbLocked('favor')) return;
     const cfg = state.favorCfg || {};
     const thresh = +cfg.thresh || 200;
@@ -62,14 +66,14 @@
     const cur = +(fav[god] || fav['favor_' + god] || fav.favor || 0);
     // If we already have enough favor, idle
     if (cur >= thresh && !cfg.force) {
-      gbLogT('favor-ok', 180000, `favor: ${god}=${cur} ≥ ${thresh}`);
+      gbLogT('favor-ok', 180000, `favor: ${god}=${cur} >= ${thresh}`);
       return;
     }
     if (!favorUnitOk(unit, god)) {
       gbLogT('favor-unit', 300000, `favor: unit ${unit} incompatible with god ${god}`);
       return;
     }
-    // Target: configured farm-town / BP village id only — never a bare player town guess
+    // Target: configured farm-town / BP village id only - never a bare player town guess
     const targetId = cfg.targetId;
     const targetType = cfg.targetType || 'farm_town';
     if (!targetId) {
@@ -89,7 +93,7 @@
       else enroute++;
     });
     if (enroute >= maxC) {
-      gbLogT('favor-enroute', 120000, `favor: ${enroute} own en-route (≥${maxC})`);
+      gbLogT('favor-enroute', 120000, `favor: ${enroute} own en-route (>=${maxC})`);
       return;
     }
     // Pick a town with myth units + Temple Plunder + spare above defense floor
@@ -126,13 +130,13 @@
     bridgePost('favor', payload, (err, data) => {
       gbUnlock('favor');
       if (err === 'timeout') {
-        gbLogT('favor-timeout', 60000, 'favor: timeout_unknown — not retrying');
+        gbLogT('favor-timeout', 60000, 'favor: timeout_unknown - not retrying');
         return;
       }
       if (!err) {
         const mid = (data && (data.command_id || data.id || data.movement_id)) || ('f' + Date.now());
         favorOwnMoves[String(mid)] = Date.now();
-        gbLog(`favor: sent ${JSON.stringify(units)} from ${townId} → ${targetId}`);
+        gbLog(`favor: sent ${JSON.stringify(units)} from ${townId} -> ${targetId}`);
       } else gbLogT('favor-err', 60000, `favor err ${err}`);
     });
   }

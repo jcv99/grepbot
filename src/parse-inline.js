@@ -44,7 +44,7 @@
     const r = root.report || root;
     if (!r || typeof r !== 'object') return null;
     const type = r.type || r.report_type || null;
-    // Require a recognizable report shape — never invent type:'unknown' for garbage.
+    // Require a recognizable report shape - never invent type:'unknown' for garbage.
     if (!type && r.attacker == null && r.defender == null && !r.units && !r.attacker_units && r.outcome == null && r.win == null) {
       return null;
     }
@@ -57,7 +57,7 @@
         if (typeof c === 'number' || (/^\d+(\.\d+)?$/.test(String(c)))) {
           let n = +c;
           if (!Number.isFinite(n) || n <= 0) continue;
-          if (n < 1e12) n *= 1000; // unix seconds → ms
+          if (n < 1e12) n *= 1000; // unix seconds -> ms
           return Math.floor(n);
         }
         const parsed = Date.parse(c);
@@ -80,7 +80,7 @@
       resources: extractResources(r),
       loot: r.resources || null,
       outcome: r.outcome ?? r.win ?? null,
-      // raw omitted — GM write weight (audit backlog); keep slim findings
+      // raw omitted - GM write weight (audit backlog); keep slim findings
     };
   }
 
@@ -95,9 +95,9 @@
       }
       if (!id) return null;
       const out = { vill_id: id, x: null, y: null, eta: null, notes: null };
-      // Match coords AFTER the village id — bare "12345 500 600" must not
+      // Match coords AFTER the village id - bare "12345 500 600" must not
       // left-match "2345 500" from inside the id.
-      // slice, not `new RegExp('^'+id)` — parseFarms runs per line on every
+      // slice, not `new RegExp('^'+id)` - parseFarms runs per line on every
       // textarea keystroke; a compiled-per-line regex is the hot cost here.
       const afterId = (line.startsWith(id) ? line.slice(id.length) : line).trimStart();
       const coordMatch = afterId.match(/^\|?\s*(-?\d{1,4})[,\s]+(-?\d{1,4})/);

@@ -40,9 +40,10 @@
     }
   }
   function autoCollectResources() {
+    if (!state.autoCollect) return;
     if (!hostEnabled()) return;
     if (document.hidden) return;
-    // Opening a farm village shows Recoger — that DOM path used to ignore warehouse.
+    // Opening a farm village shows Recoger - that DOM path used to ignore warehouse.
     if (currentTownWarehouseBlocks()) {
       gbLogT('collect-wh-full', 60000, `auto-collect: skipped Recoger (warehouse full, mode=${state.farmFullMode})`);
       return;
@@ -68,8 +69,7 @@
         continue;
       }
       btn.dataset.grepbotClicked = String(Date.now());
-      btn.click();
-      clicked++;
+      if (gbDomClick(btn, 'collect')) clicked++;
     }
     updateCollectStateBadge(scanned, clicked);
     if (clicked) { gbLog(`auto-collect: clicked ${clicked}/${scanned} Recoger buttons`); flash(`auto-collect x${clicked}`); }
@@ -109,7 +109,7 @@
     if (!state.towns.length) fetchOwnedTowns();
     const n = state.towns.length;
     if (!n) { scheduleCollectBg(60_000); return; }
-    // Refuse blind GET on opaque learned URL — prefer gpAjax controller/action from URL.
+    // Refuse blind GET on opaque learned URL - prefer gpAjax controller/action from URL.
     let collectCtrl = null, collectAction = null;
     try {
       const u = new URL(state.collectTpl, location.origin);
@@ -119,7 +119,7 @@
       collectCtrl = parts.length >= 2 && parts[0] === 'game' ? parts[1] : parts[parts.length - 1];
     } catch (_) {}
     if (!collectCtrl || !collectAction) {
-      gbLogT('collect-bg-nomethod', 120000, 'bg-collect: skip (learned URL method/controller unknown — no blind GET)');
+      gbLogT('collect-bg-nomethod', 120000, 'bg-collect: skip (learned URL method/controller unknown - no blind GET)');
       scheduleCollectBg(collectBgBackoff + Math.random() * 30_000);
       return;
     }
@@ -162,14 +162,14 @@
     if (collectTimer) return;
     collectTimer = gbTimeout(() => { collectTimer = null; autoCollectResources(); }, 800);
   }
-  // Prefer known game containers over document.body — chat/map ticks flood body MO.
+  // Prefer known game containers over document.body - chat/map ticks flood body MO.
   // One observer can watch multiple roots; SPA remount rebinds via ensureDomObserver.
   let gbDomObserverSig = '';
   function ensureDomObserver() {
     if (!gbDomObserver) {
       gbDomObserver = new MutationObserver(() => {
         if (document.hidden) return;
-        scheduleAutoCollect();
+        if (state.autoCollect) scheduleAutoCollect();
         if (state.autoBandit) scheduleBanditScan();
       });
     }
