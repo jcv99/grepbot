@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      1.6.0
+// @version      1.6.1
 // @description  Grepolis scout/farm/build/trade/culture/recruit automation. ToS forbid automation; risk = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1186,6 +1186,8 @@ const STORE = {
     } else if (d.json && typeof d.json === 'object') {
       d = Object.assign({}, d, d.json);
     }
+
+    if (d.captcha_required === true || d.captcha_required === 1) return true;
     if (d.captcha === true || d.captcha === 1) return true;
     if (typeof d.captcha === 'string' && d.captcha.length) return true;
     if (d.json === 'captcha_required' || d.status === 'captcha_required') return true;
@@ -1207,6 +1209,52 @@ const STORE = {
     if (!j || !lastSelfBridge.sig) return false;
     if (Date.now() - lastSelfBridge.at > 5000) return false;
     return (String(j.model_url || '') + '|' + String(j.action_name || '')) === lastSelfBridge.sig;
+  }
+
+  const gbAjaxPending = [];
+  const GB_AJAX_WATCH_MS = 8000;
+  function gbAjaxWatch(sig, settle) {
+    gbAjaxPending.push({ sig, at: Date.now(), settle });
+    while (gbAjaxPending.length > 24) gbAjaxPending.shift();
+  }
+  function gbAjaxSigs(url, body) {
+    const u = String(url || '');
+    const out = [];
+    if (/frontend_bridge/.test(u) && typeof body === 'string') {
+      let j = null;
+      try { j = parseBodyLoose(body); } catch (_) {}
+      if (j && j.model_url) out.push('bridge:' + j.model_url + '|' + String(j.action_name || ''));
+      return out;
+    }
+    const ctrl = (u.match(/[?&]controller=([a-z_0-9]+)/i) || u.match(/\/game\/([a-z_0-9]+)/i) || [])[1] || '';
+    const act = (u.match(/[?&]action=([a-z_0-9]+)/i) || [])[1] || '';
+    if (ctrl && act) out.push('ajax:' + ctrl + '/' + act);
+    return out;
+  }
+
+  function gbAjaxClaim(url, body) {
+    if (!gbAjaxPending.length) return null;
+    const now = Date.now();
+    for (let i = gbAjaxPending.length - 1; i >= 0; i--) {
+      if (now - gbAjaxPending[i].at > GB_AJAX_WATCH_MS) gbAjaxPending.splice(i, 1);
+    }
+    if (!gbAjaxPending.length) return null;
+    const sigs = gbAjaxSigs(url, body);
+    if (!sigs.length) return null;
+    for (let i = 0; i < gbAjaxPending.length; i++) {
+      if (sigs.indexOf(gbAjaxPending[i].sig) >= 0) return gbAjaxPending.splice(i, 1)[0].settle;
+    }
+    return null;
+  }
+
+  function gbAjaxUnwrap(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    let d = Object.prototype.hasOwnProperty.call(raw, 'json') ? raw.json : raw;
+    if (typeof d === 'string') { try { d = JSON.parse(d); } catch (_) {} }
+    if (d == null) d = {};
+    else if (typeof d !== 'object') d = { data: d };
+    if (raw.plain && typeof raw.plain === 'object') d = Object.assign({}, d, raw.plain);
+    return d;
   }
   function bridgePost(feature, payload, onDone) {
 
@@ -1266,28 +1314,42 @@ const STORE = {
       gbLogT('bridge-timeout-' + feature, 30000, feature + ': bridgePost timeout ' + BRIDGE_TIMEOUT_MS + 'ms');
       finish('timeout');
     }, BRIDGE_TIMEOUT_MS);
-    try {
-      uw.gpAjax.ajaxPost('frontend_bridge', 'execute', payload, false, (wnd, data) => {
-        try {
-          if (responseIsCaptcha(data)) {
-            captchaTrip(feature, JSON.stringify(data).slice(0, 120));
-            return finish('captcha');
-          }
-          if (data && (data.error || data.exception)) {
-            const err = data.error || data.exception;
-            const msg = typeof err === 'string' ? err : (err.message || err.msg || 'error');
-            if (/csrf|token|unauthorized|login|session/i.test(String(msg))) {
-              try { csrfForceHunt(); } catch (_) {}
-            }
-            noteServerPressure(msg);
-            return finish(msg, data);
-          }
-          captchaClear(feature);
-          finish(null, data);
-        } catch (e) {
-          finish(String(e));
+    const classify = (data) => {
+      try {
+        if (responseIsCaptcha(data)) {
+          captchaTrip(feature, JSON.stringify(data).slice(0, 120));
+          return finish('captcha');
         }
-      });
+        if (data && (data.error || data.exception)) {
+          const err = data.error || data.exception;
+          const msg = typeof err === 'string' ? err : (err.message || err.msg || 'error');
+          if (/csrf|token|unauthorized|login|session/i.test(String(msg))) {
+            try { csrfForceHunt(); } catch (_) {}
+          }
+          noteServerPressure(msg);
+          return finish(msg, data);
+        }
+        captchaClear(feature);
+        finish(null, data);
+      } catch (e) {
+        finish(String(e));
+      }
+    };
+    gbAjaxWatch(
+      'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
+      (status, raw) => {
+        if (settled) return;
+        if (!status) return finish('neterr');
+        if (status < 200 || status >= 300) {
+          noteServerPressure('http ' + status);
+          return finish('http_' + status);
+        }
+        classify(gbAjaxUnwrap(raw));
+      }
+    );
+    try {
+
+      uw.gpAjax.ajaxPost('frontend_bridge', 'execute', payload, false, (data) => classify(data));
     } catch (e) {
       finish(String(e));
     }
@@ -1328,23 +1390,34 @@ const STORE = {
       if (onDone) onDone(err, res);
     };
     const timer = setTimeout(() => finish('timeout'), BRIDGE_TIMEOUT_MS);
+    const classify = (res) => {
+      try {
+        if (responseIsCaptcha(res)) {
+          captchaTrip(feature, JSON.stringify(res).slice(0, 120));
+          return finish('captcha');
+        }
+        if (res && (res.error || res.exception)) {
+          const err = res.error || res.exception;
+          const msg = typeof err === 'string' ? err : (err.message || err.msg || 'error');
+          noteServerPressure(msg);
+          return finish(msg, res);
+        }
+        captchaClear(feature);
+        finish(null, res);
+      } catch (e) { finish(String(e)); }
+    };
+    gbAjaxWatch('ajax:' + controller + '/' + action, (status, raw) => {
+      if (settled) return;
+      if (!status) return finish('neterr');
+      if (status < 200 || status >= 300) {
+        noteServerPressure('http ' + status);
+        return finish('http_' + status);
+      }
+      classify(gbAjaxUnwrap(raw));
+    });
     try {
-      uw.gpAjax.ajaxPost(controller, action, data, false, (wnd, res) => {
-        try {
-          if (responseIsCaptcha(res)) {
-            captchaTrip(feature, JSON.stringify(res).slice(0, 120));
-            return finish('captcha');
-          }
-          if (res && (res.error || res.exception)) {
-            const err = res.error || res.exception;
-            const msg = typeof err === 'string' ? err : (err.message || err.msg || 'error');
-            noteServerPressure(msg);
-            return finish(msg, res);
-          }
-          captchaClear(feature);
-          finish(null, res);
-        } catch (e) { finish(String(e)); }
-      });
+
+      uw.gpAjax.ajaxPost(controller, action, data, false, (res) => classify(res));
     } catch (e) { finish(String(e)); }
   }
 
@@ -1981,6 +2054,17 @@ const STORE = {
       learnFarmAction(u);
       sniffBridgeBody(u, arguments[0]);
       try { ptLearnFromXhr(u, arguments[0]); } catch (_) {}
+
+      try {
+        const settle = gbAjaxClaim(u, arguments[0]);
+        if (settle) {
+          this.addEventListener('loadend', () => {
+            let raw = null;
+            try { raw = tryParseJson(this.responseText || ''); } catch (_) {}
+            try { settle(this.status, raw); } catch (_) {}
+          });
+        }
+      } catch (_) {}
       this.addEventListener('load', () => {
         try {
           const txt = this.responseText || '';
@@ -2426,7 +2510,8 @@ const STORE = {
         gbLog('sniffed bandit bridge call:', body.slice(0, 300));
       } else if (/BuildingOrder/.test(body) && /Instant|instant/i.test(body)) {
         const j = parseBodyLoose(body);
-        if (j && j.action_name && /instant/i.test(j.action_name)) {
+
+        if (j && !isSelfBridge(j) && j.action_name && /instant/i.test(j.action_name)) {
           if (/buyInstant|buy_instant/i.test(j.action_name)) {
             gbLogT('ib-sniff-refuse', 60000, 'instant: sniffed buyInstant - not saved as free-complete action');
           } else if (typeof ibLearnAction === 'function') {
@@ -2440,7 +2525,7 @@ const STORE = {
         }
       } else if (/ResearchOrder/.test(body) && /Instant|instant/i.test(body)) {
         const j = parseBodyLoose(body);
-        if (j && j.action_name && /instant/i.test(j.action_name)) {
+        if (j && !isSelfBridge(j) && j.action_name && /instant/i.test(j.action_name)) {
           if (/buyInstant|buy_instant/i.test(j.action_name)) {
             gbLogT('ib-sniff-refuse', 60000, 'instant-research: sniffed buyInstant - not saved');
           } else if (typeof ibLearnAction === 'function') {

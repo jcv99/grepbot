@@ -260,6 +260,21 @@ In-app SPA navigation (Reports / World / Farms) keeps the tab visible → no `se
   world switch. Skip windows must ignore `skip:*` results: night pause fires
   thousands of times and would otherwise look like a dead endpoint. `renderLog` now
   also bails when `.log-list` is `hidden` (Decisions sub-view active).
+- v1.6.1 gpAjax callback contract (was: *everything* logged `err timeout` while
+  the action actually executed). Read `GPAjax` in `archive/captures/grepo-dump/js/game.min.js`:
+  `_ajax` wraps a **bare function** callback as a SUCCESS-ONLY handler
+  (`u=function(e,i,o,r){if("function"==typeof a)a(i,r)}`), and the success branch
+  is skipped whole when the response lacks `json`/`_srvtime`. So a server-side
+  rejection (`json.error` → HumanMessage) and an empty bridge payload both leave
+  the caller hanging until `BRIDGE_TIMEOUT_MS`. Two consequences: (1) the bare
+  callback's args are `(data, t_token)`, **not** `(wnd, data)` — the window
+  handle is only passed to the `{success,error}` object form; (2) every post now
+  also registers `gbAjaxWatch(sig, settle)` and the XHR spy settles it from the
+  raw response on `loadend` (`gbAjaxClaim` matches by `model_url|action_name`
+  for the bridge, `controller/action` otherwise). Do not drop the watcher and go
+  back to trusting the gpAjax callback, and do not drop the callback either —
+  whichever fires first wins, `settled` dedupes. `captcha_required === true` is
+  the real captcha flag the game itself keys on.
 - v1.6 instant arming: the armed timer is an *accelerator*. Never delete the 10s
   `gbInterval` or the click hook in favour of it — a clamped background timer can
   fire minutes late, and the interval is what recovers that.

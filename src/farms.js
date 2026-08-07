@@ -20,7 +20,9 @@
         gbLog('sniffed bandit bridge call:', body.slice(0, 300));
       } else if (/BuildingOrder/.test(body) && /Instant|instant/i.test(body)) {
         const j = parseBodyLoose(body);
-        if (j && j.action_name && /instant/i.test(j.action_name)) {
+        // Only a hand click teaches anything - our own post re-learns what it
+        // already knows and logs it once per completion wave.
+        if (j && !isSelfBridge(j) && j.action_name && /instant/i.test(j.action_name)) {
           if (/buyInstant|buy_instant/i.test(j.action_name)) {
             gbLogT('ib-sniff-refuse', 60000, 'instant: sniffed buyInstant - not saved as free-complete action');
           } else if (typeof ibLearnAction === 'function') {
@@ -34,7 +36,7 @@
         }
       } else if (/ResearchOrder/.test(body) && /Instant|instant/i.test(body)) {
         const j = parseBodyLoose(body);
-        if (j && j.action_name && /instant/i.test(j.action_name)) {
+        if (j && !isSelfBridge(j) && j.action_name && /instant/i.test(j.action_name)) {
           if (/buyInstant|buy_instant/i.test(j.action_name)) {
             gbLogT('ib-sniff-refuse', 60000, 'instant-research: sniffed buyInstant - not saved');
           } else if (typeof ibLearnAction === 'function') {

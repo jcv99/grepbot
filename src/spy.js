@@ -56,6 +56,19 @@
       learnFarmAction(u);
       sniffBridgeBody(u, arguments[0]);
       try { ptLearnFromXhr(u, arguments[0]); } catch (_) {}
+      // Our own gpAjax posts: gpAjax only calls back on a non-empty success
+      // envelope, so settle bridgePost/gameAjaxPost from the raw response here.
+      // `loadend` covers success, HTTP error, network failure and abort alike.
+      try {
+        const settle = gbAjaxClaim(u, arguments[0]);
+        if (settle) {
+          this.addEventListener('loadend', () => {
+            let raw = null;
+            try { raw = tryParseJson(this.responseText || ''); } catch (_) {}
+            try { settle(this.status, raw); } catch (_) {}
+          });
+        }
+      } catch (_) {}
       this.addEventListener('load', () => {
         try {
           const txt = this.responseText || '';

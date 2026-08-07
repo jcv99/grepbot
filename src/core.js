@@ -1200,6 +1200,9 @@ const STORE = {
     } else if (d.json && typeof d.json === 'object') {
       d = Object.assign({}, d, d.json);
     }
+    // The game's own bridge wrapper keys on exactly this flag
+    // (GrepoApiHelper.getWrappedCallback: `if (true === i.captcha_required)`).
+    if (d.captcha_required === true || d.captcha_required === 1) return true;
     if (d.captcha === true || d.captcha === 1) return true;
     if (typeof d.captcha === 'string' && d.captcha.length) return true;
     if (d.json === 'captcha_required' || d.status === 'captcha_required') return true;
@@ -1224,6 +1227,64 @@ const STORE = {
     if (!j || !lastSelfBridge.sig) return false;
     if (Date.now() - lastSelfBridge.at > 5000) return false;
     return (String(j.model_url || '') + '|' + String(j.action_name || '')) === lastSelfBridge.sig;
+  }
+  // ---------- raw response tap ----------
+  // gpAjax's callback contract is narrower than it looks (read the minified
+  // GPAjax in archive/captures): `_ajax` wraps a bare function callback as a
+  // SUCCESS-ONLY handler, and the success branch is skipped entirely unless the
+  // response carries a non-empty `json` envelope. So:
+  //   * a server-side rejection (`json.error`, shown as a HumanMessage) never
+  //     calls back,
+  //   * a bridge action that returns an empty payload never calls back either -
+  //     even though the action executed.
+  // Both cases used to hang until BRIDGE_TIMEOUT_MS, which is why every feature
+  // logged `err timeout` while instant-build still completed ("timeout but order
+  // gone"). Every post now also registers a watcher that the XHR spy settles
+  // from the real response. Whichever arrives first wins (`settled` dedupes).
+  const gbAjaxPending = [];
+  const GB_AJAX_WATCH_MS = 8000;
+  function gbAjaxWatch(sig, settle) {
+    gbAjaxPending.push({ sig, at: Date.now(), settle });
+    while (gbAjaxPending.length > 24) gbAjaxPending.shift();
+  }
+  function gbAjaxSigs(url, body) {
+    const u = String(url || '');
+    const out = [];
+    if (/frontend_bridge/.test(u) && typeof body === 'string') {
+      let j = null;
+      try { j = parseBodyLoose(body); } catch (_) {}
+      if (j && j.model_url) out.push('bridge:' + j.model_url + '|' + String(j.action_name || ''));
+      return out;
+    }
+    const ctrl = (u.match(/[?&]controller=([a-z_0-9]+)/i) || u.match(/\/game\/([a-z_0-9]+)/i) || [])[1] || '';
+    const act = (u.match(/[?&]action=([a-z_0-9]+)/i) || [])[1] || '';
+    if (ctrl && act) out.push('ajax:' + ctrl + '/' + act);
+    return out;
+  }
+  // Called by the XHR spy on send(). Returns the settle fn for our own post.
+  function gbAjaxClaim(url, body) {
+    if (!gbAjaxPending.length) return null;
+    const now = Date.now();
+    for (let i = gbAjaxPending.length - 1; i >= 0; i--) {
+      if (now - gbAjaxPending[i].at > GB_AJAX_WATCH_MS) gbAjaxPending.splice(i, 1);
+    }
+    if (!gbAjaxPending.length) return null;
+    const sigs = gbAjaxSigs(url, body);
+    if (!sigs.length) return null;
+    for (let i = 0; i < gbAjaxPending.length; i++) {
+      if (sigs.indexOf(gbAjaxPending[i].sig) >= 0) return gbAjaxPending.splice(i, 1)[0].settle;
+    }
+    return null;
+  }
+  // {json:{...}, plain:{...}, _srvtime:…} -> the data the game hands its callbacks.
+  function gbAjaxUnwrap(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    let d = Object.prototype.hasOwnProperty.call(raw, 'json') ? raw.json : raw;
+    if (typeof d === 'string') { try { d = JSON.parse(d); } catch (_) {} }
+    if (d == null) d = {};
+    else if (typeof d !== 'object') d = { data: d };
+    if (raw.plain && typeof raw.plain === 'object') d = Object.assign({}, d, raw.plain);
+    return d;
   }
   function bridgePost(feature, payload, onDone) {
     // Every exit path is journaled - skips are decisions too, and "why did the
@@ -1285,28 +1346,43 @@ const STORE = {
       gbLogT('bridge-timeout-' + feature, 30000, feature + ': bridgePost timeout ' + BRIDGE_TIMEOUT_MS + 'ms');
       finish('timeout');
     }, BRIDGE_TIMEOUT_MS);
-    try {
-      uw.gpAjax.ajaxPost('frontend_bridge', 'execute', payload, false, (wnd, data) => {
-        try {
-          if (responseIsCaptcha(data)) {
-            captchaTrip(feature, JSON.stringify(data).slice(0, 120));
-            return finish('captcha');
-          }
-          if (data && (data.error || data.exception)) {
-            const err = data.error || data.exception;
-            const msg = typeof err === 'string' ? err : (err.message || err.msg || 'error');
-            if (/csrf|token|unauthorized|login|session/i.test(String(msg))) {
-              try { csrfForceHunt(); } catch (_) {}
-            }
-            noteServerPressure(msg);
-            return finish(msg, data);
-          }
-          captchaClear(feature); // success clears breaker
-          finish(null, data);
-        } catch (e) {
-          finish(String(e));
+    const classify = (data) => {
+      try {
+        if (responseIsCaptcha(data)) {
+          captchaTrip(feature, JSON.stringify(data).slice(0, 120));
+          return finish('captcha');
         }
-      });
+        if (data && (data.error || data.exception)) {
+          const err = data.error || data.exception;
+          const msg = typeof err === 'string' ? err : (err.message || err.msg || 'error');
+          if (/csrf|token|unauthorized|login|session/i.test(String(msg))) {
+            try { csrfForceHunt(); } catch (_) {}
+          }
+          noteServerPressure(msg);
+          return finish(msg, data);
+        }
+        captchaClear(feature); // success clears breaker
+        finish(null, data);
+      } catch (e) {
+        finish(String(e));
+      }
+    };
+    gbAjaxWatch(
+      'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
+      (status, raw) => {
+        if (settled) return;
+        if (!status) return finish('neterr');
+        if (status < 200 || status >= 300) {
+          noteServerPressure('http ' + status);
+          return finish('http_' + status);
+        }
+        classify(gbAjaxUnwrap(raw));
+      }
+    );
+    try {
+      // gpAjax hands a bare-function callback (data, t_token) - NOT (wnd, data);
+      // the window handle is only passed to the {success,error} object form.
+      uw.gpAjax.ajaxPost('frontend_bridge', 'execute', payload, false, (data) => classify(data));
     } catch (e) {
       finish(String(e));
     }
@@ -1347,23 +1423,34 @@ const STORE = {
       if (onDone) onDone(err, res);
     };
     const timer = setTimeout(() => finish('timeout'), BRIDGE_TIMEOUT_MS);
+    const classify = (res) => {
+      try {
+        if (responseIsCaptcha(res)) {
+          captchaTrip(feature, JSON.stringify(res).slice(0, 120));
+          return finish('captcha');
+        }
+        if (res && (res.error || res.exception)) {
+          const err = res.error || res.exception;
+          const msg = typeof err === 'string' ? err : (err.message || err.msg || 'error');
+          noteServerPressure(msg);
+          return finish(msg, res);
+        }
+        captchaClear(feature);
+        finish(null, res);
+      } catch (e) { finish(String(e)); }
+    };
+    gbAjaxWatch('ajax:' + controller + '/' + action, (status, raw) => {
+      if (settled) return;
+      if (!status) return finish('neterr');
+      if (status < 200 || status >= 300) {
+        noteServerPressure('http ' + status);
+        return finish('http_' + status);
+      }
+      classify(gbAjaxUnwrap(raw));
+    });
     try {
-      uw.gpAjax.ajaxPost(controller, action, data, false, (wnd, res) => {
-        try {
-          if (responseIsCaptcha(res)) {
-            captchaTrip(feature, JSON.stringify(res).slice(0, 120));
-            return finish('captcha');
-          }
-          if (res && (res.error || res.exception)) {
-            const err = res.error || res.exception;
-            const msg = typeof err === 'string' ? err : (err.message || err.msg || 'error');
-            noteServerPressure(msg);
-            return finish(msg, res);
-          }
-          captchaClear(feature);
-          finish(null, res);
-        } catch (e) { finish(String(e)); }
-      });
+      // Bare-function callback signature is (data, t_token) - see bridgePost.
+      uw.gpAjax.ajaxPost(controller, action, data, false, (res) => classify(res));
     } catch (e) { finish(String(e)); }
   }
   // Compact one-line payload for dry-run logs (full JSON floods the ring buffer)
