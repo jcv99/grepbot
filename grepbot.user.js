@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      1.6.7
+// @version      1.6.8
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -11718,14 +11718,18 @@ const STORE = {
     #grepbot-panel .finding .meta{color:#888;margin-bottom:3px}
     #grepbot-panel .finding .units{color:#6cf}
     #grepbot-panel .finding .res{color:#f96}
-    #grepbot-panel .log-list{height:100%;min-height:180px;max-height:280px;overflow:auto;font-size:10px;white-space:pre-wrap;word-break:break-word;color:#9d9;background:#111;padding:4px;border:1px solid #333}
-    #grepbot-panel .gb-logsub{display:flex;gap:4px;align-items:center;margin-bottom:4px}
+    /* log tab fills the panel: section is the flex column, list/journal take the slack */
+    #grepbot-panel section[data-tab=log]{display:flex;flex-direction:column;overflow:hidden}
+    #grepbot-panel section[data-tab=log][hidden]{display:none}
+    #grepbot-panel .log-list{flex:1 1 auto;min-height:120px;overflow:auto;font-size:10px;white-space:pre-wrap;word-break:break-word;color:#9d9;background:#111;padding:4px;border:1px solid #333}
+    #grepbot-panel .gb-logsub{display:flex;gap:4px;align-items:center;margin-bottom:4px;flex-shrink:0}
     #grepbot-panel .gb-logsub button{background:#262626;border:1px solid #333;color:#aaa;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px}
     #grepbot-panel .gb-logsub button.on{background:#333;color:#fff;border-color:#555}
     #grepbot-panel .gb-logsub input{flex:1;min-width:0;background:#111;color:#cfc;border:1px solid #333;font:10px monospace;padding:2px 4px}
-    #grepbot-panel .jrn-head{font-size:10px;color:#888;margin-bottom:3px}
+    #grepbot-panel .jrn-pane:not([hidden]){display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+    #grepbot-panel .jrn-head{font-size:10px;color:#888;margin-bottom:3px;flex-shrink:0}
     #grepbot-panel .jrn-head b{color:#f96}
-    #grepbot-panel .jrn-list{min-height:160px;max-height:250px;overflow:auto;font-size:10px;background:#111;border:1px solid #333;padding:2px}
+    #grepbot-panel .jrn-list{flex:1 1 auto;min-height:120px;overflow:auto;font-size:10px;background:#111;border:1px solid #333;padding:2px}
     #grepbot-panel .jrn-list table{width:100%;border-collapse:collapse}
     #grepbot-panel .jrn-list td{padding:1px 3px;border-bottom:1px solid #2a2a2a;vertical-align:top}
     #grepbot-panel .jrn-list td.t{color:#666;white-space:nowrap}
@@ -11736,7 +11740,7 @@ const STORE = {
     #grepbot-panel .jrn-list tr.ok td.r{color:#6dda7e}
     #grepbot-panel .jrn-list tr.skip td.r{color:#777}
     #grepbot-panel .jrn-list tr.err td.r{color:#f55}
-    #grepbot-panel .jrn-btns{display:flex;gap:4px;margin-top:4px}
+    #grepbot-panel .jrn-btns{display:flex;gap:4px;margin-top:4px;flex-shrink:0}
     #grepbot-panel .jrn-btns button{background:#333;border:1px solid #555;color:#eee;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px}
     #grepbot-panel .ib-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#555;transition:background .4s}
     #grepbot-panel .ib-dot.free{background:#4caf50}
