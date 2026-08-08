@@ -672,6 +672,21 @@ const STORE = {
     if (!action || action === 'buildUp') return null;
     return /^ResearchOrder/.test(String((payload && payload.model_url) || '')) ? 'ibActionR' : 'ibAction';
   }
+  // A template is only "learned" when it differs from the constant the caller
+  // falls back to. `state.ibAction` / `state.ibActionR` load as 'completeInstant'
+  // (core state init), so the unlearned escape hatch below never fired for them:
+  // five server rejections of the HARDCODED action invalidated it and the gate
+  // then blocked instant build/research for 30min, while "hand-click to re-learn"
+  // could only ever re-store the same constant.
+  const TPL_DEFAULTS = { ibAction: 'completeInstant', ibActionR: 'completeInstant' };
+  function tplLearned(name) {
+    if (!name) return false;
+    if (name === 'farmAction') return true;
+    const v = state[name];
+    if (!v) return false;
+    const def = TPL_DEFAULTS[name];
+    return !def || String(v) !== def;
+  }
   function tplHealthSave() { save(STORE.TPL_HEALTH, state.tplHealth || {}); }
   function tplHealthEnsure(name) {
     if (!state.tplHealth) state.tplHealth = {};
@@ -693,7 +708,7 @@ const STORE = {
   }
   function tplHealthNoteName(name, result) {
     if (!name) return;
-    if (!state[name] && name !== 'farmAction') return;
+    if (!tplLearned(name)) return;
     const h = tplHealthEnsure(name);
     if (!result || result === 'ok') {
       h.lastOkAt = Date.now();
@@ -718,7 +733,15 @@ const STORE = {
     if (!h || !h.invalidated) return true;
     // Nothing learned means there is no stale payload - the caller falls back to
     // its own constant, so a permanent block here is a dead feature for no gain.
-    if (!state[name] && name !== 'farmAction') return true;
+    if (!tplLearned(name)) {
+      if (h.invalidated) {
+        h.invalidated = false;
+        h.hardFails = 0;
+        gbLog('tpl: ' + name + ' is the built-in default, not a learned payload - unblocking');
+        tplHealthSave();
+      }
+      return true;
+    }
     // Self-heal: without this, the gate blocks the only post that could ever
     // record an 'ok', so a single bad streak killed the feature until a
     // hand-click. Expiry lets it spend one more streak proving it is really dead.

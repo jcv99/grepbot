@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      1.6.8
+// @version      1.6.9
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -669,6 +669,16 @@ const STORE = {
     if (!action || action === 'buildUp') return null;
     return /^ResearchOrder/.test(String((payload && payload.model_url) || '')) ? 'ibActionR' : 'ibAction';
   }
+
+  const TPL_DEFAULTS = { ibAction: 'completeInstant', ibActionR: 'completeInstant' };
+  function tplLearned(name) {
+    if (!name) return false;
+    if (name === 'farmAction') return true;
+    const v = state[name];
+    if (!v) return false;
+    const def = TPL_DEFAULTS[name];
+    return !def || String(v) !== def;
+  }
   function tplHealthSave() { save(STORE.TPL_HEALTH, state.tplHealth || {}); }
   function tplHealthEnsure(name) {
     if (!state.tplHealth) state.tplHealth = {};
@@ -690,7 +700,7 @@ const STORE = {
   }
   function tplHealthNoteName(name, result) {
     if (!name) return;
-    if (!state[name] && name !== 'farmAction') return;
+    if (!tplLearned(name)) return;
     const h = tplHealthEnsure(name);
     if (!result || result === 'ok') {
       h.lastOkAt = Date.now();
@@ -714,7 +724,15 @@ const STORE = {
     const h = state.tplHealth && state.tplHealth[name];
     if (!h || !h.invalidated) return true;
 
-    if (!state[name] && name !== 'farmAction') return true;
+    if (!tplLearned(name)) {
+      if (h.invalidated) {
+        h.invalidated = false;
+        h.hardFails = 0;
+        gbLog('tpl: ' + name + ' is the built-in default, not a learned payload - unblocking');
+        tplHealthSave();
+      }
+      return true;
+    }
 
     if (!h.invalidAt || Date.now() - h.invalidAt > TPL_HEALTH_STALE_MS) {
       h.invalidated = false;
@@ -5027,7 +5045,18 @@ const STORE = {
   function abDelayFromOrder(order) {
 
     const btSec = Math.max(0, +(order && order.building_time) || 0);
-    return Math.floor(btSec / 2) * 1000 + AB_EXTRA_MS + abRandMs();
+    const doneSec = Math.max(0, +(order && order.to_be_completed_at) || 0);
+    const nowSec = gameNow();
+    const halfMs = Math.floor(btSec / 2) * 1000;
+    let wait = halfMs;
+    if (doneSec > 0 && btSec > 0) {
+
+      wait = (doneSec - nowSec) * 1000 - halfMs;
+    }
+    wait = Math.max(0, wait) + AB_EXTRA_MS + abRandMs();
+
+    if (doneSec > nowSec) wait = Math.min(wait, Math.max(0, (doneSec - nowSec) * 1000 - 5000));
+    return wait;
   }
   function abArmDeadline(townId, order, why) {
     const wait = abDelayFromOrder(order);

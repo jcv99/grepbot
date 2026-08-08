@@ -1074,9 +1074,24 @@
     return q.len >= q.max;
   }
   function abDelayFromOrder(order) {
-    // half of that construction's duration + 5min + rand - not "right when it finishes"
+    // Top up around the HALFWAY POINT of the running order + 5min + rand - not
+    // "right when it finishes". Measured against the order's own clock: half its
+    // total duration counted from *now* deferred the refill long past the order's
+    // completion whenever we noticed it late (queue drained to 0 and sat there
+    // until the next scan), and re-armed a fresh full wait after every restart.
     const btSec = Math.max(0, +(order && order.building_time) || 0);
-    return Math.floor(btSec / 2) * 1000 + AB_EXTRA_MS + abRandMs();
+    const doneSec = Math.max(0, +(order && order.to_be_completed_at) || 0);
+    const nowSec = gameNow();
+    const halfMs = Math.floor(btSec / 2) * 1000;
+    let wait = halfMs;
+    if (doneSec > 0 && btSec > 0) {
+      // ms from now to this order's halfway mark (negative once it is past)
+      wait = (doneSec - nowSec) * 1000 - halfMs;
+    }
+    wait = Math.max(0, wait) + AB_EXTRA_MS + abRandMs();
+    // Never arm past the order's own completion - the queue empties first.
+    if (doneSec > nowSec) wait = Math.min(wait, Math.max(0, (doneSec - nowSec) * 1000 - 5000));
+    return wait;
   }
   function abArmDeadline(townId, order, why) {
     const wait = abDelayFromOrder(order);
