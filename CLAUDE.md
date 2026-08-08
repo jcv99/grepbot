@@ -306,6 +306,19 @@ In-app SPA navigation (Reports / World / Farms) keeps the tab visible → no `se
   unknown (post nothing), and confirm with Config → *Copy offer HTML* before
   trusting a bulk trade. Never let the scraped stock be the only bound on the
   bulk amount.
+- v1.6.3 template health is charged per **learned payload**, never per feature
+  key. Feature `build` carries two different posts: auto-queue `buildUp`
+  (hardcoded payload — no template can be stale) and instant complete (the only
+  user of `ibAction`/`ibActionR`). Because both journaled under `build`, five
+  ordinary auto-queue server rejections invalidated `ibAction`, and the
+  `tpl-stale` gate in `bridgePost` then blocked *both* features until a
+  hand-click. v1.6.1 lit it: those rejections used to settle as `timeout`, which
+  `jrnHard` excludes. `tplNameFor(feature, payload)` now resolves by
+  `action_name`/`model_url`; add a new learned template to that resolver, not
+  just to `TPL_FEATURE_MAP`. `tplHealthOk` also treats an unlearned template as
+  healthy (the caller falls back to a constant) and expires an invalidation
+  after 30min — the gate blocks the only post that could ever record an `ok`, so
+  without expiry one bad streak was permanent.
 - Memory note: `memory/grepbot-xpi-rebuild.md` predates the v0.5.0 WebExtension retirement — ignore the `.xpi` rebuild steps; `web-ext/` no longer exists.
 
 ## Phase state

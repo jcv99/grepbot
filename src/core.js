@@ -650,6 +650,10 @@ const STORE = {
 
   // ---------- learned-payload health (plan 11) ----------
   const TPL_HEALTH_FAILS = 5;
+  // An invalidated template is a hard block, so it may only ever be charged to
+  // the post that actually USES that learned payload. Feature keys are buckets
+  // (captcha breaker, config), not payload identities.
+  const TPL_HEALTH_STALE_MS = 1800000; // retry a stale template after 30min
   const TPL_FEATURE_MAP = {
     farm: 'claimTpl', claim: 'claimTpl',
     build: 'ibAction', 'instant-build': 'ibAction', 'instant-research': 'ibActionR',
@@ -657,6 +661,17 @@ const STORE = {
     collect: 'collectTpl',
     pttrade: 'ptTradeTpl',
   };
+  // Feature `build` carries two different posts: auto-queue `buildUp` (payload is
+  // hardcoded - no learned template can be stale) and instant complete (which is
+  // the only user of the learned ibAction/ibActionR). Charging buildUp's server
+  // rejections to ibAction invalidated it and killed instant build too.
+  function tplNameFor(feature, payload) {
+    const name = TPL_FEATURE_MAP[feature];
+    if (name !== 'ibAction') return name;
+    const action = String((payload && payload.action_name) || '');
+    if (!action || action === 'buildUp') return null;
+    return /^ResearchOrder/.test(String((payload && payload.model_url) || '')) ? 'ibActionR' : 'ibAction';
+  }
   function tplHealthSave() { save(STORE.TPL_HEALTH, state.tplHealth || {}); }
   function tplHealthEnsure(name) {
     if (!state.tplHealth) state.tplHealth = {};
@@ -673,8 +688,10 @@ const STORE = {
     h.lastOkAt = 0;
     tplHealthSave();
   }
-  function tplHealthNote(feature, result) {
-    const name = TPL_FEATURE_MAP[feature];
+  function tplHealthNote(feature, result, payload) {
+    tplHealthNoteName(tplNameFor(feature, payload), result);
+  }
+  function tplHealthNoteName(name, result) {
     if (!name) return;
     if (!state[name] && name !== 'farmAction') return;
     const h = tplHealthEnsure(name);
@@ -690,13 +707,30 @@ const STORE = {
     h.hardFails = (h.hardFails || 0) + 1;
     if (h.hardFails >= TPL_HEALTH_FAILS && !h.invalidated) {
       h.invalidated = true;
+      h.invalidAt = Date.now();
       gbLog('tpl: ' + name + ' invalidated after ' + h.hardFails + ' hard fails - hand-click to re-learn');
     }
     tplHealthSave();
   }
   function tplHealthOk(name) {
+    if (!name) return true;
     const h = state.tplHealth && state.tplHealth[name];
-    return !(h && h.invalidated);
+    if (!h || !h.invalidated) return true;
+    // Nothing learned means there is no stale payload - the caller falls back to
+    // its own constant, so a permanent block here is a dead feature for no gain.
+    if (!state[name] && name !== 'farmAction') return true;
+    // Self-heal: without this, the gate blocks the only post that could ever
+    // record an 'ok', so a single bad streak killed the feature until a
+    // hand-click. Expiry lets it spend one more streak proving it is really dead.
+    // No stamp = record written before the stamp existed; expire it once.
+    if (!h.invalidAt || Date.now() - h.invalidAt > TPL_HEALTH_STALE_MS) {
+      h.invalidated = false;
+      h.hardFails = 0;
+      gbLog('tpl: ' + name + ' stale window expired - retrying');
+      tplHealthSave();
+      return true;
+    }
+    return false;
   }
   function tplHealthBannerText() {
     const h = state.tplHealth || {};
@@ -1303,7 +1337,7 @@ const STORE = {
       return bail('remembered');
     }
     {
-      const tplName = TPL_FEATURE_MAP[feature];
+      const tplName = tplNameFor(feature, payload);
       if (tplName && !tplHealthOk(tplName)) {
         gbLogT('tpl-stale-' + tplName, 120000, feature + ': template ' + tplName + ' invalidated - re-learn by hand');
         return bail('tpl-stale');
@@ -1339,7 +1373,7 @@ const STORE = {
       else if (err === 'captcha' || err === 'captcha-pause') markModuleHealth(feature, 'captcha');
       else markModuleHealth(feature, 'err');
       jrnPush(jtag, jrnResult(err), err);
-      try { tplHealthNote(feature, jrnResult(err)); } catch (_) {}
+      try { tplHealthNote(feature, jrnResult(err), payload); } catch (_) {}
       if (onDone) onDone(err, data);
     };
     const timer = setTimeout(() => {
@@ -1400,7 +1434,7 @@ const STORE = {
       return bail('remembered');
     }
     {
-      const tplName = TPL_FEATURE_MAP[feature];
+      const tplName = tplNameFor(feature);
       if (tplName && !tplHealthOk(tplName)) return bail('tpl-stale');
     }
     if (!reqBudgetOk()) return bail('budget');
