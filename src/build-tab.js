@@ -202,6 +202,32 @@
     if (kind === 'research') { state.ibActionR = action; save(wkey(STORE.IB_ACTION_R), action); }
     else { state.ibAction = action; save(wkey(STORE.IB_ACTION), action); }
   }
+  // Payload shape that jrnTag() keys on, without posting anything. The journal
+  // target for this payload is the TOWN (arguments.order_id is not one of the
+  // ids jrnTag prefers), so one hard failure silences every free order of that
+  // town - which is exactly what the pre-check has to see.
+  function ibJrnPayload(order) {
+    const kind = order.kind || 'build';
+    return {
+      model_url: order.modelUrl || ((kind === 'research' ? 'ResearchOrder/' : 'BuildingOrder/') + order.id),
+      action_name: ibActionFor(kind),
+      arguments: { order_id: order.id },
+      town_id: order.town_id,
+    };
+  }
+  // Both free actions rejected as unknown: the learned name is the only variable
+  // left, so drop it and let ibActionFor fall back to the constant next scan.
+  // Otherwise every free order for the rest of the session burns budget on a
+  // payload this client already refused.
+  function ibResetLearnedAction(kind, err) {
+    if (!ibUnknownActionErr(err)) return;
+    const cur = kind === 'research' ? state.ibActionR : state.ibAction;
+    if (!cur) return;
+    if (kind === 'research') { state.ibActionR = null; save(wkey(STORE.IB_ACTION_R), null); }
+    else { state.ibAction = null; save(wkey(STORE.IB_ACTION), null); }
+    gbLogT('ib-relearn', 60000,
+      'instant: learned action ' + cur + ' rejected - reset to default, hand-click one free complete to re-learn');
+  }
   function ibComplete(order) {
     return new Promise(resolve => {
       if (!hostEnabled() || captchaPaused('build')) { resolve('pause'); return; }
@@ -226,6 +252,12 @@
         gbLog(`${tag}: ${live.type} #${order.id} OK`);
         resolve('ok');
       };
+      const goneOk = (why) => {
+        if (ibOrderStillPresent(order.id)) return false;
+        gbLogT('ib-stale', 30000, `${tag}: #${order.id} ${why} but order gone - OK`);
+        resolve('ok');
+        return true;
+      };
       const postFree = (actionName, isFallback) => {
         bridgePost('build', {
           model_url: modelUrl,
@@ -234,15 +266,22 @@
           arguments: { order_id: order.id },
           town_id: live.town_id,
         }, (err, data) => {
-          if (err === 'captcha' || err === 'captcha-pause') { resolve('captcha'); return; }
-          if (err === 'timeout') {
-            // Timeout = unknown_outcome - do NOT retry / fallback; reconcile only
-            if (!ibOrderStillPresent(order.id)) {
-              gbLog(`${tag}: #${order.id} timeout but order gone - treating as OK`);
-              resolve('ok');
-            } else {
+          // Soft outcomes: reconcile first — never retry / buyInstant on these
+          if (err === 'captcha' || err === 'captcha-pause') {
+            if (!goneOk(err)) resolve('captcha');
+            return;
+          }
+          if (err === 'timeout' || err === 'remembered' || err === 'paused') {
+            if (goneOk(err)) return;
+            if (err === 'timeout') {
               gbLog(`${tag}: #${order.id} timeout_unknown - no fallback`);
               resolve('unknown');
+            } else if (err === 'remembered') {
+              gbLogT('ib-remembered-' + order.id, 60000,
+                `${tag}: #${order.id} skipped from memory`);
+              resolve('err');
+            } else {
+              resolve('err');
             }
             return;
           }
@@ -258,9 +297,20 @@
             postFree('finishInstantly', true);
             return;
           }
-          if (err) { gbLog(tag + ' complete error: ' + err); resolve('err'); return; }
-          const e = data && data.error;
-          if (e) {
+          // Local gates: nothing was posted, so this is not evidence about the
+          // payload. Throttle them and never charge them to the fallback logic.
+          if (err === 'tpl-stale' || err === 'budget' || err === 'disabled' || err === 'dryrun') {
+            gbLogT('ib-gate-' + err, 60000, `${tag}: #${order.id} not sent (${err})`);
+            resolve('skip');
+            return;
+          }
+          if (err) {
+            if (isFallback) ibResetLearnedAction(kind, err);
+            gbLog(tag + ' complete error: ' + err);
+            resolve('err');
+            return;
+          }
+          if (data && data.error) {
             gbLog(`${tag}: ${live.type} #${order.id} ERR ` + JSON.stringify(data).slice(0, 120));
             resolve('err');
             return;
@@ -285,9 +335,9 @@
       if (i >= free.length || captcha) {
         try { clearTimeout(watchdog); } catch (_) {}
         unlock();
-        gbLog(`instant: completed ${done}/${free.length}${captcha ? ' (captcha abort)' : ''}`);
-        if (done) flash(`instantánea x${done}`);
-        gbTimeout(ibScan, 3000);
+        gbLogT('ib-batch-done', 60000,
+          `instant: completed ${done}/${free.length}${captcha ? ' (captcha abort)' : ''}`);
+        if (done) { flash(`instantánea x${done}`); gbTimeout(ibScan, 3000); }
         return;
       }
       ibComplete(free[i]).then(res => {
@@ -344,10 +394,21 @@
     ibArmNext(orders);
     if (!state.ibAuto || gbLocked('ib')) return;
     const free = orders.filter(o => o.isFree);
-    if (free.length) {
-      gbLog(`instant: ${free.length} free order(s), auto-completing`);
-      ibCompleteAll(free);
-    }
+    if (!free.length) return;
+    // Drop orders whose post is already inside a decisionSkips window BEFORE
+    // announcing the batch. The scan re-fires every 1-3s (10s interval + armed
+    // timer + visibilitychange + click hook) and the order stays free until the
+    // real countdown ends, so without this every window produced a wall of
+    // "free order(s), auto-completing" / "completed 0/N" with zero progress.
+    const live = free.filter(o => {
+      const why = gbSkipActive('build', ibJrnPayload(o));
+      if (!why) return true;
+      gbLogT('ib-mem-' + o.town_id, 60000, `instant: #${o.id} skipped from memory (${why})`);
+      return false;
+    });
+    if (!live.length) return;
+    gbLog(`instant: ${live.length} free order(s), auto-completing`);
+    ibCompleteAll(live);
   }
   function renderBuild(cached) {
     const sec = panel && panel.querySelector('section[data-tab=build]');

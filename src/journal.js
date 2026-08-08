@@ -13,7 +13,10 @@
   const JRN_BACKOFF = [5, 15, 60]; // minutes, same ladder as the captcha breaker
   // Outcomes that mean "never attempted" - they must not count toward a fail
   // streak, or a night pause would look like a broken endpoint.
-  const JRN_SKIP_ERRS = { disabled: 1, paused: 1, 'captcha-pause': 1, budget: 1, noajax: 1, remembered: 1, dryrun: 1 };
+  // 'tpl-stale' belongs here too: it is a local gate, not a server verdict, and
+  // charging it as a hard failure let one invalidated template ALSO open a
+  // decisionSkips window - two independent blocks from a single root cause.
+  const JRN_SKIP_ERRS = { disabled: 1, paused: 1, 'captcha-pause': 1, budget: 1, noajax: 1, remembered: 1, dryrun: 1, 'tpl-stale': 1 };
 
   // Storage can come back as anything after a bad write / hand edit.
   if (!Array.isArray(state.decisions)) state.decisions = [];
@@ -191,6 +194,14 @@
       return false;
     }
     return true;
+  }
+  // Feature-facing pre-check: is the post this payload would produce already
+  // inside a backoff window? Without it a scan logs "acting", walks a whole
+  // batch and has every post short-circuit at jrnSkipped for zero progress.
+  // Returns the reason string (truthy) or '' when the post may proceed.
+  function gbSkipActive(feature, payload) {
+    const tag = jrnTag(feature, payload);
+    return jrnSkipped(tag) ? (jrnWhy(tag) || 'remembered') : '';
   }
   function jrnWhy(tag) {
     const s = state.decisionSkips[jrnId(tag)];
