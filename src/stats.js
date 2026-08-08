@@ -14,7 +14,7 @@
   function preflightProbe(name, fn) {
     try {
       const r = fn();
-      if (!r) return { name, ok: false, detail: 'no result' };
+      if (!r) return { name, ok: false, detail: 'sin resultado' };
       return { name, ok: r.ok !== false, detail: r.detail || '', warn: !!r.warn };
     } catch (e) {
       return { name, ok: false, detail: String(e).slice(0, 80) };
@@ -24,59 +24,59 @@
     const out = [];
     const uw = gameUw();
     const bs = gameBridgeStatus();
-    out.push(preflightProbe('bridge', () => ({
+    out.push(preflightProbe('puente', () => ({
       ok: bs.MM && bs.gpAjax && bs.ITowns,
-      detail: Object.keys(bs).filter(k => bs[k]).join(' ') || 'nothing readable',
+      detail: Object.keys(bs).filter(k => bs[k]).join(' ') || 'nada legible',
     })));
     out.push(preflightProbe('csrf', () => ({
       ok: !!state.csrf,
-      detail: state.csrf ? state.csrf.slice(0, 6) + '...' : 'not found (GM_xmlhttpRequest report fetch needs it)',
+      detail: state.csrf ? state.csrf.slice(0, 6) + '...' : 'no encontrado (la lectura de informes por GM_xmlhttpRequest lo necesita)',
     })));
-    out.push(preflightProbe('towns', () => {
+    out.push(preflightProbe('ciudades', () => {
       const t = (townsFromGame() || []);
-      return { ok: t.length > 0, detail: t.length + ' towns readable' };
+      return { ok: t.length > 0, detail: t.length + ' ciudades legibles' };
     }));
-    out.push(preflightProbe('farm claims', () => {
+    out.push(preflightProbe('recogidas de granja', () => {
       const farms = farmsFromGame() || [];
       const ready = farms.filter(f => f.lootable_at == null || gameNow() >= f.lootable_at).length;
-      const tpl = state.claimTpl ? 'template learned' : 'template NOT learned (claim once by hand)';
+      const tpl = state.claimTpl ? 'plantilla aprendida' : 'plantilla SIN aprender (recoge una vez a mano)';
       return {
         ok: farms.length > 0,
         warn: !state.claimTpl,
-        detail: `${farms.length} villages, ${ready} claimable, ${tpl}, options ${farmOptionMapText()}`,
+        detail: `${farms.length} aldeas, ${ready} recogibles, ${tpl}, opciones ${farmOptionMapText()}`,
       };
     }));
-    out.push(preflightProbe('sleep claim', () => {
+    out.push(preflightProbe('recogida nocturna', () => {
       const sec = farmSleepDuration();
       const opt = farmOptionFor(sec);
       return {
         ok: opt != null,
         warn: opt == null,
-        detail: opt != null ? `${farmDurLabel(sec)} = option ${opt}` : `${farmDurLabel(sec)} not learned - claim that timer once by hand`,
+        detail: opt != null ? `${farmDurLabel(sec)} = opción ${opt}` : `${farmDurLabel(sec)} sin aprender - recoge ese temporizador una vez a mano`,
       };
     }));
-    out.push(preflightProbe('instant build', () => {
+    out.push(preflightProbe('construcción instantánea', () => {
       const orders = ibOrders() || [];
       const free = orders.filter(o => o.isFree).length;
       const cov = typeof ibTownCoverage === 'function' ? ibTownCoverage() : null;
       const armed = typeof ibArmedAt === 'function' ? ibArmedAt() : 0;
-      const armTxt = armed ? `next arm in ${fmtSec((armed - Date.now()) / 1000)}` : 'no order counting down';
+      const armTxt = armed ? `siguiente armado en ${fmtSec((armed - Date.now()) / 1000)}` : 'ninguna orden en cuenta atrás';
       return {
         ok: true,
         warn: !!(cov && cov.total && cov.readable < cov.total),
-        detail: `${orders.length} orders, ${free} free now, action ${state.ibAction}`
-          + (cov ? `, order queues readable ${cov.readable}/${cov.total} towns` : '')
+        detail: `${orders.length} órdenes, ${free} gratis ahora, acción ${state.ibAction}`
+          + (cov ? `, colas de órdenes legibles en ${cov.readable}/${cov.total} ciudades` : '')
           + `, ${armTxt}`,
       };
     }));
-    out.push(preflightProbe('instant research', () => {
+    out.push(preflightProbe('investigación instantánea', () => {
       const r = (typeof ibResearchOrders === 'function' ? (ibResearchOrders({}) || []) : []);
       return {
         ok: state.ibResearch !== false,
-        detail: `${r.length} research orders, action ${state.ibActionR}${state.ibResearch === false ? ' (OFF)' : ''}`,
+        detail: `${r.length} órdenes de investigación, acción ${state.ibActionR}${state.ibResearch === false ? ' (OFF)' : ''}`,
       };
     }));
-    out.push(preflightProbe('cave', () => {
+    out.push(preflightProbe('cueva', () => {
       const ids = caveListTownIds() || [];
       let withHide = 0, readable = 0;
       ids.forEach(id => {
@@ -88,126 +88,126 @@
       return {
         ok: readable > 0,
         warn: withHide === 0,
-        detail: `${readable}/${ids.length} towns readable, ${withHide} with a hide`,
+        detail: `${readable}/${ids.length} ciudades legibles, ${withHide} con cueva`,
       };
     }));
-    out.push(preflightProbe('trade', () => {
+    out.push(preflightProbe('comercio', () => {
       const t = tradeListTowns() || [];
       const cap = t.filter(x => x.cap > 0).length;
-      return { ok: t.length >= 2, detail: `${t.length} towns, ${cap} with readable capacity` };
+      return { ok: t.length >= 2, detail: `${t.length} ciudades, ${cap} con capacidad legible` };
     }));
-    out.push(preflightProbe('research', () => {
+    out.push(preflightProbe('investigación', () => {
       const ids = (townsFromGame() || []).map(t => t.id);
       const info = ids.length ? researchTownTechs(ids[0]) : null;
       const techMap = info && info.techs ? info.techs : null;
       const n = techMap ? Object.keys(techMap).length : 0;
-      return { ok: n > 0, detail: n ? n + ' techs readable in first town' : 'academy techs unreadable' };
+      return { ok: n > 0, detail: n ? n + ' investigaciones legibles en la primera ciudad' : 'investigaciones de la academia ilegibles' };
     }));
     // Affordability guards are only as good as the fields they can read. A
     // blind guard does not block - it lets the server decide - so surfacing
     // which cost tables are readable is the difference between "nothing to do"
     // and "posting things the town cannot pay for".
-    out.push(preflightProbe('cost reads', () => {
+    out.push(preflightProbe('lectura de costes', () => {
       const ids = (townsFromGame() || []).map(t => t.id);
       const tid = ids[0];
       const parts = [];
       let blind = 0;
       const cap = tid != null ? townResState(tid) : null;
-      if (cap) parts.push('stock+capacity ok');
-      else { parts.push('stock UNREADABLE'); blind++; }
+      if (cap) parts.push('existencias+capacidad ok');
+      else { parts.push('existencias ILEGIBLES'); blind++; }
       const pop = tid != null ? gbTownPop(tid) : null;
-      if (pop != null) parts.push('population ok');
-      else { parts.push('population UNREADABLE'); blind++; }
+      if (pop != null) parts.push('población ok');
+      else { parts.push('población ILEGIBLE'); blind++; }
       const gold = gbPlayerGold();
-      if (gold != null) parts.push('gold ok');
-      else { parts.push('gold UNREADABLE'); blind++; }
+      if (gold != null) parts.push('oro ok');
+      else { parts.push('oro ILEGIBLE'); blind++; }
       const rc = typeof researchCost === 'function' ? researchCost(RESEARCH_CS_FAST[0]) : null;
-      if (rc) parts.push('research costs ok');
-      else { parts.push('research costs UNREADABLE'); blind++; }
+      if (rc) parts.push('costes de investigación ok');
+      else { parts.push('costes de investigación ILEGIBLES'); blind++; }
       const bc = (tid != null && typeof abBuildingCost === 'function') ? abBuildingCost(tid, 'main') : null;
-      if (bc) parts.push('building costs ok');
-      else { parts.push('building costs unreadable (open a build window once)'); blind++; }
+      if (bc) parts.push('costes de construcción ok');
+      else { parts.push('costes de construcción ilegibles (abre una ventana de construcción una vez)'); blind++; }
       return { ok: blind < 5, warn: blind > 0, detail: parts.join(', ') };
     }));
-    out.push(preflightProbe('merchant ship', () => {
+    out.push(preflightProbe('barco mercante', () => {
       const town = typeof ptSalesmanTown === 'function' ? ptSalesmanTown() : null;
       const tpl = !!state.ptTradeTpl;
       const view = !!state.ptViewUrl;
       return {
         ok: true,
         warn: !tpl || !view,
-        detail: (town == null ? 'no ship readable' : 'ship in town ' + town)
-          + (tpl ? ', trade payload learned' : ', trade payload NOT learned (trade once by hand)')
-          + (view ? ', view URL learned' : ', view URL NOT learned (open the window once)'),
+        detail: (town == null ? 'ningún barco legible' : 'barco en la ciudad ' + town)
+          + (tpl ? ', payload de comercio aprendido' : ', payload de comercio SIN aprender (comercia una vez a mano)')
+          + (view ? ', URL de la vista aprendida' : ', URL de la vista SIN aprender (abre la ventana una vez)'),
       };
     }));
-    out.push(preflightProbe('attack', () => ({
+    out.push(preflightProbe('ataque', () => ({
       ok: !!state.attackTpl,
       warn: !state.attackTpl,
-      detail: state.attackTpl ? 'template learned' : 'template NOT learned (send one attack by hand)',
+      detail: state.attackTpl ? 'plantilla aprendida' : 'plantilla SIN aprender (envía un ataque a mano)',
     })));
-    out.push(preflightProbe('cancel', () => {
+    out.push(preflightProbe('cancelar', () => {
       let n = 0;
       try { n = militaryOutgoingMovements().length; } catch (_) {}
       return {
         ok: true,
         warn: !state.cancelTpl && n === 0,
         detail: state.cancelTpl
-          ? `template learned; ${n} cancelable outgoing`
-          : (n ? `${n} cancelable outgoing (hand-cancel once to learn tpl)` : 'no cancelable outgoing; tpl not learned'),
+          ? `plantilla aprendida; ${n} salientes cancelables`
+          : (n ? `${n} salientes cancelables (cancela una a mano para aprender la plantilla)` : 'sin salientes cancelables; plantilla sin aprender'),
       };
     }));
-    out.push(preflightProbe('heroes', () => {
-      if (!heroesEnabled()) return { ok: true, warn: true, detail: 'heroes disabled on this world' };
+    out.push(preflightProbe('héroes', () => {
+      if (!heroesEnabled()) return { ok: true, warn: true, detail: 'héroes desactivados en este mundo' };
       const list = playerHeroesList();
       const acts = state.heroTpl && typeof state.heroTpl === 'object' ? Object.keys(state.heroTpl) : [];
       return {
         ok: list.length > 0 || acts.length > 0,
         warn: list.length === 0,
         detail: list.length
-          ? `${list.length} hero(es); tpl=${acts.join(',') || 'none'}`
-          : 'PlayerHero collection empty (open Council once)',
+          ? `${list.length} héroe(s); tpl=${acts.join(',') || 'ninguna'}`
+          : 'colección PlayerHero vacía (abre el Consejo una vez)',
       };
     }));
-    out.push(preflightProbe('incoming', () => {
+    out.push(preflightProbe('entrantes', () => {
       const mv = (typeof dodgeIncomingMovements === 'function' ? (dodgeIncomingMovements() || []) : []);
-      return { ok: true, detail: `${mv.length} incoming movements visible` };
+      return { ok: true, detail: `${mv.length} movimientos entrantes visibles` };
     }));
-    out.push(preflightProbe('quests', () => {
+    out.push(preflightProbe('misiones', () => {
       const col = mmCol('Progressable') || mmCol('IslandQuest');
       const n = col && col.models ? col.models.length : 0;
-      return { ok: n >= 0, detail: n ? n + ' quest models' : 'no quest collection (open a quest once)' };
+      return { ok: n >= 0, detail: n ? n + ' modelos de misión' : 'sin colección de misiones (abre una misión una vez)' };
     }));
-    out.push(preflightProbe('bandit camp', () => {
+    out.push(preflightProbe('campamento de bandidos', () => {
       let spot = null;
       try { spot = uw.MM && uw.MM.getModelByNameAndPlayerId && uw.MM.getModelByNameAndPlayerId('PlayerAttackSpot'); } catch (_) {}
-      return { ok: !!spot, warn: !spot, detail: spot ? 'attack spot model present' : 'no attack spot on this world' };
+      return { ok: !!spot, warn: !spot, detail: spot ? 'modelo de punto de ataque presente' : 'sin punto de ataque en este mundo' };
     }));
-    out.push(preflightProbe('scheduler', () => {
+    out.push(preflightProbe('planificador', () => {
       const on = orchStatus().filter(s => s.on);
       const idle = on.filter(s => s.idle >= 4).map(s => s.key);
       return {
         ok: true,
-        detail: `${on.length} econ features ON${idle.length ? ', idle-backed-off: ' + idle.join(',') : ''}`,
+        detail: `${on.length} funciones de economía ON${idle.length ? ', frenadas por ociosidad: ' + idle.join(',') : ''}`,
       };
     }));
-    out.push(preflightProbe('guards', () => {
+    out.push(preflightProbe('protecciones', () => {
       const locks = gbLockList();
       const paused = Object.keys(state.captchaBreakers || {}).filter(k => captchaPaused(k));
       const parts = [];
-      if (state.dryRun) parts.push('DRY-RUN ON (bridge/AJAX + DOM clicks blocked)');
-      if (locks.length) parts.push('locks held: ' + locks.join(','));
+      if (state.dryRun) parts.push('SIMULACRO ON (puente/AJAX + clics DOM bloqueados)');
+      if (locks.length) parts.push('cerrojos retenidos: ' + locks.join(','));
       if (paused.length) parts.push('captcha: ' + paused.join(','));
-      if (gbServerPaused()) parts.push('server cooldown ' + fmtSec(Math.round(gbServerCooldownLeftMs() / 1000)));
+      if (gbServerPaused()) parts.push('enfriamiento del servidor ' + fmtSec(Math.round(gbServerCooldownLeftMs() / 1000)));
       const skips = jrnActiveSkips();
-      if (skips.length) parts.push(skips.length + ' memory skip windows');
+      if (skips.length) parts.push(skips.length + ' ventanas de salto en memoria');
       try {
         const last = gbRecall();
-        if (last) parts.push('last decision: ' + last.f + '/' + (last.r || '?'));
+        if (last) parts.push('última decisión: ' + last.f + '/' + (last.r || '?'));
         const recentFails = gbRecallAll().filter(r => r && r.r && r.r !== 'ok' && (Date.now() - r.ts) < 3600000);
-        if (recentFails.length) parts.push(recentFails.length + ' hard fails (1h)');
+        if (recentFails.length) parts.push(recentFails.length + ' fallos duros (1h)');
       } catch (_) {}
-      return { ok: true, warn: parts.length > 0, detail: parts.length ? parts.join(' | ') : 'clear' };
+      return { ok: true, warn: parts.length > 0, detail: parts.length ? parts.join(' | ') : 'todo despejado' };
     }));
     return out;
   }
@@ -219,7 +219,7 @@
     gbLog(`preflight: ${preflightLast.rows.length - bad}/${preflightLast.rows.length} checks pass`);
     preflightLast.rows.forEach(r => gbLog(`  ${r.ok ? (r.warn ? 'WARN' : 'ok  ') : 'FAIL'} ${r.name}: ${r.detail}`));
     renderStats();
-    flash(bad ? `preflight: ${bad} failing` : 'preflight: all pass');
+    flash(bad ? `comprobación: ${bad} fallando` : 'comprobación: todo correcto');
   }
 
   function renderStats() {
@@ -229,15 +229,15 @@
     if (!box) return;
     const st = jrnStats(STATS_WINDOWS[statsWindow] || 86400000);
     const lines = [];
-    lines.push(`window ${statsWindow} | ${st.total} decisions | ${st.attempts} attempts | success ${st.successPct == null ? '-' : st.successPct + '%'}`);
-    lines.push(`ok ${st.ok}  err ${st.err}  captcha ${st.captcha}  timeout ${st.timeout}  skipped ${st.skip}${st.dry ? ` (dry-run ${st.dry})` : ''}`);
+    lines.push(`ventana ${statsWindow} | ${st.total} decisiones | ${st.attempts} intentos | acierto ${st.successPct == null ? '-' : st.successPct + '%'}`);
+    lines.push(`ok ${st.ok}  err ${st.err}  captcha ${st.captcha}  timeout ${st.timeout}  saltados ${st.skip}${st.dry ? ` (simulacro ${st.dry})` : ''}`);
     const claims = jrnCountOk('farm', /claim/i, STATS_WINDOWS[statsWindow] || 86400000);
     const builds = jrnCountOk('build', /Instant|instant/i, STATS_WINDOWS[statsWindow] || 86400000);
-    lines.push(`farm claims ${claims} | instant completions ${builds}`);
+    lines.push(`recogidas de granja ${claims} | completados instantáneos ${builds}`);
     lines.push('');
-    lines.push('feature      ok   err  cap  skip   rate');
+    lines.push('función       ok   err  cap  salt   tasa');
     const feats = Object.keys(st.byFeature).sort();
-    if (!feats.length) lines.push('  (no decisions recorded in this window)');
+    if (!feats.length) lines.push('  (no hay decisiones registradas en esta ventana)');
     feats.forEach(f => {
       const v = st.byFeature[f];
       const att = v.ok + v.err + v.captcha + v.timeout;
@@ -251,28 +251,28 @@
     });
     if (st.topErrors.length) {
       lines.push('');
-      lines.push('top errors');
+      lines.push('errores más frecuentes');
       st.topErrors.forEach(([k, n]) => lines.push(`  ${n}x ${k}`));
     }
     if (st.topSkips.length) {
       lines.push('');
-      lines.push('top skip reasons');
+      lines.push('motivos de salto más frecuentes');
       st.topSkips.forEach(([k, n]) => lines.push(`  ${n}x ${k}`));
     }
     lines.push('');
-    lines.push('scheduler (cadence includes adaptive idle backoff)');
+    lines.push('planificador (la cadencia incluye el frenado adaptativo por ociosidad)');
     orchStatus().filter(s => s.on).forEach(s => {
-      lines.push(`  ${s.key.padEnd(11)} every ${fmtSec(Math.round(s.cadenceMs / 1000)).padEnd(6)} next ${fmtSec(Math.round(s.dueInMs / 1000)).padEnd(6)}${s.idle ? ' idle x' + s.idle : ''}${s.captcha ? ' CAPTCHA' : ''}`);
+      lines.push(`  ${s.key.padEnd(11)} cada ${fmtSec(Math.round(s.cadenceMs / 1000)).padEnd(6)} próx ${fmtSec(Math.round(s.dueInMs / 1000)).padEnd(6)}${s.idle ? ' ocioso x' + s.idle : ''}${s.captcha ? ' CAPTCHA' : ''}`);
     });
     const locks = gbLockList();
     lines.push('');
-    lines.push(`requests last min ${reqBudgetUsed()}/${state.reqBudgetPerMin || 40}` +
-      (gbServerPaused() ? ` | server cooldown ${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}` : '') +
-      (locks.length ? ` | locks ${locks.join(',')}` : '') +
-      (state.dryRun ? ' | DRY-RUN' : ''));
+    lines.push(`peticiones último min ${reqBudgetUsed()}/${state.reqBudgetPerMin || 40}` +
+      (gbServerPaused() ? ` | enfriamiento del servidor ${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}` : '') +
+      (locks.length ? ` | cerrojos ${locks.join(',')}` : '') +
+      (state.dryRun ? ' | SIMULACRO' : ''));
     if (preflightLast) {
       lines.push('');
-      lines.push(`preflight (${new Date(preflightLast.at).toLocaleTimeString()})`);
+      lines.push(`comprobación (${new Date(preflightLast.at).toLocaleTimeString()})`);
       preflightLast.rows.forEach(r => {
         lines.push(`  ${r.ok ? (r.warn ? '!' : '+') : 'x'} ${r.name}: ${r.detail}`);
       });
@@ -439,14 +439,14 @@
   function evidenceCopy() {
     const text = gbEvidenceText();
     const ok = () => {
-      flash('evidence copied');
+      flash('evidencia copiada');
       gbLog('evidence: copied ' + text.length + ' chars');
     };
     const fail = () => {
       console.groupCollapsed('[grepbot] evidence');
       console.log(text);
       console.groupEnd();
-      flash('evidence in console');
+      flash('evidencia en la consola');
       gbLog('evidence: clipboard fail - expand [grepbot] evidence in console');
     };
     try {

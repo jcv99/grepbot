@@ -21,11 +21,11 @@
     };
     save(STORE.CITY_TEMPLATES, state.cityTemplates);
     gbLog(`template: saved "${name}"`);
-    flash('template saved: ' + name);
+    flash('plantilla guardada: ' + name);
   }
   function qolApplyTemplate(name) {
     const t = state.cityTemplates && state.cityTemplates[name];
-    if (!t) { flash('template missing'); return; }
+    if (!t) { flash('falta la plantilla'); return; }
     // Clone - never share references with the stored template (mutate-one = mutate-all).
     if (t.abTargets) {
       state.abTargets = JSON.parse(JSON.stringify(t.abTargets));
@@ -40,7 +40,7 @@
       save(STORE.RECRUIT_TARGETS, state.recruitTargets);
     }
     gbLog(`template: applied "${name}"`);
-    flash('template applied: ' + name);
+    flash('plantilla aplicada: ' + name);
     try { renderAbQueue && renderAbQueue(); } catch (_) {}
   }
   function qolSetTownGroup(groupName, townIds) {
@@ -51,7 +51,7 @@
   function qolApplyGroupTemplate(groupName, templateName) {
     const ids = (state.townGroups && state.townGroups[groupName]) || [];
     const t = state.cityTemplates && state.cityTemplates[templateName];
-    if (!t || !ids.length) { flash('group/template missing'); return; }
+    if (!t || !ids.length) { flash('falta el grupo o la plantilla'); return; }
     // Apply recruit targets per town if present
     if (t.recruitTargets) {
       const sample = Object.values(t.recruitTargets)[0] || t.recruitTargets;
@@ -122,18 +122,18 @@
     if (sec && sec.hidden) return;
     const d = qolOverviewData();
     const lines = [
-      `Towns: ${d.townN}`,
-      `Farms ready: ${d.farmReady}/${d.farmTotal}`,
-      `Culture busy: ${d.cultureBusy}`,
-      `Build queue: ${d.buildQ} | Research queue: ${d.researchQ}`,
-      d.pause ? `|| paused: ${d.pause}` : 'Automation: active',
-      d.breakers.length ? `Captcha: ${d.breakers.join(',')}` : 'Captcha: clear',
+      `Ciudades: ${d.townN}`,
+      `Granjas listas: ${d.farmReady}/${d.farmTotal}`,
+      `Cultura ocupada: ${d.cultureBusy}`,
+      `Cola de construcción: ${d.buildQ} | Cola de investigación: ${d.researchQ}`,
+      d.pause ? `|| en pausa: ${d.pause}` : 'Automatización: activa',
+      d.breakers.length ? `Captcha: ${d.breakers.join(',')}` : 'Captcha: despejado',
       (() => {
         const parts = Object.keys(d.health).map(k => {
           const h = d.health[k];
           return `${k} ok${h.ok}/err${h.err}/cap${h.captcha}`;
         });
-        return 'Health: ' + (parts.length ? parts.join('  |  ') : '(none yet)');
+        return 'Salud: ' + (parts.length ? parts.join('  |  ') : '(aún nada)');
       })(),
     ];
     box.textContent = lines.join('\n');

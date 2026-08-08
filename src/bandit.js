@@ -81,7 +81,7 @@
           gbUnlock('bandit-reward');
           if (err) { gbLog('bandit: reward claim failed', err); return; }
           gbLog('bandit: reward claimed via', action, pid || '(no power_id)');
-          flash('bandit: reward claimed');
+          flash('bandidos: recompensa reclamada');
           logBandit('collected');
         });
         return true;
@@ -138,7 +138,7 @@
         }
         banditAttackSentAt = Date.now();
         gbLog('bandit: ATTACK confirmed', JSON.stringify(units));
-        flash('bandit: attack sent');
+        flash('bandidos: ataque enviado');
         logBandit('attack');
       });
       banditAttackSentAt = Date.now();
@@ -164,7 +164,7 @@
         victory.dataset.grepbotClicked = String(Date.now());
         if (gbDomClick(victory, 'bandit-reward')) {
           gbLog('bandit: collected reward (DOM)');
-          flash('bandit: collected reward');
+          flash('bandidos: recompensa recogida');
           logBandit('collected');
         }
         return;
@@ -230,7 +230,7 @@
             atkBtn.dataset.grepbotClicked = String(Date.now());
             if (gbDomClick(atkBtn, 'bandit-attack')) {
               gbLog('bandit: attack sent (DOM, offense-only)');
-              flash('bandit: attack sent');
+              flash('bandidos: ataque enviado');
               logBandit('attack');
             }
           }

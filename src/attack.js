@@ -304,7 +304,7 @@
     saveAttackPlan();
     renderAttack();
     const label = t.name ? `${t.name} (#${t.id})` : String(t.id);
-    flash('target -> ' + label);
+    flash('objetivo -> ' + label);
   }
   function attackTownGroup(name) {
     return ((state.townGroups && state.townGroups[name]) || []).map(String);
@@ -327,16 +327,16 @@
   function attackSetAllSources(checked) {
     const ids = checked ? (state.towns || []).map(t => String(t.id)) : [];
     attackSelectSources(ids);
-    flash(checked ? 'all towns selected' : 'sources cleared');
+    flash(checked ? 'todas las ciudades seleccionadas' : 'orígenes vaciados');
   }
   function attackSelectRoleSources(role) {
     const ids = attackTownGroup(role);
     if (!ids.length) {
-      flash(`no ${role} cities tagged - check boxes below first`);
+      flash(`ninguna ciudad marcada como ${role} - marca las casillas de abajo primero`);
       return;
     }
     attackSelectSources(ids);
-    flash(`${role} cities selected (${ids.length})`);
+    flash(`ciudades ${role} seleccionadas (${ids.length})`);
   }
   function attackPad2(n) { return String(n).padStart(2, '0'); }
   function attackLocalFromUnix(unix) {
@@ -364,7 +364,7 @@
     const arriveMode = plan.timingMode === 'arrive_at';
     if (arrivalRow) {
       arrivalRow.style.opacity = arriveMode ? '1' : '0.5';
-      arrivalRow.title = arriveMode ? '' : 'switch timing to "arrive at" to set CS landing time';
+      arrivalRow.title = arriveMode ? '' : 'cambia la sincronización a "llegar a las" para fijar la hora de llegada del BC';
     }
     if (!arrDate || !arrTime) return;
     arrDate.disabled = !arriveMode;
@@ -402,7 +402,7 @@
     if (!towns.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#666;font-size:10px';
-      e.textContent = 'load towns first (World tab -> refresh)';
+      e.textContent = 'carga primero las ciudades (pestaña Mundo -> actualizar)';
       box.appendChild(e);
       return;
     }
@@ -433,8 +433,8 @@
     };
     const grid = document.createElement('div');
     grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px';
-    grid.appendChild(mkCol('Offensive cities', ATTACK_ROLE_OFFENSE, '#f96'));
-    grid.appendChild(mkCol('Defensive cities', ATTACK_ROLE_DEFENSE, '#6cf'));
+    grid.appendChild(mkCol('Ciudades ofensivas', ATTACK_ROLE_OFFENSE, '#f96'));
+    grid.appendChild(mkCol('Ciudades defensivas', ATTACK_ROLE_DEFENSE, '#6cf'));
     box.appendChild(grid);
   }
   function parseUnitsArea(text) {
@@ -569,10 +569,10 @@
     return { target, rows, now, skew };
   }
   function sendAttackViaBridge(target, srcTownId, units, mission, onDone) {
-    if (!hostEnabled()) { flash('bot disabled on this host'); return onDone && onDone('disabled'); }
-    if (captchaPaused('attack')) { flash('attack paused (captcha)'); return onDone && onDone('captcha'); }
+    if (!hostEnabled()) { flash('bot desactivado en este host'); return onDone && onDone('disabled'); }
+    if (captchaPaused('attack')) { flash('ataque en pausa (captcha)'); return onDone && onDone('captcha'); }
     if (!attackSendAllowed(target)) {
-      flash('attack blocked: target not a town (or unresolved)');
+      flash('ataque bloqueado: el objetivo no es una ciudad (o no se resuelve)');
       gbLog('attack: refuse Town/sendUnits for kind=' + (target && target.kind));
       return onDone && onDone('bad-target');
     }
@@ -608,8 +608,8 @@
     };
     gbLog('attack bridge:', JSON.stringify(payload));
     bridgePost('attack', payload, (err, data) => {
-      if (err) { flash('attack failed: ' + err); return onDone && onDone(err); }
-      flash('attack sent #' + srcTownId);
+      if (err) { flash('ataque fallido: ' + err); return onDone && onDone(err); }
+      flash('ataque enviado #' + srcTownId);
       gbLog('attack response:', JSON.stringify(data).slice(0, 200));
       if (onDone) onDone(null, data);
     });
@@ -624,7 +624,7 @@
     (attackArmed.timers || []).forEach(id => clearTimeout(id));
     if (attackArmed.raf) cancelAnimationFrame(attackArmed.raf);
     gbLog('attack: cancelled armed wave');
-    flash('attack cancelled');
+    flash('ataque cancelado');
     attackArmed = null;
     renderAttack();
   }
@@ -643,7 +643,7 @@
       if (cell) cell.textContent = r.fireStatus || r.status || '';
     });
     const armed = sec.querySelector('#gb-atk-armed');
-    if (armed) armed.textContent = attackArmed ? `ARMED (${attackArmed.rows.length})` : '';
+    if (armed) armed.textContent = attackArmed ? `ARMADO (${attackArmed.rows.length})` : '';
   }
   // Max arm-ahead window - long timers are not military-grade; overdue after
   // tab suspend must not auto-fire.
@@ -652,7 +652,7 @@
     cancelArmedAttack();
     const target = resolveTarget(plan);
     if (!target || !attackSendAllowed(target)) {
-      flash('cannot arm: target unresolved or not a town');
+      flash('no se puede armar: objetivo sin resolver o no es una ciudad');
       gbLog('attack: arm blocked - need canonical town target (villages unsupported)');
       return;
     }
@@ -662,7 +662,7 @@
     attackArmed = { timers, rows, plan, cancel: cancelArmedAttack, armedAt };
     const skew0 = clientServerSkewMs();
     gbLog(`attack: armed ${rows.length} towns mode=${plan.timingMode} skew=${Math.round(skew0)}ms (max window ${ATTACK_ARM_MAX_MS}ms)`);
-    flash('Browser timers are not military-precise - long waits will not auto-fire');
+    flash('Los temporizadores del navegador no tienen precisión militar - las esperas largas no se dispararán solas');
     rows.forEach((row, idx) => {
       if (!row.unitCount || !row.boats.ok) {
         gbLog(`attack: skip ${row.townId} status=${row.status}`);
@@ -733,16 +733,16 @@
   function fireAttackNow(plan, rows) {
     const target = resolveTarget(plan);
     if (!target || !attackSendAllowed(target)) {
-      flash('cannot send: target unresolved or not a town');
+      flash('no se puede enviar: objetivo sin resolver o no es una ciudad');
       return;
     }
-    if (!confirm(`Send ${rows.filter(r => r.boats.ok && r.unitCount).length} attack(s) now?`)) return;
+    if (!confirm(`¿Enviar ahora ${rows.filter(r => r.boats.ok && r.unitCount).length} ataque(s)?`)) return;
     let i = 0;
     const okRows = rows.filter(r => r.boats.ok && r.unitCount);
     (function next() {
       if (i >= okRows.length) {
         pushAttackHistory({ ts: Date.now(), mode: 'send_now_immediate', targetId: plan.targetId, towns: okRows.map(r => r.townId) });
-        flash(`attacks x${okRows.length}`);
+        flash(`ataques x${okRows.length}`);
         return;
       }
       const row = okRows[i++];
@@ -769,12 +769,12 @@
     // switch to Attack tab
     if (typeof showTab === 'function') showTab('attack');
     else renderAttack();
-    flash('attack planner <- ' + plan.targetId);
+    flash('planificador de ataque <- ' + plan.targetId);
   }
   function editThreshold(target) {
     const cur = state.thresholds[target.vill_id] || {};
     const def = Object.entries(cur).map(([k, v]) => `${k}:${v}`).join(',');
-    const v = prompt(`Threshold for ${target.vill_id}\nFormat: wood:5000,iron:8000,pop:100\nEmpty = clear`, def);
+    const v = prompt(`Umbral para ${target.vill_id}\nFormato: wood:5000,iron:8000,pop:100\nVacío = borrar`, def);
     if (v == null) return;
     if (v.trim() === '') { delete state.thresholds[target.vill_id]; }
     else {
@@ -805,7 +805,7 @@
     if (!sec || sec.hidden) return;
     const plan = ensureAttackPlan();
     const skewEl = sec.querySelector('#gb-atk-skew');
-    if (skewEl) skewEl.textContent = `skew ${Math.round(clientServerSkewMs())}ms | srv ${serverNow()}`;
+    if (skewEl) skewEl.textContent = `desfase ${Math.round(clientServerSkewMs())}ms | srv ${serverNow()}`;
     const table = sec.querySelector('.atk-sched');
     if (!table) return;
     const rows = attackPreviewRows.length ? attackPreviewRows : [];
@@ -818,7 +818,7 @@
         table.dataset.empty = '1';
         const e = document.createElement('div');
         e.style.cssText = 'color:#888;padding:6px 0;font-size:11px';
-        e.textContent = 'Preview to compute travel / sendAt / boats';
+        e.textContent = 'Pulsa Vista previa para calcular viaje / envío / barcos';
         table.appendChild(e);
       }
     } else {
@@ -830,7 +830,7 @@
         delete table.dataset.empty;
         const hdr = document.createElement('div');
         hdr.style.cssText = 'display:grid;grid-template-columns:1.2fr .7fr .9fr .7fr .8fr;gap:4px;color:#888;font-size:9px;margin-bottom:2px';
-        hdr.innerHTML = '<span>town</span><span>travel</span><span>sendAt</span><span>boats</span><span>status</span>';
+        hdr.innerHTML = '<span>ciudad</span><span>viaje</span><span>enviar a las</span><span>barcos</span><span>estado</span>';
         table.appendChild(hdr);
       }
       rows.forEach(r => {
@@ -860,7 +860,7 @@
       });
     }
     const armed = sec.querySelector('#gb-atk-armed');
-    if (armed) armed.textContent = attackArmed ? `ARMED (${attackArmed.rows.length})` : '';
+    if (armed) armed.textContent = attackArmed ? `ARMADO (${attackArmed.rows.length})` : '';
     // sync form fields from plan once
     const tid = sec.querySelector('[data-atk=target]');
     if (tid && document.activeElement !== tid) tid.value = plan.targetId || '';
@@ -873,7 +873,7 @@
         pick.replaceChildren();
         const o0 = document.createElement('option');
         o0.value = '';
-        o0.textContent = targets.length ? `pick town (${targets.length})...` : 'no known towns yet';
+        o0.textContent = targets.length ? `elige ciudad (${targets.length})...` : 'aún no hay ciudades conocidas';
         pick.appendChild(o0);
         targets.forEach(t => {
           const o = document.createElement('option');
@@ -893,15 +893,15 @@
       if (resolved && resolved.kind === 'town') {
         const nm = known?.name || '';
         const coord = (resolved.x != null && resolved.y != null) ? ` (${resolved.x}|${resolved.y})` : '';
-        hint.textContent = `town #${plan.targetId}${nm ? '  |  ' + nm : ''}${coord}`;
+        hint.textContent = `ciudad #${plan.targetId}${nm ? '  |  ' + nm : ''}${coord}`;
         hint.style.color = '#6dda7e';
       } else if (plan.targetId) {
         hint.textContent = resolved
-          ? `${resolved.kind} #${plan.targetId} - city attacks need kind=town`
-          : 'unresolved - pick from list, click Current in-game, or add x/y';
+          ? `${resolved.kind} #${plan.targetId} - los ataques a ciudad necesitan kind=town`
+          : 'sin resolver - elige de la lista, pulsa Actual en el juego, o añade x/y';
         hint.style.color = '#f96';
       } else {
-        hint.textContent = 'pick a town from spy reports, or click a city in-game then Current';
+        hint.textContent = 'elige una ciudad de los informes de espionaje, o abre una ciudad en el juego y pulsa Actual';
         hint.style.color = '#888';
       }
     }
@@ -928,8 +928,8 @@
       ut.disabled = plan.troopMode !== 'all_of_type';
       ut.style.opacity = ut.disabled ? '0.4' : '1';
       ut.title = ut.disabled
-        ? "unit picker only applies when troop mode is 'all of type'"
-        : 'unit sent from every source town';
+        ? "el selector de unidad solo aplica cuando el modo de tropas es 'todas de un tipo'"
+        : 'unidad enviada desde cada ciudad de origen';
       const utLab = ut.closest('label');
       if (utLab) utLab.style.color = ut.disabled ? '#666' : '#ccc';
     }
@@ -1066,7 +1066,7 @@
       if (!rows.length) {
         const e = document.createElement('div');
         e.style.cssText = 'color:#666;font-size:10px';
-        e.textContent = 'No cancelable outgoing movements';
+        e.textContent = 'No hay movimientos salientes cancelables';
         box.appendChild(e);
       } else {
         rows.forEach(r => {
@@ -1074,20 +1074,20 @@
           row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr .7fr auto;gap:4px;font-size:10px;border-bottom:1px solid #2a2a2a;padding:2px 0;align-items:center';
           const c1 = document.createElement('span');
           c1.textContent = `${townNameById(r.home)} -> ${r.target}`;
-          c1.title = `cmd ${r.commandId}`;
+          c1.title = `orden ${r.commandId}`;
           const c2 = document.createElement('span');
-          c2.textContent = r.type || 'move';
+          c2.textContent = r.type || 'movimiento';
           const c3 = document.createElement('span');
           c3.style.color = '#888';
           c3.textContent = r.cancelLeft != null ? (`${Math.round(r.cancelLeft)}s`) : 'ok';
           const btn = document.createElement('button');
           btn.type = 'button';
-          btn.textContent = 'Cancel';
+          btn.textContent = 'Cancelar';
           btn.style.cssText = 'background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px';
           btn.addEventListener('click', () => {
-            if (!confirm(`Cancel outgoing ${r.type || 'command'} ${r.commandId}?\n${townNameById(r.home)} -> ${r.target}`)) return;
+            if (!confirm(`¿Cancelar la orden saliente ${r.type || 'comando'} ${r.commandId}?\n${townNameById(r.home)} -> ${r.target}`)) return;
             militaryCancelCommand(r.commandId, { confirmed: true, townId: r.home }, (err) => {
-              flash(err ? ('cancel failed: ' + err) : 'command cancelled');
+              flash(err ? ('fallo al cancelar: ' + err) : 'orden cancelada');
               renderAttack();
             });
           });
@@ -1103,7 +1103,7 @@
     if (!heroesEnabled()) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#666;font-size:10px';
-      e.textContent = 'Heroes disabled on this world';
+      e.textContent = 'Héroes desactivados en este mundo';
       hbox.appendChild(e);
       return;
     }
@@ -1111,7 +1111,7 @@
     if (!heroes.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#666;font-size:10px';
-      e.textContent = 'No PlayerHero models (open Council once, or world has none)';
+      e.textContent = 'Sin modelos PlayerHero (abre el Consejo una vez, o este mundo no tiene)';
       hbox.appendChild(e);
       return;
     }
@@ -1134,24 +1134,24 @@
       row.appendChild(lab);
       if (h.traveling) {
         const b = document.createElement('button');
-        b.type = 'button'; b.textContent = 'Cancel travel';
+        b.type = 'button'; b.textContent = 'Cancelar viaje';
         b.style.cssText = 'background:#333;border:1px solid #555;color:#fc6;padding:1px 6px;cursor:pointer;font-size:10px';
         b.addEventListener('click', () => {
-          if (!confirm(`Cancel transfer of ${h.name}?`)) return;
+          if (!confirm(`¿Cancelar el traslado de ${h.name}?`)) return;
           heroCancelTravel(h.type, { confirmed: true }, (err) => {
-            flash(err ? ('hero cancel failed: ' + err) : 'hero travel cancelled');
+            flash(err ? ('fallo al cancelar el héroe: ' + err) : 'viaje del héroe cancelado');
             renderAttack();
           });
         });
         row.appendChild(b);
       } else if (h.assigned || h.attacking) {
         const b = document.createElement('button');
-        b.type = 'button'; b.textContent = 'Unassign';
+        b.type = 'button'; b.textContent = 'Desasignar';
         b.style.cssText = 'background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px';
         b.addEventListener('click', () => {
-          if (!confirm(`Unassign ${h.name} from ${townNameById(h.home || h.origin)}?`)) return;
+          if (!confirm(`¿Desasignar a ${h.name} de ${townNameById(h.home || h.origin)}?`)) return;
           heroUnassign(h.type, { confirmed: true }, (err) => {
-            flash(err ? ('hero unassign failed: ' + err) : 'hero unassigned');
+            flash(err ? ('fallo al desasignar el héroe: ' + err) : 'héroe desasignado');
             renderAttack();
           });
         });
@@ -1159,14 +1159,14 @@
       }
       if (!h.injured && !h.attacking && !h.traveling) {
         const b = document.createElement('button');
-        b.type = 'button'; b.textContent = 'Assign';
+        b.type = 'button'; b.textContent = 'Asignar';
         b.style.cssText = 'background:#333;border:1px solid #555;color:#6cf;padding:1px 6px;cursor:pointer;font-size:10px';
         b.addEventListener('click', () => {
           const tid = townSel.value;
-          if (!tid) { flash('pick a town'); return; }
-          if (!confirm(`Assign ${h.name} -> ${townNameById(tid)}?\n(travel time applies)`)) return;
+          if (!tid) { flash('elige una ciudad'); return; }
+          if (!confirm(`¿Asignar a ${h.name} -> ${townNameById(tid)}?\n(se aplica el tiempo de viaje)`)) return;
           heroAssignToTown(h.type, tid, { confirmed: true }, (err) => {
-            flash(err ? ('hero assign failed: ' + err) : 'hero transfer started');
+            flash(err ? ('fallo al asignar el héroe: ' + err) : 'traslado del héroe iniciado');
             renderAttack();
           });
         });
@@ -1193,8 +1193,8 @@
       if (sched.error) { flash(sched.error); return; }
       attackPreviewRows = sched.rows;
       const ok = sched.rows.filter(r => r.boats.ok && r.unitCount && r.status !== 'past' && r.status !== 'no-travel');
-      if (!ok.length) { flash('no towns ready'); renderAttack(); return; }
-      if (!confirm(`Arm ${ok.length} attack(s) (${plan.timingMode})?`)) return;
+      if (!ok.length) { flash('ninguna ciudad lista'); renderAttack(); return; }
+      if (!confirm(`¿Armar ${ok.length} ataque(s) (${plan.timingMode})?`)) return;
       armAttackWave(plan, ok);
     });
     sec.querySelector('#gb-atk-cancel')?.addEventListener('click', () => cancelArmedAttack());
@@ -1229,9 +1229,9 @@
     });
     sec.querySelector('#gb-atk-current')?.addEventListener('click', () => {
       const cur = attackCurrentTownId();
-      if (!cur) { flash('no town selected in game'); return; }
+      if (!cur) { flash('ninguna ciudad seleccionada en el juego'); return; }
       if (cur.own) {
-        flash('current town is yours - open an enemy city on the map first');
+        flash('la ciudad actual es tuya - abre primero una ciudad enemiga en el mapa');
         return;
       }
       applyAttackTarget(cur);

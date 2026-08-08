@@ -286,7 +286,7 @@
         try { clearTimeout(watchdog); } catch (_) {}
         unlock();
         gbLog(`instant: completed ${done}/${free.length}${captcha ? ' (captcha abort)' : ''}`);
-        if (done) flash(`instant x${done}`);
+        if (done) flash(`instantánea x${done}`);
         gbTimeout(ibScan, 3000);
         return;
       }
@@ -361,11 +361,11 @@
     if (!orders.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#888;padding:6px 0;font-size:11px';
-      e.textContent = 'no active build/research orders';
+      e.textContent = 'sin órdenes activas de construcción/investigación';
       rows.appendChild(e);
       dot.className = 'ib-dot';
       btn.disabled = true;
-      status.textContent = gbLocked('ib') ? 'completing...' : '';
+      status.textContent = gbLocked('ib') ? 'completando...' : '';
       renderAbQueue();
       return;
     }
@@ -390,11 +390,11 @@
         r.appendChild(mk('ib-type', o.type));
         r.appendChild(mk('ib-time', fmtHMS(o.display)));
         r.appendChild(mk(o.isFree ? 'ib-free' : 'ib-cost',
-          o.isFree ? 'FREE' : (o.gold != null ? o.gold + ' gold' : '? gold')));
+          o.isFree ? 'GRATIS' : (o.gold != null ? o.gold + ' oro' : '? oro')));
         rows.appendChild(r);
       });
     }
-    status.textContent = (gbLocked('ib') ? 'completing... ' : '') + 'last scan: ' + new Date().toLocaleTimeString();
+    status.textContent = (gbLocked('ib') ? 'completando... ' : '') + 'último escaneo: ' + new Date().toLocaleTimeString();
     renderAbQueue();
   }
 
@@ -403,9 +403,9 @@
   // storage 20, main 15; mines capped ~15-20 (income mainly from farms).
   const AB_BUILDINGS = ['main', 'storage', 'farm', 'academy', 'temple', 'barracks', 'docks', 'market', 'hide', 'lumber', 'stoner', 'ironer', 'wall'];
   const AB_LABELS = {
-    main: 'Senate', storage: 'Warehouse', farm: 'Farm', academy: 'Academy',
-    temple: 'Temple', barracks: 'Barracks', docks: 'Harbor', market: 'Market',
-    hide: 'Cave', lumber: 'Timber', stoner: 'Quarry', ironer: 'Silver', wall: 'Wall',
+    main: 'Senado', storage: 'Almacén', farm: 'Granja', academy: 'Academia',
+    temple: 'Templo', barracks: 'Cuartel', docks: 'Puerto', market: 'Mercado',
+    hide: 'Cueva', lumber: 'Aserradero', stoner: 'Cantera', ironer: 'Mina de plata', wall: 'Muralla',
   };
   const AB_CS_FAST = {
     main: 15, storage: 20, farm: 22, academy: 28, docks: 20,
@@ -730,12 +730,14 @@
     }
     return plan;
   }
+  const AB_RES_ES = { wood: 'madera', stone: 'piedra', iron: 'plata', pop: 'pob' };
   function abPlanVerdictLabel(afford) {
     if (!afford) return '?';
     if (afford.ok) return 'ok';
-    if (afford.blind) return 'blind';
-    if (afford.detail) return 'short ' + afford.detail;
-    return 'short';
+    if (afford.blind) return 'a ciegas';
+    // detail keys stay in the parser's language (abEtaMs matches wood|stone|iron|pop)
+    if (afford.detail) return 'falta ' + afford.detail.replace(/\b(wood|stone|iron|pop)\b/g, m => AB_RES_ES[m]);
+    return 'falta';
   }
   function abPlanCostLabel(cost) {
     if (!cost) return '?';
@@ -756,7 +758,7 @@
       box.replaceChildren();
       const e = document.createElement('div');
       e.style.cssText = 'color:#888;font-size:10px;padding:2px 0';
-      e.textContent = 'no town';
+      e.textContent = 'sin ciudad';
       box.appendChild(e);
       return;
     }
@@ -770,7 +772,7 @@
       if (!sameSet) {
         const e = document.createElement('div');
         e.style.cssText = 'color:#888;font-size:10px;padding:2px 0';
-        e.textContent = 'all targets met';
+        e.textContent = 'todos los objetivos cumplidos';
         box.appendChild(e);
       }
       return;
@@ -814,11 +816,11 @@
       const verdict = abPlanVerdictLabel(p.afford);
       verdictEl.textContent = verdict;
       verdictEl.style.color = p.afford && p.afford.ok ? '#6dda7e' : (p.afford && p.afford.blind ? '#fc6' : '#f08080');
-      row.querySelector('.ab-plan-eta').textContent = p.etaMs ? fmtSec(Math.ceil(p.etaMs / 1000)) : 'now';
+      row.querySelector('.ab-plan-eta').textContent = p.etaMs ? fmtSec(Math.ceil(p.etaMs / 1000)) : 'ya';
       const pinBtn = row.querySelector('button');
       if (pinBtn) {
-        pinBtn.textContent = (pin === p.building) ? 'unpin' : 'pin';
-        pinBtn.title = 'Pin to slot 1 (world-scoped, per town)';
+        pinBtn.textContent = (pin === p.building) ? 'soltar' : 'fijar';
+        pinBtn.title = 'Fijar en la ranura 1 (por mundo y por ciudad)';
       }
     });
   }
@@ -832,7 +834,7 @@
     if (!box) return;
     const townId = abCurrentTownId() || abTownIds()[0];
     const label = sec.querySelector('#gb-cq-town');
-    if (label) label.textContent = townId ? `town ${townId}` : 'no town';
+    if (label) label.textContent = townId ? `ciudad ${townId}` : 'sin ciudad';
     const strict = sec.querySelector('#gb-cq-strict');
     if (strict) strict.checked = state.abQueueStrict !== false;
     const pick = sec.querySelector('#gb-cq-b');
@@ -855,7 +857,7 @@
     if (!list.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#888;font-size:10px;padding:2px 0';
-      e.textContent = 'no custom queue - heuristic plan is used';
+      e.textContent = 'sin cola personalizada - se usa el plan heurístico';
       box.appendChild(e);
       return;
     }
@@ -889,9 +891,9 @@
         b.addEventListener('click', () => { fn(); renderCqRows(); renderAbPlan(); });
         return b;
       };
-      btns.appendChild(mk('^', 'move up', () => abCqMove(townId, i, -1)));
-      btns.appendChild(mk('v', 'move down', () => abCqMove(townId, i, 1)));
-      btns.appendChild(mk('x', 'remove', () => abCqRemove(townId, i)));
+      btns.appendChild(mk('^', 'subir', () => abCqMove(townId, i, -1)));
+      btns.appendChild(mk('v', 'bajar', () => abCqMove(townId, i, 1)));
+      btns.appendChild(mk('x', 'quitar', () => abCqRemove(townId, i)));
       row.appendChild(idx);
       row.appendChild(name);
       row.appendChild(cur);
@@ -1177,7 +1179,7 @@
       if (i >= jobs.length || captcha) {
         try { clearTimeout(watchdog); } catch (_) {}
         unlock();
-        if (done) flash(`auto-queue x${done}`);
+        if (done) flash(`cola auto. x${done}`);
         // After a fill, if a town is back to a single active order, arm the
         // half-build+5m wait so we don't top up the moment that one finishes.
         abTownIds().forEach(tid => {
@@ -1218,7 +1220,7 @@
     box.replaceChildren();
     const head = document.createElement('div');
     head.style.cssText = 'display:grid;grid-template-columns:1.2fr .5fr .5fr .5fr auto;gap:4px;font-size:9px;color:#888;margin-bottom:2px';
-    ['building', 'cur', 'tgt', 'max', ''].forEach(t => {
+    ['edificio', 'act', 'obj', 'máx', ''].forEach(t => {
       const s = document.createElement('span'); s.textContent = t; head.appendChild(s);
     });
     box.appendChild(head);
@@ -1260,7 +1262,7 @@
       };
       btns.appendChild(mkBtn('-', () => { abSetTarget(b, (state.abTargets[b] || 0) - 1); renderAbQueue(); }));
       btns.appendChild(mkBtn('+', () => { abSetTarget(b, (state.abTargets[b] || 0) + 1); renderAbQueue(); }));
-      btns.appendChild(mkBtn('max', () => { abSetTarget(b, max); renderAbQueue(); }));
+      btns.appendChild(mkBtn('máx', () => { abSetTarget(b, max); renderAbQueue(); }));
       row.appendChild(name);
       row.appendChild(cur);
       row.appendChild(tgtEl);
@@ -1273,12 +1275,12 @@
       const due = townId && state.abNextAt[townId];
       const next = townId && q && q.len <= 1 ? abPickNext(townId) : null;
       let waitTxt = '';
-      if (due && Date.now() < due) waitTxt = `  |  refill in ${fmtSec((due - Date.now()) / 1000)}`;
-      else if (q && q.len > 1) waitTxt = `  |  wait until 1 left (${q.len}/${q.max})`;
-      status.textContent = (gbLocked('ab') ? 'queueing... ' : '')
-        + (townId ? `town ${townId}` : 'no town')
-        + (q ? `  |  queue ${q.len}/${q.max}` : '')
-        + (next ? `  |  next: ${AB_LABELS[next] || next}` : '  |  idle')
+      if (due && Date.now() < due) waitTxt = `  |  recarga en ${fmtSec((due - Date.now()) / 1000)}`;
+      else if (q && q.len > 1) waitTxt = `  |  esperando a que quede 1 (${q.len}/${q.max})`;
+      status.textContent = (gbLocked('ab') ? 'encolando... ' : '')
+        + (townId ? `ciudad ${townId}` : 'sin ciudad')
+        + (q ? `  |  cola ${q.len}/${q.max}` : '')
+        + (next ? `  |  siguiente: ${AB_LABELS[next] || next}` : '  |  inactivo')
         + waitTxt
         + (state.abAuto ? '  |  AUTO' : '  |  off');
     }
@@ -1296,7 +1298,7 @@
       const key = hits.sort().join(',') || 'none';
       const prev = state.alerted[f.vill_id];
       if (!prev || prev.key !== key) {
-        if (hits.length) flash(`WARN farm ${f.vill_id} ${hits.join('+')} >= threshold`);
+        if (hits.length) flash(`AVISO granja ${f.vill_id} ${hits.join('+')} >= umbral`);
         state.alerted[f.vill_id] = { key, ts: Date.now() };
         changed = true;
       }

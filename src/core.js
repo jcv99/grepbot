@@ -1171,7 +1171,7 @@ const STORE = {
       gbLog(`CAPTCHA global kill: all features paused ${mins}m`);
     }
     gbLog(`CAPTCHA breaker: ${feature} paused ${mins}m`, detail || '');
-    flash(`captcha: ${feature} paused ${mins}m`);
+    flash(`captcha: ${feature} en pausa ${mins}m`);
     try { if (typeof alertWebhook === 'function') alertWebhook('captcha', { feature, mins, detail }); } catch (_) {}
     updateStatus();
   }

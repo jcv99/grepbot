@@ -19,7 +19,7 @@
     seenCount = 0;
     save(STORE.SEEN, state.seen); scrapeInboxDom();
   });
-  gbMenu('GrepBot: clear captcha', () => { captchaClear(); flash('captcha cleared'); });
+  gbMenu('GrepBot: limpiar captcha', () => { captchaClear(); flash('captcha limpiado'); });
 
   // SPA nav: Grepolis swaps body content - remount panel if detached
   function ensurePanelMounted() {

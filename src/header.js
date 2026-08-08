@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      1.6.1
-// @description  Grepolis scout/farm/build/trade/culture/recruit automation. ToS forbid automation; risk = ban.
+// @version      1.6.2
+// @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
 // @run-at       document-idle

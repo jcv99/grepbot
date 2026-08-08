@@ -374,7 +374,7 @@
         kinds,
       });
       gbLog(`quest: auto-claim ${ok ? 'OK' : 'fail'} via ${method}`, entry.title || entry.questId, kinds);
-      if (ok) flash('quest claim: ' + kinds);
+      if (ok) flash('misión reclamada: ' + kinds);
       gbTimeout(() => { gbUnlock('quest-claim'); questScanTick('post-claim'); renderQuests(); }, 2500);
     };
     const questStillClaimable = () => {
@@ -508,13 +508,13 @@
     if (!entries.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#888;padding:6px 0';
-      e.textContent = 'no quests learned yet - open quest log or wait for scan';
+      e.textContent = 'aún no hay misiones aprendidas - abre el diario de misiones o espera al escaneo';
       list.appendChild(e);
     } else {
       const hdr = document.createElement('div');
       hdr.className = 'quest-row';
       hdr.style.color = '#888';
-      ['quest', '%', 'rewards', 'auto'].forEach(t => {
+      ['misión', '%', 'recompensas', 'auto'].forEach(t => {
         const s = document.createElement('span');
         s.textContent = t;
         hdr.appendChild(s);
@@ -525,8 +525,8 @@
         row.className = 'quest-row';
         const kinds = (q.rewards || []).map(r => r.kind).filter(Boolean);
         const uniq = Array.from(new Set(kinds)).join(',') || '-';
-        const auto = q.safeAuto ? (q.canClaim ? 'CLAIM' : 'yes') : 'no';
-        const autoColor = auto === 'CLAIM' ? '#6dda7e' : (auto === 'yes' ? '#fc6' : '#888');
+        const auto = q.safeAuto ? (q.canClaim ? 'RECLAMAR' : 'sí') : 'no';
+        const autoColor = auto === 'RECLAMAR' ? '#6dda7e' : (auto === 'sí' ? '#fc6' : '#888');
         const title = (q.title || q.name || q.questId || '').slice(0, 28);
         const c1 = document.createElement('span');
         c1.title = String(q.questId || '');
@@ -549,7 +549,7 @@
         const kinds = h.kinds || (h.rewards || []).map(r => r.kind).join(',');
         return `${when} ${h.autoClaimed ? 'OK' : 'NO'} ${h.method || '?'} ${(h.title || h.questId || '').slice(0, 24)} [${kinds}]`;
       });
-      hist.textContent = lines.join('\n') || '(empty)';
+      hist.textContent = lines.join('\n') || '(vacío)';
     }
   }
 

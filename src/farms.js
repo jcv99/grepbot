@@ -459,7 +459,7 @@
       farmSetTeachBanner('');
       return;
     }
-    farmSetTeachBanner('Loyalty research done. Click one 10-minute claim by hand to teach the bot.');
+    farmSetTeachBanner('Investigación de lealtad completada. Haz una recogida de 10 minutos a mano para enseñárselo al bot.');
     gbLog('farm: loyalty researched - 10min option unknown; hand-claim once to teach');
   }
 
@@ -541,7 +541,7 @@
     gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${ready.length}/${farms.length} ready${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}`);
     const before = {};
     farms.forEach(f => { before[f.vill_id] = f.lootable_at; });
-    flash(`farm claim x${ready.length}`);
+    flash(`recogida de granja x${ready.length}`);
     let i = 0, done = 0, captcha = false;
     (function next() {
       if (i >= ready.length || captcha || captchaPaused('farm')) {
@@ -588,13 +588,13 @@
     const sec = farmSleepDuration();
     if (farmOptionFor(sec) == null) {
       gbLog(`sleep claim: ${farmDurLabel(sec)} option not learned yet - open a farming village, click that timer once by hand, then retry`);
-      flash('sleep claim: teach ' + farmDurLabel(sec));
+      flash('recogida nocturna: enseña ' + farmDurLabel(sec));
       if (onDone) onDone(null);
       return false;
     }
     if (!state.autoFarm) {
       gbLog('sleep claim: auto-farm is OFF - enable it in Config, the claim path is shared');
-      flash('sleep claim: auto-farm OFF');
+      flash('recogida nocturna: auto-granjas OFF');
       if (onDone) onDone(null);
       return false;
     }
@@ -817,7 +817,7 @@
       if (!f) {
         gbUnlock('farm-scrape');
         gbLog(`farm scrape done: ${ok}/${done} ok, next in ${fmtSec(Math.round(wait / 1000))}`);
-        flash(`farms ${ok}/${done} ok`);
+        flash(`granjas ${ok}/${done} ok`);
         return;
       }
       try {

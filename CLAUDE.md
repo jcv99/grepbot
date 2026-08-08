@@ -69,6 +69,29 @@ artifact when a gate fails:
 3. **version reminder** — `src/` changed but `@version` in `src/header.js` did
    not → warning (not fatal). State lives in `.build-stamp.json`.
 
+## UI language (v1.6.2)
+
+The **panel UI is Spanish**: tab/group labels, buttons, Config labels and
+tooltips, placeholders, `flash()` / `confirm()` / `prompt()` text, empty-state
+rows, Overview / Intel / Stats / Preflight bodies. Deliberately **not**
+translated (they are machine surface, not UI):
+
+- `gbLog` / `gbLogT` messages and `diagRun()` output — they are correlated with
+  `docs/error-patterns.md` and pasted into issues.
+- journal result codes (`ok`, `skip:*`, `remembered`, …), feature keys, lock
+  names, `data-*` attribute values, ids, CSS classes, storage keys.
+- `<option value>` attributes. When translating an option label, **pin an
+  explicit `value`** — `[data-atk=mission]` and `[data-cfg=rural-res]` submitted
+  their option *text*, so a bare `<option>attack</option>` would have shipped
+  `mission: 'ataque'` to the server.
+- `abAffordScratch` short-strings (`wood 100/200`, `pop 5/10`) — `abEtaMs`
+  regex-matches `wood|stone|iron` and `startsWith('pop ')`. Only the display in
+  `abPlanVerdictLabel` maps them through `AB_RES_ES`.
+- DOM fallback needles keyed off the game's own markup (`marketLocale()`,
+  `/^\d{1,2}\s*min$/`, the `Recoger` button text).
+
+Resource wording follows the game's Spanish client: `iron` renders as **plata**.
+
 ## Tooling
 
 No linter, no test runner, no Node workflow — **paste-only mode**. Phase 7

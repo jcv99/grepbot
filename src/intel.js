@@ -98,43 +98,43 @@
     const threats = intelThreatBoard();
     const dossiers = intelDossiers().slice(0, 30);
     let html = '';
-    html += '=== Incoming ===\n';
-    if (!threats.length) html += '(none)\n';
+    html += '=== Entrantes ===\n';
+    if (!threats.length) html += '(ninguno)\n';
     else {
       threats.forEach(t => {
-        const tag = t.hasCs ? '[CS] ' : (t.kind === 'support' ? '[sup] ' : '');
+        const tag = t.hasCs ? '[BC] ' : (t.kind === 'support' ? '[apoyo] ' : '');
         const urgent = t.urgent ? '!' : ' ';
-        html += `${urgent}${tag}${t.kind || t.type || 'atk'} -> ${t.dest} from ${t.origin || '?'}` +
-          `  lands in ${t.landsIn}` +
+        html += `${urgent}${tag}${t.kind || t.type || 'atq'} -> ${t.dest} desde ${t.origin || '?'}` +
+          `  llega en ${t.landsIn}` +
           (t.absTime ? ` (${t.absTime})` : '') + '\n';
       });
     }
-    html += '\n=== Dossiers ===\n';
+    html += '\n=== Fichas ===\n';
     dossiers.forEach(d => {
-      html += `${d.player}: ${d.reports} reports` +
+      html += `${d.player}: ${d.reports} informes` +
         (d.note ? ` - ${d.note}` : '') +
-        (d.allianceNote ? ` [ally: ${d.allianceNote}]` : '') + '\n';
+        (d.allianceNote ? ` [alianza: ${d.allianceNote}]` : '') + '\n';
     });
     if (state.watchlist && state.watchlist.length) {
-      html += '\n=== Watchlist ===\n';
+      html += '\n=== Lista de vigilancia ===\n';
       state.watchlist.forEach(w => {
         const rule = typeof w === 'object'
           ? String(w.id || w.townId || w.name || w.player || w.alliance || '')
           : String(w);
         const last = state.watchHits && state.watchHits[rule];
-        const lastTxt = last ? new Date(last).toLocaleString() : 'never';
+        const lastTxt = last ? new Date(last).toLocaleString() : 'nunca';
         html += (typeof w === 'object' ? `${rule} ${w.name || ''}` : rule) +
-          `  (last hit: ${lastTxt})\n`;
+          `  (último aviso: ${lastTxt})\n`;
       });
     }
     if (state.allianceNotes && Object.keys(state.allianceNotes).length) {
-      html += '\n=== Alliance notes ===\n';
+      html += '\n=== Notas de alianza ===\n';
       Object.keys(state.allianceNotes).forEach(k => {
         html += `${k}: ${state.allianceNotes[k]}\n`;
       });
     }
     if (state.attackPatternNote) {
-      html += '\n=== Attack patterns ===\n' + state.attackPatternNote + '\n';
+      html += '\n=== Patrones de ataque ===\n' + state.attackPatternNote + '\n';
     }
     box.textContent = html;
     try { intelPatternScan(); } catch (_) {}

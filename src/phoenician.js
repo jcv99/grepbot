@@ -439,7 +439,7 @@
   }
   function ptStatusText() {
     const townId = ptSalesmanTown();
-    const tpl = state.ptTradeTpl ? 'payload learned' : 'payload NOT learned';
-    const view = state.ptViewUrl ? 'view learned' : 'view NOT learned';
-    return (townId == null ? 'no ship' : `ship in town ${townId}`) + `  |  ${tpl}  |  ${view}`;
+    const tpl = state.ptTradeTpl ? 'payload aprendido' : 'payload SIN aprender';
+    const view = state.ptViewUrl ? 'vista aprendida' : 'vista SIN aprender';
+    return (townId == null ? 'sin barco' : `barco en la ciudad ${townId}`) + `  |  ${tpl}  |  ${view}`;
   }

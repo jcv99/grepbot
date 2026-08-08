@@ -168,7 +168,7 @@
   function dodgeNotify(mov, entry) {
     if (entry.notified) return;
     entry.notified = true;
-    const msg = `incoming ${mov.type || 'atk'} -> town ${mov.dest}` + (mov.hasCs ? ' [CS]' : '') +
+    const msg = `entrante ${mov.type || 'atq'} -> ciudad ${mov.dest}` + (mov.hasCs ? ' [BC]' : '') +
       (mov.arrival ? ` ETA ${mov.arrival}` : '');
     gbLog('dodge: ' + msg);
     flash(msg);

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      1.6.1
-// @description  Grepolis scout/farm/build/trade/culture/recruit automation. ToS forbid automation; risk = ban.
+// @version      1.6.2
+// @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
 // @run-at       document-idle
@@ -1157,7 +1157,7 @@ const STORE = {
       gbLog(`CAPTCHA global kill: all features paused ${mins}m`);
     }
     gbLog(`CAPTCHA breaker: ${feature} paused ${mins}m`, detail || '');
-    flash(`captcha: ${feature} paused ${mins}m`);
+    flash(`captcha: ${feature} en pausa ${mins}m`);
     try { if (typeof alertWebhook === 'function') alertWebhook('captcha', { feature, mins, detail }); } catch (_) {}
     updateStatus();
   }
@@ -2927,7 +2927,7 @@ const STORE = {
       farmSetTeachBanner('');
       return;
     }
-    farmSetTeachBanner('Loyalty research done. Click one 10-minute claim by hand to teach the bot.');
+    farmSetTeachBanner('Investigación de lealtad completada. Haz una recogida de 10 minutos a mano para enseñárselo al bot.');
     gbLog('farm: loyalty researched - 10min option unknown; hand-claim once to teach');
   }
 
@@ -3006,7 +3006,7 @@ const STORE = {
     gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${ready.length}/${farms.length} ready${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}`);
     const before = {};
     farms.forEach(f => { before[f.vill_id] = f.lootable_at; });
-    flash(`farm claim x${ready.length}`);
+    flash(`recogida de granja x${ready.length}`);
     let i = 0, done = 0, captcha = false;
     (function next() {
       if (i >= ready.length || captcha || captchaPaused('farm')) {
@@ -3050,13 +3050,13 @@ const STORE = {
     const sec = farmSleepDuration();
     if (farmOptionFor(sec) == null) {
       gbLog(`sleep claim: ${farmDurLabel(sec)} option not learned yet - open a farming village, click that timer once by hand, then retry`);
-      flash('sleep claim: teach ' + farmDurLabel(sec));
+      flash('recogida nocturna: enseña ' + farmDurLabel(sec));
       if (onDone) onDone(null);
       return false;
     }
     if (!state.autoFarm) {
       gbLog('sleep claim: auto-farm is OFF - enable it in Config, the claim path is shared');
-      flash('sleep claim: auto-farm OFF');
+      flash('recogida nocturna: auto-granjas OFF');
       if (onDone) onDone(null);
       return false;
     }
@@ -3271,7 +3271,7 @@ const STORE = {
       if (!f) {
         gbUnlock('farm-scrape');
         gbLog(`farm scrape done: ${ok}/${done} ok, next in ${fmtSec(Math.round(wait / 1000))}`);
-        flash(`farms ${ok}/${done} ok`);
+        flash(`granjas ${ok}/${done} ok`);
         return;
       }
       try {
@@ -3561,21 +3561,21 @@ const STORE = {
       if (gbDomClick(btn, 'collect')) clicked++;
     }
     updateCollectStateBadge(scanned, clicked);
-    if (clicked) { gbLog(`auto-collect: clicked ${clicked}/${scanned} Recoger buttons`); flash(`auto-collect x${clicked}`); }
+    if (clicked) { gbLog(`auto-collect: clicked ${clicked}/${scanned} Recoger buttons`); flash(`auto-recoger x${clicked}`); }
     else if (scanned > 0) gbLogT('collect-skip', 120000, `auto-collect: 0/${scanned} clickable`, skipped.slice(0, 4).join(', '));
   }
   function updateCollectStateBadge(scanned, clicked) {
     const e = panel?.querySelector('#gb-collect-state');
     if (!e) return;
     if (state.collectAll) {
-      e.textContent = `* ALL ON (${scanned}/${clicked})`;
+      e.textContent = `* TODO ON (${scanned}/${clicked})`;
       e.style.color = '#f96';
     } else if (scanned > 0) {
       e.textContent = `auto: ${clicked}/${scanned}`;
       e.style.color = clicked ? '#6c6' : '#888';
     } else {
       const a = state.collectTpl && state.collectTpl.match(/action=([^&]+)/);
-      e.textContent = state.collectTpl ? '* learn:' + (a ? a[1] : '?') : 'no btn';
+      e.textContent = state.collectTpl ? '* aprendido:' + (a ? a[1] : '?') : 'sin botón';
       e.style.color = '#888';
     }
   }
@@ -3634,17 +3634,17 @@ const STORE = {
           if (err && err !== 'dryrun' && err !== 'disabled' && err !== 'paused' && err !== 'budget' && err !== 'remembered') {
             errors++;
             if (err !== 'captcha' && err !== 'captcha-pause') {
-              flash(`collect ${t.name || t.id}: ${err}`);
+              flash(`recoger ${t.name || t.id}: ${err}`);
             }
           } else if (!err && res && (res.error || res.err)) {
             errors++;
-            flash(`collect ${t.name || t.id}: ${res.error || res.err}`);
+            flash(`recoger ${t.name || t.id}: ${res.error || res.err}`);
           }
           finish();
         });
       }, i * 400);
     });
-    flash(`bg-collect x${n}`);
+    flash(`recoger-fondo x${n}`);
   }
   let collectTimer = null;
   function scheduleAutoCollect() {
@@ -3760,7 +3760,7 @@ const STORE = {
           gbUnlock('bandit-reward');
           if (err) { gbLog('bandit: reward claim failed', err); return; }
           gbLog('bandit: reward claimed via', action, pid || '(no power_id)');
-          flash('bandit: reward claimed');
+          flash('bandidos: recompensa reclamada');
           logBandit('collected');
         });
         return true;
@@ -3817,7 +3817,7 @@ const STORE = {
         }
         banditAttackSentAt = Date.now();
         gbLog('bandit: ATTACK confirmed', JSON.stringify(units));
-        flash('bandit: attack sent');
+        flash('bandidos: ataque enviado');
         logBandit('attack');
       });
       banditAttackSentAt = Date.now();
@@ -3843,7 +3843,7 @@ const STORE = {
         victory.dataset.grepbotClicked = String(Date.now());
         if (gbDomClick(victory, 'bandit-reward')) {
           gbLog('bandit: collected reward (DOM)');
-          flash('bandit: collected reward');
+          flash('bandidos: recompensa recogida');
           logBandit('collected');
         }
         return;
@@ -3909,7 +3909,7 @@ const STORE = {
             atkBtn.dataset.grepbotClicked = String(Date.now());
             if (gbDomClick(atkBtn, 'bandit-attack')) {
               gbLog('bandit: attack sent (DOM, offense-only)');
-              flash('bandit: attack sent');
+              flash('bandidos: ataque enviado');
               logBandit('attack');
             }
           }
@@ -4232,7 +4232,7 @@ const STORE = {
         try { clearTimeout(watchdog); } catch (_) {}
         unlock();
         gbLog(`instant: completed ${done}/${free.length}${captcha ? ' (captcha abort)' : ''}`);
-        if (done) flash(`instant x${done}`);
+        if (done) flash(`instantánea x${done}`);
         gbTimeout(ibScan, 3000);
         return;
       }
@@ -4301,11 +4301,11 @@ const STORE = {
     if (!orders.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#888;padding:6px 0;font-size:11px';
-      e.textContent = 'no active build/research orders';
+      e.textContent = 'sin órdenes activas de construcción/investigación';
       rows.appendChild(e);
       dot.className = 'ib-dot';
       btn.disabled = true;
-      status.textContent = gbLocked('ib') ? 'completing...' : '';
+      status.textContent = gbLocked('ib') ? 'completando...' : '';
       renderAbQueue();
       return;
     }
@@ -4330,19 +4330,19 @@ const STORE = {
         r.appendChild(mk('ib-type', o.type));
         r.appendChild(mk('ib-time', fmtHMS(o.display)));
         r.appendChild(mk(o.isFree ? 'ib-free' : 'ib-cost',
-          o.isFree ? 'FREE' : (o.gold != null ? o.gold + ' gold' : '? gold')));
+          o.isFree ? 'GRATIS' : (o.gold != null ? o.gold + ' oro' : '? oro')));
         rows.appendChild(r);
       });
     }
-    status.textContent = (gbLocked('ib') ? 'completing... ' : '') + 'last scan: ' + new Date().toLocaleTimeString();
+    status.textContent = (gbLocked('ib') ? 'completando... ' : '') + 'último escaneo: ' + new Date().toLocaleTimeString();
     renderAbQueue();
   }
 
   const AB_BUILDINGS = ['main', 'storage', 'farm', 'academy', 'temple', 'barracks', 'docks', 'market', 'hide', 'lumber', 'stoner', 'ironer', 'wall'];
   const AB_LABELS = {
-    main: 'Senate', storage: 'Warehouse', farm: 'Farm', academy: 'Academy',
-    temple: 'Temple', barracks: 'Barracks', docks: 'Harbor', market: 'Market',
-    hide: 'Cave', lumber: 'Timber', stoner: 'Quarry', ironer: 'Silver', wall: 'Wall',
+    main: 'Senado', storage: 'Almacén', farm: 'Granja', academy: 'Academia',
+    temple: 'Templo', barracks: 'Cuartel', docks: 'Puerto', market: 'Mercado',
+    hide: 'Cueva', lumber: 'Aserradero', stoner: 'Cantera', ironer: 'Mina de plata', wall: 'Muralla',
   };
   const AB_CS_FAST = {
     main: 15, storage: 20, farm: 22, academy: 28, docks: 20,
@@ -4659,12 +4659,14 @@ const STORE = {
     }
     return plan;
   }
+  const AB_RES_ES = { wood: 'madera', stone: 'piedra', iron: 'plata', pop: 'pob' };
   function abPlanVerdictLabel(afford) {
     if (!afford) return '?';
     if (afford.ok) return 'ok';
-    if (afford.blind) return 'blind';
-    if (afford.detail) return 'short ' + afford.detail;
-    return 'short';
+    if (afford.blind) return 'a ciegas';
+
+    if (afford.detail) return 'falta ' + afford.detail.replace(/\b(wood|stone|iron|pop)\b/g, m => AB_RES_ES[m]);
+    return 'falta';
   }
   function abPlanCostLabel(cost) {
     if (!cost) return '?';
@@ -4685,7 +4687,7 @@ const STORE = {
       box.replaceChildren();
       const e = document.createElement('div');
       e.style.cssText = 'color:#888;font-size:10px;padding:2px 0';
-      e.textContent = 'no town';
+      e.textContent = 'sin ciudad';
       box.appendChild(e);
       return;
     }
@@ -4699,7 +4701,7 @@ const STORE = {
       if (!sameSet) {
         const e = document.createElement('div');
         e.style.cssText = 'color:#888;font-size:10px;padding:2px 0';
-        e.textContent = 'all targets met';
+        e.textContent = 'todos los objetivos cumplidos';
         box.appendChild(e);
       }
       return;
@@ -4743,11 +4745,11 @@ const STORE = {
       const verdict = abPlanVerdictLabel(p.afford);
       verdictEl.textContent = verdict;
       verdictEl.style.color = p.afford && p.afford.ok ? '#6dda7e' : (p.afford && p.afford.blind ? '#fc6' : '#f08080');
-      row.querySelector('.ab-plan-eta').textContent = p.etaMs ? fmtSec(Math.ceil(p.etaMs / 1000)) : 'now';
+      row.querySelector('.ab-plan-eta').textContent = p.etaMs ? fmtSec(Math.ceil(p.etaMs / 1000)) : 'ya';
       const pinBtn = row.querySelector('button');
       if (pinBtn) {
-        pinBtn.textContent = (pin === p.building) ? 'unpin' : 'pin';
-        pinBtn.title = 'Pin to slot 1 (world-scoped, per town)';
+        pinBtn.textContent = (pin === p.building) ? 'soltar' : 'fijar';
+        pinBtn.title = 'Fijar en la ranura 1 (por mundo y por ciudad)';
       }
     });
   }
@@ -4759,7 +4761,7 @@ const STORE = {
     if (!box) return;
     const townId = abCurrentTownId() || abTownIds()[0];
     const label = sec.querySelector('#gb-cq-town');
-    if (label) label.textContent = townId ? `town ${townId}` : 'no town';
+    if (label) label.textContent = townId ? `ciudad ${townId}` : 'sin ciudad';
     const strict = sec.querySelector('#gb-cq-strict');
     if (strict) strict.checked = state.abQueueStrict !== false;
     const pick = sec.querySelector('#gb-cq-b');
@@ -4782,7 +4784,7 @@ const STORE = {
     if (!list.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#888;font-size:10px;padding:2px 0';
-      e.textContent = 'no custom queue - heuristic plan is used';
+      e.textContent = 'sin cola personalizada - se usa el plan heurístico';
       box.appendChild(e);
       return;
     }
@@ -4816,9 +4818,9 @@ const STORE = {
         b.addEventListener('click', () => { fn(); renderCqRows(); renderAbPlan(); });
         return b;
       };
-      btns.appendChild(mk('^', 'move up', () => abCqMove(townId, i, -1)));
-      btns.appendChild(mk('v', 'move down', () => abCqMove(townId, i, 1)));
-      btns.appendChild(mk('x', 'remove', () => abCqRemove(townId, i)));
+      btns.appendChild(mk('^', 'subir', () => abCqMove(townId, i, -1)));
+      btns.appendChild(mk('v', 'bajar', () => abCqMove(townId, i, 1)));
+      btns.appendChild(mk('x', 'quitar', () => abCqRemove(townId, i)));
       row.appendChild(idx);
       row.appendChild(name);
       row.appendChild(cur);
@@ -5100,7 +5102,7 @@ const STORE = {
       if (i >= jobs.length || captcha) {
         try { clearTimeout(watchdog); } catch (_) {}
         unlock();
-        if (done) flash(`auto-queue x${done}`);
+        if (done) flash(`cola auto. x${done}`);
 
         abTownIds().forEach(tid => {
           const q = abQueueInfo(tid);
@@ -5140,7 +5142,7 @@ const STORE = {
     box.replaceChildren();
     const head = document.createElement('div');
     head.style.cssText = 'display:grid;grid-template-columns:1.2fr .5fr .5fr .5fr auto;gap:4px;font-size:9px;color:#888;margin-bottom:2px';
-    ['building', 'cur', 'tgt', 'max', ''].forEach(t => {
+    ['edificio', 'act', 'obj', 'máx', ''].forEach(t => {
       const s = document.createElement('span'); s.textContent = t; head.appendChild(s);
     });
     box.appendChild(head);
@@ -5182,7 +5184,7 @@ const STORE = {
       };
       btns.appendChild(mkBtn('-', () => { abSetTarget(b, (state.abTargets[b] || 0) - 1); renderAbQueue(); }));
       btns.appendChild(mkBtn('+', () => { abSetTarget(b, (state.abTargets[b] || 0) + 1); renderAbQueue(); }));
-      btns.appendChild(mkBtn('max', () => { abSetTarget(b, max); renderAbQueue(); }));
+      btns.appendChild(mkBtn('máx', () => { abSetTarget(b, max); renderAbQueue(); }));
       row.appendChild(name);
       row.appendChild(cur);
       row.appendChild(tgtEl);
@@ -5195,12 +5197,12 @@ const STORE = {
       const due = townId && state.abNextAt[townId];
       const next = townId && q && q.len <= 1 ? abPickNext(townId) : null;
       let waitTxt = '';
-      if (due && Date.now() < due) waitTxt = `  |  refill in ${fmtSec((due - Date.now()) / 1000)}`;
-      else if (q && q.len > 1) waitTxt = `  |  wait until 1 left (${q.len}/${q.max})`;
-      status.textContent = (gbLocked('ab') ? 'queueing... ' : '')
-        + (townId ? `town ${townId}` : 'no town')
-        + (q ? `  |  queue ${q.len}/${q.max}` : '')
-        + (next ? `  |  next: ${AB_LABELS[next] || next}` : '  |  idle')
+      if (due && Date.now() < due) waitTxt = `  |  recarga en ${fmtSec((due - Date.now()) / 1000)}`;
+      else if (q && q.len > 1) waitTxt = `  |  esperando a que quede 1 (${q.len}/${q.max})`;
+      status.textContent = (gbLocked('ab') ? 'encolando... ' : '')
+        + (townId ? `ciudad ${townId}` : 'sin ciudad')
+        + (q ? `  |  cola ${q.len}/${q.max}` : '')
+        + (next ? `  |  siguiente: ${AB_LABELS[next] || next}` : '  |  inactivo')
         + waitTxt
         + (state.abAuto ? '  |  AUTO' : '  |  off');
     }
@@ -5217,7 +5219,7 @@ const STORE = {
       const key = hits.sort().join(',') || 'none';
       const prev = state.alerted[f.vill_id];
       if (!prev || prev.key !== key) {
-        if (hits.length) flash(`WARN farm ${f.vill_id} ${hits.join('+')} >= threshold`);
+        if (hits.length) flash(`AVISO granja ${f.vill_id} ${hits.join('+')} >= umbral`);
         state.alerted[f.vill_id] = { key, ts: Date.now() };
         changed = true;
       }
@@ -7108,9 +7110,9 @@ const STORE = {
   }
   function ptStatusText() {
     const townId = ptSalesmanTown();
-    const tpl = state.ptTradeTpl ? 'payload learned' : 'payload NOT learned';
-    const view = state.ptViewUrl ? 'view learned' : 'view NOT learned';
-    return (townId == null ? 'no ship' : `ship in town ${townId}`) + `  |  ${tpl}  |  ${view}`;
+    const tpl = state.ptTradeTpl ? 'payload aprendido' : 'payload SIN aprender';
+    const view = state.ptViewUrl ? 'vista aprendida' : 'vista SIN aprender';
+    return (townId == null ? 'sin barco' : `barco en la ciudad ${townId}`) + `  |  ${tpl}  |  ${view}`;
   }
 
   const FAVOR_CHECK_MS = 60000;
@@ -7581,7 +7583,7 @@ const STORE = {
   function dodgeNotify(mov, entry) {
     if (entry.notified) return;
     entry.notified = true;
-    const msg = `incoming ${mov.type || 'atk'} -> town ${mov.dest}` + (mov.hasCs ? ' [CS]' : '') +
+    const msg = `entrante ${mov.type || 'atq'} -> ciudad ${mov.dest}` + (mov.hasCs ? ' [BC]' : '') +
       (mov.arrival ? ` ETA ${mov.arrival}` : '');
     gbLog('dodge: ' + msg);
     flash(msg);
@@ -7885,11 +7887,11 @@ const STORE = {
     };
     save(STORE.CITY_TEMPLATES, state.cityTemplates);
     gbLog(`template: saved "${name}"`);
-    flash('template saved: ' + name);
+    flash('plantilla guardada: ' + name);
   }
   function qolApplyTemplate(name) {
     const t = state.cityTemplates && state.cityTemplates[name];
-    if (!t) { flash('template missing'); return; }
+    if (!t) { flash('falta la plantilla'); return; }
 
     if (t.abTargets) {
       state.abTargets = JSON.parse(JSON.stringify(t.abTargets));
@@ -7904,7 +7906,7 @@ const STORE = {
       save(STORE.RECRUIT_TARGETS, state.recruitTargets);
     }
     gbLog(`template: applied "${name}"`);
-    flash('template applied: ' + name);
+    flash('plantilla aplicada: ' + name);
     try { renderAbQueue && renderAbQueue(); } catch (_) {}
   }
   function qolSetTownGroup(groupName, townIds) {
@@ -7915,7 +7917,7 @@ const STORE = {
   function qolApplyGroupTemplate(groupName, templateName) {
     const ids = (state.townGroups && state.townGroups[groupName]) || [];
     const t = state.cityTemplates && state.cityTemplates[templateName];
-    if (!t || !ids.length) { flash('group/template missing'); return; }
+    if (!t || !ids.length) { flash('falta el grupo o la plantilla'); return; }
 
     if (t.recruitTargets) {
       const sample = Object.values(t.recruitTargets)[0] || t.recruitTargets;
@@ -7986,18 +7988,18 @@ const STORE = {
     if (sec && sec.hidden) return;
     const d = qolOverviewData();
     const lines = [
-      `Towns: ${d.townN}`,
-      `Farms ready: ${d.farmReady}/${d.farmTotal}`,
-      `Culture busy: ${d.cultureBusy}`,
-      `Build queue: ${d.buildQ} | Research queue: ${d.researchQ}`,
-      d.pause ? `|| paused: ${d.pause}` : 'Automation: active',
-      d.breakers.length ? `Captcha: ${d.breakers.join(',')}` : 'Captcha: clear',
+      `Ciudades: ${d.townN}`,
+      `Granjas listas: ${d.farmReady}/${d.farmTotal}`,
+      `Cultura ocupada: ${d.cultureBusy}`,
+      `Cola de construcción: ${d.buildQ} | Cola de investigación: ${d.researchQ}`,
+      d.pause ? `|| en pausa: ${d.pause}` : 'Automatización: activa',
+      d.breakers.length ? `Captcha: ${d.breakers.join(',')}` : 'Captcha: despejado',
       (() => {
         const parts = Object.keys(d.health).map(k => {
           const h = d.health[k];
           return `${k} ok${h.ok}/err${h.err}/cap${h.captcha}`;
         });
-        return 'Health: ' + (parts.length ? parts.join('  |  ') : '(none yet)');
+        return 'Salud: ' + (parts.length ? parts.join('  |  ') : '(aún nada)');
       })(),
     ];
     box.textContent = lines.join('\n');
@@ -8396,43 +8398,43 @@ const STORE = {
     const threats = intelThreatBoard();
     const dossiers = intelDossiers().slice(0, 30);
     let html = '';
-    html += '=== Incoming ===\n';
-    if (!threats.length) html += '(none)\n';
+    html += '=== Entrantes ===\n';
+    if (!threats.length) html += '(ninguno)\n';
     else {
       threats.forEach(t => {
-        const tag = t.hasCs ? '[CS] ' : (t.kind === 'support' ? '[sup] ' : '');
+        const tag = t.hasCs ? '[BC] ' : (t.kind === 'support' ? '[apoyo] ' : '');
         const urgent = t.urgent ? '!' : ' ';
-        html += `${urgent}${tag}${t.kind || t.type || 'atk'} -> ${t.dest} from ${t.origin || '?'}` +
-          `  lands in ${t.landsIn}` +
+        html += `${urgent}${tag}${t.kind || t.type || 'atq'} -> ${t.dest} desde ${t.origin || '?'}` +
+          `  llega en ${t.landsIn}` +
           (t.absTime ? ` (${t.absTime})` : '') + '\n';
       });
     }
-    html += '\n=== Dossiers ===\n';
+    html += '\n=== Fichas ===\n';
     dossiers.forEach(d => {
-      html += `${d.player}: ${d.reports} reports` +
+      html += `${d.player}: ${d.reports} informes` +
         (d.note ? ` - ${d.note}` : '') +
-        (d.allianceNote ? ` [ally: ${d.allianceNote}]` : '') + '\n';
+        (d.allianceNote ? ` [alianza: ${d.allianceNote}]` : '') + '\n';
     });
     if (state.watchlist && state.watchlist.length) {
-      html += '\n=== Watchlist ===\n';
+      html += '\n=== Lista de vigilancia ===\n';
       state.watchlist.forEach(w => {
         const rule = typeof w === 'object'
           ? String(w.id || w.townId || w.name || w.player || w.alliance || '')
           : String(w);
         const last = state.watchHits && state.watchHits[rule];
-        const lastTxt = last ? new Date(last).toLocaleString() : 'never';
+        const lastTxt = last ? new Date(last).toLocaleString() : 'nunca';
         html += (typeof w === 'object' ? `${rule} ${w.name || ''}` : rule) +
-          `  (last hit: ${lastTxt})\n`;
+          `  (último aviso: ${lastTxt})\n`;
       });
     }
     if (state.allianceNotes && Object.keys(state.allianceNotes).length) {
-      html += '\n=== Alliance notes ===\n';
+      html += '\n=== Notas de alianza ===\n';
       Object.keys(state.allianceNotes).forEach(k => {
         html += `${k}: ${state.allianceNotes[k]}\n`;
       });
     }
     if (state.attackPatternNote) {
-      html += '\n=== Attack patterns ===\n' + state.attackPatternNote + '\n';
+      html += '\n=== Patrones de ataque ===\n' + state.attackPatternNote + '\n';
     }
     box.textContent = html;
     try { intelPatternScan(); } catch (_) {}
@@ -8934,7 +8936,7 @@ const STORE = {
         kinds,
       });
       gbLog(`quest: auto-claim ${ok ? 'OK' : 'fail'} via ${method}`, entry.title || entry.questId, kinds);
-      if (ok) flash('quest claim: ' + kinds);
+      if (ok) flash('misión reclamada: ' + kinds);
       gbTimeout(() => { gbUnlock('quest-claim'); questScanTick('post-claim'); renderQuests(); }, 2500);
     };
     const questStillClaimable = () => {
@@ -9068,13 +9070,13 @@ const STORE = {
     if (!entries.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#888;padding:6px 0';
-      e.textContent = 'no quests learned yet - open quest log or wait for scan';
+      e.textContent = 'aún no hay misiones aprendidas - abre el diario de misiones o espera al escaneo';
       list.appendChild(e);
     } else {
       const hdr = document.createElement('div');
       hdr.className = 'quest-row';
       hdr.style.color = '#888';
-      ['quest', '%', 'rewards', 'auto'].forEach(t => {
+      ['misión', '%', 'recompensas', 'auto'].forEach(t => {
         const s = document.createElement('span');
         s.textContent = t;
         hdr.appendChild(s);
@@ -9085,8 +9087,8 @@ const STORE = {
         row.className = 'quest-row';
         const kinds = (q.rewards || []).map(r => r.kind).filter(Boolean);
         const uniq = Array.from(new Set(kinds)).join(',') || '-';
-        const auto = q.safeAuto ? (q.canClaim ? 'CLAIM' : 'yes') : 'no';
-        const autoColor = auto === 'CLAIM' ? '#6dda7e' : (auto === 'yes' ? '#fc6' : '#888');
+        const auto = q.safeAuto ? (q.canClaim ? 'RECLAMAR' : 'sí') : 'no';
+        const autoColor = auto === 'RECLAMAR' ? '#6dda7e' : (auto === 'sí' ? '#fc6' : '#888');
         const title = (q.title || q.name || q.questId || '').slice(0, 28);
         const c1 = document.createElement('span');
         c1.title = String(q.questId || '');
@@ -9109,7 +9111,7 @@ const STORE = {
         const kinds = h.kinds || (h.rewards || []).map(r => r.kind).join(',');
         return `${when} ${h.autoClaimed ? 'OK' : 'NO'} ${h.method || '?'} ${(h.title || h.questId || '').slice(0, 24)} [${kinds}]`;
       });
-      hist.textContent = lines.join('\n') || '(empty)';
+      hist.textContent = lines.join('\n') || '(vacío)';
     }
   }
 
@@ -9416,7 +9418,7 @@ const STORE = {
     saveAttackPlan();
     renderAttack();
     const label = t.name ? `${t.name} (#${t.id})` : String(t.id);
-    flash('target -> ' + label);
+    flash('objetivo -> ' + label);
   }
   function attackTownGroup(name) {
     return ((state.townGroups && state.townGroups[name]) || []).map(String);
@@ -9439,16 +9441,16 @@ const STORE = {
   function attackSetAllSources(checked) {
     const ids = checked ? (state.towns || []).map(t => String(t.id)) : [];
     attackSelectSources(ids);
-    flash(checked ? 'all towns selected' : 'sources cleared');
+    flash(checked ? 'todas las ciudades seleccionadas' : 'orígenes vaciados');
   }
   function attackSelectRoleSources(role) {
     const ids = attackTownGroup(role);
     if (!ids.length) {
-      flash(`no ${role} cities tagged - check boxes below first`);
+      flash(`ninguna ciudad marcada como ${role} - marca las casillas de abajo primero`);
       return;
     }
     attackSelectSources(ids);
-    flash(`${role} cities selected (${ids.length})`);
+    flash(`ciudades ${role} seleccionadas (${ids.length})`);
   }
   function attackPad2(n) { return String(n).padStart(2, '0'); }
   function attackLocalFromUnix(unix) {
@@ -9476,7 +9478,7 @@ const STORE = {
     const arriveMode = plan.timingMode === 'arrive_at';
     if (arrivalRow) {
       arrivalRow.style.opacity = arriveMode ? '1' : '0.5';
-      arrivalRow.title = arriveMode ? '' : 'switch timing to "arrive at" to set CS landing time';
+      arrivalRow.title = arriveMode ? '' : 'cambia la sincronización a "llegar a las" para fijar la hora de llegada del BC';
     }
     if (!arrDate || !arrTime) return;
     arrDate.disabled = !arriveMode;
@@ -9514,7 +9516,7 @@ const STORE = {
     if (!towns.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#666;font-size:10px';
-      e.textContent = 'load towns first (World tab -> refresh)';
+      e.textContent = 'carga primero las ciudades (pestaña Mundo -> actualizar)';
       box.appendChild(e);
       return;
     }
@@ -9545,8 +9547,8 @@ const STORE = {
     };
     const grid = document.createElement('div');
     grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px';
-    grid.appendChild(mkCol('Offensive cities', ATTACK_ROLE_OFFENSE, '#f96'));
-    grid.appendChild(mkCol('Defensive cities', ATTACK_ROLE_DEFENSE, '#6cf'));
+    grid.appendChild(mkCol('Ciudades ofensivas', ATTACK_ROLE_OFFENSE, '#f96'));
+    grid.appendChild(mkCol('Ciudades defensivas', ATTACK_ROLE_DEFENSE, '#6cf'));
     box.appendChild(grid);
   }
   function parseUnitsArea(text) {
@@ -9675,10 +9677,10 @@ const STORE = {
     return { target, rows, now, skew };
   }
   function sendAttackViaBridge(target, srcTownId, units, mission, onDone) {
-    if (!hostEnabled()) { flash('bot disabled on this host'); return onDone && onDone('disabled'); }
-    if (captchaPaused('attack')) { flash('attack paused (captcha)'); return onDone && onDone('captcha'); }
+    if (!hostEnabled()) { flash('bot desactivado en este host'); return onDone && onDone('disabled'); }
+    if (captchaPaused('attack')) { flash('ataque en pausa (captcha)'); return onDone && onDone('captcha'); }
     if (!attackSendAllowed(target)) {
-      flash('attack blocked: target not a town (or unresolved)');
+      flash('ataque bloqueado: el objetivo no es una ciudad (o no se resuelve)');
       gbLog('attack: refuse Town/sendUnits for kind=' + (target && target.kind));
       return onDone && onDone('bad-target');
     }
@@ -9714,8 +9716,8 @@ const STORE = {
     };
     gbLog('attack bridge:', JSON.stringify(payload));
     bridgePost('attack', payload, (err, data) => {
-      if (err) { flash('attack failed: ' + err); return onDone && onDone(err); }
-      flash('attack sent #' + srcTownId);
+      if (err) { flash('ataque fallido: ' + err); return onDone && onDone(err); }
+      flash('ataque enviado #' + srcTownId);
       gbLog('attack response:', JSON.stringify(data).slice(0, 200));
       if (onDone) onDone(null, data);
     });
@@ -9730,7 +9732,7 @@ const STORE = {
     (attackArmed.timers || []).forEach(id => clearTimeout(id));
     if (attackArmed.raf) cancelAnimationFrame(attackArmed.raf);
     gbLog('attack: cancelled armed wave');
-    flash('attack cancelled');
+    flash('ataque cancelado');
     attackArmed = null;
     renderAttack();
   }
@@ -9749,7 +9751,7 @@ const STORE = {
       if (cell) cell.textContent = r.fireStatus || r.status || '';
     });
     const armed = sec.querySelector('#gb-atk-armed');
-    if (armed) armed.textContent = attackArmed ? `ARMED (${attackArmed.rows.length})` : '';
+    if (armed) armed.textContent = attackArmed ? `ARMADO (${attackArmed.rows.length})` : '';
   }
 
   const ATTACK_ARM_MAX_MS = 90000;
@@ -9757,7 +9759,7 @@ const STORE = {
     cancelArmedAttack();
     const target = resolveTarget(plan);
     if (!target || !attackSendAllowed(target)) {
-      flash('cannot arm: target unresolved or not a town');
+      flash('no se puede armar: objetivo sin resolver o no es una ciudad');
       gbLog('attack: arm blocked - need canonical town target (villages unsupported)');
       return;
     }
@@ -9767,7 +9769,7 @@ const STORE = {
     attackArmed = { timers, rows, plan, cancel: cancelArmedAttack, armedAt };
     const skew0 = clientServerSkewMs();
     gbLog(`attack: armed ${rows.length} towns mode=${plan.timingMode} skew=${Math.round(skew0)}ms (max window ${ATTACK_ARM_MAX_MS}ms)`);
-    flash('Browser timers are not military-precise - long waits will not auto-fire');
+    flash('Los temporizadores del navegador no tienen precisión militar - las esperas largas no se dispararán solas');
     rows.forEach((row, idx) => {
       if (!row.unitCount || !row.boats.ok) {
         gbLog(`attack: skip ${row.townId} status=${row.status}`);
@@ -9838,16 +9840,16 @@ const STORE = {
   function fireAttackNow(plan, rows) {
     const target = resolveTarget(plan);
     if (!target || !attackSendAllowed(target)) {
-      flash('cannot send: target unresolved or not a town');
+      flash('no se puede enviar: objetivo sin resolver o no es una ciudad');
       return;
     }
-    if (!confirm(`Send ${rows.filter(r => r.boats.ok && r.unitCount).length} attack(s) now?`)) return;
+    if (!confirm(`¿Enviar ahora ${rows.filter(r => r.boats.ok && r.unitCount).length} ataque(s)?`)) return;
     let i = 0;
     const okRows = rows.filter(r => r.boats.ok && r.unitCount);
     (function next() {
       if (i >= okRows.length) {
         pushAttackHistory({ ts: Date.now(), mode: 'send_now_immediate', targetId: plan.targetId, towns: okRows.map(r => r.townId) });
-        flash(`attacks x${okRows.length}`);
+        flash(`ataques x${okRows.length}`);
         return;
       }
       const row = okRows[i++];
@@ -9874,12 +9876,12 @@ const STORE = {
 
     if (typeof showTab === 'function') showTab('attack');
     else renderAttack();
-    flash('attack planner <- ' + plan.targetId);
+    flash('planificador de ataque <- ' + plan.targetId);
   }
   function editThreshold(target) {
     const cur = state.thresholds[target.vill_id] || {};
     const def = Object.entries(cur).map(([k, v]) => `${k}:${v}`).join(',');
-    const v = prompt(`Threshold for ${target.vill_id}\nFormat: wood:5000,iron:8000,pop:100\nEmpty = clear`, def);
+    const v = prompt(`Umbral para ${target.vill_id}\nFormato: wood:5000,iron:8000,pop:100\nVacío = borrar`, def);
     if (v == null) return;
     if (v.trim() === '') { delete state.thresholds[target.vill_id]; }
     else {
@@ -9910,7 +9912,7 @@ const STORE = {
     if (!sec || sec.hidden) return;
     const plan = ensureAttackPlan();
     const skewEl = sec.querySelector('#gb-atk-skew');
-    if (skewEl) skewEl.textContent = `skew ${Math.round(clientServerSkewMs())}ms | srv ${serverNow()}`;
+    if (skewEl) skewEl.textContent = `desfase ${Math.round(clientServerSkewMs())}ms | srv ${serverNow()}`;
     const table = sec.querySelector('.atk-sched');
     if (!table) return;
     const rows = attackPreviewRows.length ? attackPreviewRows : [];
@@ -9921,7 +9923,7 @@ const STORE = {
         table.dataset.empty = '1';
         const e = document.createElement('div');
         e.style.cssText = 'color:#888;padding:6px 0;font-size:11px';
-        e.textContent = 'Preview to compute travel / sendAt / boats';
+        e.textContent = 'Pulsa Vista previa para calcular viaje / envío / barcos';
         table.appendChild(e);
       }
     } else {
@@ -9933,7 +9935,7 @@ const STORE = {
         delete table.dataset.empty;
         const hdr = document.createElement('div');
         hdr.style.cssText = 'display:grid;grid-template-columns:1.2fr .7fr .9fr .7fr .8fr;gap:4px;color:#888;font-size:9px;margin-bottom:2px';
-        hdr.innerHTML = '<span>town</span><span>travel</span><span>sendAt</span><span>boats</span><span>status</span>';
+        hdr.innerHTML = '<span>ciudad</span><span>viaje</span><span>enviar a las</span><span>barcos</span><span>estado</span>';
         table.appendChild(hdr);
       }
       rows.forEach(r => {
@@ -9963,7 +9965,7 @@ const STORE = {
       });
     }
     const armed = sec.querySelector('#gb-atk-armed');
-    if (armed) armed.textContent = attackArmed ? `ARMED (${attackArmed.rows.length})` : '';
+    if (armed) armed.textContent = attackArmed ? `ARMADO (${attackArmed.rows.length})` : '';
 
     const tid = sec.querySelector('[data-atk=target]');
     if (tid && document.activeElement !== tid) tid.value = plan.targetId || '';
@@ -9976,7 +9978,7 @@ const STORE = {
         pick.replaceChildren();
         const o0 = document.createElement('option');
         o0.value = '';
-        o0.textContent = targets.length ? `pick town (${targets.length})...` : 'no known towns yet';
+        o0.textContent = targets.length ? `elige ciudad (${targets.length})...` : 'aún no hay ciudades conocidas';
         pick.appendChild(o0);
         targets.forEach(t => {
           const o = document.createElement('option');
@@ -9996,15 +9998,15 @@ const STORE = {
       if (resolved && resolved.kind === 'town') {
         const nm = known?.name || '';
         const coord = (resolved.x != null && resolved.y != null) ? ` (${resolved.x}|${resolved.y})` : '';
-        hint.textContent = `town #${plan.targetId}${nm ? '  |  ' + nm : ''}${coord}`;
+        hint.textContent = `ciudad #${plan.targetId}${nm ? '  |  ' + nm : ''}${coord}`;
         hint.style.color = '#6dda7e';
       } else if (plan.targetId) {
         hint.textContent = resolved
-          ? `${resolved.kind} #${plan.targetId} - city attacks need kind=town`
-          : 'unresolved - pick from list, click Current in-game, or add x/y';
+          ? `${resolved.kind} #${plan.targetId} - los ataques a ciudad necesitan kind=town`
+          : 'sin resolver - elige de la lista, pulsa Actual en el juego, o añade x/y';
         hint.style.color = '#f96';
       } else {
-        hint.textContent = 'pick a town from spy reports, or click a city in-game then Current';
+        hint.textContent = 'elige una ciudad de los informes de espionaje, o abre una ciudad en el juego y pulsa Actual';
         hint.style.color = '#888';
       }
     }
@@ -10031,8 +10033,8 @@ const STORE = {
       ut.disabled = plan.troopMode !== 'all_of_type';
       ut.style.opacity = ut.disabled ? '0.4' : '1';
       ut.title = ut.disabled
-        ? "unit picker only applies when troop mode is 'all of type'"
-        : 'unit sent from every source town';
+        ? "el selector de unidad solo aplica cuando el modo de tropas es 'todas de un tipo'"
+        : 'unidad enviada desde cada ciudad de origen';
       const utLab = ut.closest('label');
       if (utLab) utLab.style.color = ut.disabled ? '#666' : '#ccc';
     }
@@ -10168,7 +10170,7 @@ const STORE = {
       if (!rows.length) {
         const e = document.createElement('div');
         e.style.cssText = 'color:#666;font-size:10px';
-        e.textContent = 'No cancelable outgoing movements';
+        e.textContent = 'No hay movimientos salientes cancelables';
         box.appendChild(e);
       } else {
         rows.forEach(r => {
@@ -10176,20 +10178,20 @@ const STORE = {
           row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr .7fr auto;gap:4px;font-size:10px;border-bottom:1px solid #2a2a2a;padding:2px 0;align-items:center';
           const c1 = document.createElement('span');
           c1.textContent = `${townNameById(r.home)} -> ${r.target}`;
-          c1.title = `cmd ${r.commandId}`;
+          c1.title = `orden ${r.commandId}`;
           const c2 = document.createElement('span');
-          c2.textContent = r.type || 'move';
+          c2.textContent = r.type || 'movimiento';
           const c3 = document.createElement('span');
           c3.style.color = '#888';
           c3.textContent = r.cancelLeft != null ? (`${Math.round(r.cancelLeft)}s`) : 'ok';
           const btn = document.createElement('button');
           btn.type = 'button';
-          btn.textContent = 'Cancel';
+          btn.textContent = 'Cancelar';
           btn.style.cssText = 'background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px';
           btn.addEventListener('click', () => {
-            if (!confirm(`Cancel outgoing ${r.type || 'command'} ${r.commandId}?\n${townNameById(r.home)} -> ${r.target}`)) return;
+            if (!confirm(`¿Cancelar la orden saliente ${r.type || 'comando'} ${r.commandId}?\n${townNameById(r.home)} -> ${r.target}`)) return;
             militaryCancelCommand(r.commandId, { confirmed: true, townId: r.home }, (err) => {
-              flash(err ? ('cancel failed: ' + err) : 'command cancelled');
+              flash(err ? ('fallo al cancelar: ' + err) : 'orden cancelada');
               renderAttack();
             });
           });
@@ -10205,7 +10207,7 @@ const STORE = {
     if (!heroesEnabled()) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#666;font-size:10px';
-      e.textContent = 'Heroes disabled on this world';
+      e.textContent = 'Héroes desactivados en este mundo';
       hbox.appendChild(e);
       return;
     }
@@ -10213,7 +10215,7 @@ const STORE = {
     if (!heroes.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#666;font-size:10px';
-      e.textContent = 'No PlayerHero models (open Council once, or world has none)';
+      e.textContent = 'Sin modelos PlayerHero (abre el Consejo una vez, o este mundo no tiene)';
       hbox.appendChild(e);
       return;
     }
@@ -10236,24 +10238,24 @@ const STORE = {
       row.appendChild(lab);
       if (h.traveling) {
         const b = document.createElement('button');
-        b.type = 'button'; b.textContent = 'Cancel travel';
+        b.type = 'button'; b.textContent = 'Cancelar viaje';
         b.style.cssText = 'background:#333;border:1px solid #555;color:#fc6;padding:1px 6px;cursor:pointer;font-size:10px';
         b.addEventListener('click', () => {
-          if (!confirm(`Cancel transfer of ${h.name}?`)) return;
+          if (!confirm(`¿Cancelar el traslado de ${h.name}?`)) return;
           heroCancelTravel(h.type, { confirmed: true }, (err) => {
-            flash(err ? ('hero cancel failed: ' + err) : 'hero travel cancelled');
+            flash(err ? ('fallo al cancelar el héroe: ' + err) : 'viaje del héroe cancelado');
             renderAttack();
           });
         });
         row.appendChild(b);
       } else if (h.assigned || h.attacking) {
         const b = document.createElement('button');
-        b.type = 'button'; b.textContent = 'Unassign';
+        b.type = 'button'; b.textContent = 'Desasignar';
         b.style.cssText = 'background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px';
         b.addEventListener('click', () => {
-          if (!confirm(`Unassign ${h.name} from ${townNameById(h.home || h.origin)}?`)) return;
+          if (!confirm(`¿Desasignar a ${h.name} de ${townNameById(h.home || h.origin)}?`)) return;
           heroUnassign(h.type, { confirmed: true }, (err) => {
-            flash(err ? ('hero unassign failed: ' + err) : 'hero unassigned');
+            flash(err ? ('fallo al desasignar el héroe: ' + err) : 'héroe desasignado');
             renderAttack();
           });
         });
@@ -10261,14 +10263,14 @@ const STORE = {
       }
       if (!h.injured && !h.attacking && !h.traveling) {
         const b = document.createElement('button');
-        b.type = 'button'; b.textContent = 'Assign';
+        b.type = 'button'; b.textContent = 'Asignar';
         b.style.cssText = 'background:#333;border:1px solid #555;color:#6cf;padding:1px 6px;cursor:pointer;font-size:10px';
         b.addEventListener('click', () => {
           const tid = townSel.value;
-          if (!tid) { flash('pick a town'); return; }
-          if (!confirm(`Assign ${h.name} -> ${townNameById(tid)}?\n(travel time applies)`)) return;
+          if (!tid) { flash('elige una ciudad'); return; }
+          if (!confirm(`¿Asignar a ${h.name} -> ${townNameById(tid)}?\n(se aplica el tiempo de viaje)`)) return;
           heroAssignToTown(h.type, tid, { confirmed: true }, (err) => {
-            flash(err ? ('hero assign failed: ' + err) : 'hero transfer started');
+            flash(err ? ('fallo al asignar el héroe: ' + err) : 'traslado del héroe iniciado');
             renderAttack();
           });
         });
@@ -10295,8 +10297,8 @@ const STORE = {
       if (sched.error) { flash(sched.error); return; }
       attackPreviewRows = sched.rows;
       const ok = sched.rows.filter(r => r.boats.ok && r.unitCount && r.status !== 'past' && r.status !== 'no-travel');
-      if (!ok.length) { flash('no towns ready'); renderAttack(); return; }
-      if (!confirm(`Arm ${ok.length} attack(s) (${plan.timingMode})?`)) return;
+      if (!ok.length) { flash('ninguna ciudad lista'); renderAttack(); return; }
+      if (!confirm(`¿Armar ${ok.length} ataque(s) (${plan.timingMode})?`)) return;
       armAttackWave(plan, ok);
     });
     sec.querySelector('#gb-atk-cancel')?.addEventListener('click', () => cancelArmedAttack());
@@ -10331,9 +10333,9 @@ const STORE = {
     });
     sec.querySelector('#gb-atk-current')?.addEventListener('click', () => {
       const cur = attackCurrentTownId();
-      if (!cur) { flash('no town selected in game'); return; }
+      if (!cur) { flash('ninguna ciudad seleccionada en el juego'); return; }
       if (cur.own) {
-        flash('current town is yours - open an enemy city on the map first');
+        flash('la ciudad actual es tuya - abre primero una ciudad enemiga en el mapa');
         return;
       }
       applyAttackTarget(cur);
@@ -10457,7 +10459,7 @@ const STORE = {
     plan.harassPreset = String(preset || 'light');
     plan.mission = plan.mission || 'attack';
     saveAttackPlan();
-    flash('harass preset: ' + plan.harassPreset + ' (confirm Send now)');
+    flash('preajuste de hostigamiento: ' + plan.harassPreset + ' (confirma con Enviar ya)');
     gbLog('attack: harass preset ' + plan.harassPreset);
     return plan;
   }
@@ -10750,7 +10752,7 @@ const STORE = {
   function preflightProbe(name, fn) {
     try {
       const r = fn();
-      if (!r) return { name, ok: false, detail: 'no result' };
+      if (!r) return { name, ok: false, detail: 'sin resultado' };
       return { name, ok: r.ok !== false, detail: r.detail || '', warn: !!r.warn };
     } catch (e) {
       return { name, ok: false, detail: String(e).slice(0, 80) };
@@ -10760,59 +10762,59 @@ const STORE = {
     const out = [];
     const uw = gameUw();
     const bs = gameBridgeStatus();
-    out.push(preflightProbe('bridge', () => ({
+    out.push(preflightProbe('puente', () => ({
       ok: bs.MM && bs.gpAjax && bs.ITowns,
-      detail: Object.keys(bs).filter(k => bs[k]).join(' ') || 'nothing readable',
+      detail: Object.keys(bs).filter(k => bs[k]).join(' ') || 'nada legible',
     })));
     out.push(preflightProbe('csrf', () => ({
       ok: !!state.csrf,
-      detail: state.csrf ? state.csrf.slice(0, 6) + '...' : 'not found (GM_xmlhttpRequest report fetch needs it)',
+      detail: state.csrf ? state.csrf.slice(0, 6) + '...' : 'no encontrado (la lectura de informes por GM_xmlhttpRequest lo necesita)',
     })));
-    out.push(preflightProbe('towns', () => {
+    out.push(preflightProbe('ciudades', () => {
       const t = (townsFromGame() || []);
-      return { ok: t.length > 0, detail: t.length + ' towns readable' };
+      return { ok: t.length > 0, detail: t.length + ' ciudades legibles' };
     }));
-    out.push(preflightProbe('farm claims', () => {
+    out.push(preflightProbe('recogidas de granja', () => {
       const farms = farmsFromGame() || [];
       const ready = farms.filter(f => f.lootable_at == null || gameNow() >= f.lootable_at).length;
-      const tpl = state.claimTpl ? 'template learned' : 'template NOT learned (claim once by hand)';
+      const tpl = state.claimTpl ? 'plantilla aprendida' : 'plantilla SIN aprender (recoge una vez a mano)';
       return {
         ok: farms.length > 0,
         warn: !state.claimTpl,
-        detail: `${farms.length} villages, ${ready} claimable, ${tpl}, options ${farmOptionMapText()}`,
+        detail: `${farms.length} aldeas, ${ready} recogibles, ${tpl}, opciones ${farmOptionMapText()}`,
       };
     }));
-    out.push(preflightProbe('sleep claim', () => {
+    out.push(preflightProbe('recogida nocturna', () => {
       const sec = farmSleepDuration();
       const opt = farmOptionFor(sec);
       return {
         ok: opt != null,
         warn: opt == null,
-        detail: opt != null ? `${farmDurLabel(sec)} = option ${opt}` : `${farmDurLabel(sec)} not learned - claim that timer once by hand`,
+        detail: opt != null ? `${farmDurLabel(sec)} = opción ${opt}` : `${farmDurLabel(sec)} sin aprender - recoge ese temporizador una vez a mano`,
       };
     }));
-    out.push(preflightProbe('instant build', () => {
+    out.push(preflightProbe('construcción instantánea', () => {
       const orders = ibOrders() || [];
       const free = orders.filter(o => o.isFree).length;
       const cov = typeof ibTownCoverage === 'function' ? ibTownCoverage() : null;
       const armed = typeof ibArmedAt === 'function' ? ibArmedAt() : 0;
-      const armTxt = armed ? `next arm in ${fmtSec((armed - Date.now()) / 1000)}` : 'no order counting down';
+      const armTxt = armed ? `siguiente armado en ${fmtSec((armed - Date.now()) / 1000)}` : 'ninguna orden en cuenta atrás';
       return {
         ok: true,
         warn: !!(cov && cov.total && cov.readable < cov.total),
-        detail: `${orders.length} orders, ${free} free now, action ${state.ibAction}`
-          + (cov ? `, order queues readable ${cov.readable}/${cov.total} towns` : '')
+        detail: `${orders.length} órdenes, ${free} gratis ahora, acción ${state.ibAction}`
+          + (cov ? `, colas de órdenes legibles en ${cov.readable}/${cov.total} ciudades` : '')
           + `, ${armTxt}`,
       };
     }));
-    out.push(preflightProbe('instant research', () => {
+    out.push(preflightProbe('investigación instantánea', () => {
       const r = (typeof ibResearchOrders === 'function' ? (ibResearchOrders({}) || []) : []);
       return {
         ok: state.ibResearch !== false,
-        detail: `${r.length} research orders, action ${state.ibActionR}${state.ibResearch === false ? ' (OFF)' : ''}`,
+        detail: `${r.length} órdenes de investigación, acción ${state.ibActionR}${state.ibResearch === false ? ' (OFF)' : ''}`,
       };
     }));
-    out.push(preflightProbe('cave', () => {
+    out.push(preflightProbe('cueva', () => {
       const ids = caveListTownIds() || [];
       let withHide = 0, readable = 0;
       ids.forEach(id => {
@@ -10824,123 +10826,123 @@ const STORE = {
       return {
         ok: readable > 0,
         warn: withHide === 0,
-        detail: `${readable}/${ids.length} towns readable, ${withHide} with a hide`,
+        detail: `${readable}/${ids.length} ciudades legibles, ${withHide} con cueva`,
       };
     }));
-    out.push(preflightProbe('trade', () => {
+    out.push(preflightProbe('comercio', () => {
       const t = tradeListTowns() || [];
       const cap = t.filter(x => x.cap > 0).length;
-      return { ok: t.length >= 2, detail: `${t.length} towns, ${cap} with readable capacity` };
+      return { ok: t.length >= 2, detail: `${t.length} ciudades, ${cap} con capacidad legible` };
     }));
-    out.push(preflightProbe('research', () => {
+    out.push(preflightProbe('investigación', () => {
       const ids = (townsFromGame() || []).map(t => t.id);
       const info = ids.length ? researchTownTechs(ids[0]) : null;
       const techMap = info && info.techs ? info.techs : null;
       const n = techMap ? Object.keys(techMap).length : 0;
-      return { ok: n > 0, detail: n ? n + ' techs readable in first town' : 'academy techs unreadable' };
+      return { ok: n > 0, detail: n ? n + ' investigaciones legibles en la primera ciudad' : 'investigaciones de la academia ilegibles' };
     }));
 
-    out.push(preflightProbe('cost reads', () => {
+    out.push(preflightProbe('lectura de costes', () => {
       const ids = (townsFromGame() || []).map(t => t.id);
       const tid = ids[0];
       const parts = [];
       let blind = 0;
       const cap = tid != null ? townResState(tid) : null;
-      if (cap) parts.push('stock+capacity ok');
-      else { parts.push('stock UNREADABLE'); blind++; }
+      if (cap) parts.push('existencias+capacidad ok');
+      else { parts.push('existencias ILEGIBLES'); blind++; }
       const pop = tid != null ? gbTownPop(tid) : null;
-      if (pop != null) parts.push('population ok');
-      else { parts.push('population UNREADABLE'); blind++; }
+      if (pop != null) parts.push('población ok');
+      else { parts.push('población ILEGIBLE'); blind++; }
       const gold = gbPlayerGold();
-      if (gold != null) parts.push('gold ok');
-      else { parts.push('gold UNREADABLE'); blind++; }
+      if (gold != null) parts.push('oro ok');
+      else { parts.push('oro ILEGIBLE'); blind++; }
       const rc = typeof researchCost === 'function' ? researchCost(RESEARCH_CS_FAST[0]) : null;
-      if (rc) parts.push('research costs ok');
-      else { parts.push('research costs UNREADABLE'); blind++; }
+      if (rc) parts.push('costes de investigación ok');
+      else { parts.push('costes de investigación ILEGIBLES'); blind++; }
       const bc = (tid != null && typeof abBuildingCost === 'function') ? abBuildingCost(tid, 'main') : null;
-      if (bc) parts.push('building costs ok');
-      else { parts.push('building costs unreadable (open a build window once)'); blind++; }
+      if (bc) parts.push('costes de construcción ok');
+      else { parts.push('costes de construcción ilegibles (abre una ventana de construcción una vez)'); blind++; }
       return { ok: blind < 5, warn: blind > 0, detail: parts.join(', ') };
     }));
-    out.push(preflightProbe('merchant ship', () => {
+    out.push(preflightProbe('barco mercante', () => {
       const town = typeof ptSalesmanTown === 'function' ? ptSalesmanTown() : null;
       const tpl = !!state.ptTradeTpl;
       const view = !!state.ptViewUrl;
       return {
         ok: true,
         warn: !tpl || !view,
-        detail: (town == null ? 'no ship readable' : 'ship in town ' + town)
-          + (tpl ? ', trade payload learned' : ', trade payload NOT learned (trade once by hand)')
-          + (view ? ', view URL learned' : ', view URL NOT learned (open the window once)'),
+        detail: (town == null ? 'ningún barco legible' : 'barco en la ciudad ' + town)
+          + (tpl ? ', payload de comercio aprendido' : ', payload de comercio SIN aprender (comercia una vez a mano)')
+          + (view ? ', URL de la vista aprendida' : ', URL de la vista SIN aprender (abre la ventana una vez)'),
       };
     }));
-    out.push(preflightProbe('attack', () => ({
+    out.push(preflightProbe('ataque', () => ({
       ok: !!state.attackTpl,
       warn: !state.attackTpl,
-      detail: state.attackTpl ? 'template learned' : 'template NOT learned (send one attack by hand)',
+      detail: state.attackTpl ? 'plantilla aprendida' : 'plantilla SIN aprender (envía un ataque a mano)',
     })));
-    out.push(preflightProbe('cancel', () => {
+    out.push(preflightProbe('cancelar', () => {
       let n = 0;
       try { n = militaryOutgoingMovements().length; } catch (_) {}
       return {
         ok: true,
         warn: !state.cancelTpl && n === 0,
         detail: state.cancelTpl
-          ? `template learned; ${n} cancelable outgoing`
-          : (n ? `${n} cancelable outgoing (hand-cancel once to learn tpl)` : 'no cancelable outgoing; tpl not learned'),
+          ? `plantilla aprendida; ${n} salientes cancelables`
+          : (n ? `${n} salientes cancelables (cancela una a mano para aprender la plantilla)` : 'sin salientes cancelables; plantilla sin aprender'),
       };
     }));
-    out.push(preflightProbe('heroes', () => {
-      if (!heroesEnabled()) return { ok: true, warn: true, detail: 'heroes disabled on this world' };
+    out.push(preflightProbe('héroes', () => {
+      if (!heroesEnabled()) return { ok: true, warn: true, detail: 'héroes desactivados en este mundo' };
       const list = playerHeroesList();
       const acts = state.heroTpl && typeof state.heroTpl === 'object' ? Object.keys(state.heroTpl) : [];
       return {
         ok: list.length > 0 || acts.length > 0,
         warn: list.length === 0,
         detail: list.length
-          ? `${list.length} hero(es); tpl=${acts.join(',') || 'none'}`
-          : 'PlayerHero collection empty (open Council once)',
+          ? `${list.length} héroe(s); tpl=${acts.join(',') || 'ninguna'}`
+          : 'colección PlayerHero vacía (abre el Consejo una vez)',
       };
     }));
-    out.push(preflightProbe('incoming', () => {
+    out.push(preflightProbe('entrantes', () => {
       const mv = (typeof dodgeIncomingMovements === 'function' ? (dodgeIncomingMovements() || []) : []);
-      return { ok: true, detail: `${mv.length} incoming movements visible` };
+      return { ok: true, detail: `${mv.length} movimientos entrantes visibles` };
     }));
-    out.push(preflightProbe('quests', () => {
+    out.push(preflightProbe('misiones', () => {
       const col = mmCol('Progressable') || mmCol('IslandQuest');
       const n = col && col.models ? col.models.length : 0;
-      return { ok: n >= 0, detail: n ? n + ' quest models' : 'no quest collection (open a quest once)' };
+      return { ok: n >= 0, detail: n ? n + ' modelos de misión' : 'sin colección de misiones (abre una misión una vez)' };
     }));
-    out.push(preflightProbe('bandit camp', () => {
+    out.push(preflightProbe('campamento de bandidos', () => {
       let spot = null;
       try { spot = uw.MM && uw.MM.getModelByNameAndPlayerId && uw.MM.getModelByNameAndPlayerId('PlayerAttackSpot'); } catch (_) {}
-      return { ok: !!spot, warn: !spot, detail: spot ? 'attack spot model present' : 'no attack spot on this world' };
+      return { ok: !!spot, warn: !spot, detail: spot ? 'modelo de punto de ataque presente' : 'sin punto de ataque en este mundo' };
     }));
-    out.push(preflightProbe('scheduler', () => {
+    out.push(preflightProbe('planificador', () => {
       const on = orchStatus().filter(s => s.on);
       const idle = on.filter(s => s.idle >= 4).map(s => s.key);
       return {
         ok: true,
-        detail: `${on.length} econ features ON${idle.length ? ', idle-backed-off: ' + idle.join(',') : ''}`,
+        detail: `${on.length} funciones de economía ON${idle.length ? ', frenadas por ociosidad: ' + idle.join(',') : ''}`,
       };
     }));
-    out.push(preflightProbe('guards', () => {
+    out.push(preflightProbe('protecciones', () => {
       const locks = gbLockList();
       const paused = Object.keys(state.captchaBreakers || {}).filter(k => captchaPaused(k));
       const parts = [];
-      if (state.dryRun) parts.push('DRY-RUN ON (bridge/AJAX + DOM clicks blocked)');
-      if (locks.length) parts.push('locks held: ' + locks.join(','));
+      if (state.dryRun) parts.push('SIMULACRO ON (puente/AJAX + clics DOM bloqueados)');
+      if (locks.length) parts.push('cerrojos retenidos: ' + locks.join(','));
       if (paused.length) parts.push('captcha: ' + paused.join(','));
-      if (gbServerPaused()) parts.push('server cooldown ' + fmtSec(Math.round(gbServerCooldownLeftMs() / 1000)));
+      if (gbServerPaused()) parts.push('enfriamiento del servidor ' + fmtSec(Math.round(gbServerCooldownLeftMs() / 1000)));
       const skips = jrnActiveSkips();
-      if (skips.length) parts.push(skips.length + ' memory skip windows');
+      if (skips.length) parts.push(skips.length + ' ventanas de salto en memoria');
       try {
         const last = gbRecall();
-        if (last) parts.push('last decision: ' + last.f + '/' + (last.r || '?'));
+        if (last) parts.push('última decisión: ' + last.f + '/' + (last.r || '?'));
         const recentFails = gbRecallAll().filter(r => r && r.r && r.r !== 'ok' && (Date.now() - r.ts) < 3600000);
-        if (recentFails.length) parts.push(recentFails.length + ' hard fails (1h)');
+        if (recentFails.length) parts.push(recentFails.length + ' fallos duros (1h)');
       } catch (_) {}
-      return { ok: true, warn: parts.length > 0, detail: parts.length ? parts.join(' | ') : 'clear' };
+      return { ok: true, warn: parts.length > 0, detail: parts.length ? parts.join(' | ') : 'todo despejado' };
     }));
     return out;
   }
@@ -10952,7 +10954,7 @@ const STORE = {
     gbLog(`preflight: ${preflightLast.rows.length - bad}/${preflightLast.rows.length} checks pass`);
     preflightLast.rows.forEach(r => gbLog(`  ${r.ok ? (r.warn ? 'WARN' : 'ok  ') : 'FAIL'} ${r.name}: ${r.detail}`));
     renderStats();
-    flash(bad ? `preflight: ${bad} failing` : 'preflight: all pass');
+    flash(bad ? `comprobación: ${bad} fallando` : 'comprobación: todo correcto');
   }
 
   function renderStats() {
@@ -10962,15 +10964,15 @@ const STORE = {
     if (!box) return;
     const st = jrnStats(STATS_WINDOWS[statsWindow] || 86400000);
     const lines = [];
-    lines.push(`window ${statsWindow} | ${st.total} decisions | ${st.attempts} attempts | success ${st.successPct == null ? '-' : st.successPct + '%'}`);
-    lines.push(`ok ${st.ok}  err ${st.err}  captcha ${st.captcha}  timeout ${st.timeout}  skipped ${st.skip}${st.dry ? ` (dry-run ${st.dry})` : ''}`);
+    lines.push(`ventana ${statsWindow} | ${st.total} decisiones | ${st.attempts} intentos | acierto ${st.successPct == null ? '-' : st.successPct + '%'}`);
+    lines.push(`ok ${st.ok}  err ${st.err}  captcha ${st.captcha}  timeout ${st.timeout}  saltados ${st.skip}${st.dry ? ` (simulacro ${st.dry})` : ''}`);
     const claims = jrnCountOk('farm', /claim/i, STATS_WINDOWS[statsWindow] || 86400000);
     const builds = jrnCountOk('build', /Instant|instant/i, STATS_WINDOWS[statsWindow] || 86400000);
-    lines.push(`farm claims ${claims} | instant completions ${builds}`);
+    lines.push(`recogidas de granja ${claims} | completados instantáneos ${builds}`);
     lines.push('');
-    lines.push('feature      ok   err  cap  skip   rate');
+    lines.push('función       ok   err  cap  salt   tasa');
     const feats = Object.keys(st.byFeature).sort();
-    if (!feats.length) lines.push('  (no decisions recorded in this window)');
+    if (!feats.length) lines.push('  (no hay decisiones registradas en esta ventana)');
     feats.forEach(f => {
       const v = st.byFeature[f];
       const att = v.ok + v.err + v.captcha + v.timeout;
@@ -10984,28 +10986,28 @@ const STORE = {
     });
     if (st.topErrors.length) {
       lines.push('');
-      lines.push('top errors');
+      lines.push('errores más frecuentes');
       st.topErrors.forEach(([k, n]) => lines.push(`  ${n}x ${k}`));
     }
     if (st.topSkips.length) {
       lines.push('');
-      lines.push('top skip reasons');
+      lines.push('motivos de salto más frecuentes');
       st.topSkips.forEach(([k, n]) => lines.push(`  ${n}x ${k}`));
     }
     lines.push('');
-    lines.push('scheduler (cadence includes adaptive idle backoff)');
+    lines.push('planificador (la cadencia incluye el frenado adaptativo por ociosidad)');
     orchStatus().filter(s => s.on).forEach(s => {
-      lines.push(`  ${s.key.padEnd(11)} every ${fmtSec(Math.round(s.cadenceMs / 1000)).padEnd(6)} next ${fmtSec(Math.round(s.dueInMs / 1000)).padEnd(6)}${s.idle ? ' idle x' + s.idle : ''}${s.captcha ? ' CAPTCHA' : ''}`);
+      lines.push(`  ${s.key.padEnd(11)} cada ${fmtSec(Math.round(s.cadenceMs / 1000)).padEnd(6)} próx ${fmtSec(Math.round(s.dueInMs / 1000)).padEnd(6)}${s.idle ? ' ocioso x' + s.idle : ''}${s.captcha ? ' CAPTCHA' : ''}`);
     });
     const locks = gbLockList();
     lines.push('');
-    lines.push(`requests last min ${reqBudgetUsed()}/${state.reqBudgetPerMin || 40}` +
-      (gbServerPaused() ? ` | server cooldown ${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}` : '') +
-      (locks.length ? ` | locks ${locks.join(',')}` : '') +
-      (state.dryRun ? ' | DRY-RUN' : ''));
+    lines.push(`peticiones último min ${reqBudgetUsed()}/${state.reqBudgetPerMin || 40}` +
+      (gbServerPaused() ? ` | enfriamiento del servidor ${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}` : '') +
+      (locks.length ? ` | cerrojos ${locks.join(',')}` : '') +
+      (state.dryRun ? ' | SIMULACRO' : ''));
     if (preflightLast) {
       lines.push('');
-      lines.push(`preflight (${new Date(preflightLast.at).toLocaleTimeString()})`);
+      lines.push(`comprobación (${new Date(preflightLast.at).toLocaleTimeString()})`);
       preflightLast.rows.forEach(r => {
         lines.push(`  ${r.ok ? (r.warn ? '!' : '+') : 'x'} ${r.name}: ${r.detail}`);
       });
@@ -11170,14 +11172,14 @@ const STORE = {
   function evidenceCopy() {
     const text = gbEvidenceText();
     const ok = () => {
-      flash('evidence copied');
+      flash('evidencia copiada');
       gbLog('evidence: copied ' + text.length + ' chars');
     };
     const fail = () => {
       console.groupCollapsed('[grepbot] evidence');
       console.log(text);
       console.groupEnd();
-      flash('evidence in console');
+      flash('evidencia en la consola');
       gbLog('evidence: clipboard fail - expand [grepbot] evidence in console');
     };
     try {
@@ -11195,7 +11197,7 @@ const STORE = {
     thead.querySelectorAll('th').forEach((th, col) => {
       if (th.dataset.nosort) return;
       th.style.cursor = 'pointer';
-      th.title = 'sort';
+      th.title = 'ordenar';
       th.addEventListener('click', () => {
         const tbody = table.querySelector('tbody') || table;
         const rows = Array.from(tbody.querySelectorAll('tr'));
@@ -11218,8 +11220,8 @@ const STORE = {
     if (!el) return;
     const sec = farmSleepDuration();
     const known = farmOptionFor(sec) != null;
-    el.textContent = `${farmDurLabel(sec)} | ${known ? 'option ' + farmOptionFor(sec) : 'not learned - click that timer once in game'}` +
-      ` | auto ${state.farmSleepAuto ? 'ON' : 'OFF'}${state.farmSleepDay ? ' | last ' + state.farmSleepDay : ''}`;
+    el.textContent = `${farmDurLabel(sec)} | ${known ? 'opción ' + farmOptionFor(sec) : 'sin aprender - recoge una vez ese temporizador en el juego'}` +
+      ` | auto ${state.farmSleepAuto ? 'ON' : 'OFF'}${state.farmSleepDay ? ' | última ' + state.farmSleepDay : ''}`;
     el.style.color = known ? '#888' : '#fc6';
     try { renderFarmTeachBanner(); } catch (_) {}
   }
@@ -11279,10 +11281,10 @@ const STORE = {
     const list = panel.querySelector('.farms-list');
     if (!list) return;
     if (!state.farmsParsed.length) {
-      if (!list.querySelector('div')) placeholder(list, 'no farms parsed yet - add vill_id lines below');
+      if (!list.querySelector('div')) placeholder(list, 'aún no hay granjas - añade líneas vill_id abajo');
       return;
     }
-    const table = tableShell(list, ['id', 'name', 'W', 'S', 'I', 'pop', 'seen', '']);
+    const table = tableShell(list, ['id', 'nombre', 'Ma', 'Pi', 'Pl', 'pob', 'visto', '']);
     const tbody = table.querySelector('tbody');
 
     const wanted = state.farmsParsed.map(f => String(f.vill_id));
@@ -11301,7 +11303,7 @@ const STORE = {
         cells.forEach(() => tr.appendChild(document.createElement('td')));
         const actions = document.createElement('td');
         const thrBtn = document.createElement('button');
-        thrBtn.textContent = 'THR'; thrBtn.title = 'Set threshold';
+        thrBtn.textContent = 'UMB'; thrBtn.title = 'Fijar umbral';
         thrBtn.style.cssText = 'background:none;border:1px solid #555;color:#fc6;padding:1px 5px;cursor:pointer;font-size:11px';
         thrBtn.addEventListener('click', () => editThreshold(f));
         actions.appendChild(thrBtn);
@@ -11334,8 +11336,8 @@ const STORE = {
       if (r.iron != null) i += r.iron;
       if (r.pop != null) p += r.pop;
     }
-    const head = `${state.towns.length} towns | ${okN} ok`;
-    const res = `Wood ${fmt(w)} | Stone ${fmt(s)} | Iron ${fmt(i)} | Pop ${fmt(p)}`;
+    const head = `${state.towns.length} ciudades | ${okN} ok`;
+    const res = `Madera ${fmt(w)} | Piedra ${fmt(s)} | Plata ${fmt(i)} | Pob ${fmt(p)}`;
     if (head + res !== _worldTotalsLast) {
       _worldTotalsLast = head + res;
       totals.replaceChildren();
@@ -11349,10 +11351,10 @@ const STORE = {
       totals.appendChild(totalsR);
     }
     if (!state.towns.length) {
-      if (!list.querySelector('div')) placeholder(list, 'no towns loaded yet - click Refresh towns');
+      if (!list.querySelector('div')) placeholder(list, 'aún no hay ciudades - pulsa Actualizar ciudades');
       return;
     }
-    const table = tableShell(list, ['id', 'name', 'W', 'S', 'I', 'pop', 'seen']);
+    const table = tableShell(list, ['id', 'nombre', 'Ma', 'Pi', 'Pl', 'pob', 'visto']);
     const tbody = table.querySelector('tbody');
     const wanted = state.towns.map(t => String(t.id));
     const have = new Set(Array.from(tbody.children).map(tr => tr.dataset.key));
@@ -11392,24 +11394,24 @@ const STORE = {
 
   const PANEL_MIN_W = 360, PANEL_MIN_H = 200, PANEL_SQ = 40;
   const TAB_GROUPS = [
-    { id: 'scout', label: 'Scout', tabs: [
-      { id: 'findings', label: 'Findings' },
-      { id: 'farms', label: 'Farms' },
-      { id: 'world', label: 'World' },
+    { id: 'scout', label: 'Explorar', tabs: [
+      { id: 'findings', label: 'Hallazgos' },
+      { id: 'farms', label: 'Granjas' },
+      { id: 'world', label: 'Mundo' },
     ]},
-    { id: 'action', label: 'Action', tabs: [
-      { id: 'attack', label: 'Attack' },
-      { id: 'quests', label: 'Quests' },
-      { id: 'build', label: 'Build' },
+    { id: 'action', label: 'Acción', tabs: [
+      { id: 'attack', label: 'Ataque' },
+      { id: 'quests', label: 'Misiones' },
+      { id: 'build', label: 'Construir' },
     ]},
-    { id: 'account', label: 'Account', tabs: [
-      { id: 'overview', label: 'Overview' },
+    { id: 'account', label: 'Cuenta', tabs: [
+      { id: 'overview', label: 'Resumen' },
       { id: 'intel', label: 'Intel' },
     ]},
-    { id: 'system', label: 'System', tabs: [
+    { id: 'system', label: 'Sistema', tabs: [
       { id: 'config', label: 'Config' },
-      { id: 'stats', label: 'Stats' },
-      { id: 'log', label: 'Log' },
+      { id: 'stats', label: 'Estadísticas' },
+      { id: 'log', label: 'Registro' },
     ]},
   ];
   const TAB_IDS = TAB_GROUPS.reduce((a, g) => { g.tabs.forEach(t => a.push(t.id)); return a; }, []);
@@ -11464,7 +11466,7 @@ const STORE = {
     if (btn) btn.textContent = '_';
     state.panelGeom = null;
     save(STORE.PANEL_GEOM, null);
-    flash('panel reset');
+    flash('panel reiniciado');
   }
 
   function paintNav(activeTab) {
@@ -11664,18 +11666,18 @@ const STORE = {
   document.querySelectorAll('#grepbot-panel').forEach(p => { try { p.remove(); } catch (_) {} });
   panel.style.zIndex = '2147483647';
   panel.innerHTML = `
-    <header><b>GrepBot v${runningVersion()}</b><button data-act="toggle" title="Minimize">_</button></header>
-    <div class="gb-nav" role="tablist" aria-label="GrepBot groups"></div>
-    <div class="gb-subtabs" role="tablist" aria-label="GrepBot tabs"></div>
+    <header><b>GrepBot v${runningVersion()}</b><button data-act="toggle" title="Minimizar">_</button></header>
+    <div class="gb-nav" role="tablist" aria-label="grupos de GrepBot"></div>
+    <div class="gb-subtabs" role="tablist" aria-label="pestañas de GrepBot"></div>
     <section data-tab="findings"></section>
     <section data-tab="farms" hidden>
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
-        <button id="gb-sleep-claim" style="background:#333;border:1px solid #555;color:#8cf;padding:2px 8px;cursor:pointer;font-size:11px">Sleep claim (4h/8h)</button>
+        <button id="gb-sleep-claim" style="background:#333;border:1px solid #555;color:#8cf;padding:2px 8px;cursor:pointer;font-size:11px">Recogida nocturna (4h/8h)</button>
         <span id="gb-sleep-status" style="font-size:10px;color:#888"></span>
       </div>
       <div id="gb-farm-teach-banner" hidden style="font-size:10px;color:#fc6;background:#2a2211;border:1px solid #664;padding:4px 6px;margin-bottom:4px;border-radius:3px"></div>
       <div class="farms-list"></div>
-      <textarea placeholder="vill_id | x y | ETA | notes&#10;12345 | 500 600 | 2h | safe"></textarea>
+      <textarea placeholder="vill_id | x y | ETA | notas&#10;12345 | 500 600 | 2h | segura"></textarea>
     </section>
     <section data-tab="world" hidden>
       <div class="world-totals" style="padding:6px;background:#262626;border-radius:3px;margin-bottom:6px;font-size:11px"></div>
@@ -11683,310 +11685,310 @@ const STORE = {
     </section>
     <section data-tab="attack" hidden>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-        <b style="font-size:11px;color:#f5a623">Attack sync</b>
+        <b style="font-size:11px;color:#f5a623">Sincronización de ataque</b>
         <span id="gb-atk-skew" style="font-size:9px;color:#888"></span>
         <span id="gb-atk-armed" style="font-size:10px;color:#f96;font-weight:bold;margin-left:auto"></span>
       </div>
       <div class="atk-row">
-        <label>target <input data-atk="target" style="width:70px" placeholder="id"/></label>
-        <select data-atk="pick" title="towns from spy reports / recent attacks" style="max-width:130px;background:#111;color:#cfc;border:1px solid #333;font-size:10px"></select>
-        <button type="button" id="gb-atk-current" title="Use city selected in game (map / attack window)" style="background:#333;border:1px solid #555;color:#6cf;padding:1px 6px;cursor:pointer;font-size:10px">Current</button>
+        <label>objetivo <input data-atk="target" style="width:70px" placeholder="id"/></label>
+        <select data-atk="pick" title="ciudades de informes de espionaje / ataques recientes" style="max-width:130px;background:#111;color:#cfc;border:1px solid #333;font-size:10px"></select>
+        <button type="button" id="gb-atk-current" title="Usar la ciudad seleccionada en el juego (mapa / ventana de ataque)" style="background:#333;border:1px solid #555;color:#6cf;padding:1px 6px;cursor:pointer;font-size:10px">Actual</button>
         <label>x <input data-atk="x" style="width:40px"/></label>
         <label>y <input data-atk="y" style="width:40px"/></label>
-        <select data-atk="mission"><option>attack</option><option>support</option><option>raid</option><option>siege</option><option>scout</option><option>revolt</option><option value="portal">olympus portal</option></select>
+        <select data-atk="mission"><option value="attack">ataque</option><option value="support">apoyo</option><option value="raid">saqueo</option><option value="siege">asedio</option><option value="scout">espionaje</option><option value="revolt">revuelta</option><option value="portal">portal del olimpo</option></select>
       </div>
       <div id="gb-atk-target-hint" style="font-size:9px;color:#888;margin:-2px 0 4px"></div>
       <div class="atk-row atk-arrival-row">
-        <select data-atk="timing"><option value="send_now">send now</option><option value="arrive_at">arrive at</option></select>
-        <label>date <input data-atk="arrival-date" type="date" title="arrival date (local)"/></label>
-        <label>time <input data-atk="arrival-time" type="time" step="1" title="arrival time (local, seconds)"/></label>
-        <label>pad ms <input data-atk="pad" type="number" style="width:50px" value="200"/></label>
+        <select data-atk="timing"><option value="send_now">enviar ya</option><option value="arrive_at">llegar a las</option></select>
+        <label>fecha <input data-atk="arrival-date" type="date" title="fecha de llegada (local)"/></label>
+        <label>hora <input data-atk="arrival-time" type="time" step="1" title="hora de llegada (local, segundos)"/></label>
+        <label>margen ms <input data-atk="pad" type="number" style="width:50px" value="200"/></label>
       </div>
       <div class="atk-row">
         <select data-atk="troop">
-          <option value="offense">offense</option>
-          <option value="defense">defense</option>
-          <option value="all">all troops</option>
-          <option value="all_of_type">all of type</option>
-          <option value="harass">harass</option>
-          <option value="per_town">per town edit</option>
+          <option value="offense">ofensivas</option>
+          <option value="defense">defensivas</option>
+          <option value="all">todas las tropas</option>
+          <option value="all_of_type">todas de un tipo</option>
+          <option value="harass">hostigar</option>
+          <option value="per_town">editar por ciudad</option>
         </select>
-        <label style="display:flex;align-items:center;gap:3px">unit
-          <select data-atk="unit-type" title="only used when troop mode is 'all of type'"></select>
+        <label style="display:flex;align-items:center;gap:3px">unidad
+          <select data-atk="unit-type" title="solo se usa cuando el modo de tropas es 'todas de un tipo'"></select>
         </label>
       </div>
       <div class="atk-harass" style="display:flex;gap:4px;flex-wrap:wrap;margin:4px 0">
-        <span style="font-size:9px;color:#888;align-self:center">harass</span>
-        <button type="button" data-harass="1sling" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">1 sling</button>
-        <button type="button" data-harass="5sling" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">5 sling</button>
-        <button type="button" data-harass="light" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">light (<=8)</button>
+        <span style="font-size:9px;color:#888;align-self:center">hostigar</span>
+        <button type="button" data-harass="1sling" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">1 hondero</button>
+        <button type="button" data-harass="5sling" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">5 honderos</button>
+        <button type="button" data-harass="light" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">ligero (<=8)</button>
       </div>
-      <div style="font-size:9px;color:#888;margin-top:2px">offensive / defensive cities (saved per world)</div>
+      <div style="font-size:9px;color:#888;margin-top:2px">ciudades ofensivas / defensivas (guardado por mundo)</div>
       <div class="atk-roles"></div>
       <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:4px">
-        <span style="font-size:9px;color:#888">attack from</span>
-        <button type="button" id="gb-atk-src-all" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">All</button>
-        <button type="button" id="gb-atk-src-none" style="background:#333;border:1px solid #555;color:#888;padding:1px 6px;cursor:pointer;font-size:10px">None</button>
-        <button type="button" id="gb-atk-src-off" style="background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px">Offense</button>
-        <button type="button" id="gb-atk-src-def" style="background:#333;border:1px solid #555;color:#6cf;padding:1px 6px;cursor:pointer;font-size:10px">Defense</button>
+        <span style="font-size:9px;color:#888">atacar desde</span>
+        <button type="button" id="gb-atk-src-all" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">Todas</button>
+        <button type="button" id="gb-atk-src-none" style="background:#333;border:1px solid #555;color:#888;padding:1px 6px;cursor:pointer;font-size:10px">Ninguna</button>
+        <button type="button" id="gb-atk-src-off" style="background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px">Ofensivas</button>
+        <button type="button" id="gb-atk-src-def" style="background:#333;border:1px solid #555;color:#6cf;padding:1px 6px;cursor:pointer;font-size:10px">Defensivas</button>
       </div>
       <div class="atk-sources"></div>
       <div class="atk-pertown" hidden></div>
       <div class="atk-btns" style="margin-top:6px">
-        <button id="gb-atk-preview">Preview</button>
-        <button id="gb-atk-arm">Arm</button>
-        <button id="gb-atk-cancel">Cancel</button>
-        <button id="gb-atk-now">Send now</button>
+        <button id="gb-atk-preview">Vista previa</button>
+        <button id="gb-atk-arm">Armar</button>
+        <button id="gb-atk-cancel">Cancelar</button>
+        <button id="gb-atk-now">Enviar ya</button>
       </div>
       <div class="atk-sched"></div>
       <div style="border-top:1px solid #333;margin:8px 0 4px;padding-top:6px;display:flex;align-items:center;gap:6px">
-        <b style="font-size:11px;color:#f5a623">Outgoing (cancel)</b>
-        <button type="button" id="gb-atk-cmds-refresh" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px;margin-left:auto">Refresh</button>
+        <b style="font-size:11px;color:#f5a623">Salientes (cancelar)</b>
+        <button type="button" id="gb-atk-cmds-refresh" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px;margin-left:auto">Actualizar</button>
       </div>
       <div class="atk-cmds" style="max-height:120px;overflow:auto"></div>
       <div style="border-top:1px solid #333;margin:8px 0 4px;padding-top:6px;display:flex;align-items:center;gap:6px">
-        <b style="font-size:11px;color:#f5a623">Heroes</b>
-        <button type="button" id="gb-atk-heroes-refresh" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px;margin-left:auto">Refresh</button>
+        <b style="font-size:11px;color:#f5a623">Héroes</b>
+        <button type="button" id="gb-atk-heroes-refresh" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px;margin-left:auto">Actualizar</button>
       </div>
       <div class="atk-heroes" style="max-height:160px;overflow:auto"></div>
     </section>
     <section data-tab="quests" hidden>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-        <b style="font-size:11px;color:#f5a623">Quests</b>
-        <button id="gb-quest-scan" style="background:#333;border:1px solid #555;color:#eee;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;margin-left:auto">Scan now</button>
+        <b style="font-size:11px;color:#f5a623">Misiones</b>
+        <button id="gb-quest-scan" style="background:#333;border:1px solid #555;color:#eee;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;margin-left:auto">Escanear ya</button>
       </div>
       <div class="quest-list"></div>
-      <div style="font-size:9px;color:#888;margin-top:6px">history</div>
+      <div style="font-size:9px;color:#888;margin-top:6px">historial</div>
       <div class="quest-hist"></div>
     </section>
     <section data-tab="build" hidden>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
-        <span id="gb-ib-dot" class="ib-dot"></span><b style="font-size:11px;color:#f5a623">Instant build</b>
+        <span id="gb-ib-dot" class="ib-dot"></span><b style="font-size:11px;color:#f5a623">Construcción instantánea</b>
         <span style="flex:1"></span>
-        <button id="gb-ib-btn">Complete all free</button>
+        <button id="gb-ib-btn">Completar todo lo gratis</button>
       </div>
       <div class="ib-rows"></div>
       <div id="gb-ib-status" style="font-size:10px;color:#888;margin-top:4px"></div>
       <div style="border-top:1px solid #333;margin:8px 0 6px;padding-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-        <b style="font-size:11px;color:#f5a623">Auto-queue</b>
+        <b style="font-size:11px;color:#f5a623">Cola automática</b>
         <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:10px"><input type="checkbox" id="gb-ab-auto"/> ON</label>
-        <button id="gb-ab-csfast" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Load CS-fast</button>
-        <button id="gb-ab-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Queue now</button>
+        <button id="gb-ab-csfast" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Cargar CS-rápido</button>
+        <button id="gb-ab-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Encolar ya</button>
       </div>
-      <div style="font-size:9px;color:#888;margin-bottom:4px">Auto only fills when <=1 order left: adds up to 6 (or queue max). Next fill waits half(build time)+5min+rand - not right when a build finishes. Targets = cur/tgt/max.</div>
-      <div style="font-size:10px;color:#f5a623;margin:4px 0 2px">Next 3 <span style="color:#666;font-weight:normal">(custom queue first, then heuristic)</span></div>
+      <div style="font-size:9px;color:#888;margin-bottom:4px">El modo automático solo rellena cuando queda <=1 orden: añade hasta 6 (o el máximo de la cola). El siguiente relleno espera mitad(tiempo de construcción)+5min+azar, no justo al terminar una construcción. Objetivos = actual/objetivo/máximo.</div>
+      <div style="font-size:10px;color:#f5a623;margin:4px 0 2px">Próximas 3 <span style="color:#666;font-weight:normal">(primero la cola personalizada, luego la heurística)</span></div>
       <div class="ab-plan"></div>
       <div style="border-top:1px solid #333;margin:8px 0 4px;padding-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-        <b style="font-size:11px;color:#f5a623">Custom queue</b>
+        <b style="font-size:11px;color:#f5a623">Cola personalizada</b>
         <span id="gb-cq-town" style="font-size:10px;color:#888"></span>
         <span style="flex:1"></span>
-        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:10px" title="Strict: wait for the head entry instead of building past it"><input type="checkbox" id="gb-cq-strict"/> strict</label>
-        <button id="gb-cq-copy" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Copy to all</button>
-        <button id="gb-cq-clear" style="background:#333;border:1px solid #555;color:#f08080;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Clear</button>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:10px" title="Estricto: espera a la primera entrada en vez de construir saltándola"><input type="checkbox" id="gb-cq-strict"/> estricto</label>
+        <button id="gb-cq-copy" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Copiar a todas</button>
+        <button id="gb-cq-clear" style="background:#333;border:1px solid #555;color:#f08080;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Vaciar</button>
       </div>
       <div class="cq-rows"></div>
       <div style="display:flex;align-items:center;gap:4px;margin:4px 0">
         <select id="gb-cq-b" style="background:#111;color:#cfc;border:1px solid #333;font:10px monospace"></select>
         <input id="gb-cq-lvl" type="number" min="1" style="width:48px;background:#111;color:#cfc;border:1px solid #333;font:10px monospace"/>
-        <button id="gb-cq-add" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Add</button>
-        <span style="font-size:9px;color:#888">ordered - built top-down, then heuristic</span>
+        <button id="gb-cq-add" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Añadir</button>
+        <span style="font-size:9px;color:#888">ordenada - se construye de arriba abajo, luego la heurística</span>
       </div>
       <div class="ab-queue"></div>
       <div id="gb-ab-status" style="font-size:10px;color:#888;margin-top:4px"></div>
     </section>
     <section data-tab="overview" hidden>
-      <div style="font-size:11px;color:#f5a623;margin-bottom:4px">Account overview</div>
+      <div style="font-size:11px;color:#f5a623;margin-bottom:4px">Resumen de la cuenta</div>
       <pre class="overview-panel" style="font-size:10px;white-space:pre-wrap;background:#111;padding:6px;border:1px solid #333;max-height:280px;overflow:auto;color:#cfc"></pre>
       <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
-        <input id="gb-tpl-name" placeholder="template name" style="width:100px;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
-        <button id="gb-tpl-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Save template</button>
-        <button id="gb-tpl-apply" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Apply template</button>
-        <button id="gb-cfg-export" style="background:#333;border:1px solid #555;color:#9d9;padding:2px 6px;cursor:pointer;font-size:10px">Export config</button>
-        <button id="gb-cfg-import" style="background:#333;border:1px solid #555;color:#fc6;padding:2px 6px;cursor:pointer;font-size:10px">Import config</button>
+        <input id="gb-tpl-name" placeholder="nombre de plantilla" style="width:100px;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
+        <button id="gb-tpl-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Guardar plantilla</button>
+        <button id="gb-tpl-apply" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Aplicar plantilla</button>
+        <button id="gb-cfg-export" style="background:#333;border:1px solid #555;color:#9d9;padding:2px 6px;cursor:pointer;font-size:10px">Exportar config</button>
+        <button id="gb-cfg-import" style="background:#333;border:1px solid #555;color:#fc6;padding:2px 6px;cursor:pointer;font-size:10px">Importar config</button>
       </div>
     </section>
     <section data-tab="intel" hidden>
-      <div style="font-size:11px;color:#f5a623;margin-bottom:4px">Intel / threats</div>
+      <div style="font-size:11px;color:#f5a623;margin-bottom:4px">Intel / amenazas</div>
       <pre class="intel-panel" style="font-size:10px;white-space:pre-wrap;background:#111;padding:6px;border:1px solid #333;max-height:280px;overflow:auto;color:#cfc"></pre>
       <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <input id="gb-note-player" placeholder="player" style="width:80px;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
-        <input id="gb-note-text" placeholder="note" maxlength="200" style="flex:1;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
-        <button id="gb-note-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Save note</button>
+        <input id="gb-note-player" placeholder="jugador" style="width:80px;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
+        <input id="gb-note-text" placeholder="nota" maxlength="200" style="flex:1;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
+        <button id="gb-note-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Guardar nota</button>
       </div>
       <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <input id="gb-ally-name" placeholder="alliance" style="width:80px;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
-        <input id="gb-ally-note" placeholder="alliance note" maxlength="200" style="flex:1;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
-        <button id="gb-ally-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Save ally note</button>
+        <input id="gb-ally-name" placeholder="alianza" style="width:80px;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
+        <input id="gb-ally-note" placeholder="nota de alianza" maxlength="200" style="flex:1;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
+        <button id="gb-ally-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Guardar nota de alianza</button>
       </div>
     </section>
     <section data-tab="config" hidden>
       <div class="config-panel" style="font-size:11px;display:flex;flex-direction:column;gap:8px">
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="enabled-host"/> Enable on <span class="cfg-host"></span></label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-collect"/> Auto-collect Recoger (DOM)</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="collect-all"/> Recolect all (ignore timer cap)</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-bandit"/> Auto-bandit</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-farm"/> Auto-farm</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-skip-full"/> Skip farm/bandit if warehouse full</label>
-        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Warehouse full mode
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="enabled-host"/> Activar en <span class="cfg-host"></span></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-collect"/> Auto-recoger botón Recoger (DOM)</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="collect-all"/> Recoger todo (ignorar límite de temporizador)</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-bandit"/> Auto-bandidos</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-farm"/> Auto-granjas</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-skip-full"/> Saltar granja/bandidos si el almacén está lleno</label>
+        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Modo de almacén lleno
           <select data-cfg="farm-full-mode" style="background:#111;color:#cfc;border:1px solid #333;margin-left:6px">
-            <option value="any">any 1 resource full</option>
-            <option value="all">all 3 resources full</option>
+            <option value="any">1 recurso lleno</option>
+            <option value="all">los 3 recursos llenos</option>
           </select>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-long-claims"/> 10min claims where villager loyalty researched</label>
-        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Loyalty tech key
-          <input data-cfg="farm-loyalty-tech" placeholder="auto-detect (server id or label)" title="Server research id (e.g. rural_loyalty) or the localized academy name. Log tab dumps id(label) pairs when auto-detect misses." style="width:190px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-long-claims"/> Recogidas de 10min donde esté investigada la lealtad de aldeanos</label>
+        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Clave de la investigación de lealtad
+          <input data-cfg="farm-loyalty-tech" placeholder="auto-detectar (id del servidor o nombre)" title="Id de investigación del servidor (p.ej. rural_loyalty) o el nombre localizado de la academia. La pestaña Registro vuelca pares id(nombre) cuando falla la auto-detección." style="width:190px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Sleep claim length
+        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Duración de la recogida nocturna
           <select data-cfg="farm-sleep-dur" style="background:#111;color:#cfc;border:1px solid #333;margin-left:6px">
-            <option value="auto">auto (8h if known, else 4h)</option>
+            <option value="auto">auto (8h si se conoce, si no 4h)</option>
             <option value="14400">4 h</option>
             <option value="28800">8 h</option>
           </select>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-sleep-auto"/> Auto sleep claim (once/day, must end before 24:00)</label>
-        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Sleep claim max warehouse fill %
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-sleep-auto"/> Recogida nocturna automática (1/día, debe acabar antes de las 24:00)</label>
+        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Llenado máximo del almacén para la recogida nocturna %
           <input type="number" data-cfg="farm-sleep-fill" min="10" max="95" style="width:60px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
         </label>
         <div id="gb-farm-optmap" style="margin-left:12px;font-size:10px;color:#888"></div>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-build"/> Instant free builds</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="instant-research"/> Instant free research (academy)</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-queue"/> Auto-queue builds</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-build"/> Auto-claim quest build discount</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-res"/> Auto-claim quest resources/favor</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-cave"/> Auto-cave (stash excess iron)</label>
-        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Cave when iron >= % of warehouse
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-build"/> Construcciones instantáneas gratis</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="instant-research"/> Investigación instantánea gratis (academia)</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-queue"/> Encolar construcciones automáticamente</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-build"/> Reclamar auto. el descuento de construcción de misiones</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-res"/> Reclamar auto. recursos/favor de misiones</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-cave"/> Auto-cueva (guardar plata sobrante)</label>
+        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Cueva cuando la plata >= % del almacén
           <input type="number" data-cfg="cave-thresh" min="50" max="99" style="width:50px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
         </label>
-        <div style="margin-left:12px;font-size:10px;color:#888">Per-town (unchecked = skip that town):</div>
+        <div style="margin-left:12px;font-size:10px;color:#888">Por ciudad (sin marcar = saltar esa ciudad):</div>
         <div class="cave-towns" style="display:flex;flex-direction:column;gap:2px;max-height:120px;overflow:auto"></div>
-        <div style="border-top:1px solid #333;padding-top:6px;color:#f5a623;font-size:10px">Phase 8+ economy</div>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-culture"/> Auto-culture</label>
+        <div style="border-top:1px solid #333;padding-top:6px;color:#f5a623;font-size:10px">Economía (fase 8+)</div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-culture"/> Auto-cultura</label>
         <label style="margin-left:12px;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">
-          <label><input type="checkbox" data-cfg="cult-festival"/> festival</label>
-          <label><input type="checkbox" data-cfg="cult-procession"/> procession</label>
-          <label><input type="checkbox" data-cfg="cult-theater"/> theater</label>
-          <label><input type="checkbox" data-cfg="cult-olympic"/> olympic</label>
+          <label><input type="checkbox" data-cfg="cult-festival"/> fiesta</label>
+          <label><input type="checkbox" data-cfg="cult-procession"/> procesión</label>
+          <label><input type="checkbox" data-cfg="cult-theater"/> teatro</label>
+          <label><input type="checkbox" data-cfg="cult-olympic"/> juegos olímpicos</label>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px;color:#f96"><input type="checkbox" data-cfg="allow-premium-culture"/> Allow premium culture (olympic = 50 gold)</label>
-        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Olympic daily gold budget
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px;color:#f96"><input type="checkbox" data-cfg="allow-premium-culture"/> Permitir cultura de pago (olímpicos = 50 oro)</label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Presupuesto diario de oro para olímpicos
           <input type="number" data-cfg="culture-gold-budget" min="0" max="500" step="50" style="width:60px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-trade"/> Inter-city trade (Fill Storage)</label>
-        <label style="margin-left:12px;flex-wrap:wrap">Preset
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-trade"/> Comercio entre ciudades (llenar almacén)</label>
+        <label style="margin-left:12px;flex-wrap:wrap">Preajuste
           <select data-cfg="trade-preset" style="background:#111;color:#cfc;border:1px solid #333;margin-left:4px">
-            <option value="storage">storage</option>
-            <option value="party">party (fund culture)</option>
-            <option value="unit">unit (fund recruit)</option>
+            <option value="storage">almacén</option>
+            <option value="party">fiesta (financiar cultura)</option>
+            <option value="unit">unidades (financiar reclutamiento)</option>
           </select>
-          Reserve % <input type="number" data-cfg="trade-reserve" min="0" max="80" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
-          Min batch <input type="number" data-cfg="trade-min" min="100" max="50000" step="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
-          Max island hops <input type="number" data-cfg="trade-max-hops" min="0" max="200" step="1" title="Refuse fill-storage across islands farther than this (0 = same-island only). Unreadable island never blocks." style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          Reserva % <input type="number" data-cfg="trade-reserve" min="0" max="80" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          Lote mínimo <input type="number" data-cfg="trade-min" min="100" max="50000" step="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
+          Saltos máx. entre islas <input type="number" data-cfg="trade-max-hops" min="0" max="200" step="1" title="Rechaza llenar almacén entre islas más lejanas que esto (0 = solo la misma isla). Una isla ilegible nunca bloquea." style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="island-ship"/> Mainland->island res ship</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-trade"/> Rural village trade</label>
-        <label style="margin-left:12px;flex-wrap:wrap">Min ratio <input type="number" data-cfg="rural-ratio" step="0.25" min="0.25" max="2" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>
-          Res <select data-cfg="rural-res" style="background:#111;color:#cfc;border:1px solid #333"><option>iron</option><option>stone</option><option>wood</option></select>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="island-ship"/> Envío de recursos continente-&gt;isla</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-trade"/> Comercio con aldeas de granjeros</label>
+        <label style="margin-left:12px;flex-wrap:wrap">Ratio mínimo <input type="number" data-cfg="rural-ratio" step="0.25" min="0.25" max="2" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>
+          Recurso <select data-cfg="rural-res" style="background:#111;color:#cfc;border:1px solid #333"><option value="iron">plata</option><option value="stone">piedra</option><option value="wood">madera</option></select>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-level"/> Farm village upgrade</label>
-        <label style="margin-left:12px">Max level <input type="number" data-cfg="rural-level-max" min="1" max="6" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-research"/> Auto-research</label>
-        <button data-cfg="research-csfast" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Load CS-fast research</button>
-        <div style="border-top:1px solid #333;padding-top:6px;color:#f5a623;font-size:10px">QoL / survival</div>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="pause-activity"/> Pause when I am active</label>
-        <label style="margin-left:12px">Pause min <input type="number" data-cfg="pause-ms" min="1" max="60" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="night-pause"/> Night pause</label>
-        <label style="margin-left:12px">Hours <input type="number" data-cfg="night-start" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/>-<input type="number" data-cfg="night-end" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Log every payload the bot would send and send nothing. Use it to compare bot payloads against a hand-clicked action before enabling a risky feature."><input type="checkbox" data-cfg="dry-run"/> <b style="color:#6cf">Dry run (log payloads, send nothing)</b></label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="A feature that keeps finding nothing to do doubles its own interval (up to 8x) until it acts again."><input type="checkbox" data-cfg="orch-adaptive"/> Adaptive cadence (back off idle features)</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="When a warehouse is pinned full, promote cave→trade→rural ahead of farm and suppress idle backoff on the drain path."><input type="checkbox" data-cfg="orch-deadlock"/> Warehouse deadlock resolve</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Copy/Export replace player names and ids with short hashes. Turn OFF only for local debugging."><input type="checkbox" data-cfg="export-redact"/> Redact names/ids in Copy + Export</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="captcha-global"/> Global captcha kill-switch</label>
-        <label>Captcha backoff (min) <input type="text" data-cfg="captcha-ladder" placeholder="5,15,60" title="Comma-separated minutes; min 1 each. Floor prevents disabling the breaker." style="width:100px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
-        <button type="button" data-cfg="captcha-clear" style="align-self:flex-start;background:#333;border:1px solid #555;color:#fc6;padding:2px 6px;cursor:pointer;font-size:10px">Clear captcha pauses</button>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Skip an action that failed the same way 3x in a row (5/15/60min backoff). Journal keeps recording either way."><input type="checkbox" data-cfg="decision-memory"/> Decision memory (skip repeat failures)</label>
-        <label>Req budget / min <input type="number" data-cfg="req-budget" min="5" max="120" style="width:50px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
-          Soft % <input type="number" data-cfg="posts-soft" min="20" max="95" title="Delay (not reject) when trailing-minute posts exceed this % of the hard budget" style="width:45px;background:#111;color:#cfc;border:1px solid #333;margin-left:4px"/></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-level"/> Mejora de aldeas de granjeros</label>
+        <label style="margin-left:12px">Nivel máx. <input type="number" data-cfg="rural-level-max" min="1" max="6" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-research"/> Auto-investigación</label>
+        <button data-cfg="research-csfast" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Cargar investigación CS-rápido</button>
+        <div style="border-top:1px solid #333;padding-top:6px;color:#f5a623;font-size:10px">Comodidad / supervivencia</div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="pause-activity"/> Pausar cuando yo esté activo</label>
+        <label style="margin-left:12px">Min. de pausa <input type="number" data-cfg="pause-ms" min="1" max="60" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="night-pause"/> Pausa nocturna</label>
+        <label style="margin-left:12px">Horas <input type="number" data-cfg="night-start" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/>-<input type="number" data-cfg="night-end" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Registra cada payload que el bot enviaría y no envía nada. Úsalo para comparar los payloads del bot con una acción hecha a mano antes de activar una función arriesgada."><input type="checkbox" data-cfg="dry-run"/> <b style="color:#6cf">Simulacro (registra payloads, no envía nada)</b></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Una función que no encuentra nada que hacer duplica su propio intervalo (hasta 8x) hasta que vuelve a actuar."><input type="checkbox" data-cfg="orch-adaptive"/> Cadencia adaptativa (frenar funciones ociosas)</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Cuando un almacén se queda lleno, adelanta cueva→comercio→aldeas por delante de la granja y desactiva el frenado por ociosidad en esa ruta de vaciado."><input type="checkbox" data-cfg="orch-deadlock"/> Resolver atasco de almacén</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Copiar/Exportar sustituyen nombres e ids de jugadores por hashes cortos. Desactívalo solo para depurar en local."><input type="checkbox" data-cfg="export-redact"/> Ocultar nombres/ids en Copiar + Exportar</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="captcha-global"/> Parada total global por captcha</label>
+        <label>Espera tras captcha (min) <input type="text" data-cfg="captcha-ladder" placeholder="5,15,60" title="Minutos separados por comas; mínimo 1 cada uno. El mínimo impide desactivar el cortacircuitos." style="width:100px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
+        <button type="button" data-cfg="captcha-clear" style="align-self:flex-start;background:#333;border:1px solid #555;color:#fc6;padding:2px 6px;cursor:pointer;font-size:10px">Limpiar pausas por captcha</button>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Salta una acción que ha fallado igual 3 veces seguidas (espera 5/15/60min). El diario sigue registrando igualmente."><input type="checkbox" data-cfg="decision-memory"/> Memoria de decisiones (saltar fallos repetidos)</label>
+        <label>Presupuesto de peticiones / min <input type="number" data-cfg="req-budget" min="5" max="120" style="width:50px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
+          Umbral blando % <input type="number" data-cfg="posts-soft" min="20" max="95" title="Retrasa (no rechaza) cuando los envíos del último minuto superan este % del presupuesto duro" style="width:45px;background:#111;color:#cfc;border:1px solid #333;margin-left:4px"/></label>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:10px">
-          Presets
-          <button type="button" data-preset="afk" style="background:#333;border:1px solid #555;color:#8cf;padding:2px 6px;cursor:pointer">AFK overnight</button>
-          <button type="button" data-preset="farm" style="background:#333;border:1px solid #555;color:#8cf;padding:2px 6px;cursor:pointer">Active farming</button>
-          <button type="button" data-preset="war" style="background:#333;border:1px solid #555;color:#fc6;padding:2px 6px;cursor:pointer">War</button>
-          <button type="button" data-preset="undo" style="background:#333;border:1px solid #555;color:#aaa;padding:2px 6px;cursor:pointer">Undo preset</button>
+          Preajustes
+          <button type="button" data-preset="afk" style="background:#333;border:1px solid #555;color:#8cf;padding:2px 6px;cursor:pointer">AFK nocturno</button>
+          <button type="button" data-preset="farm" style="background:#333;border:1px solid #555;color:#8cf;padding:2px 6px;cursor:pointer">Granjeo activo</button>
+          <button type="button" data-preset="war" style="background:#333;border:1px solid #555;color:#fc6;padding:2px 6px;cursor:pointer">Guerra</button>
+          <button type="button" data-preset="undo" style="background:#333;border:1px solid #555;color:#aaa;padding:2px 6px;cursor:pointer">Deshacer preajuste</button>
         </div>
-        <button type="button" data-cfg="storage-prune" style="align-self:flex-start;background:#333;border:1px solid #555;color:#fc6;padding:2px 6px;cursor:pointer;font-size:10px">Prune seen/alerted (storage)</button>
-        <label>Webhook URL <input type="text" data-cfg="webhook-url" placeholder="Discord webhook or https://api.telegram.org/bot.../sendMessage" style="width:100%;background:#111;color:#cfc;border:1px solid #333;margin-top:2px;font-size:10px"/></label>
-        <label style="margin-left:0;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">Events
+        <button type="button" data-cfg="storage-prune" style="align-self:flex-start;background:#333;border:1px solid #555;color:#fc6;padding:2px 6px;cursor:pointer;font-size:10px">Purgar vistos/alertados (almacenamiento)</button>
+        <label>URL del webhook <input type="text" data-cfg="webhook-url" placeholder="webhook de Discord o https://api.telegram.org/bot.../sendMessage" style="width:100%;background:#111;color:#cfc;border:1px solid #333;margin-top:2px;font-size:10px"/></label>
+        <label style="margin-left:0;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">Eventos
           <label><input type="checkbox" data-cfg="wh-captcha"/> captcha</label>
-          <label><input type="checkbox" data-cfg="wh-attack"/> attack</label>
-          <label><input type="checkbox" data-cfg="wh-pattern"/> pattern (3×/24h)</label>
-          <label><input type="checkbox" data-cfg="wh-warehouse"/> warehouse</label>
-          <label><input type="checkbox" data-cfg="wh-culture"/> culture</label>
+          <label><input type="checkbox" data-cfg="wh-attack"/> ataque</label>
+          <label><input type="checkbox" data-cfg="wh-pattern"/> patrón (3×/24h)</label>
+          <label><input type="checkbox" data-cfg="wh-warehouse"/> almacén</label>
+          <label><input type="checkbox" data-cfg="wh-culture"/> cultura</label>
         </label>
-        <label>Telegram chat_id <input type="text" data-cfg="wh-tg-chat" placeholder="optional if not in URL" style="width:140px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px;font-size:10px"/></label>
-        <div style="border-top:1px solid #333;padding-top:6px;color:#f96;font-size:10px">HIGH RISK (default OFF)</div>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-merchant"/> Merchant sniper</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Merchant ship resource offers open at 0.5:1 and gain +0.1 per trade. Pump with 1-unit trades, then send the bulk trade at 1:1."><input type="checkbox" data-cfg="auto-pt-trade"/> Merchant ship ratio pump</label>
-        <label style="margin-left:12px;font-size:10px">target ratio <input type="number" step="0.1" min="0.5" max="2" data-cfg="pt-ratio" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
-          pump amt <input type="number" min="1" max="100" data-cfg="pt-pump" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
-          max pumps <input type="number" min="0" max="20" data-cfg="pt-maxpumps" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
-          reserve % <input type="number" min="0" max="90" data-cfg="pt-reserve" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
+        <label>chat_id de Telegram <input type="text" data-cfg="wh-tg-chat" placeholder="opcional si no está en la URL" style="width:140px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px;font-size:10px"/></label>
+        <div style="border-top:1px solid #333;padding-top:6px;color:#f96;font-size:10px">ALTO RIESGO (por defecto OFF)</div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-merchant"/> Francotirador del mercader</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Las ofertas de recursos del barco mercante empiezan en 0.5:1 y suben +0.1 por trato. Bombea con tratos de 1 unidad y luego envía el trato grande a 1:1."><input type="checkbox" data-cfg="auto-pt-trade"/> Bombeo del ratio del barco mercante</label>
+        <label style="margin-left:12px;font-size:10px">ratio objetivo <input type="number" step="0.1" min="0.5" max="2" data-cfg="pt-ratio" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
+          cantidad de bombeo <input type="number" min="1" max="100" data-cfg="pt-pump" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
+          bombeos máx. <input type="number" min="0" max="20" data-cfg="pt-maxpumps" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
+          reserva % <input type="number" min="0" max="90" data-cfg="pt-reserve" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
-        <label style="margin-left:12px;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">receive
-          <label><input type="checkbox" data-cfg="pt-want-wood"/> wood</label>
-          <label><input type="checkbox" data-cfg="pt-want-stone"/> stone</label>
-          <label><input type="checkbox" data-cfg="pt-want-iron"/> silver</label>
+        <label style="margin-left:12px;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">recibir
+          <label><input type="checkbox" data-cfg="pt-want-wood"/> madera</label>
+          <label><input type="checkbox" data-cfg="pt-want-stone"/> piedra</label>
+          <label><input type="checkbox" data-cfg="pt-want-iron"/> plata</label>
         </label>
         <div style="margin-left:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           <span id="gb-pt-status" style="font-size:10px;color:#888"></span>
-          <button data-cfg="pt-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Pump + trade now</button>
-          <button data-cfg="pt-copy" title="Copy the open merchant window markup - needed once to confirm the offer parser" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Copy offer HTML</button>
+          <button data-cfg="pt-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Bombear + comerciar ya</button>
+          <button data-cfg="pt-copy" title="Copia el HTML de la ventana del mercader abierta - hace falta una vez para confirmar el analizador de ofertas" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Copiar HTML de la oferta</button>
         </div>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-favor"/> Favor farm (godsent)</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-wonder"/> WW donations</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Spend favor on alliance wonder. Requires sniffed wonderFavorTpl. Default OFF."><input type="checkbox" data-cfg="auto-wonder-favor"/> WW favor cast (sniff power first)</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="cs-alert"/> CS / incoming alerts</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-militia"/> Auto-militia on incoming</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-dodge"/> Auto-dodge</label>
-        <label style="margin-left:12px">Mode <select data-cfg="dodge-mode" style="background:#111;color:#cfc;border:1px solid #333"><option value="notify">notify only</option><option value="auto">auto send</option></select>
-          Floor <input type="number" data-cfg="dodge-floor" min="0" max="500" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-favor"/> Granjeo de favor (enviado divino)</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-wonder"/> Donaciones a la Maravilla</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Gasta favor en la maravilla de la alianza. Requiere haber capturado wonderFavorTpl. Por defecto OFF."><input type="checkbox" data-cfg="auto-wonder-favor"/> Lanzar favor en la Maravilla (captura el poder antes)</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="cs-alert"/> Alertas de BC / ataques entrantes</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-militia"/> Auto-milicia ante ataques entrantes</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-dodge"/> Auto-esquiva</label>
+        <label style="margin-left:12px">Modo <select data-cfg="dodge-mode" style="background:#111;color:#cfc;border:1px solid #333"><option value="notify">solo avisar</option><option value="auto">enviar auto.</option></select>
+          Mínimo <input type="number" data-cfg="dodge-floor" min="0" max="500" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-recruit"/> Auto-recruit</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="recruit-spells"/> Cast recruit spells first</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="grepodata"/> Grepodata Index+ assist</label>
-        <label>IB free threshold (sec) <input type="number" data-cfg="ib-free-thresh" min="60" max="600" style="width:70px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
-        <label>Collect max min <input type="number" data-cfg="collect-max-min" min="1" max="120" style="width:70px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
-        <label>Farm cadence min-max (min) <input type="number" data-cfg="farm-min" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> - <input type="number" data-cfg="farm-max" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
-        <label>Town cadence min-max (min) <input type="number" data-cfg="town-min" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> - <input type="number" data-cfg="town-max" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
-        <button data-cfg="clear-captcha" style="align-self:flex-start;background:#333;border:1px solid #555;color:#f96;padding:3px 8px;cursor:pointer;font-size:11px">Clear captcha breakers</button>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-recruit"/> Auto-reclutamiento</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="recruit-spells"/> Lanzar primero hechizos de reclutamiento</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="grepodata"/> Asistencia de Grepodata Index+</label>
+        <label>Umbral de construcción instantánea gratis (seg) <input type="number" data-cfg="ib-free-thresh" min="60" max="600" style="width:70px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
+        <label>Minutos máx. para recoger <input type="number" data-cfg="collect-max-min" min="1" max="120" style="width:70px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
+        <label>Cadencia de granjas mín-máx (min) <input type="number" data-cfg="farm-min" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> - <input type="number" data-cfg="farm-max" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
+        <label>Cadencia de ciudades mín-máx (min) <input type="number" data-cfg="town-min" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> - <input type="number" data-cfg="town-max" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
+        <button data-cfg="clear-captcha" style="align-self:flex-start;background:#333;border:1px solid #555;color:#f96;padding:3px 8px;cursor:pointer;font-size:11px">Limpiar cortacircuitos de captcha</button>
       </div>
     </section>
     <section data-tab="stats" hidden>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">
-        <b style="font-size:11px;color:#f5a623">Stats</b>
+        <b style="font-size:11px;color:#f5a623">Estadísticas</b>
         <button data-stats="1h" style="background:#262626;border:1px solid #333;color:#aaa;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">1h</button>
         <button data-stats="24h" class="on" style="background:#333;border:1px solid #555;color:#fff;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">24h</button>
         <button data-stats="7d" style="background:#262626;border:1px solid #333;color:#aaa;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">7d</button>
         <span style="flex:1"></span>
-        <button id="gb-preflight" title="Read-only probe of every module: collections, learned action keys, would-be payloads. Sends nothing." style="background:#333;border:1px solid #555;color:#6cf;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">Preflight</button>
+        <button id="gb-preflight" title="Sondeo de solo lectura de cada módulo: colecciones, claves de acción aprendidas, payloads hipotéticos. No envía nada." style="background:#333;border:1px solid #555;color:#6cf;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">Comprobación</button>
       </div>
       <pre class="stats-body" style="font-size:10px;white-space:pre-wrap;background:#111;padding:6px;border:1px solid #333;max-height:320px;overflow:auto;color:#cfc"></pre>
     </section>
     <section data-tab="log" hidden>
       <div class="gb-logsub">
-        <button data-logsub="live" class="on">Live log</button>
-        <button data-logsub="mem">Decisions</button>
-        <button type="button" data-act="evidence" title="Read-only redacted snapshot for TASKS gates. Copies JSON. Posts nothing.">Evidence</button>
-        <input class="jrn-filter" placeholder="filter feature/action/target"/>
+        <button data-logsub="live" class="on">Registro en vivo</button>
+        <button data-logsub="mem">Decisiones</button>
+        <button type="button" data-act="evidence" title="Instantánea de solo lectura y anonimizada para las validaciones de TASKS. Copia JSON. No envía nada.">Evidencia</button>
+        <input class="jrn-filter" placeholder="filtrar función/acción/objetivo"/>
       </div>
       <div class="log-list"></div>
       <div class="jrn-pane" hidden>
         <div class="jrn-head"></div>
         <div class="jrn-list"></div>
         <div class="jrn-btns">
-          <button data-jrn="copy">Copy JSON</button>
-          <button data-jrn="clear-skips">Clear skips</button>
-          <button data-jrn="clear">Clear journal</button>
+          <button data-jrn="copy">Copiar JSON</button>
+          <button data-jrn="clear-skips">Limpiar saltos</button>
+          <button data-jrn="clear">Vaciar diario</button>
         </div>
       </div>
     </section>
@@ -11999,18 +12001,18 @@ const STORE = {
         <span id="gb-status" style="color:#888"></span>
       </div>
       <details class="gb-actions">
-        <summary>Actions</summary>
+        <summary>Acciones</summary>
         <div class="gb-actions-menu">
-          <button type="button" data-act="copy">Copy JSON</button>
-          <button type="button" data-act="export">Export</button>
-          <button type="button" data-act="refresh">Refresh towns</button>
-          <button type="button" data-act="scrape-farms">Farms now</button>
-          <button type="button" data-act="scrape-towns">Towns now</button>
+          <button type="button" data-act="copy">Copiar JSON</button>
+          <button type="button" data-act="export">Exportar</button>
+          <button type="button" data-act="refresh">Actualizar ciudades</button>
+          <button type="button" data-act="scrape-farms">Granjas ya</button>
+          <button type="button" data-act="scrape-towns">Ciudades ya</button>
           <button type="button" data-act="diag">Diag</button>
-          <button type="button" data-act="evidence" title="Read-only redacted snapshot for TASKS gates">Evidence</button>
-          <button type="button" data-act="preflight">Preflight</button>
-          <button type="button" data-act="clear">Clear findings</button>
-          <button type="button" data-act="reset-pos" title="Reset panel position">Reset position</button>
+          <button type="button" data-act="evidence" title="Instantánea de solo lectura y anonimizada para las validaciones de TASKS">Evidencia</button>
+          <button type="button" data-act="preflight">Comprobación</button>
+          <button type="button" data-act="clear">Borrar hallazgos</button>
+          <button type="button" data-act="reset-pos" title="Restablecer la posición del panel">Restablecer posición</button>
         </div>
       </details>
     </footer>
@@ -12020,7 +12022,7 @@ const STORE = {
     const h = document.createElement('div');
     h.className = 'gb-resize gb-resize-' + dir;
     h.dataset.dir = dir;
-    h.title = 'Resize';
+    h.title = 'Redimensionar';
     panel.appendChild(h);
   });
   applyPanelGeom(state.panelGeom);
@@ -12070,14 +12072,14 @@ const STORE = {
   panel.querySelector('.jrn-filter')?.addEventListener('input', () => journalFilterDebounced());
   panel.querySelector('[data-jrn=copy]')?.addEventListener('click', () => {
     const text = JSON.stringify({ decisions: state.decisions, skips: state.decisionSkips }, null, 2);
-    navigator.clipboard.writeText(text).then(() => flash('journal copied')).catch(() => flash('copy failed'));
+    navigator.clipboard.writeText(text).then(() => flash('diario copiado')).catch(() => flash('fallo al copiar'));
   });
   panel.querySelector('[data-jrn=clear-skips]')?.addEventListener('click', () => {
     jrnClearSkips();
     renderJournal();
   });
   panel.querySelector('[data-jrn=clear]')?.addEventListener('click', () => {
-    if (!confirm('Clear the decision journal for ' + location.host + '?')) return;
+    if (!confirm('¿Vaciar el diario de decisiones de ' + location.host + '?')) return;
     jrnClear();
     renderJournal();
   });
@@ -12092,25 +12094,25 @@ const STORE = {
   });
   panel.querySelector('#gb-cfg-export')?.addEventListener('click', () => {
     const text = JSON.stringify(qolExportConfig(), null, 2);
-    navigator.clipboard.writeText(text).then(() => flash('config copied')).catch(() => flash('copy failed'));
+    navigator.clipboard.writeText(text).then(() => flash('config copiada')).catch(() => flash('fallo al copiar'));
   });
   panel.querySelector('#gb-cfg-import')?.addEventListener('click', () => {
-    const raw = prompt('Paste GrepBot config JSON');
+    const raw = prompt('Pega el JSON de configuración de GrepBot');
     if (!raw) return;
     try {
-      if (qolImportConfig(JSON.parse(raw))) flash('config imported');
-      else flash('import failed');
-    } catch (e) { flash('bad JSON'); }
+      if (qolImportConfig(JSON.parse(raw))) flash('config importada');
+      else flash('fallo al importar');
+    } catch (e) { flash('JSON inválido'); }
   });
   panel.querySelector('#gb-note-save')?.addEventListener('click', () => {
     const p = panel.querySelector('#gb-note-player')?.value?.trim();
     const n = panel.querySelector('#gb-note-text')?.value?.trim();
-    if (p) { intelSetNote(p, n); renderIntel(); flash('note saved'); }
+    if (p) { intelSetNote(p, n); renderIntel(); flash('nota guardada'); }
   });
   panel.querySelector('#gb-ally-save')?.addEventListener('click', () => {
     const a = panel.querySelector('#gb-ally-name')?.value?.trim();
     const n = panel.querySelector('#gb-ally-note')?.value?.trim();
-    if (a) { intelSetAllianceNote(a, n); renderIntel(); flash('alliance note saved'); }
+    if (a) { intelSetAllianceNote(a, n); renderIntel(); flash('nota de alianza guardada'); }
   });
   panel.querySelector('#gb-quest-scan')?.addEventListener('click', () => {
     questScanTick('manual');
@@ -12141,7 +12143,7 @@ const STORE = {
     }
     const btn = panel.querySelector('header button[data-act=toggle]');
     btn.textContent = panel.classList.contains('collapsed') ? '[]' : '_';
-    btn.title = panel.classList.contains('collapsed') ? 'Restore' : 'Minimize';
+    btn.title = panel.classList.contains('collapsed') ? 'Restaurar' : 'Minimizar';
     savePanelGeom();
   });
   panel.querySelector('#gb-ib-btn').addEventListener('click', () => {
@@ -12155,7 +12157,7 @@ const STORE = {
     if (state.abAuto) abScan('toggle');
     renderAbQueue();
   });
-  panel.querySelector('#gb-ab-csfast')?.addEventListener('click', () => { abLoadCsFast(); flash('CS-fast targets'); });
+  panel.querySelector('#gb-ab-csfast')?.addEventListener('click', () => { abLoadCsFast(); flash('objetivos CS-rápido'); });
   panel.querySelector('#gb-cq-b')?.addEventListener('change', () => renderCqRows());
   panel.querySelector('#gb-cq-strict')?.addEventListener('change', e => {
     state.abQueueStrict = e.target.checked;
@@ -12164,7 +12166,7 @@ const STORE = {
   });
   panel.querySelector('#gb-cq-add')?.addEventListener('click', () => {
     const townId = abCurrentTownId() || abTownIds()[0];
-    if (!townId) { flash('no town'); return; }
+    if (!townId) { flash('sin ciudad'); return; }
     const b = panel.querySelector('#gb-cq-b')?.value;
     const lvlEl = panel.querySelector('#gb-cq-lvl');
     const lvl = lvlEl && lvlEl.value !== '' ? +lvlEl.value : null;
@@ -12183,11 +12185,11 @@ const STORE = {
     const townId = abCurrentTownId() || abTownIds()[0];
     if (!townId) return;
     const list = abCqGet(townId);
-    if (!list.length) { flash('queue empty'); return; }
-    if (!confirm(`Copy this ${list.length}-entry queue to ALL towns? Existing custom queues are replaced.`)) return;
+    if (!list.length) { flash('cola vacía'); return; }
+    if (!confirm(`¿Copiar esta cola de ${list.length} entradas a TODAS las ciudades? Se reemplazan las colas personalizadas existentes.`)) return;
     abTownIds().forEach(id => { if (String(id) !== String(townId)) abCqSet(id, list.map(e => ({ b: e.b, lvl: e.lvl }))); });
     gbLog(`auto-queue: custom queue copied to ${abTownIds().length} town(s)`);
-    flash('queue copied');
+    flash('cola copiada');
   });
   panel.querySelector('#gb-ab-now')?.addEventListener('click', () => {
     const was = state.abAuto;
@@ -12201,15 +12203,15 @@ const STORE = {
     const dump = redactFindingsExport({ findings: state.findings, farms: state.farms });
     const text = JSON.stringify(dump, null, 2);
     navigator.clipboard.writeText(text)
-      .then(() => flash('copied'))
+      .then(() => flash('copiado'))
       .catch(() => {
         try {
           const ta = document.createElement('textarea');
           ta.value = text; document.body.appendChild(ta); ta.select();
           const ok = document.execCommand('copy');
           ta.remove();
-          flash(ok ? 'copied' : 'copy failed');
-        } catch (_) { flash('copy failed'); }
+          flash(ok ? 'copiado' : 'fallo al copiar');
+        } catch (_) { flash('fallo al copiar'); }
       });
   });
   panel.querySelector('footer button[data-act=export]').addEventListener('click', () => {
@@ -12221,7 +12223,7 @@ const STORE = {
     a.click();
   });
   panel.querySelector('footer button[data-act=clear]').addEventListener('click', () => {
-    if (!confirm('Clear all findings?')) return;
+    if (!confirm('¿Borrar todos los hallazgos?')) return;
     state.findings = []; state.seen = {}; seenThisRun.clear();
     save(STORE.FINDINGS, state.findings); save(STORE.SEEN, state.seen);
     renderFindings();
@@ -12237,7 +12239,7 @@ const STORE = {
     preflightRunAndRender();
   });
   panel.querySelector('footer button[data-act=scrape-farms]').addEventListener('click', () => {
-    flash('farm scrape...');
+    flash('leyendo granjas...');
     gbLog('manual: Farms now pressed');
     state.nextFarmScrape = 0;
     save(STORE.NEXT_FARM, 0);
@@ -12249,7 +12251,7 @@ const STORE = {
     renderSleepStatus();
   });
   panel.querySelector('footer button[data-act=scrape-towns]').addEventListener('click', () => {
-    flash('towns scrape...');
+    flash('leyendo ciudades...');
     state.nextTownsScrape = 0;
     save(STORE.NEXT_TOWNS, 0);
     farmTick();
@@ -12264,8 +12266,8 @@ const STORE = {
     const sf = sec.querySelector('[data-cfg=farm-sleep-fill]'); if (sf) sf.value = state.farmSleepFillPct;
     const om = sec.querySelector('#gb-farm-optmap');
     if (om) {
-      om.textContent = 'learned claim options: ' + farmOptionMapText() +
-        ' (claim a timer by hand in game to teach the rest)';
+      om.textContent = 'opciones de recogida aprendidas: ' + farmOptionMapText() +
+        ' (recoge un temporizador a mano en el juego para enseñar el resto)';
     }
   }
   function bindConfig() {
@@ -12323,15 +12325,15 @@ const STORE = {
     sec.querySelector('[data-cfg=enabled-host]')?.addEventListener('change', e => {
       state.enabledHosts[location.host] = e.target.checked;
       save(STORE.ENABLED_HOSTS, state.enabledHosts);
-      flash(e.target.checked ? 'enabled on ' + location.host : 'disabled on ' + location.host);
+      flash(e.target.checked ? 'activado en ' + location.host : 'desactivado en ' + location.host);
     });
     sec.querySelector('[data-cfg=auto-collect]')?.addEventListener('change', e => {
       state.autoCollect = e.target.checked; save(STORE.AUTO_COLLECT, state.autoCollect);
-      flash(state.autoCollect ? 'auto-collect ON' : 'auto-collect OFF');
+      flash(state.autoCollect ? 'auto-recoger ON' : 'auto-recoger OFF');
     });
     sec.querySelector('[data-cfg=collect-all]')?.addEventListener('change', e => {
       state.collectAll = e.target.checked; save(STORE.COLLECT_ALL, state.collectAll);
-      flash(state.collectAll ? 'collect-all ON' : 'collect-all OFF');
+      flash(state.collectAll ? 'recoger-todo ON' : 'recoger-todo OFF');
       if (state.collectAll) collectAllBackground();
     });
     sec.querySelector('[data-cfg=auto-bandit]')?.addEventListener('change', e => {
@@ -12503,7 +12505,7 @@ const STORE = {
     sec.querySelector('[data-cfg=dry-run]')?.addEventListener('change', e => {
       state.dryRun = e.target.checked; save(STORE.DRY_RUN, state.dryRun);
       gbLog('DRY RUN ' + (state.dryRun ? 'ON - payloads logged, DOM clicks blocked' : 'OFF - posts go to the server'));
-      flash(state.dryRun ? 'dry run ON' : 'dry run OFF');
+      flash(state.dryRun ? 'simulacro ON' : 'simulacro OFF');
       updateStatus();
     });
     bindToggle('[data-cfg=auto-merchant]', 'autoMerchant', STORE.AUTO_MERCHANT, () => merchantScan('toggle'));
@@ -12528,18 +12530,18 @@ const STORE = {
       sec.querySelector('[data-cfg=' + k + ']')?.addEventListener('change', savePtWant);
     });
     sec.querySelector('[data-cfg=pt-now]')?.addEventListener('click', () => {
-      if (!state.ptTradeTpl) { flash('trade once by hand first'); return; }
-      if (!confirm('Pump the merchant ship ratio and send the bulk trade now?')) return;
+      if (!state.ptTradeTpl) { flash('comercia una vez a mano primero'); return; }
+      if (!confirm('¿Bombear el ratio del barco mercante y enviar ahora el trato grande?')) return;
       const was = state.autoPtTrade;
       if (!was) { state.autoPtTrade = true; save(STORE.AUTO_PT_TRADE, true); }
       ptTradeScan('manual');
     });
     sec.querySelector('[data-cfg=pt-copy]')?.addEventListener('click', () => {
       const root = typeof ptWindowRoot === 'function' ? ptWindowRoot() : null;
-      if (!root) { flash('open the merchant window first'); return; }
+      if (!root) { flash('abre primero la ventana del mercader'); return; }
       navigator.clipboard.writeText(root.innerHTML.slice(0, 20000))
-        .then(() => flash('offer HTML copied'))
-        .catch(() => flash('copy failed'));
+        .then(() => flash('HTML de la oferta copiado'))
+        .catch(() => flash('fallo al copiar'));
     });
     bindToggle('[data-cfg=auto-favor]', 'autoFavor', STORE.AUTO_FAVOR, () => favorScan('toggle'));
     bindToggle('[data-cfg=auto-wonder]', 'autoWonder', STORE.AUTO_WONDER, () => wonderScan('toggle'));
@@ -12578,15 +12580,15 @@ const STORE = {
     });
     sec.querySelector('[data-cfg=captcha-ladder]')?.addEventListener('change', e => {
       const parts = String(e.target.value || '').split(/[,;\s]+/).map(x => Math.max(1, Math.min(24 * 60, +x || 0))).filter(n => n >= 1);
-      if (parts.length < 1) { flash('ladder needs ≥1 value'); return; }
+      if (parts.length < 1) { flash('la escalera necesita ≥1 valor'); return; }
       if (parts.some(n => n < 2)) gbLog('captcha ladder: values <2min are aggressive');
       state.captchaLadder = parts;
       save(STORE.CAPTCHA_LADDER, parts);
-      flash('captcha ladder ' + parts.join(','));
+      flash('escalera de captcha ' + parts.join(','));
     });
     sec.querySelector('[data-cfg=captcha-clear]')?.addEventListener('click', () => {
       captchaClear();
-      flash('captcha pauses cleared');
+      flash('pausas por captcha limpiadas');
       updateStatus();
     });
     sec.querySelector('[data-cfg=storage-prune]')?.addEventListener('click', () => {
@@ -12601,7 +12603,7 @@ const STORE = {
       aks.forEach(k => { if ((state.alerted[k] || 0) < cut) delete state.alerted[k]; });
       save(STORE.ALERTED, state.alerted);
       const after = JSON.stringify(state.seen || {}).length + JSON.stringify(state.alerted || {}).length;
-      flash('pruned ~' + Math.max(0, before - after) + 'B');
+      flash('purgados ~' + Math.max(0, before - after) + 'B');
       gbLog('storage prune: seen=' + Object.keys(state.seen).length + ' alerted=' + Object.keys(state.alerted).length);
     });
     bindToggle('[data-cfg=auto-wonder-favor]', 'autoWonderFavor', STORE.AUTO_WONDER_FAVOR);
@@ -12610,11 +12612,11 @@ const STORE = {
       btn.addEventListener('click', () => {
         const kind = btn.dataset.preset;
         if (kind === 'undo') {
-          if (!_presetUndo) { flash('nothing to undo'); return; }
+          if (!_presetUndo) { flash('nada que deshacer'); return; }
           Object.keys(_presetUndo).forEach(k => { state[k] = _presetUndo[k]; });
           _presetUndo = null;
           bindConfig();
-          flash('preset undone');
+          flash('preajuste deshecho');
           return;
         }
         const presets = {
@@ -12643,7 +12645,7 @@ const STORE = {
         if (!patch) return;
         const keys = Object.keys(patch);
         const diff = keys.map(k => `${k}: ${state[k]}→${patch[k]}`).join(', ');
-        if (!confirm('Apply ' + kind + ' preset?\n' + diff + '\n\nHIGH-RISK stays OFF. dryRun/hosts untouched.')) return;
+        if (!confirm('¿Aplicar el preajuste ' + kind + '?\n' + diff + '\n\nLo de ALTO RIESGO sigue OFF. simulacro/hosts sin tocar.')) return;
         _presetUndo = {};
         keys.forEach(k => { _presetUndo[k] = state[k]; state[k] = patch[k]; });
 
@@ -12666,7 +12668,7 @@ const STORE = {
           save(STORE.FARM_LONG_CLAIMS, state.farmLongClaims);
         } catch (_) {}
         bindConfig();
-        flash('preset ' + kind + ' applied');
+        flash('preajuste ' + kind + ' aplicado');
         gbLog('preset: ' + kind + ' (' + keys.length + ' keys)');
       });
     });
@@ -12710,7 +12712,7 @@ const STORE = {
       state.tradeMaxHops = Math.max(0, Math.min(200, v)); save(STORE.TRADE_MAX_HOPS, state.tradeMaxHops);
     });
     sec.querySelector('[data-cfg=research-csfast]')?.addEventListener('click', () => {
-      researchLoadCsFast(); flash('CS-fast research');
+      researchLoadCsFast(); flash('investigación CS-rápido');
     });
     saveNum('[data-cfg=cave-thresh]', v => {
       state.caveThreshPct = Math.min(99, Math.max(50, v || 90));
@@ -12730,7 +12732,7 @@ const STORE = {
     sec.querySelector('[data-cfg=clear-captcha]')?.addEventListener('click', () => {
       captchaClear();
       gbLog('captcha breakers cleared by user');
-      flash('captcha breakers cleared');
+      flash('cortacircuitos de captcha limpiados');
     });
     renderCaveTowns();
   }
@@ -12844,7 +12846,7 @@ const STORE = {
     const filt = document.createElement('div');
     filt.className = 'findings-filter';
     filt.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap';
-    filt.innerHTML = '<input data-f="type" placeholder="type filter" style="flex:1;min-width:60px;background:#111;color:#cfc;border:1px solid #333;padding:2px 4px;font:11px monospace"/><input data-f="attacker" placeholder="attacker filter" style="flex:1;min-width:60px;background:#111;color:#cfc;border:1px solid #333;padding:2px 4px;font:11px monospace"/>';
+    filt.innerHTML = '<input data-f="type" placeholder="filtrar tipo" style="flex:1;min-width:60px;background:#111;color:#cfc;border:1px solid #333;padding:2px 4px;font:11px monospace"/><input data-f="attacker" placeholder="filtrar atacante" style="flex:1;min-width:60px;background:#111;color:#cfc;border:1px solid #333;padding:2px 4px;font:11px monospace"/>';
     filt.querySelectorAll('input').forEach(inp => {
       inp.value = state.findingsFilter[inp.dataset.f] || '';
       inp.addEventListener('input', () => {
@@ -12881,7 +12883,7 @@ const STORE = {
     if (!slice.length) {
       const empty = document.createElement('div');
       empty.style.cssText = 'color:#888;padding:10px';
-      empty.textContent = state.findings.length ? 'no matches' : 'no findings yet - visit inbox';
+      empty.textContent = state.findings.length ? 'sin coincidencias' : 'aún no hay hallazgos - abre el buzón';
       list.appendChild(empty);
       return;
     }
@@ -12893,7 +12895,7 @@ const STORE = {
       meta.className = 'meta';
       const when = new Date(f.ts).toLocaleTimeString();
       const target = f.town?.id != null
-        ? `${f.town.name || 'town'} #${f.town.id}`
+        ? `${f.town.name || 'ciudad'} #${f.town.id}`
         : `t#${f.town?.id || '?'}`;
       const coord = (f.town?.x != null) ? ` (${f.town.x}|${f.town.y})` : '';
       meta.textContent = `#${f.id} | ${when} | ${f.type} | ${target}${coord}`;
@@ -12918,21 +12920,21 @@ const STORE = {
         actions.style.cssText = 'margin-top:3px';
         const atkBtn = document.createElement('button');
         atkBtn.type = 'button';
-        atkBtn.textContent = '-> Attack';
-        atkBtn.title = `Use town #${f.town.id} as attack target`;
+        atkBtn.textContent = '-> Atacar';
+        atkBtn.title = `Usar la ciudad #${f.town.id} como objetivo de ataque`;
         atkBtn.style.cssText = 'background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px';
         atkBtn.addEventListener('click', () => prepareAttack(Object.assign({ kind: 'town' }, f.town)));
         actions.appendChild(atkBtn);
         const copyBtn = document.createElement('button');
         copyBtn.type = 'button';
-        copyBtn.textContent = 'Copy id';
-        copyBtn.title = 'Copy town id to clipboard';
+        copyBtn.textContent = 'Copiar id';
+        copyBtn.title = 'Copiar el id de la ciudad al portapapeles';
         copyBtn.style.cssText = 'background:#333;border:1px solid #555;color:#9cf;padding:1px 6px;cursor:pointer;font-size:10px;margin-left:4px';
         copyBtn.addEventListener('click', () => {
           const id = String(f.town.id);
           try {
             navigator.clipboard.writeText(id);
-            flash('copied ' + id);
+            flash('copiado ' + id);
           } catch (_) {
             flash('id: ' + id);
           }
@@ -12955,9 +12957,9 @@ const STORE = {
     if (head) {
       head.textContent = '';
       head.appendChild(document.createTextNode(
-        `${state.decisions.length} decisions  |  memory ${state.decisionMemory === false ? 'OFF' : 'ON'}  |  `));
+        `${state.decisions.length} decisiones  |  memoria ${state.decisionMemory === false ? 'OFF' : 'ON'}  |  `));
       const b = document.createElement('b');
-      b.textContent = `${skips.length} skipping`;
+      b.textContent = `${skips.length} saltando`;
       head.appendChild(b);
       if (skips.length) {
         const soonest = skips.slice().sort((a, b2) => a.until - b2.until)[0];
@@ -12969,7 +12971,7 @@ const STORE = {
       (r.f + ' ' + r.a + ' ' + r.k + ' ' + r.r).toLowerCase().includes(q)).slice(-120).reverse();
     list.textContent = '';
     if (!rows.length) {
-      list.textContent = q ? '(no match)' : '(nothing recorded yet)';
+      list.textContent = q ? '(sin coincidencias)' : '(aún no hay nada registrado)';
       return;
     }
     const table = document.createElement('table');
@@ -13071,11 +13073,11 @@ const STORE = {
           const ago = Math.max(0, Math.round((Date.now() - r.ts) / 1000));
           const agoTxt = ago < 60 ? ago + 's' : (ago < 3600 ? Math.round(ago / 60) + 'm' : Math.round(ago / 3600) + 'h');
           const act = String(r.a || '').slice(0, 18);
-          chip = `${r.f}: ${act} OK ${agoTxt} ago`;
+          chip = `${r.f}: ${act} OK hace ${agoTxt}`;
           la.style.color = ago > 900 && hostEnabled() && !pauseInfo.reason ? '#fc6' : '#8c8';
           break;
         }
-        if (!chip && state.dryRun) chip = 'DRY (no live OK)';
+        if (!chip && state.dryRun) chip = 'DRY (sin OK real)';
       } catch (_) {}
       if (chip !== (_statusLastAction || '')) {
         _statusLastAction = chip;
@@ -13084,7 +13086,7 @@ const STORE = {
     }
     const cs = panel.querySelector('#gb-collect-state');
     if (cs) {
-      const csTxt = pauseInfo.reason ? `paused:${pauseInfo.reason}` : '';
+      const csTxt = pauseInfo.reason ? `pausa:${pauseInfo.reason}` : '';
       if (csTxt !== _statusCsLast) {
         _statusCsLast = csTxt;
         cs.textContent = csTxt;
@@ -13098,14 +13100,14 @@ const STORE = {
     const te = panel.querySelector('#gb-next-towns');
     if (fe) {
       const t = state.nextFarmScrape
-        ? `~ farms: ${fmtSec(Math.max(0, Math.round((state.nextFarmScrape - Date.now()) / 1000)))}`
-        : '~ farms: -';
+        ? `~ granjas: ${fmtSec(Math.max(0, Math.round((state.nextFarmScrape - Date.now()) / 1000)))}`
+        : '~ granjas: -';
       if (t !== _timerFarmLast) { _timerFarmLast = t; fe.textContent = t; }
     }
     if (te) {
       const t = state.nextTownsScrape
-        ? `~ towns: ${fmtSec(Math.max(0, Math.round((state.nextTownsScrape - Date.now()) / 1000)))}`
-        : '~ towns: -';
+        ? `~ ciudades: ${fmtSec(Math.max(0, Math.round((state.nextTownsScrape - Date.now()) / 1000)))}`
+        : '~ ciudades: -';
       if (t !== _timerTownLast) { _timerTownLast = t; te.textContent = t; }
     }
   }
@@ -13175,11 +13177,11 @@ const STORE = {
       console.log(report);
       console.groupEnd();
       const okFlash = () => {
-        flash('diag copied');
+        flash('diag copiado');
         gbLog('diag: copied ' + farms.length + ' farms, csrf=' + (state.csrf ? 'yes' : 'NO'));
       };
       const failFlash = () => {
-        flash('diag ready - paste from console');
+        flash('diag listo - pégalo desde la consola');
         gbLog('diag: clipboard fail - expand [grepbot] diag in console');
       };
       const tryExecCopy = () => {
@@ -13237,7 +13239,7 @@ const STORE = {
     seenCount = 0;
     save(STORE.SEEN, state.seen); scrapeInboxDom();
   });
-  gbMenu('GrepBot: clear captcha', () => { captchaClear(); flash('captcha cleared'); });
+  gbMenu('GrepBot: limpiar captcha', () => { captchaClear(); flash('captcha limpiado'); });
 
   function ensurePanelMounted() {
     if (!panel) return;

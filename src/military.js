@@ -106,7 +106,7 @@
     plan.harassPreset = String(preset || 'light');
     plan.mission = plan.mission || 'attack';
     saveAttackPlan();
-    flash('harass preset: ' + plan.harassPreset + ' (confirm Send now)');
+    flash('preajuste de hostigamiento: ' + plan.harassPreset + ' (confirma con Enviar ya)');
     gbLog('attack: harass preset ' + plan.harassPreset);
     return plan;
   }

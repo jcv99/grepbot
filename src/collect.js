@@ -73,21 +73,21 @@
       if (gbDomClick(btn, 'collect')) clicked++;
     }
     updateCollectStateBadge(scanned, clicked);
-    if (clicked) { gbLog(`auto-collect: clicked ${clicked}/${scanned} Recoger buttons`); flash(`auto-collect x${clicked}`); }
+    if (clicked) { gbLog(`auto-collect: clicked ${clicked}/${scanned} Recoger buttons`); flash(`auto-recoger x${clicked}`); }
     else if (scanned > 0) gbLogT('collect-skip', 120000, `auto-collect: 0/${scanned} clickable`, skipped.slice(0, 4).join(', '));
   }
   function updateCollectStateBadge(scanned, clicked) {
     const e = panel?.querySelector('#gb-collect-state');
     if (!e) return;
     if (state.collectAll) {
-      e.textContent = `* ALL ON (${scanned}/${clicked})`;
+      e.textContent = `* TODO ON (${scanned}/${clicked})`;
       e.style.color = '#f96';
     } else if (scanned > 0) {
       e.textContent = `auto: ${clicked}/${scanned}`;
       e.style.color = clicked ? '#6c6' : '#888';
     } else {
       const a = state.collectTpl && state.collectTpl.match(/action=([^&]+)/);
-      e.textContent = state.collectTpl ? '* learn:' + (a ? a[1] : '?') : 'no btn';
+      e.textContent = state.collectTpl ? '* aprendido:' + (a ? a[1] : '?') : 'sin botón';
       e.style.color = '#888';
     }
   }
@@ -146,17 +146,17 @@
           if (err && err !== 'dryrun' && err !== 'disabled' && err !== 'paused' && err !== 'budget' && err !== 'remembered') {
             errors++;
             if (err !== 'captcha' && err !== 'captcha-pause') {
-              flash(`collect ${t.name || t.id}: ${err}`);
+              flash(`recoger ${t.name || t.id}: ${err}`);
             }
           } else if (!err && res && (res.error || res.err)) {
             errors++;
-            flash(`collect ${t.name || t.id}: ${res.error || res.err}`);
+            flash(`recoger ${t.name || t.id}: ${res.error || res.err}`);
           }
           finish();
         });
       }, i * 400);
     });
-    flash(`bg-collect x${n}`);
+    flash(`recoger-fondo x${n}`);
   }
   let collectTimer = null;
   function scheduleAutoCollect() {
