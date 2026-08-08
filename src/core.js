@@ -807,6 +807,12 @@ const STORE = {
     }
     return n;
   }
+  // Whole live ring buffer as text (the pane only paints the last 80 lines).
+  // ISO stamps, not toLocaleTimeString - this text gets pasted into issues.
+  function gbLogText() {
+    const lines = logBuf.slice(logHead);
+    return lines.map(l => new Date(l.ts).toISOString() + ' ' + l.msg).join('\n');
+  }
   // DOM rewrite is deferred + skipped while the Log tab is hidden: gbLog fires
   // per line (hot loops) and rewriting 80 lines of textContent each time is waste
   let logRenderQueued = false;

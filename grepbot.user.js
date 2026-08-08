@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      1.6.3
+// @version      1.6.4
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -796,6 +796,11 @@ const STORE = {
       if (!keep.has(String(k))) { delete map[k]; n++; }
     }
     return n;
+  }
+
+  function gbLogText() {
+    const lines = logBuf.slice(logHead);
+    return lines.map(l => new Date(l.ts).toISOString() + ' ' + l.msg).join('\n');
   }
 
   let logRenderQueued = false;
@@ -12003,6 +12008,7 @@ const STORE = {
       <div class="gb-logsub">
         <button data-logsub="live" class="on">Registro en vivo</button>
         <button data-logsub="mem">Decisiones</button>
+        <button type="button" data-act="copy-log" title="Copiar todo el registro en vivo al portapapeles (hasta 200 líneas)">Copiar registro</button>
         <button type="button" data-act="evidence" title="Instantánea de solo lectura y anonimizada para las validaciones de TASKS. Copia JSON. No envía nada.">Evidencia</button>
         <input class="jrn-filter" placeholder="filtrar función/acción/objetivo"/>
       </div>
@@ -12069,10 +12075,10 @@ const STORE = {
     if (det) det.open = false;
   });
 
-  panel.querySelectorAll('.gb-logsub button').forEach(btn => {
+  panel.querySelectorAll('.gb-logsub button[data-logsub]').forEach(btn => {
     btn.addEventListener('click', () => {
       const mem = btn.dataset.logsub === 'mem';
-      panel.querySelectorAll('.gb-logsub button').forEach(b => b.classList.toggle('on', b === btn));
+      panel.querySelectorAll('.gb-logsub button[data-logsub]').forEach(b => b.classList.toggle('on', b === btn));
       const live = panel.querySelector('.log-list');
       const pane = panel.querySelector('.jrn-pane');
       if (live) live.hidden = mem;
@@ -12255,6 +12261,25 @@ const STORE = {
   });
   panel.querySelector('footer button[data-act=diag]').addEventListener('click', () => {
     diagRun();
+  });
+  panel.querySelector('button[data-act=copy-log]')?.addEventListener('click', () => {
+    const text = gbLogText();
+    if (!text) { flash('registro vacío'); return; }
+    const ok = () => flash('registro copiado');
+    const fail = () => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        const done = document.execCommand('copy');
+        ta.remove();
+        flash(done ? 'registro copiado' : 'fallo al copiar');
+      } catch (_) { flash('fallo al copiar'); }
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(ok).catch(fail);
+    } else {
+      fail();
+    }
   });
   panel.querySelectorAll('button[data-act=evidence]').forEach(btn => {
     btn.addEventListener('click', () => { evidenceCopy(); });
