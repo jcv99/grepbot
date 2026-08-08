@@ -421,8 +421,11 @@
     #grepbot-panel .finding .meta{color:#888;margin-bottom:3px}
     #grepbot-panel .finding .units{color:#6cf}
     #grepbot-panel .finding .res{color:#f96}
-    #grepbot-panel .log-list{height:100%;min-height:180px;max-height:280px;overflow:auto;font-size:10px;white-space:pre-wrap;word-break:break-word;color:#9d9;background:#111;padding:4px;border:1px solid #333}
-    #grepbot-panel .gb-logsub{display:flex;gap:4px;align-items:center;margin-bottom:4px}
+    /* log tab fills the panel: section is the flex column, list/journal take the slack */
+    #grepbot-panel section[data-tab=log]{display:flex;flex-direction:column;overflow:hidden}
+    #grepbot-panel section[data-tab=log][hidden]{display:none}
+    #grepbot-panel .log-list{flex:1 1 auto;min-height:120px;overflow:auto;font-size:10px;white-space:pre-wrap;word-break:break-word;color:#9d9;background:#111;padding:4px;border:1px solid #333}
+    #grepbot-panel .gb-logsub{display:flex;gap:4px;align-items:center;margin-bottom:4px;flex-shrink:0}
     #grepbot-panel .gb-logsub button{background:#262626;border:1px solid #333;color:#aaa;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px}
     #grepbot-panel .gb-logsub button.on{background:#333;color:#fff;border-color:#555}
     #grepbot-panel .gb-logsub input{flex:1;min-width:0;background:#111;color:#cfc;border:1px solid #333;font:10px monospace;padding:2px 4px}

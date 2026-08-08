@@ -70,6 +70,7 @@
     const L = Object.create(null);
     for (const t of towns) {
       L[t.id] = {
+        id: t.id,
         wood: t.wood, stone: t.stone, iron: t.iron,
         cap: t.cap, tradeCap: t.tradeCap, small: t.small,
         island: t.island, x: t.x, y: t.y,
@@ -83,6 +84,31 @@
     src.wood -= job.wood; src.stone -= job.stone; src.iron -= job.iron;
     src.tradeCap = Math.max(0, src.tradeCap - (job.wood + job.stone + job.iron));
     tgt.wood += job.wood; tgt.stone += job.stone; tgt.iron += job.iron;
+  }
+  // Free warehouse space for one resource. null = capacity unreadable (blind, NOT "full").
+  function tradeFreeSpace(tgt, res) {
+    if (!tgt || !(tgt.cap > 0)) return null;
+    return Math.max(0, tgt.cap - (+tgt[res] || 0));
+  }
+  // Per-resource balancing rule. Two towns can never both be the donor of the same
+  // resource: only the town holding MORE of it may ship it, and never more than half
+  // the gap, so the pair lands on the same nominal amount instead of swapping roles
+  // and shipping it back next pass. Hard-capped by the target's free warehouse space
+  // (an overflowing haul is not refused by the server, it evaporates on arrival).
+  function tradeShareFor(src, tgt, res, keep) {
+    if (!src || !tgt) return 0;
+    const have = +src[res] || 0, has = +tgt[res] || 0;
+    const gap = have - has;
+    if (!(gap > 0)) return 0;                       // target already >= source: never ship
+    let amt = Math.min(Math.floor(gap / 2), Math.max(0, have - keep));
+    const free = tradeFreeSpace(tgt, res);
+    if (free == null) {
+      gbLogT('trade-cap-blind-' + tgt.id, 300000,
+        `trade: warehouse capacity unreadable for town ${tgt.id} - balancing on stock gap only`);
+    } else {
+      amt = Math.min(amt, free);
+    }
+    return Math.max(0, Math.floor(amt));
   }
   // Local island distance (attack.js comes later in concat; do not rely on it at parse time).
   function tradeIslandDist(a, b) {
@@ -127,9 +153,9 @@
         }
         const keep = Math.floor(src.cap * reserve);
         const send = {
-          wood: Math.max(0, Math.min(src.tradeCap, src.wood - keep, tgt.cap - tgt.wood)),
-          stone: Math.max(0, Math.min(src.tradeCap, src.stone - keep, tgt.cap - tgt.stone)),
-          iron: Math.max(0, Math.min(src.tradeCap, src.iron - keep, tgt.cap - tgt.iron)),
+          wood: Math.min(src.tradeCap, tradeShareFor(src, tgt, 'wood', keep)),
+          stone: Math.min(src.tradeCap, tradeShareFor(src, tgt, 'stone', keep)),
+          iron: Math.min(src.tradeCap, tradeShareFor(src, tgt, 'iron', keep)),
         };
         const total = send.wood + send.stone + send.iron;
         if (total < minBatch) continue;
@@ -241,10 +267,15 @@
       for (const d of donors) {
         if (jobs.length >= 6) return jobs;
         const src = d.src;
+        // Goal presets are deficit-driven, so the half-gap rule does not apply, but the
+        // free-space cap does: a haul over the target warehouse is lost on arrival.
+        const room = {
+          wood: tradeFreeSpace(cur, 'wood'), stone: tradeFreeSpace(cur, 'stone'), iron: tradeFreeSpace(cur, 'iron'),
+        };
         const send = {
-          wood: Math.min(deficit.wood, Math.max(0, src.wood - d.keep), src.tradeCap),
-          stone: Math.min(deficit.stone, Math.max(0, src.stone - d.keep), src.tradeCap),
-          iron: Math.min(deficit.iron, Math.max(0, src.iron - d.keep), src.tradeCap),
+          wood: Math.min(deficit.wood, Math.max(0, src.wood - d.keep), src.tradeCap, room.wood == null ? Infinity : room.wood),
+          stone: Math.min(deficit.stone, Math.max(0, src.stone - d.keep), src.tradeCap, room.stone == null ? Infinity : room.stone),
+          iron: Math.min(deficit.iron, Math.max(0, src.iron - d.keep), src.tradeCap, room.iron == null ? Infinity : room.iron),
         };
         let total = send.wood + send.stone + send.iron;
         if (total < minBatch) continue;
@@ -286,9 +317,10 @@
         const src = ledger[srcId];
         if (!src || src.small || src.tradeCap < 1000) continue;
         const keep = Math.floor((src.cap || 0) * reservePct);
-        let wood = Math.max(0, Math.min(src.tradeCap / 3, src.wood - keep));
-        let stone = Math.max(0, Math.min(src.tradeCap / 3, src.stone - keep));
-        let iron = Math.max(0, Math.min(src.tradeCap / 3, src.iron - keep));
+        const share = src.tradeCap / 3;
+        let wood = Math.min(share, tradeShareFor(src, tgt, 'wood', keep));
+        let stone = Math.min(share, tradeShareFor(src, tgt, 'stone', keep));
+        let iron = Math.min(share, tradeShareFor(src, tgt, 'iron', keep));
         const total = wood + stone + iron;
         if (total < minBatch) continue;
         if (total > src.tradeCap) {
