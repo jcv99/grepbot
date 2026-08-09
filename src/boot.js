@@ -43,12 +43,14 @@
     if (document.hidden) return;
     try { gbWakeMarkResume('visible'); } catch (_) {}
     farmTick();
+    try { reportCatchUpEnqueue(); } catch (_) {}
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
   });
   gbListen(window, 'pageshow', (e) => {
     if (!(e && e.persisted)) return;
     try { gbWakeMarkResume('bfcache'); } catch (_) {}
     farmTick();
+    try { reportCatchUpEnqueue(); } catch (_) {}
     try { bindQuestObserver(); } catch (_) {}
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
   });

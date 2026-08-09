@@ -161,6 +161,7 @@
     merchant: 180000,
     favor: 180000,
     wonder: 180000,
+    'wonder-favor': 180000,
     dodge: 180000,
     recruit: 180000,
     'defense-pull': 180000,
@@ -358,6 +359,7 @@
     lastSeenTs: load(STORE.LAST_SEEN_TS, 0),
     watchHits: load(STORE.WATCH_HITS, {}) || {},
     wonderFavorTpl: load(STORE.WONDER_FAVOR_TPL, null),
+    autoWonderFavor: load(STORE.AUTO_WONDER_FAVOR, false),
     autoPtTrade: load(STORE.AUTO_PT_TRADE, false),
     ptCfg: load(STORE.PT_CFG, null) || {
       targetRatio: 1.0, pumpAmount: 1, maxPumps: 6, reservePct: 10,
@@ -648,6 +650,73 @@
     const gap = now - gbWakeLastTickAt;
     gbWakeLastTickAt = now;
     if (gap > 45000) gbWakeMarkResume('timer-gap ' + Math.round(gap / 1000) + 's');
+  }
+  // ---------- cave iron reserve (culture must not drain the cave stash) ----------
+  const CAVE_SOON_MS = 15 * 60 * 1000;
+  const cultureCaveDeferCount = Object.create(null); // townId -> consecutive defers
+  function townIronReserveForCave(townId) {
+    // Iron needed to reach caveThreshPct of warehouse.
+    const st = townResState(townId);
+    if (!st || !(st.cap > 0)) return null;
+    const thresh = Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100;
+    const need = Math.ceil(st.cap * thresh);
+    return Math.max(0, need - (st.iron || 0));
+  }
+  function ironReservedForCave(townId) {
+    if (!state.autoCave) return { reserved: false, etaMs: null, blind: false };
+    const st = townResState(townId);
+    if (!st || !(st.cap > 0) || st.iron == null) {
+      gbLogT('cave-res-blind-' + townId, 300000, 'ironReservedForCave: blind - culture proceeds');
+      return { reserved: false, etaMs: null, blind: true };
+    }
+    let hideLvl = 0, hideFull = false;
+    try {
+      if (typeof caveTownInfo === 'function') {
+        const info = caveTownInfo(townId);
+        if (info) {
+          hideLvl = +info.hideLvl || 0;
+          if (info.unlimited) hideFull = false;
+          else if (info.hideCap > 0 && info.stored != null && info.stored >= info.hideCap) hideFull = true;
+        }
+      }
+    } catch (_) {}
+    if (!(hideLvl > 0) || hideFull) return { reserved: false, etaMs: null, blind: false };
+    const thresh = Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100;
+    const need = Math.ceil(st.cap * thresh);
+    if (st.iron >= need) return { reserved: true, etaMs: 0, blind: false };
+    let ironPerSec = null;
+    try {
+      const uw = gameUw();
+      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      if (t) {
+        const p = t.getProduction ? t.getProduction() : (t.production && t.production());
+        if (p && p.iron != null && p.iron > 100) ironPerSec = +p.iron / 3600; // per-hour
+        else if (p && p.iron != null) ironPerSec = +p.iron; // already per-sec
+      }
+    } catch (_) {}
+    // Unreadable production is "unknown", not "no": let culture proceed.
+    if (!(ironPerSec > 0)) return { reserved: false, etaMs: null, blind: true };
+    const short = need - st.iron;
+    const etaMs = (short / ironPerSec) * 1000;
+    return { reserved: etaMs <= CAVE_SOON_MS, etaMs, blind: false };
+  }
+  function cultureShouldDeferForCave(townId) {
+    const r = ironReservedForCave(townId);
+    if (!r.reserved) {
+      cultureCaveDeferCount[townId] = 0;
+      return false;
+    }
+    const n = (cultureCaveDeferCount[townId] || 0) + 1;
+    cultureCaveDeferCount[townId] = n;
+    if (n > 3) {
+      gbLogT('culture-cave-override-' + townId, 120000,
+        `culture: defer cap hit for town ${townId} - culture wins over cave reserve`);
+      cultureCaveDeferCount[townId] = 0;
+      return false;
+    }
+    gbLogT('culture-defer-' + townId, 60000,
+      `culture: defer town ${townId} - iron reserved for cave (eta ${r.etaMs != null ? Math.round(r.etaMs / 1000) + 's' : '?'})`);
+    return true;
   }
   function reqBudgetMark() { reqBudgetWindow.push(Date.now()); }
   function reqBudgetUsed() {

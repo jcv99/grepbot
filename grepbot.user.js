@@ -171,6 +171,7 @@ const STORE = {
     LAST_SEEN_TS: 'grepbot:last-seen-ts',
     WATCH_HITS: 'grepbot:watch-hits',
     WONDER_FAVOR_TPL: 'grepbot:wonder-favor-tpl',
+    AUTO_WONDER_FAVOR: 'grepbot:auto-wonder-favor',
     AUTO_PT_TRADE: 'grepbot:auto-pt-trade',
     PT_CFG: 'grepbot:pt-cfg',
     PT_TRADE_TPL: 'grepbot:pt-trade-tpl',
@@ -178,7 +179,7 @@ const STORE = {
   };
 
   const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
-    'ruraltrade', 'rurallevel', 'recruit', 'merchant', 'favor', 'wonder'];
+    'ruraltrade', 'rurallevel', 'recruit', 'merchant', 'pttrade', 'favor', 'wonder'];
   const CONFIG_VER_CURRENT = 10;
 
   const WORLD_SCOPED_BASES = new Set([
@@ -364,6 +365,7 @@ const STORE = {
     merchant: 180000,
     favor: 180000,
     wonder: 180000,
+    'wonder-favor': 180000,
     dodge: 180000,
     recruit: 180000,
     'defense-pull': 180000,
@@ -561,6 +563,7 @@ const STORE = {
     lastSeenTs: load(STORE.LAST_SEEN_TS, 0),
     watchHits: load(STORE.WATCH_HITS, {}) || {},
     wonderFavorTpl: load(STORE.WONDER_FAVOR_TPL, null),
+    autoWonderFavor: load(STORE.AUTO_WONDER_FAVOR, false),
     autoPtTrade: load(STORE.AUTO_PT_TRADE, false),
     ptCfg: load(STORE.PT_CFG, null) || {
       targetRatio: 1.0, pumpAmount: 1, maxPumps: 6, reservePct: 10,
@@ -842,6 +845,73 @@ const STORE = {
     const gap = now - gbWakeLastTickAt;
     gbWakeLastTickAt = now;
     if (gap > 45000) gbWakeMarkResume('timer-gap ' + Math.round(gap / 1000) + 's');
+  }
+
+  const CAVE_SOON_MS = 15 * 60 * 1000;
+  const cultureCaveDeferCount = Object.create(null);
+  function townIronReserveForCave(townId) {
+
+    const st = townResState(townId);
+    if (!st || !(st.cap > 0)) return null;
+    const thresh = Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100;
+    const need = Math.ceil(st.cap * thresh);
+    return Math.max(0, need - (st.iron || 0));
+  }
+  function ironReservedForCave(townId) {
+    if (!state.autoCave) return { reserved: false, etaMs: null, blind: false };
+    const st = townResState(townId);
+    if (!st || !(st.cap > 0) || st.iron == null) {
+      gbLogT('cave-res-blind-' + townId, 300000, 'ironReservedForCave: blind - culture proceeds');
+      return { reserved: false, etaMs: null, blind: true };
+    }
+    let hideLvl = 0, hideFull = false;
+    try {
+      if (typeof caveTownInfo === 'function') {
+        const info = caveTownInfo(townId);
+        if (info) {
+          hideLvl = +info.hideLvl || 0;
+          if (info.unlimited) hideFull = false;
+          else if (info.hideCap > 0 && info.stored != null && info.stored >= info.hideCap) hideFull = true;
+        }
+      }
+    } catch (_) {}
+    if (!(hideLvl > 0) || hideFull) return { reserved: false, etaMs: null, blind: false };
+    const thresh = Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100;
+    const need = Math.ceil(st.cap * thresh);
+    if (st.iron >= need) return { reserved: true, etaMs: 0, blind: false };
+    let ironPerSec = null;
+    try {
+      const uw = gameUw();
+      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      if (t) {
+        const p = t.getProduction ? t.getProduction() : (t.production && t.production());
+        if (p && p.iron != null && p.iron > 100) ironPerSec = +p.iron / 3600;
+        else if (p && p.iron != null) ironPerSec = +p.iron;
+      }
+    } catch (_) {}
+
+    if (!(ironPerSec > 0)) return { reserved: false, etaMs: null, blind: true };
+    const short = need - st.iron;
+    const etaMs = (short / ironPerSec) * 1000;
+    return { reserved: etaMs <= CAVE_SOON_MS, etaMs, blind: false };
+  }
+  function cultureShouldDeferForCave(townId) {
+    const r = ironReservedForCave(townId);
+    if (!r.reserved) {
+      cultureCaveDeferCount[townId] = 0;
+      return false;
+    }
+    const n = (cultureCaveDeferCount[townId] || 0) + 1;
+    cultureCaveDeferCount[townId] = n;
+    if (n > 3) {
+      gbLogT('culture-cave-override-' + townId, 120000,
+        `culture: defer cap hit for town ${townId} - culture wins over cave reserve`);
+      cultureCaveDeferCount[townId] = 0;
+      return false;
+    }
+    gbLogT('culture-defer-' + townId, 60000,
+      `culture: defer town ${townId} - iron reserved for cave (eta ${r.etaMs != null ? Math.round(r.etaMs / 1000) + 's' : '?'})`);
+    return true;
   }
   function reqBudgetMark() { reqBudgetWindow.push(Date.now()); }
   function reqBudgetUsed() {
@@ -3091,6 +3161,7 @@ const STORE = {
           else if (m || reportCtrl) queueReportList(u);
           learnCollectAction(u);
           learnFarmAction(u);
+          try { ptLearnFromXhr(u, args[1] && args[1].body); } catch (_) {}
         } catch (_) {}
       }
       return orig.apply(this, args);
@@ -3129,6 +3200,7 @@ const STORE = {
           else if (actionReport || /[?&]action=(reports|combat_reports|tombstone)(?:&|$)/.test(u) || reportCtrl) queueReportList(u);
           learnCollectAction(u);
           learnFarmAction(u);
+          try { ptLearnFromXhr(u, body); } catch (_) {}
           sniffBridgeBody(u, body);
         } catch (_) {}
       }
@@ -3174,6 +3246,60 @@ const STORE = {
     P._grepbot_open = GB_INSTANCE_ID;
   }
 
+  let reportCatchUpRunning = false;
+  function reportCatchUpEnqueue() {
+    if (!hostEnabled() || reportCatchUpRunning) return;
+    if (typeof gbWake === 'function') {
+      gbWake('reportCatchUp', () => reportCatchUpRun(), { priority: 80 });
+    } else {
+      reportCatchUpRun();
+    }
+  }
+  function reportCatchUpRun() {
+    if (!hostEnabled() || reportCatchUpRunning || automationPaused({}) || captchaPaused('report')) return;
+    reportCatchUpRunning = true;
+    const maxN = 25;
+    const maxAgeMs = 72 * 3600000;
+    const cut = Date.now() - maxAgeMs;
+    const ids = [];
+    try {
+      document.querySelectorAll('a[href*="report"], a[href*="Report"]').forEach(a => {
+        const m = /[?&]id=(\d+)/.exec(a.href || '') || /report\/(\d+)/.exec(a.href || '');
+        if (!m) return;
+        const id = m[1];
+        if (state.seen[seenKey(id)] || state.seen[id] || seenThisRun.has(seenKey(id))) return;
+        ids.push(id);
+      });
+    } catch (_) {}
+    const batch = ids.slice(0, maxN);
+    if (!batch.length) {
+      reportCatchUpRunning = false;
+      gbLogT('catchup-empty', 120000, 'report catch-up: nothing new in inbox DOM');
+      return;
+    }
+    gbLog(`report catch-up: fetching up to ${batch.length} (cap ${maxN}, age≤72h, lastSeen=${state.lastSeenTs || 0})`);
+    let i = 0, fetched = 0;
+    (function step() {
+      if (i >= batch.length) {
+        reportCatchUpRunning = false;
+        gbLog(`report catch-up done: ${fetched}/${batch.length}`);
+        return;
+      }
+      if (!hostEnabled() || automationPaused({}) || captchaPaused('report') || !reqBudgetOk()) {
+        reportCatchUpRunning = false;
+        gbLog(`report catch-up paused mid-run at ${i}/${batch.length}`);
+        return;
+      }
+      const id = batch[i++];
+
+      if (state.lastSeenTs && state.lastSeenTs < cut) {
+
+      }
+      fetchReport(id);
+      fetched++;
+      gbTimeout(step, 700 + Math.random() * 300);
+    })();
+  }
   function tryParseJson(txt) {
     if (!txt || typeof txt !== 'string') return null;
     const s = txt.replace(/^\uFEFF/, '').trim();
@@ -3239,6 +3365,10 @@ const STORE = {
     rememberSeen(id);
     delete reportRetry[id];
     save(STORE.SEEN, state.seen);
+    if (parsed.ts && (!state.lastSeenTs || parsed.ts > state.lastSeenTs)) {
+      state.lastSeenTs = parsed.ts;
+      save(STORE.LAST_SEEN_TS, state.lastSeenTs);
+    }
     state.findings.unshift(parsed);
     if (state.findings.length > 500) {
 
@@ -3592,6 +3722,17 @@ const STORE = {
           };
           save(STORE.CANCEL_TPL, state.cancelTpl);
           gbLog('learned cancel template:', JSON.stringify(state.cancelTpl).slice(0, 200));
+        }
+      } else if (/Wonder|wonder/i.test(body) && /cast|devote|contribute|favor/i.test(body) && /power|cast/i.test(body)) {
+        const j = parseBodyLoose(body);
+        if (j && j.action_name && !isSelfBridge(j)) {
+          state.wonderFavorTpl = {
+            model_url: j.model_url, action_name: j.action_name,
+            arguments: j.arguments || {}, town_id: j.town_id,
+            version: 1, learned_at: Date.now(),
+          };
+          save(wkey(STORE.WONDER_FAVOR_TPL), state.wonderFavorTpl);
+          gbLog('learned wonder favor template:', j.action_name);
         }
       } else if (/PlayerHero/.test(body) && /assignToTown|unassignFromTown|cancelTownTravel/i.test(body)) {
         const j = parseBodyLoose(body);
@@ -6931,6 +7072,7 @@ const STORE = {
       for (const id of ids) {
         if (busy.has(+id)) continue;
         if (townHasJob.has(String(id))) continue;
+        if (cultureShouldDeferForCave(id)) continue;
         if (!cultureCanAfford(id, ctype, ledger)) continue;
         jobs.push({ type, ctype, id });
         townHasJob.add(String(id));
@@ -7203,6 +7345,127 @@ const STORE = {
     }
     return jobs;
   }
+
+  function tradeFreeSpace(tgt, res) {
+    if (!tgt || !(tgt.cap > 0)) return null;
+    return Math.max(0, tgt.cap - (+tgt[res] || 0));
+  }
+  function tradeGoalDeficit(townId, preset) {
+
+    if (preset === 'party') {
+      if (typeof ironReservedForCave === 'function') {
+        const r = ironReservedForCave(townId);
+        if (r && r.reserved) {
+          gbLogT('trade-party-cave-' + townId, 120000, `trade party: skip town ${townId} - iron reserved for cave`);
+          return { wood: 0, stone: 0, iron: 0 };
+        }
+      }
+      const types = state.cultureTypes || {};
+      const order = ['festival', 'theater', 'procession'];
+      let ctype = null;
+      for (const ui of order) {
+        if (!types[ui]) continue;
+        ctype = ({ festival: 'party', procession: 'triumph', theater: 'theater' })[ui] || ui;
+        if (ctype === 'triumph') continue;
+        break;
+      }
+      if (!ctype || !CULTURE_COSTS[ctype]) return { wood: 0, stone: 0, iron: 0 };
+      const cost = CULTURE_COSTS[ctype];
+      return {
+        wood: +cost.wood || 0,
+        stone: +cost.stone || 0,
+        iron: +cost.iron || 0,
+      };
+    }
+    if (preset === 'unit') {
+      const want = (state.recruitTargets || {})[townId] || (state.recruitTargets || {})[String(townId)];
+      if (!want || typeof want !== 'object') return { wood: 0, stone: 0, iron: 0 };
+      let wood = 0, stone = 0, iron = 0;
+      for (const unit of Object.keys(want)) {
+        const count = +want[unit] || 0;
+        if (!(count > 0)) continue;
+        let def = null;
+        try { def = typeof recruitUnitDef === 'function' ? recruitUnitDef(unit) : null; } catch (_) {}
+        if (!def || !def.resources) {
+          gbLogT('trade-unit-nocost-' + unit, 120000, `trade unit: unknown cost for ${unit} - town ${townId} blind`);
+          return null;
+        }
+        wood += (+def.resources.wood || 0) * count;
+        stone += (+def.resources.stone || 0) * count;
+        iron += (+def.resources.iron || 0) * count;
+      }
+      return { wood, stone, iron };
+    }
+    return null;
+  }
+  function tradeGoalJobs(towns, L, preset) {
+    const ledger = L || tradeLedger(towns);
+    const reserve = Math.min(80, Math.max(0, gbCfgNum(state.tradeReservePct, 20))) / 100;
+    const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
+    const byId = Object.create(null);
+    towns.forEach(t => { byId[t.id] = t; });
+    const jobs = [];
+    for (const tgt of towns) {
+      const goal = tradeGoalDeficit(tgt.id, preset);
+      if (goal == null) continue;
+      const cur = ledger[tgt.id];
+      if (!cur) continue;
+      const deficit = {
+        wood: Math.max(0, goal.wood - cur.wood),
+        stone: Math.max(0, goal.stone - cur.stone),
+        iron: Math.max(0, goal.iron - cur.iron),
+      };
+      const needTotal = deficit.wood + deficit.stone + deficit.iron;
+      if (needTotal < minBatch) continue;
+
+      const needKey = ['wood', 'stone', 'iron'].sort((a, b) => deficit[b] - deficit[a])[0];
+      const donors = towns.filter(s => s.id !== tgt.id).map(s => {
+        const src = ledger[s.id];
+        if (!src || !(src.cap > 0) || src.tradeCap < minBatch) return null;
+        const keep = Math.floor(src.cap * reserve);
+        const surplus = Math.max(0, (src[needKey] || 0) - keep);
+        if (surplus < minBatch / 3) return null;
+        return { s, src, surplus, keep };
+      }).filter(Boolean);
+      donors.sort((a, b) => b.surplus - a.surplus);
+      for (const d of donors) {
+        if (jobs.length >= 6) return jobs;
+        const src = d.src;
+
+        const room = {
+          wood: tradeFreeSpace(cur, 'wood'), stone: tradeFreeSpace(cur, 'stone'), iron: tradeFreeSpace(cur, 'iron'),
+        };
+        const send = {
+          wood: Math.min(deficit.wood, Math.max(0, src.wood - d.keep), src.tradeCap, room.wood == null ? Infinity : room.wood),
+          stone: Math.min(deficit.stone, Math.max(0, src.stone - d.keep), src.tradeCap, room.stone == null ? Infinity : room.stone),
+          iron: Math.min(deficit.iron, Math.max(0, src.iron - d.keep), src.tradeCap, room.iron == null ? Infinity : room.iron),
+        };
+        let total = send.wood + send.stone + send.iron;
+        if (total < minBatch) continue;
+        if (total > src.tradeCap) {
+          const scale = src.tradeCap / total;
+          send.wood = Math.floor(send.wood * scale);
+          send.stone = Math.floor(send.stone * scale);
+          send.iron = Math.floor(send.iron * scale);
+          total = send.wood + send.stone + send.iron;
+        }
+        if (total < minBatch) continue;
+        if (needTotal > src.tradeCap * 4) {
+          gbLogT('trade-goal-far-' + tgt.id, 300000,
+            `trade ${preset}: deficit ${needTotal} >> tradeCap - skip unreachable goal this session`);
+          break;
+        }
+        const job = { from: d.s.id, to: tgt.id, wood: send.wood, stone: send.stone, iron: send.iron };
+        jobs.push(job);
+        tradeApplyJob(ledger, job);
+        deficit.wood = Math.max(0, deficit.wood - job.wood);
+        deficit.stone = Math.max(0, deficit.stone - job.stone);
+        deficit.iron = Math.max(0, deficit.iron - job.iron);
+        if (deficit.wood + deficit.stone + deficit.iron < minBatch) break;
+      }
+    }
+    return jobs;
+  }
   function tradeValidateJob(job) {
     const src = tradeTownRes(job.from), tgt = tradeTownRes(job.to);
     if (!src || !tgt || !(src.cap > 0) || !(tgt.cap > 0)) return { ok: false, why: 'town-state-unreadable' };
@@ -7238,7 +7501,7 @@ const STORE = {
     } else if (state.autoTrade && preset === 'storage') {
       jobs = jobs.concat(tradeFillStorageJobs(towns, ledger));
     } else if (state.autoTrade && (preset === 'party' || preset === 'unit')) {
-      gbLogT('trade-preset-' + preset, 300000, `trade: preset=${preset} — unimplemented, fill-storage skipped`);
+      jobs = jobs.concat(tradeGoalJobs(towns, ledger, preset));
     }
     if (state.islandShip) jobs = jobs.concat(tradeIslandShipJobs(towns, ledger));
     if (!jobs.length) {
@@ -8620,6 +8883,37 @@ const STORE = {
   const DODGE_RETRY_MS = 15000;
   const DODGE_FAIL_BACKOFF = [15000, 45000, 120000];
   const DODGE_QUEUE_TTL = 3600000;
+
+  function wonderFavorScan(reason) {
+    if (!hostEnabled() || !state.autoWonderFavor || captchaPaused('wonder')) return;
+    if (automationPaused({})) return;
+    if (gbLocked('wonder-favor')) return;
+    const tpl = state.wonderFavorTpl;
+    if (!tpl || !tpl.action_name) {
+      gbLogT('wonder-favor-tpl', 300000, 'wonder favor: hand-cast once to teach wonderFavorTpl');
+      return;
+    }
+    const cfg = state.wonderCfg || {};
+    if (!cfg.wonderId) {
+      gbLogT('wonder-favor-id', 300000, 'wonder favor: set wonderCfg.wonderId');
+      return;
+    }
+    const wfLock = gbLock('wonder-favor');
+    if (!wfLock) return;
+    const payload = Object.assign({}, tpl, {
+      arguments: Object.assign({}, tpl.arguments || {}, {
+        wonder_id: +cfg.wonderId,
+      }),
+      town_id: tpl.town_id,
+    });
+    bridgePost('wonder', payload, (err) => {
+      gbUnlock('wonder-favor', wfLock);
+      if (!err) gbLog('wonder favor: cast OK (' + (reason || 'scan') + ')');
+      else if (err !== 'captcha' && err !== 'captcha-pause' && err !== 'dryrun') {
+        gbLogT('wonder-favor-err', 60000, 'wonder favor err ' + err);
+      }
+    });
+  }
   function dodgeQueueLoad() {
     const raw = load(STORE.DODGE_QUEUE, null) || {};
     const cut = Date.now() - DODGE_QUEUE_TTL;
@@ -9487,19 +9781,20 @@ const STORE = {
     rurallevel: 120000,
     recruit: 30000,
     merchant: 45000,
+    pttrade: 120000,
     favor: 60000,
     wonder: 180000,
   };
   const ORCH_CAPTCHA = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', merchant: 'merchant', favor: 'favor', wonder: 'wonder',
+    recruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder',
   };
 
   const ORCH_JRN = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', merchant: 'merchant', favor: 'favor', wonder: 'wonder',
+    recruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder',
   };
   const ORCH_IDLE_TRIP = 4;
   const ORCH_IDLE_MAX = 8;
@@ -9518,8 +9813,9 @@ const STORE = {
     rurallevel:()=>orchSafe('rurallevel',()=>ruralLevelScan('orch')),
     recruit:()=>orchSafe('recruit',()=>recruitScan('orch')),
     merchant:()=>orchSafe('merchant',()=>merchantScan('orch')),
+    pttrade:()=>orchSafe('pttrade',()=>ptTradeScan('orch')),
     favor:()=>orchSafe('favor',()=>favorScan('orch')),
-    wonder:()=>orchSafe('wonder',()=>wonderScan('orch')),
+    wonder:()=>orchSafe('wonder',()=>{wonderScan('orch');wonderFavorScan('orch')}),
   };
   function orchFeatureEnabled(key) {
     return {
@@ -9533,6 +9829,7 @@ const STORE = {
       rurallevel: state.autoRuralLevel,
       recruit: state.autoRecruit || nativeQueueHasPending('recruit'),
       merchant: state.autoMerchant,
+      pttrade: state.autoPtTrade,
       favor: state.autoFavor,
       wonder: state.autoWonder,
     }[key];
@@ -9746,7 +10043,11 @@ const STORE = {
         html += `${k}: ${state.allianceNotes[k]}\n`;
       });
     }
+    if (state.attackPatternNote) {
+      html += '\n=== Patrones de ataque ===\n' + state.attackPatternNote + '\n';
+    }
     box.textContent = html;
+    try { intelPatternScan(); } catch (_) {}
   }
   function intelSetNote(player, note) {
     if (!state.playerNotes) state.playerNotes = {};
@@ -9772,28 +10073,106 @@ const STORE = {
       }
     } catch (_) {}
   }
+  function watchMatch(finding) {
+    if (!finding || !state.watchlist || !state.watchlist.length) return null;
+    const hits = [];
+    for (const w of state.watchlist) {
+      const entry = typeof w === 'object' ? w : { id: w };
+      const rule = String(entry.id || entry.townId || entry.name || entry.player || entry.alliance || entry.coords || w);
+      const tid = finding.town && finding.town.id;
+      const vid = finding.vill_id != null ? finding.vill_id : (finding.vill && finding.vill.id);
+      if (entry.id != null || entry.townId != null) {
+        const id = String(entry.id || entry.townId);
+        if (String(tid) === id || String(vid) === id || String(finding.town_id) === id) {
+          hits.push({ kind: 'town', rule, specificity: 4 });
+        }
+      }
+      if (entry.coords || (entry.x != null && entry.y != null)) {
+        const c = entry.coords || (entry.x + ' ' + entry.y);
+        const fx = finding.town && finding.town.x;
+        const fy = finding.town && finding.town.y;
+        if (fx != null && fy != null && String(c).indexOf(String(fx)) >= 0 && String(c).indexOf(String(fy)) >= 0) {
+          hits.push({ kind: 'coords', rule: String(c), specificity: 3 });
+        }
+      }
+      const pname = finding.attacker && (finding.attacker.name || finding.attacker.player_name);
+      if ((entry.player || entry.name) && pname && String(pname).toLowerCase() === String(entry.player || entry.name).toLowerCase()) {
+        hits.push({ kind: 'player', rule: String(entry.player || entry.name), specificity: 2 });
+      }
+      if (entry.alliance && finding.alliance && String(finding.alliance).toLowerCase() === String(entry.alliance).toLowerCase()) {
+        hits.push({ kind: 'alliance', rule: String(entry.alliance), specificity: 1 });
+      }
+
+      if (typeof w !== 'object') {
+        const id = String(w);
+        if (String(tid) === id || String(vid) === id || String(finding.town_id) === id) {
+          hits.push({ kind: 'town', rule: id, specificity: 4 });
+        }
+      }
+    }
+    if (!hits.length) return null;
+    hits.sort((a, b) => b.specificity - a.specificity);
+    return { hit: true, kind: hits[0].kind, rule: hits[0].rule, extra: hits.length - 1 };
+  }
   function intelWatchlistScan() {
     if (!state.watchlist || !state.watchlist.length) return;
-
-    for (const w of state.watchlist) {
-      const id = String(w.id || w.townId || w);
-      const hit = (state.findings || []).find(f => {
-        const tid = f.town && f.town.id;
-        const vid = f.vill_id != null ? f.vill_id : (f.vill && f.vill.id);
-        return String(tid) === id || String(vid) === id || String(f.town_id) === id;
-      });
-      if (!hit) continue;
-
+    for (const f of (state.findings || []).slice(0, 80)) {
+      const m = watchMatch(f);
+      if (!m) continue;
+      const id = String((f.town && f.town.id) || f.vill_id || f.town_id || m.rule);
       let onVac = null;
       try {
-        if (hit.vacation === true || hit.on_vacation === true) onVac = true;
-        else if (hit.attacker && (hit.attacker.vacation === true || hit.attacker.on_vacation === true)) onVac = true;
-        else if (hit.defender && (hit.defender.vacation === true || hit.defender.on_vacation === true)) onVac = true;
+        if (f.vacation === true || f.on_vacation === true) onVac = true;
+        else if (f.attacker && (f.attacker.vacation === true || f.attacker.on_vacation === true)) onVac = true;
       } catch (_) {}
       if (onVac === true) continue;
-      gbLog(`watchlist: ${id} seen in findings`);
-      try { alertWebhook('attack', { watchlist: id, finding: hit }); } catch (_) {}
+      if (!state.watchHits) state.watchHits = {};
+      state.watchHits[m.rule] = Date.now();
+      save(STORE.WATCH_HITS, state.watchHits);
+      gbLog(`watchlist: ${id} matched (${m.kind}: ${m.rule}${m.extra ? ' +' + m.extra + ' more' : ''})`);
+      try { alertWebhook('attack', { watchlist: id, why: m, finding: { type: f.type, ts: f.ts } }); } catch (_) {}
+      break;
     }
+  }
+  function intelPatternScan() {
+    const now = Date.now();
+    const windowMs = 24 * 3600000;
+    const cut = now - windowMs;
+    const by = {};
+    (state.findings || []).forEach(f => {
+      if (!f || !(f.ts >= cut)) return;
+      const key = intelPlayerKey(f.attacker || f.player) || null;
+      if (!key || key === 'unknown') return;
+      if (!by[key]) by[key] = { key, name: intelPlayerLabel(f.attacker || f.player, key), n: 0, towns: [], first: f.ts, last: f.ts };
+      const b = by[key];
+      b.n++;
+      b.last = Math.max(b.last, f.ts);
+      b.first = Math.min(b.first, f.ts);
+      const tid = f.town && (f.town.id || f.town.name);
+      if (tid != null && b.towns.indexOf(String(tid)) < 0) b.towns.push(String(tid));
+    });
+    const hits = Object.values(by).filter(b => b.n >= 3);
+    state.attackPatternNote = hits.length
+      ? hits.map(h => `${h.name}×${h.n}/24h`).join(', ')
+      : '';
+    hits.forEach(h => {
+      const bucket = Math.floor(now / windowMs);
+      const ak = 'pattern:' + h.key + ':' + bucket;
+      if (state.alerted && state.alerted[ak]) return;
+      if (!state.alerted) state.alerted = {};
+      state.alerted[ak] = now;
+      save(STORE.ALERTED, state.alerted);
+      const payload = {
+        attacker: state.exportRedact !== false ? String(h.name).slice(0, 2) + '***' : h.name,
+        hits: h.n,
+        window: '24h',
+        towns: (h.towns || []).slice(0, 8).map(t => state.exportRedact !== false ? String(t).slice(0, 2) + '***' : t),
+        first: h.first, last: h.last,
+      };
+      gbLog(`pattern: ${h.name} hit ${h.n}× in 24h`);
+      try { alertWebhook('pattern', payload); } catch (_) {}
+    });
+    return hits;
   }
 
   const QUEST_SCAN_MS = 12000;
@@ -13749,12 +14128,14 @@ const STORE = {
     if (document.hidden) return;
     try { gbWakeMarkResume('visible'); } catch (_) {}
     farmTick();
+    try { reportCatchUpEnqueue(); } catch (_) {}
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
   });
   gbListen(window, 'pageshow', (e) => {
     if (!(e && e.persisted)) return;
     try { gbWakeMarkResume('bfcache'); } catch (_) {}
     farmTick();
+    try { reportCatchUpEnqueue(); } catch (_) {}
     try { bindQuestObserver(); } catch (_) {}
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
   });

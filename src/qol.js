@@ -278,19 +278,20 @@
     rurallevel: 120000,
     recruit: 30000,
     merchant: 45000,
+    pttrade: 120000,
     favor: 60000,
     wonder: 180000,
   };
   const ORCH_CAPTCHA = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', merchant: 'merchant', favor: 'favor', wonder: 'wonder',
+    recruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder',
   };
 
   const ORCH_JRN = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', merchant: 'merchant', favor: 'favor', wonder: 'wonder',
+    recruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder',
   };
   const ORCH_IDLE_TRIP = 4;
   const ORCH_IDLE_MAX = 8;
@@ -309,6 +310,7 @@
     rurallevel:()=>orchSafe('rurallevel',()=>ruralLevelScan('orch')),
     recruit:()=>orchSafe('recruit',()=>recruitScan('orch')),
     merchant:()=>orchSafe('merchant',()=>merchantScan('orch')),
+    pttrade:()=>orchSafe('pttrade',()=>ptTradeScan('orch')),
     favor:()=>orchSafe('favor',()=>favorScan('orch')),
-    wonder:()=>orchSafe('wonder',()=>wonderScan('orch')),
+    wonder:()=>orchSafe('wonder',()=>{wonderScan('orch');wonderFavorScan('orch')}),
   };

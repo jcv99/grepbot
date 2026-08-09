@@ -167,6 +167,128 @@
     }
     return jobs;
   }
+  // Free warehouse space for one resource. null = capacity unreadable (blind, NOT "full").
+  function tradeFreeSpace(tgt, res) {
+    if (!tgt || !(tgt.cap > 0)) return null;
+    return Math.max(0, tgt.cap - (+tgt[res] || 0));
+  }
+  function tradeGoalDeficit(townId, preset) {
+    // → {wood,stone,iron} | null (blind / nothing)
+    if (preset === 'party') {
+      if (typeof ironReservedForCave === 'function') {
+        const r = ironReservedForCave(townId);
+        if (r && r.reserved) {
+          gbLogT('trade-party-cave-' + townId, 120000, `trade party: skip town ${townId} - iron reserved for cave`);
+          return { wood: 0, stone: 0, iron: 0 };
+        }
+      }
+      const types = state.cultureTypes || {};
+      const order = ['festival', 'theater', 'procession']; // olympic excluded (gold)
+      let ctype = null;
+      for (const ui of order) {
+        if (!types[ui]) continue;
+        ctype = ({ festival: 'party', procession: 'triumph', theater: 'theater' })[ui] || ui;
+        if (ctype === 'triumph') continue; // killpoints, not resources
+        break;
+      }
+      if (!ctype || !CULTURE_COSTS[ctype]) return { wood: 0, stone: 0, iron: 0 };
+      const cost = CULTURE_COSTS[ctype];
+      return {
+        wood: +cost.wood || 0,
+        stone: +cost.stone || 0,
+        iron: +cost.iron || 0,
+      };
+    }
+    if (preset === 'unit') {
+      const want = (state.recruitTargets || {})[townId] || (state.recruitTargets || {})[String(townId)];
+      if (!want || typeof want !== 'object') return { wood: 0, stone: 0, iron: 0 };
+      let wood = 0, stone = 0, iron = 0;
+      for (const unit of Object.keys(want)) {
+        const count = +want[unit] || 0;
+        if (!(count > 0)) continue;
+        let def = null;
+        try { def = typeof recruitUnitDef === 'function' ? recruitUnitDef(unit) : null; } catch (_) {}
+        if (!def || !def.resources) {
+          gbLogT('trade-unit-nocost-' + unit, 120000, `trade unit: unknown cost for ${unit} - town ${townId} blind`);
+          return null;
+        }
+        wood += (+def.resources.wood || 0) * count;
+        stone += (+def.resources.stone || 0) * count;
+        iron += (+def.resources.iron || 0) * count;
+      }
+      return { wood, stone, iron };
+    }
+    return null;
+  }
+  function tradeGoalJobs(towns, L, preset) {
+    const ledger = L || tradeLedger(towns);
+    const reserve = Math.min(80, Math.max(0, gbCfgNum(state.tradeReservePct, 20))) / 100;
+    const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
+    const byId = Object.create(null);
+    towns.forEach(t => { byId[t.id] = t; });
+    const jobs = [];
+    for (const tgt of towns) {
+      const goal = tradeGoalDeficit(tgt.id, preset);
+      if (goal == null) continue; // blind
+      const cur = ledger[tgt.id];
+      if (!cur) continue;
+      const deficit = {
+        wood: Math.max(0, goal.wood - cur.wood),
+        stone: Math.max(0, goal.stone - cur.stone),
+        iron: Math.max(0, goal.iron - cur.iron),
+      };
+      const needTotal = deficit.wood + deficit.stone + deficit.iron;
+      if (needTotal < minBatch) continue;
+      // Prefer donor with largest surplus of the scarcest needed resource
+      const needKey = ['wood', 'stone', 'iron'].sort((a, b) => deficit[b] - deficit[a])[0];
+      const donors = towns.filter(s => s.id !== tgt.id).map(s => {
+        const src = ledger[s.id];
+        if (!src || !(src.cap > 0) || src.tradeCap < minBatch) return null;
+        const keep = Math.floor(src.cap * reserve);
+        const surplus = Math.max(0, (src[needKey] || 0) - keep);
+        if (surplus < minBatch / 3) return null;
+        return { s, src, surplus, keep };
+      }).filter(Boolean);
+      donors.sort((a, b) => b.surplus - a.surplus);
+      for (const d of donors) {
+        if (jobs.length >= 6) return jobs;
+        const src = d.src;
+        // Goal presets are deficit-driven, so the half-gap rule does not apply, but the
+        // free-space cap does: a haul over the target warehouse is lost on arrival.
+        const room = {
+          wood: tradeFreeSpace(cur, 'wood'), stone: tradeFreeSpace(cur, 'stone'), iron: tradeFreeSpace(cur, 'iron'),
+        };
+        const send = {
+          wood: Math.min(deficit.wood, Math.max(0, src.wood - d.keep), src.tradeCap, room.wood == null ? Infinity : room.wood),
+          stone: Math.min(deficit.stone, Math.max(0, src.stone - d.keep), src.tradeCap, room.stone == null ? Infinity : room.stone),
+          iron: Math.min(deficit.iron, Math.max(0, src.iron - d.keep), src.tradeCap, room.iron == null ? Infinity : room.iron),
+        };
+        let total = send.wood + send.stone + send.iron;
+        if (total < minBatch) continue;
+        if (total > src.tradeCap) {
+          const scale = src.tradeCap / total;
+          send.wood = Math.floor(send.wood * scale);
+          send.stone = Math.floor(send.stone * scale);
+          send.iron = Math.floor(send.iron * scale);
+          total = send.wood + send.stone + send.iron;
+        }
+        if (total < minBatch) continue;
+        if (needTotal > src.tradeCap * 4) {
+          gbLogT('trade-goal-far-' + tgt.id, 300000,
+            `trade ${preset}: deficit ${needTotal} >> tradeCap - skip unreachable goal this session`);
+          break;
+        }
+        const job = { from: d.s.id, to: tgt.id, wood: send.wood, stone: send.stone, iron: send.iron };
+        jobs.push(job);
+        tradeApplyJob(ledger, job);
+        deficit.wood = Math.max(0, deficit.wood - job.wood);
+        deficit.stone = Math.max(0, deficit.stone - job.stone);
+        deficit.iron = Math.max(0, deficit.iron - job.iron);
+        if (deficit.wood + deficit.stone + deficit.iron < minBatch) break;
+      }
+    }
+    return jobs;
+  }
   function tradeValidateJob(job) {
     const src = tradeTownRes(job.from), tgt = tradeTownRes(job.to);
     if (!src || !tgt || !(src.cap > 0) || !(tgt.cap > 0)) return { ok: false, why: 'town-state-unreadable' };
@@ -202,7 +324,7 @@
     } else if (state.autoTrade && preset === 'storage') {
       jobs = jobs.concat(tradeFillStorageJobs(towns, ledger));
     } else if (state.autoTrade && (preset === 'party' || preset === 'unit')) {
-      gbLogT('trade-preset-' + preset, 300000, `trade: preset=${preset} — unimplemented, fill-storage skipped`);
+      jobs = jobs.concat(tradeGoalJobs(towns, ledger, preset));
     }
     if (state.islandShip) jobs = jobs.concat(tradeIslandShipJobs(towns, ledger));
     if (!jobs.length) {

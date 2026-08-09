@@ -70,6 +70,17 @@
           save(STORE.CANCEL_TPL, state.cancelTpl);
           gbLog('learned cancel template:', JSON.stringify(state.cancelTpl).slice(0, 200));
         }
+      } else if (/Wonder|wonder/i.test(body) && /cast|devote|contribute|favor/i.test(body) && /power|cast/i.test(body)) {
+        const j = parseBodyLoose(body);
+        if (j && j.action_name && !isSelfBridge(j)) {
+          state.wonderFavorTpl = {
+            model_url: j.model_url, action_name: j.action_name,
+            arguments: j.arguments || {}, town_id: j.town_id,
+            version: 1, learned_at: Date.now(),
+          };
+          save(wkey(STORE.WONDER_FAVOR_TPL), state.wonderFavorTpl);
+          gbLog('learned wonder favor template:', j.action_name);
+        }
       } else if (/PlayerHero/.test(body) && /assignToTown|unassignFromTown|cancelTownTravel/i.test(body)) {
         const j = parseBodyLoose(body);
         if (j && j.action_name && !isSelfBridge(j)) {

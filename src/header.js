@@ -171,6 +171,7 @@ const STORE = {
     LAST_SEEN_TS: 'grepbot:last-seen-ts',
     WATCH_HITS: 'grepbot:watch-hits',
     WONDER_FAVOR_TPL: 'grepbot:wonder-favor-tpl',
+    AUTO_WONDER_FAVOR: 'grepbot:auto-wonder-favor',
     AUTO_PT_TRADE: 'grepbot:auto-pt-trade',
     PT_CFG: 'grepbot:pt-cfg',
     PT_TRADE_TPL: 'grepbot:pt-trade-tpl',
@@ -178,7 +179,7 @@ const STORE = {
   };
 
   const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
-    'ruraltrade', 'rurallevel', 'recruit', 'merchant', 'favor', 'wonder'];
+    'ruraltrade', 'rurallevel', 'recruit', 'merchant', 'pttrade', 'favor', 'wonder'];
   const CONFIG_VER_CURRENT = 10;
 
   const WORLD_SCOPED_BASES = new Set([

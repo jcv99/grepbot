@@ -135,6 +135,7 @@
       for (const id of ids) {
         if (busy.has(+id)) continue;
         if (townHasJob.has(String(id))) continue;
+        if (cultureShouldDeferForCave(id)) continue;
         if (!cultureCanAfford(id, ctype, ledger)) continue;
         jobs.push({ type, ctype, id });
         townHasJob.add(String(id));
