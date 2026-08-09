@@ -226,13 +226,16 @@
     const ids=new Set();for(const id of vals)if(recruitUnitDef(id))ids.add(id);let keys=[];try{keys=Object.keys((gameUw().GameData&&gameUw().GameData.units)||{}).sort((a,b)=>b.length-a.length)}catch(_){}for(const raw of vals)for(const id of keys)if(new RegExp(`(?:^|[_:-])${id.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,'i').test(raw))ids.add(id);return ids.size===1?[...ids][0]:null;
   }
   function nativeMountBuildControl(root,tile,townId,building) {
-    tile.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>{if(c.dataset.building!==building)c.remove()});
-    const controls=[...tile.querySelectorAll(`.gb-native-qctl[data-building="${building}"]`)];let ctl=controls.shift()||null;controls.forEach(extra=>extra.remove());
-    if(ctl)ctl.querySelectorAll('.gb-native-qctl').forEach(extra=>extra.remove());
-    if(!ctl){ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.building=building;const anchor=tile.querySelector('.level,.building_level,.level_wrapper');(anchor&&anchor.parentElement||tile).appendChild(ctl)}
-    const list=nativeQueueList(townId,'build',false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),jobs=list.filter(j=>j&&j.building===building),projected=nativeQueueProjectedBuildLevel(townId,building),pos=nativeQueuePosition(townId,'build',j=>j&&j.building===building);
+    // Strip any stale controls left over by earlier scans before mounting.
+    tile.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>c.remove());
+    const list=nativeQueueList(townId,'build',false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),jobs=list.filter(j=>j&&j.building===building);
+    // Empty + not in FIFO mode: leave the in-game [-][+] untouched.
+    if(!jobs.length&&!nativeQueueIsFifo(townId,'build'))return;
+    const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.building=building;
+    const anchor=tile.querySelector('.level,.building_level,.level_wrapper');(anchor&&anchor.parentElement||tile).appendChild(ctl);
+    const projected=nativeQueueProjectedBuildLevel(townId,building),pos=nativeQueuePosition(townId,'build',j=>j&&j.building===building);
     const head=pos===1&&list[0],max=abMaxLevel(building),special=nativeSpecialConflict(townId,building),sig=JSON.stringify([townId,building,projected,pos,frozen,max,special,jobs.map(j=>[j.id,j.toLevel,j.status,j.reason,!!j.inflight,!!j.manualReview])]);if(ctl.dataset.sig===sig)return;ctl.dataset.sig=sig;
-    ctl.replaceChildren();const minus=nativeQButton('−','Quitar la última mejora virtual',nativeTileAction(root,townId,tile,'build',building,()=>{if(!nativeQueueRemoveLastBuild(townId,building))flash('No hay mejora virtual que quitar')}));minus.disabled=!jobs.length;
+    ctl.replaceChildren();const minus=nativeQButton('−','Quitar la última mejora virtual',nativeTileAction(root,townId,tile,'build',building,()=>{if(!nativeQueueRemoveLastBuild(townId,building))flash('No hay mejora virtual que quitar')}));minus.disabled=!jobs.length||frozen;
     // Only show "Plan N · #pos" when we actually have a virtual job queued.
     // Without one the "Plan 0" placeholder hides the in-game queue row text
     // and the player sees an empty box where the game's own [-][+] should be.
@@ -249,9 +252,11 @@
     minus.disabled=minus.disabled||frozen;if(frozen||special||projected==null||max==null||projected>=max)plus.disabled=true;ctl.append(minus,count,plus);
   }
   function nativeMountRecruitControl(root,tile,townId,unit) {
-    tile.querySelectorAll(':scope > .gb-native-qctl[data-unit]').forEach(c=>{if(c.dataset.unit!==unit)c.remove()});
-    const controls=[...tile.querySelectorAll(`:scope > .gb-native-qctl[data-unit="${unit}"]`)];let ctl=controls.shift()||null;controls.forEach(extra=>extra.remove());if(!ctl){ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.unit=unit;tile.appendChild(ctl)}
-    const list=nativeQueueList(townId,'recruit',false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit),pos=nativeQueuePosition(townId,'recruit',j=>j&&j.unit===unit),head=pos===1&&list[0];
+    tile.querySelectorAll(':scope > .gb-native-qctl[data-unit]').forEach(c=>c.remove());
+    const list=nativeQueueList(townId,'recruit',false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit);
+    if(!(pending>0)&&!nativeQueueIsFifo(townId,'recruit'))return;
+    const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.unit=unit;tile.appendChild(ctl);
+    const pos=nativeQueuePosition(townId,'recruit',j=>j&&j.unit===unit),head=pos===1&&list[0];
     const sig=JSON.stringify([townId,unit,step,pending,pos,frozen,head&&head.status,head&&head.reason]);if(ctl.dataset.sig===sig)return;ctl.dataset.sig=sig;
     ctl.replaceChildren();const minus=nativeQButton(`−${step}`,`Restar ${step} de la cola virtual de esta unidad`,nativeTileAction(root,townId,tile,'unit',unit,()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));minus.disabled=!(pending>0)||frozen;
     const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=`+${pending}${pos?' · #'+pos:''}`;count.title=head&&head.reason?head.reason:`${pending} pendiente(s)`;
@@ -279,8 +284,11 @@
     for(const root of roots){const townId=nativeWindowTownId(root);if(!townId){root.querySelectorAll(':scope > .gb-native-panel,.gb-native-qctl').forEach(n=>n.remove());continue}let buildN=0,unitN=0;const mountedBuildIds=new Set(),mountedUnitIds=new Set();
       mountedTowns.add(String(townId));
       const senateContext=!!(root.matches('#building_main,.building_main,.senate')||root.querySelector('#building_main,.building_main,[id^="building_main_"],[id^="special_building_"]'));
-      const buildTiles=senateContext?[...root.querySelectorAll('[id^="building_main_"],[id^="special_building_"],.building[data-building_type],.building[data-building-type],.building[data-building]')]:[];
-      for(const tile of buildTiles){if(tile.classList.contains('gb-native-qctl')||tile.closest('.gb-native-qctl,.gb-native-panel'))continue;const id=nativeBuildingId(tile);if(!id||mountedBuildIds.has(id))continue;mountedBuildIds.add(id);const owner=tile.closest(`#building_main_${id},#special_building_${id}`)||tile;nativeMountBuildControl(root,owner,townId,id);buildN++}
+      // Iterate the unique per-building wrapper only. The Senate renders
+      // multiple descendant tiles inside each wrapper that all carry
+      // data-building_type=X; iterating them duplicates the control stack.
+      const buildTiles=senateContext?[...root.querySelectorAll('[id^="building_main_"],[id^="special_building_"]')]:[];
+      for(const tile of buildTiles){if(tile.classList.contains('gb-native-qctl')||tile.closest('.gb-native-qctl,.gb-native-panel'))continue;const id=nativeBuildingId(tile);if(!id||mountedBuildIds.has(id))continue;mountedBuildIds.add(id);nativeMountBuildControl(root,tile,townId,id);buildN++}
       const unitContext=root.matches('#unit_order')?root:root.querySelector('#unit_order');const unitTiles=unitContext?[...unitContext.querySelectorAll('#units .unit_tab,.unit_tab')]:[];
       for(const tile of unitTiles){const id=nativeUnitId(tile);if(!id||mountedUnitIds.has(id))continue;mountedUnitIds.add(id);nativeMountRecruitControl(root,tile,townId,id);unitN++}
       root.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>{if(!mountedBuildIds.has(c.dataset.building))c.remove()});root.querySelectorAll('.gb-native-qctl[data-unit]').forEach(c=>{if(!mountedUnitIds.has(c.dataset.unit))c.remove()});
