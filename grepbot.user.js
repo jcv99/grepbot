@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.4.1
+// @version      2.4.2
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -176,6 +176,7 @@ const STORE = {
     PT_CFG: 'grepbot:pt-cfg',
     PT_TRADE_TPL: 'grepbot:pt-trade-tpl',
     PT_VIEW_URL: 'grepbot:pt-view-url',
+    SPELL_COOLDOWN: 'grepbot:spell-cooldown',
   };
 
   const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
@@ -201,6 +202,7 @@ const STORE = {
     STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER,
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
+    STORE.SPELL_COOLDOWN,
   ]);
   function wkey(base) { return base + '@' + location.hostname; }
 
@@ -514,6 +516,7 @@ const STORE = {
     merchantWish: load(STORE.MERCHANT_WISH, []),
     autoFavor: load(STORE.AUTO_FAVOR, false),
     favorCfg: load(STORE.FAVOR_CFG, { god: 'athena', unit: 'harpy', thresh: 200, maxConcurrent: 2 }),
+    spellCooldown: load(STORE.SPELL_COOLDOWN, {}),
     autoWonder: load(STORE.AUTO_WONDER, false),
     wonderCfg: load(STORE.WONDER_CFG, { wonderId: null, wood: 0, stone: 0, iron: 0, reserve: 5000, budget: 50000 }),
     autoDodge: load(STORE.AUTO_DODGE, false),
@@ -942,7 +945,7 @@ const STORE = {
     collect: 'collectTpl',
     pttrade: 'ptTradeTpl',
     wonder: 'wonderFavorTpl',
-    favor: 'attackTpl',
+
   };
 
   function tplNameFor(feature, payload) {
@@ -2026,6 +2029,32 @@ const STORE = {
       return { exists: true, gold: gbPlayerGold(), price: Number.isFinite(price) ? price : null };
     } catch (_) { return null; }
   }
+  function txPtTradeStatus(townId, offerId) {
+    try {
+      const uw = gameUw();
+      let model = null;
+      const tryCols = ['PhoenicianSalesmanOffer', 'MerchantOffer', 'PremiumExchangeOffer'];
+      for (const name of tryCols) {
+        const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName(name);
+        if (!col || !col.models) continue;
+        model = col.models.find(m => {
+          const a = m.attributes || m;
+          if (offerId != null && String(a.id ?? m.id) !== String(offerId)) return false;
+          if (townId != null && a.town_id != null && String(a.town_id) !== String(townId)) return false;
+          return true;
+        });
+        if (model) break;
+      }
+      const before = txTownResourceSnap(townId);
+      const tradeCap = (function () {
+        try { const t = gbTownModel(townId); return t && t.getAvailableTradeCapacity ? +t.getAvailableTradeCapacity() : null; } catch (_) { return null; }
+      })();
+      if (!model) return { exists: false, tradeCap, res: before };
+      const a = model.attributes || model;
+      const amount = Number(a.amount != null ? a.amount : a.trade_amount != null ? a.trade_amount : a.current_amount);
+      return { exists: true, tradeCap, res: before, amount: Number.isFinite(amount) ? amount : null };
+    } catch (_) { return null; }
+  }
   function txCapture(feature, transport, endpoint, data) {
     const d = data || {};
     const a = transport === 'bridge' ? (d.arguments || {}) : d;
@@ -2081,6 +2110,10 @@ const STORE = {
         const offerId = a.offer_id || a.offer || String(d.model_url || '').split('/').pop();
         return { kind: 'merchant', offerId, before: txMerchantStatus(offerId) };
       }
+      if (feature === 'pttrade') {
+        const offerId = a.offer_id || a.offer || (d.model_url && String(d.model_url).split('/').pop());
+        return { kind: 'pttrade', offerId, townId, before: txPtTradeStatus(townId, offerId) };
+      }
       if (feature === 'rurallevel') {
         const relId = String(d.model_url || '').split('/').pop();
         let status = null;
@@ -2124,6 +2157,7 @@ const STORE = {
     if (feature === 'rurallevel' || feature === 'ruraltrade') return `${feature}:${townId}:${a.farm_town_id || String(d.model_url || '').split('/').pop()}:${endpoint}`;
     if (feature === 'culture') return `culture:${townId}:${a.celebration_type || endpoint}`;
     if (feature === 'merchant') return `merchant:${townId}:${a.offer_id || a.offer || a.id || endpoint}`;
+    if (feature === 'pttrade') return `pttrade:${townId || '-'}:${a.offer_id || a.offer || (d.model_url ? String(d.model_url).split('/').pop() : '') || endpoint}`;
     return `${feature}:${townId || '-'}:${endpoint}:${JSON.stringify(txStableObj(a)).slice(0, 100)}`;
   }
   function txReconcileNow(tx) {
@@ -2221,6 +2255,15 @@ const STORE = {
         if (!cur || !s.before) return 'unknown';
         if (s.before.exists && !cur.exists) return 'applied';
         if (cur.gold != null && s.before.gold != null && cur.gold < s.before.gold) return 'applied';
+        return cur.exists === s.before.exists ? 'unchanged' : 'unknown';
+      }
+      if (s.kind === 'pttrade') {
+        const cur = txPtTradeStatus(meta.townId, s.offerId);
+        if (!cur || !s.before) return 'unknown';
+        if (s.before.exists && !cur.exists) return 'applied';
+        if (cur.tradeCap != null && s.before.tradeCap != null && cur.tradeCap < s.before.tradeCap) return 'applied';
+        if (cur.res && s.before.res && (cur.res.wood != null && s.before.res.wood != null && cur.res.wood !== s.before.res.wood || cur.res.stone != null && s.before.res.stone != null && cur.res.stone !== s.before.res.stone || cur.res.iron != null && s.before.res.iron != null && cur.res.iron !== s.before.res.iron)) return 'applied';
+        if (cur.amount != null && s.before.amount != null && cur.amount < s.before.amount) return 'applied';
         return cur.exists === s.before.exists ? 'unchanged' : 'unknown';
       }
       if (s.kind === 'bandit-attack' || (s.kind === 'bandit' && /\/attack$/i.test(String(tx.endpoint || '')))) {
@@ -3252,9 +3295,8 @@ const STORE = {
     P._grepbot_open = GB_INSTANCE_ID;
   }
 
-  let catchupToken = null;
   function reportCatchUpEnqueue() {
-    if (!hostEnabled() || catchupToken || gbLocked('report-catchup')) return;
+    if (!hostEnabled() || gbLocked('report-catchup')) return;
     if (typeof gbWake === 'function') {
       gbWake('reportCatchUp', () => reportCatchUpRun(), { priority: 80 });
     } else {
@@ -3262,10 +3304,9 @@ const STORE = {
     }
   }
   function reportCatchUpRun() {
-    if (!hostEnabled() || catchupToken || gbLocked('report-catchup') || automationPaused({}) || captchaPaused('report')) return;
-    catchupToken = gbLock('report-catchup', 300000);
-    if (!catchupToken) return;
-    const token = catchupToken;
+    if (!hostEnabled() || gbLocked('report-catchup') || automationPaused({}) || captchaPaused('report')) return;
+    const token = gbLock('report-catchup', 300000);
+    if (!token) return;
     const maxN = 25;
     const maxAgeMs = 72 * 3600000;
     const cut = Date.now() - maxAgeMs;
@@ -3280,10 +3321,7 @@ const STORE = {
       });
     } catch (_) {}
     const batch = ids.slice(0, maxN);
-    const release = () => {
-      gbUnlock('report-catchup', token);
-      if (token === catchupToken) catchupToken = null;
-    };
+    const release = () => { gbUnlock('report-catchup', token); };
     if (!batch.length) {
       release();
       gbLogT('catchup-empty', 120000, 'report catch-up: nothing new in inbox DOM');
@@ -9212,12 +9250,12 @@ const STORE = {
 
   }
   function dodgeTryMilitia(mov,entry) {
-    if(!state.autoMilitia||captchaPausedAny('militia','dodge')||entry.militiaState==='raised'||entry.militiaState==='sending'||entry.militiaState==='unknown')return;
+    if(!state.autoMilitia||captchaPausedAny('militia','dodge')||entry.militiaState==='raised'||entry.militiaState==='sending')return;
     const eta=dodgeEtaSec(mov),now=Date.now();if(eta==null||eta>DODGE_MILITIA_WINDOW_SEC||eta<=0){gbLogT('militia-eta-'+mov.dest,60000,`militia: waiting; hostile ETA ${eta==null?'unknown':fmtSec(eta)}`);return}
     if(entry.militiaNextAt&&entry.militiaNextAt>now)return;const can=dodgeCanRaiseMilitia(mov.dest);
     if(!can.ok){if(/already standing/.test(can.why||'')){entry.militiaState='raised';dodgeQueueSave()}else{entry.militiaState='pending';entry.militiaNextAt=now+30000}return}
     const token=gbLock('militia',30000);if(!token){entry.militiaNextAt=now+2000;return}entry.militiaState='sending';dodgeQueueSave();
-    dodgeRaiseMilitia(mov.dest,err=>{gbUnlock('militia',token);if(!err){entry.militiaState='raised';entry.militiaNextAt=0;gbLog(`militia: raised in ${mov.dest} (ETA ${fmtSec(eta)})`)}else if(err==='timeout_unknown'||err==='pending'){entry.militiaState='unknown';entry.militiaNextAt=0;gbLog(`militia: outcome unknown (${err}); manual review required before retry — militia consumes population`)}else{entry.militiaState='pending';entry.militiaNextAt=Date.now()+30000;gbLogT('militia-retry-'+mov.dest,30000,`militia: retry scheduled (${err})`)}dodgeQueueSave()});
+    dodgeRaiseMilitia(mov.dest,err=>{gbUnlock('militia',token);if(!err){entry.militiaState='raised';entry.militiaNextAt=0;gbLog(`militia: raised in ${mov.dest} (ETA ${fmtSec(eta)})`)}else if(err==='timeout_unknown'||err==='pending'){entry.militiaState='unknown';entry.militiaNextAt=Date.now() + 5 * 60 * 1000;gbLog(`militia: outcome unknown (${err}); retry bounded to 5min — militia consumes population and re-firing without resolution is unsafe`)}else{entry.militiaState='pending';entry.militiaNextAt=Date.now()+30000;gbLogT('militia-retry-'+mov.dest,30000,`militia: retry scheduled (${err})`)}dodgeQueueSave()});
   }
   function dodgeTrySend(entry, mov) {
     if (entry.state === 'sent' || entry.state === 'sending') return;
@@ -9256,8 +9294,8 @@ const STORE = {
         entry.tries = (entry.tries || 0) + 1;
         if (err === 'timeout_unknown' || err === 'pending') {
           entry.state = 'unknown';
-          entry.nextAt = 0;
-          gbLog(`dodge: outcome unknown (${err}); manual review required before any retry — units already left`);
+          entry.nextAt = Date.now() + TX_UNKNOWN_RECHECK_MS;
+          gbLog(`dodge: outcome unknown (${err}); bounded recheck in ${Math.round(TX_UNKNOWN_RECHECK_MS/1000)}s — units may have already left`);
         } else {
           entry.state = 'failed';
           const bo = DODGE_FAIL_BACKOFF[Math.min(entry.tries - 1, DODGE_FAIL_BACKOFF.length - 1)];
@@ -9300,7 +9338,7 @@ const STORE = {
       if (entry.state === 'sent') continue;
       if (entry.state === 'sending') continue;
       if (entry.nextAt && entry.nextAt > now) continue;
-      if (entry.state === 'failed' || entry.state === 'pending' || entry.state === 'notified') {
+      if (entry.state === 'failed' || entry.state === 'pending' || entry.state === 'notified' || entry.state === 'unknown') {
         dodgeTrySend(entry, mov);
       }
     }
@@ -9341,14 +9379,7 @@ const STORE = {
       });
     } catch (_) { return false; }
   }
-  function recruitSpellGateOk(townId, powerId) {
-    if (!powerId || !RECRUIT_SPELLS.includes(powerId)) return { ok: false, why: 'bad-power' };
-    const academy = gbBuildingLevel(townId, 'academy');
-    if (academy != null && academy < 1) return { ok: false, why: 'no-academy' };
-    const god = recruitTownGod(townId);
-    if (!god) return { ok: false, why: 'no-town-god' };
-    return { ok: true, why: null };
-  }
+
   function recruitSpellCooldown(townId, powerId) {
     const map = state.spellCooldown || (state.spellCooldown = {});
     const t = map[String(townId)] || (map[String(townId)] = {});
@@ -9359,11 +9390,22 @@ const STORE = {
     if (!state.spellCooldown) state.spellCooldown = {};
     const t = state.spellCooldown[String(townId)] || (state.spellCooldown[String(townId)] = {});
     t[powerId] = Date.now() + (ms || 30 * 60 * 1000);
+    try { save(STORE.SPELL_COOLDOWN, state.spellCooldown); } catch (_) {}
+  }
+  function recruitSpellGateOk(townId, powerId) {
+    if (!powerId || !RECRUIT_SPELLS.includes(powerId)) return { ok: false, why: 'bad-power' };
+    const academy = gbBuildingLevel(townId, 'academy');
+    if (academy != null && academy < 1) return { ok: false, why: 'no-academy' };
+
+    const god = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
+    if (god == null) return { ok: true, blind: true, why: null };
+    return { ok: true, blind: false, why: null };
   }
   function recruitCastSpell(townId, powerId, onDone) {
     if (!powerId || !RECRUIT_SPELLS.includes(powerId)) return onDone && onDone('bad-power');
     const pre = recruitSpellGateOk(townId, powerId);
     if (!pre.ok) { gbLogT('spell-precond-' + townId, 300000, `spell: blocked precheck (${pre.why})`); return onDone && onDone('skip:' + pre.why); }
+    if (pre.blind) gbLogT('spell-precond-blind-' + townId, 300000, 'spell: god unreadable; blind precheck, server is the authority');
     const left = recruitSpellCooldown(townId, powerId);
     if (left > 0) { gbLogT('spell-cooldown-' + townId, 60000, `spell: cooldown ${Math.ceil(left/1000)}s left`); return onDone && onDone('skip:cooldown'); }
     gameAjaxPost('spell', 'town_overviews', 'cast_power', {
@@ -9532,11 +9574,32 @@ const STORE = {
 
   let recruitNativeCursor=0,recruitLegacyCursor=0;
   function recruitRotate(ids,cursor){if(!ids.length)return ids;const at=Math.max(0,cursor%ids.length);return ids.slice(at).concat(ids.slice(0,at))}
+
+  let recruitScanModelCache = null, recruitScanGodCache = null;
+  function recruitScanResetMemo() {
+    recruitScanModelCache = new Map();
+    recruitScanGodCache = new Map();
+  }
+  function recruitScanModel(tid) {
+    if (!recruitScanModelCache) recruitScanResetMemo();
+    if (recruitScanModelCache.has(tid)) return recruitScanModelCache.get(tid);
+    const m = gbTownModel(tid);
+    recruitScanModelCache.set(tid, m);
+    return m;
+  }
+  function recruitScanGod(tid) {
+    if (!recruitScanGodCache) recruitScanResetMemo();
+    if (recruitScanGodCache.has(tid)) return recruitScanGodCache.get(tid);
+    const g = recruitTownGod(tid);
+    recruitScanGodCache.set(tid, g);
+    return g;
+  }
   function recruitScan(reason) {
     const nativePending = nativeQueueHasPending('recruit');
     if (!hostEnabled() || (!state.autoRecruit && !nativePending) || captchaPaused('recruit')) return;
     if (automationPaused({})) return;
     if (gbLocked('recruit')) return;
+    recruitScanResetMemo();
     const targets = goalEffectiveRecruitTargets();
     const explicitIds=Object.keys(nativeQueueRoot().towns).filter(id=>nativeQueueIsFifo(id,'recruit')&&nativeQueueList(id,'recruit',false).length);
     const legacyIds=Object.keys(targets).filter(id=>!nativeQueueIsFifo(id,'recruit'));
@@ -10818,26 +10881,31 @@ const STORE = {
     questsFromGame().forEach(q => mergeQuestEntry(q));
   }
   function questScanTick(reason) {
-    if (!hostEnabled() || gbLocked('quest-scan')) return;
-    bindQuestObserver();
-    ingestGameQuests();
+    if (!hostEnabled()) return;
 
-    if (!gbLocked('quest-auto')) {
-      const claimable = Object.values(state.questRewards).filter(e => e.canClaim && e.safeAuto);
-      if (claimable.length) {
-        questAutoClaim(questRewardRoot(), claimable[0]);
-      }
-    }
-    const rows = questRows();
-    if (!rows.length) { renderQuests(); return; }
-
-    const row = questSelectedRow(rows);
-    if (!row) { renderQuests(); return; }
     const scanToken = gbLock('quest-scan');
-    if (!scanToken) { renderQuests(); return; }
-    const finish = () => { gbUnlock('quest-scan', scanToken); renderQuests(); };
-    try { questCaptureCurrent(row); }
-    finally { finish(); }
+    if (!scanToken) return;
+    try {
+      bindQuestObserver();
+      ingestGameQuests();
+
+      if (!gbLocked('quest-auto')) {
+        const claimable = Object.values(state.questRewards).filter(e => e.canClaim && e.safeAuto);
+        if (claimable.length) {
+          questAutoClaim(questRewardRoot(), claimable[0]);
+        }
+      }
+      const rows = questRows();
+      if (!rows.length) return;
+
+      const row = questSelectedRow(rows);
+      if (!row) return;
+      try { questCaptureCurrent(row); }
+      catch (_) {  }
+    } finally {
+      gbUnlock('quest-scan', scanToken);
+      renderQuests();
+    }
   }
   function bindQuestObserver() {
     const container = document.querySelector('.quests, #questlog');

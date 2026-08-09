@@ -24,14 +24,10 @@
       });
     } catch (_) { return false; }
   }
-  function recruitSpellGateOk(townId, powerId) {
-    if (!powerId || !RECRUIT_SPELLS.includes(powerId)) return { ok: false, why: 'bad-power' };
-    const academy = gbBuildingLevel(townId, 'academy');
-    if (academy != null && academy < 1) return { ok: false, why: 'no-academy' };
-    const god = recruitTownGod(townId);
-    if (!god) return { ok: false, why: 'no-town-god' };
-    return { ok: true, why: null };
-  }
+  // Cooldown persisted via STORE.SPELL_COOLDOWN so the 30-min favor-spell
+  // safety window survives page reload — without persistence a reload wipes
+  // the guard and the bot can re-spend favor on a town whose previous outcome
+  // was unknown (the irreversible double-spend the v2.4.1 guard prevents).
   function recruitSpellCooldown(townId, powerId) {
     const map = state.spellCooldown || (state.spellCooldown = {});
     const t = map[String(townId)] || (map[String(townId)] = {});
@@ -42,11 +38,24 @@
     if (!state.spellCooldown) state.spellCooldown = {};
     const t = state.spellCooldown[String(townId)] || (state.spellCooldown[String(townId)] = {});
     t[powerId] = Date.now() + (ms || 30 * 60 * 1000);
+    try { save(STORE.SPELL_COOLDOWN, state.spellCooldown); } catch (_) {}
+  }
+  function recruitSpellGateOk(townId, powerId) {
+    if (!powerId || !RECRUIT_SPELLS.includes(powerId)) return { ok: false, why: 'bad-power' };
+    const academy = gbBuildingLevel(townId, 'academy');
+    if (academy != null && academy < 1) return { ok: false, why: 'no-academy' };
+    // Unreadable god = unknown = blind verdict, let the server be the authority.
+    // Use the scan-tick memo when present so we don't re-hit unsafeWindow for
+    // every candidate in the inner loop.
+    const god = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
+    if (god == null) return { ok: true, blind: true, why: null };
+    return { ok: true, blind: false, why: null };
   }
   function recruitCastSpell(townId, powerId, onDone) {
     if (!powerId || !RECRUIT_SPELLS.includes(powerId)) return onDone && onDone('bad-power');
     const pre = recruitSpellGateOk(townId, powerId);
     if (!pre.ok) { gbLogT('spell-precond-' + townId, 300000, `spell: blocked precheck (${pre.why})`); return onDone && onDone('skip:' + pre.why); }
+    if (pre.blind) gbLogT('spell-precond-blind-' + townId, 300000, 'spell: god unreadable; blind precheck, server is the authority');
     const left = recruitSpellCooldown(townId, powerId);
     if (left > 0) { gbLogT('spell-cooldown-' + townId, 60000, `spell: cooldown ${Math.ceil(left/1000)}s left`); return onDone && onDone('skip:cooldown'); }
     gameAjaxPost('spell', 'town_overviews', 'cast_power', {
@@ -215,11 +224,35 @@
 
   let recruitNativeCursor=0,recruitLegacyCursor=0;
   function recruitRotate(ids,cursor){if(!ids.length)return ids;const at=Math.max(0,cursor%ids.length);return ids.slice(at).concat(ids.slice(0,at))}
+  // Per-scan tick memo on the back-model + god read. gbTownModel is not
+  // memoized in bridge.js, so a 20-town × 5-unit scan was burning 100+
+  // unsafeWindow ITowns lookups per tick; the god read repeats inside
+  // recruitCanBuild AND recruitSpellGateOk for the same town.
+  let recruitScanModelCache = null, recruitScanGodCache = null;
+  function recruitScanResetMemo() {
+    recruitScanModelCache = new Map();
+    recruitScanGodCache = new Map();
+  }
+  function recruitScanModel(tid) {
+    if (!recruitScanModelCache) recruitScanResetMemo();
+    if (recruitScanModelCache.has(tid)) return recruitScanModelCache.get(tid);
+    const m = gbTownModel(tid);
+    recruitScanModelCache.set(tid, m);
+    return m;
+  }
+  function recruitScanGod(tid) {
+    if (!recruitScanGodCache) recruitScanResetMemo();
+    if (recruitScanGodCache.has(tid)) return recruitScanGodCache.get(tid);
+    const g = recruitTownGod(tid);
+    recruitScanGodCache.set(tid, g);
+    return g;
+  }
   function recruitScan(reason) {
     const nativePending = nativeQueueHasPending('recruit');
     if (!hostEnabled() || (!state.autoRecruit && !nativePending) || captchaPaused('recruit')) return;
     if (automationPaused({})) return;
     if (gbLocked('recruit')) return;
+    recruitScanResetMemo();
     const targets = goalEffectiveRecruitTargets();
     const explicitIds=Object.keys(nativeQueueRoot().towns).filter(id=>nativeQueueIsFifo(id,'recruit')&&nativeQueueList(id,'recruit',false).length);
     const legacyIds=Object.keys(targets).filter(id=>!nativeQueueIsFifo(id,'recruit'));

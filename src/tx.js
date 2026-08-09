@@ -234,6 +234,32 @@
       return { exists: true, gold: gbPlayerGold(), price: Number.isFinite(price) ? price : null };
     } catch (_) { return null; }
   }
+  function txPtTradeStatus(townId, offerId) {
+    try {
+      const uw = gameUw();
+      let model = null;
+      const tryCols = ['PhoenicianSalesmanOffer', 'MerchantOffer', 'PremiumExchangeOffer'];
+      for (const name of tryCols) {
+        const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName(name);
+        if (!col || !col.models) continue;
+        model = col.models.find(m => {
+          const a = m.attributes || m;
+          if (offerId != null && String(a.id ?? m.id) !== String(offerId)) return false;
+          if (townId != null && a.town_id != null && String(a.town_id) !== String(townId)) return false;
+          return true;
+        });
+        if (model) break;
+      }
+      const before = txTownResourceSnap(townId);
+      const tradeCap = (function () {
+        try { const t = gbTownModel(townId); return t && t.getAvailableTradeCapacity ? +t.getAvailableTradeCapacity() : null; } catch (_) { return null; }
+      })();
+      if (!model) return { exists: false, tradeCap, res: before };
+      const a = model.attributes || model;
+      const amount = Number(a.amount != null ? a.amount : a.trade_amount != null ? a.trade_amount : a.current_amount);
+      return { exists: true, tradeCap, res: before, amount: Number.isFinite(amount) ? amount : null };
+    } catch (_) { return null; }
+  }
   function txCapture(feature, transport, endpoint, data) {
     const d = data || {};
     const a = transport === 'bridge' ? (d.arguments || {}) : d;
@@ -289,6 +315,10 @@
         const offerId = a.offer_id || a.offer || String(d.model_url || '').split('/').pop();
         return { kind: 'merchant', offerId, before: txMerchantStatus(offerId) };
       }
+      if (feature === 'pttrade') {
+        const offerId = a.offer_id || a.offer || (d.model_url && String(d.model_url).split('/').pop());
+        return { kind: 'pttrade', offerId, townId, before: txPtTradeStatus(townId, offerId) };
+      }
       if (feature === 'rurallevel') {
         const relId = String(d.model_url || '').split('/').pop();
         let status = null;
@@ -332,6 +362,7 @@
     if (feature === 'rurallevel' || feature === 'ruraltrade') return `${feature}:${townId}:${a.farm_town_id || String(d.model_url || '').split('/').pop()}:${endpoint}`;
     if (feature === 'culture') return `culture:${townId}:${a.celebration_type || endpoint}`;
     if (feature === 'merchant') return `merchant:${townId}:${a.offer_id || a.offer || a.id || endpoint}`;
+    if (feature === 'pttrade') return `pttrade:${townId || '-'}:${a.offer_id || a.offer || (d.model_url ? String(d.model_url).split('/').pop() : '') || endpoint}`;
     return `${feature}:${townId || '-'}:${endpoint}:${JSON.stringify(txStableObj(a)).slice(0, 100)}`;
   }
   function txReconcileNow(tx) {
@@ -429,6 +460,15 @@
         if (!cur || !s.before) return 'unknown';
         if (s.before.exists && !cur.exists) return 'applied';
         if (cur.gold != null && s.before.gold != null && cur.gold < s.before.gold) return 'applied';
+        return cur.exists === s.before.exists ? 'unchanged' : 'unknown';
+      }
+      if (s.kind === 'pttrade') {
+        const cur = txPtTradeStatus(meta.townId, s.offerId);
+        if (!cur || !s.before) return 'unknown';
+        if (s.before.exists && !cur.exists) return 'applied';
+        if (cur.tradeCap != null && s.before.tradeCap != null && cur.tradeCap < s.before.tradeCap) return 'applied';
+        if (cur.res && s.before.res && (cur.res.wood != null && s.before.res.wood != null && cur.res.wood !== s.before.res.wood || cur.res.stone != null && s.before.res.stone != null && cur.res.stone !== s.before.res.stone || cur.res.iron != null && s.before.res.iron != null && cur.res.iron !== s.before.res.iron)) return 'applied';
+        if (cur.amount != null && s.before.amount != null && cur.amount < s.before.amount) return 'applied';
         return cur.exists === s.before.exists ? 'unchanged' : 'unknown';
       }
       if (s.kind === 'bandit-attack' || (s.kind === 'bandit' && /\/attack$/i.test(String(tx.endpoint || '')))) {

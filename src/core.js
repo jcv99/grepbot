@@ -310,6 +310,7 @@
     merchantWish: load(STORE.MERCHANT_WISH, []),
     autoFavor: load(STORE.AUTO_FAVOR, false),
     favorCfg: load(STORE.FAVOR_CFG, { god: 'athena', unit: 'harpy', thresh: 200, maxConcurrent: 2 }),
+    spellCooldown: load(STORE.SPELL_COOLDOWN, {}),
     autoWonder: load(STORE.AUTO_WONDER, false),
     wonderCfg: load(STORE.WONDER_CFG, { wonderId: null, wood: 0, stone: 0, iron: 0, reserve: 5000, budget: 50000 }),
     autoDodge: load(STORE.AUTO_DODGE, false),
@@ -751,7 +752,11 @@
     collect: 'collectTpl',
     pttrade: 'ptTradeTpl',
     wonder: 'wonderFavorTpl',
-    favor: 'attackTpl',
+    // favor used attackTpl here, but that meant a favor rejection would
+    // invalidate the attack template (identical payload). Favor is currently
+    // disabled in src/favor.js; leave it unmapped so re-enable does not
+    // poison attackTpl health. When favor gets its own learned payload, add
+    // a dedicated `favorTpl` here.
   };
   // Feature `build` carries two different posts: auto-queue `buildUp` (payload is
   // hardcoded - no learned template can be stale) and instant complete (which is

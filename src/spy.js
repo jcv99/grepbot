@@ -106,12 +106,11 @@
     P._grepbot_open = GB_INSTANCE_ID;
   }
 
-  // Offline report catch-up - bounded, serial, via the wake queue. Uses the
-  // shared lock registry so a synchronous throw inside step() cannot strand
-  // the loop until reload: the outer try/finally always releases the lease.
-  let catchupToken = null;
+  // Offline report catch-up - bounded, serial, via the wake queue. The shared
+  // lock registry is the single in-flight signal; gbLocked()/gbUnlock() already
+  // handle foreign-token rejection, so a local token is redundant.
   function reportCatchUpEnqueue() {
-    if (!hostEnabled() || catchupToken || gbLocked('report-catchup')) return;
+    if (!hostEnabled() || gbLocked('report-catchup')) return;
     if (typeof gbWake === 'function') {
       gbWake('reportCatchUp', () => reportCatchUpRun(), { priority: 80 });
     } else {
@@ -119,10 +118,9 @@
     }
   }
   function reportCatchUpRun() {
-    if (!hostEnabled() || catchupToken || gbLocked('report-catchup') || automationPaused({}) || captchaPaused('report')) return;
-    catchupToken = gbLock('report-catchup', 300000);
-    if (!catchupToken) return;
-    const token = catchupToken;
+    if (!hostEnabled() || gbLocked('report-catchup') || automationPaused({}) || captchaPaused('report')) return;
+    const token = gbLock('report-catchup', 300000);
+    if (!token) return;
     const maxN = 25;
     const maxAgeMs = 72 * 3600000;
     const cut = Date.now() - maxAgeMs;
@@ -137,10 +135,7 @@
       });
     } catch (_) {}
     const batch = ids.slice(0, maxN);
-    const release = () => {
-      gbUnlock('report-catchup', token);
-      if (token === catchupToken) catchupToken = null;
-    };
+    const release = () => { gbUnlock('report-catchup', token); };
     if (!batch.length) {
       release();
       gbLogT('catchup-empty', 120000, 'report catch-up: nothing new in inbox DOM');

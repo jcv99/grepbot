@@ -473,28 +473,35 @@
     questsFromGame().forEach(q => mergeQuestEntry(q));
   }
   function questScanTick(reason) {
-    if (!hostEnabled() || gbLocked('quest-scan')) return;
-    bindQuestObserver();
-    ingestGameQuests();
-
-    if (!gbLocked('quest-auto')) {
-      const claimable = Object.values(state.questRewards).filter(e => e.canClaim && e.safeAuto);
-      if (claimable.length) {
-        questAutoClaim(questRewardRoot(), claimable[0]);
-      }
-    }
-    const rows = questRows();
-    if (!rows.length) { renderQuests(); return; }
-    // Never change the player's selected quest during a background scan. Game
-    // models are ingested for every row; DOM-only reward details are learned
-    // from whichever quest the player is already viewing.
-    const row = questSelectedRow(rows);
-    if (!row) { renderQuests(); return; }
+    if (!hostEnabled()) return;
+    // Single atomic guard: take the lock once, run the whole tick, release in
+    // finally. The previous read-then-acquire pattern left a window where
+    // bindQuestObserver/ingestGameQuests ran with no lock held.
     const scanToken = gbLock('quest-scan');
-    if (!scanToken) { renderQuests(); return; }
-    const finish = () => { gbUnlock('quest-scan', scanToken); renderQuests(); };
-    try { questCaptureCurrent(row); }
-    finally { finish(); }
+    if (!scanToken) return;
+    try {
+      bindQuestObserver();
+      ingestGameQuests();
+
+      if (!gbLocked('quest-auto')) {
+        const claimable = Object.values(state.questRewards).filter(e => e.canClaim && e.safeAuto);
+        if (claimable.length) {
+          questAutoClaim(questRewardRoot(), claimable[0]);
+        }
+      }
+      const rows = questRows();
+      if (!rows.length) return;
+      // Never change the player's selected quest during a background scan. Game
+      // models are ingested for every row; DOM-only reward details are learned
+      // from whichever quest the player is already viewing.
+      const row = questSelectedRow(rows);
+      if (!row) return;
+      try { questCaptureCurrent(row); }
+      catch (_) { /* leave the lock release to finally */ }
+    } finally {
+      gbUnlock('quest-scan', scanToken);
+      renderQuests();
+    }
   }
   function bindQuestObserver() {
     const container = document.querySelector('.quests, #questlog');
