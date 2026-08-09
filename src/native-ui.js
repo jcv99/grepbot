@@ -38,13 +38,19 @@
     const j=Math.max(0,Math.min(list.length-1,i+(+delta||0)));if(i===j)return false;
     const item=list.splice(i,1)[0];list.splice(j,0,item);if(lane==='build')nativeQueueRebaseBuild(townId);nativeQueueSave();return true;
   }
-  function nativeQueueRemove(townId,lane,jobId) {
+  function nativeQueueRemove(townId,lane,jobId,opts) {
     if(lane==='build')nativeQueueReconcileBuild(townId);
     const list=nativeQueueList(townId,lane,false),i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return false;
-    const target=list[i];if(list.some(j=>j&&j.inflight)||target.inflight)return false;
+    const target=list[i];const force=!(!opts||!opts.force);
+    // Target itself is always protected — a post that's actually flying cannot
+    // be cancelled from here. The list-wide inflight gate is the lane's own
+    // safety net for the *normal* path; the × button bypasses it after a
+    // player confirm so a stuck head no longer strands the queued tail.
+    if(target.inflight)return false;
+    if(!force&&list.some(j=>j&&j.inflight))return false;
     // A lane under review stays frozen, but any individual UNKNOWN item can be
     // removed after the UI asks the player to verify the real game queue.
-    if(list.some(j=>j&&j.manualReview)&&!target.manualReview)return false;
+    if(!force&&list.some(j=>j&&j.manualReview)&&!target.manualReview)return false;
     list.splice(i,1);if(lane==='build')nativeQueueRebaseBuild(townId);nativeQueueSave();return true;
   }
   function nativeQueuePosition(townId,lane,pred) {
@@ -362,7 +368,7 @@
     const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'▶':'⏸',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
     const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&(j.inflight||j.manualReview));if(!list.length&&nativeQueueIsFifo(townId,lane)){const legacy=nativeQButton('Objetivos','Volver al planificador de objetivos',nativeTownAction(root,townId,()=>nativeQueueUseLegacy(townId,lane)));head.appendChild(legacy)}box.appendChild(head);
     if(!list.length){const empty=document.createElement('div');empty.className='gb-native-empty';empty.textContent=nativeQueueIsFifo(townId,lane)?'Cola vacía. Usa los botones + de arriba.':'Usa + para crear una cola FIFO en esta ciudad.';box.appendChild(empty);box.scrollTop=oldScroll;return}
-    list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}→${j.toLevel}`:`${j.amount}× ${nativeUnitLabel(j.unit)}`;const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' · '+j.reason:''}`;desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const up=nativeQButton('↑','Mover antes',nativeTownAction(root,townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('↓','Mover después',nativeTownAction(root,townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const del=nativeQButton('×','Quitar de la cola virtual',nativeTownAction(root,townId,()=>{if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acción se envió o no.')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id)}));del.disabled=!!j.inflight||(frozen&&!j.manualReview);acts.append(up,down,del);row.append(num,desc,acts);box.appendChild(row)});box.scrollTop=oldScroll;
+    list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}→${j.toLevel}`:`${j.amount}× ${nativeUnitLabel(j.unit)}`;const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' · '+j.reason:''}`;desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const up=nativeQButton('↑','Mover antes',nativeTownAction(root,townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('↓','Mover después',nativeTownAction(root,townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const del=nativeQButton('×','Quitar de la cola virtual',nativeTownAction(root,townId,()=>{if(j.inflight){flash('Esta orden se está enviando; espera a que termine');return false}if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acción se envió o no.')}catch(_){ok=false}if(!ok)return false}else if(frozen){let ok=false;try{ok=gameUw().confirm('Hay otra acción pendiente en esta cola. ¿Borrar este elemento de todos modos?')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id,{force:true})}));del.disabled=!!j.inflight;acts.append(up,down,del);row.append(num,desc,acts);box.appendChild(row)});box.scrollTop=oldScroll;
   }
   function nativeUiScan() {
     if(!gbInstanceAlive()||!document.body)return;nativeEnsureBuildingIds();
