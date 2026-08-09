@@ -108,16 +108,23 @@
     const B = String(target.building);
     const T = +target.toLevel || 0;
     const fold = (skipIdx) => {
+      // FIFO walk matching nativeQueueRebaseBuild: each pending entry for a
+      // building contributes +1 from the current simulated level. Naive max()
+      // over toLevels would skip the chain — e.g. [silver 30→31, silver 31→32]
+      // with the first removed would still report silver=32 because the
+      // second entry's stored toLevel (32) is taken as already-achieved.
       const sim = Object.assign({}, levels);
       for (let i = 0; i < list.length; i++) {
         if (i === skipIdx) continue;
         const j = list[i];
         if (!j || !AB_BUILDINGS.includes(j.building)) continue;
         if (j.inflight || j.manualReview) {
+          // Reconciled/head entries are treated as already at their toLevel —
+          // the live queue reflects them regardless of FIFO position.
           sim[j.building] = Math.max(+sim[j.building] || 0, +j.toLevel || 0);
           continue;
         }
-        sim[j.building] = Math.max(+sim[j.building] || 0, +j.toLevel || 0);
+        sim[j.building] = (+sim[j.building] || 0) + 1;
       }
       return sim;
     };
