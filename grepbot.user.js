@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.5.6
+// @version      2.5.7
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -252,12 +252,6 @@ const STORE = {
     if (!id) return;
     try { clearTimeout(id); } catch (_) {}
     const i = gbTimerBag.findIndex(t => t.kind === 't' && t.id === id);
-    if (i >= 0) gbTimerBag.splice(i, 1);
-  }
-  function gbClearInterval(id) {
-    if (!id) return;
-    try { clearInterval(id); } catch (_) {}
-    const i = gbTimerBag.findIndex(t => t.kind === 'i' && t.id === id);
     if (i >= 0) gbTimerBag.splice(i, 1);
   }
   function gbTryAcquireTabLeader() {
@@ -856,14 +850,6 @@ const STORE = {
 
   const CAVE_SOON_MS = 15 * 60 * 1000;
   const cultureCaveDeferCount = Object.create(null);
-  function townIronReserveForCave(townId) {
-
-    const st = townResState(townId);
-    if (!st || !(st.cap > 0)) return null;
-    const thresh = Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100;
-    const need = Math.ceil(st.cap * thresh);
-    return Math.max(0, need - (st.iron || 0));
-  }
   function ironReservedForCave(townId) {
     if (!state.autoCave) return { reserved: false, etaMs: null, blind: false };
     const st = townResState(townId);
@@ -1037,10 +1023,6 @@ const STORE = {
   function gbCfgNum(v, fallback) {
     const n = +v;
     return Number.isFinite(n) ? n : fallback;
-  }
-  function gbLogText() {
-    const lines = logBuf.slice(logHead);
-    return lines.map(l => new Date(l.ts).toISOString() + ' ' + l.msg).join('\n');
   }
   function captchaLadder() {
     const raw = state.captchaLadder;
@@ -2730,11 +2712,6 @@ const STORE = {
     _townResCache[key] = { at: now, v: out };
     return out;
   }
-  function townFillPct(townId) {
-    const st = townResState(townId);
-    return st ? st.fillPct : null;
-  }
-
   function gbProbeNum(obj, names, args) {
     if (!obj) return null;
     for (const n of names) {
@@ -3060,29 +3037,6 @@ const STORE = {
       n += r.n || 1;
     }
     return n;
-  }
-
-  function gbRecall(feature, action, target) {
-    const list = state.decisions;
-    for (let i = list.length - 1; i >= 0; i--) {
-      const r = list[i];
-      if (feature && r.f !== feature) continue;
-      if (action && r.a !== action) continue;
-      if (target != null && String(r.k) !== String(target)) continue;
-      return r;
-    }
-    return null;
-  }
-  function gbRecallAll(feature, action, target) {
-    return state.decisions.filter(r =>
-      (!feature || r.f === feature) &&
-      (!action || r.a === action) &&
-      (target == null || String(r.k) === String(target)));
-  }
-
-  function gbRemember(feature, action, target, result, detail) {
-    return jrnPush({ f: feature, a: String(action || 'decide').slice(0, 48), k: String(target == null ? '-' : target).slice(0, 24) },
-      jrnResult(result === 'ok' || result == null ? null : result), detail);
   }
 
   function jrnNote(tag, result) {
@@ -3828,20 +3782,6 @@ const STORE = {
   function farmRelationCol() {
     return mmCol('FarmTownPlayerRelation');
   }
-  function farmRelationModel(farmOrRelId) {
-    const relCol = farmRelationCol();
-    if (!relCol) return null;
-    const id = (farmOrRelId && typeof farmOrRelId === 'object') ? farmOrRelId.relation_id : farmOrRelId;
-    if (id == null) return null;
-    try {
-      if (relCol.get) {
-        const m = relCol.get(id);
-        if (m) return m;
-      }
-    } catch (_) {}
-    return relCol.models.find(r => (r.id ?? (r.attributes || {}).id) == id) || null;
-  }
-
   function farmBelongsToPlayer(r, attrs) {
     try {
       if (typeof r.belongsToPlayer === 'function') return !!r.belongsToPlayer();
@@ -4816,16 +4756,6 @@ const STORE = {
     save(wkey(STORE.COLLECT_TPL), u);
     gbLog('learned collect action', a);
   }
-  function buildCollectUrl(template, townId) {
-    try {
-      const u = new URL(template, location.origin);
-      u.searchParams.set('town_id', String(townId));
-      u.searchParams.set('h', state.csrf || u.searchParams.get('h') || '');
-      return u.pathname + '?' + u.searchParams.toString();
-    } catch (e) {
-      return template.replace(/town_id=\d+/, `town_id=${townId}`);
-    }
-  }
   function autoCollectResources() {
     if (!state.autoCollect) return;
     if (!hostEnabled() || automationPaused({}) || captchaPaused('collect') || circuitOpen('collect')) return;
@@ -5026,21 +4956,6 @@ const STORE = {
       if (!units[u]) delete units[u];
     });
     return units;
-  }
-  function movementsUnitsModels(uw) {
-    try {
-      const col = uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits');
-      if (col && col.models) return col.models;
-    } catch (_) {}
-    try {
-      const cols = uw.MM.getCollections && uw.MM.getCollections().MovementsUnits;
-      if (cols && cols[0] && cols[0].models) return cols[0].models;
-    } catch (_) {}
-    try {
-      const map = uw.MM.getModels && uw.MM.getModels().MovementsUnits;
-      if (map) return Object.keys(map).map(k => map[k]);
-    } catch (_) {}
-    return [];
   }
   const BANDIT_TX_EVIDENCE_MAX_MS = 10 * 60 * 1000;
   function banditFlag(v) {
@@ -5396,7 +5311,6 @@ const STORE = {
 
   let ibFreeTimer = null;
   let ibFreeArmedAt = 0;
-  function ibArmedAt() { return ibFreeArmedAt; }
   function ibArmNext(orders) {
     const now = Date.now();
     const thresh = ibFreeThresh() * 1000;
@@ -6490,7 +6404,6 @@ const STORE = {
     });
     return { len: list.length, max, orders: list, known: true };
   }
-  function abQueueFull(townId) { const q = abQueueInfo(townId); return !q.known || q.len >= q.max; }
   function abBuildDataEntry(townId, building) {
     try {
       const uw = gameUw();
@@ -8490,7 +8403,6 @@ const STORE = {
       wantRes: c.wantRes && typeof c.wantRes === 'object' ? c.wantRes : { wood: true, stone: true, iron: false },
     };
   }
-  function ptCfgSave() { save(STORE.PT_CFG, state.ptCfg); }
 
   function ptSalesmanTown() {
     const uw = gameUw();
@@ -9717,17 +9629,9 @@ const STORE = {
   let recruitNativeCursor=0,recruitLegacyCursor=0;
   function recruitRotate(ids,cursor){if(!ids.length)return ids;const at=Math.max(0,cursor%ids.length);return ids.slice(at).concat(ids.slice(0,at))}
 
-  let recruitScanModelCache = null, recruitScanGodCache = null;
+  let recruitScanGodCache = null;
   function recruitScanResetMemo() {
-    recruitScanModelCache = new Map();
     recruitScanGodCache = new Map();
-  }
-  function recruitScanModel(tid) {
-    if (!recruitScanModelCache) recruitScanResetMemo();
-    if (recruitScanModelCache.has(tid)) return recruitScanModelCache.get(tid);
-    const m = gbTownModel(tid);
-    recruitScanModelCache.set(tid, m);
-    return m;
   }
   function recruitScanGod(tid) {
     if (!recruitScanGodCache) recruitScanResetMemo();
@@ -9893,32 +9797,6 @@ const STORE = {
     gbLog(`template: applied "${name}"`);
     flash('plantilla aplicada: ' + name);
     try { renderAbQueue && renderAbQueue(); } catch (_) {}
-  }
-  function qolSetTownGroup(groupName, townIds) {
-    if (!state.townGroups) state.townGroups = {};
-    state.townGroups[groupName] = (townIds || []).map(String);
-    save(STORE.TOWN_GROUPS, state.townGroups);
-  }
-  function qolApplyGroupTemplate(groupName, templateName) {
-    const ids = (state.townGroups && state.townGroups[groupName]) || [];
-    const t = state.cityTemplates && state.cityTemplates[templateName];
-    if (!t || !ids.length) { flash('falta grupo/plantilla'); return; }
-
-    if (t.recruitTargets) {
-      const sample = Object.values(t.recruitTargets)[0] || t.recruitTargets;
-      if (!state.recruitTargets) state.recruitTargets = {};
-      ids.forEach(id => { state.recruitTargets[id] = JSON.parse(JSON.stringify(sample)); });
-      save(STORE.RECRUIT_TARGETS, state.recruitTargets);
-    }
-    if (t.abTargets) {
-      state.abTargets = JSON.parse(JSON.stringify(t.abTargets));
-      save(STORE.AB_TARGETS, state.abTargets);
-    }
-    if (t.researchTargets) {
-      state.researchTargets = JSON.parse(JSON.stringify(t.researchTargets));
-      save(STORE.RESEARCH_TARGETS, state.researchTargets);
-    }
-    gbLog(`group "${groupName}": applied template "${templateName}" → ${ids.length} towns`);
   }
 
   function renderGoals() {
@@ -10423,12 +10301,6 @@ const STORE = {
     else state.playerNotes[player] = String(note).slice(0, 200);
     save(STORE.PLAYER_NOTES, state.playerNotes);
   }
-  function intelSetAllianceNote(alliance, note) {
-    if (!state.allianceNotes) state.allianceNotes = {};
-    if (!note) delete state.allianceNotes[alliance];
-    else state.allianceNotes[alliance] = String(note).slice(0, 200);
-    save(STORE.ALLIANCE_NOTES, state.allianceNotes);
-  }
   function intelGrepodataAssist() {
     if (!state.grepodataIndex || state.dryRun) return;
     try {
@@ -10544,9 +10416,7 @@ const STORE = {
   }
 
   const QUEST_SCAN_MS = 12000;
-  const QUEST_RESCAN_MS = 6 * 60 * 60 * 1000;
   const QUEST_HISTORY_MAX = 100;
-  let questCursor = 0;
   let questMo = null;
   let questMoContainer = null;
   function questClaimFailLoad() {
@@ -10895,37 +10765,6 @@ const STORE = {
       if (data && data.error) return onDone && onDone(String(data.error));
       onDone && onDone(null, data);
     });
-  }
-  function questNeedsRescan(info) {
-    if (!info) return true;
-    if (!Array.isArray(info.rewards) || !info.rewards.length) return true;
-    return ((info.updatedAt || 0) + QUEST_RESCAN_MS) < Date.now();
-  }
-  function clickQuestRow(row) {
-    if (state.dryRun) { gbLogT('quest-dry-dom', 60000, 'DRY-RUN quest: DOM row navigation suppressed'); return false; }
-    const target = row?.querySelector('.headline') || row;
-    if (!target) return false;
-    target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    return true;
-  }
-  function chooseQuestRow(rows) {
-    if (!rows.length) return null;
-
-    const scored = rows.map(r => {
-      const id = questKey(r);
-      const info = state.questRewards[id];
-      const prog = questProgress(r);
-      let score = 0;
-      if (prog != null && prog >= 100) score += 100;
-      if (info && info.safeAuto) score += 40;
-      if (questNeedsRescan(info)) score += 20;
-      if (r.classList.contains('selected')) score += 5;
-      return { r, score, id };
-    });
-    scored.sort((a, b) => b.score - a.score);
-    if (scored[0].score >= 20) return scored[0].r;
-    questCursor = questCursor % rows.length;
-    return rows[questCursor++];
   }
   function questAutoClaim(root, entry) {
     if (gbLocked('quest-auto') || !entry?.canClaim || entry.claimReview || entry.claimedAt) return;
@@ -11848,18 +11687,6 @@ const STORE = {
       });
     })();
   }
-  function prepareAttack(target) {
-    const plan = ensureAttackPlan();
-    plan.targetId = String(target.vill_id || target.id || '');
-    plan.targetX = target.x ?? plan.targetX;
-    plan.targetY = target.y ?? plan.targetY;
-    if (plan.sourceTownIds == null) plan.sourceTownIds = (state.towns || []).map(t => String(t.id));
-    saveAttackPlan();
-
-    if (typeof showTab === 'function') showTab('attack');
-    else renderAttack();
-    flash('attack planner <- ' + plan.targetId);
-  }
   function editThreshold(target) {
     const cur = state.thresholds[target.vill_id] || {};
     const def = Object.entries(cur).map(([k, v]) => `${k}:${v}`).join(',');
@@ -12364,67 +12191,6 @@ const STORE = {
     sec.querySelectorAll('[data-harass]').forEach(btn => btn.addEventListener('click', () => { applyHarassPreset(btn.dataset.harass); renderAttack(); }));
     sec.querySelector('#gb-atk-cmds-refresh')?.addEventListener('click', () => renderAttack());
     sec.querySelector('#gb-atk-heroes-refresh')?.addEventListener('click', () => renderAttack());
-  }
-
-  function militaryDefensePull(targetTownId, onDone) {
-    if (!hostEnabled() || captchaPaused('attack') || automationPaused({})) return onDone && onDone('paused');
-    if (gbLocked('defense-pull')) return onDone && onDone('busy');
-    const uw = gameUw();
-    const targetCoords = townCoords(targetTownId);
-    const target = {
-      town_id: +targetTownId,
-      x: targetCoords.x,
-      y: targetCoords.y,
-      island: targetCoords.island,
-    };
-    const jobs = [];
-    try {
-      for (const id of Object.keys((uw.ITowns && uw.ITowns.towns) || {})) {
-        if (String(id) === String(targetTownId)) continue;
-        const t = uw.ITowns.towns[id];
-        const u = Object.assign({}, t.units && t.units());
-        delete u.militia;
-
-        const send = {};
-        ['sword', 'archer', 'hoplite', 'rider', 'chariot'].forEach(k => {
-          if (+u[k] > 0) send[k] = +u[k];
-        });
-        if (!Object.keys(send).length) continue;
-        const same = isSameIsland(id, target);
-        if (!same) {
-
-          Object.keys(u).forEach(uid => {
-            const m = unitMeta(uid);
-            if (m && (m.capacity > 0 || m.berth > 0) && +u[uid] > 0) send[uid] = +u[uid];
-          });
-          const boats = boatCapacityCheck(send, false);
-          if (!boats.ok) {
-            gbLogT('def-pull-boats-' + id, 60000,
-              `defense-pull: skip town ${id} → ${targetTownId} (${boats.reason || 'no transport'})`);
-            continue;
-          }
-        }
-        jobs.push({ from: id, units: send });
-        if (jobs.length >= 5) break;
-      }
-    } catch (_) {}
-    if (!jobs.length) return onDone && onDone('no-units');
-    const defenseLock = gbLock('defense-pull', Math.max(180000, jobs.length * 30000));
-    if (!defenseLock) return onDone && onDone('busy');
-    let i = 0, done = 0;
-    (function next() {
-      if (i >= jobs.length) {
-        gbUnlock('defense-pull', defenseLock);
-        gbLog(`defense-pull: ${done}/${jobs.length} → ${targetTownId}`);
-        return onDone && onDone(null, done);
-      }
-      const j = jobs[i++];
-      gbLockTouch('defense-pull', defenseLock);
-      sendAttackViaBridge({ town_id: +targetTownId, kind: 'town' }, j.from, j.units, 'support', (err) => {
-        if (!err) done++;
-        gbTimeout(next, 700 + Math.random() * 400);
-      });
-    })();
   }
 
   const STATS_WINDOWS = { '1h': 3600000, '24h': 86400000, '7d': 604800000 };

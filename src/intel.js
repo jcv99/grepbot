@@ -118,12 +118,6 @@
     else state.playerNotes[player] = String(note).slice(0, 200);
     save(STORE.PLAYER_NOTES, state.playerNotes);
   }
-  function intelSetAllianceNote(alliance, note) {
-    if (!state.allianceNotes) state.allianceNotes = {};
-    if (!note) delete state.allianceNotes[alliance];
-    else state.allianceNotes[alliance] = String(note).slice(0, 200);
-    save(STORE.ALLIANCE_NOTES, state.allianceNotes);
-  }
   function intelGrepodataAssist() {
     if (!state.grepodataIndex || state.dryRun) return;
     try {
@@ -239,8 +233,6 @@
   }
 
   const QUEST_SCAN_MS = 12000;
-  const QUEST_RESCAN_MS = 6 * 60 * 60 * 1000;
   const QUEST_HISTORY_MAX = 100;
-  let questCursor = 0;
   let questMo = null;
   let questMoContainer = null;

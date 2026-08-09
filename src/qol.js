@@ -42,33 +42,6 @@
     flash('plantilla aplicada: ' + name);
     try { renderAbQueue && renderAbQueue(); } catch (_) {}
   }
-  function qolSetTownGroup(groupName, townIds) {
-    if (!state.townGroups) state.townGroups = {};
-    state.townGroups[groupName] = (townIds || []).map(String);
-    save(STORE.TOWN_GROUPS, state.townGroups);
-  }
-  function qolApplyGroupTemplate(groupName, templateName) {
-    const ids = (state.townGroups && state.townGroups[groupName]) || [];
-    const t = state.cityTemplates && state.cityTemplates[templateName];
-    if (!t || !ids.length) { flash('falta grupo/plantilla'); return; }
-
-    if (t.recruitTargets) {
-      const sample = Object.values(t.recruitTargets)[0] || t.recruitTargets;
-      if (!state.recruitTargets) state.recruitTargets = {};
-      ids.forEach(id => { state.recruitTargets[id] = JSON.parse(JSON.stringify(sample)); });
-      save(STORE.RECRUIT_TARGETS, state.recruitTargets);
-    }
-    if (t.abTargets) {
-      state.abTargets = JSON.parse(JSON.stringify(t.abTargets));
-      save(STORE.AB_TARGETS, state.abTargets);
-    }
-    if (t.researchTargets) {
-      state.researchTargets = JSON.parse(JSON.stringify(t.researchTargets));
-      save(STORE.RESEARCH_TARGETS, state.researchTargets);
-    }
-    gbLog(`group "${groupName}": applied template "${templateName}" → ${ids.length} towns`);
-  }
-
 
   function renderGoals() {
     const sec=panel&&panel.querySelector('section[data-tab=overview]');if(!sec||sec.hidden)return;const box=sec.querySelector('.goals-panel');if(!box)return;box.replaceChildren();

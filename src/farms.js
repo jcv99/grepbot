@@ -107,20 +107,6 @@
   function farmRelationCol() {
     return mmCol('FarmTownPlayerRelation');
   }
-  function farmRelationModel(farmOrRelId) {
-    const relCol = farmRelationCol();
-    if (!relCol) return null;
-    const id = (farmOrRelId && typeof farmOrRelId === 'object') ? farmOrRelId.relation_id : farmOrRelId;
-    if (id == null) return null;
-    try {
-      if (relCol.get) {
-        const m = relCol.get(id);
-        if (m) return m;
-      }
-    } catch (_) {}
-    return relCol.models.find(r => (r.id ?? (r.attributes || {}).id) == id) || null;
-  }
-
   function farmBelongsToPlayer(r, attrs) {
     try {
       if (typeof r.belongsToPlayer === 'function') return !!r.belongsToPlayer();

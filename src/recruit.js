@@ -228,17 +228,9 @@
   // memoized in bridge.js, so a 20-town × 5-unit scan was burning 100+
   // unsafeWindow ITowns lookups per tick; the god read repeats inside
   // recruitCanBuild AND recruitSpellGateOk for the same town.
-  let recruitScanModelCache = null, recruitScanGodCache = null;
+  let recruitScanGodCache = null;
   function recruitScanResetMemo() {
-    recruitScanModelCache = new Map();
     recruitScanGodCache = new Map();
-  }
-  function recruitScanModel(tid) {
-    if (!recruitScanModelCache) recruitScanResetMemo();
-    if (recruitScanModelCache.has(tid)) return recruitScanModelCache.get(tid);
-    const m = gbTownModel(tid);
-    recruitScanModelCache.set(tid, m);
-    return m;
   }
   function recruitScanGod(tid) {
     if (!recruitScanGodCache) recruitScanResetMemo();

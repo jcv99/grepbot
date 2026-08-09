@@ -48,12 +48,6 @@
     const i = gbTimerBag.findIndex(t => t.kind === 't' && t.id === id);
     if (i >= 0) gbTimerBag.splice(i, 1);
   }
-  function gbClearInterval(id) {
-    if (!id) return;
-    try { clearInterval(id); } catch (_) {}
-    const i = gbTimerBag.findIndex(t => t.kind === 'i' && t.id === id);
-    if (i >= 0) gbTimerBag.splice(i, 1);
-  }
   function gbTryAcquireTabLeader() {
     if(!gbTabCoordSupported||gbDisposed||gbTabLeader||gbTabLockPending)return;gbTabLockPending=true;
     navigator.locks.request(gbTabLockName,{mode:'exclusive',ifAvailable:true},lock=>{gbTabLockPending=false;if(!gbInstanceAlive())return;if(!lock){gbTabLeader=false;gbTimeout(gbTryAcquireTabLeader,5000);try{updateStatus()}catch(_){}return}gbTabLeader=true;try{updateStatus()}catch(_){}return new Promise(resolve=>{gbTabLockRelease=resolve})}).catch(()=>{gbTabLockPending=false;gbTabLeader=false;if(gbInstanceAlive())gbTimeout(gbTryAcquireTabLeader,10000)});
@@ -659,14 +653,6 @@
   // ---------- cave iron reserve (culture must not drain the cave stash) ----------
   const CAVE_SOON_MS = 15 * 60 * 1000;
   const cultureCaveDeferCount = Object.create(null); // townId -> consecutive defers
-  function townIronReserveForCave(townId) {
-    // Iron needed to reach caveThreshPct of warehouse.
-    const st = townResState(townId);
-    if (!st || !(st.cap > 0)) return null;
-    const thresh = Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100;
-    const need = Math.ceil(st.cap * thresh);
-    return Math.max(0, need - (st.iron || 0));
-  }
   function ironReservedForCave(townId) {
     if (!state.autoCave) return { reserved: false, etaMs: null, blind: false };
     const st = townResState(townId);
@@ -856,10 +842,6 @@
   function gbCfgNum(v, fallback) {
     const n = +v;
     return Number.isFinite(n) ? n : fallback;
-  }
-  function gbLogText() {
-    const lines = logBuf.slice(logHead);
-    return lines.map(l => new Date(l.ts).toISOString() + ' ' + l.msg).join('\n');
   }
   function captchaLadder() {
     const raw = state.captchaLadder;

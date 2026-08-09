@@ -345,37 +345,6 @@
       onDone && onDone(null, data);
     });
   }
-  function questNeedsRescan(info) {
-    if (!info) return true;
-    if (!Array.isArray(info.rewards) || !info.rewards.length) return true;
-    return ((info.updatedAt || 0) + QUEST_RESCAN_MS) < Date.now();
-  }
-  function clickQuestRow(row) {
-    if (state.dryRun) { gbLogT('quest-dry-dom', 60000, 'DRY-RUN quest: DOM row navigation suppressed'); return false; }
-    const target = row?.querySelector('.headline') || row;
-    if (!target) return false;
-    target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    return true;
-  }
-  function chooseQuestRow(rows) {
-    if (!rows.length) return null;
-
-    const scored = rows.map(r => {
-      const id = questKey(r);
-      const info = state.questRewards[id];
-      const prog = questProgress(r);
-      let score = 0;
-      if (prog != null && prog >= 100) score += 100;
-      if (info && info.safeAuto) score += 40;
-      if (questNeedsRescan(info)) score += 20;
-      if (r.classList.contains('selected')) score += 5;
-      return { r, score, id };
-    });
-    scored.sort((a, b) => b.score - a.score);
-    if (scored[0].score >= 20) return scored[0].r;
-    questCursor = questCursor % rows.length;
-    return rows[questCursor++];
-  }
   function questAutoClaim(root, entry) {
     if (gbLocked('quest-auto') || !entry?.canClaim || entry.claimReview || entry.claimedAt) return;
     const rewards = entry.rewards || [];

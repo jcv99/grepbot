@@ -204,7 +204,8 @@ Single-script loop pattern:
   with `'remembered'`; success clears it, expiry decays one trip. captcha/timeout
   never trip it (their own breaker owns that). Toggle `decisionMemory` (Config,
   default ON) disables skipping only — recording always runs. Read API for feature
-  modules: `gbRecall` / `gbRecallAll` / `gbFailStreak` / `gbRemember`. UI: Log tab →
+  modules: `gbFailStreak` (`gbRecall` / `gbRecallAll` / `gbRemember` were never
+  called by any module and were removed in v2.5.7). UI: Log tab →
   **Decisions** sub-view (filter, Copy JSON, Clear skips, Clear journal); footer
   status shows `mem:<n>` while windows are open.
 - **Logging** (`gbLog`/`gbLogT`): console.info + ring buffer (200) rendered in the panel's **Log tab**. `gbLogT(key, ms, ...)` throttles repeat messages. `renderLog` is deferred 250ms and skipped while the Log tab is hidden (v0.5.0 — gbLog fires per line in hot loops). Diag button dumps `gameBridgeStatus()`.

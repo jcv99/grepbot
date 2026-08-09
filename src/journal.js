@@ -146,28 +146,7 @@
     return n;
   }
 
-  function gbRecall(feature, action, target) {
-    const list = state.decisions;
-    for (let i = list.length - 1; i >= 0; i--) {
-      const r = list[i];
-      if (feature && r.f !== feature) continue;
-      if (action && r.a !== action) continue;
-      if (target != null && String(r.k) !== String(target)) continue;
-      return r;
-    }
-    return null;
-  }
-  function gbRecallAll(feature, action, target) {
-    return state.decisions.filter(r =>
-      (!feature || r.f === feature) &&
-      (!action || r.a === action) &&
-      (target == null || String(r.k) === String(target)));
-  }
 
-  function gbRemember(feature, action, target, result, detail) {
-    return jrnPush({ f: feature, a: String(action || 'decide').slice(0, 48), k: String(target == null ? '-' : target).slice(0, 24) },
-      jrnResult(result === 'ok' || result == null ? null : result), detail);
-  }
 
   function jrnNote(tag, result) {
     const key = jrnId(tag);

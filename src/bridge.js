@@ -244,11 +244,6 @@
     _townResCache[key] = { at: now, v: out };
     return out;
   }
-  function townFillPct(townId) {
-    const st = townResState(townId);
-    return st ? st.fillPct : null;
-  }
-
   function gbProbeNum(obj, names, args) {
     if (!obj) return null;
     for (const n of names) {

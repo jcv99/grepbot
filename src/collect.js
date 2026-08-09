@@ -24,16 +24,6 @@
     save(wkey(STORE.COLLECT_TPL), u);
     gbLog('learned collect action', a);
   }
-  function buildCollectUrl(template, townId) {
-    try {
-      const u = new URL(template, location.origin);
-      u.searchParams.set('town_id', String(townId));
-      u.searchParams.set('h', state.csrf || u.searchParams.get('h') || '');
-      return u.pathname + '?' + u.searchParams.toString();
-    } catch (e) {
-      return template.replace(/town_id=\d+/, `town_id=${townId}`);
-    }
-  }
   function autoCollectResources() {
     if (!state.autoCollect) return;
     if (!hostEnabled() || automationPaused({}) || captchaPaused('collect') || circuitOpen('collect')) return;

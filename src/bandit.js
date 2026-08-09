@@ -26,21 +26,6 @@
     });
     return units;
   }
-  function movementsUnitsModels(uw) {
-    try {
-      const col = uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits');
-      if (col && col.models) return col.models;
-    } catch (_) {}
-    try {
-      const cols = uw.MM.getCollections && uw.MM.getCollections().MovementsUnits;
-      if (cols && cols[0] && cols[0].models) return cols[0].models;
-    } catch (_) {}
-    try {
-      const map = uw.MM.getModels && uw.MM.getModels().MovementsUnits;
-      if (map) return Object.keys(map).map(k => map[k]);
-    } catch (_) {}
-    return [];
-  }
   const BANDIT_TX_EVIDENCE_MAX_MS = 10 * 60 * 1000;
   function banditFlag(v) {
     if (v === true || v === 1) return true;

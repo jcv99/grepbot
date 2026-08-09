@@ -705,18 +705,6 @@
       });
     })();
   }
-  function prepareAttack(target) {
-    const plan = ensureAttackPlan();
-    plan.targetId = String(target.vill_id || target.id || '');
-    plan.targetX = target.x ?? plan.targetX;
-    plan.targetY = target.y ?? plan.targetY;
-    if (plan.sourceTownIds == null) plan.sourceTownIds = (state.towns || []).map(t => String(t.id));
-    saveAttackPlan();
-
-    if (typeof showTab === 'function') showTab('attack');
-    else renderAttack();
-    flash('attack planner <- ' + plan.targetId);
-  }
   function editThreshold(target) {
     const cur = state.thresholds[target.vill_id] || {};
     const def = Object.entries(cur).map(([k, v]) => `${k}:${v}`).join(',');

@@ -55,7 +55,6 @@
     });
     return { len: list.length, max, orders: list, known: true };
   }
-  function abQueueFull(townId) { const q = abQueueInfo(townId); return !q.known || q.len >= q.max; }
   function abBuildDataEntry(townId, building) {
     try {
       const uw = gameUw();

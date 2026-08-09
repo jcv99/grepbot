@@ -24,8 +24,6 @@
       wantRes: c.wantRes && typeof c.wantRes === 'object' ? c.wantRes : { wood: true, stone: true, iron: false },
     };
   }
-  function ptCfgSave() { save(STORE.PT_CFG, state.ptCfg); }
-
   // ---------- presence ----------
   // Which town the ship is sitting in. Unreadable -> null -> feature idles;
   // a guessed town would trade from the wrong warehouse.

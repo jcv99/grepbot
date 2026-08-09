@@ -48,7 +48,6 @@
   // a background tab clamps timers and only the interval recovers that.
   let ibFreeTimer = null;
   let ibFreeArmedAt = 0;
-  function ibArmedAt() { return ibFreeArmedAt; }
   function ibArmNext(orders) {
     const now = Date.now();
     const thresh = ibFreeThresh() * 1000;
