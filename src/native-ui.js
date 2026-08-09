@@ -229,36 +229,41 @@
     // Strip any stale controls left over by earlier scans before mounting.
     tile.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>c.remove());
     const list=nativeQueueList(townId,'build',false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),jobs=list.filter(j=>j&&j.building===building);
-    // Empty + not in FIFO mode: leave the in-game [-][+] untouched.
-    if(!jobs.length&&!nativeQueueIsFifo(townId,'build'))return;
     const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.building=building;
     const anchor=tile.querySelector('.level,.building_level,.level_wrapper');(anchor&&anchor.parentElement||tile).appendChild(ctl);
     const projected=nativeQueueProjectedBuildLevel(townId,building),pos=nativeQueuePosition(townId,'build',j=>j&&j.building===building);
     const head=pos===1&&list[0],max=abMaxLevel(building),special=nativeSpecialConflict(townId,building),sig=JSON.stringify([townId,building,projected,pos,frozen,max,special,jobs.map(j=>[j.id,j.toLevel,j.status,j.reason,!!j.inflight,!!j.manualReview])]);if(ctl.dataset.sig===sig)return;ctl.dataset.sig=sig;
-    ctl.replaceChildren();const minus=nativeQButton('−','Quitar la última mejora virtual',nativeTileAction(root,townId,tile,'build',building,()=>{if(!nativeQueueRemoveLastBuild(townId,building))flash('No hay mejora virtual que quitar')}));minus.disabled=!jobs.length||frozen;
-    // Only show "Plan N · #pos" when we actually have a virtual job queued.
-    // Without one the "Plan 0" placeholder hides the in-game queue row text
-    // and the player sees an empty box where the game's own [-][+] should be.
-    const count=document.createElement('span');count.className='gb-native-qcount';
-    if(jobs.length&&projected!=null&&projected>0){
-      count.textContent=`Plan ${projected}${pos?' · #'+pos:''}`;
-    } else {
-      count.textContent='virtual';
-      count.title='Sin mejoras virtuales en cola para este edificio. Usa + para anyadir una.';
+    ctl.replaceChildren();
+    if(!jobs.length){
+      // No virtual job yet - mount only the [+] so the player can start one.
+      // No [-] and no label, so the in-game [-][+] stays visible underneath.
+      const plus=nativeQButton('+',`Añadir ${nativeBuildLabel(building)} +1 al final de la cola virtual`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueAddBuild(townId,building)));
+      if(frozen||special||projected==null||max==null||projected>=max)plus.disabled=true;
+      ctl.append(plus);return;
     }
+    const minus=nativeQButton('−','Quitar la última mejora virtual',nativeTileAction(root,townId,tile,'build',building,()=>{if(!nativeQueueRemoveLastBuild(townId,building))flash('No hay mejora virtual que quitar')}));minus.disabled=!jobs.length||frozen;
+    const count=document.createElement('span');count.className='gb-native-qcount';
+    count.textContent=jobs.length?`Plan ${projected}${pos?' · #'+pos:''}`:'virtual';
     if(head&&head.reason)count.title=head.reason;
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
     const plus=nativeQButton('+',`Añadir ${nativeBuildLabel(building)} +1 al final de la cola`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueAddBuild(townId,building)));
-    minus.disabled=minus.disabled||frozen;if(frozen||special||projected==null||max==null||projected>=max)plus.disabled=true;ctl.append(minus,count,plus);
+    if(frozen||special||projected==null||max==null||projected>=max)plus.disabled=true;
+    ctl.append(minus,count,plus);
   }
   function nativeMountRecruitControl(root,tile,townId,unit) {
     tile.querySelectorAll(':scope > .gb-native-qctl[data-unit]').forEach(c=>c.remove());
     const list=nativeQueueList(townId,'recruit',false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit);
-    if(!(pending>0)&&!nativeQueueIsFifo(townId,'recruit'))return;
     const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.unit=unit;tile.appendChild(ctl);
     const pos=nativeQueuePosition(townId,'recruit',j=>j&&j.unit===unit),head=pos===1&&list[0];
     const sig=JSON.stringify([townId,unit,step,pending,pos,frozen,head&&head.status,head&&head.reason]);if(ctl.dataset.sig===sig)return;ctl.dataset.sig=sig;
-    ctl.replaceChildren();const minus=nativeQButton(`−${step}`,`Restar ${step} de la cola virtual de esta unidad`,nativeTileAction(root,townId,tile,'unit',unit,()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));minus.disabled=!(pending>0)||frozen;
+    ctl.replaceChildren();
+    if(!(pending>0)){
+      // No virtual recruit queued yet - mount only the [+] so the player
+      // can start one without obscuring the in-game unit UI underneath.
+      const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola virtual`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));
+      plus.disabled=frozen;ctl.append(plus);return;
+    }
+    const minus=nativeQButton(`−${step}`,`Restar ${step} de la cola virtual de esta unidad`,nativeTileAction(root,townId,tile,'unit',unit,()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));minus.disabled=!(pending>0)||frozen;
     const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=`+${pending}${pos?' · #'+pos:''}`;count.title=head&&head.reason?head.reason:`${pending} pendiente(s)`;
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
     const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));plus.disabled=frozen;ctl.append(minus,count,plus);
