@@ -404,9 +404,23 @@
     if(!node)return null;const ids=new Set(),add=v=>{v=String(v||'');if(AB_BUILDINGS.includes(v))ids.add(v)};for(const k of ['data-building_type','data-building-type','data-building'])add(node.getAttribute(k));
     try{const child=node.querySelector('[data-building_type],[data-building-type],[data-building]');if(child)for(const k of ['data-building_type','data-building-type','data-building'])add(child.getAttribute(k))}catch(_){}const m=String(node.id||'').match(/^(?:building_main|special_building)_([a-z0-9_]+)$/i);if(m)add(m[1]);return ids.size===1?[...ids][0]:null;
   }
+  // Suffix matchers for every known unit id, longest first so `slinger` cannot
+  // win over `attack_slinger`. Built once per GameData.units shape: nativeUiScan
+  // runs on an 80ms DOM debounce and calls nativeUnitId per unit tile, so
+  // compiling ~35 regexes per tile per scan was the hottest thing in the file.
+  let nativeUnitMatcherCache = null;
+  function nativeUnitMatchers() {
+    let keys=[];try{keys=Object.keys((gameUw().GameData&&gameUw().GameData.units)||{})}catch(_){}
+    const sig=keys.length+':'+keys.join(',');
+    if(nativeUnitMatcherCache&&nativeUnitMatcherCache.sig===sig)return nativeUnitMatcherCache.list;
+    const list=keys.slice().sort((a,b)=>b.length-a.length)
+      .map(id=>({id,re:new RegExp(`(?:^|[_:-])${id.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,'i')}));
+    nativeUnitMatcherCache={sig,list};
+    return list;
+  }
   function nativeUnitId(node) {
     if(!node)return null;const child=node.querySelector&&node.querySelector('[data-unit_id],[data-unit-id],[data-unit_type],[data-unit-type]');const vals=[node.getAttribute('data-unit_id'),node.getAttribute('data-unit-id'),node.getAttribute('data-unit_type'),node.getAttribute('data-unit-type'),child&&(child.getAttribute('data-unit_id')||child.getAttribute('data-unit-id')||child.getAttribute('data-unit_type')||child.getAttribute('data-unit-type')),node.id].filter(Boolean).map(String);
-    const ids=new Set();for(const id of vals)if(recruitUnitDef(id))ids.add(id);let keys=[];try{keys=Object.keys((gameUw().GameData&&gameUw().GameData.units)||{}).sort((a,b)=>b.length-a.length)}catch(_){}for(const raw of vals)for(const id of keys)if(new RegExp(`(?:^|[_:-])${id.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,'i').test(raw))ids.add(id);return ids.size===1?[...ids][0]:null;
+    const ids=new Set();for(const id of vals)if(recruitUnitDef(id))ids.add(id);const matchers=nativeUnitMatchers();for(const raw of vals)for(const m of matchers)if(m.re.test(raw))ids.add(m.id);return ids.size===1?[...ids][0]:null;
   }
   // Why a [+] must stay disabled. Returns '' when the append is allowed. A
   // silent disabled button is unreadable in-game, so every caller also puts

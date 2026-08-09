@@ -424,7 +424,8 @@
     let rewards = questRewardsFromDom(root);
     const id = questKey(row);
 
-    const idMatch=v=>{const a=String(v==null?'':v),b=String(id);if(a===b)return true;const esc=b.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');return new RegExp(`(?:^|[^A-Za-z0-9])${esc}(?:$|[^A-Za-z0-9])`).test(a)};
+    const idStr=String(id),idRe=new RegExp(`(?:^|[^A-Za-z0-9])${idStr.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}(?:$|[^A-Za-z0-9])`);
+    const idMatch=v=>{const a=String(v==null?'':v);return a===idStr||idRe.test(a)};
     const fromGame = questsFromGame().find(q => idMatch(q.questId) || idMatch(q.progressableId));
     if (fromGame && fromGame.rewards && fromGame.rewards.length) {
       rewards = fromGame.rewards;

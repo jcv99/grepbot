@@ -65,7 +65,10 @@
     const sim=Object.assign({},levels), actions=[], maxActions=40; const av=plannerAvailable(townId,{allowSoft:false});
     const ledger=av?Object.assign({},av):null;
     const buildTargets=e.build||{};
-    const order=abEnsureOrder().concat(Object.keys(buildTargets).filter(k=>!abEnsureOrder().includes(k)));
+    // abEnsureOrder() writes STORE.AB_ORDER on every call - hoist it out of the
+    // filter predicate or a wide target set costs one GM_setValue per key.
+    const base=abEnsureOrder();
+    const order=base.concat(Object.keys(buildTargets).filter(k=>!base.includes(k)));
     let guard=0;
     while(actions.length<maxActions && guard++<100){ let added=false;
       for(const target of order){const want=+buildTargets[target]||0;if(!want||+(sim[target]||0)>=want)continue;

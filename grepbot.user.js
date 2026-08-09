@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.5.7
+// @version      2.5.8
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -5753,7 +5753,9 @@ const STORE = {
     const sim=Object.assign({},levels), actions=[], maxActions=40; const av=plannerAvailable(townId,{allowSoft:false});
     const ledger=av?Object.assign({},av):null;
     const buildTargets=e.build||{};
-    const order=abEnsureOrder().concat(Object.keys(buildTargets).filter(k=>!abEnsureOrder().includes(k)));
+
+    const base=abEnsureOrder();
+    const order=base.concat(Object.keys(buildTargets).filter(k=>!base.includes(k)));
     let guard=0;
     while(actions.length<maxActions && guard++<100){ let added=false;
       for(const target of order){const want=+buildTargets[target]||0;if(!want||+(sim[target]||0)>=want)continue;
@@ -6247,9 +6249,20 @@ const STORE = {
     if(!node)return null;const ids=new Set(),add=v=>{v=String(v||'');if(AB_BUILDINGS.includes(v))ids.add(v)};for(const k of ['data-building_type','data-building-type','data-building'])add(node.getAttribute(k));
     try{const child=node.querySelector('[data-building_type],[data-building-type],[data-building]');if(child)for(const k of ['data-building_type','data-building-type','data-building'])add(child.getAttribute(k))}catch(_){}const m=String(node.id||'').match(/^(?:building_main|special_building)_([a-z0-9_]+)$/i);if(m)add(m[1]);return ids.size===1?[...ids][0]:null;
   }
+
+  let nativeUnitMatcherCache = null;
+  function nativeUnitMatchers() {
+    let keys=[];try{keys=Object.keys((gameUw().GameData&&gameUw().GameData.units)||{})}catch(_){}
+    const sig=keys.length+':'+keys.join(',');
+    if(nativeUnitMatcherCache&&nativeUnitMatcherCache.sig===sig)return nativeUnitMatcherCache.list;
+    const list=keys.slice().sort((a,b)=>b.length-a.length)
+      .map(id=>({id,re:new RegExp(`(?:^|[_:-])${id.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,'i')}));
+    nativeUnitMatcherCache={sig,list};
+    return list;
+  }
   function nativeUnitId(node) {
     if(!node)return null;const child=node.querySelector&&node.querySelector('[data-unit_id],[data-unit-id],[data-unit_type],[data-unit-type]');const vals=[node.getAttribute('data-unit_id'),node.getAttribute('data-unit-id'),node.getAttribute('data-unit_type'),node.getAttribute('data-unit-type'),child&&(child.getAttribute('data-unit_id')||child.getAttribute('data-unit-id')||child.getAttribute('data-unit_type')||child.getAttribute('data-unit-type')),node.id].filter(Boolean).map(String);
-    const ids=new Set();for(const id of vals)if(recruitUnitDef(id))ids.add(id);let keys=[];try{keys=Object.keys((gameUw().GameData&&gameUw().GameData.units)||{}).sort((a,b)=>b.length-a.length)}catch(_){}for(const raw of vals)for(const id of keys)if(new RegExp(`(?:^|[_:-])${id.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,'i').test(raw))ids.add(id);return ids.size===1?[...ids][0]:null;
+    const ids=new Set();for(const id of vals)if(recruitUnitDef(id))ids.add(id);const matchers=nativeUnitMatchers();for(const raw of vals)for(const m of matchers)if(m.re.test(raw))ids.add(m.id);return ids.size===1?[...ids][0]:null;
   }
 
   function nativeBuildPlusBlock(building,projected,max,special) {
@@ -10844,7 +10857,8 @@ const STORE = {
     let rewards = questRewardsFromDom(root);
     const id = questKey(row);
 
-    const idMatch=v=>{const a=String(v==null?'':v),b=String(id);if(a===b)return true;const esc=b.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');return new RegExp(`(?:^|[^A-Za-z0-9])${esc}(?:$|[^A-Za-z0-9])`).test(a)};
+    const idStr=String(id),idRe=new RegExp(`(?:^|[^A-Za-z0-9])${idStr.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}(?:$|[^A-Za-z0-9])`);
+    const idMatch=v=>{const a=String(v==null?'':v);return a===idStr||idRe.test(a)};
     const fromGame = questsFromGame().find(q => idMatch(q.questId) || idMatch(q.progressableId));
     if (fromGame && fromGame.rewards && fromGame.rewards.length) {
       rewards = fromGame.rewards;
