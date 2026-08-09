@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.5.4
+// @version      2.5.5
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -6277,8 +6277,13 @@ const STORE = {
   }
 
   GM_addStyle(`
-    .gb-native-qctl{display:inline-flex;align-items:center;gap:2px;margin:0 0 0 2px;padding:1px 3px;border:1px solid #8a6725;border-radius:4px;background:rgba(31,25,16,.94);color:#f6e3b0;font:10px/1.2 Arial,sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.45);vertical-align:middle}
-    .gb-native-qbtn{min-width:22px;height:20px;padding:0 4px;border:1px solid #9b7938;border-radius:4px;background:linear-gradient(#5b4828,#342814);color:#fff3c7;font:bold 11px Arial,sans-serif;cursor:pointer}
+    /* The senate tile stacks absolutely-positioned overlays (building caption,
+       level badge, hover hitbox) on top of its content. A statically-positioned
+       control paints UNDER all of them, so the caption text swallowed the click
+       even though the button looked reachable. position+z-index puts it on top
+       of its stacking context and makes hit-testing land on the button. */
+    .gb-native-qctl{position:relative;z-index:2147482000;pointer-events:auto;display:inline-flex;align-items:center;gap:2px;margin:0 0 0 2px;padding:1px 3px;border:1px solid #8a6725;border-radius:4px;background:rgba(31,25,16,.94);color:#f6e3b0;font:10px/1.2 Arial,sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.45);vertical-align:middle}
+    .gb-native-qbtn{position:relative;z-index:1;pointer-events:auto;min-width:22px;height:20px;padding:0 4px;border:1px solid #9b7938;border-radius:4px;background:linear-gradient(#5b4828,#342814);color:#fff3c7;font:bold 11px Arial,sans-serif;cursor:pointer}
     .gb-native-qbtn:hover{border-color:#e5b94f;color:#fff}.gb-native-qbtn:disabled{opacity:.42;cursor:default}
     .gb-native-qcount{min-width:58px;text-align:center;white-space:nowrap}.gb-native-qcount.ready{color:#91e5a8}.gb-native-qcount.blocked{color:#ffb0a8}.gb-native-qcount.waiting{color:#ffd27a}
     .gb-native-panel{position:fixed;bottom:10px;right:10px;z-index:2147483000;width:320px;max-width:40vw;max-height:48vh;padding:6px;border:1px solid #8a6725;border-radius:6px;background:rgba(34,27,17,.97);color:#f2dfb2;font:11px/1.3 Arial,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.55);overflow:auto}
@@ -6345,6 +6350,19 @@ const STORE = {
   function nativeApplyPlusBlock(btn,why) {
     if(!btn||!why)return;btn.disabled=true;btn.title=why;btn.setAttribute('aria-label',why);
   }
+
+  function nativeQctlHitCheck(ctl,label) {
+    gbTimeout(()=>{
+      try{
+        if(!ctl.isConnected)return;const btn=ctl.querySelector('.gb-native-qbtn');if(!btn)return;
+        const r=btn.getBoundingClientRect();if(!r.width||!r.height)return;
+        const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+        if(hit&&(hit===btn||btn.contains(hit)||ctl.contains(hit)))return;
+        const desc=hit?`${hit.tagName.toLowerCase()}${hit.id?'#'+hit.id:''}${hit.className&&typeof hit.className==='string'?'.'+hit.className.trim().split(/\s+/).join('.'):''}`:'nada';
+        gbLogT('native-qctl-covered-'+label,300000,`native queue: [+] for ${label} is covered by ${desc} — click will not reach it`);
+      }catch(_){}
+    },250);
+  }
   function nativeMountBuildControl(root,tile,townId,building) {
 
     tile.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>c.remove());
@@ -6358,7 +6376,7 @@ const STORE = {
 
       const plus=nativeQButton('+',`Añadir ${nativeBuildLabel(building)} +1 al final de la cola virtual`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueAddBuild(townId,building)));
       nativeApplyPlusBlock(plus,nativeBuildPlusBlock(building,projected,max,special));
-      ctl.append(plus);return;
+      ctl.append(plus);nativeQctlHitCheck(ctl,building);return;
     }
 
     const minus=nativeQButton('−','Quitar la última mejora virtual',nativeTileAction(root,townId,tile,'build',building,()=>{if(!nativeQueueRemoveLastBuild(townId,building))flash('No hay mejora virtual que quitar')}));minus.disabled=!jobs.some(j=>j&&!j.inflight&&!j.manualReview);
@@ -6368,7 +6386,7 @@ const STORE = {
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
     const plus=nativeQButton('+',`Añadir ${nativeBuildLabel(building)} +1 al final de la cola`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueAddBuild(townId,building)));
     nativeApplyPlusBlock(plus,nativeBuildPlusBlock(building,projected,max,special));
-    ctl.append(minus,count,plus);
+    ctl.append(minus,count,plus);nativeQctlHitCheck(ctl,building);
   }
   function nativeMountRecruitControl(root,tile,townId,unit) {
     tile.querySelectorAll(':scope > .gb-native-qctl[data-unit]').forEach(c=>c.remove());
@@ -6380,12 +6398,12 @@ const STORE = {
     if(!(pending>0)){
 
       const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola virtual`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));
-      ctl.append(plus);return;
+      ctl.append(plus);nativeQctlHitCheck(ctl,unit);return;
     }
     const minus=nativeQButton(`−${step}`,`Restar ${step} de la cola virtual de esta unidad`,nativeTileAction(root,townId,tile,'unit',unit,()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));minus.disabled=!list.some(j=>j&&j.unit===unit&&!j.inflight&&!j.manualReview);
     const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=`+${pending}${pos?' · #'+pos:''}`;count.title=head&&head.reason?head.reason:`${pending} pendiente(s)`;
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
-    const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));ctl.append(minus,count,plus);
+    const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));ctl.append(minus,count,plus);nativeQctlHitCheck(ctl,unit);
   }
   function nativeRenderQueuePanel(root,townId,lane) {
 
