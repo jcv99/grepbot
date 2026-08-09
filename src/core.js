@@ -907,6 +907,20 @@
     gbLog(...args);
   }
 
+  // Dry-run aware DOM click. Any feature that clicks the game's own UI must go
+  // through this, or state.dryRun silently stops covering that path.
+  function gbDomClick(el, feature) {
+    if (!el) return false;
+    if (state.dryRun) {
+      const tag = el.tagName || '?';
+      const hint = el.className ? String(el.className).split(/\s+/)[0] : '';
+      gbLog(`DRY-RUN ${feature || 'dom'}: click blocked (${tag}${hint ? '.' + hint : ''})`);
+      return false;
+    }
+    el.click();
+    return true;
+  }
+
   let seenCount = 0;
   try { seenCount = Object.keys(state.seen || {}).length; } catch (_) { seenCount = 0; }
   function rememberSeen(id) {

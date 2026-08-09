@@ -70,9 +70,13 @@ MODULES = [
 
 # Top-level here means "two spaces of indent" — the whole script is one IIFE and
 # every module body is written at that depth.
-DECL_RE = re.compile(r'^  (?:function\s+([A-Za-z_$][\w$]*)|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=)')
+DECL_RE = re.compile(
+    r'^  (?:(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)'
+    r'|class\s+([A-Za-z_$][\w$]*)'
+    r'|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=)'
+)
 VERSION_RE = re.compile(r'^// @version\s+(\S+)', re.M)
-USERSCRIPT_HEADER_RE = re.compile(r'^// ==UserScript==.*?// ==/UserScript==\n?', re.S)
+USERSCRIPT_HEADER_RE = re.compile(r'^﻿?// ==UserScript==.*?// ==/UserScript==\n?', re.S)
 
 # '/' starts a regex after these punctuation tokens (not after values like ) ] ).
 _RE_PREV = frozenset('([{;=,:!&|?~^%*+\n\r-')
@@ -312,7 +316,7 @@ def read_modules():
         path = os.path.join(SRC, name)
         if not os.path.exists(path):
             raise SystemExit(f'missing module: {path}')
-        with open(path, encoding='utf-8') as f:
+        with open(path, encoding='utf-8-sig') as f:
             parts.append((name, f.read()))
     return parts
 
@@ -325,7 +329,7 @@ def check_duplicate_decls(parts):
             m = DECL_RE.match(line)
             if not m:
                 continue
-            ident = m.group(1) or m.group(2)
+            ident = m.group(1) or m.group(2) or m.group(3)
             if ident in seen and seen[ident] != name:
                 dupes.append((ident, seen[ident], name))
             else:
@@ -341,7 +345,8 @@ def node_check(path):
     res = subprocess.run([node, '--check', path], capture_output=True, text=True)
     if res.returncode != 0:
         print('SYNTAX ERROR in built artifact:')
-        print(res.stderr.strip())
+        detail = (res.stderr or '').strip() or (res.stdout or '').strip()
+        print(detail or f'node --check exited {res.returncode} with no output')
         return False
     return True
 
@@ -355,6 +360,10 @@ def version_of(parts):
 
 
 def version_gate(parts, version):
+    if not version:
+        print('error: no "// @version <x>" line in src/header.js '
+              '- Tampermonkey needs it to install/update')
+        return False
     digest = hashlib.sha256(''.join(t for _, t in parts).encode('utf-8')).hexdigest()
     prev = {}
     if os.path.exists(STAMP):
@@ -382,6 +391,10 @@ def build():
             print(f'  {ident}: {a} and {b}')
         raise SystemExit(1)
     body = strip_artifact_comments('\n'.join(t.rstrip() for _, t in parts).rstrip() + '\n')
+    if '// ==UserScript==' not in body or '// ==/UserScript==' not in body:
+        print('error: ==UserScript== metadata block missing from the artifact '
+              '- src/header.js must open with it (TM refuses to install without it)')
+        raise SystemExit(1)
     tmp = OUT.replace('.user.js', '.build.js')  # node --check needs a .js name
     with open(tmp, 'w', encoding='utf-8') as f:
         f.write(body)
