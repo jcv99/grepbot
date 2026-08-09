@@ -1,10 +1,7 @@
-  // ---------- Phoenician merchant sniper (Phase 8.9) ----------
-  const MERCHANT_CHECK_MS = 45000;
-
   function merchantExactMatch(wishName, offerId) {
     const w = String(wishName || '').toLowerCase().trim();
     const id = String(offerId || '').toLowerCase().trim();
-    if (!w || !id) return false; // empty id must never match
+    if (!w || !id) return false;
     return w === id;
   }
   function merchantScan(reason) {
@@ -30,8 +27,7 @@
       gbLogT('merchant-none', 180000, `merchant: no offers (${reason || 'scan'})`);
       return;
     }
-    // Offers are paid in gold. Buying without the balance is a guaranteed
-    // rejection, so read it once per scan; null = unreadable -> server decides.
+
     const gold = gbPlayerGold();
     let job = null;
     for (const w of wish) {
@@ -40,18 +36,18 @@
       if (!name || !(maxPrice > 0)) continue;
       for (const o of offers) {
         const a = o.attributes || {};
-        // Require canonical item id - never fall back to empty / ambiguous substring
+
         const id = String(a.item_id || a.offer_id || '').toLowerCase().trim();
         if (!id) continue;
         if (!merchantExactMatch(name, id) && !merchantExactMatch(name, String(a.type || '').toLowerCase())) continue;
-        // Price must be explicitly present and finite - missing -> 0 is forbidden
+
         const priceRaw = a.price != null ? a.price : (a.gold != null ? a.gold : null);
         if (priceRaw == null || priceRaw === '') continue;
         const price = +priceRaw;
         if (!Number.isFinite(price) || price < 0) continue;
         if (price > maxPrice) continue;
         if (gold != null && gold < price) {
-          gbLogT('merchant-gold', 300000, `merchant: ${id} costs ${price}, gold ${gold} - skip`);
+          gbLogT('merchant-gold', 300000, `merchant: ${id} costs ${price}, gold ${gold} — skip`);
           continue;
         }
         const townId = a.town_id || (uw.Game && uw.Game.townId);
@@ -62,47 +58,59 @@
       if (job) break;
     }
     if (!job) return;
-    // Reconfirm offer still present before buy
+
     const oid = (job.offer.attributes && (job.offer.attributes.id || job.offer.id)) || job.offer.id;
     if (oid == null || oid === '') {
-      gbLogT('merchant-noid', 60000, 'merchant: offer has no id - skip');
-      try { gbRemember('merchant', 'buy', '-', 'no-offer-id'); } catch (_) {}
+      gbLogT('merchant-noid', 60000, 'merchant: offer has no id — skip');
       return;
     }
-    gbLock('merchant');
+    const merchantLock = gbLock('merchant', 180000);
+    if (!merchantLock) return;
+    // Final offer/gold precheck immediately before any purchase request.
+    const liveAttrs = job.offer && (job.offer.attributes || job.offer);
+    const livePrice = liveAttrs && Number(liveAttrs.price != null ? liveAttrs.price : liveAttrs.gold);
+    const liveId = liveAttrs && String(liveAttrs.item_id || liveAttrs.offer_id || '').toLowerCase().trim();
+    const freshGold = gbPlayerGold();
+    if (!liveAttrs || !merchantExactMatch(job.itemId, liveId) || !Number.isFinite(livePrice)
+        || livePrice > +job.wish.maxPrice || (freshGold != null && freshGold < livePrice)) {
+      gbUnlock('merchant', merchantLock);
+      gbLogT('merchant-stale', 60000, 'merchant: final precheck failed; offer changed');
+      return;
+    }
     bridgePost('merchant', {
       model_url: `PhoenicianSalesmanOffer/${oid}`,
       action_name: 'buy',
       arguments: {},
       town_id: +job.townId,
     }, (err) => {
-      if (err === 'timeout') {
-        gbLogT('merchant-timeout', 60000, `merchant: timeout_unknown for ${job.itemId} - no fallback`);
-        gbUnlock('merchant');
+      if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {
+        gbLogT('merchant-timeout', 60000, `merchant: timeout_unknown for ${job.itemId} — no fallback`);
+        gbUnlock('merchant', merchantLock);
         return;
       }
       if (!err) {
         gbLog(`merchant: bought ${job.wish.item || job.wish.id} @ ${job.price}`);
-        gbUnlock('merchant');
+        gbUnlock('merchant', merchantLock);
         return;
       }
-      // Only fallback when server says the bridge action/endpoint does not exist
+
       if (!/unknown.?action|invalid.?action|not.?found|does.?not.?exist/i.test(String(err))) {
         gbLogT('merchant-err', 60000, `merchant err ${err}`);
-        gbUnlock('merchant');
-        return;
-      }
-      if (captchaPaused('merchant') || automationPaused({}) || !gbLocked('merchant')) {
-        gbUnlock('merchant');
+        gbUnlock('merchant', merchantLock);
         return;
       }
       gameAjaxPost('merchant', 'phoenician_salesman', 'buy', {
         offer_id: oid,
         town_id: +job.townId,
       }, (e2) => {
-        gbUnlock('merchant');
+        gbUnlock('merchant', merchantLock);
         if (!e2) gbLog(`merchant: bought via ajax ${job.wish.item || job.wish.id}`);
         else gbLogT('merchant-err', 60000, `merchant err ${err}/${e2}`);
       });
     });
   }
+
+  const FAVOR_CHECK_MS = 60000;
+  const FAVOR_TEMPLE_PLUNDER = /temple_plunder|plunder_temple|templeplunder|saqueo.?templo|plunderung.?tempel/i;
+
+  const favorOwnMoves = Object.create(null);

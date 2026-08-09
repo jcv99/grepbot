@@ -1,5 +1,3 @@
-  // ---------- Discord/Telegram webhooks (Phase 8.8) ----------
-  const alertLastSent = {}; // event -> ts
   function alertIsTelegram(url) {
     return /api\.telegram\.org\/bot/i.test(url) || /telegram/i.test(url);
   }
@@ -18,14 +16,21 @@
     }
     return chatId ? String(chatId) : '';
   }
+  function alertWebhookKey(event, payload) {
+    const p = payload || {};
+    let id = p.id ?? p.movement_id ?? p.command_id ?? p.report_id ?? p.questId ?? '';
+    if (!id && p.finding) id = p.finding.id ?? p.finding.report_id ?? p.finding.ts ?? '';
+    if (!id && p.watchlist != null) id = 'watch:' + p.watchlist;
+    if (!id) id = p.dest ?? p.townId ?? p.town_id ?? p.feature ?? '';
+    const subtype = p.cs ? 'cs' : '';
+    return `${event}:${subtype}:${String(id || '-').slice(0, 96)}`;
+  }
   function alertWebhook(event, payload) {
     const url = (state.webhookUrl || '').trim();
     if (!url) return;
-    // Captcha event must still fire (that's how the user learns about the pause).
-    // Everything else yields while a captcha breaker / global kill is open so
-    // webhooks don't burn the shared request budget during the cooldown.
-    if (event !== 'captcha') {
-      if (captchaPaused('alert') || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return;
+    if (state.dryRun) {
+      gbLogT('webhook-dry-' + event, 60000, `DRY-RUN webhook ${event}: ${dryRunFmt(payload)}`);
+      return;
     }
     if (!alertWebhookUrlOk(url)) {
       gbLogT('webhook-url', 120000, 'webhook: invalid Discord/Telegram URL');
@@ -34,7 +39,9 @@
     const ev = state.webhookEvents || {};
     if (ev[event] === false) return;
     const now = Date.now();
-    if ((alertLastSent[event] || 0) + 5 * 60 * 1000 > now) return; // rate limit identical events
+    const key = alertWebhookKey(event, payload);
+    if (alertPending[key]) return;
+    if ((alertLastSent[key] || 0) + 5 * 60 * 1000 > now) return;
     const text = `GrepBot [${location.host}] ${event}\n` +
       '```json\n' + JSON.stringify(payload || {}, null, 2).slice(0, 1800) + '\n```';
     let body;
@@ -44,41 +51,40 @@
         gbLogT('webhook-chat', 120000, 'webhook: Telegram chat_id missing');
         return;
       }
-      body = {
-        chat_id: chatId,
-        text: text.slice(0, 3900),
-        disable_web_page_preview: true,
-      };
+      body = { chat_id: chatId, text: text.slice(0, 3900), disable_web_page_preview: true };
     } else {
       body = {
         content: null,
         embeds: [{
-          title: `GrepBot: ${event}`,
+          title: `GrepBot: ${event}${payload && payload.cs ? ' [CS]' : ''}`,
           description: '```json\n' + JSON.stringify(payload || {}, null, 2).slice(0, 1800) + '\n```',
           timestamp: new Date().toISOString(),
           footer: { text: location.host },
         }],
       };
     }
+    alertPending[key] = now;
     try {
-      // Stamp the window on dispatch, not on 2xx: a webhook that is permanently
-      // broken (5xx/4xx/DNS) never refreshes a success-only stamp, so every
-      // later alert for this event would fire immediately and spam the endpoint.
-      alertLastSent[event] = Date.now();
       gbXhr({
+        scope: 'external',
         method: 'POST',
         url,
         headers: { 'Content-Type': 'application/json' },
         data: JSON.stringify(body),
         onload: (r) => {
-          if (r.status < 200 || r.status >= 300) gbLogT('webhook-fail', 60000, 'webhook status ' + r.status);
+          delete alertPending[key];
+          if (r.status >= 200 && r.status < 300) alertLastSent[key] = Date.now();
+          else gbLogT('webhook-fail-' + key, 60000, 'webhook status ' + r.status);
         },
-        onerror: (e) => {
-          if (e && e.captcha) return; // captcha trip already logged
-          gbLogT('webhook-err', 60000, 'webhook transport error');
+        onerror: () => {
+          delete alertPending[key];
+          gbLogT('webhook-err-' + key, 60000, 'webhook transport error');
         },
       });
     } catch (e) {
-      gbLogT('webhook-ex', 60000, 'webhook ' + String(e));
+      delete alertPending[key];
+      gbLogT('webhook-ex-' + key, 60000, 'webhook ' + String(e));
     }
   }
+
+  const MERCHANT_CHECK_MS = 45000;

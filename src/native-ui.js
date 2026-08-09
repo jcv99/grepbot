@@ -1,0 +1,272 @@
+  function nativeQueueRoot() {
+    let q=state.nativeQueue;
+    if(!q||typeof q!=='object'||Array.isArray(q))q=state.nativeQueue={version:1,seq:0,towns:{}};
+    if(!q.towns||typeof q.towns!=='object'||Array.isArray(q.towns))q.towns={};
+    q.version=1;q.seq=Math.max(0,+q.seq||0);
+    if(!nativeQueueInflightRestored){nativeQueueInflightRestored=true;let changed=false;for(const town of Object.values(q.towns))for(const lane of ['build','recruit'])for(const job of ((town&&Array.isArray(town[lane]))?town[lane]:[])){if(job&&job.inflight){if(lane==='build')job.reconcile=Object.assign({},job.inflight);job.inflight=null;job.manualReview=true;job.status='unknown';job.reason='acción en curso al recargar; comprobando la cola real';job.updatedAt=Date.now();changed=true}}if(changed)save(STORE.NATIVE_QUEUE,q)}
+    return q;
+  }
+  function nativeQueueTown(townId,create) {
+    const q=nativeQueueRoot(),id=String(townId==null?'':townId);if(!id)return null;
+    let t=q.towns[id];
+    if((!t||typeof t!=='object'||Array.isArray(t))&&create!==false)t=q.towns[id]={build:[],recruit:[],paused:{build:false,recruit:false},mode:{build:'legacy',recruit:'legacy'}};
+    if(!t)return null;
+    if(!Array.isArray(t.build))t.build=[];if(!Array.isArray(t.recruit))t.recruit=[];
+    if(!t.paused||typeof t.paused!=='object'||Array.isArray(t.paused))t.paused={build:false,recruit:false};
+    if(!t.mode||typeof t.mode!=='object'||Array.isArray(t.mode))t.mode={build:'legacy',recruit:'legacy'};
+    if(!['legacy','fifo'].includes(t.mode.build))t.mode.build='legacy';if(!['legacy','fifo'].includes(t.mode.recruit))t.mode.recruit='legacy';
+    return t;
+  }
+  function nativeQueueList(townId,lane,create){const t=nativeQueueTown(townId,create);return t&&Array.isArray(t[lane])?t[lane]:[];}
+  function nativeQueueSave() {
+    save(STORE.NATIVE_QUEUE,nativeQueueRoot());
+    try{scheduleNativeUiScan()}catch(_){}
+    try{renderAbQueue()}catch(_){}
+  }
+  function nativeQueueId(prefix){const q=nativeQueueRoot();q.seq++;return `${prefix}:${Date.now().toString(36)}:${q.seq.toString(36)}`;}
+  function nativeQueueHasPending(lane,townId) {
+    if(townId!=null)return nativeQueueList(townId,lane,false).length>0;
+    const towns=nativeQueueRoot().towns;return Object.keys(towns).some(id=>nativeQueueList(id,lane,false).length>0);
+  }
+  function nativeQueuePaused(townId,lane){const t=nativeQueueTown(townId,false);return !!(t&&t.paused&&t.paused[lane]);}
+  function nativeQueueIsFifo(townId,lane){const t=nativeQueueTown(townId,false);return !!(t&&t.mode&&t.mode[lane]==='fifo');}
+  function nativeQueueUseLegacy(townId,lane){const t=nativeQueueTown(townId,true);if(t[lane].length)return false;t.mode[lane]='legacy';t.paused[lane]=false;nativeQueueSave();return true;}
+  function nativeQueueTogglePaused(townId,lane){const t=nativeQueueTown(townId,true);t.paused[lane]=!t.paused[lane];nativeQueueSave();return t.paused[lane];}
+  function nativeQueueMove(townId,lane,jobId,delta) {
+    if(lane==='build')nativeQueueReconcileBuild(townId);
+    const list=nativeQueueList(townId,lane,false);if(list.some(j=>j&&(j.inflight||j.manualReview)))return false;const i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return false;
+    const j=Math.max(0,Math.min(list.length-1,i+(+delta||0)));if(i===j)return false;
+    const item=list.splice(i,1)[0];list.splice(j,0,item);if(lane==='build')nativeQueueRebaseBuild(townId);nativeQueueSave();return true;
+  }
+  function nativeQueueRemove(townId,lane,jobId) {
+    if(lane==='build')nativeQueueReconcileBuild(townId);
+    const list=nativeQueueList(townId,lane,false),i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return false;
+    const target=list[i];if(list.some(j=>j&&j.inflight)||target.inflight)return false;
+    // A lane under review stays frozen, but any individual UNKNOWN item can be
+    // removed after the UI asks the player to verify the real game queue.
+    if(list.some(j=>j&&j.manualReview)&&!target.manualReview)return false;
+    list.splice(i,1);if(lane==='build')nativeQueueRebaseBuild(townId);nativeQueueSave();return true;
+  }
+  function nativeQueuePosition(townId,lane,pred) {
+    const list=nativeQueueList(townId,lane,false),i=list.findIndex(pred);return i<0?null:i+1;
+  }
+  function nativeBuildLabel(building) {
+    try{const d=abBuildingDef(building);const n=d&&(d.name||d.name_plural||d.label);if(n)return String(n)}catch(_){}
+    return NATIVE_BUILD_LABELS[building]||AB_LABELS[building]||building;
+  }
+  function nativeUnitLabel(unit) {
+    try{const d=recruitUnitDef(unit);const n=d&&(d.name||d.name_plural||d.label);if(n)return String(n)}catch(_){}
+    return String(unit||'?');
+  }
+  function nativeQueueProjectedBuildLevel(townId,building) {
+    const levels=abCurrentLevels(townId);if(!levels||levels[building]==null)return null;
+    let level=+levels[building]||0;
+    for(const j of nativeQueueList(townId,'build',false))if(j&&j.building===building)level=Math.max(level,+j.toLevel||level+1);
+    return level;
+  }
+  function nativeSpecialConflict(townId,building) {
+    const group=NATIVE_SPECIAL_GROUPS.find(g=>g.includes(building));if(!group)return null;const levels=abCurrentLevels(townId);if(!levels)return 'especiales ilegibles';if(+(levels[building]||0)>0)return null;
+    const other=group.find(id=>id!==building&&(+(levels[id]||0)>0||nativeQueueList(townId,'build',false).some(j=>j&&j.building===id)));return other||null;
+  }
+  function nativeQueueRebaseBuild(townId) {
+    const levels=abCurrentLevels(townId);if(!levels)return false;const next=Object.assign({},levels);
+    for(const j of nativeQueueList(townId,'build',false)){if(!j||!AB_BUILDINGS.includes(j.building))continue;if(j.inflight||j.manualReview){next[j.building]=Math.max(+next[j.building]||0,+j.toLevel||0);continue}const from=+next[j.building]||0;j.fromLevel=from;j.toLevel=from+1;next[j.building]=from+1}return true;
+  }
+  function nativeQueueAddBuild(townId,building) {
+    if(!AB_BUILDINGS.includes(building))return false;
+    if(gbLocked('ab')){flash('Hay una orden de construcción en curso; reintenta en unos segundos');return false}
+    nativeQueueReconcileBuild(townId);
+    if(nativeQueueList(townId,'build',false).some(j=>j&&(j.inflight||j.manualReview))){flash('Revisa primero la acción pendiente de esta cola');return false}
+    const special=nativeSpecialConflict(townId,building);if(special){flash(`Conflicto con ${nativeBuildLabel(special)}`);return false}
+    const from=nativeQueueProjectedBuildLevel(townId,building),max=abMaxLevel(building);
+    if(from==null){flash('No se puede leer el nivel actual');return false}
+    if(max==null){flash('No se puede leer el nivel máximo');return false}
+    if(from>=max){flash(`${nativeBuildLabel(building)} ya está al máximo`);return false}
+    const town=nativeQueueTown(townId,true);town.mode.build='fifo';town.build.push({id:nativeQueueId('b'),kind:'build',townId:String(townId),building,fromLevel:from,toLevel:from+1,status:'pending',reason:'',createdAt:Date.now()});
+    nativeQueueRebaseBuild(townId);nativeQueueSave();gbLog(`cola nativa: ${nativeBuildLabel(building)} ${from}→${from+1} @${townId}`);
+    gbTimeout(()=>abScan('native'),80);return true;
+  }
+  function nativeQueueRemoveLastBuild(townId,building) {
+    nativeQueueReconcileBuild(townId);
+    const list=nativeQueueList(townId,'build',false);if(list.some(j=>j&&(j.inflight||j.manualReview)))return false;for(let i=list.length-1;i>=0;i--){if(list[i]&&list[i].building===building&&!list[i].inflight){list.splice(i,1);nativeQueueRebaseBuild(townId);nativeQueueSave();return true}}
+    return false;
+  }
+  function nativeUnitStep(unit) {
+    try{const d=recruitUnitDef(unit)||{};const pop=+d.population||0,freight=+(d.favor??(d.resources&&d.resources.favor))||0;if(d.is_naval||d.naval||d.mythical||d.is_mythical||d.god||pop>=8||freight>0)return 1}catch(_){}
+    return 10;
+  }
+  function nativeQueueRecruitAmount(townId,unit){return nativeQueueList(townId,'recruit',false).reduce((n,j)=>n+(j&&j.unit===unit?(+j.amount||0):0),0);}
+  function nativeQueueAddRecruit(townId,unit,amount) {
+    const n=Math.max(1,Math.floor(+amount||0));if(!unit||!recruitUnitDef(unit)||!(n>0))return false;
+    if(gbLocked('recruit')){flash('Hay una orden de unidades en curso; reintenta en unos segundos');return false}
+    if(nativeQueueList(townId,'recruit',false).some(j=>j&&(j.inflight||j.manualReview))){flash('Revisa primero la acción pendiente de esta cola');return false}
+    const town=nativeQueueTown(townId,true);town.mode.recruit='fifo';town.recruit.push({id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:n,status:'pending',reason:'',createdAt:Date.now()});
+    nativeQueueSave();gbLog(`cola nativa: ${n}× ${nativeUnitLabel(unit)} @${townId}`);gbTimeout(()=>recruitScan('native'),80);return true;
+  }
+  function nativeQueueRemoveLastRecruit(townId,unit,amount) {
+    const list=nativeQueueList(townId,'recruit',false);if(list.some(j=>j&&(j.inflight||j.manualReview)))return false;const step=Math.max(1,Math.floor(+amount||nativeUnitStep(unit)));for(let i=list.length-1;i>=0;i--){const job=list[i];if(job&&job.unit===unit&&!job.inflight){job.amount=Math.max(0,(+job.amount||0)-step);if(!job.amount)list.splice(i,1);else{job.status='pending';job.reason='';job.updatedAt=Date.now()}nativeQueueSave();return true}}
+    return false;
+  }
+  function nativeQueueSetJobState(job,status,reason) {
+    if(!job)return;const r=String(reason||''),now=Date.now();
+    if(job.status===status&&job.reason===r)return;
+    if(job.status===status&&/^waiting-(?:resources|population)$/.test(status||'')){
+      const stable=x=>String(x||'').replace(/\d+(?:[.,]\d+)?/g,'#');
+      if(stable(job.reason)===stable(r)&&now-(+job.reasonUpdatedAt||+job.updatedAt||0)<300000)return;
+    }
+    job.status=status;job.reason=r;job.reasonUpdatedAt=now;job.updatedAt=now;save(STORE.NATIVE_QUEUE,nativeQueueRoot());try{scheduleNativeUiScan()}catch(_){}
+  }
+  function nativeQueueMarkBuild(townId,jobId,opts) {
+    const job=nativeQueueList(townId,'build',false)[0];if(!job||job.id!==jobId)return false;const o=opts||{};
+    if(Object.prototype.hasOwnProperty.call(o,'inflight')){job.inflight=o.inflight;if(o.inflight)job.reconcile=null}
+    if(Object.prototype.hasOwnProperty.call(o,'reconcile'))job.reconcile=o.reconcile;
+    if(Object.prototype.hasOwnProperty.call(o,'manualReview'))job.manualReview=!!o.manualReview;
+    if(o.status)job.status=o.status;if(Object.prototype.hasOwnProperty.call(o,'reason'))job.reason=String(o.reason||'');job.updatedAt=Date.now();nativeQueueSave();return true;
+  }
+  function nativeQueueReconcileBuild(townId) {
+    const list=nativeQueueList(townId,'build',false);if(!list.length)return false;
+    const levels=abCurrentLevels(townId);if(!levels)return false;let changed=false;
+    for(const j of list){if(!j)continue;const flight=j.inflight||j.reconcile;if(flight&&flight.building&&flight.targetLevel!=null&&+(levels[flight.building]||0)>=+flight.targetLevel){j.inflight=null;j.reconcile=null;j.manualReview=false;j.status=flight.building===j.building?'pending':'waiting-requirement';j.reason=flight.building===j.building?'confirmado en la cola real':`requisito ${nativeBuildLabel(flight.building)} confirmado`;j.updatedAt=Date.now();changed=true;continue}
+      if(j.inflight&&j.inflight.accepted&&Date.now()-(+j.inflight.at||0)>120000){j.reconcile=Object.assign({},j.inflight);j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='aceptado, pero la cola real no se actualizó; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}}
+    for(let i=list.length-1;i>=0;i--){const j=list[i];if(!j||!AB_BUILDINGS.includes(j.building)||+(levels[j.building]||0)>=+j.toLevel){list.splice(i,1);changed=true}}
+    if(changed){nativeQueueRebaseBuild(townId);nativeQueueSave()}return changed;
+  }
+  function nativeQueueBuildPlan(townId,levels) {
+    nativeQueueReconcileBuild(townId);nativeQueueRebaseBuild(townId);const list=nativeQueueList(townId,'build',false),job=list[0];if(!job)return {hasJob:nativeQueueIsFifo(townId,'build'),plan:null};
+    if(nativeQueuePaused(townId,'build')){nativeQueueSetJobState(job,'paused','cola pausada');return {hasJob:true,plan:null,why:'paused'}}
+    if(list.some(j=>j&&j!==job&&(j.manualReview||j.inflight))){nativeQueueSetJobState(job,'blocked','hay otra acción pendiente de revisión');return {hasJob:true,plan:null,why:'lane-review'}}
+    if(job.manualReview){nativeQueueSetJobState(job,'unknown',job.reason||'comprobar la cola real y quitar este trabajo si no se envió');return {hasJob:true,plan:null,why:'manual-review'}}
+    if(job.inflight){nativeQueueSetJobState(job,'sending',job.reason||'enviando a la cola real');return {hasJob:true,plan:null,why:'inflight'}}
+    const special=nativeSpecialConflict(townId,job.building);if(special){nativeQueueSetJobState(job,'blocked',`conflicto con ${nativeBuildLabel(special)}`);return {hasJob:true,plan:null,why:'special-conflict'}}
+    const max=abMaxLevel(job.building);if(max==null){nativeQueueSetJobState(job,'blocked','nivel máximo desconocido');return {hasJob:true,plan:null,why:'max-unreadable'}}
+    if(+job.toLevel>max){nativeQueueSetJobState(job,'blocked','nivel máximo alcanzado');return {hasJob:true,plan:null,why:'max-level'}}
+    const resolved=abResolvePrerequisite(townId,job.building,levels);
+    if(!resolved||!resolved.building){const why=resolved&&resolved.error||'requisito desconocido';nativeQueueSetJobState(job,'blocked',abReasonText(why));return {hasJob:true,plan:null,why}}
+    const aff=abCanAfford(townId,resolved.building);
+    if(!aff.ok){const why=aff.why||'recursos',detail=abAffordReason(aff),status=why==='resources'?'waiting-resources':(why==='population'?'waiting-population':'blocked');nativeQueueSetJobState(job,status,detail);return {hasJob:true,plan:null,why}}
+    const isRequirement=resolved.building!==job.building;
+    nativeQueueSetJobState(job,'ready',isRequirement?`antes: ${nativeBuildLabel(resolved.building)}`:'listo');
+    return {hasJob:true,plan:{building:resolved.building,forTarget:job.building,reason:isRequirement?`requisito para ${job.building}`:'cola FIFO',cost:aff.need,nativeJobId:job.id,nativeRequestedBuilding:job.building,nativeRequirement:isRequirement}};
+  }
+  function nativeQueueBuildApplied(townId,plan) {
+    if(!plan||!plan.nativeJobId)return;
+    const list=nativeQueueList(townId,'build',false),job=list[0];if(!job||job.id!==plan.nativeJobId)return;
+    if(!plan.nativeRequirement&&plan.building===job.building){list.shift();nativeQueueRebaseBuild(townId)}
+    else{job.inflight=null;job.reconcile=null;job.manualReview=false;nativeQueueSetJobState(job,'waiting-requirement',`construyendo ${nativeBuildLabel(plan.building)} primero`)}
+    nativeQueueSave();
+  }
+  function nativeQueueRecruitHead(townId) {
+    const list=nativeQueueList(townId,'recruit',false),job=list[0];if(!job)return null;
+    if(nativeQueuePaused(townId,'recruit')){nativeQueueSetJobState(job,'paused','cola pausada');return null}
+    if(list.some(j=>j&&j!==job&&(j.manualReview||j.inflight))){nativeQueueSetJobState(job,'blocked','hay otra acción pendiente de revisión');return null}
+    if(job.manualReview){nativeQueueSetJobState(job,'unknown',job.reason||'comprobar la cola real y quitar este trabajo si no se envió');return null}
+    if(job.inflight){nativeQueueSetJobState(job,'sending',job.reason||'enviando a la cola real');return null}
+    return job;
+  }
+  function nativeQueueRecruitApplied(townId,jobId,amount) {
+    const list=nativeQueueList(townId,'recruit',false),job=list[0];if(!job||job.id!==jobId)return;
+    job.inflight=null;job.amount=Math.max(0,(+job.amount||0)-Math.max(0,+amount||0));
+    if(job.amount<=0)list.shift();else{job.status='pending';job.reason='resto del lote';job.updatedAt=Date.now()}
+    nativeQueueSave();
+  }
+
+  GM_addStyle(`
+    .gb-native-qctl{display:inline-flex;align-items:center;gap:3px;margin:3px 2px;padding:2px 4px;border:1px solid #8a6725;border-radius:5px;background:rgba(31,25,16,.94);color:#f6e3b0;font:10px/1.2 Arial,sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.45);position:relative;z-index:20}
+    .gb-native-qbtn{min-width:22px;height:20px;padding:0 4px;border:1px solid #9b7938;border-radius:4px;background:linear-gradient(#5b4828,#342814);color:#fff3c7;font:bold 11px Arial,sans-serif;cursor:pointer}
+    .gb-native-qbtn:hover{border-color:#e5b94f;color:#fff}.gb-native-qbtn:disabled{opacity:.42;cursor:default}
+    .gb-native-qcount{min-width:58px;text-align:center;white-space:nowrap}.gb-native-qcount.ready{color:#91e5a8}.gb-native-qcount.blocked{color:#ffb0a8}.gb-native-qcount.waiting{color:#ffd27a}
+    .gb-native-panel{margin:7px 5px;padding:6px;border:1px solid #8a6725;border-radius:6px;background:rgba(34,27,17,.96);color:#f2dfb2;font:11px/1.3 Arial,sans-serif;clear:both;max-height:360px;overflow:auto}
+    .gb-native-panel-head{display:flex;align-items:center;gap:5px;margin-bottom:4px;font-weight:bold}.gb-native-panel-head span{flex:1}
+    .gb-native-job{display:grid;grid-template-columns:24px minmax(120px,1fr) auto;gap:5px;align-items:center;padding:3px 1px;border-top:1px solid rgba(190,150,75,.22)}
+    .gb-native-job:first-of-type{border-top:0}.gb-native-job small{display:block;color:#c7ad78;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gb-native-job-actions{display:flex;gap:2px}
+    .gb-native-empty{color:#b9a983;font-style:italic;padding:2px}.gb-native-disabled{opacity:.55}
+  `);
+  let nativeUiTimer=0;
+  function scheduleNativeUiScan() {
+    if(nativeUiTimer)return;nativeUiTimer=gbTimeout(()=>{nativeUiTimer=0;nativeUiScan()},80);
+  }
+  function nativeEnsureBuildingIds() {
+    try{const all=gameUw().GameData&&gameUw().GameData.buildings||{};for(const [id,d] of Object.entries(all)){if(id==='place'||id==='main_place')continue;const max=+(d&&d.max_level);if(max>0&&!AB_BUILDINGS.includes(id))AB_BUILDINGS.push(id)}}catch(_){}
+  }
+  function nativeWindowTownId(root) {
+    if(!root)return null;const ids=new Set(),add=raw=>{if(raw!=null&&/^\d+$/.test(String(raw)))ids.add(String(raw))};
+    try{for(let n=root;n&&n!==document.body;n=n.parentElement){add(n.getAttribute&&n.getAttribute('data-town-id'));add(n.getAttribute&&n.getAttribute('data-town_id'));add(n.getAttribute&&n.getAttribute('data-townid'))}}
+    catch(_){}
+    try{root.querySelectorAll('input[name="town_id"],input[data-town-id],input[data-town_id]').forEach(n=>{add(n.value);add(n.getAttribute('data-town-id'));add(n.getAttribute('data-town_id'))})}catch(_){}
+    if(ids.size>1)return null;
+    if(ids.size===1){const id=[...ids][0];return abGetTown(id)?id:null}
+    const isRelevant=r=>!!(r&&r.matches&&r.matches('#unit_order,.window_content,.gpwindow_content'))&&!!(r.matches('#unit_order')||r.querySelector('#unit_order,#building_main,.building_main,[id^="building_main_"],[id^="special_building_"]'));
+    const relevant=isRelevant(root);
+    if(!relevant)return null;
+    // With several open windows, only the focused one may inherit Game.townId.
+    let focusProven=false;
+    try{const mgr=gameUw().GPWindowMgr,w=mgr&&mgr.getFocusedWindow&&mgr.getFocusedWindow(),jq=w&&w.getJQElement&&w.getJQElement(),el=jq&&(jq[0]||jq.get&&jq.get(0));if(el){focusProven=true;if(!(el===root||el.contains(root)||root.contains(el)))return null}}catch(_){}
+    if(!focusProven){try{const candidates=[...document.querySelectorAll('.window_content,.gpwindow_content,#unit_order')].filter((x,i,a)=>a.indexOf(x)===i&&!x.closest('#grepbot-panel')&&!x.closest('[hidden]')&&(x.getClientRects?x.getClientRects().length>0:true)),visibleRoots=candidates.filter(x=>!candidates.some(y=>y!==x&&y.contains(x))).filter(isRelevant);if(visibleRoots.length!==1||visibleRoots[0]!==root)return null}catch(_){return null}}
+    const current=abCurrentTownId(),id=current==null?null:String(current);return id&&abGetTown(id)?id:null;
+  }
+  function nativeTownAction(root,townId,onClick) {
+    return e=>{if(!gbTabLeader){flash('GrepBot está activo en otra pestaña');return false}const live=nativeWindowTownId(root);if(String(live||'')!==String(townId||'')){flash('La ciudad de esta ventana ha cambiado; vuelve a intentarlo');scheduleNativeUiScan();return false}return onClick&&onClick(e)};
+  }
+  function nativeTileAction(root,townId,tile,kind,id,onClick) {
+    return nativeTownAction(root,townId,e=>{const live=kind==='build'?nativeBuildingId(tile):nativeUnitId(tile);if(String(live||'')!==String(id||'')){flash('Este elemento de la ventana ha cambiado; vuelve a intentarlo');scheduleNativeUiScan();return false}return onClick&&onClick(e)});
+  }
+  function nativeGuardEvent(e){e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation()}
+  function nativeQButton(text,title,onClick) {
+    const b=document.createElement('button');b.type='button';b.className='gb-native-qbtn';b.textContent=text;b.title=title;b.setAttribute('aria-label',title);
+    b.addEventListener('pointerdown',e=>{e.stopPropagation()});b.addEventListener('mousedown',e=>{e.stopPropagation()});
+    b.addEventListener('click',e=>{nativeGuardEvent(e);if(!gbInstanceAlive())return;onClick&&onClick(e)});return b;
+  }
+  function nativeBuildingId(node) {
+    if(!node)return null;const ids=new Set(),add=v=>{v=String(v||'');if(AB_BUILDINGS.includes(v))ids.add(v)};for(const k of ['data-building_type','data-building-type','data-building'])add(node.getAttribute(k));
+    try{const child=node.querySelector('[data-building_type],[data-building-type],[data-building]');if(child)for(const k of ['data-building_type','data-building-type','data-building'])add(child.getAttribute(k))}catch(_){}const m=String(node.id||'').match(/^(?:building_main|special_building)_([a-z0-9_]+)$/i);if(m)add(m[1]);return ids.size===1?[...ids][0]:null;
+  }
+  function nativeUnitId(node) {
+    if(!node)return null;const child=node.querySelector&&node.querySelector('[data-unit_id],[data-unit-id],[data-unit_type],[data-unit-type]');const vals=[node.getAttribute('data-unit_id'),node.getAttribute('data-unit-id'),node.getAttribute('data-unit_type'),node.getAttribute('data-unit-type'),child&&(child.getAttribute('data-unit_id')||child.getAttribute('data-unit-id')||child.getAttribute('data-unit_type')||child.getAttribute('data-unit-type')),node.id].filter(Boolean).map(String);
+    const ids=new Set();for(const id of vals)if(recruitUnitDef(id))ids.add(id);let keys=[];try{keys=Object.keys((gameUw().GameData&&gameUw().GameData.units)||{}).sort((a,b)=>b.length-a.length)}catch(_){}for(const raw of vals)for(const id of keys)if(new RegExp(`(?:^|[_:-])${id.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,'i').test(raw))ids.add(id);return ids.size===1?[...ids][0]:null;
+  }
+  function nativeMountBuildControl(root,tile,townId,building) {
+    tile.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>{if(c.dataset.building!==building)c.remove()});
+    const controls=[...tile.querySelectorAll(`.gb-native-qctl[data-building="${building}"]`)];let ctl=controls.shift()||null;controls.forEach(extra=>extra.remove());
+    if(ctl)ctl.querySelectorAll('.gb-native-qctl').forEach(extra=>extra.remove());
+    if(!ctl){ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.building=building;const anchor=tile.querySelector('.level,.building_level,.level_wrapper');(anchor&&anchor.parentElement||tile).appendChild(ctl)}
+    const list=nativeQueueList(townId,'build',false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),jobs=list.filter(j=>j&&j.building===building),projected=nativeQueueProjectedBuildLevel(townId,building),pos=nativeQueuePosition(townId,'build',j=>j&&j.building===building);
+    const head=pos===1&&list[0],max=abMaxLevel(building),special=nativeSpecialConflict(townId,building),sig=JSON.stringify([townId,building,projected,pos,frozen,max,special,jobs.map(j=>[j.id,j.toLevel,j.status,j.reason,!!j.inflight,!!j.manualReview])]);if(ctl.dataset.sig===sig)return;ctl.dataset.sig=sig;
+    ctl.replaceChildren();const minus=nativeQButton('−','Quitar la última mejora virtual',nativeTileAction(root,townId,tile,'build',building,()=>{if(!nativeQueueRemoveLastBuild(townId,building))flash('No hay mejora virtual que quitar')}));minus.disabled=!jobs.length;
+    const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=`Plan ${projected==null?'?':projected}${pos?' · #'+pos:''}`;count.title=head&&head.reason?head.reason:`${jobs.length} mejora(s) virtual(es)`;
+    if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
+    const plus=nativeQButton('+',`Añadir ${nativeBuildLabel(building)} +1 al final de la cola`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueAddBuild(townId,building)));
+    minus.disabled=minus.disabled||frozen;if(frozen||special||projected==null||max==null||projected>=max)plus.disabled=true;ctl.append(minus,count,plus);
+  }
+  function nativeMountRecruitControl(root,tile,townId,unit) {
+    tile.querySelectorAll(':scope > .gb-native-qctl[data-unit]').forEach(c=>{if(c.dataset.unit!==unit)c.remove()});
+    const controls=[...tile.querySelectorAll(`:scope > .gb-native-qctl[data-unit="${unit}"]`)];let ctl=controls.shift()||null;controls.forEach(extra=>extra.remove());if(!ctl){ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.unit=unit;tile.appendChild(ctl)}
+    const list=nativeQueueList(townId,'recruit',false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit),pos=nativeQueuePosition(townId,'recruit',j=>j&&j.unit===unit),head=pos===1&&list[0];
+    const sig=JSON.stringify([townId,unit,step,pending,pos,frozen,head&&head.status,head&&head.reason]);if(ctl.dataset.sig===sig)return;ctl.dataset.sig=sig;
+    ctl.replaceChildren();const minus=nativeQButton(`−${step}`,`Restar ${step} de la cola virtual de esta unidad`,nativeTileAction(root,townId,tile,'unit',unit,()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));minus.disabled=!(pending>0)||frozen;
+    const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=`+${pending}${pos?' · #'+pos:''}`;count.title=head&&head.reason?head.reason:`${pending} pendiente(s)`;
+    if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
+    const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));plus.disabled=frozen;ctl.append(minus,count,plus);
+  }
+  function nativeRenderQueuePanel(root,townId,lane) {
+    let box=root.querySelector(`:scope > .gb-native-panel[data-lane="${lane}"]`);if(!box){box=document.createElement('div');box.className='gb-native-panel';box.dataset.lane=lane;root.appendChild(box)}
+    const oldScroll=box.scrollTop;
+    box.replaceChildren();const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot · Construcción':'Cola GrepBot · Unidades';head.appendChild(title);
+    const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'▶':'⏸',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
+    const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&(j.inflight||j.manualReview));if(!list.length&&nativeQueueIsFifo(townId,lane)){const legacy=nativeQButton('Objetivos','Volver al planificador de objetivos',nativeTownAction(root,townId,()=>nativeQueueUseLegacy(townId,lane)));head.appendChild(legacy)}box.appendChild(head);
+    if(!list.length){const empty=document.createElement('div');empty.className='gb-native-empty';empty.textContent=nativeQueueIsFifo(townId,lane)?'Cola vacía. Usa los botones + de arriba.':'Usa + para crear una cola FIFO en esta ciudad.';box.appendChild(empty);box.scrollTop=oldScroll;return}
+    list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}→${j.toLevel}`:`${j.amount}× ${nativeUnitLabel(j.unit)}`;const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' · '+j.reason:''}`;desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const up=nativeQButton('↑','Mover antes',nativeTownAction(root,townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('↓','Mover después',nativeTownAction(root,townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const del=nativeQButton('×','Quitar de la cola virtual',nativeTownAction(root,townId,()=>{if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acción se envió o no.')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id)}));del.disabled=!!j.inflight||(frozen&&!j.manualReview);acts.append(up,down,del);row.append(num,desc,acts);box.appendChild(row)});box.scrollTop=oldScroll;
+  }
+  function nativeUiScan() {
+    if(!gbInstanceAlive()||!document.body)return;nativeEnsureBuildingIds();
+    const candidates=[...document.querySelectorAll('.window_content,.gpwindow_content,#unit_order')].filter((x,i,a)=>a.indexOf(x)===i&&!x.closest('#grepbot-panel'));
+    const roots=candidates.filter(x=>!candidates.some(y=>y!==x&&y.contains(x)));
+    for(const root of roots){const townId=nativeWindowTownId(root);if(!townId){root.querySelectorAll(':scope > .gb-native-panel,.gb-native-qctl').forEach(n=>n.remove());continue}let buildN=0,unitN=0;const mountedBuildIds=new Set(),mountedUnitIds=new Set();
+      const senateContext=!!(root.matches('#building_main,.building_main,.senate')||root.querySelector('#building_main,.building_main,[id^="building_main_"],[id^="special_building_"]'));
+      const buildTiles=senateContext?[...root.querySelectorAll('[id^="building_main_"],[id^="special_building_"],.building[data-building_type],.building[data-building-type],.building[data-building]')]:[];
+      for(const tile of buildTiles){if(tile.classList.contains('gb-native-qctl')||tile.closest('.gb-native-qctl,.gb-native-panel'))continue;const id=nativeBuildingId(tile);if(!id||mountedBuildIds.has(id))continue;mountedBuildIds.add(id);const owner=tile.closest(`#building_main_${id},#special_building_${id}`)||tile;nativeMountBuildControl(root,owner,townId,id);buildN++}
+      const unitContext=root.matches('#unit_order')?root:root.querySelector('#unit_order');const unitTiles=unitContext?[...unitContext.querySelectorAll('#units .unit_tab,.unit_tab')]:[];
+      for(const tile of unitTiles){const id=nativeUnitId(tile);if(!id||mountedUnitIds.has(id))continue;mountedUnitIds.add(id);nativeMountRecruitControl(root,tile,townId,id);unitN++}
+      root.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>{if(!mountedBuildIds.has(c.dataset.building))c.remove()});root.querySelectorAll('.gb-native-qctl[data-unit]').forEach(c=>{if(!mountedUnitIds.has(c.dataset.unit))c.remove()});
+      if(buildN)nativeRenderQueuePanel(root,townId,'build');else root.querySelector(':scope > .gb-native-panel[data-lane="build"]')?.remove();if(unitN)nativeRenderQueuePanel(root,townId,'recruit');else root.querySelector(':scope > .gb-native-panel[data-lane="recruit"]')?.remove();
+    }
+  }

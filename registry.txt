@@ -1,0 +1,200 @@
+2026-08-08T18:31:12.734Z auto-queue: nothing to build (orch)
+2026-08-08T18:31:26.878Z bandit: no offense units in current town
+2026-08-08T18:31:33.377Z culture: nothing to start (orch)
+2026-08-08T18:32:12.735Z cave: town 3478 hide full (3000/3000)
+2026-08-08T18:32:12.735Z cave: town 3042 hide full (6000/6000)
+2026-08-08T18:32:12.735Z cave: nothing to stash (orch)
+2026-08-08T18:32:26.878Z bandit: no offense units in current town
+2026-08-08T18:32:27.738Z towns scrape: 2 towns (2 via game data, 0 via HTTP)
+2026-08-08T18:32:32.735Z trade: nothing to send (orch)
+2026-08-08T18:32:33.375Z rural-trade: town 3042 iron already at capacity - skip
+2026-08-08T18:32:33.375Z rural-trade: idle (orch)
+2026-08-08T18:33:12.735Z farm claim (orch): 1/7 ready
+2026-08-08T18:33:12.736Z sniffed farm bridge call: json=%7B%22model_url%22%3A%22FarmTownPlayerRelation%2F17113%22%2C%22action_name%22%3A%22claim%22%2C%22arguments%22%3A%7B%22farm_town_id%22%3A1141%2C%22type%22%3A%22resources%22%2C%22option%22%3A1%7D%2C%22town_id%22%3A3478%2C%22nl_init%22%3Atrue%7D
+2026-08-08T18:33:12.736Z learned claim template: {"model_url":"FarmTownPlayerRelation/17113","action_name":"claim","arguments":{"farm_town_id":1141,"type":"resources","option":1},"town_id":3478,"version":1,"learned_at":1786213992736}
+2026-08-08T18:33:12.965Z   claimed Gina (rel 17113)
+2026-08-08T18:33:23.666Z farm claim verify: 1 village(s) now gathering
+2026-08-08T18:33:26.878Z bandit: no offense units in current town
+2026-08-08T18:33:53.544Z memory: research building_academy/research ceramics failed 3x (Se ha producido un error interno.) - skipping 5m
+2026-08-08T18:33:53.545Z research err Se ha producido un error interno.
+2026-08-08T18:34:12.735Z cave: town 3478 hide full (3000/3000)
+2026-08-08T18:34:12.735Z cave: town 3042 hide full (6000/6000)
+2026-08-08T18:34:12.735Z cave: nothing to stash (orch)
+2026-08-08T18:34:20.753Z build orders source: ITowns+MM
+2026-08-08T18:34:26.878Z bandit: no offense units in current town
+2026-08-08T18:34:33.230Z auto-queue: town 3042 waiting 17m34s (1 left)
+2026-08-08T18:34:33.231Z auto-queue: nothing to build (orch)
+2026-08-08T18:35:12.736Z rural-trade: town 3042 iron already at capacity - skip
+2026-08-08T18:35:26.878Z bandit: no offense units in current town
+2026-08-08T18:36:12.735Z cave: town 3478 hide full (3000/3000)
+2026-08-08T18:36:12.735Z cave: town 3042 hide full (6000/6000)
+2026-08-08T18:36:12.735Z cave: nothing to stash (orch)
+2026-08-08T18:36:12.738Z farm scrape: 7 farms (7 auto-discovered, 0 from textarea)
+2026-08-08T18:36:14.220Z   farm 1194: no data (no endpoint matched)
+2026-08-08T18:36:16.373Z   farm 1192: no data (no endpoint matched)
+2026-08-08T18:36:18.567Z   farm 1189: no data (no endpoint matched)
+2026-08-08T18:36:20.692Z   farm 1193: no data (no endpoint matched)
+2026-08-08T18:36:22.687Z   farm 1191: no data (no endpoint matched)
+2026-08-08T18:36:24.776Z   farm 1190: no data (no endpoint matched)
+2026-08-08T18:36:26.878Z bandit: no offense units in current town
+2026-08-08T18:36:26.960Z   farm 1141: no data (no endpoint matched)
+2026-08-08T18:36:27.917Z farm scrape done: 0/7 ok, next in 5m39s
+2026-08-08T18:36:32.975Z trade: 3042->3478 w1446/s1399/i0
+2026-08-08T18:36:33.908Z trade: 3478->3042 w1250/s1250/i0
+2026-08-08T18:36:35.028Z trade: sent 2/2
+2026-08-08T18:36:37.964Z instant: armed in 18m22s (free window at <=300s)
+2026-08-08T18:36:37.964Z instant: 1 free order(s), auto-completing
+2026-08-08T18:36:37.965Z build: template ibAction invalidated - re-learn by hand
+2026-08-08T18:36:37.965Z instant-build: #311015 not sent (tpl-stale)
+2026-08-08T18:36:38.509Z instant: completed 0/1
+2026-08-08T18:36:40.753Z instant: 1 free order(s), auto-completing
+2026-08-08T18:36:50.754Z instant: 1 free order(s), auto-completing
+2026-08-08T18:36:53.337Z rural-trade: idle (orch)
+2026-08-08T18:37:00.754Z instant: 1 free order(s), auto-completing
+2026-08-08T18:37:10.754Z instant: 1 free order(s), auto-completing
+2026-08-08T18:37:12.736Z orch: deadlock open but nothing can drain - spend resources manually
+2026-08-08T18:37:12.736Z rural-level: idle (orch)
+2026-08-08T18:37:20.753Z instant: 1 free order(s), auto-completing
+2026-08-08T18:37:26.878Z bandit: no offense units in current town
+2026-08-08T18:37:30.778Z instant: 1 free order(s), auto-completing
+2026-08-08T18:37:40.778Z instant: 1 free order(s), auto-completing
+2026-08-08T18:37:40.778Z instant-build: #311015 not sent (tpl-stale)
+2026-08-08T18:37:41.378Z instant: completed 0/1
+2026-08-08T18:37:50.779Z instant: 1 free order(s), auto-completing
+2026-08-08T18:38:00.780Z instant: 1 free order(s), auto-completing
+2026-08-08T18:38:10.780Z instant: 1 free order(s), auto-completing
+2026-08-08T18:38:12.736Z cave: town 3478 hide full (3000/3000)
+2026-08-08T18:38:12.737Z cave: town 3042 hide full (6000/6000)
+2026-08-08T18:38:12.737Z cave: nothing to stash (orch)
+2026-08-08T18:38:20.781Z instant: 1 free order(s), auto-completing
+2026-08-08T18:38:26.878Z bandit: no offense units in current town
+2026-08-08T18:38:30.781Z instant: 1 free order(s), auto-completing
+2026-08-08T18:38:32.737Z trade: nothing to send (orch)
+2026-08-08T18:38:33.275Z rural-trade: town 3042 iron already at capacity - skip
+2026-08-08T18:38:33.802Z auto-queue: town 3042 waiting 13m34s (1 left)
+2026-08-08T18:38:33.802Z auto-queue: nothing to build (orch)
+2026-08-08T18:38:40.782Z instant: 1 free order(s), auto-completing
+2026-08-08T18:38:40.782Z build: template ibAction invalidated - re-learn by hand
+2026-08-08T18:38:40.782Z instant-build: #311015 not sent (tpl-stale)
+2026-08-08T18:38:50.782Z instant: 1 free order(s), auto-completing
+2026-08-08T18:38:51.313Z instant: completed 0/1
+2026-08-08T18:39:00.783Z instant: 1 free order(s), auto-completing
+2026-08-08T18:39:10.784Z instant: 1 free order(s), auto-completing
+2026-08-08T18:39:12.737Z research: no cost data for ceramics - resource check skipped, server decides
+2026-08-08T18:39:12.740Z towns scrape: 2 towns (2 via game data, 0 via HTTP)
+2026-08-08T18:39:12.904Z memory: research building_academy/research ceramics failed 3x (Se ha producido un error interno.) - skipping 5m
+2026-08-08T18:39:12.905Z research err Se ha producido un error interno.
+2026-08-08T18:39:20.785Z build orders source: ITowns+MM
+2026-08-08T18:39:20.785Z instant: 1 free order(s), auto-completing
+2026-08-08T18:39:26.878Z bandit: no offense units in current town
+2026-08-08T18:39:30.785Z instant: 1 free order(s), auto-completing
+2026-08-08T18:39:40.785Z instant: 1 free order(s), auto-completing
+2026-08-08T18:39:40.785Z instant-build: #311015 not sent (tpl-stale)
+2026-08-08T18:39:50.785Z instant: 1 free order(s), auto-completing
+2026-08-08T18:39:51.341Z instant: completed 0/1
+2026-08-08T18:40:00.786Z instant: 1 free order(s), auto-completing
+2026-08-08T18:40:10.787Z instant: 1 free order(s), auto-completing
+2026-08-08T18:40:12.737Z cave: town 3478 hide full (3000/3000)
+2026-08-08T18:40:12.737Z cave: town 3042 hide full (6000/6000)
+2026-08-08T18:40:12.737Z cave: nothing to stash (orch)
+2026-08-08T18:40:13.372Z farm claim (orch): 7/7 ready
+2026-08-08T18:40:13.372Z sniffed farm bridge call: json=%7B%22model_url%22%3A%22FarmTownPlayerRelation%2F14688%22%2C%22action_name%22%3A%22claim%22%2C%22arguments%22%3A%7B%22farm_town_id%22%3A1194%2C%22type%22%3A%22resources%22%2C%22option%22%3A1%7D%2C%22town_id%22%3A3042%2C%22nl_init%22%3Atrue%7D
+2026-08-08T18:40:13.372Z learned claim template: {"model_url":"FarmTownPlayerRelation/14688","action_name":"claim","arguments":{"farm_town_id":1194,"type":"resources","option":1},"town_id":3042,"version":1,"learned_at":1786214413372}
+2026-08-08T18:40:13.598Z   claimed Dragavhy (rel 14688)
+2026-08-08T18:40:14.299Z sniffed farm bridge call: json=%7B%22model_url%22%3A%22FarmTownPlayerRelation%2F14686%22%2C%22action_name%22%3A%22claim%22%2C%22arguments%22%3A%7B%22farm_town_id%22%3A1192%2C%22type%22%3A%22resources%22%2C%22option%22%3A1%7D%2C%22town_id%22%3A3042%2C%22nl_init%22%3Atrue%7D
+2026-08-08T18:40:14.299Z learned claim template: {"model_url":"FarmTownPlayerRelation/14686","action_name":"claim","arguments":{"farm_town_id":1192,"type":"resources","option":1},"town_id":3042,"version":1,"learned_at":1786214414299}
+2026-08-08T18:40:14.420Z   claimed Thosnaae (rel 14686)
+2026-08-08T18:40:15.121Z sniffed farm bridge call: json=%7B%22model_url%22%3A%22FarmTownPlayerRelation%2F14683%22%2C%22action_name%22%3A%22claim%22%2C%22arguments%22%3A%7B%22farm_town_id%22%3A1189%2C%22type%22%3A%22resources%22%2C%22option%22%3A1%7D%2C%22town_id%22%3A3042%2C%22nl_init%22%3Atrue%7D
+2026-08-08T18:40:15.121Z learned claim template: {"model_url":"FarmTownPlayerRelation/14683","action_name":"claim","arguments":{"farm_town_id":1189,"type":"resources","option":1},"town_id":3042,"version":1,"learned_at":1786214415121}
+2026-08-08T18:40:15.244Z   claimed Kospsigavga (rel 14683)
+2026-08-08T18:40:15.946Z sniffed farm bridge call: json=%7B%22model_url%22%3A%22FarmTownPlayerRelation%2F14687%22%2C%22action_name%22%3A%22claim%22%2C%22arguments%22%3A%7B%22farm_town_id%22%3A1193%2C%22type%22%3A%22resources%22%2C%22option%22%3A1%7D%2C%22town_id%22%3A3042%2C%22nl_init%22%3Atrue%7D
+2026-08-08T18:40:15.946Z learned claim template: {"model_url":"FarmTownPlayerRelation/14687","action_name":"claim","arguments":{"farm_town_id":1193,"type":"resources","option":1},"town_id":3042,"version":1,"learned_at":1786214415946}
+2026-08-08T18:40:16.090Z   claimed Rhoko (rel 14687)
+2026-08-08T18:40:16.792Z sniffed farm bridge call: json=%7B%22model_url%22%3A%22FarmTownPlayerRelation%2F14685%22%2C%22action_name%22%3A%22claim%22%2C%22arguments%22%3A%7B%22farm_town_id%22%3A1191%2C%22type%22%3A%22resources%22%2C%22option%22%3A1%7D%2C%22town_id%22%3A3042%2C%22nl_init%22%3Atrue%7D
+2026-08-08T18:40:16.792Z learned claim template: {"model_url":"FarmTownPlayerRelation/14685","action_name":"claim","arguments":{"farm_town_id":1191,"type":"resources","option":1},"town_id":3042,"version":1,"learned_at":1786214416792}
+2026-08-08T18:40:16.915Z   claimed Thosgavko (rel 14685)
+2026-08-08T18:40:17.373Z orch: farm acted, cadence back to normal
+2026-08-08T18:40:17.615Z sniffed farm bridge call: json=%7B%22model_url%22%3A%22FarmTownPlayerRelation%2F14684%22%2C%22action_name%22%3A%22claim%22%2C%22arguments%22%3A%7B%22farm_town_id%22%3A1190%2C%22type%22%3A%22resources%22%2C%22option%22%3A1%7D%2C%22town_id%22%3A3042%2C%22nl_init%22%3Atrue%7D
+2026-08-08T18:40:17.615Z learned claim template: {"model_url":"FarmTownPlayerRelation/14684","action_name":"claim","arguments":{"farm_town_id":1190,"type":"resources","option":1},"town_id":3042,"version":1,"learned_at":1786214417615}
+2026-08-08T18:40:17.740Z   claimed Stridragavnos (rel 14684)
+2026-08-08T18:40:17.757Z orch: warehouse deadlock CLOSED
+2026-08-08T18:40:18.440Z sniffed farm bridge call: json=%7B%22model_url%22%3A%22FarmTownPlayerRelation%2F17113%22%2C%22action_name%22%3A%22claim%22%2C%22arguments%22%3A%7B%22farm_town_id%22%3A1141%2C%22type%22%3A%22resources%22%2C%22option%22%3A1%7D%2C%22town_id%22%3A3478%2C%22nl_init%22%3Atrue%7D
+2026-08-08T18:40:18.441Z learned claim template: {"model_url":"FarmTownPlayerRelation/17113","action_name":"claim","arguments":{"farm_town_id":1141,"type":"resources","option":1},"town_id":3478,"version":1,"learned_at":1786214418440}
+2026-08-08T18:40:18.563Z   claimed Gina (rel 17113)
+2026-08-08T18:40:20.788Z instant: 1 free order(s), auto-completing
+2026-08-08T18:40:26.879Z bandit: no offense units in current town
+2026-08-08T18:40:29.263Z farm claim verify: 7 village(s) now gathering
+2026-08-08T18:40:30.788Z instant: 1 free order(s), auto-completing
+2026-08-08T18:40:40.788Z instant: 1 free order(s), auto-completing
+2026-08-08T18:40:40.788Z build: template ibAction invalidated - re-learn by hand
+2026-08-08T18:40:40.788Z instant-build: #311015 not sent (tpl-stale)
+2026-08-08T18:40:50.789Z instant: 1 free order(s), auto-completing
+2026-08-08T18:40:51.359Z instant: completed 0/1
+2026-08-08T18:41:00.789Z instant: 1 free order(s), auto-completing
+2026-08-08T18:41:10.791Z instant: 1 free order(s), auto-completing
+2026-08-08T18:41:12.737Z farm claim: 0/7 ready, next in 246s
+2026-08-08T18:41:20.790Z instant: 1 free order(s), auto-completing
+2026-08-08T18:41:27.878Z bandit: no offense units in current town
+2026-08-08T18:41:30.792Z instant: 1 free order(s), auto-completing
+2026-08-08T18:41:57.740Z farm scrape: 7 farms (7 auto-discovered, 0 from textarea)
+2026-08-08T18:41:59.236Z   farm 1194: no data (no endpoint matched)
+2026-08-08T18:42:01.476Z   farm 1192: no data (no endpoint matched)
+2026-08-08T18:42:03.711Z   farm 1189: no data (no endpoint matched)
+2026-08-08T18:42:06.025Z   farm 1193: no data (no endpoint matched)
+2026-08-08T18:42:08.219Z   farm 1191: no data (no endpoint matched)
+2026-08-08T18:42:10.468Z   farm 1190: no data (no endpoint matched)
+2026-08-08T18:42:12.499Z   farm 1141: no data (no endpoint matched)
+2026-08-08T18:42:12.737Z auto-queue: town 3478 next fill in 30m13s (1 left, half-build+5m+rand)
+2026-08-08T18:42:12.737Z auto-queue: town 3042 waiting 9m55s (1 left)
+2026-08-08T18:42:12.737Z auto-queue: nothing to build (orch)
+2026-08-08T18:42:13.463Z farm scrape done: 0/7 ok, next in 5m45s
+2026-08-08T18:42:27.877Z bandit: no offense units in current town
+2026-08-08T18:42:32.737Z farm claim: 0/7 ready, next in 166s
+2026-08-08T18:42:37.758Z orch: warehouse deadlock OPEN towns=3478,3042
+2026-08-08T18:42:52.738Z cave: town 3478 hide full (3000/3000)
+2026-08-08T18:42:52.738Z cave: town 3042 hide full (6000/6000)
+2026-08-08T18:42:52.738Z cave: nothing to stash (orch)
+2026-08-08T18:42:53.487Z trade: 3042->3478 w1191/s2670/i0
+2026-08-08T18:42:53.674Z rural-trade: town 3042 iron already at capacity - skip
+2026-08-08T18:42:53.674Z rural-trade: town 3478 iron already at capacity - skip
+2026-08-08T18:42:53.674Z rural-trade: idle (orch)
+2026-08-08T18:42:54.585Z trade: 3478->3042 w1250/s1250/i0
+2026-08-08T18:42:55.500Z trade: sent 2/2
+2026-08-08T18:43:27.878Z bandit: no offense units in current town
+2026-08-08T18:43:33.205Z culture: nothing to start (orch)
+2026-08-08T18:43:52.736Z orch: deadlock open but nothing can drain - spend resources manually
+2026-08-08T18:43:52.737Z farm claim: 0/7 ready, next in 86s
+2026-08-08T18:44:20.795Z build orders source: ITowns+MM
+2026-08-08T18:44:27.878Z bandit: no offense units in current town
+2026-08-08T18:44:53.494Z trade: 3042->3478 w1108/s30/i0
+2026-08-08T18:44:54.458Z trade: sent 1/1
+2026-08-08T18:45:12.737Z farm claim: 0/7 ready, next in 6s
+2026-08-08T18:45:16.737Z orch: farm idle 4x - widening cadence (adaptive)
+2026-08-08T18:45:27.741Z towns scrape: 2 towns (2 via game data, 0 via HTTP)
+2026-08-08T18:45:27.894Z bandit: no offense units in current town
+2026-08-08T18:45:32.737Z cave: town 3478 hide full (3000/3000)
+2026-08-08T18:45:32.737Z cave: town 3042 hide full (6000/6000)
+2026-08-08T18:45:32.737Z cave: nothing to stash (orch)
+2026-08-08T18:45:33.509Z memory: research building_academy/research ceramics failed 3x (Se ha producido un error interno.) - skipping 5m
+2026-08-08T18:45:33.510Z research err Se ha producido un error interno.
+2026-08-08T18:46:13.235Z rural-trade: idle (orch)
+2026-08-08T18:46:27.894Z bandit: no offense units in current town
+2026-08-08T18:46:32.738Z auto-queue: town 3478 waiting 25m53s (1 left)
+2026-08-08T18:46:32.738Z auto-queue: town 3042 waiting 5m35s (1 left)
+2026-08-08T18:46:32.738Z auto-queue: nothing to build (orch)
+2026-08-08T18:47:12.738Z trade: nothing to send (orch)
+2026-08-08T18:47:13.261Z farm claim (orch): 1/7 ready
+2026-08-08T18:47:13.262Z sniffed farm bridge call: json=%7B%22model_url%22%3A%22FarmTownPlayerRelation%2F17113%22%2C%22action_name%22%3A%22claim%22%2C%22arguments%22%3A%7B%22farm_town_id%22%3A1141%2C%22type%22%3A%22resources%22%2C%22option%22%3A1%7D%2C%22town_id%22%3A3478%2C%22nl_init%22%3Atrue%7D
+2026-08-08T18:47:13.262Z learned claim template: {"model_url":"FarmTownPlayerRelation/17113","action_name":"claim","arguments":{"farm_town_id":1141,"type":"resources","option":1},"town_id":3478,"version":1,"learned_at":1786214833262}
+2026-08-08T18:47:13.477Z   claimed Gina (rel 17113)
+2026-08-08T18:47:24.178Z farm claim verify: 1 village(s) now gathering
+2026-08-08T18:47:27.894Z bandit: no offense units in current town
+2026-08-08T18:47:32.737Z cave: town 3478 hide full (3000/3000)
+2026-08-08T18:47:32.737Z cave: town 3042 hide full (6000/6000)
+2026-08-08T18:47:32.737Z cave: nothing to stash (orch)
+2026-08-08T18:47:42.741Z farm scrape: 7 farms (7 auto-discovered, 0 from textarea)
+2026-08-08T18:47:44.219Z   farm 1194: no data (no endpoint matched)
+2026-08-08T18:47:46.429Z   farm 1192: no data (no endpoint matched)
+2026-08-08T18:47:48.583Z   farm 1189: no data (no endpoint matched)
+2026-08-08T18:47:48.589Z bandit: camp on other island - switch town or skip
+2026-08-08T18:47:50.708Z   farm 1193: no data (no endpoint matched)

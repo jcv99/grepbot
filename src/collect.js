@@ -1,8 +1,3 @@
-  // ---------- auto-collect short gathers (Senado / Reunir recursos) ----------
-  // Grepolis DOM: button is <div class="btn_claim_resources ..."> with sibling <span>Recoger</span>.
-  // Time lives in sibling .action_card > .action_time_wrapper > .action_time (formats: "5min", "1h 30min", "4h").
-  // The button always has CSS classes "disabled active" - that's state styling, not actual disable.
-  // We auto-click only short timers (<= COLLECT_MAX_MIN) unless "Collect all" is on.
   function collectMaxMin() { return state.collectMaxMin || 10; }
   const COLLECT_ACTIONS = [
     'collect', 'collect_resources', 'collectresources', 'collect_resource',
@@ -41,18 +36,19 @@
   }
   function autoCollectResources() {
     if (!state.autoCollect) return;
-    if (!hostEnabled()) return;
-    if (automationPaused({}) || captchaPaused('collect')) return;
+    if (!hostEnabled() || automationPaused({}) || captchaPaused('collect') || circuitOpen('collect')) return;
     if (document.hidden) return;
-    // Opening a farm village shows Recoger - that DOM path used to ignore warehouse.
     if (currentTownWarehouseBlocks()) {
       gbLogT('collect-wh-full', 60000, `auto-collect: skipped Recoger (warehouse full, mode=${state.farmFullMode})`);
       return;
     }
     const btns = Array.from(document.querySelectorAll(COLLECT_BTN_SEL));
-    let clicked = 0, scanned = btns.length;
+    let attempted = 0, scanned = btns.length;
     const skipped = [];
-    for (const btn of btns) {
+    let currentTownId = null;
+    try { currentTownId = gameUw().Game && gameUw().Game.townId; } catch (_) {}
+    for (let bi = 0; bi < btns.length; bi++) {
+      const btn = btns[bi];
       if (btn.dataset.grepbotClicked) { skipped.push('already-clicked'); continue; }
       const card = btn.closest('.action_card') || btn.closest('[class*="action_card"]') || btn.parentElement;
       if (!card) { skipped.push('no-card'); continue; }
@@ -69,29 +65,44 @@
         skipped.push('i18n:' + labelTxt.trim().slice(0, 12));
         continue;
       }
-      btn.dataset.grepbotClicked = String(Date.now());
-      if (gbDomClick(btn, 'collect')) clicked++;
+      const beforeTime = (timeEl.textContent || '').trim();
+      attempted++;
+      txDomWrite('collect', `dom-collect:${currentTownId || '-'}:${min}:${bi}`,
+        { town_id: currentTownId, minutes: min, dom_index: bi },
+        () => {
+          btn.dataset.grepbotClicked = String(Date.now());
+          btn.click();
+        },
+        () => {
+          if (!btn.isConnected || btn.disabled || btn.getAttribute('aria-disabled') === 'true') return true;
+          const nowTime = (card.querySelector('.action_time')?.textContent || '').trim();
+          return !!nowTime && nowTime !== beforeTime;
+        },
+        (err) => {
+          if (err && err !== 'dryrun' && btn.isConnected) delete btn.dataset.grepbotClicked;
+        });
     }
-    updateCollectStateBadge(scanned, clicked);
-    if (clicked) { gbLog(`auto-collect: clicked ${clicked}/${scanned} Recoger buttons`); flash(`auto-recoger x${clicked}`); }
-    else if (scanned > 0) gbLogT('collect-skip', 120000, `auto-collect: 0/${scanned} clickable`, skipped.slice(0, 4).join(', '));
+    updateCollectStateBadge(scanned, attempted);
+    if (attempted) { gbLog(`auto-collect: attempted ${attempted}/${scanned} Recoger buttons`); flash(`auto-collect x${attempted}`); }
+    else if (scanned > 0) gbLogT('collect-skip', 120000, `auto-collect: 0/${scanned} eligible`, skipped.slice(0, 4).join(', '));
   }
+
   function updateCollectStateBadge(scanned, clicked) {
     const e = panel?.querySelector('#gb-collect-state');
     if (!e) return;
     if (state.collectAll) {
-      e.textContent = `* TODO ON (${scanned}/${clicked})`;
+      e.textContent = `* ALL ON (${scanned}/${clicked})`;
       e.style.color = '#f96';
     } else if (scanned > 0) {
       e.textContent = `auto: ${clicked}/${scanned}`;
       e.style.color = clicked ? '#6c6' : '#888';
     } else {
       const a = state.collectTpl && state.collectTpl.match(/action=([^&]+)/);
-      e.textContent = state.collectTpl ? '* aprendido:' + (a ? a[1] : '?') : 'sin botón';
+      e.textContent = state.collectTpl ? '* learn:' + (a ? a[1] : '?') : 'no btn';
       e.style.color = '#888';
     }
   }
-  // background collect: fire the learned action URL for each owned town, no DOM/visibility needed
+
   let collectBgBackoff = 90_000;
   let collectBgTimer = null;
   function scheduleCollectBg(ms) {
@@ -102,7 +113,7 @@
     }, ms);
   }
   function collectAllBackground() {
-    if (!state.collectAll) return;
+    if (!state.autoCollect || !state.collectAll) return;
     if (!hostEnabled() || automationPaused({}) || captchaPaused('collect')) return;
     if (gbLocked('collect-bg') || collectBgTimer) return;
     if (!state.csrf) { scheduleCollectBg(30_000); return; }
@@ -110,26 +121,28 @@
     if (!state.towns.length) fetchOwnedTowns();
     const n = state.towns.length;
     if (!n) { scheduleCollectBg(60_000); return; }
-    // Refuse blind GET on opaque learned URL - prefer gpAjax controller/action from URL.
+
     let collectCtrl = null, collectAction = null;
     try {
       const u = new URL(state.collectTpl, location.origin);
       collectAction = u.searchParams.get('action');
       const parts = u.pathname.split('/').filter(Boolean);
-      // /game/<controller> or /game/<controller>?...
+
       collectCtrl = parts.length >= 2 && parts[0] === 'game' ? parts[1] : parts[parts.length - 1];
     } catch (_) {}
     if (!collectCtrl || !collectAction) {
-      gbLogT('collect-bg-nomethod', 120000, 'bg-collect: skip (learned URL method/controller unknown - no blind GET)');
+      gbLogT('collect-bg-nomethod', 120000, 'bg-collect: skip (learned URL method/controller unknown — no blind GET)');
       scheduleCollectBg(collectBgBackoff + Math.random() * 30_000);
       return;
     }
-    gbLock('collect-bg');
+    const collectBgLock = gbLock('collect-bg', 300000);
+    if (!collectBgLock) return;
     let pending = n;
     let errors = 0;
     const finish = () => {
+      gbLockTouch('collect-bg', collectBgLock);
       if (--pending > 0) return;
-      gbUnlock('collect-bg');
+      gbUnlock('collect-bg', collectBgLock);
       if (errors) collectBgBackoff = Math.min(collectBgBackoff * 2, 600_000);
       else collectBgBackoff = 90_000;
       scheduleCollectBg(collectBgBackoff + Math.random() * 30_000);
@@ -146,32 +159,34 @@
           if (err && err !== 'dryrun' && err !== 'disabled' && err !== 'paused' && err !== 'budget' && err !== 'remembered') {
             errors++;
             if (err !== 'captcha' && err !== 'captcha-pause') {
-              flash(`recoger ${t.name || t.id}: ${err}`);
+              flash(`collect ${t.name || t.id}: ${err}`);
             }
           } else if (!err && res && (res.error || res.err)) {
             errors++;
-            flash(`recoger ${t.name || t.id}: ${res.error || res.err}`);
+            flash(`collect ${t.name || t.id}: ${res.error || res.err}`);
           }
           finish();
         });
       }, i * 400);
     });
-    flash(`recoger-fondo x${n}`);
+    flash(`bg-collect x${n}`);
   }
   let collectTimer = null;
   function scheduleAutoCollect() {
     if (collectTimer) return;
     collectTimer = gbTimeout(() => { collectTimer = null; autoCollectResources(); }, 800);
   }
-  // Prefer known game containers over document.body - chat/map ticks flood body MO.
-  // One observer can watch multiple roots; SPA remount rebinds via ensureDomObserver.
+
   let gbDomObserverSig = '';
   function ensureDomObserver() {
     if (!gbDomObserver) {
-      gbDomObserver = new MutationObserver(() => {
+      gbDomObserver = new MutationObserver((records) => {
         if (document.hidden) return;
-        if (state.autoCollect) scheduleAutoCollect();
+        const nativeOnly=(records||[]).length&&(records||[]).every(r=>{const el=r.target&&r.target.nodeType===1?r.target:r.target&&r.target.parentElement;return !!(el&&el.closest&&el.closest('.gb-native-qctl,.gb-native-panel'))});
+        if(nativeOnly)return;
+        scheduleAutoCollect();
         if (state.autoBandit) scheduleBanditScan();
+        scheduleNativeUiScan();
       });
     }
     const targets = [];
@@ -186,8 +201,10 @@
     try { gbDomObserver.disconnect(); } catch (_) {}
     gbDomObserverSig = sig;
     for (const t of targets) {
-      try { gbDomObserver.observe(t, { childList: true, subtree: true }); } catch (_) {}
+      try { gbDomObserver.observe(t, { childList:true,subtree:true,attributes:true,attributeFilter:['id','data-unit_id','data-unit-id','data-unit_type','data-unit-type','data-building_type','data-building-type','data-building','data-town-id','data-town_id','data-townid'] }); } catch (_) {}
     }
   }
   ensureDomObserver();
-
+  let banditTimer = null;
+  let banditAttackSentAt = 0;
+  let banditIdleUntil = 0;

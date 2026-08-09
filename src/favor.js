@@ -1,11 +1,3 @@
-  // ---------- favor plunder (Phase 8.10 + 11.3) ----------
-  // HIGH RISK - default OFF. Mythical units can plunder favor only with
-  // Temple Plunder research. Requires god/unit/target and tracks own sends.
-  const FAVOR_CHECK_MS = 60000;
-  const FAVOR_TEMPLE_PLUNDER = /temple_plunder|plunder_temple|templeplunder|saqueo.?templo|plunderung.?tempel/i;
-  // movement ids we created - only these count as "en route"
-  const favorOwnMoves = Object.create(null);
-
   function favorCurrent() {
     try {
       const uw = gameUw();
@@ -24,7 +16,7 @@
         if (!techs[k]) continue;
         if (k === 'temple_plunder' || FAVOR_TEMPLE_PLUNDER.test(k)) return true;
       }
-      // Also accept GameData research id lookup by name
+
       try {
         const uw = gameUw();
         const res = uw.GameData && uw.GameData.researches;
@@ -50,12 +42,11 @@
     } catch (_) { return false; }
   }
   function favorScan(reason) {
+    if (!state.autoFavor) return;
+    gbLogT('favor-disabled-v160', 300000, 'favor: automation disabled in 1.6.0 — no canonical safe target/action contract available');
+    return;
     if (!hostEnabled() || !state.autoFavor || captchaPaused('favor')) return;
     if (automationPaused({})) return;
-    // farm_town + Town/sendUnits is not valid for temple plunder - module disabled until rewritten
-    gbLogT('favor-disabled', 300000,
-      'favor: module disabled (needs enemy-town target + canonical temple_plunder payload)');
-    return;
     if (gbLocked('favor')) return;
     const cfg = state.favorCfg || {};
     const thresh = +cfg.thresh || 200;
@@ -64,16 +55,16 @@
     const fav = favorCurrent();
     const god = cfg.god || 'athena';
     const cur = +(fav[god] || fav['favor_' + god] || fav.favor || 0);
-    // If we already have enough favor, idle
+
     if (cur >= thresh && !cfg.force) {
-      gbLogT('favor-ok', 180000, `favor: ${god}=${cur} >= ${thresh}`);
+      gbLogT('favor-ok', 180000, `favor: ${god}=${cur} ≥ ${thresh}`);
       return;
     }
     if (!favorUnitOk(unit, god)) {
       gbLogT('favor-unit', 300000, `favor: unit ${unit} incompatible with god ${god}`);
       return;
     }
-    // Target: configured farm-town / BP village id only - never a bare player town guess
+
     const targetId = cfg.targetId;
     const targetType = cfg.targetType || 'farm_town';
     if (!targetId) {
@@ -85,7 +76,7 @@
       return;
     }
     const uw = gameUw();
-    // Count only movements we registered
+
     let enroute = 0;
     const now = Date.now();
     Object.keys(favorOwnMoves).forEach(k => {
@@ -93,10 +84,10 @@
       else enroute++;
     });
     if (enroute >= maxC) {
-      gbLogT('favor-enroute', 120000, `favor: ${enroute} own en-route (>=${maxC})`);
+      gbLogT('favor-enroute', 120000, `favor: ${enroute} own en-route (≥${maxC})`);
       return;
     }
-    // Pick a town with myth units + Temple Plunder + spare above defense floor
+
     let townId = null, units = null;
     try {
       for (const id of Object.keys((uw.ITowns && uw.ITowns.towns) || {})) {
@@ -118,7 +109,8 @@
       gbLogT('favor-nounits', 180000, `favor: no ${unit} with temple_plunder above floor`);
       return;
     }
-    gbLock('favor');
+    const favorLock = gbLock('favor', 180000);
+    if (!favorLock) return;
     const tpl = state.attackTpl;
     const payload = {
       model_url: (tpl && tpl.model_url) || ('Town/' + townId),
@@ -128,15 +120,15 @@
     };
     payload.model_url = String(payload.model_url).replace(/Town\/\d+/, 'Town/' + townId);
     bridgePost('favor', payload, (err, data) => {
-      gbUnlock('favor');
-      if (err === 'timeout') {
-        gbLogT('favor-timeout', 60000, 'favor: timeout_unknown - not retrying');
+      gbUnlock('favor', favorLock);
+      if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {
+        gbLogT('favor-timeout', 60000, 'favor: timeout_unknown — not retrying');
         return;
       }
       if (!err) {
         const mid = (data && (data.command_id || data.id || data.movement_id)) || ('f' + Date.now());
         favorOwnMoves[String(mid)] = Date.now();
-        gbLog(`favor: sent ${JSON.stringify(units)} from ${townId} -> ${targetId}`);
+        gbLog(`favor: sent ${JSON.stringify(units)} from ${townId} → ${targetId}`);
       } else gbLogT('favor-err', 60000, `favor err ${err}`);
     });
   }

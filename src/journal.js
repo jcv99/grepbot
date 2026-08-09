@@ -1,57 +1,23 @@
-  // ---------- decision journal (persistent decision memory) ----------
-  // gbLog's ring buffer lives in memory and dies on reload; the per-feature
-  // histories (bandit / quest / attack) only cover their own module. Every
-  // automated decision lands here instead: which feature acted, on what target,
-  // and how it ended. Records are world-scoped, survive reload, and feed the
-  // repeat-failure backoff so the bot stops re-posting an action that has
-  // already failed the same way three times.
-  const JRN_MAX = 400;
-  const JRN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-  const JRN_DEDUP_MS = 10 * 60 * 1000; // same decision+result inside window bumps n
-  const JRN_SAVE_MS = 5000; // batch writes: bridge posts fire in waves
-  const JRN_FAIL_TRIP = 3; // consecutive identical hard errors before backoff
-  const JRN_BACKOFF = [5, 15, 60]; // minutes, same ladder as the captcha breaker
-  // Outcomes that mean "never attempted" - they must not count toward a fail
-  // streak, or a night pause would look like a broken endpoint.
-  // 'tpl-stale' belongs here too: it is a local gate, not a server verdict, and
-  // charging it as a hard failure let one invalidated template ALSO open a
-  // decisionSkips window - two independent blocks from a single root cause.
-  const JRN_SKIP_ERRS = { disabled: 1, paused: 1, 'captcha-pause': 1, budget: 1, noajax: 1, remembered: 1, dryrun: 1, 'tpl-stale': 1 };
-
-  // Storage can come back as anything after a bad write / hand edit.
-  if (!Array.isArray(state.decisions)) state.decisions = [];
-  if (!state.decisionSkips || typeof state.decisionSkips !== 'object') state.decisionSkips = {};
-  // Stamp the host these buffers were loaded for. Town ids collide across worlds;
-  // if the document host ever changes without a full reinject, reload from storage.
-  let jrnHost = location.hostname;
-  function jrnCheckHost() {
-    if (location.hostname === jrnHost) return;
-    try { jrnFlush(); } catch (_) {}
-    jrnHost = location.hostname;
-    const next = load(wkey(STORE.DECISIONS), []);
-    state.decisions = Array.isArray(next) ? next : [];
-    const skips = load(wkey(STORE.DECISION_SKIPS), {});
-    state.decisionSkips = (skips && typeof skips === 'object') ? skips : {};
-    gbLog('memory: reloaded for host ' + jrnHost);
-  }
-  try { jrnPrune(); } catch (_) {}
-
   function jrnResult(err) {
     if (!err) return 'ok';
     const s = String(err);
     if (JRN_SKIP_ERRS[s.split(':')[0]]) return 'skip:' + s.slice(0, 40);
     return s.slice(0, 60);
   }
-  // captcha/timeout are handled by their own breaker + retry paths, so they are
-  // recorded but never trip the memory backoff.
+
+  function jrnPendingResult(r) {
+    const s = String(r || '');
+    return s === 'timeout_unknown' || /^pending(?::|$)/i.test(s) || /^unknown outcome/i.test(s);
+  }
   function jrnHard(r) {
-    return !!r && r !== 'ok' && r !== 'timeout' && r !== 'captcha' && r.slice(0, 5) !== 'skip:';
+    const s = String(r || '');
+    return !!s && s !== 'ok' && s !== 'timeout' && s !== 'captcha'
+      && !jrnPendingResult(s) && s.slice(0, 5) !== 'skip:';
   }
   function jrnId(tag) { return tag.f + '|' + tag.a + '|' + tag.k; }
 
-  // Derive a stable (feature, action, target) tag from a frontend_bridge payload.
   function jrnTag(feature, payload) {
-    let action = '', target = '';
+    let action = '', target = '', town = '';
     try {
       const p = payload || {};
       action = p.action_name || p.action || '';
@@ -61,13 +27,14 @@
         action = action ? model + '/' + action : model;
       }
       const args = p.arguments || {};
-      // Prefer specific entity ids over bare town_id (avoids collapsing all town actions).
+      town = p.town_id ?? args.town_id ?? '';
       target = args.building_id || args.research_id || args.research || args.farm_town_id
         || args.offer_id || args.offer || args.power_id
-        || (args.id != null && String(args.id) !== String(p.town_id) ? args.id : '')
-        || p.town_id || args.town_id || '';
+        || (args.id != null && String(args.id) !== String(town) ? args.id : '')
+        || '';
     } catch (_) {}
-    return { f: feature, a: String(action || 'post').slice(0, 48), k: String(target || '-').slice(0, 24) };
+    const key = `${town !== '' ? 't' + town : 't-'}:${target !== '' ? target : '-'}`;
+    return { f: feature, a: String(action || 'post').slice(0, 48), k: key.slice(0, 72) };
   }
 
   function jrnPrune() {
@@ -93,20 +60,43 @@
   }
   function jrnFlush() { if (jrnSaveQueued) { jrnSaveQueued = false; jrnSave(true); } }
 
-  // Record one decision. Identical decision+result inside JRN_DEDUP_MS bumps the
-  // repeat counter instead of burning a slot (a night pause would otherwise
-  // flush the whole journal in one night).
-  function jrnPush(tag, result, detail) {
-    jrnCheckHost();
+  function jrnPush(tag, result, detail, txId) {
     const list = state.decisions;
     const now = Date.now();
+    // A transaction has one journal row whose provisional result can later be
+    // reconciled. Replacing timeout -> ok avoids counting one SEND twice.
+    if (txId != null && txId !== '') {
+      const id = String(txId).slice(0, 120);
+      const provisional = result === 'timeout' || jrnPendingResult(result);
+      for (let i = list.length - 1; i >= 0; i--) {
+        const r = list[i];
+        if (r.x !== id || r.f !== tag.f || r.a !== tag.a || r.k !== tag.k) continue;
+        if (provisional) {
+          r.ts = now; r.r = result; r.n = 1;
+          if (detail && jrnHard(result)) r.d = String(detail).slice(0, 80); else delete r.d;
+          list.splice(i, 1); list.push(r);
+          jrnNote(tag, result); jrnSave();
+          return r;
+        }
+        // Remove the provisional row; the terminal result continues through the
+        // normal compacting path so repeated successful transactions still use n.
+        list.splice(i, 1);
+        break;
+      }
+      if (provisional) {
+        const rec = { ts: now, f: tag.f, a: tag.a, k: tag.k, r: result, n: 1, x: id };
+        if (detail && jrnHard(result)) rec.d = String(detail).slice(0, 80);
+        list.push(rec); jrnPrune(); jrnNote(tag, result); jrnSave();
+        return rec;
+      }
+    }
     for (let i = list.length - 1, seen = 0; i >= 0 && seen < 40; i--, seen++) {
       const r = list[i];
       if (r.f !== tag.f || r.a !== tag.a || r.k !== tag.k) continue;
       if (r.r === result && now - r.ts < JRN_DEDUP_MS) {
         r.n = (r.n || 1) + 1;
         r.ts = now;
-        // Move to end so array order tracks recency (I13 - prune/streak/UI).
+
         list.splice(i, 1);
         list.push(r);
         jrnNote(tag, result);
@@ -124,8 +114,6 @@
     return rec;
   }
 
-  // Consecutive hard failures for this exact (feature, action, target), newest
-  // first, stopping at the last success. Repeats count individually.
   function gbFailStreak(feature, action, target) {
     const list = state.decisions;
     let n = 0;
@@ -138,7 +126,7 @@
     }
     return n;
   }
-  // Most recent decision for a target. action/target may be omitted to widen.
+
   function gbRecall(feature, action, target) {
     const list = state.decisions;
     for (let i = list.length - 1; i >= 0; i--) {
@@ -156,14 +144,12 @@
       (!action || r.a === action) &&
       (target == null || String(r.k) === String(target)));
   }
-  // Feature-facing writer for decisions that never reach bridgePost (a scan that
-  // chose to do nothing, a plan that was rejected locally).
+
   function gbRemember(feature, action, target, result, detail) {
     return jrnPush({ f: feature, a: String(action || 'decide').slice(0, 48), k: String(target == null ? '-' : target).slice(0, 24) },
       jrnResult(result === 'ok' || result == null ? null : result), detail);
   }
 
-  // After every recorded outcome: open, extend, or clear the skip window.
   function jrnNote(tag, result) {
     const key = jrnId(tag);
     if (result === 'ok') {
@@ -173,17 +159,15 @@
     if (!jrnHard(result)) return;
     if (gbFailStreak(tag.f, tag.a, tag.k) < JRN_FAIL_TRIP) return;
     const prev = state.decisionSkips[key] || { trips: 0 };
-    if (prev.until && Date.now() < prev.until) return; // window already open
+    if (prev.until && Date.now() < prev.until) return;
     const trips = Math.min((prev.trips || 0) + 1, JRN_BACKOFF.length);
     const mins = JRN_BACKOFF[trips - 1];
     state.decisionSkips[key] = { trips, until: Date.now() + mins * 60000, r: result };
     gbLog(`memory: ${tag.f} ${tag.a} ${tag.k} failed ${JRN_FAIL_TRIP}x (${result}) - skipping ${mins}m`);
     jrnSave(true);
   }
-  // True when this exact decision is inside its backoff window. Trips decay on
-  // expiry so a fixed endpoint does not stay stuck at 60m forever.
+
   function jrnSkipped(tag) {
-    jrnCheckHost();
     if (state.decisionMemory === false) return false;
     const s = state.decisionSkips[jrnId(tag)];
     if (!s || !s.until) return false;
@@ -194,14 +178,6 @@
       return false;
     }
     return true;
-  }
-  // Feature-facing pre-check: is the post this payload would produce already
-  // inside a backoff window? Without it a scan logs "acting", walks a whole
-  // batch and has every post short-circuit at jrnSkipped for zero progress.
-  // Returns the reason string (truthy) or '' when the post may proceed.
-  function gbSkipActive(feature, payload) {
-    const tag = jrnTag(feature, payload);
-    return jrnSkipped(tag) ? (jrnWhy(tag) || 'remembered') : '';
   }
   function jrnWhy(tag) {
     const s = state.decisionSkips[jrnId(tag)];
@@ -226,27 +202,29 @@
     gbLog('memory: journal cleared');
   }
 
-  // ---------- rollups (v1.4.0) ----------
-  // The journal already holds every outcome; nothing reads it in aggregate.
-  // These feed the Stats tab: per-feature reliability, what is failing, and
-  // which skip reason is actually eating the schedule.
   function jrnStats(windowMs) {
     const since = Date.now() - (windowMs || 24 * 60 * 60 * 1000);
     const byFeature = Object.create(null);
     const bySkip = Object.create(null);
     const byError = Object.create(null);
-    let ok = 0, err = 0, captcha = 0, skip = 0, timeout = 0, dry = 0, total = 0;
+    const byPending = Object.create(null);
+    let ok = 0, err = 0, captcha = 0, skip = 0, timeout = 0, pending = 0, dry = 0, total = 0;
     for (const r of (state.decisions || [])) {
       if (r.ts < since) continue;
       const n = r.n || 1;
       total += n;
-      const f = byFeature[r.f] || (byFeature[r.f] = { ok: 0, err: 0, captcha: 0, skip: 0, timeout: 0, n: 0, last: 0 });
+      const f = byFeature[r.f] || (byFeature[r.f] = { ok: 0, err: 0, captcha: 0, skip: 0, timeout: 0, pending: 0, n: 0, last: 0 });
       f.n += n;
       f.last = Math.max(f.last, r.ts);
       const res = String(r.r || '');
       if (res === 'ok') { ok += n; f.ok += n; }
       else if (res === 'captcha') { captcha += n; f.captcha += n; }
       else if (res === 'timeout') { timeout += n; f.timeout += n; }
+      else if (jrnPendingResult(res)) {
+        pending += n; f.pending += n;
+        const key = r.f + ' ' + r.a + ' ' + (r.k || '-') + ': ' + res.slice(0, 40);
+        byPending[key] = (byPending[key] || 0) + n;
+      }
       else if (res.slice(0, 5) === 'skip:') {
         skip += n; f.skip += n;
         const why = res.slice(5);
@@ -261,14 +239,15 @@
     const attempts = ok + err + captcha + timeout;
     const topSkips = Object.entries(bySkip).sort((a, b) => b[1] - a[1]).slice(0, 6);
     const topErrors = Object.entries(byError).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    const topPending = Object.entries(byPending).sort((a, b) => b[1] - a[1]).slice(0, 6);
     return {
       windowMs: windowMs || 86400000,
-      total, ok, err, captcha, skip, timeout, dry, attempts,
+      total, ok, err, captcha, skip, timeout, pending, dry, attempts,
       successPct: attempts ? Math.round(ok / attempts * 100) : null,
-      byFeature, topSkips, topErrors,
+      byFeature, topSkips, topErrors, topPending,
     };
   }
-  // Count of a specific successful action (e.g. farm claims) inside a window.
+
   function jrnCountOk(feature, actionRe, windowMs) {
     const since = Date.now() - (windowMs || 86400000);
     let n = 0;
@@ -280,6 +259,8 @@
     return n;
   }
 
-  // Pending batched write must not die with the tab or with a re-inject dispose.
   gbListen(window, 'pagehide', jrnFlush);
   gbListen(document, 'visibilitychange', () => { if (document.hidden) jrnFlush(); });
+
+  const seenThisRun = new Set();
+  const seenHost = location.hostname;

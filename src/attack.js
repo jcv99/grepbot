@@ -1,12 +1,3 @@
-  // ---------- attack sync planner ----------
-  // Modes: send_now (all fire together) | arrive_at (CS: sendAt = arrival - travel - pad)
-  // Troop modes: all | offense | defense | all_of_type | per_town
-  const ATTACK_HISTORY_MAX = 50;
-  const ATTACK_ROLE_OFFENSE = 'offense';
-  const ATTACK_ROLE_DEFENSE = 'defense';
-  let attackArmed = null; // { timers:[], rows:[], cancel() }
-  let attackPreviewRows = [];
-
   function serverNow() {
     const uw = gameUw();
     try {
@@ -77,9 +68,9 @@
     });
     return min === Infinity ? null : min;
   }
-  function computeTravelSeconds(srcTownId, target, units) {
+  function computeTravelSeconds(srcTownId, target, units, requireCanonical) {
     const uw = gameUw();
-    // Prefer game helper when available
+
     try {
       if (uw.UnitTimeToArrival && typeof uw.UnitTimeToArrival.calculateTimeToArrival === 'function') {
         const t = uw.UnitTimeToArrival.calculateTimeToArrival(units, srcTownId, +target.vill_id || target.id);
@@ -96,6 +87,7 @@
         }
       }
     } catch (_) {}
+    if (requireCanonical) return null; // heuristic runtime is preview-only; never arm arrive-at from it
     const src = townCoords(srcTownId);
     const dist = islandDistance(src.x, src.y, target.x, target.y);
     if (dist == null) return null;
@@ -149,6 +141,9 @@
   function classifyUnitFn(id) {
     const m = unitMeta(id);
     if (!m) return 'unknown';
+    // A hoplite remains available to defensive plans, but it must not disappear
+    // from an offensive composition merely because a world labels it defensive.
+    if (id === 'hoplite') return 'both';
     const f = m.unit_function;
     if (f === 'function_off' || f === 'off') return 'offense';
     if (f === 'function_def' || f === 'def') return 'defense';
@@ -162,9 +157,7 @@
   function selectUnitsForTown(townId, troopMode, unitType, perTownMap, harassPreset) {
     const live = townLiveUnits(townId);
     const out = {};
-    if (troopMode === 'harass') {
-      return selectHarassmentUnits(townId, harassPreset || 'light');
-    }
+    if (troopMode === 'harass') return selectHarassmentUnits(townId, harassPreset || 'light');
     if (troopMode === 'per_town') {
       const custom = (perTownMap && perTownMap[townId]) || {};
       Object.keys(custom).forEach(k => {
@@ -177,7 +170,7 @@
     if (troopMode === 'all_of_type' && unitType) {
       const have = +live[unitType] || 0;
       if (have > 0) out[unitType] = have;
-      // include transporters if land unit and boats present
+
       const m = unitMeta(unitType);
       if (m && !m.is_naval) {
         Object.keys(live).forEach(id => {
@@ -198,7 +191,7 @@
         return;
       }
       if (m.is_naval && (troopMode === 'offense' || troopMode === 'defense')) {
-        // keep transporters only for capacity; skip pure warships unless offense wants them - include capacity boats always
+
         if (m.capacity > 0) out[id] = n;
         return;
       }
@@ -211,22 +204,27 @@
   function defaultAttackPlan() {
     return {
       targetId: '',
+      targetType: 'town',
       targetX: null,
       targetY: null,
       mission: 'attack',
-      timingMode: 'send_now', // send_now | arrive_at
+      timingMode: 'send_now',
       arrivalUnix: null,
       latencyPadMs: 200,
       staggerMs: 25,
-      troopMode: 'offense', // all | offense | defense | all_of_type | per_town | harass
+      troopMode: 'offense',
       harassPreset: 'light',
       unitType: 'sword',
-      sourceTownIds: null, // null = all towns; [] = explicitly none
+      sourceTownIds: null,
       perTownUnits: {},
     };
   }
   function ensureAttackPlan() {
-    if (!state.attackPlan) state.attackPlan = defaultAttackPlan();
+    const d = defaultAttackPlan();
+    if (!state.attackPlan || typeof state.attackPlan !== 'object' || Array.isArray(state.attackPlan)) state.attackPlan = d;
+    else {
+      for (const [k, v] of Object.entries(d)) if (state.attackPlan[k] === undefined) state.attackPlan[k] = Array.isArray(v) ? v.slice() : (v && typeof v === 'object' ? Object.assign({}, v) : v);
+    }
     return state.attackPlan;
   }
   function saveAttackPlan() {
@@ -235,7 +233,8 @@
   function attackRememberTarget(id, meta) {
     if (id == null || id === '') return;
     const sid = String(id);
-    if (!state.attackRecent) state.attackRecent = [];
+    if (!/^\d+$/.test(sid)) return;
+    if (!Array.isArray(state.attackRecent)) state.attackRecent = [];
     state.attackRecent = state.attackRecent.filter(t => String(t.id) !== sid);
     state.attackRecent.unshift(Object.assign({ id: sid, ts: Date.now(), src: 'learned' }, meta || {}));
     if (state.attackRecent.length > 40) state.attackRecent.length = 40;
@@ -246,195 +245,91 @@
     const add = (t, src) => {
       if (!t || t.id == null || t.id === '') return;
       const id = String(t.id);
+      if (!/^\d+$/.test(id)) return;
       const prev = map.get(id);
       const entry = {
-        id,
-        name: t.name || prev?.name || null,
-        x: t.x ?? prev?.x ?? null,
-        y: t.y ?? prev?.y ?? null,
-        src: prev?.src || src,
-        ts: t.ts || prev?.ts || 0,
+        id, name: t.name || (prev && prev.name) || null,
+        x: t.x != null ? t.x : (prev && prev.x != null ? prev.x : null),
+        y: t.y != null ? t.y : (prev && prev.y != null ? prev.y : null),
+        src: (prev && prev.src) || src, ts: +t.ts || (prev && +prev.ts) || 0,
       };
-      if (!prev || (t.ts || 0) >= (prev.ts || 0)) map.set(id, entry);
+      if (!prev || (+t.ts || 0) >= (+prev.ts || 0)) map.set(id, entry);
     };
     for (const f of (state.findings || [])) {
       if (f.town && f.town.id != null) add(Object.assign({}, f.town, { ts: f.ts }), 'report');
     }
     for (const t of (state.attackRecent || [])) add(t, t.src || 'recent');
-    for (const h of (state.attackHistory || [])) {
-      if (h.targetId) add({ id: h.targetId, ts: h.ts }, 'history');
-    }
+    for (const h of (state.attackHistory || [])) if (h.targetId) add({ id: h.targetId, ts: h.ts }, 'history');
     for (const w of (state.watchlist || [])) {
-      const id = w && (w.id || w.townId);
-      if (id != null) add({ id, name: w.name, ts: 0 }, 'watch');
+      const id = w && (w.id || w.townId || w);
+      if (id != null) add({ id, name: w && w.name, ts: 0 }, 'watch');
     }
     const tpl = state.attackTpl;
     const learnedId = tpl && tpl.arguments && tpl.arguments.id;
-    if (learnedId != null) add({ id: learnedId, ts: tpl.learned_at || 0 }, 'learned');
+    if (learnedId != null) add({ id: learnedId, ts: tpl.learned_at || 0 }, 'template');
     return Array.from(map.values()).sort((a, b) => (b.ts || 0) - (a.ts || 0));
   }
-  function attackCurrentTownId() {
-    const uw = gameUw();
-    try {
-      const id = uw.Game && uw.Game.townId;
-      if (id == null) return null;
-      const sid = String(id);
-      const own = (state.towns || []).find(t => String(t.id) === sid);
-      if (own) return { id: sid, name: own.name || 'own town', x: own.x, y: own.y, own: true };
-      const hit = (state.findings || []).find(f => f.town && String(f.town.id) === sid);
-      if (hit && hit.town) {
-        return { id: sid, name: hit.town.name, x: hit.town.x, y: hit.town.y, own: false };
-      }
-      const recent = (state.attackRecent || []).find(t => String(t.id) === sid);
-      if (recent) return Object.assign({ own: false }, recent);
-      if (uw.ITowns && uw.ITowns.towns && uw.ITowns.towns[id]) {
-        const t = uw.ITowns.towns[id];
-        const name = (typeof t.getName === 'function' ? t.getName() : t.name) || sid;
-        return { id: sid, name, x: t.x, y: t.y, own: true };
-      }
-      return { id: sid, name: null, x: null, y: null, own: false };
-    } catch (_) { return null; }
-  }
   function applyAttackTarget(t) {
+    if (!t || t.id == null || !/^\d+$/.test(String(t.id))) return false;
     const plan = ensureAttackPlan();
     plan.targetId = String(t.id);
     plan.targetType = 'town';
-    if (t.x != null) plan.targetX = +t.x;
-    if (t.y != null) plan.targetY = +t.y;
+    if (t.x != null && Number.isFinite(+t.x)) plan.targetX = +t.x;
+    if (t.y != null && Number.isFinite(+t.y)) plan.targetY = +t.y;
+    attackRememberTarget(t.id, { name: t.name || null, x: t.x, y: t.y, src: t.src || 'picker' });
     saveAttackPlan();
     renderAttack();
-    const label = t.name ? `${t.name} (#${t.id})` : String(t.id);
-    flash('objetivo -> ' + label);
+    flash('target -> ' + (t.name ? `${t.name} (#${t.id})` : String(t.id)));
+    return true;
   }
-  function attackTownGroup(name) {
-    return ((state.townGroups && state.townGroups[name]) || []).map(String);
-  }
+  function attackTownGroup(name) { return ((state.townGroups && state.townGroups[name]) || []).map(String); }
   function attackSetTownRole(name, townId, on) {
     if (!state.townGroups) state.townGroups = {};
     const sid = String(townId);
     const ids = new Set(attackTownGroup(name));
-    if (on) ids.add(sid);
-    else ids.delete(sid);
+    if (on) ids.add(sid); else ids.delete(sid);
     state.townGroups[name] = Array.from(ids);
     save(STORE.TOWN_GROUPS, state.townGroups);
   }
   function attackSelectSources(ids) {
     const plan = ensureAttackPlan();
     plan.sourceTownIds = (ids || []).map(String);
-    saveAttackPlan();
-    renderAttack();
+    saveAttackPlan(); renderAttack();
   }
   function attackSetAllSources(checked) {
-    const ids = checked ? (state.towns || []).map(t => String(t.id)) : [];
-    attackSelectSources(ids);
-    flash(checked ? 'todas las ciudades seleccionadas' : 'orígenes vaciados');
+    attackSelectSources(checked ? (state.towns || []).map(t => String(t.id)) : []);
+    flash(checked ? 'all towns selected' : 'sources cleared');
   }
   function attackSelectRoleSources(role) {
     const ids = attackTownGroup(role);
-    if (!ids.length) {
-      flash(`ninguna ciudad marcada como ${role} - marca las casillas de abajo primero`);
-      return;
-    }
+    if (!ids.length) { flash('no cities tagged for this role'); return; }
     attackSelectSources(ids);
-    flash(`ciudades ${role} seleccionadas (${ids.length})`);
-  }
-  function attackPad2(n) { return String(n).padStart(2, '0'); }
-  function attackLocalFromUnix(unix) {
-    if (unix == null) return null;
-    const d = new Date(unix * 1000 + clientServerSkewMs());
-    return {
-      date: `${d.getFullYear()}-${attackPad2(d.getMonth() + 1)}-${attackPad2(d.getDate())}`,
-      time: `${attackPad2(d.getHours())}:${attackPad2(d.getMinutes())}:${attackPad2(d.getSeconds())}`,
-    };
-  }
-  function attackUnixFromLocal(dateStr, timeStr) {
-    if (!dateStr) return null;
-    const t = timeStr && /^\d{1,2}:\d{2}/.test(timeStr) ? timeStr : '00:00:00';
-    const ms = Date.parse(`${dateStr}T${t}`);
-    if (isNaN(ms)) return null;
-    return Math.floor((ms - clientServerSkewMs()) / 1000);
-  }
-  function attackDefaultArrivalUnix() {
-    return Math.floor((Date.now() + 3600000 - clientServerSkewMs()) / 1000);
-  }
-  function attackSyncArrivalFields(sec, plan) {
-    const arrDate = sec.querySelector('[data-atk=arrival-date]');
-    const arrTime = sec.querySelector('[data-atk=arrival-time]');
-    const arrivalRow = sec.querySelector('.atk-arrival-row');
-    const arriveMode = plan.timingMode === 'arrive_at';
-    if (arrivalRow) {
-      arrivalRow.style.opacity = arriveMode ? '1' : '0.5';
-      arrivalRow.title = arriveMode ? '' : 'cambia la sincronización a "llegar a las" para fijar la hora de llegada del BC';
-    }
-    if (!arrDate || !arrTime) return;
-    arrDate.disabled = !arriveMode;
-    arrTime.disabled = !arriveMode;
-    if (document.activeElement === arrDate || document.activeElement === arrTime) return;
-    let unix = plan.arrivalUnix;
-    if (arriveMode && unix == null) unix = attackDefaultArrivalUnix();
-    if (unix != null) {
-      const loc = attackLocalFromUnix(unix);
-      if (loc) {
-        arrDate.value = loc.date;
-        arrTime.value = loc.time;
-      }
-    }
+    flash(`${role === ATTACK_ROLE_OFFENSE ? 'offense' : 'defense'} cities selected (${ids.length})`);
   }
   function renderAttackRoles(sec) {
-    const box = sec.querySelector('.atk-roles');
+    const box = sec && sec.querySelector('.atk-roles');
     if (!box) return;
     const towns = state.towns || [];
     const off = new Set(attackTownGroup(ATTACK_ROLE_OFFENSE));
     const def = new Set(attackTownGroup(ATTACK_ROLE_DEFENSE));
-    const sig = towns.map(t => t.id + ':' + (t.name || '')).join('|') +
-      '|O:' + Array.from(off).sort().join(',') + '|D:' + Array.from(def).sort().join(',');
-    if (box.dataset.sig === sig) {
-      box.querySelectorAll('input[data-role]').forEach(cb => {
-        const role = cb.dataset.role;
-        const id = cb.dataset.id;
-        const want = role === ATTACK_ROLE_OFFENSE ? off.has(id) : def.has(id);
-        if (cb.checked !== want) cb.checked = want;
-      });
-      return;
-    }
-    box.dataset.sig = sig;
-    box.replaceChildren();
-    if (!towns.length) {
-      const e = document.createElement('div');
-      e.style.cssText = 'color:#666;font-size:10px';
-      e.textContent = 'carga primero las ciudades (pestaña Mundo -> actualizar)';
-      box.appendChild(e);
-      return;
-    }
-    const mkCol = (title, role, color) => {
+    const sig = towns.map(t => t.id + ':' + (t.name || '')).join('|') + '|O:' + [...off].sort().join(',') + '|D:' + [...def].sort().join(',');
+    if (box.dataset.sig === sig) return;
+    box.dataset.sig = sig; box.replaceChildren();
+    if (!towns.length) { const e = document.createElement('div'); e.textContent = 'load towns first'; e.style.cssText = 'color:#666;font-size:10px'; box.appendChild(e); return; }
+    const mk = (title, role, color, set) => {
       const col = document.createElement('div');
-      const head = document.createElement('div');
-      head.style.cssText = `font-size:9px;color:${color};margin-bottom:2px;font-weight:bold`;
-      head.textContent = title;
-      col.appendChild(head);
+      const h = document.createElement('div'); h.textContent = title; h.style.cssText = `font-size:9px;color:${color};font-weight:bold`; col.appendChild(h);
       towns.forEach(t => {
-        const lab = document.createElement('label');
-        lab.style.cssText = 'display:flex;align-items:center;gap:3px;font-size:10px;cursor:pointer';
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.dataset.role = role;
-        cb.dataset.id = String(t.id);
-        cb.checked = role === ATTACK_ROLE_OFFENSE ? off.has(String(t.id)) : def.has(String(t.id));
-        cb.addEventListener('change', () => {
-          attackSetTownRole(role, t.id, cb.checked);
-          renderAttackRoles(sec);
-          renderAttack();
-        });
-        lab.appendChild(cb);
-        lab.appendChild(document.createTextNode((t.name || t.id).slice(0, 18)));
-        col.appendChild(lab);
+        const lab = document.createElement('label'); lab.style.cssText = 'display:flex;align-items:center;gap:3px;font-size:10px;cursor:pointer';
+        const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = set.has(String(t.id));
+        cb.addEventListener('change', () => { attackSetTownRole(role, t.id, cb.checked); renderAttackRoles(sec); });
+        lab.appendChild(cb); lab.appendChild(document.createTextNode((t.name || t.id).slice(0, 18))); col.appendChild(lab);
       });
       return col;
     };
-    const grid = document.createElement('div');
-    grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px';
-    grid.appendChild(mkCol('Ciudades ofensivas', ATTACK_ROLE_OFFENSE, '#f96'));
-    grid.appendChild(mkCol('Ciudades defensivas', ATTACK_ROLE_DEFENSE, '#6cf'));
+    const grid = document.createElement('div'); grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px';
+    grid.appendChild(mk('Offensive cities', ATTACK_ROLE_OFFENSE, '#f96', off));
+    grid.appendChild(mk('Defensive cities', ATTACK_ROLE_DEFENSE, '#6cf', def));
     box.appendChild(grid);
   }
   function parseUnitsArea(text) {
@@ -452,12 +347,16 @@
     const id = String(plan.targetId || '').trim();
     if (!id) return null;
     const explicitType = String(plan.targetType || '').toLowerCase().trim();
+    if ((explicitType === 'town' || explicitType === 'player_town') && !/^\d+$/.test(id)) {
+      gbLogT('atk-target-id', 30000, `attack: town target id must be numeric (${id.slice(0, 40)}) — blocked`);
+      return null;
+    }
     let x = plan.targetX, y = plan.targetY, island = null;
     let kind = explicitType || null;
 
-    // Own town?
     const ownTown = (state.towns || []).find(t => String(t.id) === id);
     if (ownTown) {
+      if (!/^\d+$/.test(id)) return null;
       kind = kind || 'town';
       x = x ?? ownTown.x; y = y ?? ownTown.y; island = ownTown.island;
       return { id, vill_id: null, town_id: id, kind: 'town', x: x != null ? +x : null, y: y != null ? +y : null, island };
@@ -465,12 +364,12 @@
     try {
       const uw = gameUw();
       if (uw.ITowns && uw.ITowns.towns && uw.ITowns.towns[id]) {
+        if (!/^\d+$/.test(id)) return null;
         kind = kind || 'town';
         return { id, vill_id: null, town_id: id, kind: 'town', x: x != null ? +x : null, y: y != null ? +y : null, island };
       }
     } catch (_) {}
 
-    // Farm / BP village from parsed list
     const farm = (state.farmsParsed || []).find(f => String(f.vill_id) === id || String(f.id) === id);
     if (farm) {
       kind = kind || 'farm_town';
@@ -478,43 +377,8 @@
       return { id, vill_id: id, town_id: null, kind: 'farm_town', x: x != null ? +x : null, y: y != null ? +y : null, island };
     }
 
-    // Town seen in spy reports / recent targets - player cities, not farm villages
-    const finding = (state.findings || []).find(f => f.town && String(f.town.id) === id);
-    if (finding && finding.town) {
-      kind = kind || 'town';
-      x = x ?? finding.town.x; y = y ?? finding.town.y;
-      return { id, vill_id: null, town_id: id, kind: 'town', x: x != null ? +x : null, y: y != null ? +y : null, island };
-    }
-    const recent = (state.attackRecent || []).find(t => String(t.id) === id);
-    if (recent) {
-      kind = kind || 'town';
-      x = x ?? recent.x; y = y ?? recent.y;
-      return { id, vill_id: null, town_id: id, kind: 'town', x: x != null ? +x : null, y: y != null ? +y : null, island };
-    }
-
-    // Town model (enemy city open on map / cached in MM)
-    try {
-      const uw = gameUw();
-      const m = uw.MM && uw.MM.getModel && uw.MM.getModel('Town', id);
-      if (m) {
-        const a = m.attributes || {};
-        return {
-          id, vill_id: null, town_id: id, kind: 'town',
-          x: x != null ? +x : (a.x != null ? +a.x : null),
-          y: y != null ? +y : (a.y != null ? +a.y : null),
-          island: a.island_id || a.island || island,
-        };
-      }
-    } catch (_) {}
-
-    // Manual numeric town id - player city, not a farm village
-    if (/^\d+$/.test(id) && explicitType !== 'farm_town' && explicitType !== 'farm' && explicitType !== 'village') {
-      return { id, vill_id: null, town_id: id, kind: 'town', x: x != null ? +x : null, y: y != null ? +y : null, island };
-    }
-
-    // Explicit type required when not resolvable from known models
     if (!kind) {
-      gbLogT('atk-target', 30000, `attack: id ${id} has no canonical type - blocked`);
+      gbLogT('atk-target', 30000, `attack: id ${id} has no canonical type — blocked`);
       return null;
     }
     if (kind === 'farm_town' || kind === 'farm' || kind === 'village') {
@@ -528,26 +392,82 @@
   }
   function attackSendAllowed(target) {
     if (!target || !target.kind) return false;
-    // Town/sendUnits path requires a town destination - villages must not use it
+
     if (target.kind === 'farm_town') return false;
     return target.kind === 'town' && target.town_id;
+  }
+  function selectHarassmentUnits(townId, preset) {
+    const live = townLiveUnits(townId);
+    const out = {};
+    const key = String(preset || 'light');
+    const cap = HARASS_CAPS[key] != null ? HARASS_CAPS[key] : Math.max(1, Math.floor(+preset || 5));
+    if (key === '1sling' || key === '5sling') {
+      const have = +live.slinger || 0;
+      if (have > 0) out.slinger = Math.min(have, cap);
+      return out;
+    }
+    let left = cap;
+    for (const id of HARASS_PREF) {
+      if (left <= 0) break;
+      const have = +live[id] || 0;
+      if (!(have > 0)) continue;
+      const n = Math.min(have, left); out[id] = n; left -= n;
+    }
+    return out;
+  }
+  function attackAddMinimumTransports(townId, units) {
+    const out = Object.assign({}, units || {});
+    let need = 0;
+    for (const [id, raw] of Object.entries(out)) {
+      const n = +raw || 0;
+      const m = unitMeta(id);
+      if (!n || !m || m.is_naval || id === 'militia') continue;
+      need += (+m.population || 1) * n;
+    }
+    if (!(need > 0)) return out;
+    const live = townLiveUnits(townId);
+    const choices = Object.keys(live).map(id => ({ id, n: +live[id] || 0, m: unitMeta(id) }))
+      .filter(x => x.n > 0 && x.m && +x.m.capacity > 0)
+      .sort((a, b) => (+b.m.capacity || 0) - (+a.m.capacity || 0));
+    let cap = 0;
+    for (const x of choices) {
+      if (cap >= need) break;
+      const per = +x.m.capacity || 0;
+      if (!(per > 0)) continue;
+      const take = Math.min(x.n, Math.max(1, Math.ceil((need - cap) / per)));
+      out[x.id] = (out[x.id] || 0) + take;
+      cap += take * per;
+    }
+    return out;
+  }
+  function attackUnitsForTarget(townId, target, plan) {
+    let units = selectUnitsForTown(townId, plan.troopMode, plan.unitType, plan.perTownUnits, plan.harassPreset);
+    if (plan.troopMode === 'harass' && !isSameIsland(townId, target)) units = attackAddMinimumTransports(townId, units);
+    return units;
+  }
+  function applyHarassPreset(preset) {
+    const plan = ensureAttackPlan();
+    plan.troopMode = 'harass';
+    plan.harassPreset = String(preset || 'light');
+    if (!ATTACK_GENERIC_MISSIONS.has(String(plan.mission || 'attack').toLowerCase())) plan.mission = 'attack';
+    saveAttackPlan();
+    gbLog('attack: harass preset ' + plan.harassPreset);
+    flash('harass preset: ' + plan.harassPreset + ' (manual confirmation still required)');
+    return plan;
   }
   function buildAttackSchedule(plan) {
     const target = resolveTarget(plan);
     if (!target) return { error: 'no target', rows: [] };
-    let sources;
-    if (plan.sourceTownIds == null) {
-      sources = (state.towns || []).map(t => String(t.id));
-    } else {
-      sources = (plan.sourceTownIds || []).map(String);
-    }
-    if (!sources.length) return { error: 'no source towns', rows: [] };
+    let sources = Array.isArray(plan.sourceTownIds)
+      ? plan.sourceTownIds.map(String)
+      : (state.towns || []).map(t => String(t.id));
+    if (!sources.length) return { error: 'no source towns selected', rows: [] };
     const now = serverNow();
     const skew = clientServerSkewMs();
     const rows = sources.map((townId, idx) => {
       const town = (state.towns || []).find(t => String(t.id) === townId) || { id: townId, name: townId };
-      const units = selectUnitsForTown(townId, plan.troopMode, plan.unitType, plan.perTownUnits, plan.harassPreset);
-      const travel = computeTravelSeconds(townId, target, units);
+      const units = attackUnitsForTarget(townId, target, plan);
+      const travel = computeTravelSeconds(townId, target, units, plan.timingMode === 'arrive_at');
       const same = isSameIsland(townId, target);
       const boats = boatCapacityCheck(units, same);
       let sendAt = null;
@@ -568,15 +488,21 @@
     });
     return { target, rows, now, skew };
   }
+  const ATTACK_GENERIC_MISSIONS = new Set(['attack', 'support', 'revolt']);
   function sendAttackViaBridge(target, srcTownId, units, mission, onDone) {
-    if (!hostEnabled()) { flash('bot desactivado en este host'); return onDone && onDone('disabled'); }
-    if (captchaPaused('attack')) { flash('ataque en pausa (captcha)'); return onDone && onDone('captcha'); }
+    if (!hostEnabled()) { flash('bot disabled on this host'); return onDone && onDone('disabled'); }
+    const safeMission = String(mission || 'attack').toLowerCase();
+    if (!ATTACK_GENERIC_MISSIONS.has(safeMission)) {
+      gbLog(`attack: mission ${safeMission} requires a dedicated canonical handler — blocked`);
+      return onDone && onDone('unsupported-mission');
+    }
+    if (captchaPaused('attack')) { flash('attack paused (captcha)'); return onDone && onDone('captcha'); }
     if (!attackSendAllowed(target)) {
-      flash('ataque bloqueado: el objetivo no es una ciudad (o no se resuelve)');
+      flash('attack blocked: target not a town (or unresolved)');
       gbLog('attack: refuse Town/sendUnits for kind=' + (target && target.kind));
       return onDone && onDone('bad-target');
     }
-    // Re-read units immediately before send
+
     const live = townLiveUnits(srcTownId);
     const sendUnits = {};
     Object.keys(units || {}).forEach(k => {
@@ -591,6 +517,9 @@
     const args = {};
     for (const k of Object.keys(tplArgs)) {
       if (k === 'id' || k === 'town_id') continue;
+      // A learned request may contain old unit counts as strings. Never carry
+      // those into a new composition; only send the freshly selected units.
+      if (k === 'militia' || unitMeta(k)) continue;
       const v = tplArgs[k];
       if (typeof v === 'string' || typeof v === 'boolean') args[k] = v;
     }
@@ -608,8 +537,9 @@
     };
     gbLog('attack bridge:', JSON.stringify(payload));
     bridgePost('attack', payload, (err, data) => {
-      if (err) { flash('ataque fallido: ' + err); return onDone && onDone(err); }
-      flash('ataque enviado #' + srcTownId);
+      if (err) { flash('attack failed: ' + err); return onDone && onDone(err); }
+      flash('attack sent #' + srcTownId);
+      attackRememberTarget(target.town_id, { x: target.x, y: target.y, src: 'sent' });
       gbLog('attack response:', JSON.stringify(data).slice(0, 200));
       if (onDone) onDone(null, data);
     });
@@ -621,14 +551,14 @@
   }
   function cancelArmedAttack() {
     if (!attackArmed) return;
-    (attackArmed.timers || []).forEach(id => clearTimeout(id));
+    (attackArmed.timers || []).forEach(id => gbClearTimeout(id));
     if (attackArmed.raf) cancelAnimationFrame(attackArmed.raf);
     gbLog('attack: cancelled armed wave');
-    flash('ataque cancelado');
+    flash('attack cancelled');
     attackArmed = null;
     renderAttack();
   }
-  // Fire-wave status only - avoid rebuilding source checkboxes on every tick
+
   function patchAttackFireStatus() {
     const sec = panel && panel.querySelector('section[data-tab=attack]');
     if (!sec || sec.hidden) return;
@@ -643,17 +573,16 @@
       if (cell) cell.textContent = r.fireStatus || r.status || '';
     });
     const armed = sec.querySelector('#gb-atk-armed');
-    if (armed) armed.textContent = attackArmed ? `ARMADO (${attackArmed.rows.length})` : '';
+    if (armed) armed.textContent = attackArmed ? `ARMED (${attackArmed.rows.length})` : '';
   }
-  // Max arm-ahead window - long timers are not military-grade; overdue after
-  // tab suspend must not auto-fire.
+
   const ATTACK_ARM_MAX_MS = 90000;
   function armAttackWave(plan, rows) {
     cancelArmedAttack();
     const target = resolveTarget(plan);
     if (!target || !attackSendAllowed(target)) {
-      flash('no se puede armar: objetivo sin resolver o no es una ciudad');
-      gbLog('attack: arm blocked - need canonical town target (villages unsupported)');
+      flash('cannot arm: target unresolved or not a town');
+      gbLog('attack: arm blocked — need canonical town target (villages unsupported)');
       return;
     }
     const timers = [];
@@ -662,7 +591,7 @@
     attackArmed = { timers, rows, plan, cancel: cancelArmedAttack, armedAt };
     const skew0 = clientServerSkewMs();
     gbLog(`attack: armed ${rows.length} towns mode=${plan.timingMode} skew=${Math.round(skew0)}ms (max window ${ATTACK_ARM_MAX_MS}ms)`);
-    flash('Los temporizadores del navegador no tienen precisión militar - las esperas largas no se dispararán solas');
+    flash('Browser timers are not military-precise — long waits will not auto-fire');
     rows.forEach((row, idx) => {
       if (!row.unitCount || !row.boats.ok) {
         gbLog(`attack: skip ${row.townId} status=${row.status}`);
@@ -686,14 +615,14 @@
         return;
       }
       if (delayMs > ATTACK_ARM_MAX_MS) {
-        gbLog(`attack: ${row.townId} delay ${Math.round(delayMs)}ms > ${ATTACK_ARM_MAX_MS}ms - not arming (re-arm closer to send)`);
+        gbLog(`attack: ${row.townId} delay ${Math.round(delayMs)}ms > ${ATTACK_ARM_MAX_MS}ms — not arming (re-arm closer to send)`);
         row.fireStatus = 'too-far';
         return;
       }
       delays.push(delayMs);
       const expectedFire = Date.now() + delayMs;
       const tid = gbTimeout(() => {
-        // Refuse overdue fire after tab suspend / clock jump
+
         const late = Date.now() - expectedFire;
         if (late > 5000) {
           gbLog(`attack: refuse overdue fire for ${row.townId} (late ${Math.round(late)}ms)`);
@@ -701,14 +630,31 @@
           patchAttackFireStatus();
           return;
         }
-        // Re-resolve target + units at fire time
+
         const liveTarget = resolveTarget(plan);
         if (!liveTarget || !attackSendAllowed(liveTarget)) {
           row.fireStatus = 'bad-target';
           patchAttackFireStatus();
           return;
         }
-        const freshUnits = selectUnitsForTown(row.townId, plan.troopMode, plan.unitType, plan.perTownUnits, plan.harassPreset);
+        const freshUnits = attackUnitsForTarget(row.townId, liveTarget, plan);
+        const freshCount = Object.values(freshUnits).reduce((a, b) => a + (+b || 0), 0);
+        const freshSame = isSameIsland(row.townId, liveTarget);
+        const freshBoats = boatCapacityCheck(freshUnits, freshSame);
+        if (!freshCount || !freshBoats.ok) {
+          row.fireStatus = !freshCount ? 'no-units' : 'boats-changed';
+          patchAttackFireStatus();
+          return;
+        }
+        if (plan.timingMode === 'arrive_at') {
+          const freshTravel = computeTravelSeconds(row.townId, liveTarget, freshUnits, true);
+          if (freshTravel == null || row.travel == null || Math.abs(freshTravel - row.travel) > 1) {
+            row.fireStatus = 'travel-changed';
+            gbLog(`attack: abort ${row.townId}; canonical travel changed ${row.travel}→${freshTravel}`);
+            patchAttackFireStatus();
+            return;
+          }
+        }
         row.fireStatus = 'firing';
         patchAttackFireStatus();
         sendAttackViaBridge(liveTarget, row.townId, freshUnits, plan.mission, (err) => {
@@ -733,20 +679,27 @@
   function fireAttackNow(plan, rows) {
     const target = resolveTarget(plan);
     if (!target || !attackSendAllowed(target)) {
-      flash('no se puede enviar: objetivo sin resolver o no es una ciudad');
+      flash('cannot send: target unresolved or not a town');
       return;
     }
-    if (!confirm(`¿Enviar ahora ${rows.filter(r => r.boats.ok && r.unitCount).length} ataque(s)?`)) return;
+    if (!confirm(`Send ${rows.filter(r => r.boats.ok && r.unitCount).length} attack(s) now?`)) return;
     let i = 0;
     const okRows = rows.filter(r => r.boats.ok && r.unitCount);
     (function next() {
       if (i >= okRows.length) {
         pushAttackHistory({ ts: Date.now(), mode: 'send_now_immediate', targetId: plan.targetId, towns: okRows.map(r => r.townId) });
-        flash(`ataques x${okRows.length}`);
+        flash(`attacks x${okRows.length}`);
         return;
       }
       const row = okRows[i++];
-      const freshUnits = selectUnitsForTown(row.townId, plan.troopMode, plan.unitType, plan.perTownUnits, plan.harassPreset);
+      const freshUnits = attackUnitsForTarget(row.townId, target, plan);
+      const freshCount = Object.values(freshUnits).reduce((a, b) => a + (+b || 0), 0);
+      const freshBoats = boatCapacityCheck(freshUnits, isSameIsland(row.townId, target));
+      if (!freshCount || !freshBoats.ok) {
+        gbLog(`attack: skip ${row.townId} at fire time (${!freshCount ? 'no-units' : freshBoats.reason})`);
+        gbTimeout(next, (plan.staggerMs || 25) + Math.random() * 20);
+        return;
+      }
       sendAttackViaBridge(target, row.townId, freshUnits, plan.mission, () => {
         gbTimeout(next, (plan.staggerMs || 25) + Math.random() * 20);
       });
@@ -754,27 +707,20 @@
   }
   function prepareAttack(target) {
     const plan = ensureAttackPlan();
-    const isFarm = target.vill_id != null && target.town_id == null && target.kind !== 'town';
-    if (isFarm && !target.town_id) {
-      plan.targetId = String(target.vill_id || target.id || '');
-      plan.targetType = 'farm_town';
-    } else {
-      plan.targetId = String(target.town_id || target.id || target.vill_id || '');
-      plan.targetType = 'town';
-    }
+    plan.targetId = String(target.vill_id || target.id || '');
     plan.targetX = target.x ?? plan.targetX;
     plan.targetY = target.y ?? plan.targetY;
     if (plan.sourceTownIds == null) plan.sourceTownIds = (state.towns || []).map(t => String(t.id));
     saveAttackPlan();
-    // switch to Attack tab
+
     if (typeof showTab === 'function') showTab('attack');
     else renderAttack();
-    flash('planificador de ataque <- ' + plan.targetId);
+    flash('attack planner <- ' + plan.targetId);
   }
   function editThreshold(target) {
     const cur = state.thresholds[target.vill_id] || {};
     const def = Object.entries(cur).map(([k, v]) => `${k}:${v}`).join(',');
-    const v = prompt(`Umbral para ${target.vill_id}\nFormato: wood:5000,iron:8000,pop:100\nVacío = borrar`, def);
+    const v = prompt(`Threshold for ${target.vill_id}\nFormat: wood:5000,iron:8000,pop:100\nEmpty = clear`, def);
     if (v == null) return;
     if (v.trim() === '') { delete state.thresholds[target.vill_id]; }
     else {
@@ -805,20 +751,18 @@
     if (!sec || sec.hidden) return;
     const plan = ensureAttackPlan();
     const skewEl = sec.querySelector('#gb-atk-skew');
-    if (skewEl) skewEl.textContent = `desfase ${Math.round(clientServerSkewMs())}ms | srv ${serverNow()}`;
+    if (skewEl) skewEl.textContent = `skew ${Math.round(clientServerSkewMs())}ms | srv ${serverNow()}`;
     const table = sec.querySelector('.atk-sched');
     if (!table) return;
     const rows = attackPreviewRows.length ? attackPreviewRows : [];
-    // This runs on every fire-status tick while a wave is armed. Rebuilding the
-    // whole schedule each time threw away rows that only needed their status
-    // cell changed - patch by town id, rebuild only when the row set changes.
+
     if (!rows.length) {
       if (!table.dataset.empty) {
         table.replaceChildren();
         table.dataset.empty = '1';
         const e = document.createElement('div');
         e.style.cssText = 'color:#888;padding:6px 0;font-size:11px';
-        e.textContent = 'Pulsa Vista previa para calcular viaje / envío / barcos';
+        e.textContent = 'Preview to compute travel / sendAt / boats';
         table.appendChild(e);
       }
     } else {
@@ -830,7 +774,7 @@
         delete table.dataset.empty;
         const hdr = document.createElement('div');
         hdr.style.cssText = 'display:grid;grid-template-columns:1.2fr .7fr .9fr .7fr .8fr;gap:4px;color:#888;font-size:9px;margin-bottom:2px';
-        hdr.innerHTML = '<span>ciudad</span><span>viaje</span><span>enviar a las</span><span>barcos</span><span>estado</span>';
+        hdr.innerHTML = '<span>town</span><span>travel</span><span>sendAt</span><span>boats</span><span>status</span>';
         table.appendChild(hdr);
       }
       rows.forEach(r => {
@@ -860,50 +804,36 @@
       });
     }
     const armed = sec.querySelector('#gb-atk-armed');
-    if (armed) armed.textContent = attackArmed ? `ARMADO (${attackArmed.rows.length})` : '';
-    // sync form fields from plan once
+    if (armed) armed.textContent = attackArmed ? `ARMED (${attackArmed.rows.length})` : '';
+
     const tid = sec.querySelector('[data-atk=target]');
     if (tid && document.activeElement !== tid) tid.value = plan.targetId || '';
+    const tt = sec.querySelector('[data-atk=target-type]');
+    if (tt) tt.value = plan.targetType || 'town';
     const pick = sec.querySelector('[data-atk=pick]');
     if (pick && document.activeElement !== pick) {
       const targets = attackKnownTargets();
-      const sig = targets.map(t => t.id + ':' + (t.name || '')).join('|');
+      const sig = targets.map(t => t.id + ':' + (t.name || '') + ':' + (t.x ?? '') + ':' + (t.y ?? '')).join('|');
       if (pick.dataset.sig !== sig) {
-        pick.dataset.sig = sig;
-        pick.replaceChildren();
-        const o0 = document.createElement('option');
-        o0.value = '';
-        o0.textContent = targets.length ? `elige ciudad (${targets.length})...` : 'aún no hay ciudades conocidas';
-        pick.appendChild(o0);
+        pick.dataset.sig = sig; pick.replaceChildren();
+        const first = document.createElement('option'); first.value = ''; first.textContent = targets.length ? `known targets (${targets.length})...` : 'no known targets'; pick.appendChild(first);
         targets.forEach(t => {
-          const o = document.createElement('option');
-          o.value = t.id;
-          const coord = (t.x != null && t.y != null) ? ` ${t.x}|${t.y}` : '';
-          o.textContent = `${(t.name || '?').slice(0, 16)} #${t.id}${coord}`;
-          pick.appendChild(o);
+          const o = document.createElement('option'); o.value = t.id;
+          const coord = t.x != null && t.y != null ? ` ${t.x}|${t.y}` : '';
+          o.textContent = `${(t.name || '?').slice(0, 16)} #${t.id}${coord}`; pick.appendChild(o);
         });
       }
-      const match = targets.some(t => String(t.id) === String(plan.targetId));
-      pick.value = match ? String(plan.targetId) : '';
+      pick.value = targets.some(t => String(t.id) === String(plan.targetId)) ? String(plan.targetId) : '';
     }
     const hint = sec.querySelector('#gb-atk-target-hint');
     if (hint) {
       const known = attackKnownTargets().find(t => String(t.id) === String(plan.targetId));
       const resolved = plan.targetId ? resolveTarget(plan) : null;
       if (resolved && resolved.kind === 'town') {
-        const nm = known?.name || '';
-        const coord = (resolved.x != null && resolved.y != null) ? ` (${resolved.x}|${resolved.y})` : '';
-        hint.textContent = `ciudad #${plan.targetId}${nm ? '  |  ' + nm : ''}${coord}`;
-        hint.style.color = '#6dda7e';
-      } else if (plan.targetId) {
-        hint.textContent = resolved
-          ? `${resolved.kind} #${plan.targetId} - los ataques a ciudad necesitan kind=town`
-          : 'sin resolver - elige de la lista, pulsa Actual en el juego, o añade x/y';
-        hint.style.color = '#f96';
-      } else {
-        hint.textContent = 'elige una ciudad de los informes de espionaje, o abre una ciudad en el juego y pulsa Actual';
-        hint.style.color = '#888';
-      }
+        const coord = resolved.x != null && resolved.y != null ? ` (${resolved.x}|${resolved.y})` : '';
+        hint.textContent = `town #${plan.targetId}${known && known.name ? ' | ' + known.name : ''}${coord}`; hint.style.color = '#6dda7e';
+      } else if (plan.targetId) { hint.textContent = 'target unresolved / unsupported'; hint.style.color = '#f96'; }
+      else { hint.textContent = 'direct town id or a target learned from reports/previous attacks'; hint.style.color = '#888'; }
     }
     const ax = sec.querySelector('[data-atk=x]');
     if (ax && document.activeElement !== ax) ax.value = plan.targetX ?? '';
@@ -928,28 +858,28 @@
       ut.disabled = plan.troopMode !== 'all_of_type';
       ut.style.opacity = ut.disabled ? '0.4' : '1';
       ut.title = ut.disabled
-        ? "el selector de unidad solo aplica cuando el modo de tropas es 'todas de un tipo'"
-        : 'unidad enviada desde cada ciudad de origen';
+        ? "unit picker only applies when troop mode is 'all of type'"
+        : 'unit sent from every source town';
       const utLab = ut.closest('label');
       if (utLab) utLab.style.color = ut.disabled ? '#666' : '#ccc';
     }
-    renderMilitaryHelpers(sec, plan);
-    attackSyncArrivalFields(sec, plan);
-    renderAttackRoles(sec);
+    const arr = sec.querySelector('[data-atk=arrival]');
+    if (arr && document.activeElement !== arr && plan.arrivalUnix) {
+      try {
+        const d = new Date(plan.arrivalUnix * 1000 + clientServerSkewMs());
+        const pad2 = n => String(n).padStart(2, '0');
+        arr.value = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+      } catch (_) {}
+    }
     const srcBox = sec.querySelector('.atk-sources');
     if (srcBox && !srcBox.dataset.bound) {
       srcBox.dataset.bound = '1';
-      // rebuilt below when needed
+
     }
     if (srcBox) {
-      const selected = plan.sourceTownIds == null
-        ? new Set((state.towns || []).map(t => String(t.id)))
-        : new Set((plan.sourceTownIds || []).map(String));
-      // Checkbox list only needs rebuilding when the town list changes; otherwise
-      // just re-sync checked state (a rebuild mid-click dropped the user's edit).
-      const sig = (state.towns || []).map(t => t.id + ':' + (t.name || '')).join('|') +
-        '|O:' + attackTownGroup(ATTACK_ROLE_OFFENSE).join(',') +
-        '|D:' + attackTownGroup(ATTACK_ROLE_DEFENSE).join(',');
+      const selected = new Set(Array.isArray(plan.sourceTownIds) ? plan.sourceTownIds.map(String) : (state.towns || []).map(t => String(t.id)));
+
+      const sig = (state.towns || []).map(t => t.id + ':' + (t.name || '')).join('|');
       if (srcBox.dataset.sig === sig) {
         srcBox.querySelectorAll('input[data-id]').forEach(cb => {
           const want = selected.has(String(cb.dataset.id));
@@ -958,8 +888,6 @@
       } else {
         srcBox.dataset.sig = sig;
         srcBox.replaceChildren();
-        const off = new Set(attackTownGroup(ATTACK_ROLE_OFFENSE));
-        const def = new Set(attackTownGroup(ATTACK_ROLE_DEFENSE));
         (state.towns || []).forEach(t => {
           const lab = document.createElement('label');
           lab.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:10px;cursor:pointer';
@@ -973,15 +901,7 @@
           });
           cb.dataset.id = String(t.id);
           lab.appendChild(cb);
-          const tag = document.createElement('span');
-          const tid = String(t.id);
-          let badge = '';
-          if (off.has(tid) && def.has(tid)) badge = ' O+D';
-          else if (off.has(tid)) badge = ' O';
-          else if (def.has(tid)) badge = ' D';
-          tag.textContent = `${t.name || t.id}${badge}`;
-          if (badge) tag.style.color = off.has(tid) ? '#f96' : '#6cf';
-          lab.appendChild(tag);
+          lab.appendChild(document.createTextNode(`${t.name || t.id}`));
           srcBox.appendChild(lab);
         });
       }
@@ -991,9 +911,8 @@
       per.hidden = plan.troopMode !== 'per_town';
       if (plan.troopMode === 'per_town') {
         per.replaceChildren();
-        const ids = plan.sourceTownIds == null
-          ? (state.towns || []).map(t => String(t.id))
-          : (plan.sourceTownIds || []).map(String);
+        const ids = Array.isArray(plan.sourceTownIds)
+          ? plan.sourceTownIds : (state.towns || []).map(t => String(t.id));
         ids.forEach(tid2 => {
           const town = (state.towns || []).find(t => String(t.id) === String(tid2)) || { id: tid2, name: tid2 };
           const wrap = document.createElement('div');
@@ -1014,12 +933,15 @@
         });
       }
     }
+    renderAttackRoles(sec);
+    renderMilitaryHelpers(sec, plan);
   }
   function readAttackForm() {
     const sec = panel && panel.querySelector('section[data-tab=attack]');
     const plan = ensureAttackPlan();
     if (!sec) return plan;
     plan.targetId = sec.querySelector('[data-atk=target]')?.value?.trim() || '';
+    plan.targetType = sec.querySelector('[data-atk=target-type]')?.value || 'town';
     const xv = sec.querySelector('[data-atk=x]')?.value;
     const yv = sec.querySelector('[data-atk=y]')?.value;
     plan.targetX = xv === '' || xv == null ? null : +xv;
@@ -1028,13 +950,12 @@
     plan.timingMode = sec.querySelector('[data-atk=timing]')?.value || 'send_now';
     plan.latencyPadMs = +(sec.querySelector('[data-atk=pad]')?.value || 200);
     plan.troopMode = sec.querySelector('[data-atk=troop]')?.value || 'offense';
-    plan.unitType = sec.querySelector('[data-atk=unit-type]')?.value || 'sword';
     if (plan.troopMode === 'harass' && !plan.harassPreset) plan.harassPreset = 'light';
-    const d = sec.querySelector('[data-atk=arrival-date]')?.value;
-    const tm = sec.querySelector('[data-atk=arrival-time]')?.value;
-    if (plan.timingMode === 'arrive_at') {
-      const unix = attackUnixFromLocal(d, tm);
-      if (unix != null) plan.arrivalUnix = unix;
+    plan.unitType = sec.querySelector('[data-atk=unit-type]')?.value || 'sword';
+    const arr = sec.querySelector('[data-atk=arrival]')?.value;
+    if (arr) {
+      const ms = Date.parse(arr);
+      if (!isNaN(ms)) plan.arrivalUnix = Math.floor((ms - clientServerSkewMs()) / 1000);
     }
     const srcBox = sec.querySelector('.atk-sources');
     if (srcBox) {
@@ -1047,208 +968,3 @@
     const t = (state.towns || []).find(x => String(x.id) === String(id));
     return (t && t.name) || String(id || '-');
   }
-  function renderMilitaryHelpers(sec, plan) {
-    if (!sec) return;
-    // Harassment preset chips
-    const har = sec.querySelector('.atk-harass');
-    if (har) {
-      har.querySelectorAll('[data-harass]').forEach(btn => {
-        const on = plan.troopMode === 'harass' && plan.harassPreset === btn.dataset.harass;
-        btn.style.outline = on ? '1px solid #6cf' : '';
-        btn.style.color = on ? '#6cf' : '';
-      });
-    }
-    // Outgoing cancelable commands
-    const box = sec.querySelector('.atk-cmds');
-    if (box) {
-      const rows = militaryOutgoingMovements();
-      box.replaceChildren();
-      if (!rows.length) {
-        const e = document.createElement('div');
-        e.style.cssText = 'color:#666;font-size:10px';
-        e.textContent = 'No hay movimientos salientes cancelables';
-        box.appendChild(e);
-      } else {
-        rows.forEach(r => {
-          const row = document.createElement('div');
-          row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr .7fr auto;gap:4px;font-size:10px;border-bottom:1px solid #2a2a2a;padding:2px 0;align-items:center';
-          const c1 = document.createElement('span');
-          c1.textContent = `${townNameById(r.home)} -> ${r.target}`;
-          c1.title = `orden ${r.commandId}`;
-          const c2 = document.createElement('span');
-          c2.textContent = r.type || 'movimiento';
-          const c3 = document.createElement('span');
-          c3.style.color = '#888';
-          c3.textContent = r.cancelLeft != null ? (`${Math.round(r.cancelLeft)}s`) : 'ok';
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.textContent = 'Cancelar';
-          btn.style.cssText = 'background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px';
-          btn.addEventListener('click', () => {
-            if (!confirm(`¿Cancelar la orden saliente ${r.type || 'comando'} ${r.commandId}?\n${townNameById(r.home)} -> ${r.target}`)) return;
-            militaryCancelCommand(r.commandId, { confirmed: true, townId: r.home }, (err) => {
-              flash(err ? ('fallo al cancelar: ' + err) : 'orden cancelada');
-              renderAttack();
-            });
-          });
-          row.appendChild(c1); row.appendChild(c2); row.appendChild(c3); row.appendChild(btn);
-          box.appendChild(row);
-        });
-      }
-    }
-    // Heroes
-    const hbox = sec.querySelector('.atk-heroes');
-    if (!hbox) return;
-    hbox.replaceChildren();
-    if (!heroesEnabled()) {
-      const e = document.createElement('div');
-      e.style.cssText = 'color:#666;font-size:10px';
-      e.textContent = 'Héroes desactivados en este mundo';
-      hbox.appendChild(e);
-      return;
-    }
-    const heroes = playerHeroesList();
-    if (!heroes.length) {
-      const e = document.createElement('div');
-      e.style.cssText = 'color:#666;font-size:10px';
-      e.textContent = 'Sin modelos PlayerHero (abre el Consejo una vez, o este mundo no tiene)';
-      hbox.appendChild(e);
-      return;
-    }
-    const townSel = document.createElement('select');
-    townSel.style.cssText = 'background:#111;color:#cfc;border:1px solid #333;font-size:10px;margin-bottom:4px;max-width:100%';
-    (state.towns || []).forEach(t => {
-      const o = document.createElement('option');
-      o.value = String(t.id);
-      o.textContent = t.name || t.id;
-      townSel.appendChild(o);
-    });
-    hbox.appendChild(townSel);
-    heroes.forEach(h => {
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:10px;border-bottom:1px solid #2a2a2a;padding:3px 0';
-      const lab = document.createElement('span');
-      lab.style.flex = '1';
-      lab.textContent = `${h.name} Lv${h.level}  |  ${h.status}` +
-        (h.home ? ` @${townNameById(h.home)}` : '');
-      row.appendChild(lab);
-      if (h.traveling) {
-        const b = document.createElement('button');
-        b.type = 'button'; b.textContent = 'Cancelar viaje';
-        b.style.cssText = 'background:#333;border:1px solid #555;color:#fc6;padding:1px 6px;cursor:pointer;font-size:10px';
-        b.addEventListener('click', () => {
-          if (!confirm(`¿Cancelar el traslado de ${h.name}?`)) return;
-          heroCancelTravel(h.type, { confirmed: true }, (err) => {
-            flash(err ? ('fallo al cancelar el héroe: ' + err) : 'viaje del héroe cancelado');
-            renderAttack();
-          });
-        });
-        row.appendChild(b);
-      } else if (h.assigned || h.attacking) {
-        const b = document.createElement('button');
-        b.type = 'button'; b.textContent = 'Desasignar';
-        b.style.cssText = 'background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px';
-        b.addEventListener('click', () => {
-          if (!confirm(`¿Desasignar a ${h.name} de ${townNameById(h.home || h.origin)}?`)) return;
-          heroUnassign(h.type, { confirmed: true }, (err) => {
-            flash(err ? ('fallo al desasignar el héroe: ' + err) : 'héroe desasignado');
-            renderAttack();
-          });
-        });
-        row.appendChild(b);
-      }
-      if (!h.injured && !h.attacking && !h.traveling) {
-        const b = document.createElement('button');
-        b.type = 'button'; b.textContent = 'Asignar';
-        b.style.cssText = 'background:#333;border:1px solid #555;color:#6cf;padding:1px 6px;cursor:pointer;font-size:10px';
-        b.addEventListener('click', () => {
-          const tid = townSel.value;
-          if (!tid) { flash('elige una ciudad'); return; }
-          if (!confirm(`¿Asignar a ${h.name} -> ${townNameById(tid)}?\n(se aplica el tiempo de viaje)`)) return;
-          heroAssignToTown(h.type, tid, { confirmed: true }, (err) => {
-            flash(err ? ('fallo al asignar el héroe: ' + err) : 'traslado del héroe iniciado');
-            renderAttack();
-          });
-        });
-        row.appendChild(b);
-      }
-      hbox.appendChild(row);
-    });
-  }
-  function bindAttackTab() {
-    const sec = panel && panel.querySelector('section[data-tab=attack]');
-    if (!sec || sec.dataset.bound) return;
-    sec.dataset.bound = '1';
-    sec.querySelector('#gb-atk-preview')?.addEventListener('click', () => {
-      const plan = readAttackForm();
-      const sched = buildAttackSchedule(plan);
-      if (sched.error) { flash(sched.error); return; }
-      attackPreviewRows = sched.rows;
-      gbLog(`attack preview: ${sched.rows.length} towns, skew=${Math.round(sched.skew)}ms`);
-      renderAttack();
-    });
-    sec.querySelector('#gb-atk-arm')?.addEventListener('click', () => {
-      const plan = readAttackForm();
-      const sched = buildAttackSchedule(plan);
-      if (sched.error) { flash(sched.error); return; }
-      attackPreviewRows = sched.rows;
-      const ok = sched.rows.filter(r => r.boats.ok && r.unitCount && r.status !== 'past' && r.status !== 'no-travel');
-      if (!ok.length) { flash('ninguna ciudad lista'); renderAttack(); return; }
-      if (!confirm(`¿Armar ${ok.length} ataque(s) (${plan.timingMode})?`)) return;
-      armAttackWave(plan, ok);
-    });
-    sec.querySelector('#gb-atk-cancel')?.addEventListener('click', () => cancelArmedAttack());
-    sec.querySelector('#gb-atk-now')?.addEventListener('click', () => {
-      const plan = readAttackForm();
-      const sched = buildAttackSchedule(plan);
-      if (sched.error) { flash(sched.error); return; }
-      attackPreviewRows = sched.rows;
-      renderAttack();
-      fireAttackNow(plan, sched.rows);
-    });
-    sec.querySelector('[data-atk=troop]')?.addEventListener('change', () => {
-      readAttackForm();
-      renderAttack();
-    });
-    sec.querySelector('[data-atk=timing]')?.addEventListener('change', () => {
-      readAttackForm();
-      renderAttack();
-    });
-    sec.querySelector('[data-atk=arrival-date]')?.addEventListener('change', () => readAttackForm());
-    sec.querySelector('[data-atk=arrival-time]')?.addEventListener('change', () => readAttackForm());
-    sec.querySelector('#gb-atk-src-all')?.addEventListener('click', () => attackSetAllSources(true));
-    sec.querySelector('#gb-atk-src-none')?.addEventListener('click', () => attackSetAllSources(false));
-    sec.querySelector('#gb-atk-src-off')?.addEventListener('click', () => attackSelectRoleSources(ATTACK_ROLE_OFFENSE));
-    sec.querySelector('#gb-atk-src-def')?.addEventListener('click', () => attackSelectRoleSources(ATTACK_ROLE_DEFENSE));
-    sec.querySelector('[data-atk=pick]')?.addEventListener('change', (e) => {
-      const id = e.target.value;
-      if (!id) return;
-      const t = attackKnownTargets().find(x => String(x.id) === String(id));
-      if (t) applyAttackTarget(t);
-      else applyAttackTarget({ id, name: null, x: null, y: null });
-    });
-    sec.querySelector('#gb-atk-current')?.addEventListener('click', () => {
-      const cur = attackCurrentTownId();
-      if (!cur) { flash('ninguna ciudad seleccionada en el juego'); return; }
-      if (cur.own) {
-        flash('la ciudad actual es tuya - abre primero una ciudad enemiga en el mapa');
-        return;
-      }
-      applyAttackTarget(cur);
-    });
-    sec.querySelector('[data-atk=target]')?.addEventListener('change', () => {
-      readAttackForm();
-      renderAttack();
-    });
-    sec.querySelectorAll('[data-harass]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        applyHarassPreset(btn.dataset.harass);
-        const troop = sec.querySelector('[data-atk=troop]');
-        if (troop) troop.value = 'harass';
-        renderAttack();
-      });
-    });
-    sec.querySelector('#gb-atk-cmds-refresh')?.addEventListener('click', () => renderAttack());
-    sec.querySelector('#gb-atk-heroes-refresh')?.addEventListener('click', () => renderAttack());
-  }
-

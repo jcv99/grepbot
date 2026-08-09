@@ -1,5 +1,3 @@
-  // ---------- owned towns ----------
-  // Prefer the game's own collections - zero requests, always correct.
   function townsFromGame() {
     try {
       const col = mmCol('Town');
@@ -21,9 +19,9 @@
     } catch (_) { return null; }
   }
   const TOWN_LIST_GUESSES = ['get_towns', 'towns_overview', 'get_owned_towns', 'overview_towns', 'town_list'];
-  function fetchOwnedTowns(i = 0) {
+  function fetchOwnedTowns(i = 0, pressureRetries = 0) {
+    if (!gbInstanceAlive() || !hostEnabled() || automationPaused({})) return;
     if (!state.csrf) return;
-    if (captchaPaused('town') || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return;
     if (i >= TOWN_LIST_GUESSES.length) { scrapeTownsDom(); return; }
     const action = TOWN_LIST_GUESSES[i];
     const params = new URLSearchParams();
@@ -35,13 +33,17 @@
       onload(res) {
         const retryMs = httpRetryAfterMs(res);
         if (retryMs) {
-          gbLogT('towns-http', 30000, `towns list HTTP ${res.status}, retry ${retryMs}ms`);
-          gbTimeout(() => fetchOwnedTowns(i), retryMs);
+          if (pressureRetries >= 3) {
+            gbLogT('towns-http-limit', 60000, `towns list HTTP ${res.status}, retry limit reached`);
+            return;
+          }
+          gbLogT('towns-http', 30000, `towns list HTTP ${res.status}, retry ${pressureRetries + 1}/3 in ${retryMs}ms`);
+          gbTimeout(() => fetchOwnedTowns(i, pressureRetries + 1), retryMs);
           return;
         }
-        if (res.status && res.status >= 400) return fetchOwnedTowns(i + 1);
+        if (res.status && res.status >= 400) return fetchOwnedTowns(i + 1, 0);
         const body = (res.responseText || '').slice(0, 2000);
-        if (!body || body[0] !== '{') return fetchOwnedTowns(i + 1);
+        if (!body || body[0] !== '{') return fetchOwnedTowns(i + 1, 0);
         try {
           const data = JSON.parse(res.responseText);
           const json = (data && data.json) ? data.json : data;
@@ -53,10 +55,10 @@
             console.info('[grepbot] towns:', list.length, 'via', action);
             return;
           }
-        } catch (e) { /* try next */ }
-        fetchOwnedTowns(i + 1);
+        } catch (e) {  }
+        fetchOwnedTowns(i + 1, 0);
       },
-      onerror() { fetchOwnedTowns(i + 1); },
+      onerror() { fetchOwnedTowns(i + 1, 0); },
     });
   }
   function extractTowns(json) {
@@ -96,33 +98,35 @@
     save(STORE.TOWNS, state.towns);
     renderWorld();
   }
-  function fetchTownResources(town) {
-    if (captchaPaused('town') || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return;
+  function fetchTownResources(town, onDone) {
     const TOWN_ACTION_GUESSES = ['town_info', 'get_town_info', 'town_overview', 'overview_towns', 'get_resources', 'resource_header'];
+    let pressureRetries = 0;
+    let finished = false;
+    const finish = (ok) => { if (finished) return; finished = true; if (onDone) onDone(!!ok); };
     tryGuess(town, 0);
     function tryGuess(town, i) {
-      if (captchaPaused('town') || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return;
+      if (!hostEnabled() || automationPaused({}) || !gbInstanceAlive()) return finish(false);
       if (i >= TOWN_ACTION_GUESSES.length) {
         state.townResources[town.id] = { ts: Date.now(), ok: false, err: 'no endpoint' };
-        save(STORE.TOWN_RES, state.townResources);
-        renderWorld();
-        return;
+        save(STORE.TOWN_RES, state.townResources); renderWorld(); finish(false); return;
       }
       const action = TOWN_ACTION_GUESSES[i];
       const params = new URLSearchParams();
-      params.set('action', action); params.set('town_id', town.id); params.set('h', state.csrf);
-      const u = '/index.php?' + params.toString();
+      params.set('action', action); params.set('town_id', town.id); params.set('h', state.csrf || '');
       gbXhr({
-        method: 'GET', url: u,
-        headers: { 'X-Requested-With': 'XMLHttpRequest' },
-        anonymous: false,
+        method: 'GET', url: '/index.php?' + params.toString(),
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }, anonymous: false,
         onload(res) {
           const retryMs = httpRetryAfterMs(res);
           if (retryMs) {
+            if (++pressureRetries > 3) {
+              state.townResources[town.id] = { ts: Date.now(), ok: false, err: 'HTTP retry cap ' + res.status };
+              save(STORE.TOWN_RES, state.townResources); renderWorld(); finish(false); return;
+            }
             gbLogT('town-res-http', 30000, `town ${town.id} HTTP ${res.status}, retry ${retryMs}ms`);
-            gbTimeout(() => tryGuess(town, i), retryMs);
-            return;
+            gbTimeout(() => tryGuess(town, i), retryMs); return;
           }
+          pressureRetries = 0;
           if (res.status && res.status >= 400) return tryGuess(town, i + 1);
           const body = (res.responseText || '').slice(0, 500);
           if (!body || body[0] !== '{' || /<html/i.test(body)) return tryGuess(town, i + 1);
@@ -133,54 +137,62 @@
               ts: Date.now(), wood: p.wood, stone: p.stone, iron: p.iron,
               pop: p.pop, cap: p.cap, ok: true, action,
             };
-            save(STORE.TOWN_RES, state.townResources);
-            renderWorld();
-          } catch (e) { tryGuess(town, i + 1); }
+            save(STORE.TOWN_RES, state.townResources); renderWorld(); finish(true);
+          } catch (_) { tryGuess(town, i + 1); }
         },
-        onerror() { tryGuess(town, i + 1); },
+        onerror(e) {
+          if (e && (e.error === 'disabled' || e.error === 'budget')) return finish(false);
+          tryGuess(town, i + 1);
+        },
       });
-    }
-  }
-  function scrapeAllTowns() {
-    if (!hostEnabled() || automationPaused({}) || captchaPaused('town')) return;
-    if (gbLocked('town-scrape')) { gbLogT('town-scrape-inflight', 30000, 'town scrape: skipped (in flight)'); return; }
-    gbLock('town-scrape');
-    const delay = SYNC.TOWN_MIN_MS + Math.random() * (SYNC.TOWN_MAX_MS - SYNC.TOWN_MIN_MS);
-    state.nextTownsScrape = Date.now() + delay;
-    save(STORE.NEXT_TOWNS, state.nextTownsScrape);
-    renderTimers();
-    try {
-      const gameTowns = townsFromGame();
-      if (gameTowns && gameTowns.length) {
-        if (gameTowns.length !== state.towns.length) gbLog(`towns: ${gameTowns.length} from game data`);
-        state.towns = gameTowns;
-        save(STORE.TOWNS, state.towns);
-      } else if (!state.towns.length) {
-        gbLogT('towns-fallback', 300000, 'towns: game data unavailable, HTTP fallback');
-        fetchOwnedTowns();
-      }
-      let fromGame = 0, fromHttp = 0;
-      state.towns.forEach((t, i) => {
-        const r = townResourcesFromGame(t.id);
-        if (r) {
-          fromGame++;
-          state.townResources[t.id] = {
-            ts: Date.now(), wood: r.wood ?? null, stone: r.stone ?? null, iron: r.iron ?? null,
-            pop: r.population ?? null, cap: r.storage ?? null, ok: true, action: 'game-data',
-          };
-        } else if (hostEnabled() && !automationPaused({}) && !captchaPaused('town')) {
-          fromHttp++;
-          gbTimeout(() => fetchTownResources(t), fromHttp * 600);
-        }
-      });
-      const ids = state.towns.map(t => t.id);
-      pruneMapsToIds(state.townResources, ids);
-      save(STORE.TOWN_RES, state.townResources);
-      renderWorld();
-      gbLog(`towns scrape: ${state.towns.length} towns (${fromGame} via game data, ${fromHttp} via HTTP)`);
-    } finally {
-      // HTTP fetches may still be in flight; unlock after staggered window
-      gbTimeout(() => { gbUnlock('town-scrape'); }, Math.max(2000, state.towns.length * 700));
     }
   }
 
+  function scrapeAllTowns() {
+    if (!hostEnabled() || automationPaused({})) return;
+    if (gbLocked('town-scrape')) { gbLogT('town-scrape-inflight', 30000, 'town scrape: skipped (in flight)'); return; }
+    const townScrapeLock = gbLock('town-scrape', 300000);
+    if (!townScrapeLock) return;
+    const delay = SYNC.TOWN_MIN_MS + Math.random() * (SYNC.TOWN_MAX_MS - SYNC.TOWN_MIN_MS);
+    state.nextTownsScrape = Date.now() + delay; save(STORE.NEXT_TOWNS, state.nextTownsScrape); renderTimers();
+    const finish = (fromGame, fromHttp) => {
+      gbUnlock('town-scrape', townScrapeLock);
+      const ids = state.towns.map(t => t.id);
+      pruneMapsToIds(state.townResources, ids); save(STORE.TOWN_RES, state.townResources); renderWorld();
+      gbLog(`towns scrape: ${state.towns.length} towns (${fromGame} via game data, ${fromHttp} via HTTP)`);
+    };
+    const gameTowns = townsFromGame();
+    if (gameTowns && gameTowns.length) {
+      if (gameTowns.length !== state.towns.length) gbLog(`towns: ${gameTowns.length} from game data`);
+      state.towns = gameTowns; save(STORE.TOWNS, state.towns);
+    } else if (!state.towns.length) {
+      gbLogT('towns-fallback', 300000, 'towns: game data unavailable, HTTP fallback');
+      fetchOwnedTowns();
+      finish(0, 0);
+      return;
+    }
+    let fromGame = 0;
+    const http = [];
+    for (const t of state.towns) {
+      const r = townResourcesFromGame(t.id);
+      if (r) {
+        fromGame++;
+        state.townResources[t.id] = {
+          ts: Date.now(), wood: r.wood ?? null, stone: r.stone ?? null, iron: r.iron ?? null,
+          pop: r.population ?? null, cap: r.storage ?? null, ok: true, action: 'game-data',
+        };
+      } else http.push(t);
+    }
+    if (!http.length) { finish(fromGame, 0); return; }
+    let pending = http.length, completed = 0;
+    http.forEach((t, i) => {
+      gbTimeout(() => {
+        if (!gbLockTouch('town-scrape', townScrapeLock, 300000)) return;
+        fetchTownResources(t, () => {
+          completed++; pending--;
+          gbLockTouch('town-scrape', townScrapeLock, 300000);
+          if (pending <= 0) finish(fromGame, completed);
+        });
+      }, i * 650);
+    });
+  }

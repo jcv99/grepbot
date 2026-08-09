@@ -1,12 +1,3 @@
-  // ---------- quests: model/XHR learn + safe auto-claim + panel/history ----------
-  const QUEST_SCAN_MS = 12000;
-  const QUEST_RESCAN_MS = 6 * 60 * 60 * 1000;
-  const QUEST_HISTORY_MAX = 100;
-  let questCursor = 0;
-  let questMo = null;
-  // Per-quest claim backoff. bridgePost timeouts never trip the decision-memory
-  // skip window (the captcha breaker owns that path), so without this a quest
-  // whose claim never lands retries every ~17s forever.
   function questClaimFailLoad() {
     const raw = load(STORE.QUEST_CLAIM_FAIL, null) || {};
     const now = Date.now();
@@ -185,18 +176,21 @@
           else if (a.progress != null) progress = +a.progress;
           else if (a.progress_percent != null) progress = +a.progress_percent;
         } catch (_) {}
-        let canClaim = false;
+        let canClaim = null,claimStateKnown=false;
         try {
-          if (typeof m.isClaimable === 'function') canClaim = !!m.isClaimable();
-          else if (typeof m.isFinished === 'function') canClaim = !!m.isFinished();
-          else if (typeof m.getReward === 'function') canClaim = !!m.getReward();
-          else if (typeof m.hasReward === 'function') canClaim = !!m.hasReward();
-          else if (progress != null && progress >= 100) canClaim = true;
-          else if (a.state === 'satisfied' || a.status === 'satisfied') canClaim = true;
+          if (typeof m.isClaimable === 'function') {canClaim=!!m.isClaimable();claimStateKnown=true}
+          else if (typeof m.isFinished === 'function') {canClaim=!!m.isFinished();claimStateKnown=true}
+          else if (typeof m.getReward === 'function') {canClaim=!!m.getReward();claimStateKnown=true}
+          else if (typeof m.hasReward === 'function') {canClaim=!!m.hasReward();claimStateKnown=true}
+          else if (progress != null && progress >= 100) {canClaim=true;claimStateKnown=true}
+          else if (a.state === 'satisfied' || a.status === 'satisfied') {canClaim=true;claimStateKnown=true}
+          else if (/^(?:closed|claimed|completed|rewarded)$/i.test(String(a.state||a.status||''))) {canClaim=false;claimStateKnown=true}
+          else if (progress != null && progress < 100) {canClaim=false;claimStateKnown=true}
         } catch (_) {}
         const rewards = rewardsFromModel(m);
-        // progressable_id (singular) is IslandQuest; progressables_id belongs to PlayerIsland
+
         const pid = a.progressable_id != null ? a.progressable_id : id;
+        const cfg=a.configuration||{},islandX=cfg.island_x??a.island_x??null,islandY=cfg.island_y??a.island_y??null;
         out.push({
           questId: id,
           progressableId: String(pid),
@@ -204,10 +198,13 @@
           title: a.name || a.summary || a.questname || id,
           progress,
           canClaim,
+          claimStateKnown,
           rewards,
           state: a.state || a.status || '',
           fromGame: true,
           modelName: name,
+          islandX:islandX==null?null:+islandX,
+          islandY:islandY==null?null:+islandY,
         });
       });
     });
@@ -228,17 +225,30 @@
     const autoResReward = rewards.some(r => r.kind === 'resources' || r.kind === 'favor');
     const safeAuto = rewards.length > 0 && rewards.every(r => isSafeQuestReward(r));
     const nextProgress = entry.progress != null ? entry.progress : prev.progress;
-    const nextCanClaim = entry.canClaim != null ? !!entry.canClaim : !!prev.canClaim;
+    const incomingKnown=entry.claimStateKnown===true,nextClaimStateKnown=incomingKnown?true:!!prev.claimStateKnown;
+    const incomingCanClaim = incomingKnown ? !!entry.canClaim : !!prev.canClaim;
+    const reviewReconciled = !!prev.claimReview && incomingKnown && entry.canClaim === false;
+    const nextClaimReview = reviewReconciled ? false : !!prev.claimReview;
+    const nextClaimedAt = +prev.claimedAt || (reviewReconciled ? Date.now() : 0);
+    const nextCanClaim = (nextClaimReview || nextClaimedAt) ? false : incomingCanClaim;
     const nextTitle = entry.title != null ? entry.title : prev.title;
     const nextName = entry.name != null ? entry.name : prev.name;
+    const nextTownId = entry.townId ? String(entry.townId) : String(prev.townId||'');
+    const nextModelName=entry.modelName||prev.modelName||'',nextIslandX=entry.islandX!=null?+entry.islandX:(prev.islandX??null),nextIslandY=entry.islandY!=null?+entry.islandY:(prev.islandY??null);
     const nextSig = questRewardsSig(rewards);
-    // Cheap equality - skip stringify + GM_setValue on every 12s ingest tick
+
     const unchanged = prev.questId != null
       && prev.progress === nextProgress
       && !!prev.canClaim === nextCanClaim
+      && !!prev.claimStateKnown === nextClaimStateKnown
       && !!prev.safeAuto === !!safeAuto
       && (prev.title || '') === (nextTitle || '')
       && (prev.name || '') === (nextName || '')
+      && String(prev.townId||'') === nextTownId
+      && String(prev.modelName||'')===String(nextModelName)
+      && (prev.islandX??null)===nextIslandX && (prev.islandY??null)===nextIslandY
+      && !!prev.claimReview === nextClaimReview
+      && (+prev.claimedAt||0) === nextClaimedAt
       && questRewardsSig(prev.rewards) === nextSig;
     if (unchanged) return prev;
     const merged = Object.assign({}, prev, entry, {
@@ -247,6 +257,14 @@
       autoBuildReward,
       autoResReward,
       safeAuto,
+      canClaim: nextCanClaim,
+      claimStateKnown: nextClaimStateKnown,
+      claimReview: nextClaimReview,
+      claimedAt: nextClaimedAt,
+      townId: nextTownId,
+      modelName:nextModelName,
+      islandX:nextIslandX,
+      islandY:nextIslandY,
     });
     state.questRewards[entry.questId] = merged;
     save(STORE.QUEST_REWARDS, state.questRewards);
@@ -272,7 +290,7 @@
       if (!obj || depth > 6) return;
       if (Array.isArray(obj)) { obj.forEach(x => walk(x, depth + 1)); return; }
       if (typeof obj !== 'object') return;
-      // reward-looking objects
+
       if (obj.power_id || obj.type === 'resources' || obj.type === 'favor' || (obj.rewards && Array.isArray(obj.rewards))) {
         const qid = String(obj.progressable_id || obj.quest_id || obj.id || hint || '');
         if (obj.rewards && Array.isArray(obj.rewards)) {
@@ -297,20 +315,28 @@
     };
     walk(data.json || data, 0);
   }
+  function questResolveTownId(entry) {
+    const ix=Number(entry&&entry.islandX),iy=Number(entry&&entry.islandY);
+    if(Number.isFinite(ix)&&Number.isFinite(iy)){try{const towns=gameUw().ITowns&&gameUw().ITowns.towns||{};for(const id of Object.keys(towns)){const p=ruralTownIslandXY(id);if(p&&Number(p.x)===ix&&Number(p.y)===iy)return String(id)}}catch(_){}}
+    const fallback=entry&&entry.townId;if(fallback&&/^\d+$/.test(String(fallback))&&abGetTown(String(fallback)))return String(fallback);return null;
+  }
+  function questClearReviewForTx(tx) {
+    const qid=tx&&tx.snapshot&&tx.snapshot.qid;if(qid==null)return false;let live=null;
+    try{live=questsFromGame().find(q=>String(q.questId)===String(qid)||String(q.progressableId)===String(qid))||null}catch(_){}if(!live||!live.claimStateKnown)return false;
+    let changed=false;for(const q of Object.values(state.questRewards||{})){if(!q||(String(q.questId)!==String(qid)&&String(q.progressableId)!==String(qid)))continue;q.claimReview=false;q.claimError='';q.claimStateKnown=true;q.canClaim=!!live.canClaim;q.claimedAt=live.canClaim?0:(q.claimedAt||Date.now());q.updatedAt=Date.now();changed=true}if(changed)save(STORE.QUEST_REWARDS,state.questRewards);return changed;
+  }
   function claimQuestViaBridge(entry, onDone) {
     const uw = gameUw();
     const pid = entry.progressableId || entry.questId;
     if (!pid || !(uw.gpAjax && uw.gpAjax.ajaxPost)) return onDone && onDone('noajax');
-    // model_url needs the model's own numeric id (130950), not the progressable
-    // NAME ('BuildCaveLevel5') - a name-keyed url never resolves, gpAjax never
-    // calls back, and the game pops its own error dialog on every retry.
-    const mid = /^\d+$/.test(String(entry.questId)) ? String(entry.questId) : String(pid);
-    if (!/^\d+$/.test(mid)) return onDone && onDone('no-numeric-id');
+    if(!/^\d+$/.test(String(pid)))return onDone&&onDone('no-numeric-id');
+    const townId=questResolveTownId(entry);if(!townId)return onDone&&onDone('town-unknown');
     const payload = {
-      model_url: 'IslandQuest/' + mid,
+      model_url: 'IslandQuests',
       action_name: 'claimReward',
-      arguments: { progressable_id: +pid || pid },
-      town_id: uw.Game && uw.Game.townId,
+      arguments: { reward_action:'stash',state:'closed',progressable_id:+pid },
+      town_id: +townId,
+      nl_init:true,
     };
     gbLog('quest bridge claim:', JSON.stringify(payload).slice(0, 200));
     bridgePost('quest', payload, (err, data) => {
@@ -325,6 +351,7 @@
     return ((info.updatedAt || 0) + QUEST_RESCAN_MS) < Date.now();
   }
   function clickQuestRow(row) {
+    if (state.dryRun) { gbLogT('quest-dry-dom', 60000, 'DRY-RUN quest: DOM row navigation suppressed'); return false; }
     const target = row?.querySelector('.headline') || row;
     if (!target) return false;
     target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
@@ -332,7 +359,7 @@
   }
   function chooseQuestRow(rows) {
     if (!rows.length) return null;
-    // priority: completed+claimable -> missing rewards -> stale -> round-robin
+
     const scored = rows.map(r => {
       const id = questKey(r);
       const info = state.questRewards[id];
@@ -350,20 +377,23 @@
     return rows[questCursor++];
   }
   function questAutoClaim(root, entry) {
-    if (gbLocked('quest-claim') || !entry?.canClaim) return;
+    if (questAutoBusy || !entry?.canClaim || entry.claimReview || entry.claimedAt) return;
     const rewards = entry.rewards || [];
-    // ALL rewards must be classified + permitted - mixed packs are never claimed
+
     if (!rewards.length || !rewards.every(isSafeQuestReward)) return;
+    if(entry.modelName!=='IslandQuest'){gbLogT('quest-contract-'+entry.questId,300000,'quest: generic/unknown progressable skipped');return}
+    if(!questResolveTownId(entry)){gbLogT('quest-town-'+entry.questId,300000,'quest: island town unresolved — fail closed');return}
     if (!state.questAutoBuild && !state.questAutoRes) return;
     if (questClaimBlocked(entry.questId)) {
       gbLogT('quest-block-' + entry.questId, 60000, 'quest: claim backoff active', entry.title || entry.questId);
       return;
     }
-    if (!gbLock('quest-claim')) return;
+    questAutoBusy = true;
     const kinds = rewards.map(r => r.kind).join(',');
+    const setClaimState=(review,err)=>{const cur=state.questRewards[entry.questId]||entry;cur.canClaim=false;cur.claimStateKnown=true;cur.claimReview=!!review;cur.claimedAt=review?0:Date.now();cur.claimError=review?String(err||'resultado desconocido'):'';cur.updatedAt=Date.now();state.questRewards[entry.questId]=cur;save(STORE.QUEST_REWARDS,state.questRewards)};
     const finish = (method, ok, err) => {
       if (ok) questClaimOk(entry.questId);
-      else questClaimFailed(entry.questId, err);
+      else if(!/^(?:timeout|timeout_unknown|pending)(?::|$)/.test(String(err||''))) questClaimFailed(entry.questId, err);
       pushQuestHistory({
         ts: Date.now(),
         questId: entry.questId,
@@ -374,40 +404,32 @@
         kinds,
       });
       gbLog(`quest: auto-claim ${ok ? 'OK' : 'fail'} via ${method}`, entry.title || entry.questId, kinds);
-      if (ok) flash('misión reclamada: ' + kinds);
-      gbTimeout(() => { gbUnlock('quest-claim'); questScanTick('post-claim'); renderQuests(); }, 2500);
+      if (ok) flash('quest claim: ' + kinds);
+      gbTimeout(() => { questAutoBusy = false; questScanTick('post-claim'); renderQuests(); }, 2500);
     };
     const questStillClaimable = () => {
-      const cur = state.questRewards[entry.questId];
-      if (cur && cur.canClaim === false) return false;
       try {
-        const live = questsFromGame().find(q => String(q.questId) === String(entry.questId));
-        if (live && live.canClaim === false) return false;
+        const live = questsFromGame().find(q => String(q.questId) === String(entry.questId)||String(q.progressableId)===String(entry.progressableId));
+        if (live && live.claimStateKnown) return !!live.canClaim;
       } catch (_) {}
-      return true;
+      const cur = state.questRewards[entry.questId];return cur&&cur.claimStateKnown?!!cur.canClaim:null;
     };
-    try {
-      claimQuestViaBridge(entry, (err) => {
-        // No DOM fallback - timeout/unknown must not claim a different quest
-        if (err === 'timeout') {
-          if (!questStillClaimable()) return finish('bridge-reconcile', true);
-          return finish('bridge', false, 'timeout_unknown');
-        }
-        if (err) return finish('bridge', false, err);
-        if (!questStillClaimable()) return finish('bridge', true);
-        // Response OK but quest still claimable -> ambiguous
-        return finish('bridge', false, 'unconfirmed');
-      });
-    } catch (e) {
-      gbUnlock('quest-claim');
-      gbLog('quest: claim threw', String(e).slice(0, 120));
-    }
+    claimQuestViaBridge(entry, (err) => {
+      if (/^(?:timeout|timeout_unknown|pending)(?::|$)/.test(String(err||''))) {
+        if (questStillClaimable()===false) {setClaimState(false);return finish('bridge-reconcile', true)}
+        setClaimState(true,err);return finish('bridge-review', false, err||'timeout_unknown');
+      }
+      if (err) return finish('bridge', false, err);
+      // A successful server callback is authoritative even if the local model
+      // has not refreshed yet. Persist a tombstone so stale cache cannot retry.
+      setClaimState(false);return finish('bridge', true);
+    });
   }
   function questSnapshot(row, rewards, canClaim) {
     const questId = questKey(row);
     const headline = row?.querySelector('.headline');
     const progress = questProgress(row);
-    const entry = {
+    const claimStateKnown=!!canClaim||(progress!=null&&progress<100);const entry = {
       questId,
       progressableId: headline?.dataset?.questProgressableId || row?.dataset?.questProgressableId || '',
       name: row?.dataset?.questName || '',
@@ -415,8 +437,12 @@
       progress,
       updatedAt: Date.now(),
       selected: !!row?.classList.contains('selected'),
-      canClaim: !!canClaim && progress != null && progress >= 100,
+      canClaim: claimStateKnown?!!canClaim:null,
+      claimStateKnown,
       rewards: rewards || [],
+      townId: String(abCurrentTownId()||''),
+      townEvidence:'dom-current',
+      fromDom:true,
     };
     entry.autoBuildReward = entry.rewards.some(r => r.kind === 'build-cost-reduction');
     entry.autoResReward = entry.rewards.some(r => r.kind === 'resources' || r.kind === 'favor');
@@ -427,14 +453,18 @@
     const root = questRewardRoot();
     let rewards = questRewardsFromDom(root);
     const id = questKey(row);
-    // prefer model rewards if richer
-    const fromGame = questsFromGame().find(q => q.questId === id || String(q.progressableId).includes(id));
+
+    const idMatch=v=>{const a=String(v==null?'':v),b=String(id);if(a===b)return true;const esc=b.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');return new RegExp(`(?:^|[^A-Za-z0-9])${esc}(?:$|[^A-Za-z0-9])`).test(a)};
+    const fromGame = questsFromGame().find(q => idMatch(q.questId) || idMatch(q.progressableId));
     if (fromGame && fromGame.rewards && fromGame.rewards.length) {
       rewards = fromGame.rewards;
     }
     const entry = questSnapshot(row, rewards, !!questActionButton(root) || !!(fromGame && fromGame.canClaim));
-    if (fromGame && fromGame.progress != null && entry.progress == null) entry.progress = fromGame.progress;
-    if (fromGame && fromGame.canClaim) entry.canClaim = entry.canClaim || (entry.progress != null && entry.progress >= 100) || fromGame.canClaim;
+    if (fromGame) {
+      if(fromGame.progress != null && entry.progress == null)entry.progress=fromGame.progress;
+      if(fromGame.claimStateKnown){entry.claimStateKnown=true;entry.canClaim=!!fromGame.canClaim}
+      entry.modelName=fromGame.modelName;entry.islandX=fromGame.islandX;entry.islandY=fromGame.islandY;entry.progressableId=fromGame.progressableId||entry.progressableId;
+    }
     mergeQuestEntry(entry);
     questAutoClaim(root, state.questRewards[entry.questId]);
   }
@@ -442,46 +472,42 @@
     questsFromGame().forEach(q => mergeQuestEntry(q));
   }
   function questScanTick(reason) {
-    if (!hostEnabled() || gbLocked('quest-scan')) return;
+    if (!hostEnabled() || questScanBusy) return;
     bindQuestObserver();
     ingestGameQuests();
-    // try claim completed safe quests from models without DOM
-    if (!gbLocked('quest-claim')) {
-      const claimable = Object.values(state.questRewards).filter(e => {
-        if (!(e.canClaim && e.safeAuto)) return false;
-        try {
-          const last = gbRecall('quest', null, e.questId);
-          if (last && last.r && last.r !== 'ok' && (Date.now() - last.ts) < 120000) return false;
-        } catch (_) {}
-        return true;
-      });
+
+    if (!questAutoBusy) {
+      const claimable = Object.values(state.questRewards).filter(e => e.canClaim && e.safeAuto);
       if (claimable.length) {
         questAutoClaim(questRewardRoot(), claimable[0]);
       }
     }
     const rows = questRows();
     if (!rows.length) { renderQuests(); return; }
-    const row = chooseQuestRow(rows);
+    // Never change the player's selected quest during a background scan. Game
+    // models are ingested for every row; DOM-only reward details are learned
+    // from whichever quest the player is already viewing.
+    const row = questSelectedRow(rows);
     if (!row) { renderQuests(); return; }
-    if (!gbLock('quest-scan')) return;
-    const finish = () => { gbUnlock('quest-scan'); renderQuests(); };
-    if (!row.classList.contains('selected')) {
-      clickQuestRow(row);
-      gbTimeout(() => {
-        try { questCaptureCurrent(questSelectedRow(questRows()) || row); }
-        finally { finish(); }
-      }, 450);
-      return;
-    }
+    questScanBusy = true;
+    const finish = () => { questScanBusy = false; renderQuests(); };
     try { questCaptureCurrent(row); }
     finally { finish(); }
   }
   function bindQuestObserver() {
     const container = document.querySelector('.quests, #questlog');
-    if (!container) { questMo = null; return; }
-    if (questMo) return;
+    if (!container) {
+      if (questMo) { try { questMo.disconnect(); } catch (_) {} }
+      questMo = null;
+      questMoContainer = null;
+      return;
+    }
+    if (questMo && questMoContainer === container && container.isConnected) return;
+    if (questMo) { try { questMo.disconnect(); } catch (_) {} }
+    questMoContainer = container;
     questMo = new MutationObserver(() => {
-      clearTimeout(bindQuestObserver._t);
+      if (!gbInstanceAlive()) return;
+      gbClearTimeout(bindQuestObserver._t);
       bindQuestObserver._t = gbTimeout(() => questScanTick('mutation'), 400);
     });
     questMo.observe(container, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
@@ -491,7 +517,9 @@
       try { questMo.disconnect(); } catch (_) {}
       questMo = null;
     }
-    clearTimeout(bindQuestObserver._t);
+    questMoContainer = null;
+    gbClearTimeout(bindQuestObserver._t);
+    bindQuestObserver._t = null;
   }
   try {
     const _uw = (typeof unsafeWindow !== 'undefined' && unsafeWindow) ? unsafeWindow : window;
@@ -508,13 +536,13 @@
     if (!entries.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#888;padding:6px 0';
-      e.textContent = 'aún no hay misiones aprendidas - abre el diario de misiones o espera al escaneo';
+      e.textContent = 'no quests learned yet - open quest log or wait for scan';
       list.appendChild(e);
     } else {
       const hdr = document.createElement('div');
       hdr.className = 'quest-row';
       hdr.style.color = '#888';
-      ['misión', '%', 'recompensas', 'auto'].forEach(t => {
+      ['quest', '%', 'rewards', 'auto'].forEach(t => {
         const s = document.createElement('span');
         s.textContent = t;
         hdr.appendChild(s);
@@ -525,8 +553,8 @@
         row.className = 'quest-row';
         const kinds = (q.rewards || []).map(r => r.kind).filter(Boolean);
         const uniq = Array.from(new Set(kinds)).join(',') || '-';
-        const auto = q.safeAuto ? (q.canClaim ? 'RECLAMAR' : 'sí') : 'no';
-        const autoColor = auto === 'RECLAMAR' ? '#6dda7e' : (auto === 'sí' ? '#fc6' : '#888');
+        const auto = q.claimReview?'REVIEW':(q.safeAuto ? (q.canClaim ? 'CLAIM' : 'yes') : 'no');
+        const autoColor = auto === 'CLAIM' ? '#6dda7e' : (auto === 'REVIEW'?'#ff9d62':(auto === 'yes' ? '#fc6' : '#888'));
         const title = (q.title || q.name || q.questId || '').slice(0, 28);
         const c1 = document.createElement('span');
         c1.title = String(q.questId || '');
@@ -549,7 +577,14 @@
         const kinds = h.kinds || (h.rewards || []).map(r => r.kind).join(',');
         return `${when} ${h.autoClaimed ? 'OK' : 'NO'} ${h.method || '?'} ${(h.title || h.questId || '').slice(0, 24)} [${kinds}]`;
       });
-      hist.textContent = lines.join('\n') || '(vacío)';
+      hist.textContent = lines.join('\n') || '(empty)';
     }
   }
 
+  const ATTACK_HISTORY_MAX = 50;
+  const ATTACK_ROLE_OFFENSE = '__attack_offense';
+  const ATTACK_ROLE_DEFENSE = '__attack_defense';
+  const HARASS_CAPS = { '1sling': 1, '5sling': 5, light: 8 };
+  const HARASS_PREF = ['slinger', 'rider', 'archer', 'hoplite', 'sword'];
+  let attackArmed = null;
+  let attackPreviewRows = [];

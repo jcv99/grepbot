@@ -1,8 +1,3 @@
-  // ---------- rural trade (8.4) + rural level (8.5) ----------
-  // ModernBot: FarmTownPlayerRelation/{id} action trade|unlock|upgrade
-  const RURAL_TRADE_MS = 90000;
-  const RURAL_LEVEL_MS = 120000;
-
   function ruralRelModels() {
     try {
       const uw = gameUw();
@@ -49,9 +44,7 @@
       town_id: +townId,
     }, onDone);
   }
-  // A relation that was just traded with is on a cooldown; the client parks the
-  // next-allowed stamp on the relation model under a build-specific name. Unknown
-  // field -> null -> no block (server stays the authority).
+
   function ruralTradeReadyAt(a) {
     const v = gbProbeAttr(a, ['trade_at', 'tradeable_at', 'next_trade_at', 'lootable_at']);
     return v != null && v > 0 ? v : null;
@@ -60,7 +53,7 @@
     if (!hostEnabled() || !state.autoRuralTrade || captchaPaused('ruraltrade')) return;
     if (automationPaused({})) return;
     if (gbLocked('rural-trade')) return;
-    // Prefer rural trade when warehouse blocked (claim would skip)
+
     const wantRes = state.ruralTradeRes || 'iron';
     const minRatio = +state.ruralTradeRatio || 1.0;
     const relations = ruralRelModels();
@@ -81,14 +74,11 @@
       try { tradeCap = +xy.t.getAvailableTradeCapacity(); } catch (_) {}
       if (tradeCap < 500) continue;
       capLeft[tid] = tradeCap;
-      // The trade *receives* `wantRes` into this town. If that stock is already
-      // at capacity the haul evaporates on arrival, so spend the freighters
-      // elsewhere. (Warehouse-full is the reason rural trade exists - but only
-      // for the resources that still have room.)
+
       const st = townResState(tid);
       if (st && st.full && st.full[wantRes]) {
         gbLogT('ruraltrade-full-' + tid, 120000,
-          `rural-trade: town ${tid} ${wantRes} already at capacity - skip`);
+          `rural-trade: town ${tid} ${wantRes} already at capacity — skip`);
         continue;
       }
       const now = gameNow();
@@ -97,7 +87,7 @@
         const a = rel.attributes || {};
         if (+a.relation_status !== 1) continue;
         const readyAt = ruralTradeReadyAt(a);
-        if (readyAt != null && readyAt > now) continue; // still on trade cooldown
+        if (readyAt != null && readyAt > now) continue;
         const ft = farmById[a.farm_town_id];
         if (!ft) continue;
         if (ft.island_x !== xy.x || ft.island_y !== xy.y) continue;
@@ -115,20 +105,22 @@
       gbLogT('ruraltrade-idle', 180000, `rural-trade: idle (${reason || 'scan'})`);
       return;
     }
-    gbLock('rural-trade');
+    const ruralTradeLock = gbLock('rural-trade', Math.max(180000, jobs.length * 30000));
+    if (!ruralTradeLock) return;
     let i = 0, done = 0;
     (function next() {
       if (i >= jobs.length) {
-        gbUnlock('rural-trade');
+        gbUnlock('rural-trade', ruralTradeLock);
         if (done) gbLog(`rural-trade: ${done}/${jobs.length}`);
         return;
       }
       const j = jobs[i++];
+      gbLockTouch('rural-trade', ruralTradeLock);
       ruralTradePost(j.relId, j.farmId, j.amount, j.townId, (err) => {
-        if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('rural-trade'); return; }
+        if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('rural-trade', ruralTradeLock); return; }
         if (!err) {
           done++;
-          gbLog(`rural-trade: town ${j.townId} farm ${j.farmId} amt ${j.amount} (>=${minRatio})`);
+          gbLog(`rural-trade: town ${j.townId} farm ${j.farmId} amt ${j.amount} (≥${minRatio})`);
         }
         gbTimeout(next, 700 + Math.random() * 400);
       });
@@ -170,7 +162,7 @@
       }
     } catch (_) {}
     const locked = relations.filter(r => +((r.attributes || {}).relation_status) === 0);
-    // Unlock and upgrade are independent candidates - don't block upgrades while locked villages remain.
+
     const candidates = [];
     if (locked.length) {
       const unlocked = relations.length - locked.length;
@@ -198,7 +190,7 @@
         if (!xy) continue;
         for (const rel of relations) {
           const a = rel.attributes || {};
-          if (+a.relation_status !== 1) continue; // only upgrade unlocked
+          if (+a.relation_status !== 1) continue;
           if (a.expansion_at) continue;
           const stage = +a.expansion_stage || 0;
           if (stage > level) continue;
@@ -212,18 +204,22 @@
       }
       if (candidates.some(c => c.kind === 'upgrade')) break;
     }
-    // Prefer unlock when both affordable; else first candidate
+
     const job = candidates.find(c => c.kind === 'unlock') || candidates[0] || null;
     if (!job) {
       gbLogT('rurallevel-idle', 180000, `rural-level: idle (${reason || 'scan'})`);
       return;
     }
-    gbLock('rural-level');
+    const ruralLevelLock = gbLock('rural-level', 180000);
+    if (!ruralLevelLock) return;
     const done = (err) => {
-      gbUnlock('rural-level');
+      gbUnlock('rural-level', ruralLevelLock);
       if (!err) gbLog(`rural-level: ${job.kind} farm ${job.farmId} town ${job.townId}`);
       else gbLogT('rurallevel-err', 60000, `rural-level err ${err}`);
     };
     if (job.kind === 'unlock') ruralUnlock(job.relId, job.farmId, job.townId, done);
     else ruralUpgrade(job.relId, job.farmId, job.townId, done);
   }
+
+  const RESEARCH_CHECK_MS = 45000;
+  const RESEARCH_CS_FAST = ['booty', 'ceramics', 'architecture', 'crane', 'shipwright', 'colonize_ship', 'mathematics'];

@@ -1,8 +1,3 @@
-  // ---------- academy research queue (Phase 8.6) ----------
-  // Prefer sniffed bridge; fallback building_academy/research { id: tech, town_id }
-  const RESEARCH_CHECK_MS = 45000;
-  const RESEARCH_CS_FAST = ['booty', 'ceramics', 'architecture', 'crane', 'shipwright', 'colonize_ship', 'mathematics'];
-
   function researchEnsureTargets() {
     if (state.researchTargets && typeof state.researchTargets === 'object') return state.researchTargets;
     const t = {};
@@ -37,9 +32,7 @@
       return { town: t, techs: res, academy: acad, orders };
     } catch (_) { return null; }
   }
-  // Localized display label for a research id. Server tech ids stay English on
-  // the wire (`rural_loyalty`, `conscription`, ...) whatever the client locale, so
-  // the only place a translated string exists is GameData.
+
   function researchLabel(key) {
     try {
       const uw = gameUw();
@@ -48,20 +41,14 @@
     } catch (_) {}
     return '';
   }
-  // ---------- affordability preconditions ----------
-  // `researchDepsOk` below covers building/research dependencies. What it never
-  // checked is whether the town can actually pay: research points and the three
-  // resources. Posting a tech the town cannot afford is a guaranteed server
-  // rejection that still burns a request-budget slot on every scan.
-  // Every read is a probe list; an unreadable field means "unknown", so the
-  // check steps aside and lets the server be the authority (see core `gbAfford`).
+
   function researchDef(tech) {
     try {
       const uw = gameUw();
       return (uw.GameData && uw.GameData.researches && uw.GameData.researches[tech]) || null;
     } catch (_) { return null; }
   }
-  // -> { wood, stone, iron } or null when the client exposes no cost table.
+
   function researchCost(tech) {
     const d = researchDef(tech);
     if (!d) return null;
@@ -77,7 +64,7 @@
   function researchPointCost(tech) {
     const d = researchDef(tech);
     if (!d) return null;
-    const v = gbProbeAttr(d, ['research_points', 'points', 'research_point_cost']);
+    const v = gbProbeAttr(d, ['research_points', 'research_points_cost', 'points', 'research_point_cost']);
     return v != null && v > 0 ? v : null;
   }
   function researchPointsAvailable(townId, info) {
@@ -96,22 +83,17 @@
     } catch (_) {}
     return null;
   }
-  // Can this town pay for this tech right now?
-  // -> { ok, why } - `why` is null on ok, else a short reason for the log.
+
   function researchCanAfford(townId, tech, info) {
     const needPts = researchPointCost(tech);
-    if (needPts != null) {
-      const have = researchPointsAvailable(townId, info);
-      if (have != null && have < needPts) return { ok: false, why: `points ${have}/${needPts}` };
-    }
+    if (needPts == null) return { ok: false, why: 'research point cost unreadable' };
+    const have = researchPointsAvailable(townId, info);
+    if (have == null) return { ok: false, why: 'available research points unreadable' };
+    if (have < needPts) return { ok: false, why: `points ${have}/${needPts}` };
     const cost = researchCost(tech);
-    if (!cost) {
-      gbLogT('research-nocost-' + tech, 900000,
-        `research: no cost data for ${tech} - resource check skipped, server decides`);
-      return { ok: true, why: null };
-    }
+    if (!cost) return { ok: false, why: 'resource cost unreadable' };
     const aff = gbAfford(townId, cost);
-    if (!aff.ok) return { ok: false, why: aff.detail };
+    if (!aff.ok) return { ok: false, why: aff.detail || 'resources unreadable/insufficient' };
     return { ok: true, why: null };
   }
   function researchPost(townId, techId, onDone) {
@@ -123,48 +105,56 @@
   function researchOrderTechId(order) {
     try {
       const a = (order && order.attributes) || order || {};
-      return a.research_id || a.research || a.type || a.id || null;
+      return a.research_type || a.research_id || a.research || a.type || a.id || null;
     } catch (_) { return null; }
   }
   function researchDepsOk(townId, info, tech) {
     try {
       const uw = gameUw();
       const def = uw.GameData && uw.GameData.researches && uw.GameData.researches[tech];
-      if (!def) return true; // no metadata - don't invent blocks
+      if (!def || !info || !info.techs || !info.town) return false;
       const rdeps = def.research_dependencies || def.dependencies || [];
-      for (const d of rdeps) {
-        const id = typeof d === 'string' ? d : (d && (d.id || d.research_id));
+      const depList = Array.isArray(rdeps) ? rdeps : Object.keys(rdeps || {}).filter(k => rdeps[k]);
+      for (const d of depList) {
+        const id = typeof d === 'string' ? d : (d && (d.id || d.research_id || d.research_type));
         if (id && !info.techs[id]) return false;
       }
-      const bdeps = def.building_dependencies || {};
+      const bdeps = def.building_dependencies || def.required_buildings || {};
       let buildings = null;
       try {
-        buildings = info.town.getBuildings
-          ? info.town.getBuildings().attributes || info.town.getBuildings()
-          : (info.town.buildings && info.town.buildings().attributes) || {};
-      } catch (_) { buildings = {}; }
-      for (const b of Object.keys(bdeps)) {
-        const need = +bdeps[b] || 0;
-        const have = +((buildings && (buildings[b] || (buildings.attributes && buildings.attributes[b]))) || 0);
+        const b = info.town.getBuildings ? info.town.getBuildings() : (info.town.buildings && info.town.buildings());
+        buildings = b && (b.attributes || b);
+      } catch (_) { buildings = null; }
+      if (!buildings) return false;
+      for (const b of Object.keys(bdeps || {})) {
+        const raw = bdeps[b];
+        const need = +(raw && typeof raw === 'object' ? (raw.level ?? raw.min_level ?? raw.value) : raw) || 0;
+        const have = +(buildings[b] || 0);
         if (have < need) return false;
       }
-      // Block when cost fields exist but are null/unknown
-      const res = def.resources;
-      if (res && typeof res === 'object') {
-        if (res.wood == null || res.stone == null || res.iron == null) return false;
-      }
-      if (def.research_points == null && def.resources == null && Object.prototype.hasOwnProperty.call(def, 'resources')) {
-        return false;
-      }
+      const academyNeed = +(def.academy_level ?? def.required_academy_level ?? def.building_level ?? def.level ?? 0);
+      if (academyNeed > 0 && +info.academy < academyNeed) return false;
+      const res = def.resources || def.costs || def.cost;
+      if (!res || res.wood == null || res.stone == null || res.iron == null) return false;
+      if (researchPointCost(tech) == null) return false;
       return true;
-    } catch (_) { return true; }
+    } catch (_) { return false; }
   }
+  function researchValidateJob(job) {
+    const info = researchTownTechs(job.townId);
+    if (!info || !(info.academy > 0)) return { ok: false, why: 'research state unreadable' };
+    if (info.techs && info.techs[job.tech]) return { ok: false, why: 'already researched' };
+    if ((info.orders || []).some(o => String(researchOrderTechId(o)) === String(job.tech))) return { ok: false, why: 'already queued' };
+    if ((info.orders || []).length >= 2) return { ok: false, why: 'queue full' };
+    if (!researchDepsOk(job.townId, info, job.tech)) return { ok: false, why: 'dependencies unavailable/unmet' };
+    return researchCanAfford(job.townId, job.tech, info);
+  }
+
   function researchScan(reason) {
     if (!hostEnabled() || !state.autoResearch || captchaPaused('research')) return;
     if (automationPaused({})) return;
     if (gbLocked('research')) return;
-    const targets = researchEnsureTargets();
-    const ordered = Object.keys(targets).sort((a, b) => (+targets[a].order || 0) - (+targets[b].order || 0));
+    const globalTargets = researchEnsureTargets();
     let townIds = [];
     try {
       const uw = gameUw();
@@ -172,9 +162,11 @@
     } catch (_) {}
     let job = null;
     for (const tid of townIds) {
+      const targets = goalEffectiveResearchTargets(tid, globalTargets);
+      const ordered = Object.keys(targets).sort((a, b) => (+targets[a].order || 0) - (+targets[b].order || 0));
       const info = researchTownTechs(tid);
       if (!info || !(info.academy > 0)) continue;
-      const queueMax = 2; // free slot; curator may allow more - keep conservative
+      const queueMax = 2;
       if (info.orders.length >= queueMax) continue;
       const queued = new Set();
       info.orders.forEach(o => {
@@ -182,8 +174,8 @@
         if (id != null) queued.add(String(id));
       });
       for (const tech of ordered) {
-        if (info.techs[tech]) continue; // already researched
-        if (queued.has(String(tech))) continue; // already in academy queue
+        if (info.techs[tech]) continue;
+        if (queued.has(String(tech))) continue;
         const tgt = targets[tech];
         if (!tgt || !tgt.tgt) continue;
         if (!researchDepsOk(tid, info, tech)) continue;
@@ -202,10 +194,13 @@
       gbLogT('research-idle', 180000, `research: idle (${reason || 'scan'})`);
       return;
     }
-    gbLock('research');
+    const valid = researchValidateJob(job);
+    if (!valid.ok) { gbLogT('research-stale-' + job.townId + '-' + job.tech, 60000, `research: final precheck blocked (${valid.why})`); return; }
+    const lockToken = gbLock('research');
+    if (!lockToken) return;
     researchPost(job.townId, job.tech, (err) => {
-      gbUnlock('research');
-      if (!err) gbLog(`research: town ${job.townId} -> ${job.tech}`);
+      gbUnlock('research', lockToken);
+      if (!err) gbLog(`research: town ${job.townId} → ${job.tech}`);
       else gbLogT('research-err', 60000, `research err ${err}`);
     });
   }
@@ -216,3 +211,6 @@
     save(STORE.RESEARCH_TARGETS, t);
     gbLog('research: loaded CS-fast tech list');
   }
+
+  const alertLastSent = Object.create(null);
+  const alertPending = Object.create(null);

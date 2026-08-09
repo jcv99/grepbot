@@ -1,11 +1,10 @@
-  // ---------- sortable tables (Phase 3) ----------
   function makeSortable(table, rowDataFn) {
     const thead = table.querySelector('thead');
     if (!thead) return;
     thead.querySelectorAll('th').forEach((th, col) => {
       if (th.dataset.nosort) return;
       th.style.cursor = 'pointer';
-      th.title = 'ordenar';
+      th.title = 'sort';
       th.addEventListener('click', () => {
         const tbody = table.querySelector('tbody') || table;
         const rows = Array.from(tbody.querySelectorAll('tr'));
@@ -28,17 +27,11 @@
     if (!el) return;
     const sec = farmSleepDuration();
     const known = farmOptionFor(sec) != null;
-    el.textContent = `${farmDurLabel(sec)} | ${known ? 'opción ' + farmOptionFor(sec) : 'sin aprender - recoge una vez ese temporizador en el juego'}` +
-      ` | auto ${state.farmSleepAuto ? 'ON' : 'OFF'}${state.farmSleepDay ? ' | última ' + state.farmSleepDay : ''}`;
+    el.textContent = `${farmDurLabel(sec)} | ${known ? 'option ' + farmOptionFor(sec) : 'not learned - click that timer once in game'}` +
+      ` | auto ${state.farmSleepAuto ? 'ON' : 'OFF'}${state.farmSleepDay ? ' | last ' + state.farmSleepDay : ''}`;
     el.style.color = known ? '#888' : '#fc6';
-    try { renderFarmTeachBanner(); } catch (_) {}
   }
-  // ---------- keyed table rendering (v1.4.0) ----------
-  // renderFarms/renderWorld ran `replaceChildren()` on every scrape callback and
-  // every 15s repaint: full table teardown, new nodes, new listeners, lost sort
-  // order and lost scroll position. Rows are now keyed by id - the table is only
-  // rebuilt when the id set itself changes, otherwise cells are patched in place
-  // and untouched cells are never written.
+
   function tableShell(list, headers) {
     let table = list.querySelector('table');
     if (!table) {
@@ -94,13 +87,12 @@
     const list = panel.querySelector('.farms-list');
     if (!list) return;
     if (!state.farmsParsed.length) {
-      if (!list.querySelector('div')) placeholder(list, 'aún no hay granjas - añade líneas vill_id abajo');
+      if (!list.querySelector('div')) placeholder(list, 'no farms parsed yet - add vill_id lines below');
       return;
     }
-    const table = tableShell(list, ['id', 'nombre', 'Ma', 'Pi', 'Pl', 'pob', 'visto', '']);
+    const table = tableShell(list, ['id', 'name', 'W', 'S', 'I', 'pop', 'seen', '']);
     const tbody = table.querySelector('tbody');
-    // Membership, not order: a user-clicked column sort reorders the DOM rows
-    // and must survive the next repaint.
+
     const wanted = state.farmsParsed.map(f => String(f.vill_id));
     const have = new Set(Array.from(tbody.children).map(tr => tr.dataset.key));
     const sameSet = have.size === wanted.length && wanted.every(k => have.has(k));
@@ -116,8 +108,10 @@
         tr.dataset.key = key;
         cells.forEach(() => tr.appendChild(document.createElement('td')));
         const actions = document.createElement('td');
+        // Farm-town attacks use a different game path than Town/sendUnits. The old ATK button
+        // prepared an objective that the sender intentionally refuses, so it is removed fail-closed.
         const thrBtn = document.createElement('button');
-        thrBtn.textContent = 'UMB'; thrBtn.title = 'Fijar umbral';
+        thrBtn.textContent = 'THR'; thrBtn.title = 'Set threshold';
         thrBtn.style.cssText = 'background:none;border:1px solid #555;color:#fc6;padding:1px 5px;cursor:pointer;font-size:11px';
         thrBtn.addEventListener('click', () => editThreshold(f));
         actions.appendChild(thrBtn);
@@ -150,8 +144,8 @@
       if (r.iron != null) i += r.iron;
       if (r.pop != null) p += r.pop;
     }
-    const head = `${state.towns.length} ciudades | ${okN} ok`;
-    const res = `Madera ${fmt(w)} | Piedra ${fmt(s)} | Plata ${fmt(i)} | Pob ${fmt(p)}`;
+    const head = `${state.towns.length} towns | ${okN} ok`;
+    const res = `Wood ${fmt(w)} | Stone ${fmt(s)} | Iron ${fmt(i)} | Pop ${fmt(p)}`;
     if (head + res !== _worldTotalsLast) {
       _worldTotalsLast = head + res;
       totals.replaceChildren();
@@ -165,10 +159,10 @@
       totals.appendChild(totalsR);
     }
     if (!state.towns.length) {
-      if (!list.querySelector('div')) placeholder(list, 'aún no hay ciudades - pulsa Actualizar ciudades');
+      if (!list.querySelector('div')) placeholder(list, 'no towns loaded yet - click Refresh towns');
       return;
     }
-    const table = tableShell(list, ['id', 'nombre', 'Ma', 'Pi', 'Pl', 'pob', 'visto']);
+    const table = tableShell(list, ['id', 'name', 'W', 'S', 'I', 'pop', 'seen']);
     const tbody = table.querySelector('tbody');
     const wanted = state.towns.map(t => String(t.id));
     const have = new Set(Array.from(tbody.children).map(tr => tr.dataset.key));
@@ -206,26 +200,27 @@
     return String(n);
   }
 
-  // ---------- UI ----------
   const PANEL_MIN_W = 360, PANEL_MIN_H = 200, PANEL_SQ = 40;
   const TAB_GROUPS = [
-    { id: 'scout', label: 'Explorar', tabs: [
-      { id: 'findings', label: 'Hallazgos' },
-      { id: 'farms', label: 'Granjas' },
-      { id: 'world', label: 'Mundo' },
-    ]},
-    { id: 'action', label: 'Acción', tabs: [
-      { id: 'attack', label: 'Ataque' },
-      { id: 'quests', label: 'Misiones' },
-      { id: 'build', label: 'Construir' },
-    ]},
-    { id: 'account', label: 'Cuenta', tabs: [
+    { id: 'home', label: 'Inicio', tabs: [
       { id: 'overview', label: 'Resumen' },
-      { id: 'intel', label: 'Intel' },
+    ]},
+    { id: 'economy', label: 'Economía', tabs: [
+      { id: 'world', label: 'Ciudades' },
+      { id: 'farms', label: 'Aldeas' },
+      { id: 'build', label: 'Construcción' },
+      { id: 'quests', label: 'Misiones' },
+    ]},
+    { id: 'military', label: 'Militar', tabs: [
+      { id: 'attack', label: 'Ataques' },
+      { id: 'intel', label: 'Inteligencia' },
+    ]},
+    { id: 'data', label: 'Datos', tabs: [
+      { id: 'findings', label: 'Hallazgos' },
     ]},
     { id: 'system', label: 'Sistema', tabs: [
-      { id: 'config', label: 'Config' },
-      { id: 'stats', label: 'Estadísticas' },
+      { id: 'config', label: 'Ajustes' },
+      { id: 'stats', label: 'Diagnóstico' },
       { id: 'log', label: 'Registro' },
     ]},
   ];
@@ -281,7 +276,7 @@
     if (btn) btn.textContent = '_';
     state.panelGeom = null;
     save(STORE.PANEL_GEOM, null);
-    flash('panel reiniciado');
+    flash('panel reset');
   }
 
   function paintNav(activeTab) {
@@ -318,7 +313,7 @@
 
   function showTab(tabId, opts) {
     if (!panel) return;
-    if (!TAB_IDS.includes(tabId)) tabId = 'findings';
+    if (!TAB_IDS.includes(tabId)) tabId = 'overview';
     const force = !!(opts && opts.force);
     const same = state.activeTab === tabId && !force;
     const group = tabGroupOf(tabId);
@@ -361,21 +356,21 @@
   }
 
   GM_addStyle(`
-    #grepbot-panel{position:fixed;top:8px;right:8px;width:420px;min-width:360px;max-height:70vh;z-index:2147483647;
-      background:#1f1f1f;color:#eee;font:12px/1.4 monospace;border:1px solid #555;border-radius:6px;
+    #grepbot-panel{position:fixed;top:10px;right:10px;width:560px;min-width:430px;max-width:92vw;max-height:82vh;z-index:2147483647;
+      background:#181a1f;color:#eef1f5;font:12px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;border:1px solid #414650;border-radius:10px;
       box-shadow:0 4px 16px rgba(0,0,0,.5);display:flex;flex-direction:column;visibility:visible !important;opacity:1 !important;
       box-sizing:border-box;}
-    #grepbot-panel header{padding:6px 10px;background:#2a2a2a;cursor:move;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+    #grepbot-panel header{padding:8px 10px;background:#22252b;cursor:move;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-shrink:0;border-radius:10px 10px 0 0}
     #grepbot-panel header b{color:#f5a623;font-weight:600}
     #grepbot-panel header button{background:none;border:1px solid #555;color:#eee;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:11px}
-    #grepbot-panel .gb-nav{display:flex;gap:2px;padding:4px 6px 0;background:#262626;flex-shrink:0;border-bottom:1px solid #333}
-    #grepbot-panel .gb-nav button{flex:0 0 auto;padding:5px 10px;background:transparent;border:0;border-bottom:2px solid transparent;color:#888;cursor:pointer;font:11px monospace}
+    #grepbot-panel .gb-nav{display:flex;gap:4px;padding:7px 8px 5px;background:#202329;flex-shrink:0;border-bottom:1px solid #353a44;overflow-x:auto}
+    #grepbot-panel .gb-nav button{flex:0 0 auto;padding:5px 10px;background:#292d35;border:1px solid transparent;border-radius:7px;color:#aeb5c0;cursor:pointer;font:600 11px system-ui,-apple-system,Segoe UI,sans-serif}
     #grepbot-panel .gb-nav button:hover{color:#ccc}
-    #grepbot-panel .gb-nav button.on{color:#f5a623;border-bottom-color:#f5a623}
-    #grepbot-panel .gb-subtabs{display:flex;gap:2px;padding:4px 6px;background:#1a1a1a;border-bottom:1px solid #444;flex-shrink:0;overflow-x:auto}
-    #grepbot-panel .gb-subtabs button{flex:0 0 auto;padding:4px 10px;background:#262626;border:1px solid #333;border-radius:3px;color:#aaa;cursor:pointer;font:11px monospace;white-space:nowrap}
+    #grepbot-panel .gb-nav button.on{color:#fff;background:#3a321f;border-color:#c98b22}
+    #grepbot-panel .gb-subtabs{display:flex;gap:4px;padding:5px 8px;background:#17191e;border-bottom:1px solid #353a44;flex-shrink:0;overflow-x:auto}
+    #grepbot-panel .gb-subtabs button{flex:0 0 auto;padding:4px 9px;background:transparent;border:1px solid transparent;border-radius:6px;color:#9fa7b3;cursor:pointer;font:11px system-ui,-apple-system,Segoe UI,sans-serif;white-space:nowrap}
     #grepbot-panel .gb-subtabs button:hover{color:#eee;border-color:#555}
-    #grepbot-panel .gb-subtabs button.on{background:#333;color:#fff;border-color:#f5a623}
+    #grepbot-panel .gb-subtabs button.on{background:#2b3038;color:#fff;border-color:#59616f}
     #grepbot-panel section{padding:8px 10px;overflow:auto;flex:1;min-height:0}
     #grepbot-panel footer{padding:6px 10px;border-top:1px solid #444;display:flex;gap:8px;align-items:center;flex-shrink:0;position:relative}
     #grepbot-panel footer .gb-status-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex:1;min-width:0;font-size:10px}
@@ -421,18 +416,14 @@
     #grepbot-panel .finding .meta{color:#888;margin-bottom:3px}
     #grepbot-panel .finding .units{color:#6cf}
     #grepbot-panel .finding .res{color:#f96}
-    /* log tab fills the panel: section is the flex column, list/journal take the slack */
-    #grepbot-panel section[data-tab=log]{display:flex;flex-direction:column;overflow:hidden}
-    #grepbot-panel section[data-tab=log][hidden]{display:none}
-    #grepbot-panel .log-list{flex:1 1 auto;min-height:120px;overflow:auto;font-size:10px;white-space:pre-wrap;word-break:break-word;color:#9d9;background:#111;padding:4px;border:1px solid #333}
-    #grepbot-panel .gb-logsub{display:flex;gap:4px;align-items:center;margin-bottom:4px;flex-shrink:0}
+    #grepbot-panel .log-list{height:100%;min-height:180px;max-height:280px;overflow:auto;font-size:10px;white-space:pre-wrap;word-break:break-word;color:#9d9;background:#111;padding:4px;border:1px solid #333}
+    #grepbot-panel .gb-logsub{display:flex;gap:4px;align-items:center;margin-bottom:4px}
     #grepbot-panel .gb-logsub button{background:#262626;border:1px solid #333;color:#aaa;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px}
     #grepbot-panel .gb-logsub button.on{background:#333;color:#fff;border-color:#555}
     #grepbot-panel .gb-logsub input{flex:1;min-width:0;background:#111;color:#cfc;border:1px solid #333;font:10px monospace;padding:2px 4px}
-    #grepbot-panel .jrn-pane:not([hidden]){display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
-    #grepbot-panel .jrn-head{font-size:10px;color:#888;margin-bottom:3px;flex-shrink:0}
+    #grepbot-panel .jrn-head{font-size:10px;color:#888;margin-bottom:3px}
     #grepbot-panel .jrn-head b{color:#f96}
-    #grepbot-panel .jrn-list{flex:1 1 auto;min-height:120px;overflow:auto;font-size:10px;background:#111;border:1px solid #333;padding:2px}
+    #grepbot-panel .jrn-list{min-height:160px;max-height:250px;overflow:auto;font-size:10px;background:#111;border:1px solid #333;padding:2px}
     #grepbot-panel .jrn-list table{width:100%;border-collapse:collapse}
     #grepbot-panel .jrn-list td{padding:1px 3px;border-bottom:1px solid #2a2a2a;vertical-align:top}
     #grepbot-panel .jrn-list td.t{color:#666;white-space:nowrap}
@@ -443,7 +434,7 @@
     #grepbot-panel .jrn-list tr.ok td.r{color:#6dda7e}
     #grepbot-panel .jrn-list tr.skip td.r{color:#777}
     #grepbot-panel .jrn-list tr.err td.r{color:#f55}
-    #grepbot-panel .jrn-btns{display:flex;gap:4px;margin-top:4px;flex-shrink:0}
+    #grepbot-panel .jrn-btns{display:flex;gap:4px;margin-top:4px}
     #grepbot-panel .jrn-btns button{background:#333;border:1px solid #555;color:#eee;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px}
     #grepbot-panel .ib-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#555;transition:background .4s}
     #grepbot-panel .ib-dot.free{background:#4caf50}
@@ -458,45 +449,59 @@
     #grepbot-panel #gb-ib-btn{background:#333;border:1px solid #555;color:#80e090;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px}
     #grepbot-panel #gb-ib-btn:disabled{opacity:.4;cursor:default}
     #grepbot-panel .ab-queue{max-height:220px;overflow:auto;margin-top:2px}
-    #grepbot-panel .ab-plan{max-height:120px;overflow:auto;margin:2px 0 6px}
-    #grepbot-panel .ab-plan-row{display:grid;grid-template-columns:1.2fr .4fr .8fr .6fr auto;gap:4px;align-items:center;padding:2px 0;border-bottom:1px solid #2a2a2a;font-size:10px}
-    #grepbot-panel .ab-plan-row.pinned{background:#1a1a10}
-    #grepbot-panel .ab-plan-row.custom{background:#101a1a}
-    #grepbot-panel .cq-rows{max-height:140px;overflow:auto}
-    #grepbot-panel .cq-row{display:grid;grid-template-columns:24px 1.2fr .5fr .6fr auto;gap:4px;align-items:center;padding:1px 0;border-bottom:1px solid #2a2a2a;font-size:10px}
     #grepbot-panel .atk-sched{max-height:160px;overflow:auto;margin-top:6px}
     #grepbot-panel .atk-sources{max-height:80px;overflow:auto;display:flex;flex-wrap:wrap;gap:4px 8px;margin:4px 0}
-    #grepbot-panel .atk-roles{max-height:110px;overflow:auto;margin:4px 0}
-    #grepbot-panel [data-atk="arrival-date"]{min-width:118px}
-    #grepbot-panel [data-atk="arrival-time"]{min-width:96px}
     #grepbot-panel .atk-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
     #grepbot-panel .atk-row input,#grepbot-panel .atk-row select{background:#111;color:#cfc;border:1px solid #333;padding:2px 4px;font:11px monospace}
     #grepbot-panel .atk-btns button{background:#333;border:1px solid #555;color:#eee;padding:3px 8px;border-radius:3px;cursor:pointer;font-size:11px;margin-right:4px}
     #grepbot-panel .atk-btns #gb-atk-now{color:#f96}
     #grepbot-panel .atk-btns #gb-atk-arm{color:#6cf}
+    #grepbot-panel .atk-harass button,#grepbot-panel .atk-roles button,#grepbot-panel #gb-atk-src-all,#grepbot-panel #gb-atk-src-none,#grepbot-panel #gb-atk-src-off,#grepbot-panel #gb-atk-src-def,#grepbot-panel #gb-atk-cmds-refresh,#grepbot-panel #gb-atk-heroes-refresh,#grepbot-panel .atk-cmds button,#grepbot-panel .atk-heroes button{background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px}
+    #grepbot-panel .atk-cmds button:disabled,#grepbot-panel .atk-heroes button:disabled{opacity:.45;cursor:not-allowed}
     #grepbot-panel .quest-list{max-height:200px;overflow:auto;font-size:10px}
     #grepbot-panel .quest-row{display:grid;grid-template-columns:1.4fr .5fr 1fr .6fr;gap:4px;border-bottom:1px solid #2a2a2a;padding:3px 0}
     #grepbot-panel .quest-hist{max-height:100px;overflow:auto;font-size:9px;color:#9d9;margin-top:6px;background:#111;padding:4px;border:1px solid #333;white-space:pre-wrap}
+    #grepbot-panel .gb-head-main{display:flex;align-items:center;gap:8px;min-width:0}
+    #grepbot-panel .gb-head-status{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+    #grepbot-panel .gb-pill{padding:2px 6px;border-radius:999px;font-size:9px;font-weight:700;border:1px solid #444;background:#2b3038;color:#cbd1da}
+    #grepbot-panel .gb-pill.ok{border-color:#3c7350;color:#8fe0a8;background:#1c3023}
+    #grepbot-panel .gb-pill.warn{border-color:#8a6725;color:#ffd27a;background:#382e1c}
+    #grepbot-panel .gb-pill.bad{border-color:#8a3b42;color:#ff9aa3;background:#381f23}
+    #grepbot-panel .gb-dashboard-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:6px 0 8px}
+    #grepbot-panel .gb-card{background:#22262d;border:1px solid #353b45;border-radius:8px;padding:7px;min-width:0}
+    #grepbot-panel .gb-card .k{font-size:9px;color:#8f98a5;text-transform:uppercase;letter-spacing:.04em}
+    #grepbot-panel .gb-card .v{font-size:17px;font-weight:700;color:#f5f7fa;line-height:1.2;margin-top:2px}
+    #grepbot-panel .gb-card .s{font-size:9px;color:#9ca5b2;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #grepbot-panel .gb-quick{display:flex;gap:5px;flex-wrap:wrap;margin:6px 0 8px}
+    #grepbot-panel .gb-quick button,#grepbot-panel .gb-action{background:#2b3038;border:1px solid #4a515d;color:#eef1f5;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:10px}
+    #grepbot-panel .gb-quick button:hover,#grepbot-panel .gb-action:hover{border-color:#c98b22}
+    #grepbot-panel .gb-section{margin:7px 0;border:1px solid #343943;border-radius:8px;background:#1c1f25;overflow:hidden}
+    #grepbot-panel .gb-section>summary{cursor:pointer;list-style:none;padding:7px 9px;font-size:11px;font-weight:700;color:#e8ebef;background:#22262d;display:flex;align-items:center;justify-content:space-between}
+    #grepbot-panel .gb-section>summary::-webkit-details-marker{display:none}
+    #grepbot-panel .gb-section>summary::after{content:'+';color:#8f98a5;font-size:14px}
+    #grepbot-panel .gb-section[open]>summary::after{content:'−'}
+    #grepbot-panel .gb-section-body{padding:7px}
+    #grepbot-panel pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+    @media (max-width:700px){#grepbot-panel{width:94vw;min-width:320px;right:3vw}.gb-dashboard-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
   `);
 
   panel = document.createElement('div');
   panel.id = 'grepbot-panel';
-  // Idempotent: dispose already removed old panel; drop stray duplicates if any
+
   document.querySelectorAll('#grepbot-panel').forEach(p => { try { p.remove(); } catch (_) {} });
   panel.style.zIndex = '2147483647';
   panel.innerHTML = `
-    <header><b>GrepBot v${runningVersion()}</b><button data-act="toggle" title="Minimizar">_</button></header>
-    <div class="gb-nav" role="tablist" aria-label="grupos de GrepBot"></div>
-    <div class="gb-subtabs" role="tablist" aria-label="pestañas de GrepBot"></div>
+    <header><div class="gb-head-main"><b>GrepBot v${runningVersion()}</b><div class="gb-head-status"><span id="gb-head-mode" class="gb-pill">...</span><span id="gb-head-health" class="gb-pill">...</span></div></div><button data-act="toggle" title="Minimizar">_</button></header>
+    <div class="gb-nav" role="tablist" aria-label="GrepBot groups"></div>
+    <div class="gb-subtabs" role="tablist" aria-label="GrepBot tabs"></div>
     <section data-tab="findings"></section>
     <section data-tab="farms" hidden>
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
-        <button id="gb-sleep-claim" style="background:#333;border:1px solid #555;color:#8cf;padding:2px 8px;cursor:pointer;font-size:11px">Recogida nocturna (4h/8h)</button>
+        <button id="gb-sleep-claim" style="background:#333;border:1px solid #555;color:#8cf;padding:2px 8px;cursor:pointer;font-size:11px">Sleep claim (4h/8h)</button>
         <span id="gb-sleep-status" style="font-size:10px;color:#888"></span>
       </div>
-      <div id="gb-farm-teach-banner" hidden style="font-size:10px;color:#fc6;background:#2a2211;border:1px solid #664;padding:4px 6px;margin-bottom:4px;border-radius:3px"></div>
       <div class="farms-list"></div>
-      <textarea placeholder="vill_id | x y | ETA | notas&#10;12345 | 500 600 | 2h | segura"></textarea>
+      <textarea placeholder="vill_id | x y | ETA | notes&#10;12345 | 500 600 | 2h | safe"></textarea>
     </section>
     <section data-tab="world" hidden>
       <div class="world-totals" style="padding:6px;background:#262626;border-radius:3px;margin-bottom:6px;font-size:11px"></div>
@@ -504,311 +509,263 @@
     </section>
     <section data-tab="attack" hidden>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-        <b style="font-size:11px;color:#f5a623">Sincronización de ataque</b>
+        <b style="font-size:11px;color:#f5a623">Attack sync</b>
         <span id="gb-atk-skew" style="font-size:9px;color:#888"></span>
         <span id="gb-atk-armed" style="font-size:10px;color:#f96;font-weight:bold;margin-left:auto"></span>
       </div>
       <div class="atk-row">
-        <label>objetivo <input data-atk="target" style="width:70px" placeholder="id"/></label>
-        <select data-atk="pick" title="ciudades de informes de espionaje / ataques recientes" style="max-width:130px;background:#111;color:#cfc;border:1px solid #333;font-size:10px"></select>
-        <button type="button" id="gb-atk-current" title="Usar la ciudad seleccionada en el juego (mapa / ventana de ataque)" style="background:#333;border:1px solid #555;color:#6cf;padding:1px 6px;cursor:pointer;font-size:10px">Actual</button>
+        <label>target <input data-atk="target" style="width:70px" placeholder="town id"/></label>
+        <select data-atk="target-type" title="Generic sender only supports canonical town targets"><option value="town">town</option></select>
+        <select data-atk="pick" title="Known town targets from reports/history" style="max-width:150px"></select>
         <label>x <input data-atk="x" style="width:40px"/></label>
         <label>y <input data-atk="y" style="width:40px"/></label>
-        <select data-atk="mission"><option value="attack">ataque</option><option value="support">apoyo</option><option value="raid">saqueo</option><option value="siege">asedio</option><option value="scout">espionaje</option><option value="revolt">revuelta</option><option value="portal">portal del olimpo</option></select>
+        <select data-atk="mission"><option value="attack">attack</option><option value="support">support</option><option value="revolt">revolt</option></select>
       </div>
       <div id="gb-atk-target-hint" style="font-size:9px;color:#888;margin:-2px 0 4px"></div>
-      <div class="atk-row atk-arrival-row">
-        <select data-atk="timing"><option value="send_now">enviar ya</option><option value="arrive_at">llegar a las</option></select>
-        <label>fecha <input data-atk="arrival-date" type="date" title="fecha de llegada (local)"/></label>
-        <label>hora <input data-atk="arrival-time" type="time" step="1" title="hora de llegada (local, segundos)"/></label>
-        <label>margen ms <input data-atk="pad" type="number" style="width:50px" value="200"/></label>
+      <div class="atk-row">
+        <select data-atk="timing"><option value="send_now">send now</option><option value="arrive_at">arrive at</option></select>
+        <input data-atk="arrival" type="datetime-local" step="1" title="arrival (local)"/>
+        <label>pad ms <input data-atk="pad" type="number" style="width:50px" value="200"/></label>
       </div>
       <div class="atk-row">
         <select data-atk="troop">
-          <option value="offense">ofensivas</option>
-          <option value="defense">defensivas</option>
-          <option value="all">todas las tropas</option>
-          <option value="all_of_type">todas de un tipo</option>
-          <option value="harass">hostigar</option>
-          <option value="per_town">editar por ciudad</option>
+          <option value="offense">offense</option>
+          <option value="defense">defense</option>
+          <option value="all">all troops</option>
+          <option value="all_of_type">all of type</option>
+          <option value="harass">harass</option>
+          <option value="per_town">per town edit</option>
         </select>
-        <label style="display:flex;align-items:center;gap:3px">unidad
-          <select data-atk="unit-type" title="solo se usa cuando el modo de tropas es 'todas de un tipo'"></select>
+        <label style="display:flex;align-items:center;gap:3px">unit
+          <select data-atk="unit-type" title="only used when troop mode is 'all of type'"></select>
         </label>
       </div>
       <div class="atk-harass" style="display:flex;gap:4px;flex-wrap:wrap;margin:4px 0">
-        <span style="font-size:9px;color:#888;align-self:center">hostigar</span>
-        <button type="button" data-harass="1sling" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">1 hondero</button>
-        <button type="button" data-harass="5sling" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">5 honderos</button>
-        <button type="button" data-harass="light" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">ligero (<=8)</button>
+        <span style="font-size:9px;color:#888;align-self:center">harass</span>
+        <button type="button" data-harass="1sling">1 sling</button>
+        <button type="button" data-harass="5sling">5 sling</button>
+        <button type="button" data-harass="light">light ≤8</button>
       </div>
-      <div style="font-size:9px;color:#888;margin-top:2px">ciudades ofensivas / defensivas (guardado por mundo)</div>
+      <div style="font-size:9px;color:#888;margin-top:2px">city roles (saved per world)</div>
       <div class="atk-roles"></div>
       <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:4px">
-        <span style="font-size:9px;color:#888">atacar desde</span>
-        <button type="button" id="gb-atk-src-all" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px">Todas</button>
-        <button type="button" id="gb-atk-src-none" style="background:#333;border:1px solid #555;color:#888;padding:1px 6px;cursor:pointer;font-size:10px">Ninguna</button>
-        <button type="button" id="gb-atk-src-off" style="background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px">Ofensivas</button>
-        <button type="button" id="gb-atk-src-def" style="background:#333;border:1px solid #555;color:#6cf;padding:1px 6px;cursor:pointer;font-size:10px">Defensivas</button>
+        <span style="font-size:9px;color:#888">attack from</span>
+        <button type="button" id="gb-atk-src-all">All</button>
+        <button type="button" id="gb-atk-src-none">None</button>
+        <button type="button" id="gb-atk-src-off">Offense</button>
+        <button type="button" id="gb-atk-src-def">Defense</button>
       </div>
       <div class="atk-sources"></div>
       <div class="atk-pertown" hidden></div>
       <div class="atk-btns" style="margin-top:6px">
-        <button id="gb-atk-preview">Vista previa</button>
-        <button id="gb-atk-arm">Armar</button>
-        <button id="gb-atk-cancel">Cancelar</button>
-        <button id="gb-atk-now">Enviar ya</button>
+        <button id="gb-atk-preview">Preview</button>
+        <button id="gb-atk-arm">Arm</button>
+        <button id="gb-atk-cancel">Cancel</button>
+        <button id="gb-atk-now">Send now</button>
       </div>
       <div class="atk-sched"></div>
       <div style="border-top:1px solid #333;margin:8px 0 4px;padding-top:6px;display:flex;align-items:center;gap:6px">
-        <b style="font-size:11px;color:#f5a623">Salientes (cancelar)</b>
-        <button type="button" id="gb-atk-cmds-refresh" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px;margin-left:auto">Actualizar</button>
+        <b style="font-size:11px;color:#f5a623">Outgoing / cancel</b>
+        <button type="button" id="gb-atk-cmds-refresh" style="margin-left:auto">Refresh</button>
       </div>
       <div class="atk-cmds" style="max-height:120px;overflow:auto"></div>
       <div style="border-top:1px solid #333;margin:8px 0 4px;padding-top:6px;display:flex;align-items:center;gap:6px">
-        <b style="font-size:11px;color:#f5a623">Héroes</b>
-        <button type="button" id="gb-atk-heroes-refresh" style="background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px;margin-left:auto">Actualizar</button>
+        <b style="font-size:11px;color:#f5a623">Heroes</b>
+        <button type="button" id="gb-atk-heroes-refresh" style="margin-left:auto">Refresh</button>
       </div>
       <div class="atk-heroes" style="max-height:160px;overflow:auto"></div>
     </section>
     <section data-tab="quests" hidden>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-        <b style="font-size:11px;color:#f5a623">Misiones</b>
-        <button id="gb-quest-scan" style="background:#333;border:1px solid #555;color:#eee;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;margin-left:auto">Escanear ya</button>
+        <b style="font-size:11px;color:#f5a623">Quests</b>
+        <button id="gb-quest-scan" style="background:#333;border:1px solid #555;color:#eee;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;margin-left:auto">Scan now</button>
       </div>
       <div class="quest-list"></div>
-      <div style="font-size:9px;color:#888;margin-top:6px">historial</div>
+      <div style="font-size:9px;color:#888;margin-top:6px">history</div>
       <div class="quest-hist"></div>
     </section>
     <section data-tab="build" hidden>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
-        <span id="gb-ib-dot" class="ib-dot"></span><b style="font-size:11px;color:#f5a623">Construcción instantánea</b>
+        <span id="gb-ib-dot" class="ib-dot"></span><b style="font-size:11px;color:#f5a623">Instant build</b>
         <span style="flex:1"></span>
-        <button id="gb-ib-btn">Completar todo lo gratis</button>
+        <button id="gb-ib-btn">Complete all free</button>
       </div>
       <div class="ib-rows"></div>
       <div id="gb-ib-status" style="font-size:10px;color:#888;margin-top:4px"></div>
       <div style="border-top:1px solid #333;margin:8px 0 6px;padding-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-        <b style="font-size:11px;color:#f5a623">Cola automática</b>
+        <b style="font-size:11px;color:#f5a623">Auto-queue</b>
         <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:10px"><input type="checkbox" id="gb-ab-auto"/> ON</label>
-        <button id="gb-ab-csfast" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Cargar CS-rápido</button>
-        <button id="gb-ab-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Encolar ya</button>
+        <button id="gb-ab-csfast" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Load CS-fast</button>
+        <button id="gb-ab-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Queue now</button>
       </div>
-      <div style="font-size:9px;color:#888;margin-bottom:4px">El modo automático solo rellena cuando queda <=1 orden: añade hasta 6 (o el máximo de la cola). El siguiente relleno espera mitad(tiempo de construcción)+5min+azar, no justo al terminar una construcción. Objetivos = actual/objetivo/máximo.</div>
-      <div style="font-size:10px;color:#f5a623;margin:4px 0 2px">Próximas 3 <span style="color:#666;font-weight:normal">(primero la cola personalizada, luego la heurística)</span></div>
-      <div class="ab-plan"></div>
-      <div style="border-top:1px solid #333;margin:8px 0 4px;padding-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-        <b style="font-size:11px;color:#f5a623">Cola personalizada</b>
-        <span id="gb-cq-town" style="font-size:10px;color:#888"></span>
-        <span style="flex:1"></span>
-        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:10px" title="Estricto: espera a la primera entrada en vez de construir saltándola"><input type="checkbox" id="gb-cq-strict"/> estricto</label>
-        <button id="gb-cq-copy" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Copiar a todas</button>
-        <button id="gb-cq-clear" style="background:#333;border:1px solid #555;color:#f08080;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Vaciar</button>
-      </div>
-      <div class="cq-rows"></div>
-      <div style="display:flex;align-items:center;gap:4px;margin:4px 0">
-        <select id="gb-cq-b" style="background:#111;color:#cfc;border:1px solid #333;font:10px monospace"></select>
-        <input id="gb-cq-lvl" type="number" min="1" style="width:48px;background:#111;color:#cfc;border:1px solid #333;font:10px monospace"/>
-        <button id="gb-cq-add" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Añadir</button>
-        <span style="font-size:9px;color:#888">ordenada - se construye de arriba abajo, luego la heurística</span>
-      </div>
+      <div style="font-size:9px;color:#888;margin-bottom:4px">Las colas creadas con + en el Senado son FIFO estrictas por ciudad. Se rellena cada hueco real libre, nivel a nivel, revalidando coste y requisitos. Las ciudades sin cola FIFO siguen usando cur/tgt/max.</div>
       <div class="ab-queue"></div>
       <div id="gb-ab-status" style="font-size:10px;color:#888;margin-top:4px"></div>
     </section>
     <section data-tab="overview" hidden>
-      <div style="font-size:11px;color:#f5a623;margin-bottom:4px">Resumen de la cuenta</div>
-      <pre class="overview-panel" style="font-size:10px;white-space:pre-wrap;background:#111;padding:6px;border:1px solid #333;max-height:280px;overflow:auto;color:#cfc"></pre>
-      <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
-        <input id="gb-tpl-name" placeholder="nombre de plantilla" style="width:100px;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
-        <button id="gb-tpl-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Guardar plantilla</button>
-        <button id="gb-tpl-apply" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Aplicar plantilla</button>
-        <button id="gb-cfg-export" style="background:#333;border:1px solid #555;color:#9d9;padding:2px 6px;cursor:pointer;font-size:10px">Exportar config</button>
-        <button id="gb-cfg-import" style="background:#333;border:1px solid #555;color:#fc6;padding:2px 6px;cursor:pointer;font-size:10px">Importar config</button>
+      <div style="font-size:15px;font-weight:750;margin-bottom:2px">Resumen de la cuenta</div>
+      <div style="font-size:10px;color:#939ba7;margin-bottom:4px">Estado, próximas acciones y bloqueos importantes sin entrar en configuración avanzada.</div>
+      <div class="gb-dashboard-cards"></div>
+      <div class="gb-quick">
+        <button id="gb-quick-safe">SAFE MODE</button>
+        <button id="gb-quick-preflight">Comprobar sistema</button>
+        <button id="gb-quick-sim">Simular 24 h</button>
+        <button id="gb-quick-config">Ajustes</button>
       </div>
+      <div class="dashboard-summary" style="font-size:10px;color:#aab2bd;margin-bottom:4px"></div>
+      <details class="gb-section" open><summary>Próximas acciones</summary><div class="gb-section-body"><pre class="timeline-panel" style="font-size:10px;white-space:pre-wrap;margin:0;max-height:150px;overflow:auto"></pre></div></details>
+      <details class="gb-section"><summary>Estado operativo</summary><div class="gb-section-body"><pre class="overview-panel" style="font-size:10px;white-space:pre-wrap;margin:0;max-height:180px;overflow:auto;color:#cfd6df"></pre></div></details>
+      <details class="gb-section" open><summary>Objetivos y cola por ciudad</summary><div class="gb-section-body"><div class="goals-panel" style="font-size:10px;max-height:300px;overflow:auto"></div></div></details>
+      <details class="gb-section"><summary>Recursos y reservas</summary><div class="gb-section-body"><div class="planner-controls" style="font-size:10px;display:flex;gap:5px;flex-wrap:wrap;align-items:center"></div><div class="planner-panel" style="font-size:10px;max-height:240px;overflow:auto;margin-top:6px"></div></div></details>
+      <details class="gb-section"><summary>Simulación y motivos</summary><div class="gb-section-body"><div style="display:flex;gap:5px;align-items:center;margin-bottom:5px"><label>Horizonte <input id="gb-sim-hours" type="number" min="1" max="168" value="24" style="width:55px;background:#111;color:#cfc;border:1px solid #444;border-radius:4px;padding:3px"/> h</label><button id="gb-sim-run" class="gb-action">Simular</button></div><pre class="sim-panel" style="font-size:10px;white-space:pre-wrap;margin:0 0 6px;max-height:160px;overflow:auto"></pre><pre class="why-panel" style="font-size:10px;white-space:pre-wrap;margin:0;max-height:130px;overflow:auto;color:#bbb"></pre></div></details>
+      <details class="gb-section"><summary>Salud del sistema</summary><div class="gb-section-body"><div class="health-panel" style="font-size:10px;max-height:220px;overflow:auto"></div></div></details>
+      <details class="gb-section"><summary>Plantillas y copia de seguridad</summary><div class="gb-section-body"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="gb-tpl-name" placeholder="nombre de plantilla" style="width:130px;background:#111;color:#cfc;border:1px solid #444;border-radius:4px;padding:4px;font-size:11px"/><button id="gb-tpl-save" class="gb-action">Guardar plantilla</button><button id="gb-tpl-apply" class="gb-action">Aplicar plantilla</button><button id="gb-cfg-export" class="gb-action">Exportar configuración</button><button id="gb-cfg-import" class="gb-action">Importar configuración</button></div></div></details>
     </section>
     <section data-tab="intel" hidden>
-      <div style="font-size:11px;color:#f5a623;margin-bottom:4px">Intel / amenazas</div>
+      <div style="font-size:11px;color:#f5a623;margin-bottom:4px">Intel / threats</div>
       <pre class="intel-panel" style="font-size:10px;white-space:pre-wrap;background:#111;padding:6px;border:1px solid #333;max-height:280px;overflow:auto;color:#cfc"></pre>
       <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <input id="gb-note-player" placeholder="jugador" style="width:80px;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
-        <input id="gb-note-text" placeholder="nota" maxlength="200" style="flex:1;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
-        <button id="gb-note-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Guardar nota</button>
-      </div>
-      <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <input id="gb-ally-name" placeholder="alianza" style="width:80px;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
-        <input id="gb-ally-note" placeholder="nota de alianza" maxlength="200" style="flex:1;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
-        <button id="gb-ally-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Guardar nota de alianza</button>
+        <input id="gb-note-player" placeholder="player" style="width:80px;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
+        <input id="gb-note-text" placeholder="note" style="flex:1;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
+        <button id="gb-note-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Save note</button>
       </div>
     </section>
     <section data-tab="config" hidden>
       <div class="config-panel" style="font-size:11px;display:flex;flex-direction:column;gap:8px">
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="enabled-host"/> Activar en <span class="cfg-host"></span></label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-collect"/> Auto-recoger botón Recoger (DOM)</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="collect-all"/> Recoger todo (ignorar límite de temporizador)</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-bandit"/> Auto-bandidos</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-farm"/> Auto-granjas</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-skip-full"/> Saltar granja/bandidos si el almacén está lleno</label>
-        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Modo de almacén lleno
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="enabled-host"/> Enable on <span class="cfg-host"></span></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#fc6"><input type="checkbox" data-cfg="safe-mode"/> SAFE MODE (block premium/attacks/favor/killpoints/donations)</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-collect"/> Auto-collect visible resource rewards</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="collect-all"/> Recolect all (ignore timer cap)</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-bandit"/> Auto-bandit</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-farm"/> Auto-farm</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-skip-full"/> Skip farm/bandit if warehouse full</label>
+        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Warehouse full mode
           <select data-cfg="farm-full-mode" style="background:#111;color:#cfc;border:1px solid #333;margin-left:6px">
-            <option value="any">1 recurso lleno</option>
-            <option value="all">los 3 recursos llenos</option>
+            <option value="any">any 1 resource full</option>
+            <option value="all">all 3 resources full</option>
           </select>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-long-claims"/> Recogidas de 10min donde esté investigada la lealtad de aldeanos</label>
-        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Clave de la investigación de lealtad
-          <input data-cfg="farm-loyalty-tech" placeholder="auto-detectar (id del servidor o nombre)" title="Id de investigación del servidor (p.ej. rural_loyalty) o el nombre localizado de la academia. La pestaña Registro vuelca pares id(nombre) cuando falla la auto-detección." style="width:190px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-long-claims"/> 10min claims where villager loyalty researched</label>
+        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Loyalty tech key
+          <input data-cfg="farm-loyalty-tech" placeholder="auto-detect (server id or label)" title="Server research id (e.g. rural_loyalty) or the localized academy name. Log tab dumps id(label) pairs when auto-detect misses." style="width:190px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Duración de la recogida nocturna
+        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Sleep claim length
           <select data-cfg="farm-sleep-dur" style="background:#111;color:#cfc;border:1px solid #333;margin-left:6px">
-            <option value="auto">auto (8h si se conoce, si no 4h)</option>
+            <option value="auto">auto (8h if known, else 4h)</option>
             <option value="14400">4 h</option>
             <option value="28800">8 h</option>
           </select>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-sleep-auto"/> Recogida nocturna automática (1/día, debe acabar antes de las 24:00)</label>
-        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Llenado máximo del almacén para la recogida nocturna %
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-sleep-auto"/> Auto sleep claim (once/day, must end before 24:00)</label>
+        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Sleep claim max warehouse fill %
           <input type="number" data-cfg="farm-sleep-fill" min="10" max="95" style="width:60px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
         </label>
         <div id="gb-farm-optmap" style="margin-left:12px;font-size:10px;color:#888"></div>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-build"/> Construcciones instantáneas gratis</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="instant-research"/> Investigación instantánea gratis (academia)</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-queue"/> Encolar construcciones automáticamente</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-build"/> Reclamar auto. el descuento de construcción de misiones</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-res"/> Reclamar auto. recursos/favor de misiones</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-cave"/> Auto-cueva (guardar plata sobrante)</label>
-        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Cueva cuando la plata >= % del almacén
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-build"/> Instant free builds</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="instant-research"/> Instant free research (academy)</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-queue"/> Auto-queue builds</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-build"/> Auto-claim quest build discount</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-res"/> Auto-claim quest resources/favor</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-cave"/> Auto-cave (stash excess iron)</label>
+        <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Cave when iron ≥ % of warehouse
           <input type="number" data-cfg="cave-thresh" min="50" max="99" style="width:50px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
         </label>
-        <div style="margin-left:12px;font-size:10px;color:#888">Por ciudad (sin marcar = saltar esa ciudad):</div>
+        <div style="margin-left:12px;font-size:10px;color:#888">Per-town (unchecked = skip that town):</div>
         <div class="cave-towns" style="display:flex;flex-direction:column;gap:2px;max-height:120px;overflow:auto"></div>
-        <div style="border-top:1px solid #333;padding-top:6px;color:#f5a623;font-size:10px">Economía (fase 8+)</div>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-culture"/> Auto-cultura</label>
+        <div style="border-top:1px solid #333;padding-top:6px;color:#f5a623;font-size:10px">Phase 8+ economy</div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-culture"/> Auto-culture</label>
         <label style="margin-left:12px;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">
-          <label><input type="checkbox" data-cfg="cult-festival"/> fiesta</label>
-          <label><input type="checkbox" data-cfg="cult-procession"/> procesión</label>
-          <label><input type="checkbox" data-cfg="cult-theater"/> teatro</label>
-          <label><input type="checkbox" data-cfg="cult-olympic"/> juegos olímpicos</label>
+          <label><input type="checkbox" data-cfg="cult-festival"/> festival</label>
+          <label><input type="checkbox" data-cfg="cult-procession"/> procession</label>
+          <label><input type="checkbox" data-cfg="cult-theater"/> theater</label>
+          <label><input type="checkbox" data-cfg="cult-olympic"/> olympic</label>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px;color:#f96"><input type="checkbox" data-cfg="allow-premium-culture"/> Permitir cultura de pago (olímpicos = 50 oro)</label>
-        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Presupuesto diario de oro para olímpicos
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px;color:#f96"><input type="checkbox" data-cfg="allow-premium-culture"/> Allow premium culture (olympic = 50 gold)</label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Olympic daily gold budget
           <input type="number" data-cfg="culture-gold-budget" min="0" max="500" step="50" style="width:60px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-trade"/> Comercio entre ciudades (llenar almacén)</label>
-        <label style="margin-left:12px;flex-wrap:wrap">Preajuste
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-trade"/> Inter-city trade (Fill Storage)</label>
+        <label style="margin-left:12px;flex-wrap:wrap">Preset
           <select data-cfg="trade-preset" style="background:#111;color:#cfc;border:1px solid #333;margin-left:4px">
-            <option value="storage">almacén</option>
-            <option value="party">fiesta (financiar cultura)</option>
-            <option value="unit">unidades (financiar reclutamiento)</option>
+            <option value="smart">smart predictive</option>
+            <option value="storage">storage</option>
+            <option value="party">party (unimplemented)</option>
+            <option value="unit">unit (unimplemented)</option>
           </select>
-          Reserva % <input type="number" data-cfg="trade-reserve" min="0" max="80" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
-          Lote mínimo <input type="number" data-cfg="trade-min" min="100" max="50000" step="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
-          Saltos máx. entre islas <input type="number" data-cfg="trade-max-hops" min="0" max="200" step="1" title="Rechaza llenar almacén entre islas más lejanas que esto (0 = solo la misma isla). Una isla ilegible nunca bloquea." style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          Reserve % <input type="number" data-cfg="trade-reserve" min="0" max="80" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          Min batch <input type="number" data-cfg="trade-min" min="100" max="50000" step="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="island-ship"/> Envío de recursos continente-&gt;isla</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-trade"/> Comercio con aldeas de granjeros</label>
-        <label style="margin-left:12px;flex-wrap:wrap">Ratio mínimo <input type="number" data-cfg="rural-ratio" step="0.25" min="0.25" max="2" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>
-          Recurso <select data-cfg="rural-res" style="background:#111;color:#cfc;border:1px solid #333"><option value="iron">plata</option><option value="stone">piedra</option><option value="wood">madera</option></select>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="island-ship"/> Mainland→island res ship</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-trade"/> Rural village trade</label>
+        <label style="margin-left:12px;flex-wrap:wrap">Min ratio <input type="number" data-cfg="rural-ratio" step="0.25" min="0.25" max="2" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>
+          Res <select data-cfg="rural-res" style="background:#111;color:#cfc;border:1px solid #333"><option>iron</option><option>stone</option><option>wood</option></select>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-level"/> Mejora de aldeas de granjeros</label>
-        <label style="margin-left:12px">Nivel máx. <input type="number" data-cfg="rural-level-max" min="1" max="6" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-research"/> Auto-investigación</label>
-        <button data-cfg="research-csfast" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Cargar investigación CS-rápido</button>
-        <div style="border-top:1px solid #333;padding-top:6px;color:#f5a623;font-size:10px">Comodidad / supervivencia</div>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="pause-activity"/> Pausar cuando yo esté activo</label>
-        <label style="margin-left:12px">Min. de pausa <input type="number" data-cfg="pause-ms" min="1" max="60" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="night-pause"/> Pausa nocturna</label>
-        <label style="margin-left:12px">Horas <input type="number" data-cfg="night-start" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/>-<input type="number" data-cfg="night-end" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Registra cada payload que el bot enviaría y no envía nada. Úsalo para comparar los payloads del bot con una acción hecha a mano antes de activar una función arriesgada."><input type="checkbox" data-cfg="dry-run"/> <b style="color:#6cf">Simulacro (registra payloads, no envía nada)</b></label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Una función que no encuentra nada que hacer duplica su propio intervalo (hasta 8x) hasta que vuelve a actuar."><input type="checkbox" data-cfg="orch-adaptive"/> Cadencia adaptativa (frenar funciones ociosas)</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Cuando un almacén se queda lleno, adelanta cueva→comercio→aldeas por delante de la granja y desactiva el frenado por ociosidad en esa ruta de vaciado."><input type="checkbox" data-cfg="orch-deadlock"/> Resolver atasco de almacén</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Copiar/Exportar sustituyen nombres e ids de jugadores por hashes cortos. Desactívalo solo para depurar en local."><input type="checkbox" data-cfg="export-redact"/> Ocultar nombres/ids en Copiar + Exportar</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="captcha-global"/> Parada total global por captcha</label>
-        <label>Espera tras captcha (min) <input type="text" data-cfg="captcha-ladder" placeholder="5,15,60" title="Minutos separados por comas; mínimo 1 cada uno. El mínimo impide desactivar el cortacircuitos." style="width:100px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
-        <button type="button" data-cfg="captcha-clear" style="align-self:flex-start;background:#333;border:1px solid #555;color:#fc6;padding:2px 6px;cursor:pointer;font-size:10px">Limpiar pausas por captcha</button>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Salta una acción que ha fallado igual 3 veces seguidas (espera 5/15/60min). El diario sigue registrando igualmente."><input type="checkbox" data-cfg="decision-memory"/> Memoria de decisiones (saltar fallos repetidos)</label>
-        <label>Presupuesto de peticiones / min <input type="number" data-cfg="req-budget" min="5" max="120" style="width:50px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
-          Umbral blando % <input type="number" data-cfg="posts-soft" min="20" max="95" title="Retrasa (no rechaza) cuando los envíos del último minuto superan este % del presupuesto duro" style="width:45px;background:#111;color:#cfc;border:1px solid #333;margin-left:4px"/></label>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:10px">
-          Preajustes
-          <button type="button" data-preset="afk" style="background:#333;border:1px solid #555;color:#8cf;padding:2px 6px;cursor:pointer">AFK nocturno</button>
-          <button type="button" data-preset="farm" style="background:#333;border:1px solid #555;color:#8cf;padding:2px 6px;cursor:pointer">Granjeo activo</button>
-          <button type="button" data-preset="war" style="background:#333;border:1px solid #555;color:#fc6;padding:2px 6px;cursor:pointer">Guerra</button>
-          <button type="button" data-preset="undo" style="background:#333;border:1px solid #555;color:#aaa;padding:2px 6px;cursor:pointer">Deshacer preajuste</button>
-        </div>
-        <button type="button" data-cfg="storage-prune" style="align-self:flex-start;background:#333;border:1px solid #555;color:#fc6;padding:2px 6px;cursor:pointer;font-size:10px">Purgar vistos/alertados (almacenamiento)</button>
-        <label>URL del webhook <input type="text" data-cfg="webhook-url" placeholder="webhook de Discord o https://api.telegram.org/bot.../sendMessage" style="width:100%;background:#111;color:#cfc;border:1px solid #333;margin-top:2px;font-size:10px"/></label>
-        <label style="margin-left:0;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">Eventos
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-level"/> Farm village upgrade</label>
+        <label style="margin-left:12px">Max level <input type="number" data-cfg="rural-level-max" min="1" max="6" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-research"/> Auto-research</label>
+        <button data-cfg="research-csfast" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Load CS-fast research</button>
+        <div style="border-top:1px solid #333;padding-top:6px;color:#f5a623;font-size:10px">QoL / survival</div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="pause-activity"/> Pause when I am active</label>
+        <label style="margin-left:12px">Pause min <input type="number" data-cfg="pause-ms" min="1" max="60" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="night-pause"/> Night pause</label>
+        <label style="margin-left:12px">Hours <input type="number" data-cfg="night-start" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/>–<input type="number" data-cfg="night-end" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Log every payload the bot would send and send nothing. Use it to compare bot payloads against a hand-clicked action before enabling a risky feature."><input type="checkbox" data-cfg="dry-run"/> <b style="color:#6cf">Dry run (log payloads, send nothing)</b></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="A feature that keeps finding nothing to do doubles its own interval (up to 8x) until it acts again."><input type="checkbox" data-cfg="orch-adaptive"/> Adaptive cadence (back off idle features)</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Copy/Export replace player names and ids with short hashes. Turn OFF only for local debugging."><input type="checkbox" data-cfg="export-redact"/> Redact names/ids in Copy + Export</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="captcha-global"/> Global captcha kill-switch</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Skip an action that failed the same way 3x in a row (5/15/60min backoff). Journal keeps recording either way."><input type="checkbox" data-cfg="decision-memory"/> Decision memory (skip repeat failures)</label>
+        <label>Req budget / min <input type="number" data-cfg="req-budget" min="5" max="120" style="width:50px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
+        <label>Webhook URL <input type="text" data-cfg="webhook-url" placeholder="Discord webhook or https://api.telegram.org/bot…/sendMessage" style="width:100%;background:#111;color:#cfc;border:1px solid #333;margin-top:2px;font-size:10px"/></label>
+        <label style="margin-left:0;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">Events
           <label><input type="checkbox" data-cfg="wh-captcha"/> captcha</label>
-          <label><input type="checkbox" data-cfg="wh-attack"/> ataque</label>
-          <label><input type="checkbox" data-cfg="wh-pattern"/> patrón (3×/24h)</label>
-          <label><input type="checkbox" data-cfg="wh-warehouse"/> almacén</label>
-          <label><input type="checkbox" data-cfg="wh-culture"/> cultura</label>
+          <label><input type="checkbox" data-cfg="wh-attack"/> attack</label>
+          <label><input type="checkbox" data-cfg="wh-warehouse"/> warehouse</label>
+          <label><input type="checkbox" data-cfg="wh-culture"/> culture</label>
         </label>
-        <label>chat_id de Telegram <input type="text" data-cfg="wh-tg-chat" placeholder="opcional si no está en la URL" style="width:140px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px;font-size:10px"/></label>
-        <div style="border-top:1px solid #333;padding-top:6px;color:#f96;font-size:10px">ALTO RIESGO (por defecto OFF)</div>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-merchant"/> Francotirador del mercader</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Las ofertas de recursos del barco mercante empiezan en 0.5:1 y suben +0.1 por trato. Bombea con tratos de 1 unidad y luego envía el trato grande a 1:1."><input type="checkbox" data-cfg="auto-pt-trade"/> Bombeo del ratio del barco mercante</label>
-        <label style="margin-left:12px;font-size:10px">ratio objetivo <input type="number" step="0.1" min="0.5" max="2" data-cfg="pt-ratio" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
-          cantidad de bombeo <input type="number" min="1" max="100" data-cfg="pt-pump" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
-          bombeos máx. <input type="number" min="0" max="20" data-cfg="pt-maxpumps" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
-          reserva % <input type="number" min="0" max="90" data-cfg="pt-reserve" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
-        </label>
-        <label style="margin-left:12px;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">recibir
-          <label><input type="checkbox" data-cfg="pt-want-wood"/> madera</label>
-          <label><input type="checkbox" data-cfg="pt-want-stone"/> piedra</label>
-          <label><input type="checkbox" data-cfg="pt-want-iron"/> plata</label>
-        </label>
-        <div style="margin-left:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-          <span id="gb-pt-status" style="font-size:10px;color:#888"></span>
-          <button data-cfg="pt-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Bombear + comerciar ya</button>
-          <button data-cfg="pt-copy" title="Copia el HTML de la ventana del mercader abierta - hace falta una vez para confirmar el analizador de ofertas" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Copiar HTML de la oferta</button>
-        </div>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-favor"/> Granjeo de favor (enviado divino)</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-wonder"/> Donaciones a la Maravilla</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Gasta favor en la maravilla de la alianza. Requiere haber capturado wonderFavorTpl. Por defecto OFF."><input type="checkbox" data-cfg="auto-wonder-favor"/> Lanzar favor en la Maravilla (captura el poder antes)</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="cs-alert"/> Alertas de BC / ataques entrantes</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-militia"/> Auto-milicia ante ataques entrantes</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-dodge"/> Auto-esquiva</label>
-        <label style="margin-left:12px">Modo <select data-cfg="dodge-mode" style="background:#111;color:#cfc;border:1px solid #333"><option value="notify">solo avisar</option><option value="auto">enviar auto.</option></select>
-          Mínimo <input type="number" data-cfg="dodge-floor" min="0" max="500" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>
-        </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-recruit"/> Auto-reclutamiento</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="recruit-spells"/> Lanzar primero hechizos de reclutamiento</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="grepodata"/> Asistencia de Grepodata Index+</label>
-        <label>Umbral de construcción instantánea gratis (seg) <input type="number" data-cfg="ib-free-thresh" min="60" max="600" style="width:70px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
-        <label>Minutos máx. para recoger <input type="number" data-cfg="collect-max-min" min="1" max="120" style="width:70px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
-        <label>Cadencia de granjas mín-máx (min) <input type="number" data-cfg="farm-min" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> - <input type="number" data-cfg="farm-max" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
-        <label>Cadencia de ciudades mín-máx (min) <input type="number" data-cfg="town-min" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> - <input type="number" data-cfg="town-max" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
-        <button data-cfg="clear-captcha" style="align-self:flex-start;background:#333;border:1px solid #555;color:#f96;padding:3px 8px;cursor:pointer;font-size:11px">Limpiar cortacircuitos de captcha</button>
+        <label>Telegram chat_id <input type="text" data-cfg="wh-tg-chat" placeholder="optional if not in URL" style="width:140px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px;font-size:10px"/></label>
+        <div style="border-top:1px solid #333;padding-top:6px;color:#f96;font-size:10px">HIGH RISK (default OFF)</div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-merchant"/> Merchant sniper</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-favor" disabled/> Favor farm (disabled: unsafe target path)</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-wonder"/> WW donations</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="cs-alert"/> CS / incoming alerts</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-militia"/> Auto-militia on incoming</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-dodge"/> Auto-dodge</label>
+        <label style="margin-left:12px">Defense mode <select data-cfg="defense-mode" style="background:#111;color:#cfc;border:1px solid #333"><option value="notify">notify</option><option value="safe">safe dodge</option><option value="smart">smart</option></select> <label><input type="checkbox" data-cfg="defense-smart-auto"/> smart auto</label> check return +<input type="number" data-cfg="defense-return-margin" min="0" max="3600" style="width:55px;background:#111;color:#cfc;border:1px solid #333"/>s (manual if support arrived) · leave <input type="number" data-cfg="dodge-floor" min="0" max="500" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-recruit"/> Auto-recruit</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="recruit-spells"/> Cast recruit spells first</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="grepodata"/> Grepodata Index+ assist</label>
+        <label>IB free threshold (sec, safety cap 290) <input type="number" data-cfg="ib-free-thresh" min="60" max="300" style="width:70px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
+        <label>Collect max min <input type="number" data-cfg="collect-max-min" min="1" max="120" style="width:70px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
+        <label>Farm cadence min-max (min) <input type="number" data-cfg="farm-min" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> - <input type="number" data-cfg="farm-max" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
+        <label>Town cadence min-max (min) <input type="number" data-cfg="town-min" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> - <input type="number" data-cfg="town-max" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
+        <button data-cfg="clear-captcha" style="align-self:flex-start;background:#333;border:1px solid #555;color:#f96;padding:3px 8px;cursor:pointer;font-size:11px">Clear captcha breakers</button>
       </div>
     </section>
     <section data-tab="stats" hidden>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">
-        <b style="font-size:11px;color:#f5a623">Estadísticas</b>
+        <b style="font-size:11px;color:#f5a623">Stats</b>
         <button data-stats="1h" style="background:#262626;border:1px solid #333;color:#aaa;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">1h</button>
         <button data-stats="24h" class="on" style="background:#333;border:1px solid #555;color:#fff;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">24h</button>
         <button data-stats="7d" style="background:#262626;border:1px solid #333;color:#aaa;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">7d</button>
         <span style="flex:1"></span>
-        <button id="gb-preflight" title="Sondeo de solo lectura de cada módulo: colecciones, claves de acción aprendidas, payloads hipotéticos. No envía nada." style="background:#333;border:1px solid #555;color:#6cf;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">Comprobación</button>
+        <button id="gb-preflight" title="Read-only probe of every module: collections, learned action keys, would-be payloads. Sends nothing." style="background:#333;border:1px solid #555;color:#6cf;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">Preflight</button>
       </div>
       <pre class="stats-body" style="font-size:10px;white-space:pre-wrap;background:#111;padding:6px;border:1px solid #333;max-height:320px;overflow:auto;color:#cfc"></pre>
     </section>
     <section data-tab="log" hidden>
       <div class="gb-logsub">
-        <button data-logsub="live" class="on">Registro en vivo</button>
-        <button data-logsub="mem">Decisiones</button>
-        <button type="button" data-act="copy-log" title="Copiar todo el registro en vivo al portapapeles (hasta 200 líneas)">Copiar registro</button>
-        <button type="button" data-act="evidence" title="Instantánea de solo lectura y anonimizada para las validaciones de TASKS. Copia JSON. No envía nada.">Evidencia</button>
-        <input class="jrn-filter" placeholder="filtrar función/acción/objetivo"/>
+        <button data-logsub="live" class="on">Live log</button>
+        <button data-logsub="mem">Decisions</button>
+        <input class="jrn-filter" placeholder="filter feature/action/target"/>
       </div>
       <div class="log-list"></div>
       <div class="jrn-pane" hidden>
         <div class="jrn-head"></div>
         <div class="jrn-list"></div>
         <div class="jrn-btns">
-          <button data-jrn="copy">Copiar JSON</button>
-          <button data-jrn="clear-skips">Limpiar saltos</button>
-          <button data-jrn="clear">Vaciar diario</button>
+          <button data-jrn="copy">Copy JSON</button>
+          <button data-jrn="clear-skips">Clear skips</button>
+          <button data-jrn="clear">Clear journal</button>
         </div>
       </div>
     </section>
@@ -816,23 +773,21 @@
       <div class="gb-status-row">
         <span id="gb-next-farms" style="color:#6cf"></span>
         <span id="gb-next-towns" style="color:#fc6"></span>
-        <span id="gb-last-action" style="color:#8c8"></span>
         <span id="gb-collect-state" style="color:#f96;font-weight:bold"></span>
         <span id="gb-status" style="color:#888"></span>
       </div>
       <details class="gb-actions">
-        <summary>Acciones</summary>
+        <summary>Actions</summary>
         <div class="gb-actions-menu">
-          <button type="button" data-act="copy">Copiar JSON</button>
-          <button type="button" data-act="export">Exportar</button>
-          <button type="button" data-act="refresh">Actualizar ciudades</button>
-          <button type="button" data-act="scrape-farms">Granjas ya</button>
-          <button type="button" data-act="scrape-towns">Ciudades ya</button>
+          <button type="button" data-act="copy">Copy JSON</button>
+          <button type="button" data-act="export">Export</button>
+          <button type="button" data-act="refresh">Refresh towns</button>
+          <button type="button" data-act="scrape-farms">Farms now</button>
+          <button type="button" data-act="scrape-towns">Towns now</button>
           <button type="button" data-act="diag">Diag</button>
-          <button type="button" data-act="evidence" title="Instantánea de solo lectura y anonimizada para las validaciones de TASKS">Evidencia</button>
-          <button type="button" data-act="preflight">Comprobación</button>
-          <button type="button" data-act="clear">Borrar hallazgos</button>
-          <button type="button" data-act="reset-pos" title="Restablecer la posición del panel">Restablecer posición</button>
+          <button type="button" data-act="preflight">Preflight</button>
+          <button type="button" data-act="clear">Clear findings</button>
+          <button type="button" data-act="reset-pos" title="Reset panel position">Reset position</button>
         </div>
       </details>
     </footer>
@@ -842,12 +797,11 @@
     const h = document.createElement('div');
     h.className = 'gb-resize gb-resize-' + dir;
     h.dataset.dir = dir;
-    h.title = 'Redimensionar';
+    h.title = 'Resize';
     panel.appendChild(h);
   });
   applyPanelGeom(state.panelGeom);
 
-  // paint nav shell; full showTab runs after bindConfig / filter lets below
   {
     const start = TAB_IDS.includes(state.activeTab) ? state.activeTab : 'findings';
     const g0 = tabGroupOf(start);
@@ -857,7 +811,7 @@
       s.hidden = s.dataset.tab !== start;
     });
   }
-  // close Actions menu after a pick
+
   panel.querySelector('.gb-actions')?.addEventListener('click', (e) => {
     const btn = e.target.closest && e.target.closest('button[data-act]');
     if (!btn) return;
@@ -865,13 +819,10 @@
     if (det) det.open = false;
   });
 
-  // Log tab sub-views: live ring buffer vs the persisted decision journal
-  // [data-logsub] only - the Copiar registro / Evidencia buttons live in the
-  // same row but must not switch sub-view or steal the .on highlight
-  panel.querySelectorAll('.gb-logsub button[data-logsub]').forEach(btn => {
+  panel.querySelectorAll('.gb-logsub button').forEach(btn => {
     btn.addEventListener('click', () => {
       const mem = btn.dataset.logsub === 'mem';
-      panel.querySelectorAll('.gb-logsub button[data-logsub]').forEach(b => b.classList.toggle('on', b === btn));
+      panel.querySelectorAll('.gb-logsub button').forEach(b => b.classList.toggle('on', b === btn));
       const live = panel.querySelector('.log-list');
       const pane = panel.querySelector('.jrn-pane');
       if (live) live.hidden = mem;
@@ -896,14 +847,14 @@
   panel.querySelector('.jrn-filter')?.addEventListener('input', () => journalFilterDebounced());
   panel.querySelector('[data-jrn=copy]')?.addEventListener('click', () => {
     const text = JSON.stringify({ decisions: state.decisions, skips: state.decisionSkips }, null, 2);
-    navigator.clipboard.writeText(text).then(() => flash('diario copiado')).catch(() => flash('fallo al copiar'));
+    navigator.clipboard.writeText(text).then(() => flash('journal copied')).catch(() => flash('copy failed'));
   });
   panel.querySelector('[data-jrn=clear-skips]')?.addEventListener('click', () => {
     jrnClearSkips();
     renderJournal();
   });
   panel.querySelector('[data-jrn=clear]')?.addEventListener('click', () => {
-    if (!confirm('¿Vaciar el diario de decisiones de ' + location.host + '?')) return;
+    if (!confirm('Clear the decision journal for ' + location.host + '?')) return;
     jrnClear();
     renderJournal();
   });
@@ -916,27 +867,23 @@
     const n = panel.querySelector('#gb-tpl-name')?.value?.trim();
     if (n) qolApplyTemplate(n);
   });
+  panel.querySelector('#gb-sim-run')?.addEventListener('click',()=>{const h=Math.max(1,+panel.querySelector('#gb-sim-hours')?.value||24);dashboardSimulation=simulateAccount(h);state.simCfg.horizonHours=h;save(STORE.SIM_CFG,state.simCfg);renderDashboard();});
   panel.querySelector('#gb-cfg-export')?.addEventListener('click', () => {
     const text = JSON.stringify(qolExportConfig(), null, 2);
-    navigator.clipboard.writeText(text).then(() => flash('config copiada')).catch(() => flash('fallo al copiar'));
+    navigator.clipboard.writeText(text).then(() => flash('config copied')).catch(() => flash('copy failed'));
   });
   panel.querySelector('#gb-cfg-import')?.addEventListener('click', () => {
-    const raw = prompt('Pega el JSON de configuración de GrepBot');
+    const raw = prompt('Paste GrepBot config JSON');
     if (!raw) return;
     try {
-      if (qolImportConfig(JSON.parse(raw))) flash('config importada');
-      else flash('fallo al importar');
-    } catch (e) { flash('JSON inválido'); }
+      if (qolImportConfig(JSON.parse(raw))) flash('config imported');
+      else flash('import failed');
+    } catch (e) { flash('bad JSON'); }
   });
   panel.querySelector('#gb-note-save')?.addEventListener('click', () => {
     const p = panel.querySelector('#gb-note-player')?.value?.trim();
     const n = panel.querySelector('#gb-note-text')?.value?.trim();
-    if (p) { intelSetNote(p, n); renderIntel(); flash('nota guardada'); }
-  });
-  panel.querySelector('#gb-ally-save')?.addEventListener('click', () => {
-    const a = panel.querySelector('#gb-ally-name')?.value?.trim();
-    const n = panel.querySelector('#gb-ally-note')?.value?.trim();
-    if (a) { intelSetAllianceNote(a, n); renderIntel(); flash('nota de alianza guardada'); }
+    if (p) { intelSetNote(p, n); renderIntel(); flash('note saved'); }
   });
   panel.querySelector('#gb-quest-scan')?.addEventListener('click', () => {
     questScanTick('manual');
@@ -950,7 +897,7 @@
     e.stopPropagation();
     const collapsing = !panel.classList.contains('collapsed');
     if (collapsing) {
-      // remember expanded size before CSS forces 40x40
+
       const w = panel.style.width || (panel.offsetWidth + 'px');
       const h = panel.style.height || (panel.offsetHeight + 'px');
       if (!state.panelGeom) state.panelGeom = {};
@@ -967,7 +914,7 @@
     }
     const btn = panel.querySelector('header button[data-act=toggle]');
     btn.textContent = panel.classList.contains('collapsed') ? '[]' : '_';
-    btn.title = panel.classList.contains('collapsed') ? 'Restaurar' : 'Minimizar';
+    btn.title = panel.classList.contains('collapsed') ? 'Restore' : 'Minimize';
     savePanelGeom();
   });
   panel.querySelector('#gb-ib-btn').addEventListener('click', () => {
@@ -981,73 +928,38 @@
     if (state.abAuto) abScan('toggle');
     renderAbQueue();
   });
-  panel.querySelector('#gb-ab-csfast')?.addEventListener('click', () => { abLoadCsFast(); flash('objetivos CS-rápido'); });
-  panel.querySelector('#gb-cq-b')?.addEventListener('change', () => renderCqRows());
-  panel.querySelector('#gb-cq-strict')?.addEventListener('change', e => {
-    state.abQueueStrict = e.target.checked;
-    save(STORE.AB_QUEUE_STRICT, state.abQueueStrict);
-    gbLog('auto-queue: strict order', state.abQueueStrict ? 'ON' : 'OFF');
-  });
-  panel.querySelector('#gb-cq-add')?.addEventListener('click', () => {
-    const townId = abCurrentTownId() || abTownIds()[0];
-    if (!townId) { flash('sin ciudad'); return; }
-    const b = panel.querySelector('#gb-cq-b')?.value;
-    const lvlEl = panel.querySelector('#gb-cq-lvl');
-    const lvl = lvlEl && lvlEl.value !== '' ? +lvlEl.value : null;
-    abCqAdd(townId, b, lvl);
-    renderCqRows();
-    renderAbPlan();
-  });
-  panel.querySelector('#gb-cq-clear')?.addEventListener('click', () => {
-    const townId = abCurrentTownId() || abTownIds()[0];
-    if (!townId) return;
-    abCqSet(townId, []);
-    renderCqRows();
-    renderAbPlan();
-  });
-  panel.querySelector('#gb-cq-copy')?.addEventListener('click', () => {
-    const townId = abCurrentTownId() || abTownIds()[0];
-    if (!townId) return;
-    const list = abCqGet(townId);
-    if (!list.length) { flash('cola vacía'); return; }
-    if (!confirm(`¿Copiar esta cola de ${list.length} entradas a TODAS las ciudades? Se reemplazan las colas personalizadas existentes.`)) return;
-    abTownIds().forEach(id => { if (String(id) !== String(townId)) abCqSet(id, list.map(e => ({ b: e.b, lvl: e.lvl }))); });
-    gbLog(`auto-queue: custom queue copied to ${abTownIds().length} town(s)`);
-    flash('cola copiada');
-  });
+  panel.querySelector('#gb-ab-csfast')?.addEventListener('click', () => { abLoadCsFast(); flash('CS-fast targets'); });
   panel.querySelector('#gb-ab-now')?.addEventListener('click', () => {
-    const was = state.abAuto;
-    if (!was) { state.abAuto = true; save(STORE.AB_AUTO, true); }
-    const el = panel.querySelector('#gb-ab-auto'); if (el) el.checked = true;
-    const cfg = panel.querySelector('[data-cfg=auto-queue]'); if (cfg) cfg.checked = true;
+    // One-shot manual fill must never persistently enable automation.
     abScan('manual');
-    if (!was) { /* leave ON after manual - user asked for queue */ }
   });
   panel.querySelector('footer button[data-act=copy]').addEventListener('click', () => {
     const dump = redactFindingsExport({ findings: state.findings, farms: state.farms });
     const text = JSON.stringify(dump, null, 2);
     navigator.clipboard.writeText(text)
-      .then(() => flash('copiado'))
+      .then(() => flash('copied'))
       .catch(() => {
         try {
           const ta = document.createElement('textarea');
           ta.value = text; document.body.appendChild(ta); ta.select();
           const ok = document.execCommand('copy');
           ta.remove();
-          flash(ok ? 'copiado' : 'fallo al copiar');
-        } catch (_) { flash('fallo al copiar'); }
+          flash(ok ? 'copied' : 'copy failed');
+        } catch (_) { flash('copy failed'); }
       });
   });
   panel.querySelector('footer button[data-act=export]').addEventListener('click', () => {
     const dump = redactFindingsExport({ findings: state.findings, farms: state.farms });
     const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    const objectUrl = URL.createObjectURL(blob);
+    a.href = objectUrl;
     a.download = `grepbot-${new Date().toISOString().slice(0,10)}.json`;
     a.click();
+    gbTimeout(() => { try { URL.revokeObjectURL(objectUrl); } catch (_) {} }, 0);
   });
   panel.querySelector('footer button[data-act=clear]').addEventListener('click', () => {
-    if (!confirm('¿Borrar todos los hallazgos?')) return;
+    if (!confirm('Clear all findings?')) return;
     state.findings = []; state.seen = {}; seenThisRun.clear();
     save(STORE.FINDINGS, state.findings); save(STORE.SEEN, state.seen);
     renderFindings();
@@ -1055,34 +967,12 @@
   panel.querySelector('footer button[data-act=diag]').addEventListener('click', () => {
     diagRun();
   });
-  panel.querySelector('button[data-act=copy-log]')?.addEventListener('click', () => {
-    const text = gbLogText();
-    if (!text) { flash('registro vacío'); return; }
-    const ok = () => flash('registro copiado');
-    const fail = () => {
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = text; document.body.appendChild(ta); ta.select();
-        const done = document.execCommand('copy');
-        ta.remove();
-        flash(done ? 'registro copiado' : 'fallo al copiar');
-      } catch (_) { flash('fallo al copiar'); }
-    };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(ok).catch(fail);
-    } else {
-      fail();
-    }
-  });
-  panel.querySelectorAll('button[data-act=evidence]').forEach(btn => {
-    btn.addEventListener('click', () => { evidenceCopy(); });
-  });
   panel.querySelector('footer button[data-act=preflight]')?.addEventListener('click', () => {
     showTab('stats');
     preflightRunAndRender();
   });
   panel.querySelector('footer button[data-act=scrape-farms]').addEventListener('click', () => {
-    flash('leyendo granjas...');
+    flash('farm scrape...');
     gbLog('manual: Farms now pressed');
     state.nextFarmScrape = 0;
     save(STORE.NEXT_FARM, 0);
@@ -1094,14 +984,12 @@
     renderSleepStatus();
   });
   panel.querySelector('footer button[data-act=scrape-towns]').addEventListener('click', () => {
-    flash('leyendo ciudades...');
+    flash('towns scrape...');
     state.nextTownsScrape = 0;
     save(STORE.NEXT_TOWNS, 0);
     farmTick();
   });
 
-  // farm claim timing block (loyalty 10min / sleep 4-8h) - shared by both
-  // bindConfig branches so the learned option map stays visible after a rebind
   function syncFarmTimingCfg(sec) {
     if (!sec) return;
     const lc = sec.querySelector('[data-cfg=farm-long-claims]'); if (lc) lc.checked = !!state.farmLongClaims;
@@ -1111,8 +999,8 @@
     const sf = sec.querySelector('[data-cfg=farm-sleep-fill]'); if (sf) sf.value = state.farmSleepFillPct;
     const om = sec.querySelector('#gb-farm-optmap');
     if (om) {
-      om.textContent = 'opciones de recogida aprendidas: ' + farmOptionMapText() +
-        ' (recoge un temporizador a mano en el juego para enseñar el resto)';
+      om.textContent = 'learned claim options: ' + farmOptionMapText() +
+        ' (claim a timer by hand in game to teach the rest)';
     }
   }
   function bindConfig() {
@@ -1120,8 +1008,8 @@
     if (!sec) return;
     if (configBound) {
       sec.querySelector('[data-cfg=enabled-host]').checked = state.enabledHosts[location.host] === true;
+      const acoll = sec.querySelector('[data-cfg=auto-collect]'); if (acoll) acoll.checked = !!state.autoCollect;
       sec.querySelector('[data-cfg=collect-all]').checked = state.collectAll;
-      const acol = sec.querySelector('[data-cfg=auto-collect]'); if (acol) acol.checked = state.autoCollect;
       sec.querySelector('[data-cfg=auto-bandit]').checked = state.autoBandit;
       sec.querySelector('[data-cfg=auto-farm]').checked = state.autoFarm;
       sec.querySelector('[data-cfg=farm-skip-full]').checked = state.farmSkipFull;
@@ -1136,7 +1024,6 @@
       const ct = sec.querySelector('[data-cfg=cave-thresh]'); if (ct) ct.value = state.caveThreshPct;
       const dr = sec.querySelector('[data-cfg=dry-run]'); if (dr) dr.checked = !!state.dryRun;
       const oa = sec.querySelector('[data-cfg=orch-adaptive]'); if (oa) oa.checked = state.orchAdaptive !== false;
-      const od = sec.querySelector('[data-cfg=orch-deadlock]'); if (od) od.checked = state.orchDeadlockResolve !== false;
       const er = sec.querySelector('[data-cfg=export-redact]'); if (er) er.checked = state.exportRedact !== false;
       renderCaveTowns();
       return;
@@ -1146,8 +1033,8 @@
     if (hostEl) hostEl.textContent = location.host;
     const setChk = (sel, val) => { const el = sec.querySelector(sel); if (el) el.checked = !!val; };
     setChk('[data-cfg=enabled-host]', state.enabledHosts[location.host] === true);
-    setChk('[data-cfg=collect-all]', state.collectAll);
     setChk('[data-cfg=auto-collect]', state.autoCollect);
+    setChk('[data-cfg=collect-all]', state.collectAll);
     setChk('[data-cfg=auto-bandit]', state.autoBandit);
     setChk('[data-cfg=auto-farm]', state.autoFarm);
     setChk('[data-cfg=farm-skip-full]', state.farmSkipFull);
@@ -1167,18 +1054,20 @@
     setNum('[data-cfg=farm-max]', Math.round(state.farmMaxMs / 60000));
     setNum('[data-cfg=town-min]', Math.round(state.townMinMs / 60000));
     setNum('[data-cfg=town-max]', Math.round(state.townMaxMs / 60000));
+    sec.querySelector('[data-cfg=safe-mode]')?.addEventListener('change',e=>{state.safeMode=!!e.target.checked;save(STORE.SAFE_MODE,state.safeMode);gbLog('safeMode',state.safeMode);updateStatus();});
     sec.querySelector('[data-cfg=enabled-host]')?.addEventListener('change', e => {
       state.enabledHosts[location.host] = e.target.checked;
       save(STORE.ENABLED_HOSTS, state.enabledHosts);
-      flash(e.target.checked ? 'activado en ' + location.host : 'desactivado en ' + location.host);
+      flash(e.target.checked ? 'enabled on ' + location.host : 'disabled on ' + location.host);
     });
     sec.querySelector('[data-cfg=auto-collect]')?.addEventListener('change', e => {
       state.autoCollect = e.target.checked; save(STORE.AUTO_COLLECT, state.autoCollect);
-      flash(state.autoCollect ? 'auto-recoger ON' : 'auto-recoger OFF');
+      gbLog('auto-collect', state.autoCollect ? 'ON' : 'OFF');
+      if (state.autoCollect) autoCollectResources();
     });
     sec.querySelector('[data-cfg=collect-all]')?.addEventListener('change', e => {
       state.collectAll = e.target.checked; save(STORE.COLLECT_ALL, state.collectAll);
-      flash(state.collectAll ? 'recoger-todo ON' : 'recoger-todo OFF');
+      flash(state.collectAll ? 'collect-all ON' : 'collect-all OFF');
       if (state.collectAll) collectAllBackground();
     });
     sec.querySelector('[data-cfg=auto-bandit]')?.addEventListener('change', e => {
@@ -1193,7 +1082,8 @@
     sec.querySelector('[data-cfg=auto-farm]')?.addEventListener('change', e => {
       state.autoFarm = e.target.checked; save(STORE.AUTO_FARM, state.autoFarm);
       gbLog('auto-farm', state.autoFarm ? 'ON' : 'OFF');
-      if (state.autoFarm) autoClaimFarms('toggle');
+      if (state.autoFarm) { autoClaimFarms('toggle'); farmScheduleClaimWake(null, 'toggle', true); }
+      else farmCancelClaimWake();
     });
     sec.querySelector('[data-cfg=farm-skip-full]')?.addEventListener('change', e => {
       state.farmSkipFull = e.target.checked; save(STORE.FARM_SKIP_FULL, state.farmSkipFull);
@@ -1216,7 +1106,7 @@
     sec.querySelector('[data-cfg=farm-loyalty-tech]')?.addEventListener('change', e => {
       state.farmLoyaltyTech = String(e.target.value || '').trim();
       save(wkey(STORE.FARM_LOYALTY_TECH), state.farmLoyaltyTech);
-      farmLoyaltyReset(); // don't make the user wait out the 60s cache
+      farmLoyaltyReset();
       gbLog('farm loyalty tech: ' + (state.farmLoyaltyTech || 'auto-detect'));
     });
     sec.querySelector('[data-cfg=farm-sleep-dur]')?.addEventListener('change', e => {
@@ -1256,7 +1146,7 @@
       if (state.autoCave) caveScan('toggle');
       renderCaveTowns();
     });
-    // ---- Phase 8.2+ toggles ----
+
     const saveNum = (sel, fn) => sec.querySelector(sel)?.addEventListener('change', e => { fn(+e.target.value); });
     const ct = state.cultureTypes || {};
     setChk('[data-cfg=auto-culture]', state.autoCulture);
@@ -1277,23 +1167,8 @@
     setChk('[data-cfg=decision-memory]', state.decisionMemory !== false);
     setChk('[data-cfg=dry-run]', !!state.dryRun);
     setChk('[data-cfg=orch-adaptive]', state.orchAdaptive !== false);
-    setChk('[data-cfg=orch-deadlock]', state.orchDeadlockResolve !== false);
     setChk('[data-cfg=export-redact]', state.exportRedact !== false);
     setChk('[data-cfg=auto-merchant]', state.autoMerchant);
-    setChk('[data-cfg=auto-pt-trade]', state.autoPtTrade);
-    {
-      const c = state.ptCfg || {};
-      const want = c.wantRes || {};
-      setNum('[data-cfg=pt-ratio]', c.targetRatio != null ? c.targetRatio : 1);
-      setNum('[data-cfg=pt-pump]', c.pumpAmount != null ? c.pumpAmount : 1);
-      setNum('[data-cfg=pt-maxpumps]', c.maxPumps != null ? c.maxPumps : 6);
-      setNum('[data-cfg=pt-reserve]', c.reservePct != null ? c.reservePct : 10);
-      setChk('[data-cfg=pt-want-wood]', want.wood !== false);
-      setChk('[data-cfg=pt-want-stone]', want.stone !== false);
-      setChk('[data-cfg=pt-want-iron]', !!want.iron);
-      const st = sec.querySelector('#gb-pt-status');
-      if (st) st.textContent = typeof ptStatusText === 'function' ? ptStatusText() : '';
-    }
     setChk('[data-cfg=auto-favor]', state.autoFavor);
     setChk('[data-cfg=auto-wonder]', state.autoWonder);
     setChk('[data-cfg=cs-alert]', state.csAlert !== false);
@@ -1308,25 +1183,22 @@
     setNum('[data-cfg=night-start]', state.nightStart);
     setNum('[data-cfg=night-end]', state.nightEnd);
     setNum('[data-cfg=req-budget]', state.reqBudgetPerMin);
-    setNum('[data-cfg=posts-soft]', state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60);
-    const cl = sec.querySelector('[data-cfg=captcha-ladder]');
-    if (cl) cl.value = (state.captchaLadder || [5, 15, 60]).join(',');
-    setChk('[data-cfg=auto-wonder-favor]', !!state.autoWonderFavor);
     setNum('[data-cfg=dodge-floor]', state.dodgeFloor);
     const rr = sec.querySelector('[data-cfg=rural-res]'); if (rr) rr.value = state.ruralTradeRes || 'iron';
-    const dm = sec.querySelector('[data-cfg=dodge-mode]'); if (dm) dm.value = state.dodgeMode || 'notify';
+    const defense=state.defenseCfg||{mode:'notify',smartAuto:false,returnMarginSec:120};
+    const dm=sec.querySelector('[data-cfg=defense-mode]');if(dm)dm.value=defenseMode();
+    setChk('[data-cfg=defense-smart-auto]',!!defense.smartAuto);
+    setNum('[data-cfg=defense-return-margin]',Math.max(0,+defense.returnMarginSec||120));
     const wh = sec.querySelector('[data-cfg=webhook-url]'); if (wh) wh.value = state.webhookUrl || '';
     const we = state.webhookEvents || {};
     setChk('[data-cfg=wh-captcha]', we.captcha !== false);
     setChk('[data-cfg=wh-attack]', we.attack !== false);
-    setChk('[data-cfg=wh-pattern]', we.pattern !== false);
     setChk('[data-cfg=wh-warehouse]', !!we.warehouse);
     setChk('[data-cfg=wh-culture]', !!we.culture);
     const tg = sec.querySelector('[data-cfg=wh-tg-chat]'); if (tg) tg.value = we.telegramChatId || '';
     const tp = sec.querySelector('[data-cfg=trade-preset]'); if (tp) tp.value = state.tradePreset || 'storage';
     setNum('[data-cfg=trade-reserve]', state.tradeReservePct);
     setNum('[data-cfg=trade-min]', state.tradeMinBatch);
-    setNum('[data-cfg=trade-max-hops]', state.tradeMaxHops);
     const bindToggle = (sel, key, store, onOn) => {
       sec.querySelector(sel)?.addEventListener('change', e => {
         state[key] = e.target.checked; save(store, state[key]);
@@ -1345,49 +1217,14 @@
     bindToggle('[data-cfg=captcha-global]', 'captchaGlobalKill', STORE.CAPTCHA_GLOBAL);
     bindToggle('[data-cfg=decision-memory]', 'decisionMemory', STORE.DECISION_MEM);
     bindToggle('[data-cfg=orch-adaptive]', 'orchAdaptive', STORE.ORCH_ADAPTIVE);
-    bindToggle('[data-cfg=orch-deadlock]', 'orchDeadlockResolve', STORE.ORCH_DEADLOCK);
     bindToggle('[data-cfg=export-redact]', 'exportRedact', STORE.EXPORT_REDACT);
     sec.querySelector('[data-cfg=dry-run]')?.addEventListener('change', e => {
       state.dryRun = e.target.checked; save(STORE.DRY_RUN, state.dryRun);
-      gbLog('DRY RUN ' + (state.dryRun ? 'ON - payloads logged, DOM clicks blocked' : 'OFF - posts go to the server'));
-      flash(state.dryRun ? 'simulacro ON' : 'simulacro OFF');
+      gbLog('DRY RUN ' + (state.dryRun ? 'ON - payloads logged, nothing sent' : 'OFF - posts go to the server'));
+      flash(state.dryRun ? 'dry run ON' : 'dry run OFF');
       updateStatus();
     });
     bindToggle('[data-cfg=auto-merchant]', 'autoMerchant', STORE.AUTO_MERCHANT, () => merchantScan('toggle'));
-    bindToggle('[data-cfg=auto-pt-trade]', 'autoPtTrade', STORE.AUTO_PT_TRADE, () => ptTradeScan('toggle'));
-    const savePt = (key, val) => {
-      if (!state.ptCfg || typeof state.ptCfg !== 'object') state.ptCfg = {};
-      state.ptCfg[key] = val;
-      save(STORE.PT_CFG, state.ptCfg);
-    };
-    saveNum('[data-cfg=pt-ratio]', v => savePt('targetRatio', Math.min(2, Math.max(0.5, v || 1))));
-    saveNum('[data-cfg=pt-pump]', v => savePt('pumpAmount', Math.max(1, Math.floor(v || 1))));
-    saveNum('[data-cfg=pt-maxpumps]', v => savePt('maxPumps', Math.min(20, Math.max(0, Math.floor(v || 0)))));
-    saveNum('[data-cfg=pt-reserve]', v => savePt('reservePct', Math.min(90, Math.max(0, Math.floor(v || 0)))));
-    const savePtWant = () => {
-      savePt('wantRes', {
-        wood: !!sec.querySelector('[data-cfg=pt-want-wood]')?.checked,
-        stone: !!sec.querySelector('[data-cfg=pt-want-stone]')?.checked,
-        iron: !!sec.querySelector('[data-cfg=pt-want-iron]')?.checked,
-      });
-    };
-    ['pt-want-wood', 'pt-want-stone', 'pt-want-iron'].forEach(k => {
-      sec.querySelector('[data-cfg=' + k + ']')?.addEventListener('change', savePtWant);
-    });
-    sec.querySelector('[data-cfg=pt-now]')?.addEventListener('click', () => {
-      if (!state.ptTradeTpl) { flash('comercia una vez a mano primero'); return; }
-      if (!confirm('¿Bombear el ratio del barco mercante y enviar ahora el trato grande?')) return;
-      const was = state.autoPtTrade;
-      if (!was) { state.autoPtTrade = true; save(STORE.AUTO_PT_TRADE, true); }
-      ptTradeScan('manual');
-    });
-    sec.querySelector('[data-cfg=pt-copy]')?.addEventListener('click', () => {
-      const root = typeof ptWindowRoot === 'function' ? ptWindowRoot() : null;
-      if (!root) { flash('abre primero la ventana del mercader'); return; }
-      navigator.clipboard.writeText(root.innerHTML.slice(0, 20000))
-        .then(() => flash('HTML de la oferta copiado'))
-        .catch(() => flash('fallo al copiar'));
-    });
     bindToggle('[data-cfg=auto-favor]', 'autoFavor', STORE.AUTO_FAVOR, () => favorScan('toggle'));
     bindToggle('[data-cfg=auto-wonder]', 'autoWonder', STORE.AUTO_WONDER, () => wonderScan('toggle'));
     bindToggle('[data-cfg=cs-alert]', 'csAlert', STORE.CS_ALERT);
@@ -1419,111 +1256,13 @@
     saveNum('[data-cfg=night-start]', v => { state.nightStart = v; save(STORE.NIGHT_START, v); });
     saveNum('[data-cfg=night-end]', v => { state.nightEnd = v; save(STORE.NIGHT_END, v); });
     saveNum('[data-cfg=req-budget]', v => { state.reqBudgetPerMin = v; save(STORE.REQ_BUDGET, v); });
-    saveNum('[data-cfg=posts-soft]', v => {
-      state.postsPerMinSoftPct = Math.min(95, Math.max(20, v || 60));
-      save(STORE.POSTS_SOFT_PCT, state.postsPerMinSoftPct);
-    });
-    sec.querySelector('[data-cfg=captcha-ladder]')?.addEventListener('change', e => {
-      const parts = String(e.target.value || '').split(/[,;\s]+/).map(x => Math.max(1, Math.min(24 * 60, +x || 0))).filter(n => n >= 1);
-      if (parts.length < 1) { flash('la escalera necesita ≥1 valor'); return; }
-      if (parts.some(n => n < 2)) gbLog('captcha ladder: values <2min are aggressive');
-      state.captchaLadder = parts;
-      save(STORE.CAPTCHA_LADDER, parts);
-      flash('escalera de captcha ' + parts.join(','));
-    });
-    sec.querySelector('[data-cfg=captcha-clear]')?.addEventListener('click', () => {
-      captchaClear();
-      flash('pausas por captcha limpiadas');
-      updateStatus();
-    });
-    sec.querySelector('[data-cfg=storage-prune]')?.addEventListener('click', () => {
-      const before = JSON.stringify(state.seen || {}).length + JSON.stringify(state.alerted || {}).length;
-      const ids = Object.keys(state.seen || {});
-      if (ids.length > 500) {
-        ids.slice(0, ids.length - 500).forEach(k => { delete state.seen[k]; });
-        save(STORE.SEEN, state.seen);
-      }
-      const aks = Object.keys(state.alerted || {});
-      const cut = Date.now() - 7 * 86400000;
-      aks.forEach(k => { if ((state.alerted[k] || 0) < cut) delete state.alerted[k]; });
-      save(STORE.ALERTED, state.alerted);
-      const after = JSON.stringify(state.seen || {}).length + JSON.stringify(state.alerted || {}).length;
-      flash('purgados ~' + Math.max(0, before - after) + 'B');
-      gbLog('storage prune: seen=' + Object.keys(state.seen).length + ' alerted=' + Object.keys(state.alerted).length);
-    });
-    bindToggle('[data-cfg=auto-wonder-favor]', 'autoWonderFavor', STORE.AUTO_WONDER_FAVOR);
-    let _presetUndo = null;
-    sec.querySelectorAll('[data-preset]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const kind = btn.dataset.preset;
-        if (kind === 'undo') {
-          if (!_presetUndo) { flash('nada que deshacer'); return; }
-          Object.keys(_presetUndo).forEach(k => { state[k] = _presetUndo[k]; });
-          _presetUndo = null;
-          bindConfig();
-          flash('preajuste deshecho');
-          return;
-        }
-        const presets = {
-          afk: {
-            autoFarm: true, farmSleepAuto: true, farmLongClaims: true,
-            autoCave: true, autoTrade: true, islandShip: true, autoCulture: true,
-            autoResearch: true, abAuto: true, ibAuto: false, autoCollect: false,
-            nightPause: true, dodgeMode: 'notify', autoDodge: false,
-            autoRecruit: false, autoFavor: false,
-          },
-          farm: {
-            autoFarm: true, farmSleepAuto: false, farmLongClaims: true,
-            autoCave: true, autoTrade: true, islandShip: true, autoCulture: true,
-            autoResearch: true, abAuto: true, ibAuto: true, autoCollect: true,
-            nightPause: false, dodgeMode: 'notify', autoDodge: false,
-            autoRecruit: false, autoFavor: false,
-          },
-          war: {
-            autoFarm: true, autoCave: true, autoTrade: true, islandShip: true,
-            autoCulture: false, autoResearch: false, abAuto: false, ibAuto: false,
-            autoCollect: true, nightPause: false, dodgeMode: 'notify', autoDodge: false,
-            autoRecruit: false, autoFavor: false,
-          },
-        };
-        const patch = presets[kind];
-        if (!patch) return;
-        const keys = Object.keys(patch);
-        const diff = keys.map(k => `${k}: ${state[k]}→${patch[k]}`).join(', ');
-        if (!confirm('¿Aplicar el preajuste ' + kind + '?\n' + diff + '\n\nLo de ALTO RIESGO sigue OFF. simulacro/hosts sin tocar.')) return;
-        _presetUndo = {};
-        keys.forEach(k => { _presetUndo[k] = state[k]; state[k] = patch[k]; });
-        // Persist allow-listed keys only
-        try {
-          save(STORE.AUTO_FARM, state.autoFarm);
-          save(STORE.AUTO_CAVE, state.autoCave);
-          save(STORE.AUTO_TRADE, state.autoTrade);
-          save(STORE.ISLAND_SHIP, state.islandShip);
-          save(STORE.AUTO_CULTURE, state.autoCulture);
-          save(STORE.AUTO_RESEARCH, state.autoResearch);
-          save(STORE.AB_AUTO, state.abAuto);
-          save(STORE.IB_AUTO, state.ibAuto);
-          save(STORE.AUTO_COLLECT, state.autoCollect);
-          save(STORE.NIGHT_PAUSE, state.nightPause);
-          save(STORE.DODGE_MODE, state.dodgeMode);
-          save(STORE.AUTO_DODGE, false);
-          save(STORE.AUTO_RECRUIT, false);
-          save(STORE.AUTO_FAVOR, false);
-          save(STORE.FARM_SLEEP_AUTO, state.farmSleepAuto);
-          save(STORE.FARM_LONG_CLAIMS, state.farmLongClaims);
-        } catch (_) {}
-        bindConfig();
-        flash('preajuste ' + kind + ' aplicado');
-        gbLog('preset: ' + kind + ' (' + keys.length + ' keys)');
-      });
-    });
     saveNum('[data-cfg=dodge-floor]', v => { state.dodgeFloor = v; save(STORE.DODGE_FLOOR, v); });
     sec.querySelector('[data-cfg=rural-res]')?.addEventListener('change', e => {
       state.ruralTradeRes = e.target.value; save(STORE.RURAL_TRADE_RES, state.ruralTradeRes);
     });
-    sec.querySelector('[data-cfg=dodge-mode]')?.addEventListener('change', e => {
-      state.dodgeMode = e.target.value; save(STORE.DODGE_MODE, state.dodgeMode);
-    });
+    sec.querySelector('[data-cfg=defense-mode]')?.addEventListener('change',e=>{state.defenseCfg=Object.assign({},state.defenseCfg,{mode:['notify','safe','smart'].includes(e.target.value)?e.target.value:'notify'});save(STORE.DEFENSE_CFG,state.defenseCfg)});
+    sec.querySelector('[data-cfg=defense-smart-auto]')?.addEventListener('change',e=>{state.defenseCfg=Object.assign({},state.defenseCfg,{smartAuto:!!e.target.checked});save(STORE.DEFENSE_CFG,state.defenseCfg)});
+    saveNum('[data-cfg=defense-return-margin]',v=>{state.defenseCfg=Object.assign({},state.defenseCfg,{returnMarginSec:Math.max(0,Math.min(3600,+v||0))});save(STORE.DEFENSE_CFG,state.defenseCfg)});
     sec.querySelector('[data-cfg=webhook-url]')?.addEventListener('change', e => {
       state.webhookUrl = e.target.value.trim(); save(STORE.WEBHOOK_URL, state.webhookUrl);
       gbLog('webhook url', state.webhookUrl ? 'set' : 'cleared');
@@ -1532,14 +1271,13 @@
       state.webhookEvents = {
         captcha: !!sec.querySelector('[data-cfg=wh-captcha]')?.checked,
         attack: !!sec.querySelector('[data-cfg=wh-attack]')?.checked,
-        pattern: !!sec.querySelector('[data-cfg=wh-pattern]')?.checked,
         warehouse: !!sec.querySelector('[data-cfg=wh-warehouse]')?.checked,
         culture: !!sec.querySelector('[data-cfg=wh-culture]')?.checked,
         telegramChatId: (sec.querySelector('[data-cfg=wh-tg-chat]')?.value || '').trim() || undefined,
       };
       save(STORE.WEBHOOK_EVENTS, state.webhookEvents);
     };
-    ['wh-captcha', 'wh-attack', 'wh-pattern', 'wh-warehouse', 'wh-culture'].forEach(k => {
+    ['wh-captcha', 'wh-attack', 'wh-warehouse', 'wh-culture'].forEach(k => {
       sec.querySelector('[data-cfg=' + k + ']')?.addEventListener('change', saveWebhookEvents);
     });
     sec.querySelector('[data-cfg=wh-tg-chat]')?.addEventListener('change', saveWebhookEvents);
@@ -1553,11 +1291,8 @@
     saveNum('[data-cfg=trade-min]', v => {
       state.tradeMinBatch = Math.max(100, v); save(STORE.TRADE_MIN, state.tradeMinBatch);
     });
-    saveNum('[data-cfg=trade-max-hops]', v => {
-      state.tradeMaxHops = Math.max(0, Math.min(200, v)); save(STORE.TRADE_MAX_HOPS, state.tradeMaxHops);
-    });
     sec.querySelector('[data-cfg=research-csfast]')?.addEventListener('click', () => {
-      researchLoadCsFast(); flash('investigación CS-rápido');
+      researchLoadCsFast(); flash('CS-fast research');
     });
     saveNum('[data-cfg=cave-thresh]', v => {
       state.caveThreshPct = Math.min(99, Math.max(50, v || 90));
@@ -1568,7 +1303,7 @@
       state.farmSleepFillPct = Math.min(95, Math.max(10, v || 60));
       save(STORE.FARM_SLEEP_FILL, state.farmSleepFillPct);
     });
-    saveNum('[data-cfg=ib-free-thresh]', v => { state.ibFreeThresh = v; save(STORE.IB_FREE_THRESH, v); });
+    saveNum('[data-cfg=ib-free-thresh]', v => { state.ibFreeThresh = Math.max(60,Math.min(300,+v||300)); save(STORE.IB_FREE_THRESH, state.ibFreeThresh); });
     saveNum('[data-cfg=collect-max-min]', v => { state.collectMaxMin = v; save(STORE.COLLECT_MAX_MIN, v); });
     saveNum('[data-cfg=farm-min]', v => { state.farmMinMs = v * 60000; save(STORE.FARM_MIN, state.farmMinMs); });
     saveNum('[data-cfg=farm-max]', v => { state.farmMaxMs = v * 60000; save(STORE.FARM_MAX, state.farmMaxMs); });
@@ -1577,7 +1312,7 @@
     sec.querySelector('[data-cfg=clear-captcha]')?.addEventListener('click', () => {
       captchaClear();
       gbLog('captcha breakers cleared by user');
-      flash('cortacircuitos de captcha limpiados');
+      flash('captcha breakers cleared');
     });
     renderCaveTowns();
   }
@@ -1587,13 +1322,12 @@
     showTab(start, { force: true });
   }
 
-  // farms textarea persistence (debounced: parse+save+render once typing settles)
   const ta = panel.querySelector('textarea');
   ta.value = state.farms;
   let farmsInputTimer = null;
   ta.addEventListener('input', () => {
     state.farms = ta.value;
-    clearTimeout(farmsInputTimer);
+    gbClearTimeout(farmsInputTimer);
     farmsInputTimer = gbTimeout(() => {
       save(STORE.FARMS, state.farms);
       refreshFarmsParsed();
@@ -1601,7 +1335,6 @@
     }, 400);
   });
 
-  // drag
   (function drag(el, handle) {
     let sx, sy, dx, dy, dragging = false, moved = false;
     gbListen(handle, 'mousedown', e => {
@@ -1624,7 +1357,6 @@
     });
   })(panel, panel.querySelector('header'));
 
-  // resize - all edges + corners
   (function resize(el) {
     const DIRS = {
       n: { t: 1 }, s: { b: 1 }, e: { r: 1 }, w: { l: 1 },
@@ -1641,7 +1373,7 @@
         const rect = el.getBoundingClientRect();
         sw = rect.width; sh = rect.height;
         sl = rect.left; st = rect.top;
-        // pin left/top so opposite edges stay fixed (also clears right-anchor)
+
         el.style.left = sl + 'px';
         el.style.top = st + 'px';
         el.style.right = 'auto';
@@ -1677,14 +1409,11 @@
 
   panel.querySelector('footer button[data-act=reset-pos]').addEventListener('click', resetPanelGeom);
 
-  // Trailing-edge debounce for filter inputs. Plain setTimeout on purpose:
-  // these are sub-second UI timers, not automation, so they stay out of the
-  // reinject dispose bag.
   function gbDebounce(fn, ms) {
     let t = null;
     return function () {
-      if (t) clearTimeout(t);
-      t = setTimeout(() => { t = null; fn(); }, ms);
+      if (t) gbClearTimeout(t);
+      t = gbTimeout(() => { t = null; fn(); }, ms);
     };
   }
   const findingsFilterDebounced = gbDebounce(() => {
@@ -1697,13 +1426,12 @@
     const filt = document.createElement('div');
     filt.className = 'findings-filter';
     filt.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap';
-    filt.innerHTML = '<input data-f="type" placeholder="filtrar tipo" style="flex:1;min-width:60px;background:#111;color:#cfc;border:1px solid #333;padding:2px 4px;font:11px monospace"/><input data-f="attacker" placeholder="filtrar atacante" style="flex:1;min-width:60px;background:#111;color:#cfc;border:1px solid #333;padding:2px 4px;font:11px monospace"/>';
+    filt.innerHTML = '<input data-f="type" placeholder="type filter" style="flex:1;min-width:60px;background:#111;color:#cfc;border:1px solid #333;padding:2px 4px;font:11px monospace"/><input data-f="attacker" placeholder="attacker filter" style="flex:1;min-width:60px;background:#111;color:#cfc;border:1px solid #333;padding:2px 4px;font:11px monospace"/>';
     filt.querySelectorAll('input').forEach(inp => {
       inp.value = state.findingsFilter[inp.dataset.f] || '';
       inp.addEventListener('input', () => {
         state.findingsFilter[inp.dataset.f] = inp.value;
-        // debounced: a full list rebuild + storage write per keystroke was the
-        // worst offender in the panel (80 rows re-created while typing)
+
         findingsFilterDebounced();
       });
     });
@@ -1716,7 +1444,7 @@
     const filt = ensureFindingsFilter(sec);
     let list = sec.querySelector('.findings-list');
     if (!list) {
-      // first paint: mount filter + list without wiping (keeps input focus on re-filter)
+
       if (!filt.parentNode) sec.appendChild(filt);
       list = document.createElement('div');
       list.className = 'findings-list';
@@ -1735,7 +1463,7 @@
     if (!slice.length) {
       const empty = document.createElement('div');
       empty.style.cssText = 'color:#888;padding:10px';
-      empty.textContent = state.findings.length ? 'sin coincidencias' : 'aún no hay hallazgos - abre el buzón';
+      empty.textContent = state.findings.length ? 'no matches' : 'no findings yet - visit inbox';
       list.appendChild(empty);
       return;
     }
@@ -1746,9 +1474,7 @@
       const meta = document.createElement('div');
       meta.className = 'meta';
       const when = new Date(f.ts).toLocaleTimeString();
-      const target = f.town?.id != null
-        ? `${f.town.name || 'ciudad'} #${f.town.id}`
-        : `t#${f.town?.id || '?'}`;
+      const target = f.town?.name || `t#${f.town?.id || '?'}`;
       const coord = (f.town?.x != null) ? ` (${f.town.x}|${f.town.y})` : '';
       meta.textContent = `#${f.id} | ${when} | ${f.type} | ${target}${coord}`;
       row.appendChild(meta);
@@ -1763,43 +1489,14 @@
       if (f.resources && (f.resources.wood != null || f.resources.stone != null || f.resources.iron != null)) {
         const res = document.createElement('div');
         res.className = 'res';
-        res.textContent = `Ma${f.resources.wood ?? '?'} Pi${f.resources.stone ?? '?'} Pl${f.resources.iron ?? '?'}`;
+        res.textContent = `W${f.resources.wood ?? '?'} S${f.resources.stone ?? '?'} I${f.resources.iron ?? '?'}`;
         row.appendChild(res);
-      }
-
-      if (f.town && f.town.id != null) {
-        const actions = document.createElement('div');
-        actions.style.cssText = 'margin-top:3px';
-        const atkBtn = document.createElement('button');
-        atkBtn.type = 'button';
-        atkBtn.textContent = '-> Atacar';
-        atkBtn.title = `Usar la ciudad #${f.town.id} como objetivo de ataque`;
-        atkBtn.style.cssText = 'background:#333;border:1px solid #555;color:#f96;padding:1px 6px;cursor:pointer;font-size:10px';
-        atkBtn.addEventListener('click', () => prepareAttack(Object.assign({ kind: 'town' }, f.town)));
-        actions.appendChild(atkBtn);
-        const copyBtn = document.createElement('button');
-        copyBtn.type = 'button';
-        copyBtn.textContent = 'Copiar id';
-        copyBtn.title = 'Copiar el id de la ciudad al portapapeles';
-        copyBtn.style.cssText = 'background:#333;border:1px solid #555;color:#9cf;padding:1px 6px;cursor:pointer;font-size:10px;margin-left:4px';
-        copyBtn.addEventListener('click', () => {
-          const id = String(f.town.id);
-          try {
-            navigator.clipboard.writeText(id);
-            flash('copiado ' + id);
-          } catch (_) {
-            flash('id: ' + id);
-          }
-        });
-        actions.appendChild(copyBtn);
-        row.appendChild(actions);
       }
 
       list.appendChild(row);
     }
   }
-  // Decision journal view (Log tab -> Decisions). Built as DOM nodes, not HTML:
-  // r/d carry raw server error strings.
+
   function renderJournal() {
     const pane = panel && panel.querySelector('.jrn-pane');
     const list = pane && pane.querySelector('.jrn-list');
@@ -1810,9 +1507,9 @@
     if (head) {
       head.textContent = '';
       head.appendChild(document.createTextNode(
-        `${state.decisions.length} decisiones  |  memoria ${state.decisionMemory === false ? 'OFF' : 'ON'}  |  `));
+        `${state.decisions.length} decisions · memory ${state.decisionMemory === false ? 'OFF' : 'ON'} · `));
       const b = document.createElement('b');
-      b.textContent = `${skips.length} saltando`;
+      b.textContent = `${skips.length} skipping`;
       head.appendChild(b);
       if (skips.length) {
         const soonest = skips.slice().sort((a, b2) => a.until - b2.until)[0];
@@ -1824,13 +1521,13 @@
       (r.f + ' ' + r.a + ' ' + r.k + ' ' + r.r).toLowerCase().includes(q)).slice(-120).reverse();
     list.textContent = '';
     if (!rows.length) {
-      list.textContent = q ? '(sin coincidencias)' : '(aún no hay nada registrado)';
+      list.textContent = q ? '(no match)' : '(nothing recorded yet)';
       return;
     }
     const table = document.createElement('table');
     for (const r of rows) {
       const tr = document.createElement('tr');
-      tr.className = r.r === 'ok' ? 'ok' : (r.r.slice(0, 5) === 'skip:' ? 'skip' : 'err');
+      tr.className = r.r === 'ok' ? 'ok' : ((r.r.slice(0, 5) === 'skip:' || jrnPendingResult(r.r)) ? 'skip' : 'err');
       const cell = (cls, text, title) => {
         const td = document.createElement('td');
         td.className = cls;
@@ -1853,10 +1550,6 @@
     document.body.appendChild(f); gbTimeout(() => f.remove(), 1500);
   }
 
-  // Strip PII from export/copy dumps (player names/ids kept as hashes).
-  // Opt-out via Config -> "Redact names/ids in Copy + Export" (default ON): raw
-  // dumps carry other players' names, ids and town coordinates off-box the
-  // moment they are pasted anywhere.
   function redactFindingsExport(dump) {
     if (state.exportRedact === false) {
       gbLogT('export-raw', 60000, 'export: redaction OFF - dump contains player names/ids');
@@ -1864,7 +1557,7 @@
     }
     const redactPlayer = (p) => {
       if (!p || typeof p !== 'object') return p;
-      return { id: p.id != null ? 'p' + String(p.id).slice(-4) : null, name: p.name ? String(p.name).slice(0, 1) + '...' : null };
+      return { id: p.id != null ? 'p' + String(p.id).slice(-4) : null, name: p.name ? String(p.name).slice(0, 1) + '…' : null };
     };
     const findings = (dump.findings || []).map(f => {
       if (!f || typeof f !== 'object') return f;
@@ -1872,7 +1565,7 @@
       out.attacker = redactPlayer(f.attacker);
       out.defender = redactPlayer(f.defender);
       if (out.town && typeof out.town === 'object') {
-        out.town = { id: out.town.id, name: out.town.name ? String(out.town.name).slice(0, 1) + '...' : null, x: out.town.x, y: out.town.y };
+        out.town = { id: out.town.id, name: out.town.name ? String(out.town.name).slice(0, 1) + '…' : null, x: out.town.x, y: out.town.y };
       }
       delete out.raw;
       return out;
@@ -1882,12 +1575,11 @@
 
   let _statusLast = '';
   let _statusCsLast = '';
-  let _statusLastAction = '';
   function updateStatus() {
     if (!panel) return;
     const el = panel.querySelector('#gb-status');
     if (!el) return;
-    const csrfShort = state.csrf ? state.csrf.slice(0, 6) + '...' : 'NONE';
+    const csrfShort = state.csrf ? state.csrf.slice(0, 6) + '…' : 'NONE';
     const farms = state.farmsParsed.length;
     const okFarms = Object.values(state.farmResources).filter(r => r && r.ok).length;
     const lastErr = Object.values(state.farmResources).filter(r => r && !r.ok).slice(-1)[0];
@@ -1895,55 +1587,27 @@
     const paused = Object.keys(state.captchaBreakers || {}).filter(k => captchaPaused(k));
     const pauseInfo = {};
     automationPaused(pauseInfo);
-    let pauseTxt = paused.length ? ` ||${paused.join(',')}` : '';
-    if (pauseInfo.reason) pauseTxt += ` ||${pauseInfo.reason}`;
-    if (captchaGlobalUntil > Date.now()) pauseTxt += ' ||ALL';
+    let pauseTxt = paused.length ? ` ⏸${paused.join(',')}` : '';
+    if (pauseInfo.reason) pauseTxt += ` ⏸${pauseInfo.reason}`;
+    if (captchaGlobalUntil > Date.now()) pauseTxt += ' ⏸ALL';
     const memSkips = jrnActiveSkips();
     if (memSkips.length) pauseTxt += ` mem:${memSkips.length}`;
-    if (gbServerPaused()) pauseTxt += ` ||srv:${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}`;
-    if (storageWarnUntil > Date.now()) pauseTxt += ` ⚠${storageWarnMsg || 'quota'}`;
-    try {
-      const dl = typeof econDeadlock === 'function' ? econDeadlock() : null;
-      if (dl && dl.open) pauseTxt += ' WH';
-    } catch (_) {}
-    try {
-      const tb = typeof tplHealthBannerText === 'function' ? tplHealthBannerText() : '';
-      if (tb) pauseTxt += ' tpl!';
-    } catch (_) {}
-    const dryTxt = state.dryRun ? ' DRY' : '';
-    const txt = `csrf:${csrfShort} farms:${okFarms}/${farms}${errTxt}${dryTxt}${pauseTxt}`;
+    const openCircuits = Object.keys(state.circuits || {}).filter(k => state.circuits[k] && state.circuits[k].open);
+    const unknownTx = Object.values(state.txState || {}).filter(t => t && /^(unknown|manual-review)$/.test(t.state || '')).length;
+    if (openCircuits.length) pauseTxt += ` circuit:${openCircuits.length}`;
+    if (unknownTx) pauseTxt += ` tx?:${unknownTx}`;
+    if (gbServerPaused()) pauseTxt += ` ⏸srv:${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}`;
+    if(gbTabCoordSupported&&!gbTabLeader)pauseTxt+=' ⏸other-tab';
+    const dryTxt = state.dryRun ? ' 🅳DRY' : ''; const safeTxt=state.safeMode?' SAFE':'';
+    const txt = `csrf:${csrfShort} farms:${okFarms}/${farms}${errTxt}${dryTxt}${safeTxt}${pauseTxt}`;
     if (txt !== _statusLast) {
       _statusLast = txt;
       el.textContent = txt;
-      let titleExtra = '';
-      try { titleExtra = tplHealthBannerText() || ''; } catch (_) {}
-      el.title = (titleExtra ? titleExtra + ' | ' : '') + JSON.stringify({ csrf: !!state.csrf, captcha: state.captchaBreakers, pause: pauseInfo.reason, memory: memSkips.map(s => s.key) });
-    }
-    const la = panel.querySelector('#gb-last-action');
-    if (la) {
-      let chip = '';
-      try {
-        const list = state.decisions || [];
-        for (let i = list.length - 1; i >= 0; i--) {
-          const r = list[i];
-          if (!r || r.r !== 'ok') continue;
-          const ago = Math.max(0, Math.round((Date.now() - r.ts) / 1000));
-          const agoTxt = ago < 60 ? ago + 's' : (ago < 3600 ? Math.round(ago / 60) + 'm' : Math.round(ago / 3600) + 'h');
-          const act = String(r.a || '').slice(0, 18);
-          chip = `${r.f}: ${act} OK hace ${agoTxt}`;
-          la.style.color = ago > 900 && hostEnabled() && !pauseInfo.reason ? '#fc6' : '#8c8';
-          break;
-        }
-        if (!chip && state.dryRun) chip = 'DRY (sin OK real)';
-      } catch (_) {}
-      if (chip !== (_statusLastAction || '')) {
-        _statusLastAction = chip;
-        la.textContent = chip;
-      }
+      el.title = JSON.stringify({ csrf: !!state.csrf, captcha: state.captchaBreakers, pause: pauseInfo.reason, memory: memSkips.map(s => s.key), circuits: openCircuits, unknownTransactions: unknownTx });
     }
     const cs = panel.querySelector('#gb-collect-state');
     if (cs) {
-      const csTxt = pauseInfo.reason ? `pausa:${pauseInfo.reason}` : '';
+      const csTxt = pauseInfo.reason ? `paused:${pauseInfo.reason}` : '';
       if (csTxt !== _statusCsLast) {
         _statusCsLast = csTxt;
         cs.textContent = csTxt;
@@ -1956,15 +1620,21 @@
     const fe = panel.querySelector('#gb-next-farms');
     const te = panel.querySelector('#gb-next-towns');
     if (fe) {
-      const t = state.nextFarmScrape
-        ? `~ granjas: ${fmtSec(Math.max(0, Math.round((state.nextFarmScrape - Date.now()) / 1000)))}`
-        : '~ granjas: -';
+      const timing = state.autoFarm ? farmClaimTiming() : null;
+      const claimTxt = !state.autoFarm ? 'claim: off'
+        : (timing && timing.ready > 0 ? `claim: ${timing.ready} ready`
+          : (timing && Number.isFinite(timing.nextAt) ? `claim: ${fmtSec(Math.max(0, timing.nextAt - timing.now))}`
+            : (timing && timing.expiredModelWait ? 'claim: model sync' : 'claim: —')));
+      const scrapeTxt = state.nextFarmScrape
+        ? `scrape: ${fmtSec(Math.max(0, Math.round((state.nextFarmScrape - Date.now()) / 1000)))}`
+        : 'scrape: —';
+      const t = `🧺 ${claimTxt} · ↻ ${scrapeTxt}`;
       if (t !== _timerFarmLast) { _timerFarmLast = t; fe.textContent = t; }
     }
     if (te) {
       const t = state.nextTownsScrape
-        ? `~ ciudades: ${fmtSec(Math.max(0, Math.round((state.nextTownsScrape - Date.now()) / 1000)))}`
-        : '~ ciudades: -';
+        ? `⏱ towns: ${fmtSec(Math.max(0, Math.round((state.nextTownsScrape - Date.now()) / 1000)))}`
+        : '⏱ towns: —';
       if (t !== _timerTownLast) { _timerTownLast = t; te.textContent = t; }
     }
   }
@@ -2034,12 +1704,12 @@
       console.log(report);
       console.groupEnd();
       const okFlash = () => {
-        flash('diag copiado');
+        flash('diag copied');
         gbLog('diag: copied ' + farms.length + ' farms, csrf=' + (state.csrf ? 'yes' : 'NO'));
       };
       const failFlash = () => {
-        flash('diag listo - pégalo desde la consola');
-        gbLog('diag: clipboard fail - expand [grepbot] diag in console');
+        flash('diag ready — paste from console');
+        gbLog('diag: clipboard fail — expand [grepbot] diag in console');
       };
       const tryExecCopy = () => {
         try {
@@ -2076,3 +1746,42 @@
     });
   }
 
+  ensureHostDefault();
+  migrateConfig();
+  gbTimeout(clientFingerprintCheck, 10000);
+  state.csrf = huntCsrf() || state.csrf;
+  if (state.csrf) save(wkey(STORE.CSRF), state.csrf);
+  hookFetch();
+  hookXhr();
+  renderFindings();
+  renderWorld();
+
+  gbMenu('GrepBot: copy findings', () => {
+
+    const dump = redactFindingsExport({ findings: state.findings, farms: state.farms });
+    navigator.clipboard.writeText(JSON.stringify(dump, null, 2));
+  });
+  gbMenu('GrepBot: diag', () => { diagRun(); });
+  gbMenu('GrepBot: rescan inbox', () => {
+    seenThisRun.clear(); Object.keys(state.seen).forEach(k => delete state.seen[k]);
+    seenCount = 0;
+    save(STORE.SEEN, state.seen); scrapeInboxDom();
+  });
+  gbMenu('GrepBot: clear captcha', () => { captchaClear(); flash('captcha cleared'); });
+  gbMenu('GrepBot: clear circuit breakers', () => {
+    if (!confirm('Clear all GrepBot circuit breakers? Only do this after reviewing the structural errors.')) return;
+    circuitClear();
+    gbLog('circuit breakers manually cleared');
+    flash('circuits cleared');
+    updateStatus();
+  });
+  gbMenu('GrepBot: review unknown transactions', () => {
+    const unknown = Object.entries(state.txState || {}).filter(([, t]) => t && /^(unknown|manual-review)$/.test(t.state || ''));
+    if (!unknown.length) { flash('no unknown transactions'); return; }
+    const sample = unknown.slice(0, 4).map(([k]) => k).join('\n');
+    if (!confirm(`Mark ${unknown.length} UNKNOWN transaction(s) as manually reviewed/aborted?\n\nThis can allow the same intent to be attempted again. First verify the game state.\n\n${sample}`)) return;
+    txClearUnknown();
+    gbLog(`transactions: manually reviewed/aborted ${unknown.length} unknown outcome(s)`);
+    flash(`reviewed ${unknown.length} unknown tx`);
+    updateStatus();
+  });

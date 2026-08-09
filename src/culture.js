@@ -1,16 +1,3 @@
-  // ---------- auto-culture (Phase 8.2) ----------
-  // ModernBot autoParty: building_place/start_celebration { celebration_type, town_id }
-  // Types: party (festival), triumph (procession), theater; olympic = 50 gold + Academy 30.
-  const CULTURE_CHECK_MS = 90000;
-  const CULTURE_COSTS = {
-    party: { wood: 15000, stone: 18000, iron: 15000, academy: 30 },
-    triumph: { killpoints: 300 },
-    theater: { wood: 10000, stone: 12000, iron: 10000, theater: 1, academy: 30 },
-    olympic: { gold: 50, academy: 30 }, // premium - never resource-based
-  };
-  const OLYMPIC_GOLD = 50;
-  let cultureLast = null;
-
   function cultureServerDay() {
     try {
       const now = gameNow();
@@ -22,15 +9,14 @@
   }
   function cultureGoldSpentLoad() {
     const day = cultureServerDay();
-    const saved = load(wkey(STORE.CULTURE_GOLD_SPENT), null) || load(STORE.CULTURE_GOLD_SPENT, null);
+    const saved = load(STORE.CULTURE_GOLD_SPENT, null);
     if (saved && saved.day === day) return { day, amount: +saved.amount || 0 };
     return { day, amount: 0 };
   }
   function cultureGoldSpentSave(spent) {
     save(wkey(STORE.CULTURE_GOLD_SPENT), { day: spent.day, amount: spent.amount });
   }
-  // One gold reader for the whole bot (core `gbPlayerGold`) - culture and the
-  // merchant sniper must not disagree about how much gold is actually there.
+
   function culturePlayerGold() { return gbPlayerGold(); }
   function cultureBusyTowns(type) {
     const uw = gameUw();
@@ -58,7 +44,7 @@
     const cost = CULTURE_COSTS[type];
     if (!cost) return false;
     if (type === 'olympic') {
-      // Premium path: explicit consent + daily budget + Academy 30 + live gold
+
       if (!state.allowPremiumCulture) return false;
       const spent = ledger && ledger.goldSpent != null ? ledger.goldSpent : cultureGoldSpentLoad().amount;
       const budget = +state.cultureGoldBudget || 0;
@@ -83,7 +69,7 @@
         const th = t.getBuildings ? +t.getBuildings().get('theater') : +(t.buildings().attributes || {}).theater;
         if (!(th >= cost.theater)) return false;
       }
-      if (cost.gold) return true; // gold already checked above
+      if (cost.gold) return true;
       const r = (ledger && ledger.res && ledger.res[townId]) || (t.resources && t.resources());
       if (!r) return false;
       if (cost.wood && r.wood < cost.wood) return false;
@@ -93,7 +79,7 @@
     } catch (_) { return false; }
   }
   function cultureStart(type, townId, onDone) {
-    // Map UI names -> game celebration_type
+
     const map = { festival: 'party', procession: 'triumph', theater: 'theater', olympic: 'olympic' };
     const ctype = map[type] || type;
     if (ctype === 'olympic' && !state.allowPremiumCulture) {
@@ -109,7 +95,7 @@
     if (automationPaused({})) return;
     if (gbLocked('culture')) return;
     const types = state.cultureTypes || {};
-    // Olympic without premium consent is silently skipped (legacy configs)
+
     const enabled = Object.keys(types).filter(k => {
       if (!types[k]) return false;
       if (k === 'olympic' && !state.allowPremiumCulture) {
@@ -126,7 +112,7 @@
         Object.keys((uw.ITowns && uw.ITowns.towns) || {}).forEach(id => ids.push(String(id)));
       } catch (_) {}
     }
-    // Projected ledgers so multi-job sweeps don't overcommit
+
     const spentState = cultureGoldSpentLoad();
     const ledger = {
       killpoints: cultureKillpointsAvailable(),
@@ -142,18 +128,17 @@
       });
     } catch (_) {}
     const jobs = [];
-    const townHasJob = new Set(); // one celebration policy per city per sweep
+    const townHasJob = new Set();
     for (const type of enabled) {
       const ctype = ({ festival: 'party', procession: 'triumph', theater: 'theater', olympic: 'olympic' })[type] || type;
       const busy = cultureBusyTowns(ctype);
       for (const id of ids) {
         if (busy.has(+id)) continue;
         if (townHasJob.has(String(id))) continue;
-        if (cultureShouldDeferForCave(id)) continue;
         if (!cultureCanAfford(id, ctype, ledger)) continue;
         jobs.push({ type, ctype, id });
         townHasJob.add(String(id));
-        // Discount projected costs
+
         const cost = CULTURE_COSTS[ctype];
         if (cost) {
           if (cost.killpoints) ledger.killpoints -= cost.killpoints;
@@ -175,25 +160,27 @@
       gbLogT('culture-idle', 180000, `culture: nothing to start (${reason || 'scan'})`);
       return;
     }
-    gbLock('culture');
+    const cultureLock = gbLock('culture');
+    if (!cultureLock) return;
     let i = 0, done = 0;
     (function next() {
+      gbLockTouch('culture', cultureLock);
       if (i >= jobs.length) {
-        gbUnlock('culture');
+        gbUnlock('culture', cultureLock);
         if (done) gbLog(`culture: started ${done}/${jobs.length}`);
         return;
       }
       const job = jobs[i++];
-      // Re-validate immediately before each post
+
       if (!cultureCanAfford(job.id, job.ctype)) {
         gbTimeout(next, 200);
         return;
       }
       cultureStart(job.type, job.id, (err) => {
-        if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('culture'); return; }
-        if (err === 'timeout') {
-          gbLogT('culture-timeout', 60000, `culture: ${job.type} ${job.id} timeout_unknown - stopping batch`);
-          gbUnlock('culture');
+        if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('culture', cultureLock); return; }
+        if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {
+          gbLogT('culture-timeout', 60000, `culture: ${job.type} ${job.id} timeout_unknown — stopping batch`);
+          gbUnlock('culture', cultureLock);
           return;
         }
         if (!err) {
@@ -209,9 +196,48 @@
           gbTimeout(next, 600 + Math.random() * 400);
         } else {
           gbLogT('culture-err-' + job.id, 60000, `culture: ${job.type} ${job.id} err ${err}`);
-          // Non-deterministic -> stop batch
-          gbUnlock('culture');
+
+          gbUnlock('culture', cultureLock);
         }
       });
     })();
+  }
+
+
+  // ===== Predictive Economy (v1.9) ===========================================
+  function economyProductionRate(townId) {
+    const t=gbTownModel(townId); if(!t)return null; let p=null;
+    try { if(typeof t.getProduction==='function') p=t.getProduction(); } catch(_){}
+    try { if(!p && typeof t.getResourceProduction==='function') p=t.getResourceProduction(); } catch(_){}
+    try { if(!p){const r=t.resources&&t.resources(); if(r) p={wood:r.wood_production??r.production_wood,stone:r.stone_production??r.production_stone,iron:r.iron_production??r.production_iron};} } catch(_){}
+    if(!p||[p.wood,p.stone,p.iron].some(v=>v==null||!Number.isFinite(+v))) return null;
+    // Client models normally expose per-hour production. Do not invent a rate if unreadable.
+    return {wood:+p.wood,stone:+p.stone,iron:+p.iron};
+  }
+  function economyPlannedCost(townId, maxActions) {
+    let plan=state.virtualQueue&&state.virtualQueue[String(townId)]; if(!plan||Date.now()-(+plan.generatedAt||0)>60000)try{plan=goalPlanTown(townId)}catch(_){}
+    const out=plannerZero(); let n=0;
+    for(const a of ((plan&&plan.actions)||[])){if(n++>=Math.max(1,+maxActions||5))break;const c=plannerNormCost(a.cost);if(!c)continue;for(const k of PLANNER_KEYS)out[k]+=+c[k]||0;}
+    return out;
+  }
+  function economyForecast(townId,horizonSec) {
+    const s=plannerSnapshot(townId); if(!s)return null; const sec=Math.max(0,+horizonSec||(+state.predictCfg.horizonHours||6)*3600); const prod=economyProductionRate(townId); const demand=economyPlannedCost(townId,5);
+    const projected={}; for(const k of ['wood','stone','iron']) projected[k]=Math.max(0,s.live[k]-s.committed[k]+s.incoming[k]+(prod?prod[k]*sec/3600:0)-demand[k]);
+    const overflow={}; for(const k of ['wood','stone','iron']) overflow[k]=s.live.cap>0?projected[k]>=s.live.cap:false;
+    const deficit={}; for(const k of ['wood','stone','iron']) deficit[k]=Math.max(0,demand[k]-(s.availableSoft[k]+s.incoming[k]+(prod?prod[k]*sec/3600:0)));
+    return {townId:String(townId),horizonSec:sec,snapshot:s,production:prod,demand,projected,overflow,deficit,productionKnown:!!prod};
+  }
+  function tradePredictiveJobs(towns,L) {
+    const ledger=L||tradeLedger(towns), jobs=[], minBatch=Math.max(100,+state.tradeMinBatch||1000);if(!ledger)return jobs;
+    const forecasts={}; for(const t of towns) forecasts[t.id]=economyForecast(t.id);
+    const targets=towns.map(t=>({t,f:forecasts[t.id]})).filter(x=>x.f).sort((a,b)=>Object.values(b.f.deficit).reduce((x,y)=>x+y,0)-Object.values(a.f.deficit).reduce((x,y)=>x+y,0));
+    for(const {t:tgtTown,f:tgtF} of targets){const tgt=ledger[tgtTown.id]; if(!tgt)continue;
+      for(const res of ['wood','stone','iron']){let need=Math.floor(tgtF.deficit[res]||0); if(need<minBatch)continue;
+        const sources=towns.filter(s=>s.id!==tgtTown.id).map(s=>({s,f:forecasts[s.id],l:ledger[s.id]})).filter(x=>x.f&&x.l).sort((a,b)=>(b.f.overflow[res]?1:0)-(a.f.overflow[res]?1:0));
+        for(const {s,f,l} of sources){const av=plannerAvailable(s.id,{allowSoft:false}); if(!av||av.tradeCap==null)continue; const surplus=Math.max(0,Math.min(av[res], l[res]-Math.max(0,plannerReservePolicy(s.id).hard[res]+plannerReservePolicy(s.id).soft[res]))); const send=Math.floor(Math.min(need,surplus,av.tradeCap,l.tradeCap,tgt.cap-tgt[res])); if(send<minBatch)continue;
+          const job={from:s.id,to:tgtTown.id,wood:0,stone:0,iron:0};job[res]=send;jobs.push(job);tradeApplyJob(ledger,job);need-=send;if(need<minBatch||jobs.length>=8)break;
+        } if(jobs.length>=8)break;
+      } if(jobs.length>=8)break;
+    }
+    return jobs;
   }

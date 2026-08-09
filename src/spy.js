@@ -1,66 +1,70 @@
-  // ---------- ajax spy ----------
-  // Grepolis uses jQuery + fetch. Hook both, watch for report ids.
-  // World-scoped so report ids don't collide across host switches in same TM storage.
-  const seenThisRun = new Set();
-  const seenHost = location.hostname;
   function seenKey(id) { return seenHost + ':' + id; }
 
   function hookFetch() {
-    const uw = unsafeWindow;
+    const uw = gameUw();
     if (!uw.fetch) return;
-    if (!gbHookOrig.fetch) gbHookOrig.fetch = uw.fetch.bind(uw);
+    if (uw.fetch.__grepbotOwner === GB_INSTANCE_ID) return;
+    if (!gbHookOrig.fetch) gbHookOrig.fetch = uw.fetch;
     const orig = gbHookOrig.fetch;
-    if (uw.fetch._grepbot) {
-      // Re-bind after reinject: replace wrapper so it closes over this instance.
-    }
-    uw.fetch = function patched(...args) {
-      const [url, opts] = args;
-      const u = String(url || '');
-      const reportCtrl = /\/game\/report(?:\?|$)/.test(u) || /[?&]controller=report(?:&|$)/.test(u);
-      const m = u.match(/[?&]action=(report|reports|combat_reports|tombstone|attack_planner)(?:&|$)/)
-        || (reportCtrl && u.match(/[?&]action=(view|index|delete)(?:&|$)/));
-      const idMatch = u.match(/[?&](?:id|report_id)=(\d+)/);
-      if ((m || reportCtrl) && idMatch) queueReport(idMatch[1], u);
-      else if (m || reportCtrl) queueReportList(u);
-      learnCollectAction(u);
-      learnFarmAction(u);
-      try { ptLearnFromXhr(u, opts && opts.body); } catch (_) {}
-      return orig.apply(uw, args);
+    const patched = function (...args) {
+      if (gbInstanceAlive()) {
+        try {
+          const [url] = args;
+          const u = String(url || '');
+          const reportCtrl = /\/game\/report(?:\?|$)/.test(u) || /[?&]controller=report(?:&|$)/.test(u);
+          const m = u.match(/[?&]action=(report|reports|combat_reports|tombstone|attack_planner)(?:&|$)/)
+            || (reportCtrl && u.match(/[?&]action=(view|index|delete)(?:&|$)/));
+          const idMatch = u.match(/[?&](?:id|report_id)=(\d+)/);
+          if ((m || reportCtrl) && idMatch) queueReport(idMatch[1], u);
+          else if (m || reportCtrl) queueReportList(u);
+          learnCollectAction(u);
+          learnFarmAction(u);
+        } catch (_) {}
+      }
+      return orig.apply(this, args);
     };
-    uw.fetch._grepbot = true;
+    patched._grepbot = true;
+    patched.__grepbotOwner = GB_INSTANCE_ID;
+    uw.fetch = patched;
   }
 
   function hookXhr() {
-    const uw = unsafeWindow;
+    const uw = gameUw();
     if (!uw.XMLHttpRequest) return;
     const P = uw.XMLHttpRequest.prototype;
+    if (P.open && P.open.__grepbotOwner === GB_INSTANCE_ID) return;
     if (!gbHookOrig.xhrOpen) gbHookOrig.xhrOpen = P.open;
     if (!gbHookOrig.xhrSend) gbHookOrig.xhrSend = P.send;
     const origOpen = gbHookOrig.xhrOpen;
     const origSend = gbHookOrig.xhrSend;
-    P.open = function (method, url) {
+
+    const patchedOpen = function (method, url) {
       this._grepbot_url = url;
       return origOpen.apply(this, arguments);
     };
-    P.send = function () {
+    patchedOpen._grepbot = true;
+    patchedOpen.__grepbotOwner = GB_INSTANCE_ID;
+
+    const patchedSend = function () {
+      const body = arguments[0];
       const u = String(this._grepbot_url || '');
-      const reportCtrl = /\/game\/report(?:\?|$)/.test(u) || /[?&]controller=report(?:&|$)/.test(u);
-      const idMatch = u.match(/[?&](?:id|report_id)=(\d+)/);
-      const actionReport = /[?&]action=(report|reports|combat_reports|tombstone|attack_planner)(?:&|$)/.test(u);
-      if ((actionReport || reportCtrl) && idMatch) {
-        queueReport(idMatch[1], u);
-      } else if (actionReport || /[?&]action=(reports|combat_reports|tombstone)(?:&|$)/.test(u) || reportCtrl) {
-        queueReportList(u);
+      if (gbInstanceAlive()) {
+        try {
+          const reportCtrl = /\/game\/report(?:\?|$)/.test(u) || /[?&]controller=report(?:&|$)/.test(u);
+          const idMatch = u.match(/[?&](?:id|report_id)=(\d+)/);
+          const actionReport = /[?&]action=(report|reports|combat_reports|tombstone|attack_planner)(?:&|$)/.test(u);
+          if ((actionReport || reportCtrl) && idMatch) queueReport(idMatch[1], u);
+          else if (actionReport || /[?&]action=(reports|combat_reports|tombstone)(?:&|$)/.test(u) || reportCtrl) queueReportList(u);
+          learnCollectAction(u);
+          learnFarmAction(u);
+          sniffBridgeBody(u, body);
+        } catch (_) {}
       }
-      learnCollectAction(u);
-      learnFarmAction(u);
-      sniffBridgeBody(u, arguments[0]);
-      try { ptLearnFromXhr(u, arguments[0]); } catch (_) {}
       // Our own gpAjax posts: gpAjax only calls back on a non-empty success
-      // envelope, so settle bridgePost/gameAjaxPost from the raw response here.
+      // envelope, so settle bridgeRaw/gameAjaxRaw from the raw response here.
       // `loadend` covers success, HTTP error, network failure and abort alike.
       try {
-        const settle = gbAjaxClaim(u, arguments[0]);
+        const settle = gbAjaxClaim(u, body);
         if (settle) {
           this.addEventListener('loadend', () => {
             let raw = null;
@@ -69,29 +73,35 @@
           });
         }
       } catch (_) {}
-      this.addEventListener('load', () => {
-        try {
-          const txt = this.responseText || '';
-          const reportish = /(?:^|\/)report(?:s)?(?:\?|$)|[?&](?:controller|action)=(report|reports|combat_reports|tombstone|attack_planner)/.test(u)
-            || /\/game\/report/.test(u);
-          if (txt.length > 100000 && !reportish) {
-            // cheap harvest - only report_id (bare "id" matches towns/farms -> 404 spam)
-            const re = /"report_id"\s*:\s*(\d+)/g;
-            let m; let n = 0;
-            while ((m = re.exec(txt)) && n < 50) { queueReport(m[1], u); n++; }
-            return;
-          }
-          const data = tryParseJson(txt);
-          if (!data) return;
-          scanResponseForReports(data, u, reportish);
-          if (/island_quest|progressable|quest/i.test(u) || /IslandQuest|Progressable|claimReward/i.test(String(this._grepbot_url || '') + txt.slice(0, 500))) {
-            learnQuestRewardsFromPayload(data);
-          }
-        } catch (_) {}
-      });
+      try {
+        this.addEventListener('load', () => {
+          if (!gbInstanceAlive()) return;
+          try {
+            const txt = this.responseText || '';
+            const reportish = /(?:^|\/)report(?:s)?(?:\?|$)|[?&](?:controller|action)=(report|reports|combat_reports|tombstone|attack_planner)/.test(u)
+              || /\/game\/report/.test(u);
+            if (txt.length > 100000 && !reportish) {
+              const re = /"report_id"\s*:\s*(\d+)/g;
+              let m; let n = 0;
+              while ((m = re.exec(txt)) && n < 50) { queueReport(m[1], u); n++; }
+              return;
+            }
+            const data = tryParseJson(txt);
+            if (!data) return;
+            scanResponseForReports(data, u, reportish);
+            if (/island_quest|progressable|quest/i.test(u) || /IslandQuest|Progressable|claimReward/i.test(u + txt.slice(0, 500))) {
+              learnQuestRewardsFromPayload(data);
+            }
+          } catch (_) {}
+        }, { once: true });
+      } catch (_) {}
       return origSend.apply(this, arguments);
     };
-    P._grepbot_open = true;
+    patchedSend._grepbot = true;
+    patchedSend.__grepbotOwner = GB_INSTANCE_ID;
+    P.open = patchedOpen;
+    P.send = patchedSend;
+    P._grepbot_open = GB_INSTANCE_ID;
   }
 
   function tryParseJson(txt) {
@@ -102,28 +112,33 @@
   }
   function scanResponseForReports(data, srcUrl, reportish) {
     if (!data || typeof data !== 'object') return;
-    // Grepolis wraps in {json: {...}, ...} or returns arrays directly
-    const collect = (obj, underReports) => {
+    const numericId = (v) => typeof v === 'number' || (typeof v === 'string' && /^\d+$/.test(v));
+    const looksReport = (o) => !!o && typeof o === 'object' && (
+      o.report_type != null || o.type != null || o.subject != null || o.attacker != null || o.defender != null ||
+      o.timestamp != null || o.created_at != null || o.outcome != null || o.win != null
+    );
+    const walk = (obj) => {
       if (!obj) return;
-      if (Array.isArray(obj)) { obj.forEach(x => collect(x, underReports)); return; }
+      if (Array.isArray(obj)) { obj.forEach(walk); return; }
       if (typeof obj !== 'object') return;
-      for (const k of Object.keys(obj)) {
-        const v = obj[k];
-        if (k === 'report_id' && (typeof v === 'number' || /^\d+$/.test(v))) {
-          queueReport(String(v), srcUrl);
-        } else if (k === 'id' && (typeof v === 'number' || /^\d+$/.test(v)) && (underReports || reportish)) {
-          queueReport(String(v), srcUrl);
-        } else if (k === 'reports' && Array.isArray(v)) {
-          v.forEach(r => r && (r.id != null || r.report_id != null) && queueReport(String(r.report_id || r.id), srcUrl));
-        } else {
-          collect(v, underReports || k === 'reports' || k === 'report');
+      if (numericId(obj.report_id)) queueReport(String(obj.report_id), srcUrl);
+      for (const [k, v] of Object.entries(obj)) {
+        if (k === 'reports' && Array.isArray(v)) {
+          for (const r of v) {
+            if (!r || typeof r !== 'object') continue;
+            const rid = r.report_id != null ? r.report_id : r.id;
+            if (numericId(rid) && (r.report_id != null || looksReport(r))) queueReport(String(rid), srcUrl);
+            walk(r);
+          }
+        } else if (v && typeof v === 'object') {
+          walk(v);
         }
       }
     };
-    collect(data, false);
+    walk(data);
   }
 
-  // ---------- report fetching ----------
+
   const reportRetry = Object.create(null);
   const REPORT_RETRY_MAX = 3;
   function scrapeInboxDom() {
@@ -142,26 +157,22 @@
     gbTimeout(() => fetchReport(id, hintUrl), 200 + Math.random() * 800);
   }
   function queueReportList() {
-    // best-effort: scrape current inbox DOM if present
+
     gbTimeout(scrapeInboxDom, 1500);
   }
 
   function ingestReport(id, data) {
     const parsed = parseReport(id, data);
     if (!parsed) {
-      seenThisRun.delete(seenKey(id)); // unparsed shape - allow a later retry
+      seenThisRun.delete(seenKey(id));
       return false;
     }
     rememberSeen(id);
     delete reportRetry[id];
     save(STORE.SEEN, state.seen);
-    if (parsed.ts && (!state.lastSeenTs || parsed.ts > state.lastSeenTs)) {
-      state.lastSeenTs = parsed.ts;
-      save(STORE.LAST_SEEN_TS, state.lastSeenTs);
-    }
     state.findings.unshift(parsed);
     if (state.findings.length > 500) {
-      // Trim visible findings only - keep seen so inbox doesn't re-fetch (I14).
+
       state.findings.splice(500);
     }
     save(STORE.FINDINGS, state.findings);
@@ -175,8 +186,7 @@
     if (n < REPORT_RETRY_MAX) seenThisRun.delete(seenKey(id));
     else gbLogT('report-retry-cap', 60000, 'report retry capped for', id);
   }
-  // Prefer gameAjaxPost (host/pause/budget/captcha). HTTP only when gpAjax missing.
-  // Old GET /index.php?action=report returned "404 Not Found" -> JSON.parse column-5 noise.
+
   function fetchReport(id, hintUrl) {
     if (state.seen[seenKey(id)] || state.seen[id]) return;
     if (!hostEnabled() || automationPaused({}) || captchaPaused('report')) {
@@ -214,12 +224,6 @@
       seenThisRun.delete(seenKey(id));
       return;
     }
-    if (!reqBudgetOk()) {
-      seenThisRun.delete(seenKey(id));
-      gbLogT('report-budget', 30000, 'report: request budget exceeded');
-      return;
-    }
-    reqBudgetMark();
     const u = buildReportUrl(id, hintUrl);
     const bodyObj = { id: +id };
     try {
@@ -265,7 +269,7 @@
   }
 
   function buildReportUrl(id, hintUrl) {
-    // Matches game buildLink: /game/{controller}?action=...&town_id=...&h=...
+
     const params = new URLSearchParams();
     params.set('action', 'view');
     params.set('id', id);
@@ -286,60 +290,3 @@
     if (csrf) params.set('h', csrf);
     return '/game/report?' + params.toString();
   }
-
-  // Offline report catch-up (plan 14) — bounded, serial, via wake queue.
-  let reportCatchUpRunning = false;
-  function reportCatchUpEnqueue() {
-    if (!hostEnabled() || reportCatchUpRunning) return;
-    if (typeof gbWake === 'function') {
-      gbWake('reportCatchUp', () => reportCatchUpRun(), { priority: 80 });
-    } else {
-      reportCatchUpRun();
-    }
-  }
-  function reportCatchUpRun() {
-    if (!hostEnabled() || reportCatchUpRunning || automationPaused({}) || captchaPaused('report')) return;
-    reportCatchUpRunning = true;
-    const maxN = 25;
-    const maxAgeMs = 72 * 3600000;
-    const cut = Date.now() - maxAgeMs;
-    const ids = [];
-    try {
-      document.querySelectorAll('a[href*="report"], a[href*="Report"]').forEach(a => {
-        const m = /[?&]id=(\d+)/.exec(a.href || '') || /report\/(\d+)/.exec(a.href || '');
-        if (!m) return;
-        const id = m[1];
-        if (state.seen[seenKey(id)] || state.seen[id] || seenThisRun.has(seenKey(id))) return;
-        ids.push(id);
-      });
-    } catch (_) {}
-    const batch = ids.slice(0, maxN);
-    if (!batch.length) {
-      reportCatchUpRunning = false;
-      gbLogT('catchup-empty', 120000, 'report catch-up: nothing new in inbox DOM');
-      return;
-    }
-    gbLog(`report catch-up: fetching up to ${batch.length} (cap ${maxN}, age≤72h, lastSeen=${state.lastSeenTs || 0})`);
-    let i = 0, fetched = 0;
-    (function step() {
-      if (i >= batch.length) {
-        reportCatchUpRunning = false;
-        gbLog(`report catch-up done: ${fetched}/${batch.length}`);
-        return;
-      }
-      if (!hostEnabled() || automationPaused({}) || captchaPaused('report') || !reqBudgetOk()) {
-        reportCatchUpRunning = false;
-        gbLog(`report catch-up paused mid-run at ${i}/${batch.length}`);
-        return;
-      }
-      const id = batch[i++];
-      // Age bound uses lastSeenTs floor when we have no per-id ts yet
-      if (state.lastSeenTs && state.lastSeenTs < cut) {
-        /* still try recent inbox ids; age bound is soft for DOM-discovered */
-      }
-      fetchReport(id);
-      fetched++;
-      gbTimeout(step, 700 + Math.random() * 300);
-    })();
-  }
-
