@@ -1838,6 +1838,7 @@
     navigator.clipboard.writeText(JSON.stringify(dump, null, 2));
   });
   gbMenu('GrepBot: diag', () => { diagRun(); });
+  gbMenu('GrepBot: reset panel position', () => { resetPanelGeom(); });
   gbMenu('GrepBot: rescan inbox', () => {
     seenThisRun.clear(); Object.keys(state.seen).forEach(k => delete state.seen[k]);
     seenCount = 0;

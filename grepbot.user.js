@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.5.1
+// @version      2.5.2
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -14653,6 +14653,7 @@ const STORE = {
     navigator.clipboard.writeText(JSON.stringify(dump, null, 2));
   });
   gbMenu('GrepBot: diag', () => { diagRun(); });
+  gbMenu('GrepBot: reset panel position', () => { resetPanelGeom(); });
   gbMenu('GrepBot: rescan inbox', () => {
     seenThisRun.clear(); Object.keys(state.seen).forEach(k => delete state.seen[k]);
     seenCount = 0;
