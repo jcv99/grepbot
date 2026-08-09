@@ -6076,11 +6076,12 @@ const STORE = {
   }
 
   GM_addStyle(`
-    .gb-native-qctl{display:inline-flex;align-items:center;gap:3px;margin:3px 2px;padding:2px 4px;border:1px solid #8a6725;border-radius:5px;background:rgba(31,25,16,.94);color:#f6e3b0;font:10px/1.2 Arial,sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.45);position:relative;z-index:20}
+    .gb-native-qctl{display:inline-flex;align-items:center;gap:2px;margin:0 0 0 2px;padding:1px 3px;border:1px solid #8a6725;border-radius:4px;background:rgba(31,25,16,.94);color:#f6e3b0;font:10px/1.2 Arial,sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.45);vertical-align:middle}
+    .gb-native-qctl[data-empty="1"]{opacity:.7;background:rgba(31,25,16,.6)}
     .gb-native-qbtn{min-width:22px;height:20px;padding:0 4px;border:1px solid #9b7938;border-radius:4px;background:linear-gradient(#5b4828,#342814);color:#fff3c7;font:bold 11px Arial,sans-serif;cursor:pointer}
     .gb-native-qbtn:hover{border-color:#e5b94f;color:#fff}.gb-native-qbtn:disabled{opacity:.42;cursor:default}
     .gb-native-qcount{min-width:58px;text-align:center;white-space:nowrap}.gb-native-qcount.ready{color:#91e5a8}.gb-native-qcount.blocked{color:#ffb0a8}.gb-native-qcount.waiting{color:#ffd27a}
-    .gb-native-panel{margin:7px 5px;padding:6px;border:1px solid #8a6725;border-radius:6px;background:rgba(34,27,17,.96);color:#f2dfb2;font:11px/1.3 Arial,sans-serif;clear:both;max-height:360px;overflow:auto}
+    .gb-native-panel{position:fixed;bottom:10px;right:10px;z-index:2147483000;width:320px;max-width:40vw;max-height:48vh;padding:6px;border:1px solid #8a6725;border-radius:6px;background:rgba(34,27,17,.97);color:#f2dfb2;font:11px/1.3 Arial,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.55);overflow:auto}
     .gb-native-panel-head{display:flex;align-items:center;gap:5px;margin-bottom:4px;font-weight:bold}.gb-native-panel-head span{flex:1}
     .gb-native-job{display:grid;grid-template-columns:24px minmax(120px,1fr) auto;gap:5px;align-items:center;padding:3px 1px;border-top:1px solid rgba(190,150,75,.22)}
     .gb-native-job:first-of-type{border-top:0}.gb-native-job small{display:block;color:#c7ad78;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gb-native-job-actions{display:flex;gap:2px}
@@ -6137,7 +6138,15 @@ const STORE = {
     const list=nativeQueueList(townId,'build',false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),jobs=list.filter(j=>j&&j.building===building),projected=nativeQueueProjectedBuildLevel(townId,building),pos=nativeQueuePosition(townId,'build',j=>j&&j.building===building);
     const head=pos===1&&list[0],max=abMaxLevel(building),special=nativeSpecialConflict(townId,building),sig=JSON.stringify([townId,building,projected,pos,frozen,max,special,jobs.map(j=>[j.id,j.toLevel,j.status,j.reason,!!j.inflight,!!j.manualReview])]);if(ctl.dataset.sig===sig)return;ctl.dataset.sig=sig;
     ctl.replaceChildren();const minus=nativeQButton('−','Quitar la última mejora virtual',nativeTileAction(root,townId,tile,'build',building,()=>{if(!nativeQueueRemoveLastBuild(townId,building))flash('No hay mejora virtual que quitar')}));minus.disabled=!jobs.length;
-    const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=`Plan ${projected==null?'?':projected}${pos?' · #'+pos:''}`;count.title=head&&head.reason?head.reason:`${jobs.length} mejora(s) virtual(es)`;
+
+    const count=document.createElement('span');count.className='gb-native-qcount';
+    if(jobs.length&&projected!=null&&projected>0){
+      count.textContent=`Plan ${projected}${pos?' · #'+pos:''}`;
+    } else {
+      count.textContent='virtual';
+      count.title='Sin mejoras virtuales en cola para este edificio. Usa + para anyadir una.';
+    }
+    if(head&&head.reason)count.title=head.reason;
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
     const plus=nativeQButton('+',`Añadir ${nativeBuildLabel(building)} +1 al final de la cola`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueAddBuild(townId,building)));
     minus.disabled=minus.disabled||frozen;if(frozen||special||projected==null||max==null||projected>=max)plus.disabled=true;ctl.append(minus,count,plus);
@@ -6153,7 +6162,10 @@ const STORE = {
     const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));plus.disabled=frozen;ctl.append(minus,count,plus);
   }
   function nativeRenderQueuePanel(root,townId,lane) {
-    let box=root.querySelector(`:scope > .gb-native-panel[data-lane="${lane}"]`);if(!box){box=document.createElement('div');box.className='gb-native-panel';box.dataset.lane=lane;root.appendChild(box)}
+
+    const key=`${townId}-${lane}`;
+    let box=document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`);
+    if(!box){box=document.createElement('div');box.className='gb-native-panel';box.dataset.lane=lane;box.dataset.town=String(townId);document.body.appendChild(box);box.addEventListener('mousedown',e=>e.stopPropagation(),true);box.addEventListener('click',e=>e.stopPropagation(),true)}
     const oldScroll=box.scrollTop;
     box.replaceChildren();const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot · Construcción':'Cola GrepBot · Unidades';head.appendChild(title);
     const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'▶':'⏸',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
@@ -6165,15 +6177,19 @@ const STORE = {
     if(!gbInstanceAlive()||!document.body)return;nativeEnsureBuildingIds();
     const candidates=[...document.querySelectorAll('.window_content,.gpwindow_content,#unit_order')].filter((x,i,a)=>a.indexOf(x)===i&&!x.closest('#grepbot-panel'));
     const roots=candidates.filter(x=>!candidates.some(y=>y!==x&&y.contains(x)));
+    const mountedTowns=new Set();
     for(const root of roots){const townId=nativeWindowTownId(root);if(!townId){root.querySelectorAll(':scope > .gb-native-panel,.gb-native-qctl').forEach(n=>n.remove());continue}let buildN=0,unitN=0;const mountedBuildIds=new Set(),mountedUnitIds=new Set();
+      mountedTowns.add(String(townId));
       const senateContext=!!(root.matches('#building_main,.building_main,.senate')||root.querySelector('#building_main,.building_main,[id^="building_main_"],[id^="special_building_"]'));
       const buildTiles=senateContext?[...root.querySelectorAll('[id^="building_main_"],[id^="special_building_"],.building[data-building_type],.building[data-building-type],.building[data-building]')]:[];
       for(const tile of buildTiles){if(tile.classList.contains('gb-native-qctl')||tile.closest('.gb-native-qctl,.gb-native-panel'))continue;const id=nativeBuildingId(tile);if(!id||mountedBuildIds.has(id))continue;mountedBuildIds.add(id);const owner=tile.closest(`#building_main_${id},#special_building_${id}`)||tile;nativeMountBuildControl(root,owner,townId,id);buildN++}
       const unitContext=root.matches('#unit_order')?root:root.querySelector('#unit_order');const unitTiles=unitContext?[...unitContext.querySelectorAll('#units .unit_tab,.unit_tab')]:[];
       for(const tile of unitTiles){const id=nativeUnitId(tile);if(!id||mountedUnitIds.has(id))continue;mountedUnitIds.add(id);nativeMountRecruitControl(root,tile,townId,id);unitN++}
       root.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>{if(!mountedBuildIds.has(c.dataset.building))c.remove()});root.querySelectorAll('.gb-native-qctl[data-unit]').forEach(c=>{if(!mountedUnitIds.has(c.dataset.unit))c.remove()});
-      if(buildN)nativeRenderQueuePanel(root,townId,'build');else root.querySelector(':scope > .gb-native-panel[data-lane="build"]')?.remove();if(unitN)nativeRenderQueuePanel(root,townId,'recruit');else root.querySelector(':scope > .gb-native-panel[data-lane="recruit"]')?.remove();
+      if(buildN)nativeRenderQueuePanel(root,townId,'build');else document.querySelector(`.gb-native-panel[data-lane="build"][data-town="${townId}"]`)?.remove();if(unitN)nativeRenderQueuePanel(root,townId,'recruit');else document.querySelector(`.gb-native-panel[data-lane="recruit"][data-town="${townId}"]`)?.remove();
     }
+
+    document.querySelectorAll('.gb-native-panel[data-town]').forEach(p => { if (!mountedTowns.has(p.dataset.town)) p.remove(); });
   }
   function abLoadCsFast() {
     state.abTargets = abDefaultTargets();
