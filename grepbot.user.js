@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.5.3
+// @version      2.5.4
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -6127,9 +6127,8 @@ const STORE = {
   }
   function nativeQueueAddBuild(townId,building) {
     if(!AB_BUILDINGS.includes(building))return false;
-    if(gbLocked('ab')){flash('Hay una orden de construcción en curso; reintenta en unos segundos');return false}
+
     nativeQueueReconcileBuild(townId);
-    if(nativeQueueList(townId,'build',false).some(j=>j&&(j.inflight||j.manualReview))){flash('Revisa primero la acción pendiente de esta cola');return false}
     const special=nativeSpecialConflict(townId,building);if(special){flash(`Conflicto con ${nativeBuildLabel(special)}`);return false}
     const baseLevels = abCurrentLevels(townId);
     if (!baseLevels) { flash('No se puede leer el nivel actual'); return false; }
@@ -6205,13 +6204,12 @@ const STORE = {
   function nativeQueueRecruitAmount(townId,unit){return nativeQueueList(townId,'recruit',false).reduce((n,j)=>n+(j&&j.unit===unit?(+j.amount||0):0),0);}
   function nativeQueueAddRecruit(townId,unit,amount) {
     const n=Math.max(1,Math.floor(+amount||0));if(!unit||!recruitUnitDef(unit)||!(n>0))return false;
-    if(gbLocked('recruit')){flash('Hay una orden de unidades en curso; reintenta en unos segundos');return false}
-    if(nativeQueueList(townId,'recruit',false).some(j=>j&&(j.inflight||j.manualReview))){flash('Revisa primero la acción pendiente de esta cola');return false}
+
     const town=nativeQueueTown(townId,true);town.mode.recruit='fifo';town.recruit.push({id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:n,status:'pending',reason:'',createdAt:Date.now()});
     nativeQueueSave();gbLog(`cola nativa: ${n}× ${nativeUnitLabel(unit)} @${townId}`);gbTimeout(()=>recruitScan('native'),80);return true;
   }
   function nativeQueueRemoveLastRecruit(townId,unit,amount) {
-    const list=nativeQueueList(townId,'recruit',false);if(list.some(j=>j&&(j.inflight||j.manualReview)))return false;const step=Math.max(1,Math.floor(+amount||nativeUnitStep(unit)));for(let i=list.length-1;i>=0;i--){const job=list[i];if(job&&job.unit===unit&&!job.inflight){job.amount=Math.max(0,(+job.amount||0)-step);if(!job.amount)list.splice(i,1);else{job.status='pending';job.reason='';job.updatedAt=Date.now()}nativeQueueSave();return true}}
+    const list=nativeQueueList(townId,'recruit',false);const step=Math.max(1,Math.floor(+amount||nativeUnitStep(unit)));for(let i=list.length-1;i>=0;i--){const job=list[i];if(job&&job.unit===unit&&!job.inflight&&!job.manualReview){job.amount=Math.max(0,(+job.amount||0)-step);if(!job.amount)list.splice(i,1);else{job.status='pending';job.reason='';job.updatedAt=Date.now()}nativeQueueSave();return true}}
     return false;
   }
   function nativeQueueSetJobState(job,status,reason) {
@@ -6336,6 +6334,17 @@ const STORE = {
     if(!node)return null;const child=node.querySelector&&node.querySelector('[data-unit_id],[data-unit-id],[data-unit_type],[data-unit-type]');const vals=[node.getAttribute('data-unit_id'),node.getAttribute('data-unit-id'),node.getAttribute('data-unit_type'),node.getAttribute('data-unit-type'),child&&(child.getAttribute('data-unit_id')||child.getAttribute('data-unit-id')||child.getAttribute('data-unit_type')||child.getAttribute('data-unit-type')),node.id].filter(Boolean).map(String);
     const ids=new Set();for(const id of vals)if(recruitUnitDef(id))ids.add(id);let keys=[];try{keys=Object.keys((gameUw().GameData&&gameUw().GameData.units)||{}).sort((a,b)=>b.length-a.length)}catch(_){}for(const raw of vals)for(const id of keys)if(new RegExp(`(?:^|[_:-])${id.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,'i').test(raw))ids.add(id);return ids.size===1?[...ids][0]:null;
   }
+
+  function nativeBuildPlusBlock(building,projected,max,special) {
+    if(special)return `Conflicto con ${nativeBuildLabel(special)}`;
+    if(projected==null)return 'No se puede leer el nivel actual de este edificio';
+    if(max==null)return 'No se puede leer el nivel máximo de este edificio';
+    if(projected>=max)return `${nativeBuildLabel(building)} ya está al máximo (${max}) contando la cola`;
+    return '';
+  }
+  function nativeApplyPlusBlock(btn,why) {
+    if(!btn||!why)return;btn.disabled=true;btn.title=why;btn.setAttribute('aria-label',why);
+  }
   function nativeMountBuildControl(root,tile,townId,building) {
 
     tile.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>c.remove());
@@ -6348,16 +6357,17 @@ const STORE = {
     if(!jobs.length){
 
       const plus=nativeQButton('+',`Añadir ${nativeBuildLabel(building)} +1 al final de la cola virtual`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueAddBuild(townId,building)));
-      if(frozen||special||projected==null||max==null||projected>=max)plus.disabled=true;
+      nativeApplyPlusBlock(plus,nativeBuildPlusBlock(building,projected,max,special));
       ctl.append(plus);return;
     }
-    const minus=nativeQButton('−','Quitar la última mejora virtual',nativeTileAction(root,townId,tile,'build',building,()=>{if(!nativeQueueRemoveLastBuild(townId,building))flash('No hay mejora virtual que quitar')}));minus.disabled=!jobs.length||frozen;
+
+    const minus=nativeQButton('−','Quitar la última mejora virtual',nativeTileAction(root,townId,tile,'build',building,()=>{if(!nativeQueueRemoveLastBuild(townId,building))flash('No hay mejora virtual que quitar')}));minus.disabled=!jobs.some(j=>j&&!j.inflight&&!j.manualReview);
     const count=document.createElement('span');count.className='gb-native-qcount';
     count.textContent=`Plan ${projected}${pos?' · #'+pos:''}`;
     if(head&&head.reason)count.title=head.reason;
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
     const plus=nativeQButton('+',`Añadir ${nativeBuildLabel(building)} +1 al final de la cola`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueAddBuild(townId,building)));
-    if(frozen||special||projected==null||max==null||projected>=max)plus.disabled=true;
+    nativeApplyPlusBlock(plus,nativeBuildPlusBlock(building,projected,max,special));
     ctl.append(minus,count,plus);
   }
   function nativeMountRecruitControl(root,tile,townId,unit) {
@@ -6370,12 +6380,12 @@ const STORE = {
     if(!(pending>0)){
 
       const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola virtual`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));
-      plus.disabled=frozen;ctl.append(plus);return;
+      ctl.append(plus);return;
     }
-    const minus=nativeQButton(`−${step}`,`Restar ${step} de la cola virtual de esta unidad`,nativeTileAction(root,townId,tile,'unit',unit,()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));minus.disabled=frozen;
+    const minus=nativeQButton(`−${step}`,`Restar ${step} de la cola virtual de esta unidad`,nativeTileAction(root,townId,tile,'unit',unit,()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));minus.disabled=!list.some(j=>j&&j.unit===unit&&!j.inflight&&!j.manualReview);
     const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=`+${pending}${pos?' · #'+pos:''}`;count.title=head&&head.reason?head.reason:`${pending} pendiente(s)`;
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
-    const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));plus.disabled=frozen;ctl.append(minus,count,plus);
+    const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));ctl.append(minus,count,plus);
   }
   function nativeRenderQueuePanel(root,townId,lane) {
 
