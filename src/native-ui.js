@@ -51,9 +51,10 @@
     // A lane under review stays frozen, but any individual UNKNOWN item can be
     // removed after the UI asks the player to verify the real game queue.
     if(!force&&list.some(j=>j&&j.manualReview)&&!target.manualReview)return false;
-    // Prereq impact check — only on the normal (non-forced) path. The force
-    // path keeps the escape hatch for stranded tails after a stuck head.
-    if(!force&&lane==='build'){
+    // Prereq impact check — ALWAYS runs for the build lane. The force flag
+    // only bypasses the lane-state gates above (stuck-head escape hatch);
+    // it must not be a back door around a missing dependency.
+    if(lane==='build'){
       const impact=nativeQueueRemovalImpact(townId,jobId);
       if(!impact.ok){
         const head=impact.blockers.slice(0,3).map(b=>`${nativeBuildLabel(b.building)} (necesita ${impact.target.building} ${b.requires}, sin esta entrada solo ${b.has})`).join('; ');
