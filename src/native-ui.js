@@ -369,7 +369,7 @@
     // The panel mounts on document.body (fixed position) so it never sits on top
     // of the in-game queue UI inside the window. Scoped per town window by id.
     let box=document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`);
-    if(!box){box=document.createElement('div');box.className='gb-native-panel';box.dataset.lane=lane;box.dataset.town=String(townId);document.body.appendChild(box);box.addEventListener('mousedown',e=>e.stopPropagation(),true);box.addEventListener('click',e=>e.stopPropagation(),true)}
+    if(!box){box=document.createElement('div');box.className='gb-native-panel';box.dataset.lane=lane;box.dataset.town=String(townId);document.body.appendChild(box);box.addEventListener('mousedown',e=>e.stopPropagation());box.addEventListener('click',e=>e.stopPropagation())}
     const oldScroll=box.scrollTop;
     box.replaceChildren();const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot · Construcción':'Cola GrepBot · Unidades';head.appendChild(title);
     const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'▶':'⏸',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
