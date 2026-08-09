@@ -33,13 +33,13 @@
   function nativeQueueUseLegacy(townId,lane){const t=nativeQueueTown(townId,true);if(t[lane].length)return false;t.mode[lane]='legacy';t.paused[lane]=false;nativeQueueSave();return true;}
   function nativeQueueTogglePaused(townId,lane){const t=nativeQueueTown(townId,true);t.paused[lane]=!t.paused[lane];nativeQueueSave();return t.paused[lane];}
   function nativeQueueMove(townId,lane,jobId,delta) {
-    if(lane==='build')nativeQueueReconcileBuild(townId);
+    if(lane==='build')nativeQueueReconcileBuild(townId);else nativeQueueReconcileRecruit(townId);
     const list=nativeQueueList(townId,lane,false);if(list.some(j=>j&&(j.inflight||j.manualReview)))return false;const i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return false;
     const j=Math.max(0,Math.min(list.length-1,i+(+delta||0)));if(i===j)return false;
     const item=list.splice(i,1)[0];list.splice(j,0,item);if(lane==='build')nativeQueueRebaseBuild(townId);nativeQueueSave();return true;
   }
   function nativeQueueRemove(townId,lane,jobId,opts) {
-    if(lane==='build')nativeQueueReconcileBuild(townId);
+    if(lane==='build')nativeQueueReconcileBuild(townId);else nativeQueueReconcileRecruit(townId);
     const list=nativeQueueList(townId,lane,false),i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return false;
     const target=list[i];const force=!(!opts||!opts.force);
     // Target itself is always protected — a post that's actually flying cannot
@@ -281,6 +281,7 @@
     nativeQueueSave();gbLog(`cola nativa: ${n}× ${nativeUnitLabel(unit)} @${townId}`);gbTimeout(()=>recruitScan('native'),80);return true;
   }
   function nativeQueueRemoveLastRecruit(townId,unit,amount) {
+    nativeQueueReconcileRecruit(townId);
     const list=nativeQueueList(townId,'recruit',false);const step=Math.max(1,Math.floor(+amount||nativeUnitStep(unit)));for(let i=list.length-1;i>=0;i--){const job=list[i];if(job&&job.unit===unit&&!job.inflight&&!job.manualReview){job.amount=Math.max(0,(+job.amount||0)-step);if(!job.amount)list.splice(i,1);else{job.status='pending';job.reason='';job.updatedAt=Date.now()}nativeQueueSave();return true}}
     return false;
   }
@@ -336,7 +337,18 @@
     else{job.inflight=null;job.reconcile=null;job.manualReview=false;nativeQueueSetJobState(job,'waiting-requirement',`construyendo ${nativeBuildLabel(plan.building)} primero`)}
     nativeQueueSave();
   }
+  // Recruit counterpart of nativeQueueReconcileBuild's stuck-inflight rule. The
+  // recruit head's `inflight` was only ever cleared by its own bridge callback,
+  // so a dropped callback (superseded tx, transport never settling) froze the
+  // whole lane until a page reload. A boolean nobody can clear is exactly what
+  // the v1.4.0 lock registry note warns about.
+  function nativeQueueReconcileRecruit(townId) {
+    const list=nativeQueueList(townId,'recruit',false);if(!list.length)return false;let changed=false;
+    for(const j of list){if(!j||!j.inflight)continue;if(Date.now()-(+j.inflight.at||0)>120000){j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualizó; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}}
+    if(changed)nativeQueueSave();return changed;
+  }
   function nativeQueueRecruitHead(townId) {
+    nativeQueueReconcileRecruit(townId);
     const list=nativeQueueList(townId,'recruit',false),job=list[0];if(!job)return null;
     if(nativeQueuePaused(townId,'recruit')){nativeQueueSetJobState(job,'paused','cola pausada');return null}
     if(list.some(j=>j&&j!==job&&(j.manualReview||j.inflight))){nativeQueueSetJobState(job,'blocked','hay otra acción pendiente de revisión');return null}
@@ -460,14 +472,19 @@
     },250);
   }
   function nativeMountBuildControl(root,tile,townId,building) {
-    // Strip any stale controls left over by earlier scans before mounting.
-    tile.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>c.remove());
     const list=nativeQueueList(townId,'build',false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),jobs=list.filter(j=>j&&j.building===building);
-    const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.building=building;
-    const anchor=tile.querySelector('.level,.building_level,.level_wrapper');(anchor&&anchor.parentElement||tile).appendChild(ctl);
     const projected=nativeQueueProjectedBuildLevel(townId,building),pos=nativeQueuePosition(townId,'build',j=>j&&j.building===building);
-    const head=pos===1&&list[0],max=abMaxLevel(building),special=nativeSpecialConflict(townId,building),sig=JSON.stringify([townId,building,projected,pos,frozen,max,special,jobs.map(j=>[j.id,j.toLevel,j.status,j.reason,!!j.inflight,!!j.manualReview])]);if(ctl.dataset.sig===sig)return;ctl.dataset.sig=sig;
-    ctl.replaceChildren();
+    const head=pos===1&&list[0],max=abMaxLevel(building),special=nativeSpecialConflict(townId,building),sig=JSON.stringify([townId,building,projected,pos,frozen,max,special,jobs.map(j=>[j.id,j.toLevel,j.status,j.reason,!!j.inflight,!!j.manualReview])]);
+    // The signature has to be read off the control that is ALREADY mounted. The
+    // old order removed every control first and then compared the signature of a
+    // freshly created node, which can never match - so every 80ms scan rebuilt
+    // the whole control stack. Keep the matching node, strip the rest.
+    const existing=[...tile.querySelectorAll('.gb-native-qctl[data-building]')];
+    const keep=existing.find(c=>c.dataset.building===building&&c.dataset.sig===sig);
+    for(const c of existing)if(c!==keep)c.remove();
+    if(keep)return;
+    const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.building=building;ctl.dataset.sig=sig;
+    const anchor=tile.querySelector('.level,.building_level,.level_wrapper');(anchor&&anchor.parentElement||tile).appendChild(ctl);
     if(!jobs.length){
       // No virtual job yet - mount only the [+] so the player can start one.
       // No [-] and no label, so the in-game [-][+] stays visible underneath.
@@ -487,12 +504,15 @@
     ctl.append(minus,count,plus);nativeQctlHitCheck(ctl,building);
   }
   function nativeMountRecruitControl(root,tile,townId,unit) {
-    tile.querySelectorAll(':scope > .gb-native-qctl[data-unit]').forEach(c=>c.remove());
     const list=nativeQueueList(townId,'recruit',false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit);
-    const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.unit=unit;tile.appendChild(ctl);
     const pos=nativeQueuePosition(townId,'recruit',j=>j&&j.unit===unit),head=pos===1&&list[0];
-    const sig=JSON.stringify([townId,unit,step,pending,pos,frozen,head&&head.status,head&&head.reason]);if(ctl.dataset.sig===sig)return;ctl.dataset.sig=sig;
-    ctl.replaceChildren();
+    const sig=JSON.stringify([townId,unit,step,pending,pos,frozen,head&&head.status,head&&head.reason]);
+    // Same as the build lane: compare against the mounted node, not a new one.
+    const existing=[...tile.querySelectorAll(':scope > .gb-native-qctl[data-unit]')];
+    const keep=existing.find(c=>c.dataset.unit===unit&&c.dataset.sig===sig);
+    for(const c of existing)if(c!==keep)c.remove();
+    if(keep)return;
+    const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.unit=unit;ctl.dataset.sig=sig;tile.appendChild(ctl);
     if(!(pending>0)){
       // No virtual recruit queued yet - mount only the [+] so the player
       // can start one without obscuring the in-game unit UI underneath.

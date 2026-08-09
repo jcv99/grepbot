@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.5.9
+// @version      2.6.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1284,8 +1284,11 @@ const STORE = {
     try {
       const cut = Date.now() - 3 * 86400000;
       let n = 0;
+
       Object.keys(state.alerted || {}).forEach(k => {
-        if ((state.alerted[k] || 0) < cut) { delete state.alerted[k]; n++; }
+        const e = state.alerted[k];
+        const ts = (e && typeof e === 'object') ? +e.ts || 0 : +e || 0;
+        if (ts < cut) { delete state.alerted[k]; n++; }
       });
       if (n) { bytes += n * 24; storageRawSet(wkey(STORE.ALERTED), state.alerted); }
     } catch (_) {}
@@ -1528,6 +1531,8 @@ const STORE = {
     }
     if (d.captcha === true || d.captcha === 1) return true;
     if (typeof d.captcha === 'string' && d.captcha.length) return true;
+
+    if (d.captcha_required === true || d.captcha_required === 1) return true;
     if (d.json === 'captcha_required' || d.status === 'captcha_required') return true;
 
     if (d.exception != null && /captcha/i.test(String(d.exception))) return true;
@@ -2476,8 +2481,17 @@ const STORE = {
   const GB_AJAX_WATCH_MS = 8000;
   const gbAjaxPending = [];
   function gbAjaxWatch(sig, settle) {
-    gbAjaxPending.push({ sig, at: Date.now(), settle });
+    const entry = { sig, at: Date.now(), settle };
+    gbAjaxPending.push(entry);
     while (gbAjaxPending.length > 24) gbAjaxPending.shift();
+    return entry;
+  }
+
+  function gbAjaxDrop(entry) {
+    if (!entry) return;
+    entry.done = true;
+    const i = gbAjaxPending.indexOf(entry);
+    if (i >= 0) gbAjaxPending.splice(i, 1);
   }
   function gbAjaxSigs(url, body) {
     const u = String(url || '');
@@ -2503,6 +2517,7 @@ const STORE = {
     const sigs = gbAjaxSigs(url, body);
     if (!sigs.length) return null;
     for (let i = 0; i < gbAjaxPending.length; i++) {
+      if (gbAjaxPending[i].done) continue;
       if (sigs.indexOf(gbAjaxPending[i].sig) >= 0) return gbAjaxPending.splice(i, 1)[0].settle;
     }
     return null;
@@ -2537,10 +2552,12 @@ const STORE = {
     const uw = gameUw();
     if (!(uw.gpAjax && uw.gpAjax.ajaxPost)) return done('noajax');
     let settled = false;
+    let watchEntry = null;
     const finish = (err, data) => {
       if (settled || !gbInstanceAlive()) return;
       settled = true;
       gbClearTimeout(timer);
+      gbAjaxDrop(watchEntry);
       done(err, data);
     };
     const timer = gbTimeout(() => {
@@ -2572,7 +2589,7 @@ const STORE = {
       } catch (e) { finish(String(e)); }
     };
 
-    gbAjaxWatch(
+    watchEntry = gbAjaxWatch(
       'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
       (status, raw) => {
         if (settled) return;
@@ -2593,10 +2610,12 @@ const STORE = {
     const uw = gameUw();
     if (!(uw.gpAjax && uw.gpAjax.ajaxPost)) return done('noajax');
     let settled = false;
+    let watchEntry = null;
     const finish = (err, res) => {
       if (settled || !gbInstanceAlive()) return;
       settled = true;
       gbClearTimeout(timer);
+      gbAjaxDrop(watchEntry);
       done(err, res);
     };
     const timer = gbTimeout(() => finish('timeout'), BRIDGE_TIMEOUT_MS);
@@ -2614,7 +2633,7 @@ const STORE = {
         finish(null, res);
       } catch (e) { finish(String(e)); }
     };
-    gbAjaxWatch('ajax:' + controller + '/' + action, (status, raw) => {
+    watchEntry = gbAjaxWatch('ajax:' + controller + '/' + action, (status, raw) => {
       if (settled) return;
       if (!status) return finish('neterr');
       if (status < 200 || status >= 300) {
@@ -5923,13 +5942,13 @@ const STORE = {
   function nativeQueueUseLegacy(townId,lane){const t=nativeQueueTown(townId,true);if(t[lane].length)return false;t.mode[lane]='legacy';t.paused[lane]=false;nativeQueueSave();return true;}
   function nativeQueueTogglePaused(townId,lane){const t=nativeQueueTown(townId,true);t.paused[lane]=!t.paused[lane];nativeQueueSave();return t.paused[lane];}
   function nativeQueueMove(townId,lane,jobId,delta) {
-    if(lane==='build')nativeQueueReconcileBuild(townId);
+    if(lane==='build')nativeQueueReconcileBuild(townId);else nativeQueueReconcileRecruit(townId);
     const list=nativeQueueList(townId,lane,false);if(list.some(j=>j&&(j.inflight||j.manualReview)))return false;const i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return false;
     const j=Math.max(0,Math.min(list.length-1,i+(+delta||0)));if(i===j)return false;
     const item=list.splice(i,1)[0];list.splice(j,0,item);if(lane==='build')nativeQueueRebaseBuild(townId);nativeQueueSave();return true;
   }
   function nativeQueueRemove(townId,lane,jobId,opts) {
-    if(lane==='build')nativeQueueReconcileBuild(townId);
+    if(lane==='build')nativeQueueReconcileBuild(townId);else nativeQueueReconcileRecruit(townId);
     const list=nativeQueueList(townId,lane,false),i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return false;
     const target=list[i];const force=!(!opts||!opts.force);
 
@@ -6127,6 +6146,7 @@ const STORE = {
     nativeQueueSave();gbLog(`cola nativa: ${n}× ${nativeUnitLabel(unit)} @${townId}`);gbTimeout(()=>recruitScan('native'),80);return true;
   }
   function nativeQueueRemoveLastRecruit(townId,unit,amount) {
+    nativeQueueReconcileRecruit(townId);
     const list=nativeQueueList(townId,'recruit',false);const step=Math.max(1,Math.floor(+amount||nativeUnitStep(unit)));for(let i=list.length-1;i>=0;i--){const job=list[i];if(job&&job.unit===unit&&!job.inflight&&!job.manualReview){job.amount=Math.max(0,(+job.amount||0)-step);if(!job.amount)list.splice(i,1);else{job.status='pending';job.reason='';job.updatedAt=Date.now()}nativeQueueSave();return true}}
     return false;
   }
@@ -6179,7 +6199,14 @@ const STORE = {
     else{job.inflight=null;job.reconcile=null;job.manualReview=false;nativeQueueSetJobState(job,'waiting-requirement',`construyendo ${nativeBuildLabel(plan.building)} primero`)}
     nativeQueueSave();
   }
+
+  function nativeQueueReconcileRecruit(townId) {
+    const list=nativeQueueList(townId,'recruit',false);if(!list.length)return false;let changed=false;
+    for(const j of list){if(!j||!j.inflight)continue;if(Date.now()-(+j.inflight.at||0)>120000){j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualizó; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}}
+    if(changed)nativeQueueSave();return changed;
+  }
   function nativeQueueRecruitHead(townId) {
+    nativeQueueReconcileRecruit(townId);
     const list=nativeQueueList(townId,'recruit',false),job=list[0];if(!job)return null;
     if(nativeQueuePaused(townId,'recruit')){nativeQueueSetJobState(job,'paused','cola pausada');return null}
     if(list.some(j=>j&&j!==job&&(j.manualReview||j.inflight))){nativeQueueSetJobState(job,'blocked','hay otra acción pendiente de revisión');return null}
@@ -6293,14 +6320,16 @@ const STORE = {
     },250);
   }
   function nativeMountBuildControl(root,tile,townId,building) {
-
-    tile.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>c.remove());
     const list=nativeQueueList(townId,'build',false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),jobs=list.filter(j=>j&&j.building===building);
-    const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.building=building;
-    const anchor=tile.querySelector('.level,.building_level,.level_wrapper');(anchor&&anchor.parentElement||tile).appendChild(ctl);
     const projected=nativeQueueProjectedBuildLevel(townId,building),pos=nativeQueuePosition(townId,'build',j=>j&&j.building===building);
-    const head=pos===1&&list[0],max=abMaxLevel(building),special=nativeSpecialConflict(townId,building),sig=JSON.stringify([townId,building,projected,pos,frozen,max,special,jobs.map(j=>[j.id,j.toLevel,j.status,j.reason,!!j.inflight,!!j.manualReview])]);if(ctl.dataset.sig===sig)return;ctl.dataset.sig=sig;
-    ctl.replaceChildren();
+    const head=pos===1&&list[0],max=abMaxLevel(building),special=nativeSpecialConflict(townId,building),sig=JSON.stringify([townId,building,projected,pos,frozen,max,special,jobs.map(j=>[j.id,j.toLevel,j.status,j.reason,!!j.inflight,!!j.manualReview])]);
+
+    const existing=[...tile.querySelectorAll('.gb-native-qctl[data-building]')];
+    const keep=existing.find(c=>c.dataset.building===building&&c.dataset.sig===sig);
+    for(const c of existing)if(c!==keep)c.remove();
+    if(keep)return;
+    const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.building=building;ctl.dataset.sig=sig;
+    const anchor=tile.querySelector('.level,.building_level,.level_wrapper');(anchor&&anchor.parentElement||tile).appendChild(ctl);
     if(!jobs.length){
 
       const plus=nativeQButton('+',`Añadir ${nativeBuildLabel(building)} +1 al final de la cola virtual`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueAddBuild(townId,building)));
@@ -6318,12 +6347,15 @@ const STORE = {
     ctl.append(minus,count,plus);nativeQctlHitCheck(ctl,building);
   }
   function nativeMountRecruitControl(root,tile,townId,unit) {
-    tile.querySelectorAll(':scope > .gb-native-qctl[data-unit]').forEach(c=>c.remove());
     const list=nativeQueueList(townId,'recruit',false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit);
-    const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.unit=unit;tile.appendChild(ctl);
     const pos=nativeQueuePosition(townId,'recruit',j=>j&&j.unit===unit),head=pos===1&&list[0];
-    const sig=JSON.stringify([townId,unit,step,pending,pos,frozen,head&&head.status,head&&head.reason]);if(ctl.dataset.sig===sig)return;ctl.dataset.sig=sig;
-    ctl.replaceChildren();
+    const sig=JSON.stringify([townId,unit,step,pending,pos,frozen,head&&head.status,head&&head.reason]);
+
+    const existing=[...tile.querySelectorAll(':scope > .gb-native-qctl[data-unit]')];
+    const keep=existing.find(c=>c.dataset.unit===unit&&c.dataset.sig===sig);
+    for(const c of existing)if(c!==keep)c.remove();
+    if(keep)return;
+    const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.unit=unit;ctl.dataset.sig=sig;tile.appendChild(ctl);
     if(!(pending>0)){
 
       const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola virtual`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));

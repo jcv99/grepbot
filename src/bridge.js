@@ -5,8 +5,21 @@
   const GB_AJAX_WATCH_MS = 8000;
   const gbAjaxPending = [];
   function gbAjaxWatch(sig, settle) {
-    gbAjaxPending.push({ sig, at: Date.now(), settle });
+    const entry = { sig, at: Date.now(), settle };
+    gbAjaxPending.push(entry);
     while (gbAjaxPending.length > 24) gbAjaxPending.shift();
+    return entry;
+  }
+  // A watcher whose post already settled (gpAjax callback won the race) MUST be
+  // dropped. gbAjaxClaim matches the OLDEST entry for a signature, so a dead
+  // watcher left behind for its 8s TTL swallowed the claim of the next post with
+  // the same model_url|action_name - that post then had no raw-response settle
+  // left and hung the full BRIDGE_TIMEOUT_MS on any server-side rejection.
+  function gbAjaxDrop(entry) {
+    if (!entry) return;
+    entry.done = true;
+    const i = gbAjaxPending.indexOf(entry);
+    if (i >= 0) gbAjaxPending.splice(i, 1);
   }
   function gbAjaxSigs(url, body) {
     const u = String(url || '');
@@ -32,6 +45,7 @@
     const sigs = gbAjaxSigs(url, body);
     if (!sigs.length) return null;
     for (let i = 0; i < gbAjaxPending.length; i++) {
+      if (gbAjaxPending[i].done) continue;
       if (sigs.indexOf(gbAjaxPending[i].sig) >= 0) return gbAjaxPending.splice(i, 1)[0].settle;
     }
     return null;
@@ -66,10 +80,12 @@
     const uw = gameUw();
     if (!(uw.gpAjax && uw.gpAjax.ajaxPost)) return done('noajax');
     let settled = false;
+    let watchEntry = null;
     const finish = (err, data) => {
       if (settled || !gbInstanceAlive()) return;
       settled = true;
       gbClearTimeout(timer);
+      gbAjaxDrop(watchEntry);
       done(err, data);
     };
     const timer = gbTimeout(() => {
@@ -103,7 +119,7 @@
     // gpAjax only calls back on a non-empty success envelope, so a server-side
     // rejection would otherwise hang until BRIDGE_TIMEOUT_MS. The XHR spy
     // settles this post from the raw response; whichever fires first wins.
-    gbAjaxWatch(
+    watchEntry = gbAjaxWatch(
       'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
       (status, raw) => {
         if (settled) return;
@@ -125,10 +141,12 @@
     const uw = gameUw();
     if (!(uw.gpAjax && uw.gpAjax.ajaxPost)) return done('noajax');
     let settled = false;
+    let watchEntry = null;
     const finish = (err, res) => {
       if (settled || !gbInstanceAlive()) return;
       settled = true;
       gbClearTimeout(timer);
+      gbAjaxDrop(watchEntry);
       done(err, res);
     };
     const timer = gbTimeout(() => finish('timeout'), BRIDGE_TIMEOUT_MS);
@@ -146,7 +164,7 @@
         finish(null, res);
       } catch (e) { finish(String(e)); }
     };
-    gbAjaxWatch('ajax:' + controller + '/' + action, (status, raw) => {
+    watchEntry = gbAjaxWatch('ajax:' + controller + '/' + action, (status, raw) => {
       if (settled) return;
       if (!status) return finish('neterr');
       if (status < 200 || status >= 300) {

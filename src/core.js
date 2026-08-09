@@ -1107,8 +1107,12 @@
     try {
       const cut = Date.now() - 3 * 86400000;
       let n = 0;
+      // checkThresholds stores {key, ts} objects, so a bare `entry < cut` compared
+      // an object against a number and was always false - this prune did nothing.
       Object.keys(state.alerted || {}).forEach(k => {
-        if ((state.alerted[k] || 0) < cut) { delete state.alerted[k]; n++; }
+        const e = state.alerted[k];
+        const ts = (e && typeof e === 'object') ? +e.ts || 0 : +e || 0;
+        if (ts < cut) { delete state.alerted[k]; n++; }
       });
       if (n) { bytes += n * 24; storageRawSet(wkey(STORE.ALERTED), state.alerted); }
     } catch (_) {}
@@ -1351,6 +1355,12 @@
     }
     if (d.captcha === true || d.captcha === 1) return true;
     if (typeof d.captcha === 'string' && d.captcha.length) return true;
+    // The game itself keys on this exact boolean - GPAjax getWrappedCallback:
+    //   success:function(e,i){if(!0===i.captcha_required)CaptchaWindowFactory.openCaptchaWindow(...)
+    // A captcha envelope carries no `error`, so responseServerError() sees none
+    // either: without this test the post is classified as SUCCESS, the tx commits
+    // and the breaker never trips while the bot posts into the captcha wall.
+    if (d.captcha_required === true || d.captcha_required === 1) return true;
     if (d.json === 'captcha_required' || d.status === 'captcha_required') return true;
 
     if (d.exception != null && /captcha/i.test(String(d.exception))) return true;
