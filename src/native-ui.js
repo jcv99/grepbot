@@ -91,11 +91,11 @@
     const levels=abCurrentLevels(townId);if(!levels)return false;const next=Object.assign({},levels);
     for(const j of nativeQueueList(townId,'build',false)){if(!j||!AB_BUILDINGS.includes(j.building))continue;if(j.inflight||j.manualReview){next[j.building]=Math.max(+next[j.building]||0,+j.toLevel||0);continue}const from=+next[j.building]||0;j.fromLevel=from;j.toLevel=from+1;next[j.building]=from+1}return true;
   }
-  // Simulate the build queue with and without one specific job, then list
-  // every other building (queued OR unqueued) that flips from "prereq met" to
-  // "prereq broken" when this job is removed. Covers both:
-  //   - a later queued job that depends on the level this entry provides
-  //   - any other city building (e.g. theater) that requires that level
+  // Simulate the build queue with and without one specific job, then list the
+  // jobs QUEUED AFTER it that flip from "prereq met" to "prereq broken" when
+  // this job is removed. Buildings that are not queued behind the target are
+  // never blockers: an existing building cannot be un-built, and an unqueued
+  // one is not a plan.
   // Returns {ok:true} when removal is safe (or uncheckable); otherwise
   // {ok:false, blockers:[{building, requires, has}], target:{building,toLevel}}.
   function nativeQueueRemovalImpact(townId, jobId) {
@@ -133,15 +133,24 @@
     const simWithout = fold(idx);
     const withLvl = +simWith[B] || 0;
     if (withLvl < T) return { ok: true }; // target was already moot (rebase caught it)
-    const blockers = [];
-    for (const b of AB_BUILDINGS) {
-      const req = abRequirementMap(townId, b);
+    // Only entries QUEUED BEHIND the target can be broken by this removal.
+    // Scanning every AB_BUILDINGS id was wrong twice over: a building already
+    // standing in town cannot be un-built by dropping a queued prereq, and a
+    // building nobody queued is not a plan at all — so deleting a queue entry
+    // and then trying to delete the one in front of it was refused because the
+    // just-deleted building "still needs" it.
+    const blockers = [], seenDep = new Set();
+    for (let i = idx + 1; i < list.length; i++) {
+      const j = list[i];
+      if (!j || !AB_BUILDINGS.includes(j.building) || seenDep.has(j.building)) continue;
+      const req = abRequirementMap(townId, j.building);
       if (!req) continue;
       const need = +req[B] || 0;
       if (!need) continue;
       if (need <= +simWithout[B]) continue; // still satisfied without target
       if (need > withLvl) continue;          // wasn't satisfied even with target
-      blockers.push({ building: b, requires: need, has: +simWithout[B] || 0 });
+      seenDep.add(j.building);
+      blockers.push({ building: j.building, requires: need, has: +simWithout[B] || 0 });
     }
     if (!blockers.length) return { ok: true };
     return { ok: false, blockers, target: { building: B, toLevel: T, withLvl, withoutLvl: +simWithout[B] || 0 } };

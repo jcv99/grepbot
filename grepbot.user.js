@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.5.8
+// @version      2.5.9
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -6006,15 +6006,19 @@ const STORE = {
     const simWithout = fold(idx);
     const withLvl = +simWith[B] || 0;
     if (withLvl < T) return { ok: true };
-    const blockers = [];
-    for (const b of AB_BUILDINGS) {
-      const req = abRequirementMap(townId, b);
+
+    const blockers = [], seenDep = new Set();
+    for (let i = idx + 1; i < list.length; i++) {
+      const j = list[i];
+      if (!j || !AB_BUILDINGS.includes(j.building) || seenDep.has(j.building)) continue;
+      const req = abRequirementMap(townId, j.building);
       if (!req) continue;
       const need = +req[B] || 0;
       if (!need) continue;
       if (need <= +simWithout[B]) continue;
       if (need > withLvl) continue;
-      blockers.push({ building: b, requires: need, has: +simWithout[B] || 0 });
+      seenDep.add(j.building);
+      blockers.push({ building: j.building, requires: need, has: +simWithout[B] || 0 });
     }
     if (!blockers.length) return { ok: true };
     return { ok: false, blockers, target: { building: B, toLevel: T, withLvl, withoutLvl: +simWithout[B] || 0 } };
