@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.4.2
+// @version      2.4.4
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -6114,8 +6114,9 @@ const STORE = {
     gbTimeout(() => abScan('native'), 80); return true;
   }
   function nativeQueueRemoveLastBuild(townId,building) {
+
     nativeQueueReconcileBuild(townId);
-    const list=nativeQueueList(townId,'build',false);if(list.some(j=>j&&(j.inflight||j.manualReview)))return false;for(let i=list.length-1;i>=0;i--){if(list[i]&&list[i].building===building&&!list[i].inflight){list.splice(i,1);nativeQueueRebaseBuild(townId);nativeQueueSave();return true}}
+    const list=nativeQueueList(townId,'build',false);for(let i=list.length-1;i>=0;i--){const j=list[i];if(j&&j.building===building&&!j.inflight&&!j.manualReview){list.splice(i,1);nativeQueueRebaseBuild(townId);nativeQueueSave();return true}}
     return false;
   }
   function nativeUnitStep(unit) {
@@ -6154,7 +6155,8 @@ const STORE = {
     const list=nativeQueueList(townId,'build',false);if(!list.length)return false;
     const levels=abCurrentLevels(townId);if(!levels)return false;let changed=false;
     for(const j of list){if(!j)continue;const flight=j.inflight||j.reconcile;if(flight&&flight.building&&flight.targetLevel!=null&&+(levels[flight.building]||0)>=+flight.targetLevel){j.inflight=null;j.reconcile=null;j.manualReview=false;j.status=flight.building===j.building?'pending':'waiting-requirement';j.reason=flight.building===j.building?'confirmado en la cola real':`requisito ${nativeBuildLabel(flight.building)} confirmado`;j.updatedAt=Date.now();changed=true;continue}
-      if(j.inflight&&j.inflight.accepted&&Date.now()-(+j.inflight.at||0)>120000){j.reconcile=Object.assign({},j.inflight);j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='aceptado, pero la cola real no se actualizó; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}}
+
+      if(j.inflight&&Date.now()-(+j.inflight.at||0)>120000){j.reconcile=Object.assign({},j.inflight);j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualizó; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}}
     for(let i=list.length-1;i>=0;i--){const j=list[i];if(!j||!AB_BUILDINGS.includes(j.building)||+(levels[j.building]||0)>=+j.toLevel){list.splice(i,1);changed=true}}
     if(changed){nativeQueueRebaseBuild(townId);nativeQueueSave()}return changed;
   }
@@ -7821,6 +7823,7 @@ const STORE = {
       return a ? (+a.att || 0) + (+a.def || 0) - (+a.used || 0) : 0;
     } catch (_) { return 0; }
   }
+  const KP_UNLOCK_MIN = 100;
   function ruralLevelScan(reason) {
     if (!hostEnabled() || !state.autoRuralLevel || captchaPaused('rurallevel')) return;
     if (automationPaused({})) return;
@@ -7850,11 +7853,12 @@ const STORE = {
     } catch (_) {}
     const locked = relations.filter(r => +((r.attributes || {}).relation_status) === 0);
 
-    const candidates = [];
-    if (locked.length) {
-      const unlocked = relations.length - locked.length;
-      const need = unlocked < unlockCosts.length ? unlockCosts[unlocked] : 100;
-      if (available >= need) {
+    const jobQueue = [];
+    if (locked.length > 0) {
+
+      if (available > KP_UNLOCK_MIN) {
+        const startUnlocked = relations.length - locked.length;
+
         for (const tid of townIds) {
           const xy = ruralTownIslandXY(tid);
           if (!xy) continue;
@@ -7862,50 +7866,86 @@ const STORE = {
             const a = rel.attributes || {};
             const ft = farmById[a.farm_town_id];
             if (!ft || ft.island_x !== xy.x || ft.island_y !== xy.y) continue;
-            candidates.push({ kind: 'unlock', relId: a.id || rel.id, farmId: a.farm_town_id, townId: tid, cost: need });
-            break;
+            jobQueue.push({ kind: 'unlock', relId: a.id || rel.id, farmId: a.farm_town_id, townId: tid });
           }
-          if (candidates.length) break;
+        }
+        if (!jobQueue.length) {
+          gbLogT('rurallevel-no-island-match', 180000, 'rural-level: locked villages exist but none match own-town islands');
+          return;
+        }
+
+        jobQueue._startUnlocked = startUnlocked;
+      } else {
+        gbLogT('rurallevel-kp-low', 180000, `rural-level: ${locked.length} locked village(s) waiting; KP ${available} ≤ ${KP_UNLOCK_MIN} — upgrades only after unlock phase drains`);
+        return;
+      }
+    } else {
+
+      for (let level = 1; level < maxLvl; level++) {
+        const cost = levelCosts[level - 1] || 100;
+        if (available < cost) break;
+        for (const tid of townIds) {
+          const xy = ruralTownIslandXY(tid);
+          if (!xy) continue;
+          for (const rel of relations) {
+            const a = rel.attributes || {};
+            if (+a.relation_status !== 1) continue;
+            if (a.expansion_at) continue;
+            const stage = +a.expansion_stage || 0;
+            if (stage > level) continue;
+            if (stage >= maxLvl) continue;
+            const ft = farmById[a.farm_town_id];
+            if (!ft || ft.island_x !== xy.x || ft.island_y !== xy.y) continue;
+            jobQueue.push({ kind: 'upgrade', relId: a.id || rel.id, farmId: a.farm_town_id, townId: tid, stage, cost });
+            available -= cost;
+          }
         }
       }
-    }
-    for (let level = 1; level < maxLvl; level++) {
-      const cost = levelCosts[level - 1] || 100;
-      if (available < cost) break;
-      for (const tid of townIds) {
-        const xy = ruralTownIslandXY(tid);
-        if (!xy) continue;
-        for (const rel of relations) {
-          const a = rel.attributes || {};
-          if (+a.relation_status !== 1) continue;
-          if (a.expansion_at) continue;
-          const stage = +a.expansion_stage || 0;
-          if (stage > level) continue;
-          if (stage >= maxLvl) continue;
-          const ft = farmById[a.farm_town_id];
-          if (!ft || ft.island_x !== xy.x || ft.island_y !== xy.y) continue;
-          candidates.push({ kind: 'upgrade', relId: a.id || rel.id, farmId: a.farm_town_id, townId: tid, stage, cost });
-          break;
-        }
-        if (candidates.some(c => c.kind === 'upgrade')) break;
-      }
-      if (candidates.some(c => c.kind === 'upgrade')) break;
     }
 
-    const job = candidates.find(c => c.kind === 'unlock') || candidates[0] || null;
-    if (!job) {
+    if (!jobQueue.length) {
       gbLogT('rurallevel-idle', 180000, `rural-level: idle (${reason || 'scan'})`);
       return;
     }
-    const ruralLevelLock = gbLock('rural-level', 180000);
+
+    const lockTtl = Math.min(600000, Math.max(180000, jobQueue.length * 1500));
+    const ruralLevelLock = gbLock('rural-level', lockTtl);
     if (!ruralLevelLock) return;
-    const done = (err) => {
-      gbUnlock('rural-level', ruralLevelLock);
-      if (!err) gbLog(`rural-level: ${job.kind} farm ${job.farmId} town ${job.townId}`);
-      else gbLogT('rurallevel-err', 60000, `rural-level err ${err}`);
-    };
-    if (job.kind === 'unlock') ruralUnlock(job.relId, job.farmId, job.townId, done);
-    else ruralUpgrade(job.relId, job.farmId, job.townId, done);
+    let i = 0, done = 0, stopped = '';
+    const startUnlocked = jobQueue._startUnlocked || 0;
+    (function next() {
+      if (i >= jobQueue.length || stopped) {
+        gbUnlock('rural-level', ruralLevelLock);
+        if (done) gbLog(`rural-level: ${done}/${jobQueue.length}${stopped ? ' (stopped: ' + stopped + ')' : ''} — phase: ${locked.length ? 'unlock' : 'upgrade'}`);
+        return;
+      }
+      const j = jobQueue[i++];
+
+      if (j.kind === 'unlock') {
+        const cur = ruralKillpoints();
+        if (cur <= KP_UNLOCK_MIN) { stopped = 'kp-low'; return next(); }
+        const idx = startUnlocked + done;
+        const need = idx < unlockCosts.length ? unlockCosts[idx] : 100;
+        if (cur < need) { stopped = 'kp-short(need ' + need + ')'; return next(); }
+      }
+      gbLockTouch('rural-level', ruralLevelLock);
+      const fire = j.kind === 'unlock' ? ruralUnlock : ruralUpgrade;
+      fire(j.relId, j.farmId, j.townId, (err) => {
+        if (err === 'captcha' || err === 'captcha-pause') {
+          stopped = err;
+          gbUnlock('rural-level', ruralLevelLock);
+          gbLogT('rurallevel-pause', 60000, `rural-level paused: ${err}`);
+          return;
+        }
+        if (!err) {
+          done++;
+        } else if (j.kind === 'unlock') {
+
+          stopped = 'unlock-err:' + err;
+        }
+        gbTimeout(next, 700 + Math.random() * 400);
+      });
+    })();
   }
 
   const RESEARCH_CHECK_MS = 45000;

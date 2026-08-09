@@ -165,8 +165,11 @@
     gbTimeout(() => abScan('native'), 80); return true;
   }
   function nativeQueueRemoveLastBuild(townId,building) {
+    // Only the target item itself blocks removal; a stuck head must not freeze
+    // the entire queued tail. Items flagged manualReview still need a player
+    // decision, so they stay unremovable from this shortcut (use the × button).
     nativeQueueReconcileBuild(townId);
-    const list=nativeQueueList(townId,'build',false);if(list.some(j=>j&&(j.inflight||j.manualReview)))return false;for(let i=list.length-1;i>=0;i--){if(list[i]&&list[i].building===building&&!list[i].inflight){list.splice(i,1);nativeQueueRebaseBuild(townId);nativeQueueSave();return true}}
+    const list=nativeQueueList(townId,'build',false);for(let i=list.length-1;i>=0;i--){const j=list[i];if(j&&j.building===building&&!j.inflight&&!j.manualReview){list.splice(i,1);nativeQueueRebaseBuild(townId);nativeQueueSave();return true}}
     return false;
   }
   function nativeUnitStep(unit) {
@@ -205,7 +208,11 @@
     const list=nativeQueueList(townId,'build',false);if(!list.length)return false;
     const levels=abCurrentLevels(townId);if(!levels)return false;let changed=false;
     for(const j of list){if(!j)continue;const flight=j.inflight||j.reconcile;if(flight&&flight.building&&flight.targetLevel!=null&&+(levels[flight.building]||0)>=+flight.targetLevel){j.inflight=null;j.reconcile=null;j.manualReview=false;j.status=flight.building===j.building?'pending':'waiting-requirement';j.reason=flight.building===j.building?'confirmado en la cola real':`requisito ${nativeBuildLabel(flight.building)} confirmado`;j.updatedAt=Date.now();changed=true;continue}
-      if(j.inflight&&j.inflight.accepted&&Date.now()-(+j.inflight.at||0)>120000){j.reconcile=Object.assign({},j.inflight);j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='aceptado, pero la cola real no se actualizó; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}}
+      // Any inflight older than 120s is assumed stuck (bridge timeout, partial
+      // apply, server weirdness) — drop the flag so the head stops blocking the
+      // queued tail. Drop the `accepted` requirement: posts that error out before
+      // the accepted stamp never get a second chance otherwise.
+      if(j.inflight&&Date.now()-(+j.inflight.at||0)>120000){j.reconcile=Object.assign({},j.inflight);j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualizó; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}}
     for(let i=list.length-1;i>=0;i--){const j=list[i];if(!j||!AB_BUILDINGS.includes(j.building)||+(levels[j.building]||0)>=+j.toLevel){list.splice(i,1);changed=true}}
     if(changed){nativeQueueRebaseBuild(townId);nativeQueueSave()}return changed;
   }
