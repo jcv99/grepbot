@@ -9745,6 +9745,30 @@ const STORE = {
     try { renderGoals(); renderPlanner(); renderDashboard(); } catch (_) {}
   }
   const CONFIG_EXPORT_SCHEMA = 3;
+
+  function qolRedactConfigDump(dump) {
+    if (state.exportRedact === false) {
+      gbLogT('cfg-export-raw', 60000, 'export config: redaction OFF - dump contains player names');
+      return dump;
+    }
+    const cut = (s) => (s ? String(s).slice(0, 1) + '...' : s);
+    const redactNotes = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+      const out = {};
+      Object.keys(obj).forEach((k, i) => { out[cut(k) + i] = '<note>'; });
+      return out;
+    };
+    dump.playerNotes = redactNotes(dump.playerNotes);
+    dump.allianceNotes = redactNotes(dump.allianceNotes);
+    dump.watchlist = (dump.watchlist || []).map((w) => {
+      if (!w || typeof w !== 'object') return cut(w);
+      const out = {};
+      Object.keys(w).forEach((k) => { out[k] = typeof w[k] === 'string' ? cut(w[k]) : w[k]; });
+      return out;
+    });
+    dump.redacted = true;
+    return dump;
+  }
   function qolExportConfig() {
     return { schema:CONFIG_EXPORT_SCHEMA, ver:state.configVer||1, host:location.host,
       abTargets:state.abTargets,abOrder:state.abOrder,researchTargets:state.researchTargets,recruitTargets:state.recruitTargets,
@@ -12298,6 +12322,178 @@ const STORE = {
     }
     box.textContent = lines.join('\n');
   }
+
+  function evidenceTplShape(v) {
+    if (v == null) return { present: false };
+    const t = Array.isArray(v) ? 'array' : typeof v;
+    if (t === 'object') return { present: true, type: 'object', keys: Object.keys(v).sort() };
+    if (t === 'array') return { present: true, type: 'array', length: v.length };
+    return { present: true, type: t };
+  }
+  function evidenceMask(id) {
+    if (state.exportRedact === false) return id;
+    if (id == null || id === '') return id;
+    const s = String(id);
+    if (/^\d+$/.test(s)) return s.length <= 2 ? '**' : s.slice(0, 2) + '***';
+    if (s.length <= 3) return '***';
+    return s.slice(0, 2) + '***';
+  }
+  function evidenceLastByFeature(maxPer) {
+    const lim = maxPer || 20;
+    const by = {};
+    const list = state.decisions || [];
+    for (let i = list.length - 1; i >= 0; i--) {
+      const r = list[i];
+      if (!r || !r.f) continue;
+      if (!by[r.f]) by[r.f] = [];
+      if (by[r.f].length >= lim) continue;
+      by[r.f].push({
+        ts: r.ts, a: r.a, k: evidenceMask(r.k), r: r.r, n: r.n,
+        d: r.d ? String(r.d).slice(0, 80) : undefined,
+      });
+    }
+    return by;
+  }
+  function gbEvidence() {
+    const now = Date.now();
+    const csrf = state.csrf ? String(state.csrf) : '';
+    const tplKeys = [
+      'claimTpl', 'ibAction', 'ibActionR', 'attackTpl', 'cancelTpl',
+      'heroTpl', 'collectTpl', 'farmAction', 'farmOptionMap',
+    ];
+    const templates = {};
+    tplKeys.forEach(k => { templates[k] = evidenceTplShape(state[k]); });
+    const breakers = {};
+    Object.keys(state.captchaBreakers || {}).forEach(f => {
+      const b = state.captchaBreakers[f];
+      if (!b) return;
+      breakers[f] = {
+        trips: b.trips || 0,
+        until: b.until || 0,
+        leftMs: Math.max(0, (b.until || 0) - now),
+        detail: b.detail ? String(b.detail).slice(0, 60) : null,
+      };
+    });
+    const locks = (gbLockList() || []).map(name => ({
+      name,
+      ageMs: typeof gbLockAge === 'function' ? gbLockAge(name) : null,
+      ttlMs: (GB_LOCK_TTL && GB_LOCK_TTL[name]) || 120000,
+    }));
+    const toggles = {};
+    Object.keys(state).forEach(k => {
+      if (/^auto[A-Z]/.test(k) || k === 'dryRun' || k === 'ibAuto' || k === 'ibResearch' ||
+          k === 'collectAll' || k === 'decisionMemory' || k === 'captchaGlobalKill' ||
+          k === 'orchAdaptive' || k === 'farmLongClaims' || k === 'farmSleepAuto') {
+        toggles[k] = !!state[k];
+      }
+    });
+    toggles.hostEnabled = !!hostEnabled();
+    const last = evidenceLastByFeature(20);
+    const lastOk = {};
+    const lastSkip = {};
+    Object.keys(last).forEach(f => {
+      const ok = last[f].find(r => r.r === 'ok');
+      const sk = last[f].find(r => String(r.r || '').indexOf('skip:') === 0);
+      if (ok) lastOk[f] = ok;
+      if (sk) lastSkip[f] = sk;
+    });
+    return {
+      at: new Date(now).toISOString(),
+      build: {
+        version: runningVersion(),
+        host: location.host,
+        worldKey: wkey(''),
+        configVer: state.configVer,
+        exportRedact: state.exportRedact !== false,
+      },
+      csrf: { present: !!csrf, prefix: csrf ? csrf.slice(0, 6) : null },
+      toggles,
+      scheduler: typeof orchStatus === 'function' ? orchStatus() : [],
+      templates,
+      captcha: {
+        globalKill: state.captchaGlobalKill !== false,
+        globalUntil: captchaGlobalUntil || 0,
+        globalLeftMs: Math.max(0, (captchaGlobalUntil || 0) - now),
+        breakers,
+      },
+      server: {
+        paused: typeof gbServerPaused === 'function' ? gbServerPaused() : false,
+        leftMs: typeof gbServerCooldownLeftMs === 'function' ? gbServerCooldownLeftMs() : 0,
+      },
+      locks,
+      budget: {
+        perMin: state.reqBudgetPerMin || 40,
+        usedLastMin: typeof reqBudgetUsed === 'function' ? reqBudgetUsed() : 0,
+      },
+      lastOk,
+      lastSkip,
+      recentByFeature: last,
+      decisionSkips: (typeof jrnActiveSkips === 'function' ? jrnActiveSkips() : []).map(s => ({
+        key: evidenceMask(s.key),
+        until: s.until,
+        leftMs: Math.max(0, s.until - now),
+        trips: s.trips,
+        r: s.r,
+      })),
+      scrapes: {
+        nextFarmScrape: state.nextFarmScrape || 0,
+        farmDueInMs: state.nextFarmScrape ? Math.max(0, state.nextFarmScrape - now) : null,
+        nextTownsScrape: state.nextTownsScrape || 0,
+        townsDueInMs: state.nextTownsScrape ? Math.max(0, state.nextTownsScrape - now) : null,
+      },
+      counts: {
+        findings: (state.findings || []).length,
+        seen: Object.keys(state.seen || {}).length,
+        farms: (state.farmsParsed || []).length,
+        towns: (state.towns || []).length,
+        decisions: (state.decisions || []).length,
+      },
+      wake: {
+        depth: typeof gbWakeDepth === 'function' ? gbWakeDepth() : 0,
+        burst: typeof gbInWakeBurst === 'function' ? gbInWakeBurst() : false,
+      },
+      tplHealth: (() => {
+        const h = state.tplHealth || {};
+        const out = {};
+        Object.keys(h).forEach(k => {
+          const v = h[k] || {};
+          out[k] = {
+            learnedAt: v.learnedAt || 0,
+            lastOkAt: v.lastOkAt || 0,
+            hardFails: v.hardFails || 0,
+            invalidated: !!v.invalidated,
+            ageMs: v.learnedAt ? now - v.learnedAt : null,
+          };
+        });
+        return out;
+      })(),
+    };
+  }
+  function gbEvidenceText() {
+    try { return JSON.stringify(gbEvidence(), null, 2); }
+    catch (e) { return '{"error":' + JSON.stringify(String(e).slice(0, 120)) + '}'; }
+  }
+  function evidenceCopy() {
+    const text = gbEvidenceText();
+    const ok = () => {
+      flash('evidencia copiada');
+      gbLog('evidence: copied ' + text.length + ' chars');
+    };
+    const fail = () => {
+      console.groupCollapsed('[grepbot] evidence');
+      console.log(text);
+      console.groupEnd();
+      flash('evidencia en la consola');
+      gbLog('evidence: clipboard fail - expand [grepbot] evidence in console');
+    };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(ok, fail);
+        return;
+      }
+    } catch (_) {}
+    fail();
+  }
   function makeSortable(table, rowDataFn) {
     const thead = table.querySelector('thead');
     if (!thead) return;
@@ -13025,8 +13221,25 @@ const STORE = {
         <label>Telegram chat_id <input type="text" data-cfg="wh-tg-chat" placeholder="optional if not in URL" style="width:140px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px;font-size:10px"/></label>
         <div style="border-top:1px solid #333;padding-top:6px;color:#f96;font-size:10px">HIGH RISK (default OFF)</div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-merchant"/> Merchant sniper</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Las ofertas de recursos del barco mercante empiezan en 0.5:1 y suben +0.1 por trato. Bombea con tratos de 1 unidad y luego envia el trato grande a 1:1."><input type="checkbox" data-cfg="auto-pt-trade"/> Bombeo del ratio del barco mercante</label>
+        <label style="margin-left:12px;font-size:10px">ratio objetivo <input type="number" step="0.1" min="0.5" max="2" data-cfg="pt-ratio" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
+          cantidad de bombeo <input type="number" min="1" max="100" data-cfg="pt-pump" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
+          bombeos max. <input type="number" min="0" max="20" data-cfg="pt-maxpumps" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
+          reserva % <input type="number" min="0" max="90" data-cfg="pt-reserve" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
+        </label>
+        <label style="margin-left:12px;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">recibir
+          <label><input type="checkbox" data-cfg="pt-want-wood"/> madera</label>
+          <label><input type="checkbox" data-cfg="pt-want-stone"/> piedra</label>
+          <label><input type="checkbox" data-cfg="pt-want-iron"/> plata</label>
+        </label>
+        <div style="margin-left:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span id="gb-pt-status" style="font-size:10px;color:#888"></span>
+          <button data-cfg="pt-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Bombear + comerciar ya</button>
+          <button data-cfg="pt-copy" title="Copia el HTML de la ventana del mercader abierta - hace falta una vez para confirmar el analizador de ofertas" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Copiar HTML de la oferta</button>
+        </div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-favor" disabled/> Favor farm (disabled: unsafe target path)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-wonder"/> WW donations</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Gasta favor en la maravilla de la alianza. Requiere haber capturado wonderFavorTpl. Por defecto OFF."><input type="checkbox" data-cfg="auto-wonder-favor"/> Lanzar favor en la Maravilla (captura el poder antes)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="cs-alert"/> CS / incoming alerts</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-militia"/> Auto-militia on incoming</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-dodge"/> Auto-dodge</label>
@@ -13086,6 +13299,7 @@ const STORE = {
           <button type="button" data-act="scrape-towns">Towns now</button>
           <button type="button" data-act="diag">Diag</button>
           <button type="button" data-act="preflight">Preflight</button>
+          <button type="button" data-act="evidence" title="Instantanea de solo lectura y anonimizada para las validaciones de TASKS. Copia JSON. No envia nada.">Evidencia</button>
           <button type="button" data-act="clear">Clear findings</button>
           <button type="button" data-act="reset-pos" title="Reset panel position">Reset position</button>
         </div>
@@ -13169,7 +13383,7 @@ const STORE = {
   });
   panel.querySelector('#gb-sim-run')?.addEventListener('click',()=>{const h=Math.max(1,+panel.querySelector('#gb-sim-hours')?.value||24);dashboardSimulation=simulateAccount(h);state.simCfg.horizonHours=h;save(STORE.SIM_CFG,state.simCfg);renderDashboard();});
   panel.querySelector('#gb-cfg-export')?.addEventListener('click', () => {
-    const text = JSON.stringify(qolExportConfig(), null, 2);
+    const text = JSON.stringify(qolRedactConfigDump(qolExportConfig()), null, 2);
     navigator.clipboard.writeText(text).then(() => flash('config copied')).catch(() => flash('copy failed'));
   });
   panel.querySelector('#gb-cfg-import')?.addEventListener('click', () => {
@@ -13263,6 +13477,9 @@ const STORE = {
     state.findings = []; state.seen = {}; seenThisRun.clear();
     save(STORE.FINDINGS, state.findings); save(STORE.SEEN, state.seen);
     renderFindings();
+  });
+  panel.querySelectorAll('button[data-act=evidence]').forEach(btn => {
+    btn.addEventListener('click', () => { evidenceCopy(); });
   });
   panel.querySelector('footer button[data-act=diag]').addEventListener('click', () => {
     diagRun();
@@ -13469,6 +13686,21 @@ const STORE = {
     setChk('[data-cfg=orch-adaptive]', state.orchAdaptive !== false);
     setChk('[data-cfg=export-redact]', state.exportRedact !== false);
     setChk('[data-cfg=auto-merchant]', state.autoMerchant);
+    setChk('[data-cfg=auto-pt-trade]', state.autoPtTrade);
+    {
+      const c = state.ptCfg || {};
+      const want = c.wantRes || {};
+      setNum('[data-cfg=pt-ratio]', c.targetRatio != null ? c.targetRatio : 1);
+      setNum('[data-cfg=pt-pump]', c.pumpAmount != null ? c.pumpAmount : 1);
+      setNum('[data-cfg=pt-maxpumps]', c.maxPumps != null ? c.maxPumps : 6);
+      setNum('[data-cfg=pt-reserve]', c.reservePct != null ? c.reservePct : 10);
+      setChk('[data-cfg=pt-want-wood]', want.wood !== false);
+      setChk('[data-cfg=pt-want-stone]', want.stone !== false);
+      setChk('[data-cfg=pt-want-iron]', !!want.iron);
+      const st = sec.querySelector('#gb-pt-status');
+      if (st) st.textContent = typeof ptStatusText === 'function' ? ptStatusText() : '';
+    }
+    setChk('[data-cfg=auto-wonder-favor]', !!state.autoWonderFavor);
     setChk('[data-cfg=auto-favor]', state.autoFavor);
     setChk('[data-cfg=auto-wonder]', state.autoWonder);
     setChk('[data-cfg=cs-alert]', state.csAlert !== false);
@@ -13525,6 +13757,41 @@ const STORE = {
       updateStatus();
     });
     bindToggle('[data-cfg=auto-merchant]', 'autoMerchant', STORE.AUTO_MERCHANT, () => merchantScan('toggle'));
+    bindToggle('[data-cfg=auto-pt-trade]', 'autoPtTrade', STORE.AUTO_PT_TRADE, () => ptTradeScan('toggle'));
+    bindToggle('[data-cfg=auto-wonder-favor]', 'autoWonderFavor', STORE.AUTO_WONDER_FAVOR);
+    const savePt = (key, val) => {
+      if (!state.ptCfg || typeof state.ptCfg !== 'object') state.ptCfg = {};
+      state.ptCfg[key] = val;
+      save(STORE.PT_CFG, state.ptCfg);
+    };
+    saveNum('[data-cfg=pt-ratio]', v => savePt('targetRatio', Math.min(2, Math.max(0.5, v || 1))));
+    saveNum('[data-cfg=pt-pump]', v => savePt('pumpAmount', Math.max(1, Math.floor(v || 1))));
+    saveNum('[data-cfg=pt-maxpumps]', v => savePt('maxPumps', Math.min(20, Math.max(0, Math.floor(v || 0)))));
+    saveNum('[data-cfg=pt-reserve]', v => savePt('reservePct', Math.min(90, Math.max(0, Math.floor(v || 0)))));
+    const savePtWant = () => {
+      savePt('wantRes', {
+        wood: !!sec.querySelector('[data-cfg=pt-want-wood]')?.checked,
+        stone: !!sec.querySelector('[data-cfg=pt-want-stone]')?.checked,
+        iron: !!sec.querySelector('[data-cfg=pt-want-iron]')?.checked,
+      });
+    };
+    ['pt-want-wood', 'pt-want-stone', 'pt-want-iron'].forEach(k => {
+      sec.querySelector('[data-cfg=' + k + ']')?.addEventListener('change', savePtWant);
+    });
+    sec.querySelector('[data-cfg=pt-now]')?.addEventListener('click', () => {
+      if (!state.ptTradeTpl) { flash('comercia una vez a mano primero'); return; }
+      if (!confirm('Bombear el ratio del barco mercante y enviar ahora el trato grande?')) return;
+      const was = state.autoPtTrade;
+      if (!was) { state.autoPtTrade = true; save(STORE.AUTO_PT_TRADE, true); }
+      ptTradeScan('manual');
+    });
+    sec.querySelector('[data-cfg=pt-copy]')?.addEventListener('click', () => {
+      const root = typeof ptWindowRoot === 'function' ? ptWindowRoot() : null;
+      if (!root) { flash('abre primero la ventana del mercader'); return; }
+      navigator.clipboard.writeText(root.innerHTML.slice(0, 20000))
+        .then(() => flash('HTML de la oferta copiado'))
+        .catch(() => flash('fallo al copiar'));
+    });
     bindToggle('[data-cfg=auto-favor]', 'autoFavor', STORE.AUTO_FAVOR, () => favorScan('toggle'));
     bindToggle('[data-cfg=auto-wonder]', 'autoWonder', STORE.AUTO_WONDER, () => wonderScan('toggle'));
     bindToggle('[data-cfg=cs-alert]', 'csAlert', STORE.CS_ALERT);
@@ -13898,12 +14165,16 @@ const STORE = {
     if (unknownTx) pauseTxt += ` tx?:${unknownTx}`;
     if (gbServerPaused()) pauseTxt += ` ⏸srv:${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}`;
     if(gbTabCoordSupported&&!gbTabLeader)pauseTxt+=' ⏸other-tab';
+    if (storageWarnUntil > Date.now()) pauseTxt += ` ⚠${storageWarnMsg || 'quota'}`;
+    let tplBanner = '';
+    try { tplBanner = tplHealthBannerText() || ''; } catch (_) {}
+    if (tplBanner) pauseTxt += ' tpl!';
     const dryTxt = state.dryRun ? ' 🅳DRY' : ''; const safeTxt=state.safeMode?' SAFE':'';
     const txt = `csrf:${csrfShort} farms:${okFarms}/${farms}${errTxt}${dryTxt}${safeTxt}${pauseTxt}`;
     if (txt !== _statusLast) {
       _statusLast = txt;
       el.textContent = txt;
-      el.title = JSON.stringify({ csrf: !!state.csrf, captcha: state.captchaBreakers, pause: pauseInfo.reason, memory: memSkips.map(s => s.key), circuits: openCircuits, unknownTransactions: unknownTx });
+      el.title = (tplBanner ? tplBanner + ' | ' : '') + JSON.stringify({ csrf: !!state.csrf, captcha: state.captchaBreakers, pause: pauseInfo.reason, memory: memSkips.map(s => s.key), circuits: openCircuits, unknownTransactions: unknownTx });
     }
     const cs = panel.querySelector('#gb-collect-state');
     if (cs) {

@@ -240,6 +240,30 @@
     try { renderGoals(); renderPlanner(); renderDashboard(); } catch (_) {}
   }
   const CONFIG_EXPORT_SCHEMA = 3;
+  // Config export carries player notes / watchlist - redact by default.
+  function qolRedactConfigDump(dump) {
+    if (state.exportRedact === false) {
+      gbLogT('cfg-export-raw', 60000, 'export config: redaction OFF - dump contains player names');
+      return dump;
+    }
+    const cut = (s) => (s ? String(s).slice(0, 1) + '...' : s);
+    const redactNotes = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+      const out = {};
+      Object.keys(obj).forEach((k, i) => { out[cut(k) + i] = '<note>'; });
+      return out;
+    };
+    dump.playerNotes = redactNotes(dump.playerNotes);
+    dump.allianceNotes = redactNotes(dump.allianceNotes);
+    dump.watchlist = (dump.watchlist || []).map((w) => {
+      if (!w || typeof w !== 'object') return cut(w);
+      const out = {};
+      Object.keys(w).forEach((k) => { out[k] = typeof w[k] === 'string' ? cut(w[k]) : w[k]; });
+      return out;
+    });
+    dump.redacted = true;
+    return dump;
+  }
   function qolExportConfig() {
     return { schema:CONFIG_EXPORT_SCHEMA, ver:state.configVer||1, host:location.host,
       abTargets:state.abTargets,abOrder:state.abOrder,researchTargets:state.researchTargets,recruitTargets:state.recruitTargets,

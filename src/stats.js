@@ -240,3 +240,176 @@
     }
     box.textContent = lines.join('\n');
   }
+
+  // ---------- evidence snapshot (diagnostics export) ----------
+  function evidenceTplShape(v) {
+    if (v == null) return { present: false };
+    const t = Array.isArray(v) ? 'array' : typeof v;
+    if (t === 'object') return { present: true, type: 'object', keys: Object.keys(v).sort() };
+    if (t === 'array') return { present: true, type: 'array', length: v.length };
+    return { present: true, type: t };
+  }
+  function evidenceMask(id) {
+    if (state.exportRedact === false) return id;
+    if (id == null || id === '') return id;
+    const s = String(id);
+    if (/^\d+$/.test(s)) return s.length <= 2 ? '**' : s.slice(0, 2) + '***';
+    if (s.length <= 3) return '***';
+    return s.slice(0, 2) + '***';
+  }
+  function evidenceLastByFeature(maxPer) {
+    const lim = maxPer || 20;
+    const by = {};
+    const list = state.decisions || [];
+    for (let i = list.length - 1; i >= 0; i--) {
+      const r = list[i];
+      if (!r || !r.f) continue;
+      if (!by[r.f]) by[r.f] = [];
+      if (by[r.f].length >= lim) continue;
+      by[r.f].push({
+        ts: r.ts, a: r.a, k: evidenceMask(r.k), r: r.r, n: r.n,
+        d: r.d ? String(r.d).slice(0, 80) : undefined,
+      });
+    }
+    return by;
+  }
+  function gbEvidence() {
+    const now = Date.now();
+    const csrf = state.csrf ? String(state.csrf) : '';
+    const tplKeys = [
+      'claimTpl', 'ibAction', 'ibActionR', 'attackTpl', 'cancelTpl',
+      'heroTpl', 'collectTpl', 'farmAction', 'farmOptionMap',
+    ];
+    const templates = {};
+    tplKeys.forEach(k => { templates[k] = evidenceTplShape(state[k]); });
+    const breakers = {};
+    Object.keys(state.captchaBreakers || {}).forEach(f => {
+      const b = state.captchaBreakers[f];
+      if (!b) return;
+      breakers[f] = {
+        trips: b.trips || 0,
+        until: b.until || 0,
+        leftMs: Math.max(0, (b.until || 0) - now),
+        detail: b.detail ? String(b.detail).slice(0, 60) : null,
+      };
+    });
+    const locks = (gbLockList() || []).map(name => ({
+      name,
+      ageMs: typeof gbLockAge === 'function' ? gbLockAge(name) : null,
+      ttlMs: (GB_LOCK_TTL && GB_LOCK_TTL[name]) || 120000,
+    }));
+    const toggles = {};
+    Object.keys(state).forEach(k => {
+      if (/^auto[A-Z]/.test(k) || k === 'dryRun' || k === 'ibAuto' || k === 'ibResearch' ||
+          k === 'collectAll' || k === 'decisionMemory' || k === 'captchaGlobalKill' ||
+          k === 'orchAdaptive' || k === 'farmLongClaims' || k === 'farmSleepAuto') {
+        toggles[k] = !!state[k];
+      }
+    });
+    toggles.hostEnabled = !!hostEnabled();
+    const last = evidenceLastByFeature(20);
+    const lastOk = {};
+    const lastSkip = {};
+    Object.keys(last).forEach(f => {
+      const ok = last[f].find(r => r.r === 'ok');
+      const sk = last[f].find(r => String(r.r || '').indexOf('skip:') === 0);
+      if (ok) lastOk[f] = ok;
+      if (sk) lastSkip[f] = sk;
+    });
+    return {
+      at: new Date(now).toISOString(),
+      build: {
+        version: runningVersion(),
+        host: location.host,
+        worldKey: wkey(''),
+        configVer: state.configVer,
+        exportRedact: state.exportRedact !== false,
+      },
+      csrf: { present: !!csrf, prefix: csrf ? csrf.slice(0, 6) : null },
+      toggles,
+      scheduler: typeof orchStatus === 'function' ? orchStatus() : [],
+      templates,
+      captcha: {
+        globalKill: state.captchaGlobalKill !== false,
+        globalUntil: captchaGlobalUntil || 0,
+        globalLeftMs: Math.max(0, (captchaGlobalUntil || 0) - now),
+        breakers,
+      },
+      server: {
+        paused: typeof gbServerPaused === 'function' ? gbServerPaused() : false,
+        leftMs: typeof gbServerCooldownLeftMs === 'function' ? gbServerCooldownLeftMs() : 0,
+      },
+      locks,
+      budget: {
+        perMin: state.reqBudgetPerMin || 40,
+        usedLastMin: typeof reqBudgetUsed === 'function' ? reqBudgetUsed() : 0,
+      },
+      lastOk,
+      lastSkip,
+      recentByFeature: last,
+      decisionSkips: (typeof jrnActiveSkips === 'function' ? jrnActiveSkips() : []).map(s => ({
+        key: evidenceMask(s.key),
+        until: s.until,
+        leftMs: Math.max(0, s.until - now),
+        trips: s.trips,
+        r: s.r,
+      })),
+      scrapes: {
+        nextFarmScrape: state.nextFarmScrape || 0,
+        farmDueInMs: state.nextFarmScrape ? Math.max(0, state.nextFarmScrape - now) : null,
+        nextTownsScrape: state.nextTownsScrape || 0,
+        townsDueInMs: state.nextTownsScrape ? Math.max(0, state.nextTownsScrape - now) : null,
+      },
+      counts: {
+        findings: (state.findings || []).length,
+        seen: Object.keys(state.seen || {}).length,
+        farms: (state.farmsParsed || []).length,
+        towns: (state.towns || []).length,
+        decisions: (state.decisions || []).length,
+      },
+      wake: {
+        depth: typeof gbWakeDepth === 'function' ? gbWakeDepth() : 0,
+        burst: typeof gbInWakeBurst === 'function' ? gbInWakeBurst() : false,
+      },
+      tplHealth: (() => {
+        const h = state.tplHealth || {};
+        const out = {};
+        Object.keys(h).forEach(k => {
+          const v = h[k] || {};
+          out[k] = {
+            learnedAt: v.learnedAt || 0,
+            lastOkAt: v.lastOkAt || 0,
+            hardFails: v.hardFails || 0,
+            invalidated: !!v.invalidated,
+            ageMs: v.learnedAt ? now - v.learnedAt : null,
+          };
+        });
+        return out;
+      })(),
+    };
+  }
+  function gbEvidenceText() {
+    try { return JSON.stringify(gbEvidence(), null, 2); }
+    catch (e) { return '{"error":' + JSON.stringify(String(e).slice(0, 120)) + '}'; }
+  }
+  function evidenceCopy() {
+    const text = gbEvidenceText();
+    const ok = () => {
+      flash('evidencia copiada');
+      gbLog('evidence: copied ' + text.length + ' chars');
+    };
+    const fail = () => {
+      console.groupCollapsed('[grepbot] evidence');
+      console.log(text);
+      console.groupEnd();
+      flash('evidencia en la consola');
+      gbLog('evidence: clipboard fail - expand [grepbot] evidence in console');
+    };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(ok, fail);
+        return;
+      }
+    } catch (_) {}
+    fail();
+  }
