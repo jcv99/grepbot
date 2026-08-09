@@ -241,8 +241,6 @@
   const QUEST_SCAN_MS = 12000;
   const QUEST_RESCAN_MS = 6 * 60 * 60 * 1000;
   const QUEST_HISTORY_MAX = 100;
-  let questScanBusy = false;
-  let questAutoBusy = false;
   let questCursor = 0;
   let questMo = null;
   let questMoContainer = null;

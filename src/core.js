@@ -169,7 +169,11 @@
     hero: 180000,
     'collect-bg': 300000,
     'bandit-reward': 120000,
-    'bandit-attack': 120000,
+    militia: 60000,
+    'pt-trade': 180000,
+    'report-catchup': 300000,
+    'quest-scan': 180000,
+    'quest-auto': 180000,
   };
   const GB_LOCK_DEFAULT_TTL = 180000;
   const gbLocks = Object.create(null);
@@ -746,6 +750,8 @@
     attack: 'attackTpl', cancel: 'cancelTpl', hero: 'heroTpl',
     collect: 'collectTpl',
     pttrade: 'ptTradeTpl',
+    wonder: 'wonderFavorTpl',
+    favor: 'attackTpl',
   };
   // Feature `build` carries two different posts: auto-queue `buildUp` (payload is
   // hardcoded - no learned template can be stale) and instant complete (which is

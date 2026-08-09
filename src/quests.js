@@ -377,7 +377,7 @@
     return rows[questCursor++];
   }
   function questAutoClaim(root, entry) {
-    if (questAutoBusy || !entry?.canClaim || entry.claimReview || entry.claimedAt) return;
+    if (gbLocked('quest-auto') || !entry?.canClaim || entry.claimReview || entry.claimedAt) return;
     const rewards = entry.rewards || [];
 
     if (!rewards.length || !rewards.every(isSafeQuestReward)) return;
@@ -388,7 +388,8 @@
       gbLogT('quest-block-' + entry.questId, 60000, 'quest: claim backoff active', entry.title || entry.questId);
       return;
     }
-    questAutoBusy = true;
+    const autoToken = gbLock('quest-auto');
+    if (!autoToken) return;
     const kinds = rewards.map(r => r.kind).join(',');
     const setClaimState=(review,err)=>{const cur=state.questRewards[entry.questId]||entry;cur.canClaim=false;cur.claimStateKnown=true;cur.claimReview=!!review;cur.claimedAt=review?0:Date.now();cur.claimError=review?String(err||'resultado desconocido'):'';cur.updatedAt=Date.now();state.questRewards[entry.questId]=cur;save(STORE.QUEST_REWARDS,state.questRewards)};
     const finish = (method, ok, err) => {
@@ -405,7 +406,7 @@
       });
       gbLog(`quest: auto-claim ${ok ? 'OK' : 'fail'} via ${method}`, entry.title || entry.questId, kinds);
       if (ok) flash('reclamo de mision: ' + kinds);
-      gbTimeout(() => { questAutoBusy = false; questScanTick('post-claim'); renderQuests(); }, 2500);
+      gbTimeout(() => { gbUnlock('quest-auto', autoToken); questScanTick('post-claim'); renderQuests(); }, 2500);
     };
     const questStillClaimable = () => {
       try {
@@ -472,11 +473,11 @@
     questsFromGame().forEach(q => mergeQuestEntry(q));
   }
   function questScanTick(reason) {
-    if (!hostEnabled() || questScanBusy) return;
+    if (!hostEnabled() || gbLocked('quest-scan')) return;
     bindQuestObserver();
     ingestGameQuests();
 
-    if (!questAutoBusy) {
+    if (!gbLocked('quest-auto')) {
       const claimable = Object.values(state.questRewards).filter(e => e.canClaim && e.safeAuto);
       if (claimable.length) {
         questAutoClaim(questRewardRoot(), claimable[0]);
@@ -489,8 +490,9 @@
     // from whichever quest the player is already viewing.
     const row = questSelectedRow(rows);
     if (!row) { renderQuests(); return; }
-    questScanBusy = true;
-    const finish = () => { questScanBusy = false; renderQuests(); };
+    const scanToken = gbLock('quest-scan');
+    if (!scanToken) { renderQuests(); return; }
+    const finish = () => { gbUnlock('quest-scan', scanToken); renderQuests(); };
     try { questCaptureCurrent(row); }
     finally { finish(); }
   }

@@ -24,8 +24,31 @@
       });
     } catch (_) { return false; }
   }
+  function recruitSpellGateOk(townId, powerId) {
+    if (!powerId || !RECRUIT_SPELLS.includes(powerId)) return { ok: false, why: 'bad-power' };
+    const academy = gbBuildingLevel(townId, 'academy');
+    if (academy != null && academy < 1) return { ok: false, why: 'no-academy' };
+    const god = recruitTownGod(townId);
+    if (!god) return { ok: false, why: 'no-town-god' };
+    return { ok: true, why: null };
+  }
+  function recruitSpellCooldown(townId, powerId) {
+    const map = state.spellCooldown || (state.spellCooldown = {});
+    const t = map[String(townId)] || (map[String(townId)] = {});
+    const until = +t[powerId] || 0;
+    return until > Date.now() ? until - Date.now() : 0;
+  }
+  function recruitSpellCooldownStamp(townId, powerId, ms) {
+    if (!state.spellCooldown) state.spellCooldown = {};
+    const t = state.spellCooldown[String(townId)] || (state.spellCooldown[String(townId)] = {});
+    t[powerId] = Date.now() + (ms || 30 * 60 * 1000);
+  }
   function recruitCastSpell(townId, powerId, onDone) {
     if (!powerId || !RECRUIT_SPELLS.includes(powerId)) return onDone && onDone('bad-power');
+    const pre = recruitSpellGateOk(townId, powerId);
+    if (!pre.ok) { gbLogT('spell-precond-' + townId, 300000, `spell: blocked precheck (${pre.why})`); return onDone && onDone('skip:' + pre.why); }
+    const left = recruitSpellCooldown(townId, powerId);
+    if (left > 0) { gbLogT('spell-cooldown-' + townId, 60000, `spell: cooldown ${Math.ceil(left/1000)}s left`); return onDone && onDone('skip:cooldown'); }
     gameAjaxPost('spell', 'town_overviews', 'cast_power', {
       power_id: powerId,
       town_id: +townId,
@@ -245,7 +268,8 @@
         if (state.recruitSpells && !state.safeMode) {
           const wantPower = (state.favorCfg && state.favorCfg.recruitPower) || null;
           if (wantPower && RECRUIT_SPELLS.includes(wantPower) && !recruitHasSpell(tid, wantPower)
-              && !captchaPausedAny('recruit', 'spell')) {
+              && !captchaPausedAny('recruit', 'spell') && recruitSpellGateOk(tid, wantPower).ok
+              && !recruitSpellCooldown(tid, wantPower)) {
             job = { kind:'spell', townId:tid, power:wantPower };
             break;
           }
@@ -266,7 +290,10 @@
       recruitCastSpell(job.townId, job.power, (err) => {
         gbUnlock('recruit', lockToken);
         if (!err) gbLog(`spell: ${job.power} on ${job.townId}`);
-        else gbLogT('spell-err', 60000, `spell err ${err}`);
+        else if (err === 'timeout_unknown' || err === 'pending') {
+          recruitSpellCooldownStamp(job.townId, job.power);
+          gbLog(`spell: outcome unknown (${err}); cooldown 30min — favor is irreversible, manual review required`);
+        } else gbLogT('spell-err', 60000, `spell err ${err}`);
       });
       return;
     }

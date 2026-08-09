@@ -80,6 +80,7 @@
           };
           save(wkey(STORE.WONDER_FAVOR_TPL), state.wonderFavorTpl);
           gbLog('learned wonder favor template:', j.action_name);
+          try { tplHealthMarkLearned('wonderFavorTpl'); } catch (_) {}
         }
       } else if (/PlayerHero/.test(body) && /assignToTown|unassignFromTown|cancelTownTravel/i.test(body)) {
         const j = parseBodyLoose(body);

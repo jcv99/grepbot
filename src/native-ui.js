@@ -91,7 +91,7 @@
     let target = building;
     for (let safety = 0; safety < 50; safety++) {
       const resolved = abResolvePrerequisite(townId, target, sim);
-      if (!resolved || !resolved.building) return { chain, error: (resolved && resolved.error) || 'prereq-unknown' };
+      if (!resolved || !resolved.building) return { chain, error: resolved ? resolved.error : 'prereq-unknown' };
       if (resolved.building === target) return { chain };
       chain.push(resolved.building);
       sim[resolved.building] = (+sim[resolved.building] || 0) + 1;
@@ -250,7 +250,6 @@
 
   GM_addStyle(`
     .gb-native-qctl{display:inline-flex;align-items:center;gap:2px;margin:0 0 0 2px;padding:1px 3px;border:1px solid #8a6725;border-radius:4px;background:rgba(31,25,16,.94);color:#f6e3b0;font:10px/1.2 Arial,sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.45);vertical-align:middle}
-    .gb-native-qctl[data-empty="1"]{opacity:.7;background:rgba(31,25,16,.6)}
     .gb-native-qbtn{min-width:22px;height:20px;padding:0 4px;border:1px solid #9b7938;border-radius:4px;background:linear-gradient(#5b4828,#342814);color:#fff3c7;font:bold 11px Arial,sans-serif;cursor:pointer}
     .gb-native-qbtn:hover{border-color:#e5b94f;color:#fff}.gb-native-qbtn:disabled{opacity:.42;cursor:default}
     .gb-native-qcount{min-width:58px;text-align:center;white-space:nowrap}.gb-native-qcount.ready{color:#91e5a8}.gb-native-qcount.blocked{color:#ffb0a8}.gb-native-qcount.waiting{color:#ffd27a}
@@ -321,7 +320,7 @@
     }
     const minus=nativeQButton('−','Quitar la última mejora virtual',nativeTileAction(root,townId,tile,'build',building,()=>{if(!nativeQueueRemoveLastBuild(townId,building))flash('No hay mejora virtual que quitar')}));minus.disabled=!jobs.length||frozen;
     const count=document.createElement('span');count.className='gb-native-qcount';
-    count.textContent=jobs.length?`Plan ${projected}${pos?' · #'+pos:''}`:'virtual';
+    count.textContent=`Plan ${projected}${pos?' · #'+pos:''}`;
     if(head&&head.reason)count.title=head.reason;
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
     const plus=nativeQButton('+',`Añadir ${nativeBuildLabel(building)} +1 al final de la cola`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueAddBuild(townId,building)));
@@ -341,7 +340,7 @@
       const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola virtual`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));
       plus.disabled=frozen;ctl.append(plus);return;
     }
-    const minus=nativeQButton(`−${step}`,`Restar ${step} de la cola virtual de esta unidad`,nativeTileAction(root,townId,tile,'unit',unit,()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));minus.disabled=!(pending>0)||frozen;
+    const minus=nativeQButton(`−${step}`,`Restar ${step} de la cola virtual de esta unidad`,nativeTileAction(root,townId,tile,'unit',unit,()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));minus.disabled=frozen;
     const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=`+${pending}${pos?' · #'+pos:''}`;count.title=head&&head.reason?head.reason:`${pending} pendiente(s)`;
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
     const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));plus.disabled=frozen;ctl.append(minus,count,plus);
@@ -349,7 +348,6 @@
   function nativeRenderQueuePanel(root,townId,lane) {
     // The panel mounts on document.body (fixed position) so it never sits on top
     // of the in-game queue UI inside the window. Scoped per town window by id.
-    const key=`${townId}-${lane}`;
     let box=document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`);
     if(!box){box=document.createElement('div');box.className='gb-native-panel';box.dataset.lane=lane;box.dataset.town=String(townId);document.body.appendChild(box);box.addEventListener('mousedown',e=>e.stopPropagation(),true);box.addEventListener('click',e=>e.stopPropagation(),true)}
     const oldScroll=box.scrollTop;

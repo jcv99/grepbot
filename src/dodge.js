@@ -107,6 +107,10 @@
       const t = uw.ITowns && uw.ITowns.towns && uw.ITowns.towns[townId];
       const u = (t && t.units && t.units()) || null;
       if (u && +u.militia > 0) return { ok: false, why: 'militia already standing' };
+      // Militia consumes population; only post when at least one slot is free.
+      // Unreadable = unknown = do not block (the server is the authority).
+      const avail = t && t.getAvailablePopulation && +t.getAvailablePopulation();
+      if (avail != null && Number.isFinite(avail) && avail <= 0) return { ok: false, why: 'no free population' };
     } catch (_) {}
     return { ok: true, why: null };
   }
@@ -184,12 +188,12 @@
 
   }
   function dodgeTryMilitia(mov,entry) {
-    if(!state.autoMilitia||captchaPausedAny('militia','dodge')||entry.militiaState==='raised'||entry.militiaState==='sending')return;
+    if(!state.autoMilitia||captchaPausedAny('militia','dodge')||entry.militiaState==='raised'||entry.militiaState==='sending'||entry.militiaState==='unknown')return;
     const eta=dodgeEtaSec(mov),now=Date.now();if(eta==null||eta>DODGE_MILITIA_WINDOW_SEC||eta<=0){gbLogT('militia-eta-'+mov.dest,60000,`militia: waiting; hostile ETA ${eta==null?'unknown':fmtSec(eta)}`);return}
     if(entry.militiaNextAt&&entry.militiaNextAt>now)return;const can=dodgeCanRaiseMilitia(mov.dest);
     if(!can.ok){if(/already standing/.test(can.why||'')){entry.militiaState='raised';dodgeQueueSave()}else{entry.militiaState='pending';entry.militiaNextAt=now+30000}return}
     const token=gbLock('militia',30000);if(!token){entry.militiaNextAt=now+2000;return}entry.militiaState='sending';dodgeQueueSave();
-    dodgeRaiseMilitia(mov.dest,err=>{gbUnlock('militia',token);if(!err){entry.militiaState='raised';entry.militiaNextAt=0;gbLog(`militia: raised in ${mov.dest} (ETA ${fmtSec(eta)})`)}else{entry.militiaState='pending';entry.militiaNextAt=Date.now()+(err==='timeout_unknown'||err==='pending'?60000:30000);gbLogT('militia-retry-'+mov.dest,30000,`militia: retry scheduled (${err})`)}dodgeQueueSave()});
+    dodgeRaiseMilitia(mov.dest,err=>{gbUnlock('militia',token);if(!err){entry.militiaState='raised';entry.militiaNextAt=0;gbLog(`militia: raised in ${mov.dest} (ETA ${fmtSec(eta)})`)}else if(err==='timeout_unknown'||err==='pending'){entry.militiaState='unknown';entry.militiaNextAt=0;gbLog(`militia: outcome unknown (${err}); manual review required before retry — militia consumes population`)}else{entry.militiaState='pending';entry.militiaNextAt=Date.now()+30000;gbLogT('militia-retry-'+mov.dest,30000,`militia: retry scheduled (${err})`)}dodgeQueueSave()});
   }
   function dodgeTrySend(entry, mov) {
     if (entry.state === 'sent' || entry.state === 'sending') return;
@@ -227,9 +231,9 @@
       } else {
         entry.tries = (entry.tries || 0) + 1;
         if (err === 'timeout_unknown' || err === 'pending') {
-          entry.state = 'pending';
-          entry.nextAt = Date.now() + TX_UNKNOWN_RECHECK_MS;
-          gbLog(`dodge: outcome unknown ${err}; transaction reconciliation required before any retry`);
+          entry.state = 'unknown';
+          entry.nextAt = 0;
+          gbLog(`dodge: outcome unknown (${err}); manual review required before any retry — units already left`);
         } else {
           entry.state = 'failed';
           const bo = DODGE_FAIL_BACKOFF[Math.min(entry.tries - 1, DODGE_FAIL_BACKOFF.length - 1)];

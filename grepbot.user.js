@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.4.0
+// @version      2.4.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -373,7 +373,11 @@ const STORE = {
     hero: 180000,
     'collect-bg': 300000,
     'bandit-reward': 120000,
-    'bandit-attack': 120000,
+    militia: 60000,
+    'pt-trade': 180000,
+    'report-catchup': 300000,
+    'quest-scan': 180000,
+    'quest-auto': 180000,
   };
   const GB_LOCK_DEFAULT_TTL = 180000;
   const gbLocks = Object.create(null);
@@ -937,6 +941,8 @@ const STORE = {
     attack: 'attackTpl', cancel: 'cancelTpl', hero: 'heroTpl',
     collect: 'collectTpl',
     pttrade: 'ptTradeTpl',
+    wonder: 'wonderFavorTpl',
+    favor: 'attackTpl',
   };
 
   function tplNameFor(feature, payload) {
@@ -1754,7 +1760,7 @@ const STORE = {
   const TX_WRITE_FEATURES = new Set([
     'farm', 'collect', 'bandit', 'build', 'instant-build', 'instant-research', 'cave', 'culture', 'trade', 'ruraltrade', 'rurallevel',
     'research', 'merchant', 'favor', 'wonder', 'militia', 'dodge', 'spell', 'recruit', 'quest', 'attack',
-    'cancel', 'hero'
+    'cancel', 'hero', 'pttrade'
   ]);
   const TX_TERMINAL_TTL = 30 * 60 * 1000;
   const TX_INSTANT_TOMBSTONE_TTL = 24 * 60 * 60 * 1000;
@@ -3246,9 +3252,9 @@ const STORE = {
     P._grepbot_open = GB_INSTANCE_ID;
   }
 
-  let reportCatchUpRunning = false;
+  let catchupToken = null;
   function reportCatchUpEnqueue() {
-    if (!hostEnabled() || reportCatchUpRunning) return;
+    if (!hostEnabled() || catchupToken || gbLocked('report-catchup')) return;
     if (typeof gbWake === 'function') {
       gbWake('reportCatchUp', () => reportCatchUpRun(), { priority: 80 });
     } else {
@@ -3256,8 +3262,10 @@ const STORE = {
     }
   }
   function reportCatchUpRun() {
-    if (!hostEnabled() || reportCatchUpRunning || automationPaused({}) || captchaPaused('report')) return;
-    reportCatchUpRunning = true;
+    if (!hostEnabled() || catchupToken || gbLocked('report-catchup') || automationPaused({}) || captchaPaused('report')) return;
+    catchupToken = gbLock('report-catchup', 300000);
+    if (!catchupToken) return;
+    const token = catchupToken;
     const maxN = 25;
     const maxAgeMs = 72 * 3600000;
     const cut = Date.now() - maxAgeMs;
@@ -3272,32 +3280,43 @@ const STORE = {
       });
     } catch (_) {}
     const batch = ids.slice(0, maxN);
+    const release = () => {
+      gbUnlock('report-catchup', token);
+      if (token === catchupToken) catchupToken = null;
+    };
     if (!batch.length) {
-      reportCatchUpRunning = false;
+      release();
       gbLogT('catchup-empty', 120000, 'report catch-up: nothing new in inbox DOM');
       return;
     }
     gbLog(`report catch-up: fetching up to ${batch.length} (cap ${maxN}, age≤72h, lastSeen=${state.lastSeenTs || 0})`);
     let i = 0, fetched = 0;
     (function step() {
-      if (i >= batch.length) {
-        reportCatchUpRunning = false;
-        gbLog(`report catch-up done: ${fetched}/${batch.length}`);
-        return;
-      }
-      if (!hostEnabled() || automationPaused({}) || captchaPaused('report') || !reqBudgetOk()) {
-        reportCatchUpRunning = false;
-        gbLog(`report catch-up paused mid-run at ${i}/${batch.length}`);
-        return;
-      }
-      const id = batch[i++];
+      let done = false;
+      try {
+        if (i >= batch.length) {
+          gbLog(`report catch-up done: ${fetched}/${batch.length}`);
+          done = true;
+        } else if (!hostEnabled() || automationPaused({}) || captchaPaused('report') || !reqBudgetOk()) {
+          gbLog(`report catch-up paused mid-run at ${i}/${batch.length}`);
+          done = true;
+        } else {
+          const id = batch[i++];
 
-      if (state.lastSeenTs && state.lastSeenTs < cut) {
+          if (state.lastSeenTs && state.lastSeenTs < cut) {
 
+          }
+          fetchReport(id);
+          fetched++;
+        }
+      } catch (e) {
+        gbLog('report catch-up: step error', String(e && e.message || e));
+        gbLog(`report catch-up aborted on error at ${i}/${batch.length}`);
+        done = true;
+      } finally {
+        if (done) release();
+        else gbTimeout(step, 700 + Math.random() * 300);
       }
-      fetchReport(id);
-      fetched++;
-      gbTimeout(step, 700 + Math.random() * 300);
     })();
   }
   function tryParseJson(txt) {
@@ -3733,6 +3752,7 @@ const STORE = {
           };
           save(wkey(STORE.WONDER_FAVOR_TPL), state.wonderFavorTpl);
           gbLog('learned wonder favor template:', j.action_name);
+          try { tplHealthMarkLearned('wonderFavorTpl'); } catch (_) {}
         }
       } else if (/PlayerHero/.test(body) && /assignToTown|unassignFromTown|cancelTownTravel/i.test(body)) {
         const j = parseBodyLoose(body);
@@ -5990,7 +6010,7 @@ const STORE = {
     let target = building;
     for (let safety = 0; safety < 50; safety++) {
       const resolved = abResolvePrerequisite(townId, target, sim);
-      if (!resolved || !resolved.building) return { chain, error: (resolved && resolved.error) || 'prereq-unknown' };
+      if (!resolved || !resolved.building) return { chain, error: resolved ? resolved.error : 'prereq-unknown' };
       if (resolved.building === target) return { chain };
       chain.push(resolved.building);
       sim[resolved.building] = (+sim[resolved.building] || 0) + 1;
@@ -6141,7 +6161,6 @@ const STORE = {
 
   GM_addStyle(`
     .gb-native-qctl{display:inline-flex;align-items:center;gap:2px;margin:0 0 0 2px;padding:1px 3px;border:1px solid #8a6725;border-radius:4px;background:rgba(31,25,16,.94);color:#f6e3b0;font:10px/1.2 Arial,sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.45);vertical-align:middle}
-    .gb-native-qctl[data-empty="1"]{opacity:.7;background:rgba(31,25,16,.6)}
     .gb-native-qbtn{min-width:22px;height:20px;padding:0 4px;border:1px solid #9b7938;border-radius:4px;background:linear-gradient(#5b4828,#342814);color:#fff3c7;font:bold 11px Arial,sans-serif;cursor:pointer}
     .gb-native-qbtn:hover{border-color:#e5b94f;color:#fff}.gb-native-qbtn:disabled{opacity:.42;cursor:default}
     .gb-native-qcount{min-width:58px;text-align:center;white-space:nowrap}.gb-native-qcount.ready{color:#91e5a8}.gb-native-qcount.blocked{color:#ffb0a8}.gb-native-qcount.waiting{color:#ffd27a}
@@ -6211,7 +6230,7 @@ const STORE = {
     }
     const minus=nativeQButton('−','Quitar la última mejora virtual',nativeTileAction(root,townId,tile,'build',building,()=>{if(!nativeQueueRemoveLastBuild(townId,building))flash('No hay mejora virtual que quitar')}));minus.disabled=!jobs.length||frozen;
     const count=document.createElement('span');count.className='gb-native-qcount';
-    count.textContent=jobs.length?`Plan ${projected}${pos?' · #'+pos:''}`:'virtual';
+    count.textContent=`Plan ${projected}${pos?' · #'+pos:''}`;
     if(head&&head.reason)count.title=head.reason;
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
     const plus=nativeQButton('+',`Añadir ${nativeBuildLabel(building)} +1 al final de la cola`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueAddBuild(townId,building)));
@@ -6230,14 +6249,13 @@ const STORE = {
       const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola virtual`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));
       plus.disabled=frozen;ctl.append(plus);return;
     }
-    const minus=nativeQButton(`−${step}`,`Restar ${step} de la cola virtual de esta unidad`,nativeTileAction(root,townId,tile,'unit',unit,()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));minus.disabled=!(pending>0)||frozen;
+    const minus=nativeQButton(`−${step}`,`Restar ${step} de la cola virtual de esta unidad`,nativeTileAction(root,townId,tile,'unit',unit,()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));minus.disabled=frozen;
     const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=`+${pending}${pos?' · #'+pos:''}`;count.title=head&&head.reason?head.reason:`${pending} pendiente(s)`;
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
     const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));plus.disabled=frozen;ctl.append(minus,count,plus);
   }
   function nativeRenderQueuePanel(root,townId,lane) {
 
-    const key=`${townId}-${lane}`;
     let box=document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`);
     if(!box){box=document.createElement('div');box.className='gb-native-panel';box.dataset.lane=lane;box.dataset.town=String(townId);document.body.appendChild(box);box.addEventListener('mousedown',e=>e.stopPropagation(),true);box.addEventListener('click',e=>e.stopPropagation(),true)}
     const oldScroll=box.scrollTop;
@@ -9114,6 +9132,9 @@ const STORE = {
       const t = uw.ITowns && uw.ITowns.towns && uw.ITowns.towns[townId];
       const u = (t && t.units && t.units()) || null;
       if (u && +u.militia > 0) return { ok: false, why: 'militia already standing' };
+
+      const avail = t && t.getAvailablePopulation && +t.getAvailablePopulation();
+      if (avail != null && Number.isFinite(avail) && avail <= 0) return { ok: false, why: 'no free population' };
     } catch (_) {}
     return { ok: true, why: null };
   }
@@ -9191,12 +9212,12 @@ const STORE = {
 
   }
   function dodgeTryMilitia(mov,entry) {
-    if(!state.autoMilitia||captchaPausedAny('militia','dodge')||entry.militiaState==='raised'||entry.militiaState==='sending')return;
+    if(!state.autoMilitia||captchaPausedAny('militia','dodge')||entry.militiaState==='raised'||entry.militiaState==='sending'||entry.militiaState==='unknown')return;
     const eta=dodgeEtaSec(mov),now=Date.now();if(eta==null||eta>DODGE_MILITIA_WINDOW_SEC||eta<=0){gbLogT('militia-eta-'+mov.dest,60000,`militia: waiting; hostile ETA ${eta==null?'unknown':fmtSec(eta)}`);return}
     if(entry.militiaNextAt&&entry.militiaNextAt>now)return;const can=dodgeCanRaiseMilitia(mov.dest);
     if(!can.ok){if(/already standing/.test(can.why||'')){entry.militiaState='raised';dodgeQueueSave()}else{entry.militiaState='pending';entry.militiaNextAt=now+30000}return}
     const token=gbLock('militia',30000);if(!token){entry.militiaNextAt=now+2000;return}entry.militiaState='sending';dodgeQueueSave();
-    dodgeRaiseMilitia(mov.dest,err=>{gbUnlock('militia',token);if(!err){entry.militiaState='raised';entry.militiaNextAt=0;gbLog(`militia: raised in ${mov.dest} (ETA ${fmtSec(eta)})`)}else{entry.militiaState='pending';entry.militiaNextAt=Date.now()+(err==='timeout_unknown'||err==='pending'?60000:30000);gbLogT('militia-retry-'+mov.dest,30000,`militia: retry scheduled (${err})`)}dodgeQueueSave()});
+    dodgeRaiseMilitia(mov.dest,err=>{gbUnlock('militia',token);if(!err){entry.militiaState='raised';entry.militiaNextAt=0;gbLog(`militia: raised in ${mov.dest} (ETA ${fmtSec(eta)})`)}else if(err==='timeout_unknown'||err==='pending'){entry.militiaState='unknown';entry.militiaNextAt=0;gbLog(`militia: outcome unknown (${err}); manual review required before retry — militia consumes population`)}else{entry.militiaState='pending';entry.militiaNextAt=Date.now()+30000;gbLogT('militia-retry-'+mov.dest,30000,`militia: retry scheduled (${err})`)}dodgeQueueSave()});
   }
   function dodgeTrySend(entry, mov) {
     if (entry.state === 'sent' || entry.state === 'sending') return;
@@ -9234,9 +9255,9 @@ const STORE = {
       } else {
         entry.tries = (entry.tries || 0) + 1;
         if (err === 'timeout_unknown' || err === 'pending') {
-          entry.state = 'pending';
-          entry.nextAt = Date.now() + TX_UNKNOWN_RECHECK_MS;
-          gbLog(`dodge: outcome unknown ${err}; transaction reconciliation required before any retry`);
+          entry.state = 'unknown';
+          entry.nextAt = 0;
+          gbLog(`dodge: outcome unknown (${err}); manual review required before any retry — units already left`);
         } else {
           entry.state = 'failed';
           const bo = DODGE_FAIL_BACKOFF[Math.min(entry.tries - 1, DODGE_FAIL_BACKOFF.length - 1)];
@@ -9320,8 +9341,31 @@ const STORE = {
       });
     } catch (_) { return false; }
   }
+  function recruitSpellGateOk(townId, powerId) {
+    if (!powerId || !RECRUIT_SPELLS.includes(powerId)) return { ok: false, why: 'bad-power' };
+    const academy = gbBuildingLevel(townId, 'academy');
+    if (academy != null && academy < 1) return { ok: false, why: 'no-academy' };
+    const god = recruitTownGod(townId);
+    if (!god) return { ok: false, why: 'no-town-god' };
+    return { ok: true, why: null };
+  }
+  function recruitSpellCooldown(townId, powerId) {
+    const map = state.spellCooldown || (state.spellCooldown = {});
+    const t = map[String(townId)] || (map[String(townId)] = {});
+    const until = +t[powerId] || 0;
+    return until > Date.now() ? until - Date.now() : 0;
+  }
+  function recruitSpellCooldownStamp(townId, powerId, ms) {
+    if (!state.spellCooldown) state.spellCooldown = {};
+    const t = state.spellCooldown[String(townId)] || (state.spellCooldown[String(townId)] = {});
+    t[powerId] = Date.now() + (ms || 30 * 60 * 1000);
+  }
   function recruitCastSpell(townId, powerId, onDone) {
     if (!powerId || !RECRUIT_SPELLS.includes(powerId)) return onDone && onDone('bad-power');
+    const pre = recruitSpellGateOk(townId, powerId);
+    if (!pre.ok) { gbLogT('spell-precond-' + townId, 300000, `spell: blocked precheck (${pre.why})`); return onDone && onDone('skip:' + pre.why); }
+    const left = recruitSpellCooldown(townId, powerId);
+    if (left > 0) { gbLogT('spell-cooldown-' + townId, 60000, `spell: cooldown ${Math.ceil(left/1000)}s left`); return onDone && onDone('skip:cooldown'); }
     gameAjaxPost('spell', 'town_overviews', 'cast_power', {
       power_id: powerId,
       town_id: +townId,
@@ -9539,7 +9583,8 @@ const STORE = {
         if (state.recruitSpells && !state.safeMode) {
           const wantPower = (state.favorCfg && state.favorCfg.recruitPower) || null;
           if (wantPower && RECRUIT_SPELLS.includes(wantPower) && !recruitHasSpell(tid, wantPower)
-              && !captchaPausedAny('recruit', 'spell')) {
+              && !captchaPausedAny('recruit', 'spell') && recruitSpellGateOk(tid, wantPower).ok
+              && !recruitSpellCooldown(tid, wantPower)) {
             job = { kind:'spell', townId:tid, power:wantPower };
             break;
           }
@@ -9560,7 +9605,10 @@ const STORE = {
       recruitCastSpell(job.townId, job.power, (err) => {
         gbUnlock('recruit', lockToken);
         if (!err) gbLog(`spell: ${job.power} on ${job.townId}`);
-        else gbLogT('spell-err', 60000, `spell err ${err}`);
+        else if (err === 'timeout_unknown' || err === 'pending') {
+          recruitSpellCooldownStamp(job.townId, job.power);
+          gbLog(`spell: outcome unknown (${err}); cooldown 30min — favor is irreversible, manual review required`);
+        } else gbLogT('spell-err', 60000, `spell err ${err}`);
       });
       return;
     }
@@ -10293,8 +10341,6 @@ const STORE = {
   const QUEST_SCAN_MS = 12000;
   const QUEST_RESCAN_MS = 6 * 60 * 60 * 1000;
   const QUEST_HISTORY_MAX = 100;
-  let questScanBusy = false;
-  let questAutoBusy = false;
   let questCursor = 0;
   let questMo = null;
   let questMoContainer = null;
@@ -10677,7 +10723,7 @@ const STORE = {
     return rows[questCursor++];
   }
   function questAutoClaim(root, entry) {
-    if (questAutoBusy || !entry?.canClaim || entry.claimReview || entry.claimedAt) return;
+    if (gbLocked('quest-auto') || !entry?.canClaim || entry.claimReview || entry.claimedAt) return;
     const rewards = entry.rewards || [];
 
     if (!rewards.length || !rewards.every(isSafeQuestReward)) return;
@@ -10688,7 +10734,8 @@ const STORE = {
       gbLogT('quest-block-' + entry.questId, 60000, 'quest: claim backoff active', entry.title || entry.questId);
       return;
     }
-    questAutoBusy = true;
+    const autoToken = gbLock('quest-auto');
+    if (!autoToken) return;
     const kinds = rewards.map(r => r.kind).join(',');
     const setClaimState=(review,err)=>{const cur=state.questRewards[entry.questId]||entry;cur.canClaim=false;cur.claimStateKnown=true;cur.claimReview=!!review;cur.claimedAt=review?0:Date.now();cur.claimError=review?String(err||'resultado desconocido'):'';cur.updatedAt=Date.now();state.questRewards[entry.questId]=cur;save(STORE.QUEST_REWARDS,state.questRewards)};
     const finish = (method, ok, err) => {
@@ -10705,7 +10752,7 @@ const STORE = {
       });
       gbLog(`quest: auto-claim ${ok ? 'OK' : 'fail'} via ${method}`, entry.title || entry.questId, kinds);
       if (ok) flash('reclamo de mision: ' + kinds);
-      gbTimeout(() => { questAutoBusy = false; questScanTick('post-claim'); renderQuests(); }, 2500);
+      gbTimeout(() => { gbUnlock('quest-auto', autoToken); questScanTick('post-claim'); renderQuests(); }, 2500);
     };
     const questStillClaimable = () => {
       try {
@@ -10771,11 +10818,11 @@ const STORE = {
     questsFromGame().forEach(q => mergeQuestEntry(q));
   }
   function questScanTick(reason) {
-    if (!hostEnabled() || questScanBusy) return;
+    if (!hostEnabled() || gbLocked('quest-scan')) return;
     bindQuestObserver();
     ingestGameQuests();
 
-    if (!questAutoBusy) {
+    if (!gbLocked('quest-auto')) {
       const claimable = Object.values(state.questRewards).filter(e => e.canClaim && e.safeAuto);
       if (claimable.length) {
         questAutoClaim(questRewardRoot(), claimable[0]);
@@ -10786,8 +10833,9 @@ const STORE = {
 
     const row = questSelectedRow(rows);
     if (!row) { renderQuests(); return; }
-    questScanBusy = true;
-    const finish = () => { questScanBusy = false; renderQuests(); };
+    const scanToken = gbLock('quest-scan');
+    if (!scanToken) { renderQuests(); return; }
+    const finish = () => { gbUnlock('quest-scan', scanToken); renderQuests(); };
     try { questCaptureCurrent(row); }
     finally { finish(); }
   }

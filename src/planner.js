@@ -212,7 +212,7 @@
   const TX_WRITE_FEATURES = new Set([
     'farm', 'collect', 'bandit', 'build', 'instant-build', 'instant-research', 'cave', 'culture', 'trade', 'ruraltrade', 'rurallevel',
     'research', 'merchant', 'favor', 'wonder', 'militia', 'dodge', 'spell', 'recruit', 'quest', 'attack',
-    'cancel', 'hero'
+    'cancel', 'hero', 'pttrade'
   ]);
   const TX_TERMINAL_TTL = 30 * 60 * 1000;
   const TX_INSTANT_TOMBSTONE_TTL = 24 * 60 * 60 * 1000;
