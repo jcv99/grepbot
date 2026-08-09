@@ -16,6 +16,24 @@
   }
   function jrnId(tag) { return tag.f + '|' + tag.a + '|' + tag.k; }
 
+  // Journal keys are world-scoped: a town/village id means nothing on another
+  // world, so an unscoped journal would skip valid targets after a world switch.
+  let jrnHost = location.hostname;
+  function jrnCheckHost() {
+    if (location.hostname === jrnHost) return;
+    try { jrnFlush(); } catch (_) {}
+    jrnHost = location.hostname;
+    const next = load(wkey(STORE.DECISIONS), []);
+    state.decisions = Array.isArray(next) ? next : [];
+    const skips = load(wkey(STORE.DECISION_SKIPS), {});
+    state.decisionSkips = (skips && typeof skips === 'object') ? skips : {};
+    gbLog('memory: reloaded for host ' + jrnHost);
+  }
+  function gbSkipActive(feature, payload) {
+    const tag = jrnTag(feature, payload);
+    return jrnSkipped(tag) ? (jrnWhy(tag) || 'remembered') : '';
+  }
+
   function jrnTag(feature, payload) {
     let action = '', target = '', town = '';
     try {
@@ -61,6 +79,7 @@
   function jrnFlush() { if (jrnSaveQueued) { jrnSaveQueued = false; jrnSave(true); } }
 
   function jrnPush(tag, result, detail, txId) {
+    jrnCheckHost();
     const list = state.decisions;
     const now = Date.now();
     // A transaction has one journal row whose provisional result can later be
@@ -168,6 +187,7 @@
   }
 
   function jrnSkipped(tag) {
+    jrnCheckHost();
     if (state.decisionMemory === false) return false;
     const s = state.decisionSkips[jrnId(tag)];
     if (!s || !s.until) return false;

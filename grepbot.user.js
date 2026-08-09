@@ -789,6 +789,60 @@ const STORE = {
     }
     return (reqBudgetWindow.length - reqBudgetHead) < (state.reqBudgetPerMin || 40);
   }
+
+  const WAKE_SPACING_MS = 800;
+  const gbWakeQueue = [];
+  let gbWakeDraining = false;
+  let gbWakeLastTickAt = Date.now();
+  let gbWakeBurstUntil = 0;
+  function gbWakeDepth() { return gbWakeQueue.length; }
+  function gbWake(key, fn, opts) {
+    if (!key || typeof fn !== 'function') return;
+    const priority = (opts && opts.priority != null) ? +opts.priority : 50;
+    const i = gbWakeQueue.findIndex(e => e.key === key);
+    if (i >= 0) {
+      if (priority < gbWakeQueue[i].priority) gbWakeQueue[i].priority = priority;
+      gbWakeQueue[i].fn = fn;
+      return;
+    }
+    gbWakeQueue.push({ key, fn, priority, enqueuedAt: Date.now() });
+    gbWakeQueue.sort((a, b) => a.priority - b.priority);
+    if (!gbWakeDraining) gbWakeDrain();
+  }
+  function gbWakeDrain() {
+    if (gbWakeDraining) return;
+    gbWakeDraining = true;
+    (function step() {
+      if (!gbInstanceAlive()) { gbWakeDraining = false; return; }
+      if (!gbWakeQueue.length) { gbWakeDraining = false; return; }
+      if (automationPaused({})) {
+        gbLogT('wake-paused', 60000, 'wake: paused - draining later');
+        gbWakeDraining = false;
+        return;
+      }
+      if (!reqBudgetOk()) {
+        gbTimeout(step, 1500 + Math.floor(Math.random() * 500));
+        return;
+      }
+      const item = gbWakeQueue.shift();
+      try { item.fn(); } catch (e) { gbLogT('wake-err', 30000, 'wake: ' + item.key + ' ' + String(e).slice(0, 60)); }
+      const spacing = WAKE_SPACING_MS + Math.floor(Math.random() * 400);
+      if (gbWakeQueue.length) gbTimeout(step, spacing);
+      else gbWakeDraining = false;
+    })();
+  }
+  function gbWakeMarkResume(why) {
+    gbWakeBurstUntil = Date.now() + 8000;
+    gbLogT('wake-resume', 10000, 'wake: resume (' + (why || 'visible') + ') - serializing catch-up');
+  }
+  function gbInWakeBurst() { return Date.now() < gbWakeBurstUntil; }
+
+  function gbWakeGapTick() {
+    const now = Date.now();
+    const gap = now - gbWakeLastTickAt;
+    gbWakeLastTickAt = now;
+    if (gap > 45000) gbWakeMarkResume('timer-gap ' + Math.round(gap / 1000) + 's');
+  }
   function reqBudgetMark() { reqBudgetWindow.push(Date.now()); }
   function reqBudgetUsed() {
     const cutoff = Date.now() - 60000;
@@ -1096,25 +1150,120 @@ const STORE = {
       if (!scopedCall && WORLD_SCOPED_BASES.has(key)) {
         const wk = wkey(key);
         const v = GM_getValue(wk, null);
-        if (v !== null && v !== undefined) return v;
+        if (v !== null && v !== undefined) return loadValueOk(v, key) ? v : fallback;
 
         const migrated = +GM_getValue(wkey(STORE.CONFIG_VER), 0) >= 3;
         if (!migrated) {
           const legacy = GM_getValue(key, null);
-          if (legacy !== null && legacy !== undefined) return legacy;
+          if (legacy !== null && legacy !== undefined) return loadValueOk(legacy, key) ? legacy : fallback;
         }
         return fallback;
       }
       const v = GM_getValue(key, null);
-      return v === null || v === undefined ? fallback : v;
+      if (v === null || v === undefined) return fallback;
+      return loadValueOk(v, key) ? v : fallback;
     } catch (e) { return fallback; }
   }
-  function save(key, val) {
+  const LOAD_MAX_CHARS = 2 * 1024 * 1024;
+  let storageWarnUntil = 0;
+  let storageWarnMsg = '';
+  let storagePruneBusy = false;
+  function loadValueOk(v, key) {
+    if (v === null || v === undefined) return true;
     try {
-      const scopedCall = String(key).indexOf('@') !== -1;
-      const k = (!scopedCall && WORLD_SCOPED_BASES.has(key)) ? wkey(key) : key;
+      const n = typeof v === 'string' ? v.length : JSON.stringify(v).length;
+      if (n > LOAD_MAX_CHARS) {
+        try {
+          if (typeof gbLogT === 'function') gbLogT('load-huge', 60000, 'storage: refusing huge key', key, n);
+          else console.warn('[grepbot] storage: refusing huge key', key, n);
+        } catch (_) {}
+        return false;
+      }
+    } catch (_) {}
+    return true;
+  }
+  function storageRawSet(k, val) {
+    try { GM_setValue(k, val); return true; } catch (_) { return false; }
+  }
+
+  function storagePruneForQuota() {
+    if (storagePruneBusy) return 0;
+    storagePruneBusy = true;
+    let bytes = 0;
+    try {
+      const list = state.decisions;
+      if (Array.isArray(list) && list.length > 50) {
+        const drop = list.length - 50;
+        list.splice(0, drop);
+        bytes += drop * 80;
+        storageRawSet(wkey(STORE.DECISIONS), list);
+      }
+    } catch (_) {}
+    try {
+      const ids = Object.keys(state.seen || {});
+      if (ids.length > SEEN_MAX) {
+        const drop = ids.length - SEEN_MAX;
+        ids.slice(0, drop).forEach(k => { delete state.seen[k]; });
+        bytes += drop * 20;
+        storageRawSet(wkey(STORE.SEEN), state.seen);
+      }
+    } catch (_) {}
+    try {
+      const cut = Date.now() - 3 * 86400000;
+      let n = 0;
+      Object.keys(state.alerted || {}).forEach(k => {
+        if ((state.alerted[k] || 0) < cut) { delete state.alerted[k]; n++; }
+      });
+      if (n) { bytes += n * 24; storageRawSet(wkey(STORE.ALERTED), state.alerted); }
+    } catch (_) {}
+    try {
+      if (Array.isArray(state.findings) && state.findings.length > 100) {
+        const drop = state.findings.length - 100;
+        state.findings.splice(0, drop);
+        bytes += drop * 200;
+        storageRawSet(wkey(STORE.FINDINGS), state.findings);
+      }
+    } catch (_) {}
+    try {
+      const cut = Date.now() - 86400000;
+      let n = 0;
+      Object.keys(state.farmResources || {}).forEach(k => {
+        const r = state.farmResources[k];
+        if (r && r.ts && r.ts < cut) { delete state.farmResources[k]; n++; }
+      });
+      if (n) { bytes += n * 40; storageRawSet(wkey(STORE.FARM_RES), state.farmResources); }
+    } catch (_) {}
+    storagePruneBusy = false;
+    return bytes;
+  }
+  function save(key, val) {
+    const scopedCall = String(key).indexOf('@') !== -1;
+    const k = (!scopedCall && WORLD_SCOPED_BASES.has(key)) ? wkey(key) : key;
+    try {
       GM_setValue(k, val);
-    } catch (e) { console.warn('[grepbot] save fail', key, e); }
+    } catch (e) {
+      const isQuota = e && (e.name === 'QuotaExceededError' || /quota.?exceeded/i.test(String(e.message || e)));
+      if (isQuota) {
+        const pruned = storagePruneForQuota();
+        try {
+          GM_setValue(k, val);
+          storageWarnUntil = Date.now() + 5 * 60000;
+          storageWarnMsg = 'quota:pruned';
+          gbLog('storage: QuotaExceeded on', key, '- pruned ~' + pruned + 'B and retried OK');
+          try { updateStatus(); } catch (_) {}
+          return;
+        } catch (e2) {
+          storageWarnUntil = Date.now() + 30 * 60000;
+          storageWarnMsg = 'quota FULL';
+          console.warn('[grepbot] save fail (quota)', key, e2);
+          gbLog('storage: QuotaExceeded on', key, '- write LOST after prune');
+          try { updateStatus(); } catch (_) {}
+          return;
+        }
+      }
+      console.warn('[grepbot] save fail', key, e);
+      try { gbLog('storage: save fail', key, String(e).slice(0, 80)); } catch (_) {}
+    }
   }
 
   const GM_XHR_DEFAULT_TIMEOUT = 30000;
@@ -2657,6 +2806,22 @@ const STORE = {
   }
   function jrnId(tag) { return tag.f + '|' + tag.a + '|' + tag.k; }
 
+  let jrnHost = location.hostname;
+  function jrnCheckHost() {
+    if (location.hostname === jrnHost) return;
+    try { jrnFlush(); } catch (_) {}
+    jrnHost = location.hostname;
+    const next = load(wkey(STORE.DECISIONS), []);
+    state.decisions = Array.isArray(next) ? next : [];
+    const skips = load(wkey(STORE.DECISION_SKIPS), {});
+    state.decisionSkips = (skips && typeof skips === 'object') ? skips : {};
+    gbLog('memory: reloaded for host ' + jrnHost);
+  }
+  function gbSkipActive(feature, payload) {
+    const tag = jrnTag(feature, payload);
+    return jrnSkipped(tag) ? (jrnWhy(tag) || 'remembered') : '';
+  }
+
   function jrnTag(feature, payload) {
     let action = '', target = '', town = '';
     try {
@@ -2702,6 +2867,7 @@ const STORE = {
   function jrnFlush() { if (jrnSaveQueued) { jrnSaveQueued = false; jrnSave(true); } }
 
   function jrnPush(tag, result, detail, txId) {
+    jrnCheckHost();
     const list = state.decisions;
     const now = Date.now();
 
@@ -2807,6 +2973,7 @@ const STORE = {
   }
 
   function jrnSkipped(tag) {
+    jrnCheckHost();
     if (state.decisionMemory === false) return false;
     const s = state.decisionSkips[jrnId(tag)];
     if (!s || !s.until) return false;
@@ -4109,14 +4276,111 @@ const STORE = {
     })();
   }
 
-  function farmTick() {
-    const now = Date.now();
-    if (hostEnabled() && !automationPaused({})) {
-      if (now >= state.nextFarmScrape) scrapeAllFarms();
-      if (now >= state.nextTownsScrape) scrapeAllTowns();
-      if (state.autoFarm) farmScheduleClaimWake(null, 'farm-tick', true);
+  function farmTryDeriveOptionMap() {
+    const out = {};
+    try {
+      const uw = gameUw();
+      const gd = uw.GameData || {};
+      const candidates = [
+        gd.farm_town_offers, gd.FarmTownOffers, gd.farm_town_claim_options,
+        gd.farm_towns && gd.farm_towns.offers,
+      ];
+      for (const c of candidates) {
+        if (!c) continue;
+        const list = Array.isArray(c) ? c : (typeof c === 'object' ? Object.keys(c).map(k => c[k]) : null);
+        if (!list || !list.length) continue;
+        list.forEach((opt, i) => {
+          if (opt == null) return;
+          const idx = opt.option != null ? +opt.option : (opt.id != null ? +opt.id : i + 1);
+          const sec = +opt.duration || +opt.time || +opt.booty_duration || +opt.collect_time;
+          if (!(idx > 0) || !(sec > 0)) return;
+          const snapped = farmSnapDuration(sec);
+          if (snapped != null) out[String(snapped)] = idx;
+        });
+        if (out['600'] != null) break;
+      }
+    } catch (_) {}
+    return out['600'] != null ? out : null;
+  }
+  function farmSetTeachBanner(msg) {
+    state.farmTeachBanner = msg || '';
+    save(STORE.FARM_TEACH_BANNER, state.farmTeachBanner);
+    try { renderFarmTeachBanner(); } catch (_) {}
+  }
+  function renderFarmTeachBanner() {
+    const el = panel && panel.querySelector('#gb-farm-teach-banner');
+    if (!el) return;
+    if (farmOptionFor(600) != null && state.farmTeachBanner) {
+      state.farmTeachBanner = '';
+      save(STORE.FARM_TEACH_BANNER, '');
     }
-    try { farmSleepAutoTick(); } catch (_) {}
+    const msg = state.farmTeachBanner || '';
+    if (!msg) {
+      el.hidden = true;
+      el.textContent = '';
+      return;
+    }
+    el.hidden = false;
+    el.textContent = msg;
+  }
+
+  function farmLoyaltyAutoTeachTick() {
+    if (!state.farmLongClaims) return;
+    let anyLoyalty = false;
+    try {
+      const towns = townsFromGame() || state.towns || [];
+      for (const t of towns) {
+        if (farmLoyaltyResearched(t.id)) { anyLoyalty = true; break; }
+      }
+    } catch (_) {}
+    const seen = !!state.farmLoyaltySeen;
+    if (!anyLoyalty) {
+      if (seen) {
+        state.farmLoyaltySeen = false;
+        save(STORE.FARM_LOYALTY_SEEN, false);
+      }
+      return;
+    }
+    if (farmOptionFor(600) != null) {
+      if (!seen) { state.farmLoyaltySeen = true; save(STORE.FARM_LOYALTY_SEEN, true); }
+      if (state.farmTeachBanner) farmSetTeachBanner('');
+      return;
+    }
+    const flip = !seen;
+    if (!flip && state.farmTeachBanner) return;
+    state.farmLoyaltySeen = true;
+    save(STORE.FARM_LOYALTY_SEEN, true);
+    const derived = farmTryDeriveOptionMap();
+    if (derived && derived['600'] != null) {
+
+      const map = Object.assign({}, state.farmOptionMap || {}, derived);
+      state.farmOptionMap = map;
+      save(wkey(STORE.FARM_OPTION_MAP), map);
+      gbLog(`farm: loyalty auto-teach provisional 10min option=${derived['600']} (confirm on next claim)`);
+      farmSetTeachBanner('');
+      return;
+    }
+    farmSetTeachBanner('Investigacion de lealtad completada. Haz una recogida de 10 minutos a mano para ensenarselo al bot.');
+    gbLog('farm: loyalty researched - 10min option unknown; hand-claim once to teach');
+  }
+  function farmTick() {
+    try { gbWakeGapTick(); } catch (_) {}
+    const run = () => {
+      const now = Date.now();
+      if (hostEnabled() && !automationPaused({})) {
+        if (now >= state.nextFarmScrape) scrapeAllFarms();
+        if (now >= state.nextTownsScrape) scrapeAllTowns();
+        if (state.autoFarm) farmScheduleClaimWake(null, 'farm-tick', true);
+      }
+      try { farmSleepAutoTick(); } catch (_) {}
+      try { farmLoyaltyAutoTeachTick(); } catch (_) {}
+      try { renderFarmTeachBanner(); } catch (_) {}
+    };
+    if (typeof gbInWakeBurst === 'function' && gbInWakeBurst()) {
+      gbWake('farmTick', run, { priority: 20 });
+      return;
+    }
+    run();
   }
   function townsFromGame() {
     try {
@@ -4900,6 +5164,59 @@ const STORE = {
   function ibUnknownActionErr(err) {
     return /unknown.?action|invalid.?action|action.?not.?found|does.?not.?exist|no.?such.?action/i.test(String(err || ''));
   }
+
+  function ibResetLearnedAction(kind, err) {
+    if (!ibUnknownActionErr(err)) return;
+    const cur = kind === 'research' ? state.ibActionR : state.ibAction;
+    if (!cur) return;
+    if (kind === 'research') { state.ibActionR = null; save(wkey(STORE.IB_ACTION_R), null); }
+    else { state.ibAction = null; save(wkey(STORE.IB_ACTION), null); }
+    gbLogT('ib-relearn', 60000,
+      'instant: learned action ' + cur + ' rejected - reset to default, hand-click one free complete to re-learn');
+  }
+  function ibJrnPayload(order) {
+    const kind = order.kind || 'build';
+    return {
+      model_url: order.modelUrl || ((kind === 'research' ? 'ResearchOrder/' : 'BuildingOrder/') + order.id),
+      action_name: ibActionFor(kind),
+      arguments: { order_id: order.id },
+      town_id: order.town_id,
+    };
+  }
+
+  let ibFreeTimer = null;
+  let ibFreeArmedAt = 0;
+  function ibArmedAt() { return ibFreeArmedAt; }
+  function ibArmNext(orders) {
+    const now = Date.now();
+    const thresh = ibFreeThresh() * 1000;
+    let best = 0;
+    (orders || []).forEach(o => {
+
+      if (o.isFree || !o.isHead || !(o.display > 0)) return;
+      const armIn = (o.display * 1000) - thresh;
+      if (armIn <= 0) return;
+      const at = now + armIn;
+      if (!best || at < best) best = at;
+    });
+    if (!best) {
+      if (ibFreeTimer) gbClearTimeout(ibFreeTimer);
+      ibFreeTimer = null;
+      ibFreeArmedAt = 0;
+      return;
+    }
+
+    const fireAt = best + 1200 + Math.floor(Math.random() * 1500);
+    if (ibFreeTimer && ibFreeArmedAt && Math.abs(ibFreeArmedAt - fireAt) < 3000) return;
+    if (ibFreeTimer) gbClearTimeout(ibFreeTimer);
+    ibFreeArmedAt = fireAt;
+    ibFreeTimer = gbTimeout(() => {
+      ibFreeTimer = null;
+      ibFreeArmedAt = 0;
+      ibScan();
+    }, Math.max(500, fireAt - now));
+    gbLogT('ib-arm', 60000, `instant: armed in ${fmtSec((fireAt - now) / 1000)} (free window at <=${ibFreeThresh()}s)`);
+  }
   function ibTownNames(uw) {
     const names = {};
     try { (townsFromGame() || []).forEach(t => { names[t.id] = t.name; }); } catch (_) {}
@@ -5114,7 +5431,19 @@ const STORE = {
             }
             return;
           }
-          if (err) { gbLog(tag + ' complete error: ' + err); resolve('err'); return; }
+
+          if (err === 'tpl-stale' || err === 'budget' || err === 'disabled' || err === 'dryrun'
+              || err === 'remembered' || err === 'circuit-open') {
+            gbLogT('ib-gate-' + err, 60000, `${tag}: #${order.id} not sent (${err})`);
+            resolve('skip');
+            return;
+          }
+          if (err) {
+            ibResetLearnedAction(kind, err);
+            gbLog(tag + ' complete error: ' + err);
+            resolve('err');
+            return;
+          }
           const e = data && data.error;
           if (e) {
             gbLog(`${tag}: ${live.type} #${order.id} ERR ` + JSON.stringify(data).slice(0, 120));
@@ -5159,12 +5488,20 @@ const STORE = {
   function ibScan() {
     const orders = ibOrders();
     renderBuild(orders);
+    ibArmNext(orders);
     if (!state.ibAuto || gbLocked('ib')) return;
     const free = orders.filter(o => o.isFree);
-    if (free.length) {
-      gbLog(`instant: ${free.length} free order(s), auto-completing`);
-      ibCompleteAll(free);
-    }
+    if (!free.length) return;
+
+    const live = free.filter(o => {
+      const why = gbSkipActive('build', ibJrnPayload(o));
+      if (!why) return true;
+      gbLogT('ib-mem-' + o.town_id, 60000, `instant: #${o.id} skipped from memory (${why})`);
+      return false;
+    });
+    if (!live.length) return;
+    gbLog(`instant: ${live.length} free order(s), auto-completing`);
+    ibCompleteAll(live);
   }
   function renderBuild(cached) {
     const sec = panel && panel.querySelector('section[data-tab=build]');
@@ -12083,6 +12420,7 @@ const STORE = {
         <button id="gb-sleep-claim" style="background:#333;border:1px solid #555;color:#8cf;padding:2px 8px;cursor:pointer;font-size:11px">Sleep claim (4h/8h)</button>
         <span id="gb-sleep-status" style="font-size:10px;color:#888"></span>
       </div>
+      <div id="gb-farm-teach-banner" hidden style="font-size:10px;color:#fc6;background:#2a2211;border:1px solid #664;padding:4px 6px;margin-bottom:4px;border-radius:3px"></div>
       <div class="farms-list"></div>
       <textarea placeholder="vill_id | x y | ETA | notes&#10;12345 | 500 600 | 2h | safe"></textarea>
     </section>
@@ -13406,7 +13744,20 @@ const STORE = {
   if (!state.nextTownsScrape) { state.nextTownsScrape = Date.now() + 30000; save(STORE.NEXT_TOWNS, state.nextTownsScrape); }
   gbInterval(farmTick, 15000);
   gbTimeout(() => { if (state.autoFarm) farmScheduleClaimWake(null, 'boot', true); }, 2500);
-  gbListen(document, 'visibilitychange', () => { if (!document.hidden) farmTick(); });
+
+  gbListen(document, 'visibilitychange', () => {
+    if (document.hidden) return;
+    try { gbWakeMarkResume('visible'); } catch (_) {}
+    farmTick();
+    try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
+  });
+  gbListen(window, 'pageshow', (e) => {
+    if (!(e && e.persisted)) return;
+    try { gbWakeMarkResume('bfcache'); } catch (_) {}
+    farmTick();
+    try { bindQuestObserver(); } catch (_) {}
+    try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
+  });
   gbInterval(checkThresholds, 30000);
   gbInterval(renderTimers, 1000);
   gbInterval(updateStatus, 5000);
@@ -13422,7 +13773,14 @@ const STORE = {
       t = t.parentElement;
     }
   }, true);
-  gbTimeout(() => { ibScan(); gbInterval(ibScan, IB_CHECK_MS); }, 8000);
+  gbTimeout(() => {
+    const scan = () => {
+      if (gbInWakeBurst && gbInWakeBurst()) gbWake('ibScan', () => ibScan(), { priority: 10 });
+      else ibScan();
+    };
+    scan();
+    gbInterval(scan, IB_CHECK_MS);
+  }, 8000);
   gbTimeout(() => { abEnsureTargets(); }, 12000);
   gbTimeout(scheduleNativeUiScan, 1200);
   gbInterval(() => {
@@ -13434,7 +13792,10 @@ const STORE = {
   gbInterval(dodgeReturnTick, 15000);
 
   gbTimeout(() => { if (hostEnabled()) orchTick(); }, 15000);
-  gbInterval(() => orchTick(), ORCH_MS);
+  gbInterval(() => {
+    if (gbInWakeBurst && gbInWakeBurst()) gbWake('orchTick', () => orchTick(), { priority: 30 });
+    else orchTick();
+  }, ORCH_MS);
   gbInterval(() => {
 
     renderOverview();

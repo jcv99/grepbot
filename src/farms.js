@@ -760,12 +760,111 @@
     })();
   }
 
-  function farmTick() {
-    const now = Date.now();
-    if (hostEnabled() && !automationPaused({})) {
-      if (now >= state.nextFarmScrape) scrapeAllFarms();
-      if (now >= state.nextTownsScrape) scrapeAllTowns();
-      if (state.autoFarm) farmScheduleClaimWake(null, 'farm-tick', true);
+  // Path A: derive the 600s option index from GameData when readable.
+  // Never invent an index - a wrong index silently halves farm income.
+  function farmTryDeriveOptionMap() {
+    const out = {};
+    try {
+      const uw = gameUw();
+      const gd = uw.GameData || {};
+      const candidates = [
+        gd.farm_town_offers, gd.FarmTownOffers, gd.farm_town_claim_options,
+        gd.farm_towns && gd.farm_towns.offers,
+      ];
+      for (const c of candidates) {
+        if (!c) continue;
+        const list = Array.isArray(c) ? c : (typeof c === 'object' ? Object.keys(c).map(k => c[k]) : null);
+        if (!list || !list.length) continue;
+        list.forEach((opt, i) => {
+          if (opt == null) return;
+          const idx = opt.option != null ? +opt.option : (opt.id != null ? +opt.id : i + 1);
+          const sec = +opt.duration || +opt.time || +opt.booty_duration || +opt.collect_time;
+          if (!(idx > 0) || !(sec > 0)) return;
+          const snapped = farmSnapDuration(sec);
+          if (snapped != null) out[String(snapped)] = idx;
+        });
+        if (out['600'] != null) break;
+      }
+    } catch (_) {}
+    return out['600'] != null ? out : null;
+  }
+  function farmSetTeachBanner(msg) {
+    state.farmTeachBanner = msg || '';
+    save(STORE.FARM_TEACH_BANNER, state.farmTeachBanner);
+    try { renderFarmTeachBanner(); } catch (_) {}
+  }
+  function renderFarmTeachBanner() {
+    const el = panel && panel.querySelector('#gb-farm-teach-banner');
+    if (!el) return;
+    if (farmOptionFor(600) != null && state.farmTeachBanner) {
+      state.farmTeachBanner = '';
+      save(STORE.FARM_TEACH_BANNER, '');
     }
-    try { farmSleepAutoTick(); } catch (_) {}
+    const msg = state.farmTeachBanner || '';
+    if (!msg) {
+      el.hidden = true;
+      el.textContent = '';
+      return;
+    }
+    el.hidden = false;
+    el.textContent = msg;
+  }
+  // Fire once when loyalty flips false->true (or first load with loyalty and no 600 map).
+  function farmLoyaltyAutoTeachTick() {
+    if (!state.farmLongClaims) return;
+    let anyLoyalty = false;
+    try {
+      const towns = townsFromGame() || state.towns || [];
+      for (const t of towns) {
+        if (farmLoyaltyResearched(t.id)) { anyLoyalty = true; break; }
+      }
+    } catch (_) {}
+    const seen = !!state.farmLoyaltySeen;
+    if (!anyLoyalty) {
+      if (seen) {
+        state.farmLoyaltySeen = false;
+        save(STORE.FARM_LOYALTY_SEEN, false);
+      }
+      return;
+    }
+    if (farmOptionFor(600) != null) {
+      if (!seen) { state.farmLoyaltySeen = true; save(STORE.FARM_LOYALTY_SEEN, true); }
+      if (state.farmTeachBanner) farmSetTeachBanner('');
+      return;
+    }
+    const flip = !seen;
+    if (!flip && state.farmTeachBanner) return; // already prompting
+    state.farmLoyaltySeen = true;
+    save(STORE.FARM_LOYALTY_SEEN, true);
+    const derived = farmTryDeriveOptionMap();
+    if (derived && derived['600'] != null) {
+      // Tentative write - the next hand/bot claim confirms via farmLearnOptionFromClaim.
+      const map = Object.assign({}, state.farmOptionMap || {}, derived);
+      state.farmOptionMap = map;
+      save(wkey(STORE.FARM_OPTION_MAP), map);
+      gbLog(`farm: loyalty auto-teach provisional 10min option=${derived['600']} (confirm on next claim)`);
+      farmSetTeachBanner('');
+      return;
+    }
+    farmSetTeachBanner('Investigacion de lealtad completada. Haz una recogida de 10 minutos a mano para ensenarselo al bot.');
+    gbLog('farm: loyalty researched - 10min option unknown; hand-claim once to teach');
+  }
+  function farmTick() {
+    try { gbWakeGapTick(); } catch (_) {}
+    const run = () => {
+      const now = Date.now();
+      if (hostEnabled() && !automationPaused({})) {
+        if (now >= state.nextFarmScrape) scrapeAllFarms();
+        if (now >= state.nextTownsScrape) scrapeAllTowns();
+        if (state.autoFarm) farmScheduleClaimWake(null, 'farm-tick', true);
+      }
+      try { farmSleepAutoTick(); } catch (_) {}
+      try { farmLoyaltyAutoTeachTick(); } catch (_) {}
+      try { renderFarmTeachBanner(); } catch (_) {}
+    };
+    if (typeof gbInWakeBurst === 'function' && gbInWakeBurst()) {
+      gbWake('farmTick', run, { priority: 20 });
+      return;
+    }
+    run();
   }

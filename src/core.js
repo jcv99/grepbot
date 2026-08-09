@@ -594,6 +594,61 @@
     }
     return (reqBudgetWindow.length - reqBudgetHead) < (state.reqBudgetPerMin || 40);
   }
+  // Tab wake / bfcache resume fires every clamped timer at once. Serialize that
+  // catch-up burst instead of letting it stampede the server.
+  const WAKE_SPACING_MS = 800;
+  const gbWakeQueue = []; // {key, fn, priority, enqueuedAt}
+  let gbWakeDraining = false;
+  let gbWakeLastTickAt = Date.now();
+  let gbWakeBurstUntil = 0;
+  function gbWakeDepth() { return gbWakeQueue.length; }
+  function gbWake(key, fn, opts) {
+    if (!key || typeof fn !== 'function') return;
+    const priority = (opts && opts.priority != null) ? +opts.priority : 50;
+    const i = gbWakeQueue.findIndex(e => e.key === key);
+    if (i >= 0) {
+      if (priority < gbWakeQueue[i].priority) gbWakeQueue[i].priority = priority;
+      gbWakeQueue[i].fn = fn;
+      return;
+    }
+    gbWakeQueue.push({ key, fn, priority, enqueuedAt: Date.now() });
+    gbWakeQueue.sort((a, b) => a.priority - b.priority);
+    if (!gbWakeDraining) gbWakeDrain();
+  }
+  function gbWakeDrain() {
+    if (gbWakeDraining) return;
+    gbWakeDraining = true;
+    (function step() {
+      if (!gbInstanceAlive()) { gbWakeDraining = false; return; }
+      if (!gbWakeQueue.length) { gbWakeDraining = false; return; }
+      if (automationPaused({})) {
+        gbLogT('wake-paused', 60000, 'wake: paused - draining later');
+        gbWakeDraining = false;
+        return;
+      }
+      if (!reqBudgetOk()) {
+        gbTimeout(step, 1500 + Math.floor(Math.random() * 500));
+        return;
+      }
+      const item = gbWakeQueue.shift();
+      try { item.fn(); } catch (e) { gbLogT('wake-err', 30000, 'wake: ' + item.key + ' ' + String(e).slice(0, 60)); }
+      const spacing = WAKE_SPACING_MS + Math.floor(Math.random() * 400);
+      if (gbWakeQueue.length) gbTimeout(step, spacing);
+      else gbWakeDraining = false;
+    })();
+  }
+  function gbWakeMarkResume(why) {
+    gbWakeBurstUntil = Date.now() + 8000;
+    gbLogT('wake-resume', 10000, 'wake: resume (' + (why || 'visible') + ') - serializing catch-up');
+  }
+  function gbInWakeBurst() { return Date.now() < gbWakeBurstUntil; }
+  // A long gap between ticks means the tab was frozen, not idle.
+  function gbWakeGapTick() {
+    const now = Date.now();
+    const gap = now - gbWakeLastTickAt;
+    gbWakeLastTickAt = now;
+    if (gap > 45000) gbWakeMarkResume('timer-gap ' + Math.round(gap / 1000) + 's');
+  }
   function reqBudgetMark() { reqBudgetWindow.push(Date.now()); }
   function reqBudgetUsed() {
     const cutoff = Date.now() - 60000;
@@ -913,26 +968,122 @@
       if (!scopedCall && WORLD_SCOPED_BASES.has(key)) {
         const wk = wkey(key);
         const v = GM_getValue(wk, null);
-        if (v !== null && v !== undefined) return v;
+        if (v !== null && v !== undefined) return loadValueOk(v, key) ? v : fallback;
         // Legacy global fallback is migration-only. Once this world reaches config v3,
         // never inherit world-specific IDs/plans from another world.
         const migrated = +GM_getValue(wkey(STORE.CONFIG_VER), 0) >= 3;
         if (!migrated) {
           const legacy = GM_getValue(key, null);
-          if (legacy !== null && legacy !== undefined) return legacy;
+          if (legacy !== null && legacy !== undefined) return loadValueOk(legacy, key) ? legacy : fallback;
         }
         return fallback;
       }
       const v = GM_getValue(key, null);
-      return v === null || v === undefined ? fallback : v;
+      if (v === null || v === undefined) return fallback;
+      return loadValueOk(v, key) ? v : fallback;
     } catch (e) { return fallback; }
   }
-  function save(key, val) {
+  const LOAD_MAX_CHARS = 2 * 1024 * 1024; // refuse corrupt/huge values (~2MB)
+  let storageWarnUntil = 0;
+  let storageWarnMsg = '';
+  let storagePruneBusy = false;
+  function loadValueOk(v, key) {
+    if (v === null || v === undefined) return true;
     try {
-      const scopedCall = String(key).indexOf('@') !== -1;
-      const k = (!scopedCall && WORLD_SCOPED_BASES.has(key)) ? wkey(key) : key;
+      const n = typeof v === 'string' ? v.length : JSON.stringify(v).length;
+      if (n > LOAD_MAX_CHARS) {
+        try {
+          if (typeof gbLogT === 'function') gbLogT('load-huge', 60000, 'storage: refusing huge key', key, n);
+          else console.warn('[grepbot] storage: refusing huge key', key, n);
+        } catch (_) {}
+        return false;
+      }
+    } catch (_) {}
+    return true;
+  }
+  function storageRawSet(k, val) {
+    try { GM_setValue(k, val); return true; } catch (_) { return false; }
+  }
+  // Quota is a write-loss event, not a warning: prune the ring buffers that can
+  // afford it and retry the write once.
+  function storagePruneForQuota() {
+    if (storagePruneBusy) return 0;
+    storagePruneBusy = true;
+    let bytes = 0;
+    try {
+      const list = state.decisions;
+      if (Array.isArray(list) && list.length > 50) {
+        const drop = list.length - 50;
+        list.splice(0, drop);
+        bytes += drop * 80;
+        storageRawSet(wkey(STORE.DECISIONS), list);
+      }
+    } catch (_) {}
+    try {
+      const ids = Object.keys(state.seen || {});
+      if (ids.length > SEEN_MAX) {
+        const drop = ids.length - SEEN_MAX;
+        ids.slice(0, drop).forEach(k => { delete state.seen[k]; });
+        bytes += drop * 20;
+        storageRawSet(wkey(STORE.SEEN), state.seen);
+      }
+    } catch (_) {}
+    try {
+      const cut = Date.now() - 3 * 86400000;
+      let n = 0;
+      Object.keys(state.alerted || {}).forEach(k => {
+        if ((state.alerted[k] || 0) < cut) { delete state.alerted[k]; n++; }
+      });
+      if (n) { bytes += n * 24; storageRawSet(wkey(STORE.ALERTED), state.alerted); }
+    } catch (_) {}
+    try {
+      if (Array.isArray(state.findings) && state.findings.length > 100) {
+        const drop = state.findings.length - 100;
+        state.findings.splice(0, drop);
+        bytes += drop * 200;
+        storageRawSet(wkey(STORE.FINDINGS), state.findings);
+      }
+    } catch (_) {}
+    try {
+      const cut = Date.now() - 86400000;
+      let n = 0;
+      Object.keys(state.farmResources || {}).forEach(k => {
+        const r = state.farmResources[k];
+        if (r && r.ts && r.ts < cut) { delete state.farmResources[k]; n++; }
+      });
+      if (n) { bytes += n * 40; storageRawSet(wkey(STORE.FARM_RES), state.farmResources); }
+    } catch (_) {}
+    storagePruneBusy = false;
+    return bytes;
+  }
+  function save(key, val) {
+    const scopedCall = String(key).indexOf('@') !== -1;
+    const k = (!scopedCall && WORLD_SCOPED_BASES.has(key)) ? wkey(key) : key;
+    try {
       GM_setValue(k, val);
-    } catch (e) { console.warn('[grepbot] save fail', key, e); }
+    } catch (e) {
+      const isQuota = e && (e.name === 'QuotaExceededError' || /quota.?exceeded/i.test(String(e.message || e)));
+      if (isQuota) {
+        const pruned = storagePruneForQuota();
+        try {
+          GM_setValue(k, val);
+          storageWarnUntil = Date.now() + 5 * 60000;
+          storageWarnMsg = 'quota:pruned';
+          gbLog('storage: QuotaExceeded on', key, '- pruned ~' + pruned + 'B and retried OK');
+          try { updateStatus(); } catch (_) {}
+          return;
+        } catch (e2) {
+          storageWarnUntil = Date.now() + 30 * 60000;
+          storageWarnMsg = 'quota FULL';
+          console.warn('[grepbot] save fail (quota)', key, e2);
+          gbLog('storage: QuotaExceeded on', key, '- write LOST after prune');
+          try { updateStatus(); } catch (_) {}
+          return;
+        }
+      }
+      console.warn('[grepbot] save fail', key, e);
+      try { gbLog('storage: save fail', key, String(e).slice(0, 80)); } catch (_) {}
+    }
   }
 
   const GM_XHR_DEFAULT_TIMEOUT = 30000;
