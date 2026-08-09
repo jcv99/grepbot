@@ -4191,13 +4191,13 @@ const STORE = {
     const sec = farmSleepDuration();
     if (farmOptionFor(sec) == null) {
       gbLog(`sleep claim: ${farmDurLabel(sec)} option not learned yet - open a farming village, click that timer once by hand, then retry`);
-      flash('sleep claim: teach ' + farmDurLabel(sec));
+      flash('recoleccion nocturna: ensenale ' + farmDurLabel(sec));
       if (onDone) onDone(null);
       return false;
     }
     if (!state.autoFarm) {
       gbLog('sleep claim: auto-farm is OFF - enable it in Config, the claim path is shared');
-      flash('sleep claim: auto-farm OFF');
+      flash('recoleccion nocturna: auto-granjas APAGADO');
       if (onDone) onDone(null);
       return false;
     }
@@ -5151,7 +5151,7 @@ const STORE = {
           gbUnlock('bandit-reward', rewardLock);
           if (err) { gbLog('bandit: reward claim failed', err); return; }
           gbLog('bandit: reward claimed via', action, pid || '(no power_id)');
-          flash('bandit: reward claimed');
+          flash('bandido: recompensa reclamada');
           logBandit('collected');
         });
         return true;
@@ -5212,7 +5212,7 @@ const STORE = {
         }
         banditAttackSentAt = Date.now();
         gbLog('bandit: ATTACK confirmed', JSON.stringify(units));
-        flash('bandit: attack sent');
+        flash('bandido: ataque enviado');
         logBandit('attack');
       });
       banditAttackSentAt = Date.now();
@@ -9528,11 +9528,11 @@ const STORE = {
     };
     save(STORE.CITY_TEMPLATES, state.cityTemplates);
     gbLog(`template: saved "${name}"`);
-    flash('template saved: ' + name);
+    flash('plantilla guardada: ' + name);
   }
   function qolApplyTemplate(name) {
     const t = state.cityTemplates && state.cityTemplates[name];
-    if (!t) { flash('template missing'); return; }
+    if (!t) { flash('falta plantilla'); return; }
 
     if (t.abTargets) {
       state.abTargets = JSON.parse(JSON.stringify(t.abTargets));
@@ -9547,7 +9547,7 @@ const STORE = {
       save(STORE.RECRUIT_TARGETS, state.recruitTargets);
     }
     gbLog(`template: applied "${name}"`);
-    flash('template applied: ' + name);
+    flash('plantilla aplicada: ' + name);
     try { renderAbQueue && renderAbQueue(); } catch (_) {}
   }
   function qolSetTownGroup(groupName, townIds) {
@@ -9558,7 +9558,7 @@ const STORE = {
   function qolApplyGroupTemplate(groupName, templateName) {
     const ids = (state.townGroups && state.townGroups[groupName]) || [];
     const t = state.cityTemplates && state.cityTemplates[templateName];
-    if (!t || !ids.length) { flash('group/template missing'); return; }
+    if (!t || !ids.length) { flash('falta grupo/plantilla'); return; }
 
     if (t.recruitTargets) {
       const sample = Object.values(t.recruitTargets)[0] || t.recruitTargets;
@@ -9583,7 +9583,7 @@ const STORE = {
     const rerender=()=>{renderGoals();renderPlanner();renderDashboard();};
     for(const tid of ids){let name=tid;try{const t=gbTownModel(tid);name=(t&&t.getName&&t.getName())||name}catch(_){} const plan=goalPlanTown(tid);
       const head=document.createElement('div');head.style.cssText='display:flex;gap:4px;align-items:center;padding:4px;border-bottom:1px solid #333';const b=document.createElement('b');b.textContent=`${name} · ${plan.progress}%`;head.appendChild(b);
-      const edit=document.createElement('button');edit.textContent='Edit';edit.title='Edit per-town goal overrides/reserves as JSON';edit.style.cssText='font-size:8px;padding:1px 4px';edit.addEventListener('click',()=>{const cur=goalTownCfg(tid),raw=prompt('Town goal overrides JSON\nKeys: build, research, units, reserve:{hard,soft}',JSON.stringify({build:cur.build,research:cur.research,units:cur.units,reserve:cur.reserve},null,2));if(raw==null)return;try{if(!goalSetTownOverrides(tid,JSON.parse(raw)))throw new Error('invalid object');rerender()}catch(e){flash('invalid goal JSON')}});head.appendChild(edit);
+      const edit=document.createElement('button');edit.textContent='Edit';edit.title='Edit per-town goal overrides/reserves as JSON';edit.style.cssText='font-size:8px;padding:1px 4px';edit.addEventListener('click',()=>{const cur=goalTownCfg(tid),raw=prompt('Overrides de objetivos por ciudad JSON\nClaves: build, research, units, reserve:{hard,soft}',JSON.stringify({build:cur.build,research:cur.research,units:cur.units,reserve:cur.reserve},null,2));if(raw==null)return;try{if(!goalSetTownOverrides(tid,JSON.parse(raw)))throw new Error('invalid object');rerender()}catch(e){flash('JSON de objetivos invalido')}});head.appendChild(edit);
       const rec=document.createElement('button');rec.textContent='Recalc';rec.style.cssText='font-size:8px;padding:1px 4px';rec.addEventListener('click',()=>{goalPlanTown(tid);rerender()});head.appendChild(rec);
       const reset=document.createElement('button');reset.textContent='Reset Q';reset.title='Clear virtual-queue order/block/mandatory overrides';reset.style.cssText='font-size:8px;padding:1px 4px';reset.addEventListener('click',()=>{goalQueueReset(tid);rerender()});head.appendChild(reset);
       const sel=document.createElement('select');sel.style.cssText='background:#111;color:#cfc;border:1px solid #333;font-size:9px;margin-left:auto';for(const [id,p] of Object.entries(profiles)){const o=document.createElement('option');o.value=id;o.textContent=p.label||id;sel.appendChild(o)}sel.value=plan.profile;sel.addEventListener('change',()=>{goalSetProfile(tid,sel.value);rerender()});head.appendChild(sel);box.appendChild(head);
@@ -10041,28 +10041,28 @@ const STORE = {
     const threats = intelThreatBoard();
     const dossiers = intelDossiers().slice(0, 30);
     let html = '';
-    html += '=== Incoming ===\n';
+    html += '=== Entrantes ===\n';
     if (!threats.length) html += '(none)\n';
     else {
       threats.forEach(t => {
         const da = defenseAssessment(t, threats);
         html += `${t.hasCs ? '[CS] ' : ''}${t.type || 'atk'} → ${t.dest} from ${t.origin || '?'}` +
-          (t.arrival ? ` @${t.arrival}` : '') + ` | risk ${da.risk} | ETA ${da.eta==null?'?':fmtSec(da.eta)} | support ${da.supports.length} | evade ${da.evac.ok?'yes':'no'}` + '\n';
+          (t.arrival ? ` @${t.arrival}` : '') + ` | riesgo ${da.risk} | ETA ${da.eta==null?'?':fmtSec(da.eta)} | apoyo ${da.supports.length} | esquivar ${da.evac.ok?'si':'no'}` + '\n';
       });
     }
-    html += '\n=== Dossiers ===\n';
+    html += '\n=== Fichas ===\n';
     dossiers.forEach(d => {
-      html += `${d.player}: ${d.reports} reports` +
+      html += `${d.player}: ${d.reports} informes` +
         (d.note ? ` — ${d.note}` : '') +
-        (d.allianceNote ? ` [ally: ${d.allianceNote}]` : '') + '\n';
+        (d.allianceNote ? ` [aliado: ${d.allianceNote}]` : '') + '\n';
     });
     if (state.watchlist && state.watchlist.length) {
-      html += '\n=== Watchlist ===\n' + state.watchlist.map(w =>
+      html += '\n=== Lista de vigilancia ===\n' + state.watchlist.map(w =>
         typeof w === 'object' ? `${w.id || w.townId} ${w.name || ''}` : String(w)
       ).join('\n') + '\n';
     }
     if (state.allianceNotes && Object.keys(state.allianceNotes).length) {
-      html += '\n=== Alliance notes ===\n';
+      html += '\n=== Notas de alianza ===\n';
       Object.keys(state.allianceNotes).forEach(k => {
         html += `${k}: ${state.allianceNotes[k]}\n`;
       });
@@ -10613,7 +10613,7 @@ const STORE = {
         kinds,
       });
       gbLog(`quest: auto-claim ${ok ? 'OK' : 'fail'} via ${method}`, entry.title || entry.questId, kinds);
-      if (ok) flash('quest claim: ' + kinds);
+      if (ok) flash('reclamo de mision: ' + kinds);
       gbTimeout(() => { questAutoBusy = false; questScanTick('post-claim'); renderQuests(); }, 2500);
     };
     const questStillClaimable = () => {
@@ -11097,9 +11097,9 @@ const STORE = {
   }
   function attackSelectRoleSources(role) {
     const ids = attackTownGroup(role);
-    if (!ids.length) { flash('no cities tagged for this role'); return; }
+    if (!ids.length) { flash('sin ciudades con este rol'); return; }
     attackSelectSources(ids);
-    flash(`${role === ATTACK_ROLE_OFFENSE ? 'offense' : 'defense'} cities selected (${ids.length})`);
+    flash(`${role === ATTACK_ROLE_OFFENSE ? 'ofensiva' : 'defensa'} ciudades seleccionadas (${ids.length})`);
   }
   function renderAttackRoles(sec) {
     const box = sec && sec.querySelector('.atk-roles');
@@ -11247,7 +11247,7 @@ const STORE = {
     if (!ATTACK_GENERIC_MISSIONS.has(String(plan.mission || 'attack').toLowerCase())) plan.mission = 'attack';
     saveAttackPlan();
     gbLog('attack: harass preset ' + plan.harassPreset);
-    flash('harass preset: ' + plan.harassPreset + ' (manual confirmation still required)');
+    flash('preset de acoso: ' + plan.harassPreset + ' (manual confirmation still required)');
     return plan;
   }
   function buildAttackSchedule(plan) {
@@ -11285,15 +11285,15 @@ const STORE = {
   }
   const ATTACK_GENERIC_MISSIONS = new Set(['attack', 'support', 'revolt']);
   function sendAttackViaBridge(target, srcTownId, units, mission, onDone) {
-    if (!hostEnabled()) { flash('bot disabled on this host'); return onDone && onDone('disabled'); }
+    if (!hostEnabled()) { flash('bot desactivado en este servidor'); return onDone && onDone('disabled'); }
     const safeMission = String(mission || 'attack').toLowerCase();
     if (!ATTACK_GENERIC_MISSIONS.has(safeMission)) {
       gbLog(`attack: mission ${safeMission} requires a dedicated canonical handler — blocked`);
       return onDone && onDone('unsupported-mission');
     }
-    if (captchaPaused('attack')) { flash('attack paused (captcha)'); return onDone && onDone('captcha'); }
+    if (captchaPaused('attack')) { flash('ataque pausado (captcha)'); return onDone && onDone('captcha'); }
     if (!attackSendAllowed(target)) {
-      flash('attack blocked: target not a town (or unresolved)');
+      flash('ataque bloqueado: objetivo no es una ciudad (o no resuelto)');
       gbLog('attack: refuse Town/sendUnits for kind=' + (target && target.kind));
       return onDone && onDone('bad-target');
     }
@@ -11331,8 +11331,8 @@ const STORE = {
     };
     gbLog('attack bridge:', JSON.stringify(payload));
     bridgePost('attack', payload, (err, data) => {
-      if (err) { flash('attack failed: ' + err); return onDone && onDone(err); }
-      flash('attack sent #' + srcTownId);
+      if (err) { flash('ataque fallido: ' + err); return onDone && onDone(err); }
+      flash('ataque enviado #' + srcTownId);
       attackRememberTarget(target.town_id, { x: target.x, y: target.y, src: 'sent' });
       gbLog('attack response:', JSON.stringify(data).slice(0, 200));
       if (onDone) onDone(null, data);
@@ -11348,7 +11348,7 @@ const STORE = {
     (attackArmed.timers || []).forEach(id => gbClearTimeout(id));
     if (attackArmed.raf) cancelAnimationFrame(attackArmed.raf);
     gbLog('attack: cancelled armed wave');
-    flash('attack cancelled');
+    flash('ataque cancelado');
     attackArmed = null;
     renderAttack();
   }
@@ -11375,7 +11375,7 @@ const STORE = {
     cancelArmedAttack();
     const target = resolveTarget(plan);
     if (!target || !attackSendAllowed(target)) {
-      flash('cannot arm: target unresolved or not a town');
+      flash('no se puede armar: objetivo no resuelto o no es una ciudad');
       gbLog('attack: arm blocked — need canonical town target (villages unsupported)');
       return;
     }
@@ -11385,7 +11385,7 @@ const STORE = {
     attackArmed = { timers, rows, plan, cancel: cancelArmedAttack, armedAt };
     const skew0 = clientServerSkewMs();
     gbLog(`attack: armed ${rows.length} towns mode=${plan.timingMode} skew=${Math.round(skew0)}ms (max window ${ATTACK_ARM_MAX_MS}ms)`);
-    flash('Browser timers are not military-precise — long waits will not auto-fire');
+    flash('Los timers del navegador no son precisos para uso militar - esperas largas no se dispararan solas');
     rows.forEach((row, idx) => {
       if (!row.unitCount || !row.boats.ok) {
         gbLog(`attack: skip ${row.townId} status=${row.status}`);
@@ -11473,16 +11473,16 @@ const STORE = {
   function fireAttackNow(plan, rows) {
     const target = resolveTarget(plan);
     if (!target || !attackSendAllowed(target)) {
-      flash('cannot send: target unresolved or not a town');
+      flash('no se puede enviar: objetivo no resuelto o no es una ciudad');
       return;
     }
-    if (!confirm(`Send ${rows.filter(r => r.boats.ok && r.unitCount).length} attack(s) now?`)) return;
+    if (!confirm(`Enviar ${rows.filter(r => r.boats.ok && r.unitCount).length} ataque(s) ahora?`)) return;
     let i = 0;
     const okRows = rows.filter(r => r.boats.ok && r.unitCount);
     (function next() {
       if (i >= okRows.length) {
         pushAttackHistory({ ts: Date.now(), mode: 'send_now_immediate', targetId: plan.targetId, towns: okRows.map(r => r.townId) });
-        flash(`attacks x${okRows.length}`);
+        flash(`ataques x${okRows.length}`);
         return;
       }
       const row = okRows[i++];
@@ -11941,7 +11941,7 @@ const STORE = {
         const c2 = document.createElement('span'); c2.textContent = r.type || 'move';
         const c3 = document.createElement('span'); c3.textContent = r.cancelLeft != null ? `${Math.round(r.cancelLeft)}s` : 'ok'; c3.style.color = '#888';
         const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Cancel'; b.disabled = !state.cancelTpl; b.title = state.cancelTpl ? 'Cancel this movement' : 'Cancel one movement manually once to learn the canonical action';
-        b.addEventListener('click', () => { if (!confirm(`Cancel ${r.type || 'command'} ${r.commandId}?`)) return; militaryCancelCommand(r.commandId, { confirmed: true }, err => { flash(err ? 'cancel failed: ' + err : 'command cancelled'); renderAttack(); }); });
+        b.addEventListener('click', () => { if (!confirm(`Cancelar ${r.type || 'comando'} ${r.commandId}?`)) return; militaryCancelCommand(r.commandId, { confirmed: true }, err => { flash(err ? 'cancel failed: ' + err : 'command cancelled'); renderAttack(); }); });
         row.append(c1,c2,c3,b); box.appendChild(row);
       });
     }
@@ -11957,9 +11957,9 @@ const STORE = {
       const row = document.createElement('div'); row.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:10px;border-bottom:1px solid #2a2a2a;padding:3px 0';
       const lab = document.createElement('span'); lab.style.flex = '1'; lab.textContent = `${h.name} Lv${h.level} | ${h.status}${h.home ? ' @' + townNameById(h.home) : ''}`; row.appendChild(lab);
       const addBtn = (text, action, color, fn) => { const b=document.createElement('button'); b.type='button'; b.textContent=text; b.style.color=color; b.disabled=!(state.heroTpl && state.heroTpl[action]); b.title=b.disabled?`Perform ${action} manually once to learn template`:''; b.addEventListener('click',fn); row.appendChild(b); };
-      if (h.traveling) addBtn('Cancel travel','cancelTownTravel','#fc6',()=>{ if(confirm(`Cancel transfer of ${h.name}?`)) heroCancelTravel(h.type,{confirmed:true},err=>{flash(err?'hero cancel failed: '+err:'hero travel cancelled');renderAttack();}); });
-      else if (h.assigned || h.attacking) addBtn('Unassign','unassignFromTown','#f96',()=>{ if(confirm(`Unassign ${h.name}?`)) heroUnassign(h.type,{confirmed:true},err=>{flash(err?'hero unassign failed: '+err:'hero unassigned');renderAttack();}); });
-      if (!h.injured && !h.attacking && !h.traveling) addBtn('Assign','assignToTown','#6cf',()=>{ const tid=townSel.value; if(tid&&confirm(`Assign ${h.name} -> ${townNameById(tid)}?`)) heroAssignToTown(h.type,tid,{confirmed:true},err=>{flash(err?'hero assign failed: '+err:'hero transfer started');renderAttack();}); });
+      if (h.traveling) addBtn('Cancel travel','cancelTownTravel','#fc6',()=>{ if(confirm(`Cancelar traslado de ${h.name}?`)) heroCancelTravel(h.type,{confirmed:true},err=>{flash(err?'hero cancel failed: '+err:'hero travel cancelled');renderAttack();}); });
+      else if (h.assigned || h.attacking) addBtn('Unassign','unassignFromTown','#f96',()=>{ if(confirm(`Desasignar ${h.name}?`)) heroUnassign(h.type,{confirmed:true},err=>{flash(err?'hero unassign failed: '+err:'hero unassigned');renderAttack();}); });
+      if (!h.injured && !h.attacking && !h.traveling) addBtn('Assign','assignToTown','#6cf',()=>{ const tid=townSel.value; if(tid&&confirm(`Asignar ${h.name} -> ${townNameById(tid)}?`)) heroAssignToTown(h.type,tid,{confirmed:true},err=>{flash(err?'hero assign failed: '+err:'hero transfer started');renderAttack();}); });
       hbox.appendChild(row);
     });
   }
@@ -11981,8 +11981,8 @@ const STORE = {
       if (sched.error) { flash(sched.error); return; }
       attackPreviewRows = sched.rows;
       const ok = sched.rows.filter(r => r.boats.ok && r.unitCount && r.status !== 'past' && r.status !== 'no-travel');
-      if (!ok.length) { flash('no towns ready'); renderAttack(); return; }
-      if (!confirm(`Arm ${ok.length} attack(s) (${plan.timingMode})?`)) return;
+      if (!ok.length) { flash('sin ciudades listas'); renderAttack(); return; }
+      if (!confirm(`Armar ${ok.length} ataque(s) (${plan.timingMode})?`)) return;
       armAttackWave(plan, ok);
     });
     sec.querySelector('#gb-atk-cancel')?.addEventListener('click', () => cancelArmedAttack());
@@ -12264,16 +12264,16 @@ const STORE = {
     if (!box) return;
     const st = jrnStats(STATS_WINDOWS[statsWindow] || 86400000);
     const lines = [];
-    lines.push(`window ${statsWindow} | ${st.total} decisions | ${st.attempts} attempts | success ${st.successPct == null ? '-' : st.successPct + '%'}`);
-    lines.push(`ok ${st.ok}  err ${st.err}  captcha ${st.captcha}  timeout ${st.timeout}  pending ${st.pending}  skipped ${st.skip}${st.dry ? ` (dry-run ${st.dry})` : ''}`);
+    lines.push(`ventana ${statsWindow} | ${st.total} decisiones | ${st.attempts} intentos | exito ${st.successPct == null ? '-' : st.successPct + '%'}`);
+    lines.push(`ok ${st.ok}  err ${st.err}  captcha ${st.captcha}  timeout ${st.timeout}  pendiente ${st.pending}  saltadas ${st.skip}${st.dry ? ` (simulacion ${st.dry})` : ''}`);
     const claims = jrnCountOk('farm', /claim/i, STATS_WINDOWS[statsWindow] || 86400000);
     const builds = jrnCountOk('build', /Instant|instant/i, STATS_WINDOWS[statsWindow] || 86400000)
       + jrnCountOk('instant-build', null, STATS_WINDOWS[statsWindow] || 86400000);
-    lines.push(`farm claims ${claims} | instant completions ${builds}`);
+    lines.push(`reclamos de granjas ${claims} | completados inst. ${builds}`);
     lines.push('');
     lines.push('feature      ok   err  tout  pend  cap  skip   rate');
     const feats = Object.keys(st.byFeature).sort();
-    if (!feats.length) lines.push('  (no decisions recorded in this window)');
+    if (!feats.length) lines.push('  (sin decisiones en esta ventana)');
     feats.forEach(f => {
       const v = st.byFeature[f];
       const att = v.ok + v.err + v.captcha + v.timeout;
@@ -12289,27 +12289,27 @@ const STORE = {
     });
     if (st.topErrors.length) {
       lines.push('');
-      lines.push('top errors');
+      lines.push('errores principales');
       st.topErrors.forEach(([k, n]) => lines.push(`  ${n}x ${k}`));
     }
     if (st.topPending.length) {
       lines.push('');
-      lines.push('pending transaction states (not errors)');
+      lines.push('estados de tx pendientes (no son errores)');
       st.topPending.forEach(([k, n]) => lines.push(`  ${n}x ${k}`));
     }
     if (st.topSkips.length) {
       lines.push('');
-      lines.push('top skip reasons');
+      lines.push('razones principales de salto');
       st.topSkips.forEach(([k, n]) => lines.push(`  ${n}x ${k}`));
     }
     lines.push('');
-    lines.push('scheduler (cadence includes adaptive idle backoff)');
+    lines.push('planificador (cadencia con adaptativa por inactividad)');
     orchStatus().filter(s => s.on).forEach(s => {
-      lines.push(`  ${s.key.padEnd(11)} every ${fmtSec(Math.round(s.cadenceMs / 1000)).padEnd(6)} next ${fmtSec(Math.round(s.dueInMs / 1000)).padEnd(6)}${s.idle ? ' idle x' + s.idle : ''}${s.captcha ? ' CAPTCHA' : ''}`);
+      lines.push(`  ${s.key.padEnd(11)} cada ${fmtSec(Math.round(s.cadenceMs / 1000)).padEnd(6)} proxima ${fmtSec(Math.round(s.dueInMs / 1000)).padEnd(6)}${s.idle ? ' inact. x' + s.idle : ''}${s.captcha ? ' CAPTCHA' : ''}`);
     });
     const locks = gbLockList();
     lines.push('');
-    lines.push(`requests last min ${reqBudgetUsed()}/${state.reqBudgetPerMin || 40}` +
+    lines.push(`peticiones ultimo min ${reqBudgetUsed()}/${state.reqBudgetPerMin || 40}` +
       (gbServerPaused() ? ` | server cooldown ${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}` : '') +
       (locks.length ? ` | locks ${locks.join(',')}` : '') +
       (state.dryRun ? ' | DRY-RUN' : ''));
@@ -12771,7 +12771,7 @@ const STORE = {
     if (btn) btn.textContent = '_';
     state.panelGeom = null;
     save(STORE.PANEL_GEOM, null);
-    flash('panel reset');
+    flash('panel restablecido');
   }
 
   function paintNav(activeTab) {
@@ -13011,88 +13011,88 @@ const STORE = {
       </div>
       <div class="atk-row">
         <label>target <input data-atk="target" style="width:70px" placeholder="town id"/></label>
-        <select data-atk="target-type" title="Generic sender only supports canonical town targets"><option value="town">town</option></select>
+        <select data-atk="target-type" title="Generic sender only supports canonical town targets"><option value="town">ciudad</option></select>
         <select data-atk="pick" title="Known town targets from reports/history" style="max-width:150px"></select>
         <label>x <input data-atk="x" style="width:40px"/></label>
         <label>y <input data-atk="y" style="width:40px"/></label>
-        <select data-atk="mission"><option value="attack">attack</option><option value="support">support</option><option value="revolt">revolt</option></select>
+        <select data-atk="mission"><option value="attack">ataque</option><option value="support">apoyo</option><option value="revolt">revolt</option></select>
       </div>
       <div id="gb-atk-target-hint" style="font-size:9px;color:#888;margin:-2px 0 4px"></div>
       <div class="atk-row">
-        <select data-atk="timing"><option value="send_now">send now</option><option value="arrive_at">arrive at</option></select>
+        <select data-atk="timing"><option value="send_now">enviar ya</option><option value="arrive_at">llegar a las</option></select>
         <input data-atk="arrival" type="datetime-local" step="1" title="arrival (local)"/>
         <label>pad ms <input data-atk="pad" type="number" style="width:50px" value="200"/></label>
       </div>
       <div class="atk-row">
         <select data-atk="troop">
-          <option value="offense">offense</option>
-          <option value="defense">defense</option>
-          <option value="all">all troops</option>
-          <option value="all_of_type">all of type</option>
-          <option value="harass">harass</option>
-          <option value="per_town">per town edit</option>
+          <option value="offense">ofensiva</option>
+          <option value="defense">defensa</option>
+          <option value="all">todas las tropas</option>
+          <option value="all_of_type">todo el tipo</option>
+          <option value="harass">acosar</option>
+          <option value="per_town">editar por ciudad</option>
         </select>
         <label style="display:flex;align-items:center;gap:3px">unit
           <select data-atk="unit-type" title="only used when troop mode is 'all of type'"></select>
         </label>
       </div>
       <div class="atk-harass" style="display:flex;gap:4px;flex-wrap:wrap;margin:4px 0">
-        <span style="font-size:9px;color:#888;align-self:center">harass</span>
-        <button type="button" data-harass="1sling">1 sling</button>
-        <button type="button" data-harass="5sling">5 sling</button>
-        <button type="button" data-harass="light">light ≤8</button>
+        <span style="font-size:9px;color:#888;align-self:center">acosar</span>
+        <button type="button" data-harass="1sling">1 honda</button>
+        <button type="button" data-harass="5sling">5 hondas</button>
+        <button type="button" data-harass="light"≤8 ligeras</button>
       </div>
-      <div style="font-size:9px;color:#888;margin-top:2px">city roles (saved per world)</div>
+      <div style="font-size:9px;color:#888;margin-top:2px">roles de ciudad (guardado por mundo)</div>
       <div class="atk-roles"></div>
       <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:4px">
-        <span style="font-size:9px;color:#888">attack from</span>
-        <button type="button" id="gb-atk-src-all">All</button>
-        <button type="button" id="gb-atk-src-none">None</button>
-        <button type="button" id="gb-atk-src-off">Offense</button>
+        <span style="font-size:9px;color:#888">atacar desde</span>
+        <button type="button" id="gb-atk-src-all">Todo</button>
+        <button type="button" id="gb-atk-src-none">Ninguno</button>
+        <button type="button" id="gb-atk-src-off">Ofensiva</button>
         <button type="button" id="gb-atk-src-def">Defense</button>
       </div>
       <div class="atk-sources"></div>
       <div class="atk-pertown" hidden></div>
       <div class="atk-btns" style="margin-top:6px">
-        <button id="gb-atk-preview">Preview</button>
-        <button id="gb-atk-arm">Arm</button>
-        <button id="gb-atk-cancel">Cancel</button>
-        <button id="gb-atk-now">Send now</button>
+        <button id="gb-atk-preview">Previsualizar</button>
+        <button id="gb-atk-arm">Armar</button>
+        <button id="gb-atk-cancel">Cancelar</button>
+        <button id="gb-atk-now">Enviar ya</button>
       </div>
       <div class="atk-sched"></div>
       <div style="border-top:1px solid #333;margin:8px 0 4px;padding-top:6px;display:flex;align-items:center;gap:6px">
-        <b style="font-size:11px;color:#f5a623">Outgoing / cancel</b>
-        <button type="button" id="gb-atk-cmds-refresh" style="margin-left:auto">Refresh</button>
+        <b style="font-size:11px;color:#f5a623">Enviados / cancelar</b>
+        <button type="button" id="gb-atk-cmds-refresh" style="margin-left:auto">Refrescar</button>
       </div>
       <div class="atk-cmds" style="max-height:120px;overflow:auto"></div>
       <div style="border-top:1px solid #333;margin:8px 0 4px;padding-top:6px;display:flex;align-items:center;gap:6px">
         <b style="font-size:11px;color:#f5a623">Heroes</b>
-        <button type="button" id="gb-atk-heroes-refresh" style="margin-left:auto">Refresh</button>
+        <button type="button" id="gb-atk-heroes-refresh" style="margin-left:auto">Refrescar</button>
       </div>
       <div class="atk-heroes" style="max-height:160px;overflow:auto"></div>
     </section>
     <section data-tab="quests" hidden>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-        <b style="font-size:11px;color:#f5a623">Quests</b>
-        <button id="gb-quest-scan" style="background:#333;border:1px solid #555;color:#eee;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;margin-left:auto">Scan now</button>
+        <b style="font-size:11px;color:#f5a623">Misiones</b>
+        <button id="gb-quest-scan" style="background:#333;border:1px solid #555;color:#eee;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;margin-left:auto">Escanear ya</button>
       </div>
       <div class="quest-list"></div>
-      <div style="font-size:9px;color:#888;margin-top:6px">history</div>
+      <div style="font-size:9px;color:#888;margin-top:6px">historial</div>
       <div class="quest-hist"></div>
     </section>
     <section data-tab="build" hidden>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
-        <span id="gb-ib-dot" class="ib-dot"></span><b style="font-size:11px;color:#f5a623">Instant build</b>
+        <span id="gb-ib-dot" class="ib-dot"></span><b style="font-size:11px;color:#f5a623">Construccion instantanea</b>
         <span style="flex:1"></span>
         <button id="gb-ib-btn">Complete all free</button>
       </div>
       <div class="ib-rows"></div>
       <div id="gb-ib-status" style="font-size:10px;color:#888;margin-top:4px"></div>
       <div style="border-top:1px solid #333;margin:8px 0 6px;padding-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-        <b style="font-size:11px;color:#f5a623">Auto-queue</b>
+        <b style="font-size:11px;color:#f5a623">Auto-cola</b>
         <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:10px"><input type="checkbox" id="gb-ab-auto"/> ON</label>
-        <button id="gb-ab-csfast" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Load CS-fast</button>
-        <button id="gb-ab-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Queue now</button>
+        <button id="gb-ab-csfast" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Cargar CS-fast</button>
+        <button id="gb-ab-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Enviar cola ya</button>
       </div>
       <div style="font-size:9px;color:#888;margin-bottom:4px">Las colas creadas con + en el Senado son FIFO estrictas por ciudad. Se rellena cada hueco real libre, nivel a nivel, revalidando coste y requisitos. Las ciudades sin cola FIFO siguen usando cur/tgt/max.</div>
       <div class="ab-queue"></div>
@@ -13103,7 +13103,7 @@ const STORE = {
       <div style="font-size:10px;color:#939ba7;margin-bottom:4px">Estado, próximas acciones y bloqueos importantes sin entrar en configuración avanzada.</div>
       <div class="gb-dashboard-cards"></div>
       <div class="gb-quick">
-        <button id="gb-quick-safe">SAFE MODE</button>
+        <button id="gb-quick-safe">MODO SEGURO</button>
         <button id="gb-quick-preflight">Comprobar sistema</button>
         <button id="gb-quick-sim">Simular 24 h</button>
         <button id="gb-quick-config">Ajustes</button>
@@ -13118,12 +13118,12 @@ const STORE = {
       <details class="gb-section"><summary>Plantillas y copia de seguridad</summary><div class="gb-section-body"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="gb-tpl-name" placeholder="nombre de plantilla" style="width:130px;background:#111;color:#cfc;border:1px solid #444;border-radius:4px;padding:4px;font-size:11px"/><button id="gb-tpl-save" class="gb-action">Guardar plantilla</button><button id="gb-tpl-apply" class="gb-action">Aplicar plantilla</button><button id="gb-cfg-export" class="gb-action">Exportar configuración</button><button id="gb-cfg-import" class="gb-action">Importar configuración</button></div></div></details>
     </section>
     <section data-tab="intel" hidden>
-      <div style="font-size:11px;color:#f5a623;margin-bottom:4px">Intel / threats</div>
+      <div style="font-size:11px;color:#f5a623;margin-bottom:4px">Intel / amenazas</div>
       <pre class="intel-panel" style="font-size:10px;white-space:pre-wrap;background:#111;padding:6px;border:1px solid #333;max-height:280px;overflow:auto;color:#cfc"></pre>
       <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <input id="gb-note-player" placeholder="player" style="width:80px;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
         <input id="gb-note-text" placeholder="note" style="flex:1;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
-        <button id="gb-note-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Save note</button>
+        <button id="gb-note-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Guardar nota</button>
       </div>
     </section>
     <section data-tab="config" hidden>
@@ -13137,8 +13137,8 @@ const STORE = {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-skip-full"/> Skip farm/bandit if warehouse full</label>
         <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Warehouse full mode
           <select data-cfg="farm-full-mode" style="background:#111;color:#cfc;border:1px solid #333;margin-left:6px">
-            <option value="any">any 1 resource full</option>
-            <option value="all">all 3 resources full</option>
+            <option value="any">cualquier recurso lleno</option>
+            <option value="all">los 3 recursos llenos</option>
           </select>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-long-claims"/> 10min claims where villager loyalty researched</label>
@@ -13147,7 +13147,7 @@ const STORE = {
         </label>
         <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Sleep claim length
           <select data-cfg="farm-sleep-dur" style="background:#111;color:#cfc;border:1px solid #333;margin-left:6px">
-            <option value="auto">auto (8h if known, else 4h)</option>
+            <option value="auto">auto (8h si se sabe, si no 4h)</option>
             <option value="14400">4 h</option>
             <option value="28800">8 h</option>
           </select>
@@ -13168,7 +13168,7 @@ const STORE = {
         </label>
         <div style="margin-left:12px;font-size:10px;color:#888">Per-town (unchecked = skip that town):</div>
         <div class="cave-towns" style="display:flex;flex-direction:column;gap:2px;max-height:120px;overflow:auto"></div>
-        <div style="border-top:1px solid #333;padding-top:6px;color:#f5a623;font-size:10px">Phase 8+ economy</div>
+        <div style="border-top:1px solid #333;padding-top:6px;color:#f5a623;font-size:10px">Fase 8+ economia</div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-culture"/> Auto-culture</label>
         <label style="margin-left:12px;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">
           <label><input type="checkbox" data-cfg="cult-festival"/> festival</label>
@@ -13183,10 +13183,10 @@ const STORE = {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-trade"/> Inter-city trade (Fill Storage)</label>
         <label style="margin-left:12px;flex-wrap:wrap">Preset
           <select data-cfg="trade-preset" style="background:#111;color:#cfc;border:1px solid #333;margin-left:4px">
-            <option value="smart">smart predictive</option>
-            <option value="storage">storage</option>
-            <option value="party">party (unimplemented)</option>
-            <option value="unit">unit (unimplemented)</option>
+            <option value="smart">predictivo inteligente</option>
+            <option value="storage">almacen</option>
+            <option value="party">fiesta (sin implementar)</option>
+            <option value="unit">unidades (sin implementar)</option>
           </select>
           Reserve % <input type="number" data-cfg="trade-reserve" min="0" max="80" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
           Min batch <input type="number" data-cfg="trade-min" min="100" max="50000" step="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
@@ -13194,18 +13194,18 @@ const STORE = {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="island-ship"/> Mainland→island res ship</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-trade"/> Rural village trade</label>
         <label style="margin-left:12px;flex-wrap:wrap">Min ratio <input type="number" data-cfg="rural-ratio" step="0.25" min="0.25" max="2" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>
-          Res <select data-cfg="rural-res" style="background:#111;color:#cfc;border:1px solid #333"><option>iron</option><option>stone</option><option>wood</option></select>
+          Res <select data-cfg="rural-res" style="background:#111;color:#cfc;border:1px solid #333"><option>plata</option><option>stone</option><option>wood</option></select>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-level"/> Farm village upgrade</label>
         <label style="margin-left:12px">Max level <input type="number" data-cfg="rural-level-max" min="1" max="6" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-research"/> Auto-research</label>
-        <button data-cfg="research-csfast" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Load CS-fast research</button>
+        <button data-cfg="research-csfast" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Cargar CS-fast de investigacion</button>
         <div style="border-top:1px solid #333;padding-top:6px;color:#f5a623;font-size:10px">QoL / survival</div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="pause-activity"/> Pause when I am active</label>
         <label style="margin-left:12px">Pause min <input type="number" data-cfg="pause-ms" min="1" max="60" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="night-pause"/> Night pause</label>
         <label style="margin-left:12px">Hours <input type="number" data-cfg="night-start" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/>–<input type="number" data-cfg="night-end" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Log every payload the bot would send and send nothing. Use it to compare bot payloads against a hand-clicked action before enabling a risky feature."><input type="checkbox" data-cfg="dry-run"/> <b style="color:#6cf">Dry run (log payloads, send nothing)</b></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Log every payload the bot would send and send nothing. Use it to compare bot payloads against a hand-clicked action before enabling a risky feature."><input type="checkbox" data-cfg="dry-run"/> <b style="color:#6cf">Simulacion (registra payloads, no envia nada)</b></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="A feature that keeps finding nothing to do doubles its own interval (up to 8x) until it acts again."><input type="checkbox" data-cfg="orch-adaptive"/> Adaptive cadence (back off idle features)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Copy/Export replace player names and ids with short hashes. Turn OFF only for local debugging."><input type="checkbox" data-cfg="export-redact"/> Redact names/ids in Copy + Export</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="captcha-global"/> Global captcha kill-switch</label>
@@ -13219,7 +13219,7 @@ const STORE = {
           <label><input type="checkbox" data-cfg="wh-culture"/> culture</label>
         </label>
         <label>Telegram chat_id <input type="text" data-cfg="wh-tg-chat" placeholder="optional if not in URL" style="width:140px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px;font-size:10px"/></label>
-        <div style="border-top:1px solid #333;padding-top:6px;color:#f96;font-size:10px">HIGH RISK (default OFF)</div>
+        <div style="border-top:1px solid #333;padding-top:6px;color:#f96;font-size:10px">ALTO RIESGO (por defecto OFF)</div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-merchant"/> Merchant sniper</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Las ofertas de recursos del barco mercante empiezan en 0.5:1 y suben +0.1 por trato. Bombea con tratos de 1 unidad y luego envia el trato grande a 1:1."><input type="checkbox" data-cfg="auto-pt-trade"/> Bombeo del ratio del barco mercante</label>
         <label style="margin-left:12px;font-size:10px">ratio objetivo <input type="number" step="0.1" min="0.5" max="2" data-cfg="pt-ratio" style="width:52px;background:#111;color:#cfc;border:1px solid #333"/>
@@ -13243,7 +13243,7 @@ const STORE = {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="cs-alert"/> CS / incoming alerts</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-militia"/> Auto-militia on incoming</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-dodge"/> Auto-dodge</label>
-        <label style="margin-left:12px">Defense mode <select data-cfg="defense-mode" style="background:#111;color:#cfc;border:1px solid #333"><option value="notify">notify</option><option value="safe">safe dodge</option><option value="smart">smart</option></select> <label><input type="checkbox" data-cfg="defense-smart-auto"/> smart auto</label> check return +<input type="number" data-cfg="defense-return-margin" min="0" max="3600" style="width:55px;background:#111;color:#cfc;border:1px solid #333"/>s (manual if support arrived) · leave <input type="number" data-cfg="dodge-floor" min="0" max="500" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
+        <label style="margin-left:12px">Defense mode <select data-cfg="defense-mode" style="background:#111;color:#cfc;border:1px solid #333"><option value="notify">avisar</option><option value="safe">esquiva segura</option><option value="smart">smart</option></select> <label><input type="checkbox" data-cfg="defense-smart-auto"/> smart auto</label> check return +<input type="number" data-cfg="defense-return-margin" min="0" max="3600" style="width:55px;background:#111;color:#cfc;border:1px solid #333"/>s (manual if support arrived) · leave <input type="number" data-cfg="dodge-floor" min="0" max="500" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-recruit"/> Auto-recruit</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="recruit-spells"/> Cast recruit spells first</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="grepodata"/> Grepodata Index+ assist</label>
@@ -13251,24 +13251,24 @@ const STORE = {
         <label>Collect max min <input type="number" data-cfg="collect-max-min" min="1" max="120" style="width:70px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
         <label>Farm cadence min-max (min) <input type="number" data-cfg="farm-min" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> - <input type="number" data-cfg="farm-max" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label>Town cadence min-max (min) <input type="number" data-cfg="town-min" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> - <input type="number" data-cfg="town-max" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
-        <button data-cfg="clear-captcha" style="align-self:flex-start;background:#333;border:1px solid #555;color:#f96;padding:3px 8px;cursor:pointer;font-size:11px">Clear captcha breakers</button>
+        <button data-cfg="clear-captcha" style="align-self:flex-start;background:#333;border:1px solid #555;color:#f96;padding:3px 8px;cursor:pointer;font-size:11px">Limpiar cortacircuitos de captcha</button>
       </div>
     </section>
     <section data-tab="stats" hidden>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">
-        <b style="font-size:11px;color:#f5a623">Stats</b>
+        <b style="font-size:11px;color:#f5a623">Estadisticas</b>
         <button data-stats="1h" style="background:#262626;border:1px solid #333;color:#aaa;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">1h</button>
         <button data-stats="24h" class="on" style="background:#333;border:1px solid #555;color:#fff;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">24h</button>
         <button data-stats="7d" style="background:#262626;border:1px solid #333;color:#aaa;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">7d</button>
         <span style="flex:1"></span>
-        <button id="gb-preflight" title="Read-only probe of every module: collections, learned action keys, would-be payloads. Sends nothing." style="background:#333;border:1px solid #555;color:#6cf;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">Preflight</button>
+        <button id="gb-preflight" title="Read-only probe of every module: collections, learned action keys, would-be payloads. Sends nothing." style="background:#333;border:1px solid #555;color:#6cf;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">Comprobar sistema</button>
       </div>
       <pre class="stats-body" style="font-size:10px;white-space:pre-wrap;background:#111;padding:6px;border:1px solid #333;max-height:320px;overflow:auto;color:#cfc"></pre>
     </section>
     <section data-tab="log" hidden>
       <div class="gb-logsub">
-        <button data-logsub="live" class="on">Live log</button>
-        <button data-logsub="mem">Decisions</button>
+        <button data-logsub="live" class="on">Registro en vivo</button>
+        <button data-logsub="mem">Decisiones</button>
         <input class="jrn-filter" placeholder="filter feature/action/target"/>
       </div>
       <div class="log-list"></div>
@@ -13276,9 +13276,9 @@ const STORE = {
         <div class="jrn-head"></div>
         <div class="jrn-list"></div>
         <div class="jrn-btns">
-          <button data-jrn="copy">Copy JSON</button>
-          <button data-jrn="clear-skips">Clear skips</button>
-          <button data-jrn="clear">Clear journal</button>
+          <button data-jrn="copy">Copiar JSON</button>
+          <button data-jrn="clear-skips">Limpiar saltos</button>
+          <button data-jrn="clear">Limpiar bitacora</button>
         </div>
       </div>
     </section>
@@ -13290,18 +13290,18 @@ const STORE = {
         <span id="gb-status" style="color:#888"></span>
       </div>
       <details class="gb-actions">
-        <summary>Actions</summary>
+        <summary>Acciones</summary>
         <div class="gb-actions-menu">
-          <button type="button" data-act="copy">Copy JSON</button>
-          <button type="button" data-act="export">Export</button>
-          <button type="button" data-act="refresh">Refresh towns</button>
-          <button type="button" data-act="scrape-farms">Farms now</button>
-          <button type="button" data-act="scrape-towns">Towns now</button>
-          <button type="button" data-act="diag">Diag</button>
-          <button type="button" data-act="preflight">Preflight</button>
+          <button type="button" data-act="copy">Copiar JSON</button>
+          <button type="button" data-act="export">Exportar</button>
+          <button type="button" data-act="refresh">Refrescar ciudades</button>
+          <button type="button" data-act="scrape-farms">Granjas ahora</button>
+          <button type="button" data-act="scrape-towns">Ciudades ahora</button>
+          <button type="button" data-act="diag">Diagnostico</button>
+          <button type="button" data-act="preflight">Comprobar sistema</button>
           <button type="button" data-act="evidence" title="Instantanea de solo lectura y anonimizada para las validaciones de TASKS. Copia JSON. No envia nada.">Evidencia</button>
-          <button type="button" data-act="clear">Clear findings</button>
-          <button type="button" data-act="reset-pos" title="Reset panel position">Reset position</button>
+          <button type="button" data-act="clear">Limpiar hallazgos</button>
+          <button type="button" data-act="reset-pos" title="Reset panel position">Restablecer posicion</button>
         </div>
       </details>
     </footer>
@@ -13361,7 +13361,7 @@ const STORE = {
   panel.querySelector('.jrn-filter')?.addEventListener('input', () => journalFilterDebounced());
   panel.querySelector('[data-jrn=copy]')?.addEventListener('click', () => {
     const text = JSON.stringify({ decisions: state.decisions, skips: state.decisionSkips }, null, 2);
-    navigator.clipboard.writeText(text).then(() => flash('journal copied')).catch(() => flash('copy failed'));
+    navigator.clipboard.writeText(text).then(() => flash('bitacora copiada')).catch(() => flash('fallo al copiar'));
   });
   panel.querySelector('[data-jrn=clear-skips]')?.addEventListener('click', () => {
     jrnClearSkips();
@@ -13384,20 +13384,20 @@ const STORE = {
   panel.querySelector('#gb-sim-run')?.addEventListener('click',()=>{const h=Math.max(1,+panel.querySelector('#gb-sim-hours')?.value||24);dashboardSimulation=simulateAccount(h);state.simCfg.horizonHours=h;save(STORE.SIM_CFG,state.simCfg);renderDashboard();});
   panel.querySelector('#gb-cfg-export')?.addEventListener('click', () => {
     const text = JSON.stringify(qolRedactConfigDump(qolExportConfig()), null, 2);
-    navigator.clipboard.writeText(text).then(() => flash('config copied')).catch(() => flash('copy failed'));
+    navigator.clipboard.writeText(text).then(() => flash('configuracion copiada')).catch(() => flash('fallo al copiar'));
   });
   panel.querySelector('#gb-cfg-import')?.addEventListener('click', () => {
-    const raw = prompt('Paste GrepBot config JSON');
+    const raw = prompt('Pegar JSON de la config de GrepBot');
     if (!raw) return;
     try {
-      if (qolImportConfig(JSON.parse(raw))) flash('config imported');
-      else flash('import failed');
-    } catch (e) { flash('bad JSON'); }
+      if (qolImportConfig(JSON.parse(raw))) flash('configuracion importada');
+      else flash('importacion fallida');
+    } catch (e) { flash('JSON invalido'); }
   });
   panel.querySelector('#gb-note-save')?.addEventListener('click', () => {
     const p = panel.querySelector('#gb-note-player')?.value?.trim();
     const n = panel.querySelector('#gb-note-text')?.value?.trim();
-    if (p) { intelSetNote(p, n); renderIntel(); flash('note saved'); }
+    if (p) { intelSetNote(p, n); renderIntel(); flash('nota guardada'); }
   });
   panel.querySelector('#gb-quest-scan')?.addEventListener('click', () => {
     questScanTick('manual');
@@ -13451,7 +13451,7 @@ const STORE = {
     const dump = redactFindingsExport({ findings: state.findings, farms: state.farms });
     const text = JSON.stringify(dump, null, 2);
     navigator.clipboard.writeText(text)
-      .then(() => flash('copied'))
+      .then(() => flash('copiado'))
       .catch(() => {
         try {
           const ta = document.createElement('textarea');
@@ -13459,7 +13459,7 @@ const STORE = {
           const ok = document.execCommand('copy');
           ta.remove();
           flash(ok ? 'copied' : 'copy failed');
-        } catch (_) { flash('copy failed'); }
+        } catch (_) { flash('fallo al copiar'); }
       });
   });
   panel.querySelector('footer button[data-act=export]').addEventListener('click', () => {
@@ -13473,7 +13473,7 @@ const STORE = {
     gbTimeout(() => { try { URL.revokeObjectURL(objectUrl); } catch (_) {} }, 0);
   });
   panel.querySelector('footer button[data-act=clear]').addEventListener('click', () => {
-    if (!confirm('Clear all findings?')) return;
+    if (!confirm('Limpiar todos los hallazgos?')) return;
     state.findings = []; state.seen = {}; seenThisRun.clear();
     save(STORE.FINDINGS, state.findings); save(STORE.SEEN, state.seen);
     renderFindings();
@@ -13879,7 +13879,7 @@ const STORE = {
     sec.querySelector('[data-cfg=clear-captcha]')?.addEventListener('click', () => {
       captchaClear();
       gbLog('captcha breakers cleared by user');
-      flash('captcha breakers cleared');
+      flash('cortacircuitos de captcha limpiados');
     });
     renderCaveTowns();
   }
@@ -14260,8 +14260,8 @@ const STORE = {
           ' (' + pct + '%) hideCap=' + (info.hideCap != null ? info.hideCap : '?') +
           ' stored=' + (info.stored != null ? info.stored : '?') +
           ' unlimited=' + !!info.unlimited);
-        lines.push('  methods: ' + ((cd.keys && cd.keys.length) ? cd.keys.join(',') : '(none)'));
-        lines.push('  attrs: ' + ((cd.attrs && cd.attrs.length) ? cd.attrs.join(',') : '(none)'));
+        lines.push('  methods: ' + ((cd.keys && cd.keys.length) ? cd.keys.join(',') : '(ninguno)'));
+        lines.push('  attrs: ' + ((cd.attrs && cd.attrs.length) ? cd.attrs.join(',') : '(ninguno)'));
       } else {
         lines.push('cave town ?: (no model)');
       }
@@ -14275,11 +14275,11 @@ const STORE = {
       console.log(report);
       console.groupEnd();
       const okFlash = () => {
-        flash('diag copied');
+        flash('diagnostico copiado');
         gbLog('diag: copied ' + farms.length + ' farms, csrf=' + (state.csrf ? 'yes' : 'NO'));
       };
       const failFlash = () => {
-        flash('diag ready — paste from console');
+        flash('diagnostico listo — pegalo desde la consola');
         gbLog('diag: clipboard fail — expand [grepbot] diag in console');
       };
       const tryExecCopy = () => {
@@ -14338,22 +14338,22 @@ const STORE = {
     seenCount = 0;
     save(STORE.SEEN, state.seen); scrapeInboxDom();
   });
-  gbMenu('GrepBot: clear captcha', () => { captchaClear(); flash('captcha cleared'); });
+  gbMenu('GrepBot: clear captcha', () => { captchaClear(); flash('captcha limpiado'); });
   gbMenu('GrepBot: clear circuit breakers', () => {
-    if (!confirm('Clear all GrepBot circuit breakers? Only do this after reviewing the structural errors.')) return;
+    if (!confirm('Limpiar todos los cortacircuitos de GrepBot? Solo despues de revisar los errores estructurales.')) return;
     circuitClear();
     gbLog('circuit breakers manually cleared');
-    flash('circuits cleared');
+    flash('cortacircuitos limpiados');
     updateStatus();
   });
   gbMenu('GrepBot: review unknown transactions', () => {
     const unknown = Object.entries(state.txState || {}).filter(([, t]) => t && /^(unknown|manual-review)$/.test(t.state || ''));
-    if (!unknown.length) { flash('no unknown transactions'); return; }
+    if (!unknown.length) { flash('sin transacciones desconocidas'); return; }
     const sample = unknown.slice(0, 4).map(([k]) => k).join('\n');
-    if (!confirm(`Mark ${unknown.length} UNKNOWN transaction(s) as manually reviewed/aborted?\n\nThis can allow the same intent to be attempted again. First verify the game state.\n\n${sample}`)) return;
+    if (!confirm(`Marcar ${unknown.length} transaccion(es) DESCONOCIDA(S) como revisadas manualmente/canceladas?\n\nEsto puede afectarlow the same intent to be attempted again. First verify the game state.\n\n${sample}`)) return;
     txClearUnknown();
     gbLog(`transactions: manually reviewed/aborted ${unknown.length} unknown outcome(s)`);
-    flash(`reviewed ${unknown.length} unknown tx`);
+    flash(`revisadas ${unknown.length} tx desconocidas`);
     updateStatus();
   });
   function ensurePanelMounted() {

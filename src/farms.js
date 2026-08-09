@@ -545,13 +545,13 @@
     const sec = farmSleepDuration();
     if (farmOptionFor(sec) == null) {
       gbLog(`sleep claim: ${farmDurLabel(sec)} option not learned yet - open a farming village, click that timer once by hand, then retry`);
-      flash('sleep claim: teach ' + farmDurLabel(sec));
+      flash('recoleccion nocturna: ensenale ' + farmDurLabel(sec));
       if (onDone) onDone(null);
       return false;
     }
     if (!state.autoFarm) {
       gbLog('sleep claim: auto-farm is OFF - enable it in Config, the claim path is shared');
-      flash('sleep claim: auto-farm OFF');
+      flash('recoleccion nocturna: auto-granjas APAGADO');
       if (onDone) onDone(null);
       return false;
     }

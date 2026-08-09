@@ -221,7 +221,7 @@
           gbUnlock('bandit-reward', rewardLock);
           if (err) { gbLog('bandit: reward claim failed', err); return; }
           gbLog('bandit: reward claimed via', action, pid || '(no power_id)');
-          flash('bandit: reward claimed');
+          flash('bandido: recompensa reclamada');
           logBandit('collected');
         });
         return true;
@@ -282,7 +282,7 @@
         }
         banditAttackSentAt = Date.now();
         gbLog('bandit: ATTACK confirmed', JSON.stringify(units));
-        flash('bandit: attack sent');
+        flash('bandido: ataque enviado');
         logBandit('attack');
       });
       banditAttackSentAt = Date.now();

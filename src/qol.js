@@ -20,11 +20,11 @@
     };
     save(STORE.CITY_TEMPLATES, state.cityTemplates);
     gbLog(`template: saved "${name}"`);
-    flash('template saved: ' + name);
+    flash('plantilla guardada: ' + name);
   }
   function qolApplyTemplate(name) {
     const t = state.cityTemplates && state.cityTemplates[name];
-    if (!t) { flash('template missing'); return; }
+    if (!t) { flash('falta plantilla'); return; }
 
     if (t.abTargets) {
       state.abTargets = JSON.parse(JSON.stringify(t.abTargets));
@@ -39,7 +39,7 @@
       save(STORE.RECRUIT_TARGETS, state.recruitTargets);
     }
     gbLog(`template: applied "${name}"`);
-    flash('template applied: ' + name);
+    flash('plantilla aplicada: ' + name);
     try { renderAbQueue && renderAbQueue(); } catch (_) {}
   }
   function qolSetTownGroup(groupName, townIds) {
@@ -50,7 +50,7 @@
   function qolApplyGroupTemplate(groupName, templateName) {
     const ids = (state.townGroups && state.townGroups[groupName]) || [];
     const t = state.cityTemplates && state.cityTemplates[templateName];
-    if (!t || !ids.length) { flash('group/template missing'); return; }
+    if (!t || !ids.length) { flash('falta grupo/plantilla'); return; }
 
     if (t.recruitTargets) {
       const sample = Object.values(t.recruitTargets)[0] || t.recruitTargets;
@@ -76,7 +76,7 @@
     const rerender=()=>{renderGoals();renderPlanner();renderDashboard();};
     for(const tid of ids){let name=tid;try{const t=gbTownModel(tid);name=(t&&t.getName&&t.getName())||name}catch(_){} const plan=goalPlanTown(tid);
       const head=document.createElement('div');head.style.cssText='display:flex;gap:4px;align-items:center;padding:4px;border-bottom:1px solid #333';const b=document.createElement('b');b.textContent=`${name} · ${plan.progress}%`;head.appendChild(b);
-      const edit=document.createElement('button');edit.textContent='Edit';edit.title='Edit per-town goal overrides/reserves as JSON';edit.style.cssText='font-size:8px;padding:1px 4px';edit.addEventListener('click',()=>{const cur=goalTownCfg(tid),raw=prompt('Town goal overrides JSON\nKeys: build, research, units, reserve:{hard,soft}',JSON.stringify({build:cur.build,research:cur.research,units:cur.units,reserve:cur.reserve},null,2));if(raw==null)return;try{if(!goalSetTownOverrides(tid,JSON.parse(raw)))throw new Error('invalid object');rerender()}catch(e){flash('invalid goal JSON')}});head.appendChild(edit);
+      const edit=document.createElement('button');edit.textContent='Edit';edit.title='Edit per-town goal overrides/reserves as JSON';edit.style.cssText='font-size:8px;padding:1px 4px';edit.addEventListener('click',()=>{const cur=goalTownCfg(tid),raw=prompt('Overrides de objetivos por ciudad JSON\nClaves: build, research, units, reserve:{hard,soft}',JSON.stringify({build:cur.build,research:cur.research,units:cur.units,reserve:cur.reserve},null,2));if(raw==null)return;try{if(!goalSetTownOverrides(tid,JSON.parse(raw)))throw new Error('invalid object');rerender()}catch(e){flash('JSON de objetivos invalido')}});head.appendChild(edit);
       const rec=document.createElement('button');rec.textContent='Recalc';rec.style.cssText='font-size:8px;padding:1px 4px';rec.addEventListener('click',()=>{goalPlanTown(tid);rerender()});head.appendChild(rec);
       const reset=document.createElement('button');reset.textContent='Reset Q';reset.title='Clear virtual-queue order/block/mandatory overrides';reset.style.cssText='font-size:8px;padding:1px 4px';reset.addEventListener('click',()=>{goalQueueReset(tid);rerender()});head.appendChild(reset);
       const sel=document.createElement('select');sel.style.cssText='background:#111;color:#cfc;border:1px solid #333;font-size:9px;margin-left:auto';for(const [id,p] of Object.entries(profiles)){const o=document.createElement('option');o.value=id;o.textContent=p.label||id;sel.appendChild(o)}sel.value=plan.profile;sel.addEventListener('change',()=>{goalSetProfile(tid,sel.value);rerender()});head.appendChild(sel);box.appendChild(head);

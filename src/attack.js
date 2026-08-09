@@ -302,9 +302,9 @@
   }
   function attackSelectRoleSources(role) {
     const ids = attackTownGroup(role);
-    if (!ids.length) { flash('no cities tagged for this role'); return; }
+    if (!ids.length) { flash('sin ciudades con este rol'); return; }
     attackSelectSources(ids);
-    flash(`${role === ATTACK_ROLE_OFFENSE ? 'offense' : 'defense'} cities selected (${ids.length})`);
+    flash(`${role === ATTACK_ROLE_OFFENSE ? 'ofensiva' : 'defensa'} ciudades seleccionadas (${ids.length})`);
   }
   function renderAttackRoles(sec) {
     const box = sec && sec.querySelector('.atk-roles');
@@ -452,7 +452,7 @@
     if (!ATTACK_GENERIC_MISSIONS.has(String(plan.mission || 'attack').toLowerCase())) plan.mission = 'attack';
     saveAttackPlan();
     gbLog('attack: harass preset ' + plan.harassPreset);
-    flash('harass preset: ' + plan.harassPreset + ' (manual confirmation still required)');
+    flash('preset de acoso: ' + plan.harassPreset + ' (manual confirmation still required)');
     return plan;
   }
   function buildAttackSchedule(plan) {
@@ -490,15 +490,15 @@
   }
   const ATTACK_GENERIC_MISSIONS = new Set(['attack', 'support', 'revolt']);
   function sendAttackViaBridge(target, srcTownId, units, mission, onDone) {
-    if (!hostEnabled()) { flash('bot disabled on this host'); return onDone && onDone('disabled'); }
+    if (!hostEnabled()) { flash('bot desactivado en este servidor'); return onDone && onDone('disabled'); }
     const safeMission = String(mission || 'attack').toLowerCase();
     if (!ATTACK_GENERIC_MISSIONS.has(safeMission)) {
       gbLog(`attack: mission ${safeMission} requires a dedicated canonical handler — blocked`);
       return onDone && onDone('unsupported-mission');
     }
-    if (captchaPaused('attack')) { flash('attack paused (captcha)'); return onDone && onDone('captcha'); }
+    if (captchaPaused('attack')) { flash('ataque pausado (captcha)'); return onDone && onDone('captcha'); }
     if (!attackSendAllowed(target)) {
-      flash('attack blocked: target not a town (or unresolved)');
+      flash('ataque bloqueado: objetivo no es una ciudad (o no resuelto)');
       gbLog('attack: refuse Town/sendUnits for kind=' + (target && target.kind));
       return onDone && onDone('bad-target');
     }
@@ -537,8 +537,8 @@
     };
     gbLog('attack bridge:', JSON.stringify(payload));
     bridgePost('attack', payload, (err, data) => {
-      if (err) { flash('attack failed: ' + err); return onDone && onDone(err); }
-      flash('attack sent #' + srcTownId);
+      if (err) { flash('ataque fallido: ' + err); return onDone && onDone(err); }
+      flash('ataque enviado #' + srcTownId);
       attackRememberTarget(target.town_id, { x: target.x, y: target.y, src: 'sent' });
       gbLog('attack response:', JSON.stringify(data).slice(0, 200));
       if (onDone) onDone(null, data);
@@ -554,7 +554,7 @@
     (attackArmed.timers || []).forEach(id => gbClearTimeout(id));
     if (attackArmed.raf) cancelAnimationFrame(attackArmed.raf);
     gbLog('attack: cancelled armed wave');
-    flash('attack cancelled');
+    flash('ataque cancelado');
     attackArmed = null;
     renderAttack();
   }
@@ -581,7 +581,7 @@
     cancelArmedAttack();
     const target = resolveTarget(plan);
     if (!target || !attackSendAllowed(target)) {
-      flash('cannot arm: target unresolved or not a town');
+      flash('no se puede armar: objetivo no resuelto o no es una ciudad');
       gbLog('attack: arm blocked — need canonical town target (villages unsupported)');
       return;
     }
@@ -591,7 +591,7 @@
     attackArmed = { timers, rows, plan, cancel: cancelArmedAttack, armedAt };
     const skew0 = clientServerSkewMs();
     gbLog(`attack: armed ${rows.length} towns mode=${plan.timingMode} skew=${Math.round(skew0)}ms (max window ${ATTACK_ARM_MAX_MS}ms)`);
-    flash('Browser timers are not military-precise — long waits will not auto-fire');
+    flash('Los timers del navegador no son precisos para uso militar - esperas largas no se dispararan solas');
     rows.forEach((row, idx) => {
       if (!row.unitCount || !row.boats.ok) {
         gbLog(`attack: skip ${row.townId} status=${row.status}`);
@@ -679,16 +679,16 @@
   function fireAttackNow(plan, rows) {
     const target = resolveTarget(plan);
     if (!target || !attackSendAllowed(target)) {
-      flash('cannot send: target unresolved or not a town');
+      flash('no se puede enviar: objetivo no resuelto o no es una ciudad');
       return;
     }
-    if (!confirm(`Send ${rows.filter(r => r.boats.ok && r.unitCount).length} attack(s) now?`)) return;
+    if (!confirm(`Enviar ${rows.filter(r => r.boats.ok && r.unitCount).length} ataque(s) ahora?`)) return;
     let i = 0;
     const okRows = rows.filter(r => r.boats.ok && r.unitCount);
     (function next() {
       if (i >= okRows.length) {
         pushAttackHistory({ ts: Date.now(), mode: 'send_now_immediate', targetId: plan.targetId, towns: okRows.map(r => r.townId) });
-        flash(`attacks x${okRows.length}`);
+        flash(`ataques x${okRows.length}`);
         return;
       }
       const row = okRows[i++];

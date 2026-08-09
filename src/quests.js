@@ -404,7 +404,7 @@
         kinds,
       });
       gbLog(`quest: auto-claim ${ok ? 'OK' : 'fail'} via ${method}`, entry.title || entry.questId, kinds);
-      if (ok) flash('quest claim: ' + kinds);
+      if (ok) flash('reclamo de mision: ' + kinds);
       gbTimeout(() => { questAutoBusy = false; questScanTick('post-claim'); renderQuests(); }, 2500);
     };
     const questStillClaimable = () => {

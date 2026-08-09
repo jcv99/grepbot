@@ -80,28 +80,28 @@
     const threats = intelThreatBoard();
     const dossiers = intelDossiers().slice(0, 30);
     let html = '';
-    html += '=== Incoming ===\n';
+    html += '=== Entrantes ===\n';
     if (!threats.length) html += '(none)\n';
     else {
       threats.forEach(t => {
         const da = defenseAssessment(t, threats);
         html += `${t.hasCs ? '[CS] ' : ''}${t.type || 'atk'} → ${t.dest} from ${t.origin || '?'}` +
-          (t.arrival ? ` @${t.arrival}` : '') + ` | risk ${da.risk} | ETA ${da.eta==null?'?':fmtSec(da.eta)} | support ${da.supports.length} | evade ${da.evac.ok?'yes':'no'}` + '\n';
+          (t.arrival ? ` @${t.arrival}` : '') + ` | riesgo ${da.risk} | ETA ${da.eta==null?'?':fmtSec(da.eta)} | apoyo ${da.supports.length} | esquivar ${da.evac.ok?'si':'no'}` + '\n';
       });
     }
-    html += '\n=== Dossiers ===\n';
+    html += '\n=== Fichas ===\n';
     dossiers.forEach(d => {
-      html += `${d.player}: ${d.reports} reports` +
+      html += `${d.player}: ${d.reports} informes` +
         (d.note ? ` — ${d.note}` : '') +
-        (d.allianceNote ? ` [ally: ${d.allianceNote}]` : '') + '\n';
+        (d.allianceNote ? ` [aliado: ${d.allianceNote}]` : '') + '\n';
     });
     if (state.watchlist && state.watchlist.length) {
-      html += '\n=== Watchlist ===\n' + state.watchlist.map(w =>
+      html += '\n=== Lista de vigilancia ===\n' + state.watchlist.map(w =>
         typeof w === 'object' ? `${w.id || w.townId} ${w.name || ''}` : String(w)
       ).join('\n') + '\n';
     }
     if (state.allianceNotes && Object.keys(state.allianceNotes).length) {
-      html += '\n=== Alliance notes ===\n';
+      html += '\n=== Notas de alianza ===\n';
       Object.keys(state.allianceNotes).forEach(k => {
         html += `${k}: ${state.allianceNotes[k]}\n`;
       });

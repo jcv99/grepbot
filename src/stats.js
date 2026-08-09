@@ -182,16 +182,16 @@
     if (!box) return;
     const st = jrnStats(STATS_WINDOWS[statsWindow] || 86400000);
     const lines = [];
-    lines.push(`window ${statsWindow} | ${st.total} decisions | ${st.attempts} attempts | success ${st.successPct == null ? '-' : st.successPct + '%'}`);
-    lines.push(`ok ${st.ok}  err ${st.err}  captcha ${st.captcha}  timeout ${st.timeout}  pending ${st.pending}  skipped ${st.skip}${st.dry ? ` (dry-run ${st.dry})` : ''}`);
+    lines.push(`ventana ${statsWindow} | ${st.total} decisiones | ${st.attempts} intentos | exito ${st.successPct == null ? '-' : st.successPct + '%'}`);
+    lines.push(`ok ${st.ok}  err ${st.err}  captcha ${st.captcha}  timeout ${st.timeout}  pendiente ${st.pending}  saltadas ${st.skip}${st.dry ? ` (simulacion ${st.dry})` : ''}`);
     const claims = jrnCountOk('farm', /claim/i, STATS_WINDOWS[statsWindow] || 86400000);
     const builds = jrnCountOk('build', /Instant|instant/i, STATS_WINDOWS[statsWindow] || 86400000)
       + jrnCountOk('instant-build', null, STATS_WINDOWS[statsWindow] || 86400000);
-    lines.push(`farm claims ${claims} | instant completions ${builds}`);
+    lines.push(`reclamos de granjas ${claims} | completados inst. ${builds}`);
     lines.push('');
     lines.push('feature      ok   err  tout  pend  cap  skip   rate');
     const feats = Object.keys(st.byFeature).sort();
-    if (!feats.length) lines.push('  (no decisions recorded in this window)');
+    if (!feats.length) lines.push('  (sin decisiones en esta ventana)');
     feats.forEach(f => {
       const v = st.byFeature[f];
       const att = v.ok + v.err + v.captcha + v.timeout;
@@ -207,27 +207,27 @@
     });
     if (st.topErrors.length) {
       lines.push('');
-      lines.push('top errors');
+      lines.push('errores principales');
       st.topErrors.forEach(([k, n]) => lines.push(`  ${n}x ${k}`));
     }
     if (st.topPending.length) {
       lines.push('');
-      lines.push('pending transaction states (not errors)');
+      lines.push('estados de tx pendientes (no son errores)');
       st.topPending.forEach(([k, n]) => lines.push(`  ${n}x ${k}`));
     }
     if (st.topSkips.length) {
       lines.push('');
-      lines.push('top skip reasons');
+      lines.push('razones principales de salto');
       st.topSkips.forEach(([k, n]) => lines.push(`  ${n}x ${k}`));
     }
     lines.push('');
-    lines.push('scheduler (cadence includes adaptive idle backoff)');
+    lines.push('planificador (cadencia con adaptativa por inactividad)');
     orchStatus().filter(s => s.on).forEach(s => {
-      lines.push(`  ${s.key.padEnd(11)} every ${fmtSec(Math.round(s.cadenceMs / 1000)).padEnd(6)} next ${fmtSec(Math.round(s.dueInMs / 1000)).padEnd(6)}${s.idle ? ' idle x' + s.idle : ''}${s.captcha ? ' CAPTCHA' : ''}`);
+      lines.push(`  ${s.key.padEnd(11)} cada ${fmtSec(Math.round(s.cadenceMs / 1000)).padEnd(6)} proxima ${fmtSec(Math.round(s.dueInMs / 1000)).padEnd(6)}${s.idle ? ' inact. x' + s.idle : ''}${s.captcha ? ' CAPTCHA' : ''}`);
     });
     const locks = gbLockList();
     lines.push('');
-    lines.push(`requests last min ${reqBudgetUsed()}/${state.reqBudgetPerMin || 40}` +
+    lines.push(`peticiones ultimo min ${reqBudgetUsed()}/${state.reqBudgetPerMin || 40}` +
       (gbServerPaused() ? ` | server cooldown ${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}` : '') +
       (locks.length ? ` | locks ${locks.join(',')}` : '') +
       (state.dryRun ? ' | DRY-RUN' : ''));
