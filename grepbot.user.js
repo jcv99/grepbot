@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.3.1
+// @version      2.4.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -5977,19 +5977,83 @@ const STORE = {
     const levels=abCurrentLevels(townId);if(!levels)return false;const next=Object.assign({},levels);
     for(const j of nativeQueueList(townId,'build',false)){if(!j||!AB_BUILDINGS.includes(j.building))continue;if(j.inflight||j.manualReview){next[j.building]=Math.max(+next[j.building]||0,+j.toLevel||0);continue}const from=+next[j.building]||0;j.fromLevel=from;j.toLevel=from+1;next[j.building]=from+1}return true;
   }
+  function nativeQueuePrereqWalk(townId, building) {
+
+    const levels = abCurrentLevels(townId);
+    if (!levels) return { chain: [], error: 'levels-unreadable' };
+    const sim = Object.assign({}, levels);
+    for (const j of nativeQueueList(townId, 'build', false)) {
+      if (!j || j.toLevel == null) continue;
+      sim[j.building] = Math.max(+sim[j.building] || 0, +j.toLevel || 0);
+    }
+    const chain = [];
+    let target = building;
+    for (let safety = 0; safety < 50; safety++) {
+      const resolved = abResolvePrerequisite(townId, target, sim);
+      if (!resolved || !resolved.building) return { chain, error: (resolved && resolved.error) || 'prereq-unknown' };
+      if (resolved.building === target) return { chain };
+      chain.push(resolved.building);
+      sim[resolved.building] = (+sim[resolved.building] || 0) + 1;
+    }
+    return { chain, error: 'chain-too-long' };
+  }
   function nativeQueueAddBuild(townId,building) {
     if(!AB_BUILDINGS.includes(building))return false;
     if(gbLocked('ab')){flash('Hay una orden de construcción en curso; reintenta en unos segundos');return false}
     nativeQueueReconcileBuild(townId);
     if(nativeQueueList(townId,'build',false).some(j=>j&&(j.inflight||j.manualReview))){flash('Revisa primero la acción pendiente de esta cola');return false}
     const special=nativeSpecialConflict(townId,building);if(special){flash(`Conflicto con ${nativeBuildLabel(special)}`);return false}
-    const from=nativeQueueProjectedBuildLevel(townId,building),max=abMaxLevel(building);
-    if(from==null){flash('No se puede leer el nivel actual');return false}
-    if(max==null){flash('No se puede leer el nivel máximo');return false}
-    if(from>=max){flash(`${nativeBuildLabel(building)} ya está al máximo`);return false}
-    const town=nativeQueueTown(townId,true);town.mode.build='fifo';town.build.push({id:nativeQueueId('b'),kind:'build',townId:String(townId),building,fromLevel:from,toLevel:from+1,status:'pending',reason:'',createdAt:Date.now()});
-    nativeQueueRebaseBuild(townId);nativeQueueSave();gbLog(`cola nativa: ${nativeBuildLabel(building)} ${from}→${from+1} @${townId}`);
-    gbTimeout(()=>abScan('native'),80);return true;
+    const baseLevels = abCurrentLevels(townId);
+    if (!baseLevels) { flash('No se puede leer el nivel actual'); return false; }
+
+    const walk = nativeQueuePrereqWalk(townId, building);
+    if (walk.error && walk.error !== 'levels-unreadable') {
+
+      if (!walk.chain.length) { flash(`Requisitos no resolubles: ${abReasonText(walk.error)}`); return false; }
+    }
+    const sim = Object.assign({}, baseLevels);
+    for (const j of nativeQueueList(townId, 'build', false)) {
+      if (!j || j.toLevel == null) continue;
+      sim[j.building] = Math.max(+sim[j.building] || 0, +j.toLevel || 0);
+    }
+    const max = abMaxLevel(building);
+    if (max == null) { flash('No se puede leer el nivel máximo'); return false; }
+    const from = +sim[building] || 0;
+    if (from >= max) { flash(`${nativeBuildLabel(building)} ya está al máximo`); return false; }
+    const town = nativeQueueTown(townId, true); town.mode.build = 'fifo';
+
+    let addedPrereqs = 0;
+    for (const dep of walk.chain) {
+      const dMax = abMaxLevel(dep);
+      const dFrom = +sim[dep] || 0;
+      if (dMax == null) continue;
+      if (dFrom >= dMax) continue;
+      town.build.push({
+        id: nativeQueueId('b'), kind: 'build', townId: String(townId),
+        building: dep, fromLevel: dFrom, toLevel: dFrom + 1,
+        status: 'pending', reason: `requisito para ${nativeBuildLabel(building)}`,
+        createdAt: Date.now(),
+      });
+      sim[dep] = dFrom + 1;
+      addedPrereqs++;
+    }
+
+    if (walk.error && walk.error !== 'levels-unreadable') {
+      flash(`${addedPrereqs} requisito(s) añadidos; el objetivo final no se puede resolver: ${abReasonText(walk.error)}`);
+    } else {
+      town.build.push({
+        id: nativeQueueId('b'), kind: 'build', townId: String(townId),
+        building, fromLevel: from, toLevel: from + 1,
+        status: 'pending', reason: '', createdAt: Date.now(),
+      });
+      if (addedPrereqs) flash(`+${addedPrereqs} requisito(s) antes de ${nativeBuildLabel(building)}`);
+    }
+    nativeQueueRebaseBuild(townId); nativeQueueSave();
+    const summary = addedPrereqs
+      ? `${nativeBuildLabel(building)} ${from}→${from + 1} + ${addedPrereqs} requisito(s) [${walk.chain.map(b => nativeBuildLabel(b)).join(', ')}] @${townId}`
+      : `${nativeBuildLabel(building)} ${from}→${from + 1} @${townId}`;
+    gbLog(`cola nativa: ${summary}`);
+    gbTimeout(() => abScan('native'), 80); return true;
   }
   function nativeQueueRemoveLastBuild(townId,building) {
     nativeQueueReconcileBuild(townId);
