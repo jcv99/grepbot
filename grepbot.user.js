@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.5.5
+// @version      2.5.6
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1472,7 +1472,6 @@ const STORE = {
   }
   function i18n(key) { return (marketLocale()[key] || I18N.en[key] || key); }
 
-  const CAPTCHA_BACKOFF = [5, 15, 60];
   const BRIDGE_TIMEOUT_MS = 15000;
   function saveCaptcha() { save(wkey(STORE.CAPTCHA), state.captchaBreakers); }
   function captchaPaused(feature) {
@@ -5911,7 +5910,6 @@ const STORE = {
     lumber: 15, stoner: 15, ironer: 15, wall: 10,
   };
 
-  const AB_CHECK_MS = 15000;
   const AB_SEND_SPACING_MS = 1100;
   function abDefaultTargets() { return Object.assign({}, AB_CS_FAST); }
   function abDefaultOrder() { return AB_BUILDINGS.slice(); }
@@ -7186,7 +7184,6 @@ const STORE = {
     });
   }
 
-  const CULTURE_CHECK_MS = 90000;
   const CULTURE_COSTS = {
     party: { wood: 15000, stone: 18000, iron: 15000, academy: 30 },
     triumph: { killpoints: 300 },
@@ -7797,9 +7794,6 @@ const STORE = {
       });
     })();
   }
-
-  const RURAL_TRADE_MS = 90000;
-  const RURAL_LEVEL_MS = 120000;
   function ruralRelModels() {
     try {
       const uw = gameUw();
@@ -8061,7 +8055,6 @@ const STORE = {
     })();
   }
 
-  const RESEARCH_CHECK_MS = 45000;
   const RESEARCH_CS_FAST = ['booty', 'ceramics', 'architecture', 'crane', 'shipwright', 'colonize_ship', 'mathematics'];
   function researchEnsureTargets() {
     if (state.researchTargets && typeof state.researchTargets === 'object') return state.researchTargets;
@@ -8367,8 +8360,6 @@ const STORE = {
       gbLogT('webhook-ex-' + key, 60000, 'webhook ' + String(e));
     }
   }
-
-  const MERCHANT_CHECK_MS = 45000;
   function merchantExactMatch(wishName, offerId) {
     const w = String(wishName || '').toLowerCase().trim();
     const id = String(offerId || '').toLowerCase().trim();
@@ -8481,7 +8472,6 @@ const STORE = {
     });
   }
 
-  const FAVOR_CHECK_MS = 60000;
   const FAVOR_TEMPLE_PLUNDER = /temple_plunder|plunder_temple|templeplunder|saqueo.?templo|plunderung.?tempel/i;
 
   const favorOwnMoves = Object.create(null);
@@ -9180,7 +9170,6 @@ const STORE = {
   function dodgeReturnTick(){if(!hostEnabled()||automationPaused({}))return;const now=Date.now();for(const[id,r]of Object.entries(state.dodgeReturns||{})){if(!r||r.state==='done'||r.state==='manual')continue;if(+r.dueAt>now)continue;const live=militaryOutgoingMovements().find(x=>String(x.commandId)===String(r.commandId));if(live&&state.cancelTpl){r.state='returning';dodgeReturnSave();militaryCancelCommand(r.commandId,{confirmed:true,automation:true},err=>{if(!err){r.state='done';r.doneAt=Date.now()}else if(err==='not-cancelable'){r.state='manual';r.why='support already arrived; withdraw manually'}else{r.state='waiting';r.lastError=String(err)}dodgeReturnSave()});}else{r.state='manual';r.why=live?'cancel template missing':'movement no longer cancelable/visible';dodgeReturnSave();gbLogT('dodge-return-'+id,60000,`dodge return ${id}: ${r.why}`)}}}
 
   const DODGE_CHECK_MS = 5000;
-  const DODGE_RETRY_MS = 15000;
   const DODGE_FAIL_BACKOFF = [15000, 45000, 120000];
   const DODGE_QUEUE_TTL = 3600000;
 

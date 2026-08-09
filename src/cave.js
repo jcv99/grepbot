@@ -280,7 +280,6 @@
     });
   }
 
-  const CULTURE_CHECK_MS = 90000;
   const CULTURE_COSTS = {
     party: { wood: 15000, stone: 18000, iron: 15000, academy: 30 },
     triumph: { killpoints: 300 },

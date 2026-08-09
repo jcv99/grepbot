@@ -359,5 +359,3 @@
     })();
   }
 
-  const RURAL_TRADE_MS = 90000;
-  const RURAL_LEVEL_MS = 120000;

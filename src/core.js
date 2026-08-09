@@ -1295,7 +1295,6 @@
   }
   function i18n(key) { return (marketLocale()[key] || I18N.en[key] || key); }
 
-  const CAPTCHA_BACKOFF = [5, 15, 60];
   const BRIDGE_TIMEOUT_MS = 15000;
   function saveCaptcha() { save(wkey(STORE.CAPTCHA), state.captchaBreakers); }
   function captchaPaused(feature) {

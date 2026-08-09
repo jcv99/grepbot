@@ -136,5 +136,4 @@
     lumber: 15, stoner: 15, ironer: 15, wall: 10,
   };
 
-  const AB_CHECK_MS = 15000;
   const AB_SEND_SPACING_MS = 1100;

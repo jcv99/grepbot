@@ -265,5 +265,4 @@
     })();
   }
 
-  const RESEARCH_CHECK_MS = 45000;
   const RESEARCH_CS_FAST = ['booty', 'ceramics', 'architecture', 'crane', 'shipwright', 'colonize_ship', 'mathematics'];

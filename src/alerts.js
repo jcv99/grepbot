@@ -87,4 +87,3 @@
     }
   }
 
-  const MERCHANT_CHECK_MS = 45000;

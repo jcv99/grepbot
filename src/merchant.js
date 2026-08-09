@@ -110,7 +110,6 @@
     });
   }
 
-  const FAVOR_CHECK_MS = 60000;
   const FAVOR_TEMPLE_PLUNDER = /temple_plunder|plunder_temple|templeplunder|saqueo.?templo|plunderung.?tempel/i;
 
   const favorOwnMoves = Object.create(null);
