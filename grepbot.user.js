@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.4.7
+// @version      2.4.8
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -6011,6 +6011,17 @@ const STORE = {
     if(!force&&list.some(j=>j&&j.inflight))return false;
 
     if(!force&&list.some(j=>j&&j.manualReview)&&!target.manualReview)return false;
+
+    if(!force&&lane==='build'){
+      const impact=nativeQueueRemovalImpact(townId,jobId);
+      if(!impact.ok){
+        const head=impact.blockers.slice(0,3).map(b=>`${nativeBuildLabel(b.building)} (necesita ${impact.target.building} ${b.requires}, sin esta entrada solo ${b.has})`).join('; ');
+        const more=impact.blockers.length>3?` y ${impact.blockers.length-3} más`:'';
+        flash(`Bloqueado: ${nativeBuildLabel(impact.target.building)} ${impact.target.toLevel} aún hace falta para ${head}${more}`);
+        gbLog(`cola nativa: borrado bloqueado — ${impact.blockers.length} edificio(s) dependen de ${impact.target.building} ${impact.target.toLevel}: `+impact.blockers.map(b=>`${b.building}>=${b.requires}`).join(', '));
+        return false;
+      }
+    }
     list.splice(i,1);if(lane==='build')nativeQueueRebaseBuild(townId);nativeQueueSave();return true;
   }
   function nativeQueuePosition(townId,lane,pred) {
@@ -6037,6 +6048,48 @@ const STORE = {
   function nativeQueueRebaseBuild(townId) {
     const levels=abCurrentLevels(townId);if(!levels)return false;const next=Object.assign({},levels);
     for(const j of nativeQueueList(townId,'build',false)){if(!j||!AB_BUILDINGS.includes(j.building))continue;if(j.inflight||j.manualReview){next[j.building]=Math.max(+next[j.building]||0,+j.toLevel||0);continue}const from=+next[j.building]||0;j.fromLevel=from;j.toLevel=from+1;next[j.building]=from+1}return true;
+  }
+
+  function nativeQueueRemovalImpact(townId, jobId) {
+    const list = nativeQueueList(townId, 'build', false);
+    const idx = list.findIndex(j => j && j.id === jobId);
+    if (idx < 0) return { ok: true };
+    const target = list[idx];
+    if (!target || !AB_BUILDINGS.includes(target.building)) return { ok: true };
+    const levels = abCurrentLevels(townId);
+    if (!levels) return { ok: true };
+    const B = String(target.building);
+    const T = +target.toLevel || 0;
+    const fold = (skipIdx) => {
+      const sim = Object.assign({}, levels);
+      for (let i = 0; i < list.length; i++) {
+        if (i === skipIdx) continue;
+        const j = list[i];
+        if (!j || !AB_BUILDINGS.includes(j.building)) continue;
+        if (j.inflight || j.manualReview) {
+          sim[j.building] = Math.max(+sim[j.building] || 0, +j.toLevel || 0);
+          continue;
+        }
+        sim[j.building] = Math.max(+sim[j.building] || 0, +j.toLevel || 0);
+      }
+      return sim;
+    };
+    const simWith = fold(-1);
+    const simWithout = fold(idx);
+    const withLvl = +simWith[B] || 0;
+    if (withLvl < T) return { ok: true };
+    const blockers = [];
+    for (const b of AB_BUILDINGS) {
+      const req = abRequirementMap(townId, b);
+      if (!req) continue;
+      const need = +req[B] || 0;
+      if (!need) continue;
+      if (need <= +simWithout[B]) continue;
+      if (need > withLvl) continue;
+      blockers.push({ building: b, requires: need, has: +simWithout[B] || 0 });
+    }
+    if (!blockers.length) return { ok: true };
+    return { ok: false, blockers, target: { building: B, toLevel: T, withLvl, withoutLvl: +simWithout[B] || 0 } };
   }
   function nativeQueuePrereqWalk(townId, building) {
 
@@ -6119,7 +6172,16 @@ const STORE = {
   function nativeQueueRemoveLastBuild(townId,building) {
 
     nativeQueueReconcileBuild(townId);
-    const list=nativeQueueList(townId,'build',false);for(let i=list.length-1;i>=0;i--){const j=list[i];if(j&&j.building===building&&!j.inflight&&!j.manualReview){list.splice(i,1);nativeQueueRebaseBuild(townId);nativeQueueSave();return true}}
+    const list=nativeQueueList(townId,'build',false);for(let i=list.length-1;i>=0;i--){const j=list[i];if(j&&j.building===building&&!j.inflight&&!j.manualReview){
+      const impact=nativeQueueRemovalImpact(townId,j.id);
+      if(!impact.ok){
+        const head=impact.blockers.slice(0,3).map(b=>`${nativeBuildLabel(b.building)} (necesita ${impact.target.building} ${b.requires}, sin esta entrada solo ${b.has})`).join('; ');
+        const more=impact.blockers.length>3?` y ${impact.blockers.length-3} más`:'';
+        flash(`Bloqueado: ${nativeBuildLabel(impact.target.building)} ${impact.target.toLevel} aún hace falta para ${head}${more}`);
+        gbLog(`cola nativa: borrado bloqueado — ${impact.blockers.length} edificio(s) dependen de ${impact.target.building} ${impact.target.toLevel}: `+impact.blockers.map(b=>`${b.building}>=${b.requires}`).join(', '));
+        return false;
+      }
+      list.splice(i,1);nativeQueueRebaseBuild(townId);nativeQueueSave();return true}}
     return false;
   }
   function nativeUnitStep(unit) {
