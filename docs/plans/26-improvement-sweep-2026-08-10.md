@@ -51,10 +51,10 @@ Work:
    `state.farmAction` was never learned; ON reproduces today's behaviour.
 3. Clear the stale error rows when the breaker trips or the toggle goes OFF.
    The consumers **already** degrade correctly on missing data (`ui.js:73-81`
-   renders `-`, `checkThresholds` `build-auto.js:454` does
+   renders `-`, `checkThresholds` `build-auto.js:456` does
    `if (!r || !r.ok || !t) continue;`), so no consumer change is needed - but
    existing `{ok:false, err:'no endpoint matched'}` entries survive up to 24h
-   (prune cutoff `core.js:1129-1136`), so the Farms tab and the footer
+   (prune cutoff `core.js:1132-1140`), so the Farms tab and the footer
    (`ui.js:1715`) would keep showing the old error after the feature is off.
    Delete `state.farmResources` entries on trip/disable and make the footer read
    `farms: scrape off`.
@@ -114,13 +114,13 @@ pools in Stats.
 Two constraints found while verifying, both must hold or this makes things worse:
 
 - **Three buckets, not two.** `gbXhr` defaults everything without an explicit
-  `scope` to `game` (`core.js:1173`), which today lumps the dead farm scrape in
+  `scope` to `game` (`core.js:1176`), which today lumps the dead farm scrape in
   with report catch-up (`spy.js:157`, `fetchReportHttp`) - a time-sensitive
   intel path. Tag it separately (`scrape` / `read` / `action`) so catch-up is not
   throttled like the noise.
 - **`gbWakeDrain` (`core.js:632`) must stay scope-neutral.** Wake entries are
   heterogeneous and carry no scope: `gbWake` callers include `ibScan`
-  (`boot.js:47,55,74`), `orchTick` (`boot.js:97`, dispatches real writes),
+  (`boot.js:55,63,82`), `orchTick` (`boot.js:105`, dispatches real writes),
   `farmTick` (`farms.js:864`, triggers the scrape) and `reportCatchUpRun`
   (`spy.js:120`). Either add per-item scope metadata to the queue or leave that
   gate alone and let the inner `gbXhr` / `txRun` calls do the scope-aware
