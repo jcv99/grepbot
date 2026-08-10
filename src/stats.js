@@ -121,6 +121,30 @@
       return { ok: bad === 0, warn: bad > 0, detail: parts.join(', ') };
     }));
 
+    // Village recruit: HIGH-RISK, default OFF. Probes that the four preconditions
+    // are reachable without forcing a post: learned bridge template, unit-count
+    // read path, and farm-resources fill read. Anything unreadable becomes a
+    // warn, not a fail - the feature is opt-in, so "nothing to do" is fine.
+    out.push(preflightProbe('village recruit', () => {
+      const parts = [];
+      let bad = 0, warn = 0;
+      const tpl = state.acceptUnitsTpl;
+      if (tpl && tpl.action_name) parts.push(`tpl ${tpl.action_name}`);
+      else { parts.push('tpl UNLEARNED (open a village, click Aceptar once)'); warn++; }
+      const farms = (state.farmsParsed || []);
+      const sample = farms.find(f => f && f.vill_id);
+      if (!sample) { parts.push('no farms known'); warn++; return { ok: true, warn: true, detail: parts.join(', ') }; }
+      const counts = villageUnitCounts(sample.vill_id);
+      if (counts && counts.known) {
+        const u = counts.units;
+        parts.push(`units ${u.sword}/${u.archer}/${u.hoplite}/${u.slinger}`);
+      } else { parts.push('unit counts UNREADABLE (attribute shape unknown)'); bad++; }
+      const fr = state.farmResources && state.farmResources[sample.vill_id];
+      if (fr && fr.ok && fr.cap > 0) parts.push(`fill read OK (cap ${fr.cap})`);
+      else { parts.push('fill read pending (next farm scrape)'); warn++; }
+      return { ok: bad === 0, warn: warn > 0 || bad > 0, detail: parts.join(', ') };
+    }));
+
     out.push(preflightProbe('tx registry', () => {
       const tx = state.txState || {};
       // Match tx.js lifecycle states (planned/precheck/sending/confirming/reconciling/

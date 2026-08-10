@@ -9,6 +9,7 @@
       ruraltrade: state.autoRuralTrade,
       rurallevel: state.autoRuralLevel,
       recruit: state.autoRecruit || nativeQueueHasPending('recruit'),
+      villrecruit: state.autoVillageRecruit,
       merchant: state.autoMerchant,
       pttrade: state.autoPtTrade,
       favor: state.autoFavor,

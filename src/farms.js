@@ -17,6 +17,22 @@
           try { tplHealthMarkLearned('claimTpl'); } catch (_) {}
 
           if (!isSelfBridge(j)) farmLearnOptionFromClaim(j);
+        } else if (j && j.model_url && !/claim|trade|unlock|upgrade/i.test(j.action_name || '')
+                   && /sword|archer|hoplite|slinger/i.test(body)) {
+          // Anything on FarmTownPlayerRelation that isn't claim/trade/unlock/upgrade
+          // and carries one of the 4 unit ids is treated as the village
+          // accept-units template. The action_name (and any extra arguments the
+          // server demands) is captured verbatim; villageAcceptUnits() replays it
+          // with the village id / amount overlaid at post time.
+          if (isSelfBridge(j)) return;
+          state.acceptUnitsTpl = {
+            model_url: j.model_url, action_name: j.action_name,
+            arguments: j.arguments || {}, town_id: j.town_id,
+            version: 1, learned_at: Date.now(),
+          };
+          save(wkey(STORE.ACCEPT_UNITS_TPL), state.acceptUnitsTpl);
+          gbLog('learned accept-units template:', JSON.stringify(state.acceptUnitsTpl).slice(0, 220));
+          try { tplHealthMarkLearned('acceptUnitsTpl'); } catch (_) {}
         }
       } else if (/PlayerAttackSpot/.test(body)) {
         gbLog('sniffed bandit bridge call:', body.slice(0, 300));

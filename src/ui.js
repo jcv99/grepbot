@@ -824,6 +824,12 @@
         <label style="margin-left:12px">Defense mode <select data-cfg="defense-mode" style="background:#111;color:#cfc;border:1px solid #333"><option value="notify">avisar</option><option value="safe">esquiva segura</option><option value="smart">smart</option></select> <label><input type="checkbox" data-cfg="defense-smart-auto"/> smart auto</label> check return +<input type="number" data-cfg="defense-return-margin" min="0" max="3600" style="width:55px;background:#111;color:#cfc;border:1px solid #333"/>s (manual if support arrived) · leave <input type="number" data-cfg="dodge-floor" min="0" max="500" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-recruit"/> Auto-recruit</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="recruit-spells"/> Cast recruit spells first</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px;color:#f96" title="Convierte aldeanos en unidades cuando la aldea no admite mas recursos. Recompute: compara espada+arquero vs hoplita+hondero, elige la pareja con mas tropas y dentro de ella la unidad con menos. Requiere abrir la aldea y pulsar Aceptar una vez a mano la primera vez."><input type="checkbox" data-cfg="village-recruit"/> Reclutar en aldeas saturadas</label>
+        <label style="margin-left:24px;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">% llenado aldea
+          <input type="number" data-cfg="village-recruit-fill" min="50" max="99" style="width:50px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
+          cantidad por tick
+          <input type="number" data-cfg="village-recruit-amount" min="1" max="20" style="width:50px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
+        </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="grepodata"/> Grepodata Index+ assist</label>
         <label>IB free threshold (sec, safety cap 290) <input type="number" data-cfg="ib-free-thresh" min="60" max="300" style="width:70px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
         <label>Collect max min <input type="number" data-cfg="collect-max-min" min="1" max="120" style="width:70px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
@@ -1329,6 +1335,9 @@
     setChk('[data-cfg=auto-dodge]', state.autoDodge);
     setChk('[data-cfg=auto-recruit]', state.autoRecruit);
     setChk('[data-cfg=recruit-spells]', state.recruitSpells);
+    setChk('[data-cfg=village-recruit]', state.autoVillageRecruit);
+    setNum('[data-cfg=village-recruit-fill]', state.villageRecruitFillPct);
+    setNum('[data-cfg=village-recruit-amount]', state.villageRecruitAmount);
     setChk('[data-cfg=grepodata]', state.grepodataIndex);
     setNum('[data-cfg=rural-ratio]', state.ruralTradeRatio);
     setNum('[data-cfg=rural-level-max]', state.ruralLevelMax);
@@ -1420,6 +1429,15 @@
     bindToggle('[data-cfg=auto-militia]', 'autoMilitia', STORE.AUTO_MILITIA);
     bindToggle('[data-cfg=auto-dodge]', 'autoDodge', STORE.AUTO_DODGE);
     bindToggle('[data-cfg=auto-recruit]', 'autoRecruit', STORE.AUTO_RECRUIT, () => recruitScan('toggle'));
+    bindToggle('[data-cfg=village-recruit]', 'autoVillageRecruit', STORE.AUTO_VILLAGE_RECRUIT, () => villageRecruitScan('toggle'));
+    saveNum('[data-cfg=village-recruit-fill]', v => {
+      state.villageRecruitFillPct = Math.min(99, Math.max(50, v || 90));
+      save(STORE.VILLAGE_RECRUIT_FILL, state.villageRecruitFillPct);
+    });
+    saveNum('[data-cfg=village-recruit-amount]', v => {
+      state.villageRecruitAmount = Math.min(20, Math.max(1, v || 1));
+      save(STORE.VILLAGE_RECRUIT_AMOUNT, state.villageRecruitAmount);
+    });
     bindToggle('[data-cfg=recruit-spells]', 'recruitSpells', STORE.RECRUIT_SPELLS);
     bindToggle('[data-cfg=grepodata]', 'grepodataIndex', STORE.GREPODATA_INDEX);
     const saveCult = () => {

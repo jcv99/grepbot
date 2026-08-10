@@ -153,6 +153,23 @@ do not describe state by hand. Evidence is read-only and redacts CSRF/templates.
 - [x] Phases 9–14 spine coded (orch, military helpers, intel, harden) — v1.0.0
 - [x] ROADMAP / TASKS / CLAUDE updated for Ultimate path
 
+- [ ] **8.14** Village auto-recruit when saturated (v3.9.0) — coded, validate:
+  - Open a farming village, click `Aceptar` once by hand on any unit slot → Log
+    tab must show `learned accept-units template:` with `model_url` and `action_name`.
+  - Actions → Preflight → `village recruit` row shows `tpl <action_name>` (no
+    UNLEARNED warning), `units S/A/H/Sl`, `fill read OK (cap N)`.
+  - Enable `state.dryRun` in console, enable `village-recruit` in Config, fill
+    a village's warehouse to ≥ configured `village-recruit-fill` over two
+    consecutive scrapes → Log tab shows `DRY-RUN villageRecruit:` with the
+    expected payload.
+  - Turn dry-run OFF, observe ONE live post → Stats tab increments the
+    `villageRecruit` feature with an `ok` entry; the picked unit matches the
+    pair heuristic (test the 13/130/50/50 example → sword).
+  - Trigger a captcha on this path → `captchaPaused('villageRecruit')` is set
+    and farm claims keep running (independent captcha key).
+  - Force 3 hard errors (e.g. tampered `acceptUnitsTpl.arguments`) → decision
+    memory opens a 5min skip window and the scan stops posting until expiry.
+
 ## Notes
 
 - In-game validation cannot be completed by the agent; checkboxes above stay
