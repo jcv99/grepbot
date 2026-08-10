@@ -402,11 +402,14 @@
   // fits the town warehouse headroom. The 20min / 40min / 90min / 3h options
   // were reachable and unused - claiming less often means fewer captcha slots
   // and more loot per request.
+  // Sleep claim (4h / 8h) lives on a separate path (farmSleepClaimNow); this
+  // picker only ever considers <= 4h so a normal cadence tick never claims 4h+
+  // ahead of the player.
+  const FARM_PICK_MAX = 14400;
+  const FARM_PICK_LADDER = [600, 1200, 2400, 5400, 10800, FARM_PICK_MAX];
   function farmDurationPick(townId) {
     if (!state.farmLongClaims) return 300;
-    const loyalty = farmLoyaltyResearched(townId);
-    const preferred = loyalty ? [600, 1200, 2400, 5400, 10800, 14400, 28800, 300] : [600, 1200, 2400, 5400, 10800, 14400, 28800, 300];
-    const learned = preferred.filter(sec => farmOptionFor(sec) != null);
+    const learned = FARM_PICK_LADDER.filter(sec => farmOptionFor(sec) != null);
     if (!learned.length) return 300;
     // If loyalty isn't researched, the longer options are not necessarily free
     // of the loyalty multiplier, so prefer them only when headroom allows.
@@ -416,13 +419,10 @@
     const ROOM_PER_HOUR = 8000; // vague: grepolis haul rates at ~7k-9k/h at max
     let best = 300;
     for (const sec of learned) {
-      if (sec === 300) { best = 300; continue; }
       // Rough estimate: the loot scales with duration; refuse to ship a longer
       // claim than the warehouse can absorb at 60% utilisation.
       const expected = Math.round(sec / 3600 * ROOM_PER_HOUR);
       if (headroom != null && expected > headroom * SAFE_FILL_PCT) continue;
-      // Hour-only go beyond 24h since the player is unlikely to wait that long.
-      if (sec > 14400) continue;
       if (sec > best) best = sec;
     }
     return best;

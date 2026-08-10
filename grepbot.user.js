@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      3.8.1
+// @version      3.8.2
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -946,9 +946,10 @@ const STORE = {
   }
 
   function reqBudgetSoftDelayMs() {
+
     const soft = Math.max(5, Math.floor((state.reqBudgetPerMin || 40) *
       ((state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60) / 100)));
-    const used = reqBudgetUsed();
+    const used = reqBudgetUsed('action');
     if (used < soft) return 0;
     return Math.min(8000, 400 * (used - soft + 1) + Math.floor(Math.random() * 300));
   }
@@ -4166,11 +4167,11 @@ const STORE = {
     return +want;
   }
 
+  const FARM_PICK_MAX = 14400;
+  const FARM_PICK_LADDER = [600, 1200, 2400, 5400, 10800, FARM_PICK_MAX];
   function farmDurationPick(townId) {
     if (!state.farmLongClaims) return 300;
-    const loyalty = farmLoyaltyResearched(townId);
-    const preferred = loyalty ? [600, 1200, 2400, 5400, 10800, 14400, 28800, 300] : [600, 1200, 2400, 5400, 10800, 14400, 28800, 300];
-    const learned = preferred.filter(sec => farmOptionFor(sec) != null);
+    const learned = FARM_PICK_LADDER.filter(sec => farmOptionFor(sec) != null);
     if (!learned.length) return 300;
 
     const rs = (typeof townResState === 'function') ? townResState(townId) : null;
@@ -4179,12 +4180,9 @@ const STORE = {
     const ROOM_PER_HOUR = 8000;
     let best = 300;
     for (const sec of learned) {
-      if (sec === 300) { best = 300; continue; }
 
       const expected = Math.round(sec / 3600 * ROOM_PER_HOUR);
       if (headroom != null && expected > headroom * SAFE_FILL_PCT) continue;
-
-      if (sec > 14400) continue;
       if (sec > best) best = sec;
     }
     return best;
@@ -10923,6 +10921,7 @@ const STORE = {
   }
 
   const CONFIG_PRESET_HIGH_RISK = {
+
     autoFavor: [STORE.AUTO_FAVOR, false],
     autoRecruit: [STORE.AUTO_RECRUIT, false],
     autoDodge: [STORE.AUTO_DODGE, false],
@@ -13430,7 +13429,8 @@ const STORE = {
 
     out.push(preflightProbe('tx registry', () => {
       const tx = state.txState || {};
-      const inflight = Object.values(tx).filter(t => t && /^(queued|preparing|sending|pending|inflight|sent|aborted)$/.test(t.state || '')).length;
+
+      const inflight = Object.values(tx).filter(t => t && /^(planned|precheck|sending|confirming|reconciling|sent|dryrun|aborted|failed|unknown|manual-review)$/.test(t.state || '')).length;
       const unknown = Object.values(tx).filter(t => t && /^(unknown|manual-review)$/.test(t.state || '')).length;
       const stale = Object.values(tx).filter(t => t && t.state === 'aborted' && (Date.now() - (+t.updatedAt || 0)) > 600000).length;
       return {

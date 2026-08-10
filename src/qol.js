@@ -275,6 +275,8 @@
   // purpose: a preset may only ever turn them OFF, never ON, because enabling
   // them is a ToS-escalation decision the user has to make deliberately.
   const CONFIG_PRESET_HIGH_RISK = {
+    // 8 toggles - all spend loops and any path that can escalate ToS risk.
+    // A preset must only ever set these to OFF, never ON.
     autoFavor: [STORE.AUTO_FAVOR, false],
     autoRecruit: [STORE.AUTO_RECRUIT, false],
     autoDodge: [STORE.AUTO_DODGE, false],

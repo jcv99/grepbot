@@ -123,7 +123,10 @@
 
     out.push(preflightProbe('tx registry', () => {
       const tx = state.txState || {};
-      const inflight = Object.values(tx).filter(t => t && /^(queued|preparing|sending|pending|inflight|sent|aborted)$/.test(t.state || '')).length;
+      // Match tx.js lifecycle states (planned/precheck/sending/confirming/reconciling/
+      // committed/dryrun) and the terminal flags (failed/aborted/unknown/manual-review).
+      // Dodge queue states (pending/sent) belong to dodge.js and are not in txState.
+      const inflight = Object.values(tx).filter(t => t && /^(planned|precheck|sending|confirming|reconciling|sent|dryrun|aborted|failed|unknown|manual-review)$/.test(t.state || '')).length;
       const unknown = Object.values(tx).filter(t => t && /^(unknown|manual-review)$/.test(t.state || '')).length;
       const stale = Object.values(tx).filter(t => t && t.state === 'aborted' && (Date.now() - (+t.updatedAt || 0)) > 600000).length;
       return {

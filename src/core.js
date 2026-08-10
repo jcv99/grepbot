@@ -755,9 +755,12 @@
   }
   // Soft ceiling below the hard budget: delay instead of dropping the post.
   function reqBudgetSoftDelayMs() {
+    // Delay the write path when its own scope (action) approaches the hard pool.
+    // Using un-scoped reqBudgetUsed would let scrape / read noise trigger a write
+    // throttle even while the action scope still has room.
     const soft = Math.max(5, Math.floor((state.reqBudgetPerMin || 40) *
       ((state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60) / 100)));
-    const used = reqBudgetUsed();
+    const used = reqBudgetUsed('action');
     if (used < soft) return 0;
     return Math.min(8000, 400 * (used - soft + 1) + Math.floor(Math.random() * 300));
   }
