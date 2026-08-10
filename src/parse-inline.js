@@ -108,7 +108,7 @@
       const coordMatch = afterId.match(/^\|?\s*(-?\d{1,4})[,\s]+(-?\d{1,4})/);
       if (coordMatch) { out.x = +coordMatch[1]; out.y = +coordMatch[2]; }
       for (const p of parts) {
-        if (/^\d+[hm]$/i.test(p) || /^\d{1,2}:\d{2}$/.test(p)) { out.eta = p; break; }
+        if (/^\d+\s*(?:min|h|m)$/i.test(p) || /^\d{1,2}:\d{2}$/.test(p)) { out.eta = p; break; }
       }
       const skip = new Set([out.eta, out.x != null ? `${out.x} ${out.y}` : null, `${out.x},${out.y}`, id]);
       out.notes = parts.slice(1).filter(p => p && !skip.has(p)).join(' | ') || null;
@@ -148,14 +148,18 @@
     if (res_ && typeof res_ === 'object' && res_.resources && typeof res_.resources === 'object') {
       res_ = res_.resources;
     }
-    const pop = r.population || r.pop || {};
+    const popRaw = r.population ?? r.pop;
+    // A client that reports population as a bare number would otherwise read as
+    // "unknown" and drop the value whole.
+    const popNum = typeof popRaw === 'number' || (typeof popRaw === 'string' && /^\d+$/.test(popRaw)) ? +popRaw : null;
+    const pop = (popRaw && typeof popRaw === 'object') ? popRaw : {};
     const wood = pickNum(res_.wood, r.wood, json && json.wood);
     const stone = pickNum(res_.stone, r.stone, json && json.stone);
     const iron = pickNum(res_.iron, r.iron, json && json.iron);
     return {
       wood, stone, iron,
-      pop: pop.current ?? pop.pop ?? null,
-      cap: pop.max ?? pop.cap ?? null,
+      pop: pop.current ?? pop.pop ?? popNum ?? null,
+      cap: pop.max ?? pop.cap ?? (Number.isFinite(+r.population_max) ? +r.population_max : null) ?? null,
       name: r.name || r.town_name || null,
       got: wood != null || stone != null || iron != null || !!(r.name || r.town_name),
     };

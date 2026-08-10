@@ -71,9 +71,17 @@
         const lab=document.createElement('label'); lab.textContent=`${mode[0].toUpperCase()} ${k.slice(0,3)} `;
         const inp=document.createElement('input'); inp.type='number'; inp.min='0'; inp.style.cssText='width:55px;background:#111;color:#cfc;border:1px solid #333;font-size:9px';
         inp.dataset.mode=mode; inp.dataset.key=k; inp.value=g[mode][k]||0;
-        inp.addEventListener('change',()=>{ g[mode][k]=Math.max(0,+inp.value||0); plannerSaveCfg(); renderPlanner(); });
+        // Resolve the config root at change time: qolImportConfig replaces
+        // state.plannerCfg wholesale, so a captured `g` would be an orphan and
+        // the edit would be saved over by the imported copy.
+        inp.addEventListener('change',()=>{ const root=plannerCfgRoot().global; root[mode][k]=Math.max(0,+inp.value||0); plannerSaveCfg(); renderPlanner(); });
         lab.appendChild(inp); controls.appendChild(lab);
       }
+    } else {
+      controls.querySelectorAll('input[data-mode][data-key]').forEach(inp=>{
+        const m=inp.dataset.mode,k=inp.dataset.key;
+        if(document.activeElement!==inp) inp.value=(g[m]&&g[m][k])||0;
+      });
     }
     box.replaceChildren();
     const hdr=document.createElement('div'); hdr.style.cssText='display:grid;grid-template-columns:1.3fr repeat(3,.8fr) .7fr .7fr;gap:3px;padding:3px;color:#888;border-bottom:1px solid #333';

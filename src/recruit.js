@@ -313,7 +313,14 @@
         // no affordable recruitment can immediately follow it, or to block
         // normal recruiting in SAFE MODE.
         if (state.recruitSpells && !state.safeMode) {
-          const wantPower = (state.favorCfg && state.favorCfg.recruitPower) || null;
+          // Power ids are compared case-sensitively against RECRUIT_SPELLS, and
+          // an imported config can carry mixed case - without the normalise the
+          // spell scan idles forever with no trace.
+          const rawPower = (state.favorCfg && state.favorCfg.recruitPower) || null;
+          const wantPower = rawPower ? String(rawPower).trim().toLowerCase() : null;
+          if (wantPower && !RECRUIT_SPELLS.includes(wantPower)) {
+            gbLogT('recruit-badpower', 600000, `recruit: unknown spell power id "${rawPower}" - spells idle`);
+          }
           if (wantPower && RECRUIT_SPELLS.includes(wantPower) && !recruitHasSpell(tid, wantPower)
               && !captchaPausedAny('recruit', 'spell') && recruitSpellGateOk(tid, wantPower).ok
               && !recruitSpellCooldown(tid, wantPower)) {

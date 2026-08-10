@@ -282,10 +282,12 @@
     const live = queueCenterCard(`Cola real · ${label}`, q.known ? `${liveModels.length}${q.max != null ? ' / ' + q.max : ''}` : 'estado no legible');
     body.appendChild(live.box);
     if (liveModels.length) {
-      liveModels.forEach((m, i) => {
+      liveModels.forEach((m) => {
         const id = queueCenterUnitId(m);
         const r = document.createElement('div'); r.className = 'gb-qc-live-row';
-        const n = document.createElement('span'); n.textContent = `#${i + 1}`;
+        const gi = (q.models || []).indexOf(m);
+        const n = document.createElement('span'); n.textContent = `#${gi >= 0 ? gi + 1 : '?'}`;
+        n.title = 'posición en la cola real global de unidades';
         const nm = document.createElement('b'); nm.textContent = `${queueCenterUnitAmount(m)}× ${nativeUnitLabel(id)}`;
         const t = document.createElement('span'); t.textContent = queueCenterFmt(queueCenterTimeLeft(m));
         r.append(n, nm, t); live.box.appendChild(r);
@@ -351,6 +353,10 @@
   function openQueueCenter(tab, townId) {
     if (tab) gbQueueCenterTab = tab;
     if (townId != null) gbQueueCenterTown = String(townId);
+    // A cached handle whose node the SPA already detached would flip display on
+    // an orphan: renderQueueCenter bails on !document.body.contains(w) and the
+    // window silently never appears.
+    if (gbQueueCenter && !document.body.contains(gbQueueCenter)) gbQueueCenter = null;
     if (!gbQueueCenter) {
       const w = document.createElement('div');
       w.id = 'grepbot-queue-center';

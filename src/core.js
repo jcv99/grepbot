@@ -483,7 +483,7 @@
       const buildCircuit=state.circuits&&state.circuits.build;
       if(buildCircuit&&/completeInstant|finishInstantly/i.test(String(buildCircuit.lastError||'')))delete state.circuits.build;
       save(STORE.CIRCUITS,state.circuits||{});
-      for(const key of Object.keys(state.decisionSkips||{})){const rec=state.decisionSkips[key]||{};if(/completeInstant|finishInstantly/i.test(key)||/^(?:pending|timeout_unknown)|unknown outcome/i.test(String(rec.r||'')))delete state.decisionSkips[key]}
+      for(const key of Object.keys(state.decisionSkips||{})){const rec=state.decisionSkips[key]||{};if(/completeInstant|finishInstantly/i.test(key)||/^(?:pending|timeout_unknown|unknown outcome)/i.test(String(rec.r||'')))delete state.decisionSkips[key]}
       save(STORE.DECISION_SKIPS,state.decisionSkips||{});
       if(!state.defenseCfg||typeof state.defenseCfg!=='object')state.defenseCfg={mode:'notify',returnMarginSec:120,smartAuto:false};
       if(state.dodgeMode==='auto'&&(!state.defenseCfg.mode||state.defenseCfg.mode==='notify'))state.defenseCfg.mode='safe';
@@ -760,7 +760,10 @@
   // A template is only "learned" when it differs from the constant the caller
   // falls back to, otherwise "hand-click to re-learn" could only ever re-store
   // that same constant.
-  const TPL_DEFAULTS = { ibAction: 'completeInstant', ibActionR: 'completeInstant' };
+  // Must match the constant ibActionFor() falls back to, or an unlearned value
+  // counts as "learned": hard fails then accrue against the built-in action and
+  // tplHealthOk's unlearned-is-healthy branch goes dead.
+  const TPL_DEFAULTS = { ibAction: 'buyInstant', ibActionR: 'buyInstant' };
   function tplLearned(name) {
     if (!name) return false;
     if (name === 'farmAction') return true;

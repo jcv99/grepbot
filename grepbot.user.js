@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.9.1
+// @version      2.9.2
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -682,7 +682,7 @@ const STORE = {
       const buildCircuit=state.circuits&&state.circuits.build;
       if(buildCircuit&&/completeInstant|finishInstantly/i.test(String(buildCircuit.lastError||'')))delete state.circuits.build;
       save(STORE.CIRCUITS,state.circuits||{});
-      for(const key of Object.keys(state.decisionSkips||{})){const rec=state.decisionSkips[key]||{};if(/completeInstant|finishInstantly/i.test(key)||/^(?:pending|timeout_unknown)|unknown outcome/i.test(String(rec.r||'')))delete state.decisionSkips[key]}
+      for(const key of Object.keys(state.decisionSkips||{})){const rec=state.decisionSkips[key]||{};if(/completeInstant|finishInstantly/i.test(key)||/^(?:pending|timeout_unknown|unknown outcome)/i.test(String(rec.r||'')))delete state.decisionSkips[key]}
       save(STORE.DECISION_SKIPS,state.decisionSkips||{});
       if(!state.defenseCfg||typeof state.defenseCfg!=='object')state.defenseCfg={mode:'notify',returnMarginSec:120,smartAuto:false};
       if(state.dodgeMode==='auto'&&(!state.defenseCfg.mode||state.defenseCfg.mode==='notify'))state.defenseCfg.mode='safe';
@@ -944,7 +944,7 @@ const STORE = {
     return /^ResearchOrder/.test(String((payload && payload.model_url) || '')) ? 'ibActionR' : 'ibAction';
   }
 
-  const TPL_DEFAULTS = { ibAction: 'completeInstant', ibActionR: 'completeInstant' };
+  const TPL_DEFAULTS = { ibAction: 'buyInstant', ibActionR: 'buyInstant' };
   function tplLearned(name) {
     if (!name) return false;
     if (name === 'farmAction') return true;
@@ -3687,7 +3687,7 @@ const STORE = {
       const coordMatch = afterId.match(/^\|?\s*(-?\d{1,4})[,\s]+(-?\d{1,4})/);
       if (coordMatch) { out.x = +coordMatch[1]; out.y = +coordMatch[2]; }
       for (const p of parts) {
-        if (/^\d+[hm]$/i.test(p) || /^\d{1,2}:\d{2}$/.test(p)) { out.eta = p; break; }
+        if (/^\d+\s*(?:min|h|m)$/i.test(p) || /^\d{1,2}:\d{2}$/.test(p)) { out.eta = p; break; }
       }
       const skip = new Set([out.eta, out.x != null ? `${out.x} ${out.y}` : null, `${out.x},${out.y}`, id]);
       out.notes = parts.slice(1).filter(p => p && !skip.has(p)).join(' | ') || null;
@@ -3727,14 +3727,17 @@ const STORE = {
     if (res_ && typeof res_ === 'object' && res_.resources && typeof res_.resources === 'object') {
       res_ = res_.resources;
     }
-    const pop = r.population || r.pop || {};
+    const popRaw = r.population ?? r.pop;
+
+    const popNum = typeof popRaw === 'number' || (typeof popRaw === 'string' && /^\d+$/.test(popRaw)) ? +popRaw : null;
+    const pop = (popRaw && typeof popRaw === 'object') ? popRaw : {};
     const wood = pickNum(res_.wood, r.wood, json && json.wood);
     const stone = pickNum(res_.stone, r.stone, json && json.stone);
     const iron = pickNum(res_.iron, r.iron, json && json.iron);
     return {
       wood, stone, iron,
-      pop: pop.current ?? pop.pop ?? null,
-      cap: pop.max ?? pop.cap ?? null,
+      pop: pop.current ?? pop.pop ?? popNum ?? null,
+      cap: pop.max ?? pop.cap ?? (Number.isFinite(+r.population_max) ? +r.population_max : null) ?? null,
       name: r.name || r.town_name || null,
       got: wood != null || stone != null || iron != null || !!(r.name || r.town_name),
     };
@@ -4917,6 +4920,8 @@ const STORE = {
       const parts = u.pathname.split('/').filter(Boolean);
 
       collectCtrl = parts.length >= 2 && parts[0] === 'game' ? parts[1] : parts[parts.length - 1];
+
+      if (collectCtrl && /\.php$/i.test(collectCtrl)) collectCtrl = null;
     } catch (_) {}
     if (!collectCtrl || !collectAction) {
       gbLogT('collect-bg-nomethod', 120000, 'bg-collect: skip (learned URL method/controller unknown \u2014 no blind GET)');
@@ -10394,7 +10399,12 @@ const STORE = {
         if (!(amount > 0)) continue;
 
         if (state.recruitSpells && !state.safeMode) {
-          const wantPower = (state.favorCfg && state.favorCfg.recruitPower) || null;
+
+          const rawPower = (state.favorCfg && state.favorCfg.recruitPower) || null;
+          const wantPower = rawPower ? String(rawPower).trim().toLowerCase() : null;
+          if (wantPower && !RECRUIT_SPELLS.includes(wantPower)) {
+            gbLogT('recruit-badpower', 600000, `recruit: unknown spell power id "${rawPower}" - spells idle`);
+          }
           if (wantPower && RECRUIT_SPELLS.includes(wantPower) && !recruitHasSpell(tid, wantPower)
               && !captchaPausedAny('recruit', 'spell') && recruitSpellGateOk(tid, wantPower).ok
               && !recruitSpellCooldown(tid, wantPower)) {
@@ -10530,9 +10540,15 @@ const STORE = {
         const lab=document.createElement('label'); lab.textContent=`${mode[0].toUpperCase()} ${k.slice(0,3)} `;
         const inp=document.createElement('input'); inp.type='number'; inp.min='0'; inp.style.cssText='width:55px;background:#111;color:#cfc;border:1px solid #333;font-size:9px';
         inp.dataset.mode=mode; inp.dataset.key=k; inp.value=g[mode][k]||0;
-        inp.addEventListener('change',()=>{ g[mode][k]=Math.max(0,+inp.value||0); plannerSaveCfg(); renderPlanner(); });
+
+        inp.addEventListener('change',()=>{ const root=plannerCfgRoot().global; root[mode][k]=Math.max(0,+inp.value||0); plannerSaveCfg(); renderPlanner(); });
         lab.appendChild(inp); controls.appendChild(lab);
       }
+    } else {
+      controls.querySelectorAll('input[data-mode][data-key]').forEach(inp=>{
+        const m=inp.dataset.mode,k=inp.dataset.key;
+        if(document.activeElement!==inp) inp.value=(g[m]&&g[m][k])||0;
+      });
     }
     box.replaceChildren();
     const hdr=document.createElement('div'); hdr.style.cssText='display:grid;grid-template-columns:1.3fr repeat(3,.8fr) .7fr .7fr;gap:3px;padding:3px;color:#888;border-bottom:1px solid #333';
@@ -13621,10 +13637,12 @@ const STORE = {
     const live = queueCenterCard(`Cola real \u00b7 ${label}`, q.known ? `${liveModels.length}${q.max != null ? ' / ' + q.max : ''}` : 'estado no legible');
     body.appendChild(live.box);
     if (liveModels.length) {
-      liveModels.forEach((m, i) => {
+      liveModels.forEach((m) => {
         const id = queueCenterUnitId(m);
         const r = document.createElement('div'); r.className = 'gb-qc-live-row';
-        const n = document.createElement('span'); n.textContent = `#${i + 1}`;
+        const gi = (q.models || []).indexOf(m);
+        const n = document.createElement('span'); n.textContent = `#${gi >= 0 ? gi + 1 : '?'}`;
+        n.title = 'posici\u00f3n en la cola real global de unidades';
         const nm = document.createElement('b'); nm.textContent = `${queueCenterUnitAmount(m)}\u00d7 ${nativeUnitLabel(id)}`;
         const t = document.createElement('span'); t.textContent = queueCenterFmt(queueCenterTimeLeft(m));
         r.append(n, nm, t); live.box.appendChild(r);
@@ -13690,6 +13708,8 @@ const STORE = {
   function openQueueCenter(tab, townId) {
     if (tab) gbQueueCenterTab = tab;
     if (townId != null) gbQueueCenterTown = String(townId);
+
+    if (gbQueueCenter && !document.body.contains(gbQueueCenter)) gbQueueCenter = null;
     if (!gbQueueCenter) {
       const w = document.createElement('div');
       w.id = 'grepbot-queue-center';
@@ -14450,7 +14470,7 @@ const STORE = {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="island-ship"/> Mainland\u2192island res ship</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-trade"/> Rural village trade</label>
         <label style="margin-left:12px;flex-wrap:wrap">Min ratio <input type="number" data-cfg="rural-ratio" step="0.25" min="0.25" max="2" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>
-          Res <select data-cfg="rural-res" style="background:#111;color:#cfc;border:1px solid #333"><option>plata</option><option>stone</option><option>wood</option></select>
+          Res <select data-cfg="rural-res" style="background:#111;color:#cfc;border:1px solid #333"><option value="iron">plata</option><option value="stone">piedra</option><option value="wood">madera</option></select>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-level"/> Farm village upgrade</label>
         <label style="margin-left:12px">Max level <input type="number" data-cfg="rural-level-max" min="1" max="6" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
@@ -15630,7 +15650,12 @@ const STORE = {
   }
   function hookSpaNav() {
     const wrap = (name, origKey) => {
-      if (!gbHookOrig[origKey]) gbHookOrig[origKey] = history[name].bind(history);
+
+      const cur = history[name];
+      if (!gbHookOrig[origKey]) {
+        const pristine = (cur && cur._grepbot && cur.__grepbotOrig) ? cur.__grepbotOrig : cur.bind(history);
+        gbHookOrig[origKey] = pristine;
+      }
       const orig = gbHookOrig[origKey];
       const wrapped = function () {
         const r = orig.apply(history, arguments);
@@ -15638,6 +15663,7 @@ const STORE = {
         return r;
       };
       wrapped._grepbot = true;
+      wrapped.__grepbotOrig = orig;
       wrapped.__grepbotOwner = GB_INSTANCE_ID;
       history[name] = wrapped;
     };

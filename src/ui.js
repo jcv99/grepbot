@@ -727,7 +727,7 @@
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="island-ship"/> Mainland→island res ship</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-trade"/> Rural village trade</label>
         <label style="margin-left:12px;flex-wrap:wrap">Min ratio <input type="number" data-cfg="rural-ratio" step="0.25" min="0.25" max="2" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>
-          Res <select data-cfg="rural-res" style="background:#111;color:#cfc;border:1px solid #333"><option>plata</option><option>stone</option><option>wood</option></select>
+          Res <select data-cfg="rural-res" style="background:#111;color:#cfc;border:1px solid #333"><option value="iron">plata</option><option value="stone">piedra</option><option value="wood">madera</option></select>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-level"/> Farm village upgrade</label>
         <label style="margin-left:12px">Max level <input type="number" data-cfg="rural-level-max" min="1" max="6" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>

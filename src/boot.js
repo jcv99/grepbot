@@ -8,7 +8,14 @@
   }
   function hookSpaNav() {
     const wrap = (name, origKey) => {
-      if (!gbHookOrig[origKey]) gbHookOrig[origKey] = history[name].bind(history);
+      // Never bind over another instance's wrapper: after a hot reload gbHookOrig
+      // is a fresh object, so the guard passes and the old wrapper becomes the
+      // "original" - N reloads then schedule N ensurePanelMounted per nav.
+      const cur = history[name];
+      if (!gbHookOrig[origKey]) {
+        const pristine = (cur && cur._grepbot && cur.__grepbotOrig) ? cur.__grepbotOrig : cur.bind(history);
+        gbHookOrig[origKey] = pristine;
+      }
       const orig = gbHookOrig[origKey];
       const wrapped = function () {
         const r = orig.apply(history, arguments);
@@ -16,6 +23,7 @@
         return r;
       };
       wrapped._grepbot = true;
+      wrapped.__grepbotOrig = orig;
       wrapped.__grepbotOwner = GB_INSTANCE_ID;
       history[name] = wrapped;
     };

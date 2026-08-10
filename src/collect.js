@@ -119,6 +119,9 @@
       const parts = u.pathname.split('/').filter(Boolean);
 
       collectCtrl = parts.length >= 2 && parts[0] === 'game' ? parts[1] : parts[parts.length - 1];
+      // gpAjax builds /game/<controller>, so a script-file path segment would
+      // POST to /game/index.php and be rejected. Unknown beats blind.
+      if (collectCtrl && /\.php$/i.test(collectCtrl)) collectCtrl = null;
     } catch (_) {}
     if (!collectCtrl || !collectAction) {
       gbLogT('collect-bg-nomethod', 120000, 'bg-collect: skip (learned URL method/controller unknown — no blind GET)');
