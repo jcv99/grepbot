@@ -151,6 +151,17 @@ phoenician ratio pump (v1.6), Telegram webhooks, `webhookEvents` wiring,
 Plans `01`, `04`, `07`–`15`, `20`, `23`–`25` are therefore closed. Plans `02`,
 `03`, `05`, `16`, `18`, `19`, `22` remain open and are folded into plan 26.
 
+## 8. Future sweep (plan 27)
+
+[Plan 27](plans/27-v4-wishlist-2026-08-10.md) catalogues ~50 features
+from a single user intake. It is **not** the next plan of record — once
+plan 26 ships + TASKS gates pass, the v4 candidates split into 4–5
+narrower per-risk-bucket plans (per plan 27 §10 + §12).
+
+Out-of-scope items dropped there (anti-detection, REST/WebSocket, plugin
+system, auto-recovery, etc.) are catalogued in plan 27 §0 and stay out
+per `CLAUDE.md` policy.
+
 ---
 
 ## Related docs

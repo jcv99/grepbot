@@ -87,6 +87,20 @@ Section 6 overlaps section 5 by design: its captcha-backoff, quota and
 | 24 | [Instant build precision + all towns](24-instant-build-precision.md) | Low | M |
 | 25 | [Phoenician salesman ratio pump](25-phoenician-ratio-pump.md) | Med | L |
 
+### v3.x sweep (CODED - see commit log v3.0.0..v3.8.2)
+| # | Plan | Risk | Size |
+|---|---|---|---|
+| 26 | [Improvement sweep](26-improvement-sweep-2026-08-10.md) | Low | L |
+
+### v4 candidates (NOT the next plan of record - future sweep)
+| # | Plan | Risk | Size |
+|---|---|---|---|
+| 27 | [User-wishlist sweep](27-v4-wishlist-2026-08-10.md) | varies | XL |
+
+When the v3.x sweep + TASKS gates land, plan 27 splits into 4-5
+narrower plans (one per risk bucket, per plan 27 §12). Do not start
+from plan 27 alone.
+
 ---
 
 ## Recommended order
