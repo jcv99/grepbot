@@ -28,7 +28,7 @@
     params.set('action', action); params.set('h', state.csrf);
     const u = '/index.php?' + params.toString();
     gbXhr({
-      method: 'GET', url: u,
+      method: 'GET', url: u, budget: 'scrape',
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
       onload(res) {
         const retryMs = httpRetryAfterMs(res);
@@ -114,7 +114,7 @@
       const params = new URLSearchParams();
       params.set('action', action); params.set('town_id', town.id); params.set('h', state.csrf || '');
       gbXhr({
-        method: 'GET', url: '/index.php?' + params.toString(),
+        method: 'GET', url: '/index.php?' + params.toString(), budget: 'scrape',
         headers: { 'X-Requested-With': 'XMLHttpRequest' }, anonymous: false,
         onload(res) {
           const retryMs = httpRetryAfterMs(res);

@@ -696,7 +696,7 @@
       const u = '/index.php?' + params.toString();
       gbXhr({
         method: 'GET', url: u,
-        anonymous: false,
+        anonymous: false, budget: 'scrape',
         headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json, text/plain, */*' },
         onload(res) {
           const retryMs = httpRetryAfterMs(res);

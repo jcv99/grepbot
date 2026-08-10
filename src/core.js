@@ -593,15 +593,26 @@
   }
 
   let reqBudgetHead = 0;
-  function reqBudgetOk() {
+  // One pool, three admission caps. A background scraper and a timed bridge post
+  // are not worth the same slot: before this, a farm sweep could eat the whole
+  // minute and the free-instant post that had to land inside a ~10s window came
+  // back `budget`. Actions keep the full pool, reads sit just under it, scrapes
+  // are capped well below so they can never starve the other two.
+  const REQ_SCOPE_FRACTION = { scrape: 0.6, read: 0.85, action: 1 };
+  function reqBudgetPool() { return state.reqBudgetPerMin || 40; }
+  function reqBudgetCap(scope) {
+    const f = REQ_SCOPE_FRACTION[scope] != null ? REQ_SCOPE_FRACTION[scope] : 1;
+    return Math.max(1, Math.floor(reqBudgetPool() * f));
+  }
+  function reqBudgetOk(scope) {
     const now = Date.now();
     const cutoff = now - 60000;
-    while (reqBudgetHead < reqBudgetWindow.length && reqBudgetWindow[reqBudgetHead] < cutoff) reqBudgetHead++;
+    while (reqBudgetHead < reqBudgetWindow.length && reqBudgetWindow[reqBudgetHead].t < cutoff) reqBudgetHead++;
     if (reqBudgetHead > 64) {
       reqBudgetWindow.splice(0, reqBudgetHead);
       reqBudgetHead = 0;
     }
-    return (reqBudgetWindow.length - reqBudgetHead) < (state.reqBudgetPerMin || 40);
+    return (reqBudgetWindow.length - reqBudgetHead) < reqBudgetCap(scope);
   }
   // Tab wake / bfcache resume fires every clamped timer at once. Serialize that
   // catch-up burst instead of letting it stampede the server.
@@ -635,6 +646,9 @@
         gbWakeDraining = false;
         return;
       }
+      // Scope-neutral on purpose: wake entries are heterogeneous (ibScan,
+      // orchTick, farmTick, report catch-up) and carry no scope, so the real
+      // admission decision belongs to the gbXhr / txRun call inside item.fn.
       if (!reqBudgetOk()) {
         gbTimeout(step, 1500 + Math.floor(Math.random() * 500));
         return;
@@ -717,12 +731,24 @@
       `culture: defer town ${townId} - iron reserved for cave (eta ${r.etaMs != null ? Math.round(r.etaMs / 1000) + 's' : '?'})`);
     return true;
   }
-  function reqBudgetMark() { reqBudgetWindow.push(Date.now()); }
-  function reqBudgetUsed() {
+  function reqBudgetMark(scope) {
+    reqBudgetWindow.push({ t: Date.now(), s: REQ_SCOPE_FRACTION[scope] != null ? scope : 'action' });
+  }
+  function reqBudgetUsed(scope) {
     const cutoff = Date.now() - 60000;
     let n = 0;
-    for (let i = reqBudgetHead; i < reqBudgetWindow.length; i++) if (reqBudgetWindow[i] >= cutoff) n++;
+    for (let i = reqBudgetHead; i < reqBudgetWindow.length; i++) {
+      const e = reqBudgetWindow[i];
+      if (e.t < cutoff) continue;
+      if (scope && e.s !== scope) continue;
+      n++;
+    }
     return n;
+  }
+  function reqBudgetByScope() {
+    const out = { scrape: 0, read: 0, action: 0 };
+    Object.keys(out).forEach(k => { out[k] = reqBudgetUsed(k); });
+    return out;
   }
   // Soft ceiling below the hard budget: delay instead of dropping the post.
   function reqBudgetSoftDelayMs() {
@@ -1180,6 +1206,10 @@
   const GM_XHR_DEFAULT_TIMEOUT = 30000;
   function gbXhr(opts) {
     const scope = opts.scope === 'external' ? 'external' : 'game';
+    // `scope` decides host gating; `budget` decides which admission cap applies.
+    // Default `read`, not `scrape`: report catch-up is time-sensitive intel and
+    // must not be throttled alongside a background village sweep.
+    const budgetScope = REQ_SCOPE_FRACTION[opts.budget] != null ? opts.budget : 'read';
     const timeout = opts.timeout != null ? opts.timeout : GM_XHR_DEFAULT_TIMEOUT;
     const userOnload = opts.onload;
     const userOnerror = opts.onerror;
@@ -1193,8 +1223,8 @@
     if (!gbInstanceAlive()) return failEarly('disposed');
     if (scope === 'game') {
       if (!hostEnabled()) return failEarly('disabled');
-      if (!reqBudgetOk()) return failEarly('budget');
-      reqBudgetMark(); // exactly once per real game request
+      if (!reqBudgetOk(budgetScope)) return failEarly('budget');
+      reqBudgetMark(budgetScope); // exactly once per real game request
     }
     const drop = () => {
       if (done) return false;

@@ -265,10 +265,16 @@
     });
     const locks = gbLockList();
     lines.push('');
+    const byScope = typeof reqBudgetByScope === 'function' ? reqBudgetByScope() : null;
+    const softMs = typeof reqBudgetSoftDelayMs === 'function' ? reqBudgetSoftDelayMs() : 0;
     lines.push(`peticiones ultimo min ${reqBudgetUsed()}/${state.reqBudgetPerMin || 40}` +
+      (byScope ? ` (accion ${byScope.action}/${reqBudgetCap('action')} · lectura ${byScope.read}/${reqBudgetCap('read')} · escaneo ${byScope.scrape}/${reqBudgetCap('scrape')})` : '') +
+      (softMs ? ` | freno suave ${softMs}ms` : '') +
       (gbServerPaused() ? ` | server cooldown ${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}` : '') +
       (locks.length ? ` | locks ${locks.join(',')}` : '') +
       (state.dryRun ? ' | DRY-RUN' : ''));
+    const budgetSkips = st.topSkips ? (st.topSkips.find(([k]) => /budget/.test(k)) || [null, 0])[1] : 0;
+    if (budgetSkips) lines.push(`  ${budgetSkips} accion(es) saltadas por presupuesto en la ventana`);
     if (preflightLast) {
       lines.push('');
       lines.push(`preflight (${new Date(preflightLast.at).toLocaleTimeString()})`);
@@ -381,6 +387,8 @@
       budget: {
         perMin: state.reqBudgetPerMin || 40,
         usedLastMin: typeof reqBudgetUsed === 'function' ? reqBudgetUsed() : 0,
+        byScope: typeof reqBudgetByScope === 'function' ? reqBudgetByScope() : null,
+        softDelayMs: typeof reqBudgetSoftDelayMs === 'function' ? reqBudgetSoftDelayMs() : 0,
       },
       lastOk,
       lastSkip,

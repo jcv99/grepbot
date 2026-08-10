@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      3.0.0
+// @version      3.1.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -792,15 +792,22 @@ const STORE = {
   }
 
   let reqBudgetHead = 0;
-  function reqBudgetOk() {
+
+  const REQ_SCOPE_FRACTION = { scrape: 0.6, read: 0.85, action: 1 };
+  function reqBudgetPool() { return state.reqBudgetPerMin || 40; }
+  function reqBudgetCap(scope) {
+    const f = REQ_SCOPE_FRACTION[scope] != null ? REQ_SCOPE_FRACTION[scope] : 1;
+    return Math.max(1, Math.floor(reqBudgetPool() * f));
+  }
+  function reqBudgetOk(scope) {
     const now = Date.now();
     const cutoff = now - 60000;
-    while (reqBudgetHead < reqBudgetWindow.length && reqBudgetWindow[reqBudgetHead] < cutoff) reqBudgetHead++;
+    while (reqBudgetHead < reqBudgetWindow.length && reqBudgetWindow[reqBudgetHead].t < cutoff) reqBudgetHead++;
     if (reqBudgetHead > 64) {
       reqBudgetWindow.splice(0, reqBudgetHead);
       reqBudgetHead = 0;
     }
-    return (reqBudgetWindow.length - reqBudgetHead) < (state.reqBudgetPerMin || 40);
+    return (reqBudgetWindow.length - reqBudgetHead) < reqBudgetCap(scope);
   }
 
   const WAKE_SPACING_MS = 800;
@@ -833,6 +840,7 @@ const STORE = {
         gbWakeDraining = false;
         return;
       }
+
       if (!reqBudgetOk()) {
         gbTimeout(step, 1500 + Math.floor(Math.random() * 500));
         return;
@@ -915,12 +923,24 @@ const STORE = {
       `culture: defer town ${townId} - iron reserved for cave (eta ${r.etaMs != null ? Math.round(r.etaMs / 1000) + 's' : '?'})`);
     return true;
   }
-  function reqBudgetMark() { reqBudgetWindow.push(Date.now()); }
-  function reqBudgetUsed() {
+  function reqBudgetMark(scope) {
+    reqBudgetWindow.push({ t: Date.now(), s: REQ_SCOPE_FRACTION[scope] != null ? scope : 'action' });
+  }
+  function reqBudgetUsed(scope) {
     const cutoff = Date.now() - 60000;
     let n = 0;
-    for (let i = reqBudgetHead; i < reqBudgetWindow.length; i++) if (reqBudgetWindow[i] >= cutoff) n++;
+    for (let i = reqBudgetHead; i < reqBudgetWindow.length; i++) {
+      const e = reqBudgetWindow[i];
+      if (e.t < cutoff) continue;
+      if (scope && e.s !== scope) continue;
+      n++;
+    }
     return n;
+  }
+  function reqBudgetByScope() {
+    const out = { scrape: 0, read: 0, action: 0 };
+    Object.keys(out).forEach(k => { out[k] = reqBudgetUsed(k); });
+    return out;
   }
 
   function reqBudgetSoftDelayMs() {
@@ -1354,6 +1374,8 @@ const STORE = {
   const GM_XHR_DEFAULT_TIMEOUT = 30000;
   function gbXhr(opts) {
     const scope = opts.scope === 'external' ? 'external' : 'game';
+
+    const budgetScope = REQ_SCOPE_FRACTION[opts.budget] != null ? opts.budget : 'read';
     const timeout = opts.timeout != null ? opts.timeout : GM_XHR_DEFAULT_TIMEOUT;
     const userOnload = opts.onload;
     const userOnerror = opts.onerror;
@@ -1367,8 +1389,8 @@ const STORE = {
     if (!gbInstanceAlive()) return failEarly('disposed');
     if (scope === 'game') {
       if (!hostEnabled()) return failEarly('disabled');
-      if (!reqBudgetOk()) return failEarly('budget');
-      reqBudgetMark();
+      if (!reqBudgetOk(budgetScope)) return failEarly('budget');
+      reqBudgetMark(budgetScope);
     }
     const drop = () => {
       if (done) return false;
@@ -2330,7 +2352,7 @@ const STORE = {
     if (write) { const sm=safeModeBlock(feature, null, null, null); if (sm) return sm; }
     if (jtag && jrnSkipped(jtag)) return 'remembered';
     if (write && state.dryRun) return 'dryrun';
-    if (!reqBudgetOk()) return 'budget';
+    if (!reqBudgetOk('action')) return 'budget';
     return null;
   }
   function txRun(feature, transport, endpoint, data, rawSend, onDone) {
@@ -2381,7 +2403,7 @@ const STORE = {
       }
     }
     if (!write) {
-      reqBudgetMark();
+      reqBudgetMark('action');
       return rawSend((err, result) => {
         if (!gbInstanceAlive()) return;
         if (!err) { markModuleHealth(feature, 'ok'); circuitSuccess(feature); }
@@ -2443,8 +2465,8 @@ const STORE = {
       }
     }
 
-    if (!reqBudgetOk()) { tx.state = 'aborted'; tx.detail = 'budget'; tx.updatedAt = Date.now(); plannerRelease(tx, 'budget'); txSave(); return bail('budget'); }
-    reqBudgetMark();
+    if (!reqBudgetOk('action')) { tx.state = 'aborted'; tx.detail = 'budget'; tx.updatedAt = Date.now(); plannerRelease(tx, 'budget'); txSave(); return bail('budget'); }
+    reqBudgetMark('action');
     tx.state = 'sending'; tx.sentAt = Date.now(); tx.updatedAt = Date.now(); txSave();
     rawSend((err, result) => {
       if (!gbInstanceAlive() || tx.owner !== GB_INSTANCE_ID) return;
@@ -3373,7 +3395,7 @@ const STORE = {
         if (i >= batch.length) {
           gbLog(`report catch-up done: ${fetched}/${batch.length}`);
           done = true;
-        } else if (!hostEnabled() || automationPaused({}) || captchaPaused('report') || !reqBudgetOk()) {
+        } else if (!hostEnabled() || automationPaused({}) || captchaPaused('report') || !reqBudgetOk('read')) {
           gbLog(`report catch-up paused mid-run at ${i}/${batch.length}`);
           done = true;
         } else {
@@ -4432,7 +4454,7 @@ const STORE = {
       const u = '/index.php?' + params.toString();
       gbXhr({
         method: 'GET', url: u,
-        anonymous: false,
+        anonymous: false, budget: 'scrape',
         headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json, text/plain, */*' },
         onload(res) {
           const retryMs = httpRetryAfterMs(res);
@@ -4707,7 +4729,7 @@ const STORE = {
     params.set('action', action); params.set('h', state.csrf);
     const u = '/index.php?' + params.toString();
     gbXhr({
-      method: 'GET', url: u,
+      method: 'GET', url: u, budget: 'scrape',
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
       onload(res) {
         const retryMs = httpRetryAfterMs(res);
@@ -4793,7 +4815,7 @@ const STORE = {
       const params = new URLSearchParams();
       params.set('action', action); params.set('town_id', town.id); params.set('h', state.csrf || '');
       gbXhr({
-        method: 'GET', url: '/index.php?' + params.toString(),
+        method: 'GET', url: '/index.php?' + params.toString(), budget: 'scrape',
         headers: { 'X-Requested-With': 'XMLHttpRequest' }, anonymous: false,
         onload(res) {
           const retryMs = httpRetryAfterMs(res);
@@ -13282,10 +13304,16 @@ const STORE = {
     });
     const locks = gbLockList();
     lines.push('');
+    const byScope = typeof reqBudgetByScope === 'function' ? reqBudgetByScope() : null;
+    const softMs = typeof reqBudgetSoftDelayMs === 'function' ? reqBudgetSoftDelayMs() : 0;
     lines.push(`peticiones ultimo min ${reqBudgetUsed()}/${state.reqBudgetPerMin || 40}` +
+      (byScope ? ` (accion ${byScope.action}/${reqBudgetCap('action')} \u00b7 lectura ${byScope.read}/${reqBudgetCap('read')} \u00b7 escaneo ${byScope.scrape}/${reqBudgetCap('scrape')})` : '') +
+      (softMs ? ` | freno suave ${softMs}ms` : '') +
       (gbServerPaused() ? ` | server cooldown ${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}` : '') +
       (locks.length ? ` | locks ${locks.join(',')}` : '') +
       (state.dryRun ? ' | DRY-RUN' : ''));
+    const budgetSkips = st.topSkips ? (st.topSkips.find(([k]) => /budget/.test(k)) || [null, 0])[1] : 0;
+    if (budgetSkips) lines.push(`  ${budgetSkips} accion(es) saltadas por presupuesto en la ventana`);
     if (preflightLast) {
       lines.push('');
       lines.push(`preflight (${new Date(preflightLast.at).toLocaleTimeString()})`);
@@ -13397,6 +13425,8 @@ const STORE = {
       budget: {
         perMin: state.reqBudgetPerMin || 40,
         usedLastMin: typeof reqBudgetUsed === 'function' ? reqBudgetUsed() : 0,
+        byScope: typeof reqBudgetByScope === 'function' ? reqBudgetByScope() : null,
+        softDelayMs: typeof reqBudgetSoftDelayMs === 'function' ? reqBudgetSoftDelayMs() : 0,
       },
       lastOk,
       lastSkip,

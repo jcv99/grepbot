@@ -154,7 +154,7 @@
         if (i >= batch.length) {
           gbLog(`report catch-up done: ${fetched}/${batch.length}`);
           done = true;
-        } else if (!hostEnabled() || automationPaused({}) || captchaPaused('report') || !reqBudgetOk()) {
+        } else if (!hostEnabled() || automationPaused({}) || captchaPaused('report') || !reqBudgetOk('read')) {
           gbLog(`report catch-up paused mid-run at ${i}/${batch.length}`);
           done = true;
         } else {

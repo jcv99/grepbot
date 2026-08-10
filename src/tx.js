@@ -529,7 +529,7 @@
     if (write) { const sm=safeModeBlock(feature, null, null, null); if (sm) return sm; }
     if (jtag && jrnSkipped(jtag)) return 'remembered';
     if (write && state.dryRun) return 'dryrun';
-    if (!reqBudgetOk()) return 'budget';
+    if (!reqBudgetOk('action')) return 'budget';
     return null;
   }
   function txRun(feature, transport, endpoint, data, rawSend, onDone) {
@@ -581,7 +581,7 @@
       }
     }
     if (!write) {
-      reqBudgetMark();
+      reqBudgetMark('action');
       return rawSend((err, result) => {
         if (!gbInstanceAlive()) return;
         if (!err) { markModuleHealth(feature, 'ok'); circuitSuccess(feature); }
@@ -643,8 +643,8 @@
       }
     }
     // A write gets budget only when it is actually going to SEND.
-    if (!reqBudgetOk()) { tx.state = 'aborted'; tx.detail = 'budget'; tx.updatedAt = Date.now(); plannerRelease(tx, 'budget'); txSave(); return bail('budget'); }
-    reqBudgetMark();
+    if (!reqBudgetOk('action')) { tx.state = 'aborted'; tx.detail = 'budget'; tx.updatedAt = Date.now(); plannerRelease(tx, 'budget'); txSave(); return bail('budget'); }
+    reqBudgetMark('action');
     tx.state = 'sending'; tx.sentAt = Date.now(); tx.updatedAt = Date.now(); txSave();
     rawSend((err, result) => {
       if (!gbInstanceAlive() || tx.owner !== GB_INSTANCE_ID) return;
