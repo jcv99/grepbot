@@ -883,6 +883,9 @@
           <button type="button" data-act="evidence" title="Instantanea de solo lectura y anonimizada para las validaciones de TASKS. Copia JSON. No envia nada.">Evidencia</button>
           <button type="button" data-act="clear">Limpiar hallazgos</button>
           <button type="button" data-act="reset-pos" title="Reset panel position">Restablecer posicion</button>
+          <button type="button" data-act="preset-afk" title="Activa granjas, cueva, construccion e investigacion con cadencia lenta y presupuesto bajo. Todo HIGH-RISK queda OFF.">Perfil: AFK nocturno</button>
+          <button type="button" data-act="preset-farming" title="Cadencia corta, banda y cueva, todo economico, culture OFF.">Perfil: recoleccion activa</button>
+          <button type="button" data-act="preset-war" title="Construccion, dodge notify, sin cultura ni investigacion. HIGH-RISK forzado a OFF.">Perfil: guerra</button>
         </div>
       </details>
     </footer>
@@ -1609,6 +1612,16 @@
   })(panel);
 
   panel.querySelector('footer button[data-act=reset-pos]').addEventListener('click', resetPanelGeom);
+  const presetHandler = (name) => () => {
+    if (typeof qolApplyPreset !== 'function') return;
+    qolApplyPreset(name);
+    try { bindConfig(); } catch (_) {}
+    try { if (typeof updateStatus === 'function') updateStatus(); } catch (_) {}
+    flash('perfil aplicado: ' + name);
+  };
+  panel.querySelector('footer button[data-act=preset-afk]')?.addEventListener('click', presetHandler('afk'));
+  panel.querySelector('footer button[data-act=preset-farming]')?.addEventListener('click', presetHandler('farming'));
+  panel.querySelector('footer button[data-act=preset-war]')?.addEventListener('click', presetHandler('war'));
 
   function gbDebounce(fn, ms) {
     let t = null;

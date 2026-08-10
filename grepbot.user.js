@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      3.5.0
+// @version      3.6.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -10902,6 +10902,110 @@ const STORE = {
     state.configVer=CONFIG_VER_CURRENT;save(STORE.CONFIG_VER,CONFIG_VER_CURRENT);if(state.autoFavor){state.autoFavor=false;save(STORE.AUTO_FAVOR,false)}goalPlanAll();gbLog(`config imported: ${applied} validated section(s)`);return applied>0;
   }
 
+  const CONFIG_PRESET_HIGH_RISK = {
+    autoFavor: [STORE.AUTO_FAVOR, false],
+    autoRecruit: [STORE.AUTO_RECRUIT, false],
+    autoDodge: [STORE.AUTO_DODGE, false],
+    allowPremiumCulture: [STORE.ALLOW_PREMIUM_CULTURE, false],
+    autoMerchant: [STORE.AUTO_MERCHANT, false],
+    autoWonder: [STORE.AUTO_WONDER, false],
+    autoWonderFavor: [STORE.AUTO_WONDER_FAVOR, false],
+    autoPtTrade: [STORE.AUTO_PT_TRADE, false],
+  };
+  const CONFIG_PRESETS = {
+    afk: {
+      label: 'AFK nocturno',
+      values: {
+        autoCollect: [STORE.AUTO_COLLECT, true],
+        autoFarm: [STORE.AUTO_FARM, true],
+        farmLongClaims: [STORE.FARM_LONG_CLAIMS, true],
+        autoCave: [STORE.AUTO_CAVE, true],
+        abAuto: [STORE.AB_AUTO, true],
+        ibAuto: [STORE.IB_AUTO, true],
+        autoResearch: [STORE.AUTO_RESEARCH, true],
+        autoTrade: [STORE.AUTO_TRADE, true],
+        autoCulture: [STORE.AUTO_CULTURE, true],
+        autoRuralTrade: [STORE.AUTO_RURAL_TRADE, true],
+        orchAdaptive: [STORE.ORCH_ADAPTIVE, true],
+        orchDeadlockResolve: [STORE.ORCH_DEADLOCK, true],
+        pauseOnActivity: [STORE.PAUSE_ON_ACTIVITY, false],
+        nightPause: [STORE.NIGHT_PAUSE, false],
+        autoBandit: [STORE.AUTO_BANDIT, false],
+        reqBudgetPerMin: [STORE.REQ_BUDGET, 25],
+        postsPerMinSoftPct: [STORE.POSTS_SOFT_PCT, 50],
+        farmMinMs: [STORE.FARM_MIN, 8 * 60000],
+        farmMaxMs: [STORE.FARM_MAX, 10 * 60000],
+      },
+    },
+    farming: {
+      label: 'Recoleccion activa',
+      values: {
+        autoCollect: [STORE.AUTO_COLLECT, true],
+        autoFarm: [STORE.AUTO_FARM, true],
+        farmLongClaims: [STORE.FARM_LONG_CLAIMS, true],
+        autoBandit: [STORE.AUTO_BANDIT, true],
+        autoCave: [STORE.AUTO_CAVE, true],
+        abAuto: [STORE.AB_AUTO, true],
+        ibAuto: [STORE.IB_AUTO, true],
+        autoTrade: [STORE.AUTO_TRADE, true],
+        autoResearch: [STORE.AUTO_RESEARCH, true],
+        autoCulture: [STORE.AUTO_CULTURE, false],
+        orchAdaptive: [STORE.ORCH_ADAPTIVE, true],
+        orchDeadlockResolve: [STORE.ORCH_DEADLOCK, true],
+        pauseOnActivity: [STORE.PAUSE_ON_ACTIVITY, true],
+        nightPause: [STORE.NIGHT_PAUSE, false],
+        reqBudgetPerMin: [STORE.REQ_BUDGET, 40],
+        postsPerMinSoftPct: [STORE.POSTS_SOFT_PCT, 60],
+        farmMinMs: [STORE.FARM_MIN, 5 * 60000],
+        farmMaxMs: [STORE.FARM_MAX, 6 * 60000],
+      },
+    },
+    war: {
+      label: 'Guerra (defensivo)',
+      values: {
+        autoCollect: [STORE.AUTO_COLLECT, true],
+        autoFarm: [STORE.AUTO_FARM, true],
+        autoCave: [STORE.AUTO_CAVE, true],
+        abAuto: [STORE.AB_AUTO, true],
+        ibAuto: [STORE.IB_AUTO, true],
+        autoTrade: [STORE.AUTO_TRADE, true],
+        autoCulture: [STORE.AUTO_CULTURE, false],
+        autoResearch: [STORE.AUTO_RESEARCH, false],
+        autoBandit: [STORE.AUTO_BANDIT, false],
+        orchAdaptive: [STORE.ORCH_ADAPTIVE, true],
+        orchDeadlockResolve: [STORE.ORCH_DEADLOCK, true],
+        pauseOnActivity: [STORE.PAUSE_ON_ACTIVITY, true],
+        nightPause: [STORE.NIGHT_PAUSE, false],
+        reqBudgetPerMin: [STORE.REQ_BUDGET, 40],
+        postsPerMinSoftPct: [STORE.POSTS_SOFT_PCT, 70],
+      },
+    },
+  };
+  function qolApplyPreset(name) {
+    const preset = CONFIG_PRESETS[name];
+    if (!preset) return false;
+    const applied = [];
+    const put = (key, pair) => {
+      const [store, val] = pair;
+      if (state[key] === val) return;
+      state[key] = val;
+      save(store, val);
+      applied.push(key + '=' + val);
+    };
+    Object.keys(preset.values).forEach(k => put(k, preset.values[k]));
+    Object.keys(CONFIG_PRESET_HIGH_RISK).forEach(k => put(k, CONFIG_PRESET_HIGH_RISK[k]));
+    if (name === 'war') {
+
+      if (!state.defenseCfg || typeof state.defenseCfg !== 'object') state.defenseCfg = { mode: 'notify', returnMarginSec: 120, smartAuto: false };
+      state.defenseCfg.mode = 'notify';
+      save(STORE.DEFENSE_CFG, state.defenseCfg);
+      state.webhookEvents = Object.assign({}, state.webhookEvents || {}, { captcha: true, attack: true });
+      save(STORE.WEBHOOK_EVENTS, state.webhookEvents);
+    }
+    gbLog(`config preset "${preset.label}" applied: ${applied.length} setting(s) changed; HIGH-RISK loops forced OFF`);
+    return true;
+  }
+
   const ORCH_MS = 20000;
   const ORCH_MAX_PER_TICK = 3;
   const ORCH_SPACING_MS = 450;
@@ -14893,6 +14997,9 @@ const STORE = {
           <button type="button" data-act="evidence" title="Instantanea de solo lectura y anonimizada para las validaciones de TASKS. Copia JSON. No envia nada.">Evidencia</button>
           <button type="button" data-act="clear">Limpiar hallazgos</button>
           <button type="button" data-act="reset-pos" title="Reset panel position">Restablecer posicion</button>
+          <button type="button" data-act="preset-afk" title="Activa granjas, cueva, construccion e investigacion con cadencia lenta y presupuesto bajo. Todo HIGH-RISK queda OFF.">Perfil: AFK nocturno</button>
+          <button type="button" data-act="preset-farming" title="Cadencia corta, banda y cueva, todo economico, culture OFF.">Perfil: recoleccion activa</button>
+          <button type="button" data-act="preset-war" title="Construccion, dodge notify, sin cultura ni investigacion. HIGH-RISK forzado a OFF.">Perfil: guerra</button>
         </div>
       </details>
     </footer>
@@ -15617,6 +15724,16 @@ const STORE = {
   })(panel);
 
   panel.querySelector('footer button[data-act=reset-pos]').addEventListener('click', resetPanelGeom);
+  const presetHandler = (name) => () => {
+    if (typeof qolApplyPreset !== 'function') return;
+    qolApplyPreset(name);
+    try { bindConfig(); } catch (_) {}
+    try { if (typeof updateStatus === 'function') updateStatus(); } catch (_) {}
+    flash('perfil aplicado: ' + name);
+  };
+  panel.querySelector('footer button[data-act=preset-afk]')?.addEventListener('click', presetHandler('afk'));
+  panel.querySelector('footer button[data-act=preset-farming]')?.addEventListener('click', presetHandler('farming'));
+  panel.querySelector('footer button[data-act=preset-war]')?.addEventListener('click', presetHandler('war'));
 
   function gbDebounce(fn, ms) {
     let t = null;
