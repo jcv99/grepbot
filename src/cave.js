@@ -264,7 +264,7 @@
       let extra = '';
       if (info) {
         const pct = info.cap > 0 && info.iron != null ? Math.round(100 * info.iron / info.cap) : '?';
-        const cave = info.unlimited ? '∞'
+        const cave = info.unlimited ? 'inf'
           : (info.stored != null && info.hideCap != null ? `${info.stored}/${info.hideCap}`
             : (info.hideCap != null ? `?/${info.hideCap}` : 'n/a'));
         extra = ` — hide${info.hideLvl} iron ${pct}% cave ${cave}`;

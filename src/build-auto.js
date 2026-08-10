@@ -427,7 +427,7 @@
       };
       btns.appendChild(mkBtn('↑', () => { abMoveOrder(b, -1); renderAbQueue(); }));
       btns.appendChild(mkBtn('↓', () => { abMoveOrder(b, +1); renderAbQueue(); }));
-      btns.appendChild(mkBtn('−', () => { abSetTarget(b, (state.abTargets[b] || 0) - 1); renderAbQueue(); }));
+      btns.appendChild(mkBtn('-', () => { abSetTarget(b, (state.abTargets[b] || 0) - 1); renderAbQueue(); }));
       btns.appendChild(mkBtn('+', () => { abSetTarget(b, (state.abTargets[b] || 0) + 1); renderAbQueue(); }));
       if (max != null) btns.appendChild(mkBtn('max', () => { abSetTarget(b, max); renderAbQueue(); }));
       row.appendChild(name);

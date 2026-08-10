@@ -357,7 +357,7 @@
 
   GM_addStyle(`
     #grepbot-panel{position:fixed;top:10px;right:10px;width:560px;min-width:430px;max-width:92vw;max-height:82vh;z-index:2147483647;
-      background:#181a1f;color:#eef1f5;font:12px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;border:1px solid #414650;border-radius:10px;
+      background:#181a1f;color:#eef1f5;font:12px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";border:1px solid #414650;border-radius:10px;
       box-shadow:0 4px 16px rgba(0,0,0,.5);display:flex;flex-direction:column;visibility:visible !important;opacity:1 !important;
       box-sizing:border-box;}
     #grepbot-panel header{padding:8px 10px;background:#22252b;cursor:move;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-shrink:0;border-radius:10px 10px 0 0}
@@ -479,7 +479,7 @@
     #grepbot-panel .gb-section>summary{cursor:pointer;list-style:none;padding:7px 9px;font-size:11px;font-weight:700;color:#e8ebef;background:#22262d;display:flex;align-items:center;justify-content:space-between}
     #grepbot-panel .gb-section>summary::-webkit-details-marker{display:none}
     #grepbot-panel .gb-section>summary::after{content:'+';color:#8f98a5;font-size:14px}
-    #grepbot-panel .gb-section[open]>summary::after{content:'−'}
+    #grepbot-panel .gb-section[open]>summary::after{content:'-'}
     #grepbot-panel .gb-section-body{padding:7px}
     #grepbot-panel pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
     @media (max-width:700px){#grepbot-panel{width:94vw;min-width:320px;right:3vw}.gb-dashboard-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
@@ -545,7 +545,7 @@
         <span style="font-size:9px;color:#888;align-self:center">acosar</span>
         <button type="button" data-harass="1sling">1 honda</button>
         <button type="button" data-harass="5sling">5 hondas</button>
-        <button type="button" data-harass="light"≤8 ligeras</button>
+        <button type="button" data-harass="light">&le;8 ligeras</button>
       </div>
       <div style="font-size:9px;color:#888;margin-top:2px">roles de ciudad (guardado por mundo)</div>
       <div class="atk-roles"></div>
@@ -1659,22 +1659,22 @@
     const paused = Object.keys(state.captchaBreakers || {}).filter(k => captchaPaused(k));
     const pauseInfo = {};
     automationPaused(pauseInfo);
-    let pauseTxt = paused.length ? ` ⏸${paused.join(',')}` : '';
-    if (pauseInfo.reason) pauseTxt += ` ⏸${pauseInfo.reason}`;
-    if (captchaGlobalUntil > Date.now()) pauseTxt += ' ⏸ALL';
+    let pauseTxt = paused.length ? ` ||${paused.join(',')}` : '';
+    if (pauseInfo.reason) pauseTxt += ` ||${pauseInfo.reason}`;
+    if (captchaGlobalUntil > Date.now()) pauseTxt += ' ||ALL';
     const memSkips = jrnActiveSkips();
     if (memSkips.length) pauseTxt += ` mem:${memSkips.length}`;
     const openCircuits = Object.keys(state.circuits || {}).filter(k => state.circuits[k] && state.circuits[k].open);
     const unknownTx = Object.values(state.txState || {}).filter(t => t && /^(unknown|manual-review)$/.test(t.state || '')).length;
     if (openCircuits.length) pauseTxt += ` circuit:${openCircuits.length}`;
     if (unknownTx) pauseTxt += ` tx?:${unknownTx}`;
-    if (gbServerPaused()) pauseTxt += ` ⏸srv:${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}`;
-    if(gbTabCoordSupported&&!gbTabLeader)pauseTxt+=' ⏸other-tab';
-    if (storageWarnUntil > Date.now()) pauseTxt += ` ⚠${storageWarnMsg || 'quota'}`;
+    if (gbServerPaused()) pauseTxt += ` ||srv:${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}`;
+    if(gbTabCoordSupported&&!gbTabLeader)pauseTxt+=' ||other-tab';
+    if (storageWarnUntil > Date.now()) pauseTxt += ` !${storageWarnMsg || 'quota'}`;
     let tplBanner = '';
     try { tplBanner = tplHealthBannerText() || ''; } catch (_) {}
     if (tplBanner) pauseTxt += ' tpl!';
-    const dryTxt = state.dryRun ? ' 🅳DRY' : ''; const safeTxt=state.safeMode?' SAFE':'';
+    const dryTxt = state.dryRun ? ' [DRY]' : ''; const safeTxt=state.safeMode?' SAFE':'';
     const txt = `csrf:${csrfShort} farms:${okFarms}/${farms}${errTxt}${dryTxt}${safeTxt}${pauseTxt}`;
     if (txt !== _statusLast) {
       _statusLast = txt;
@@ -1700,17 +1700,17 @@
       const claimTxt = !state.autoFarm ? 'claim: off'
         : (timing && timing.ready > 0 ? `claim: ${timing.ready} ready`
           : (timing && Number.isFinite(timing.nextAt) ? `claim: ${fmtSec(Math.max(0, timing.nextAt - timing.now))}`
-            : (timing && timing.expiredModelWait ? 'claim: model sync' : 'claim: —')));
+            : (timing && timing.expiredModelWait ? 'claim: model sync' : 'claim: -')));
       const scrapeTxt = state.nextFarmScrape
         ? `scrape: ${fmtSec(Math.max(0, Math.round((state.nextFarmScrape - Date.now()) / 1000)))}`
-        : 'scrape: —';
-      const t = `🧺 ${claimTxt} · ↻ ${scrapeTxt}`;
+        : 'scrape: -';
+      const t = `${claimTxt} · ${scrapeTxt}`;
       if (t !== _timerFarmLast) { _timerFarmLast = t; fe.textContent = t; }
     }
     if (te) {
       const t = state.nextTownsScrape
-        ? `⏱ towns: ${fmtSec(Math.max(0, Math.round((state.nextTownsScrape - Date.now()) / 1000)))}`
-        : '⏱ towns: —';
+        ? `towns: ${fmtSec(Math.max(0, Math.round((state.nextTownsScrape - Date.now()) / 1000)))}`
+        : 'towns: -';
       if (t !== _timerTownLast) { _timerTownLast = t; te.textContent = t; }
     }
   }

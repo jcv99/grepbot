@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.6.0
+// @version      2.6.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -6227,11 +6227,11 @@ const STORE = {
        control paints UNDER all of them, so the caption text swallowed the click
        even though the button looked reachable. position+z-index puts it on top
        of its stacking context and makes hit-testing land on the button. */
-    .gb-native-qctl{position:relative;z-index:2147482000;pointer-events:auto;display:inline-flex;align-items:center;gap:2px;margin:0 0 0 2px;padding:1px 3px;border:1px solid #8a6725;border-radius:4px;background:rgba(31,25,16,.94);color:#f6e3b0;font:10px/1.2 Arial,sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.45);vertical-align:middle}
-    .gb-native-qbtn{position:relative;z-index:1;pointer-events:auto;min-width:22px;height:20px;padding:0 4px;border:1px solid #9b7938;border-radius:4px;background:linear-gradient(#5b4828,#342814);color:#fff3c7;font:bold 11px Arial,sans-serif;cursor:pointer}
+    .gb-native-qctl{position:relative;z-index:2147482000;pointer-events:auto;display:inline-flex;align-items:center;gap:2px;margin:0 0 0 2px;padding:1px 3px;border:1px solid #8a6725;border-radius:4px;background:rgba(31,25,16,.94);color:#f6e3b0;font:10px/1.2 Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";box-shadow:0 1px 3px rgba(0,0,0,.45);vertical-align:middle}
+    .gb-native-qbtn{position:relative;z-index:1;pointer-events:auto;min-width:22px;height:20px;padding:0 4px;border:1px solid #9b7938;border-radius:4px;background:linear-gradient(#5b4828,#342814);color:#fff3c7;font:bold 11px Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";cursor:pointer}
     .gb-native-qbtn:hover{border-color:#e5b94f;color:#fff}.gb-native-qbtn:disabled{opacity:.42;cursor:default}
     .gb-native-qcount{min-width:58px;text-align:center;white-space:nowrap}.gb-native-qcount.ready{color:#91e5a8}.gb-native-qcount.blocked{color:#ffb0a8}.gb-native-qcount.waiting{color:#ffd27a}
-    .gb-native-panel{position:fixed;bottom:10px;right:10px;z-index:2147483000;width:320px;max-width:40vw;max-height:48vh;padding:6px;border:1px solid #8a6725;border-radius:6px;background:rgba(34,27,17,.97);color:#f2dfb2;font:11px/1.3 Arial,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.55);overflow:auto}
+    .gb-native-panel{position:fixed;bottom:10px;right:10px;z-index:2147483000;width:320px;max-width:40vw;max-height:48vh;padding:6px;border:1px solid #8a6725;border-radius:6px;background:rgba(34,27,17,.97);color:#f2dfb2;font:11px/1.3 Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";box-shadow:0 4px 14px rgba(0,0,0,.55);overflow:auto}
     .gb-native-panel-head{display:flex;align-items:center;gap:5px;margin-bottom:4px;font-weight:bold}.gb-native-panel-head span{flex:1}
     .gb-native-job{display:grid;grid-template-columns:24px minmax(120px,1fr) auto;gap:5px;align-items:center;padding:3px 1px;border-top:1px solid rgba(190,150,75,.22)}
     .gb-native-job:first-of-type{border-top:0}.gb-native-job small{display:block;color:#c7ad78;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gb-native-job-actions{display:flex;gap:2px}
@@ -6337,7 +6337,7 @@ const STORE = {
       ctl.append(plus);nativeQctlHitCheck(ctl,building);return;
     }
 
-    const minus=nativeQButton('−','Quitar la última mejora virtual',nativeTileAction(root,townId,tile,'build',building,()=>{if(!nativeQueueRemoveLastBuild(townId,building))flash('No hay mejora virtual que quitar')}));minus.disabled=!jobs.some(j=>j&&!j.inflight&&!j.manualReview);
+    const minus=nativeQButton('-','Quitar la última mejora virtual',nativeTileAction(root,townId,tile,'build',building,()=>{if(!nativeQueueRemoveLastBuild(townId,building))flash('No hay mejora virtual que quitar')}));minus.disabled=!jobs.some(j=>j&&!j.inflight&&!j.manualReview);
     const count=document.createElement('span');count.className='gb-native-qcount';
     count.textContent=`Plan ${projected}${pos?' · #'+pos:''}`;
     if(head&&head.reason)count.title=head.reason;
@@ -6361,7 +6361,7 @@ const STORE = {
       const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola virtual`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));
       ctl.append(plus);nativeQctlHitCheck(ctl,unit);return;
     }
-    const minus=nativeQButton(`−${step}`,`Restar ${step} de la cola virtual de esta unidad`,nativeTileAction(root,townId,tile,'unit',unit,()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));minus.disabled=!list.some(j=>j&&j.unit===unit&&!j.inflight&&!j.manualReview);
+    const minus=nativeQButton(`-${step}`,`Restar ${step} de la cola virtual de esta unidad`,nativeTileAction(root,townId,tile,'unit',unit,()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));minus.disabled=!list.some(j=>j&&j.unit===unit&&!j.inflight&&!j.manualReview);
     const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=`+${pending}${pos?' · #'+pos:''}`;count.title=head&&head.reason?head.reason:`${pending} pendiente(s)`;
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
     const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));ctl.append(minus,count,plus);nativeQctlHitCheck(ctl,unit);
@@ -6372,7 +6372,7 @@ const STORE = {
     if(!box){box=document.createElement('div');box.className='gb-native-panel';box.dataset.lane=lane;box.dataset.town=String(townId);document.body.appendChild(box);box.addEventListener('mousedown',e=>e.stopPropagation());box.addEventListener('click',e=>e.stopPropagation())}
     const oldScroll=box.scrollTop;
     box.replaceChildren();const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot · Construcción':'Cola GrepBot · Unidades';head.appendChild(title);
-    const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'▶':'⏸',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
+    const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'>':'||',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
     const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&(j.inflight||j.manualReview));if(!list.length&&nativeQueueIsFifo(townId,lane)){const legacy=nativeQButton('Objetivos','Volver al planificador de objetivos',nativeTownAction(root,townId,()=>nativeQueueUseLegacy(townId,lane)));head.appendChild(legacy)}box.appendChild(head);
     if(!list.length){const empty=document.createElement('div');empty.className='gb-native-empty';empty.textContent=nativeQueueIsFifo(townId,lane)?'Cola vacía. Usa los botones + de arriba.':'Usa + para crear una cola FIFO en esta ciudad.';box.appendChild(empty);box.scrollTop=oldScroll;return}
     list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}→${j.toLevel}`:`${j.amount}× ${nativeUnitLabel(j.unit)}`;const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' · '+j.reason:''}`;desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const up=nativeQButton('↑','Mover antes',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('↓','Mover después',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const del=nativeQButton('×','Quitar de la cola virtual',nativePanelAction(townId,()=>{if(j.inflight){flash('Esta orden se está enviando; espera a que termine');return false}if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acción se envió o no.')}catch(_){ok=false}if(!ok)return false}else if(frozen){let ok=false;try{ok=gameUw().confirm('Hay otra acción pendiente en esta cola. ¿Borrar este elemento de todos modos?')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id,{force:true})}));del.disabled=!!j.inflight;acts.append(up,down,del);row.append(num,desc,acts);box.appendChild(row)});box.scrollTop=oldScroll;
@@ -6823,7 +6823,7 @@ const STORE = {
       };
       btns.appendChild(mkBtn('↑', () => { abMoveOrder(b, -1); renderAbQueue(); }));
       btns.appendChild(mkBtn('↓', () => { abMoveOrder(b, +1); renderAbQueue(); }));
-      btns.appendChild(mkBtn('−', () => { abSetTarget(b, (state.abTargets[b] || 0) - 1); renderAbQueue(); }));
+      btns.appendChild(mkBtn('-', () => { abSetTarget(b, (state.abTargets[b] || 0) - 1); renderAbQueue(); }));
       btns.appendChild(mkBtn('+', () => { abSetTarget(b, (state.abTargets[b] || 0) + 1); renderAbQueue(); }));
       if (max != null) btns.appendChild(mkBtn('max', () => { abSetTarget(b, max); renderAbQueue(); }));
       row.appendChild(name);
@@ -7130,7 +7130,7 @@ const STORE = {
       let extra = '';
       if (info) {
         const pct = info.cap > 0 && info.iron != null ? Math.round(100 * info.iron / info.cap) : '?';
-        const cave = info.unlimited ? '∞'
+        const cave = info.unlimited ? 'inf'
           : (info.stored != null && info.hideCap != null ? `${info.stored}/${info.hideCap}`
             : (info.hideCap != null ? `?/${info.hideCap}` : 'n/a'));
         extra = ` — hide${info.hideLvl} iron ${pct}% cave ${cave}`;
@@ -9858,7 +9858,7 @@ const STORE = {
       const rec=document.createElement('button');rec.textContent='Recalc';rec.style.cssText='font-size:8px;padding:1px 4px';rec.addEventListener('click',()=>{goalPlanTown(tid);rerender()});head.appendChild(rec);
       const reset=document.createElement('button');reset.textContent='Reset Q';reset.title='Clear virtual-queue order/block/mandatory overrides';reset.style.cssText='font-size:8px;padding:1px 4px';reset.addEventListener('click',()=>{goalQueueReset(tid);rerender()});head.appendChild(reset);
       const sel=document.createElement('select');sel.style.cssText='background:#111;color:#cfc;border:1px solid #333;font-size:9px;margin-left:auto';for(const [id,p] of Object.entries(profiles)){const o=document.createElement('option');o.value=id;o.textContent=p.label||id;sel.appendChild(o)}sel.value=plan.profile;sel.addEventListener('change',()=>{goalSetProfile(tid,sel.value);rerender()});head.appendChild(sel);box.appendChild(head);
-      const lines=(plan.actions||[]).slice(0,12);if(!lines.length){const e=document.createElement('div');e.textContent='  objetivo cumplido / sin acciones';e.style.cssText='padding:2px 6px;color:#777';box.appendChild(e)}else for(const a of lines){const row=document.createElement('div');row.style.cssText='display:grid;grid-template-columns:1fr auto;gap:3px;padding:2px 4px;border-bottom:1px solid #1e1e1e;align-items:center';const text=document.createElement('span');const c=a.cost||{},cost=[c.wood||0,c.stone||0,c.iron||0].join('/');text.textContent=`${a.mandatory?'! ':''}${a.kind} ${a.id}${a.level?' → '+a.level:''}${a.amount?' ×'+a.amount:''} · ${a.status} · ${cost}${a.why?' · '+a.why:''}`;row.appendChild(text);const acts=document.createElement('span');acts.style.cssText='display:flex;gap:2px';const mk=(label,title,fn)=>{const x=document.createElement('button');x.textContent=label;x.title=title;x.style.cssText='font-size:8px;padding:0 3px';x.addEventListener('click',()=>{fn();rerender()});acts.appendChild(x)};mk('↑','move earlier',()=>goalQueueMove(tid,a.queueKey,-1));mk('↓','move later',()=>goalQueueMove(tid,a.queueKey,1));mk(a.status==='user-blocked'?'ON':'B','block/unblock',()=>goalQueueToggleBlock(tid,a.queueKey));mk(a.mandatory?'☆':'!','mandatory priority',()=>goalQueueToggleMandatory(tid,a.queueKey));mk('×','suppress until Reset Q',()=>goalQueueHide(tid,a.queueKey));row.appendChild(acts);box.appendChild(row)}
+      const lines=(plan.actions||[]).slice(0,12);if(!lines.length){const e=document.createElement('div');e.textContent='  objetivo cumplido / sin acciones';e.style.cssText='padding:2px 6px;color:#777';box.appendChild(e)}else for(const a of lines){const row=document.createElement('div');row.style.cssText='display:grid;grid-template-columns:1fr auto;gap:3px;padding:2px 4px;border-bottom:1px solid #1e1e1e;align-items:center';const text=document.createElement('span');const c=a.cost||{},cost=[c.wood||0,c.stone||0,c.iron||0].join('/');text.textContent=`${a.mandatory?'! ':''}${a.kind} ${a.id}${a.level?' → '+a.level:''}${a.amount?' ×'+a.amount:''} · ${a.status} · ${cost}${a.why?' · '+a.why:''}`;row.appendChild(text);const acts=document.createElement('span');acts.style.cssText='display:flex;gap:2px';const mk=(label,title,fn)=>{const x=document.createElement('button');x.textContent=label;x.title=title;x.style.cssText='font-size:8px;padding:0 3px';x.addEventListener('click',()=>{fn();rerender()});acts.appendChild(x)};mk('↑','move earlier',()=>goalQueueMove(tid,a.queueKey,-1));mk('↓','move later',()=>goalQueueMove(tid,a.queueKey,1));mk(a.status==='user-blocked'?'ON':'B','block/unblock',()=>goalQueueToggleBlock(tid,a.queueKey));mk(a.mandatory?'*':'!','mandatory priority',()=>goalQueueToggleMandatory(tid,a.queueKey));mk('×','suppress until Reset Q',()=>goalQueueHide(tid,a.queueKey));row.appendChild(acts);box.appendChild(row)}
     }
   }
 
@@ -9995,7 +9995,7 @@ const STORE = {
       `Farms ready: ${d.farmReady}/${d.farmTotal}`,
       `Culture busy: ${d.cultureBusy}`,
       `Build queue: ${d.buildQ} | Research queue: ${d.researchQ}`,
-      d.pause ? `⏸ paused: ${d.pause}` : 'Automation: active',
+      d.pause ? `|| paused: ${d.pause}` : 'Automation: active',
       d.breakers.length ? `Captcha: ${d.breakers.join(',')}` : 'Captcha: clear',
       (() => {
         const parts = Object.keys(d.health).map(k => {
@@ -13017,7 +13017,7 @@ const STORE = {
 
   GM_addStyle(`
     #grepbot-panel{position:fixed;top:10px;right:10px;width:560px;min-width:430px;max-width:92vw;max-height:82vh;z-index:2147483647;
-      background:#181a1f;color:#eef1f5;font:12px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;border:1px solid #414650;border-radius:10px;
+      background:#181a1f;color:#eef1f5;font:12px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";border:1px solid #414650;border-radius:10px;
       box-shadow:0 4px 16px rgba(0,0,0,.5);display:flex;flex-direction:column;visibility:visible !important;opacity:1 !important;
       box-sizing:border-box;}
     #grepbot-panel header{padding:8px 10px;background:#22252b;cursor:move;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-shrink:0;border-radius:10px 10px 0 0}
@@ -13139,7 +13139,7 @@ const STORE = {
     #grepbot-panel .gb-section>summary{cursor:pointer;list-style:none;padding:7px 9px;font-size:11px;font-weight:700;color:#e8ebef;background:#22262d;display:flex;align-items:center;justify-content:space-between}
     #grepbot-panel .gb-section>summary::-webkit-details-marker{display:none}
     #grepbot-panel .gb-section>summary::after{content:'+';color:#8f98a5;font-size:14px}
-    #grepbot-panel .gb-section[open]>summary::after{content:'−'}
+    #grepbot-panel .gb-section[open]>summary::after{content:'-'}
     #grepbot-panel .gb-section-body{padding:7px}
     #grepbot-panel pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
     @media (max-width:700px){#grepbot-panel{width:94vw;min-width:320px;right:3vw}.gb-dashboard-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
@@ -13205,7 +13205,7 @@ const STORE = {
         <span style="font-size:9px;color:#888;align-self:center">acosar</span>
         <button type="button" data-harass="1sling">1 honda</button>
         <button type="button" data-harass="5sling">5 hondas</button>
-        <button type="button" data-harass="light"≤8 ligeras</button>
+        <button type="button" data-harass="light">&le;8 ligeras</button>
       </div>
       <div style="font-size:9px;color:#888;margin-top:2px">roles de ciudad (guardado por mundo)</div>
       <div class="atk-roles"></div>
@@ -14319,22 +14319,22 @@ const STORE = {
     const paused = Object.keys(state.captchaBreakers || {}).filter(k => captchaPaused(k));
     const pauseInfo = {};
     automationPaused(pauseInfo);
-    let pauseTxt = paused.length ? ` ⏸${paused.join(',')}` : '';
-    if (pauseInfo.reason) pauseTxt += ` ⏸${pauseInfo.reason}`;
-    if (captchaGlobalUntil > Date.now()) pauseTxt += ' ⏸ALL';
+    let pauseTxt = paused.length ? ` ||${paused.join(',')}` : '';
+    if (pauseInfo.reason) pauseTxt += ` ||${pauseInfo.reason}`;
+    if (captchaGlobalUntil > Date.now()) pauseTxt += ' ||ALL';
     const memSkips = jrnActiveSkips();
     if (memSkips.length) pauseTxt += ` mem:${memSkips.length}`;
     const openCircuits = Object.keys(state.circuits || {}).filter(k => state.circuits[k] && state.circuits[k].open);
     const unknownTx = Object.values(state.txState || {}).filter(t => t && /^(unknown|manual-review)$/.test(t.state || '')).length;
     if (openCircuits.length) pauseTxt += ` circuit:${openCircuits.length}`;
     if (unknownTx) pauseTxt += ` tx?:${unknownTx}`;
-    if (gbServerPaused()) pauseTxt += ` ⏸srv:${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}`;
-    if(gbTabCoordSupported&&!gbTabLeader)pauseTxt+=' ⏸other-tab';
-    if (storageWarnUntil > Date.now()) pauseTxt += ` ⚠${storageWarnMsg || 'quota'}`;
+    if (gbServerPaused()) pauseTxt += ` ||srv:${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}`;
+    if(gbTabCoordSupported&&!gbTabLeader)pauseTxt+=' ||other-tab';
+    if (storageWarnUntil > Date.now()) pauseTxt += ` !${storageWarnMsg || 'quota'}`;
     let tplBanner = '';
     try { tplBanner = tplHealthBannerText() || ''; } catch (_) {}
     if (tplBanner) pauseTxt += ' tpl!';
-    const dryTxt = state.dryRun ? ' 🅳DRY' : ''; const safeTxt=state.safeMode?' SAFE':'';
+    const dryTxt = state.dryRun ? ' [DRY]' : ''; const safeTxt=state.safeMode?' SAFE':'';
     const txt = `csrf:${csrfShort} farms:${okFarms}/${farms}${errTxt}${dryTxt}${safeTxt}${pauseTxt}`;
     if (txt !== _statusLast) {
       _statusLast = txt;
@@ -14360,17 +14360,17 @@ const STORE = {
       const claimTxt = !state.autoFarm ? 'claim: off'
         : (timing && timing.ready > 0 ? `claim: ${timing.ready} ready`
           : (timing && Number.isFinite(timing.nextAt) ? `claim: ${fmtSec(Math.max(0, timing.nextAt - timing.now))}`
-            : (timing && timing.expiredModelWait ? 'claim: model sync' : 'claim: —')));
+            : (timing && timing.expiredModelWait ? 'claim: model sync' : 'claim: -')));
       const scrapeTxt = state.nextFarmScrape
         ? `scrape: ${fmtSec(Math.max(0, Math.round((state.nextFarmScrape - Date.now()) / 1000)))}`
-        : 'scrape: —';
-      const t = `🧺 ${claimTxt} · ↻ ${scrapeTxt}`;
+        : 'scrape: -';
+      const t = `${claimTxt} · ${scrapeTxt}`;
       if (t !== _timerFarmLast) { _timerFarmLast = t; fe.textContent = t; }
     }
     if (te) {
       const t = state.nextTownsScrape
-        ? `⏱ towns: ${fmtSec(Math.max(0, Math.round((state.nextTownsScrape - Date.now()) / 1000)))}`
-        : '⏱ towns: —';
+        ? `towns: ${fmtSec(Math.max(0, Math.round((state.nextTownsScrape - Date.now()) / 1000)))}`
+        : 'towns: -';
       if (t !== _timerTownLast) { _timerTownLast = t; te.textContent = t; }
     }
   }
