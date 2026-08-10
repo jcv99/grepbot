@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.9.2
+// @version      3.0.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -177,6 +177,8 @@ const STORE = {
     PT_TRADE_TPL: 'grepbot:pt-trade-tpl',
     PT_VIEW_URL: 'grepbot:pt-view-url',
     SPELL_COOLDOWN: 'grepbot:spell-cooldown',
+    FARM_SCRAPE: 'grepbot:farm-scrape',
+    FARM_SCRAPE_STATE: 'grepbot:farm-scrape-state',
   };
 
   const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
@@ -203,4 +205,6 @@ const STORE = {
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
     STORE.SPELL_COOLDOWN,
+    // endpoint availability is a property of the world's client, not of the user
+    STORE.FARM_SCRAPE_STATE,
   ]);

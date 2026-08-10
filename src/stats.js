@@ -35,6 +35,19 @@
         detail: `${farms.length} villages, ${ready} claimable, ${tpl}, options ${farmOptionMapText()}`,
       };
     }));
+    out.push(preflightProbe('farm resource scrape', () => {
+      const st = (typeof farmScrapeState === 'function') ? farmScrapeState() : { dead: false, misses: 0 };
+      const on = !!state.farmScrape;
+      const learned = !!state.farmAction;
+      if (!on) return { ok: true, warn: true, detail: 'disabled in Config (reads no village stock)' };
+      if (st.dead) return { ok: false, detail: `endpoint dead after ${st.misses} empty sweeps - teach it by opening a village, then re-enable` };
+      const okRows = Object.values(state.farmResources || {}).filter(r => r && r.ok).length;
+      return {
+        ok: okRows > 0 || !learned,
+        warn: !learned,
+        detail: `${okRows} villages with data, action ${state.farmAction || 'not learned'}, misses ${st.misses || 0}`,
+      };
+    }));
     out.push(preflightProbe('sleep claim', () => {
       const sec = farmSleepDuration();
       const opt = farmOptionFor(sec);

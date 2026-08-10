@@ -231,6 +231,12 @@
     nextFarmScrape: load(STORE.NEXT_FARM, 0),
     nextTownsScrape: load(STORE.NEXT_TOWNS, 0),
     farmAction: load(STORE.FARM_ACTION, null),
+    // The HTTP village-resource scrape only exists on worlds whose client still
+    // answers a farm_town_* action. It defaults OFF: on a world where it does
+    // not, every sweep burned N villages x 3 guesses of the shared request
+    // budget and starved the bridge posts that actually matter.
+    farmScrape: load(STORE.FARM_SCRAPE, false),
+    farmScrapeState: load(STORE.FARM_SCRAPE_STATE, null) || { dead: false, misses: 0 },
     collectAll: load(STORE.COLLECT_ALL, false),
     autoCollect: load(STORE.AUTO_COLLECT, false),
     collectTpl: load(STORE.COLLECT_TPL, null),

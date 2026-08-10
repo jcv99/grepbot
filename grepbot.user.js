@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.9.2
+// @version      3.0.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -177,6 +177,8 @@ const STORE = {
     PT_TRADE_TPL: 'grepbot:pt-trade-tpl',
     PT_VIEW_URL: 'grepbot:pt-view-url',
     SPELL_COOLDOWN: 'grepbot:spell-cooldown',
+    FARM_SCRAPE: 'grepbot:farm-scrape',
+    FARM_SCRAPE_STATE: 'grepbot:farm-scrape-state',
   };
 
   const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
@@ -203,6 +205,8 @@ const STORE = {
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
     STORE.SPELL_COOLDOWN,
+
+    STORE.FARM_SCRAPE_STATE,
   ]);
   function wkey(base) { return base + '@' + location.hostname; }
 
@@ -437,6 +441,9 @@ const STORE = {
     nextFarmScrape: load(STORE.NEXT_FARM, 0),
     nextTownsScrape: load(STORE.NEXT_TOWNS, 0),
     farmAction: load(STORE.FARM_ACTION, null),
+
+    farmScrape: load(STORE.FARM_SCRAPE, false),
+    farmScrapeState: load(STORE.FARM_SCRAPE_STATE, null) || { dead: false, misses: 0 },
     collectAll: load(STORE.COLLECT_ALL, false),
     autoCollect: load(STORE.AUTO_COLLECT, false),
     collectTpl: load(STORE.COLLECT_TPL, null),
@@ -4336,6 +4343,48 @@ const STORE = {
     return updated;
   }
 
+  const FARM_SCRAPE_DEAD_SWEEPS = 2;
+  function farmScrapeState() {
+    if (!state.farmScrapeState || typeof state.farmScrapeState !== 'object') {
+      state.farmScrapeState = { dead: false, misses: 0 };
+    }
+    return state.farmScrapeState;
+  }
+  function farmScrapeSaveState() { save(STORE.FARM_SCRAPE_STATE, farmScrapeState()); }
+  function farmScrapeEnabled() { return !!state.farmScrape && !farmScrapeState().dead; }
+
+  function farmScrapeClearErrors() {
+    const res = state.farmResources || {};
+    let n = 0;
+    Object.keys(res).forEach(k => { if (res[k] && !res[k].ok) { delete res[k]; n++; } });
+    if (n) { save(STORE.FARM_RES, state.farmResources); renderFarms(); }
+    return n;
+  }
+  function farmScrapeNoteSweep(okCount) {
+    const st = farmScrapeState();
+    if (okCount > 0) {
+      if (st.misses || st.dead) { st.misses = 0; st.dead = false; farmScrapeSaveState(); }
+      return;
+    }
+    st.misses = (st.misses || 0) + 1;
+    if (st.misses >= FARM_SCRAPE_DEAD_SWEEPS && !st.dead) {
+      st.dead = true;
+      gbLog(`farm scrape: endpoint dead after ${st.misses} sweeps - disabling ` +
+        '(hand-open a farming village once to teach the action, then re-enable in Config)');
+      farmScrapeClearErrors();
+    }
+    farmScrapeSaveState();
+  }
+  function farmScrapeRevive(why) {
+    const st = farmScrapeState();
+    if (!st.dead && !st.misses) return false;
+    st.dead = false;
+    st.misses = 0;
+    farmScrapeSaveState();
+    gbLog('farm scrape: breaker cleared (' + (why || 'manual') + ')');
+    return true;
+  }
+
   const ACTION_GUESSES = ['farm_town_info', 'get_farm_towns', 'farm_town_overview'];
   const FARM_ACTION_OK = /^(farm_town_|get_farm|farm_info|island_farm)/;
   const FARM_ACTION_BAD = /farm_remove|village_attack|attack_log|farm_town_lock/;
@@ -4360,6 +4409,8 @@ const STORE = {
     state.farmAction = a;
     save(wkey(STORE.FARM_ACTION), a);
     gbLog('learned farm action', a);
+
+    farmScrapeRevive('learned action ' + a);
   }
   function fetchFarmResources(entry, onDone) {
     const guesses = farmGuesses();
@@ -4435,7 +4486,15 @@ const STORE = {
           checkThresholds();
           if (onDone) onDone(!!state.farmResources[entry.vill_id].ok);
         },
-        onerror() {
+        onerror(e) {
+
+          const why = e && e.error ? String(e.error) : '';
+          if (why === 'budget' || why === 'disabled' || why === 'disposed') {
+            state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: why };
+            save(STORE.FARM_RES, state.farmResources);
+            if (onDone) onDone(false, why);
+            return;
+          }
           if (i + 1 < guesses.length) return tryGuess(entry, i + 1, 0);
           state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: 'network' };
           save(STORE.FARM_RES, state.farmResources);
@@ -4453,8 +4512,18 @@ const STORE = {
     return null;
   }
 
-  function scrapeAllFarms() {
+  function scrapeAllFarms(force) {
     if (!hostEnabled() || automationPaused({})) return;
+    if (force) farmScrapeRevive('manual sweep');
+    if (!force && !farmScrapeEnabled()) {
+      gbLogT('farm-scrape-off', 600000, 'farm scrape: off (' +
+        (farmScrapeState().dead ? 'endpoint dead' : 'disabled in Config') + ')');
+
+      state.nextFarmScrape = Date.now() + SYNC.FARM_MIN_MS;
+      save(STORE.NEXT_FARM, state.nextFarmScrape);
+      renderTimers();
+      return;
+    }
     if (gbLocked('farm-scrape')) { gbLogT('farm-scrape-inflight', 30000, 'farm scrape: skipped (in flight)'); return; }
     const farmScrapeLock = gbLock('farm-scrape', 300000);
     if (!farmScrapeLock) return;
@@ -4485,11 +4554,18 @@ const STORE = {
         gbUnlock('farm-scrape', farmScrapeLock);
         gbLog(`farm scrape done: ${ok}/${done} ok, next in ${fmtSec(Math.round(wait / 1000))}`);
         flash(`farms ${ok}/${done} ok`);
+        if (done) farmScrapeNoteSweep(ok);
         return;
       }
-      fetchFarmResources(f, (good) => {
+      fetchFarmResources(f, (good, why) => {
         done++; if (good) ok++;
         if (!good) gbLog(`  farm ${f.vill_id}: no data (${(state.farmResources[f.vill_id] || {}).err || '?'})`);
+
+        if (why === 'budget' || why === 'disabled' || why === 'disposed') {
+          gbUnlock('farm-scrape', farmScrapeLock);
+          gbLog(`farm scrape stopped (${why}): ${ok}/${done} ok`);
+          return;
+        }
         gbTimeout(step, 700 + Math.random() * 300);
       });
     })();
@@ -12978,6 +13054,19 @@ const STORE = {
         detail: `${farms.length} villages, ${ready} claimable, ${tpl}, options ${farmOptionMapText()}`,
       };
     }));
+    out.push(preflightProbe('farm resource scrape', () => {
+      const st = (typeof farmScrapeState === 'function') ? farmScrapeState() : { dead: false, misses: 0 };
+      const on = !!state.farmScrape;
+      const learned = !!state.farmAction;
+      if (!on) return { ok: true, warn: true, detail: 'disabled in Config (reads no village stock)' };
+      if (st.dead) return { ok: false, detail: `endpoint dead after ${st.misses} empty sweeps - teach it by opening a village, then re-enable` };
+      const okRows = Object.values(state.farmResources || {}).filter(r => r && r.ok).length;
+      return {
+        ok: okRows > 0 || !learned,
+        warn: !learned,
+        detail: `${okRows} villages with data, action ${state.farmAction || 'not learned'}, misses ${st.misses || 0}`,
+      };
+    }));
     out.push(preflightProbe('sleep claim', () => {
       const sec = farmSleepDuration();
       const opt = farmOptionFor(sec);
@@ -14525,6 +14614,7 @@ const STORE = {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="grepodata"/> Grepodata Index+ assist</label>
         <label>IB free threshold (sec, safety cap 290) <input type="number" data-cfg="ib-free-thresh" min="60" max="300" style="width:70px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
         <label>Collect max min <input type="number" data-cfg="collect-max-min" min="1" max="120" style="width:70px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Lee los recursos de cada aldea por HTTP. Solo funciona en mundos cuyo cliente responde a una accion farm_town_*. Si no, cada barrido gasta el presupuesto de peticiones sin devolver nada y se apaga solo."><input type="checkbox" data-cfg="farm-scrape"/> Escanear recursos de aldeas (HTTP)</label>
         <label>Farm cadence min-max (min) <input type="number" data-cfg="farm-min" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> - <input type="number" data-cfg="farm-max" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label>Town cadence min-max (min) <input type="number" data-cfg="town-min" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> - <input type="number" data-cfg="town-max" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <button data-cfg="clear-captcha" style="align-self:flex-start;background:#333;border:1px solid #555;color:#f96;padding:3px 8px;cursor:pointer;font-size:11px">Limpiar cortacircuitos de captcha</button>
@@ -14774,6 +14864,8 @@ const STORE = {
     state.nextFarmScrape = 0;
     save(STORE.NEXT_FARM, 0);
     autoClaimFarms('manual');
+
+    scrapeAllFarms(true);
     farmTick();
   });
   panel.querySelector('#gb-sleep-claim')?.addEventListener('click', () => {
@@ -14790,6 +14882,7 @@ const STORE = {
   function syncFarmTimingCfg(sec) {
     if (!sec) return;
     const lc = sec.querySelector('[data-cfg=farm-long-claims]'); if (lc) lc.checked = !!state.farmLongClaims;
+    const fsc = sec.querySelector('[data-cfg=farm-scrape]'); if (fsc) fsc.checked = !!state.farmScrape;
     const lt = sec.querySelector('[data-cfg=farm-loyalty-tech]'); if (lt) lt.value = state.farmLoyaltyTech || '';
     const sd = sec.querySelector('[data-cfg=farm-sleep-dur]'); if (sd) sd.value = String(state.farmSleepDur || 'auto');
     const sa = sec.querySelector('[data-cfg=farm-sleep-auto]'); if (sa) sa.checked = !!state.farmSleepAuto;
@@ -14835,6 +14928,7 @@ const STORE = {
     setChk('[data-cfg=auto-bandit]', state.autoBandit);
     setChk('[data-cfg=auto-farm]', state.autoFarm);
     setChk('[data-cfg=farm-skip-full]', state.farmSkipFull);
+    setChk('[data-cfg=farm-scrape]', state.farmScrape);
     const fm0 = sec.querySelector('[data-cfg=farm-full-mode]'); if (fm0) fm0.value = state.farmFullMode || 'any';
     syncFarmTimingCfg(sec);
     setChk('[data-cfg=auto-build]', state.ibAuto);
@@ -14899,6 +14993,13 @@ const STORE = {
     sec.querySelector('[data-cfg=farm-long-claims]')?.addEventListener('change', e => {
       state.farmLongClaims = e.target.checked; save(STORE.FARM_LONG_CLAIMS, state.farmLongClaims);
       gbLog('farm 10min claims', state.farmLongClaims ? 'ON' : 'OFF');
+    });
+    sec.querySelector('[data-cfg=farm-scrape]')?.addEventListener('change', e => {
+      state.farmScrape = e.target.checked; save(STORE.FARM_SCRAPE, state.farmScrape);
+      if (state.farmScrape) farmScrapeRevive('config ON');
+      else farmScrapeClearErrors();
+      gbLog('farm resource scrape', state.farmScrape ? 'ON' : 'OFF');
+      updateStatus();
     });
     sec.querySelector('[data-cfg=farm-loyalty-tech]')?.addEventListener('change', e => {
       state.farmLoyaltyTech = String(e.target.value || '').trim();
@@ -15431,8 +15532,9 @@ const STORE = {
     const csrfShort = state.csrf ? state.csrf.slice(0, 6) + '\u2026' : 'NONE';
     const farms = state.farmsParsed.length;
     const okFarms = Object.values(state.farmResources).filter(r => r && r.ok).length;
-    const lastErr = Object.values(state.farmResources).filter(r => r && !r.ok).slice(-1)[0];
-    const errTxt = lastErr ? ` err:${(lastErr.err || '').slice(0, 20)}` : '';
+    const scrapeOff = typeof farmScrapeEnabled === 'function' && !farmScrapeEnabled();
+    const lastErr = scrapeOff ? null : Object.values(state.farmResources).filter(r => r && !r.ok).slice(-1)[0];
+    const errTxt = scrapeOff ? ' scrape:off' : (lastErr ? ` err:${(lastErr.err || '').slice(0, 20)}` : '');
     const paused = Object.keys(state.captchaBreakers || {}).filter(k => captchaPaused(k));
     const pauseInfo = {};
     automationPaused(pauseInfo);

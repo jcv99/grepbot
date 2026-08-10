@@ -782,6 +782,7 @@
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="grepodata"/> Grepodata Index+ assist</label>
         <label>IB free threshold (sec, safety cap 290) <input type="number" data-cfg="ib-free-thresh" min="60" max="300" style="width:70px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
         <label>Collect max min <input type="number" data-cfg="collect-max-min" min="1" max="120" style="width:70px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Lee los recursos de cada aldea por HTTP. Solo funciona en mundos cuyo cliente responde a una accion farm_town_*. Si no, cada barrido gasta el presupuesto de peticiones sin devolver nada y se apaga solo."><input type="checkbox" data-cfg="farm-scrape"/> Escanear recursos de aldeas (HTTP)</label>
         <label>Farm cadence min-max (min) <input type="number" data-cfg="farm-min" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> - <input type="number" data-cfg="farm-max" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label>Town cadence min-max (min) <input type="number" data-cfg="town-min" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> - <input type="number" data-cfg="town-max" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <button data-cfg="clear-captcha" style="align-self:flex-start;background:#333;border:1px solid #555;color:#f96;padding:3px 8px;cursor:pointer;font-size:11px">Limpiar cortacircuitos de captcha</button>
@@ -1031,6 +1032,9 @@
     state.nextFarmScrape = 0;
     save(STORE.NEXT_FARM, 0);
     autoClaimFarms('manual');
+    // Manual sweep overrides both the Config toggle and the dead-endpoint
+    // breaker - it is how the user re-probes after teaching the action.
+    scrapeAllFarms(true);
     farmTick();
   });
   panel.querySelector('#gb-sleep-claim')?.addEventListener('click', () => {
@@ -1047,6 +1051,7 @@
   function syncFarmTimingCfg(sec) {
     if (!sec) return;
     const lc = sec.querySelector('[data-cfg=farm-long-claims]'); if (lc) lc.checked = !!state.farmLongClaims;
+    const fsc = sec.querySelector('[data-cfg=farm-scrape]'); if (fsc) fsc.checked = !!state.farmScrape;
     const lt = sec.querySelector('[data-cfg=farm-loyalty-tech]'); if (lt) lt.value = state.farmLoyaltyTech || '';
     const sd = sec.querySelector('[data-cfg=farm-sleep-dur]'); if (sd) sd.value = String(state.farmSleepDur || 'auto');
     const sa = sec.querySelector('[data-cfg=farm-sleep-auto]'); if (sa) sa.checked = !!state.farmSleepAuto;
@@ -1092,6 +1097,7 @@
     setChk('[data-cfg=auto-bandit]', state.autoBandit);
     setChk('[data-cfg=auto-farm]', state.autoFarm);
     setChk('[data-cfg=farm-skip-full]', state.farmSkipFull);
+    setChk('[data-cfg=farm-scrape]', state.farmScrape);
     const fm0 = sec.querySelector('[data-cfg=farm-full-mode]'); if (fm0) fm0.value = state.farmFullMode || 'any';
     syncFarmTimingCfg(sec);
     setChk('[data-cfg=auto-build]', state.ibAuto);
@@ -1156,6 +1162,13 @@
     sec.querySelector('[data-cfg=farm-long-claims]')?.addEventListener('change', e => {
       state.farmLongClaims = e.target.checked; save(STORE.FARM_LONG_CLAIMS, state.farmLongClaims);
       gbLog('farm 10min claims', state.farmLongClaims ? 'ON' : 'OFF');
+    });
+    sec.querySelector('[data-cfg=farm-scrape]')?.addEventListener('change', e => {
+      state.farmScrape = e.target.checked; save(STORE.FARM_SCRAPE, state.farmScrape);
+      if (state.farmScrape) farmScrapeRevive('config ON');
+      else farmScrapeClearErrors();
+      gbLog('farm resource scrape', state.farmScrape ? 'ON' : 'OFF');
+      updateStatus();
     });
     sec.querySelector('[data-cfg=farm-loyalty-tech]')?.addEventListener('change', e => {
       state.farmLoyaltyTech = String(e.target.value || '').trim();
@@ -1691,8 +1704,9 @@
     const csrfShort = state.csrf ? state.csrf.slice(0, 6) + '…' : 'NONE';
     const farms = state.farmsParsed.length;
     const okFarms = Object.values(state.farmResources).filter(r => r && r.ok).length;
-    const lastErr = Object.values(state.farmResources).filter(r => r && !r.ok).slice(-1)[0];
-    const errTxt = lastErr ? ` err:${(lastErr.err || '').slice(0, 20)}` : '';
+    const scrapeOff = typeof farmScrapeEnabled === 'function' && !farmScrapeEnabled();
+    const lastErr = scrapeOff ? null : Object.values(state.farmResources).filter(r => r && !r.ok).slice(-1)[0];
+    const errTxt = scrapeOff ? ' scrape:off' : (lastErr ? ` err:${(lastErr.err || '').slice(0, 20)}` : '');
     const paused = Object.keys(state.captchaBreakers || {}).filter(k => captchaPaused(k));
     const pauseInfo = {};
     automationPaused(pauseInfo);
