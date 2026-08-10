@@ -118,6 +118,18 @@
     else state.playerNotes[player] = String(note).slice(0, 200);
     save(STORE.PLAYER_NOTES, state.playerNotes);
   }
+  // state.allianceNotes was read in three places (dossiers, the Intel dump and
+  // the export redactor) but nothing could ever write it - there was no setter
+  // at all, so the feature was unreachable.
+  function intelSetAllianceNote(alliance, note) {
+    const key = String(alliance || '').trim();
+    if (!key) return false;
+    if (!state.allianceNotes || typeof state.allianceNotes !== 'object') state.allianceNotes = {};
+    if (!note) delete state.allianceNotes[key];
+    else state.allianceNotes[key] = String(note).slice(0, 200);
+    save(STORE.ALLIANCE_NOTES, state.allianceNotes);
+    return true;
+  }
   function intelGrepodataAssist() {
     if (!state.grepodataIndex || state.dryRun) return;
     try {

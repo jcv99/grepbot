@@ -1,23 +1,60 @@
-  function makeSortable(table, rowDataFn) {
+  // Per-tab sticky UI state (sort column, list filters). state.tabFilters existed
+  // since v1.5 and was never read or written - this is what it was for.
+  function tabFilters() {
+    if (!state.tabFilters || typeof state.tabFilters !== 'object') state.tabFilters = {};
+    return state.tabFilters;
+  }
+  function tabFilterGet(key) { return tabFilters()[key] != null ? tabFilters()[key] : null; }
+  function tabFilterSet(key, val) {
+    const f = tabFilters();
+    if (val == null || val === '') delete f[key];
+    else f[key] = val;
+    save(STORE.TAB_FILTERS, f);
+  }
+
+  const _gbSortFn = new WeakMap();
+  function sortRows(table, col, asc) {
+    const rowDataFn = _gbSortFn.get(table);
+    if (!rowDataFn) return;
+    const thead = table.querySelector('thead');
+    const tbody = table.querySelector('tbody') || table;
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    if (!rows.length) return;
+    if (thead) {
+      thead.querySelectorAll('th').forEach(h => delete h.dataset.sort);
+      const th = thead.querySelectorAll('th')[col];
+      if (th) th.dataset.sort = asc ? 'asc' : 'desc';
+    }
+    rows.sort((a, b) => {
+      const av = rowDataFn(a, col), bv = rowDataFn(b, col);
+      const an = parseFloat(av), bn = parseFloat(bv);
+      const cmp = (!isNaN(an) && !isNaN(bn)) ? an - bn : String(av).localeCompare(String(bv));
+      return asc ? cmp : -cmp;
+    });
+    rows.forEach(r => tbody.appendChild(r));
+  }
+  // Row-set rebuilds (tbody.replaceChildren) drop the chosen order, so the sort
+  // has to be re-applied after every rebuild, not only on click.
+  function sortApplySaved(table) {
+    const key = table && table.dataset ? table.dataset.gbSortKey : '';
+    if (!key) return;
+    const saved = tabFilterGet('sort:' + key);
+    if (!saved || saved.col == null) return;
+    sortRows(table, +saved.col, !!saved.asc);
+  }
+  function makeSortable(table, rowDataFn, key) {
     const thead = table.querySelector('thead');
     if (!thead) return;
+    _gbSortFn.set(table, rowDataFn);
+    if (key) table.dataset.gbSortKey = key;
     thead.querySelectorAll('th').forEach((th, col) => {
       if (th.dataset.nosort) return;
       th.style.cursor = 'pointer';
       th.title = 'sort';
       th.addEventListener('click', () => {
-        const tbody = table.querySelector('tbody') || table;
-        const rows = Array.from(tbody.querySelectorAll('tr'));
         const asc = th.dataset.sort !== 'asc';
-        thead.querySelectorAll('th').forEach(h => delete h.dataset.sort);
-        th.dataset.sort = asc ? 'asc' : 'desc';
-        rows.sort((a, b) => {
-          const av = rowDataFn(a, col), bv = rowDataFn(b, col);
-          const an = parseFloat(av), bn = parseFloat(bv);
-          const cmp = (!isNaN(an) && !isNaN(bn)) ? an - bn : String(av).localeCompare(String(bv));
-          return asc ? cmp : -cmp;
-        });
-        rows.forEach(r => tbody.appendChild(r));
+        sortRows(table, col, asc);
+        if (key) tabFilterSet('sort:' + key, { col, asc });
       });
     });
   }
@@ -32,7 +69,7 @@
     el.style.color = known ? '#888' : '#fc6';
   }
 
-  function tableShell(list, headers) {
+  function tableShell(list, headers, key) {
     let table = list.querySelector('table');
     if (!table) {
       list.replaceChildren();
@@ -48,7 +85,7 @@
       table.appendChild(thead);
       table.appendChild(document.createElement('tbody'));
       list.appendChild(table);
-      makeSortable(table, (tr, col) => (tr.dataset.sort || '').split('\t')[col] || '');
+      makeSortable(table, (tr, col) => (tr.dataset.sort || '').split('\t')[col] || '', key);
     }
     return table;
   }
@@ -90,7 +127,7 @@
       if (!list.querySelector('div')) placeholder(list, 'no farms parsed yet - add vill_id lines below');
       return;
     }
-    const table = tableShell(list, ['id', 'name', 'W', 'S', 'I', 'pop', 'seen', '']);
+    const table = tableShell(list, ['id', 'name', 'W', 'S', 'I', 'pop', 'seen', ''], 'farms');
     const tbody = table.querySelector('tbody');
 
     const wanted = state.farmsParsed.map(f => String(f.vill_id));
@@ -129,6 +166,7 @@
       if (tr.dataset.sort !== sort) tr.dataset.sort = sort;
       patchCells(tr, cells);
     }
+    if (!sameSet) sortApplySaved(table);
   }
   let _worldTotalsLast = '';
   function renderWorld() {
@@ -162,7 +200,7 @@
       if (!list.querySelector('div')) placeholder(list, 'no towns loaded yet - click Refresh towns');
       return;
     }
-    const table = tableShell(list, ['id', 'name', 'W', 'S', 'I', 'pop', 'seen']);
+    const table = tableShell(list, ['id', 'name', 'W', 'S', 'I', 'pop', 'seen'], 'world');
     const tbody = table.querySelector('tbody');
     const wanted = state.towns.map(t => String(t.id));
     const have = new Set(Array.from(tbody.children).map(tr => tr.dataset.key));
@@ -192,6 +230,7 @@
       if (tr.dataset.sort !== sort) tr.dataset.sort = sort;
       patchCells(tr, cells);
     }
+    if (!sameSet) sortApplySaved(table);
   }
   function fmt(n) {
     if (n == null) return '-';
@@ -658,6 +697,11 @@
         <input id="gb-note-text" placeholder="note" style="flex:1;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
         <button id="gb-note-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Guardar nota</button>
       </div>
+      <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <input id="gb-anote-ally" placeholder="alianza" style="width:80px;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
+        <input id="gb-anote-text" placeholder="nota de alianza" style="flex:1;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
+        <button id="gb-anote-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Guardar nota de alianza</button>
+      </div>
     </section>
     <section data-tab="config" hidden>
       <div class="config-panel" style="font-size:11px;display:flex;flex-direction:column;gap:8px">
@@ -895,7 +939,17 @@
     });
   });
   panel.querySelector('#gb-preflight')?.addEventListener('click', () => preflightRunAndRender());
-  panel.querySelector('.jrn-filter')?.addEventListener('input', () => journalFilterDebounced());
+  {
+    const jf = panel.querySelector('.jrn-filter');
+    if (jf) {
+      const savedJf = tabFilterGet('jrn');
+      if (savedJf) jf.value = String(savedJf);
+      jf.addEventListener('input', () => {
+        tabFilterSet('jrn', jf.value.trim());
+        journalFilterDebounced();
+      });
+    }
+  }
   panel.querySelector('[data-jrn=copy]')?.addEventListener('click', () => {
     const text = JSON.stringify({ decisions: state.decisions, skips: state.decisionSkips }, null, 2);
     navigator.clipboard.writeText(text).then(() => flash('bitacora copiada')).catch(() => flash('fallo al copiar'));
@@ -935,6 +989,12 @@
     const p = panel.querySelector('#gb-note-player')?.value?.trim();
     const n = panel.querySelector('#gb-note-text')?.value?.trim();
     if (p) { intelSetNote(p, n); renderIntel(); flash('nota guardada'); }
+  });
+  panel.querySelector('#gb-anote-save')?.addEventListener('click', () => {
+    const a = panel.querySelector('#gb-anote-ally')?.value?.trim();
+    const n = panel.querySelector('#gb-anote-text')?.value?.trim();
+    // Empty note deletes the entry, same contract as the player note.
+    if (a && intelSetAllianceNote(a, n)) { renderIntel(); flash(n ? 'nota de alianza guardada' : 'nota de alianza borrada'); }
   });
   panel.querySelector('#gb-quest-scan')?.addEventListener('click', () => {
     questScanTick('manual');
