@@ -9,6 +9,8 @@ Now the artifact is checked before it is written off as done:
   2. duplicate top-level `function`/`const`/`let` names across modules — the
      concat order makes those a hard TDZ/redeclare failure inside one IIFE
   3. reminder when src/ changed but @version in src/header.js did not
+  4. the JS body is \\u-escaped to pure ASCII, so no install path can decode it
+     as Latin-1 and turn every accent into mojibake
 
 Also strips // and /* */ comments from the artifact (UserScript header kept).
 src/ retains comments for humans; only grepbot.user.js is cleaned.
@@ -311,6 +313,44 @@ def strip_artifact_comments(body):
     return header + strip_js_comments(body[m.end():])
 
 
+def ascii_escape_artifact(body):
+    """Escape every non-ASCII char in the JS body to \\uXXXX.
+
+    The source is UTF-8, but the artifact is installed by paste or by dragging
+    a file:// URL onto a Tampermonkey tab — neither path carries a charset, so
+    the browser guesses, and a Latin-1 guess renders 'Economia' as 'EconomAa'
+    and the ellipsis as 'a€|'. A pure-ASCII artifact has no bytes left to
+    misdecode: \\uXXXX produces the identical runtime string under any charset.
+
+    Comments are already stripped by this point, so the only non-ASCII left is
+    inside string/template/regex literals, where \\uXXXX is valid everywhere.
+    The ==UserScript== metadata block is NOT JavaScript — Tampermonkey parses
+    it as text, so an escape there would ship literally into the install
+    dialog. Keep it ASCII at the source instead.
+    """
+    m = USERSCRIPT_HEADER_RE.match(body)
+    if not m:
+        raise SystemExit('error: ==UserScript== metadata block not at the top of the artifact')
+    header, code = m.group(0), body[m.end():]
+    if not header.isascii():
+        bad = sorted({c for c in header if not c.isascii()})
+        print('error: non-ASCII in the ==UserScript== metadata block: '
+              + ' '.join(f'U+{ord(c):04X} {c!r}' for c in bad))
+        print('  TM parses that block as text, not JS, so it cannot be \\u-escaped.')
+        print('  Use plain ASCII in src/header.js (e.g. "Automatizacion").')
+        raise SystemExit(1)
+    out = []
+    for ch in code:
+        if ch.isascii():
+            out.append(ch)
+        elif ord(ch) > 0xFFFF:  # astral -> surrogate pair
+            n = ord(ch) - 0x10000
+            out.append(f'\\u{0xD800 + (n >> 10):04x}\\u{0xDC00 + (n & 0x3FF):04x}')
+        else:
+            out.append(f'\\u{ord(ch):04x}')
+    return header + ''.join(out)
+
+
 def read_modules():
     parts = []
     for name in MODULES:
@@ -397,6 +437,10 @@ def build():
               '- src/header.js must open with it (TM refuses to install without it)')
         raise SystemExit(1)
     tmp = OUT.replace('.user.js', '.build.js')  # node --check needs a .js name
+    body = ascii_escape_artifact(body)
+    if not body.isascii():
+        print('error: artifact still holds non-ASCII after escaping')
+        raise SystemExit(1)
     with open(tmp, 'w', encoding='utf-8') as f:
         f.write(body)
     if not node_check(tmp):

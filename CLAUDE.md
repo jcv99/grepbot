@@ -68,6 +68,15 @@ artifact when a gate fails:
    `node` is missing) — syntax errors never reach Tampermonkey.
 3. **version reminder** — `src/` changed but `@version` in `src/header.js` did
    not → warning (not fatal). State lives in `.build-stamp.json`.
+4. **ASCII artifact** (v2.9.1, `ascii_escape_artifact`) — every non-ASCII char
+   in the JS body is rewritten to `\uXXXX` (surrogate pairs for astral), so the
+   shipped file has zero bytes above 0x7F. Runs before `node --check`, so the
+   check validates the bytes that ship. The `==UserScript==` block is **not**
+   JS — TM parses it as text, so an escape there would ship literally into the
+   install dialog; non-ASCII in `src/header.js` is a hard error instead.
+
+Write UTF-8 in `src/` as normal — `á`, `·`, `—`, `→` are all fine. The escape
+is a build step, never a source convention.
 
 ## UI language (v1.6.2)
 
@@ -248,6 +257,16 @@ no `http://127.0.0.1:35657/...`.
 In-app SPA navigation (Reports / World / Farms) keeps the tab visible → no `setTimeout` throttling. Browser-minimized tab throttles to ~1min floor — unavoidable without a service worker.
 
 ## Regression notes
+
+- v2.9.1 mojibake: the panel rendered `EconomÃ­a` / `ConstrucciÃ³n` / `Â·` /
+  `â€¦` in-game while `src/` **and** the artifact were both valid UTF-8. Nothing
+  was double-encoded — the browser simply decoded the injected script as
+  Latin-1, because neither install path carries a charset (TM editor paste, or
+  dragging a `file://` .user.js onto a tab; `.user.js` has no BOM and no
+  `Content-Type`). Do not "fix" this by re-encoding `src/`, adding a BOM, or
+  setting `document.charset` — the artifact is now pure ASCII, so there are no
+  multi-byte sequences left for any charset guess to corrupt. Verified: the
+  built file decodes byte-identically as UTF-8 and as Latin-1.
 
 - v1.5.4 preconditions: gaps closed were **research** (posted techs with no
   resource / research-point check — every scan burned a budget slot on a
