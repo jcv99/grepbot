@@ -1,8 +1,16 @@
   function banditIdle(ms, cap) { banditIdleUntil = Date.now() + Math.min(ms, cap || 30000); }
-  const BANDIT_OFFENSE_IDS = /^(slinger|hoplite|rider|chariot|catapult|minotaur|manticore|cyclops?|zyklop|harpy|erinys|giant|godsent)$/i;
+  // Bandit camp legality is the game's own attack-spot unit picker, not a guess:
+  // features/attack_spots/controllers/attack_spot opens it with
+  // `show_land_units:true, show_naval_units:false, filter_units:{ground_units:['catapult']}`,
+  // and `groundUnitIds()` is every GameData.units entry with `is_naval` falsy
+  // (militia is shifted off). So: land units only, catapult and militia never.
+  // Mythical land units are legal by that rule alone — no per-god list needed.
+  const BANDIT_ILLEGAL_IDS = /^(catapult|militia)$/i;
+  const BANDIT_OFFENSE_IDS = /^(slinger|hoplite|rider|chariot|minotaur|manticore|cyclops?|zyklop|harpy|erinys|fury|centaur|griffin|satyr|giant|godsent)$/i;
   function banditIsOffenseUnit(uw, id) {
     // Hoplites are balanced troops but are valid attackers. Keep this exception
     // narrow instead of sending every unit marked function_both by the game.
+    if (BANDIT_ILLEGAL_IDS.test(id)) return false;
     if (/^(godsent|hoplite)$/i.test(id)) return true;
     try {
       const def = uw.GameData && uw.GameData.units && uw.GameData.units[id];
@@ -17,6 +25,7 @@
     const units = Object.assign({}, rawUnits || {});
     delete units.militia;
     Object.keys(units).forEach(u => {
+      if (BANDIT_ILLEGAL_IDS.test(u)) { delete units[u]; return; }
       try {
         const def = uw.GameData && uw.GameData.units && uw.GameData.units[u];
         if (!def || def.is_naval || def.naval) delete units[u];

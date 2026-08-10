@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.7.0
+// @version      2.7.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -4965,9 +4965,12 @@ const STORE = {
   let banditAttackSentAt = 0;
   let banditIdleUntil = 0;
   function banditIdle(ms, cap) { banditIdleUntil = Date.now() + Math.min(ms, cap || 30000); }
-  const BANDIT_OFFENSE_IDS = /^(slinger|hoplite|rider|chariot|catapult|minotaur|manticore|cyclops?|zyklop|harpy|erinys|giant|godsent)$/i;
+
+  const BANDIT_ILLEGAL_IDS = /^(catapult|militia)$/i;
+  const BANDIT_OFFENSE_IDS = /^(slinger|hoplite|rider|chariot|minotaur|manticore|cyclops?|zyklop|harpy|erinys|fury|centaur|griffin|satyr|giant|godsent)$/i;
   function banditIsOffenseUnit(uw, id) {
 
+    if (BANDIT_ILLEGAL_IDS.test(id)) return false;
     if (/^(godsent|hoplite)$/i.test(id)) return true;
     try {
       const def = uw.GameData && uw.GameData.units && uw.GameData.units[id];
@@ -4982,6 +4985,7 @@ const STORE = {
     const units = Object.assign({}, rawUnits || {});
     delete units.militia;
     Object.keys(units).forEach(u => {
+      if (BANDIT_ILLEGAL_IDS.test(u)) { delete units[u]; return; }
       try {
         const def = uw.GameData && uw.GameData.units && uw.GameData.units[u];
         if (!def || def.is_naval || def.naval) delete units[u];
