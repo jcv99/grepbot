@@ -82,7 +82,8 @@
   gbInterval(() => {
     if (nativeQueueHasPending('build')) abScan('native-watch');
     if (nativeQueueHasPending('recruit')) recruitScan('native-watch');
-    if (nativeQueueHasPending('build') || nativeQueueHasPending('recruit')) scheduleNativeUiScan();
+    if (nativeQueueHasPending('research')) researchScan('native-watch');
+    if (nativeQueueHasPending('build') || nativeQueueHasPending('recruit') || nativeQueueHasPending('research')) scheduleNativeUiScan();
   }, 5000);
   gbInterval(() => dodgeScan('loop'), DODGE_CHECK_MS);
   gbInterval(dodgeReturnTick, 15000);
@@ -187,6 +188,9 @@
       nativeQueueRemoveLastBuild,
       nativeQueueAddRecruit,
       nativeQueueRemoveLastRecruit,
+      nativeQueueAddResearch,
+      nativeQueueRemoveResearch,
+      nativeQueueResearchApplied,
       nativeQueueMove,
       nativeQueueBuildPlan,
       nativeQueueBuildApplied,

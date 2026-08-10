@@ -13,6 +13,9 @@
   let gbQueueCenterTab = 'build';
   let gbQueueCenterTown = null;
   let gbQueueCenterDrag = null;
+  // A background scan can re-render the window at any time (nativeQueueSetJobState
+  // repaints it), so the picker's current choice lives outside the DOM.
+  let gbQueueCenterResearchPick = '';
 
   function queueCenterTownIds() {
     let ids = [];
@@ -154,6 +157,42 @@
     });
   }
 
+  // Academy techs the town could still queue. The list is built from GameData,
+  // so an unreadable GameData yields an empty select (and a disabled button)
+  // instead of a free-text field that could post a tech id the game never had.
+  function queueCenterResearchOptions(townId, info) {
+    let all = [];
+    try { all = Object.keys((gameUw().GameData && gameUw().GameData.researches) || {}); } catch (_) {}
+    return all.filter(id => {
+      if (!researchDef(id)) return false;
+      if (info && info.techs && info.techs[id]) return false;
+      if (info && (info.orders || []).some(o => String(researchOrderTechId(o)) === String(id))) return false;
+      return !nativeQueueResearchPending(townId, id);
+    }).sort((a, b) => nativeResearchLabel(a).localeCompare(nativeResearchLabel(b)));
+  }
+  function queueCenterResearchPicker(townId, info) {
+    const row = document.createElement('div'); row.className = 'gb-qc-picker';
+    const sel = document.createElement('select'); sel.className = 'gb-qc-pick';
+    const opts = queueCenterResearchOptions(townId, info);
+    opts.forEach(id => { const o = document.createElement('option'); o.value = id; o.textContent = nativeResearchLabel(id); if (id === gbQueueCenterResearchPick) o.selected = true; sel.appendChild(o); });
+    sel.addEventListener('change', () => { gbQueueCenterResearchPick = sel.value; });
+    const add = queueCenterButton('+ Añadir', 'Añadir esta investigación al final de la cola (los requisitos se insertan delante)', () => {
+      const tech = sel.value;
+      if (!tech) { flash('Selecciona una investigación'); return false; }
+      gbQueueCenterResearchPick = '';
+      return nativeQueueAddResearch(townId, tech);
+    });
+    // An unreadable academy means "unknown", not "everything available": without
+    // info the filter cannot tell researched from pending, so the picker closes
+    // rather than offering a tech the town already has.
+    if (!info || !opts.length) {
+      sel.replaceChildren(); sel.disabled = true; add.disabled = true;
+      const o = document.createElement('option'); o.value = '';
+      o.textContent = info ? 'Sin investigaciones disponibles' : 'Academia ilegible';
+      sel.appendChild(o);
+    }
+    row.append(sel, add); return row;
+  }
   function renderQueueCenterResearch(body, townId) {
     const info = researchTownTechs(townId); const orders = (info && info.orders) || [];
     const live = queueCenterCard('Cola real de investigación', info ? `${orders.length}/2 · Academia ${info.academy || 0}` : 'estado no legible');
@@ -169,8 +208,40 @@
       });
     } else live.box.appendChild(queueCenterEmpty(info ? 'Sin investigaciones en curso' : 'No se puede leer la Academia'));
 
+    // Virtual FIFO lane — same contract as build/recruit: reorder, pause, remove.
+    const list = nativeQueueList(townId, 'research', false), fifo = nativeQueueIsFifo(townId, 'research'), paused = nativeQueuePaused(townId, 'research');
+    const plan = queueCenterCard('Plan GrepBot · Investigación', fifo ? (paused ? 'FIFO pausada' : 'FIFO activa') : 'Objetivos automáticos');
+    body.appendChild(plan.box);
+    plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? 'Reanudar cola' : 'Pausar cola', () => nativeQueueTogglePaused(townId, 'research')));
+    if (!list.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador automático', () => nativeQueueUseLegacy(townId, 'research')));
+    plan.box.appendChild(queueCenterResearchPicker(townId, info));
+    if (!list.length) {
+      plan.box.appendChild(queueCenterEmpty(fifo ? 'Cola FIFO vacía. Añade investigaciones arriba o con + desde la Academia.' : 'Esta ciudad usa el planificador de objetivos.'));
+    } else {
+      plan.box.appendChild(queueCenterSequence('Orden FIFO', list.map((j, i) => ({
+        text: `#${i + 1} ${nativeResearchLabel(j.tech)}`,
+        title: j.reason || nativeResearchLabel(j.tech),
+      }))));
+      const frozen = list.some(j => j && (j.inflight || j.manualReview));
+      list.forEach((j, i) => {
+        const r = document.createElement('div'); r.className = 'gb-qc-job';
+        const num = document.createElement('b'); num.textContent = `#${i + 1}`;
+        const desc = document.createElement('div'); desc.className = 'gb-qc-job-desc';
+        const main = document.createElement('span'); main.textContent = nativeResearchLabel(j.tech);
+        desc.append(main, queueCenterStatusBadge(j.status, j.reason));
+        const acts = document.createElement('div'); acts.className = 'gb-qc-acts';
+        const up = queueCenterButton('↑', 'Subir', () => nativeQueueMove(townId, 'research', j.id, -1));
+        const dn = queueCenterButton('↓', 'Bajar', () => nativeQueueMove(townId, 'research', j.id, 1));
+        const del = queueCenterButton('×', 'Eliminar', () => queueCenterRemove(townId, 'research', j, frozen), 'danger');
+        up.disabled = frozen || i === 0;
+        dn.disabled = frozen || i === list.length - 1;
+        del.disabled = !!j.inflight;
+        acts.append(up, dn, del); r.append(num, desc, acts); plan.box.appendChild(r);
+      });
+    }
+
     const targets = goalEffectiveResearchTargets(townId, researchEnsureTargets());
-    const planned = queueCenterCard('Próximas investigaciones', 'orden del planificador');
+    const planned = queueCenterCard('Próximas investigaciones', fifo && list.length ? 'planificador automático (en pausa: manda la cola FIFO)' : 'orden del planificador');
     body.appendChild(planned.box);
     let shown = 0;
     Object.keys(targets).sort((a, b) => (+targets[a].order || 0) - (+targets[b].order || 0)).forEach(id => {
@@ -178,6 +249,7 @@
       if (!t || !t.tgt) return;
       if (info && info.techs && info.techs[id]) return;
       if (orders.some(o => String(researchOrderTechId(o)) === String(id))) return;
+      if (nativeQueueResearchPending(townId, id)) return;
       shown++;
       const r = document.createElement('div'); r.className = 'gb-qc-plan-row';
       const n = document.createElement('span'); n.textContent = `#${shown}`;

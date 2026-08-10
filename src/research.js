@@ -150,8 +150,18 @@
     return researchCanAfford(job.townId, job.tech, info);
   }
 
+  // Map researchValidateJob's `why` onto the queue-job status vocabulary the
+  // Queue Center and the academy tile controls render.
+  function researchNativeStatus(why) {
+    const w = String(why || '');
+    if (/queue full/.test(w)) return 'waiting-queue';
+    if (/^points /.test(w) || /resource|wood|stone|iron/i.test(w)) return 'waiting-resources';
+    if (/dependenc/i.test(w)) return 'waiting-requirement';
+    return 'blocked';
+  }
   function researchScan(reason) {
-    if (!hostEnabled() || !state.autoResearch || captchaPaused('research')) return;
+    const nativePending = nativeQueueHasPending('research');
+    if (!hostEnabled() || (!state.autoResearch && !nativePending) || captchaPaused('research')) return;
     if (automationPaused({})) return;
     if (gbLocked('research')) return;
     const globalTargets = researchEnsureTargets();
@@ -161,7 +171,23 @@
       townIds = Object.keys((uw.ITowns && uw.ITowns.towns) || {});
     } catch (_) {}
     let job = null;
+    // Explicit FIFO towns first: a town the player queued by hand outranks the
+    // target-list planner, and a FIFO town never falls back to it.
+    const explicitIds = Object.keys(nativeQueueRoot().towns)
+      .filter(id => nativeQueueIsFifo(id, 'research') && nativeQueueList(id, 'research', false).length);
+    for (const tid of explicitIds) {
+      const head = nativeQueueResearchHead(tid);
+      if (!head) continue;
+      const valid = researchValidateJob({ townId: tid, tech: head.tech });
+      if (!valid.ok) { nativeQueueSetJobState(head, researchNativeStatus(valid.why), String(valid.why || '')); continue; }
+      nativeQueueSetJobState(head, 'ready', 'listo');
+      job = { townId: tid, tech: head.tech, nativeJobId: head.id };
+      break;
+    }
+    if (job) townIds = [];
+    else if (!state.autoResearch) townIds = [];
     for (const tid of townIds) {
+      if (nativeQueueIsFifo(tid, 'research')) continue;
       const targets = goalEffectiveResearchTargets(tid, globalTargets);
       const ordered = Object.keys(targets).sort((a, b) => (+targets[a].order || 0) - (+targets[b].order || 0));
       const info = researchTownTechs(tid);
@@ -195,13 +221,42 @@
       return;
     }
     const valid = researchValidateJob(job);
-    if (!valid.ok) { gbLogT('research-stale-' + job.townId + '-' + job.tech, 60000, `research: final precheck blocked (${valid.why})`); return; }
+    if (!valid.ok) {
+      if (job.nativeJobId) {
+        const head = nativeQueueList(job.townId, 'research', false)[0];
+        if (head && head.id === job.nativeJobId) nativeQueueSetJobState(head, researchNativeStatus(valid.why), String(valid.why || ''));
+      }
+      gbLogT('research-stale-' + job.townId + '-' + job.tech, 60000, `research: final precheck blocked (${valid.why})`); return;
+    }
     const lockToken = gbLock('research');
     if (!lockToken) return;
+    if (job.nativeJobId) {
+      const head = nativeQueueList(job.townId, 'research', false)[0];
+      if (!head || head.id !== job.nativeJobId) { gbUnlock('research', lockToken); return; }
+      head.manualReview = false;
+      head.inflight = { tech: job.tech, at: Date.now() };
+      nativeQueueSetJobState(head, 'sending', 'enviando a la cola real');
+      nativeQueueSave();
+    }
     researchPost(job.townId, job.tech, (err) => {
       gbUnlock('research', lockToken);
-      if (!err) gbLog(`research: town ${job.townId} → ${job.tech}`);
-      else gbLogT('research-err', 60000, `research err ${err}`);
+      if (!err) {
+        gbLog(`research: town ${job.townId} → ${job.tech}`);
+        if (job.nativeJobId) nativeQueueResearchApplied(job.townId, job.nativeJobId);
+      } else {
+        if (job.nativeJobId) {
+          const head = nativeQueueList(job.townId, 'research', false)[0];
+          if (head && head.id === job.nativeJobId) {
+            head.inflight = null;
+            // timeout/pending is NOT a failure: the post may have landed, so the
+            // head goes to manual review instead of being retried blindly.
+            const ambiguous = err === 'pending' || err === 'timeout_unknown';
+            head.manualReview = ambiguous;
+            nativeQueueSetJobState(head, ambiguous ? 'unknown' : 'blocked', ambiguous ? 'resultado desconocido; comprobar la cola real' : String(err));
+          }
+        }
+        gbLogT('research-err', 60000, `research err ${err}`);
+      }
     });
   }
   function researchLoadCsFast() {

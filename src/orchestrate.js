@@ -3,7 +3,7 @@
       culture: state.autoCulture,
       cave: state.autoCave,
       build: state.abAuto || nativeQueueHasPending('build'),
-      research: state.autoResearch,
+      research: state.autoResearch || nativeQueueHasPending('research'),
       trade: state.autoTrade || state.islandShip,
       farm: state.autoFarm,
       ruraltrade: state.autoRuralTrade,

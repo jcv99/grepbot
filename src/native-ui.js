@@ -1,20 +1,21 @@
+  const NATIVE_QUEUE_LANES=['build','recruit','research'];
   function nativeQueueRoot() {
     let q=state.nativeQueue;
     if(!q||typeof q!=='object'||Array.isArray(q))q=state.nativeQueue={version:1,seq:0,towns:{}};
     if(!q.towns||typeof q.towns!=='object'||Array.isArray(q.towns))q.towns={};
     q.version=1;q.seq=Math.max(0,+q.seq||0);
-    if(!nativeQueueInflightRestored){nativeQueueInflightRestored=true;let changed=false;for(const town of Object.values(q.towns))for(const lane of ['build','recruit'])for(const job of ((town&&Array.isArray(town[lane]))?town[lane]:[])){if(job&&job.inflight){if(lane==='build')job.reconcile=Object.assign({},job.inflight);job.inflight=null;job.manualReview=true;job.status='unknown';job.reason='acción en curso al recargar; comprobando la cola real';job.updatedAt=Date.now();changed=true}}if(changed)save(STORE.NATIVE_QUEUE,q)}
+    if(!nativeQueueInflightRestored){nativeQueueInflightRestored=true;let changed=false;for(const town of Object.values(q.towns))for(const lane of NATIVE_QUEUE_LANES)for(const job of ((town&&Array.isArray(town[lane]))?town[lane]:[])){if(job&&job.inflight){if(lane==='build')job.reconcile=Object.assign({},job.inflight);job.inflight=null;job.manualReview=true;job.status='unknown';job.reason='acción en curso al recargar; comprobando la cola real';job.updatedAt=Date.now();changed=true}}if(changed)save(STORE.NATIVE_QUEUE,q)}
     return q;
   }
   function nativeQueueTown(townId,create) {
     const q=nativeQueueRoot(),id=String(townId==null?'':townId);if(!id)return null;
     let t=q.towns[id];
-    if((!t||typeof t!=='object'||Array.isArray(t))&&create!==false)t=q.towns[id]={build:[],recruit:[],paused:{build:false,recruit:false},mode:{build:'legacy',recruit:'legacy'}};
+    if((!t||typeof t!=='object'||Array.isArray(t))&&create!==false)t=q.towns[id]={build:[],recruit:[],research:[],paused:{build:false,recruit:false,research:false},mode:{build:'legacy',recruit:'legacy',research:'legacy'}};
     if(!t)return null;
-    if(!Array.isArray(t.build))t.build=[];if(!Array.isArray(t.recruit))t.recruit=[];
-    if(!t.paused||typeof t.paused!=='object'||Array.isArray(t.paused))t.paused={build:false,recruit:false};
-    if(!t.mode||typeof t.mode!=='object'||Array.isArray(t.mode))t.mode={build:'legacy',recruit:'legacy'};
-    if(!['legacy','fifo'].includes(t.mode.build))t.mode.build='legacy';if(!['legacy','fifo'].includes(t.mode.recruit))t.mode.recruit='legacy';
+    for(const lane of NATIVE_QUEUE_LANES)if(!Array.isArray(t[lane]))t[lane]=[];
+    if(!t.paused||typeof t.paused!=='object'||Array.isArray(t.paused))t.paused={};
+    if(!t.mode||typeof t.mode!=='object'||Array.isArray(t.mode))t.mode={};
+    for(const lane of NATIVE_QUEUE_LANES){t.paused[lane]=!!t.paused[lane];if(!['legacy','fifo'].includes(t.mode[lane]))t.mode[lane]='legacy'}
     return t;
   }
   function nativeQueueList(townId,lane,create){const t=nativeQueueTown(townId,create);return t&&Array.isArray(t[lane])?t[lane]:[];}
@@ -33,14 +34,22 @@
   function nativeQueueIsFifo(townId,lane){const t=nativeQueueTown(townId,false);return !!(t&&t.mode&&t.mode[lane]==='fifo');}
   function nativeQueueUseLegacy(townId,lane){const t=nativeQueueTown(townId,true);if(t[lane].length)return false;t.mode[lane]='legacy';t.paused[lane]=false;nativeQueueSave();return true;}
   function nativeQueueTogglePaused(townId,lane){const t=nativeQueueTown(townId,true);t.paused[lane]=!t.paused[lane];nativeQueueSave();return t.paused[lane];}
+  // One dispatcher instead of a build/else-recruit ternary: adding the research
+  // lane to that ternary would have silently reconciled research jobs with the
+  // recruit reconciler.
+  function nativeQueueReconcile(townId,lane) {
+    if(lane==='build')return nativeQueueReconcileBuild(townId);
+    if(lane==='research')return nativeQueueReconcileResearch(townId);
+    return nativeQueueReconcileRecruit(townId);
+  }
   function nativeQueueMove(townId,lane,jobId,delta) {
-    if(lane==='build')nativeQueueReconcileBuild(townId);else nativeQueueReconcileRecruit(townId);
+    nativeQueueReconcile(townId,lane);
     const list=nativeQueueList(townId,lane,false);if(list.some(j=>j&&(j.inflight||j.manualReview)))return false;const i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return false;
     const j=Math.max(0,Math.min(list.length-1,i+(+delta||0)));if(i===j)return false;
     const item=list.splice(i,1)[0];list.splice(j,0,item);if(lane==='build')nativeQueueRebaseBuild(townId);nativeQueueSave();return true;
   }
   function nativeQueueRemove(townId,lane,jobId,opts) {
-    if(lane==='build')nativeQueueReconcileBuild(townId);else nativeQueueReconcileRecruit(townId);
+    nativeQueueReconcile(townId,lane);
     const list=nativeQueueList(townId,lane,false),i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return false;
     const target=list[i];const force=!(!opts||!opts.force);
     // Target itself is always protected — a post that's actually flying cannot
@@ -62,6 +71,17 @@
         const more=impact.blockers.length>3?` y ${impact.blockers.length-3} más`:'';
         flash(`Bloqueado: ${nativeBuildLabel(impact.target.building)} ${impact.target.toLevel} aún hace falta para ${head}${more}`);
         gbLog(`cola nativa: borrado bloqueado — ${impact.blockers.length} edificio(s) dependen de ${impact.target.building} ${impact.target.toLevel}: `+impact.blockers.map(b=>`${b.building}>=${b.requires}`).join(', '));
+        return false;
+      }
+    }
+    // Same rule for research: a tech queued behind this one may depend on it.
+    if(lane==='research'){
+      const impact=nativeQueueResearchRemovalImpact(townId,jobId);
+      if(!impact.ok){
+        const head=impact.blockers.slice(0,3).map(t=>nativeResearchLabel(t)).join(', ');
+        const more=impact.blockers.length>3?` y ${impact.blockers.length-3} más`:'';
+        flash(`Bloqueado: ${nativeResearchLabel(impact.target)} es requisito de ${head}${more}`);
+        gbLog(`cola nativa: borrado bloqueado — ${impact.blockers.length} investigación(es) dependen de ${impact.target}: `+impact.blockers.join(', '));
         return false;
       }
     }
@@ -364,6 +384,151 @@
     nativeQueueSave();
   }
 
+  // ---------------------------------------------------------------------------
+  // Research lane (academy). Same contract as build/recruit: only the head is
+  // ever posted, appends are always safe, and the real queue is the authority —
+  // a job leaves the virtual list once the game shows it researched or queued.
+  // ---------------------------------------------------------------------------
+  function nativeResearchLabel(tech) {
+    try{const n=researchLabel(tech);if(n)return String(n)}catch(_){}
+    return String(tech||'?');
+  }
+  // Returns null when GameData does not describe this tech: unreadable is NOT
+  // "no dependencies", so callers must treat null as unknown and not silently
+  // queue a tech whose prerequisites they never saw.
+  function nativeResearchDeps(tech) {
+    try{
+      const def=gameUw().GameData&&gameUw().GameData.researches&&gameUw().GameData.researches[tech];
+      if(!def)return null;
+      const raw=def.research_dependencies||def.dependencies||[];
+      const list=Array.isArray(raw)?raw:Object.keys(raw||{}).filter(k=>raw[k]);
+      return list.map(d=>typeof d==='string'?d:(d&&(d.id||d.research_id||d.research_type))).filter(Boolean).map(String);
+    }catch(_){return null}
+  }
+  function nativeResearchDepClosure(tech) {
+    const out=new Set();
+    const walk=(id,depth)=>{
+      if(depth>20)return;
+      const deps=nativeResearchDeps(id);
+      if(!deps)return;
+      for(const d of deps){if(out.has(d))continue;out.add(d);walk(d,depth+1)}
+    };
+    walk(String(tech),0);
+    return out;
+  }
+  // Ordered list of techs that must be researched before `tech` (deepest first),
+  // skipping anything already researched, already in the real queue, or already
+  // in the virtual list.
+  function nativeResearchPrereqChain(townId,tech) {
+    const info=researchTownTechs(townId);
+    if(!info)return {chain:[],error:'estado de la Academia ilegible'};
+    const done=new Set();
+    for(const k of Object.keys(info.techs||{}))if(info.techs[k])done.add(String(k));
+    (info.orders||[]).forEach(o=>{const id=researchOrderTechId(o);if(id!=null)done.add(String(id))});
+    nativeQueueList(townId,'research',false).forEach(j=>{if(j&&j.tech)done.add(String(j.tech))});
+    const chain=[],seen=new Set();
+    let error=null;
+    const walk=(id,depth)=>{
+      id=String(id);
+      if(done.has(id)||seen.has(id))return;
+      if(depth>20){error='cadena de requisitos demasiado larga';return}
+      const deps=nativeResearchDeps(id);
+      if(deps==null){error=`requisitos de ${id} ilegibles`;return}
+      for(const d of deps)walk(d,depth+1);
+      seen.add(id);chain.push(id);
+    };
+    const deps=nativeResearchDeps(tech);
+    if(deps==null)return {chain:[],error:'requisitos ilegibles'};
+    for(const d of deps)walk(d,1);
+    return {chain,error};
+  }
+  function nativeQueueResearchRemovalImpact(townId,jobId) {
+    const list=nativeQueueList(townId,'research',false);
+    const idx=list.findIndex(j=>j&&j.id===jobId);
+    if(idx<0)return {ok:true};
+    const target=String(list[idx].tech||'');
+    if(!target)return {ok:true};
+    const info=researchTownTechs(townId);
+    if(info&&info.techs&&info.techs[target])return {ok:true};
+    const blockers=[];
+    for(let i=idx+1;i<list.length;i++){
+      const j=list[i];if(!j||!j.tech)continue;
+      if(nativeResearchDepClosure(j.tech).has(target))blockers.push(String(j.tech));
+    }
+    if(!blockers.length)return {ok:true};
+    return {ok:false,blockers,target};
+  }
+  function nativeQueueResearchPending(townId,tech) {
+    return nativeQueueList(townId,'research',false).some(j=>j&&String(j.tech)===String(tech));
+  }
+  function nativeQueueAddResearch(townId,tech) {
+    tech=String(tech||'');
+    if(!tech||!researchDef(tech)){flash('Investigación desconocida');return false}
+    nativeQueueReconcileResearch(townId);
+    const info=researchTownTechs(townId);
+    if(!info){flash('No se puede leer la Academia');return false}
+    if(info.techs&&info.techs[tech]){flash(`${nativeResearchLabel(tech)} ya está investigada`);return false}
+    if((info.orders||[]).some(o=>String(researchOrderTechId(o))===tech)){flash(`${nativeResearchLabel(tech)} ya está en la cola real`);return false}
+    if(nativeQueueResearchPending(townId,tech)){flash(`${nativeResearchLabel(tech)} ya está en la cola virtual`);return false}
+    const walk=nativeResearchPrereqChain(townId,tech);
+    const town=nativeQueueTown(townId,true);town.mode.research='fifo';
+    const push=(id,reason)=>town.research.push({id:nativeQueueId('r'),kind:'research',townId:String(townId),tech:String(id),status:'pending',reason:reason||'',createdAt:Date.now()});
+    let added=0;
+    for(const dep of walk.chain){if(!researchDef(dep))continue;push(dep,`requisito para ${nativeResearchLabel(tech)}`);added++}
+    push(tech,'');
+    nativeQueueSave();
+    if(walk.error)gbLogT('native-research-walk-'+tech,300000,`native queue: research prereq walk for ${tech} incomplete (${walk.error})`);
+    if(added)flash(`+${added} requisito(s) antes de ${nativeResearchLabel(tech)}`);
+    gbLog(`cola nativa: investigación ${tech}${added?` + ${added} requisito(s) [${walk.chain.join(', ')}]`:''} @${townId}`);
+    gbTimeout(()=>researchScan('native'),80);return true;
+  }
+  function nativeQueueRemoveResearch(townId,tech) {
+    nativeQueueReconcileResearch(townId);
+    const list=nativeQueueList(townId,'research',false);
+    for(let i=list.length-1;i>=0;i--){
+      const j=list[i];
+      if(!j||String(j.tech)!==String(tech)||j.inflight||j.manualReview)continue;
+      return nativeQueueRemove(townId,'research',j.id,{force:false});
+    }
+    return false;
+  }
+  function nativeQueueReconcileResearch(townId) {
+    const list=nativeQueueList(townId,'research',false);if(!list.length)return false;
+    const info=researchTownTechs(townId);let changed=false;
+    const landed=j=>!!(info&&((info.techs&&info.techs[j.tech])||(info.orders||[]).some(o=>String(researchOrderTechId(o))===String(j.tech))));
+    for(const j of list){
+      if(!j||!j.inflight)continue;
+      if(landed(j)){j.inflight=null;j.manualReview=false;j.status='pending';j.reason='confirmado en la cola real';j.updatedAt=Date.now();changed=true;continue}
+      // Same stuck-inflight rule as the other lanes: a dropped callback must not
+      // freeze the queued tail until a page reload.
+      if(Date.now()-(+j.inflight.at||0)>120000){j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualizó; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}
+    }
+    // Only prune against a READ state — an unreadable academy means unknown, so
+    // nothing is dropped.
+    if(info){
+      for(let i=list.length-1;i>=0;i--){
+        const j=list[i];
+        if(!j){list.splice(i,1);changed=true;continue}
+        if(j.inflight)continue;
+        if(landed(j)){list.splice(i,1);changed=true}
+      }
+    }
+    if(changed)nativeQueueSave();return changed;
+  }
+  function nativeQueueResearchHead(townId) {
+    nativeQueueReconcileResearch(townId);
+    const list=nativeQueueList(townId,'research',false),job=list[0];if(!job)return null;
+    if(nativeQueuePaused(townId,'research')){nativeQueueSetJobState(job,'paused','cola pausada');return null}
+    if(list.some(j=>j&&j!==job&&(j.manualReview||j.inflight))){nativeQueueSetJobState(job,'blocked','hay otra acción pendiente de revisión');return null}
+    if(job.manualReview){nativeQueueSetJobState(job,'unknown',job.reason||'comprobar la cola real y quitar este trabajo si no se envió');return null}
+    if(job.inflight){nativeQueueSetJobState(job,'sending',job.reason||'enviando a la cola real');return null}
+    return job;
+  }
+  function nativeQueueResearchApplied(townId,jobId) {
+    const list=nativeQueueList(townId,'research',false),job=list[0];if(!job||job.id!==jobId)return;
+    list.shift();nativeQueueSave();
+  }
+
   GM_addStyle(`
     /* The senate tile stacks absolutely-positioned overlays (building caption,
        level badge, hover hitbox) on top of its content. A statically-positioned
@@ -394,7 +559,7 @@
     try{root.querySelectorAll('input[name="town_id"],input[data-town-id],input[data-town_id]').forEach(n=>{add(n.value);add(n.getAttribute('data-town-id'));add(n.getAttribute('data-town_id'))})}catch(_){}
     if(ids.size>1)return null;
     if(ids.size===1){const id=[...ids][0];return abGetTown(id)?id:null}
-    const isRelevant=r=>!!(r&&r.matches&&r.matches('#unit_order,.window_content,.gpwindow_content'))&&!!(r.matches('#unit_order')||r.querySelector('#unit_order,#building_main,.building_main,[id^="building_main_"],[id^="special_building_"]'));
+    const isRelevant=r=>!!(r&&r.matches&&r.matches('#unit_order,.window_content,.gpwindow_content'))&&!!(r.matches('#unit_order')||r.querySelector(`#unit_order,#building_main,.building_main,[id^="building_main_"],[id^="special_building_"],${NATIVE_RESEARCH_SEL}`));
     const relevant=isRelevant(root);
     if(!relevant)return null;
     // With several open windows, only the focused one may inherit Game.townId.
@@ -414,7 +579,7 @@
     return e=>{if(!gbTabLeader){flash('GrepBot está activo en otra pestaña');return false}return onClick&&onClick(e)};
   }
   function nativeTileAction(root,townId,tile,kind,id,onClick) {
-    return nativeTownAction(root,townId,e=>{const live=kind==='build'?nativeBuildingId(tile):nativeUnitId(tile);if(String(live||'')!==String(id||'')){flash('Este elemento de la ventana ha cambiado; vuelve a intentarlo');scheduleNativeUiScan();return false}return onClick&&onClick(e)});
+    return nativeTownAction(root,townId,e=>{const live=kind==='build'?nativeBuildingId(tile):(kind==='research'?nativeResearchId(tile):nativeUnitId(tile));if(String(live||'')!==String(id||'')){flash('Este elemento de la ventana ha cambiado; vuelve a intentarlo');scheduleNativeUiScan();return false}return onClick&&onClick(e)});
   }
   function nativeGuardEvent(e){e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation()}
   function nativeQButton(text,title,onClick) {
@@ -443,6 +608,22 @@
   function nativeUnitId(node) {
     if(!node)return null;const child=node.querySelector&&node.querySelector('[data-unit_id],[data-unit-id],[data-unit_type],[data-unit-type]');const vals=[node.getAttribute('data-unit_id'),node.getAttribute('data-unit-id'),node.getAttribute('data-unit_type'),node.getAttribute('data-unit-type'),child&&(child.getAttribute('data-unit_id')||child.getAttribute('data-unit-id')||child.getAttribute('data-unit_type')||child.getAttribute('data-unit-type')),node.id].filter(Boolean).map(String);
     const ids=new Set();for(const id of vals)if(recruitUnitDef(id))ids.add(id);const matchers=nativeUnitMatchers();for(const raw of vals)for(const m of matchers)if(m.re.test(raw))ids.add(m.id);return ids.size===1?[...ids][0]:null;
+  }
+  // The academy tech tree keys every entry off data-research_id (the game's own
+  // `.tech_tree_box .button_upgrade[data-research_id=…]` selector); the dashed
+  // and _type spellings are accepted because client builds have used both.
+  const NATIVE_RESEARCH_SEL='[data-research_id],[data-research-id],[data-research_type],[data-research-type]';
+  function nativeResearchId(node) {
+    if(!node)return null;
+    const vals=[];
+    for(const k of ['data-research_id','data-research-id','data-research_type','data-research-type']){
+      try{const v=node.getAttribute&&node.getAttribute(k);if(v)vals.push(String(v))}catch(_){}
+    }
+    if(!vals.length){
+      try{const child=node.querySelector&&node.querySelector(NATIVE_RESEARCH_SEL);if(child)return nativeResearchId(child)}catch(_){}
+    }
+    const ids=new Set();for(const v of vals)if(researchDef(v))ids.add(v);
+    return ids.size===1?[...ids][0]:null;
   }
   // Why a [+] must stay disabled. Returns '' when the append is allowed. A
   // silent disabled button is unreadable in-game, so every caller also puts
@@ -525,24 +706,49 @@
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
     const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));ctl.append(minus,count,plus);nativeQctlHitCheck(ctl,unit);
   }
+  function nativeMountResearchControl(root,tile,townId,tech) {
+    const list=nativeQueueList(townId,'research',false);
+    const info=researchTownTechs(townId);
+    const done=!!(info&&info.techs&&info.techs[tech]);
+    const inReal=!!(info&&(info.orders||[]).some(o=>String(researchOrderTechId(o))===String(tech)));
+    const pos=nativeQueuePosition(townId,'research',j=>j&&String(j.tech)===String(tech)),head=pos===1&&list[0];
+    const sig=JSON.stringify([townId,tech,pos,done,inReal,head&&head.status,head&&head.reason,list.length]);
+    const existing=[...tile.querySelectorAll(':scope > .gb-native-qctl[data-research]')];
+    const keep=existing.find(c=>c.dataset.research===tech&&c.dataset.sig===sig);
+    for(const c of existing)if(c!==keep)c.remove();
+    if(keep)return;
+    const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.research=tech;ctl.dataset.sig=sig;tile.appendChild(ctl);
+    const blockWhy=done?`${nativeResearchLabel(tech)} ya está investigada`:(inReal?`${nativeResearchLabel(tech)} ya está en la cola real`:'');
+    if(!pos){
+      const plus=nativeQButton('+',`Añadir ${nativeResearchLabel(tech)} a la cola virtual`,nativeTileAction(root,townId,tile,'research',tech,()=>nativeQueueAddResearch(townId,tech)));
+      nativeApplyPlusBlock(plus,blockWhy);
+      ctl.append(plus);nativeQctlHitCheck(ctl,tech);return;
+    }
+    const minus=nativeQButton('-','Quitar esta investigación de la cola virtual',nativeTileAction(root,townId,tile,'research',tech,()=>{if(!nativeQueueRemoveResearch(townId,tech))flash('No se puede quitar esta investigación de la cola')}));
+    minus.disabled=!list.some(j=>j&&String(j.tech)===String(tech)&&!j.inflight&&!j.manualReview);
+    const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=`Cola · #${pos}`;
+    if(head&&head.reason)count.title=head.reason;
+    if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
+    ctl.append(minus,count);nativeQctlHitCheck(ctl,tech);
+  }
   function nativeRenderQueuePanel(root,townId,lane) {
     // The panel mounts on document.body (fixed position) so it never sits on top
     // of the in-game queue UI inside the window. Scoped per town window by id.
     let box=document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`);
     if(!box){box=document.createElement('div');box.className='gb-native-panel';box.dataset.lane=lane;box.dataset.town=String(townId);document.body.appendChild(box);box.addEventListener('mousedown',e=>e.stopPropagation());box.addEventListener('click',e=>e.stopPropagation())}
     const oldScroll=box.scrollTop;
-    box.replaceChildren();const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot · Construcción':'Cola GrepBot · Unidades';head.appendChild(title);
+    box.replaceChildren();const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot · Construcción':(lane==='research'?'Cola GrepBot · Investigación':'Cola GrepBot · Unidades');head.appendChild(title);
     const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'>':'||',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
     const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&(j.inflight||j.manualReview));if(!list.length&&nativeQueueIsFifo(townId,lane)){const legacy=nativeQButton('Objetivos','Volver al planificador de objetivos',nativeTownAction(root,townId,()=>nativeQueueUseLegacy(townId,lane)));head.appendChild(legacy)}box.appendChild(head);
     if(!list.length){const empty=document.createElement('div');empty.className='gb-native-empty';empty.textContent=nativeQueueIsFifo(townId,lane)?'Cola vacía. Usa los botones + de arriba.':'Usa + para crear una cola FIFO en esta ciudad.';box.appendChild(empty);box.scrollTop=oldScroll;return}
-    list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}→${j.toLevel}`:`${j.amount}× ${nativeUnitLabel(j.unit)}`;const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' · '+j.reason:''}`;desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const up=nativeQButton('↑','Mover antes',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('↓','Mover después',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const del=nativeQButton('×','Quitar de la cola virtual',nativePanelAction(townId,()=>{if(j.inflight){flash('Esta orden se está enviando; espera a que termine');return false}if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acción se envió o no.')}catch(_){ok=false}if(!ok)return false}else if(frozen){let ok=false;try{ok=gameUw().confirm('Hay otra acción pendiente en esta cola. ¿Borrar este elemento de todos modos?')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id,{force:true})}));del.disabled=!!j.inflight;acts.append(up,down,del);row.append(num,desc,acts);box.appendChild(row)});box.scrollTop=oldScroll;
+    list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}→${j.toLevel}`:(lane==='research'?nativeResearchLabel(j.tech):`${j.amount}× ${nativeUnitLabel(j.unit)}`);const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' · '+j.reason:''}`;desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const up=nativeQButton('↑','Mover antes',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('↓','Mover después',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const del=nativeQButton('×','Quitar de la cola virtual',nativePanelAction(townId,()=>{if(j.inflight){flash('Esta orden se está enviando; espera a que termine');return false}if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acción se envió o no.')}catch(_){ok=false}if(!ok)return false}else if(frozen){let ok=false;try{ok=gameUw().confirm('Hay otra acción pendiente en esta cola. ¿Borrar este elemento de todos modos?')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id,{force:true})}));del.disabled=!!j.inflight;acts.append(up,down,del);row.append(num,desc,acts);box.appendChild(row)});box.scrollTop=oldScroll;
   }
   function nativeUiScan() {
     if(!gbInstanceAlive()||!document.body)return;nativeEnsureBuildingIds();
     const candidates=[...document.querySelectorAll('.window_content,.gpwindow_content,#unit_order')].filter((x,i,a)=>a.indexOf(x)===i&&!x.closest('#grepbot-panel'));
     const roots=candidates.filter(x=>!candidates.some(y=>y!==x&&y.contains(x)));
     const mountedTowns=new Set();
-    for(const root of roots){const townId=nativeWindowTownId(root);if(!townId){root.querySelectorAll(':scope > .gb-native-panel,.gb-native-qctl').forEach(n=>n.remove());continue}let buildN=0,unitN=0;const mountedBuildIds=new Set(),mountedUnitIds=new Set();
+    for(const root of roots){const townId=nativeWindowTownId(root);if(!townId){root.querySelectorAll(':scope > .gb-native-panel,.gb-native-qctl').forEach(n=>n.remove());continue}let buildN=0,unitN=0,researchN=0;const mountedBuildIds=new Set(),mountedUnitIds=new Set(),mountedResearchIds=new Set();
       mountedTowns.add(String(townId));
       const senateContext=!!(root.matches('#building_main,.building_main,.senate')||root.querySelector('#building_main,.building_main,[id^="building_main_"],[id^="special_building_"]'));
       // Iterate the unique per-building wrapper only. The Senate renders
@@ -552,8 +758,17 @@
       for(const tile of buildTiles){if(tile.classList.contains('gb-native-qctl')||tile.closest('.gb-native-qctl,.gb-native-panel'))continue;const id=nativeBuildingId(tile);if(!id||mountedBuildIds.has(id))continue;mountedBuildIds.add(id);nativeMountBuildControl(root,tile,townId,id);buildN++}
       const unitContext=root.matches('#unit_order')?root:root.querySelector('#unit_order');const unitTiles=unitContext?[...unitContext.querySelectorAll('#units .unit_tab,.unit_tab')]:[];
       for(const tile of unitTiles){const id=nativeUnitId(tile);if(!id||mountedUnitIds.has(id))continue;mountedUnitIds.add(id);nativeMountRecruitControl(root,tile,townId,id);unitN++}
-      root.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>{if(!mountedBuildIds.has(c.dataset.building))c.remove()});root.querySelectorAll('.gb-native-qctl[data-unit]').forEach(c=>{if(!mountedUnitIds.has(c.dataset.unit))c.remove()});
-      if(buildN)nativeRenderQueuePanel(root,townId,'build');else document.querySelector(`.gb-native-panel[data-lane="build"][data-town="${townId}"]`)?.remove();if(unitN)nativeRenderQueuePanel(root,townId,'recruit');else document.querySelector(`.gb-native-panel[data-lane="recruit"][data-town="${townId}"]`)?.remove();
+      // Academy: every tech entry carries data-research_id. The attribute can sit
+      // on the upgrade button itself, so mount on the outermost node per id —
+      // appending a control INSIDE a <button> would nest interactive elements.
+      const researchTiles=[...root.querySelectorAll(NATIVE_RESEARCH_SEL)].filter(n=>!n.closest('.gb-native-qctl,.gb-native-panel'));
+      const researchOuter=researchTiles.filter(n=>{const id=nativeResearchId(n);return id&&!researchTiles.some(o=>o!==n&&o.contains(n)&&nativeResearchId(o)===id)});
+      for(const node of researchOuter){const id=nativeResearchId(node);if(!id||mountedResearchIds.has(id))continue;
+        const tile=/^(?:button|a)$/i.test(node.tagName)?(node.parentElement||node):node;
+        if(tile.closest('.gb-native-qctl,.gb-native-panel'))continue;
+        mountedResearchIds.add(id);nativeMountResearchControl(root,tile,townId,id);researchN++}
+      root.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>{if(!mountedBuildIds.has(c.dataset.building))c.remove()});root.querySelectorAll('.gb-native-qctl[data-unit]').forEach(c=>{if(!mountedUnitIds.has(c.dataset.unit))c.remove()});root.querySelectorAll('.gb-native-qctl[data-research]').forEach(c=>{if(!mountedResearchIds.has(c.dataset.research))c.remove()});
+      if(buildN)nativeRenderQueuePanel(root,townId,'build');else document.querySelector(`.gb-native-panel[data-lane="build"][data-town="${townId}"]`)?.remove();if(unitN)nativeRenderQueuePanel(root,townId,'recruit');else document.querySelector(`.gb-native-panel[data-lane="recruit"][data-town="${townId}"]`)?.remove();if(researchN)nativeRenderQueuePanel(root,townId,'research');else document.querySelector(`.gb-native-panel[data-lane="research"][data-town="${townId}"]`)?.remove();
     }
     // Drop panels whose town window is gone.
     document.querySelectorAll('.gb-native-panel[data-town]').forEach(p => { if (!mountedTowns.has(p.dataset.town)) p.remove(); });
