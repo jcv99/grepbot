@@ -12,12 +12,14 @@ user-accepted. HIGH-RISK toggles (recruit, dodge auto, favor) default OFF.
 ## Repo layout
 
 ```
-src/                  # feature modules — concat order matters (build.py)
-  header.js core.js journal.js spy.js parse-inline.js farms.js towns.js
-  collect.js bandit.js build-tab.js cave.js culture.js trade.js rural.js
-  research.js alerts.js merchant.js favor.js wonder.js dodge.js recruit.js
-  qol.js orchestrate.js intel.js quests.js attack.js military.js stats.js
-  queue-center.js ui.js boot.js footer.js
+src/                  # feature modules — concat order matters (build.py MODULES)
+  header.js core.js planner.js tx.js bridge.js journal.js spy.js
+  parse-inline.js farms.js towns.js collect.js bandit.js build-tab.js
+  goals.js build-targets.js native-ui.js build-auto.js cave.js culture.js
+  trade.js rural.js research.js alerts.js merchant.js phoenician.js
+  favor.js wonder.js dodge.js recruit.js qol.js orchestrate.js intel.js
+  quests.js attack.js military.js stats.js queue-center.js ui.js
+  boot.js footer.js
 build.py              # python3 build.py → grepbot.user.js (concat + gates)
 .build-stamp.json     # build gate bookkeeping (src hash + last built version)
 grepbot.user.js       # built output — paste this into Tampermonkey
@@ -40,9 +42,12 @@ no XPI self-update, no log relay. Bot is paste-only: build → install
 `grepbot.user.js` in Tampermonkey → Export/Copy from the panel.
 
 Module concat order is dependency-driven: `header.js` opens the IIFE,
-`core.js` defines shared state/bridge/logging/storage, then feature
-modules, `boot.js` runs setup/teardown at the end, `footer.js` just
-closes the IIFE. Reordering breaks top-level declarations.
+`core.js` defines shared state/bridge/logging/storage, `planner.js` /
+`tx.js` / `bridge.js` define the transaction + post layer every feature
+posts through, then feature modules, `boot.js` runs setup/teardown at
+the end, `footer.js` just closes the IIFE. Reordering breaks top-level
+declarations. `build.py` MODULES is the source of truth for the order —
+regenerate the list above from it, never by hand.
 
 The WebExtension build (`web-ext/`, `grepbot.xpi`) and the standalone
 `grepInstantBuild.js` were retired in v0.5.0. **v1.0.0** ships Phase 0

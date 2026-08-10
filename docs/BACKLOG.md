@@ -4,140 +4,95 @@ Ideas for what to add or finish next. Phases 0–15 are **coded**; `TASKS.md` tr
 **in-game validation**. This file prioritizes gaps, reliability fixes, smarts, and
 UX — not raw feature count.
 
-Last reviewed: 2026-08-07 (against `src/` @ v1.5.14 + `docs/plans/`).
+Last reviewed: **2026-08-10** (against `src/` @ v2.9.1, every row grepped).
 
-**Implementation plans:** one file per open item under [`docs/plans/`](plans/README.md).
-Do not plan off the stale audit tables — see [`plans/00-reconciliation.md`](plans/00-reconciliation.md).
+**Current plan of record:** [`plans/26-improvement-sweep-2026-08-10.md`](plans/26-improvement-sweep-2026-08-10.md).
+The per-feature plans `01`–`25` predate v1.6; most of them shipped (see §7 below).
+Do not plan off the old audit tables — see [`plans/00-reconciliation.md`](plans/00-reconciliation.md).
 
 ---
 
-## Suggested order
+## Suggested order (from plan 26)
 
 ```text
-00 reconciliation (docs)
+docs drift
     ↓
-04 evidence dump
+farm scrape circuit breaker (A1)      ← P0: dead scrape starves the request budget
     ↓
-03 · 09 · 07 · 12  (small, isolated)
+scope-aware budget + Stats (A3 · C2)
     ↓
-05 · 10 · 11       (reliability / overnight)
+town action cache (A2)
     ↓
-08 · 01 · 06       (culture/cave → trade presets → build planner)
+captcha ladder UI + soft-ceiling UI (B1 · B5)
     ↓
-13 · 14 · 15       (military / intel)
+orphan flags: build plan 05 or delete (B6)
     ↓
-17 → 19 → 18 → 20 → 21 → 16 → 22  (UX + hardening)
+alliance notes + sticky sort/filter (B2 · B4)
     ↓
-02 wonder favor cast (WW worlds only — last)
+config presets (B3)
+    ↓
+adaptive claim duration (C1)
+    ↓
+preflight coverage for post-v1.5 modules (C3)
     ↓
 HIGH-RISK 8.12/8.13 only after payload sniff matches UI
 ```
 
 ---
 
-## 1. Finish what's stubbed or deferred
-
-Already in the tree but incomplete. Plans: `01`, `02`, `03`.
+## 1. Still open
 
 | Gap | Why it matters | Risk | Plan |
 |-----|----------------|------|------|
-| **Trade presets `party` / `unit`** | UI shows "unimplemented"; only fill-storage works (`trade.js`) | Med | 01 |
+| **Farm HTTP resource scrape is dead** | 0/12 villages resolve; burns 36 of 40 budget slots per sweep and starves bridge posts | Low | 26 §A1 |
+| **Town guess ladders have no learned cache** | 6-deep + 5-deep ladders re-guess every sweep | Low | 26 §A2 |
+| **One budget pool for scrapes and actions** | A scraper can starve a timed post | Low | 26 §A3 |
+| **Captcha backoff ladder has no UI** | `state.captchaLadder` is unreachable from the panel | Low | 19 / 26 §B1 |
+| **Posts/min soft ceiling has no UI** | `postsPerMinSoftPct` works but cannot be tuned | Low | 22 / 26 §B5 |
+| **Alliance notes have no setter at all** | `state.allianceNotes` is read-only in code | Low | 03 / 26 §B2 |
+| **Sort/filter not persisted** | sort exists (`makeSortable`) but dies on row-set rebuild | Low | 18 / 26 §B4 |
+| **Config presets** (AFK / farming / war) | one-click safe profiles | Low | 16 / 26 §B3 |
+| **Warehouse deadlock resolver** | `orchDeadlockResolve` flag exists, feature does not | Med | 05 / 26 §B6 |
+| **Trade presets `party` / `unit`** | shipped — kept here only as a validation gate | Med | TASKS |
 | **Wonder favor cast** (ROADMAP 11.4) | WW worlds only; deferred | Med | 02 |
-| **Alliance notes UI** | `intelSetAllianceNote` has no panel caller | Low | 03 |
-
-Done elsewhere (do not re-open): Telegram webhooks, `webhookEvents` Config wiring,
-`tradePreset` read path, `tradeReservePct` / `tradeMinBatch` Config UI.
 
 ---
 
-## 2. Reliability fixes (audit backlog)
+## 2. New value (plan 26 §C)
 
-**C1–C7, I8–I15 fixed as of v1.5.13** — see
-[`docs/plans/00-reconciliation.md`](plans/00-reconciliation.md).
-Historical write-up:
-[`docs/archive-audits/audit-findings-2026-08-06.md`](archive-audits/audit-findings-2026-08-06.md)
-(CLOSED; per-item OPEN labels are stale).
-
-### Ops tooling
-
-- **Evidence dump** (Log → Evidence): last-OK, last-skip, captcha windows, orch
-  queue, learned templates — shrink TASKS gates to paste Diag+Evidence. Plan **04**.
+| # | Feature | Notes |
+|---|---------|-------|
+| 1 | **Adaptive claim duration** | 20min–3h options are learnable and completely unused; fewer claims = fewer posts |
+| 2 | **Budget visibility in Stats** | slots by scope, soft delay, `skip:budget` count |
+| 3 | **Preflight for post-v1.5 modules** | native-ui, queue-center, phoenician, tx, bridge have no probe |
 
 ---
 
-## 3. Economy smarts
+## 3. Dead state to wire or delete (plan 26 §B6)
 
-Highest "new value" without HIGH-RISK toggles. Bridge-first + preconditions.
-Plans **05–11**.
-
-| # | Feature | Notes | Plan |
-|---|---------|-------|------|
-| 1 | **Warehouse deadlock resolver** | Full WH + farm paused → orch forces cave → trade → rural before farm | 05 |
-| 2 | **Build-phase planner v2** | Resource-aware next building + "next 3" on Build tab | 06 |
-| 3 | **Island-aware trade graph** | Refuse freighter-burning cross-island hops | 07 |
-| 4 | **Culture ↔ cave coordination** | Skip festival if iron needed for cave threshold soon | 08 |
-| 5 | **Farm option auto-teach** | When loyalty research completes, auto-learn 10min option | 09 |
-| 6 | **Resume-burst serializer** | Tab focus wake ≠ farm+ib+bandit+collect same second | 10 |
-| 7 | **Learned-payload health** | Age + last-success on claimTpl/ibAction/attack; invalidate after N hard fails | 11 |
+`orchDeadlockResolve` (`core.js:356`), `tabFilters` (`core.js:355`),
+`abNextAt` (`core.js:277`), `tradeMaxHops` (`core.js:357`) are loaded into state
+and never read anywhere. `dodgeMode` (`core.js:313`) is migration-only. Wire or
+delete each; a Config-shaped boolean that does nothing is worse than neither.
 
 ---
 
 ## 4. Military / intel
 
-Mostly coded in v1.0 spine; validation + small adds. Plans **12–15**, **02**.
-
-| Item | Status | Notes | Plan |
-|------|--------|-------|------|
-| Cancel/recall helper | CODED (`military.js`) | Validate v1.5.9 TASKS; dry-run first | — |
-| Hero transfer | CODED (Attack tab) | Confirm + sniff `heroTpl` | — |
-| Harassment presets | CODED (Attack tab chips) | Confirm-send only | — |
-| **Support ETA on threat board** | BACKLOG | "lands in 4h12m" on incoming rows | 12 |
-| **Attack pattern alerts** | BACKLOG | Same attacker 3×/24h → webhook | 13 |
-| **Offline report catch-up** | BACKLOG | Bounded by `lastSeenTs` | 14 |
-| **Watchlist "why"** | BACKLOG | Show match reason (player / coords / alliance) | 15 |
-| Wonder favor cast (11.4) | DEFERRED | WW worlds only | 02 |
+| Item | Status |
+|------|--------|
+| Cancel/recall helper, hero transfer, harassment presets | CODED — validate per TASKS |
+| Support ETA on threat board | **DONE** (`intel.js:89`) |
+| Attack pattern alerts | **DONE** (`intel.js:109-111,212`) |
+| Offline report catch-up | **DONE** (`spy.js:117-163`) |
+| Watchlist "why" | **DONE** (`intel.js:133-193`) |
+| Wonder favor cast (11.4) | DEFERRED — WW worlds only (plan 02) |
 
 HIGH-RISK: auto-dodge (8.12), auto-recruit (8.13) — payload sniff + dry-run before enable.
 
 ---
 
-## 5. UX
-
-Plans **16–21**. (`tradeReservePct` / `tradeMinBatch` already wired — dropped.)
-
-| # | Feature | Plan |
-|---|---------|------|
-| 1 | **Config presets**: AFK overnight / Active farming / War (HIGH-RISK OFF in all) | 16 |
-| 2 | **Footer last-action chip** — e.g. `farm: claim OK 12s ago` | 17 |
-| 3 | **Per-tab sticky filters** — Farms / World / Intel remember sort/filter | 18 |
-| 4 | **Captcha backoff UI** — edit 5/15/60min; reset after clean hour | 19 |
-| 5 | **Storage quota alarm** — warn before GM 5MB; offer prune seen/alerted | 20 |
-| 6 | **Diff-render rows** — less flicker on World / Build / Attack (partial v1.4) | 21 |
-
----
-
-## 6. Hardening (no ToS escalation)
-
-| # | Feature | Plan |
-|---|---------|------|
-| 1 | Humanization jitter + soft posts/min ceiling | 22 |
-| 2 | Captcha trip → editable backoff UI | 19 (same as §5.4) |
-| 3 | Storage quota alarm + prune UI | 20 (same as §5.5) |
-| 4 | Tighten `@connect` | **DONE** (C6) |
-
----
-
-## 6b. v1.6 user requests (CODED, validation open)
-
-| # | Feature | Notes | Plan |
-|---|---------|-------|------|
-| 1 | **Custom per-town build queue** | Ordered list beats the heuristic; strict order by default | 23 |
-| 2 | **Instant build precision** | Timer armed at doneAt-5min; per-town order queues (all towns) | 24 |
-| 3 | **Phoenician ratio pump** | 5×1-unit trades lift 0.5:1 to 1:1, then bulk. Default OFF, offer parser unconfirmed | 25 |
-
----
-
-## 7. Out of scope forever
+## 5. Out of scope forever
 
 Per ROADMAP / CLAUDE — do not implement:
 
@@ -150,17 +105,35 @@ Moat = reliability + intel + dry-run validation, not reckless automation.
 
 ---
 
-## Top ROI picks (implement next)
+## 6. Top ROI picks
 
-1. **Evidence dump** — speeds every future TASKS gate (plan 04)
-2. **Orch warehouse deadlock** — real overnight econ win (plan 05)
-3. **Trade party/unit presets** — completes existing UI promise (plan 01)
+1. **Farm scrape circuit breaker** (26 §A1) — stops a dead loop from starving live automation
+2. **Scope-aware budget + Stats visibility** (26 §A3 + §C2) — makes the next A1 self-evident
+3. **Adaptive claim duration** (26 §C1) — more loot per request, less captcha surface
+
+---
+
+## 7. Shipped since the last review (do not re-open)
+
+Verified by grep at v2.9.1: trade `party`/`unit` presets (`trade.js:175-222,326`),
+evidence dump (`stats.js:301`), island-aware trade (`trade.js:134,329`),
+culture↔cave coordination (`ironReservedForCave` `core.js:658`, `trade.js:178-179`,
+`culture.js:108`), learned-payload health (`core.js:753-812`), support ETA,
+attack patterns, offline report catch-up, watchlist why (§4), storage quota
+prune (`core.js:1087`), custom build queue / instant-build precision /
+phoenician ratio pump (v1.6), Telegram webhooks, `webhookEvents` wiring,
+`tradeReservePct` / `tradeMinBatch` Config UI, findings-filter persistence
+(`ui.js:1523-1543`), posts/min soft ceiling mechanism (`core.js:721-728`).
+
+Plans `01`, `04`, `07`–`15`, `20`, `23`–`25` are therefore closed. Plans `02`,
+`03`, `05`, `16`, `18`, `19`, `22` remain open and are folded into plan 26.
 
 ---
 
 ## Related docs
 
-- `plans/README.md` — per-feature implementation plans (source of truth for open work)
+- `plans/26-improvement-sweep-2026-08-10.md` — **current** plan of record
+- `plans/README.md` — per-feature implementation plans (01–25, mostly closed)
 - `ROADMAP.md` — phase plan and competitor parity table
 - `TASKS.md` — in-game validation checklist (current gate order)
 - `archive-audits/` — historical audits (CLOSED / stale; do not re-implement from them)

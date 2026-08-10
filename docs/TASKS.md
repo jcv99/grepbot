@@ -5,6 +5,34 @@ do not describe state by hand. Evidence is read-only and redacts CSRF/templates.
 
 ## Current phase
 
+- [ ] **v3.x gates** (plan `docs/plans/26-improvement-sweep-2026-08-10.md`)
+  - Farm scrape breaker: with the endpoint unlearned, the Log shows
+    `farm scrape: endpoint dead after 2 sweeps - disabling` once and then no
+    further `farm <id>: no data` lines; footer reads `farms: scrape off`;
+    Stats budget stays well under the ceiling across a farm cadence
+  - Scope budget: with the scrape ON and 12 villages, a hand-triggered farm
+    claim fired during a sweep still posts — no `skip:budget` in Decisions.
+    Stats shows `peticiones` split into scrape / read / accion
+  - Town action cache: Log shows `towns endpoint = <action>` once, and later
+    sweeps issue one request per town instead of up to six
+  - Captcha ladder + soft ceiling: edit both in Config, reload, values persist;
+    Stats shows the soft delay moving when the ceiling is lowered
+  - Deadlock resolver: with a full warehouse and farm paused, Log shows
+    `orch: deadlock in town <id> - forcing cave/trade/rural` and the forced
+    feature runs before farm
+  - Adaptive claim duration: teach a 20min option by hand → Log
+    `farm: learned claim option n = 20min`; a town with headroom claims 20min,
+    a near-full town stays at 5min
+  - Preflight: new rows (`farm resource scrape`, `native queue`, `queue center`,
+    `phoenician`, `tx registry`) all report
+
+- [ ] **v2.9.x gates**
+  - Academy queue (see the 8.6 block below) end to end on a Curator account
+  - Queue Center: `Colas` opens, all four tabs render the real queue beside the
+    virtual plan, reorder / pause / remove work through `nativeQueue*`
+  - Artifact stays pure ASCII: the panel shows `Economía` / `Construcción`
+    correctly after a TM paste install (no `EconomÃ­a`)
+
 - [ ] **v1.6 gates** (dry-run first)
   - Custom queue: three entries in one town → `DRY-RUN build … buildUp` fires in
     list order; entries vanish as their orders queue; strict ON waits on an

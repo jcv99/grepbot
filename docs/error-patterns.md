@@ -288,8 +288,12 @@ numbers ignore user settings.
 - `ui.js:1233` — `telegramChatId || undefined` drops cleared value
 - `ui.js:978-989` — `configBound` re-sync path only refreshes a subset of controls; rest keep stale DOM
 - `core.js:322-324` — `ibAction` / `farmOptionMap` `|| '<default>'` falsy-string reset
-- `core.js:313` — `STORE.FARM_ACTION` loaded via `wkey` + legacy fallback; base is **not**
-  in `WORLD_SCOPED_BASES` (write path in `learnFarmAction` uses `wkey` explicitly)
+- ~~`core.js:313` — `STORE.FARM_ACTION` legacy `wkey` fallback~~ **CORRECTED 2026-08-10**:
+  no fallback exists. `farmAction` loads plainly (`core.js:233`) and
+  `STORE.FARM_ACTION` **is** in `WORLD_SCOPED_BASES` (`header.js:189`), so
+  `load`/`save` apply `wkey()` themselves; the explicit `wkey()` in
+  `learnFarmAction` (`farms.js:624`) is belt-and-braces. `core.js:313` is
+  `dodgeMode`
 - `core.js:459` — `SERVER_PRESSURE_RE` includes `"slow down"` (broad; false-trips possible)
 
 Rule: explicit nullish check `?? default`, never `|| default` for numeric /
@@ -433,7 +437,8 @@ result, not mid-iteration.
 
 ## 24. Orphans / dead / fragile paths — LOW
 
-- `core.js:313` — `load(wkey(STORE.FARM_ACTION), null) || load(STORE.FARM_ACTION, null)` legacy fallback
+- ~~`core.js:313` — `STORE.FARM_ACTION` legacy fallback~~ — **stale, see #15**: that
+  fallback does not exist in the tree
 - `spy.js:13-15` — no-op `_grepbot` re-bind branch
 - `build-tab.js:213-221` — `finishInstantly` fallback never calls `ibLearnAction`
 - Pattern #9 / #8 overlap: hidden-tab + thrash often co-occur on the same renderers
