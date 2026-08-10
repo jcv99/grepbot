@@ -785,6 +785,8 @@
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Lee los recursos de cada aldea por HTTP. Solo funciona en mundos cuyo cliente responde a una accion farm_town_*. Si no, cada barrido gasta el presupuesto de peticiones sin devolver nada y se apaga solo."><input type="checkbox" data-cfg="farm-scrape"/> Escanear recursos de aldeas (HTTP)</label>
         <label>Farm cadence min-max (min) <input type="number" data-cfg="farm-min" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> - <input type="number" data-cfg="farm-max" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label>Town cadence min-max (min) <input type="number" data-cfg="town-min" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> - <input type="number" data-cfg="town-max" min="1" max="60" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
+        <label title="Minutos de pausa tras el 1er, 2o, 3er... captcha del mismo modulo. Lista separada por comas, de 1 a 1440. Vacio = 5,15,60.">Escalera de captcha (min) <input type="text" data-cfg="captcha-ladder" placeholder="5,15,60" style="width:110px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
+        <label title="Por debajo del presupuesto duro: al pasar este % los envios se retrasan en vez de descartarse. 60 = empieza a frenar en el 60% de las peticiones/min.">Freno suave de envios (% del presupuesto) <input type="number" data-cfg="posts-soft-pct" min="10" max="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
         <button data-cfg="clear-captcha" style="align-self:flex-start;background:#333;border:1px solid #555;color:#f96;padding:3px 8px;cursor:pointer;font-size:11px">Limpiar cortacircuitos de captcha</button>
       </div>
     </section>
@@ -1114,6 +1116,9 @@
     setNum('[data-cfg=farm-max]', Math.round(state.farmMaxMs / 60000));
     setNum('[data-cfg=town-min]', Math.round(state.townMinMs / 60000));
     setNum('[data-cfg=town-max]', Math.round(state.townMaxMs / 60000));
+    setNum('[data-cfg=posts-soft-pct]', state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60);
+    const cl = sec.querySelector('[data-cfg=captcha-ladder]');
+    if (cl) cl.value = (Array.isArray(state.captchaLadder) && state.captchaLadder.length ? state.captchaLadder : [5, 15, 60]).join(',');
     sec.querySelector('[data-cfg=safe-mode]')?.addEventListener('change',e=>{state.safeMode=!!e.target.checked;save(STORE.SAFE_MODE,state.safeMode);gbLog('safeMode',state.safeMode);updateStatus();});
     sec.querySelector('[data-cfg=enabled-host]')?.addEventListener('change', e => {
       state.enabledHosts[location.host] = e.target.checked;
@@ -1426,6 +1431,21 @@
     saveNum('[data-cfg=farm-max]', v => { state.farmMaxMs = v * 60000; save(STORE.FARM_MAX, state.farmMaxMs); });
     saveNum('[data-cfg=town-min]', v => { state.townMinMs = v * 60000; save(STORE.TOWN_MIN, state.townMinMs); });
     saveNum('[data-cfg=town-max]', v => { state.townMaxMs = v * 60000; save(STORE.TOWN_MAX, state.townMaxMs); });
+    sec.querySelector('[data-cfg=captcha-ladder]')?.addEventListener('change', e => {
+      const raw = String(e.target.value || '').split(/[,\s]+/).map(x => parseInt(x, 10))
+        .filter(n => Number.isFinite(n) && n >= 1 && n <= 24 * 60);
+      // Empty / unparseable input means "back to the default ladder", never an
+      // empty array - captchaLadder() would then fall back silently every trip.
+      state.captchaLadder = raw.length ? raw : [5, 15, 60];
+      save(STORE.CAPTCHA_LADDER, state.captchaLadder);
+      e.target.value = state.captchaLadder.join(',');
+      gbLog('captcha ladder =', state.captchaLadder.join(',') + ' min');
+    });
+    saveNum('[data-cfg=posts-soft-pct]', v => {
+      state.postsPerMinSoftPct = Math.min(100, Math.max(10, v || 60));
+      save(STORE.POSTS_SOFT_PCT, state.postsPerMinSoftPct);
+      gbLog('posts soft ceiling =', state.postsPerMinSoftPct + '% of ' + (state.reqBudgetPerMin || 40) + '/min');
+    });
     sec.querySelector('[data-cfg=clear-captcha]')?.addEventListener('click', () => {
       captchaClear();
       gbLog('captcha breakers cleared by user');
