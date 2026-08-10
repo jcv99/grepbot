@@ -121,6 +121,43 @@
       return { ok: bad === 0, warn: bad > 0, detail: parts.join(', ') };
     }));
 
+    out.push(preflightProbe('tx registry', () => {
+      const tx = state.txState || {};
+      const inflight = Object.values(tx).filter(t => t && /^(queued|preparing|sending|pending|inflight|sent|aborted)$/.test(t.state || '')).length;
+      const unknown = Object.values(tx).filter(t => t && /^(unknown|manual-review)$/.test(t.state || '')).length;
+      const stale = Object.values(tx).filter(t => t && t.state === 'aborted' && (Date.now() - (+t.updatedAt || 0)) > 600000).length;
+      return {
+        ok: true,
+        warn: unknown > 0 || stale > 0,
+        detail: `${Object.keys(tx).length} transactions, ${inflight} live, ${unknown} unknown, ${stale} stale-aborted`,
+      };
+    }));
+    out.push(preflightProbe('phoenician', () => {
+      const view = !!state.ptViewUrl;
+      const tpl = !!state.ptTradeTpl;
+      const on = !!state.autoPtTrade;
+      const parser = (typeof ptParseOffers === 'function') ? 'parser defined' : 'parser MISSING';
+      return {
+        ok: view || tpl || !on,
+        warn: on && !(view && tpl),
+        detail: `view ${view ? 'aprendida' : 'SIN aprender'}, tpl ${tpl ? 'aprendido' : 'SIN aprender'}, auto ${on ? 'ON' : 'OFF'}, ${parser}`,
+      };
+    }));
+    out.push(preflightProbe('native queue', () => {
+      const nq = state.nativeQueue || {};
+      const towns = Object.keys(nq.towns || {}).length;
+      const build = Object.values(nq.towns || {}).reduce((n, t) => n + (Array.isArray(t.build) ? t.build.length : 0), 0);
+      const recruit = Object.values(nq.towns || {}).reduce((n, t) => n + (Array.isArray(t.recruit) ? t.recruit.length : 0), 0);
+      const research = Object.values(nq.towns || {}).reduce((n, t) => n + (Array.isArray(t.research) ? t.research.length : 0), 0);
+      return { ok: towns === 0 || (build + recruit + research) > 0, detail: `${towns} town(s) in native queue, ${build} build / ${recruit} recruit / ${research} research jobs` };
+    }));
+    out.push(preflightProbe('queue center', () => {
+      const towns = (typeof townsFromGame === 'function' ? townsFromGame() : null) || [];
+      return {
+        ok: typeof nativeQueueHasPending === 'function',
+        detail: `open the Queue Center window: ${towns.length} town(s) resolvable`,
+      };
+    }));
     out.push(preflightProbe('cost reads', () => {
       const ids = (townsFromGame() || []).map(t => t.id);
       const tid = ids[0];
