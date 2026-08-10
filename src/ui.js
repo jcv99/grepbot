@@ -740,6 +740,7 @@
         <label style="margin-left:12px">Hours <input type="number" data-cfg="night-start" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/>–<input type="number" data-cfg="night-end" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Log every payload the bot would send and send nothing. Use it to compare bot payloads against a hand-clicked action before enabling a risky feature."><input type="checkbox" data-cfg="dry-run"/> <b style="color:#6cf">Simulacion (registra payloads, no envia nada)</b></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="A feature that keeps finding nothing to do doubles its own interval (up to 8x) until it acts again."><input type="checkbox" data-cfg="orch-adaptive"/> Adaptive cadence (back off idle features)</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Si un almacen se llena y la recoleccion deja de rendir, cueva/comercio/aldeas pasan por delante de la recoleccion y no se les aplica el frenado por inactividad. Solo cambia el ORDEN, nunca el presupuesto."><input type="checkbox" data-cfg="orch-deadlock"/> Resolver atasco de almacen (prioriza vaciado)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Copy/Export replace player names and ids with short hashes. Turn OFF only for local debugging."><input type="checkbox" data-cfg="export-redact"/> Redact names/ids in Copy + Export</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="captcha-global"/> Global captcha kill-switch</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Skip an action that failed the same way 3x in a row (5/15/60min backoff). Journal keeps recording either way."><input type="checkbox" data-cfg="decision-memory"/> Decision memory (skip repeat failures)</label>
@@ -1085,6 +1086,7 @@
       const ct = sec.querySelector('[data-cfg=cave-thresh]'); if (ct) ct.value = state.caveThreshPct;
       const dr = sec.querySelector('[data-cfg=dry-run]'); if (dr) dr.checked = !!state.dryRun;
       const oa = sec.querySelector('[data-cfg=orch-adaptive]'); if (oa) oa.checked = state.orchAdaptive !== false;
+      const od = sec.querySelector('[data-cfg=orch-deadlock]'); if (od) od.checked = state.orchDeadlockResolve !== false;
       const er = sec.querySelector('[data-cfg=export-redact]'); if (er) er.checked = state.exportRedact !== false;
       renderCaveTowns();
       return;
@@ -1239,6 +1241,7 @@
     setChk('[data-cfg=decision-memory]', state.decisionMemory !== false);
     setChk('[data-cfg=dry-run]', !!state.dryRun);
     setChk('[data-cfg=orch-adaptive]', state.orchAdaptive !== false);
+    setChk('[data-cfg=orch-deadlock]', state.orchDeadlockResolve !== false);
     setChk('[data-cfg=export-redact]', state.exportRedact !== false);
     setChk('[data-cfg=auto-merchant]', state.autoMerchant);
     setChk('[data-cfg=auto-pt-trade]', state.autoPtTrade);
@@ -1304,6 +1307,7 @@
     bindToggle('[data-cfg=captcha-global]', 'captchaGlobalKill', STORE.CAPTCHA_GLOBAL);
     bindToggle('[data-cfg=decision-memory]', 'decisionMemory', STORE.DECISION_MEM);
     bindToggle('[data-cfg=orch-adaptive]', 'orchAdaptive', STORE.ORCH_ADAPTIVE);
+    bindToggle('[data-cfg=orch-deadlock]', 'orchDeadlockResolve', STORE.ORCH_DEADLOCK);
     bindToggle('[data-cfg=export-redact]', 'exportRedact', STORE.EXPORT_REDACT);
     sec.querySelector('[data-cfg=dry-run]')?.addEventListener('change', e => {
       state.dryRun = e.target.checked; save(STORE.DRY_RUN, state.dryRun);
@@ -1742,6 +1746,7 @@
     if (gbServerPaused()) pauseTxt += ` ||srv:${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}`;
     if(gbTabCoordSupported&&!gbTabLeader)pauseTxt+=' ||other-tab';
     if (storageWarnUntil > Date.now()) pauseTxt += ` !${storageWarnMsg || 'quota'}`;
+    if (typeof orchDeadlockOpen === 'function' && orchDeadlockOpen()) pauseTxt += ' !WH';
     let tplBanner = '';
     try { tplBanner = tplHealthBannerText() || ''; } catch (_) {}
     if (tplBanner) pauseTxt += ' tpl!';

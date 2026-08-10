@@ -88,6 +88,45 @@
     src.tradeCap = Math.max(0, src.tradeCap - (job.wood + job.stone + job.iron));
     tgt.wood += job.wood; tgt.stone += job.stone; tgt.iron += job.iron;
   }
+  // Deadlock mode: every town is pinned, so nobody passes the "target is 25%
+  // empty" rule and normal fill-storage produces zero jobs. Ship only the
+  // resource that is actually pinned at the source, and only into a town with
+  // real headroom in that same resource - anything looser is freighter burn
+  // between two full warehouses.
+  function tradeDeadlockJobs(towns, L) {
+    const ledger = L || tradeLedger(towns);
+    if (!ledger) return [];
+    const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
+    const RES = ['wood', 'stone', 'iron'];
+    const jobs = [];
+    const ids = towns.map(t => t.id);
+    for (const srcId of ids) {
+      const src = ledger[srcId];
+      if (!src || !(src.cap > 0) || src.tradeCap < minBatch) continue;
+      for (const res of RES) {
+        if (src[res] / src.cap < 0.97) continue;
+        for (const tgtId of ids) {
+          if (tgtId === srcId) continue;
+          const tgt = ledger[tgtId];
+          if (!tgt || !(tgt.cap > 0)) continue;
+          const headroom = tgt.cap - tgt[res];
+          if (headroom < minBatch) continue;
+          const amount = Math.floor(Math.min(headroom, src.tradeCap, src[res] * 0.5));
+          if (amount < minBatch) continue;
+          const job = { from: srcId, to: tgtId, wood: 0, stone: 0, iron: 0, deadlock: true };
+          job[res] = amount;
+          jobs.push(job);
+          tradeApplyJob(ledger, job);
+          if (jobs.length >= 4) return jobs;
+          break;
+        }
+      }
+    }
+    if (!jobs.length && typeof orchDeadlockNoteStuck === 'function') {
+      orchDeadlockNoteStuck('no town has headroom in the pinned resource');
+    }
+    return jobs;
+  }
   function tradeFillStorageJobs(towns, L) {
     const ledger = L || tradeLedger(towns);
     if(!ledger)return [];
@@ -323,6 +362,14 @@
       jobs = jobs.concat(tradePredictiveJobs(towns, ledger));
     } else if (state.autoTrade && preset === 'storage') {
       jobs = jobs.concat(tradeFillStorageJobs(towns, ledger));
+      // Only when the normal rule found nothing and a deadlock is open: the
+      // default 25%-empty target rule exists to stop pointless shuffling and
+      // must stay as-is for every other tick.
+      if (!jobs.length && typeof orchDeadlockOpen === 'function' && orchDeadlockOpen()) {
+        const dl = tradeDeadlockJobs(towns, ledger);
+        if (dl.length) gbLog(`trade: deadlock drain - ${dl.length} job(s) on the pinned resource`);
+        jobs = jobs.concat(dl);
+      }
     } else if (state.autoTrade && (preset === 'party' || preset === 'unit')) {
       jobs = jobs.concat(tradeGoalJobs(towns, ledger, preset));
     }

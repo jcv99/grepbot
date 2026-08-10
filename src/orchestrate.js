@@ -38,8 +38,75 @@
     return n;
   }
 
+  // ---------- warehouse deadlock ----------
+  // A pinned warehouse looks exactly like "nothing to do" from the journal:
+  // farm claims land nowhere, cave only drains iron, trade finds no target below
+  // its 25%-empty rule, so all three go idle and the adaptive backoff widens
+  // their cadence up to 8x. The bot goes quietest precisely when it must act.
+  // The resolver only changes ORDER and suppresses that widening; it never adds
+  // a scheduler, a post class, or budget.
+  const ORCH_PIN_RATIO = 0.97;
+  const ORCH_DRAIN_KEYS = ['cave', 'trade', 'ruraltrade'];
+  const ORCH_DEADLOCK_FARM_IDLE = 2; // farm cadences with nothing journaled
+  let orchDeadlock = { open: false, towns: [], at: 0, stuckLoggedAt: 0 };
+  function orchTownIds() {
+    const ids = [];
+    try {
+      const from = (typeof townsFromGame === 'function') ? townsFromGame() : null;
+      if (from) from.forEach(t => ids.push(String(t.id)));
+    } catch (_) {}
+    if (!ids.length) {
+      try { Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}).forEach(id => ids.push(String(id))); } catch (_) {}
+    }
+    return ids;
+  }
+  function orchPinnedTowns() {
+    const pinned = [];
+    let blind = 0;
+    for (const id of orchTownIds()) {
+      const rs = (typeof townResState === 'function') ? townResState(id) : null;
+      // Unreadable capacity is unknown, never "full" - a blind read may not
+      // fabricate a deadlock and reorder the whole economy behind it.
+      if (!rs || !(rs.cap > 0)) { blind++; continue; }
+      if (Math.max(rs.wood, rs.stone, rs.iron) / rs.cap >= ORCH_PIN_RATIO) pinned.push(id);
+    }
+    if (blind && !pinned.length) {
+      gbLogT('orch-deadlock-blind', 600000, `orch: ${blind} town(s) with unreadable capacity - deadlock check skipped for them`);
+    }
+    return pinned;
+  }
+  function orchDeadlockEval() {
+    const off = state.orchDeadlockResolve === false;
+    const pinned = off ? [] : orchPinnedTowns();
+    const farmStuck = !!state.autoFarm && (orchIdle.farm || 0) >= ORCH_DEADLOCK_FARM_IDLE;
+    const open = !off && pinned.length > 0 && farmStuck;
+    if (open !== orchDeadlock.open) {
+      orchDeadlock = { open, towns: pinned, at: Date.now(), stuckLoggedAt: 0 };
+      gbLog(open
+        ? `orch: warehouse deadlock in town(s) ${pinned.join(',')} - forcing ${ORCH_DRAIN_KEYS.join('/')} ahead of farm`
+        : 'orch: warehouse deadlock cleared - normal priority order restored');
+      try { updateStatus(); } catch (_) {}
+    } else if (open) {
+      orchDeadlock.towns = pinned;
+    }
+    return orchDeadlock.open;
+  }
+  function orchDeadlockOpen() { return !!orchDeadlock.open; }
+  function orchDeadlockState() { return { open: !!orchDeadlock.open, towns: (orchDeadlock.towns || []).slice(), since: orchDeadlock.at || 0 }; }
+  // Nothing left to drain: one line, then silence. This is a "go spend
+  // resources" signal for the human, not something to spin on.
+  function orchDeadlockNoteStuck(why) {
+    if (!orchDeadlock.open) return;
+    const now = Date.now();
+    if (now - (orchDeadlock.stuckLoggedAt || 0) < 3600000) return;
+    orchDeadlock.stuckLoggedAt = now;
+    gbLog(`orch: deadlock cannot drain (${why}) - spend resources by hand (build/recruit/culture)`);
+  }
+
   function orchIdleFactor(key) {
     if (state.orchAdaptive === false) return 1;
+    // The drain path must not be slowed by the very idleness the deadlock causes.
+    if (orchDeadlock.open && ORCH_DRAIN_KEYS.includes(key)) return 1;
     const streak = orchIdle[key] || 0;
     if (streak < ORCH_IDLE_TRIP) return 1;
     return Math.min(ORCH_IDLE_MAX, 1 << Math.min(3, streak - ORCH_IDLE_TRIP + 1));
@@ -83,7 +150,14 @@
       ? state.priorityOrder : orchDefaultOrder();
 
     const mandatory = goalMandatoryModules();
-    const order = mandatory.concat(configured.filter(k => !mandatory.includes(k))).concat(orchDefaultOrder().filter(k => !mandatory.includes(k) && configured.indexOf(k) === -1));
+    let order = mandatory.concat(configured.filter(k => !mandatory.includes(k))).concat(orchDefaultOrder().filter(k => !mandatory.includes(k) && configured.indexOf(k) === -1));
+    // Sort override, not a second scheduler: while a warehouse is pinned the
+    // drain features jump the user's priorityOrder (visibly - see the log line
+    // and the footer badge) so farm is not fed a town that cannot store loot.
+    if (orchDeadlockEval()) {
+      const drain = ORCH_DRAIN_KEYS.filter(k => order.includes(k));
+      order = drain.concat(order.filter(k => !drain.includes(k)));
+    }
     const now = Date.now();
     const due = [];
     for (let i = 0; i < order.length; i++) {

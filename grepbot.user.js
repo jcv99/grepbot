@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      3.3.0
+// @version      3.4.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -67,7 +67,6 @@ const STORE = {
     FARM_FULL_MODE: 'grepbot:farm-full-mode',
     AB_AUTO: 'grepbot:ab-auto',
     AB_TARGETS: 'grepbot:ab-targets',
-    AB_NEXT: 'grepbot:ab-next',
     AUTO_CAVE: 'grepbot:auto-cave',
     CAVE_THRESH: 'grepbot:cave-thresh',
     CAVE_TOWNS: 'grepbot:cave-towns',
@@ -165,7 +164,6 @@ const STORE = {
     POSTS_SOFT_PCT: 'grepbot:posts-soft-pct',
     TAB_FILTERS: 'grepbot:tab-filters',
     ORCH_DEADLOCK: 'grepbot:orch-deadlock',
-    TRADE_MAX_HOPS: 'grepbot:trade-max-hops',
     FARM_LOYALTY_SEEN: 'grepbot:farm-loyalty-seen',
     FARM_TEACH_BANNER: 'grepbot:farm-teach-banner',
     LAST_SEEN_TS: 'grepbot:last-seen-ts',
@@ -195,7 +193,7 @@ const STORE = {
     STORE.IB_ACTION, STORE.IB_ACTION_R, STORE.FARM_OPTION_MAP, STORE.FARM_LOYALTY_TECH, STORE.FARM_SLEEP_DAY,
     STORE.QUEST_REWARDS, STORE.QUEST_HISTORY,
     STORE.ATTACK_TPL, STORE.CANCEL_TPL, STORE.HERO_TPL, STORE.ATTACK_PLAN, STORE.ATTACK_HISTORY, STORE.ATTACK_RECENT, STORE.CAPTCHA,
-    STORE.AB_TARGETS, STORE.AB_NEXT, STORE.CAVE_TOWNS,
+    STORE.AB_TARGETS, STORE.CAVE_TOWNS,
     STORE.RESEARCH_TARGETS, STORE.CITY_TEMPLATES, STORE.TOWN_GROUPS,
     STORE.MERCHANT_WISH, STORE.FAVOR_CFG, STORE.WONDER_CFG, STORE.WONDER_SPENT,
     STORE.CULTURE_GOLD_SPENT,
@@ -492,7 +490,6 @@ const STORE = {
     farmFullMode: load(STORE.FARM_FULL_MODE, 'any'),
     abAuto: load(STORE.AB_AUTO, false),
     abTargets: load(STORE.AB_TARGETS, null),
-    abNextAt: load(STORE.AB_NEXT, {}),
     autoCave: load(STORE.AUTO_CAVE, false),
     caveThreshPct: load(STORE.CAVE_THRESH, 90),
     caveTowns: load(STORE.CAVE_TOWNS, {}),
@@ -528,6 +525,7 @@ const STORE = {
     autoWonder: load(STORE.AUTO_WONDER, false),
     wonderCfg: load(STORE.WONDER_CFG, { wonderId: null, wood: 0, stone: 0, iron: 0, reserve: 5000, budget: 50000 }),
     autoDodge: load(STORE.AUTO_DODGE, false),
+
     dodgeMode: load(STORE.DODGE_MODE, 'notify'),
     dodgeFloor: load(STORE.DODGE_FLOOR, 0),
     autoRecruit: load(STORE.AUTO_RECRUIT, false),
@@ -572,7 +570,6 @@ const STORE = {
     postsPerMinSoftPct: load(STORE.POSTS_SOFT_PCT, 60),
     tabFilters: load(STORE.TAB_FILTERS, {}) || {},
     orchDeadlockResolve: load(STORE.ORCH_DEADLOCK, true),
-    tradeMaxHops: load(STORE.TRADE_MAX_HOPS, 15),
     farmLoyaltySeen: load(STORE.FARM_LOYALTY_SEEN, false),
     farmTeachBanner: load(STORE.FARM_TEACH_BANNER, ''),
     lastSeenTs: load(STORE.LAST_SEEN_TS, 0),
@@ -7984,6 +7981,41 @@ const STORE = {
     src.tradeCap = Math.max(0, src.tradeCap - (job.wood + job.stone + job.iron));
     tgt.wood += job.wood; tgt.stone += job.stone; tgt.iron += job.iron;
   }
+
+  function tradeDeadlockJobs(towns, L) {
+    const ledger = L || tradeLedger(towns);
+    if (!ledger) return [];
+    const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
+    const RES = ['wood', 'stone', 'iron'];
+    const jobs = [];
+    const ids = towns.map(t => t.id);
+    for (const srcId of ids) {
+      const src = ledger[srcId];
+      if (!src || !(src.cap > 0) || src.tradeCap < minBatch) continue;
+      for (const res of RES) {
+        if (src[res] / src.cap < 0.97) continue;
+        for (const tgtId of ids) {
+          if (tgtId === srcId) continue;
+          const tgt = ledger[tgtId];
+          if (!tgt || !(tgt.cap > 0)) continue;
+          const headroom = tgt.cap - tgt[res];
+          if (headroom < minBatch) continue;
+          const amount = Math.floor(Math.min(headroom, src.tradeCap, src[res] * 0.5));
+          if (amount < minBatch) continue;
+          const job = { from: srcId, to: tgtId, wood: 0, stone: 0, iron: 0, deadlock: true };
+          job[res] = amount;
+          jobs.push(job);
+          tradeApplyJob(ledger, job);
+          if (jobs.length >= 4) return jobs;
+          break;
+        }
+      }
+    }
+    if (!jobs.length && typeof orchDeadlockNoteStuck === 'function') {
+      orchDeadlockNoteStuck('no town has headroom in the pinned resource');
+    }
+    return jobs;
+  }
   function tradeFillStorageJobs(towns, L) {
     const ledger = L || tradeLedger(towns);
     if(!ledger)return [];
@@ -8218,6 +8250,12 @@ const STORE = {
       jobs = jobs.concat(tradePredictiveJobs(towns, ledger));
     } else if (state.autoTrade && preset === 'storage') {
       jobs = jobs.concat(tradeFillStorageJobs(towns, ledger));
+
+      if (!jobs.length && typeof orchDeadlockOpen === 'function' && orchDeadlockOpen()) {
+        const dl = tradeDeadlockJobs(towns, ledger);
+        if (dl.length) gbLog(`trade: deadlock drain - ${dl.length} job(s) on the pinned resource`);
+        jobs = jobs.concat(dl);
+      }
     } else if (state.autoTrade && (preset === 'party' || preset === 'unit')) {
       jobs = jobs.concat(tradeGoalJobs(towns, ledger, preset));
     }
@@ -10949,8 +10987,66 @@ const STORE = {
     return n;
   }
 
+  const ORCH_PIN_RATIO = 0.97;
+  const ORCH_DRAIN_KEYS = ['cave', 'trade', 'ruraltrade'];
+  const ORCH_DEADLOCK_FARM_IDLE = 2;
+  let orchDeadlock = { open: false, towns: [], at: 0, stuckLoggedAt: 0 };
+  function orchTownIds() {
+    const ids = [];
+    try {
+      const from = (typeof townsFromGame === 'function') ? townsFromGame() : null;
+      if (from) from.forEach(t => ids.push(String(t.id)));
+    } catch (_) {}
+    if (!ids.length) {
+      try { Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}).forEach(id => ids.push(String(id))); } catch (_) {}
+    }
+    return ids;
+  }
+  function orchPinnedTowns() {
+    const pinned = [];
+    let blind = 0;
+    for (const id of orchTownIds()) {
+      const rs = (typeof townResState === 'function') ? townResState(id) : null;
+
+      if (!rs || !(rs.cap > 0)) { blind++; continue; }
+      if (Math.max(rs.wood, rs.stone, rs.iron) / rs.cap >= ORCH_PIN_RATIO) pinned.push(id);
+    }
+    if (blind && !pinned.length) {
+      gbLogT('orch-deadlock-blind', 600000, `orch: ${blind} town(s) with unreadable capacity - deadlock check skipped for them`);
+    }
+    return pinned;
+  }
+  function orchDeadlockEval() {
+    const off = state.orchDeadlockResolve === false;
+    const pinned = off ? [] : orchPinnedTowns();
+    const farmStuck = !!state.autoFarm && (orchIdle.farm || 0) >= ORCH_DEADLOCK_FARM_IDLE;
+    const open = !off && pinned.length > 0 && farmStuck;
+    if (open !== orchDeadlock.open) {
+      orchDeadlock = { open, towns: pinned, at: Date.now(), stuckLoggedAt: 0 };
+      gbLog(open
+        ? `orch: warehouse deadlock in town(s) ${pinned.join(',')} - forcing ${ORCH_DRAIN_KEYS.join('/')} ahead of farm`
+        : 'orch: warehouse deadlock cleared - normal priority order restored');
+      try { updateStatus(); } catch (_) {}
+    } else if (open) {
+      orchDeadlock.towns = pinned;
+    }
+    return orchDeadlock.open;
+  }
+  function orchDeadlockOpen() { return !!orchDeadlock.open; }
+  function orchDeadlockState() { return { open: !!orchDeadlock.open, towns: (orchDeadlock.towns || []).slice(), since: orchDeadlock.at || 0 }; }
+
+  function orchDeadlockNoteStuck(why) {
+    if (!orchDeadlock.open) return;
+    const now = Date.now();
+    if (now - (orchDeadlock.stuckLoggedAt || 0) < 3600000) return;
+    orchDeadlock.stuckLoggedAt = now;
+    gbLog(`orch: deadlock cannot drain (${why}) - spend resources by hand (build/recruit/culture)`);
+  }
+
   function orchIdleFactor(key) {
     if (state.orchAdaptive === false) return 1;
+
+    if (orchDeadlock.open && ORCH_DRAIN_KEYS.includes(key)) return 1;
     const streak = orchIdle[key] || 0;
     if (streak < ORCH_IDLE_TRIP) return 1;
     return Math.min(ORCH_IDLE_MAX, 1 << Math.min(3, streak - ORCH_IDLE_TRIP + 1));
@@ -10994,7 +11090,12 @@ const STORE = {
       ? state.priorityOrder : orchDefaultOrder();
 
     const mandatory = goalMandatoryModules();
-    const order = mandatory.concat(configured.filter(k => !mandatory.includes(k))).concat(orchDefaultOrder().filter(k => !mandatory.includes(k) && configured.indexOf(k) === -1));
+    let order = mandatory.concat(configured.filter(k => !mandatory.includes(k))).concat(orchDefaultOrder().filter(k => !mandatory.includes(k) && configured.indexOf(k) === -1));
+
+    if (orchDeadlockEval()) {
+      const drain = ORCH_DRAIN_KEYS.filter(k => order.includes(k));
+      order = drain.concat(order.filter(k => !drain.includes(k)));
+    }
     const now = Date.now();
     const due = [];
     for (let i = 0; i < order.length; i++) {
@@ -13331,6 +13432,11 @@ const STORE = {
       st.topSkips.forEach(([k, n]) => lines.push(`  ${n}x ${k}`));
     }
     lines.push('');
+    const dl = (typeof orchDeadlockState === 'function') ? orchDeadlockState() : null;
+    if (dl && dl.open) {
+      lines.push(`ATASCO DE ALMACEN abierto en ${dl.towns.join(',') || '?'} - cueva/comercio/aldeas van antes que recoleccion`);
+      lines.push('');
+    }
     lines.push('planificador (cadencia con adaptativa por inactividad)');
     orchStatus().filter(s => s.on).forEach(s => {
       lines.push(`  ${s.key.padEnd(11)} cada ${fmtSec(Math.round(s.cadenceMs / 1000)).padEnd(6)} proxima ${fmtSec(Math.round(s.dueInMs / 1000)).padEnd(6)}${s.idle ? ' inact. x' + s.idle : ''}${s.captcha ? ' CAPTCHA' : ''}`);
@@ -13450,6 +13556,7 @@ const STORE = {
         globalLeftMs: Math.max(0, (captchaGlobalUntil || 0) - now),
         breakers,
       },
+      deadlock: typeof orchDeadlockState === 'function' ? orchDeadlockState() : null,
       server: {
         paused: typeof gbServerPaused === 'function' ? gbServerPaused() : false,
         leftMs: typeof gbServerCooldownLeftMs === 'function' ? gbServerCooldownLeftMs() : 0,
@@ -14635,6 +14742,7 @@ const STORE = {
         <label style="margin-left:12px">Hours <input type="number" data-cfg="night-start" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/>\u2013<input type="number" data-cfg="night-end" min="0" max="23" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Log every payload the bot would send and send nothing. Use it to compare bot payloads against a hand-clicked action before enabling a risky feature."><input type="checkbox" data-cfg="dry-run"/> <b style="color:#6cf">Simulacion (registra payloads, no envia nada)</b></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="A feature that keeps finding nothing to do doubles its own interval (up to 8x) until it acts again."><input type="checkbox" data-cfg="orch-adaptive"/> Adaptive cadence (back off idle features)</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Si un almacen se llena y la recoleccion deja de rendir, cueva/comercio/aldeas pasan por delante de la recoleccion y no se les aplica el frenado por inactividad. Solo cambia el ORDEN, nunca el presupuesto."><input type="checkbox" data-cfg="orch-deadlock"/> Resolver atasco de almacen (prioriza vaciado)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Copy/Export replace player names and ids with short hashes. Turn OFF only for local debugging."><input type="checkbox" data-cfg="export-redact"/> Redact names/ids in Copy + Export</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="captcha-global"/> Global captcha kill-switch</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Skip an action that failed the same way 3x in a row (5/15/60min backoff). Journal keeps recording either way."><input type="checkbox" data-cfg="decision-memory"/> Decision memory (skip repeat failures)</label>
@@ -14979,6 +15087,7 @@ const STORE = {
       const ct = sec.querySelector('[data-cfg=cave-thresh]'); if (ct) ct.value = state.caveThreshPct;
       const dr = sec.querySelector('[data-cfg=dry-run]'); if (dr) dr.checked = !!state.dryRun;
       const oa = sec.querySelector('[data-cfg=orch-adaptive]'); if (oa) oa.checked = state.orchAdaptive !== false;
+      const od = sec.querySelector('[data-cfg=orch-deadlock]'); if (od) od.checked = state.orchDeadlockResolve !== false;
       const er = sec.querySelector('[data-cfg=export-redact]'); if (er) er.checked = state.exportRedact !== false;
       renderCaveTowns();
       return;
@@ -15133,6 +15242,7 @@ const STORE = {
     setChk('[data-cfg=decision-memory]', state.decisionMemory !== false);
     setChk('[data-cfg=dry-run]', !!state.dryRun);
     setChk('[data-cfg=orch-adaptive]', state.orchAdaptive !== false);
+    setChk('[data-cfg=orch-deadlock]', state.orchDeadlockResolve !== false);
     setChk('[data-cfg=export-redact]', state.exportRedact !== false);
     setChk('[data-cfg=auto-merchant]', state.autoMerchant);
     setChk('[data-cfg=auto-pt-trade]', state.autoPtTrade);
@@ -15198,6 +15308,7 @@ const STORE = {
     bindToggle('[data-cfg=captcha-global]', 'captchaGlobalKill', STORE.CAPTCHA_GLOBAL);
     bindToggle('[data-cfg=decision-memory]', 'decisionMemory', STORE.DECISION_MEM);
     bindToggle('[data-cfg=orch-adaptive]', 'orchAdaptive', STORE.ORCH_ADAPTIVE);
+    bindToggle('[data-cfg=orch-deadlock]', 'orchDeadlockResolve', STORE.ORCH_DEADLOCK);
     bindToggle('[data-cfg=export-redact]', 'exportRedact', STORE.EXPORT_REDACT);
     sec.querySelector('[data-cfg=dry-run]')?.addEventListener('change', e => {
       state.dryRun = e.target.checked; save(STORE.DRY_RUN, state.dryRun);
@@ -15632,6 +15743,7 @@ const STORE = {
     if (gbServerPaused()) pauseTxt += ` ||srv:${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}`;
     if(gbTabCoordSupported&&!gbTabLeader)pauseTxt+=' ||other-tab';
     if (storageWarnUntil > Date.now()) pauseTxt += ` !${storageWarnMsg || 'quota'}`;
+    if (typeof orchDeadlockOpen === 'function' && orchDeadlockOpen()) pauseTxt += ' !WH';
     let tplBanner = '';
     try { tplBanner = tplHealthBannerText() || ''; } catch (_) {}
     if (tplBanner) pauseTxt += ' tpl!';

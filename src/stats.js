@@ -259,6 +259,11 @@
       st.topSkips.forEach(([k, n]) => lines.push(`  ${n}x ${k}`));
     }
     lines.push('');
+    const dl = (typeof orchDeadlockState === 'function') ? orchDeadlockState() : null;
+    if (dl && dl.open) {
+      lines.push(`ATASCO DE ALMACEN abierto en ${dl.towns.join(',') || '?'} - cueva/comercio/aldeas van antes que recoleccion`);
+      lines.push('');
+    }
     lines.push('planificador (cadencia con adaptativa por inactividad)');
     orchStatus().filter(s => s.on).forEach(s => {
       lines.push(`  ${s.key.padEnd(11)} cada ${fmtSec(Math.round(s.cadenceMs / 1000)).padEnd(6)} proxima ${fmtSec(Math.round(s.dueInMs / 1000)).padEnd(6)}${s.idle ? ' inact. x' + s.idle : ''}${s.captcha ? ' CAPTCHA' : ''}`);
@@ -379,6 +384,7 @@
         globalLeftMs: Math.max(0, (captchaGlobalUntil || 0) - now),
         breakers,
       },
+      deadlock: typeof orchDeadlockState === 'function' ? orchDeadlockState() : null,
       server: {
         paused: typeof gbServerPaused === 'function' ? gbServerPaused() : false,
         leftMs: typeof gbServerCooldownLeftMs === 'function' ? gbServerCooldownLeftMs() : 0,

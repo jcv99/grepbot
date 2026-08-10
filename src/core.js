@@ -284,7 +284,6 @@
     farmFullMode: load(STORE.FARM_FULL_MODE, 'any'),
     abAuto: load(STORE.AB_AUTO, false),
     abTargets: load(STORE.AB_TARGETS, null),
-    abNextAt: load(STORE.AB_NEXT, {}),
     autoCave: load(STORE.AUTO_CAVE, false),
     caveThreshPct: load(STORE.CAVE_THRESH, 90),
     caveTowns: load(STORE.CAVE_TOWNS, {}),
@@ -320,6 +319,7 @@
     autoWonder: load(STORE.AUTO_WONDER, false),
     wonderCfg: load(STORE.WONDER_CFG, { wonderId: null, wood: 0, stone: 0, iron: 0, reserve: 5000, budget: 50000 }),
     autoDodge: load(STORE.AUTO_DODGE, false),
+    // migration source only: the live control writes DEFENSE_CFG (ui.js)
     dodgeMode: load(STORE.DODGE_MODE, 'notify'),
     dodgeFloor: load(STORE.DODGE_FLOOR, 0),
     autoRecruit: load(STORE.AUTO_RECRUIT, false),
@@ -364,7 +364,6 @@
     postsPerMinSoftPct: load(STORE.POSTS_SOFT_PCT, 60),
     tabFilters: load(STORE.TAB_FILTERS, {}) || {},
     orchDeadlockResolve: load(STORE.ORCH_DEADLOCK, true),
-    tradeMaxHops: load(STORE.TRADE_MAX_HOPS, 15),
     farmLoyaltySeen: load(STORE.FARM_LOYALTY_SEEN, false),
     farmTeachBanner: load(STORE.FARM_TEACH_BANNER, ''),
     lastSeenTs: load(STORE.LAST_SEEN_TS, 0),
