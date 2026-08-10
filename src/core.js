@@ -236,6 +236,10 @@
     // not, every sweep burned N villages x 3 guesses of the shared request
     // budget and starved the bridge posts that actually matter.
     farmScrape: load(STORE.FARM_SCRAPE, false),
+    // Winning HTTP action per ladder, so a sweep stops re-guessing what already
+    // worked (6-deep and 5-deep ladders x N towns, every sweep, out of budget).
+    townAction: load(STORE.TOWN_ACTION, null),
+    townListAction: load(STORE.TOWN_LIST_ACTION, null),
     farmScrapeState: load(STORE.FARM_SCRAPE_STATE, null) || { dead: false, misses: 0 },
     collectAll: load(STORE.COLLECT_ALL, false),
     autoCollect: load(STORE.AUTO_COLLECT, false),

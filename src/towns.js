@@ -19,11 +19,30 @@
     } catch (_) { return null; }
   }
   const TOWN_LIST_GUESSES = ['get_towns', 'towns_overview', 'get_owned_towns', 'overview_towns', 'town_list'];
+  // Try the action that worked last time first. Without this every sweep walked
+  // the whole ladder again and charged the request budget for each miss.
+  function townLadder(guesses, learned) {
+    const g = guesses.slice();
+    if (learned) {
+      const i = g.indexOf(learned);
+      if (i >= 0) g.splice(i, 1);
+      g.unshift(learned);
+    }
+    return g;
+  }
+  function townLearnAction(key, storeKey, action) {
+    if (!action || state[key] === action) return;
+    const had = state[key];
+    state[key] = action;
+    save(storeKey, action);
+    gbLog(had ? `towns endpoint = ${action} (was ${had})` : `towns endpoint = ${action}`);
+  }
   function fetchOwnedTowns(i = 0, pressureRetries = 0) {
     if (!gbInstanceAlive() || !hostEnabled() || automationPaused({})) return;
     if (!state.csrf) return;
-    if (i >= TOWN_LIST_GUESSES.length) { scrapeTownsDom(); return; }
-    const action = TOWN_LIST_GUESSES[i];
+    const ladder = townLadder(TOWN_LIST_GUESSES, state.townListAction);
+    if (i >= ladder.length) { scrapeTownsDom(); return; }
+    const action = ladder[i];
     const params = new URLSearchParams();
     params.set('action', action); params.set('h', state.csrf);
     const u = '/index.php?' + params.toString();
@@ -52,13 +71,20 @@
             state.towns = list;
             save(STORE.TOWNS, state.towns);
             renderWorld();
+            townLearnAction('townListAction', STORE.TOWN_LIST_ACTION, action);
             console.info('[grepbot] towns:', list.length, 'via', action);
             return;
           }
         } catch (e) {  }
         fetchOwnedTowns(i + 1, 0);
       },
-      onerror() { fetchOwnedTowns(i + 1, 0); },
+      onerror(e) {
+        // Budget / host-disabled rejections happen before the wire: walking the
+        // rest of the ladder there just burns the remaining guesses.
+        const why = e && e.error ? String(e.error) : '';
+        if (why === 'budget' || why === 'disabled' || why === 'disposed') return;
+        fetchOwnedTowns(i + 1, 0);
+      },
     });
   }
   function extractTowns(json) {
@@ -103,14 +129,15 @@
     let pressureRetries = 0;
     let finished = false;
     const finish = (ok) => { if (finished) return; finished = true; if (onDone) onDone(!!ok); };
+    const ladder = townLadder(TOWN_ACTION_GUESSES, state.townAction);
     tryGuess(town, 0);
     function tryGuess(town, i) {
       if (!hostEnabled() || automationPaused({}) || !gbInstanceAlive()) return finish(false);
-      if (i >= TOWN_ACTION_GUESSES.length) {
+      if (i >= ladder.length) {
         state.townResources[town.id] = { ts: Date.now(), ok: false, err: 'no endpoint' };
         save(STORE.TOWN_RES, state.townResources); renderWorld(); finish(false); return;
       }
-      const action = TOWN_ACTION_GUESSES[i];
+      const action = ladder[i];
       const params = new URLSearchParams();
       params.set('action', action); params.set('town_id', town.id); params.set('h', state.csrf || '');
       gbXhr({
@@ -137,11 +164,14 @@
               ts: Date.now(), wood: p.wood, stone: p.stone, iron: p.iron,
               pop: p.pop, cap: p.cap, ok: true, action,
             };
-            save(STORE.TOWN_RES, state.townResources); renderWorld(); finish(true);
+            save(STORE.TOWN_RES, state.townResources); renderWorld();
+            townLearnAction('townAction', STORE.TOWN_ACTION, action);
+            finish(true);
           } catch (_) { tryGuess(town, i + 1); }
         },
         onerror(e) {
-          if (e && (e.error === 'disabled' || e.error === 'budget')) return finish(false);
+          const why = e && e.error ? String(e.error) : '';
+          if (why === 'disabled' || why === 'budget' || why === 'disposed') return finish(false);
           tryGuess(town, i + 1);
         },
       });
