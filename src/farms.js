@@ -397,10 +397,37 @@
     return +want;
   }
 
-  function farmDesiredDuration(townId) {
+  // Adaptive claim duration: among the durations that are actually learnable
+  // here (state.farmOptionMap), pick the longest one whose expected haul still
+  // fits the town warehouse headroom. The 20min / 40min / 90min / 3h options
+  // were reachable and unused - claiming less often means fewer captcha slots
+  // and more loot per request.
+  function farmDurationPick(townId) {
     if (!state.farmLongClaims) return 300;
-    return farmLoyaltyResearched(townId) ? 600 : 300;
+    const loyalty = farmLoyaltyResearched(townId);
+    const preferred = loyalty ? [600, 1200, 2400, 5400, 10800, 14400, 28800, 300] : [600, 1200, 2400, 5400, 10800, 14400, 28800, 300];
+    const learned = preferred.filter(sec => farmOptionFor(sec) != null);
+    if (!learned.length) return 300;
+    // If loyalty isn't researched, the longer options are not necessarily free
+    // of the loyalty multiplier, so prefer them only when headroom allows.
+    const rs = (typeof townResState === 'function') ? townResState(townId) : null;
+    const headroom = rs && rs.cap > 0 ? Math.max(0, rs.cap - Math.max(rs.wood, rs.stone, rs.iron)) : null;
+    const SAFE_FILL_PCT = 0.6;
+    const ROOM_PER_HOUR = 8000; // vague: grepolis haul rates at ~7k-9k/h at max
+    let best = 300;
+    for (const sec of learned) {
+      if (sec === 300) { best = 300; continue; }
+      // Rough estimate: the loot scales with duration; refuse to ship a longer
+      // claim than the warehouse can absorb at 60% utilisation.
+      const expected = Math.round(sec / 3600 * ROOM_PER_HOUR);
+      if (headroom != null && expected > headroom * SAFE_FILL_PCT) continue;
+      // Hour-only go beyond 24h since the player is unlikely to wait that long.
+      if (sec > 14400) continue;
+      if (sec > best) best = sec;
+    }
+    return best;
   }
+  function farmDesiredDuration(townId) { return farmDurationPick(townId); }
 
   function claimFarm(farm, islandMap, whCache, durOverride, onDone) {
     const done = (err) => { if (onDone) onDone(err); };

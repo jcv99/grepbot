@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      3.6.0
+// @version      3.7.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -4166,10 +4166,30 @@ const STORE = {
     return +want;
   }
 
-  function farmDesiredDuration(townId) {
+  function farmDurationPick(townId) {
     if (!state.farmLongClaims) return 300;
-    return farmLoyaltyResearched(townId) ? 600 : 300;
+    const loyalty = farmLoyaltyResearched(townId);
+    const preferred = loyalty ? [600, 1200, 2400, 5400, 10800, 14400, 28800, 300] : [600, 1200, 2400, 5400, 10800, 14400, 28800, 300];
+    const learned = preferred.filter(sec => farmOptionFor(sec) != null);
+    if (!learned.length) return 300;
+
+    const rs = (typeof townResState === 'function') ? townResState(townId) : null;
+    const headroom = rs && rs.cap > 0 ? Math.max(0, rs.cap - Math.max(rs.wood, rs.stone, rs.iron)) : null;
+    const SAFE_FILL_PCT = 0.6;
+    const ROOM_PER_HOUR = 8000;
+    let best = 300;
+    for (const sec of learned) {
+      if (sec === 300) { best = 300; continue; }
+
+      const expected = Math.round(sec / 3600 * ROOM_PER_HOUR);
+      if (headroom != null && expected > headroom * SAFE_FILL_PCT) continue;
+
+      if (sec > 14400) continue;
+      if (sec > best) best = sec;
+    }
+    return best;
   }
+  function farmDesiredDuration(townId) { return farmDurationPick(townId); }
 
   function claimFarm(farm, islandMap, whCache, durOverride, onDone) {
     const done = (err) => { if (onDone) onDone(err); };
