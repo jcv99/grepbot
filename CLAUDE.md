@@ -17,7 +17,7 @@ src/                  # feature modules — concat order matters (build.py)
   collect.js bandit.js build-tab.js cave.js culture.js trade.js rural.js
   research.js alerts.js merchant.js favor.js wonder.js dodge.js recruit.js
   qol.js orchestrate.js intel.js quests.js attack.js military.js stats.js
-  ui.js boot.js footer.js
+  queue-center.js ui.js boot.js footer.js
 build.py              # python3 build.py → grepbot.user.js (concat + gates)
 .build-stamp.json     # build gate bookkeeping (src hash + last built version)
 grepbot.user.js       # built output — paste this into Tampermonkey
@@ -207,7 +207,22 @@ Single-script loop pattern:
   modules: `gbFailStreak` (`gbRecall` / `gbRecallAll` / `gbRemember` were never
   called by any module and were removed in v2.5.7). UI: Log tab →
   **Decisions** sub-view (filter, Copy JSON, Clear skips, Clear journal); footer
-  status shows `mem:<n>` while windows are open.
+  status shows `mem:<n>` while windows are open. **Transient results are not
+  memory** (v2.7.0, `jrnTransientDynamicResult`): `planner-wood:…` /
+  `-stone` / `-iron` / `-population` / `-tradeCap` are a live shortage, so they
+  journal as `skip:` instead of a hard error, and `jrnSkipped` deletes any window
+  an older build persisted from one. Three shortages in a row used to freeze a
+  now-affordable action for 5–60min.
+- **Queue Center** (`queue-center.js`, v2.7.0, header button `Colas` + TM menu
+  `GrepBot: colas`): one draggable window with a town selector and four tabs
+  (Construcción / Investigación / Cuartel / Puerto). Each tab renders the game's
+  **real** queue beside GrepBot's virtual FIFO plan for the same lane, with
+  reorder / pause / remove. It mutates only through `nativeQueue*`, so the
+  tab-leader gate, the in-flight freeze and the prerequisite-removal blocker in
+  `nativeQueueRemove` all still apply; removal reuses the same confirm ladder as
+  `nativeRenderQueuePanel`. Barracks and docks share ONE recruit lane — the list
+  is filtered by hull type but positions and reorders speak the global index.
+  `nativeQueueSave` / `nativeQueueSetJobState` re-render it.
 - **Logging** (`gbLog`/`gbLogT`): console.info + ring buffer (200) rendered in the panel's **Log tab**. `gbLogT(key, ms, ...)` throttles repeat messages. `renderLog` is deferred 250ms and skipped while the Log tab is hidden (v0.5.0 — gbLog fires per line in hot loops). Diag button dumps `gameBridgeStatus()`.
 - **CSRF hunt** (`huntCsrf`): every 5s, try `window.csrfToken`, `window.csrf_token`, `window.h`, `Game.csrfToken`, meta/input/data-h, cookie. First match wins. Still needed for GM_xmlhttpRequest report fetching (gpAjax path signs itself).
 - **AJAX spy** (`hookFetch` + `hookXhr`): patches `unsafeWindow.fetch` + `XMLHttpRequest.prototype.open/send` to catch report id urls in real time. The response-JSON recursive walk is skipped for payloads >100KB unless the URL is report-ish (v0.5.0 — map payloads are huge).
@@ -320,6 +335,18 @@ In-app SPA navigation (Reports / World / Farms) keeps the tab visible → no `se
   healthy (the caller falls back to a constant) and expires an invalidation
   after 30min — the gate blocks the only post that could ever record an `ok`, so
   without expiry one bad streak was permanent.
+- v2.7.0 merged the out-of-tree `GrepBot-2.5.9.user.js` "híbrido" fork. That file
+  forked well before 2.5.9 (94 of 639 shared functions differed from the repo's
+  own v2.5.9 build), so only two things came across: the Queue Center window and
+  `jrnTransientDynamicResult`. Everything else the fork carried was **older**,
+  and re-porting it would undo a named fix — its `nativeQueueAdd*` refused
+  appends while the head was in flight (undone in v2.5.4), its
+  `nativeQueueReconcileBuild` only reconciled `inflight.accepted` (leaving an
+  un-acknowledged post stranded), and its `nativeUiScan` picked one host tile per
+  building by visibility score instead of the v2.5.5 body-level panel mount. The
+  fork also predates `gbAjaxWatch`, `captcha_required`, phoenician trade and the
+  evidence system. Do not merge from it again without re-running the per-function
+  diff.
 - Memory note: `memory/grepbot-xpi-rebuild.md` predates the v0.5.0 WebExtension retirement — ignore the `.xpi` rebuild steps; `web-ext/` no longer exists.
 
 ## Phase state

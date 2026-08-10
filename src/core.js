@@ -134,6 +134,8 @@
     } catch (_) {}
     const p = document.getElementById('grepbot-panel');
     if (p) try { p.remove(); } catch (_) {}
+    const qc = document.getElementById('grepbot-queue-center');
+    if (qc) try { qc.remove(); } catch (_) {}
     try { document.querySelectorAll('.gb-native-qctl,.gb-native-panel').forEach(el=>el.remove()); } catch (_) {}
     if (GB_ROOT.__grepbotInstanceId === GB_INSTANCE_ID) {
       try { delete GB_ROOT.__grepbotInstanceId; } catch (_) { GB_ROOT.__grepbotInstanceId = null; }

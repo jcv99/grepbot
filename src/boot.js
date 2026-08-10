@@ -216,6 +216,8 @@
       txCommandStatus,
       txHeroStatus,
       renderAttack,
+      openQueueCenter,
+      renderQueueCenter,
       dispose: GB_ROOT.__grepbotDispose,
     };
   }

@@ -1,7 +1,15 @@
+  // A resource shortage is live state, not a structural failure: it clears as soon
+  // as production ticks, a trade lands or a planner reservation is released. If it
+  // journals as a hard error, three shortages in a row open a decision-memory skip
+  // window and the action stays frozen long after it became affordable.
+  function jrnTransientDynamicResult(r) {
+    const s = String(r || '');
+    return /^planner-(?:wood|stone|iron|population|tradeCap):/i.test(s);
+  }
   function jrnResult(err) {
     if (!err) return 'ok';
     const s = String(err);
-    if (JRN_SKIP_ERRS[s.split(':')[0]]) return 'skip:' + s.slice(0, 40);
+    if (JRN_SKIP_ERRS[s.split(':')[0]] || jrnTransientDynamicResult(s)) return 'skip:' + s.slice(0, 40);
     return s.slice(0, 60);
   }
 
@@ -168,8 +176,17 @@
   function jrnSkipped(tag) {
     jrnCheckHost();
     if (state.decisionMemory === false) return false;
-    const s = state.decisionSkips[jrnId(tag)];
+    const key = jrnId(tag);
+    const s = state.decisionSkips[key];
     if (!s || !s.until) return false;
+    // Repair windows persisted before jrnTransientDynamicResult existed — a live
+    // resource shortage must be re-decided by the precheck, never remembered.
+    if (jrnTransientDynamicResult(s.r)) {
+      delete state.decisionSkips[key];
+      jrnSave();
+      gbLogT('memory-transient-clear-' + key, 30000, `memory: cleared transient ${s.r}; live precheck will decide`);
+      return false;
+    }
     if (Date.now() >= s.until) {
       s.trips = Math.max(0, (s.trips || 1) - 1);
       delete s.until;

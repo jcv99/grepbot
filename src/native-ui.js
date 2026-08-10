@@ -22,6 +22,7 @@
     save(STORE.NATIVE_QUEUE,nativeQueueRoot());
     try{scheduleNativeUiScan()}catch(_){}
     try{renderAbQueue()}catch(_){}
+    try{renderQueueCenter()}catch(_){}
   }
   function nativeQueueId(prefix){const q=nativeQueueRoot();q.seq++;return `${prefix}:${Date.now().toString(36)}:${q.seq.toString(36)}`;}
   function nativeQueueHasPending(lane,townId) {
@@ -292,7 +293,7 @@
       const stable=x=>String(x||'').replace(/\d+(?:[.,]\d+)?/g,'#');
       if(stable(job.reason)===stable(r)&&now-(+job.reasonUpdatedAt||+job.updatedAt||0)<300000)return;
     }
-    job.status=status;job.reason=r;job.reasonUpdatedAt=now;job.updatedAt=now;save(STORE.NATIVE_QUEUE,nativeQueueRoot());try{scheduleNativeUiScan()}catch(_){}
+    job.status=status;job.reason=r;job.reasonUpdatedAt=now;job.updatedAt=now;save(STORE.NATIVE_QUEUE,nativeQueueRoot());try{scheduleNativeUiScan()}catch(_){}try{renderQueueCenter()}catch(_){}
   }
   function nativeQueueMarkBuild(townId,jobId,opts) {
     const job=nativeQueueList(townId,'build',false)[0];if(!job||job.id!==jobId)return false;const o=opts||{};

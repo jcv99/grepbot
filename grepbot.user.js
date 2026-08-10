@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.6.1
+// @version      2.7.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -340,6 +340,8 @@ const STORE = {
     } catch (_) {}
     const p = document.getElementById('grepbot-panel');
     if (p) try { p.remove(); } catch (_) {}
+    const qc = document.getElementById('grepbot-queue-center');
+    if (qc) try { qc.remove(); } catch (_) {}
     try { document.querySelectorAll('.gb-native-qctl,.gb-native-panel').forEach(el=>el.remove()); } catch (_) {}
     if (GB_ROOT.__grepbotInstanceId === GB_INSTANCE_ID) {
       try { delete GB_ROOT.__grepbotInstanceId; } catch (_) { GB_ROOT.__grepbotInstanceId = null; }
@@ -2914,10 +2916,15 @@ const STORE = {
 
   if (!Array.isArray(state.decisions)) state.decisions = [];
   if (!state.decisionSkips || typeof state.decisionSkips !== 'object') state.decisionSkips = {};
+
+  function jrnTransientDynamicResult(r) {
+    const s = String(r || '');
+    return /^planner-(?:wood|stone|iron|population|tradeCap):/i.test(s);
+  }
   function jrnResult(err) {
     if (!err) return 'ok';
     const s = String(err);
-    if (JRN_SKIP_ERRS[s.split(':')[0]]) return 'skip:' + s.slice(0, 40);
+    if (JRN_SKIP_ERRS[s.split(':')[0]] || jrnTransientDynamicResult(s)) return 'skip:' + s.slice(0, 40);
     return s.slice(0, 60);
   }
 
@@ -3078,8 +3085,16 @@ const STORE = {
   function jrnSkipped(tag) {
     jrnCheckHost();
     if (state.decisionMemory === false) return false;
-    const s = state.decisionSkips[jrnId(tag)];
+    const key = jrnId(tag);
+    const s = state.decisionSkips[key];
     if (!s || !s.until) return false;
+
+    if (jrnTransientDynamicResult(s.r)) {
+      delete state.decisionSkips[key];
+      jrnSave();
+      gbLogT('memory-transient-clear-' + key, 30000, `memory: cleared transient ${s.r}; live precheck will decide`);
+      return false;
+    }
     if (Date.now() >= s.until) {
       s.trips = Math.max(0, (s.trips || 1) - 1);
       delete s.until;
@@ -5931,6 +5946,7 @@ const STORE = {
     save(STORE.NATIVE_QUEUE,nativeQueueRoot());
     try{scheduleNativeUiScan()}catch(_){}
     try{renderAbQueue()}catch(_){}
+    try{renderQueueCenter()}catch(_){}
   }
   function nativeQueueId(prefix){const q=nativeQueueRoot();q.seq++;return `${prefix}:${Date.now().toString(36)}:${q.seq.toString(36)}`;}
   function nativeQueueHasPending(lane,townId) {
@@ -6157,7 +6173,7 @@ const STORE = {
       const stable=x=>String(x||'').replace(/\d+(?:[.,]\d+)?/g,'#');
       if(stable(job.reason)===stable(r)&&now-(+job.reasonUpdatedAt||+job.updatedAt||0)<300000)return;
     }
-    job.status=status;job.reason=r;job.reasonUpdatedAt=now;job.updatedAt=now;save(STORE.NATIVE_QUEUE,nativeQueueRoot());try{scheduleNativeUiScan()}catch(_){}
+    job.status=status;job.reason=r;job.reasonUpdatedAt=now;job.updatedAt=now;save(STORE.NATIVE_QUEUE,nativeQueueRoot());try{scheduleNativeUiScan()}catch(_){}try{renderQueueCenter()}catch(_){}
   }
   function nativeQueueMarkBuild(townId,jobId,opts) {
     const job=nativeQueueList(townId,'build',false)[0];if(!job||job.id!==jobId)return false;const o=opts||{};
@@ -12659,6 +12675,295 @@ const STORE = {
     } catch (_) {}
     fail();
   }
+
+  let gbQueueCenter = null;
+  let gbQueueCenterTab = 'build';
+  let gbQueueCenterTown = null;
+  let gbQueueCenterDrag = null;
+
+  function queueCenterTownIds() {
+    let ids = [];
+    try { ids = Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}); } catch (_) {}
+    if (!ids.length) ids = (state.towns || []).map(t => String(t.id));
+    return ids.map(String);
+  }
+  function queueCenterTownName(id) {
+    try {
+      const t = (state.towns || []).find(x => String(x.id) === String(id));
+      if (t && t.name) return t.name;
+      const gt = gbTownModel(id);
+      const a = gt && (gt.attributes || gt);
+      if (a && a.name) return String(a.name);
+    } catch (_) {}
+    return String(id || '?');
+  }
+  function queueCenterUnitIsNaval(unit) {
+    try { const d = recruitUnitDef(unit) || {}; return !!(d.is_naval || d.naval); } catch (_) { return false; }
+  }
+  function queueCenterUnitId(model) {
+    const a = (model && model.attributes) || model || {};
+    return String(a.unit_type || a.unit_id || a.type || '?');
+  }
+  function queueCenterUnitAmount(model) {
+    const a = (model && model.attributes) || model || {};
+    return +(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)) || 0;
+  }
+  function queueCenterTimeLeft(model) {
+    const a = (model && model.attributes) || model || {};
+    const now = gameNow();
+    const done = +(a.to_be_completed_at || a.completed_at || a.done_at || a.time_finished || 0);
+    if (done > 0) return Math.max(0, done - now);
+    const left = +(a.time_left || a.remaining_time || a.recruitment_time || a.research_time || a.building_time || 0);
+    return left > 0 ? left : null;
+  }
+  function queueCenterFmt(sec) {
+    if (sec == null || !Number.isFinite(+sec)) return '';
+    sec = Math.max(0, Math.floor(+sec));
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), ss = sec % 60;
+    return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m ${String(ss).padStart(2, '0')}s`;
+  }
+
+  function queueCenterButton(txt, title, fn, cls) {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = txt; b.title = title || ''; b.className = 'gb-qc-btn' + (cls ? ' ' + cls : '');
+    b.addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
+      if (!gbInstanceAlive()) return;
+      if (!gbTabLeader) { flash('GrepBot está activo en otra pestaña'); return; }
+      const r = fn && fn(e);
+      if (r !== false) renderQueueCenter();
+    });
+    return b;
+  }
+  function queueCenterStatusBadge(status, reason) {
+    const s = document.createElement('span'); s.className = 'gb-qc-status ' + String(status || 'pending').replace(/[^a-z-]/gi, '');
+    const map = { pending: 'pendiente', ready: 'listo', sending: 'enviando', paused: 'pausada', blocked: 'bloqueada', unknown: 'revisar', 'waiting-resources': 'recursos', 'waiting-population': 'población', 'waiting-queue': 'cola llena', 'waiting-requirement': 'requisito' };
+    s.textContent = map[status] || status || 'pendiente'; if (reason) s.title = reason; return s;
+  }
+  function queueCenterCard(title, subtitle) {
+    const box = document.createElement('div'); box.className = 'gb-qc-card';
+    const h = document.createElement('div'); h.className = 'gb-qc-card-head';
+    const left = document.createElement('div'); const b = document.createElement('b'); b.textContent = title; left.appendChild(b);
+    if (subtitle) { const sm = document.createElement('small'); sm.textContent = subtitle; left.appendChild(sm); }
+    h.appendChild(left); box.appendChild(h); return { box, head: h };
+  }
+  function queueCenterEmpty(text) { const d = document.createElement('div'); d.className = 'gb-qc-empty'; d.textContent = text; return d; }
+  function queueCenterSequence(title, entries) {
+    const wrap = document.createElement('div'); wrap.className = 'gb-qc-sequence';
+    const lab = document.createElement('b'); lab.className = 'gb-qc-sequence-title'; lab.textContent = title; wrap.appendChild(lab);
+    const line = document.createElement('div'); line.className = 'gb-qc-sequence-line';
+    (entries || []).forEach((e, i) => {
+      if (i) { const arrow = document.createElement('span'); arrow.className = 'gb-qc-sequence-arrow'; arrow.textContent = '>'; line.appendChild(arrow); }
+      const chip = document.createElement('span'); chip.className = 'gb-qc-sequence-chip'; chip.textContent = String(e && e.text != null ? e.text : e || '');
+      if (e && e.title) chip.title = e.title; line.appendChild(chip);
+    });
+    wrap.appendChild(line); return wrap;
+  }
+
+  function queueCenterRemove(townId, lane, job, frozen) {
+    if (job.inflight) { flash('Esta orden se está enviando; espera a que termine'); return false; }
+    if (job.manualReview) {
+      let ok = false;
+      try { ok = gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acción se envió o no.'); } catch (_) { ok = false; }
+      if (!ok) return false;
+    } else if (frozen) {
+      let ok = false;
+      try { ok = gameUw().confirm('Hay otra acción pendiente en esta cola. ¿Borrar este elemento de todos modos?'); } catch (_) { ok = false; }
+      if (!ok) return false;
+    }
+    return nativeQueueRemove(townId, lane, job.id, { force: true });
+  }
+
+  function renderQueueCenterBuild(body, townId) {
+    const q = abQueueInfo(townId);
+    const live = queueCenterCard('Cola real de construcción', q.known ? `${q.len}/${q.max}` : 'estado no legible');
+    body.appendChild(live.box);
+    if (q.known && q.orders.length) {
+      q.orders.forEach((o, i) => {
+        const r = document.createElement('div'); r.className = 'gb-qc-live-row';
+        const n = document.createElement('span'); n.textContent = `#${i + 1}`;
+        const nm = document.createElement('b'); nm.textContent = nativeBuildLabel(o.building_type);
+        const t = document.createElement('span');
+        const left = o.to_be_completed_at ? Math.max(0, +o.to_be_completed_at - gameNow()) : o.building_time;
+        t.textContent = queueCenterFmt(left);
+        r.append(n, nm, t); live.box.appendChild(r);
+      });
+    } else live.box.appendChild(queueCenterEmpty(q.known ? 'Sin construcciones reales' : 'No se puede leer la cola real'));
+
+    const list = nativeQueueList(townId, 'build', false), fifo = nativeQueueIsFifo(townId, 'build'), paused = nativeQueuePaused(townId, 'build');
+    const plan = queueCenterCard('Plan GrepBot · Construcción', fifo ? (paused ? 'FIFO pausada' : 'FIFO activa') : 'Objetivos automáticos');
+    body.appendChild(plan.box);
+    plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? 'Reanudar cola' : 'Pausar cola', () => nativeQueueTogglePaused(townId, 'build')));
+    if (!list.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador automático', () => nativeQueueUseLegacy(townId, 'build')));
+    if (!list.length) { plan.box.appendChild(queueCenterEmpty(fifo ? 'Cola FIFO vacía. Añade edificios con + desde el Senado.' : 'Esta ciudad usa el planificador de objetivos.')); return; }
+    plan.box.appendChild(queueCenterSequence('Orden FIFO', list.map((j, i) => ({
+      text: `#${i + 1} ${nativeBuildLabel(j.building)}`,
+      title: `${nativeBuildLabel(j.building)} ${j.fromLevel}→${j.toLevel}${j.reason ? ' · ' + j.reason : ''}`,
+    }))));
+    const frozen = list.some(j => j && (j.inflight || j.manualReview));
+    list.forEach((j, i) => {
+      const r = document.createElement('div'); r.className = 'gb-qc-job';
+      const num = document.createElement('b'); num.textContent = `#${i + 1}`;
+      const desc = document.createElement('div'); desc.className = 'gb-qc-job-desc';
+      const main = document.createElement('span'); main.textContent = `${nativeBuildLabel(j.building)} ${j.fromLevel}→${j.toLevel}`;
+      desc.append(main, queueCenterStatusBadge(j.status, j.reason));
+      const acts = document.createElement('div'); acts.className = 'gb-qc-acts';
+      const up = queueCenterButton('↑', 'Subir', () => nativeQueueMove(townId, 'build', j.id, -1));
+      const dn = queueCenterButton('↓', 'Bajar', () => nativeQueueMove(townId, 'build', j.id, 1));
+      const del = queueCenterButton('×', 'Eliminar', () => queueCenterRemove(townId, 'build', j, frozen), 'danger');
+      up.disabled = frozen || i === 0;
+      dn.disabled = frozen || i === list.length - 1;
+      del.disabled = !!j.inflight;
+      acts.append(up, dn, del); r.append(num, desc, acts); plan.box.appendChild(r);
+    });
+  }
+
+  function renderQueueCenterResearch(body, townId) {
+    const info = researchTownTechs(townId); const orders = (info && info.orders) || [];
+    const live = queueCenterCard('Cola real de investigación', info ? `${orders.length}/2 · Academia ${info.academy || 0}` : 'estado no legible');
+    body.appendChild(live.box);
+    if (orders.length) {
+      orders.forEach((o, i) => {
+        const id = researchOrderTechId(o);
+        const r = document.createElement('div'); r.className = 'gb-qc-live-row';
+        const n = document.createElement('span'); n.textContent = `#${i + 1}`;
+        const nm = document.createElement('b'); nm.textContent = researchLabel(id) || String(id || '?');
+        const t = document.createElement('span'); t.textContent = queueCenterFmt(queueCenterTimeLeft(o));
+        r.append(n, nm, t); live.box.appendChild(r);
+      });
+    } else live.box.appendChild(queueCenterEmpty(info ? 'Sin investigaciones en curso' : 'No se puede leer la Academia'));
+
+    const targets = goalEffectiveResearchTargets(townId, researchEnsureTargets());
+    const planned = queueCenterCard('Próximas investigaciones', 'orden del planificador');
+    body.appendChild(planned.box);
+    let shown = 0;
+    Object.keys(targets).sort((a, b) => (+targets[a].order || 0) - (+targets[b].order || 0)).forEach(id => {
+      const t = targets[id];
+      if (!t || !t.tgt) return;
+      if (info && info.techs && info.techs[id]) return;
+      if (orders.some(o => String(researchOrderTechId(o)) === String(id))) return;
+      shown++;
+      const r = document.createElement('div'); r.className = 'gb-qc-plan-row';
+      const n = document.createElement('span'); n.textContent = `#${shown}`;
+      const nm = document.createElement('b'); nm.textContent = researchLabel(id) || id;
+      let st = 'pendiente';
+      try {
+        const dep = researchDepsOk(townId, info, id), aff = dep && researchCanAfford(townId, id, info);
+        st = !dep ? 'requisito' : (aff && aff.ok ? 'listo' : (aff && aff.why) || 'esperando');
+      } catch (_) {}
+      const badge = document.createElement('span'); badge.className = 'gb-qc-muted'; badge.textContent = st;
+      r.append(n, nm, badge); planned.box.appendChild(r);
+    });
+    if (!shown) planned.box.appendChild(queueCenterEmpty('No hay investigaciones pendientes en el plan.'));
+  }
+
+  function renderQueueCenterRecruit(body, townId, wantNaval) {
+    const label = wantNaval ? 'Puerto' : 'Cuartel';
+    const q = recruitQueueInfo(townId);
+    const liveModels = (q.models || []).filter(m => queueCenterUnitIsNaval(queueCenterUnitId(m)) === wantNaval);
+    const live = queueCenterCard(`Cola real · ${label}`, q.known ? `${liveModels.length}${q.max != null ? ' / ' + q.max : ''}` : 'estado no legible');
+    body.appendChild(live.box);
+    if (liveModels.length) {
+      liveModels.forEach((m, i) => {
+        const id = queueCenterUnitId(m);
+        const r = document.createElement('div'); r.className = 'gb-qc-live-row';
+        const n = document.createElement('span'); n.textContent = `#${i + 1}`;
+        const nm = document.createElement('b'); nm.textContent = `${queueCenterUnitAmount(m)}× ${nativeUnitLabel(id)}`;
+        const t = document.createElement('span'); t.textContent = queueCenterFmt(queueCenterTimeLeft(m));
+        r.append(n, nm, t); live.box.appendChild(r);
+      });
+    } else live.box.appendChild(queueCenterEmpty(q.known ? `Sin órdenes en ${label.toLowerCase()}` : 'No se puede leer la cola real'));
+
+    const all = nativeQueueList(townId, 'recruit', false);
+    const list = all.filter(j => j && queueCenterUnitIsNaval(j.unit) === wantNaval);
+    const fifo = nativeQueueIsFifo(townId, 'recruit'), paused = nativeQueuePaused(townId, 'recruit');
+    const plan = queueCenterCard(`Plan GrepBot · ${label}`, fifo ? (paused ? 'FIFO pausada · prioridad global Cuartel/Puerto' : 'FIFO activa · prioridad global Cuartel/Puerto') : 'Objetivos automáticos');
+    body.appendChild(plan.box);
+    plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? 'Reanudar unidades' : 'Pausar unidades', () => nativeQueueTogglePaused(townId, 'recruit')));
+    if (!all.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador automático', () => nativeQueueUseLegacy(townId, 'recruit')));
+    if (!list.length) { plan.box.appendChild(queueCenterEmpty(fifo ? `No hay órdenes ${wantNaval ? 'navales' : 'terrestres'} pendientes. Añádelas con + desde ${label}.` : 'Esta ciudad usa objetivos automáticos.')); return; }
+    plan.box.appendChild(queueCenterSequence('Orden FIFO global', all.map((j, i) => ({
+      text: `#${i + 1} ${j.amount}× ${nativeUnitLabel(j.unit)}`,
+      title: queueCenterUnitIsNaval(j.unit) ? 'Puerto' : 'Cuartel',
+    }))));
+    const frozen = all.some(j => j && (j.inflight || j.manualReview));
+    list.forEach(j => {
+      const gi = all.indexOf(j);
+      const r = document.createElement('div'); r.className = 'gb-qc-job';
+      const num = document.createElement('b'); num.textContent = `#${gi + 1}`; num.title = 'posición en la cola global de unidades';
+      const desc = document.createElement('div'); desc.className = 'gb-qc-job-desc';
+      const main = document.createElement('span'); main.textContent = `${j.amount}× ${nativeUnitLabel(j.unit)}`;
+      desc.append(main, queueCenterStatusBadge(j.status, j.reason));
+      const acts = document.createElement('div'); acts.className = 'gb-qc-acts';
+      const up = queueCenterButton('↑', 'Subir en la cola global', () => nativeQueueMove(townId, 'recruit', j.id, -1));
+      const dn = queueCenterButton('↓', 'Bajar en la cola global', () => nativeQueueMove(townId, 'recruit', j.id, 1));
+      const del = queueCenterButton('×', 'Eliminar', () => queueCenterRemove(townId, 'recruit', j, frozen), 'danger');
+      up.disabled = frozen || gi === 0;
+      dn.disabled = frozen || gi === all.length - 1;
+      del.disabled = !!j.inflight;
+      acts.append(up, dn, del); r.append(num, desc, acts); plan.box.appendChild(r);
+    });
+  }
+
+  function renderQueueCenter() {
+    const w = gbQueueCenter;
+    if (!w || !document.body.contains(w)) return;
+    if (w.style.display === 'none') return;
+    const ids = queueCenterTownIds();
+    if (!ids.length) return;
+    if (!gbQueueCenterTown || !ids.includes(String(gbQueueCenterTown))) {
+      let cur = null;
+      try { cur = gameUw().Game && gameUw().Game.townId; } catch (_) {}
+      gbQueueCenterTown = String(cur || ids[0]);
+    }
+    const sel = w.querySelector('.gb-qc-town'); sel.replaceChildren();
+    ids.forEach(id => {
+      const o = document.createElement('option'); o.value = id; o.textContent = queueCenterTownName(id);
+      if (id === String(gbQueueCenterTown)) o.selected = true;
+      sel.appendChild(o);
+    });
+    w.querySelectorAll('.gb-qc-tab').forEach(b => b.classList.toggle('on', b.dataset.qtab === gbQueueCenterTab));
+    const body = w.querySelector('.gb-qc-body'); body.replaceChildren();
+    if (gbQueueCenterTab === 'build') renderQueueCenterBuild(body, gbQueueCenterTown);
+    else if (gbQueueCenterTab === 'research') renderQueueCenterResearch(body, gbQueueCenterTown);
+    else if (gbQueueCenterTab === 'barracks') renderQueueCenterRecruit(body, gbQueueCenterTown, false);
+    else renderQueueCenterRecruit(body, gbQueueCenterTown, true);
+  }
+
+  function openQueueCenter(tab, townId) {
+    if (tab) gbQueueCenterTab = tab;
+    if (townId != null) gbQueueCenterTown = String(townId);
+    if (!gbQueueCenter) {
+      const w = document.createElement('div');
+      w.id = 'grepbot-queue-center';
+      w.innerHTML = `<header><b>Colas GrepBot</b><select class="gb-qc-town" title="Ciudad que estás gestionando"></select><span class="gb-qc-spacer"></span><button class="gb-qc-refresh" title="Actualizar">↻</button><button class="gb-qc-close" title="Cerrar">×</button></header><nav><button class="gb-qc-tab" data-qtab="build">Construcción</button><button class="gb-qc-tab" data-qtab="research">Investigación</button><button class="gb-qc-tab" data-qtab="barracks">Cuartel</button><button class="gb-qc-tab" data-qtab="docks">Puerto</button></nav><div class="gb-qc-body"></div>`;
+      document.body.appendChild(w);
+      gbQueueCenter = w;
+      w.querySelector('.gb-qc-close').addEventListener('click', () => { w.style.display = 'none'; });
+      w.querySelector('.gb-qc-refresh').addEventListener('click', renderQueueCenter);
+      w.querySelector('.gb-qc-town').addEventListener('change', e => { gbQueueCenterTown = e.target.value; renderQueueCenter(); });
+      w.querySelectorAll('.gb-qc-tab').forEach(b => b.addEventListener('click', () => { gbQueueCenterTab = b.dataset.qtab; renderQueueCenter(); }));
+
+      const h = w.querySelector('header');
+      h.addEventListener('mousedown', e => {
+        if (e.target.closest('button,select')) return;
+        const r = w.getBoundingClientRect();
+        gbQueueCenterDrag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+        e.preventDefault();
+      });
+      const move = e => {
+        if (!gbQueueCenterDrag) return;
+        w.style.left = Math.max(0, Math.min(innerWidth - w.offsetWidth, e.clientX - gbQueueCenterDrag.dx)) + 'px';
+        w.style.top = Math.max(0, Math.min(innerHeight - w.offsetHeight, e.clientY - gbQueueCenterDrag.dy)) + 'px';
+        w.style.right = 'auto';
+      };
+      const up = () => { gbQueueCenterDrag = null; };
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+      gbListenerBag.push({ target: document, type: 'mousemove', fn: move, opts: undefined }, { target: document, type: 'mouseup', fn: up, opts: undefined });
+    }
+    gbQueueCenter.style.display = 'flex';
+    renderQueueCenter();
+  }
   function makeSortable(table, rowDataFn) {
     const thead = table.querySelector('thead');
     if (!thead) return;
@@ -13143,6 +13448,32 @@ const STORE = {
     #grepbot-panel .gb-section-body{padding:7px}
     #grepbot-panel pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
     @media (max-width:700px){#grepbot-panel{width:94vw;min-width:320px;right:3vw}.gb-dashboard-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+    #grepbot-queue-center{position:fixed;top:90px;left:90px;width:760px;height:560px;min-width:520px;min-height:320px;max-width:94vw;max-height:88vh;z-index:2147483646;background:#17191e;color:#eef1f5;border:1px solid #4a505b;border-radius:10px;box-shadow:0 10px 32px rgba(0,0,0,.6);display:flex;flex-direction:column;resize:both;overflow:hidden;font:12px/1.35 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+    #grepbot-queue-center header{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#24272e;border-bottom:1px solid #3d424c;cursor:move;flex-shrink:0}
+    #grepbot-queue-center header b{color:#f5a623;font-size:13px}#grepbot-queue-center .gb-qc-spacer{flex:1}
+    #grepbot-queue-center header select{max-width:210px;background:#11141a;color:#eef1f5;border:1px solid #4b5260;border-radius:5px;padding:4px 7px}
+    #grepbot-queue-center header button,#grepbot-queue-center .gb-qc-btn{background:#2d323b;color:#e9edf2;border:1px solid #4f5764;border-radius:5px;padding:3px 7px;cursor:pointer;font-size:11px}
+    #grepbot-queue-center header button:hover,#grepbot-queue-center .gb-qc-btn:hover{background:#39404b;border-color:#707a89}#grepbot-queue-center button:disabled{opacity:.35;cursor:default}
+    #grepbot-queue-center nav{display:flex;gap:5px;padding:7px 9px;background:#1d2026;border-bottom:1px solid #353a44;flex-shrink:0}
+    #grepbot-queue-center .gb-qc-tab{padding:6px 12px;background:#272b33;color:#aeb5c0;border:1px solid transparent;border-radius:7px;cursor:pointer;font-weight:600}
+    #grepbot-queue-center .gb-qc-tab.on{background:#3a321f;color:#fff;border-color:#c98b22}
+    #grepbot-queue-center .gb-qc-body{padding:10px;flex:1 1 0;min-height:0;height:0;overflow-y:scroll;overflow-x:hidden;scrollbar-gutter:stable;scrollbar-width:auto;scrollbar-color:#5f6978 #17191e;overscroll-behavior:contain;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:max-content;gap:10px;align-content:start}
+    #grepbot-queue-center .gb-qc-body::-webkit-scrollbar{width:10px}
+    #grepbot-queue-center .gb-qc-body::-webkit-scrollbar-track{background:#17191e;border-left:1px solid #2e333c}
+    #grepbot-queue-center .gb-qc-body::-webkit-scrollbar-thumb{background:#4f5764;border:2px solid #17191e;border-radius:8px}
+    #grepbot-queue-center .gb-qc-body::-webkit-scrollbar-thumb:hover{background:#6a7484}
+    #grepbot-queue-center .gb-qc-card{background:#20232a;border:1px solid #383e48;border-radius:8px;overflow:hidden;min-width:0;align-self:start;height:max-content}
+    #grepbot-queue-center .gb-qc-card-head{display:flex;gap:8px;align-items:center;padding:8px 9px;background:#272b33;border-bottom:1px solid #383e48}#grepbot-queue-center .gb-qc-card-head>div:first-child{display:flex;flex-direction:column;flex:1;min-width:0}#grepbot-queue-center .gb-qc-card-head small{color:#89919d;font-size:10px}
+    #grepbot-queue-center .gb-qc-live-row,#grepbot-queue-center .gb-qc-plan-row,#grepbot-queue-center .gb-qc-job{display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:8px;align-items:center;padding:7px 9px;border-top:1px solid rgba(255,255,255,.05)}
+    #grepbot-queue-center .gb-qc-job-desc{display:flex;flex-direction:column;min-width:0}.gb-qc-job-desc>span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #grepbot-queue-center .gb-qc-acts{display:flex;gap:3px}.gb-qc-btn.danger{color:#ffb0a8}.gb-qc-empty{padding:16px 10px;color:#828a95;text-align:center}
+    #grepbot-queue-center .gb-qc-sequence{padding:8px 9px 9px;border-top:1px solid rgba(255,255,255,.05);background:#1b1e24}
+    #grepbot-queue-center .gb-qc-sequence-title{display:block;margin-bottom:6px;color:#f5c36a;font-size:10px;text-transform:uppercase;letter-spacing:.35px}
+    #grepbot-queue-center .gb-qc-sequence-line{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+    #grepbot-queue-center .gb-qc-sequence-chip{padding:3px 6px;border-radius:5px;background:#2b3038;border:1px solid #454c58;color:#eef1f5;font-size:10px;white-space:nowrap}
+    #grepbot-queue-center .gb-qc-sequence-arrow{color:#757f8c;font-weight:bold}
+    #grepbot-queue-center .gb-qc-status{font-size:9px;color:#aab2bd}.gb-qc-status.ready{color:#7ddd96}.gb-qc-status.blocked,.gb-qc-status.unknown{color:#ff9e94}.gb-qc-status.paused{color:#ffd27a}.gb-qc-status.waiting-resources,.gb-qc-status.waiting-population,.gb-qc-status.waiting-queue,.gb-qc-status.waiting-requirement{color:#e5bf70}.gb-qc-muted{color:#929aa5;font-size:10px}
+    @media(max-width:760px){#grepbot-queue-center{left:2vw!important;top:4vh!important;width:96vw!important;height:80vh!important}#grepbot-queue-center .gb-qc-body{grid-template-columns:1fr}}
   `);
 
   panel = document.createElement('div');
@@ -13151,7 +13482,7 @@ const STORE = {
   document.querySelectorAll('#grepbot-panel').forEach(p => { try { p.remove(); } catch (_) {} });
   panel.style.zIndex = '2147483647';
   panel.innerHTML = `
-    <header><div class="gb-head-main"><b>GrepBot v${runningVersion()}</b><div class="gb-head-status"><span id="gb-head-mode" class="gb-pill">...</span><span id="gb-head-health" class="gb-pill">...</span></div></div><button data-act="toggle" title="Minimizar">_</button></header>
+    <header><div class="gb-head-main"><b>GrepBot v${runningVersion()}</b><div class="gb-head-status"><span id="gb-head-mode" class="gb-pill">...</span><span id="gb-head-health" class="gb-pill">...</span></div></div><div style="display:flex;gap:4px"><button data-act="queues" title="Abrir centro de colas">Colas</button><button data-act="toggle" title="Minimizar">_</button></div></header>
     <div class="gb-nav" role="tablist" aria-label="GrepBot groups"></div>
     <div class="gb-subtabs" role="tablist" aria-label="GrepBot tabs"></div>
     <section data-tab="findings"></section>
@@ -13571,6 +13902,10 @@ const STORE = {
   panel.querySelector('footer button[data-act=refresh]').addEventListener('click', () => {
     fetchOwnedTowns();
     state.towns.forEach((t, i) => gbTimeout(() => fetchTownResources(t), i * 600));
+  });
+  panel.querySelector('header button[data-act=queues]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openQueueCenter();
   });
   panel.querySelector('header button[data-act=toggle]').addEventListener('click', (e) => {
     e.stopPropagation();
@@ -14497,6 +14832,7 @@ const STORE = {
     const dump = redactFindingsExport({ findings: state.findings, farms: state.farms });
     navigator.clipboard.writeText(JSON.stringify(dump, null, 2));
   });
+  gbMenu('GrepBot: colas', () => { openQueueCenter(); });
   gbMenu('GrepBot: diag', () => { diagRun(); });
   gbMenu('GrepBot: reset panel position', () => { resetPanelGeom(); });
   gbMenu('GrepBot: rescan inbox', () => {
@@ -14737,6 +15073,8 @@ const STORE = {
       txCommandStatus,
       txHeroStatus,
       renderAttack,
+      openQueueCenter,
+      renderQueueCenter,
       dispose: GB_ROOT.__grepbotDispose,
     };
   }
