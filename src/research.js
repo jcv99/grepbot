@@ -6,6 +6,53 @@
     save(STORE.RESEARCH_TARGETS, t);
     return t;
   }
+  // ITowns.addToTowns builds each Town with building-order, unit-order, unit,
+  // supporting-unit, god and casted-power fragments — there is NO research-order
+  // fragment, so there is no per-town equivalent of `buildingOrders()`. The MM
+  // working copy registered under `ResearchOrder` is a TownAgnosticCollection
+  // fragment that is reset() to the open town on every town switch, so reading
+  // it for another town used to silently yield `[]` — and an empty list reads as
+  // "nothing queued, slot free" to every caller. The queue-full and
+  // already-queued gates then passed for every town but the open one.
+  //
+  // Returns { orders, known }. `known:false` means "unreadable", never "empty".
+  function researchOrdersFor(townId) {
+    const uw = gameUw();
+    const want = String(townId);
+    let current = null;
+    try { if (uw.Game && uw.Game.townId != null) current = String(uw.Game.townId); } catch (_) {}
+    const isCurrent = current != null && want === current;
+    // Per-town fragment. getFragment() CREATES an empty fragment on miss, so a
+    // zero-length result is only trustworthy for the open town.
+    try {
+      const col = uw.MM && uw.MM.getFirstTownAgnosticCollectionByName
+        && uw.MM.getFirstTownAgnosticCollectionByName('ResearchOrder');
+      const frag = col && col.getFragment && col.getFragment(want);
+      const models = frag && frag.models;
+      if (models && models.length) return { orders: models.slice(), known: true };
+      if (models && isCurrent) return { orders: [], known: true };
+    } catch (_) {}
+    // Flat model sweep. If the client holds a ResearchOrder for some town OTHER
+    // than the open one, the server pushes them world-wide — so "no models for
+    // this town" is then a real empty queue, not a missing fragment.
+    try {
+      const raw = uw.MM && uw.MM.getModels && uw.MM.getModels().ResearchOrder;
+      const list = raw ? (Array.isArray(raw) ? raw : Object.keys(raw).map(k => raw[k])) : null;
+      if (list) {
+        const townOf = m => String(((m && m.attributes) || {}).town_id);
+        const mine = list.filter(m => townOf(m) === want);
+        if (mine.length) return { orders: mine, known: true };
+        if (isCurrent) return { orders: [], known: true };
+        if (current != null && list.some(m => townOf(m) !== current)) return { orders: [], known: true };
+      }
+    } catch (_) {}
+    // Working copy — authoritative for the open town only.
+    try {
+      const mm = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('ResearchOrder');
+      if (mm && mm.models && isCurrent) return { orders: mm.models.slice(), known: true };
+    } catch (_) {}
+    return { orders: [], known: false };
+  }
   function researchTownTechs(townId) {
     const uw = gameUw();
     try {
@@ -13,24 +60,67 @@
       if (!t) return null;
       let res = {};
       try { res = (t.researches && t.researches().attributes) || {}; } catch (_) {}
-      let acad = 0;
-      try { acad = t.getBuildings ? +t.getBuildings().get('academy') : +(t.buildings().attributes || {}).academy; } catch (_) {}
-      let orders = [];
+      let buildings = null;
       try {
-        const col = t.getResearchOrdersCollection && t.getResearchOrdersCollection();
-        if (col && col.models) orders = col.models;
-        else {
-          const mm = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('ResearchOrder');
-          if (mm && mm.models) {
-            orders = mm.models.filter(m => {
-              const a = m.attributes || {};
-              return +a.town_id === +townId;
-            });
-          }
+        const b = t.getBuildings ? t.getBuildings() : (t.buildings && t.buildings());
+        buildings = (b && (b.attributes || b)) || null;
+      } catch (_) {}
+      let acad = 0;
+      try { acad = t.getBuildings ? +t.getBuildings().get('academy') : +(buildings || {}).academy; } catch (_) {}
+      // getAdditionalResearchPoints() keys off hasLibrary() === (level === 1),
+      // so the level itself has to be readable, not just its truthiness.
+      let library = null;
+      try {
+        if (t.getBuildings) { const v = +t.getBuildings().get('library'); if (isFinite(v)) library = v; }
+        if (library == null && buildings && buildings.library != null) library = +buildings.library || 0;
+      } catch (_) {}
+      // `requires_farming_villages` techs are rejected outright on a small
+      // island — the game's own can_be_bought includes `!(requires && small)`.
+      // The flag lives on the town MODEL (`getTownModelReference().get(...)` in
+      // the academy controller); which of these reaches it depends on the build,
+      // so probe them all. Unreadable stays null and the gate simply does not
+      // fire — it must never guess `false` into a guaranteed rejection.
+      let smallIsland = null;
+      try {
+        const probes = [
+          () => (t.get ? t.get('on_small_island') : undefined),
+          () => ((t.attributes || {}).on_small_island),
+          () => (t.getTownModelReference && t.getTownModelReference().get('on_small_island')),
+          () => (t.isOnSmallIsland && t.isOnSmallIsland()),
+        ];
+        for (const p of probes) {
+          let raw;
+          try { raw = p(); } catch (_) { continue; }
+          if (raw != null) { smallIsland = !!raw; break; }
         }
       } catch (_) {}
-      return { town: t, techs: res, academy: acad, orders };
+      const q = researchOrdersFor(townId);
+      return {
+        town: t,
+        techs: res,
+        academy: acad,
+        library,
+        smallIsland,
+        orders: q.orders,
+        ordersKnown: q.known,
+      };
     } catch (_) { return null; }
+  }
+  // GameDataConstructionQueue.getResearchOrdersQueueLength() -> hasCurator()?7:2.
+  // The old hardcoded 2 capped Curator accounts at a third of their real queue.
+  function researchQueueMax() {
+    try {
+      const uw = gameUw();
+      const q = uw.GameDataConstructionQueue;
+      if (q && q.getResearchOrdersQueueLength) {
+        const n = +q.getResearchOrdersQueueLength();
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+      const p = uw.GameDataPremium;
+      if (p && p.hasCurator && p.hasCurator()) return 7;
+      if (p && p.isAdvisorActivated && p.isAdvisorActivated('curator')) return 7;
+    } catch (_) {}
+    return 2; // conservative base-game queue only
   }
 
   function researchLabel(key) {
@@ -49,7 +139,19 @@
     } catch (_) { return null; }
   }
 
-  function researchCost(tech) {
+  // GameDataResearches.getResearchCosts = resources x
+  // GeneralModifications.getResearchResourcesModification(townId) (the Apheledes
+  // hero discount). Reading the raw `resources` over-estimated the cost.
+  function researchResMod(townId) {
+    try {
+      const uw = gameUw();
+      const g = uw.GeneralModifications;
+      if (!(g && g.getResearchResourcesModification)) return null;
+      const v = +g.getResearchResourcesModification(townId != null ? townId : (uw.Game && uw.Game.townId));
+      return isFinite(v) && v > 0 ? v : null;
+    } catch (_) { return null; }
+  }
+  function researchCost(tech, townId) {
     const d = researchDef(tech);
     if (!d) return null;
     const src = d.resources || d.costs || d.cost || d;
@@ -59,6 +161,13 @@
       iron: +src.iron || 0,
     };
     if (!(cost.wood || cost.stone || cost.iron)) return null;
+    // An unreadable modifier keeps the raw (higher) cost — conservative.
+    const mod = researchResMod(townId);
+    if (mod != null && mod !== 1) {
+      cost.wood = Math.ceil(cost.wood * mod);
+      cost.stone = Math.ceil(cost.stone * mod);
+      cost.iron = Math.ceil(cost.iron * mod);
+    }
     return cost;
   }
   function researchPointCost(tech) {
@@ -67,49 +176,143 @@
     const v = gbProbeAttr(d, ['research_points', 'research_points_cost', 'points', 'research_point_cost']);
     return v != null && v > 0 ? v : null;
   }
+  function researchConstant(name) {
+    try {
+      const c = gameUw().Game && gameUw().Game.constants && gameUw().Game.constants.academy;
+      const v = c ? +c[name] : NaN;
+      return isFinite(v) ? v : null;
+    } catch (_) { return null; }
+  }
+  // getCurrentResearchPoints() drops one academy level while the academy is
+  // being torn down. Unreadable order collection -> null; the caller treats that
+  // as "not tearing down", which is the overwhelmingly common case.
+  function researchAcademyTearingDown(townId) {
+    try {
+      const t = gbTownModel(townId);
+      const col = t && ((t.buildingOrders && t.buildingOrders())
+        || (t.getCollection && t.getCollection('building_orders')));
+      if (!col) return null;
+      if (col.isBuildingTearingDown) return !!col.isBuildingTearingDown('academy');
+      const models = col.models || [];
+      for (const m of models) {
+        const a = (m && m.attributes) || {};
+        const bid = (m && m.getBuildingId && m.getBuildingId()) || a.building_id;
+        if (String(bid) !== 'academy') continue;
+        if (m.isBeingTearingDown) { if (m.isBeingTearingDown()) return true; continue; }
+        if (a.level_to != null && a.level_from != null && +a.level_to < +a.level_from) return true;
+      }
+      return false;
+    } catch (_) { return null; }
+  }
+  // Sum of research_points over every tech that is researched OR sitting in the
+  // real queue — mirrors AcademyBaseController.getSpentResearchPoints().
+  function researchPointsSpent(info) {
+    if (!info || !info.techs) return null;
+    // A queued tech counts as spent, so an unreadable queue makes the whole sum
+    // unknown. Guessing low here posts research the player cannot pay for.
+    if (!info.ordersKnown) return null;
+    let all = null;
+    try { all = gameUw().GameData && gameUw().GameData.researches; } catch (_) {}
+    if (!all || typeof all !== 'object') return null;
+    const queued = new Set();
+    (info.orders || []).forEach(o => { const id = researchOrderTechId(o); if (id != null) queued.add(String(id)); });
+    let sum = 0;
+    for (const k of Object.keys(all)) {
+      if (!info.techs[k] && !queued.has(String(k))) continue;
+      const pts = gbProbeAttr(all[k], ['research_points', 'research_points_cost', 'points', 'research_point_cost']);
+      if (pts == null) return null;
+      sum += pts;
+    }
+    return sum;
+  }
+  // H1 root cause: getAvailableResearchPoints / getFreeResearchPoints /
+  // getResearchPoints do not exist on the ITowns town proxy — the first lives on
+  // GameControllers.AcademyBaseController and the other two do not exist at all.
+  // The `researches()` fallback could never help either: that model's attributes
+  // are {<tech>: bool}. So this returned null for every tech in every town and
+  // researchCanAfford never returned ok. Port the controller's own formula.
   function researchPointsAvailable(townId, info) {
     const t = (info && info.town) || gbTownModel(townId);
-    if (!t) return null;
-    const v = gbProbeNum(t, ['getAvailableResearchPoints', 'getFreeResearchPoints', 'getResearchPoints']);
-    if (v != null) return v;
-    try {
-      const r = t.researches && t.researches();
-      const a = (r && r.attributes) || {};
-      const av = gbProbeAttr(a, ['available_research_points', 'research_points_available', 'points_available']);
-      if (av != null) return av;
-      const total = gbProbeAttr(a, ['research_points', 'points']);
-      const used = gbProbeAttr(a, ['used_research_points', 'points_used']);
-      if (total != null && used != null) return total - used;
-    } catch (_) {}
-    return null;
+    // Probe anyway: a client build may still expose it on the proxy.
+    const direct = gbProbeNum(t, ['getAvailableResearchPoints', 'getFreeResearchPoints', 'getResearchPoints']);
+    if (direct != null) return direct;
+    if (!info) return null;
+    const perAcademy = researchConstant('points_per_academy_level');
+    if (perAcademy == null) return null;
+    const acad = +info.academy;
+    if (!isFinite(acad) || acad < 0) return null;
+    const level = researchAcademyTearingDown(townId) === true ? Math.max(0, acad - 1) : acad;
+    let current = level * perAcademy;
+    if (info.library == null) return null;
+    if (info.library === 1) {
+      const perLibrary = researchConstant('points_per_library_level');
+      if (perLibrary == null) return null;
+      current += perLibrary;
+    }
+    const spent = researchPointsSpent(info);
+    if (spent == null) return null;
+    return current - spent;
   }
 
+  // Every verdict carries `blind`. A value we could not read must never block a
+  // post (CLAUDE.md precondition invariant) — it logs once and the server is the
+  // authority. Only a value we actually read may return ok:false.
   function researchCanAfford(townId, tech, info) {
+    let blind = false;
+    let blindWhy = null;
+    // A tech absent from GameData is not blind — there is no id to post and the
+    // server would reject it. researchCost() also returns null here, so without
+    // this guard an unknown tech would fall through as a blind pass.
+    if (!researchDef(tech)) return { ok: false, blind: false, why: 'tech unknown' };
     const needPts = researchPointCost(tech);
-    if (needPts == null) return { ok: false, why: 'research point cost unreadable' };
     const have = researchPointsAvailable(townId, info);
-    if (have == null) return { ok: false, why: 'available research points unreadable' };
-    if (have < needPts) return { ok: false, why: `points ${have}/${needPts}` };
-    const cost = researchCost(tech);
-    if (!cost) return { ok: false, why: 'resource cost unreadable' };
+    if (needPts == null || have == null) {
+      blind = true;
+      blindWhy = needPts == null ? 'research point cost unreadable' : 'available research points unreadable';
+      gbLogT('research-blind-pts-' + townId, 600000,
+        `research: ${blindWhy} @${townId} - letting the server decide`);
+    } else if (have < needPts) {
+      return { ok: false, blind: false, why: `points ${have}/${needPts}` };
+    }
+    const cost = researchCost(tech, townId);
+    if (!cost) {
+      gbLogT('research-blind-cost-' + tech, 600000, `research: resource cost for ${tech} unreadable - letting the server decide`);
+      return { ok: true, blind: true, why: 'resource cost unreadable' };
+    }
     const aff = gbAfford(townId, cost);
-    if (!aff.ok) return { ok: false, why: aff.detail || 'resources unreadable/insufficient' };
-    return { ok: true, why: null };
+    const readShort = (aff.short || []).filter(s => !/unreadable/.test(s));
+    if (readShort.length) return { ok: false, blind: false, why: readShort.join(', ') };
+    if (aff.blind) {
+      gbLogT('research-blind-res-' + townId, 600000, `research: ${aff.detail || 'resources unreadable'} @${townId} - letting the server decide`);
+      return { ok: true, blind: true, why: aff.detail || 'resources unreadable' };
+    }
+    return { ok: true, blind, why: blindWhy };
   }
+  // gpAjax._ajax does `if(!o)o={town_id:Game.townId};else if(!o.town_id)o.town_id=Game.townId`,
+  // so town_id MUST sit at the top level of the post. Nested inside `arguments`
+  // it is invisible to that default and every research retargets whichever town
+  // is currently open.
   function researchPayload(townId, techId) {
-    return { id: techId, town_id: +townId };
+    return {
+      model_url: 'ResearchOrder',
+      action_name: 'research',
+      arguments: { id: String(techId) },
+      town_id: +townId,
+    };
   }
-  const RESEARCH_ENDPOINT = 'building_academy/research';
+  // H3: `building_academy` has zero hits in the client. The only start path is
+  // GameModels.ResearchOrder.research() -> GrepoApiHelper.execute -> frontend_bridge.
+  const RESEARCH_ENDPOINT = 'ResearchOrder/research';
   // Decision memory is only consulted inside txRun, i.e. AFTER the scan has
   // picked a job, logged it and spent the work. Without this pre-filter the
   // three-strike window was wired blind: the same dead tech was re-selected
   // every cadence, journaled as `remembered`, and no other tech in the town was
   // ever considered because the scan stops at the first candidate.
   function researchSkipWhy(townId, tech) {
-    return gbSkipActiveWrite('research', 'ajax', RESEARCH_ENDPOINT, researchPayload(townId, tech));
+    return gbSkipActiveWrite('research', 'bridge', RESEARCH_ENDPOINT, researchPayload(townId, tech));
   }
   function researchPost(townId, techId, onDone) {
-    gameAjaxPost('research', 'building_academy', 'research', researchPayload(townId, techId), onDone);
+    bridgePost('research', researchPayload(townId, techId), onDone);
   }
   function researchOrderTechId(order) {
     try {
@@ -117,16 +320,22 @@
       return a.research_type || a.research_id || a.research || a.type || a.id || null;
     } catch (_) { return null; }
   }
-  function researchDepsOk(townId, info, tech) {
+  // Same invariant as researchCanAfford: only a value that was actually read may
+  // return ok:false. Anything unreadable comes back blind, and researchDepsOk
+  // lets it through so the server decides.
+  function researchDepsVerdict(townId, info, tech) {
     try {
       const uw = gameUw();
       const def = uw.GameData && uw.GameData.researches && uw.GameData.researches[tech];
-      if (!def || !info || !info.techs || !info.town) return false;
+      // An unknown tech id is not blind: there is nothing to post.
+      if (!def) return { ok: false, blind: false, why: 'tech unknown' };
+      if (!info || !info.town) return { ok: false, blind: true, why: 'town unreadable' };
+      if (!info.techs) return { ok: false, blind: true, why: 'researched flags unreadable' };
       const rdeps = def.research_dependencies || def.dependencies || [];
       const depList = Array.isArray(rdeps) ? rdeps : Object.keys(rdeps || {}).filter(k => rdeps[k]);
       for (const d of depList) {
         const id = typeof d === 'string' ? d : (d && (d.id || d.research_id || d.research_type));
-        if (id && !info.techs[id]) return false;
+        if (id && !info.techs[id]) return { ok: false, blind: false, why: `requiere ${id}` };
       }
       const bdeps = def.building_dependencies || def.required_buildings || {};
       let buildings = null;
@@ -134,29 +343,55 @@
         const b = info.town.getBuildings ? info.town.getBuildings() : (info.town.buildings && info.town.buildings());
         buildings = b && (b.attributes || b);
       } catch (_) { buildings = null; }
-      if (!buildings) return false;
+      if (!buildings) return { ok: false, blind: true, why: 'building levels unreadable' };
       for (const b of Object.keys(bdeps || {})) {
         const raw = bdeps[b];
         const need = +(raw && typeof raw === 'object' ? (raw.level ?? raw.min_level ?? raw.value) : raw) || 0;
         const have = +(buildings[b] || 0);
-        if (have < need) return false;
+        if (have < need) return { ok: false, blind: false, why: `${b} ${have}/${need}` };
       }
       const academyNeed = +(def.academy_level ?? def.required_academy_level ?? def.building_level ?? def.level ?? 0);
-      if (academyNeed > 0 && +info.academy < academyNeed) return false;
+      if (academyNeed > 0 && +info.academy < academyNeed) return { ok: false, blind: false, why: `academia ${info.academy}/${academyNeed}` };
+      // A2: the game's own can_be_bought carries !(requires_farming_villages &&
+      // on_small_island). Posting one of these on a small island is a guaranteed
+      // server rejection - one request-budget slot and one decision-memory strike
+      // every cadence. Blocks only on a small-island flag we actually read.
+      if (def.requires_farming_villages && info.smallIsland === true) {
+        return { ok: false, blind: false, why: 'isla pequeña: sin aldeas rurales' };
+      }
       const res = def.resources || def.costs || def.cost;
-      if (!res || res.wood == null || res.stone == null || res.iron == null) return false;
-      if (researchPointCost(tech) == null) return false;
-      return true;
-    } catch (_) { return false; }
+      if (!res || res.wood == null || res.stone == null || res.iron == null) {
+        return { ok: false, blind: true, why: 'GameData cost missing' };
+      }
+      if (researchPointCost(tech) == null) return { ok: false, blind: true, why: 'GameData research_points missing' };
+      return { ok: true, blind: false, why: null };
+    } catch (e) { return { ok: false, blind: true, why: String(e).slice(0, 60) }; }
+  }
+  function researchDepsOk(townId, info, tech) {
+    const v = researchDepsVerdict(townId, info, tech);
+    if (!v.ok && v.blind) {
+      gbLogT('research-dep-blind-' + tech, 600000,
+        `research: dependency read incomplete for ${tech} (${v.why}) - letting the server decide`);
+    }
+    return v.ok || v.blind;
   }
   function researchValidateJob(job) {
     const info = researchTownTechs(job.townId);
     if (!info || !(info.academy > 0)) return { ok: false, why: 'research state unreadable' };
     if (info.techs && info.techs[job.tech]) return { ok: false, why: 'already researched' };
+    // H4: an unreadable real queue must not be read as "empty, slot free". Both
+    // gates below need it, so without it the post is a coin flip against the
+    // server - block, and say how to make it readable.
+    if (!info.ordersKnown) {
+      gbLogT('research-orders-unknown-' + job.townId, 600000,
+        `research: real research queue for town ${job.townId} unreadable (open that town once)`);
+      return { ok: false, why: 'cola real ilegible; abre esa ciudad una vez' };
+    }
     if ((info.orders || []).some(o => String(researchOrderTechId(o)) === String(job.tech))) return { ok: false, why: 'already queued' };
-    if ((info.orders || []).length >= 2) return { ok: false, why: 'queue full' };
+    if ((info.orders || []).length >= researchQueueMax()) return { ok: false, why: 'queue full' };
     if (!researchDepsOk(job.townId, info, job.tech)) return { ok: false, why: 'dependencies unavailable/unmet' };
-    return researchCanAfford(job.townId, job.tech, info);
+    const aff = researchCanAfford(job.townId, job.tech, info);
+    return { ok: aff.ok, why: aff.why };
   }
 
   // Map researchValidateJob's `why` onto the queue-job status vocabulary the
@@ -216,7 +451,14 @@
       const ordered = Object.keys(targets).sort((a, b) => (+targets[a].order || 0) - (+targets[b].order || 0));
       const info = researchTownTechs(tid);
       if (!info || !(info.academy > 0)) continue;
-      const queueMax = 2;
+      // Unknown real queue: every "already queued" / "queue full" gate below
+      // would silently pass. Skip the town instead of posting blind.
+      if (!info.ordersKnown) {
+        gbLogT('research-orders-unknown-' + tid, 600000,
+          `research: town ${tid} real research queue unreadable - skipping (open that town once)`);
+        continue;
+      }
+      const queueMax = researchQueueMax();
       if (info.orders.length >= queueMax) continue;
       const queued = new Set();
       info.orders.forEach(o => {

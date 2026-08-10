@@ -82,6 +82,31 @@
       const n = info && info.techs ? Object.keys(info.techs).length : 0;
       return { ok: !!info && info.academy >= 0 && n >= 0, warn: !n, detail: info ? `${n} researched-tech flags, academy ${info.academy}` : 'academy techs unreadable' };
     }));
+    // The academy read path is the one that silently produced "nothing ever
+    // posts": every gate was blocked on a value that could not be read. Name the
+    // unreadable one instead of making the next person diff the client again.
+    out.push(preflightProbe('academy read path', () => {
+      const ids = (townsFromGame() || []).map(t => t.id);
+      const tid = ids[0];
+      const info = tid != null ? researchTownTechs(tid) : null;
+      if (!info) return { ok: false, detail: 'no readable town' };
+      const parts = [];
+      let bad = 0;
+      let defs = 0;
+      try { defs = Object.keys((gameUw().GameData && gameUw().GameData.researches) || {}).length; } catch (_) {}
+      if (defs) parts.push(`GameData.researches ${defs}`);
+      else { parts.push('GameData.researches UNREADABLE'); bad++; }
+      parts.push(`academy ${info.academy}`);
+      parts.push(info.library == null ? 'library UNREADABLE' : `library ${info.library}`);
+      if (info.library == null) bad++;
+      parts.push(info.ordersKnown ? `real queue ${info.orders.length}/${researchQueueMax()}` : 'real queue UNREADABLE (open that town once)');
+      if (!info.ordersKnown) bad++;
+      const pts = researchPointsAvailable(tid, info);
+      if (pts == null) { parts.push('research points UNREADABLE'); bad++; }
+      else parts.push(`research points ${pts}`);
+      parts.push(info.smallIsland == null ? 'small-island flag unreadable' : `small island ${info.smallIsland}`);
+      return { ok: bad === 0, warn: bad > 0, detail: parts.join(', ') };
+    }));
 
     out.push(preflightProbe('cost reads', () => {
       const ids = (townsFromGame() || []).map(t => t.id);

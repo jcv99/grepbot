@@ -495,7 +495,13 @@
   function nativeQueueReconcileResearch(townId) {
     const list=nativeQueueList(townId,'research',false);if(!list.length)return false;
     const info=researchTownTechs(townId);let changed=false;
-    const landed=j=>!!(info&&((info.techs&&info.techs[j.tech])||(info.orders||[]).some(o=>String(researchOrderTechId(o))===String(j.tech))));
+    // The real-queue half of this check is only usable when the queue was
+    // actually read (H4). For a town whose ResearchOrder fragment is missing,
+    // `orders` is [] and every job would look "not landed" — or, on the prune
+    // side, a landed job would never be dropped. Researched flags are readable
+    // either way, so they still count.
+    const ordersUsable=!!(info&&info.ordersKnown);
+    const landed=j=>!!(info&&((info.techs&&info.techs[j.tech])||(ordersUsable&&(info.orders||[]).some(o=>String(researchOrderTechId(o))===String(j.tech)))));
     for(const j of list){
       if(!j||!j.inflight)continue;
       if(landed(j)){j.inflight=null;j.manualReview=false;j.status='pending';j.reason='confirmado en la cola real';j.updatedAt=Date.now();changed=true;continue}
@@ -557,9 +563,22 @@
     try{for(let n=root;n&&n!==document.body;n=n.parentElement){add(n.getAttribute&&n.getAttribute('data-town-id'));add(n.getAttribute&&n.getAttribute('data-town_id'));add(n.getAttribute&&n.getAttribute('data-townid'))}}
     catch(_){}
     try{root.querySelectorAll('input[name="town_id"],input[data-town-id],input[data-town_id]').forEach(n=>{add(n.value);add(n.getAttribute('data-town-id'));add(n.getAttribute('data-town_id'))})}catch(_){}
-    if(ids.size>1)return null;
+    // C3: a window that carries several distinct town ids (a town selector, a
+    // trade/support widget) used to abort the whole root, which removes every
+    // control and the panel with it — "no panel at all". When the currently
+    // open town is one of the candidates and this root is the focused window,
+    // that is the town the window is acting on.
+    if(ids.size>1){
+      const cur=abCurrentTownId();
+      const curId=cur==null?null:String(cur);
+      let focused=false;
+      try{const mgr=gameUw().GPWindowMgr,w=mgr&&mgr.getFocusedWindow&&mgr.getFocusedWindow(),jq=w&&w.getJQElement&&w.getJQElement(),el=jq&&(jq[0]||jq.get&&jq.get(0));focused=!!(el&&(el===root||el.contains(root)||root.contains(el)))}catch(_){focused=false}
+      if(focused&&curId&&ids.has(curId)&&abGetTown(curId))return curId;
+      gbLogT('native-townid-ambiguous',600000,`native ui: window carries ${ids.size} town ids (${[...ids].join(',')}) - controls skipped`);
+      return null;
+    }
     if(ids.size===1){const id=[...ids][0];return abGetTown(id)?id:null}
-    const isRelevant=r=>!!(r&&r.matches&&r.matches('#unit_order,.window_content,.gpwindow_content'))&&!!(r.matches('#unit_order')||r.querySelector(`#unit_order,#building_main,.building_main,[id^="building_main_"],[id^="special_building_"],${NATIVE_RESEARCH_SEL}`));
+    const isRelevant=r=>!!(r&&r.matches&&r.matches('#unit_order,.window_content,.gpwindow_content'))&&!!(r.matches('#unit_order')||r.querySelector(`#unit_order,#building_main,.building_main,[id^="building_main_"],[id^="special_building_"],${NATIVE_RESEARCH_SEL_ALL}`));
     const relevant=isRelevant(root);
     if(!relevant)return null;
     // With several open windows, only the focused one may inherit Game.townId.
@@ -613,6 +632,56 @@
   // `.tech_tree_box .button_upgrade[data-research_id=…]` selector); the dashed
   // and _type spellings are accepted because client builds have used both.
   const NATIVE_RESEARCH_SEL='[data-research_id],[data-research-id],[data-research_type],[data-research-type]';
+  // C1 fallback. The tech tree template is server-rendered and absent from every
+  // capture, so the attribute's presence cannot be proven offline — and jQuery
+  // `.data()` (which the game's click handler uses) reads its own store BEFORE
+  // the attribute, so a template that sets the value in JS leaves no attribute
+  // to match. These class hooks are what the game itself binds (`.btn_upgrade`)
+  // and what its user guide targets (`.button_upgrade` / `.research_icon`).
+  // A node only becomes a tile if nativeResearchId resolves a real GameData
+  // tech from it — an unresolvable node is skipped, never guessed.
+  const NATIVE_RESEARCH_SEL_CLASS='.btn_upgrade,.button_upgrade,.research_icon';
+  const NATIVE_RESEARCH_SEL_ALL=NATIVE_RESEARCH_SEL+','+NATIVE_RESEARCH_SEL_CLASS;
+  // C2: the value on the tile need not be the GameData key — a numeric id or a
+  // differing research_type spelling yields null for every tile and the whole
+  // lane silently disappears. Map through GameData.researches' own id fields
+  // instead of relaxing the gate to "anything string-shaped".
+  let nativeResearchKeyCache=null;
+  function nativeResearchKey(raw) {
+    const v=String(raw==null?'':raw).trim();
+    if(!v)return null;
+    if(researchDef(v))return v;
+    let all=null;try{all=gameUw().GameData&&gameUw().GameData.researches}catch(_){}
+    if(!all||typeof all!=='object')return null;
+    const keys=Object.keys(all),sig=keys.length+':'+keys.join(',');
+    if(!nativeResearchKeyCache||nativeResearchKeyCache.sig!==sig){
+      const map=Object.create(null);
+      for(const k of keys){
+        const d=all[k]||{};
+        for(const alt of [d.id,d.research_id,d.research_type,d.name]){
+          if(alt==null)continue;const s=String(alt).trim();
+          if(s&&!(s in map))map[s]=k;
+        }
+      }
+      nativeResearchKeyCache={sig,map};
+    }
+    return nativeResearchKeyCache.map[v]||null;
+  }
+  // GameDataResearches.getResearchCssClass(e) returns the tech key, with `_old`
+  // (take_over on old command worlds) or `_bpv` (booty) appended.
+  function nativeResearchFromClass(node) {
+    try{
+      const raw=node&&node.className;
+      const cls=String(raw&&raw.baseVal!=null?raw.baseVal:(raw||'')).split(/\s+/);
+      const ids=new Set();
+      for(const c of cls){
+        if(!c||c==='research_icon'||c==='btn_upgrade'||c==='button_upgrade'||c==='btn_downgrade')continue;
+        const k=nativeResearchKey(c)||nativeResearchKey(c.replace(/_(?:old|bpv)$/,''));
+        if(k)ids.add(k);
+      }
+      return ids.size===1?[...ids][0]:null;
+    }catch(_){return null}
+  }
   function nativeResearchId(node) {
     if(!node)return null;
     const vals=[];
@@ -620,10 +689,21 @@
       try{const v=node.getAttribute&&node.getAttribute(k);if(v)vals.push(String(v))}catch(_){}
     }
     if(!vals.length){
+      try{
+        const jq=gameUw().jQuery||gameUw().$;
+        if(jq)for(const k of ['research_id','research-id','research_type','research-type']){
+          const v=jq(node).data(k);if(v!=null&&v!=='')vals.push(String(v));
+        }
+      }catch(_){}
+    }
+    const ids=new Set();for(const v of vals){const k=nativeResearchKey(v);if(k)ids.add(k)}
+    if(ids.size===1)return [...ids][0];
+    if(!ids.size){
+      const byClass=nativeResearchFromClass(node);
+      if(byClass)return byClass;
       try{const child=node.querySelector&&node.querySelector(NATIVE_RESEARCH_SEL);if(child)return nativeResearchId(child)}catch(_){}
     }
-    const ids=new Set();for(const v of vals)if(researchDef(v))ids.add(v);
-    return ids.size===1?[...ids][0]:null;
+    return null;
   }
   // Why a [+] must stay disabled. Returns '' when the append is allowed. A
   // silent disabled button is unreadable in-game, so every caller also puts
@@ -713,11 +793,21 @@
     const inReal=!!(info&&(info.orders||[]).some(o=>String(researchOrderTechId(o))===String(tech)));
     const pos=nativeQueuePosition(townId,'research',j=>j&&String(j.tech)===String(tech)),head=pos===1&&list[0];
     const sig=JSON.stringify([townId,tech,pos,done,inReal,head&&head.status,head&&head.reason,list.length]);
-    const existing=[...tile.querySelectorAll(':scope > .gb-native-qctl[data-research]')];
-    const keep=existing.find(c=>c.dataset.research===tech&&c.dataset.sig===sig);
+    // Scoped to THIS tech across the whole root, not to `tile`. The control is
+    // anchored next to the tech caption when there is one, so it is not always a
+    // direct child of tile — and a tile-wide `[data-research]` sweep would let
+    // one tech delete a sibling tech's control when several share a parent,
+    // which churns forever. Matching on the tech makes both cases exact.
+    const existing=[...root.querySelectorAll('.gb-native-qctl[data-research]')].filter(c=>c.dataset.research===tech);
+    const keep=existing.find(c=>c.dataset.sig===sig);
     for(const c of existing)if(c!==keep)c.remove();
     if(keep)return;
-    const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.research=tech;ctl.dataset.sig=sig;tile.appendChild(ctl);
+    const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.research=tech;ctl.dataset.sig=sig;
+    // Match the build lane's anchor logic (H6). A tech-tree cell is a fixed-size
+    // sprite box, so an inline-flex control appended to the cell itself can be
+    // clipped; the caption/level wrapper next to it is laid out in flow.
+    const anchor=tile.querySelector('.research_name,.research_level,.level');
+    ((anchor&&anchor.parentElement)||tile).appendChild(ctl);
     const blockWhy=done?`${nativeResearchLabel(tech)} ya está investigada`:(inReal?`${nativeResearchLabel(tech)} ya está en la cola real`:'');
     if(!pos){
       const plus=nativeQButton('+',`Añadir ${nativeResearchLabel(tech)} a la cola virtual`,nativeTileAction(root,townId,tile,'research',tech,()=>nativeQueueAddResearch(townId,tech)));
@@ -748,7 +838,9 @@
     const candidates=[...document.querySelectorAll('.window_content,.gpwindow_content,#unit_order')].filter((x,i,a)=>a.indexOf(x)===i&&!x.closest('#grepbot-panel'));
     const roots=candidates.filter(x=>!candidates.some(y=>y!==x&&y.contains(x)));
     const mountedTowns=new Set();
-    for(const root of roots){const townId=nativeWindowTownId(root);if(!townId){root.querySelectorAll(':scope > .gb-native-panel,.gb-native-qctl').forEach(n=>n.remove());continue}let buildN=0,unitN=0,researchN=0;const mountedBuildIds=new Set(),mountedUnitIds=new Set(),mountedResearchIds=new Set();
+    for(const root of roots){const townId=nativeWindowTownId(root);if(!townId){
+        if(root.querySelector('.tech_tree_box')||root.querySelector(NATIVE_RESEARCH_SEL_ALL))gbLogT('native-research-notown',300000,'native ui: academy window open but its town id is unreadable - controls skipped');
+        root.querySelectorAll(':scope > .gb-native-panel,.gb-native-qctl').forEach(n=>n.remove());continue}let buildN=0,unitN=0,researchN=0;const mountedBuildIds=new Set(),mountedUnitIds=new Set(),mountedResearchIds=new Set();
       mountedTowns.add(String(townId));
       const senateContext=!!(root.matches('#building_main,.building_main,.senate')||root.querySelector('#building_main,.building_main,[id^="building_main_"],[id^="special_building_"]'));
       // Iterate the unique per-building wrapper only. The Senate renders
@@ -761,12 +853,21 @@
       // Academy: every tech entry carries data-research_id. The attribute can sit
       // on the upgrade button itself, so mount on the outermost node per id —
       // appending a control INSIDE a <button> would nest interactive elements.
-      const researchTiles=[...root.querySelectorAll(NATIVE_RESEARCH_SEL)].filter(n=>!n.closest('.gb-native-qctl,.gb-native-panel'));
+      const researchTiles=[...root.querySelectorAll(NATIVE_RESEARCH_SEL_ALL)].filter(n=>!n.closest('.gb-native-qctl,.gb-native-panel'));
       const researchOuter=researchTiles.filter(n=>{const id=nativeResearchId(n);return id&&!researchTiles.some(o=>o!==n&&o.contains(n)&&nativeResearchId(o)===id)});
       for(const node of researchOuter){const id=nativeResearchId(node);if(!id||mountedResearchIds.has(id))continue;
         const tile=/^(?:button|a)$/i.test(node.tagName)?(node.parentElement||node):node;
         if(tile.closest('.gb-native-qctl,.gb-native-panel'))continue;
         mountedResearchIds.add(id);nativeMountResearchControl(root,tile,townId,id);researchN++}
+      // Step 1 instrumentation. `researchN === 0` removes the whole Investigación
+      // panel, which is indistinguishable in-game from "the scan never ran".
+      // Say which of the two it was, and what the academy DOM actually offered.
+      if(!researchN&&(root.querySelector('.tech_tree_box')||researchTiles.length)){
+        gbLogT('native-research-zero',300000,
+          `native ui: academy root matched ${researchTiles.length} research node(s) but resolved 0 techs `
+          +`(attr ${root.querySelectorAll(NATIVE_RESEARCH_SEL).length}, class ${root.querySelectorAll(NATIVE_RESEARCH_SEL_CLASS).length}, `
+          +`tech_tree_box ${root.querySelectorAll('.tech_tree_box').length})`);
+      }
       root.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>{if(!mountedBuildIds.has(c.dataset.building))c.remove()});root.querySelectorAll('.gb-native-qctl[data-unit]').forEach(c=>{if(!mountedUnitIds.has(c.dataset.unit))c.remove()});root.querySelectorAll('.gb-native-qctl[data-research]').forEach(c=>{if(!mountedResearchIds.has(c.dataset.research))c.remove()});
       if(buildN)nativeRenderQueuePanel(root,townId,'build');else document.querySelector(`.gb-native-panel[data-lane="build"][data-town="${townId}"]`)?.remove();if(unitN)nativeRenderQueuePanel(root,townId,'recruit');else document.querySelector(`.gb-native-panel[data-lane="recruit"][data-town="${townId}"]`)?.remove();if(researchN)nativeRenderQueuePanel(root,townId,'research');else document.querySelector(`.gb-native-panel[data-lane="research"][data-town="${townId}"]`)?.remove();
     }

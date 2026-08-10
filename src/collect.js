@@ -172,21 +172,44 @@
     if (!gbDomObserver) {
       gbDomObserver = new MutationObserver((records) => {
         if (document.hidden) return;
-        const nativeOnly=(records||[]).length&&(records||[]).every(r=>{const el=r.target&&r.target.nodeType===1?r.target:r.target&&r.target.parentElement;return !!(el&&el.closest&&el.closest('.gb-native-qctl,.gb-native-panel'))});
-        if(nativeOnly)return;
+        // Observing <body> puts GrepBot's own DOM in scope, and the Log tab
+        // repaints constantly — without this it would re-arm a collect/bandit/
+        // native scan on every line, which can then flash again and re-arm it.
+        // A body-level append reports `target === body`, so the added/removed
+        // nodes have to be inspected too, not just the target's ancestors.
+        // Text-only records are deliberately NOT filtered: autoCollect keys off
+        // the game's own "N min" leaf text.
+        const GB_OWN_SEL = '.gb-native-qctl,.gb-native-panel,.gb-flash,#grepbot-panel,#grepbot-queue-center';
+        const ownEl = n => !!(n && n.nodeType === 1 && n.closest && n.closest(GB_OWN_SEL));
+        const ownRecord = (r) => {
+          const t = r.target && r.target.nodeType === 1 ? r.target : r.target && r.target.parentElement;
+          if (ownEl(t)) return true;
+          const els = [...(r.addedNodes || []), ...(r.removedNodes || [])].filter(n => n && n.nodeType === 1);
+          return els.length > 0 && els.every(ownEl);
+        };
+        const ownOnly = (records || []).length && (records || []).every(ownRecord);
+        if (ownOnly) return;
         scheduleAutoCollect();
         if (state.autoBandit) scheduleBanditScan();
         scheduleNativeUiScan();
       });
     }
     const targets = [];
-    const ui = document.querySelector('#ui_box');
-    if (ui) targets.push(ui);
-    document.querySelectorAll('.window_content, .quests, #questlog').forEach(el => {
-      if (el && targets.indexOf(el) < 0) targets.push(el);
-    });
-    if (!targets.length && document.body) targets.push(document.body);
-    const sig = targets.map(t => (t.id || '') + '.' + (t.className || '')).join('|');
+    // Grepolis windows are NOT inside #ui_box: WindowsView is `el:"body"` and
+    // renderWindow mounts with `$parent:this.$el`, so an open window is a
+    // SIBLING of #ui_box under <body>. A subtree observer on #ui_box therefore
+    // never sees a window open, and nothing scheduled a native-UI scan for it.
+    // Observing body costs one extra filter pass and is the only target that
+    // covers both.
+    if (document.body) targets.push(document.body);
+    if (!targets.length) {
+      const ui = document.querySelector('#ui_box');
+      if (ui) targets.push(ui);
+      document.querySelectorAll('.window_content, .quests, #questlog').forEach(el => {
+        if (el && targets.indexOf(el) < 0) targets.push(el);
+      });
+    }
+    const sig = targets.map(t => (t === document.body ? 'BODY' : (t.id || '') + '.' + (t.className || ''))).join('|');
     if (sig === gbDomObserverSig) return;
     try { gbDomObserver.disconnect(); } catch (_) {}
     gbDomObserverSig = sig;

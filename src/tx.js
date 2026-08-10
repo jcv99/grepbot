@@ -87,6 +87,10 @@
     try {
       const info = researchTownTechs(townId);
       if (!info) return null;
+      // An unreadable real queue makes `queued` a guess, and the reconcile below
+      // reads a false `queued` as "the post did not land" -> retry -> duplicate.
+      // Null keeps it at `unknown`, which is what an unread value means.
+      if (!info.ordersKnown) return null;
       let queued = false;
       for (const o of info.orders || []) {
         const id = researchOrderTechId(o);

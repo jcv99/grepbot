@@ -89,6 +89,19 @@ do not describe state by hand. Evidence is read-only and redacts CSRF/templates.
 - [ ] **8.4** Rural trade — warehouse full → trade instead of silent skip
 - [ ] **8.5** Rural level — one unlock/upgrade with spare BP
 - [ ] **8.6** Research — one tech enters academy queue
+  - v2.9.0 rewrote the whole path (see `docs/plan-academy-queue.md`). Validate in
+    this order, Dry run ON first:
+  - Stats → Preflight → **academy read path** row: no `UNREADABLE` field. A
+    `real queue UNREADABLE` there means only the open town can be researched.
+  - Open the Academy: `[[+]]` controls on the tech tiles and a
+    `Cola GrepBot · Investigación` panel. If neither appears, the Log carries
+    `academy root matched N research node(s) but resolved 0 techs` (or
+    `its town id is unreadable`) — paste the step-0 console snippet from the plan.
+  - Dry run ON, queue one tech: Log shows
+    `DRY-RUN research: {"model_url":"ResearchOrder","action_name":"research","arguments":{"id":"<tech>"},"town_id":<id>}`.
+    `town_id` must be the queued town, **not** the open one.
+  - Dry run OFF: the tech lands in the real academy queue and the virtual job
+    clears; a Curator account must accept more than 2 queued.
 - [ ] **8.7** Activity pause + template apply + Overview numbers
 - [ ] **8.8** Webhook — captcha trip → one Discord POST
 - [ ] **9.1–9.4** Orch overnight + island ship + night pause

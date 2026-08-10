@@ -1,5 +1,12 @@
 # Plan — academy ("universidad"/Investigación) research queue: does not appear, does not work
 
+**Status: coded in v2.9.0.** Steps 1–7 are implemented except the C1/C2/C3
+*selection* in step 0, which still needs the live DOM read. Rather than block on
+it, v2.9.0 ships the defensive superset of all three (see *Implementation notes*
+at the bottom) — each candidate is handled by a read that fails closed, so the
+console snippet is now a **diagnostic**, not a gate. Step 8 in-game validation
+with Dry run ON is still outstanding.
+
 Symptom (user, live world): the research queue neither **appears** (no `[+]`
 controls in the Academy window, no `Cola GrepBot · Investigación` panel) nor
 **works** (nothing is ever posted from the FIFO lane).
@@ -289,3 +296,70 @@ research. **H4 before H1.**
 - No test harness, no npm, no server (CLAUDE.md).
 - Do not enable anything HIGH-RISK by default.
 - Do not "simplify" a precondition into an unconditional post.
+
+## Implementation notes (v2.9.0)
+
+Posting path, in the plan's order:
+
+- **H4** — `researchOrdersFor(townId)` returns `{orders, known}` and
+  `researchTownTechs` surfaces it as `info.ordersKnown`. Three reads, in order:
+  the `ResearchOrder` TownAgnostic fragment, a flat `MM.getModels().ResearchOrder`
+  sweep, then the working copy (open town only). An empty result only counts as
+  known-empty for the open town, or when the flat sweep holds an order for some
+  *other* town — which proves the server pushes them world-wide. Unknown blocks
+  the post (`cola real ilegible; abre esa ciudad una vez`) instead of claiming a
+  free slot, and `nativeQueueReconcileResearch` stops using the real queue for
+  pruning while it is unknown (researched flags still prune).
+- **H1** — `researchPointsAvailable` ports
+  `AcademyBaseController.getCurrentResearchPoints() - getSpentResearchPoints()`
+  off `Game.constants.academy`, including the library bonus (`level === 1`) and
+  the one-level drop while the academy tears down. `researchPointsSpent` sums
+  `research_points` over researched-or-queued techs, so it returns null while
+  `ordersKnown` is false. `researchPointCost` was already correct and is unchanged.
+- **H3** — `researchPayload` is now
+  `{model_url:'ResearchOrder', action_name:'research', arguments:{id}, town_id}`
+  through `bridgePost`, with `town_id` **top level**. `txIntent` already keyed
+  research off `d.town_id` + `arguments.id`, so decision-memory keys are unchanged.
+- **A1** — `researchQueueMax()` reads
+  `GameDataConstructionQueue.getResearchOrdersQueueLength()`, falling back to
+  `hasCurator()`/`isAdvisorActivated('curator')`, then 2.
+- **A2** — `requires_farming_villages` blocks only when `on_small_island` was
+  actually read as true.
+- **A3** — `researchCost(tech, townId)` multiplies by
+  `GeneralModifications.getResearchResourcesModification(townId)`; an unreadable
+  modifier keeps the raw (higher) cost.
+- **H2** — `researchDepsVerdict` returns `{ok, blind, why}`; `researchDepsOk`
+  keeps its boolean contract for existing callers and returns **true** on blind.
+  `researchCanAfford` likewise returns `{ok, blind, why}` and only blocks on a
+  value it read (a `gbAfford` shortfall on an *unreadable* resource does not count).
+
+Mount path — step 0's console snippet was not run, so all three candidates are
+handled rather than one being selected:
+
+- **C1** — `nativeResearchId` falls back to the jQuery data store (which
+  `.data()` reads before the attribute), and `NATIVE_RESEARCH_SEL_ALL` adds the
+  class hooks the game itself binds (`.btn_upgrade`, `.button_upgrade`,
+  `.research_icon`). A class-only node still has to resolve to a real GameData
+  tech or it is skipped.
+- **C2** — `nativeResearchKey` maps a raw tile value through
+  `GameData.researches`' own `id`/`research_id`/`research_type`/`name` fields,
+  and `nativeResearchFromClass` reads the `getResearchCssClass` convention
+  (`<tech>`, `<tech>_old`, `<tech>_bpv`).
+- **C3** — `nativeWindowTownId` no longer aborts the whole root on multiple town
+  ids: if the open town is among them and this root is the focused window, that
+  is the town. Otherwise it still returns null, now with a throttled log.
+- **H7** (real, but not this symptom) — the MutationObserver target moved to
+  `document.body`, since Grepolis windows are body-level siblings of `#ui_box`;
+  the observer's ignore filter grew `#grepbot-panel` / `#grepbot-queue-center` so
+  the bot's own repaints do not feed it. The 5s `scheduleNativeUiScan` is now
+  ungated, closing the empty-lane chicken-and-egg.
+- **H6** — the research control anchors next to the tech caption like the build
+  lane does; its removal query is descendant-scoped to match.
+- **Step 1 instrumentation** — throttled logs for "academy root matched N nodes
+  but resolved 0 techs" (with attribute/class/`tech_tree_box` counts) and for
+  "academy window open but its town id is unreadable", plus a Preflight
+  **academy read path** row: `GameData.researches` size, academy, library, real
+  queue + max, research points, small-island flag.
+
+Still open: step 0 as a diagnostic if the lane is still absent in-game, and step
+8 (in-game validation with Dry run ON).

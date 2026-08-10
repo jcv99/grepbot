@@ -83,7 +83,11 @@
     if (nativeQueueHasPending('build')) abScan('native-watch');
     if (nativeQueueHasPending('recruit')) recruitScan('native-watch');
     if (nativeQueueHasPending('research')) researchScan('native-watch');
-    if (nativeQueueHasPending('build') || nativeQueueHasPending('recruit') || nativeQueueHasPending('research')) scheduleNativeUiScan();
+    // Ungated: this used to fire only while a lane already had work, which is a
+    // chicken-and-egg lock on a fresh install — no scan means no [+] control,
+    // no [+] means the lane stays empty, and the empty lane suppresses the scan.
+    // nativeUiScan is a no-op when no game window is open.
+    scheduleNativeUiScan();
   }, 5000);
   gbInterval(() => dodgeScan('loop'), DODGE_CHECK_MS);
   gbInterval(dodgeReturnTick, 15000);

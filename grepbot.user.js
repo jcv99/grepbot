@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      2.8.2
+// @version      2.9.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1671,7 +1671,7 @@ const STORE = {
       if (feature === 'build' && a.building_id && a.order_id == null) {
         const c = abBuildingCost(townId, a.building_id); if (!c) return null; out(townId,c);
       } else if (feature === 'research') {
-        const tech=a.id||a.research_id||a.research||a.research_type, c=researchCost(tech); if(!c) return null; out(townId,c);
+        const tech=a.id||a.research_id||a.research||a.research_type, c=researchCost(tech,townId); if(!c) return null; out(townId,c);
       } else if (feature === 'recruit') {
         const unit=a.unit_id||a.unit_type, n=+a.amount||0, def=recruitUnitDef(unit); if(!def||!def.resources||!(n>0)) return null;
         out(townId,{wood:(+def.resources.wood||0)*n,stone:(+def.resources.stone||0)*n,iron:(+def.resources.iron||0)*n,population:(+def.population||0)*n});
@@ -1885,6 +1885,8 @@ const STORE = {
     try {
       const info = researchTownTechs(townId);
       if (!info) return null;
+
+      if (!info.ordersKnown) return null;
       let queued = false;
       for (const o of info.orders || []) {
         const id = researchOrderTechId(o);
@@ -4968,21 +4970,33 @@ const STORE = {
     if (!gbDomObserver) {
       gbDomObserver = new MutationObserver((records) => {
         if (document.hidden) return;
-        const nativeOnly=(records||[]).length&&(records||[]).every(r=>{const el=r.target&&r.target.nodeType===1?r.target:r.target&&r.target.parentElement;return !!(el&&el.closest&&el.closest('.gb-native-qctl,.gb-native-panel'))});
-        if(nativeOnly)return;
+
+        const GB_OWN_SEL = '.gb-native-qctl,.gb-native-panel,.gb-flash,#grepbot-panel,#grepbot-queue-center';
+        const ownEl = n => !!(n && n.nodeType === 1 && n.closest && n.closest(GB_OWN_SEL));
+        const ownRecord = (r) => {
+          const t = r.target && r.target.nodeType === 1 ? r.target : r.target && r.target.parentElement;
+          if (ownEl(t)) return true;
+          const els = [...(r.addedNodes || []), ...(r.removedNodes || [])].filter(n => n && n.nodeType === 1);
+          return els.length > 0 && els.every(ownEl);
+        };
+        const ownOnly = (records || []).length && (records || []).every(ownRecord);
+        if (ownOnly) return;
         scheduleAutoCollect();
         if (state.autoBandit) scheduleBanditScan();
         scheduleNativeUiScan();
       });
     }
     const targets = [];
-    const ui = document.querySelector('#ui_box');
-    if (ui) targets.push(ui);
-    document.querySelectorAll('.window_content, .quests, #questlog').forEach(el => {
-      if (el && targets.indexOf(el) < 0) targets.push(el);
-    });
-    if (!targets.length && document.body) targets.push(document.body);
-    const sig = targets.map(t => (t.id || '') + '.' + (t.className || '')).join('|');
+
+    if (document.body) targets.push(document.body);
+    if (!targets.length) {
+      const ui = document.querySelector('#ui_box');
+      if (ui) targets.push(ui);
+      document.querySelectorAll('.window_content, .quests, #questlog').forEach(el => {
+        if (el && targets.indexOf(el) < 0) targets.push(el);
+      });
+    }
+    const sig = targets.map(t => (t === document.body ? 'BODY' : (t.id || '') + '.' + (t.className || ''))).join('|');
     if (sig === gbDomObserverSig) return;
     try { gbDomObserver.disconnect(); } catch (_) {}
     gbDomObserverSig = sig;
@@ -5865,7 +5879,7 @@ const STORE = {
     for(const [tech,on] of Object.entries(e.research||{})){if(!+on)continue;if(info&&info.techs&&info.techs[tech])continue;if(info&&(info.orders||[]).some(o=>String(researchOrderTechId(o))===String(tech)))continue;
       const dep=goalResearchDependencies(townId,tech);let status=dep.ok?'planned':'blocked',why=dep.why||'';
       if(dep.ok){for(const b of dep.build)if(+(sim[b.id]||0)<b.level){status='waiting-dependency';why=`${b.id} ${sim[b.id]||0}/${b.level}`;break} for(const r of dep.research)if(!(info&&info.techs&&info.techs[r])){status='waiting-dependency';why=`research:${r}`;break}}
-      const cost=researchCost(tech);if(!cost){status='blocked';why='cost-unreadable'}
+      const cost=researchCost(tech,townId);if(!cost){status='blocked';why='cost-unreadable'}
       actions.push({kind:'research',id:tech,cost,status,why});
     }
     let t=null;try{t=gbTownModel(townId)}catch(_){}; const have=goalUnitCounts(townId);
@@ -6416,7 +6430,9 @@ const STORE = {
   function nativeQueueReconcileResearch(townId) {
     const list=nativeQueueList(townId,'research',false);if(!list.length)return false;
     const info=researchTownTechs(townId);let changed=false;
-    const landed=j=>!!(info&&((info.techs&&info.techs[j.tech])||(info.orders||[]).some(o=>String(researchOrderTechId(o))===String(j.tech))));
+
+    const ordersUsable=!!(info&&info.ordersKnown);
+    const landed=j=>!!(info&&((info.techs&&info.techs[j.tech])||(ordersUsable&&(info.orders||[]).some(o=>String(researchOrderTechId(o))===String(j.tech)))));
     for(const j of list){
       if(!j||!j.inflight)continue;
       if(landed(j)){j.inflight=null;j.manualReview=false;j.status='pending';j.reason='confirmado en la cola real';j.updatedAt=Date.now();changed=true;continue}
@@ -6476,9 +6492,18 @@ const STORE = {
     try{for(let n=root;n&&n!==document.body;n=n.parentElement){add(n.getAttribute&&n.getAttribute('data-town-id'));add(n.getAttribute&&n.getAttribute('data-town_id'));add(n.getAttribute&&n.getAttribute('data-townid'))}}
     catch(_){}
     try{root.querySelectorAll('input[name="town_id"],input[data-town-id],input[data-town_id]').forEach(n=>{add(n.value);add(n.getAttribute('data-town-id'));add(n.getAttribute('data-town_id'))})}catch(_){}
-    if(ids.size>1)return null;
+
+    if(ids.size>1){
+      const cur=abCurrentTownId();
+      const curId=cur==null?null:String(cur);
+      let focused=false;
+      try{const mgr=gameUw().GPWindowMgr,w=mgr&&mgr.getFocusedWindow&&mgr.getFocusedWindow(),jq=w&&w.getJQElement&&w.getJQElement(),el=jq&&(jq[0]||jq.get&&jq.get(0));focused=!!(el&&(el===root||el.contains(root)||root.contains(el)))}catch(_){focused=false}
+      if(focused&&curId&&ids.has(curId)&&abGetTown(curId))return curId;
+      gbLogT('native-townid-ambiguous',600000,`native ui: window carries ${ids.size} town ids (${[...ids].join(',')}) - controls skipped`);
+      return null;
+    }
     if(ids.size===1){const id=[...ids][0];return abGetTown(id)?id:null}
-    const isRelevant=r=>!!(r&&r.matches&&r.matches('#unit_order,.window_content,.gpwindow_content'))&&!!(r.matches('#unit_order')||r.querySelector(`#unit_order,#building_main,.building_main,[id^="building_main_"],[id^="special_building_"],${NATIVE_RESEARCH_SEL}`));
+    const isRelevant=r=>!!(r&&r.matches&&r.matches('#unit_order,.window_content,.gpwindow_content'))&&!!(r.matches('#unit_order')||r.querySelector(`#unit_order,#building_main,.building_main,[id^="building_main_"],[id^="special_building_"],${NATIVE_RESEARCH_SEL_ALL}`));
     const relevant=isRelevant(root);
     if(!relevant)return null;
 
@@ -6524,6 +6549,45 @@ const STORE = {
   }
 
   const NATIVE_RESEARCH_SEL='[data-research_id],[data-research-id],[data-research_type],[data-research-type]';
+
+  const NATIVE_RESEARCH_SEL_CLASS='.btn_upgrade,.button_upgrade,.research_icon';
+  const NATIVE_RESEARCH_SEL_ALL=NATIVE_RESEARCH_SEL+','+NATIVE_RESEARCH_SEL_CLASS;
+
+  let nativeResearchKeyCache=null;
+  function nativeResearchKey(raw) {
+    const v=String(raw==null?'':raw).trim();
+    if(!v)return null;
+    if(researchDef(v))return v;
+    let all=null;try{all=gameUw().GameData&&gameUw().GameData.researches}catch(_){}
+    if(!all||typeof all!=='object')return null;
+    const keys=Object.keys(all),sig=keys.length+':'+keys.join(',');
+    if(!nativeResearchKeyCache||nativeResearchKeyCache.sig!==sig){
+      const map=Object.create(null);
+      for(const k of keys){
+        const d=all[k]||{};
+        for(const alt of [d.id,d.research_id,d.research_type,d.name]){
+          if(alt==null)continue;const s=String(alt).trim();
+          if(s&&!(s in map))map[s]=k;
+        }
+      }
+      nativeResearchKeyCache={sig,map};
+    }
+    return nativeResearchKeyCache.map[v]||null;
+  }
+
+  function nativeResearchFromClass(node) {
+    try{
+      const raw=node&&node.className;
+      const cls=String(raw&&raw.baseVal!=null?raw.baseVal:(raw||'')).split(/\s+/);
+      const ids=new Set();
+      for(const c of cls){
+        if(!c||c==='research_icon'||c==='btn_upgrade'||c==='button_upgrade'||c==='btn_downgrade')continue;
+        const k=nativeResearchKey(c)||nativeResearchKey(c.replace(/_(?:old|bpv)$/,''));
+        if(k)ids.add(k);
+      }
+      return ids.size===1?[...ids][0]:null;
+    }catch(_){return null}
+  }
   function nativeResearchId(node) {
     if(!node)return null;
     const vals=[];
@@ -6531,10 +6595,21 @@ const STORE = {
       try{const v=node.getAttribute&&node.getAttribute(k);if(v)vals.push(String(v))}catch(_){}
     }
     if(!vals.length){
+      try{
+        const jq=gameUw().jQuery||gameUw().$;
+        if(jq)for(const k of ['research_id','research-id','research_type','research-type']){
+          const v=jq(node).data(k);if(v!=null&&v!=='')vals.push(String(v));
+        }
+      }catch(_){}
+    }
+    const ids=new Set();for(const v of vals){const k=nativeResearchKey(v);if(k)ids.add(k)}
+    if(ids.size===1)return [...ids][0];
+    if(!ids.size){
+      const byClass=nativeResearchFromClass(node);
+      if(byClass)return byClass;
       try{const child=node.querySelector&&node.querySelector(NATIVE_RESEARCH_SEL);if(child)return nativeResearchId(child)}catch(_){}
     }
-    const ids=new Set();for(const v of vals)if(researchDef(v))ids.add(v);
-    return ids.size===1?[...ids][0]:null;
+    return null;
   }
 
   function nativeBuildPlusBlock(building,projected,max,special) {
@@ -6614,11 +6689,15 @@ const STORE = {
     const inReal=!!(info&&(info.orders||[]).some(o=>String(researchOrderTechId(o))===String(tech)));
     const pos=nativeQueuePosition(townId,'research',j=>j&&String(j.tech)===String(tech)),head=pos===1&&list[0];
     const sig=JSON.stringify([townId,tech,pos,done,inReal,head&&head.status,head&&head.reason,list.length]);
-    const existing=[...tile.querySelectorAll(':scope > .gb-native-qctl[data-research]')];
-    const keep=existing.find(c=>c.dataset.research===tech&&c.dataset.sig===sig);
+
+    const existing=[...root.querySelectorAll('.gb-native-qctl[data-research]')].filter(c=>c.dataset.research===tech);
+    const keep=existing.find(c=>c.dataset.sig===sig);
     for(const c of existing)if(c!==keep)c.remove();
     if(keep)return;
-    const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.research=tech;ctl.dataset.sig=sig;tile.appendChild(ctl);
+    const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.research=tech;ctl.dataset.sig=sig;
+
+    const anchor=tile.querySelector('.research_name,.research_level,.level');
+    ((anchor&&anchor.parentElement)||tile).appendChild(ctl);
     const blockWhy=done?`${nativeResearchLabel(tech)} ya está investigada`:(inReal?`${nativeResearchLabel(tech)} ya está en la cola real`:'');
     if(!pos){
       const plus=nativeQButton('+',`Añadir ${nativeResearchLabel(tech)} a la cola virtual`,nativeTileAction(root,townId,tile,'research',tech,()=>nativeQueueAddResearch(townId,tech)));
@@ -6648,7 +6727,9 @@ const STORE = {
     const candidates=[...document.querySelectorAll('.window_content,.gpwindow_content,#unit_order')].filter((x,i,a)=>a.indexOf(x)===i&&!x.closest('#grepbot-panel'));
     const roots=candidates.filter(x=>!candidates.some(y=>y!==x&&y.contains(x)));
     const mountedTowns=new Set();
-    for(const root of roots){const townId=nativeWindowTownId(root);if(!townId){root.querySelectorAll(':scope > .gb-native-panel,.gb-native-qctl').forEach(n=>n.remove());continue}let buildN=0,unitN=0,researchN=0;const mountedBuildIds=new Set(),mountedUnitIds=new Set(),mountedResearchIds=new Set();
+    for(const root of roots){const townId=nativeWindowTownId(root);if(!townId){
+        if(root.querySelector('.tech_tree_box')||root.querySelector(NATIVE_RESEARCH_SEL_ALL))gbLogT('native-research-notown',300000,'native ui: academy window open but its town id is unreadable - controls skipped');
+        root.querySelectorAll(':scope > .gb-native-panel,.gb-native-qctl').forEach(n=>n.remove());continue}let buildN=0,unitN=0,researchN=0;const mountedBuildIds=new Set(),mountedUnitIds=new Set(),mountedResearchIds=new Set();
       mountedTowns.add(String(townId));
       const senateContext=!!(root.matches('#building_main,.building_main,.senate')||root.querySelector('#building_main,.building_main,[id^="building_main_"],[id^="special_building_"]'));
 
@@ -6657,12 +6738,19 @@ const STORE = {
       const unitContext=root.matches('#unit_order')?root:root.querySelector('#unit_order');const unitTiles=unitContext?[...unitContext.querySelectorAll('#units .unit_tab,.unit_tab')]:[];
       for(const tile of unitTiles){const id=nativeUnitId(tile);if(!id||mountedUnitIds.has(id))continue;mountedUnitIds.add(id);nativeMountRecruitControl(root,tile,townId,id);unitN++}
 
-      const researchTiles=[...root.querySelectorAll(NATIVE_RESEARCH_SEL)].filter(n=>!n.closest('.gb-native-qctl,.gb-native-panel'));
+      const researchTiles=[...root.querySelectorAll(NATIVE_RESEARCH_SEL_ALL)].filter(n=>!n.closest('.gb-native-qctl,.gb-native-panel'));
       const researchOuter=researchTiles.filter(n=>{const id=nativeResearchId(n);return id&&!researchTiles.some(o=>o!==n&&o.contains(n)&&nativeResearchId(o)===id)});
       for(const node of researchOuter){const id=nativeResearchId(node);if(!id||mountedResearchIds.has(id))continue;
         const tile=/^(?:button|a)$/i.test(node.tagName)?(node.parentElement||node):node;
         if(tile.closest('.gb-native-qctl,.gb-native-panel'))continue;
         mountedResearchIds.add(id);nativeMountResearchControl(root,tile,townId,id);researchN++}
+
+      if(!researchN&&(root.querySelector('.tech_tree_box')||researchTiles.length)){
+        gbLogT('native-research-zero',300000,
+          `native ui: academy root matched ${researchTiles.length} research node(s) but resolved 0 techs `
+          +`(attr ${root.querySelectorAll(NATIVE_RESEARCH_SEL).length}, class ${root.querySelectorAll(NATIVE_RESEARCH_SEL_CLASS).length}, `
+          +`tech_tree_box ${root.querySelectorAll('.tech_tree_box').length})`);
+      }
       root.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>{if(!mountedBuildIds.has(c.dataset.building))c.remove()});root.querySelectorAll('.gb-native-qctl[data-unit]').forEach(c=>{if(!mountedUnitIds.has(c.dataset.unit))c.remove()});root.querySelectorAll('.gb-native-qctl[data-research]').forEach(c=>{if(!mountedResearchIds.has(c.dataset.research))c.remove()});
       if(buildN)nativeRenderQueuePanel(root,townId,'build');else document.querySelector(`.gb-native-panel[data-lane="build"][data-town="${townId}"]`)?.remove();if(unitN)nativeRenderQueuePanel(root,townId,'recruit');else document.querySelector(`.gb-native-panel[data-lane="recruit"][data-town="${townId}"]`)?.remove();if(researchN)nativeRenderQueuePanel(root,townId,'research');else document.querySelector(`.gb-native-panel[data-lane="research"][data-town="${townId}"]`)?.remove();
     }
@@ -8299,6 +8387,41 @@ const STORE = {
     save(STORE.RESEARCH_TARGETS, t);
     return t;
   }
+
+  function researchOrdersFor(townId) {
+    const uw = gameUw();
+    const want = String(townId);
+    let current = null;
+    try { if (uw.Game && uw.Game.townId != null) current = String(uw.Game.townId); } catch (_) {}
+    const isCurrent = current != null && want === current;
+
+    try {
+      const col = uw.MM && uw.MM.getFirstTownAgnosticCollectionByName
+        && uw.MM.getFirstTownAgnosticCollectionByName('ResearchOrder');
+      const frag = col && col.getFragment && col.getFragment(want);
+      const models = frag && frag.models;
+      if (models && models.length) return { orders: models.slice(), known: true };
+      if (models && isCurrent) return { orders: [], known: true };
+    } catch (_) {}
+
+    try {
+      const raw = uw.MM && uw.MM.getModels && uw.MM.getModels().ResearchOrder;
+      const list = raw ? (Array.isArray(raw) ? raw : Object.keys(raw).map(k => raw[k])) : null;
+      if (list) {
+        const townOf = m => String(((m && m.attributes) || {}).town_id);
+        const mine = list.filter(m => townOf(m) === want);
+        if (mine.length) return { orders: mine, known: true };
+        if (isCurrent) return { orders: [], known: true };
+        if (current != null && list.some(m => townOf(m) !== current)) return { orders: [], known: true };
+      }
+    } catch (_) {}
+
+    try {
+      const mm = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('ResearchOrder');
+      if (mm && mm.models && isCurrent) return { orders: mm.models.slice(), known: true };
+    } catch (_) {}
+    return { orders: [], known: false };
+  }
   function researchTownTechs(townId) {
     const uw = gameUw();
     try {
@@ -8306,24 +8429,60 @@ const STORE = {
       if (!t) return null;
       let res = {};
       try { res = (t.researches && t.researches().attributes) || {}; } catch (_) {}
-      let acad = 0;
-      try { acad = t.getBuildings ? +t.getBuildings().get('academy') : +(t.buildings().attributes || {}).academy; } catch (_) {}
-      let orders = [];
+      let buildings = null;
       try {
-        const col = t.getResearchOrdersCollection && t.getResearchOrdersCollection();
-        if (col && col.models) orders = col.models;
-        else {
-          const mm = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('ResearchOrder');
-          if (mm && mm.models) {
-            orders = mm.models.filter(m => {
-              const a = m.attributes || {};
-              return +a.town_id === +townId;
-            });
-          }
+        const b = t.getBuildings ? t.getBuildings() : (t.buildings && t.buildings());
+        buildings = (b && (b.attributes || b)) || null;
+      } catch (_) {}
+      let acad = 0;
+      try { acad = t.getBuildings ? +t.getBuildings().get('academy') : +(buildings || {}).academy; } catch (_) {}
+
+      let library = null;
+      try {
+        if (t.getBuildings) { const v = +t.getBuildings().get('library'); if (isFinite(v)) library = v; }
+        if (library == null && buildings && buildings.library != null) library = +buildings.library || 0;
+      } catch (_) {}
+
+      let smallIsland = null;
+      try {
+        const probes = [
+          () => (t.get ? t.get('on_small_island') : undefined),
+          () => ((t.attributes || {}).on_small_island),
+          () => (t.getTownModelReference && t.getTownModelReference().get('on_small_island')),
+          () => (t.isOnSmallIsland && t.isOnSmallIsland()),
+        ];
+        for (const p of probes) {
+          let raw;
+          try { raw = p(); } catch (_) { continue; }
+          if (raw != null) { smallIsland = !!raw; break; }
         }
       } catch (_) {}
-      return { town: t, techs: res, academy: acad, orders };
+      const q = researchOrdersFor(townId);
+      return {
+        town: t,
+        techs: res,
+        academy: acad,
+        library,
+        smallIsland,
+        orders: q.orders,
+        ordersKnown: q.known,
+      };
     } catch (_) { return null; }
+  }
+
+  function researchQueueMax() {
+    try {
+      const uw = gameUw();
+      const q = uw.GameDataConstructionQueue;
+      if (q && q.getResearchOrdersQueueLength) {
+        const n = +q.getResearchOrdersQueueLength();
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+      const p = uw.GameDataPremium;
+      if (p && p.hasCurator && p.hasCurator()) return 7;
+      if (p && p.isAdvisorActivated && p.isAdvisorActivated('curator')) return 7;
+    } catch (_) {}
+    return 2;
   }
 
   function researchLabel(key) {
@@ -8342,7 +8501,16 @@ const STORE = {
     } catch (_) { return null; }
   }
 
-  function researchCost(tech) {
+  function researchResMod(townId) {
+    try {
+      const uw = gameUw();
+      const g = uw.GeneralModifications;
+      if (!(g && g.getResearchResourcesModification)) return null;
+      const v = +g.getResearchResourcesModification(townId != null ? townId : (uw.Game && uw.Game.townId));
+      return isFinite(v) && v > 0 ? v : null;
+    } catch (_) { return null; }
+  }
+  function researchCost(tech, townId) {
     const d = researchDef(tech);
     if (!d) return null;
     const src = d.resources || d.costs || d.cost || d;
@@ -8352,6 +8520,13 @@ const STORE = {
       iron: +src.iron || 0,
     };
     if (!(cost.wood || cost.stone || cost.iron)) return null;
+
+    const mod = researchResMod(townId);
+    if (mod != null && mod !== 1) {
+      cost.wood = Math.ceil(cost.wood * mod);
+      cost.stone = Math.ceil(cost.stone * mod);
+      cost.iron = Math.ceil(cost.iron * mod);
+    }
     return cost;
   }
   function researchPointCost(tech) {
@@ -8360,45 +8535,121 @@ const STORE = {
     const v = gbProbeAttr(d, ['research_points', 'research_points_cost', 'points', 'research_point_cost']);
     return v != null && v > 0 ? v : null;
   }
+  function researchConstant(name) {
+    try {
+      const c = gameUw().Game && gameUw().Game.constants && gameUw().Game.constants.academy;
+      const v = c ? +c[name] : NaN;
+      return isFinite(v) ? v : null;
+    } catch (_) { return null; }
+  }
+
+  function researchAcademyTearingDown(townId) {
+    try {
+      const t = gbTownModel(townId);
+      const col = t && ((t.buildingOrders && t.buildingOrders())
+        || (t.getCollection && t.getCollection('building_orders')));
+      if (!col) return null;
+      if (col.isBuildingTearingDown) return !!col.isBuildingTearingDown('academy');
+      const models = col.models || [];
+      for (const m of models) {
+        const a = (m && m.attributes) || {};
+        const bid = (m && m.getBuildingId && m.getBuildingId()) || a.building_id;
+        if (String(bid) !== 'academy') continue;
+        if (m.isBeingTearingDown) { if (m.isBeingTearingDown()) return true; continue; }
+        if (a.level_to != null && a.level_from != null && +a.level_to < +a.level_from) return true;
+      }
+      return false;
+    } catch (_) { return null; }
+  }
+
+  function researchPointsSpent(info) {
+    if (!info || !info.techs) return null;
+
+    if (!info.ordersKnown) return null;
+    let all = null;
+    try { all = gameUw().GameData && gameUw().GameData.researches; } catch (_) {}
+    if (!all || typeof all !== 'object') return null;
+    const queued = new Set();
+    (info.orders || []).forEach(o => { const id = researchOrderTechId(o); if (id != null) queued.add(String(id)); });
+    let sum = 0;
+    for (const k of Object.keys(all)) {
+      if (!info.techs[k] && !queued.has(String(k))) continue;
+      const pts = gbProbeAttr(all[k], ['research_points', 'research_points_cost', 'points', 'research_point_cost']);
+      if (pts == null) return null;
+      sum += pts;
+    }
+    return sum;
+  }
+
   function researchPointsAvailable(townId, info) {
     const t = (info && info.town) || gbTownModel(townId);
-    if (!t) return null;
-    const v = gbProbeNum(t, ['getAvailableResearchPoints', 'getFreeResearchPoints', 'getResearchPoints']);
-    if (v != null) return v;
-    try {
-      const r = t.researches && t.researches();
-      const a = (r && r.attributes) || {};
-      const av = gbProbeAttr(a, ['available_research_points', 'research_points_available', 'points_available']);
-      if (av != null) return av;
-      const total = gbProbeAttr(a, ['research_points', 'points']);
-      const used = gbProbeAttr(a, ['used_research_points', 'points_used']);
-      if (total != null && used != null) return total - used;
-    } catch (_) {}
-    return null;
+
+    const direct = gbProbeNum(t, ['getAvailableResearchPoints', 'getFreeResearchPoints', 'getResearchPoints']);
+    if (direct != null) return direct;
+    if (!info) return null;
+    const perAcademy = researchConstant('points_per_academy_level');
+    if (perAcademy == null) return null;
+    const acad = +info.academy;
+    if (!isFinite(acad) || acad < 0) return null;
+    const level = researchAcademyTearingDown(townId) === true ? Math.max(0, acad - 1) : acad;
+    let current = level * perAcademy;
+    if (info.library == null) return null;
+    if (info.library === 1) {
+      const perLibrary = researchConstant('points_per_library_level');
+      if (perLibrary == null) return null;
+      current += perLibrary;
+    }
+    const spent = researchPointsSpent(info);
+    if (spent == null) return null;
+    return current - spent;
   }
 
   function researchCanAfford(townId, tech, info) {
+    let blind = false;
+    let blindWhy = null;
+
+    if (!researchDef(tech)) return { ok: false, blind: false, why: 'tech unknown' };
     const needPts = researchPointCost(tech);
-    if (needPts == null) return { ok: false, why: 'research point cost unreadable' };
     const have = researchPointsAvailable(townId, info);
-    if (have == null) return { ok: false, why: 'available research points unreadable' };
-    if (have < needPts) return { ok: false, why: `points ${have}/${needPts}` };
-    const cost = researchCost(tech);
-    if (!cost) return { ok: false, why: 'resource cost unreadable' };
+    if (needPts == null || have == null) {
+      blind = true;
+      blindWhy = needPts == null ? 'research point cost unreadable' : 'available research points unreadable';
+      gbLogT('research-blind-pts-' + townId, 600000,
+        `research: ${blindWhy} @${townId} - letting the server decide`);
+    } else if (have < needPts) {
+      return { ok: false, blind: false, why: `points ${have}/${needPts}` };
+    }
+    const cost = researchCost(tech, townId);
+    if (!cost) {
+      gbLogT('research-blind-cost-' + tech, 600000, `research: resource cost for ${tech} unreadable - letting the server decide`);
+      return { ok: true, blind: true, why: 'resource cost unreadable' };
+    }
     const aff = gbAfford(townId, cost);
-    if (!aff.ok) return { ok: false, why: aff.detail || 'resources unreadable/insufficient' };
-    return { ok: true, why: null };
+    const readShort = (aff.short || []).filter(s => !/unreadable/.test(s));
+    if (readShort.length) return { ok: false, blind: false, why: readShort.join(', ') };
+    if (aff.blind) {
+      gbLogT('research-blind-res-' + townId, 600000, `research: ${aff.detail || 'resources unreadable'} @${townId} - letting the server decide`);
+      return { ok: true, blind: true, why: aff.detail || 'resources unreadable' };
+    }
+    return { ok: true, blind, why: blindWhy };
   }
+
   function researchPayload(townId, techId) {
-    return { id: techId, town_id: +townId };
+    return {
+      model_url: 'ResearchOrder',
+      action_name: 'research',
+      arguments: { id: String(techId) },
+      town_id: +townId,
+    };
   }
-  const RESEARCH_ENDPOINT = 'building_academy/research';
+
+  const RESEARCH_ENDPOINT = 'ResearchOrder/research';
 
   function researchSkipWhy(townId, tech) {
-    return gbSkipActiveWrite('research', 'ajax', RESEARCH_ENDPOINT, researchPayload(townId, tech));
+    return gbSkipActiveWrite('research', 'bridge', RESEARCH_ENDPOINT, researchPayload(townId, tech));
   }
   function researchPost(townId, techId, onDone) {
-    gameAjaxPost('research', 'building_academy', 'research', researchPayload(townId, techId), onDone);
+    bridgePost('research', researchPayload(townId, techId), onDone);
   }
   function researchOrderTechId(order) {
     try {
@@ -8406,16 +8657,20 @@ const STORE = {
       return a.research_type || a.research_id || a.research || a.type || a.id || null;
     } catch (_) { return null; }
   }
-  function researchDepsOk(townId, info, tech) {
+
+  function researchDepsVerdict(townId, info, tech) {
     try {
       const uw = gameUw();
       const def = uw.GameData && uw.GameData.researches && uw.GameData.researches[tech];
-      if (!def || !info || !info.techs || !info.town) return false;
+
+      if (!def) return { ok: false, blind: false, why: 'tech unknown' };
+      if (!info || !info.town) return { ok: false, blind: true, why: 'town unreadable' };
+      if (!info.techs) return { ok: false, blind: true, why: 'researched flags unreadable' };
       const rdeps = def.research_dependencies || def.dependencies || [];
       const depList = Array.isArray(rdeps) ? rdeps : Object.keys(rdeps || {}).filter(k => rdeps[k]);
       for (const d of depList) {
         const id = typeof d === 'string' ? d : (d && (d.id || d.research_id || d.research_type));
-        if (id && !info.techs[id]) return false;
+        if (id && !info.techs[id]) return { ok: false, blind: false, why: `requiere ${id}` };
       }
       const bdeps = def.building_dependencies || def.required_buildings || {};
       let buildings = null;
@@ -8423,29 +8678,50 @@ const STORE = {
         const b = info.town.getBuildings ? info.town.getBuildings() : (info.town.buildings && info.town.buildings());
         buildings = b && (b.attributes || b);
       } catch (_) { buildings = null; }
-      if (!buildings) return false;
+      if (!buildings) return { ok: false, blind: true, why: 'building levels unreadable' };
       for (const b of Object.keys(bdeps || {})) {
         const raw = bdeps[b];
         const need = +(raw && typeof raw === 'object' ? (raw.level ?? raw.min_level ?? raw.value) : raw) || 0;
         const have = +(buildings[b] || 0);
-        if (have < need) return false;
+        if (have < need) return { ok: false, blind: false, why: `${b} ${have}/${need}` };
       }
       const academyNeed = +(def.academy_level ?? def.required_academy_level ?? def.building_level ?? def.level ?? 0);
-      if (academyNeed > 0 && +info.academy < academyNeed) return false;
+      if (academyNeed > 0 && +info.academy < academyNeed) return { ok: false, blind: false, why: `academia ${info.academy}/${academyNeed}` };
+
+      if (def.requires_farming_villages && info.smallIsland === true) {
+        return { ok: false, blind: false, why: 'isla pequeña: sin aldeas rurales' };
+      }
       const res = def.resources || def.costs || def.cost;
-      if (!res || res.wood == null || res.stone == null || res.iron == null) return false;
-      if (researchPointCost(tech) == null) return false;
-      return true;
-    } catch (_) { return false; }
+      if (!res || res.wood == null || res.stone == null || res.iron == null) {
+        return { ok: false, blind: true, why: 'GameData cost missing' };
+      }
+      if (researchPointCost(tech) == null) return { ok: false, blind: true, why: 'GameData research_points missing' };
+      return { ok: true, blind: false, why: null };
+    } catch (e) { return { ok: false, blind: true, why: String(e).slice(0, 60) }; }
+  }
+  function researchDepsOk(townId, info, tech) {
+    const v = researchDepsVerdict(townId, info, tech);
+    if (!v.ok && v.blind) {
+      gbLogT('research-dep-blind-' + tech, 600000,
+        `research: dependency read incomplete for ${tech} (${v.why}) - letting the server decide`);
+    }
+    return v.ok || v.blind;
   }
   function researchValidateJob(job) {
     const info = researchTownTechs(job.townId);
     if (!info || !(info.academy > 0)) return { ok: false, why: 'research state unreadable' };
     if (info.techs && info.techs[job.tech]) return { ok: false, why: 'already researched' };
+
+    if (!info.ordersKnown) {
+      gbLogT('research-orders-unknown-' + job.townId, 600000,
+        `research: real research queue for town ${job.townId} unreadable (open that town once)`);
+      return { ok: false, why: 'cola real ilegible; abre esa ciudad una vez' };
+    }
     if ((info.orders || []).some(o => String(researchOrderTechId(o)) === String(job.tech))) return { ok: false, why: 'already queued' };
-    if ((info.orders || []).length >= 2) return { ok: false, why: 'queue full' };
+    if ((info.orders || []).length >= researchQueueMax()) return { ok: false, why: 'queue full' };
     if (!researchDepsOk(job.townId, info, job.tech)) return { ok: false, why: 'dependencies unavailable/unmet' };
-    return researchCanAfford(job.townId, job.tech, info);
+    const aff = researchCanAfford(job.townId, job.tech, info);
+    return { ok: aff.ok, why: aff.why };
   }
 
   function researchNativeStatus(why) {
@@ -8497,7 +8773,13 @@ const STORE = {
       const ordered = Object.keys(targets).sort((a, b) => (+targets[a].order || 0) - (+targets[b].order || 0));
       const info = researchTownTechs(tid);
       if (!info || !(info.academy > 0)) continue;
-      const queueMax = 2;
+
+      if (!info.ordersKnown) {
+        gbLogT('research-orders-unknown-' + tid, 600000,
+          `research: town ${tid} real research queue unreadable - skipping (open that town once)`);
+        continue;
+      }
+      const queueMax = researchQueueMax();
       if (info.orders.length >= queueMax) continue;
       const queued = new Set();
       info.orders.forEach(o => {
@@ -12728,6 +13010,29 @@ const STORE = {
       return { ok: !!info && info.academy >= 0 && n >= 0, warn: !n, detail: info ? `${n} researched-tech flags, academy ${info.academy}` : 'academy techs unreadable' };
     }));
 
+    out.push(preflightProbe('academy read path', () => {
+      const ids = (townsFromGame() || []).map(t => t.id);
+      const tid = ids[0];
+      const info = tid != null ? researchTownTechs(tid) : null;
+      if (!info) return { ok: false, detail: 'no readable town' };
+      const parts = [];
+      let bad = 0;
+      let defs = 0;
+      try { defs = Object.keys((gameUw().GameData && gameUw().GameData.researches) || {}).length; } catch (_) {}
+      if (defs) parts.push(`GameData.researches ${defs}`);
+      else { parts.push('GameData.researches UNREADABLE'); bad++; }
+      parts.push(`academy ${info.academy}`);
+      parts.push(info.library == null ? 'library UNREADABLE' : `library ${info.library}`);
+      if (info.library == null) bad++;
+      parts.push(info.ordersKnown ? `real queue ${info.orders.length}/${researchQueueMax()}` : 'real queue UNREADABLE (open that town once)');
+      if (!info.ordersKnown) bad++;
+      const pts = researchPointsAvailable(tid, info);
+      if (pts == null) { parts.push('research points UNREADABLE'); bad++; }
+      else parts.push(`research points ${pts}`);
+      parts.push(info.smallIsland == null ? 'small-island flag unreadable' : `small island ${info.smallIsland}`);
+      return { ok: bad === 0, warn: bad > 0, detail: parts.join(', ') };
+    }));
+
     out.push(preflightProbe('cost reads', () => {
       const ids = (townsFromGame() || []).map(t => t.id);
       const tid = ids[0];
@@ -13234,7 +13539,10 @@ const STORE = {
   }
   function renderQueueCenterResearch(body, townId) {
     const info = researchTownTechs(townId); const orders = (info && info.orders) || [];
-    const live = queueCenterCard('Cola real de investigación', info ? `${orders.length}/2 · Academia ${info.academy || 0}` : 'estado no legible');
+    const liveSub = !info ? 'estado no legible'
+      : (info.ordersKnown ? `${orders.length}/${researchQueueMax()} · Academia ${info.academy || 0}`
+        : `cola real ilegible · Academia ${info.academy || 0}`);
+    const live = queueCenterCard('Cola real de investigación', liveSub);
     body.appendChild(live.box);
     if (orders.length) {
       orders.forEach((o, i) => {
@@ -13295,7 +13603,10 @@ const STORE = {
       let st = 'pendiente';
       try {
         const dep = researchDepsOk(townId, info, id), aff = dep && researchCanAfford(townId, id, info);
-        st = !dep ? 'requisito' : (aff && aff.ok ? 'listo' : (aff && aff.why) || 'esperando');
+
+        st = !dep ? 'requisito'
+          : (aff && aff.ok ? (aff.blind ? 'listo (sin verificar)' : 'listo')
+            : (aff && aff.why) || 'esperando');
       } catch (_) {}
       const badge = document.createElement('span'); badge.className = 'gb-qc-muted'; badge.textContent = st;
       r.append(n, nm, badge); planned.box.appendChild(r);
@@ -15062,6 +15373,8 @@ const STORE = {
   }
   function flash(msg) {
     const f = document.createElement('div');
+
+    f.className = 'gb-flash';
     f.textContent = msg; f.style.cssText = 'position:fixed;top:60px;right:8px;background:#f5a623;color:#000;padding:6px 10px;border-radius:4px;z-index:100000';
     document.body.appendChild(f); gbTimeout(() => f.remove(), 1500);
   }
@@ -15390,7 +15703,8 @@ const STORE = {
     if (nativeQueueHasPending('build')) abScan('native-watch');
     if (nativeQueueHasPending('recruit')) recruitScan('native-watch');
     if (nativeQueueHasPending('research')) researchScan('native-watch');
-    if (nativeQueueHasPending('build') || nativeQueueHasPending('recruit') || nativeQueueHasPending('research')) scheduleNativeUiScan();
+
+    scheduleNativeUiScan();
   }, 5000);
   gbInterval(() => dodgeScan('loop'), DODGE_CHECK_MS);
   gbInterval(dodgeReturnTick, 15000);

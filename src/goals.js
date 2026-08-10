@@ -85,7 +85,7 @@
     for(const [tech,on] of Object.entries(e.research||{})){if(!+on)continue;if(info&&info.techs&&info.techs[tech])continue;if(info&&(info.orders||[]).some(o=>String(researchOrderTechId(o))===String(tech)))continue;
       const dep=goalResearchDependencies(townId,tech);let status=dep.ok?'planned':'blocked',why=dep.why||'';
       if(dep.ok){for(const b of dep.build)if(+(sim[b.id]||0)<b.level){status='waiting-dependency';why=`${b.id} ${sim[b.id]||0}/${b.level}`;break} for(const r of dep.research)if(!(info&&info.techs&&info.techs[r])){status='waiting-dependency';why=`research:${r}`;break}}
-      const cost=researchCost(tech);if(!cost){status='blocked';why='cost-unreadable'}
+      const cost=researchCost(tech,townId);if(!cost){status='blocked';why='cost-unreadable'}
       actions.push({kind:'research',id:tech,cost,status,why});
     }
     let t=null;try{t=gbTownModel(townId)}catch(_){}; const have=goalUnitCounts(townId);

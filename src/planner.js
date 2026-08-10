@@ -115,7 +115,7 @@
       if (feature === 'build' && a.building_id && a.order_id == null) {
         const c = abBuildingCost(townId, a.building_id); if (!c) return null; out(townId,c);
       } else if (feature === 'research') {
-        const tech=a.id||a.research_id||a.research||a.research_type, c=researchCost(tech); if(!c) return null; out(townId,c);
+        const tech=a.id||a.research_id||a.research||a.research_type, c=researchCost(tech,townId); if(!c) return null; out(townId,c);
       } else if (feature === 'recruit') {
         const unit=a.unit_id||a.unit_type, n=+a.amount||0, def=recruitUnitDef(unit); if(!def||!def.resources||!(n>0)) return null;
         out(townId,{wood:(+def.resources.wood||0)*n,stone:(+def.resources.stone||0)*n,iron:(+def.resources.iron||0)*n,population:(+def.population||0)*n});

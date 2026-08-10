@@ -1650,6 +1650,11 @@
   }
   function flash(msg) {
     const f = document.createElement('div');
+    // gb-flash is one of the classes the DOM observer ignores. Since that
+    // observer moved to document.body, an unmarked toast would feed itself:
+    // append + remove are two body mutations that re-arm the collect/native
+    // scans, which can flash again.
+    f.className = 'gb-flash';
     f.textContent = msg; f.style.cssText = 'position:fixed;top:60px;right:8px;background:#f5a623;color:#000;padding:6px 10px;border-radius:4px;z-index:100000';
     document.body.appendChild(f); gbTimeout(() => f.remove(), 1500);
   }

@@ -195,7 +195,10 @@
   }
   function renderQueueCenterResearch(body, townId) {
     const info = researchTownTechs(townId); const orders = (info && info.orders) || [];
-    const live = queueCenterCard('Cola real de investigación', info ? `${orders.length}/2 · Academia ${info.academy || 0}` : 'estado no legible');
+    const liveSub = !info ? 'estado no legible'
+      : (info.ordersKnown ? `${orders.length}/${researchQueueMax()} · Academia ${info.academy || 0}`
+        : `cola real ilegible · Academia ${info.academy || 0}`);
+    const live = queueCenterCard('Cola real de investigación', liveSub);
     body.appendChild(live.box);
     if (orders.length) {
       orders.forEach((o, i) => {
@@ -257,7 +260,11 @@
       let st = 'pendiente';
       try {
         const dep = researchDepsOk(townId, info, id), aff = dep && researchCanAfford(townId, id, info);
-        st = !dep ? 'requisito' : (aff && aff.ok ? 'listo' : (aff && aff.why) || 'esperando');
+        // A blind pass is not a verified "ready" — say so rather than claiming
+        // the tech is affordable when nothing was actually read.
+        st = !dep ? 'requisito'
+          : (aff && aff.ok ? (aff.blind ? 'listo (sin verificar)' : 'listo')
+            : (aff && aff.why) || 'esperando');
       } catch (_) {}
       const badge = document.createElement('span'); badge.className = 'gb-qc-muted'; badge.textContent = st;
       r.append(n, nm, badge); planned.box.appendChild(r);
