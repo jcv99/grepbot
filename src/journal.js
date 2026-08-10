@@ -2,9 +2,13 @@
   // as production ticks, a trade lands or a planner reservation is released. If it
   // journals as a hard error, three shortages in a row open a decision-memory skip
   // window and the action stays frozen long after it became affordable.
+  // Every planner verdict is live state, never a structural failure:
+  // `planner-<res>:have/need` is a shortage, `planner-cost-unknown` /
+  // `planner-live-unreadable` / `planner-town-missing` are read failures. Same
+  // for `safe-mode-*`, which is our own switch and not the server's answer.
   function jrnTransientDynamicResult(r) {
     const s = String(r || '');
-    return /^planner-(?:wood|stone|iron|population|tradeCap):/i.test(s);
+    return /^planner-/i.test(s) || /^safe-mode-/i.test(s);
   }
   function jrnResult(err) {
     if (!err) return 'ok';
@@ -27,9 +31,19 @@
   // Journal keys are world-scoped: a town/village id means nothing on another
   // world, so an unscoped journal would skip valid targets after a world switch.
   let jrnHost = location.hostname;
+  function jrnSaveForHost(host) {
+    jrnPrune();
+    save(STORE.DECISIONS + '@' + host, state.decisions);
+    save(STORE.DECISION_SKIPS + '@' + host, state.decisionSkips);
+  }
   function jrnCheckHost() {
     if (location.hostname === jrnHost) return;
-    try { jrnFlush(); } catch (_) {}
+    // Flush what is still in memory under the world it belongs to. jrnFlush()
+    // saves through wkey(), which already reads the NEW hostname — the pending
+    // batch would have been written to the new world's key, importing another
+    // world's skip windows and town ids wholesale.
+    jrnSaveQueued = false;
+    try { jrnSaveForHost(jrnHost); } catch (_) {}
     jrnHost = location.hostname;
     const next = load(wkey(STORE.DECISIONS), []);
     state.decisions = Array.isArray(next) ? next : [];
@@ -39,6 +53,20 @@
   }
   function gbSkipActive(feature, payload) {
     const tag = jrnTag(feature, payload);
+    return jrnSkipped(tag) ? (jrnWhy(tag) || 'remembered') : '';
+  }
+  // Pre-filter for WRITE features. txRun keys the journal (and therefore the
+  // skip window) by {feature, endpoint, txIntent} — jrnTag builds a different
+  // key entirely (t<town>:<target>), so a module that pre-filtered with
+  // gbSkipActive() was reading a key the trip path never writes: the filter was
+  // dead and the loop kept re-announcing an action that txRun then refused.
+  function gbSkipActiveWrite(feature, transport, endpoint, data, snap) {
+    if (!TX_WRITE_FEATURES.has(feature)) return gbSkipActive(feature, data);
+    const tag = {
+      f: feature,
+      a: String(endpoint).slice(0, 48),
+      k: String(txIntent(feature, transport, endpoint, data, snap || null)).slice(0, 120),
+    };
     return jrnSkipped(tag) ? (jrnWhy(tag) || 'remembered') : '';
   }
 
@@ -277,6 +305,3 @@
 
   gbListen(window, 'pagehide', jrnFlush);
   gbListen(document, 'visibilitychange', () => { if (document.hidden) jrnFlush(); });
-
-  const seenThisRun = new Set();
-  const seenHost = location.hostname;

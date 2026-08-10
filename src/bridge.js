@@ -17,7 +17,6 @@
   // left and hung the full BRIDGE_TIMEOUT_MS on any server-side rejection.
   function gbAjaxDrop(entry) {
     if (!entry) return;
-    entry.done = true;
     const i = gbAjaxPending.indexOf(entry);
     if (i >= 0) gbAjaxPending.splice(i, 1);
   }
@@ -45,18 +44,29 @@
     const sigs = gbAjaxSigs(url, body);
     if (!sigs.length) return null;
     for (let i = 0; i < gbAjaxPending.length; i++) {
-      if (gbAjaxPending[i].done) continue;
       if (sigs.indexOf(gbAjaxPending[i].sig) >= 0) return gbAjaxPending.splice(i, 1)[0].settle;
     }
     return null;
   }
+  const GB_CAPTCHA_FLAGS = ['captcha', 'captcha_required'];
   function gbAjaxUnwrap(raw) {
     if (!raw || typeof raw !== 'object') return null;
     let d = Object.prototype.hasOwnProperty.call(raw, 'json') ? raw.json : raw;
     if (typeof d === 'string') { try { d = JSON.parse(d); } catch (_) {} }
     if (d == null) d = {};
     else if (typeof d !== 'object') d = { data: d };
-    if (raw.plain && typeof raw.plain === 'object') d = Object.assign({}, d, raw.plain);
+    if (raw.plain && typeof raw.plain === 'object') {
+      const merged = Object.assign({}, d, raw.plain);
+      // Last-wins merge could overwrite a true captcha flag from `json` with a
+      // falsy/absent one from `plain`, and the post would then be classified as
+      // success while the bot keeps posting into the captcha wall. A captcha
+      // flag set on EITHER side wins.
+      for (const k of GB_CAPTCHA_FLAGS) {
+        const a = d[k], b = raw.plain[k];
+        if (a === true || a === 1 || b === true || b === 1) merged[k] = true;
+      }
+      d = merged;
+    }
     return d;
   }
   function isSelfBridge(j) {
@@ -97,7 +107,6 @@
     catch (_) { lastSelfBridge.fingerprint = ''; }
     lastSelfBridge.at = Date.now();
     lastSelfBridge.owner = GB_INSTANCE_ID;
-    lastSelfBridge.nonce = Math.random().toString(36).slice(2);
     const classify = (data) => {
       if (!gbInstanceAlive()) return;
       try {
@@ -441,7 +450,15 @@
   const JRN_FAIL_TRIP = 3;
   const JRN_BACKOFF = [5, 15, 60];
 
-  const JRN_SKIP_ERRS = { disabled: 1, paused: 1, 'captcha-pause': 1, budget: 1, noajax: 1, remembered: 1, dryrun: 1 };
+  // Local gates only: nothing was ever posted, so none of these is evidence
+  // about the endpoint. Anything missing here is charged as a hard error and
+  // three of them in a row open a 5/15/60min skip window — a permanent lockout
+  // built entirely out of our own refusals to send.
+  const JRN_SKIP_ERRS = {
+    disabled: 1, paused: 1, 'captcha-pause': 1, budget: 1, noajax: 1, remembered: 1, dryrun: 1,
+    disposed: 1, 'tpl-stale': 1, 'circuit-open': 1,
+    'safe-mode-high-impact': 1, 'safe-mode-premium': 1,
+  };
 
   if (!Array.isArray(state.decisions)) state.decisions = [];
   if (!state.decisionSkips || typeof state.decisionSkips !== 'object') state.decisionSkips = {};

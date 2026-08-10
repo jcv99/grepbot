@@ -36,15 +36,18 @@
 
   const dodgeQueue = dodgeQueueLoad();
 
-  const DODGE_HOSTILE_TYPES = /^(attack|attack_sea|siege|revolt|colonize|take_over|conquer|portal_attack)$/;
+  const DODGE_HOSTILE_TYPES = /^(attack|attack_sea|raid|siege|revolt|colonize|take_over|conquer|portal_attack)$/;
   const DODGE_FRIENDLY_TYPES = /^(support|support_sea|trade|return|spy|farm|reward)$/;
   function dodgeIsHostileMovement(a) {
     const type = String(a.command_name || a.type || a.movement_type || '').toLowerCase().trim();
     if (DODGE_FRIENDLY_TYPES.test(type)) return false;
     if (a.is_attack === true || a.is_attack === 1) return true;
     if (DODGE_HOSTILE_TYPES.test(type)) return true;
-
-    if (a.command_type === 'attack' || a.movement_type === 'attack') return true;
+    // command_type/movement_type carry their own vocabulary; matching only the
+    // literal 'attack' missed raid/siege/revolt on clients that fill these
+    // fields instead of command_name.
+    const alt = [a.command_type, a.movement_type];
+    for (const v of alt) if (DODGE_HOSTILE_TYPES.test(String(v || '').toLowerCase().trim())) return true;
     return false;
   }
   function dodgeIncomingMovements() {
@@ -61,8 +64,10 @@
         if (!dodgeIsHostileMovement(a)) return;
 
         const origin = String(a.origin_town_id || a.home_town_id || '');
+        // Own-town origin is only kept when the movement is canonically hostile.
+        // The old second test fell back to `a.incoming`, which the v1.5.3 audit
+        // rule forbids as a hostility signal (it is set on friendly returns too).
         if (myTowns.has(origin) && a.is_attack !== true && a.is_attack !== 1) return;
-        if (myTowns.has(origin) && !a.incoming) return;
         const type = String(a.command_name || a.type || a.movement_type || '').toLowerCase();
         const units = a.units || {};
         const hasCs = !!(units.colonize_ship || units.colony_ship || /^(revolt|colonize|take_over|conquer)$/.test(type));
@@ -289,5 +294,3 @@
     });
     dodgeQueueSave();
   }
-
-  const RECRUIT_SPELLS = ['call_of_the_ocean', 'spartan_training', 'fertility_improvement'];

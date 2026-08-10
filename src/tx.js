@@ -687,4 +687,4 @@
     });
   }
 
-  const lastSelfBridge = { sig: '', fingerprint: '', at: 0, nonce: '', owner: '' };
+  const lastSelfBridge = { sig: '', fingerprint: '', at: 0, owner: '' };

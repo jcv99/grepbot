@@ -396,6 +396,16 @@
     if (target.kind === 'farm_town') return false;
     return target.kind === 'town' && target.town_id;
   }
+  function attackIsOwnTown(townId) {
+    const id = String(townId == null ? '' : townId);
+    if (!id) return false;
+    if ((state.towns || []).some(t => String(t.id) === id)) return true;
+    try {
+      const uw = gameUw();
+      if (uw.ITowns && uw.ITowns.towns && uw.ITowns.towns[id]) return true;
+    } catch (_) {}
+    return false;
+  }
   function selectHarassmentUnits(townId, preset) {
     const live = townLiveUnits(townId);
     const out = {};
@@ -502,6 +512,21 @@
       gbLog('attack: refuse Town/sendUnits for kind=' + (target && target.kind));
       return onDone && onDone('bad-target');
     }
+    // resolveTarget() resolves OWN towns to kind 'town' (that is how a support
+    // run addresses them), so nothing downstream stopped an attack/revolt on a
+    // town we already hold: a guaranteed server rejection that still costs a
+    // request budget slot and a decision-memory strike. Sending to yourself is
+    // refused outright for every mission.
+    if (String(target.town_id) === String(srcTownId)) {
+      flash('ataque bloqueado: origen y destino son la misma ciudad');
+      gbLog('attack: refuse self-target town ' + srcTownId);
+      return onDone && onDone('bad-target');
+    }
+    if (safeMission !== 'support' && attackIsOwnTown(target.town_id)) {
+      flash('ataque bloqueado: el objetivo es una ciudad propia');
+      gbLog(`attack: refuse ${safeMission} on own town ${target.town_id}`);
+      return onDone && onDone('bad-target');
+    }
 
     const live = townLiveUnits(srcTownId);
     const sendUnits = {};
@@ -535,12 +560,19 @@
       arguments: args,
       town_id: +srcTownId,
     };
-    gbLog('attack bridge:', JSON.stringify(payload));
+    // Summary by default. The full payload carries the learned template verbatim
+    // (target ids, unit composition) and the Log tab is what users copy into
+    // issues; the raw dump is available with the same redaction switch that
+    // guards Copy/Export.
+    const unitCount = Object.values(sendUnits).reduce((a, b) => a + (+b || 0), 0);
+    if (state.exportRedact === false) gbLog('attack bridge:', JSON.stringify(payload));
+    else gbLog(`attack bridge: ${payload.action_name} town ${srcTownId} → ${destId} (${args.type || '?'}, ${Object.keys(sendUnits).length} tipos / ${unitCount} unidades)`);
     bridgePost('attack', payload, (err, data) => {
       if (err) { flash('ataque fallido: ' + err); return onDone && onDone(err); }
       flash('ataque enviado #' + srcTownId);
       attackRememberTarget(target.town_id, { x: target.x, y: target.y, src: 'sent' });
-      gbLog('attack response:', JSON.stringify(data).slice(0, 200));
+      if (state.exportRedact === false) gbLog('attack response:', JSON.stringify(data).slice(0, 200));
+      else gbLog('attack response: ok');
       if (onDone) onDone(null, data);
     });
   }

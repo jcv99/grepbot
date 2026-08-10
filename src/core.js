@@ -734,7 +734,7 @@
   const TPL_HEALTH_FAILS = 5;
   const TPL_HEALTH_STALE_MS = 1800000; // retry a stale template after 30min
   const TPL_FEATURE_MAP = {
-    farm: 'claimTpl', claim: 'claimTpl',
+    farm: 'claimTpl',
     build: 'ibAction', 'instant-build': 'ibAction', 'instant-research': 'ibActionR',
     attack: 'attackTpl', cancel: 'cancelTpl', hero: 'heroTpl',
     collect: 'collectTpl',
@@ -1342,12 +1342,18 @@
     saveCaptcha();
     updateStatus();
   }
+  // "captcha_required":true / captcha_required=1 / "captcha":"<token>" — the
+  // key/value shapes, never the bare word.
+  const CAPTCHA_TEXT_RE = /["']?captcha(?:_required)?["']?\s*[:=]\s*(?:true\b|1\b|["'][^"']+["'])/i;
   function responseIsCaptcha(data) {
     if (!data) return false;
 
     let d = data;
     if (typeof d === 'string') {
-      try { d = JSON.parse(d); } catch (_) { return /captcha/i.test(d); }
+      // A bare substring match fired on any body that merely mentions the word
+      // ("no captcha required here"), pausing a healthy feature for 5/15/60min.
+      // Require the flag SHAPE the game itself sets.
+      try { d = JSON.parse(d); } catch (_) { return CAPTCHA_TEXT_RE.test(d); }
     }
     if (!d || typeof d !== 'object') return false;
     if (typeof d.json === 'string') {

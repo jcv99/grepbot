@@ -39,7 +39,11 @@
 
         const id = String(a.item_id || a.offer_id || '').toLowerCase().trim();
         if (!id) continue;
-        if (!merchantExactMatch(name, id) && !merchantExactMatch(name, String(a.type || '').toLowerCase())) continue;
+        // Exact item id only. `a.type` is an offer CATEGORY on several clients
+        // ("resource", "unit"), so matching a wish against it bought whatever
+        // the salesman happened to be selling in that category — and the final
+        // precheck below compares item ids, so the two disagreed.
+        if (!merchantExactMatch(name, id)) continue;
 
         const priceRaw = a.price != null ? a.price : (a.gold != null ? a.gold : null);
         if (priceRaw == null || priceRaw === '') continue;
@@ -109,7 +113,3 @@
       });
     });
   }
-
-  const FAVOR_TEMPLE_PLUNDER = /temple_plunder|plunder_temple|templeplunder|saqueo.?templo|plunderung.?tempel/i;
-
-  const favorOwnMoves = Object.create(null);

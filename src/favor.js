@@ -1,3 +1,11 @@
+  // Declared with their only consumer (they used to sit at the tail of
+  // merchant.js, which never mentions favor).
+  const FAVOR_TEMPLE_PLUNDER = /temple_plunder|plunder_temple|templeplunder|saqueo.?templo|plunderung.?tempel/i;
+  const favorOwnMoves = Object.create(null);
+  // Automation stays off until a canonical safe target/action contract exists
+  // (see v1.6.0). A flag instead of an early `return` keeps the implementation
+  // reachable code that the build gates and reviewers actually check.
+  const FAVOR_AUTOMATION_ENABLED = false;
   function favorCurrent() {
     try {
       const uw = gameUw();
@@ -43,9 +51,11 @@
   }
   function favorScan(reason) {
     if (!state.autoFavor) return;
-    gbLogT('favor-disabled-v160', 300000, 'favor: automation disabled in 1.6.0 — no canonical safe target/action contract available');
-    return;
-    if (!hostEnabled() || !state.autoFavor || captchaPaused('favor')) return;
+    if (!FAVOR_AUTOMATION_ENABLED) {
+      gbLogT('favor-disabled-v160', 300000, 'favor: automation disabled in 1.6.0 — no canonical safe target/action contract available');
+      return;
+    }
+    if (!hostEnabled() || captchaPaused('favor')) return;
     if (automationPaused({})) return;
     if (gbLocked('favor')) return;
     const cfg = state.favorCfg || {};
@@ -54,7 +64,16 @@
     const maxC = Math.min(8, Math.max(1, +cfg.maxConcurrent || 2));
     const fav = favorCurrent();
     const god = cfg.god || 'athena';
-    const cur = +(fav[god] || fav['favor_' + god] || fav.favor || 0);
+    // `fav.favor` is whichever god the client happens to expose as "current" —
+    // reading it as this god's pool compared the wrong number against the
+    // threshold and either farmed favor that was already full or refused to.
+    // Unreadable pool is UNKNOWN: do not spend units on a guess.
+    const raw = fav[god] != null ? fav[god] : fav['favor_' + god];
+    const cur = Number(raw);
+    if (!Number.isFinite(cur)) {
+      gbLogT('favor-unreadable', 300000, `favor: ${god} pool unreadable — no send`);
+      return;
+    }
 
     if (cur >= thresh && !cfg.force) {
       gbLogT('favor-ok', 180000, `favor: ${god}=${cur} ≥ ${thresh}`);

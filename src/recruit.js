@@ -1,3 +1,15 @@
+  // Declared with their only consumer. These used to sit at the tail of
+  // dodge.js, so recruit.js silently depended on dodge.js being concatenated
+  // first — a build-order footgun with no compile-time signal.
+  const RECRUIT_SPELLS = ['call_of_the_ocean', 'spartan_training', 'fertility_improvement'];
+  // Every recruit spell belongs to exactly one god. Casting one on a town that
+  // worships another god is a guaranteed server rejection: it costs a request
+  // budget slot and a decision-memory strike every cadence.
+  const RECRUIT_SPELL_GODS = {
+    call_of_the_ocean: 'poseidon',
+    spartan_training: 'ares',
+    fertility_improvement: 'hera',
+  };
   function recruitUnitDef(unitId) {
     try {
       const uw = gameUw();
@@ -49,6 +61,9 @@
     // every candidate in the inner loop.
     const god = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
     if (god == null) return { ok: true, blind: true, why: null };
+    // A READ god is authoritative: only the spell's own god may cast it.
+    const need = RECRUIT_SPELL_GODS[powerId];
+    if (need && god !== need) return { ok: false, why: `god-mismatch:${god}!=${need}` };
     return { ok: true, blind: false, why: null };
   }
   function recruitCastSpell(townId, powerId, onDone) {
@@ -142,8 +157,15 @@
       }
       if (def.god || def.mythical || def.is_mythical) {
         const requiredGod = def.god ? String(def.god).toLowerCase() : null;
-        const townGod = recruitTownGod(townId);
-        if (requiredGod && (!townGod || townGod !== requiredGod)) return false;
+        const townGod = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
+        // Unreadable god is UNKNOWN, not "wrong god": client builds rename
+        // getGod()/god attributes, and blocking on the miss silently killed
+        // every mythical unit in every town. A read god still decides.
+        if (requiredGod && townGod && townGod !== requiredGod) return false;
+        if (requiredGod && !townGod) {
+          gbLogT('recruit-god-blind-' + townId, 300000,
+            `recruit: town ${townId} god unreadable; ${unitId} left to the server to judge`);
+        }
         const templeNeed = +(def.temple_level ?? def.required_temple_level ?? 1);
         if (+(buildings.temple || 0) < (Number.isFinite(templeNeed) ? templeNeed : 1)) return false;
         const favorCost = +(def.favor ?? (def.resources && def.resources.favor) ?? 0);

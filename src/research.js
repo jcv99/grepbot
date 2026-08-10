@@ -96,11 +96,20 @@
     if (!aff.ok) return { ok: false, why: aff.detail || 'resources unreadable/insufficient' };
     return { ok: true, why: null };
   }
+  function researchPayload(townId, techId) {
+    return { id: techId, town_id: +townId };
+  }
+  const RESEARCH_ENDPOINT = 'building_academy/research';
+  // Decision memory is only consulted inside txRun, i.e. AFTER the scan has
+  // picked a job, logged it and spent the work. Without this pre-filter the
+  // three-strike window was wired blind: the same dead tech was re-selected
+  // every cadence, journaled as `remembered`, and no other tech in the town was
+  // ever considered because the scan stops at the first candidate.
+  function researchSkipWhy(townId, tech) {
+    return gbSkipActiveWrite('research', 'ajax', RESEARCH_ENDPOINT, researchPayload(townId, tech));
+  }
   function researchPost(townId, techId, onDone) {
-    gameAjaxPost('research', 'building_academy', 'research', {
-      id: techId,
-      town_id: +townId,
-    }, onDone);
+    gameAjaxPost('research', 'building_academy', 'research', researchPayload(townId, techId), onDone);
   }
   function researchOrderTechId(order) {
     try {
@@ -159,7 +168,15 @@
     if (/dependenc/i.test(w)) return 'waiting-requirement';
     return 'blocked';
   }
+  // boot.js re-runs this every 5s for as long as anything sits in the virtual
+  // research lane. A head that is merely waiting (resources, queue full, memory)
+  // does not change in 5s, so an idle sweep re-walks every town, every tech and
+  // every GameData lookup 12x/min for nothing. The orchestrator's own cadence is
+  // unaffected — only the native watcher backs off.
+  const RESEARCH_IDLE_BACKOFF_MS = 20000;
+  let researchIdleUntil = 0;
   function researchScan(reason) {
+    if (reason === 'native-watch' && Date.now() < researchIdleUntil) return;
     const nativePending = nativeQueueHasPending('research');
     if (!hostEnabled() || (!state.autoResearch && !nativePending) || captchaPaused('research')) return;
     if (automationPaused({})) return;
@@ -180,12 +197,19 @@
       if (!head) continue;
       const valid = researchValidateJob({ townId: tid, tech: head.tech });
       if (!valid.ok) { nativeQueueSetJobState(head, researchNativeStatus(valid.why), String(valid.why || '')); continue; }
+      const memWhy = researchSkipWhy(tid, head.tech);
+      if (memWhy) {
+        nativeQueueSetJobState(head, 'blocked', `memoria: ${memWhy}`);
+        gbLogT('research-mem-' + tid + '-' + head.tech, 60000, `research: ${head.tech} @${tid} skipped from memory (${memWhy})`);
+        continue;
+      }
       nativeQueueSetJobState(head, 'ready', 'listo');
       job = { townId: tid, tech: head.tech, nativeJobId: head.id };
       break;
     }
-    if (job) townIds = [];
-    else if (!state.autoResearch) townIds = [];
+    // A FIFO job supersedes the planner for this tick. A blocked FIFO head does
+    // NOT: the target-list towns are independent and must still be scanned.
+    if (job || !state.autoResearch) townIds = [];
     for (const tid of townIds) {
       if (nativeQueueIsFifo(tid, 'research')) continue;
       const targets = goalEffectiveResearchTargets(tid, globalTargets);
@@ -211,21 +235,30 @@
             `research: town ${tid} cannot start ${tech} yet (${aff.why})`);
           continue;
         }
+        const memWhy = researchSkipWhy(tid, tech);
+        if (memWhy) {
+          gbLogT('research-mem-' + tid + '-' + tech, 300000,
+            `research: ${tech} @${tid} skipped from memory (${memWhy}) — trying next tech`);
+          continue;
+        }
         job = { townId: tid, tech };
         break;
       }
       if (job) break;
     }
     if (!job) {
+      researchIdleUntil = Date.now() + RESEARCH_IDLE_BACKOFF_MS;
       gbLogT('research-idle', 180000, `research: idle (${reason || 'scan'})`);
       return;
     }
+    researchIdleUntil = 0;
     const valid = researchValidateJob(job);
     if (!valid.ok) {
       if (job.nativeJobId) {
         const head = nativeQueueList(job.townId, 'research', false)[0];
         if (head && head.id === job.nativeJobId) nativeQueueSetJobState(head, researchNativeStatus(valid.why), String(valid.why || ''));
       }
+      researchIdleUntil = Date.now() + RESEARCH_IDLE_BACKOFF_MS;
       gbLogT('research-stale-' + job.townId + '-' + job.tech, 60000, `research: final precheck blocked (${valid.why})`); return;
     }
     const lockToken = gbLock('research');

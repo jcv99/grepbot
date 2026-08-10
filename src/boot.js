@@ -106,6 +106,9 @@
   gbInterval(gbLockSweep, 10000);
   const releaseLocks = () => {
     try { cancelArmedAttack(); } catch (_) {}
+    // An armed instant-complete timer that survives the page exit fires against
+    // a disposed instance on bfcache restore and posts from a stale order list.
+    try { ibClearArmed(); } catch (_) {}
     try { gbUnlockAll(); } catch (_) {}
     try { banditAttackSentAt = 0; } catch (_) {}
     try { if (typeof dodgeQueueSave === 'function') dodgeQueueSave(); } catch (_) {}

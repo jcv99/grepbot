@@ -209,11 +209,22 @@
           : (r.stashable ? 'stashReward' : 'useReward');
         const rewardLock = gbLock('bandit-reward');
         if (!rewardLock) return true;
-        banditIdleUntil = 0;
         gbLog('bandit: reward claim posted via', action, pid || '(no power_id)');
+        // hasReward() stays true until the model refreshes, and the scan wakes
+        // again 1.5s after the lock drops — without an idle window the next tick
+        // posted a SECOND claim for a reward that was already taken.
+        banditIdle(15000);
         post(action, {}, (err) => {
           gbUnlock('bandit-reward', rewardLock);
-          if (err) { gbLog('bandit: reward claim failed', err); return; }
+          if (err) {
+            // A hard rejection means the reward is not claimable right now;
+            // re-posting every 1.5s only burns budget.
+            if (err === 'timeout_unknown' || err === 'pending') banditIdle(60000, 60000);
+            else banditIdle(30000);
+            gbLog('bandit: reward claim failed', err);
+            return;
+          }
+          banditIdle(15000);
           gbLog('bandit: reward claimed via', action, pid || '(no power_id)');
           flash('bandido: recompensa reclamada');
           logBandit('collected');

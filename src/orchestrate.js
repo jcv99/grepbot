@@ -19,13 +19,20 @@
     return PRIORITY_ORDER_DEFAULT.slice();
   }
 
-  function orchJrnCount(key) {
+  // "Did this feature act since we dispatched it" must be answered from a TIME
+  // window, not from a running total. state.decisions is a pruned ring (400
+  // rows / 7 days), so an absolute count can shrink between two samples: a
+  // feature that acted once while three old rows aged out looked idle and got
+  // its cadence doubled. Rows are ordered oldest-first, so the scan stops at
+  // the first row older than the mark.
+  function orchJrnOkSince(key, since) {
     const f = ORCH_JRN[key];
-    if (!f) return 0;
+    if (!f || !(since > 0)) return 0;
     let n = 0;
     const list = state.decisions || [];
-    for (let i = list.length - 1; i >= 0 && n < 100000; i--) {
+    for (let i = list.length - 1; i >= 0; i--) {
       const r = list[i];
+      if (r.ts < since) break;
       if (r.f === f && r.r === 'ok') n += r.n || 1;
     }
     return n;
@@ -43,11 +50,9 @@
     return Math.round(base * jitter);
   }
   function orchNoteResult(key) {
-    const before = orchJrnMark[key];
-    const after = orchJrnCount(key);
-    orchJrnMark[key] = after;
-    if (before == null) return;
-    if (after > before) {
+    const since = orchJrnMark[key];
+    if (!(since > 0)) return;
+    if (orchJrnOkSince(key, since) > 0) {
       if (orchIdle[key]) {
         gbLogT('orch-wake-' + key, 300000, `orch: ${key} acted, cadence back to normal`);
       }
@@ -109,9 +114,9 @@
         // Judge the previous run only when this feature is about to run again. That gives
         // the entire cadence window to asynchronous/batched transactions instead of sampling
         // a few seconds after dispatch and misclassifying slow success as idle.
-        if (orchJrnMark[item.key] != null) orchNoteResult(item.key);
+        orchNoteResult(item.key);
         orchLastRun[item.key] = Date.now();
-        orchJrnMark[item.key] = orchJrnCount(item.key);
+        orchJrnMark[item.key] = Date.now();
         ORCH_HANDLERS[item.key]();
       };
       if (idx === 0) fire();

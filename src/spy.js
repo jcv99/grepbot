@@ -1,3 +1,8 @@
+  // Report-dedup state lives with its only writer. It used to be declared at the
+  // tail of journal.js, so the module that owns it could not be reordered
+  // without a TDZ failure in a file that never mentions reports.
+  const seenThisRun = new Set();
+  const seenHost = location.hostname;
   function seenKey(id) { return seenHost + ':' + id; }
 
   function hookFetch() {

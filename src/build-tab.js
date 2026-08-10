@@ -11,7 +11,7 @@
       return Number.isFinite(+price) ? +price : null;
     } catch (_) { return null; }
   }
-  function ibIsFreeOrder(doneAt, timeLeft, gold) {
+  function ibIsFreeOrder(timeLeft, gold) {
     return Number.isFinite(+timeLeft) && +timeLeft > 0 && +timeLeft <= ibSafeFreeThresh() && gold === 0;
   }
   function ibOrderStillPresent(orderId,kind) {
@@ -43,41 +43,60 @@
       town_id: order.town_id,
     };
   }
+  function ibFeatureFor(kind) { return kind === 'research' ? 'instant-research' : 'instant-build'; }
+  // Must mirror bridgePost/txRun exactly: feature key + `model_url/action_name`
+  // endpoint + txIntent. Asking gbSkipActive('build', payload) instead looked up
+  // `t<town>:-` under feature `build`, a key the trip path never writes — so the
+  // pre-filter was dead and every scan re-announced an order txRun then refused.
+  function ibSkipWhy(order) {
+    const payload = ibJrnPayload(order);
+    const endpoint = String(payload.model_url) + '/' + String(payload.action_name);
+    return gbSkipActiveWrite(ibFeatureFor(order.kind || 'build'), 'bridge', endpoint, payload);
+  }
   // The 10s scan is the safety net; this armed timer is the accelerator that
   // lands the free post at ~4:58 instead of up to 10s late. Never drop either -
   // a background tab clamps timers and only the interval recovers that.
-  let ibFreeTimer = null;
-  let ibFreeArmedAt = 0;
+  // One timer PER TOWN: a single global timer always tracked the earliest town
+  // and every other town's free window was left to the 10s interval, up to ~10s
+  // late — exactly the miss this accelerator exists to prevent.
+  const ibFreeTimers = Object.create(null);
+  function ibClearArmed(townKey) {
+    if (townKey == null) {
+      for (const k of Object.keys(ibFreeTimers)) ibClearArmed(k);
+      return;
+    }
+    const e = ibFreeTimers[townKey];
+    if (!e) return;
+    gbClearTimeout(e.timer);
+    delete ibFreeTimers[townKey];
+  }
   function ibArmNext(orders) {
     const now = Date.now();
     const thresh = ibFreeThresh() * 1000;
-    let best = 0;
+    const best = Object.create(null);
     (orders || []).forEach(o => {
       // Only the head order of each town is counting down; a queued order
       // reports its full build time and its clock has not started yet.
       if (o.isFree || !o.isHead || !(o.display > 0)) return;
       const armIn = (o.display * 1000) - thresh;
       if (armIn <= 0) return;
+      const key = String(o.town_id) + ':' + (o.kind || 'build');
       const at = now + armIn;
-      if (!best || at < best) best = at;
+      if (!best[key] || at < best[key]) best[key] = at;
     });
-    if (!best) {
-      if (ibFreeTimer) gbClearTimeout(ibFreeTimer);
-      ibFreeTimer = null;
-      ibFreeArmedAt = 0;
-      return;
+    for (const key of Object.keys(ibFreeTimers)) if (!best[key]) ibClearArmed(key);
+    for (const key of Object.keys(best)) {
+      // +1.2s so the server clock is past the boundary, plus jitter.
+      const fireAt = best[key] + 1200 + Math.floor(Math.random() * 1500);
+      const cur = ibFreeTimers[key];
+      if (cur && Math.abs(cur.at - fireAt) < 3000) continue;
+      ibClearArmed(key);
+      ibFreeTimers[key] = {
+        at: fireAt,
+        timer: gbTimeout(() => { delete ibFreeTimers[key]; ibScan(); }, Math.max(500, fireAt - now)),
+      };
+      gbLogT('ib-arm-' + key, 60000, `instant: ${key} armed in ${fmtSec((fireAt - now) / 1000)} (free window at <=${ibFreeThresh()}s)`);
     }
-    // +1.2s so the server clock is past the boundary, plus jitter.
-    const fireAt = best + 1200 + Math.floor(Math.random() * 1500);
-    if (ibFreeTimer && ibFreeArmedAt && Math.abs(ibFreeArmedAt - fireAt) < 3000) return;
-    if (ibFreeTimer) gbClearTimeout(ibFreeTimer);
-    ibFreeArmedAt = fireAt;
-    ibFreeTimer = gbTimeout(() => {
-      ibFreeTimer = null;
-      ibFreeArmedAt = 0;
-      ibScan();
-    }, Math.max(500, fireAt - now));
-    gbLogT('ib-arm', 60000, `instant: armed in ${fmtSec((fireAt - now) / 1000)} (free window at <=${ibFreeThresh()}s)`);
   }
   function ibTownNames(uw) {
     const names = {};
@@ -119,10 +138,11 @@
     const uw = uwCached();
     const cols = [],colRefs=new Set();
     const addCol=col=>{if(col&&Array.isArray(col.models)&&col.models.length&&!colRefs.has(col)){colRefs.add(col);cols.push(col)}};
-    try {
-      const col = mmCol('ResearchOrder');
-      addCol(col);
-    } catch (_) {}
+    // Town-owned collections FIRST. `seenIds` keeps the first model it sees for
+    // an id, and the town's own queue is the one the client keeps current — the
+    // global MM collection can still hold a completed/stale copy of the same
+    // order, and pricing an instant complete off stale remaining time is how a
+    // "free" post turns into a paid one.
     try {
       const towns=uw.ITowns&&uw.ITowns.towns||{};
       for(const town of Object.values(towns)){
@@ -130,6 +150,10 @@
           try{if(town&&typeof town[fn]==='function')addCol(town[fn]())}catch(_){}
         }
       }
+    } catch (_) {}
+    try {
+      const col = mmCol('ResearchOrder');
+      addCol(col);
     } catch (_) {}
     let gpCols = null;
     try { gpCols = uw.GPWindowMgr && uw.GPWindowMgr._collections; } catch (_) {}
@@ -157,7 +181,7 @@
           display,
           timeLeft,
           isHead: isFirst,
-          isFree: isFirst && ibIsFreeOrder(doneAt, timeLeft, gold),
+          isFree: isFirst && ibIsFreeOrder(timeLeft, gold),
           gold,
         });
       });
@@ -171,19 +195,22 @@
     const names = ibTownNames(uw);
     const research = (includeAllResearch||state.ibResearch) ? ibResearchOrders(names) : [];
     let candidates = [], src = null;
-    try {
-      const col = mmCol('BuildingOrder');
-      if (col && col.models && col.models.length) { candidates.push(col); src = 'MM'; }
-    } catch (_) {}
-    // Some worlds only keep the active town in the global collection. Merge
-    // every town-owned queue as well; seenIds below removes shared models.
+    // Town-owned queues FIRST, then the global MM collection. Some worlds only
+    // keep the active town in the global collection, and `seenIds` below keeps
+    // the FIRST model per id — with MM in front, a stale global copy of an
+    // order won over the town's live one and the instant price was computed
+    // from the wrong remaining time.
     try {
       const townModels=uw.ITowns&&uw.ITowns.towns||{};
       for(const town of Object.values(townModels)){
         const col=town&&town.buildingOrders&&town.buildingOrders();
         if(col&&col.models&&col.models.length)candidates.push(col);
       }
-      if(candidates.length&&!src)src='ITowns';else if(candidates.length>1&&src)src+='+ITowns';
+      if(candidates.length)src='ITowns';
+    } catch (_) {}
+    try {
+      const col = mmCol('BuildingOrder');
+      if (col && col.models && col.models.length) { candidates.push(col); src = src ? src + '+MM' : 'MM'; }
     } catch (_) {}
     let gpCols = null;
     try { gpCols = uw.GPWindowMgr && uw.GPWindowMgr._collections; } catch (_) {}
@@ -214,6 +241,12 @@
         const display = isFirst ? timeLeft : (r.building_time || 0);
         const instantLeft = display;
         const gold = ibGoldCost('build', instantLeft);
+        // A queued (non-head) order prices its own duration, but the server
+        // charges from when it can actually start. Requiring the queue ETA to
+        // be free as well keeps the "free" claim honest: `buyInstant` SPENDS
+        // GOLD when the server disagrees, and that is not recoverable.
+        const queueGold = isFirst ? gold : ibGoldCost('build', timeLeft);
+        const queueFree = isFirst || ibIsFreeOrder(timeLeft, queueGold);
         out.push({
           id: r.id,
           kind: 'build',
@@ -226,8 +259,9 @@
           instantLeft,
           isHead: isFirst,
           // Unlike research, building buyInstant is allowed on any queue position
-          // when Grepolis' live price function says the individual order costs 0 gold.
-          isFree: ibIsFreeOrder(doneAt, instantLeft, gold),
+          // when Grepolis' live price function says the individual order costs 0
+          // gold AND the queue ETA is inside the free window too.
+          isFree: queueFree && ibIsFreeOrder(instantLeft, gold),
           gold,
         });
       });
@@ -367,9 +401,9 @@
     // ends, so without this every window produced a wall of
     // "free order(s), auto-completing" / "completed 0/N" with zero progress.
     const live = free.filter(o => {
-      const why = gbSkipActive('build', ibJrnPayload(o));
+      const why = ibSkipWhy(o);
       if (!why) return true;
-      gbLogT('ib-mem-' + o.town_id, 60000, `instant: #${o.id} skipped from memory (${why})`);
+      gbLogT('ib-mem-' + o.town_id + '-' + o.id, 60000, `instant: #${o.id} skipped from memory (${why})`);
       return false;
     });
     if (!live.length) return;
