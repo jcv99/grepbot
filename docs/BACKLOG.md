@@ -40,7 +40,29 @@ HIGH-RISK 8.12/8.13 only after payload sniff matches UI
 
 ---
 
-## 1. Still open
+## 1. Closed in the v3.0 sweep (2026-08-10, see git log v3.0.0..v3.8.0)
+
+| Item | Plan | Shipped |
+|------|------|---------|
+| Farm scrape circuit breaker + Config toggle + clearer footer + Preflight | 26 §A1 | v3.0.0 (9ddefe6) |
+| Scope-aware request budget (action 100% / read 85% / scrape 60%) + Stats per-scope + soft delay | 26 §A3 + §C2 | v3.1.0 (4f413be) |
+| Town action cache (per-town + town-list) | 26 §A2 | v3.2.0 (e9415fc) |
+| Captcha ladder UI + posts-soft-pct UI | 26 §B1 + §B5 | v3.3.0 (1b3d6ce) |
+| Warehouse deadlock resolver + Config toggle + footer !WH + Stats line + Evidence | 26 §B6 (plan 05) | v3.4.0 (48310e5) |
+| Alliance notes setter + Intel row | 26 §B2 (plan 03) | v3.5.0 (58699e8) |
+| Sticky sort per tab + journal filter persistence (state.tabFilters wired) | 26 §B4 (plan 18) | v3.5.0 (58699e8) |
+| Config presets (AFK / farming / war) with HIGH-RISK forced OFF | 26 §B3 (plan 16) | v3.6.0 (7242e82) |
+| Adaptive claim duration (use the long options that already learned) | 26 §C1 | v3.7.0 (b62bcd4) |
+| Preflight coverage for tx / phoenician / native queue / queue center | 26 §C3 | v3.8.0 (fa65c32) |
+| Remove orphan flags state.abNextAt + state.tradeMaxHops | 26 §B6 | v3.4.0 (48310e5) |
+| Fix farms.js onerror burning the ladder on budget/disabled | 26 §A1 | v3.0.0 (9ddefe6) |
+| Correct stale `core.js:313` wkey claim in error-patterns.md | 26 §D | 2026-08-10 (eb43082) |
+| Regenerate CLAUDE.md repo-layout + concat order from build.py MODULES | 26 §D | 2026-08-10 (eb43082) |
+| Rewrite BACKLOG.md against the actual tree | 26 §D | 2026-08-10 (eb43082) |
+
+---
+
+## 3. Still open
 
 | Gap | Why it matters | Risk | Plan |
 |-----|----------------|------|------|
@@ -58,20 +80,21 @@ HIGH-RISK 8.12/8.13 only after payload sniff matches UI
 
 ---
 
-## 2. New value (plan 26 §C)
+## 2. New value (plan 26 §C) — shipped in v3.0 sweep
 
-| # | Feature | Notes |
-|---|---------|-------|
-| 1 | **Adaptive claim duration** | 20min–3h options are learnable and completely unused; fewer claims = fewer posts |
-| 2 | **Budget visibility in Stats** | slots by scope, soft delay, `skip:budget` count |
-| 3 | **Preflight for post-v1.5 modules** | native-ui, queue-center, phoenician, tx, bridge have no probe |
+| # | Feature | Shipped |
+|---|---------|---------|
+| 1 | **Adaptive claim duration** | v3.7.0 |
+| 2 | **Budget visibility in Stats** | v3.1.0 |
+| 3 | **Preflight for post-v1.5 modules** | v3.8.0 |
 
 ---
 
 ## 3. Dead state to wire or delete (plan 26 §B6)
 
-`orchDeadlockResolve` (`core.js:356`), `tabFilters` (`core.js:355`),
-`abNextAt` (`core.js:277`), `tradeMaxHops` (`core.js:357`) are loaded into state
+`orchDeadlockResolve` is now wired (v3.4.0). `tabFilters` is now wired (v3.5.0).
+`abNextAt` (`core.js:277`), `tradeMaxHops` (`core.js:357`) were removed in v3.4.0
+— both were loaded into state and referenced nowhere else.
 and never read anywhere. `dodgeMode` (`core.js:313`) is migration-only. Wire or
 delete each; a Config-shaped boolean that does nothing is worse than neither.
 
@@ -105,11 +128,11 @@ Moat = reliability + intel + dry-run validation, not reckless automation.
 
 ---
 
-## 6. Top ROI picks
+## 6. Top ROI picks — for the next sweep
 
-1. **Farm scrape circuit breaker** (26 §A1) — stops a dead loop from starving live automation
-2. **Scope-aware budget + Stats visibility** (26 §A3 + §C2) — makes the next A1 self-evident
-3. **Adaptive claim duration** (26 §C1) — more loot per request, less captcha surface
+1. **Wonder favor cast** (plan 02) — WW-worlds only; deferred since v1.0
+2. **Watchlist "why" detail in the panel** — only Export/Dump carries the match reason today
+3. **Support ETA on the threat board** — already in the dump; render it on the Intel tab
 
 ---
 
