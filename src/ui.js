@@ -918,6 +918,12 @@
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Gasta favor en la maravilla de la alianza. Requiere haber capturado wonderFavorTpl. Por defecto OFF."><input type="checkbox" data-cfg="auto-wonder-favor"/> Lanzar favor en la Maravilla (captura el poder antes)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="cs-alert"/> CS / incoming alerts</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-militia"/> Auto-militia on incoming</label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="Milicia inteligente (v4 3.6): consume poblacion que no vuelve durante la oleada, asi que solo se levanta cuando vale la pena.">Milicia:
+          forzar riesgo &gt;= <input type="number" data-cfg="militia-force" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          saltar riesgo &lt; <input type="number" data-cfg="militia-skip" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          defensa local OK &gt;= <input type="number" data-cfg="militia-local" min="0" max="100000" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
+          espera zona gris <input type="number" data-cfg="militia-grace" min="0" max="60" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/> min
+        </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-dodge"/> Auto-dodge</label>
         <label style="margin-left:12px">Defense mode <select data-cfg="defense-mode" style="background:#111;color:#cfc;border:1px solid #333"><option value="notify">avisar</option><option value="safe">esquiva segura</option><option value="smart">smart</option></select> <label><input type="checkbox" data-cfg="defense-smart-auto"/> smart auto</label> check return +<input type="number" data-cfg="defense-return-margin" min="0" max="3600" style="width:55px;background:#111;color:#cfc;border:1px solid #333"/>s (manual if support arrived) · leave <input type="number" data-cfg="dodge-floor" min="0" max="500" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="Pesos del motor de amenaza (v4 5.3). Los valores por defecto reproducen exactamente el comportamiento anterior.">Amenaza:
@@ -1472,6 +1478,11 @@
     setChk('[data-cfg=auto-favor]', state.autoFavor);
     setChk('[data-cfg=auto-wonder]', state.autoWonder);
     setChk('[data-cfg=cs-alert]', state.csAlert !== false);
+    { const mc = militiaCfg();
+      setNum('[data-cfg=militia-force]', mc.forceRisk);
+      setNum('[data-cfg=militia-skip]', mc.skipRisk);
+      setNum('[data-cfg=militia-local]', mc.localOk);
+      setNum('[data-cfg=militia-grace]', Math.round(mc.graceMs / 60000)); }
     setChk('[data-cfg=auto-militia]', state.autoMilitia);
     setChk('[data-cfg=auto-dodge]', state.autoDodge);
     setChk('[data-cfg=auto-recruit]', state.autoRecruit);
@@ -1684,6 +1695,17 @@
       gbLog('support auto ' + (state.supportCfg.auto ? 'ON - real troops, confirm gate per window' : 'OFF'));
       if (state.supportCfg.auto && !state.supportTpl) flash('apoyo ON pero sin plantilla: envia un apoyo a mano una vez');
     });
+    const saveMilitia = (key, v, lo, hi, mul) => {
+      if (!state.militiaCfg || typeof state.militiaCfg !== 'object') state.militiaCfg = {};
+      const n = Number.isFinite(+v) ? +v * (mul || 1) : null;
+      if (n == null) return;
+      state.militiaCfg[key] = Math.max(lo, Math.min(hi, n));
+      save(STORE.MILITIA_CFG, state.militiaCfg);
+    };
+    saveNum('[data-cfg=militia-force]', v => saveMilitia('forceRisk', v, 0, 100));
+    saveNum('[data-cfg=militia-skip]', v => saveMilitia('skipRisk', v, 0, 100));
+    saveNum('[data-cfg=militia-local]', v => saveMilitia('localOk', v, 0, 100000));
+    saveNum('[data-cfg=militia-grace]', v => saveMilitia('graceMs', v, 0, 3600000, 60000));
     saveNum('[data-cfg=support-confirm]', v => saveSupport('confirmThreshold', v, 0, 10000));
     saveNum('[data-cfg=support-home-floor]', v => saveSupport('homeFloor', v, 0, 50));
     saveNum('[data-cfg=support-min-eta]', v => saveSupport('minEtaSec', v, 30, 3600));

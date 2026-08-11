@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.12.1
+// @version      4.13.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -136,6 +136,7 @@ const STORE = {
     PRIORITY_ORDER: 'grepbot:priority-order',
     ISLAND_SHIP: 'grepbot:island-ship',
     AUTO_MILITIA: 'grepbot:auto-militia',
+    MILITIA_CFG: 'grepbot:militia-cfg',
     CS_ALERT: 'grepbot:cs-alert',
     PLAYER_NOTES: 'grepbot:player-notes',
     WATCHLIST: 'grepbot:watchlist',
@@ -227,7 +228,7 @@ const STORE = {
     STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES,
     STORE.CAPTCHA_GLOBAL_UNTIL,
     STORE.SERVER_COOLDOWN, STORE.QUEST_CLAIM_FAIL, STORE.DODGE_QUEUE,
-    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER,
+    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER,
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
     STORE.SPELL_COOLDOWN,
@@ -614,6 +615,7 @@ const STORE = {
     predictCfg: load(STORE.PREDICT_CFG, { horizonHours: 6 }),
     defenseCfg: load(STORE.DEFENSE_CFG, { mode: 'notify', returnMarginSec: 120, smartAuto: false }),
 
+    militiaCfg: load(STORE.MILITIA_CFG, { forceRisk: 50, skipRisk: 10, localOk: 400, graceMs: 180000 }),
     supportCfg: load(STORE.SUPPORT_CFG, { auto: false, confirmThreshold: 100, homeFloor: 0, shareDodgeFloor: true, minEtaSec: 120, noArmSec: 60, overlapSec: 30 }),
     supportLastSend: load(STORE.SUPPORT_LAST_SEND, {}) || {},
     supportTpl: load(STORE.SUPPORT_TEMPLATE, null),
@@ -11629,6 +11631,56 @@ const STORE = {
   }
   const DODGE_MILITIA_WINDOW_SEC = 15 * 60;
 
+  const M_MILITIA_FORCE = 50;
+  const M_MILITIA_SKIP = 10;
+  const M_MILITIA_LOCAL_OK = 400;
+  const DODGE_MILITIA_GRACE_MS = 3 * 60 * 1000;
+  function militiaCfg() {
+    const c = (state.militiaCfg && typeof state.militiaCfg === 'object') ? state.militiaCfg : {};
+    const num = (v, d, lo, hi) => { const n = +v; return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
+    return {
+      forceRisk: num(c.forceRisk, M_MILITIA_FORCE, 0, 100),
+      skipRisk: num(c.skipRisk, M_MILITIA_SKIP, 0, 100),
+      localOk: num(c.localOk, M_MILITIA_LOCAL_OK, 0, 100000),
+      graceMs: num(c.graceMs, DODGE_MILITIA_GRACE_MS, 0, 3600000),
+    };
+  }
+
+  const dodgeAssessMemo = Object.create(null);
+  function dodgeAssessmentCached(mov, entry) {
+    const now = Date.now();
+    const key = String(mov && mov.id);
+    const hit = dodgeAssessMemo[key];
+    if (hit && now - hit.at < 5000) return hit.v;
+    let a = null;
+    try { a = defenseAssessment(mov); } catch (_) { a = null; }
+    if (a) dodgeAssessMemo[key] = { at: now, v: a };
+    for (const k of Object.keys(dodgeAssessMemo)) if (now - dodgeAssessMemo[k].at > 60000) delete dodgeAssessMemo[k];
+    return a;
+  }
+
+  function dodgeShouldMilitia(mov, a, entry) {
+    const cfg = militiaCfg();
+
+    if (!a) return { yes: true, why: 'assessment unreadable - raising', group: 'force' };
+    if (mov.hasCs) return { yes: true, why: 'CS incoming', group: 'force' };
+    if (a.risk >= cfg.forceRisk) return { yes: true, why: `risk ${a.risk} >= ${cfg.forceRisk}`, group: 'force' };
+
+    if (a.simultaneous >= 2) return { yes: true, why: `${a.simultaneous} simultaneas`, group: 'force' };
+    const local = (a.local && +a.local.score) || 0;
+    if (a.risk < cfg.skipRisk && local >= cfg.localOk) {
+      return { yes: false, why: `riesgo ${a.risk} < ${cfg.skipRisk} y defensa local ${local} >= ${cfg.localOk}`, group: 'skip' };
+    }
+
+    const first = entry && +entry.ts;
+    const etaMs = a.eta != null ? a.eta * 1000 : null;
+    const wait = etaMs != null ? Math.min(cfg.graceMs, Math.floor(etaMs / 2)) : cfg.graceMs;
+    if (first && wait > 0 && Date.now() - first < wait) {
+      return { yes: false, why: `zona gris, esperando ${fmtSec(Math.round((wait - (Date.now() - first)) / 1000))}`, group: 'grace' };
+    }
+    return { yes: true, why: `zona gris agotada (riesgo ${a.risk})`, group: 'grace' };
+  }
+
   function dodgeNotify(mov, entry) {
     if (entry.notified) return;
     entry.notified = true;
@@ -11644,7 +11696,18 @@ const STORE = {
   function dodgeTryMilitia(mov,entry) {
     if(!state.autoMilitia||captchaPausedAny('militia','dodge')||entry.militiaState==='raised'||entry.militiaState==='sending')return;
     const eta=dodgeEtaSec(mov),now=Date.now();if(eta==null||eta>DODGE_MILITIA_WINDOW_SEC||eta<=0){gbLogT('militia-eta-'+mov.dest,60000,`militia: waiting; hostile ETA ${eta==null?'unknown':fmtSec(eta)}`);return}
-    if(entry.militiaNextAt&&entry.militiaNextAt>now)return;const can=dodgeCanRaiseMilitia(mov.dest);
+    if(entry.militiaNextAt&&entry.militiaNextAt>now)return;
+
+    const dec = dodgeShouldMilitia(mov, dodgeAssessmentCached(mov, entry), entry);
+    if (!dec.yes) {
+      entry.militiaState = 'skipped';
+      entry.militiaNextAt = now + 20000;
+      dodgeQueueSave();
+      gbLogT('militia-skip-reason-' + mov.dest, 60000, `militia: ${mov.dest} skipped (${dec.why})`);
+      try { whyNote('militia', mov.dest, 'skipped', dec.why); } catch (_) {}
+      return;
+    }
+    const can=dodgeCanRaiseMilitia(mov.dest);
     if(!can.ok){if(/already standing/.test(can.why||'')){entry.militiaState='raised';dodgeQueueSave()}else{entry.militiaState='pending';entry.militiaNextAt=now+30000}return}
     const token=gbLock('militia',30000);if(!token){entry.militiaNextAt=now+2000;return}entry.militiaState='sending';dodgeQueueSave();
     dodgeRaiseMilitia(mov.dest,err=>{gbUnlock('militia',token);if(!err){entry.militiaState='raised';entry.militiaNextAt=0;gbLog(`militia: raised in ${mov.dest} (ETA ${fmtSec(eta)})`)}else if(err==='timeout_unknown'||err==='pending'){entry.militiaState='unknown';entry.militiaNextAt=Date.now() + 5 * 60 * 1000;gbLog(`militia: outcome unknown (${err}); retry bounded to 5min \u2014 militia consumes population and re-firing without resolution is unsafe`)}else{entry.militiaState='pending';entry.militiaNextAt=Date.now()+30000;gbLogT('militia-retry-'+mov.dest,30000,`militia: retry scheduled (${err})`)}dodgeQueueSave()});
@@ -16176,6 +16239,17 @@ const STORE = {
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
       };
     }));
+    out.push(preflightProbe('militia: smart gate', () => {
+      const c = militiaCfg();
+
+      const degenerate = c.skipRisk > c.forceRisk;
+      return {
+        ok: true,
+        warn: !!state.autoMilitia && degenerate,
+        detail: `auto ${state.autoMilitia ? 'ON' : 'OFF'}, forzar>=${c.forceRisk}, saltar<${c.skipRisk}, defensa local ${c.localOk}, gris ${Math.round(c.graceMs / 60000)}min` +
+          (degenerate ? ' - saltar > forzar, la rama de salto no se alcanza' : ''),
+      };
+    }));
     out.push(preflightProbe('cave: emergency', () => {
       const ids = (typeof caveListTownIds === 'function' ? caveListTownIds() : []);
       const ready = ids.filter(id => { try { return emergencyPlan(id).ok; } catch (_) { return false; } }).length;
@@ -17966,6 +18040,12 @@ const STORE = {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Gasta favor en la maravilla de la alianza. Requiere haber capturado wonderFavorTpl. Por defecto OFF."><input type="checkbox" data-cfg="auto-wonder-favor"/> Lanzar favor en la Maravilla (captura el poder antes)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="cs-alert"/> CS / incoming alerts</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-militia"/> Auto-militia on incoming</label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="Milicia inteligente (v4 3.6): consume poblacion que no vuelve durante la oleada, asi que solo se levanta cuando vale la pena.">Milicia:
+          forzar riesgo &gt;= <input type="number" data-cfg="militia-force" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          saltar riesgo &lt; <input type="number" data-cfg="militia-skip" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          defensa local OK &gt;= <input type="number" data-cfg="militia-local" min="0" max="100000" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
+          espera zona gris <input type="number" data-cfg="militia-grace" min="0" max="60" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/> min
+        </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-dodge"/> Auto-dodge</label>
         <label style="margin-left:12px">Defense mode <select data-cfg="defense-mode" style="background:#111;color:#cfc;border:1px solid #333"><option value="notify">avisar</option><option value="safe">esquiva segura</option><option value="smart">smart</option></select> <label><input type="checkbox" data-cfg="defense-smart-auto"/> smart auto</label> check return +<input type="number" data-cfg="defense-return-margin" min="0" max="3600" style="width:55px;background:#111;color:#cfc;border:1px solid #333"/>s (manual if support arrived) \u00b7 leave <input type="number" data-cfg="dodge-floor" min="0" max="500" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="Pesos del motor de amenaza (v4 5.3). Los valores por defecto reproducen exactamente el comportamiento anterior.">Amenaza:
@@ -18519,6 +18599,11 @@ const STORE = {
     setChk('[data-cfg=auto-favor]', state.autoFavor);
     setChk('[data-cfg=auto-wonder]', state.autoWonder);
     setChk('[data-cfg=cs-alert]', state.csAlert !== false);
+    { const mc = militiaCfg();
+      setNum('[data-cfg=militia-force]', mc.forceRisk);
+      setNum('[data-cfg=militia-skip]', mc.skipRisk);
+      setNum('[data-cfg=militia-local]', mc.localOk);
+      setNum('[data-cfg=militia-grace]', Math.round(mc.graceMs / 60000)); }
     setChk('[data-cfg=auto-militia]', state.autoMilitia);
     setChk('[data-cfg=auto-dodge]', state.autoDodge);
     setChk('[data-cfg=auto-recruit]', state.autoRecruit);
@@ -18731,6 +18816,17 @@ const STORE = {
       gbLog('support auto ' + (state.supportCfg.auto ? 'ON - real troops, confirm gate per window' : 'OFF'));
       if (state.supportCfg.auto && !state.supportTpl) flash('apoyo ON pero sin plantilla: envia un apoyo a mano una vez');
     });
+    const saveMilitia = (key, v, lo, hi, mul) => {
+      if (!state.militiaCfg || typeof state.militiaCfg !== 'object') state.militiaCfg = {};
+      const n = Number.isFinite(+v) ? +v * (mul || 1) : null;
+      if (n == null) return;
+      state.militiaCfg[key] = Math.max(lo, Math.min(hi, n));
+      save(STORE.MILITIA_CFG, state.militiaCfg);
+    };
+    saveNum('[data-cfg=militia-force]', v => saveMilitia('forceRisk', v, 0, 100));
+    saveNum('[data-cfg=militia-skip]', v => saveMilitia('skipRisk', v, 0, 100));
+    saveNum('[data-cfg=militia-local]', v => saveMilitia('localOk', v, 0, 100000));
+    saveNum('[data-cfg=militia-grace]', v => saveMilitia('graceMs', v, 0, 3600000, 60000));
     saveNum('[data-cfg=support-confirm]', v => saveSupport('confirmThreshold', v, 0, 10000));
     saveNum('[data-cfg=support-home-floor]', v => saveSupport('homeFloor', v, 0, 50));
     saveNum('[data-cfg=support-min-eta]', v => saveSupport('minEtaSec', v, 30, 3600));

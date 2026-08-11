@@ -215,6 +215,18 @@
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
       };
     }));
+    out.push(preflightProbe('militia: smart gate', () => {
+      const c = militiaCfg();
+      // skipRisk above forceRisk makes the skip branch unreachable: the toggle
+      // reads as tuned but the gate is effectively the old unconditional one.
+      const degenerate = c.skipRisk > c.forceRisk;
+      return {
+        ok: true,
+        warn: !!state.autoMilitia && degenerate,
+        detail: `auto ${state.autoMilitia ? 'ON' : 'OFF'}, forzar>=${c.forceRisk}, saltar<${c.skipRisk}, defensa local ${c.localOk}, gris ${Math.round(c.graceMs / 60000)}min` +
+          (degenerate ? ' - saltar > forzar, la rama de salto no se alcanza' : ''),
+      };
+    }));
     out.push(preflightProbe('cave: emergency', () => {
       const ids = (typeof caveListTownIds === 'function' ? caveListTownIds() : []);
       const ready = ids.filter(id => { try { return emergencyPlan(id).ok; } catch (_) { return false; } }).length;
