@@ -373,15 +373,16 @@
         gbLogT('pt-nostock', 300000, `phoenician: town ${townId} ${give} below reserve - skip`);
         return;
       }
-      gbLock('pt-trade');
-      ptRunPump(townId, pick, give, get, cfg);
+      const ptLock = gbLock('pt-trade');
+      if (!ptLock) return;
+      ptRunPump(townId, pick, give, get, cfg, ptLock);
     });
   }
-  function ptRunPump(townId, offer, give, get, cfg) {
+  function ptRunPump(townId, offer, give, get, cfg, ptLock) {
     let pumps = 0;
     let lastRatio = offer.ratio;
     const finish = (why) => {
-      gbUnlock('pt-trade');
+      gbUnlock('pt-trade', ptLock);
       if (why) gbLog(`phoenician: ${why}`);
     };
     const bulk = () => {

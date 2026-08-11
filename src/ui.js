@@ -685,8 +685,14 @@
     /* Scope the collapse-icon rules to the toggle button only. The Colas button
        shares the header but must remain a real button (and would otherwise
        overlap the toggle glyph with its own "GB" ::before). */
-    #grepbot-panel.collapsed header button[data-act=toggle]{border:0;padding:0;width:100%;height:100%;font-size:0;font-weight:700;color:var(--gb-accent);border-radius:6px}
+    #grepbot-panel.collapsed header button[data-act=toggle]{border:0;padding:0;flex:1;width:auto;height:100%;font-size:0;font-weight:700;color:var(--gb-accent);border-radius:6px;cursor:pointer}
     #grepbot-panel.collapsed header button[data-act=toggle]::before{content:"GB";display:block;font-size:11px;line-height:${PANEL_SQ}px}
+    /* Hide Colas while collapsed so the toggle (restore) owns the whole 40x40.
+       Flex would otherwise give Colas its content width and collapse toggle to ~0px. */
+    #grepbot-panel.collapsed header [data-act=queues]{display:none}
+    /* The Colas+toggle wrapper div has no explicit height, so height:100% on the
+       toggle resolves to 0. Stretch the wrapper so the toggle fills the header. */
+    #grepbot-panel.collapsed header > div:last-child{height:100%}
     /* Hide header status pills when collapsed so the square stays a square. */
     #grepbot-panel.collapsed .gb-head-main,#grepbot-panel.collapsed .gb-head-status,#grepbot-panel.collapsed .gb-head-mode,#grepbot-panel.collapsed .gb-head-health{display:none !important}
     #grepbot-panel.collapsed .gb-qat,#grepbot-panel.collapsed .gb-nav,#grepbot-panel.collapsed .gb-subtabs,#grepbot-panel.collapsed section,#grepbot-panel.collapsed footer,#grepbot-panel.collapsed .gb-resize{display:none !important}
@@ -2583,7 +2589,7 @@
   // cursor crosses a game overlay or an iframe mid-drag.
   (function drag(el) {
     let sx, sy, dx, dy, dragging = false, moved = false, pid = null;
-    const inHandle = t => !!(t && t.closest && t.closest('#grepbot-panel header') && !t.closest('.gb-resize'));
+    const inHandle = t => !!(t && t.closest && t.closest('#grepbot-panel header') && !t.closest('.gb-resize') && !t.closest('button,select,input,textarea'));
     gbListen(document, 'pointerdown', e => {
       if (e.button != null && e.button !== 0) return;
       if (!inHandle(e.target)) return;
