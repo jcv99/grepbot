@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.0.1
+// @version      4.0.3
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -3670,6 +3670,7 @@ const STORE = {
     if (csrf) params.set('h', csrf);
     return '/game/report?' + params.toString();
   }
+
   function nameOf(p) {
     if (p == null) return null;
     if (typeof p === 'string') {
@@ -3687,19 +3688,84 @@ const STORE = {
     };
   }
 
-  function extractUnits(r) {
+  function cleanUnitBag(src) {
+    if (!src || typeof src !== 'object' || Array.isArray(src)) return null;
     const u = {};
-    const src = r.units || r.attacker_units || {};
     Object.keys(src).forEach(k => { const v = Number(src[k]); if (Number.isFinite(v) && v > 0) u[k] = Math.floor(v); });
     return Object.keys(u).length ? u : null;
   }
 
+  function extractSplitUnits(r) {
+    const attacker = cleanUnitBag(r.attacker_units);
+    const defender = cleanUnitBag(r.defender_units);
+    if (!attacker && !defender) return { attacker: null, defender: null };
+    return { attacker: attacker || {}, defender: defender || {} };
+  }
+
+  function extractUnits(r) {
+
+    const split = extractSplitUnits(r);
+    if (!split.attacker && !split.defender) return cleanUnitBag(r.units);
+    const u = {};
+    for (const bag of [split.attacker, split.defender]) {
+      for (const [k, v] of Object.entries(bag || {})) u[k] = (u[k] || 0) + v;
+    }
+    return Object.keys(u).length ? u : null;
+  }
+
   function extractResources(r) {
-    const src = r.resources || r.loot || {};
+    const src = r.resources || r.loot || r.resource_pillage || r.haul || {};
     return {
       wood: src.wood ?? null, stone: src.stone ?? null, iron: src.iron ?? null,
       gold: src.gold ?? null, supply: src.supply ?? null,
     };
+  }
+
+  function parseBuildings(r) {
+    const src = r.buildings || r.building_levels || r.buildings_levels;
+    if (!src || typeof src !== 'object' || Array.isArray(src)) return {};
+    const out = {};
+    for (const [k, raw] of Object.entries(src)) {
+      const n = Number(raw && typeof raw === 'object' ? (raw.level ?? raw.value) : raw);
+      if (!Number.isFinite(n) || n <= 0) continue;
+      out[String(k).toLowerCase()] = Math.floor(n);
+    }
+    return out;
+  }
+
+  function parseOutcome(r) {
+    const o = r.outcome;
+    if (typeof o === 'string') {
+      const s = o.trim().toLowerCase();
+      if (/^(win|won|victory|success)$/.test(s)) return 'win';
+      if (/^(lose|lost|loss|defeat|failure|failed)$/.test(s)) return 'lose';
+      if (/^(draw|tie)$/.test(s)) return 'draw';
+    }
+    if (o === true) return 'win';
+    if (o === false) return 'lose';
+    if (o === 1) return 'win';
+    if (o === 0) return 'lose';
+    if (r.draw === true) return 'draw';
+    if (r.win === true) return 'win';
+    if (r.win === false) return 'lose';
+    if (r.win === 1) return 'win';
+    if (r.win === 0) return 'lose';
+    return null;
+  }
+
+  function parseHero(r) {
+    const src = r.hero || r.hero_info || r.defender_hero;
+    if (!src || typeof src !== 'object' || Array.isArray(src)) return null;
+    const lvl = Number(src.level ?? src.hero_level);
+    const out = {
+      id: src.id ?? src.hero_id ?? null,
+      name: (typeof src.name === 'string' && src.name.trim()) ? src.name.trim()
+        : (typeof src.hero_name === 'string' && src.hero_name.trim()) ? src.hero_name.trim() : null,
+      level: Number.isFinite(lvl) && lvl > 0 ? Math.floor(lvl) : null,
+      cls: (typeof src.class === 'string' && src.class.trim()) ? src.class.trim()
+        : (typeof src.hero_class === 'string' && src.hero_class.trim()) ? src.hero_class.trim() : null,
+    };
+    return (out.id != null || out.name || out.level != null || out.cls) ? out : null;
   }
 
   function parseReport(id, data) {
@@ -3742,6 +3808,8 @@ const STORE = {
       }
       return null;
     })();
+    const buildings = parseBuildings(r);
+    const split = extractSplitUnits(r);
     return {
       id, ts: serverTs != null ? serverTs : now,
       type: type || 'unknown',
@@ -3754,10 +3822,15 @@ const STORE = {
         y: r.defender?.y ?? r.y ?? null,
       },
       units: extractUnits(r),
+      units_attacker: split.attacker,
+      units_defender: split.defender,
+      buildings,
+      hero: parseHero(r),
       resources: extractResources(r),
       loot: r.resources || r.loot || null,
-      outcome: r.outcome ?? r.win ?? null,
-      wall: r.wall ?? r.wall_level ?? r.defender_wall ?? (r.defender && (r.defender.wall ?? r.defender.wall_level)) ?? null,
+      outcome: parseOutcome(r),
+
+      wall: buildings.wall ?? r.wall ?? r.wall_level ?? r.defender_wall ?? (r.defender && (r.defender.wall ?? r.defender.wall_level)) ?? null,
       alliance: r.alliance ?? r.attacker_alliance ?? (r.attacker && (r.attacker.alliance_name || r.attacker.alliance)) ?? null,
       vill_id: r.vill_id ?? r.farm_town_id ?? null,
       vacation: r.vacation ?? r.on_vacation ?? null,
@@ -11800,6 +11873,10 @@ const STORE = {
           units: [],
           towns: [],
           walls: [],
+          buildings: null,
+          buildingsAt: 0,
+          hero: null,
+          heroAt: 0,
           last: 0,
         };
       }
@@ -11809,6 +11886,11 @@ const STORE = {
       if (raw && typeof raw === 'object' && (raw.town_id != null || raw.town_name)) d.towns.push({ id: raw.town_id, name: raw.town_name });
       else if (f.town && (f.town.id != null || f.town.name)) d.towns.push(f.town);
       if (f.wall != null) d.walls.push(f.wall);
+
+      if (f.buildings && Object.keys(f.buildings).length && (+f.ts || 0) >= (d.buildingsAt || 0)) {
+        d.buildings = f.buildings; d.buildingsAt = +f.ts || 0;
+      }
+      if (f.hero && (+f.ts || 0) >= (d.heroAt || 0)) { d.hero = f.hero; d.heroAt = +f.ts || 0; }
       if (f.ts && f.ts > d.last) d.last = f.ts;
       const noteKey = (raw && typeof raw === 'object' && raw.name) ? raw.name : d.player;
       if (state.playerNotes && state.playerNotes[noteKey]) d.note = state.playerNotes[noteKey];
@@ -16451,6 +16533,22 @@ const STORE = {
         row.appendChild(res);
       }
 
+      const bldgKeys = Object.keys(f.buildings || {});
+      if (bldgKeys.length) {
+        const b = document.createElement('div');
+        b.className = 'res';
+        const top = bldgKeys.sort((x, y) => f.buildings[y] - f.buildings[x]).slice(0, 3);
+        b.textContent = 'bldg: ' + top.map(k => `${k}=${f.buildings[k]}`).join(' ') + (bldgKeys.length > 3 ? ' \u2026' : '');
+        b.title = bldgKeys.sort().map(k => `${k}=${f.buildings[k]}`).join(' ');
+        row.appendChild(b);
+      }
+      if (f.hero) {
+        const h = document.createElement('div');
+        h.className = 'res';
+        h.textContent = 'heroe: ' + [f.hero.name, f.hero.level != null ? 'lv' + f.hero.level : null, f.hero.cls].filter(Boolean).join(' ');
+        row.appendChild(h);
+      }
+
       list.appendChild(row);
     }
   }
@@ -16526,6 +16624,12 @@ const STORE = {
       out.defender = redactPlayer(f.defender);
       if (out.town && typeof out.town === 'object') {
         out.town = { id: out.town.id, name: out.town.name ? String(out.town.name).slice(0, 1) + '\u2026' : null, x: out.town.x, y: out.town.y };
+      }
+
+      if (out.hero && typeof out.hero === 'object') {
+        out.hero = { id: out.hero.id != null ? 'h' + String(out.hero.id).slice(-4) : null,
+          name: out.hero.name ? String(out.hero.name).slice(0, 1) + '\u2026' : null,
+          level: out.hero.level, cls: out.hero.cls };
       }
       delete out.raw;
       return out;

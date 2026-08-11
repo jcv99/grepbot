@@ -1753,6 +1753,22 @@
         row.appendChild(res);
       }
 
+      const bldgKeys = Object.keys(f.buildings || {});
+      if (bldgKeys.length) {
+        const b = document.createElement('div');
+        b.className = 'res';
+        const top = bldgKeys.sort((x, y) => f.buildings[y] - f.buildings[x]).slice(0, 3);
+        b.textContent = 'bldg: ' + top.map(k => `${k}=${f.buildings[k]}`).join(' ') + (bldgKeys.length > 3 ? ' …' : '');
+        b.title = bldgKeys.sort().map(k => `${k}=${f.buildings[k]}`).join(' ');
+        row.appendChild(b);
+      }
+      if (f.hero) {
+        const h = document.createElement('div');
+        h.className = 'res';
+        h.textContent = 'heroe: ' + [f.hero.name, f.hero.level != null ? 'lv' + f.hero.level : null, f.hero.cls].filter(Boolean).join(' ');
+        row.appendChild(h);
+      }
+
       list.appendChild(row);
     }
   }
@@ -1831,6 +1847,13 @@
       out.defender = redactPlayer(f.defender);
       if (out.town && typeof out.town === 'object') {
         out.town = { id: out.town.id, name: out.town.name ? String(out.town.name).slice(0, 1) + '…' : null, x: out.town.x, y: out.town.y };
+      }
+      // hero.name is player-authored text (plan 2.1), so it is redacted like
+      // any other player name. Level/class are game data and ship raw.
+      if (out.hero && typeof out.hero === 'object') {
+        out.hero = { id: out.hero.id != null ? 'h' + String(out.hero.id).slice(-4) : null,
+          name: out.hero.name ? String(out.hero.name).slice(0, 1) + '…' : null,
+          level: out.hero.level, cls: out.hero.cls };
       }
       delete out.raw;
       return out;

@@ -1,3 +1,8 @@
+  // parseReport is ADDITIVE ONLY. Every field it returns must be a value it
+  // actually read: an unknown key yields null / {} / a dropped entry, never an
+  // invented default. The five `return null` strictness paths below exist
+  // because `type: 'unknown'` poisoned downstream filters - do not weaken them
+  // to make a new field survive.
   function nameOf(p) {
     if (p == null) return null;
     if (typeof p === 'string') {
@@ -15,19 +20,92 @@
     };
   }
 
-  function extractUnits(r) {
+  function cleanUnitBag(src) {
+    if (!src || typeof src !== 'object' || Array.isArray(src)) return null;
     const u = {};
-    const src = r.units || r.attacker_units || {};
     Object.keys(src).forEach(k => { const v = Number(src[k]); if (Number.isFinite(v) && v > 0) u[k] = Math.floor(v); });
+    return Object.keys(u).length ? u : null;
+  }
+  // Both null, or both objects - never a half-split, so plan 2.5 can trust the
+  // pair as a discriminator for "this report told us who owned what".
+  function extractSplitUnits(r) {
+    const attacker = cleanUnitBag(r.attacker_units);
+    const defender = cleanUnitBag(r.defender_units);
+    if (!attacker && !defender) return { attacker: null, defender: null };
+    return { attacker: attacker || {}, defender: defender || {} };
+  }
+  // Legacy contract: a flat union bag. ui.js and intel.js read this shape and
+  // it is preserved bit-for-bit.
+  function extractUnits(r) {
+    // Split keys win when present: they are strictly more informative, and the
+    // union they produce is what the legacy readers already expect.
+    const split = extractSplitUnits(r);
+    if (!split.attacker && !split.defender) return cleanUnitBag(r.units);
+    const u = {};
+    for (const bag of [split.attacker, split.defender]) {
+      for (const [k, v] of Object.entries(bag || {})) u[k] = (u[k] || 0) + v;
+    }
     return Object.keys(u).length ? u : null;
   }
 
   function extractResources(r) {
-    const src = r.resources || r.loot || {};
+    const src = r.resources || r.loot || r.resource_pillage || r.haul || {};
     return {
       wood: src.wood ?? null, stone: src.stone ?? null, iron: src.iron ?? null,
       gold: src.gold ?? null, supply: src.supply ?? null,
     };
+  }
+
+  // {} when nothing survives, never a partial bag with fabricated levels.
+  function parseBuildings(r) {
+    const src = r.buildings || r.building_levels || r.buildings_levels;
+    if (!src || typeof src !== 'object' || Array.isArray(src)) return {};
+    const out = {};
+    for (const [k, raw] of Object.entries(src)) {
+      const n = Number(raw && typeof raw === 'object' ? (raw.level ?? raw.value) : raw);
+      if (!Number.isFinite(n) || n <= 0) continue;
+      out[String(k).toLowerCase()] = Math.floor(n);
+    }
+    return out;
+  }
+
+  // 'win' | 'lose' | 'draw' | null. Anything unrecognised stays null so the
+  // win-rate math in plan 2.5 never counts a guess.
+  function parseOutcome(r) {
+    const o = r.outcome;
+    if (typeof o === 'string') {
+      const s = o.trim().toLowerCase();
+      if (/^(win|won|victory|success)$/.test(s)) return 'win';
+      if (/^(lose|lost|loss|defeat|failure|failed)$/.test(s)) return 'lose';
+      if (/^(draw|tie)$/.test(s)) return 'draw';
+    }
+    if (o === true) return 'win';
+    if (o === false) return 'lose';
+    if (o === 1) return 'win';
+    if (o === 0) return 'lose';
+    if (r.draw === true) return 'draw';
+    if (r.win === true) return 'win';
+    if (r.win === false) return 'lose';
+    if (r.win === 1) return 'win';
+    if (r.win === 0) return 'lose';
+    return null;
+  }
+
+  // null unless at least one field is populated. Never invents level 0 or a
+  // placeholder name.
+  function parseHero(r) {
+    const src = r.hero || r.hero_info || r.defender_hero;
+    if (!src || typeof src !== 'object' || Array.isArray(src)) return null;
+    const lvl = Number(src.level ?? src.hero_level);
+    const out = {
+      id: src.id ?? src.hero_id ?? null,
+      name: (typeof src.name === 'string' && src.name.trim()) ? src.name.trim()
+        : (typeof src.hero_name === 'string' && src.hero_name.trim()) ? src.hero_name.trim() : null,
+      level: Number.isFinite(lvl) && lvl > 0 ? Math.floor(lvl) : null,
+      cls: (typeof src.class === 'string' && src.class.trim()) ? src.class.trim()
+        : (typeof src.hero_class === 'string' && src.hero_class.trim()) ? src.hero_class.trim() : null,
+    };
+    return (out.id != null || out.name || out.level != null || out.cls) ? out : null;
   }
 
   function parseReport(id, data) {
@@ -70,6 +148,8 @@
       }
       return null;
     })();
+    const buildings = parseBuildings(r);
+    const split = extractSplitUnits(r);
     return {
       id, ts: serverTs != null ? serverTs : now,
       type: type || 'unknown',
@@ -82,10 +162,16 @@
         y: r.defender?.y ?? r.y ?? null,
       },
       units: extractUnits(r),
+      units_attacker: split.attacker,
+      units_defender: split.defender,
+      buildings,
+      hero: parseHero(r),
       resources: extractResources(r),
       loot: r.resources || r.loot || null,
-      outcome: r.outcome ?? r.win ?? null,
-      wall: r.wall ?? r.wall_level ?? r.defender_wall ?? (r.defender && (r.defender.wall ?? r.defender.wall_level)) ?? null,
+      outcome: parseOutcome(r),
+      // buildings.wall first so the new deep parse feeds the old readers, then
+      // the original fallback chain unchanged.
+      wall: buildings.wall ?? r.wall ?? r.wall_level ?? r.defender_wall ?? (r.defender && (r.defender.wall ?? r.defender.wall_level)) ?? null,
       alliance: r.alliance ?? r.attacker_alliance ?? (r.attacker && (r.attacker.alliance_name || r.attacker.alliance)) ?? null,
       vill_id: r.vill_id ?? r.farm_town_id ?? null,
       vacation: r.vacation ?? r.on_vacation ?? null,

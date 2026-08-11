@@ -51,6 +51,10 @@
           units: [],
           towns: [],
           walls: [],
+          buildings: null,
+          buildingsAt: 0,
+          hero: null,
+          heroAt: 0,
           last: 0,
         };
       }
@@ -60,6 +64,12 @@
       if (raw && typeof raw === 'object' && (raw.town_id != null || raw.town_name)) d.towns.push({ id: raw.town_id, name: raw.town_name });
       else if (f.town && (f.town.id != null || f.town.name)) d.towns.push(f.town);
       if (f.wall != null) d.walls.push(f.wall);
+      // Latest-wins by report timestamp, so a stale spy cannot overwrite a
+      // fresher one just by arriving later in the ring buffer.
+      if (f.buildings && Object.keys(f.buildings).length && (+f.ts || 0) >= (d.buildingsAt || 0)) {
+        d.buildings = f.buildings; d.buildingsAt = +f.ts || 0;
+      }
+      if (f.hero && (+f.ts || 0) >= (d.heroAt || 0)) { d.hero = f.hero; d.heroAt = +f.ts || 0; }
       if (f.ts && f.ts > d.last) d.last = f.ts;
       const noteKey = (raw && typeof raw === 'object' && raw.name) ? raw.name : d.player;
       if (state.playerNotes && state.playerNotes[noteKey]) d.note = state.playerNotes[noteKey];
