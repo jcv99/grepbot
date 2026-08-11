@@ -2139,6 +2139,18 @@
       gbLog('DRY RUN ' + (state.dryRun ? 'ON - payloads logged, nothing sent' : 'OFF - posts go to the server'));
       flash(state.dryRun ? 'dry run ON' : 'dry run OFF');
       updateStatus();
+      // A dryrun entry that was logged earlier still occupies its txState slot
+      // for TX_TERMINAL_TTL (30 min) — so the first real post after toggle-off
+      // gets blocked as `duplicate blocked ... state=dryrun`. Sweep on transition.
+      if (!state.dryRun && state.txState && typeof state.txState === 'object') {
+        let swept = 0;
+        for (const k of Object.keys(state.txState)) {
+          if (state.txState[k] && state.txState[k].state === 'dryrun') {
+            delete state.txState[k]; swept++;
+          }
+        }
+        if (swept) gbLog(`dry-run OFF: swept ${swept} stale txState entries`);
+      }
     });
     bindToggle('[data-cfg=auto-merchant]', 'autoMerchant', STORE.AUTO_MERCHANT, () => merchantScan('toggle'));
     bindToggle('[data-cfg=auto-pt-trade]', 'autoPtTrade', STORE.AUTO_PT_TRADE, () => ptTradeScan('toggle'));

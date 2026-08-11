@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.44.18
+// @version      4.44.19
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -22298,6 +22298,16 @@ const STORE = {
       gbLog('DRY RUN ' + (state.dryRun ? 'ON - payloads logged, nothing sent' : 'OFF - posts go to the server'));
       flash(state.dryRun ? 'dry run ON' : 'dry run OFF');
       updateStatus();
+
+      if (!state.dryRun && state.txState && typeof state.txState === 'object') {
+        let swept = 0;
+        for (const k of Object.keys(state.txState)) {
+          if (state.txState[k] && state.txState[k].state === 'dryrun') {
+            delete state.txState[k]; swept++;
+          }
+        }
+        if (swept) gbLog(`dry-run OFF: swept ${swept} stale txState entries`);
+      }
     });
     bindToggle('[data-cfg=auto-merchant]', 'autoMerchant', STORE.AUTO_MERCHANT, () => merchantScan('toggle'));
     bindToggle('[data-cfg=auto-pt-trade]', 'autoPtTrade', STORE.AUTO_PT_TRADE, () => ptTradeScan('toggle'));
