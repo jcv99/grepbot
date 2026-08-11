@@ -453,8 +453,17 @@
       });
       const move = e => {
         if (!gbQueueCenterDrag) return;
-        w.style.left = Math.max(0, Math.min(innerWidth - w.offsetWidth, e.clientX - gbQueueCenterDrag.dx)) + 'px';
-        w.style.top = Math.max(0, Math.min(innerHeight - w.offsetHeight, e.clientY - gbQueueCenterDrag.dy)) + 'px';
+        // The window may have `max-width:94vw` applied by its stylesheet, so the
+        // rendered offsetWidth (after shrink) is smaller than the layout box
+        // would have been on a narrower viewport. Clamp against the rendered
+        // width, but also against the configured max-width so a future wider
+        // box (e.g. 760px on a 700px viewport) cannot have its right edge
+        // escape the configured bound.
+        const cssMax = parseFloat(getComputedStyle(w).maxWidth) || w.offsetWidth;
+        const maxW = Math.min(w.offsetWidth || 0, Math.max(0, innerWidth - cssMax));
+        const maxH = Math.max(0, innerHeight - w.offsetHeight);
+        w.style.left = Math.max(0, Math.min(innerWidth - maxW, e.clientX - gbQueueCenterDrag.dx)) + 'px';
+        w.style.top = Math.max(0, Math.min(maxH, e.clientY - gbQueueCenterDrag.dy)) + 'px';
         w.style.right = 'auto';
       };
       const up = () => { gbQueueCenterDrag = null; };

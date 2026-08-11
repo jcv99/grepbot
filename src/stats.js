@@ -737,8 +737,7 @@
     lines.push(`ventana ${statsWindow} | ${st.total} decisiones | ${st.attempts} intentos | exito ${st.successPct == null ? '-' : st.successPct + '%'}`);
     lines.push(`ok ${st.ok}  err ${st.err}  captcha ${st.captcha}  timeout ${st.timeout}  pendiente ${st.pending}  saltadas ${st.skip}${st.dry ? ` (simulacion ${st.dry})` : ''}`);
     const claims = jrnCountOk('farm', /claim/i, STATS_WINDOWS[statsWindow] || 86400000);
-    const builds = jrnCountOk('build', /Instant|instant/i, STATS_WINDOWS[statsWindow] || 86400000)
-      + jrnCountOk('instant-build', null, STATS_WINDOWS[statsWindow] || 86400000);
+    const builds = jrnCountOk('build', /Instant|instant/i, STATS_WINDOWS[statsWindow] || 86400000);
     lines.push(`reclamos de granjas ${claims} | completados inst. ${builds}`);
     lines.push('');
     lines.push('feature      ok   err  tout  pend  cap  skip   rate');

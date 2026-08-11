@@ -807,10 +807,12 @@
     @media(max-width:760px){#grepbot-queue-center{left:2vw!important;top:4vh!important;width:96vw!important;height:80vh!important}#grepbot-queue-center .gb-qc-body{grid-template-columns:1fr}}
   `);
 
+  // Sweep stale panel instances BEFORE assigning id + appending, otherwise the
+  // detach-then-remove ordering reads as if the new node removes itself.
+  document.querySelectorAll('#grepbot-panel').forEach(p => { try { p.remove(); } catch (_) {} });
+
   panel = document.createElement('div');
   panel.id = 'grepbot-panel';
-
-  document.querySelectorAll('#grepbot-panel').forEach(p => { try { p.remove(); } catch (_) {} });
   panel.style.zIndex = '2147483647';
   panel.innerHTML = `
     <header><div class="gb-head-main"><b>GrepBot v${runningVersion()}</b><div class="gb-head-status"><span id="gb-head-mode" class="gb-pill">...</span><span id="gb-head-health" class="gb-pill">...</span></div></div><div style="display:flex;gap:4px"><button data-act="queues" title="Abrir centro de colas">Colas</button><button data-act="toggle" title="Minimizar">_</button></div></header>

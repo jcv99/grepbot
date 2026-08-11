@@ -191,13 +191,18 @@
       const last = orchLastRun[key] || 0;
       const overdue = now - last - cadence;
       if (overdue < 0) continue;
-      due.push({ key, rank: i, overdue });
+      due.push({ key, rank: i, overdue, cadence });
     }
     if (!due.length) return;
 
     due.sort((a, b) => {
       const gap = b.overdue - a.overdue;
-      if (Math.abs(gap) > ORCH_MS * 2) return gap;
+      // Tie-break band scales with the slower of the two features' cadences
+      // (capped at 2x base) so a 300s feature and a 20s feature can never
+      // tie-break off a single overdue tick, but a 20s vs 60s run still
+      // breaks cleanly within one base band.
+      const band = Math.max(a.cadence, b.cadence, ORCH_MS) * 2;
+      if (Math.abs(gap) > band) return gap;
       return a.rank - b.rank;
     });
     const run = due.slice(0, ORCH_MAX_PER_TICK);

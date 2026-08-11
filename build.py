@@ -86,7 +86,12 @@ MODULES = [
 DECL_RE = re.compile(
     r'^  (?:(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)'
     r'|class\s+([A-Za-z_$][\w$]*)'
-    r'|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=)'
+    r'|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*='
+    # `import` / `export` declarations are top-level in ESM. The repo doesn't
+    # use ESM today, but a future module that sneaks one in would otherwise
+    # silently pass the duplicate-decl gate.
+    r'|import\s+(?:\{[^}]*\}|\*\s+as\s+\w+|\w+)\s+from\s+[\'"][^\'"]+[\'"]'
+    r'|export\s+(?:default\s+)?(?:function\s*\*?\s*([A-Za-z_$][\w$]*)|class\s+([A-Za-z_$][\w$]*)|(?:const|let|var)\s+([A-Za-z_$][\w$]*)))'
 )
 VERSION_RE = re.compile(r'^// @version\s+(\S+)', re.M)
 USERSCRIPT_HEADER_RE = re.compile(r'^﻿?// ==UserScript==.*?// ==/UserScript==\n?', re.S)
@@ -511,7 +516,7 @@ def build():
         os.remove(tmp)
         raise SystemExit(1)
     version = version_of(parts)
-    if not prod and not version_gate(parts, version):
+    if not version_gate(parts, version):
         os.remove(tmp)
         raise SystemExit(1)
     # --prod writes a SIBLING file. Never in place: a broken prod build must not

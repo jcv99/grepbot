@@ -171,7 +171,9 @@
       outcome: parseOutcome(r),
       // buildings.wall first so the new deep parse feeds the old readers, then
       // the original fallback chain unchanged.
-      wall: buildings.wall ?? r.wall ?? r.wall_level ?? r.defender_wall ?? (r.defender && (r.defender.wall ?? r.defender.wall_level)) ?? null,
+      // `r.wall` may be capitalised (`Wall`) on some clients; lowercase the lookup
+      // so the chain stays a chain regardless of server-side keying.
+      wall: buildings.wall ?? ((r.wall != null ? r.wall : (r.Wall != null ? r.Wall : undefined))) ?? r.wall_level ?? r.defender_wall ?? (r.defender && (r.defender.wall ?? r.defender.wall_level)) ?? null,
       alliance: r.alliance ?? r.attacker_alliance ?? (r.attacker && (r.attacker.alliance_name || r.attacker.alliance)) ?? null,
       vill_id: r.vill_id ?? r.farm_town_id ?? null,
       vacation: r.vacation ?? r.on_vacation ?? null,
