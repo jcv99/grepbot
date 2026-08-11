@@ -629,17 +629,29 @@
       if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
       return;
     }
-    const claimLockToken = gbLock('claim', Math.max(180000, ready.length * 20000));
+    // v4 plan 5.2: trim the SET under pressure rather than widening the cadence,
+    // and claim the highest-yield villages first. `before` below still keys off
+    // every farm, so a partial drop does not affect reconciliation.
+    const work = farmApplyDropPolicies(ready);
+    if (!work.length) {
+      gbLogT('claim-adaptive-empty', 300000, 'farm claim: adaptive policy dropped every candidate this pass');
+      // Arm the precise next-lootable wake exactly like the no-candidates path
+      // above: without it the retry falls back to the 15s farmTick sweep.
+      farmScheduleClaimWake(farms, 'adaptive-empty', true);
+      if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
+      return;
+    }
+    const claimLockToken = gbLock('claim', Math.max(180000, work.length * 20000));
     if (!claimLockToken) return;
-    gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${ready.length}/${farms.length} ready${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}`);
+    gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${work.length}/${farms.length} ready${work.length !== ready.length ? ` (${ready.length - work.length} adaptivo)` : ''}${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}`);
     const before = {};
     farms.forEach(f => { before[f.vill_id] = f.lootable_at; });
-    flash(`farm claim x${ready.length}`);
+    flash(`farm claim x${work.length}`);
     let i = 0, done = 0, captcha = false;
     const claimSpacingMs=Math.max(700,Math.ceil(60000/Math.max(5,(+state.reqBudgetPerMin||40)-4)));
     (function next() {
       gbLockTouch('claim', claimLockToken);
-      if (i >= ready.length || captcha || captchaPaused('farm')) {
+      if (i >= work.length || captcha || captchaPaused('farm')) {
         gbTimeout(() => {
           try {
             const flipped = verifyClaims(before);
@@ -648,7 +660,7 @@
 
             if (onBatchDone) onBatchDone({
               done: flipped,
-              attempted: ready.length,
+              attempted: work.length,
               captcha,
               bridgeOk: done,
             });
@@ -656,12 +668,15 @@
         }, 10000);
         return;
       }
-      const f = ready[i++];
+      const f = work[i++];
       try {
         claimFarm(f, islandMap, whCache, durOverride, (err) => {
-          if (err === 'captcha' || err === 'captcha-pause') captcha = true;
+          if (err === 'captcha' || err === 'captcha-pause') { captcha = true; farmPressureNote('captcha'); }
           else if (!err) {
             done++;
+            // Counted only on a confirmed bridge ok, so a failed post cannot
+            // consume the village's daily allowance.
+            try { farmClaimCount(f.vill_id); } catch (_) {}
             gbLog(`  claimed ${f.name || f.vill_id} (rel ${f.relation_id})`);
           }
 
@@ -674,6 +689,97 @@
     })();
   }
 
+  // ===== Adaptive farming (v4 plan 5.2) ======================================
+  // Under pressure - captcha, server cooldown, or a soft request-budget delay -
+  // the claim set is TRIMMED rather than the cadence widened. These are drop
+  // policies on the existing loop: no new post, no new template, no new captcha
+  // key, no new lock. The claim lock and spacing already serialise everything.
+  const FARM_PRESSURE_TTL_MS = 1800000;
+  const FARM_PRESSURE_WINDOW_MS = 300000;
+  const FARM_PRESSURE_MAX = 8;
+  const farmPressure = [];
+  function farmPressureNote(kind) {
+    const now = Date.now();
+    // Coalesce: one burst of the same kind is one signal, not eight.
+    const last = farmPressure[farmPressure.length - 1];
+    if (last && last.kind === kind && now - last.at < 60000) { last.at = now; return; }
+    farmPressure.push({ at: now, kind });
+    while (farmPressure.length > FARM_PRESSURE_MAX) farmPressure.shift();
+  }
+  function farmPressureTick() {
+    try { if (captchaPaused('farm')) farmPressureNote('captcha'); } catch (_) {}
+    try { if (typeof gbServerPaused === 'function' && gbServerPaused()) farmPressureNote('server'); } catch (_) {}
+    try { if (typeof reqBudgetSoftDelayMs === 'function' && reqBudgetSoftDelayMs() > 0) farmPressureNote('budget'); } catch (_) {}
+    const cut = Date.now() - FARM_PRESSURE_TTL_MS;
+    while (farmPressure.length && farmPressure[0].at < cut) farmPressure.shift();
+  }
+  function farmPressureOn() {
+    const cut = Date.now() - FARM_PRESSURE_WINDOW_MS;
+    return farmPressure.some(p => p.at >= cut);
+  }
+  function farmCaptchaHot() {
+    const cut = Date.now() - 3600000;
+    return farmPressure.some(p => p.kind === 'captcha' && p.at >= cut);
+  }
+  function farmDayKey() { return farmSleepDayKey(); }
+  function farmClaimsToday() {
+    const day = farmDayKey();
+    if (state.farmClaimsDay !== day) {
+      state.farmClaimsDay = day;
+      state.farmClaimsToday = {};
+      save(STORE.FARM_CLAIMS_DAY, day);
+      save(STORE.FARM_CLAIMS_TODAY, state.farmClaimsToday);
+    }
+    if (!state.farmClaimsToday || typeof state.farmClaimsToday !== 'object') state.farmClaimsToday = {};
+    return state.farmClaimsToday;
+  }
+  function farmClaimCount(villId) {
+    const c = farmClaimsToday();
+    c[String(villId)] = (+c[String(villId)] || 0) + 1;
+    save(STORE.FARM_CLAIMS_TODAY, c);
+  }
+  function farmProfitScoreOf(villId) {
+    const p = (state.farmProfit || {})[String(villId)];
+    return p && p.score != null ? +p.score : null;
+  }
+  // Returns a NEW array; never mutates the caller's list.
+  function farmApplyDropPolicies(ready) {
+    if (!state.adaptiveFarm) return ready.slice();
+    farmPressureTick();
+    const pressure = farmPressureOn();
+    let work = ready.slice();
+    if (pressure) {
+      // An unranked village is UNKNOWN, not worthless - it is only dropped
+      // while under pressure, and the log says how many so the operator can
+      // tell "trimmed" from "broken".
+      const known = work.filter(f => farmProfitScoreOf(f.vill_id) != null);
+      const dropped = work.length - known.length;
+      if (known.length) {
+        work = known;
+        if (dropped) gbLogT('farm-adaptive-unranked', 300000, `adaptive farm: pressure - dropped ${dropped} unranked village(s)`);
+      }
+    }
+    if (pressure && work.length >= 4) {
+      const pct = Math.max(0, Math.min(90, gbCfgNum(state.farmDropPressurePct, 25)));
+      work.sort((a, b) => (farmProfitScoreOf(b.vill_id) ?? -Infinity) - (farmProfitScoreOf(a.vill_id) ?? -Infinity));
+      const keep = Math.max(1, Math.ceil(work.length * (100 - pct) / 100));
+      if (keep < work.length) {
+        gbLogT('farm-adaptive-trim', 300000, `adaptive farm: pressure - claiming top ${keep}/${work.length} by yield`);
+        work = work.slice(0, keep);
+      }
+    }
+    if (farmCaptchaHot()) {
+      const counts = farmClaimsToday();
+      const before = work.length;
+      work = work.filter(f => (+counts[String(f.vill_id)] || 0) < 1);
+      if (work.length < before) {
+        gbLogT('farm-adaptive-daily', 300000, `adaptive farm: captcha hot - skipped ${before - work.length} village(s) already claimed today`);
+      }
+    }
+    // Highest yield first even without pressure: same set, better order.
+    work.sort((a, b) => (farmProfitScoreOf(b.vill_id) ?? -Infinity) - (farmProfitScoreOf(a.vill_id) ?? -Infinity));
+    return work;
+  }
   function farmSleepDayKey() {
     const d = new Date();
     return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;

@@ -788,6 +788,8 @@
           </select>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-long-claims"/> 10min claims where villager loyalty researched</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px" title="Bajo presion (captcha, enfriamiento del servidor o presupuesto justo) recorta la lista de aldeas en vez de ampliar la cadencia, y reclama primero las mas rentables."><input type="checkbox" data-cfg="adaptive-farm"/> Recoleccion adaptativa bajo presion</label>
+        <label style="margin-left:12px;font-size:10px">Descartar bajo presion <input type="number" data-cfg="farm-drop-pct" min="0" max="90" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/> %</label>
         <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Loyalty tech key
           <input data-cfg="farm-loyalty-tech" placeholder="auto-detect (server id or label)" title="Server research id (e.g. rural_loyalty) or the localized academy name. Log tab dumps id(label) pairs when auto-detect misses." style="width:190px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
         </label>
@@ -1861,6 +1863,15 @@
     saveNum('[data-cfg=farm-sleep-fill]', v => {
       state.farmSleepFillPct = Math.min(95, Math.max(10, v || 60));
       save(STORE.FARM_SLEEP_FILL, state.farmSleepFillPct);
+    });
+    sec.querySelector('[data-cfg=adaptive-farm]')?.addEventListener('change', e => {
+      state.adaptiveFarm = !!e.target.checked;
+      save(STORE.ADAPTIVE_FARM, state.adaptiveFarm);
+      gbLog('adaptive farm ' + (state.adaptiveFarm ? 'ON - trims the claim set under pressure' : 'OFF'));
+    });
+    saveNum('[data-cfg=farm-drop-pct]', v => {
+      state.farmDropPressurePct = Math.max(0, Math.min(90, +v || 0));
+      save(STORE.FARM_DROP_PCT, state.farmDropPressurePct);
     });
     saveNum('[data-cfg=farm-travel]', v => {
       state.farmTravelSecPerUnit = Math.min(600, Math.max(0, Number.isFinite(+v) ? +v : 0));

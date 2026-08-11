@@ -264,6 +264,11 @@
     farmSleepFillPct: load(STORE.FARM_SLEEP_FILL, 60),
     farmSleepDay: load(STORE.FARM_SLEEP_DAY, '') || '',
     farmProfit: load(STORE.FARM_PROFIT, {}),
+    // v4 plan 5.2: target-rotation policy, default OFF.
+    adaptiveFarm: load(STORE.ADAPTIVE_FARM, false),
+    farmDropPressurePct: load(STORE.FARM_DROP_PCT, 25),
+    farmClaimsToday: load(STORE.FARM_CLAIMS_TODAY, {}) || {},
+    farmClaimsDay: load(STORE.FARM_CLAIMS_DAY, '') || '',
     farmTravelSecPerUnit: load(STORE.FARM_TRAVEL, 0),
     ibActionR:  load(STORE.IB_ACTION_R, null) || 'buyInstant',
     questRewards: load(STORE.QUEST_REWARDS, {}),

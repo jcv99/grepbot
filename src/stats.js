@@ -292,6 +292,20 @@
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
       };
     }));
+    out.push(preflightProbe('adaptive farm', () => {
+      if (!state.adaptiveFarm) return { ok: true, detail: 'desactivado (por defecto)' };
+      const claimed = Object.keys(state.farmClaimsToday || {}).length;
+      const ranked = Object.values(state.farmProfit || {}).filter(r => r && r.score != null).length;
+      const total = (state.farmsParsed || []).length;
+      return {
+        ok: true,
+        // With nothing ranked the pressure trim has no ordering to work from
+        // and degrades to "drop the unranked", which would drop everything.
+        warn: total > 0 && ranked === 0,
+        detail: `${ranked}/${total} aldea(s) puntuadas, ${claimed} reclamada(s) hoy, descarte ${gbCfgNum(state.farmDropPressurePct, 25)}%` +
+          (ranked === 0 && total ? ' - sin puntuaciones el recorte no tiene orden' : ''),
+      };
+    }));
     out.push(preflightProbe('transport AI', () => {
       if (!state.autoTransportAi) return { ok: true, detail: 'desactivado (por defecto)' };
       const towns = tradeListTowns() || [];

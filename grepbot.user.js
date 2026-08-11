@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.21.1
+// @version      4.22.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -88,6 +88,10 @@ const STORE = {
     FARM_SLEEP_FILL: 'grepbot:farm-sleep-fill',
     FARM_SLEEP_DAY: 'grepbot:farm-sleep-day',
     FARM_PROFIT: 'grepbot:farm-profit',
+    ADAPTIVE_FARM: 'grepbot:adaptive-farm',
+    FARM_DROP_PCT: 'grepbot:farm-drop-pressure-pct',
+    FARM_CLAIMS_TODAY: 'grepbot:farm-claims-today',
+    FARM_CLAIMS_DAY: 'grepbot:farm-claims-day',
     FARM_TRAVEL: 'grepbot:farm-travel-sec-per-unit',
     IB_ACTION_R: 'grepbot:ib-action-r',
 
@@ -226,7 +230,7 @@ const STORE = {
     STORE.TOWNS, STORE.TOWN_RES, STORE.THRESH, STORE.ALERTED,
     STORE.NEXT_FARM, STORE.NEXT_TOWNS, STORE.BANDIT_LOG,
     STORE.CSRF, STORE.FARM_ACTION, STORE.COLLECT_TPL, STORE.CLAIM_TPL, STORE.ACCEPT_UNITS_TPL,
-    STORE.IB_ACTION, STORE.IB_ACTION_R, STORE.FARM_OPTION_MAP, STORE.FARM_LOYALTY_TECH, STORE.FARM_SLEEP_DAY, STORE.FARM_PROFIT, STORE.FARM_TRAVEL,
+    STORE.IB_ACTION, STORE.IB_ACTION_R, STORE.FARM_OPTION_MAP, STORE.FARM_LOYALTY_TECH, STORE.FARM_SLEEP_DAY, STORE.FARM_PROFIT, STORE.FARM_TRAVEL, STORE.FARM_CLAIMS_TODAY, STORE.FARM_CLAIMS_DAY,
     STORE.QUEST_REWARDS, STORE.QUEST_HISTORY,
     STORE.ATTACK_TPL, STORE.CANCEL_TPL, STORE.HERO_TPL, STORE.HERO_EQUIP_SUGGEST, STORE.ATTACK_PLAN, STORE.ATTACK_HISTORY, STORE.ATTACK_RECENT, STORE.CAPTCHA,
     STORE.AB_TARGETS, STORE.CAVE_TOWNS, STORE.EMERGENCY_LAST,
@@ -506,6 +510,11 @@ const STORE = {
     farmSleepFillPct: load(STORE.FARM_SLEEP_FILL, 60),
     farmSleepDay: load(STORE.FARM_SLEEP_DAY, '') || '',
     farmProfit: load(STORE.FARM_PROFIT, {}),
+
+    adaptiveFarm: load(STORE.ADAPTIVE_FARM, false),
+    farmDropPressurePct: load(STORE.FARM_DROP_PCT, 25),
+    farmClaimsToday: load(STORE.FARM_CLAIMS_TODAY, {}) || {},
+    farmClaimsDay: load(STORE.FARM_CLAIMS_DAY, '') || '',
     farmTravelSecPerUnit: load(STORE.FARM_TRAVEL, 0),
     ibActionR:  load(STORE.IB_ACTION_R, null) || 'buyInstant',
     questRewards: load(STORE.QUEST_REWARDS, {}),
@@ -4868,17 +4877,26 @@ const STORE = {
       if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
       return;
     }
-    const claimLockToken = gbLock('claim', Math.max(180000, ready.length * 20000));
+
+    const work = farmApplyDropPolicies(ready);
+    if (!work.length) {
+      gbLogT('claim-adaptive-empty', 300000, 'farm claim: adaptive policy dropped every candidate this pass');
+
+      farmScheduleClaimWake(farms, 'adaptive-empty', true);
+      if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
+      return;
+    }
+    const claimLockToken = gbLock('claim', Math.max(180000, work.length * 20000));
     if (!claimLockToken) return;
-    gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${ready.length}/${farms.length} ready${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}`);
+    gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${work.length}/${farms.length} ready${work.length !== ready.length ? ` (${ready.length - work.length} adaptivo)` : ''}${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}`);
     const before = {};
     farms.forEach(f => { before[f.vill_id] = f.lootable_at; });
-    flash(`farm claim x${ready.length}`);
+    flash(`farm claim x${work.length}`);
     let i = 0, done = 0, captcha = false;
     const claimSpacingMs=Math.max(700,Math.ceil(60000/Math.max(5,(+state.reqBudgetPerMin||40)-4)));
     (function next() {
       gbLockTouch('claim', claimLockToken);
-      if (i >= ready.length || captcha || captchaPaused('farm')) {
+      if (i >= work.length || captcha || captchaPaused('farm')) {
         gbTimeout(() => {
           try {
             const flipped = verifyClaims(before);
@@ -4887,7 +4905,7 @@ const STORE = {
 
             if (onBatchDone) onBatchDone({
               done: flipped,
-              attempted: ready.length,
+              attempted: work.length,
               captcha,
               bridgeOk: done,
             });
@@ -4895,12 +4913,14 @@ const STORE = {
         }, 10000);
         return;
       }
-      const f = ready[i++];
+      const f = work[i++];
       try {
         claimFarm(f, islandMap, whCache, durOverride, (err) => {
-          if (err === 'captcha' || err === 'captcha-pause') captcha = true;
+          if (err === 'captcha' || err === 'captcha-pause') { captcha = true; farmPressureNote('captcha'); }
           else if (!err) {
             done++;
+
+            try { farmClaimCount(f.vill_id); } catch (_) {}
             gbLog(`  claimed ${f.name || f.vill_id} (rel ${f.relation_id})`);
           }
 
@@ -4913,6 +4933,90 @@ const STORE = {
     })();
   }
 
+  const FARM_PRESSURE_TTL_MS = 1800000;
+  const FARM_PRESSURE_WINDOW_MS = 300000;
+  const FARM_PRESSURE_MAX = 8;
+  const farmPressure = [];
+  function farmPressureNote(kind) {
+    const now = Date.now();
+
+    const last = farmPressure[farmPressure.length - 1];
+    if (last && last.kind === kind && now - last.at < 60000) { last.at = now; return; }
+    farmPressure.push({ at: now, kind });
+    while (farmPressure.length > FARM_PRESSURE_MAX) farmPressure.shift();
+  }
+  function farmPressureTick() {
+    try { if (captchaPaused('farm')) farmPressureNote('captcha'); } catch (_) {}
+    try { if (typeof gbServerPaused === 'function' && gbServerPaused()) farmPressureNote('server'); } catch (_) {}
+    try { if (typeof reqBudgetSoftDelayMs === 'function' && reqBudgetSoftDelayMs() > 0) farmPressureNote('budget'); } catch (_) {}
+    const cut = Date.now() - FARM_PRESSURE_TTL_MS;
+    while (farmPressure.length && farmPressure[0].at < cut) farmPressure.shift();
+  }
+  function farmPressureOn() {
+    const cut = Date.now() - FARM_PRESSURE_WINDOW_MS;
+    return farmPressure.some(p => p.at >= cut);
+  }
+  function farmCaptchaHot() {
+    const cut = Date.now() - 3600000;
+    return farmPressure.some(p => p.kind === 'captcha' && p.at >= cut);
+  }
+  function farmDayKey() { return farmSleepDayKey(); }
+  function farmClaimsToday() {
+    const day = farmDayKey();
+    if (state.farmClaimsDay !== day) {
+      state.farmClaimsDay = day;
+      state.farmClaimsToday = {};
+      save(STORE.FARM_CLAIMS_DAY, day);
+      save(STORE.FARM_CLAIMS_TODAY, state.farmClaimsToday);
+    }
+    if (!state.farmClaimsToday || typeof state.farmClaimsToday !== 'object') state.farmClaimsToday = {};
+    return state.farmClaimsToday;
+  }
+  function farmClaimCount(villId) {
+    const c = farmClaimsToday();
+    c[String(villId)] = (+c[String(villId)] || 0) + 1;
+    save(STORE.FARM_CLAIMS_TODAY, c);
+  }
+  function farmProfitScoreOf(villId) {
+    const p = (state.farmProfit || {})[String(villId)];
+    return p && p.score != null ? +p.score : null;
+  }
+
+  function farmApplyDropPolicies(ready) {
+    if (!state.adaptiveFarm) return ready.slice();
+    farmPressureTick();
+    const pressure = farmPressureOn();
+    let work = ready.slice();
+    if (pressure) {
+
+      const known = work.filter(f => farmProfitScoreOf(f.vill_id) != null);
+      const dropped = work.length - known.length;
+      if (known.length) {
+        work = known;
+        if (dropped) gbLogT('farm-adaptive-unranked', 300000, `adaptive farm: pressure - dropped ${dropped} unranked village(s)`);
+      }
+    }
+    if (pressure && work.length >= 4) {
+      const pct = Math.max(0, Math.min(90, gbCfgNum(state.farmDropPressurePct, 25)));
+      work.sort((a, b) => (farmProfitScoreOf(b.vill_id) ?? -Infinity) - (farmProfitScoreOf(a.vill_id) ?? -Infinity));
+      const keep = Math.max(1, Math.ceil(work.length * (100 - pct) / 100));
+      if (keep < work.length) {
+        gbLogT('farm-adaptive-trim', 300000, `adaptive farm: pressure - claiming top ${keep}/${work.length} by yield`);
+        work = work.slice(0, keep);
+      }
+    }
+    if (farmCaptchaHot()) {
+      const counts = farmClaimsToday();
+      const before = work.length;
+      work = work.filter(f => (+counts[String(f.vill_id)] || 0) < 1);
+      if (work.length < before) {
+        gbLogT('farm-adaptive-daily', 300000, `adaptive farm: captcha hot - skipped ${before - work.length} village(s) already claimed today`);
+      }
+    }
+
+    work.sort((a, b) => (farmProfitScoreOf(b.vill_id) ?? -Infinity) - (farmProfitScoreOf(a.vill_id) ?? -Infinity));
+    return work;
+  }
   function farmSleepDayKey() {
     const d = new Date();
     return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
@@ -17100,6 +17204,19 @@ const STORE = {
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
       };
     }));
+    out.push(preflightProbe('adaptive farm', () => {
+      if (!state.adaptiveFarm) return { ok: true, detail: 'desactivado (por defecto)' };
+      const claimed = Object.keys(state.farmClaimsToday || {}).length;
+      const ranked = Object.values(state.farmProfit || {}).filter(r => r && r.score != null).length;
+      const total = (state.farmsParsed || []).length;
+      return {
+        ok: true,
+
+        warn: total > 0 && ranked === 0,
+        detail: `${ranked}/${total} aldea(s) puntuadas, ${claimed} reclamada(s) hoy, descarte ${gbCfgNum(state.farmDropPressurePct, 25)}%` +
+          (ranked === 0 && total ? ' - sin puntuaciones el recorte no tiene orden' : ''),
+      };
+    }));
     out.push(preflightProbe('transport AI', () => {
       if (!state.autoTransportAi) return { ok: true, detail: 'desactivado (por defecto)' };
       const towns = tradeListTowns() || [];
@@ -18861,6 +18978,8 @@ const STORE = {
           </select>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-long-claims"/> 10min claims where villager loyalty researched</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px" title="Bajo presion (captcha, enfriamiento del servidor o presupuesto justo) recorta la lista de aldeas en vez de ampliar la cadencia, y reclama primero las mas rentables."><input type="checkbox" data-cfg="adaptive-farm"/> Recoleccion adaptativa bajo presion</label>
+        <label style="margin-left:12px;font-size:10px">Descartar bajo presion <input type="number" data-cfg="farm-drop-pct" min="0" max="90" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/> %</label>
         <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Loyalty tech key
           <input data-cfg="farm-loyalty-tech" placeholder="auto-detect (server id or label)" title="Server research id (e.g. rural_loyalty) or the localized academy name. Log tab dumps id(label) pairs when auto-detect misses." style="width:190px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
         </label>
@@ -19932,6 +20051,15 @@ const STORE = {
     saveNum('[data-cfg=farm-sleep-fill]', v => {
       state.farmSleepFillPct = Math.min(95, Math.max(10, v || 60));
       save(STORE.FARM_SLEEP_FILL, state.farmSleepFillPct);
+    });
+    sec.querySelector('[data-cfg=adaptive-farm]')?.addEventListener('change', e => {
+      state.adaptiveFarm = !!e.target.checked;
+      save(STORE.ADAPTIVE_FARM, state.adaptiveFarm);
+      gbLog('adaptive farm ' + (state.adaptiveFarm ? 'ON - trims the claim set under pressure' : 'OFF'));
+    });
+    saveNum('[data-cfg=farm-drop-pct]', v => {
+      state.farmDropPressurePct = Math.max(0, Math.min(90, +v || 0));
+      save(STORE.FARM_DROP_PCT, state.farmDropPressurePct);
     });
     saveNum('[data-cfg=farm-travel]', v => {
       state.farmTravelSecPerUnit = Math.min(600, Math.max(0, Number.isFinite(+v) ? +v : 0));
