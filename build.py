@@ -50,6 +50,7 @@ MODULES = [
     'culture.js',
     'trade.js',
     'transport.js',
+    'dump.js',
     'rural.js',
     'research-graph.js',
     'research.js',

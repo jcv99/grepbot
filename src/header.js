@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.10.1
+// @version      4.11.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -95,6 +95,10 @@ const STORE = {
     TRADE_ROUTES: 'grepbot:trade-routes',
     AUTO_TRADE_ROUTES: 'grepbot:auto-trade-routes',
     AUTO_TRANSPORT: 'grepbot:auto-transport',
+    AUTO_DUMP: 'grepbot:auto-dump',
+    DUMP_THRESHOLD: 'grepbot:dump-threshold',
+    DUMP_KEEP: 'grepbot:dump-keep',
+    DUMP_SINKS: 'grepbot:dump-sinks',
     TRANSPORT_RESERVE: 'grepbot:transport-reserve',
     TRANSPORT_MIN: 'grepbot:transport-min',
     AUTO_RURAL_TRADE: 'grepbot:auto-rural-trade',
@@ -201,7 +205,7 @@ const STORE = {
 
   const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
     'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'merchant', 'pttrade', 'favor', 'wonder'];
-  const CONFIG_VER_CURRENT = 11;
+  const CONFIG_VER_CURRENT = 12;
 
   const WORLD_SCOPED_BASES = new Set([
     STORE.FINDINGS, STORE.FARMS, STORE.FARMS_PARSED, STORE.FARM_RES, STORE.SEEN,
@@ -212,7 +216,7 @@ const STORE = {
     STORE.QUEST_REWARDS, STORE.QUEST_HISTORY,
     STORE.ATTACK_TPL, STORE.CANCEL_TPL, STORE.HERO_TPL, STORE.ATTACK_PLAN, STORE.ATTACK_HISTORY, STORE.ATTACK_RECENT, STORE.CAPTCHA,
     STORE.AB_TARGETS, STORE.CAVE_TOWNS,
-    STORE.RESEARCH_TARGETS, STORE.CITY_TEMPLATES, STORE.TOWN_GROUPS,
+    STORE.RESEARCH_TARGETS, STORE.CITY_TEMPLATES, STORE.TOWN_GROUPS, STORE.DUMP_SINKS,
     STORE.MERCHANT_WISH, STORE.FAVOR_CFG, STORE.WONDER_CFG, STORE.WONDER_SPENT,
     STORE.CULTURE_GOLD_SPENT,
     STORE.RECRUIT_TARGETS, STORE.PRIORITY_ORDER,

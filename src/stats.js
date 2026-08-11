@@ -215,6 +215,27 @@
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
       };
     }));
+    out.push(preflightProbe('dump', () => {
+      if (!state.autoDump) return { ok: true, detail: 'desactivado (por defecto)' };
+      const degenerate = [];
+      for (const r of ['wood', 'stone', 'iron']) {
+        const th = dumpThresholdFor(r), keep = dumpKeepPctFor(r);
+        // keep >= threshold means the surplus is always zero: the toggle is ON
+        // but nothing can ever fire, which is worth saying out loud.
+        if (keep >= th) degenerate.push(`${r} conservar ${keep}% >= umbral ${th}%`);
+      }
+      const sinks = dumpSinkList();
+      const ids = (townsFromGame() || []).map(t => String(t.id));
+      const anyHide = ids.some(id => { try { const i = caveTownInfo(id); return i && i.hideLvl > 0; } catch (_) { return false; } });
+      if (!sinks.length && !anyHide) {
+        return { ok: false, detail: 'sin destinos configurados y ninguna ciudad con cueva - el vaciado no tendria a donde ir' };
+      }
+      return {
+        ok: true,
+        warn: degenerate.length > 0,
+        detail: `ON, ${sinks.length || 'auto'} destino(s)` + (degenerate.length ? ' - ' + degenerate.join('; ') : ''),
+      };
+    }));
     out.push(preflightProbe('trade routes', () => {
       const all = Object.values(state.tradeRoutes || {});
       const enabled = all.filter(r => r && r.enabled !== false).length;

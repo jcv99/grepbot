@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.10.1
+// @version      4.11.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -95,6 +95,10 @@ const STORE = {
     TRADE_ROUTES: 'grepbot:trade-routes',
     AUTO_TRADE_ROUTES: 'grepbot:auto-trade-routes',
     AUTO_TRANSPORT: 'grepbot:auto-transport',
+    AUTO_DUMP: 'grepbot:auto-dump',
+    DUMP_THRESHOLD: 'grepbot:dump-threshold',
+    DUMP_KEEP: 'grepbot:dump-keep',
+    DUMP_SINKS: 'grepbot:dump-sinks',
     TRANSPORT_RESERVE: 'grepbot:transport-reserve',
     TRANSPORT_MIN: 'grepbot:transport-min',
     AUTO_RURAL_TRADE: 'grepbot:auto-rural-trade',
@@ -201,7 +205,7 @@ const STORE = {
 
   const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
     'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'merchant', 'pttrade', 'favor', 'wonder'];
-  const CONFIG_VER_CURRENT = 11;
+  const CONFIG_VER_CURRENT = 12;
 
   const WORLD_SCOPED_BASES = new Set([
     STORE.FINDINGS, STORE.FARMS, STORE.FARMS_PARSED, STORE.FARM_RES, STORE.SEEN,
@@ -212,7 +216,7 @@ const STORE = {
     STORE.QUEST_REWARDS, STORE.QUEST_HISTORY,
     STORE.ATTACK_TPL, STORE.CANCEL_TPL, STORE.HERO_TPL, STORE.ATTACK_PLAN, STORE.ATTACK_HISTORY, STORE.ATTACK_RECENT, STORE.CAPTCHA,
     STORE.AB_TARGETS, STORE.CAVE_TOWNS,
-    STORE.RESEARCH_TARGETS, STORE.CITY_TEMPLATES, STORE.TOWN_GROUPS,
+    STORE.RESEARCH_TARGETS, STORE.CITY_TEMPLATES, STORE.TOWN_GROUPS, STORE.DUMP_SINKS,
     STORE.MERCHANT_WISH, STORE.FAVOR_CFG, STORE.WONDER_CFG, STORE.WONDER_SPENT,
     STORE.CULTURE_GOLD_SPENT,
     STORE.RECRUIT_TARGETS, STORE.PRIORITY_ORDER,
@@ -527,6 +531,11 @@ const STORE = {
 
     autoTradeRoutes: load(STORE.AUTO_TRADE_ROUTES, false),
     autoTransport: load(STORE.AUTO_TRANSPORT, false),
+
+    autoDump: load(STORE.AUTO_DUMP, false),
+    dumpThreshold: load(STORE.DUMP_THRESHOLD, { wood: 95, stone: 95, iron: 90 }),
+    dumpKeep: load(STORE.DUMP_KEEP, { wood: 50, stone: 50, iron: 50 }),
+    dumpSinks: load(STORE.DUMP_SINKS, []),
     transportReserve: load(STORE.TRANSPORT_RESERVE, 20),
     transportMin: load(STORE.TRANSPORT_MIN, 1000),
     autoRuralTrade: load(STORE.AUTO_RURAL_TRADE, false),
@@ -759,6 +768,18 @@ const STORE = {
       }
 
       ver = 11;
+    }
+    if (ver < 12) {
+
+      if (typeof state.autoDump !== 'boolean') { state.autoDump = false; save(STORE.AUTO_DUMP, state.autoDump); }
+      const seedMap = (key, store, def) => {
+        const cur = state[key];
+        if (!cur || typeof cur !== 'object' || Array.isArray(cur)) { state[key] = def; save(store, def); }
+      };
+      seedMap('dumpThreshold', STORE.DUMP_THRESHOLD, { wood: 95, stone: 95, iron: 90 });
+      seedMap('dumpKeep', STORE.DUMP_KEEP, { wood: 50, stone: 50, iron: 50 });
+      if (!Array.isArray(state.dumpSinks)) { state.dumpSinks = []; save(STORE.DUMP_SINKS, state.dumpSinks); }
+      ver = 12;
     }
     if (ver !== state.configVer) {
       state.configVer = ver;
@@ -8998,7 +9019,7 @@ const STORE = {
   }
 
   function tradeScan(reason) {
-    if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes) || captchaPaused('trade')) return;
+    if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes && !state.autoDump) || captchaPaused('trade')) return;
     if (automationPaused({})) return;
     if (gbLocked('trade')) return;
     const towns = tradeListTowns();
@@ -9010,6 +9031,8 @@ const STORE = {
 
     if (state.autoTradeRoutes) jobs = jobs.concat(tradeRouteJobs(towns, ledger));
     if (state.autoTransport) jobs = jobs.concat(transportBalanceJobs(towns, ledger));
+
+    if (state.autoDump) jobs = jobs.concat(dumpJobs(towns, ledger));
 
     if (state.autoTrade && preset === 'smart') {
       jobs = jobs.concat(tradePredictiveJobs(towns, ledger));
@@ -9243,6 +9266,131 @@ const STORE = {
     const ids = towns.map(t => t.id);
     for (const srcId of ids) {
       if (transportBalanceSourceTown(srcId, ids, ledger, jobs)) break;
+    }
+    return jobs;
+  }
+
+  const DUMP_MAX_JOBS = 4;
+  const DUMP_SURPLUS_SHARE = 0.5;
+
+  function dumpCfgNum(map, key, def, lo, hi) {
+    const v = +((map || {})[key]);
+    return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : def;
+  }
+  function dumpThresholdFor(res) {
+    return dumpCfgNum(state.dumpThreshold, res, res === 'iron' ? 90 : 95, 50, 100);
+  }
+  function dumpKeepPctFor(res) {
+    return dumpCfgNum(state.dumpKeep, res, 50, 0, 95);
+  }
+  function dumpSinkList() {
+    const raw = state.dumpSinks;
+    return Array.isArray(raw) ? raw.map(String).filter(Boolean) : [];
+  }
+
+  function caveHasHeadroom(townId) {
+    if (!state.autoCave) return false;
+    let info = null;
+    try { info = caveTownInfo(townId); } catch (_) { return false; }
+    if (!info || !(info.hideLvl > 0)) return false;
+    if (info.unlimited) return true;
+    if (info.hideCap == null || info.stored == null) return false;
+    return info.stored < info.hideCap;
+  }
+  function dumpProfileWants(townId, res) {
+    try {
+      const p = goalEffective(townId);
+      const v = p && p.resource ? +p.resource[res] : 0;
+      return Number.isFinite(v) ? v : 0;
+    } catch (_) { return 0; }
+  }
+
+  function pickDumpDestination(fromId, res, towns, ledger) {
+    const from = String(fromId);
+    const ids = towns.map(t => String(t.id)).filter(id => id !== from);
+    const roomOf = id => {
+      const l = ledger[id] || ledger[+id];
+      if (!l || !(l.cap > 0)) return null;
+      return Math.max(0, l.cap - (+l[res] || 0));
+    };
+    const sinks = dumpSinkList().filter(id => ids.includes(id));
+    if (sinks.length) {
+
+      const best = sinks.map(id => ({ id, room: roomOf(id) }))
+        .filter(x => x.room != null && x.room > 0)
+        .sort((a, b) => b.room - a.room)[0];
+      return best ? best.id : null;
+    }
+    const wanted = ids.map(id => ({ id, bias: dumpProfileWants(id, res), room: roomOf(id) }))
+      .filter(x => x.bias >= 0.5 && x.room != null && x.room > 0)
+      .sort((a, b) => (b.bias - a.bias) || (b.room - a.room))[0];
+    if (wanted) return wanted.id;
+
+    let jobs = [];
+    try {
+      const probe = Object.create(null);
+      for (const [k, v] of Object.entries(ledger)) probe[k] = Object.assign({}, v);
+      jobs = transportBalanceJobs(towns, probe) || [];
+    } catch (_) { jobs = []; }
+    const hit = jobs.find(j => String(j.from) === from && (+j[res] || 0) > 0);
+    return hit ? String(hit.to) : null;
+  }
+  function dumpJobs(towns, L) {
+    if (!state.autoDump) return [];
+    const ledger = L || tradeLedger(towns);
+    if (!ledger) return [];
+    const jobs = [];
+    for (const t of towns) {
+      const id = String(t.id);
+      const src = ledger[id] || ledger[t.id];
+      if (!src || !(src.cap > 0)) {
+        gbLogT('dump-blind-' + id, 600000, `dump: town ${id} capacity unreadable - skipped`);
+        continue;
+      }
+
+      let perTown = 0;
+      for (const res of GB_RES_KEYS) {
+        if (src.tradeCap <= 0) break;
+
+        if (perTown >= 1) break;
+        const fillPct = Math.round((+src[res] || 0) / src.cap * 100);
+        if (fillPct < dumpThresholdFor(res)) continue;
+        if (res === 'iron' && caveHasHeadroom(id)) {
+          gbLogT('dump-cave-' + id, 600000, `dump: town ${id} iron held - cave still has headroom`);
+          continue;
+        }
+
+        if (res === 'iron') {
+          try {
+            const r = ironReservedForCave(id);
+            if (r && r.reserved) {
+              gbLogT('dump-cave-res-' + id, 600000, `dump: town ${id} iron reserved for cave`);
+              continue;
+            }
+          } catch (_) {}
+        }
+        const keep = Math.floor(src.cap * dumpKeepPctFor(res) / 100);
+        const surplus = Math.max(0, (+src[res] || 0) - keep);
+
+        let amount = Math.floor(surplus * DUMP_SURPLUS_SHARE);
+        if (amount <= 0) continue;
+        const to = pickDumpDestination(id, res, towns, ledger);
+        if (!to) {
+          gbLogT('dump-nodest-' + id + '-' + res, 600000, `dump: no destination for ${res} from ${id}`);
+          continue;
+        }
+        const tgt = ledger[to] || ledger[+to];
+        if (!tgt || !(tgt.cap > 0)) continue;
+        amount = Math.floor(Math.min(amount, src.tradeCap, Math.max(0, tgt.cap - (+tgt[res] || 0))));
+        const minBatch = Math.max(100, gbCfgNum(state.tradeMinBatch, 1000));
+        if (amount < minBatch) continue;
+        const job = { from: id, to, wood: 0, stone: 0, iron: 0, dump: res };
+        job[res] = amount;
+        jobs.push(job);
+        tradeApplyJob(ledger, job);
+        perTown++;
+        if (jobs.length >= DUMP_MAX_JOBS) return jobs;
+      }
     }
     return jobs;
   }
@@ -12424,7 +12572,7 @@ const STORE = {
       cave: state.autoCave,
       build: state.abAuto || nativeQueueHasPending('build'),
       research: state.autoResearch || nativeQueueHasPending('research'),
-      trade: state.autoTrade || state.islandShip || state.autoTransport,
+      trade: state.autoTrade || state.islandShip || state.autoTransport || state.autoTradeRoutes || state.autoDump,
       farm: state.autoFarm,
       ruraltrade: state.autoRuralTrade,
       rurallevel: state.autoRuralLevel,
@@ -15886,6 +16034,26 @@ const STORE = {
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
       };
     }));
+    out.push(preflightProbe('dump', () => {
+      if (!state.autoDump) return { ok: true, detail: 'desactivado (por defecto)' };
+      const degenerate = [];
+      for (const r of ['wood', 'stone', 'iron']) {
+        const th = dumpThresholdFor(r), keep = dumpKeepPctFor(r);
+
+        if (keep >= th) degenerate.push(`${r} conservar ${keep}% >= umbral ${th}%`);
+      }
+      const sinks = dumpSinkList();
+      const ids = (townsFromGame() || []).map(t => String(t.id));
+      const anyHide = ids.some(id => { try { const i = caveTownInfo(id); return i && i.hideLvl > 0; } catch (_) { return false; } });
+      if (!sinks.length && !anyHide) {
+        return { ok: false, detail: 'sin destinos configurados y ninguna ciudad con cueva - el vaciado no tendria a donde ir' };
+      }
+      return {
+        ok: true,
+        warn: degenerate.length > 0,
+        detail: `ON, ${sinks.length || 'auto'} destino(s)` + (degenerate.length ? ' - ' + degenerate.join('; ') : ''),
+      };
+    }));
     out.push(preflightProbe('trade routes', () => {
       const all = Object.values(state.tradeRoutes || {});
       const enabled = all.filter(r => r && r.enabled !== false).length;
@@ -17572,6 +17740,18 @@ const STORE = {
         <label style="margin-left:12px;flex-wrap:wrap">Reserve % <input type="number" data-cfg="transport-reserve" min="0" max="80" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
           Min batch <input type="number" data-cfg="transport-min" min="100" max="10000" step="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="ALTO RIESGO: vacia recursos por encima del umbral hacia otras ciudades. Sin vuelta atras. Envia solo la MITAD del excedente y nunca el hierro que la cueva todavia puede guardar."><input type="checkbox" data-cfg="auto-dump"/> Auto vaciado de recursos</label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Vaciar por encima de %
+          mad <input type="number" data-cfg="dump-th-wood" min="50" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          pie <input type="number" data-cfg="dump-th-stone" min="50" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          pla <input type="number" data-cfg="dump-th-iron" min="50" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+        </label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Conservar %
+          mad <input type="number" data-cfg="dump-keep-wood" min="0" max="95" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          pie <input type="number" data-cfg="dump-keep-stone" min="0" max="95" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          pla <input type="number" data-cfg="dump-keep-iron" min="0" max="95" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+        </label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="Ciudades propias que aceptan el vaciado, separadas por comas. Vacio = usa el sesgo del perfil y luego el planificador de transporte.">Destinos <input data-cfg="dump-sinks" placeholder="vacio = auto" style="width:180px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-trade"/> Rural village trade</label>
         <label style="margin-left:12px;flex-wrap:wrap">Min ratio <input type="number" data-cfg="rural-ratio" step="0.25" min="0.25" max="2" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>
           Res <select data-cfg="rural-res" style="background:#111;color:#cfc;border:1px solid #333"><option value="iron">plata</option><option value="stone">piedra</option><option value="wood">madera</option></select>
@@ -18139,6 +18319,12 @@ const STORE = {
     setChk('[data-cfg=island-ship]', state.islandShip);
     setChk('[data-cfg=auto-trade-routes]', state.autoTradeRoutes);
     setChk('[data-cfg=auto-transport]', state.autoTransport);
+    setChk('[data-cfg=auto-dump]', state.autoDump);
+    for (const r of ['wood', 'stone', 'iron']) {
+      setNum('[data-cfg=dump-th-' + r + ']', dumpThresholdFor(r));
+      setNum('[data-cfg=dump-keep-' + r + ']', dumpKeepPctFor(r));
+    }
+    { const ds = sec.querySelector('[data-cfg=dump-sinks]'); if (ds) ds.value = dumpSinkList().join(','); }
     setChk('[data-cfg=intel-battle-stats]', state.intelBattleStats !== false);
     setChk('[data-cfg=ab-optimal-order]', state.abOptimalOrderOn !== false);
     setChk('[data-cfg=auto-rural-trade]', state.autoRuralTrade);
@@ -18242,6 +18428,26 @@ const STORE = {
       } catch (e) { flash('JSON de rutas invalido'); }
     });
     bindToggle('[data-cfg=auto-transport]', 'autoTransport', STORE.AUTO_TRANSPORT, () => tradeScan('toggle'));
+    bindToggle('[data-cfg=auto-dump]', 'autoDump', STORE.AUTO_DUMP, () => tradeScan('toggle'));
+    const saveDumpMap = (field, store, res, v, lo, hi) => {
+      if (!state[field] || typeof state[field] !== 'object') state[field] = {};
+      state[field][res] = Math.max(lo, Math.min(hi, Number.isFinite(+v) ? +v : state[field][res]));
+      save(store, state[field]);
+    };
+    for (const r of ['wood', 'stone', 'iron']) {
+      saveNum('[data-cfg=dump-th-' + r + ']', v => saveDumpMap('dumpThreshold', STORE.DUMP_THRESHOLD, r, v, 50, 100));
+      saveNum('[data-cfg=dump-keep-' + r + ']', v => saveDumpMap('dumpKeep', STORE.DUMP_KEEP, r, v, 0, 95));
+    }
+    sec.querySelector('[data-cfg=dump-sinks]')?.addEventListener('change', e => {
+
+      const own = new Set((townsFromGame() || []).map(t => String(t.id)));
+      const raw = String(e.target.value || '').split(/[,\s]+/).map(x => x.trim()).filter(Boolean);
+      const kept = raw.filter(x => own.has(x));
+      state.dumpSinks = kept;
+      save(STORE.DUMP_SINKS, kept);
+      e.target.value = kept.join(',');
+      if (kept.length !== raw.length) flash(`${kept.length}/${raw.length} destinos validos`);
+    });
     bindToggle('[data-cfg=intel-battle-stats]', 'intelBattleStats', STORE.INTEL_BATTLE_STATS, () => { try { renderIntel(); } catch (_) {} });
     bindToggle('[data-cfg=ab-optimal-order]', 'abOptimalOrderOn', STORE.AB_OPTIMAL_ORDER_ON, () => { if (state.abOptimalOrderOn === false) abOptimalOrderClear(); });
     bindToggle('[data-cfg=auto-rural-trade]', 'autoRuralTrade', STORE.AUTO_RURAL_TRADE, () => ruralTradeScan('toggle'));
@@ -19163,6 +19369,8 @@ const STORE = {
       transportProjectHeadroom,
       transportTownETA,
       transportBalanceJobs,
+      dumpJobs,
+      pickDumpDestination,
       goalPlanTown,
       goalPlanAll,
       goalSetProfile,

@@ -496,7 +496,7 @@
   }
 
   function tradeScan(reason) {
-    if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes) || captchaPaused('trade')) return;
+    if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes && !state.autoDump) || captchaPaused('trade')) return;
     if (automationPaused({})) return;
     if (gbLocked('trade')) return;
     const towns = tradeListTowns();
@@ -511,6 +511,9 @@
     // sub-planner cannot over-plan a target these already filled.
     if (state.autoTradeRoutes) jobs = jobs.concat(tradeRouteJobs(towns, ledger));
     if (state.autoTransport) jobs = jobs.concat(transportBalanceJobs(towns, ledger));
+    // Dump is explicit user policy, so it outranks the heuristic cascade below
+    // but yields to the routes above it.
+    if (state.autoDump) jobs = jobs.concat(dumpJobs(towns, ledger));
 
     if (state.autoTrade && preset === 'smart') {
       jobs = jobs.concat(tradePredictiveJobs(towns, ledger));

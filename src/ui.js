@@ -845,6 +845,18 @@
         <label style="margin-left:12px;flex-wrap:wrap">Reserve % <input type="number" data-cfg="transport-reserve" min="0" max="80" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
           Min batch <input type="number" data-cfg="transport-min" min="100" max="10000" step="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="ALTO RIESGO: vacia recursos por encima del umbral hacia otras ciudades. Sin vuelta atras. Envia solo la MITAD del excedente y nunca el hierro que la cueva todavia puede guardar."><input type="checkbox" data-cfg="auto-dump"/> Auto vaciado de recursos</label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Vaciar por encima de %
+          mad <input type="number" data-cfg="dump-th-wood" min="50" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          pie <input type="number" data-cfg="dump-th-stone" min="50" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          pla <input type="number" data-cfg="dump-th-iron" min="50" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+        </label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Conservar %
+          mad <input type="number" data-cfg="dump-keep-wood" min="0" max="95" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          pie <input type="number" data-cfg="dump-keep-stone" min="0" max="95" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          pla <input type="number" data-cfg="dump-keep-iron" min="0" max="95" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+        </label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="Ciudades propias que aceptan el vaciado, separadas por comas. Vacio = usa el sesgo del perfil y luego el planificador de transporte.">Destinos <input data-cfg="dump-sinks" placeholder="vacio = auto" style="width:180px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-trade"/> Rural village trade</label>
         <label style="margin-left:12px;flex-wrap:wrap">Min ratio <input type="number" data-cfg="rural-ratio" step="0.25" min="0.25" max="2" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>
           Res <select data-cfg="rural-res" style="background:#111;color:#cfc;border:1px solid #333"><option value="iron">plata</option><option value="stone">piedra</option><option value="wood">madera</option></select>
@@ -1413,6 +1425,12 @@
     setChk('[data-cfg=island-ship]', state.islandShip);
     setChk('[data-cfg=auto-trade-routes]', state.autoTradeRoutes);
     setChk('[data-cfg=auto-transport]', state.autoTransport);
+    setChk('[data-cfg=auto-dump]', state.autoDump);
+    for (const r of ['wood', 'stone', 'iron']) {
+      setNum('[data-cfg=dump-th-' + r + ']', dumpThresholdFor(r));
+      setNum('[data-cfg=dump-keep-' + r + ']', dumpKeepPctFor(r));
+    }
+    { const ds = sec.querySelector('[data-cfg=dump-sinks]'); if (ds) ds.value = dumpSinkList().join(','); }
     setChk('[data-cfg=intel-battle-stats]', state.intelBattleStats !== false);
     setChk('[data-cfg=ab-optimal-order]', state.abOptimalOrderOn !== false);
     setChk('[data-cfg=auto-rural-trade]', state.autoRuralTrade);
@@ -1516,6 +1534,26 @@
       } catch (e) { flash('JSON de rutas invalido'); }
     });
     bindToggle('[data-cfg=auto-transport]', 'autoTransport', STORE.AUTO_TRANSPORT, () => tradeScan('toggle'));
+    bindToggle('[data-cfg=auto-dump]', 'autoDump', STORE.AUTO_DUMP, () => tradeScan('toggle'));
+    const saveDumpMap = (field, store, res, v, lo, hi) => {
+      if (!state[field] || typeof state[field] !== 'object') state[field] = {};
+      state[field][res] = Math.max(lo, Math.min(hi, Number.isFinite(+v) ? +v : state[field][res]));
+      save(store, state[field]);
+    };
+    for (const r of ['wood', 'stone', 'iron']) {
+      saveNum('[data-cfg=dump-th-' + r + ']', v => saveDumpMap('dumpThreshold', STORE.DUMP_THRESHOLD, r, v, 50, 100));
+      saveNum('[data-cfg=dump-keep-' + r + ']', v => saveDumpMap('dumpKeep', STORE.DUMP_KEEP, r, v, 0, 95));
+    }
+    sec.querySelector('[data-cfg=dump-sinks]')?.addEventListener('change', e => {
+      // Only own-town ids survive: a typo must not become a destination.
+      const own = new Set((townsFromGame() || []).map(t => String(t.id)));
+      const raw = String(e.target.value || '').split(/[,\s]+/).map(x => x.trim()).filter(Boolean);
+      const kept = raw.filter(x => own.has(x));
+      state.dumpSinks = kept;
+      save(STORE.DUMP_SINKS, kept);
+      e.target.value = kept.join(',');
+      if (kept.length !== raw.length) flash(`${kept.length}/${raw.length} destinos validos`);
+    });
     bindToggle('[data-cfg=intel-battle-stats]', 'intelBattleStats', STORE.INTEL_BATTLE_STATS, () => { try { renderIntel(); } catch (_) {} });
     bindToggle('[data-cfg=ab-optimal-order]', 'abOptimalOrderOn', STORE.AB_OPTIMAL_ORDER_ON, () => { if (state.abOptimalOrderOn === false) abOptimalOrderClear(); });
     bindToggle('[data-cfg=auto-rural-trade]', 'autoRuralTrade', STORE.AUTO_RURAL_TRADE, () => ruralTradeScan('toggle'));

@@ -168,6 +168,8 @@
       transportProjectHeadroom,
       transportTownETA,
       transportBalanceJobs,
+      dumpJobs,
+      pickDumpDestination,
       goalPlanTown,
       goalPlanAll,
       goalSetProfile,

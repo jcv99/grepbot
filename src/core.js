@@ -303,6 +303,11 @@
     // HIGH-RISK: a recurring irreversible POST loop, so default OFF.
     autoTradeRoutes: load(STORE.AUTO_TRADE_ROUTES, false),
     autoTransport: load(STORE.AUTO_TRANSPORT, false),
+    // v4 plan 3.4: HIGH-RISK. A trade post is irreversible, so default OFF.
+    autoDump: load(STORE.AUTO_DUMP, false),
+    dumpThreshold: load(STORE.DUMP_THRESHOLD, { wood: 95, stone: 95, iron: 90 }),
+    dumpKeep: load(STORE.DUMP_KEEP, { wood: 50, stone: 50, iron: 50 }),
+    dumpSinks: load(STORE.DUMP_SINKS, []),
     transportReserve: load(STORE.TRANSPORT_RESERVE, 20),
     transportMin: load(STORE.TRANSPORT_MIN, 1000),
     autoRuralTrade: load(STORE.AUTO_RURAL_TRADE, false),
@@ -551,6 +556,19 @@
       // none - so this step exists purely to stamp the version siblings 2.11
       // and 3.7 gate their own migrations on.
       ver = 11;
+    }
+    if (ver < 12) {
+      // v4 plan 3.4: seed the dump policy so an upgrade reads real defaults
+      // rather than undefined, and force the HIGH-RISK flag to a boolean.
+      if (typeof state.autoDump !== 'boolean') { state.autoDump = false; save(STORE.AUTO_DUMP, state.autoDump); }
+      const seedMap = (key, store, def) => {
+        const cur = state[key];
+        if (!cur || typeof cur !== 'object' || Array.isArray(cur)) { state[key] = def; save(store, def); }
+      };
+      seedMap('dumpThreshold', STORE.DUMP_THRESHOLD, { wood: 95, stone: 95, iron: 90 });
+      seedMap('dumpKeep', STORE.DUMP_KEEP, { wood: 50, stone: 50, iron: 50 });
+      if (!Array.isArray(state.dumpSinks)) { state.dumpSinks = []; save(STORE.DUMP_SINKS, state.dumpSinks); }
+      ver = 12;
     }
     if (ver !== state.configVer) {
       state.configVer = ver;
