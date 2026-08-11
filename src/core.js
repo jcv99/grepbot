@@ -516,6 +516,13 @@
       state.defenseCfg.smartAuto=!!state.defenseCfg.smartAuto;save(STORE.DEFENSE_CFG,state.defenseCfg);
       ver = 10;
     }
+    if (ver < 11) {
+      // v4 plan 2.7: population state is derived, not stored. The only thing to
+      // drop is the memo of a render that predates townPopState, and there is
+      // none - so this step exists purely to stamp the version siblings 2.11
+      // and 3.7 gate their own migrations on.
+      ver = 11;
+    }
     if (ver !== state.configVer) {
       state.configVer = ver;
       save(STORE.CONFIG_VER, ver);

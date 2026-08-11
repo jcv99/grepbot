@@ -163,6 +163,7 @@
       // implementation stays goalEffective so existing callers are untouched.
       gbCityProfile: goalEffective,
       // Capacity/ETA contract consumed by plans 3.2, 3.4 and 5.1.
+      townPopState,
       transportTownRes,
       transportProjectHeadroom,
       transportTownETA,

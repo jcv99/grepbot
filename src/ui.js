@@ -182,14 +182,27 @@
       if (r.iron != null) i += r.iron;
       if (r.pop != null) p += r.pop;
     }
+    // Population subtotal from the same walk: how many towns are at/near the
+    // pop cap, so a warehouse-focused user still sees the recruit ceiling.
+    let popNear = 0, popWarn = 0, popRead = 0;
+    for (const t of state.towns) {
+      const ps = townPopState(t.id);
+      if (!ps || ps.usedPct == null) continue;
+      popRead++;
+      if (ps.warn) popWarn++; else if (ps.near) popNear++;
+    }
     const head = `${state.towns.length} towns | ${okN} ok`;
-    const res = `Wood ${fmt(w)} | Stone ${fmt(s)} | Iron ${fmt(i)} | Pop ${fmt(p)}`;
+    const popTxt = popRead
+      ? ` | poblacion ${popWarn} al limite / ${popNear} cerca / ${popRead} leidas`
+      : ' | poblacion no legible';
+    const res = `Wood ${fmt(w)} | Stone ${fmt(s)} | Iron ${fmt(i)} | Pop ${fmt(p)}${popTxt}`;
     if (head + res !== _worldTotalsLast) {
       _worldTotalsLast = head + res;
       totals.replaceChildren();
       const totalsH = document.createElement('div');
       totalsH.style.cssText = 'font-weight:bold;color:#f5a623';
       totalsH.textContent = head;
+      if (popWarn) totalsH.className = 'pop-warn-row';
       totals.appendChild(totalsH);
       const totalsR = document.createElement('div');
       totalsR.style.cssText = 'color:#cfc;margin-top:3px';
@@ -209,13 +222,14 @@
     for (const t of state.towns) {
       const key = String(t.id);
       const r = state.townResources[t.id];
+      const ps = townPopState(t.id);
       const cells = [
         { cls: 'id', text: String(t.id) },
         { cls: '', text: t.name || '-' },
         { cls: '', text: r?.ok ? fmt(r.wood) : '-' },
         { cls: '', text: r?.ok ? fmt(r.stone) : '-' },
         { cls: '', text: r?.ok ? fmt(r.iron) : '-' },
-        { cls: '', text: r?.ok && r.pop != null ? `${fmt(r.pop)}/${fmt(r.cap)}` : '-' },
+        popCell(ps, r),
         { cls: r ? (r.ok ? 'stale' : 'err') : 'stale',
           text: r ? (r.ok ? `${Math.round((Date.now() - r.ts) / 1000)}s` : (r.err || 'err')) : '-' },
       ];
@@ -226,11 +240,24 @@
         cells.forEach(() => tr.appendChild(document.createElement('td')));
         tbody.appendChild(tr);
       }
-      const sort = [t.id, t.name || '', r?.wood ?? '', r?.stone ?? '', r?.iron ?? '', r?.pop ?? '', r?.ts ?? ''].join('\t');
+      const sort = [t.id, t.name || '', r?.wood ?? '', r?.stone ?? '', r?.iron ?? '', ps?.usedPct ?? (r?.pop ?? ''), r?.ts ?? ''].join('\t');
       if (tr.dataset.sort !== sort) tr.dataset.sort = sort;
       patchCells(tr, cells);
     }
     if (!sameSet) sortApplySaved(table);
+  }
+  // One cell, three segments - NOT three <div>s as plan 2.7 sketched:
+  // patchCells only manages textContent + className, and rebuilding the cell as
+  // HTML on every render would defeat the keyed-row patching the v1.4.0 render
+  // rules exist to protect.
+  function popCell(ps, r) {
+    const cap = (ps && ps.cap) ?? (r && r.cap);
+    const used = (ps && ps.used != null) ? ps.used : (r && r.ok ? r.pop : null);
+    if (used == null && !(cap > 0)) return { cls: '', text: '-' };
+    const pctTxt = (ps && ps.usedPct != null) ? ` \u00b7 ${ps.usedPct}%` : ' \u00b7 -';
+    const eta = (ps && ps.etaMs != null) ? ' \u00b7 ' + fmtSec(Math.round(ps.etaMs / 1000)) : ' \u00b7 \u2014';
+    const cls = ps && ps.warn ? 'pop-warn' : (ps && ps.near ? 'pop-near' : '');
+    return { cls, text: `${fmt(used)}/${fmt(cap)}${pctTxt}${eta}` };
   }
   function fmt(n) {
     if (n == null) return '-';
@@ -445,6 +472,9 @@
     #grepbot-panel .farms-list td.id{text-align:left;color:#6cf;font-family:monospace}
     #grepbot-panel .farms-list td.stale{color:#888}
     #grepbot-panel .farms-list td.err{color:#f55}
+    #grepbot-panel td.pop-near{color:#fc6}
+    #grepbot-panel td.pop-warn{color:#f66;font-weight:bold}
+    #grepbot-panel .pop-warn-row{color:#f66;font-weight:bold}
     #grepbot-panel .farms-list tr.alert td{background:rgba(255,80,80,.18);color:#faa}
     #grepbot-panel .farms-list tr.alert td.id{color:#f55;font-weight:bold}
     #grepbot-panel .world-list table{width:100%;border-collapse:collapse;font-size:10px}

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.1.9
+// @version      4.2.2
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -192,7 +192,7 @@ const STORE = {
 
   const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
     'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'merchant', 'pttrade', 'favor', 'wonder'];
-  const CONFIG_VER_CURRENT = 10;
+  const CONFIG_VER_CURRENT = 11;
 
   const WORLD_SCOPED_BASES = new Set([
     STORE.FINDINGS, STORE.FARMS, STORE.FARMS_PARSED, STORE.FARM_RES, STORE.SEEN,
@@ -720,6 +720,10 @@ const STORE = {
       state.defenseCfg.returnMarginSec=Math.max(0,Math.min(3600,+state.defenseCfg.returnMarginSec||120));
       state.defenseCfg.smartAuto=!!state.defenseCfg.smartAuto;save(STORE.DEFENSE_CFG,state.defenseCfg);
       ver = 10;
+    }
+    if (ver < 11) {
+
+      ver = 11;
     }
     if (ver !== state.configVer) {
       state.configVer = ver;
@@ -2830,13 +2834,54 @@ const STORE = {
         if (cap > 0) {
           const isFull = (v) => v >= cap || v / cap >= 0.99;
           const full = { wood: isFull(wood), stone: isFull(stone), iron: isFull(iron) };
+
           const n = (full.wood ? 1 : 0) + (full.stone ? 1 : 0) + (full.iron ? 1 : 0);
+          try { const ps = townPopState(townId); full.pop = !!(ps && ps.warn); } catch (_) { full.pop = false; }
           const fillPct = Math.round(Math.max(wood, stone, iron) / cap * 100);
           out = { cap, wood, stone, iron, full, n, fillPct };
         }
       }
     }
     _townResCache[key] = { at: now, v: out };
+    return out;
+  }
+
+  const _townPopCache = Object.create(null);
+  const POP_WARN_PCT = 90;
+  const POP_NEAR_PCT = 75;
+
+  function townPopState(townId) {
+    if (townId == null || townId === '') return null;
+    const key = 'pop:' + townId;
+    const now = Date.now();
+    const hit = _townPopCache[key];
+    if (hit && now - hit.at < TOWN_RES_CACHE_MS) return hit.v;
+    const t = gbTownModel(townId);
+    const free = gbTownPop(townId);
+    let cap = null;
+    const scraped = (state.townResources || {})[townId] || (state.townResources || {})[String(townId)] || null;
+    if (scraped && Number.isFinite(+scraped.cap) && +scraped.cap > 0) cap = +scraped.cap;
+    if (!(cap > 0)) cap = gbProbeNum(t, ['getPopulationCapacity', 'getMaxPopulation', 'getPopulationMax']);
+    if (!(cap > 0)) {
+      try {
+        const r = t && t.resources && t.resources();
+        const v = r && (r.population_max ?? r.populationMax);
+        if (Number.isFinite(+v) && +v > 0) cap = +v;
+      } catch (_) {}
+    }
+    let used = null;
+    if (free != null && cap > 0) used = Math.max(0, cap - free);
+    else if (scraped && Number.isFinite(+scraped.pop)) used = +scraped.pop;
+    const usedPct = (used != null && cap > 0) ? Math.round(used / cap * 100) : null;
+    const out = (free == null && used == null && !(cap > 0)) ? null : {
+      free, used, cap: cap > 0 ? cap : null, usedPct,
+      freePct: (free != null && cap > 0) ? Math.round(free / cap * 100) : null,
+      near: usedPct != null && usedPct >= POP_NEAR_PCT,
+      warn: usedPct != null && usedPct >= POP_WARN_PCT,
+
+      etaMs: null,
+    };
+    _townPopCache[key] = { at: now, v: out };
     return out;
   }
   function gbProbeNum(obj, names, args) {
@@ -15461,14 +15506,26 @@ const STORE = {
       if (r.iron != null) i += r.iron;
       if (r.pop != null) p += r.pop;
     }
+
+    let popNear = 0, popWarn = 0, popRead = 0;
+    for (const t of state.towns) {
+      const ps = townPopState(t.id);
+      if (!ps || ps.usedPct == null) continue;
+      popRead++;
+      if (ps.warn) popWarn++; else if (ps.near) popNear++;
+    }
     const head = `${state.towns.length} towns | ${okN} ok`;
-    const res = `Wood ${fmt(w)} | Stone ${fmt(s)} | Iron ${fmt(i)} | Pop ${fmt(p)}`;
+    const popTxt = popRead
+      ? ` | poblacion ${popWarn} al limite / ${popNear} cerca / ${popRead} leidas`
+      : ' | poblacion no legible';
+    const res = `Wood ${fmt(w)} | Stone ${fmt(s)} | Iron ${fmt(i)} | Pop ${fmt(p)}${popTxt}`;
     if (head + res !== _worldTotalsLast) {
       _worldTotalsLast = head + res;
       totals.replaceChildren();
       const totalsH = document.createElement('div');
       totalsH.style.cssText = 'font-weight:bold;color:#f5a623';
       totalsH.textContent = head;
+      if (popWarn) totalsH.className = 'pop-warn-row';
       totals.appendChild(totalsH);
       const totalsR = document.createElement('div');
       totalsR.style.cssText = 'color:#cfc;margin-top:3px';
@@ -15488,13 +15545,14 @@ const STORE = {
     for (const t of state.towns) {
       const key = String(t.id);
       const r = state.townResources[t.id];
+      const ps = townPopState(t.id);
       const cells = [
         { cls: 'id', text: String(t.id) },
         { cls: '', text: t.name || '-' },
         { cls: '', text: r?.ok ? fmt(r.wood) : '-' },
         { cls: '', text: r?.ok ? fmt(r.stone) : '-' },
         { cls: '', text: r?.ok ? fmt(r.iron) : '-' },
-        { cls: '', text: r?.ok && r.pop != null ? `${fmt(r.pop)}/${fmt(r.cap)}` : '-' },
+        popCell(ps, r),
         { cls: r ? (r.ok ? 'stale' : 'err') : 'stale',
           text: r ? (r.ok ? `${Math.round((Date.now() - r.ts) / 1000)}s` : (r.err || 'err')) : '-' },
       ];
@@ -15505,11 +15563,21 @@ const STORE = {
         cells.forEach(() => tr.appendChild(document.createElement('td')));
         tbody.appendChild(tr);
       }
-      const sort = [t.id, t.name || '', r?.wood ?? '', r?.stone ?? '', r?.iron ?? '', r?.pop ?? '', r?.ts ?? ''].join('\t');
+      const sort = [t.id, t.name || '', r?.wood ?? '', r?.stone ?? '', r?.iron ?? '', ps?.usedPct ?? (r?.pop ?? ''), r?.ts ?? ''].join('\t');
       if (tr.dataset.sort !== sort) tr.dataset.sort = sort;
       patchCells(tr, cells);
     }
     if (!sameSet) sortApplySaved(table);
+  }
+
+  function popCell(ps, r) {
+    const cap = (ps && ps.cap) ?? (r && r.cap);
+    const used = (ps && ps.used != null) ? ps.used : (r && r.ok ? r.pop : null);
+    if (used == null && !(cap > 0)) return { cls: '', text: '-' };
+    const pctTxt = (ps && ps.usedPct != null) ? ` \u00b7 ${ps.usedPct}%` : ' \u00b7 -';
+    const eta = (ps && ps.etaMs != null) ? ' \u00b7 ' + fmtSec(Math.round(ps.etaMs / 1000)) : ' \u00b7 \u2014';
+    const cls = ps && ps.warn ? 'pop-warn' : (ps && ps.near ? 'pop-near' : '');
+    return { cls, text: `${fmt(used)}/${fmt(cap)}${pctTxt}${eta}` };
   }
   function fmt(n) {
     if (n == null) return '-';
@@ -15724,6 +15792,9 @@ const STORE = {
     #grepbot-panel .farms-list td.id{text-align:left;color:#6cf;font-family:monospace}
     #grepbot-panel .farms-list td.stale{color:#888}
     #grepbot-panel .farms-list td.err{color:#f55}
+    #grepbot-panel td.pop-near{color:#fc6}
+    #grepbot-panel td.pop-warn{color:#f66;font-weight:bold}
+    #grepbot-panel .pop-warn-row{color:#f66;font-weight:bold}
     #grepbot-panel .farms-list tr.alert td{background:rgba(255,80,80,.18);color:#faa}
     #grepbot-panel .farms-list tr.alert td.id{color:#f55;font-weight:bold}
     #grepbot-panel .world-list table{width:100%;border-collapse:collapse;font-size:10px}
@@ -17535,6 +17606,7 @@ const STORE = {
 
       gbCityProfile: goalEffective,
 
+      townPopState,
       transportTownRes,
       transportProjectHeadroom,
       transportTownETA,

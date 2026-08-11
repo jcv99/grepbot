@@ -262,13 +262,63 @@
         if (cap > 0) {
           const isFull = (v) => v >= cap || v / cap >= 0.99;
           const full = { wood: isFull(wood), stone: isFull(stone), iron: isFull(iron) };
+          // `n` stays a RESOURCE count: a town is not blocked from looting just
+          // because its population is capped, and every existing caller of `n`
+          // (cave stash, deadlock resolver, trade) means "warehouses full".
           const n = (full.wood ? 1 : 0) + (full.stone ? 1 : 0) + (full.iron ? 1 : 0);
+          try { const ps = townPopState(townId); full.pop = !!(ps && ps.warn); } catch (_) { full.pop = false; }
           const fillPct = Math.round(Math.max(wood, stone, iron) / cap * 100);
           out = { cap, wood, stone, iron, full, n, fillPct };
         }
       }
     }
     _townResCache[key] = { at: now, v: out };
+    return out;
+  }
+  // ===== Population state (v4 plan 2.7) ======================================
+  // Own cache keyspace so a pop invalidation never trashes the resource memo.
+  const _townPopCache = Object.create(null);
+  const POP_WARN_PCT = 90;
+  const POP_NEAR_PCT = 75;
+  // NOTE: gbTownPop probes getAvailablePopulation FIRST, so it returns FREE
+  // population, not used. Plan 2.7 calls its field `current` and derives
+  // `freePct = current/cap`, which would light the warn colour on an EMPTY
+  // town. This helper keeps `free` and `used` as separate named fields and
+  // warns on usedPct, which is the number the user cares about.
+  function townPopState(townId) {
+    if (townId == null || townId === '') return null;
+    const key = 'pop:' + townId;
+    const now = Date.now();
+    const hit = _townPopCache[key];
+    if (hit && now - hit.at < TOWN_RES_CACHE_MS) return hit.v;
+    const t = gbTownModel(townId);
+    const free = gbTownPop(townId);
+    let cap = null;
+    const scraped = (state.townResources || {})[townId] || (state.townResources || {})[String(townId)] || null;
+    if (scraped && Number.isFinite(+scraped.cap) && +scraped.cap > 0) cap = +scraped.cap;
+    if (!(cap > 0)) cap = gbProbeNum(t, ['getPopulationCapacity', 'getMaxPopulation', 'getPopulationMax']);
+    if (!(cap > 0)) {
+      try {
+        const r = t && t.resources && t.resources();
+        const v = r && (r.population_max ?? r.populationMax);
+        if (Number.isFinite(+v) && +v > 0) cap = +v;
+      } catch (_) {}
+    }
+    let used = null;
+    if (free != null && cap > 0) used = Math.max(0, cap - free);
+    else if (scraped && Number.isFinite(+scraped.pop)) used = +scraped.pop;
+    const usedPct = (used != null && cap > 0) ? Math.round(used / cap * 100) : null;
+    const out = (free == null && used == null && !(cap > 0)) ? null : {
+      free, used, cap: cap > 0 ? cap : null, usedPct,
+      freePct: (free != null && cap > 0) ? Math.round(free / cap * 100) : null,
+      near: usedPct != null && usedPct >= POP_NEAR_PCT,
+      warn: usedPct != null && usedPct >= POP_WARN_PCT,
+      // Population growth is not exposed as a rate on stock client builds; a
+      // guard may only block on a value it actually read, so ETA stays null
+      // and the cell renders a dash rather than a fabricated number.
+      etaMs: null,
+    };
+    _townPopCache[key] = { at: now, v: out };
     return out;
   }
   function gbProbeNum(obj, names, args) {
