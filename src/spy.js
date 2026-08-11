@@ -366,3 +366,187 @@
     if (csrf) params.set('h', csrf);
     return '/game/report?' + params.toString();
   }
+
+  // ===== Auto-spy scheduler (v4 plan 4.1) ====================================
+  // Scout-class: it spends silver and can return a captcha, so it is default
+  // OFF, dry-run ON out of the box, and confirm-gated once per session.
+  //
+  // THE SPY ROUTE IS AN EXPLICIT UNKNOWN. No action name or payload for
+  // sending a spy exists anywhere in this tree, so nothing is guessed: the
+  // cycle refuses to post until spyTpl has been learned from the player's own
+  // hand-sent spy. A guessed endpoint would burn silver on a guaranteed
+  // rejection every cadence.
+  const SPY_STALE_MS = 7 * 86400000;
+  const SPY_WATCH_BONUS = 1000;
+  const SPY_REPORT_BONUS = 100;
+  function spyCfg() {
+    const c = (state.spyCfg && typeof state.spyCfg === 'object') ? state.spyCfg : {};
+    const num = (v, d, lo, hi) => { const n = +v; return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
+    return {
+      targets: Array.isArray(c.targets) ? c.targets.map(String).filter(Boolean) : [],
+      autoWatchlist: c.autoWatchlist !== false,
+      autoTopReported: num(c.autoTopReported, 5, 0, 50),
+      perCycle: num(c.perCycle, 1, 1, 5),
+      minGapMs: num(c.minGapMs, 1200000, 60000, 86400000),
+      // Dry-run defaults ON for this feature specifically: the route is
+      // unlearned on a fresh install and the operator should see the payload
+      // before any silver is spent.
+      dryRun: c.dryRun !== false,
+      confirmOncePerCycle: c.confirmOncePerCycle !== false,
+      maxConcurrent: num(c.maxConcurrent, 3, 1, 20),
+    };
+  }
+  function spyCfgSave() { save(STORE.SPY_CFG, state.spyCfg || {}); }
+  function spyLastSpy() {
+    if (!state.spyLastSpy || typeof state.spyLastSpy !== 'object' || Array.isArray(state.spyLastSpy)) state.spyLastSpy = {};
+    return state.spyLastSpy;
+  }
+  function spyHistorySave() { save(STORE.SPY_HISTORY, spyLastSpy()); }
+  // In-flight is a TIMESTAMP list per target, not a bare counter: a callback
+  // that never fires (mobile background, bfcache) would leave a counter stuck
+  // above maxConcurrent and park that target forever. Entries age out on the
+  // bridge timeout budget, so the worst case is one wasted slot for one window.
+  const SPY_INFLIGHT_TTL_MS = 120000;
+  const spyInFlightAt = Object.create(null);
+  function spyInFlightCount(id) {
+    const k = String(id), now = Date.now();
+    const list = (spyInFlightAt[k] || []).filter(t => now - t < SPY_INFLIGHT_TTL_MS);
+    if (list.length) spyInFlightAt[k] = list; else delete spyInFlightAt[k];
+    return list.length;
+  }
+  function spyInFlightAdd(id) {
+    const k = String(id);
+    if (!spyInFlightAt[k]) spyInFlightAt[k] = [];
+    spyInFlightAt[k].push(Date.now());
+  }
+  function spyInFlightDone(id) {
+    const k = String(id);
+    if (spyInFlightAt[k] && spyInFlightAt[k].length) spyInFlightAt[k].shift();
+    if (spyInFlightAt[k] && !spyInFlightAt[k].length) delete spyInFlightAt[k];
+  }
+
+  function spyReports24h() {
+    const since = Date.now() - 86400000;
+    const byTown = Object.create(null);
+    for (const f of (state.findings || [])) {
+      if (!f || +f.ts < since) continue;
+      const id = f.town && f.town.id;
+      if (id == null || id === '') continue;
+      byTown[String(id)] = (byTown[String(id)] || 0) + 1;
+    }
+    return byTown;
+  }
+  function spyIsWatched(townId) {
+    const list = state.watchlist || [];
+    return list.some(w => {
+      const id = (w && typeof w === 'object') ? (w.id != null ? w.id : w.townId) : w;
+      return id != null && String(id) === String(townId);
+    });
+  }
+  function spyRankTargets() {
+    const cfg = spyCfg();
+    const now = Date.now();
+    const last = spyLastSpy();
+    const reports = spyReports24h();
+    const pool = new Set(cfg.targets);
+    if (cfg.autoWatchlist) {
+      for (const w of (state.watchlist || [])) {
+        const id = (w && typeof w === 'object') ? (w.id != null ? w.id : w.townId) : w;
+        if (id != null && id !== '') pool.add(String(id));
+      }
+    }
+    if (cfg.autoTopReported > 0) {
+      Object.entries(reports)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, cfg.autoTopReported)
+        .forEach(([id]) => pool.add(id));
+    }
+    const out = [];
+    for (const id of pool) {
+      // An unreadable / absent lastSpyAt means "never spied", which is the
+      // STALEST case, not the freshest - a missing stamp must not park a
+      // target at the bottom of the queue forever.
+      const lastAt = Number.isFinite(+last[id]) ? +last[id] : now - SPY_STALE_MS;
+      const age = now - lastAt;
+      if (age < cfg.minGapMs) continue;
+      if (spyInFlightCount(id) >= cfg.maxConcurrent) continue;
+      const watch = spyIsWatched(id);
+      const r24 = reports[id] || 0;
+      out.push({
+        id,
+        score: age + (watch ? SPY_WATCH_BONUS : 0) + SPY_REPORT_BONUS * Math.max(0, r24 - 1),
+        lastSpyAt: Number.isFinite(+last[id]) ? +last[id] : null,
+        watch,
+        reports24h: r24,
+      });
+    }
+    return out.sort((a, b) => b.score - a.score);
+  }
+  let spyConfirmedThisSession = false;
+  function spyCycle(reason) {
+    if (!state.spyEnabled) return;
+    if (!hostEnabled() || automationPaused({})) return;
+    if (captchaPaused('spy')) return;
+    if (gbLocked('spy')) return;
+    const tpl = state.spyTpl;
+    if (!tpl || !tpl.model_url || !tpl.action_name) {
+      gbLogT('spy-no-tpl', 300000, 'spy: no template learned - hand-spy one town once to capture the route');
+      return;
+    }
+    const cfg = spyCfg();
+    const ranked = spyRankTargets();
+    if (!ranked.length) { gbLogT('spy-idle', 300000, `spy: no target due (${reason || 'scan'})`); return; }
+    const picks = ranked.slice(0, cfg.perCycle);
+    if (cfg.confirmOncePerCycle && !spyConfirmedThisSession) {
+      const top = ranked.slice(0, 3).map(t => `#${t.id} (score ${Math.round(t.score / 1000)}k${t.watch ? ', vigilada' : ''})`).join('\n  ');
+      let ok = false;
+      try { ok = gameUw().confirm(`${cfg.dryRun ? '[SIMULACION] ' : ''}Espiar automaticamente?\n  ${top}\n\nAceptar habilita el resto de la sesion.`); } catch (_) { ok = false; }
+      if (!ok) { gbLog('spy: confirm declined - cycle skipped'); return; }
+      spyConfirmedThisSession = true;
+    }
+    const lockToken = gbLock('spy');
+    if (!lockToken) return;
+    let i = 0;
+    (function next() {
+      gbLockTouch('spy', lockToken);
+      if (i >= picks.length) { gbUnlock('spy', lockToken); return; }
+      const t = picks[i++];
+      const payload = {
+        model_url: tpl.model_url,
+        action_name: tpl.action_name,
+        arguments: Object.assign({}, tpl.arguments || {}, { id: /^\d+$/.test(t.id) ? +t.id : t.id }),
+        town_id: tpl.town_id,
+      };
+      // Feature-local dry run, on top of the global one: this feature ships
+      // with it ON so the operator sees a real payload before spending silver.
+      if (cfg.dryRun) {
+        gbLog(`DRY-RUN spy: ${JSON.stringify(payload).slice(0, 200)}`);
+        spyLastSpy()[t.id] = Date.now();
+        spyHistorySave();
+        gbTimeout(next, 400);
+        return;
+      }
+      spyInFlightAdd(t.id);
+      bridgePost('spy', payload, (err) => {
+        spyInFlightDone(t.id);
+        if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('spy', lockToken); return; }
+        if (!err) {
+          spyLastSpy()[t.id] = Date.now();
+          spyHistorySave();
+          gbLog(`spy: sent to ${t.id}`);
+        } else gbLogT('spy-err', 60000, `spy err ${err}`);
+        gbTimeout(next, 900 + Math.random() * 600);
+      });
+    })();
+  }
+  // Learned from the player's own hand-sent spy, never guessed.
+  function spyLearnTemplate(j) {
+    if (!j || !j.model_url || !j.action_name) return;
+    if (typeof isSelfBridge === 'function' && isSelfBridge(j)) return;
+    const args = Object.assign({}, j.arguments || {});
+    delete args.id; // the target is per-send, not part of the template
+    state.spyTpl = { model_url: j.model_url, action_name: j.action_name, arguments: args, town_id: j.town_id, version: 1, learned_at: Date.now() };
+    save(wkey(STORE.SPY_TPL), state.spyTpl);
+    gbLog('learned spy template: ' + j.action_name);
+    try { tplHealthMarkLearned('spyTpl'); } catch (_) {}
+  }

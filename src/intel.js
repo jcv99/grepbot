@@ -640,6 +640,17 @@
     if (state.attackPatternNote) {
       html += '\n=== Patrones de ataque ===\n' + state.attackPatternNote + '\n';
     }
+    if (state.spyEnabled) {
+      html += '\n=== Cola de espionaje ===\n';
+      let ranked = [];
+      try { ranked = spyRankTargets().slice(0, 5); } catch (_) {}
+      if (!state.spyTpl) html += '(sin ruta aprendida - espia una ciudad a mano una vez)\n';
+      if (!ranked.length) html += '(ningun objetivo pendiente)\n';
+      else ranked.forEach((t, i) => {
+        html += `${i + 1}. #${t.id}${t.watch ? ' [vigilada]' : ''} - ultimo ${t.lastSpyAt ? new Date(t.lastSpyAt).toLocaleString() : 'nunca'}` +
+          ` - ${t.reports24h} informe(s) 24h\n`;
+      });
+    }
     if (state.intelBattleStats !== false) {
       const findings = state.findings || [];
       const loss = Array.from(intelLossRatio(findings).values())

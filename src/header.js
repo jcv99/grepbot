@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.14.0
+// @version      4.15.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -140,6 +140,10 @@ const STORE = {
     CS_ALERT: 'grepbot:cs-alert',
     PLAYER_NOTES: 'grepbot:player-notes',
     WATCHLIST: 'grepbot:watchlist',
+    AUTO_SPY: 'grepbot:auto-spy',
+    SPY_CFG: 'grepbot:spy-cfg',
+    SPY_HISTORY: 'grepbot:spy-history',
+    SPY_TPL: 'grepbot:spy-tpl',
     GREPODATA_INDEX: 'grepbot:grepodata-index',
     CAPTCHA_GLOBAL: 'grepbot:captcha-global',
     CAPTCHA_GLOBAL_UNTIL: 'grepbot:captcha-global-until',
@@ -225,7 +229,7 @@ const STORE = {
     STORE.MERCHANT_WISH, STORE.FAVOR_CFG, STORE.WONDER_CFG, STORE.WONDER_SPENT,
     STORE.CULTURE_GOLD_SPENT,
     STORE.RECRUIT_TARGETS, STORE.PRIORITY_ORDER,
-    STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES,
+    STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES, STORE.SPY_CFG, STORE.SPY_HISTORY, STORE.SPY_TPL,
     STORE.CAPTCHA_GLOBAL_UNTIL,
     STORE.SERVER_COOLDOWN, STORE.QUEST_CLAIM_FAIL, STORE.DODGE_QUEUE,
     STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER,

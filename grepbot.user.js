@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.14.0
+// @version      4.15.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -140,6 +140,10 @@ const STORE = {
     CS_ALERT: 'grepbot:cs-alert',
     PLAYER_NOTES: 'grepbot:player-notes',
     WATCHLIST: 'grepbot:watchlist',
+    AUTO_SPY: 'grepbot:auto-spy',
+    SPY_CFG: 'grepbot:spy-cfg',
+    SPY_HISTORY: 'grepbot:spy-history',
+    SPY_TPL: 'grepbot:spy-tpl',
     GREPODATA_INDEX: 'grepbot:grepodata-index',
     CAPTCHA_GLOBAL: 'grepbot:captcha-global',
     CAPTCHA_GLOBAL_UNTIL: 'grepbot:captcha-global-until',
@@ -225,7 +229,7 @@ const STORE = {
     STORE.MERCHANT_WISH, STORE.FAVOR_CFG, STORE.WONDER_CFG, STORE.WONDER_SPENT,
     STORE.CULTURE_GOLD_SPENT,
     STORE.RECRUIT_TARGETS, STORE.PRIORITY_ORDER,
-    STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES,
+    STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES, STORE.SPY_CFG, STORE.SPY_HISTORY, STORE.SPY_TPL,
     STORE.CAPTCHA_GLOBAL_UNTIL,
     STORE.SERVER_COOLDOWN, STORE.QUEST_CLAIM_FAIL, STORE.DODGE_QUEUE,
     STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER,
@@ -397,6 +401,7 @@ const STORE = {
     wonder: 180000,
     'wonder-favor': 180000,
     dodge: 180000,
+    spy: 180000,
     support: 180000,
     recruit: 180000,
     'defense-pull': 180000,
@@ -589,6 +594,11 @@ const STORE = {
     csAlert: load(STORE.CS_ALERT, true),
     playerNotes: load(STORE.PLAYER_NOTES, {}),
     watchlist: load(STORE.WATCHLIST, []),
+
+    spyEnabled: load(STORE.AUTO_SPY, false),
+    spyCfg: load(STORE.SPY_CFG, { targets: [], autoWatchlist: true, autoTopReported: 5, perCycle: 1, minGapMs: 1200000, dryRun: true, confirmOncePerCycle: true, maxConcurrent: 3 }),
+    spyLastSpy: load(STORE.SPY_HISTORY, {}) || {},
+    spyTpl: load(STORE.SPY_TPL, null),
     grepodataIndex: load(STORE.GREPODATA_INDEX, false),
     captchaGlobalKill: load(STORE.CAPTCHA_GLOBAL, true),
     reqBudgetPerMin: load(STORE.REQ_BUDGET, 40),
@@ -1105,6 +1115,7 @@ const STORE = {
     attack: 'attackTpl', cancel: 'cancelTpl', hero: 'heroTpl',
 
     support: 'supportTpl',
+    spy: 'spyTpl',
     collect: 'collectTpl',
     pttrade: 'ptTradeTpl',
     wonder: 'wonderFavorTpl',
@@ -3858,6 +3869,173 @@ const STORE = {
     return '/game/report?' + params.toString();
   }
 
+  const SPY_STALE_MS = 7 * 86400000;
+  const SPY_WATCH_BONUS = 1000;
+  const SPY_REPORT_BONUS = 100;
+  function spyCfg() {
+    const c = (state.spyCfg && typeof state.spyCfg === 'object') ? state.spyCfg : {};
+    const num = (v, d, lo, hi) => { const n = +v; return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
+    return {
+      targets: Array.isArray(c.targets) ? c.targets.map(String).filter(Boolean) : [],
+      autoWatchlist: c.autoWatchlist !== false,
+      autoTopReported: num(c.autoTopReported, 5, 0, 50),
+      perCycle: num(c.perCycle, 1, 1, 5),
+      minGapMs: num(c.minGapMs, 1200000, 60000, 86400000),
+
+      dryRun: c.dryRun !== false,
+      confirmOncePerCycle: c.confirmOncePerCycle !== false,
+      maxConcurrent: num(c.maxConcurrent, 3, 1, 20),
+    };
+  }
+  function spyCfgSave() { save(STORE.SPY_CFG, state.spyCfg || {}); }
+  function spyLastSpy() {
+    if (!state.spyLastSpy || typeof state.spyLastSpy !== 'object' || Array.isArray(state.spyLastSpy)) state.spyLastSpy = {};
+    return state.spyLastSpy;
+  }
+  function spyHistorySave() { save(STORE.SPY_HISTORY, spyLastSpy()); }
+
+  const SPY_INFLIGHT_TTL_MS = 120000;
+  const spyInFlightAt = Object.create(null);
+  function spyInFlightCount(id) {
+    const k = String(id), now = Date.now();
+    const list = (spyInFlightAt[k] || []).filter(t => now - t < SPY_INFLIGHT_TTL_MS);
+    if (list.length) spyInFlightAt[k] = list; else delete spyInFlightAt[k];
+    return list.length;
+  }
+  function spyInFlightAdd(id) {
+    const k = String(id);
+    if (!spyInFlightAt[k]) spyInFlightAt[k] = [];
+    spyInFlightAt[k].push(Date.now());
+  }
+  function spyInFlightDone(id) {
+    const k = String(id);
+    if (spyInFlightAt[k] && spyInFlightAt[k].length) spyInFlightAt[k].shift();
+    if (spyInFlightAt[k] && !spyInFlightAt[k].length) delete spyInFlightAt[k];
+  }
+
+  function spyReports24h() {
+    const since = Date.now() - 86400000;
+    const byTown = Object.create(null);
+    for (const f of (state.findings || [])) {
+      if (!f || +f.ts < since) continue;
+      const id = f.town && f.town.id;
+      if (id == null || id === '') continue;
+      byTown[String(id)] = (byTown[String(id)] || 0) + 1;
+    }
+    return byTown;
+  }
+  function spyIsWatched(townId) {
+    const list = state.watchlist || [];
+    return list.some(w => {
+      const id = (w && typeof w === 'object') ? (w.id != null ? w.id : w.townId) : w;
+      return id != null && String(id) === String(townId);
+    });
+  }
+  function spyRankTargets() {
+    const cfg = spyCfg();
+    const now = Date.now();
+    const last = spyLastSpy();
+    const reports = spyReports24h();
+    const pool = new Set(cfg.targets);
+    if (cfg.autoWatchlist) {
+      for (const w of (state.watchlist || [])) {
+        const id = (w && typeof w === 'object') ? (w.id != null ? w.id : w.townId) : w;
+        if (id != null && id !== '') pool.add(String(id));
+      }
+    }
+    if (cfg.autoTopReported > 0) {
+      Object.entries(reports)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, cfg.autoTopReported)
+        .forEach(([id]) => pool.add(id));
+    }
+    const out = [];
+    for (const id of pool) {
+
+      const lastAt = Number.isFinite(+last[id]) ? +last[id] : now - SPY_STALE_MS;
+      const age = now - lastAt;
+      if (age < cfg.minGapMs) continue;
+      if (spyInFlightCount(id) >= cfg.maxConcurrent) continue;
+      const watch = spyIsWatched(id);
+      const r24 = reports[id] || 0;
+      out.push({
+        id,
+        score: age + (watch ? SPY_WATCH_BONUS : 0) + SPY_REPORT_BONUS * Math.max(0, r24 - 1),
+        lastSpyAt: Number.isFinite(+last[id]) ? +last[id] : null,
+        watch,
+        reports24h: r24,
+      });
+    }
+    return out.sort((a, b) => b.score - a.score);
+  }
+  let spyConfirmedThisSession = false;
+  function spyCycle(reason) {
+    if (!state.spyEnabled) return;
+    if (!hostEnabled() || automationPaused({})) return;
+    if (captchaPaused('spy')) return;
+    if (gbLocked('spy')) return;
+    const tpl = state.spyTpl;
+    if (!tpl || !tpl.model_url || !tpl.action_name) {
+      gbLogT('spy-no-tpl', 300000, 'spy: no template learned - hand-spy one town once to capture the route');
+      return;
+    }
+    const cfg = spyCfg();
+    const ranked = spyRankTargets();
+    if (!ranked.length) { gbLogT('spy-idle', 300000, `spy: no target due (${reason || 'scan'})`); return; }
+    const picks = ranked.slice(0, cfg.perCycle);
+    if (cfg.confirmOncePerCycle && !spyConfirmedThisSession) {
+      const top = ranked.slice(0, 3).map(t => `#${t.id} (score ${Math.round(t.score / 1000)}k${t.watch ? ', vigilada' : ''})`).join('\n  ');
+      let ok = false;
+      try { ok = gameUw().confirm(`${cfg.dryRun ? '[SIMULACION] ' : ''}Espiar automaticamente?\n  ${top}\n\nAceptar habilita el resto de la sesion.`); } catch (_) { ok = false; }
+      if (!ok) { gbLog('spy: confirm declined - cycle skipped'); return; }
+      spyConfirmedThisSession = true;
+    }
+    const lockToken = gbLock('spy');
+    if (!lockToken) return;
+    let i = 0;
+    (function next() {
+      gbLockTouch('spy', lockToken);
+      if (i >= picks.length) { gbUnlock('spy', lockToken); return; }
+      const t = picks[i++];
+      const payload = {
+        model_url: tpl.model_url,
+        action_name: tpl.action_name,
+        arguments: Object.assign({}, tpl.arguments || {}, { id: /^\d+$/.test(t.id) ? +t.id : t.id }),
+        town_id: tpl.town_id,
+      };
+
+      if (cfg.dryRun) {
+        gbLog(`DRY-RUN spy: ${JSON.stringify(payload).slice(0, 200)}`);
+        spyLastSpy()[t.id] = Date.now();
+        spyHistorySave();
+        gbTimeout(next, 400);
+        return;
+      }
+      spyInFlightAdd(t.id);
+      bridgePost('spy', payload, (err) => {
+        spyInFlightDone(t.id);
+        if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('spy', lockToken); return; }
+        if (!err) {
+          spyLastSpy()[t.id] = Date.now();
+          spyHistorySave();
+          gbLog(`spy: sent to ${t.id}`);
+        } else gbLogT('spy-err', 60000, `spy err ${err}`);
+        gbTimeout(next, 900 + Math.random() * 600);
+      });
+    })();
+  }
+
+  function spyLearnTemplate(j) {
+    if (!j || !j.model_url || !j.action_name) return;
+    if (typeof isSelfBridge === 'function' && isSelfBridge(j)) return;
+    const args = Object.assign({}, j.arguments || {});
+    delete args.id;
+    state.spyTpl = { model_url: j.model_url, action_name: j.action_name, arguments: args, town_id: j.town_id, version: 1, learned_at: Date.now() };
+    save(wkey(STORE.SPY_TPL), state.spyTpl);
+    gbLog('learned spy template: ' + j.action_name);
+    try { tplHealthMarkLearned('spyTpl'); } catch (_) {}
+  }
+
   function nameOf(p) {
     if (p == null) return null;
     if (typeof p === 'string') {
@@ -4175,6 +4353,10 @@ const STORE = {
             attackRememberTarget(destId, { src: 'manual-attack' });
           }
         }
+      } else if (/spy|espionage|espia/i.test(body) && /model_url/.test(body)) {
+
+        const j = parseBodyLoose(body);
+        if (j && j.action_name && /spy|espionage/i.test(String(j.action_name))) spyLearnTemplate(j);
       } else if (/Command/.test(body) && /cancelCommand|cancel_command/i.test(body)) {
         const j = parseBodyLoose(body);
         if (j && j.action_name && /cancelCommand|cancel_command/i.test(j.action_name) && !isSelfBridge(j)) {
@@ -12705,11 +12887,11 @@ const STORE = {
       abTargets:state.abTargets,abOrder:state.abOrder,researchTargets:state.researchTargets,recruitTargets:state.recruitTargets,
       plannerCfg:state.plannerCfg,goalProfiles:state.goalProfiles,townGoals:state.townGoals,virtualQueueOverrides:state.virtualQueueOverrides,nativeQueue:state.nativeQueue,predictCfg:state.predictCfg,defenseCfg:state.defenseCfg,safeMode:!!state.safeMode,
       autoTransport:!!state.autoTransport,transportReserve:+state.transportReserve||20,transportMin:+state.transportMin||1000,
-      cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,playerNotes:state.playerNotes,watchlist:state.watchlist };
+      cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,spyCfg:state.spyCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,playerNotes:state.playerNotes,watchlist:state.watchlist };
   }
   function qolImportConfig(obj) {
     if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;if(obj.host&&String(obj.host)!==String(location.host)){gbLog(`config import refused: file host ${obj.host} != ${location.host}`);return false}if(obj.schema!=null&&+obj.schema>CONFIG_EXPORT_SCHEMA){gbLog(`config import refused: schema ${obj.schema} newer than supported ${CONFIG_EXPORT_SCHEMA}`);return false}
-    const clone=v=>JSON.parse(JSON.stringify(v)),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray};const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
+    const clone=v=>JSON.parse(JSON.stringify(v)),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray};const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
     for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='priorityOrder'){const allowed=new Set(PRIORITY_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(PRIORITY_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
       const clean={version:1,seq:Math.max(0,+v.seq||0),towns:{}},seen=new Set();
       const jobId=(raw,prefix)=>{let id=/^[A-Za-z0-9:._-]{1,160}$/.test(String(raw||''))?String(raw):'';if(!id||seen.has(id)){clean.seq++;id=`${prefix}:import:${clean.seq.toString(36)}`}seen.add(id);return id};
@@ -12849,17 +13031,18 @@ const STORE = {
     pttrade: 120000,
     favor: 60000,
     wonder: 180000,
+    spy: 1800000,
   };
   const ORCH_CAPTCHA = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villageRecruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder',
+    recruit: 'recruit', villrecruit: 'villageRecruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy',
   };
 
   const ORCH_JRN = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villageRecruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder',
+    recruit: 'recruit', villrecruit: 'villageRecruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy',
   };
   const ORCH_IDLE_TRIP = 4;
   const ORCH_IDLE_MAX = 8;
@@ -12882,6 +13065,7 @@ const STORE = {
     pttrade:()=>orchSafe('pttrade',()=>ptTradeScan('orch')),
     favor:()=>orchSafe('favor',()=>favorScan('orch')),
     wonder:()=>orchSafe('wonder',()=>{wonderScan('orch');wonderFavorScan('orch')}),
+    spy:()=>orchSafe('spy',()=>spyCycle('orch')),
   };
   function orchFeatureEnabled(key) {
     return {
@@ -12899,6 +13083,7 @@ const STORE = {
       pttrade: state.autoPtTrade,
       favor: state.autoFavor,
       wonder: state.autoWonder,
+      spy: state.spyEnabled,
     }[key];
   }
   function orchDefaultOrder() {
@@ -13657,6 +13842,17 @@ const STORE = {
     }
     if (state.attackPatternNote) {
       html += '\n=== Patrones de ataque ===\n' + state.attackPatternNote + '\n';
+    }
+    if (state.spyEnabled) {
+      html += '\n=== Cola de espionaje ===\n';
+      let ranked = [];
+      try { ranked = spyRankTargets().slice(0, 5); } catch (_) {}
+      if (!state.spyTpl) html += '(sin ruta aprendida - espia una ciudad a mano una vez)\n';
+      if (!ranked.length) html += '(ningun objetivo pendiente)\n';
+      else ranked.forEach((t, i) => {
+        html += `${i + 1}. #${t.id}${t.watch ? ' [vigilada]' : ''} - ultimo ${t.lastSpyAt ? new Date(t.lastSpyAt).toLocaleString() : 'nunca'}` +
+          ` - ${t.reports24h} informe(s) 24h\n`;
+      });
     }
     if (state.intelBattleStats !== false) {
       const findings = state.findings || [];
@@ -16354,6 +16550,19 @@ const STORE = {
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
       };
     }));
+    out.push(preflightProbe('spy: auto scheduler', () => {
+      const cfg = spyCfg();
+      const tpl = !!(state.spyTpl && state.spyTpl.action_name);
+      let ranked = 0;
+      try { ranked = spyRankTargets().length; } catch (_) {}
+      return {
+        ok: true,
+
+        warn: !!state.spyEnabled && !tpl,
+        detail: `auto ${state.spyEnabled ? 'ON' : 'OFF'}, ruta ${tpl ? state.spyTpl.action_name : 'SIN aprender'}` +
+          `, simulacion ${cfg.dryRun ? 'ON' : 'OFF'}, ${ranked} objetivo(s) en cola`,
+      };
+    }));
     out.push(preflightProbe('militia: smart gate', () => {
       const c = militiaCfg();
 
@@ -18162,6 +18371,13 @@ const STORE = {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Gasta favor en la maravilla de la alianza. Requiere haber capturado wonderFavorTpl. Por defecto OFF."><input type="checkbox" data-cfg="auto-wonder-favor"/> Lanzar favor en la Maravilla (captura el poder antes)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="cs-alert"/> CS / incoming alerts</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-militia"/> Auto-militia on incoming</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="Explorador automatico. Gasta plata y puede devolver captcha. Su propia Simulacion viene activada: veras el payload antes de gastar nada. No envia nada hasta aprender la ruta espiando a mano una vez."><input type="checkbox" data-cfg="auto-spy"/> Auto-espionaje (aprende la ruta a mano)</label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Espionaje:
+          por ciclo <input type="number" data-cfg="spy-per-cycle" min="1" max="5" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/>
+          hueco min <input type="number" data-cfg="spy-min-gap" min="1" max="1440" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> min
+          top informes <input type="number" data-cfg="spy-top" min="0" max="50" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          <label style="display:inline-flex;align-items:center;gap:4px"><input type="checkbox" data-cfg="spy-dry"/> Simulacion</label>
+        </label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="Milicia inteligente (v4 3.6): consume poblacion que no vuelve durante la oleada, asi que solo se levanta cuando vale la pena.">Milicia:
           forzar riesgo &gt;= <input type="number" data-cfg="militia-force" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
           saltar riesgo &lt; <input type="number" data-cfg="militia-skip" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
@@ -18737,6 +18953,12 @@ const STORE = {
       setNum('[data-cfg=militia-skip]', mc.skipRisk);
       setNum('[data-cfg=militia-local]', mc.localOk);
       setNum('[data-cfg=militia-grace]', Math.round(mc.graceMs / 60000)); }
+    { const sc = spyCfg();
+      setChk('[data-cfg=auto-spy]', !!state.spyEnabled);
+      setChk('[data-cfg=spy-dry]', sc.dryRun);
+      setNum('[data-cfg=spy-per-cycle]', sc.perCycle);
+      setNum('[data-cfg=spy-min-gap]', Math.round(sc.minGapMs / 60000));
+      setNum('[data-cfg=spy-top]', sc.autoTopReported); }
     setChk('[data-cfg=auto-militia]', state.autoMilitia);
     setChk('[data-cfg=auto-dodge]', state.autoDodge);
     setChk('[data-cfg=auto-recruit]', state.autoRecruit);
@@ -18949,6 +19171,21 @@ const STORE = {
       gbLog('support auto ' + (state.supportCfg.auto ? 'ON - real troops, confirm gate per window' : 'OFF'));
       if (state.supportCfg.auto && !state.supportTpl) flash('apoyo ON pero sin plantilla: envia un apoyo a mano una vez');
     });
+    const saveSpy = (key, v) => {
+      if (!state.spyCfg || typeof state.spyCfg !== 'object') state.spyCfg = {};
+      state.spyCfg[key] = v;
+      spyCfgSave();
+    };
+    sec.querySelector('[data-cfg=auto-spy]')?.addEventListener('change', e => {
+      state.spyEnabled = !!e.target.checked;
+      save(STORE.AUTO_SPY, state.spyEnabled);
+      gbLog('auto-spy ' + (state.spyEnabled ? 'ON' : 'OFF'));
+      if (state.spyEnabled && !state.spyTpl) flash('espionaje ON pero sin ruta: espia una ciudad a mano una vez');
+    });
+    sec.querySelector('[data-cfg=spy-dry]')?.addEventListener('change', e => saveSpy('dryRun', !!e.target.checked));
+    saveNum('[data-cfg=spy-per-cycle]', v => saveSpy('perCycle', Math.max(1, Math.min(5, +v || 1))));
+    saveNum('[data-cfg=spy-min-gap]', v => saveSpy('minGapMs', Math.max(60000, Math.min(86400000, (+v || 20) * 60000))));
+    saveNum('[data-cfg=spy-top]', v => saveSpy('autoTopReported', Math.max(0, Math.min(50, +v || 0))));
     const saveDefense = (key, v) => {
       state.defenseCfg = Object.assign({}, state.defenseCfg, { [key]: v });
       save(STORE.DEFENSE_CFG, state.defenseCfg);

@@ -85,6 +85,11 @@
             attackRememberTarget(destId, { src: 'manual-attack' });
           }
         }
+      } else if (/spy|espionage|espia/i.test(body) && /model_url/.test(body)) {
+        // v4 plan 4.1: the spy route is unknown to this tree, so it is learned
+        // from the player's own hand-sent spy and never guessed.
+        const j = parseBodyLoose(body);
+        if (j && j.action_name && /spy|espionage/i.test(String(j.action_name))) spyLearnTemplate(j);
       } else if (/Command/.test(body) && /cancelCommand|cancel_command/i.test(body)) {
         const j = parseBodyLoose(body);
         if (j && j.action_name && /cancelCommand|cancel_command/i.test(j.action_name) && !isSelfBridge(j)) {

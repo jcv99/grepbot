@@ -215,6 +215,20 @@
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
       };
     }));
+    out.push(preflightProbe('spy: auto scheduler', () => {
+      const cfg = spyCfg();
+      const tpl = !!(state.spyTpl && state.spyTpl.action_name);
+      let ranked = 0;
+      try { ranked = spyRankTargets().length; } catch (_) {}
+      return {
+        ok: true,
+        // ON without a learned route is the state worth naming: the cycle
+        // refuses every post until a hand-sent spy is observed.
+        warn: !!state.spyEnabled && !tpl,
+        detail: `auto ${state.spyEnabled ? 'ON' : 'OFF'}, ruta ${tpl ? state.spyTpl.action_name : 'SIN aprender'}` +
+          `, simulacion ${cfg.dryRun ? 'ON' : 'OFF'}, ${ranked} objetivo(s) en cola`,
+      };
+    }));
     out.push(preflightProbe('militia: smart gate', () => {
       const c = militiaCfg();
       // skipRisk above forceRisk makes the skip branch unreachable: the toggle

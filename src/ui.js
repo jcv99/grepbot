@@ -918,6 +918,13 @@
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Gasta favor en la maravilla de la alianza. Requiere haber capturado wonderFavorTpl. Por defecto OFF."><input type="checkbox" data-cfg="auto-wonder-favor"/> Lanzar favor en la Maravilla (captura el poder antes)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="cs-alert"/> CS / incoming alerts</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-militia"/> Auto-militia on incoming</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="Explorador automatico. Gasta plata y puede devolver captcha. Su propia Simulacion viene activada: veras el payload antes de gastar nada. No envia nada hasta aprender la ruta espiando a mano una vez."><input type="checkbox" data-cfg="auto-spy"/> Auto-espionaje (aprende la ruta a mano)</label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Espionaje:
+          por ciclo <input type="number" data-cfg="spy-per-cycle" min="1" max="5" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/>
+          hueco min <input type="number" data-cfg="spy-min-gap" min="1" max="1440" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> min
+          top informes <input type="number" data-cfg="spy-top" min="0" max="50" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          <label style="display:inline-flex;align-items:center;gap:4px"><input type="checkbox" data-cfg="spy-dry"/> Simulacion</label>
+        </label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="Milicia inteligente (v4 3.6): consume poblacion que no vuelve durante la oleada, asi que solo se levanta cuando vale la pena.">Milicia:
           forzar riesgo &gt;= <input type="number" data-cfg="militia-force" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
           saltar riesgo &lt; <input type="number" data-cfg="militia-skip" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
@@ -1494,6 +1501,12 @@
       setNum('[data-cfg=militia-skip]', mc.skipRisk);
       setNum('[data-cfg=militia-local]', mc.localOk);
       setNum('[data-cfg=militia-grace]', Math.round(mc.graceMs / 60000)); }
+    { const sc = spyCfg();
+      setChk('[data-cfg=auto-spy]', !!state.spyEnabled);
+      setChk('[data-cfg=spy-dry]', sc.dryRun);
+      setNum('[data-cfg=spy-per-cycle]', sc.perCycle);
+      setNum('[data-cfg=spy-min-gap]', Math.round(sc.minGapMs / 60000));
+      setNum('[data-cfg=spy-top]', sc.autoTopReported); }
     setChk('[data-cfg=auto-militia]', state.autoMilitia);
     setChk('[data-cfg=auto-dodge]', state.autoDodge);
     setChk('[data-cfg=auto-recruit]', state.autoRecruit);
@@ -1706,6 +1719,21 @@
       gbLog('support auto ' + (state.supportCfg.auto ? 'ON - real troops, confirm gate per window' : 'OFF'));
       if (state.supportCfg.auto && !state.supportTpl) flash('apoyo ON pero sin plantilla: envia un apoyo a mano una vez');
     });
+    const saveSpy = (key, v) => {
+      if (!state.spyCfg || typeof state.spyCfg !== 'object') state.spyCfg = {};
+      state.spyCfg[key] = v;
+      spyCfgSave();
+    };
+    sec.querySelector('[data-cfg=auto-spy]')?.addEventListener('change', e => {
+      state.spyEnabled = !!e.target.checked;
+      save(STORE.AUTO_SPY, state.spyEnabled);
+      gbLog('auto-spy ' + (state.spyEnabled ? 'ON' : 'OFF'));
+      if (state.spyEnabled && !state.spyTpl) flash('espionaje ON pero sin ruta: espia una ciudad a mano una vez');
+    });
+    sec.querySelector('[data-cfg=spy-dry]')?.addEventListener('change', e => saveSpy('dryRun', !!e.target.checked));
+    saveNum('[data-cfg=spy-per-cycle]', v => saveSpy('perCycle', Math.max(1, Math.min(5, +v || 1))));
+    saveNum('[data-cfg=spy-min-gap]', v => saveSpy('minGapMs', Math.max(60000, Math.min(86400000, (+v || 20) * 60000))));
+    saveNum('[data-cfg=spy-top]', v => saveSpy('autoTopReported', Math.max(0, Math.min(50, +v || 0))));
     const saveDefense = (key, v) => {
       state.defenseCfg = Object.assign({}, state.defenseCfg, { [key]: v });
       save(STORE.DEFENSE_CFG, state.defenseCfg);

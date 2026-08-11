@@ -160,6 +160,7 @@
     wonder: 180000,
     'wonder-favor': 180000,
     dodge: 180000,
+    spy: 180000,
     support: 180000,
     recruit: 180000,
     'defense-pull': 180000,
@@ -356,6 +357,11 @@
     csAlert: load(STORE.CS_ALERT, true),
     playerNotes: load(STORE.PLAYER_NOTES, {}),
     watchlist: load(STORE.WATCHLIST, []),
+    // v4 plan 4.1: scout-class. Default OFF, and its own dryRun defaults ON.
+    spyEnabled: load(STORE.AUTO_SPY, false),
+    spyCfg: load(STORE.SPY_CFG, { targets: [], autoWatchlist: true, autoTopReported: 5, perCycle: 1, minGapMs: 1200000, dryRun: true, confirmOncePerCycle: true, maxConcurrent: 3 }),
+    spyLastSpy: load(STORE.SPY_HISTORY, {}) || {},
+    spyTpl: load(STORE.SPY_TPL, null),
     grepodataIndex: load(STORE.GREPODATA_INDEX, false),
     captchaGlobalKill: load(STORE.CAPTCHA_GLOBAL, true),
     reqBudgetPerMin: load(STORE.REQ_BUDGET, 40),
@@ -910,6 +916,7 @@
     // support rejection must never invalidate the attack template (v2.5.7
     // favor precedent, see the comment below).
     support: 'supportTpl',
+    spy: 'spyTpl',
     collect: 'collectTpl',
     pttrade: 'ptTradeTpl',
     wonder: 'wonderFavorTpl',

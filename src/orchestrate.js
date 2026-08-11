@@ -14,6 +14,7 @@
       pttrade: state.autoPtTrade,
       favor: state.autoFavor,
       wonder: state.autoWonder,
+      spy: state.spyEnabled,
     }[key];
   }
   function orchDefaultOrder() {
