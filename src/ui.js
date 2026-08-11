@@ -115,9 +115,17 @@
       { cls: '', text: r?.ok ? fmt(r.stone) : '-' },
       { cls: '', text: r?.ok ? fmt(r.iron) : '-' },
       { cls: '', text: r?.ok && r.pop != null ? `${fmt(r.pop)}/${fmt(r.cap)}` : '-' },
+      farmProfitCell(f),
       { cls: r ? (r.ok ? 'stale' : 'err') : 'stale',
         text: r ? (r.ok ? `${Math.round((Date.now() - r.ts) / 1000)}s` : (r.err || 'err')) : '-' },
     ];
+  }
+  // '-' means "not ranked" and carries the reason in the tooltip - a village
+  // whose town capacity is unreadable must not render as a zero-yield village.
+  function farmProfitCell(f) {
+    const p = (state.farmProfit || {})[String(f.vill_id)];
+    if (!p || p.score == null) return { cls: 'stale', text: '-' };
+    return { cls: '', text: String(Math.round(p.score * 60)) };
   }
   function renderFarms() {
     renderSleepStatus();
@@ -127,7 +135,8 @@
       if (!list.querySelector('div')) placeholder(list, 'no farms parsed yet - add vill_id lines below');
       return;
     }
-    const table = tableShell(list, ['id', 'name', 'W', 'S', 'I', 'pop', 'seen', ''], 'farms');
+    try { farmProfitRefresh(); } catch (_) {}
+    const table = tableShell(list, ['id', 'name', 'W', 'S', 'I', 'pop', 'res/min', 'seen', ''], 'farms');
     const tbody = table.querySelector('tbody');
 
     const wanted = state.farmsParsed.map(f => String(f.vill_id));
@@ -162,7 +171,11 @@
       }
       const cls = alert ? 'alert' : '';
       if (tr.className !== cls) tr.className = cls;
-      const sort = [f.vill_id, r?.name || '', r?.wood ?? '', r?.stone ?? '', r?.iron ?? '', r?.pop ?? '', r?.ts ?? ''].join('\t');
+      const prof = (state.farmProfit || {})[String(f.vill_id)];
+      // Unranked sorts as '' (string compare), never 0 - a blind village is
+      // unknown, not worthless.
+      const sort = [f.vill_id, r?.name || '', r?.wood ?? '', r?.stone ?? '', r?.iron ?? '', r?.pop ?? '',
+        prof && prof.score != null ? Math.round(prof.score * 60) : '', r?.ts ?? ''].join('\t');
       if (tr.dataset.sort !== sort) tr.dataset.sort = sort;
       patchCells(tr, cells);
     }
@@ -780,6 +793,7 @@
           </select>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-sleep-auto"/> Auto sleep claim (once/day, must end before 24:00)</label>
+        <label style="margin-left:12px" title="Segundos de marcha por unidad de coordenada de isla. El juego no expone la formula de marcha, asi que 0 (por defecto) deja el ranking res/min independiente de la distancia.">Segundos de marcha por unidad de isla <input type="number" data-cfg="farm-travel" min="0" max="600" step="0.5" style="width:60px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
         <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Sleep claim max warehouse fill %
           <input type="number" data-cfg="farm-sleep-fill" min="10" max="95" style="width:60px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
         </label>
@@ -1256,6 +1270,7 @@
     setNum('[data-cfg=cave-thresh]', state.caveThreshPct);
     setNum('[data-cfg=ib-free-thresh]', state.ibFreeThresh);
     setNum('[data-cfg=collect-max-min]', state.collectMaxMin);
+    setNum('[data-cfg=farm-travel]', state.farmTravelSecPerUnit || 0);
     setNum('[data-cfg=farm-min]', Math.round(state.farmMinMs / 60000));
     setNum('[data-cfg=farm-max]', Math.round(state.farmMaxMs / 60000));
     setNum('[data-cfg=town-min]', Math.round(state.townMinMs / 60000));
@@ -1598,6 +1613,12 @@
     saveNum('[data-cfg=farm-sleep-fill]', v => {
       state.farmSleepFillPct = Math.min(95, Math.max(10, v || 60));
       save(STORE.FARM_SLEEP_FILL, state.farmSleepFillPct);
+    });
+    saveNum('[data-cfg=farm-travel]', v => {
+      state.farmTravelSecPerUnit = Math.min(600, Math.max(0, Number.isFinite(+v) ? +v : 0));
+      save(STORE.FARM_TRAVEL, state.farmTravelSecPerUnit);
+      // Force-recompute: the 5min memo would otherwise hide the change.
+      try { farmProfitInvalidate(); farmProfitRefresh(true); renderFarms(); } catch (_) {}
     });
     saveNum('[data-cfg=ib-free-thresh]', v => { state.ibFreeThresh = Math.max(60,Math.min(300,+v||300)); save(STORE.IB_FREE_THRESH, state.ibFreeThresh); });
     saveNum('[data-cfg=collect-max-min]', v => { state.collectMaxMin = v; save(STORE.COLLECT_MAX_MIN, v); });

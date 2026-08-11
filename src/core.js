@@ -259,6 +259,8 @@
     farmSleepAuto: load(STORE.FARM_SLEEP_AUTO, false),
     farmSleepFillPct: load(STORE.FARM_SLEEP_FILL, 60),
     farmSleepDay: load(STORE.FARM_SLEEP_DAY, '') || '',
+    farmProfit: load(STORE.FARM_PROFIT, {}),
+    farmTravelSecPerUnit: load(STORE.FARM_TRAVEL, 0),
     ibActionR:  load(STORE.IB_ACTION_R, null) || 'buyInstant',
     questRewards: load(STORE.QUEST_REWARDS, {}),
     questAutoBuild: load(STORE.QUEST_AUTO_BUILD, false),

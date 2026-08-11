@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.5.3
+// @version      4.6.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -79,6 +79,8 @@ const STORE = {
     FARM_SLEEP_AUTO: 'grepbot:farm-sleep-auto',
     FARM_SLEEP_FILL: 'grepbot:farm-sleep-fill',
     FARM_SLEEP_DAY: 'grepbot:farm-sleep-day',
+    FARM_PROFIT: 'grepbot:farm-profit',
+    FARM_TRAVEL: 'grepbot:farm-travel-sec-per-unit',
     IB_ACTION_R: 'grepbot:ib-action-r',
 
     AUTO_CULTURE: 'grepbot:auto-culture',
@@ -201,7 +203,7 @@ const STORE = {
     STORE.TOWNS, STORE.TOWN_RES, STORE.THRESH, STORE.ALERTED,
     STORE.NEXT_FARM, STORE.NEXT_TOWNS, STORE.BANDIT_LOG,
     STORE.CSRF, STORE.FARM_ACTION, STORE.COLLECT_TPL, STORE.CLAIM_TPL, STORE.ACCEPT_UNITS_TPL,
-    STORE.IB_ACTION, STORE.IB_ACTION_R, STORE.FARM_OPTION_MAP, STORE.FARM_LOYALTY_TECH, STORE.FARM_SLEEP_DAY,
+    STORE.IB_ACTION, STORE.IB_ACTION_R, STORE.FARM_OPTION_MAP, STORE.FARM_LOYALTY_TECH, STORE.FARM_SLEEP_DAY, STORE.FARM_PROFIT, STORE.FARM_TRAVEL,
     STORE.QUEST_REWARDS, STORE.QUEST_HISTORY,
     STORE.ATTACK_TPL, STORE.CANCEL_TPL, STORE.HERO_TPL, STORE.ATTACK_PLAN, STORE.ATTACK_HISTORY, STORE.ATTACK_RECENT, STORE.CAPTCHA,
     STORE.AB_TARGETS, STORE.CAVE_TOWNS,
@@ -476,6 +478,8 @@ const STORE = {
     farmSleepAuto: load(STORE.FARM_SLEEP_AUTO, false),
     farmSleepFillPct: load(STORE.FARM_SLEEP_FILL, 60),
     farmSleepDay: load(STORE.FARM_SLEEP_DAY, '') || '',
+    farmProfit: load(STORE.FARM_PROFIT, {}),
+    farmTravelSecPerUnit: load(STORE.FARM_TRAVEL, 0),
     ibActionR:  load(STORE.IB_ACTION_R, null) || 'buyInstant',
     questRewards: load(STORE.QUEST_REWARDS, {}),
     questAutoBuild: load(STORE.QUEST_AUTO_BUILD, false),
@@ -4278,6 +4282,7 @@ const STORE = {
     if (pruneMapsToIds(state.farmResources, ids)) save(STORE.FARM_RES, state.farmResources);
     if (pruneMapsToIds(state.alerted, ids)) save(STORE.ALERTED, state.alerted);
     if (pruneMapsToIds(state.thresholds, ids)) save(STORE.THRESH, state.thresholds);
+    if (pruneMapsToIds(state.farmProfit, ids)) save(STORE.FARM_PROFIT, state.farmProfit);
   }
 
   function islandTownMap() {
@@ -4446,6 +4451,78 @@ const STORE = {
     return best;
   }
   function farmDesiredDuration(townId) { return farmDurationPick(townId); }
+
+  const FARM_PROFIT_TTL_MS = 300000;
+  const FARM_PROFIT_BLIND_TTL_MS = 20000;
+  const farmProfitCache = Object.create(null);
+  function farmTravelSecPerUnit() {
+    const n = +state.farmTravelSecPerUnit;
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  }
+  function farmProfitScore(farm, islandMap) {
+    const id = farm && farm.vill_id != null ? String(farm.vill_id) : null;
+    if (!id) return { score: null, why: 'no-id' };
+    const hit = farmProfitCache[id];
+
+    if (hit && Date.now() - hit.at < (hit.v.score == null ? FARM_PROFIT_BLIND_TTL_MS : FARM_PROFIT_TTL_MS)) return hit.v;
+    const out = (v) => { farmProfitCache[id] = { at: Date.now(), v }; return v; };
+    const tid = townIdForFarm(farm, islandMap);
+    if (tid == null) {
+      gbLogT('farm-profit-blind-' + id, 600000, `farm profit: village ${id} has no same-island town - not ranked`);
+      return out({ score: null, why: 'no-town' });
+    }
+    const rs = (typeof townResState === 'function') ? townResState(tid) : null;
+    const headroom = rs && rs.cap > 0 ? Math.max(0, rs.cap - Math.max(rs.wood, rs.stone, rs.iron)) : null;
+    if (headroom == null) {
+      gbLogT('farm-profit-blind-' + id, 600000, `farm profit: town ${tid} capacity unreadable - village ${id} not ranked`);
+      return out({ score: null, why: 'headroom-blind', townId: String(tid) });
+    }
+    const duration = farmDurationPick(tid);
+    const loyalty = farmLoyaltyResearched(tid) ? 1.0 : 0.5;
+    const est = gbLootEstimate({ kind: 'farm-claim', durationSec: duration, loyalty, headroom });
+
+    let distance = null;
+    try {
+      const t = uwCached().ITowns && uwCached().ITowns.towns[tid];
+      const tx = t && t.getIslandCoordinateX ? +t.getIslandCoordinateX() : null;
+      const ty = t && t.getIslandCoordinateY ? +t.getIslandCoordinateY() : null;
+      if (Number.isFinite(tx) && Number.isFinite(ty) && Number.isFinite(+farm.x) && Number.isFinite(+farm.y)) {
+        distance = Math.sqrt(Math.pow(tx - +farm.x, 2) + Math.pow(ty - +farm.y, 2));
+      }
+    } catch (_) {}
+    const travel = distance != null ? distance * farmTravelSecPerUnit() : 0;
+    const cycleSec = Math.max(1, duration + travel);
+    return out({
+      score: est.total / cycleSec,
+      duration, distance, loyalty, headroom,
+      townId: String(tid),
+      travelSec: travel,
+      why: '',
+    });
+  }
+  let farmProfitRefreshAt = 0;
+  const FARM_PROFIT_REFRESH_MS = 20000;
+
+  function farmProfitRefresh(force) {
+    if (!Array.isArray(state.farmsParsed)) return;
+    const now = Date.now();
+    if (!force && now - farmProfitRefreshAt < FARM_PROFIT_REFRESH_MS) return;
+    farmProfitRefreshAt = now;
+    if (!state.farmProfit || typeof state.farmProfit !== 'object') state.farmProfit = {};
+    const map = islandTownMap();
+    let changed = false;
+    for (const f of state.farmsParsed) {
+      const id = String(f.vill_id);
+      const r = farmProfitScore(f, map);
+      const row = { score: r.score, duration: r.duration ?? null, distance: r.distance ?? null, loyalty: r.loyalty ?? null, ts: Date.now() };
+      const prev = state.farmProfit[id];
+      if (!prev || prev.score !== row.score || prev.duration !== row.duration || prev.distance !== row.distance) changed = true;
+      state.farmProfit[id] = row;
+    }
+    if (pruneMapsToIds(state.farmProfit, state.farmsParsed.map(f => f.vill_id))) changed = true;
+    if (changed) save(STORE.FARM_PROFIT, state.farmProfit);
+  }
+  function farmProfitInvalidate() { for (const k of Object.keys(farmProfitCache)) delete farmProfitCache[k]; farmProfitRefreshAt = 0; }
 
   function claimFarm(farm, islandMap, whCache, durOverride, onDone) {
     const done = (err) => { if (onDone) onDone(err); };
@@ -15170,6 +15247,17 @@ const STORE = {
           : `${n} informes, ${withVerdict} con resultado` + (n < 5 ? ' - muestra pequena' : ''),
       };
     }));
+    out.push(preflightProbe('farm profit', () => {
+      const farms = state.farmsParsed || [];
+      const rows = Object.values(state.farmProfit || {});
+      const scored = rows.filter(r => r && r.score != null).length;
+      const blind = rows.length - scored;
+      return {
+        ok: true,
+        warn: farms.length > 0 && scored === 0,
+        detail: `${farms.length} aldeas, ${scored} puntuadas, ${blind} ciegas, marcha ${state.farmTravelSecPerUnit || 0}s/u`,
+      };
+    }));
     out.push(preflightProbe('loot calculator', () => {
       const e = gbLootEstimate({ kind: 'farm-claim', durationSec: 3600, loyalty: 1, headroom: 100000 });
       const carry = gbLootEstimate({ kind: 'attack-loot', units: { sword: 1 } });
@@ -16096,9 +16184,16 @@ const STORE = {
       { cls: '', text: r?.ok ? fmt(r.stone) : '-' },
       { cls: '', text: r?.ok ? fmt(r.iron) : '-' },
       { cls: '', text: r?.ok && r.pop != null ? `${fmt(r.pop)}/${fmt(r.cap)}` : '-' },
+      farmProfitCell(f),
       { cls: r ? (r.ok ? 'stale' : 'err') : 'stale',
         text: r ? (r.ok ? `${Math.round((Date.now() - r.ts) / 1000)}s` : (r.err || 'err')) : '-' },
     ];
+  }
+
+  function farmProfitCell(f) {
+    const p = (state.farmProfit || {})[String(f.vill_id)];
+    if (!p || p.score == null) return { cls: 'stale', text: '-' };
+    return { cls: '', text: String(Math.round(p.score * 60)) };
   }
   function renderFarms() {
     renderSleepStatus();
@@ -16108,7 +16203,8 @@ const STORE = {
       if (!list.querySelector('div')) placeholder(list, 'no farms parsed yet - add vill_id lines below');
       return;
     }
-    const table = tableShell(list, ['id', 'name', 'W', 'S', 'I', 'pop', 'seen', ''], 'farms');
+    try { farmProfitRefresh(); } catch (_) {}
+    const table = tableShell(list, ['id', 'name', 'W', 'S', 'I', 'pop', 'res/min', 'seen', ''], 'farms');
     const tbody = table.querySelector('tbody');
 
     const wanted = state.farmsParsed.map(f => String(f.vill_id));
@@ -16142,7 +16238,10 @@ const STORE = {
       }
       const cls = alert ? 'alert' : '';
       if (tr.className !== cls) tr.className = cls;
-      const sort = [f.vill_id, r?.name || '', r?.wood ?? '', r?.stone ?? '', r?.iron ?? '', r?.pop ?? '', r?.ts ?? ''].join('\t');
+      const prof = (state.farmProfit || {})[String(f.vill_id)];
+
+      const sort = [f.vill_id, r?.name || '', r?.wood ?? '', r?.stone ?? '', r?.iron ?? '', r?.pop ?? '',
+        prof && prof.score != null ? Math.round(prof.score * 60) : '', r?.ts ?? ''].join('\t');
       if (tr.dataset.sort !== sort) tr.dataset.sort = sort;
       patchCells(tr, cells);
     }
@@ -16756,6 +16855,7 @@ const STORE = {
           </select>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-sleep-auto"/> Auto sleep claim (once/day, must end before 24:00)</label>
+        <label style="margin-left:12px" title="Segundos de marcha por unidad de coordenada de isla. El juego no expone la formula de marcha, asi que 0 (por defecto) deja el ranking res/min independiente de la distancia.">Segundos de marcha por unidad de isla <input type="number" data-cfg="farm-travel" min="0" max="600" step="0.5" style="width:60px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
         <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Sleep claim max warehouse fill %
           <input type="number" data-cfg="farm-sleep-fill" min="10" max="95" style="width:60px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/>
         </label>
@@ -17231,6 +17331,7 @@ const STORE = {
     setNum('[data-cfg=cave-thresh]', state.caveThreshPct);
     setNum('[data-cfg=ib-free-thresh]', state.ibFreeThresh);
     setNum('[data-cfg=collect-max-min]', state.collectMaxMin);
+    setNum('[data-cfg=farm-travel]', state.farmTravelSecPerUnit || 0);
     setNum('[data-cfg=farm-min]', Math.round(state.farmMinMs / 60000));
     setNum('[data-cfg=farm-max]', Math.round(state.farmMaxMs / 60000));
     setNum('[data-cfg=town-min]', Math.round(state.townMinMs / 60000));
@@ -17573,6 +17674,12 @@ const STORE = {
     saveNum('[data-cfg=farm-sleep-fill]', v => {
       state.farmSleepFillPct = Math.min(95, Math.max(10, v || 60));
       save(STORE.FARM_SLEEP_FILL, state.farmSleepFillPct);
+    });
+    saveNum('[data-cfg=farm-travel]', v => {
+      state.farmTravelSecPerUnit = Math.min(600, Math.max(0, Number.isFinite(+v) ? +v : 0));
+      save(STORE.FARM_TRAVEL, state.farmTravelSecPerUnit);
+
+      try { farmProfitInvalidate(); farmProfitRefresh(true); renderFarms(); } catch (_) {}
     });
     saveNum('[data-cfg=ib-free-thresh]', v => { state.ibFreeThresh = Math.max(60,Math.min(300,+v||300)); save(STORE.IB_FREE_THRESH, state.ibFreeThresh); });
     saveNum('[data-cfg=collect-max-min]', v => { state.collectMaxMin = v; save(STORE.COLLECT_MAX_MIN, v); });

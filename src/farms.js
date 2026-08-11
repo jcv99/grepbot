@@ -265,6 +265,7 @@
     if (pruneMapsToIds(state.farmResources, ids)) save(STORE.FARM_RES, state.farmResources);
     if (pruneMapsToIds(state.alerted, ids)) save(STORE.ALERTED, state.alerted);
     if (pruneMapsToIds(state.thresholds, ids)) save(STORE.THRESH, state.thresholds);
+    if (pruneMapsToIds(state.farmProfit, ids)) save(STORE.FARM_PROFIT, state.farmProfit);
   }
 
   function islandTownMap() {
@@ -451,6 +452,91 @@
     return best;
   }
   function farmDesiredDuration(townId) { return farmDurationPick(townId); }
+
+  // ===== Farm profitability ranking (v4 plan 2.6) ============================
+  // An ESTIMATE, and deliberately so: per-village stock is not in the bridge
+  // model (plan 26 A1 proved the HTTP scrape dead) and the claim callback
+  // carries no haul amount, so real yield per village is unknowable here. What
+  // IS readable - island coordinates, the durations the player hand-taught,
+  // loyalty research, and the owning town's warehouse headroom - is enough to
+  // rank villages against each other. The haul math itself comes from
+  // gbLootEstimate (v4 plan 2.12) so the rate constant has one home.
+  const FARM_PROFIT_TTL_MS = 300000;
+  const FARM_PROFIT_BLIND_TTL_MS = 20000;
+  const farmProfitCache = Object.create(null);
+  function farmTravelSecPerUnit() {
+    const n = +state.farmTravelSecPerUnit;
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  }
+  function farmProfitScore(farm, islandMap) {
+    const id = farm && farm.vill_id != null ? String(farm.vill_id) : null;
+    if (!id) return { score: null, why: 'no-id' };
+    const hit = farmProfitCache[id];
+    // A blind verdict gets a much shorter TTL: a town whose capacity becomes
+    // readable a second later must not stay unranked for five minutes.
+    if (hit && Date.now() - hit.at < (hit.v.score == null ? FARM_PROFIT_BLIND_TTL_MS : FARM_PROFIT_TTL_MS)) return hit.v;
+    const out = (v) => { farmProfitCache[id] = { at: Date.now(), v }; return v; };
+    const tid = townIdForFarm(farm, islandMap);
+    if (tid == null) {
+      gbLogT('farm-profit-blind-' + id, 600000, `farm profit: village ${id} has no same-island town - not ranked`);
+      return out({ score: null, why: 'no-town' });
+    }
+    const rs = (typeof townResState === 'function') ? townResState(tid) : null;
+    const headroom = rs && rs.cap > 0 ? Math.max(0, rs.cap - Math.max(rs.wood, rs.stone, rs.iron)) : null;
+    if (headroom == null) {
+      gbLogT('farm-profit-blind-' + id, 600000, `farm profit: town ${tid} capacity unreadable - village ${id} not ranked`);
+      return out({ score: null, why: 'headroom-blind', townId: String(tid) });
+    }
+    const duration = farmDurationPick(tid);
+    const loyalty = farmLoyaltyResearched(tid) ? 1.0 : 0.5;
+    const est = gbLootEstimate({ kind: 'farm-claim', durationSec: duration, loyalty, headroom });
+    // Distance is in island-coordinate units. The in-game march formula is not
+    // in the bridge model, so seconds-per-unit is a user-pinned number and
+    // defaults to 0 - the rank is distance-agnostic until the player pins one.
+    let distance = null;
+    try {
+      const t = uwCached().ITowns && uwCached().ITowns.towns[tid];
+      const tx = t && t.getIslandCoordinateX ? +t.getIslandCoordinateX() : null;
+      const ty = t && t.getIslandCoordinateY ? +t.getIslandCoordinateY() : null;
+      if (Number.isFinite(tx) && Number.isFinite(ty) && Number.isFinite(+farm.x) && Number.isFinite(+farm.y)) {
+        distance = Math.sqrt(Math.pow(tx - +farm.x, 2) + Math.pow(ty - +farm.y, 2));
+      }
+    } catch (_) {}
+    const travel = distance != null ? distance * farmTravelSecPerUnit() : 0;
+    const cycleSec = Math.max(1, duration + travel);
+    return out({
+      score: est.total / cycleSec,
+      duration, distance, loyalty, headroom,
+      townId: String(tid),
+      travelSec: travel,
+      why: '',
+    });
+  }
+  let farmProfitRefreshAt = 0;
+  const FARM_PROFIT_REFRESH_MS = 20000;
+  // renderFarms fires on tab activation, every resource fetch, every attack
+  // send and every threshold save. Rebuilding islandTownMap on each of those
+  // is pure waste; the per-village memo already bounds the expensive part.
+  function farmProfitRefresh(force) {
+    if (!Array.isArray(state.farmsParsed)) return;
+    const now = Date.now();
+    if (!force && now - farmProfitRefreshAt < FARM_PROFIT_REFRESH_MS) return;
+    farmProfitRefreshAt = now;
+    if (!state.farmProfit || typeof state.farmProfit !== 'object') state.farmProfit = {};
+    const map = islandTownMap();
+    let changed = false;
+    for (const f of state.farmsParsed) {
+      const id = String(f.vill_id);
+      const r = farmProfitScore(f, map);
+      const row = { score: r.score, duration: r.duration ?? null, distance: r.distance ?? null, loyalty: r.loyalty ?? null, ts: Date.now() };
+      const prev = state.farmProfit[id];
+      if (!prev || prev.score !== row.score || prev.duration !== row.duration || prev.distance !== row.distance) changed = true;
+      state.farmProfit[id] = row;
+    }
+    if (pruneMapsToIds(state.farmProfit, state.farmsParsed.map(f => f.vill_id))) changed = true;
+    if (changed) save(STORE.FARM_PROFIT, state.farmProfit);
+  }
+  function farmProfitInvalidate() { for (const k of Object.keys(farmProfitCache)) delete farmProfitCache[k]; farmProfitRefreshAt = 0; }
 
   function claimFarm(farm, islandMap, whCache, durOverride, onDone) {
     const done = (err) => { if (onDone) onDone(err); };

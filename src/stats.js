@@ -190,6 +190,17 @@
           : `${n} informes, ${withVerdict} con resultado` + (n < 5 ? ' - muestra pequena' : ''),
       };
     }));
+    out.push(preflightProbe('farm profit', () => {
+      const farms = state.farmsParsed || [];
+      const rows = Object.values(state.farmProfit || {});
+      const scored = rows.filter(r => r && r.score != null).length;
+      const blind = rows.length - scored;
+      return {
+        ok: true,
+        warn: farms.length > 0 && scored === 0,
+        detail: `${farms.length} aldeas, ${scored} puntuadas, ${blind} ciegas, marcha ${state.farmTravelSecPerUnit || 0}s/u`,
+      };
+    }));
     out.push(preflightProbe('loot calculator', () => {
       const e = gbLootEstimate({ kind: 'farm-claim', durationSec: 3600, loyalty: 1, headroom: 100000 });
       const carry = gbLootEstimate({ kind: 'attack-loot', units: { sword: 1 } });
