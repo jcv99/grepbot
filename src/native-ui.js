@@ -361,6 +361,74 @@
     }
     job.status=status;job.reason=r;job.reasonUpdatedAt=now;job.updatedAt=now;save(STORE.NATIVE_QUEUE,nativeQueueRoot());try{scheduleNativeUiScan()}catch(_){}try{renderQueueCenter()}catch(_){}
   }
+  // ===== Build queue optimizer (v4 plan 5.6) =================================
+  // A FIFO head that cannot be paid for stalls every job behind it. This offers
+  // to promote the first successor that IS affordable - as a suggestion the
+  // user clicks, never an automatic reorder. The auto-queue is untouched: it
+  // keeps taking the head, whichever head the user has left there.
+  const BUILD_SWAP_DEFAULT_MIN = 5;
+  const BUILD_SWAP_IGNORE_MS = 600000;
+  function buildSwapThresholdMs() {
+    const n = +state.buildSwapThresholdMin;
+    if (n === 0) return 0; // 0 = disabled
+    return (Number.isFinite(n) ? Math.max(1, Math.min(120, n)) : BUILD_SWAP_DEFAULT_MIN) * 60000;
+  }
+  // {townId, jobId, why, forMinutes} or null. Only a head that is BLOCKED on
+  // something readable counts - a head that is merely pending is not stuck.
+  function nativeQueueHeadBlockedFor(townId) {
+    const list = nativeQueueList(townId, 'build', false);
+    const head = list[0];
+    if (!head) return null;
+    if (head.inflight || head.manualReview) return null;
+    if (!/^waiting-(?:resources|population)$/.test(String(head.status || ''))) return null;
+    const since = +head.reasonUpdatedAt || +head.updatedAt || 0;
+    if (!since) return null;
+    // `building` is carried on the result so the renderer does not have to
+    // re-read list[0] and hope nothing moved in between.
+    return { townId: String(townId), jobId: head.id, building: head.building, why: head.reason || head.status, forMinutes: Math.floor((Date.now() - since) / 60000) };
+  }
+  function buildSwapIgnored(townId, headId) {
+    const m = state.buildSwapIgnore;
+    if (!m || typeof m !== 'object') return false;
+    return +m[String(townId) + '|' + String(headId)] > Date.now();
+  }
+  function buildSwapIgnore(townId, headId) {
+    if (!state.buildSwapIgnore || typeof state.buildSwapIgnore !== 'object') state.buildSwapIgnore = {};
+    const now = Date.now();
+    for (const [k, v] of Object.entries(state.buildSwapIgnore)) if (+v < now) delete state.buildSwapIgnore[k];
+    state.buildSwapIgnore[String(townId) + '|' + String(headId)] = now + BUILD_SWAP_IGNORE_MS;
+    save(STORE.BUILD_SWAP_IGNORE, state.buildSwapIgnore);
+  }
+  function nativeQueueSuggestSwap(townId) {
+    const thresh = buildSwapThresholdMs();
+    if (!thresh) return null;
+    const blocked = nativeQueueHeadBlockedFor(townId);
+    if (!blocked || blocked.forMinutes * 60000 < thresh) return null;
+    if (buildSwapIgnored(townId, blocked.jobId)) return null;
+    const list = nativeQueueList(townId, 'build', false);
+    // A frozen queue is not reorderable at all - nativeQueueMove would refuse
+    // anyway, so do not offer a button that cannot work.
+    if (list.some(j => j && (j.inflight || j.manualReview))) return null;
+    const levels = abCurrentLevels(townId);
+    if (!levels) return null;
+    for (let i = 1; i < list.length; i++) {
+      const j = list[i];
+      if (!j || !j.building) continue;
+      const dep = abResolvePrerequisite(townId, j.building, levels);
+      // Only promote a job that is ITSELF the next step - promoting one whose
+      // own prerequisite is missing just moves the stall up the queue.
+      if (!dep || !dep.building || dep.building !== j.building) continue;
+      const aff = abCanAfford(townId, j.building);
+      if (!aff || !aff.ok) continue;
+      return {
+        successorIndex: i,
+        successor: j,
+        head: blocked,
+        swap: { headId: blocked.jobId, successorId: j.id, from: i, to: 0 },
+      };
+    }
+    return null;
+  }
   function nativeQueueMarkBuild(townId,jobId,opts) {
     const job=nativeQueueList(townId,'build',false)[0];if(!job||job.id!==jobId)return false;const o=opts||{};
     if(Object.prototype.hasOwnProperty.call(o,'inflight')){job.inflight=o.inflight;if(o.inflight)job.reconcile=null}
@@ -369,6 +437,13 @@
     if(o.status)job.status=o.status;if(Object.prototype.hasOwnProperty.call(o,'reason'))job.reason=String(o.reason||'');job.updatedAt=Date.now();nativeQueueSave();return true;
   }
   function nativeQueueReconcileBuild(townId) {
+    // Log-only: the Queue Center does its own scan at render time. This just
+    // makes a long stall visible in the Log for someone who never opens it.
+    try {
+      const sug = nativeQueueSuggestSwap(townId);
+      if (sug) gbLogT('build-swap-' + townId, 600000,
+        `build queue: town ${townId} head stalled ${sug.head.forMinutes}min (${sug.head.why}) - ${sug.successor.building} is affordable`);
+    } catch (_) {}
     const list=nativeQueueList(townId,'build',false);if(!list.length)return false;
     const levels=abCurrentLevels(townId);if(!levels)return false;let changed=false;
     for(const j of list){if(!j)continue;const flight=j.inflight||j.reconcile;if(flight&&flight.building&&flight.targetLevel!=null&&+(levels[flight.building]||0)>=+flight.targetLevel){j.inflight=null;j.reconcile=null;j.manualReview=false;j.status=flight.building===j.building?'pending':'waiting-requirement';j.reason=flight.building===j.building?'confirmado en la cola real':`requisito ${nativeBuildLabel(flight.building)} confirmado`;j.updatedAt=Date.now();changed=true;continue}

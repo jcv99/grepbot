@@ -394,6 +394,8 @@
     townGoals: load(STORE.TOWN_GOALS, {}),
     virtualQueue: load(STORE.VIRTUAL_QUEUE, {}),
     virtualQueueOverrides: load(STORE.VIRTUAL_QUEUE_OVERRIDES, {}),
+    buildSwapThresholdMin: load(STORE.BUILD_SWAP_MIN, 5),
+    buildSwapIgnore: load(STORE.BUILD_SWAP_IGNORE, {}) || {},
     nativeQueue: load(STORE.NATIVE_QUEUE, { version: 1, seq: 0, towns: {} }),
     predictCfg: load(STORE.PREDICT_CFG, { horizonHours: 6 }),
     defenseCfg: load(STORE.DEFENSE_CFG, { mode: 'notify', returnMarginSec: 120, smartAuto: false }),

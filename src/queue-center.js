@@ -157,7 +157,40 @@
       del.disabled = !!j.inflight;
       acts.append(up, dn, del); r.append(num, desc, acts); plan.box.appendChild(r);
     });
+    renderQueueCenterSwap(body, townId);
     renderQueueCenterOptimal(body, townId);
+  }
+
+  // Suggestion only (v4 plan 5.6): a stalled head blocks everything behind it,
+  // so offer to promote the first successor that is actually affordable. The
+  // reorder happens on a user click through the same nativeQueueMove the arrows
+  // use, so the in-flight freeze and the tab-leader gate still apply.
+  function renderQueueCenterSwap(body, townId) {
+    let sug = null;
+    try { sug = nativeQueueSuggestSwap(townId); } catch (_) { sug = null; }
+    if (!sug) return;
+    const box = document.createElement('div');
+    box.className = 'gb-qc-card';
+    box.style.cssText = 'border-color:#f5a623';
+    const txt = document.createElement('div');
+    txt.style.cssText = 'font-size:10px;color:#f5a623;padding:4px';
+    txt.textContent = `Sugerencia: ascender ${nativeBuildLabel(sug.successor.building)} mientras se esperan recursos para ${nativeBuildLabel(sug.head.building)} (${sug.head.forMinutes} min bloqueada)`;
+    box.appendChild(txt);
+    const acts = document.createElement('div');
+    acts.className = 'gb-qc-acts';
+    acts.style.cssText = 'padding:0 4px 4px';
+    acts.appendChild(queueCenterButton('Ascender', 'Mueve esta orden a la cabeza de la cola FIFO', () => {
+      if (!nativeQueueMove(townId, 'build', sug.swap.successorId, -sug.successorIndex)) {
+        flash('no se pudo reordenar (cola congelada)');
+        return false;
+      }
+      flash('orden ascendida');
+    }));
+    acts.appendChild(queueCenterButton('Ignorar', 'Oculta esta sugerencia 10 minutos', () => {
+      buildSwapIgnore(townId, sug.swap.headId);
+    }));
+    box.appendChild(acts);
+    body.appendChild(box);
   }
 
   // ADVISORY card (v4 plan 2.9). Nothing here posts and nothing here re-routes

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.24.1
+// @version      4.25.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -183,6 +183,8 @@ const STORE = {
     VIRTUAL_QUEUE: 'grepbot:virtual-queue',
     VIRTUAL_QUEUE_OVERRIDES: 'grepbot:virtual-queue-overrides',
     NATIVE_QUEUE: 'grepbot:native-action-queue',
+    BUILD_SWAP_MIN: 'grepbot:build-swap-threshold-min',
+    BUILD_SWAP_IGNORE: 'grepbot:build-swap-ignore',
     PREDICT_CFG: 'grepbot:predict-cfg',
     DEFENSE_CFG: 'grepbot:defense-cfg',
     DEFENSE_HISTORY: 'grepbot:defense-history',
@@ -242,7 +244,7 @@ const STORE = {
     STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES, STORE.SPY_CFG, STORE.SPY_HISTORY, STORE.SPY_TPL,
     STORE.CAPTCHA_GLOBAL_UNTIL,
     STORE.SERVER_COOLDOWN, STORE.QUEST_CLAIM_FAIL, STORE.DODGE_QUEUE,
-    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER,
+    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER,
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
     STORE.SPELL_COOLDOWN,
@@ -641,6 +643,8 @@ const STORE = {
     townGoals: load(STORE.TOWN_GOALS, {}),
     virtualQueue: load(STORE.VIRTUAL_QUEUE, {}),
     virtualQueueOverrides: load(STORE.VIRTUAL_QUEUE_OVERRIDES, {}),
+    buildSwapThresholdMin: load(STORE.BUILD_SWAP_MIN, 5),
+    buildSwapIgnore: load(STORE.BUILD_SWAP_IGNORE, {}) || {},
     nativeQueue: load(STORE.NATIVE_QUEUE, { version: 1, seq: 0, towns: {} }),
     predictCfg: load(STORE.PREDICT_CFG, { horizonHours: 6 }),
     defenseCfg: load(STORE.DEFENSE_CFG, { mode: 'notify', returnMarginSec: 120, smartAuto: false }),
@@ -7296,6 +7300,66 @@ const STORE = {
     }
     job.status=status;job.reason=r;job.reasonUpdatedAt=now;job.updatedAt=now;save(STORE.NATIVE_QUEUE,nativeQueueRoot());try{scheduleNativeUiScan()}catch(_){}try{renderQueueCenter()}catch(_){}
   }
+
+  const BUILD_SWAP_DEFAULT_MIN = 5;
+  const BUILD_SWAP_IGNORE_MS = 600000;
+  function buildSwapThresholdMs() {
+    const n = +state.buildSwapThresholdMin;
+    if (n === 0) return 0;
+    return (Number.isFinite(n) ? Math.max(1, Math.min(120, n)) : BUILD_SWAP_DEFAULT_MIN) * 60000;
+  }
+
+  function nativeQueueHeadBlockedFor(townId) {
+    const list = nativeQueueList(townId, 'build', false);
+    const head = list[0];
+    if (!head) return null;
+    if (head.inflight || head.manualReview) return null;
+    if (!/^waiting-(?:resources|population)$/.test(String(head.status || ''))) return null;
+    const since = +head.reasonUpdatedAt || +head.updatedAt || 0;
+    if (!since) return null;
+
+    return { townId: String(townId), jobId: head.id, building: head.building, why: head.reason || head.status, forMinutes: Math.floor((Date.now() - since) / 60000) };
+  }
+  function buildSwapIgnored(townId, headId) {
+    const m = state.buildSwapIgnore;
+    if (!m || typeof m !== 'object') return false;
+    return +m[String(townId) + '|' + String(headId)] > Date.now();
+  }
+  function buildSwapIgnore(townId, headId) {
+    if (!state.buildSwapIgnore || typeof state.buildSwapIgnore !== 'object') state.buildSwapIgnore = {};
+    const now = Date.now();
+    for (const [k, v] of Object.entries(state.buildSwapIgnore)) if (+v < now) delete state.buildSwapIgnore[k];
+    state.buildSwapIgnore[String(townId) + '|' + String(headId)] = now + BUILD_SWAP_IGNORE_MS;
+    save(STORE.BUILD_SWAP_IGNORE, state.buildSwapIgnore);
+  }
+  function nativeQueueSuggestSwap(townId) {
+    const thresh = buildSwapThresholdMs();
+    if (!thresh) return null;
+    const blocked = nativeQueueHeadBlockedFor(townId);
+    if (!blocked || blocked.forMinutes * 60000 < thresh) return null;
+    if (buildSwapIgnored(townId, blocked.jobId)) return null;
+    const list = nativeQueueList(townId, 'build', false);
+
+    if (list.some(j => j && (j.inflight || j.manualReview))) return null;
+    const levels = abCurrentLevels(townId);
+    if (!levels) return null;
+    for (let i = 1; i < list.length; i++) {
+      const j = list[i];
+      if (!j || !j.building) continue;
+      const dep = abResolvePrerequisite(townId, j.building, levels);
+
+      if (!dep || !dep.building || dep.building !== j.building) continue;
+      const aff = abCanAfford(townId, j.building);
+      if (!aff || !aff.ok) continue;
+      return {
+        successorIndex: i,
+        successor: j,
+        head: blocked,
+        swap: { headId: blocked.jobId, successorId: j.id, from: i, to: 0 },
+      };
+    }
+    return null;
+  }
   function nativeQueueMarkBuild(townId,jobId,opts) {
     const job=nativeQueueList(townId,'build',false)[0];if(!job||job.id!==jobId)return false;const o=opts||{};
     if(Object.prototype.hasOwnProperty.call(o,'inflight')){job.inflight=o.inflight;if(o.inflight)job.reconcile=null}
@@ -7304,6 +7368,12 @@ const STORE = {
     if(o.status)job.status=o.status;if(Object.prototype.hasOwnProperty.call(o,'reason'))job.reason=String(o.reason||'');job.updatedAt=Date.now();nativeQueueSave();return true;
   }
   function nativeQueueReconcileBuild(townId) {
+
+    try {
+      const sug = nativeQueueSuggestSwap(townId);
+      if (sug) gbLogT('build-swap-' + townId, 600000,
+        `build queue: town ${townId} head stalled ${sug.head.forMinutes}min (${sug.head.why}) - ${sug.successor.building} is affordable`);
+    } catch (_) {}
     const list=nativeQueueList(townId,'build',false);if(!list.length)return false;
     const levels=abCurrentLevels(townId);if(!levels)return false;let changed=false;
     for(const j of list){if(!j)continue;const flight=j.inflight||j.reconcile;if(flight&&flight.building&&flight.targetLevel!=null&&+(levels[flight.building]||0)>=+flight.targetLevel){j.inflight=null;j.reconcile=null;j.manualReview=false;j.status=flight.building===j.building?'pending':'waiting-requirement';j.reason=flight.building===j.building?'confirmado en la cola real':`requisito ${nativeBuildLabel(flight.building)} confirmado`;j.updatedAt=Date.now();changed=true;continue}
@@ -18085,7 +18155,36 @@ const STORE = {
       del.disabled = !!j.inflight;
       acts.append(up, dn, del); r.append(num, desc, acts); plan.box.appendChild(r);
     });
+    renderQueueCenterSwap(body, townId);
     renderQueueCenterOptimal(body, townId);
+  }
+
+  function renderQueueCenterSwap(body, townId) {
+    let sug = null;
+    try { sug = nativeQueueSuggestSwap(townId); } catch (_) { sug = null; }
+    if (!sug) return;
+    const box = document.createElement('div');
+    box.className = 'gb-qc-card';
+    box.style.cssText = 'border-color:#f5a623';
+    const txt = document.createElement('div');
+    txt.style.cssText = 'font-size:10px;color:#f5a623;padding:4px';
+    txt.textContent = `Sugerencia: ascender ${nativeBuildLabel(sug.successor.building)} mientras se esperan recursos para ${nativeBuildLabel(sug.head.building)} (${sug.head.forMinutes} min bloqueada)`;
+    box.appendChild(txt);
+    const acts = document.createElement('div');
+    acts.className = 'gb-qc-acts';
+    acts.style.cssText = 'padding:0 4px 4px';
+    acts.appendChild(queueCenterButton('Ascender', 'Mueve esta orden a la cabeza de la cola FIFO', () => {
+      if (!nativeQueueMove(townId, 'build', sug.swap.successorId, -sug.successorIndex)) {
+        flash('no se pudo reordenar (cola congelada)');
+        return false;
+      }
+      flash('orden ascendida');
+    }));
+    acts.appendChild(queueCenterButton('Ignorar', 'Oculta esta sugerencia 10 minutos', () => {
+      buildSwapIgnore(townId, sug.swap.headId);
+    }));
+    box.appendChild(acts);
+    body.appendChild(box);
   }
 
   function renderQueueCenterOptimal(body, townId) {
@@ -19145,6 +19244,7 @@ const STORE = {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="instant-research"/> Instant free research (academy)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-queue"/> Auto-queue builds</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px" title="Un muro danado conserva su nivel, asi que el planificador no lo ve. Con esto activado el nivel efectivo baja segun el dano y la cola lo reconstruye. Gasta recursos: por defecto OFF."><input type="checkbox" data-cfg="auto-wall-repair"/> Reparar muralla danada</label>
+        <label style="margin-left:12px;font-size:10px" title="Si la cabeza de la cola lleva bloqueada por recursos mas de estos minutos, Colas > Construccion ofrece ascender la siguiente orden que SI se puede pagar. Solo sugerencia: nunca reordena solo. 0 = desactivado.">Sugerir adelanto tras <input type="number" data-cfg="build-swap-min" min="0" max="120" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/> min bloqueada</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-build"/> Auto-claim quest build discount</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-res"/> Auto-claim quest resources/favor</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-cave"/> Auto-cave (stash excess iron)</label>
@@ -19677,6 +19777,7 @@ const STORE = {
     setChk('[data-cfg=instant-research]', state.ibResearch);
     setChk('[data-cfg=auto-queue]', state.abAuto);
     setChk('[data-cfg=auto-wall-repair]', !!state.autoWallRepair);
+    setNum('[data-cfg=build-swap-min]', gbCfgNum(state.buildSwapThresholdMin, 5));
     setChk('[data-cfg=auto-quest-build]', state.questAutoBuild);
     setChk('[data-cfg=auto-quest-res]', state.questAutoRes);
     setChk('[data-cfg=auto-cave]', state.autoCave);
@@ -19767,6 +19868,10 @@ const STORE = {
       gbLog('instant-research', state.ibResearch ? 'ON' : 'OFF');
       if (state.ibResearch && state.ibAuto) ibScan();
       else renderBuild();
+    });
+    saveNum('[data-cfg=build-swap-min]', v => {
+      state.buildSwapThresholdMin = Math.max(0, Math.min(120, Number.isFinite(+v) ? +v : 5));
+      save(STORE.BUILD_SWAP_MIN, state.buildSwapThresholdMin);
     });
     sec.querySelector('[data-cfg=auto-wall-repair]')?.addEventListener('change', e => {
       state.autoWallRepair = !!e.target.checked;

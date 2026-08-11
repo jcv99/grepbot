@@ -810,6 +810,7 @@
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="instant-research"/> Instant free research (academy)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-queue"/> Auto-queue builds</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px" title="Un muro danado conserva su nivel, asi que el planificador no lo ve. Con esto activado el nivel efectivo baja segun el dano y la cola lo reconstruye. Gasta recursos: por defecto OFF."><input type="checkbox" data-cfg="auto-wall-repair"/> Reparar muralla danada</label>
+        <label style="margin-left:12px;font-size:10px" title="Si la cabeza de la cola lleva bloqueada por recursos mas de estos minutos, Colas > Construccion ofrece ascender la siguiente orden que SI se puede pagar. Solo sugerencia: nunca reordena solo. 0 = desactivado.">Sugerir adelanto tras <input type="number" data-cfg="build-swap-min" min="0" max="120" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/> min bloqueada</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-build"/> Auto-claim quest build discount</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-res"/> Auto-claim quest resources/favor</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-cave"/> Auto-cave (stash excess iron)</label>
@@ -1343,6 +1344,7 @@
     setChk('[data-cfg=instant-research]', state.ibResearch);
     setChk('[data-cfg=auto-queue]', state.abAuto);
     setChk('[data-cfg=auto-wall-repair]', !!state.autoWallRepair);
+    setNum('[data-cfg=build-swap-min]', gbCfgNum(state.buildSwapThresholdMin, 5));
     setChk('[data-cfg=auto-quest-build]', state.questAutoBuild);
     setChk('[data-cfg=auto-quest-res]', state.questAutoRes);
     setChk('[data-cfg=auto-cave]', state.autoCave);
@@ -1433,6 +1435,10 @@
       gbLog('instant-research', state.ibResearch ? 'ON' : 'OFF');
       if (state.ibResearch && state.ibAuto) ibScan();
       else renderBuild();
+    });
+    saveNum('[data-cfg=build-swap-min]', v => {
+      state.buildSwapThresholdMin = Math.max(0, Math.min(120, Number.isFinite(+v) ? +v : 5));
+      save(STORE.BUILD_SWAP_MIN, state.buildSwapThresholdMin);
     });
     sec.querySelector('[data-cfg=auto-wall-repair]')?.addEventListener('change', e => {
       state.autoWallRepair = !!e.target.checked;
