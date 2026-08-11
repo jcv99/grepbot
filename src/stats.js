@@ -1000,3 +1000,98 @@
     } catch (_) {}
     fail();
   }
+
+  // ---------- copy-everything bundle (one paste for a bug report) ------------
+  // Assembles every read-only dump the panel already exposes one button at a
+  // time - evidence, config, decision journal, log ring, findings, bridge -
+  // into a single delimited text blob. Sends NOTHING: same redaction rules as
+  // the individual buttons (state.exportRedact), same clipboard fallback.
+  //
+  // Every section is caught + capped on its own: a bundle that throws halfway
+  // is worse than a bundle with one section marked unavailable, and an
+  // unbounded paste is not pasteable.
+  const BUNDLE_SECTION_MAX = 60000;
+  function bundleClip(text, max) {
+    const s = String(text == null ? '' : text);
+    const lim = max || BUNDLE_SECTION_MAX;
+    if (s.length <= lim) return s;
+    return s.slice(0, lim) + '\n... [truncated ' + (s.length - lim) + ' chars]';
+  }
+  function bundleSection(title, fn, max) {
+    let body;
+    try {
+      const v = fn();
+      body = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+    } catch (e) {
+      body = '(unavailable: ' + String(e).slice(0, 160) + ')';
+    }
+    if (body == null || body === '') body = '(empty)';
+    return '===== ' + title + ' =====\n' + bundleClip(body, max) + '\n';
+  }
+  function gbBundleText() {
+    const redact = state.exportRedact !== false;
+    const head = [
+      '===== grepbot bundle =====',
+      'at:      ' + new Date().toISOString(),
+      'version: ' + runningVersion(),
+      'host:    ' + location.host,
+      'world:   ' + wkey(''),
+      'redact:  ' + (redact ? 'ON (names/ids masked in evidence, config, findings)' : 'OFF'),
+      'note:    log lines ship verbatim - they are machine surface, not redacted',
+      'dryRun:  ' + !!state.dryRun,
+      '',
+    ].join('\n');
+    const parts = [
+      head,
+      bundleSection('evidence', () => gbEvidence()),
+      bundleSection('config', () => (typeof qolExportConfigForUi === 'function' ? qolExportConfigForUi() : '(no export path)')),
+      bundleSection('decisions', () => ({ decisions: state.decisions || [], skips: state.decisionSkips || {} })),
+      bundleSection('log', () => gbLogDumpText(200)),
+      bundleSection('findings', () => (typeof redactFindingsExport === 'function'
+        ? redactFindingsExport({ findings: state.findings, farms: state.farms })
+        : '(no redaction path - refusing raw findings)')),
+      bundleSection('bridge', () => gameBridgeStatus()),
+      bundleSection('preflight', () => (typeof preflightRun === 'function' ? preflightRun() : '(not run)')),
+    ];
+    return parts.join('\n');
+  }
+  function bundleCopy() {
+    const text = gbBundleText();
+    const ok = () => {
+      flash('todo copiado (' + Math.round(text.length / 1024) + ' KB)');
+      gbLog('bundle: copied ' + text.length + ' chars');
+    };
+    const fail = () => {
+      console.groupCollapsed('[grepbot] bundle');
+      console.log(text);
+      console.groupEnd();
+      flash('paquete en la consola');
+      gbLog('bundle: clipboard fail - expand [grepbot] bundle in console');
+    };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(ok, fail);
+        return;
+      }
+    } catch (_) {}
+    fail();
+  }
+  // Same payload as the clipboard copy, written to a file - a 200 KB bundle is
+  // past what some browsers will hand to the clipboard in one go.
+  function bundleDownload() {
+    const text = gbBundleText();
+    try {
+      const blob = new Blob([text], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'grepbot-bundle-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.txt';
+      a.click();
+      gbTimeout(() => { try { URL.revokeObjectURL(url); } catch (_) {} }, 0);
+      flash('paquete descargado');
+      gbLog('bundle: downloaded ' + text.length + ' chars');
+    } catch (e) {
+      gbLog('bundle: download failed ' + String(e).slice(0, 120));
+      flash('fallo la descarga');
+    }
+  }

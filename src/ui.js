@@ -1280,6 +1280,8 @@
           <button type="button" data-act="diag">Diagnostico</button>
           <button type="button" data-act="preflight">Comprobar sistema</button>
           <button type="button" data-act="evidence" title="Instantanea de solo lectura y anonimizada para las validaciones de TASKS. Copia JSON. No envia nada.">Evidencia</button>
+          <button type="button" data-act="bundle" title="Copia TODO en un solo texto: evidencia, configuracion, bitacora de decisiones, log, hallazgos, puente y preflight. Respeta la opcion de anonimizado. No envia nada.">Copiar todo</button>
+          <button type="button" data-act="bundle-file" title="Lo mismo que Copiar todo, pero guardado en un archivo .txt.">Guardar todo (.txt)</button>
           <button type="button" data-act="clear">Limpiar hallazgos</button>
           <button type="button" data-act="reset-pos" title="Reset panel position">Restablecer posicion</button>
           <button type="button" data-act="preset-afk" title="Activa granjas, cueva, construccion e investigacion con cadencia lenta y presupuesto bajo. Todo HIGH-RISK queda OFF.">Perfil: AFK nocturno</button>
@@ -1688,6 +1690,12 @@
   });
   panel.querySelectorAll('button[data-act=evidence]').forEach(btn => {
     btn.addEventListener('click', () => { evidenceCopy(); });
+  });
+  panel.querySelectorAll('button[data-act=bundle]').forEach(btn => {
+    btn.addEventListener('click', () => { bundleCopy(); });
+  });
+  panel.querySelectorAll('button[data-act=bundle-file]').forEach(btn => {
+    btn.addEventListener('click', () => { bundleDownload(); });
   });
   panel.querySelector('footer button[data-act=diag]').addEventListener('click', () => {
     diagRun();
@@ -3169,6 +3177,8 @@
     const dump = redactFindingsExport({ findings: state.findings, farms: state.farms });
     navigator.clipboard.writeText(JSON.stringify(dump, null, 2));
   });
+  gbMenu('GrepBot: copiar todo (log + datos)', () => { bundleCopy(); });
+  gbMenu('GrepBot: guardar todo (.txt)', () => { bundleDownload(); });
   gbMenu('GrepBot: colas', () => { openQueueCenter(); });
   gbMenu('GrepBot: diag', () => { diagRun(); });
   gbMenu('GrepBot: reset panel position', () => { resetPanelGeom(); });

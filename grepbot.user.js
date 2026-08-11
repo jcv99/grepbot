@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.44.26
+// @version      4.45.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1357,6 +1357,14 @@ const STORE = {
       logHead = 0;
     }
     renderLog();
+  }
+
+  function gbLogDump(n) {
+    const start = Math.max(logHead, logBuf.length - (n > 0 ? n : LOG_MAX));
+    return logBuf.slice(start).map(l => ({ ts: l.ts, msg: l.msg }));
+  }
+  function gbLogDumpText(n) {
+    return gbLogDump(n).map(l => new Date(l.ts).toISOString() + ' ' + l.msg).join('\n');
   }
 
   function gbLogT(key, ms, ...args) {
@@ -13742,6 +13750,7 @@ const STORE = {
     'panel-config': { label: 'Abrir Config', run: () => { showTab('config'); } },
     'preflight': { label: 'Comprobar sistema', run: () => { showTab('stats'); preflightRunAndRender(); } },
     'copy-findings': { label: 'Copiar hallazgos', run: () => { const b = panel && panel.querySelector('footer button[data-act=copy]'); if (b) b.click(); } },
+    'copy-all': { label: 'Copiar todo (log + datos)', run: () => bundleCopy() },
     'queue-center': { label: 'Abrir Colas', run: () => openQueueCenter() },
     'rescan-inbox': { label: 'Releer bandeja', run: () => scrapeInboxDom() },
     'toggle-pause': {
@@ -19487,6 +19496,91 @@ const STORE = {
     fail();
   }
 
+  const BUNDLE_SECTION_MAX = 60000;
+  function bundleClip(text, max) {
+    const s = String(text == null ? '' : text);
+    const lim = max || BUNDLE_SECTION_MAX;
+    if (s.length <= lim) return s;
+    return s.slice(0, lim) + '\n... [truncated ' + (s.length - lim) + ' chars]';
+  }
+  function bundleSection(title, fn, max) {
+    let body;
+    try {
+      const v = fn();
+      body = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+    } catch (e) {
+      body = '(unavailable: ' + String(e).slice(0, 160) + ')';
+    }
+    if (body == null || body === '') body = '(empty)';
+    return '===== ' + title + ' =====\n' + bundleClip(body, max) + '\n';
+  }
+  function gbBundleText() {
+    const redact = state.exportRedact !== false;
+    const head = [
+      '===== grepbot bundle =====',
+      'at:      ' + new Date().toISOString(),
+      'version: ' + runningVersion(),
+      'host:    ' + location.host,
+      'world:   ' + wkey(''),
+      'redact:  ' + (redact ? 'ON (names/ids masked in evidence, config, findings)' : 'OFF'),
+      'note:    log lines ship verbatim - they are machine surface, not redacted',
+      'dryRun:  ' + !!state.dryRun,
+      '',
+    ].join('\n');
+    const parts = [
+      head,
+      bundleSection('evidence', () => gbEvidence()),
+      bundleSection('config', () => (typeof qolExportConfigForUi === 'function' ? qolExportConfigForUi() : '(no export path)')),
+      bundleSection('decisions', () => ({ decisions: state.decisions || [], skips: state.decisionSkips || {} })),
+      bundleSection('log', () => gbLogDumpText(200)),
+      bundleSection('findings', () => (typeof redactFindingsExport === 'function'
+        ? redactFindingsExport({ findings: state.findings, farms: state.farms })
+        : '(no redaction path - refusing raw findings)')),
+      bundleSection('bridge', () => gameBridgeStatus()),
+      bundleSection('preflight', () => (typeof preflightRun === 'function' ? preflightRun() : '(not run)')),
+    ];
+    return parts.join('\n');
+  }
+  function bundleCopy() {
+    const text = gbBundleText();
+    const ok = () => {
+      flash('todo copiado (' + Math.round(text.length / 1024) + ' KB)');
+      gbLog('bundle: copied ' + text.length + ' chars');
+    };
+    const fail = () => {
+      console.groupCollapsed('[grepbot] bundle');
+      console.log(text);
+      console.groupEnd();
+      flash('paquete en la consola');
+      gbLog('bundle: clipboard fail - expand [grepbot] bundle in console');
+    };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(ok, fail);
+        return;
+      }
+    } catch (_) {}
+    fail();
+  }
+
+  function bundleDownload() {
+    const text = gbBundleText();
+    try {
+      const blob = new Blob([text], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'grepbot-bundle-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.txt';
+      a.click();
+      gbTimeout(() => { try { URL.revokeObjectURL(url); } catch (_) {} }, 0);
+      flash('paquete descargado');
+      gbLog('bundle: downloaded ' + text.length + ' chars');
+    } catch (e) {
+      gbLog('bundle: download failed ' + String(e).slice(0, 120));
+      flash('fallo la descarga');
+    }
+  }
+
   const CTX_SCAN_MS = 750;
   const CTX_POPUP_SEL = '.ui-dialog-content, .gpwindow_content, .town_info, .context_menu';
   const CTX_ID_ATTRS = ['data-townid', 'data-town-id', 'data-id'];
@@ -21485,6 +21579,8 @@ const STORE = {
           <button type="button" data-act="diag">Diagnostico</button>
           <button type="button" data-act="preflight">Comprobar sistema</button>
           <button type="button" data-act="evidence" title="Instantanea de solo lectura y anonimizada para las validaciones de TASKS. Copia JSON. No envia nada.">Evidencia</button>
+          <button type="button" data-act="bundle" title="Copia TODO en un solo texto: evidencia, configuracion, bitacora de decisiones, log, hallazgos, puente y preflight. Respeta la opcion de anonimizado. No envia nada.">Copiar todo</button>
+          <button type="button" data-act="bundle-file" title="Lo mismo que Copiar todo, pero guardado en un archivo .txt.">Guardar todo (.txt)</button>
           <button type="button" data-act="clear">Limpiar hallazgos</button>
           <button type="button" data-act="reset-pos" title="Reset panel position">Restablecer posicion</button>
           <button type="button" data-act="preset-afk" title="Activa granjas, cueva, construccion e investigacion con cadencia lenta y presupuesto bajo. Todo HIGH-RISK queda OFF.">Perfil: AFK nocturno</button>
@@ -21874,6 +21970,12 @@ const STORE = {
   });
   panel.querySelectorAll('button[data-act=evidence]').forEach(btn => {
     btn.addEventListener('click', () => { evidenceCopy(); });
+  });
+  panel.querySelectorAll('button[data-act=bundle]').forEach(btn => {
+    btn.addEventListener('click', () => { bundleCopy(); });
+  });
+  panel.querySelectorAll('button[data-act=bundle-file]').forEach(btn => {
+    btn.addEventListener('click', () => { bundleDownload(); });
   });
   panel.querySelector('footer button[data-act=diag]').addEventListener('click', () => {
     diagRun();
@@ -23326,6 +23428,8 @@ const STORE = {
     const dump = redactFindingsExport({ findings: state.findings, farms: state.farms });
     navigator.clipboard.writeText(JSON.stringify(dump, null, 2));
   });
+  gbMenu('GrepBot: copiar todo (log + datos)', () => { bundleCopy(); });
+  gbMenu('GrepBot: guardar todo (.txt)', () => { bundleDownload(); });
   gbMenu('GrepBot: colas', () => { openQueueCenter(); });
   gbMenu('GrepBot: diag', () => { diagRun(); });
   gbMenu('GrepBot: reset panel position', () => { resetPanelGeom(); });

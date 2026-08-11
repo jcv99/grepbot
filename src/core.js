@@ -1143,6 +1143,16 @@
     renderLog();
   }
 
+  // Read-only view of the ring for the copy-everything bundle. Returns the live
+  // entries only (never the pre-head slots), newest last, capped to n.
+  function gbLogDump(n) {
+    const start = Math.max(logHead, logBuf.length - (n > 0 ? n : LOG_MAX));
+    return logBuf.slice(start).map(l => ({ ts: l.ts, msg: l.msg }));
+  }
+  function gbLogDumpText(n) {
+    return gbLogDump(n).map(l => new Date(l.ts).toISOString() + ' ' + l.msg).join('\n');
+  }
+
   function gbLogT(key, ms, ...args) {
     const now = Date.now();
     if ((logThrottle.get(key) || 0) + ms > now) return;

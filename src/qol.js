@@ -125,6 +125,7 @@
     'panel-config': { label: 'Abrir Config', run: () => { showTab('config'); } },
     'preflight': { label: 'Comprobar sistema', run: () => { showTab('stats'); preflightRunAndRender(); } },
     'copy-findings': { label: 'Copiar hallazgos', run: () => { const b = panel && panel.querySelector('footer button[data-act=copy]'); if (b) b.click(); } },
+    'copy-all': { label: 'Copiar todo (log + datos)', run: () => bundleCopy() },
     'queue-center': { label: 'Abrir Colas', run: () => openQueueCenter() },
     'rescan-inbox': { label: 'Releer bandeja', run: () => scrapeInboxDom() },
     'toggle-pause': {
