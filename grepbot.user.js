@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.30.2
+// @version      4.31.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -19385,6 +19385,9 @@ const STORE = {
       --gb-err-bg:#fbe3e5;
       --gb-err-border:#e29aa1;
     }
+    #grepbot-panel .gb-qat{display:flex;gap:4px;align-items:center;flex-wrap:wrap;padding:4px 6px;border-bottom:1px solid var(--gb-border-soft);background:var(--gb-bg-alt2)}
+    #grepbot-panel .gb-qat button{background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);padding:2px 7px;cursor:pointer;font-size:10px;border-radius:3px}
+    #grepbot-panel .gb-qat button:disabled{opacity:.45;cursor:not-allowed}
     #grepbot-panel{position:fixed;top:10px;right:10px;width:560px;min-width:430px;max-width:92vw;max-height:82vh;z-index:2147483647;
       background:var(--gb-bg);color:var(--gb-fg);font:12px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";border:1px solid var(--gb-border);border-radius:10px;
       box-shadow:0 4px 16px rgba(0,0,0,.5);display:flex;flex-direction:column;visibility:visible !important;opacity:1 !important;
@@ -19427,7 +19430,7 @@ const STORE = {
     #grepbot-panel.collapsed header b{display:none}
     #grepbot-panel.collapsed header button{border:0;padding:0;width:100%;height:100%;font-size:0;font-weight:700;color:var(--gb-accent);border-radius:6px}
     #grepbot-panel.collapsed header button::before{content:"GB";display:block;font-size:11px;line-height:${PANEL_SQ}px}
-    #grepbot-panel.collapsed .gb-nav,#grepbot-panel.collapsed .gb-subtabs,#grepbot-panel.collapsed section,#grepbot-panel.collapsed footer,#grepbot-panel.collapsed .gb-resize{display:none !important}
+    #grepbot-panel.collapsed .gb-qat,#grepbot-panel.collapsed .gb-nav,#grepbot-panel.collapsed .gb-subtabs,#grepbot-panel.collapsed section,#grepbot-panel.collapsed footer,#grepbot-panel.collapsed .gb-resize{display:none !important}
     #grepbot-panel .farms-list{margin-bottom:6px;max-height:200px;overflow:auto}
     #grepbot-panel .farms-list table{width:100%;border-collapse:collapse;font-size:10px}
     #grepbot-panel .farms-list th,#grepbot-panel .farms-list td{padding:2px 4px;border-bottom:1px solid var(--gb-rule);text-align:right}
@@ -19552,6 +19555,14 @@ const STORE = {
   panel.style.zIndex = '2147483647';
   panel.innerHTML = `
     <header><div class="gb-head-main"><b>GrepBot v${runningVersion()}</b><div class="gb-head-status"><span id="gb-head-mode" class="gb-pill">...</span><span id="gb-head-health" class="gb-pill">...</span></div></div><div style="display:flex;gap:4px"><button data-act="queues" title="Abrir centro de colas">Colas</button><button data-act="toggle" title="Minimizar">_</button></div></header>
+    <div class="gb-qat" role="toolbar" aria-label="GrepBot acciones rapidas">
+      <select data-qs="town" title="Cambiar de ciudad" style="background:var(--gb-input-bg);color:var(--gb-input-fg);border:1px solid var(--gb-chrome);font-size:10px;max-width:150px"></select>
+      <button type="button" data-qat="collect" title="Recoger recursos ahora">Recoger</button>
+      <button type="button" data-qat="farms" title="Cobrar aldeas y re-escanear">Aldeas</button>
+      <button type="button" data-qat="dodge" title="Escanear entrantes ahora">Dodge</button>
+      <button type="button" data-qat="queue" title="Ejecutar la cola de construccion ahora">Cola</button>
+      <button type="button" data-qat="panic" title="Parada de emergencia" style="color:var(--gb-err-3);font-weight:bold">PANICO</button>
+    </div>
     <div class="gb-nav" role="tablist" aria-label="GrepBot groups"></div>
     <div class="gb-subtabs" role="tablist" aria-label="GrepBot tabs"></div>
     <section data-tab="findings"></section>
@@ -20018,6 +20029,7 @@ const STORE = {
   });
   applyPanelGeom(state.panelGeom);
   applyTheme();
+  try { renderTownSwitch(); } catch (_) {}
 
   {
     const start = TAB_IDS.includes(state.activeTab) ? state.activeTab : 'findings';
@@ -20137,6 +20149,71 @@ const STORE = {
   panel.querySelector('footer button[data-act=refresh]').addEventListener('click', () => {
     fetchOwnedTowns();
     state.towns.forEach((t, i) => gbTimeout(() => fetchTownResources(t), i * 600));
+  });
+
+  {
+    const qat = (sel, fn) => panel.querySelector(`.gb-qat button[data-qat=${sel}]`)?.addEventListener('click', () => {
+      try { fn(); } catch (e) { flash('fallo: ' + String(e).slice(0, 40)); }
+    });
+    qat('collect', () => { autoCollectResources(); flash('recogiendo'); });
+    qat('farms', () => { state.nextFarmScrape = 0; save(STORE.NEXT_FARM, 0); autoClaimFarms('manual'); farmTick(); flash('cobrando aldeas'); });
+    qat('dodge', () => { dodgeScan('manual'); flash('escaneando entrantes'); });
+    qat('queue', () => { abEnsureTargets(); abScan('manual'); flash('cola de construccion'); });
+    qat('panic', () => {
+      if (!gbPanicActivate()) { flash('panico ya activo'); return; }
+      const dr = panel.querySelector('[data-cfg=dry-run]'); if (dr) dr.checked = true;
+      flash('PANICO: automatizacion detenida');
+      updateStatus();
+    });
+  }
+
+  function renderTownSwitch() {
+    const sel = panel && panel.querySelector('[data-qs=town]');
+    if (!sel) return;
+    let ids = [];
+    try { ids = Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}); } catch (_) {}
+    if (!ids.length) ids = (state.towns || []).map(t => String(t.id));
+    let cur = '';
+    try { cur = String((gameUw().Game && gameUw().Game.townId) || ''); } catch (_) {}
+    const sig = ids.join(',') + '|' + cur;
+    if (sel.dataset.sig === sig) return;
+    sel.dataset.sig = sig;
+    sel.replaceChildren();
+    if (!ids.length) {
+      const o = document.createElement('option');
+      o.value = ''; o.textContent = 'sin ciudades';
+      sel.appendChild(o);
+      return;
+    }
+    for (const id of ids) {
+      const o = document.createElement('option');
+      o.value = String(id);
+      o.textContent = `${townNameById(id)} (${id})`;
+      sel.appendChild(o);
+    }
+    if (cur) sel.value = cur;
+  }
+
+  const TOWN_SWITCH_FNS = ['selectTown', 'setCurrentTown', 'switchTown', 'changeTown', 'jumpToTown'];
+  function jumpToTown(id) {
+    if (!id) return false;
+    let uw = null;
+    try { uw = gameUw(); } catch (_) { return false; }
+    for (const host of [uw && uw.ITowns, uw && uw.Game, uw && uw.HelperTown]) {
+      if (!host) continue;
+      for (const fn of TOWN_SWITCH_FNS) {
+        if (typeof host[fn] !== 'function') continue;
+        try { host[fn](+id || id); gbLog(`town switch: ${fn}(${id})`); return true; } catch (_) {}
+      }
+    }
+    gbLogT('town-switch-unknown', 600000,
+      'town switch: no known API on this client - use the game\'s own selector (nothing was guessed)');
+    flash('cambio de ciudad no soportado en este cliente');
+    return false;
+  }
+  panel.querySelector('[data-qs=town]')?.addEventListener('change', e => {
+    const id = e.target.value;
+    if (!jumpToTown(id)) renderTownSwitch();
   });
   panel.querySelector('header button[data-act=queues]')?.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -21598,6 +21675,7 @@ const STORE = {
   gbInterval(checkThresholds, 30000);
   gbInterval(renderTimers, 1000);
   gbInterval(updateStatus, 5000);
+  gbInterval(() => { try { renderTownSwitch(); } catch (_) {} }, 5000);
 
   bindQuestObserver();
   gbTimeout(() => { if (hostEnabled()) questScanTick('boot'); }, 5000);

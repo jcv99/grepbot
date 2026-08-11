@@ -65,6 +65,7 @@
   gbInterval(checkThresholds, 30000);
   gbInterval(renderTimers, 1000);
   gbInterval(updateStatus, 5000);
+  gbInterval(() => { try { renderTownSwitch(); } catch (_) {} }, 5000);
 
   bindQuestObserver();
   gbTimeout(() => { if (hostEnabled()) questScanTick('boot'); }, 5000);
