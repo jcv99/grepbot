@@ -646,7 +646,7 @@
       background:var(--gb-bg);color:var(--gb-fg);font:12px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";border:1px solid var(--gb-border);border-radius:10px;
       box-shadow:0 4px 16px rgba(0,0,0,.5);display:flex;flex-direction:column;visibility:visible !important;opacity:1 !important;
       box-sizing:border-box;}
-    #grepbot-panel header{padding:8px 10px;background:var(--gb-bg-alt);cursor:move;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-shrink:0;border-radius:10px 10px 0 0}
+    #grepbot-panel header{padding:8px 10px;background:var(--gb-bg-alt);cursor:move;touch-action:none;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-shrink:0;border-radius:10px 10px 0 0}
     #grepbot-panel header b{color:var(--gb-accent);font-weight:600}
     #grepbot-panel header button{background:none;border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);padding:2px 6px;border-radius:3px;cursor:pointer;font-size:11px}
     #grepbot-panel .gb-nav{display:flex;gap:4px;padding:7px 8px 5px;background:var(--gb-bg-alt2);flex-shrink:0;border-bottom:1px solid var(--gb-border-soft);overflow-x:auto}
@@ -2583,27 +2583,41 @@
     }, 400);
   });
 
-  (function drag(el, handle) {
-    let sx, sy, dx, dy, dragging = false, moved = false;
-    gbListen(handle, 'mousedown', e => {
-      if (e.target.closest && e.target.closest('.gb-resize')) return;
-      dragging = true; moved = false;
+  // Drag is bound on DOCUMENT in the CAPTURE phase, not on the header itself.
+  // The game owns the page: any handler of its own that calls stopPropagation()
+  // on a mousedown before it reaches the panel would silently kill a
+  // header-bound listener, and the panel would just stop being movable. A
+  // capture listener on document sees the event first, on the way down.
+  // Pointer events (not mouse) so a capture keeps the drag alive when the
+  // cursor crosses a game overlay or an iframe mid-drag.
+  (function drag(el) {
+    let sx, sy, dx, dy, dragging = false, moved = false, pid = null;
+    const inHandle = t => !!(t && t.closest && t.closest('#grepbot-panel header') && !t.closest('.gb-resize'));
+    gbListen(document, 'pointerdown', e => {
+      if (e.button != null && e.button !== 0) return;
+      if (!inHandle(e.target)) return;
+      dragging = true; moved = false; pid = e.pointerId;
       sx = e.clientX; sy = e.clientY; dx = el.offsetLeft; dy = el.offsetTop;
+      try { if (pid != null) el.setPointerCapture(pid); } catch (_) {}
       e.preventDefault();
-    });
-    gbListen(document, 'mousemove', e => {
-      if (!dragging) return;
+    }, true);
+    gbListen(document, 'pointermove', e => {
+      if (!dragging || (pid != null && e.pointerId !== pid)) return;
       moved = true;
       el.style.left = (e.clientX - sx + dx) + 'px';
       el.style.top = (e.clientY - sy + dy) + 'px';
       el.style.right = 'auto';
-    });
-    gbListen(document, 'mouseup', () => {
-      if (!dragging) return;
+    }, true);
+    const end = e => {
+      if (!dragging || (pid != null && e && e.pointerId != null && e.pointerId !== pid)) return;
       dragging = false;
+      try { if (pid != null) el.releasePointerCapture(pid); } catch (_) {}
+      pid = null;
       if (moved) savePanelGeom();
-    });
-  })(panel, panel.querySelector('header'));
+    };
+    gbListen(document, 'pointerup', end, true);
+    gbListen(document, 'pointercancel', end, true);
+  })(panel);
 
   (function resize(el) {
     const DIRS = {
