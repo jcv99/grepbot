@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.19.1
+// @version      4.20.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -16743,6 +16743,73 @@ const STORE = {
   }
   function statsPct(n, d) { return d ? Math.round(n / d * 100) + '%' : '-'; }
 
+  const FAVOR_HUD_WINDOW_MS = 600000;
+  const FAVOR_HUD_GODS = ['zeus', 'poseidon', 'hera', 'athena', 'hades', 'ares', 'artemis', 'aphrodite'];
+  const favorRateSamples = Object.create(null);
+  function favorHudGods(fav) {
+
+    const seen = new Set();
+    for (const k of Object.keys(fav || {})) {
+      const m = String(k).match(/^(?:favor_)?([a-z]+)(?:_max)?$/i);
+      if (m && FAVOR_HUD_GODS.includes(m[1].toLowerCase())) seen.add(m[1].toLowerCase());
+    }
+    return seen.size ? Array.from(seen) : FAVOR_HUD_GODS;
+  }
+  function favorHudRead(fav, god) {
+    const cur = +(fav[god] != null ? fav[god] : fav['favor_' + god]);
+    const maxRaw = fav['max_favor_' + god] != null ? fav['max_favor_' + god]
+      : (fav['favor_' + god + '_max'] != null ? fav['favor_' + god + '_max'] : fav['max_' + god]);
+    const max = +maxRaw;
+    return {
+      cur: Number.isFinite(cur) ? cur : null,
+      max: Number.isFinite(max) && max > 0 ? max : null,
+    };
+  }
+  function favorHudRate(god, cur) {
+    const now = Date.now();
+    const list = favorRateSamples[god] || (favorRateSamples[god] = []);
+    list.push({ ts: now, p: cur });
+    while (list.length && now - list[0].ts > FAVOR_HUD_WINDOW_MS) list.shift();
+    if (list.length < 2) return null;
+    const first = list[0];
+    const dt = (now - first.ts) / 1000;
+    if (dt <= 0) return null;
+    const rate = (cur - first.p) / dt;
+
+    return rate > 0 ? rate : 0;
+  }
+  function favorHudBlock() {
+    const lines = [];
+    let fav = null;
+    try { fav = favorCurrent(); } catch (_) {}
+    if (!fav || typeof fav !== 'object') {
+      gbLogT('favor-hud-blind', 300000, 'favor HUD: god pools unreadable');
+      return ['favor (dioses) no legible'];
+    }
+    const thresh = Number.isFinite(+((state.favorCfg || {}).thresh)) ? +state.favorCfg.thresh : 200;
+    const rows = [];
+    for (const god of favorHudGods(fav)) {
+      const r = favorHudRead(fav, god);
+      if (r.cur == null && r.max == null) continue;
+      const rate = r.cur == null ? null : favorHudRate(god, r.cur);
+      let eta = '\u2014';
+      if (r.cur != null && r.cur >= thresh) eta = 'ya';
+      else if (rate == null) eta = '\u2026';
+      else if (rate > 0 && r.cur != null) eta = fmtSec(Math.round((thresh - r.cur) / rate));
+      rows.push(`  ${god.padEnd(11)}${String(r.cur == null ? '?' : Math.round(r.cur)).padStart(6)}` +
+        `${String(r.max == null ? '?' : Math.round(r.max)).padStart(7)}` +
+        `${(rate == null ? '\u2026' : (rate * 60).toFixed(1) + '/m').padStart(9)}` +
+        `  ${eta}`);
+    }
+    if (!rows.length) {
+      gbLogT('favor-hud-blind', 300000, 'favor HUD: god pools unreadable');
+      return ['favor (dioses) no legible'];
+    }
+    lines.push(`favor (dioses)      actual    max     tasa  eta ${thresh}`);
+    lines.push(...rows);
+    return lines;
+  }
+
   function preflightProbe(name, fn) {
     try {
       const r = fn();
@@ -16947,6 +17014,20 @@ const STORE = {
         warn: (cfg.auto && !tpl) || (cfg.auto && paused),
         detail: `auto ${cfg.auto ? 'ON' : 'OFF'}, tpl ${tpl ? state.supportTpl.action_name : 'SIN aprender (envia un apoyo a mano)'}` +
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
+      };
+    }));
+    out.push(preflightProbe('favor pool read', () => {
+      let fav = null;
+      try { fav = favorCurrent(); } catch (_) {}
+      if (!fav || typeof fav !== 'object') return { ok: false, detail: 'PlayerGods no legible' };
+      const gods = favorHudGods(fav);
+      const readable = gods.filter(g => favorHudRead(fav, g).cur != null);
+      const withMax = gods.filter(g => favorHudRead(fav, g).max != null);
+      return {
+        ok: readable.length > 0,
+        warn: withMax.length === 0,
+        detail: `${readable.length}/${gods.length} pozo(s) legibles, ${withMax.length} con maximo legible` +
+          (readable.length ? ` (${readable.join(',')})` : ''),
       };
     }));
     out.push(preflightProbe('wall repair', () => {
@@ -17285,6 +17366,8 @@ const STORE = {
       lines.push('razones principales de salto');
       st.topSkips.forEach(([k, n]) => lines.push(`  ${n}x ${k}`));
     }
+    lines.push('');
+    try { lines.push(...favorHudBlock()); } catch (_) {}
     lines.push('');
     const dl = (typeof orchDeadlockState === 'function') ? orchDeadlockState() : null;
     if (dl && dl.open) {
