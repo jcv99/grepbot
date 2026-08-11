@@ -196,12 +196,11 @@
   const CS_TIGHT_DEFAULT = 5;
   function csCfg() {
     const c = (state.defenseCfg && typeof state.defenseCfg === 'object') ? state.defenseCfg : {};
-    const num = (v, d, lo, hi) => { const n = +v; return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
     return {
       on: c.snipeDetect !== false,
-      clusterGapSec: num(c.csClusterGapSec, CS_CLUSTER_GAP_DEFAULT, 60, 21600),
-      coverSec: num(c.csCoverSec, CS_COVER_DEFAULT, 5, 900),
-      tightSec: num(c.csTightSec, CS_TIGHT_DEFAULT, 0, 120),
+      clusterGapSec: gbCfgClamp(c.csClusterGapSec, 60, 21600, CS_CLUSTER_GAP_DEFAULT),
+      coverSec: gbCfgClamp(c.csCoverSec, 5, 900, CS_COVER_DEFAULT),
+      tightSec: gbCfgClamp(c.csTightSec, 0, 120, CS_TIGHT_DEFAULT),
     };
   }
   function csWaveClusters(incoming) {
@@ -290,12 +289,11 @@
   const DODGE_MILITIA_GRACE_MS = 3 * 60 * 1000;
   function militiaCfg() {
     const c = (state.militiaCfg && typeof state.militiaCfg === 'object') ? state.militiaCfg : {};
-    const num = (v, d, lo, hi) => { const n = +v; return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
     return {
-      forceRisk: num(c.forceRisk, M_MILITIA_FORCE, 0, 100),
-      skipRisk: num(c.skipRisk, M_MILITIA_SKIP, 0, 100),
-      localOk: num(c.localOk, M_MILITIA_LOCAL_OK, 0, 100000),
-      graceMs: num(c.graceMs, DODGE_MILITIA_GRACE_MS, 0, 3600000),
+      forceRisk: gbCfgClamp(c.forceRisk, 0, 100, M_MILITIA_FORCE),
+      skipRisk: gbCfgClamp(c.skipRisk, 0, 100, M_MILITIA_SKIP),
+      localOk: gbCfgClamp(c.localOk, 0, 100000, M_MILITIA_LOCAL_OK),
+      graceMs: gbCfgClamp(c.graceMs, 0, 3600000, DODGE_MILITIA_GRACE_MS),
     };
   }
   // Reuse the assessment the dodge side of this same loop already computed:

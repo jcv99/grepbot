@@ -18,18 +18,14 @@
 
   function supportCfg() {
     const c = (state.supportCfg && typeof state.supportCfg === 'object') ? state.supportCfg : {};
-    const num = (v, d, lo, hi) => {
-      const n = +v;
-      return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d;
-    };
     return {
       auto: c.auto === true,
-      confirmThreshold: num(c.confirmThreshold, 100, 0, 10000),
-      homeFloor: num(c.homeFloor, 0, 0, 50),
+      confirmThreshold: gbCfgClamp(c.confirmThreshold, 0, 10000, 100),
+      homeFloor: gbCfgClamp(c.homeFloor, 0, 50, 0),
       shareDodgeFloor: c.shareDodgeFloor !== false,
-      minEtaSec: num(c.minEtaSec, 120, 30, 3600),
-      noArmSec: num(c.noArmSec, 60, 10, 600),
-      overlapSec: num(c.overlapSec, 30, 0, 3600),
+      minEtaSec: gbCfgClamp(c.minEtaSec, 30, 3600, 120),
+      noArmSec: gbCfgClamp(c.noArmSec, 10, 600, 60),
+      overlapSec: gbCfgClamp(c.overlapSec, 0, 3600, 30),
     };
   }
   function supportLedger() {

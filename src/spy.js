@@ -382,19 +382,18 @@
   const SPY_REPORT_BONUS = 100;
   function spyCfg() {
     const c = (state.spyCfg && typeof state.spyCfg === 'object') ? state.spyCfg : {};
-    const num = (v, d, lo, hi) => { const n = +v; return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
     return {
       targets: Array.isArray(c.targets) ? c.targets.map(String).filter(Boolean) : [],
       autoWatchlist: c.autoWatchlist !== false,
-      autoTopReported: num(c.autoTopReported, 5, 0, 50),
-      perCycle: num(c.perCycle, 1, 1, 5),
-      minGapMs: num(c.minGapMs, 1200000, 60000, 86400000),
+      autoTopReported: gbCfgClamp(c.autoTopReported, 0, 50, 5),
+      perCycle: gbCfgClamp(c.perCycle, 1, 5, 1),
+      minGapMs: gbCfgClamp(c.minGapMs, 60000, 86400000, 1200000),
       // Dry-run defaults ON for this feature specifically: the route is
       // unlearned on a fresh install and the operator should see the payload
       // before any silver is spent.
       dryRun: c.dryRun !== false,
       confirmOncePerCycle: c.confirmOncePerCycle !== false,
-      maxConcurrent: num(c.maxConcurrent, 3, 1, 20),
+      maxConcurrent: gbCfgClamp(c.maxConcurrent, 1, 20, 3),
     };
   }
   function spyCfgSave() { save(STORE.SPY_CFG, state.spyCfg || {}); }

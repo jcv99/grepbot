@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.44.5
+// @version      4.44.6
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1309,6 +1309,11 @@ const STORE = {
   function gbCfgNum(v, fallback) {
     const n = +v;
     return Number.isFinite(n) ? n : fallback;
+  }
+
+  function gbCfgClamp(v, lo, hi, fallback) {
+    const n = +v;
+    return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : fallback;
   }
   function captchaLadder() {
     const raw = state.captchaLadder;
@@ -4032,17 +4037,16 @@ const STORE = {
   const SPY_REPORT_BONUS = 100;
   function spyCfg() {
     const c = (state.spyCfg && typeof state.spyCfg === 'object') ? state.spyCfg : {};
-    const num = (v, d, lo, hi) => { const n = +v; return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
     return {
       targets: Array.isArray(c.targets) ? c.targets.map(String).filter(Boolean) : [],
       autoWatchlist: c.autoWatchlist !== false,
-      autoTopReported: num(c.autoTopReported, 5, 0, 50),
-      perCycle: num(c.perCycle, 1, 1, 5),
-      minGapMs: num(c.minGapMs, 1200000, 60000, 86400000),
+      autoTopReported: gbCfgClamp(c.autoTopReported, 0, 50, 5),
+      perCycle: gbCfgClamp(c.perCycle, 1, 5, 1),
+      minGapMs: gbCfgClamp(c.minGapMs, 60000, 86400000, 1200000),
 
       dryRun: c.dryRun !== false,
       confirmOncePerCycle: c.confirmOncePerCycle !== false,
-      maxConcurrent: num(c.maxConcurrent, 3, 1, 20),
+      maxConcurrent: gbCfgClamp(c.maxConcurrent, 1, 20, 3),
     };
   }
   function spyCfgSave() { save(STORE.SPY_CFG, state.spyCfg || {}); }
@@ -12501,21 +12505,16 @@ const STORE = {
     const stored = (state.predictCfg && state.predictCfg.threatWeights) || null;
     if (!over && _threatMemo.src === stored && _threatMemo.v) return _threatMemo.v;
     const w = (over && typeof over === 'object') ? over : (stored || {});
-    const num = (v, d, lo, hi) => {
-      const n = +v;
-      if (!Number.isFinite(n)) return d;
-      return Math.max(lo, Math.min(hi, n));
-    };
 
     const out = {
-      cs: num(w.cs, THREAT_CS_BASE, 0, 120),
-      eta15: num(w.eta15, THREAT_ETA15_BASE, 0, 60),
-      simPer: num(w.simPer, THREAT_SIM_PER, 0, 30),
-      simCap: num(w.simCap, THREAT_SIM_CAP, 0, 100),
-      weak: num(w.weak, THREAT_WEAK_BASE, 0, 60),
-      supportPer: num(w.supportPer, THREAT_SUPPORT_PER, 0, 30),
-      supportCap: num(w.supportCap, THREAT_SUPPORT_CAP, 0, 100),
-      smartThreshold: num(w.smartThreshold, THREAT_SMART_THRESHOLD, 0, 100),
+      cs: gbCfgClamp(w.cs, 0, 120, THREAT_CS_BASE),
+      eta15: gbCfgClamp(w.eta15, 0, 60, THREAT_ETA15_BASE),
+      simPer: gbCfgClamp(w.simPer, 0, 30, THREAT_SIM_PER),
+      simCap: gbCfgClamp(w.simCap, 0, 100, THREAT_SIM_CAP),
+      weak: gbCfgClamp(w.weak, 0, 60, THREAT_WEAK_BASE),
+      supportPer: gbCfgClamp(w.supportPer, 0, 30, THREAT_SUPPORT_PER),
+      supportCap: gbCfgClamp(w.supportCap, 0, 100, THREAT_SUPPORT_CAP),
+      smartThreshold: gbCfgClamp(w.smartThreshold, 0, 100, THREAT_SMART_THRESHOLD),
     };
     if (!over) _threatMemo = { src: stored, v: out };
     return out;
@@ -12788,12 +12787,11 @@ const STORE = {
   const CS_TIGHT_DEFAULT = 5;
   function csCfg() {
     const c = (state.defenseCfg && typeof state.defenseCfg === 'object') ? state.defenseCfg : {};
-    const num = (v, d, lo, hi) => { const n = +v; return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
     return {
       on: c.snipeDetect !== false,
-      clusterGapSec: num(c.csClusterGapSec, CS_CLUSTER_GAP_DEFAULT, 60, 21600),
-      coverSec: num(c.csCoverSec, CS_COVER_DEFAULT, 5, 900),
-      tightSec: num(c.csTightSec, CS_TIGHT_DEFAULT, 0, 120),
+      clusterGapSec: gbCfgClamp(c.csClusterGapSec, 60, 21600, CS_CLUSTER_GAP_DEFAULT),
+      coverSec: gbCfgClamp(c.csCoverSec, 5, 900, CS_COVER_DEFAULT),
+      tightSec: gbCfgClamp(c.csTightSec, 0, 120, CS_TIGHT_DEFAULT),
     };
   }
   function csWaveClusters(incoming) {
@@ -12873,12 +12871,11 @@ const STORE = {
   const DODGE_MILITIA_GRACE_MS = 3 * 60 * 1000;
   function militiaCfg() {
     const c = (state.militiaCfg && typeof state.militiaCfg === 'object') ? state.militiaCfg : {};
-    const num = (v, d, lo, hi) => { const n = +v; return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
     return {
-      forceRisk: num(c.forceRisk, M_MILITIA_FORCE, 0, 100),
-      skipRisk: num(c.skipRisk, M_MILITIA_SKIP, 0, 100),
-      localOk: num(c.localOk, M_MILITIA_LOCAL_OK, 0, 100000),
-      graceMs: num(c.graceMs, DODGE_MILITIA_GRACE_MS, 0, 3600000),
+      forceRisk: gbCfgClamp(c.forceRisk, 0, 100, M_MILITIA_FORCE),
+      skipRisk: gbCfgClamp(c.skipRisk, 0, 100, M_MILITIA_SKIP),
+      localOk: gbCfgClamp(c.localOk, 0, 100000, M_MILITIA_LOCAL_OK),
+      graceMs: gbCfgClamp(c.graceMs, 0, 3600000, DODGE_MILITIA_GRACE_MS),
     };
   }
 
@@ -18085,18 +18082,14 @@ const STORE = {
 
   function supportCfg() {
     const c = (state.supportCfg && typeof state.supportCfg === 'object') ? state.supportCfg : {};
-    const num = (v, d, lo, hi) => {
-      const n = +v;
-      return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d;
-    };
     return {
       auto: c.auto === true,
-      confirmThreshold: num(c.confirmThreshold, 100, 0, 10000),
-      homeFloor: num(c.homeFloor, 0, 0, 50),
+      confirmThreshold: gbCfgClamp(c.confirmThreshold, 0, 10000, 100),
+      homeFloor: gbCfgClamp(c.homeFloor, 0, 50, 0),
       shareDodgeFloor: c.shareDodgeFloor !== false,
-      minEtaSec: num(c.minEtaSec, 120, 30, 3600),
-      noArmSec: num(c.noArmSec, 60, 10, 600),
-      overlapSec: num(c.overlapSec, 30, 0, 3600),
+      minEtaSec: gbCfgClamp(c.minEtaSec, 30, 3600, 120),
+      noArmSec: gbCfgClamp(c.noArmSec, 10, 600, 60),
+      overlapSec: gbCfgClamp(c.overlapSec, 0, 3600, 30),
     };
   }
   function supportLedger() {

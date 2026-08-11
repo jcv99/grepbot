@@ -219,23 +219,18 @@
     const stored = (state.predictCfg && state.predictCfg.threatWeights) || null;
     if (!over && _threatMemo.src === stored && _threatMemo.v) return _threatMemo.v;
     const w = (over && typeof over === 'object') ? over : (stored || {});
-    const num = (v, d, lo, hi) => {
-      const n = +v;
-      if (!Number.isFinite(n)) return d;
-      return Math.max(lo, Math.min(hi, n));
-    };
     // supportPer is stored as a MAGNITUDE and negated in the formula. The
     // clamp to [0, 30] is what makes that safe: a hand-edited -5 becomes 0, so
     // supports can never be turned into a risk INCREASE by a sign mistake.
     const out = {
-      cs: num(w.cs, THREAT_CS_BASE, 0, 120),
-      eta15: num(w.eta15, THREAT_ETA15_BASE, 0, 60),
-      simPer: num(w.simPer, THREAT_SIM_PER, 0, 30),
-      simCap: num(w.simCap, THREAT_SIM_CAP, 0, 100),
-      weak: num(w.weak, THREAT_WEAK_BASE, 0, 60),
-      supportPer: num(w.supportPer, THREAT_SUPPORT_PER, 0, 30),
-      supportCap: num(w.supportCap, THREAT_SUPPORT_CAP, 0, 100),
-      smartThreshold: num(w.smartThreshold, THREAT_SMART_THRESHOLD, 0, 100),
+      cs: gbCfgClamp(w.cs, 0, 120, THREAT_CS_BASE),
+      eta15: gbCfgClamp(w.eta15, 0, 60, THREAT_ETA15_BASE),
+      simPer: gbCfgClamp(w.simPer, 0, 30, THREAT_SIM_PER),
+      simCap: gbCfgClamp(w.simCap, 0, 100, THREAT_SIM_CAP),
+      weak: gbCfgClamp(w.weak, 0, 60, THREAT_WEAK_BASE),
+      supportPer: gbCfgClamp(w.supportPer, 0, 30, THREAT_SUPPORT_PER),
+      supportCap: gbCfgClamp(w.supportCap, 0, 100, THREAT_SUPPORT_CAP),
+      smartThreshold: gbCfgClamp(w.smartThreshold, 0, 100, THREAT_SMART_THRESHOLD),
     };
     if (!over) _threatMemo = { src: stored, v: out };
     return out;

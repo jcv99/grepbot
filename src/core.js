@@ -1090,6 +1090,12 @@
     const n = +v;
     return Number.isFinite(n) ? n : fallback;
   }
+  // Same as gbCfgNum but with bounds. Replaces per-module `num = (v,d,lo,hi) => …`
+  // closures (spy/dodge/wonder/support).
+  function gbCfgClamp(v, lo, hi, fallback) {
+    const n = +v;
+    return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : fallback;
+  }
   function captchaLadder() {
     const raw = state.captchaLadder;
     if (Array.isArray(raw) && raw.length >= 1) {
