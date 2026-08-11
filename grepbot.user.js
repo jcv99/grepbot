@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.42.0
+// @version      4.43.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -248,10 +248,12 @@ const STORE = {
     VILLAGE_RECRUIT_AMOUNT: 'grepbot:village-recruit-amount',
     ACCEPT_UNITS_TPL: 'grepbot:accept-units-tpl',
     VILLAGE_RECRUIT_STREAKS: 'grepbot:village-recruit-streaks',
+    WEBHOOK_RATELIMIT: 'grepbot:webhook-ratelimit',
+    WEBHOOK_PENDING: 'grepbot:webhook-pending',
   };
 
   const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
-    'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'merchant', 'pttrade', 'favor', 'wonder', 'hero', 'godspell'];
+    'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'merchant', 'pttrade', 'favor', 'wonder', 'hero', 'godspell', 'spy'];
   const CONFIG_VER_CURRENT = 12;
 
   const WORLD_SCOPED_BASES = new Set([
@@ -276,6 +278,8 @@ const STORE = {
     STORE.SPELL_COOLDOWN,
 
     STORE.FARM_SCRAPE, STORE.FARM_SCRAPE_STATE, STORE.TOWN_ACTION, STORE.TOWN_LIST_ACTION,
+    STORE.PT_TRADE_TPL, STORE.PT_VIEW_URL,
+    STORE.WEBHOOK_RATELIMIT, STORE.WEBHOOK_PENDING,
   ]);
   function wkey(base) { return base + '@' + location.hostname; }
 
@@ -743,8 +747,11 @@ const STORE = {
       targetRatio: 1.0, pumpAmount: 1, maxPumps: 6, reservePct: 10,
       wantRes: { wood: true, stone: true, iron: false },
     },
-    ptTradeTpl: load(wkey(STORE.PT_TRADE_TPL), null),
-    ptViewUrl: load(wkey(STORE.PT_VIEW_URL), null),
+    ptTradeTpl: load(STORE.PT_TRADE_TPL, null),
+    ptViewUrl: load(STORE.PT_VIEW_URL, null),
+
+    webhookRatelimit: load(STORE.WEBHOOK_RATELIMIT, {}) || {},
+    webhookPending: load(STORE.WEBHOOK_PENDING, {}) || {},
   };
 
   let panel = null;
@@ -4348,7 +4355,7 @@ const STORE = {
       loot: r.resources || r.loot || null,
       outcome: parseOutcome(r),
 
-      wall: buildings.wall ?? r.wall ?? r.wall_level ?? r.defender_wall ?? (r.defender && (r.defender.wall ?? r.defender.wall_level)) ?? null,
+      wall: buildings.wall ?? ((r.wall != null ? r.wall : (r.Wall != null ? r.Wall : undefined))) ?? r.wall_level ?? r.defender_wall ?? (r.defender && (r.defender.wall ?? r.defender.wall_level)) ?? null,
       alliance: r.alliance ?? r.attacker_alliance ?? (r.attacker && (r.attacker.alliance_name || r.attacker.alliance)) ?? null,
       vill_id: r.vill_id ?? r.farm_town_id ?? null,
       vacation: r.vacation ?? r.on_vacation ?? null,
@@ -4781,7 +4788,14 @@ const STORE = {
         const farms = farmsFromGame() || [];
         const f = farms.find(x => String(x.vill_id) === String(vid));
         if (!f || f.lootable_at == null) return;
-        const sec = farmSnapDuration(f.lootable_at - gameNow());
+
+        const remaining = +f.lootable_at - gameNow();
+        const maxKnown = Math.max.apply(null, FARM_DURATIONS || [14400]);
+        if (!(remaining > 30) || remaining > maxKnown + 5) {
+          gbLogT('farm-learn-stale-' + vid, 60000, 'farm: option learner read stale lootable_at, retry next claim');
+          return;
+        }
+        const sec = farmSnapDuration(remaining);
         if (sec == null) return;
         const map = Object.assign({}, state.farmOptionMap || {});
         if (+map[String(sec)] === opt) return;
@@ -5895,7 +5909,7 @@ const STORE = {
   }
   function collectAllBackground() {
     if (!state.autoCollect || !state.collectAll) return;
-    if (!hostEnabled() || automationPaused({}) || captchaPaused('collect')) return;
+    if (!hostEnabled() || automationPaused({}) || captchaPaused('collect') || circuitOpen('collect')) return;
     if (gbLocked('collect-bg') || collectBgTimer) return;
     if (!state.csrf) { scheduleCollectBg(30_000); return; }
     if (!state.collectTpl) { scheduleAutoCollect(); scheduleCollectBg(60_000); return; }
@@ -7210,7 +7224,9 @@ const STORE = {
     }
     if(!blind)nativeRecruitSplitDone.add(id);
     if(moved){
-      t.mode.recruitNaval='fifo';t.paused.recruitNaval=!!t.paused.recruit;
+
+      if (t.mode.recruitNaval == null) t.mode.recruitNaval = 'fifo';
+      if (t.paused.recruitNaval == null) t.paused.recruitNaval = !!t.paused.recruit;
 
       try{save(STORE.NATIVE_QUEUE,nativeQueueRoot())}catch(_){}
       gbLog(`cola nativa: ${moved} orden(es) naval(es) movida(s) a la cola del puerto @${id}`);
@@ -7454,7 +7470,10 @@ const STORE = {
     const n=Math.max(1,Math.floor(+amount||0));if(!unit||!recruitUnitDef(unit)||!(n>0))return false;
 
     const lane=nativeRecruitLane(unit);
-    const town=nativeQueueTown(townId,true);town.mode[lane]='fifo';town[lane].push({id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:n,status:'pending',reason:'',createdAt:Date.now()});
+    const town=nativeQueueTown(townId,true);
+
+    if (town.mode[lane] == null) town.mode[lane] = 'fifo';
+    town[lane].push({id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:n,status:'pending',reason:'',createdAt:Date.now()});
     nativeQueueSave();gbLog(`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): ${n}\u00d7 ${nativeUnitLabel(unit)} @${townId}`);gbTimeout(()=>recruitScan('native'),80);return true;
   }
   function nativeQueueRemoveLastRecruit(townId,unit,amount) {
@@ -7788,7 +7807,7 @@ const STORE = {
 
     let focusProven=false;
     try{const mgr=gameUw().GPWindowMgr,w=mgr&&mgr.getFocusedWindow&&mgr.getFocusedWindow(),jq=w&&w.getJQElement&&w.getJQElement(),el=jq&&(jq[0]||jq.get&&jq.get(0));if(el){focusProven=true;if(!(el===root||el.contains(root)||root.contains(el)))return null}}catch(_){}
-    if(!focusProven){try{const candidates=[...document.querySelectorAll('.window_content,.gpwindow_content,#unit_order')].filter((x,i,a)=>a.indexOf(x)===i&&!x.closest('#grepbot-panel')&&!x.closest('[hidden]')&&(x.getClientRects?x.getClientRects().length>0:true)),visibleRoots=candidates.filter(x=>!candidates.some(y=>y!==x&&y.contains(x))).filter(isRelevant);if(visibleRoots.length!==1||visibleRoots[0]!==root)return null}catch(_){return null}}
+    if(!focusProven){try{const candidates=[...document.querySelectorAll('.window_content,.gpwindow_content,#unit_order')].filter((x,i,a)=>a.indexOf(x)===i&&!x.closest('#grepbot-panel')&&!x.closest('[hidden]')&&(x.getClientRects?x.getClientRects().length>0:true)),visibleRoots=candidates.filter(x=>!candidates.some(y=>y!==x&&y.contains(x))).filter(isRelevant);if(visibleRoots.length!==1||visibleRoots[0]!==root){if(visibleRoots.length>=2){const focused=document.activeElement;let pick=null;for(const r of visibleRoots){if(r===focused||(focused&&r.contains(focused)))pick=r;if(pick)break}if(!pick)pick=visibleRoots[0];if(pick!==root)return null}else return null}}catch(_){return null}}
     const current=abCurrentTownId(),id=current==null?null:String(current);return id&&abGetTown(id)?id:null;
   }
   function nativeTownAction(root,townId,onClick) {
@@ -8131,7 +8150,8 @@ const STORE = {
       const uw = gameUw();
       const models = uw.MM && uw.MM.getModels && uw.MM.getModels();
       let bbd = models && (models.BuildingBuildData || models.BuildData || models.BuildingBuilder);
-      const data = bbd && (bbd[townId] || bbd[String(townId)]);
+
+      const data = bbd && (bbd[townId] != null ? bbd[townId] : (bbd[String(townId)] != null ? bbd[String(townId)] : null));
       return data && data.attributes && data.attributes.building_data && data.attributes.building_data[building] || null;
     } catch (_) { return null; }
   }
@@ -8719,7 +8739,7 @@ const STORE = {
         gbLogT('cave-nohide-' + id, 300000, `cave: town ${id} has no hide building`);
         continue;
       }
-      if (!info.unlimited && info.hideCap != null && info.stored != null && info.stored >= info.hideCap) {
+      if (!info.unlimited && info.hideCap != null && info.hideCap > 0 && info.stored != null && info.stored >= info.hideCap) {
         gbLogT('cave-full-' + id, 120000, `cave: town ${id} hide full (${info.stored}/${info.hideCap})`);
         continue;
       }
@@ -9032,6 +9052,8 @@ const STORE = {
           gbLogT('culture-err-' + job.id, 60000, `culture: ${job.type} ${job.id} err ${err}`);
 
           gbUnlock('culture', cultureLock);
+
+          gbTimeout(next, 600 + Math.random() * 400);
         }
       });
     })();
@@ -9131,7 +9153,7 @@ const STORE = {
     for(const {t:tgtTown,f:tgtF} of targets){const tgt=ledger[tgtTown.id]; if(!tgt)continue;
       for(const res of ['wood','stone','iron']){let need=Math.floor(tgtF.deficit[res]||0); if(need<minBatch)continue;
         const sources=towns.filter(s=>s.id!==tgtTown.id).map(s=>({s,f:forecasts[s.id],l:ledger[s.id]})).filter(x=>x.f&&x.l).sort((a,b)=>(b.f.overflow[res]?1:0)-(a.f.overflow[res]?1:0));
-        for(const {s,f,l} of sources){const av=plannerAvailable(s.id,{allowSoft:false}); if(!av||av.tradeCap==null)continue; const surplus=Math.max(0,Math.min(av[res], l[res]-Math.max(0,plannerReservePolicy(s.id).hard[res]+plannerReservePolicy(s.id).soft[res]))); const send=Math.floor(Math.min(need,surplus,av.tradeCap,l.tradeCap,tgt.cap-tgt[res])); if(send<minBatch)continue;
+        for(const {s,f,l} of sources){const av=plannerAvailable(s.id,{allowSoft:false}); if(!av)continue; const cap=av.tradeCap==null?Infinity:av.tradeCap; const surplus=Math.max(0,Math.min(av[res], l[res]-Math.max(0,plannerReservePolicy(s.id).hard[res]+plannerReservePolicy(s.id).soft[res]))); const send=Math.floor(Math.min(need,surplus,cap,l.tradeCap,tgt.cap-tgt[res])); if(send<minBatch)continue;
           const job={from:s.id,to:tgtTown.id,wood:0,stone:0,iron:0};job[res]=send;jobs.push(job);tradeApplyJob(ledger,job);need-=send;if(need<minBatch||jobs.length>=8)break;
         } if(jobs.length>=8)break;
       } if(jobs.length>=8)break;
@@ -11175,8 +11197,8 @@ const STORE = {
     gbLog('research: loaded CS-fast tech list');
   }
 
-  const alertLastSent = Object.create(null);
-  const alertPending = Object.create(null);
+  const _whRateGuard = state.webhookRatelimit || (state.webhookRatelimit = {});
+  const _whPendGuard = state.webhookPending || (state.webhookPending = {});
   function alertIsTelegram(url) {
     return /api\.telegram\.org\/bot/i.test(url) || /telegram/i.test(url);
   }
@@ -11291,8 +11313,8 @@ const STORE = {
     if (ev[event] === false) return;
     const now = Date.now();
     const key = alertWebhookKey(event, payload);
-    if (alertPending[key]) return;
-    if ((alertLastSent[key] || 0) + 5 * 60 * 1000 > now) return;
+    if (state.webhookPending[key]) return;
+    if ((state.webhookRatelimit[key] || 0) + 5 * 60 * 1000 > now) return;
     const text = `GrepBot [${location.host}] ${event}\n` +
       '```json\n' + JSON.stringify(payload || {}, null, 2).slice(0, 1800) + '\n```';
     let body;
@@ -11314,7 +11336,8 @@ const STORE = {
         }],
       };
     }
-    alertPending[key] = now;
+    state.webhookPending[key] = now;
+    try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (_) {}
     try {
       gbXhr({
         scope: 'external',
@@ -11323,17 +11346,22 @@ const STORE = {
         headers: { 'Content-Type': 'application/json' },
         data: JSON.stringify(body),
         onload: (r) => {
-          delete alertPending[key];
-          if (r.status >= 200 && r.status < 300) alertLastSent[key] = Date.now();
-          else gbLogT('webhook-fail-' + key, 60000, 'webhook status ' + r.status);
+          delete state.webhookPending[key];
+          try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (_) {}
+          if (r.status >= 200 && r.status < 300) {
+            state.webhookRatelimit[key] = Date.now();
+            try { save(STORE.WEBHOOK_RATELIMIT, state.webhookRatelimit); } catch (_) {}
+          } else gbLogT('webhook-fail-' + key, 60000, 'webhook status ' + r.status);
         },
         onerror: () => {
-          delete alertPending[key];
+          delete state.webhookPending[key];
+          try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (_) {}
           gbLogT('webhook-err-' + key, 60000, 'webhook transport error');
         },
       });
     } catch (e) {
-      delete alertPending[key];
+      delete state.webhookPending[key];
+      try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (_) {}
       gbLogT('webhook-ex-' + key, 60000, 'webhook ' + String(e));
     }
   }
@@ -11592,8 +11620,17 @@ const STORE = {
           if (hit) resHits.push(hit);
         });
       } catch (_) {}
-      const give = resHits[0] || null;
-      const get = resHits[1] || null;
+
+      let give = null, get = null;
+      if (resHits.length >= 2) {
+        if (ratio != null && ratio > 0 && ratio <= 1) {
+
+          give = resHits[0]; get = resHits[1];
+        } else {
+
+          give = resHits[0]; get = resHits[1];
+        }
+      }
       const stockM = txt.replace(/\./g, '').match(/(\d{2,7})/);
       const id = el.getAttribute('data-offer-id') || el.getAttribute('data-id')
         || el.getAttribute('data-offer_id') || String(i);
@@ -11707,7 +11744,7 @@ const STORE = {
     if (!action || /^(index|view|show|load)$/i.test(action)) {
       if (state.ptViewUrl !== url) {
         state.ptViewUrl = url;
-        save(wkey(STORE.PT_VIEW_URL), url);
+        save(STORE.PT_VIEW_URL, url);
         gbLog('phoenician: learned view URL');
       }
       return;
@@ -11728,7 +11765,7 @@ const STORE = {
     };
     tpl.amountKey = ptAmountKey(tpl);
     state.ptTradeTpl = tpl;
-    save(wkey(STORE.PT_TRADE_TPL), tpl);
+    save(STORE.PT_TRADE_TPL, tpl);
     gbLog('phoenician: learned trade payload: ' + JSON.stringify(tpl).slice(0, 200));
     try { tplHealthMarkLearned('ptTradeTpl'); } catch (_) {}
   }
@@ -11815,7 +11852,7 @@ const STORE = {
     ptOffers(townId, (offers) => {
       if (!offers || !offers.length) return;
       const pick = offers.find(o => {
-        if (!(o.ratio >= 0)) return false;
+        if (!(o.ratio > 0)) return false;
         if (o.get && !cfg.wantRes[o.get]) return false;
         if (o.stock != null && o.stock <= 0) return false;
         return true;
@@ -12982,6 +13019,8 @@ const STORE = {
     const def = recruitUnitDef(unitId);
     if (!def) return null;
     if (def.is_naval || def.naval) return { controller: 'building_docks', feature: 'recruit' };
+
+    if (def.is_mythical || def.mythical || def.god) return { controller: 'building_temple', feature: 'recruit' };
     return { controller: 'building_barracks', feature: 'recruit' };
   }
   function recruitHasSpell(townId, powerId) {
@@ -13088,6 +13127,7 @@ const STORE = {
     if (typeof need === 'object') return Object.keys(need).filter(k => need[k]);
     return [];
   }
+  const _recruitBlindLog = new Set();
   function recruitCanBuild(townId, unitId) {
     const def = recruitUnitDef(unitId);
     if (!def) return false;
@@ -13097,12 +13137,22 @@ const STORE = {
       const rdeps = recruitResearchDeps(def);
       if (rdeps.length) {
         const info = typeof researchTownTechs === 'function' ? researchTownTechs(townId) : null;
-        if (!info || !info.techs) return false;
+        if (!info || !info.techs) {
+
+          const k = townId + '|' + unitId + '|tech';
+          if (!_recruitBlindLog.has(k)) { _recruitBlindLog.add(k); gbLogT('recruit-blind-' + townId + '-' + unitId, 300000, 'recruit: ' + unitId + ' techs unreadable in town ' + townId + ' - blind precheck, server judges'); }
+          return true;
+        }
         for (const tech of rdeps) if (!info.techs[tech]) return false;
       }
       let buildings = null;
       try { const b = t.getBuildings ? t.getBuildings() : (t.buildings && t.buildings()); buildings = b && (b.attributes || b); } catch (_) {}
-      if (!buildings) return false;
+      if (!buildings) {
+
+        const k = townId + '|' + unitId + '|bld';
+        if (!_recruitBlindLog.has(k)) { _recruitBlindLog.add(k); gbLogT('recruit-blind-' + townId + '-' + unitId, 300000, 'recruit: ' + unitId + ' buildings unreadable in town ' + townId + ' - blind precheck, server judges'); }
+        return true;
+      }
       const bdeps = recruitRequiredBuildings(def);
       for (const [bid, lvl] of Object.entries(bdeps)) if (+(buildings[bid] || 0) < +lvl) return false;
       if (def.is_naval || def.naval) {
@@ -13429,7 +13479,7 @@ const STORE = {
       amount: +amount,
     });
     const modelUrl = (tpl && tpl.model_url) || ('FarmTownPlayerRelation/' + (farm.relation_id || ''));
-    bridgePost('villageRecruit', {
+    bridgePost('villrecruit', {
       model_url: modelUrl,
       action_name: actionName,
       arguments: args,
@@ -13440,7 +13490,7 @@ const STORE = {
   function villageRecruitScan(reason) {
     if (!hostEnabled() || !state.autoVillageRecruit) return;
     if (automationPaused({})) return;
-    if (captchaPaused('villageRecruit')) return;
+    if (captchaPaused('villrecruit')) return;
     if (gbLocked('village-recruit')) return;
 
     if (!state.acceptUnitsTpl || !state.acceptUnitsTpl.action_name) {
@@ -14488,13 +14538,15 @@ const STORE = {
       const last = orchLastRun[key] || 0;
       const overdue = now - last - cadence;
       if (overdue < 0) continue;
-      due.push({ key, rank: i, overdue });
+      due.push({ key, rank: i, overdue, cadence });
     }
     if (!due.length) return;
 
     due.sort((a, b) => {
       const gap = b.overdue - a.overdue;
-      if (Math.abs(gap) > ORCH_MS * 2) return gap;
+
+      const band = Math.max(a.cadence, b.cadence, ORCH_MS) * 2;
+      if (Math.abs(gap) > band) return gap;
       return a.rank - b.rank;
     });
     const run = due.slice(0, ORCH_MAX_PER_TICK);
@@ -16027,6 +16079,20 @@ const STORE = {
     entry.autoBuildReward = entry.rewards.some(r => r.kind === 'build-cost-reduction');
     entry.autoResReward = entry.rewards.some(r => r.kind === 'resources' || r.kind === 'favor');
     entry.safeAuto = entry.rewards.length > 0 && entry.rewards.every(isSafeQuestReward);
+
+    const ds = (typeof row?.dataset === 'object' && row.dataset) || {};
+    const ix = +ds.islandX || +ds.island_x || null;
+    const iy = +ds.islandY || +ds.island_y || null;
+    if (Number.isFinite(ix) && Number.isFinite(iy)) {
+      entry.islandX = ix;
+      entry.islandY = iy;
+      entry.townEvidence = 'dom-island';
+    } else {
+      entry.islandX = null;
+      entry.islandY = null;
+      entry.townId = '';
+      entry.townEvidence = 'town-unknown';
+    }
     return entry;
   }
   function questCaptureCurrent(row) {
@@ -19081,8 +19147,7 @@ const STORE = {
     lines.push(`ventana ${statsWindow} | ${st.total} decisiones | ${st.attempts} intentos | exito ${st.successPct == null ? '-' : st.successPct + '%'}`);
     lines.push(`ok ${st.ok}  err ${st.err}  captcha ${st.captcha}  timeout ${st.timeout}  pendiente ${st.pending}  saltadas ${st.skip}${st.dry ? ` (simulacion ${st.dry})` : ''}`);
     const claims = jrnCountOk('farm', /claim/i, STATS_WINDOWS[statsWindow] || 86400000);
-    const builds = jrnCountOk('build', /Instant|instant/i, STATS_WINDOWS[statsWindow] || 86400000)
-      + jrnCountOk('instant-build', null, STATS_WINDOWS[statsWindow] || 86400000);
+    const builds = jrnCountOk('build', /Instant|instant/i, STATS_WINDOWS[statsWindow] || 86400000);
     lines.push(`reclamos de granjas ${claims} | completados inst. ${builds}`);
     lines.push('');
     lines.push('feature      ok   err  tout  pend  cap  skip   rate');
@@ -20032,8 +20097,12 @@ const STORE = {
       });
       const move = e => {
         if (!gbQueueCenterDrag) return;
-        w.style.left = Math.max(0, Math.min(innerWidth - w.offsetWidth, e.clientX - gbQueueCenterDrag.dx)) + 'px';
-        w.style.top = Math.max(0, Math.min(innerHeight - w.offsetHeight, e.clientY - gbQueueCenterDrag.dy)) + 'px';
+
+        const cssMax = parseFloat(getComputedStyle(w).maxWidth) || w.offsetWidth;
+        const maxW = Math.min(w.offsetWidth || 0, Math.max(0, innerWidth - cssMax));
+        const maxH = Math.max(0, innerHeight - w.offsetHeight);
+        w.style.left = Math.max(0, Math.min(innerWidth - maxW, e.clientX - gbQueueCenterDrag.dx)) + 'px';
+        w.style.top = Math.max(0, Math.min(maxH, e.clientY - gbQueueCenterDrag.dy)) + 'px';
         w.style.right = 'auto';
       };
       const up = () => { gbQueueCenterDrag = null; };
@@ -20443,7 +20512,7 @@ const STORE = {
   }
   function applyTheme() {
     const cls = 'gb-theme-' + gbThemeResolved();
-    const targets = [panel, (typeof gbQueueCenter !== 'undefined' ? gbQueueCenter : null)];
+    const targets = [panel, (gbQueueCenter || null)];
 
     try { document.querySelectorAll('.gb-widget').forEach(w => targets.push(w)); } catch (_) {}
     for (const el of targets) {
@@ -20713,8 +20782,13 @@ const STORE = {
       overflow:hidden;padding:0;border-radius:6px;cursor:move}
     #grepbot-panel.collapsed header{padding:0;width:100%;height:100%;justify-content:center;align-items:center;border:0}
     #grepbot-panel.collapsed header b{display:none}
-    #grepbot-panel.collapsed header button{border:0;padding:0;width:100%;height:100%;font-size:0;font-weight:700;color:var(--gb-accent);border-radius:6px}
-    #grepbot-panel.collapsed header button::before{content:"GB";display:block;font-size:11px;line-height:${PANEL_SQ}px}
+    /* Scope the collapse-icon rules to the toggle button only. The Colas button
+       shares the header but must remain a real button (and would otherwise
+       overlap the toggle glyph with its own "GB" ::before). */
+    #grepbot-panel.collapsed header button[data-act=toggle]{border:0;padding:0;width:100%;height:100%;font-size:0;font-weight:700;color:var(--gb-accent);border-radius:6px}
+    #grepbot-panel.collapsed header button[data-act=toggle]::before{content:"GB";display:block;font-size:11px;line-height:${PANEL_SQ}px}
+    /* Hide header status pills when collapsed so the square stays a square. */
+    #grepbot-panel.collapsed .gb-head-main,#grepbot-panel.collapsed .gb-head-status,#grepbot-panel.collapsed .gb-head-mode,#grepbot-panel.collapsed .gb-head-health,#grepbot-panel.collapsed .gb-head-toggle{display:none !important}
     #grepbot-panel.collapsed .gb-qat,#grepbot-panel.collapsed .gb-nav,#grepbot-panel.collapsed .gb-subtabs,#grepbot-panel.collapsed section,#grepbot-panel.collapsed footer,#grepbot-panel.collapsed .gb-resize{display:none !important}
     #grepbot-panel .farms-list{margin-bottom:6px;max-height:200px;overflow:auto}
     #grepbot-panel .farms-list table{width:100%;border-collapse:collapse;font-size:10px}
@@ -20833,10 +20907,10 @@ const STORE = {
     @media(max-width:760px){#grepbot-queue-center{left:2vw!important;top:4vh!important;width:96vw!important;height:80vh!important}#grepbot-queue-center .gb-qc-body{grid-template-columns:1fr}}
   `);
 
+  document.querySelectorAll('#grepbot-panel').forEach(p => { try { p.remove(); } catch (_) {} });
+
   panel = document.createElement('div');
   panel.id = 'grepbot-panel';
-
-  document.querySelectorAll('#grepbot-panel').forEach(p => { try { p.remove(); } catch (_) {} });
   panel.style.zIndex = '2147483647';
   panel.innerHTML = `
     <header><div class="gb-head-main"><b>GrepBot v${runningVersion()}</b><div class="gb-head-status"><span id="gb-head-mode" class="gb-pill">...</span><span id="gb-head-health" class="gb-pill">...</span></div></div><div style="display:flex;gap:4px"><button data-act="queues" title="Abrir centro de colas">Colas</button><button data-act="toggle" title="Minimizar">_</button></div></header>
@@ -20912,7 +20986,7 @@ const STORE = {
         <button type="button" id="gb-atk-src-all">Todo</button>
         <button type="button" id="gb-atk-src-none">Ninguno</button>
         <button type="button" id="gb-atk-src-off">Ofensiva</button>
-        <button type="button" id="gb-atk-src-def">Defense</button>
+        <button type="button" id="gb-atk-src-def">Defensa</button>
       </div>
       <div class="atk-sources"></div>
       <div class="atk-pertown" hidden></div>
@@ -23217,6 +23291,7 @@ const STORE = {
     farmTick();
     try { reportCatchUpEnqueue(); } catch (_) {}
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
+    try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (_) {}
   });
   gbListen(window, 'pageshow', (e) => {
     if (!(e && e.persisted)) return;
@@ -23225,6 +23300,7 @@ const STORE = {
     try { reportCatchUpEnqueue(); } catch (_) {}
     try { bindQuestObserver(); } catch (_) {}
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
+    try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (_) {}
   });
   gbInterval(checkThresholds, 30000);
   gbInterval(renderTimers, 1000);
@@ -23253,9 +23329,10 @@ const STORE = {
   gbTimeout(() => { abEnsureTargets(); }, 12000);
   gbTimeout(scheduleNativeUiScan, 1200);
   gbInterval(() => {
-    if (nativeQueueHasPending('build')) abScan('native-watch');
-    if (nativeRecruitPending()) recruitScan('native-watch');
-    if (nativeQueueHasPending('research')) researchScan('native-watch');
+
+    if (nativeQueueHasPending('build') || nativeRecruitPending() || nativeQueueHasPending('research')) {
+      try { renderQueueCenter(); } catch (_) {}
+    }
 
     scheduleNativeUiScan();
   }, 5000);
