@@ -2149,7 +2149,7 @@
             delete state.txState[k]; swept++;
           }
         }
-        if (swept) gbLog(`dry-run OFF: swept ${swept} stale txState entries`);
+        if (swept) { txSave(); gbLog(`dry-run OFF: swept ${swept} stale txState entries`); }
       }
     });
     bindToggle('[data-cfg=auto-merchant]', 'autoMerchant', STORE.AUTO_MERCHANT, () => merchantScan('toggle'));

@@ -592,6 +592,16 @@
     }
 
     txPrune();
+    // A 'dryrun' stamp only exists to suppress repeat DRY-RUN logging while dry
+    // run is ON. Once it is OFF the stamp has no meaning, and leaving it in the
+    // slot blocks the first real post for TX_TERMINAL_TTL (30min) as
+    // `duplicate blocked ... state=dryrun`. Drop it here rather than only in the
+    // Config toggle handler: dry run also flips via panic, via storage reload,
+    // and via another tab, and none of those paths run that handler.
+    if (state.txState[intent] && state.txState[intent].state === 'dryrun' && !state.dryRun) {
+      delete state.txState[intent];
+      txSave();
+    }
     const existing = state.txState[intent];
     // 'dryrun' is a txState stamp set by the dry-run bail above; a second
     // pass on the same intent (cadence tick, MO replay) must short-circuit

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.44.19
+// @version      4.44.20
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -2732,6 +2732,11 @@ const STORE = {
     }
 
     txPrune();
+
+    if (state.txState[intent] && state.txState[intent].state === 'dryrun' && !state.dryRun) {
+      delete state.txState[intent];
+      txSave();
+    }
     const existing = state.txState[intent];
 
     if (existing && /^(planned|precheck|sending|confirming|reconciling|unknown|manual-review|dryrun)$/.test(existing.state || '')) {
@@ -22306,7 +22311,7 @@ const STORE = {
             delete state.txState[k]; swept++;
           }
         }
-        if (swept) gbLog(`dry-run OFF: swept ${swept} stale txState entries`);
+        if (swept) { txSave(); gbLog(`dry-run OFF: swept ${swept} stale txState entries`); }
       }
     });
     bindToggle('[data-cfg=auto-merchant]', 'autoMerchant', STORE.AUTO_MERCHANT, () => merchantScan('toggle'));
