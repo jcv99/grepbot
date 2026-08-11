@@ -963,6 +963,7 @@
     </section>
     <section data-tab="intel" hidden>
       <div style="font-size:11px;color:#f5a623;margin-bottom:4px">Intel / amenazas</div>
+      <select data-intel="view" title="Cambiar la vista del panel Intel" style="background:var(--gb-input-bg);color:var(--gb-input-fg);border:1px solid var(--gb-chrome);font-size:10px;margin-bottom:4px"><option value="summary">Resumen</option><option value="heatmap">Mapa de calor</option></select>
       <pre class="intel-panel" style="font-size:10px;white-space:pre-wrap;background:#111;padding:6px;border:1px solid #333;max-height:280px;overflow:auto;color:#cfc"></pre>
       <div class="intel-timeline" style="font-size:11px;margin-top:6px"></div>
       <div class="intel-ghost" style="font-size:11px;margin-top:6px"></div>
@@ -1547,6 +1548,10 @@
     flash('cambio de ciudad no soportado en este cliente');
     return false;
   }
+  panel.querySelector('[data-intel=view]')?.addEventListener('change', e => {
+    intelView = e.target.value === 'heatmap' ? 'heatmap' : 'summary';
+    renderIntel();
+  });
   panel.querySelector('[data-qs=town]')?.addEventListener('change', e => {
     const id = e.target.value;
     if (!jumpToTown(id)) renderTownSwitch();

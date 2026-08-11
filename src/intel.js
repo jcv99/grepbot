@@ -594,6 +594,13 @@
     if (!box) return;
     const sec = box.closest('section[data-tab]');
     if (sec && sec.hidden) return;
+    if (intelView === 'heatmap') {
+      box.textContent = intelHeatmapLines().join('\n');
+      // Orthogonal to the view: the pattern scan still runs in either branch.
+      try { intelPatternScan(); } catch (_) {}
+      try { renderIntelTimeline(); } catch (_) {}
+      return;
+    }
     const threats = intelThreatBoard();
     // v4 plan 3.3: same label in both tabs, computed once for the whole loop.
     const colonyKind = {};
@@ -862,6 +869,76 @@
       } catch (_) {}
     });
     return rows;
+  }
+  // ===== Alliance intel heatmap (v4 plan 6.13) ===============================
+  // Read-only. Which alliance has been touching which of MY towns, over a 7-day
+  // window. It is also the plan that creates the [data-intel="view"] selector
+  // plans 7.2 / 7.3 / 7.6 hang their own views off.
+  const INTEL_MATRIX_WINDOW_MS = 7 * 86400000;
+  const INTEL_MATRIX_ROWS = 12;
+  let intelView = 'summary';
+  function intelAllianceName(v) {
+    if (typeof v !== 'string') return null;
+    const n = v.trim();
+    // Drop the client's placeholders and anything too long to be a real tag -
+    // an unlabelled row is noise, not intel.
+    if (!n || n === '?' || n === '-' || n.length > 40) return null;
+    return n;
+  }
+  function intelAllianceMatrix(windowMs) {
+    const win = Number.isFinite(+windowMs) ? +windowMs : INTEL_MATRIX_WINDOW_MS;
+    const cutoffTs = Date.now() - win;
+    const out = { alliances: [], towns: [], totalForAlliance: {}, totalForTown: {}, cells: {}, windowMs: win, cutoffTs };
+    const me = intelMyIdentity();
+    const own = new Set();
+    try { (townsFromGame() || []).forEach(t => own.add(String(t.id))); } catch (_) {}
+    for (const t of (state.towns || [])) own.add(String(t.id));
+    for (const f of (state.findings || [])) {
+      if (!f || !(+f.ts >= cutoffTs)) continue;
+      const ally = intelAllianceName(f.alliance);
+      if (!ally) continue;
+      const tid = f.town && f.town.id != null ? String(f.town.id) : null;
+      // Column must be a town of MINE. Anything else is somebody else's
+      // business and does not belong in my own exposure matrix.
+      if (!tid || !own.has(tid)) continue;
+      // And the alliance must be on the OTHER side: an attack by my own
+      // alliance-mate on my town is not incoming pressure from them.
+      if (intelActorIsMe(f.attacker, me)) continue;
+      const key = ally + '::' + tid;
+      out.cells[key] = (out.cells[key] || 0) + 1;
+      out.totalForAlliance[ally] = (out.totalForAlliance[ally] || 0) + 1;
+      out.totalForTown[tid] = (out.totalForTown[tid] || 0) + 1;
+    }
+    out.alliances = Object.keys(out.totalForAlliance)
+      .sort((a, b) => (out.totalForAlliance[b] - out.totalForAlliance[a]) || a.localeCompare(b));
+    out.towns = Object.keys(out.totalForTown).sort((a, b) => String(a).localeCompare(String(b)));
+    return out;
+  }
+  const INTEL_HEAT = [' ', '\u00b7', '\u2591', '\u2592', '\u2593', '\u2588'];
+  function intelHeatChar(n, max) {
+    if (!n) return INTEL_HEAT[0];
+    if (!(max > 0)) return INTEL_HEAT[1];
+    return INTEL_HEAT[Math.min(INTEL_HEAT.length - 1, 1 + Math.floor((n - 1) / max * (INTEL_HEAT.length - 2)))];
+  }
+  function intelHeatmapLines() {
+    const m = intelAllianceMatrix();
+    if (!m.alliances.length) return ['mapa de calor: sin informes con alianza en 7d'];
+    const lines = [`mapa de calor - alianza x mis ciudades (7d, ${m.alliances.length} alianzas)`];
+    const max = Math.max(...Object.values(m.cells));
+    const head = '  ' + ' '.repeat(18) + m.towns.map(t => String(t).slice(-3).padStart(4)).join('');
+    lines.push(head + '   tot');
+    const shown = m.alliances.slice(0, INTEL_MATRIX_ROWS);
+    for (const a of shown) {
+      const row = m.towns.map(t => intelHeatChar(m.cells[a + '::' + t] || 0, max).padStart(4)).join('');
+      lines.push('  ' + a.slice(0, 18).padEnd(18) + row + String(m.totalForAlliance[a]).padStart(6));
+    }
+    const rest = m.alliances.slice(INTEL_MATRIX_ROWS);
+    if (rest.length) {
+      const tot = rest.reduce((n, a) => n + m.totalForAlliance[a], 0);
+      lines.push('  ' + `(+${rest.length} alianzas)`.padEnd(18) + ' '.repeat(m.towns.length * 4) + String(tot).padStart(6));
+    }
+    lines.push('  ' + 'total'.padEnd(18) + m.towns.map(t => String(m.totalForTown[t]).padStart(4)).join(''));
+    return lines;
   }
   function intelPatternScan() {
     const now = Date.now();
