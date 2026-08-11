@@ -717,7 +717,7 @@
       return null;
     }
     if(ids.size===1){const id=[...ids][0];return abGetTown(id)?id:null}
-    const isRelevant=r=>!!(r&&r.matches&&r.matches('#unit_order,.window_content,.gpwindow_content'))&&!!(r.matches('#unit_order')||r.querySelector(`#unit_order,#building_main,.building_main,[id^="building_main_"],[id^="special_building_"],${NATIVE_RESEARCH_SEL_ALL}`));
+    const isRelevant=r=>!!(r&&r.matches&&r.matches('#unit_order,.window_content,.gpwindow_content'))&&!!(r.matches('#unit_order')||nativeAcademyRoot(r)||r.querySelector(`#unit_order,#building_main,.building_main,[id^="building_main_"],[id^="special_building_"],${NATIVE_RESEARCH_SEL}`));
     const relevant=isRelevant(root);
     if(!relevant)return null;
     // With several open windows, only the focused one may inherit Game.townId.
@@ -781,6 +781,30 @@
   // tech from it — an unresolvable node is skipped, never guessed.
   const NATIVE_RESEARCH_SEL_CLASS='.btn_upgrade,.button_upgrade,.research_icon';
   const NATIVE_RESEARCH_SEL_ALL=NATIVE_RESEARCH_SEL+','+NATIVE_RESEARCH_SEL_CLASS;
+  // C3: those class hooks are NOT academy-exclusive. The capture has
+  // `.js-window-main-container classic_window farm_town` shipping
+  // `.farm_town .btn_upgrade` (rural village upgrade), and the construction
+  // queue's `getIconType()` returns `research_icon research40x40` for a running
+  // research. Both matched NATIVE_RESEARCH_SEL_CLASS in windows with no academy
+  // in them, resolved no tech, and fired the "academy root matched N research
+  // node(s) but resolved 0 techs" warning. Only widen to the class fallback
+  // inside a root that is provably the academy; the attribute selector stays
+  // global because data-research_id is unambiguous on its own.
+  function nativeAcademyRoot(root) {
+    if(!root)return false;
+    try{
+      if(root.querySelector('.tech_tree_box'))return true;
+      if(root.closest&&root.closest('.tech_tree_box'))return true;
+      if(root.matches&&root.matches('#building_academy,.building_academy'))return true;
+      if(root.querySelector('#building_academy,.building_academy'))return true;
+      const win=root.closest&&root.closest('.js-window-main-container,.gpwindow,.ui-dialog');
+      if(win&&win.classList&&win.classList.contains('academy'))return true;
+    }catch(_){}
+    return false;
+  }
+  function nativeResearchTileSel(root) {
+    return nativeAcademyRoot(root)?NATIVE_RESEARCH_SEL_ALL:NATIVE_RESEARCH_SEL;
+  }
   // C2: the value on the tile need not be the GameData key — a numeric id or a
   // differing research_type spelling yields null for every tile and the whole
   // lane silently disappears. Map through GameData.researches' own id fields
@@ -981,7 +1005,7 @@
     const roots=candidates.filter(x=>!candidates.some(y=>y!==x&&y.contains(x)));
     const mountedTowns=new Set();
     for(const root of roots){const townId=nativeWindowTownId(root);if(!townId){
-        if(root.querySelector('.tech_tree_box')||root.querySelector(NATIVE_RESEARCH_SEL_ALL))gbLogT('native-research-notown',300000,'native ui: academy window open but its town id is unreadable - controls skipped');
+        if(nativeAcademyRoot(root)||root.querySelector(NATIVE_RESEARCH_SEL))gbLogT('native-research-notown',300000,'native ui: academy window open but its town id is unreadable - controls skipped');
         root.querySelectorAll(':scope > .gb-native-panel,.gb-native-qctl').forEach(n=>n.remove());continue}let buildN=0,researchN=0;const mountedBuildIds=new Set(),mountedUnitIds=new Set(),mountedResearchIds=new Set(),mountedUnitLanes=new Set();
       mountedTowns.add(String(townId));
       const senateContext=!!(root.matches('#building_main,.building_main,.senate')||root.querySelector('#building_main,.building_main,[id^="building_main_"],[id^="special_building_"]'));
@@ -995,7 +1019,7 @@
       // Academy: every tech entry carries data-research_id. The attribute can sit
       // on the upgrade button itself, so mount on the outermost node per id —
       // appending a control INSIDE a <button> would nest interactive elements.
-      const researchTiles=[...root.querySelectorAll(NATIVE_RESEARCH_SEL_ALL)].filter(n=>!n.closest('.gb-native-qctl,.gb-native-panel'));
+      const researchTiles=[...root.querySelectorAll(nativeResearchTileSel(root))].filter(n=>!n.closest('.gb-native-qctl,.gb-native-panel'));
       const researchOuter=researchTiles.filter(n=>{const id=nativeResearchId(n);return id&&!researchTiles.some(o=>o!==n&&o.contains(n)&&nativeResearchId(o)===id)});
       for(const node of researchOuter){const id=nativeResearchId(node);if(!id||mountedResearchIds.has(id))continue;
         const tile=/^(?:button|a)$/i.test(node.tagName)?(node.parentElement||node):node;
@@ -1004,7 +1028,7 @@
       // Step 1 instrumentation. `researchN === 0` removes the whole Investigación
       // panel, which is indistinguishable in-game from "the scan never ran".
       // Say which of the two it was, and what the academy DOM actually offered.
-      if(!researchN&&(root.querySelector('.tech_tree_box')||researchTiles.length)){
+      if(!researchN&&nativeAcademyRoot(root)&&(root.querySelector('.tech_tree_box')||researchTiles.length)){
         gbLogT('native-research-zero',300000,
           `native ui: academy root matched ${researchTiles.length} research node(s) but resolved 0 techs `
           +`(attr ${root.querySelectorAll(NATIVE_RESEARCH_SEL).length}, class ${root.querySelectorAll(NATIVE_RESEARCH_SEL_CLASS).length}, `

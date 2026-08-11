@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.44.3
+// @version      4.44.4
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -7821,7 +7821,7 @@ const STORE = {
       return null;
     }
     if(ids.size===1){const id=[...ids][0];return abGetTown(id)?id:null}
-    const isRelevant=r=>!!(r&&r.matches&&r.matches('#unit_order,.window_content,.gpwindow_content'))&&!!(r.matches('#unit_order')||r.querySelector(`#unit_order,#building_main,.building_main,[id^="building_main_"],[id^="special_building_"],${NATIVE_RESEARCH_SEL_ALL}`));
+    const isRelevant=r=>!!(r&&r.matches&&r.matches('#unit_order,.window_content,.gpwindow_content'))&&!!(r.matches('#unit_order')||nativeAcademyRoot(r)||r.querySelector(`#unit_order,#building_main,.building_main,[id^="building_main_"],[id^="special_building_"],${NATIVE_RESEARCH_SEL}`));
     const relevant=isRelevant(root);
     if(!relevant)return null;
 
@@ -7870,6 +7870,22 @@ const STORE = {
 
   const NATIVE_RESEARCH_SEL_CLASS='.btn_upgrade,.button_upgrade,.research_icon';
   const NATIVE_RESEARCH_SEL_ALL=NATIVE_RESEARCH_SEL+','+NATIVE_RESEARCH_SEL_CLASS;
+
+  function nativeAcademyRoot(root) {
+    if(!root)return false;
+    try{
+      if(root.querySelector('.tech_tree_box'))return true;
+      if(root.closest&&root.closest('.tech_tree_box'))return true;
+      if(root.matches&&root.matches('#building_academy,.building_academy'))return true;
+      if(root.querySelector('#building_academy,.building_academy'))return true;
+      const win=root.closest&&root.closest('.js-window-main-container,.gpwindow,.ui-dialog');
+      if(win&&win.classList&&win.classList.contains('academy'))return true;
+    }catch(_){}
+    return false;
+  }
+  function nativeResearchTileSel(root) {
+    return nativeAcademyRoot(root)?NATIVE_RESEARCH_SEL_ALL:NATIVE_RESEARCH_SEL;
+  }
 
   let nativeResearchKeyCache=null;
   function nativeResearchKey(raw) {
@@ -8048,7 +8064,7 @@ const STORE = {
     const roots=candidates.filter(x=>!candidates.some(y=>y!==x&&y.contains(x)));
     const mountedTowns=new Set();
     for(const root of roots){const townId=nativeWindowTownId(root);if(!townId){
-        if(root.querySelector('.tech_tree_box')||root.querySelector(NATIVE_RESEARCH_SEL_ALL))gbLogT('native-research-notown',300000,'native ui: academy window open but its town id is unreadable - controls skipped');
+        if(nativeAcademyRoot(root)||root.querySelector(NATIVE_RESEARCH_SEL))gbLogT('native-research-notown',300000,'native ui: academy window open but its town id is unreadable - controls skipped');
         root.querySelectorAll(':scope > .gb-native-panel,.gb-native-qctl').forEach(n=>n.remove());continue}let buildN=0,researchN=0;const mountedBuildIds=new Set(),mountedUnitIds=new Set(),mountedResearchIds=new Set(),mountedUnitLanes=new Set();
       mountedTowns.add(String(townId));
       const senateContext=!!(root.matches('#building_main,.building_main,.senate')||root.querySelector('#building_main,.building_main,[id^="building_main_"],[id^="special_building_"]'));
@@ -8058,14 +8074,14 @@ const STORE = {
       const unitContext=root.matches('#unit_order')?root:root.querySelector('#unit_order');const unitTiles=unitContext?[...unitContext.querySelectorAll('#units .unit_tab,.unit_tab')]:[];
       for(const tile of unitTiles){const id=nativeUnitId(tile);if(!id||mountedUnitIds.has(id))continue;mountedUnitIds.add(id);mountedUnitLanes.add(nativeRecruitLaneOf(townId,id));nativeMountRecruitControl(root,tile,townId,id)}
 
-      const researchTiles=[...root.querySelectorAll(NATIVE_RESEARCH_SEL_ALL)].filter(n=>!n.closest('.gb-native-qctl,.gb-native-panel'));
+      const researchTiles=[...root.querySelectorAll(nativeResearchTileSel(root))].filter(n=>!n.closest('.gb-native-qctl,.gb-native-panel'));
       const researchOuter=researchTiles.filter(n=>{const id=nativeResearchId(n);return id&&!researchTiles.some(o=>o!==n&&o.contains(n)&&nativeResearchId(o)===id)});
       for(const node of researchOuter){const id=nativeResearchId(node);if(!id||mountedResearchIds.has(id))continue;
         const tile=/^(?:button|a)$/i.test(node.tagName)?(node.parentElement||node):node;
         if(tile.closest('.gb-native-qctl,.gb-native-panel'))continue;
         mountedResearchIds.add(id);nativeMountResearchControl(root,tile,townId,id);researchN++}
 
-      if(!researchN&&(root.querySelector('.tech_tree_box')||researchTiles.length)){
+      if(!researchN&&nativeAcademyRoot(root)&&(root.querySelector('.tech_tree_box')||researchTiles.length)){
         gbLogT('native-research-zero',300000,
           `native ui: academy root matched ${researchTiles.length} research node(s) but resolved 0 techs `
           +`(attr ${root.querySelectorAll(NATIVE_RESEARCH_SEL).length}, class ${root.querySelectorAll(NATIVE_RESEARCH_SEL_CLASS).length}, `
