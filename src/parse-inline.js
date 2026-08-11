@@ -198,7 +198,12 @@
       for (const p of parts) {
         if (/^\d+\s*(?:min|h|m)$/i.test(p) || /^\d{1,2}:\d{2}$/.test(p)) { out.eta = p; break; }
       }
-      const skip = new Set([out.eta, out.x != null ? `${out.x} ${out.y}` : null, `${out.x},${out.y}`, id]);
+      // Only seed the skip set with real values; `${out.x},${out.y}` evaluates
+      // to the literal string "null,null" when coords are missing, which then
+      // silently masks any real note that happens to contain that token.
+      const coordSpace = out.x != null && out.y != null ? `${out.x} ${out.y}` : null;
+      const coordComma = out.x != null && out.y != null ? `${out.x},${out.y}` : null;
+      const skip = new Set([out.eta, coordSpace, coordComma, id].filter(Boolean));
       out.notes = parts.slice(1).filter(p => p && !skip.has(p)).join(' | ') || null;
       return out;
     }).filter(Boolean);

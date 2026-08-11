@@ -246,12 +246,17 @@
     if (!lockToken) { gbLogT('support-busy', 60000, 'support: another burst in flight - will retry on the next pass'); return; }
     let i = 0, sent = 0;
     const slowest = donors.reduce((m, d) => Math.max(m, d.travel), 0);
-    (function next() {
+    // Function declaration, NOT a named IIFE — the IIFE form bound `next` only
+    // inside the function body, so supportStep's `gbTimeout(next, ...)` calls
+    // threw ReferenceError on every stale donor / callback and the outer
+    // try/catch then aborted the whole burst.
+    function next() {
       try { supportStep(); } catch (e) {
         gbUnlock('support', lockToken);
         gbLogT('support-throw', 60000, 'support: burst aborted - ' + String(e).slice(0, 60));
       }
-    })();
+    }
+    next();
     function supportStep() {
       gbLockTouch('support', lockToken);
       if (i >= donors.length) {

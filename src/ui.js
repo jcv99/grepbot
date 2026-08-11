@@ -1807,6 +1807,11 @@
     const hostEl = sec.querySelector('.cfg-host');
     if (hostEl) hostEl.textContent = location.host;
     const setChk = (sel, val) => { const el = sec.querySelector(sel); if (el) el.checked = !!val; };
+    // Hoisted above all early setNum callsites (bandit-cap/build-swap-min) and
+    // saveNum callsites further down — a const setNum/saveNum declared after
+    // its first use would throw TDZ and the whole config panel would never paint.
+    const setNum = (sel, val) => { const el = sec.querySelector(sel); if (el) el.value = val; };
+    const saveNum = (sel, fn) => sec.querySelector(sel)?.addEventListener('change', e => { fn(+e.target.value); });
     setChk('[data-cfg=enabled-host]', state.enabledHosts[location.host] === true);
     setChk('[data-cfg=auto-collect]', state.autoCollect);
     setChk('[data-cfg=collect-all]', state.collectAll);
@@ -1825,7 +1830,6 @@
     setChk('[data-cfg=auto-quest-build]', state.questAutoBuild);
     setChk('[data-cfg=auto-quest-res]', state.questAutoRes);
     setChk('[data-cfg=auto-cave]', state.autoCave);
-    const setNum = (sel, val) => { const el = sec.querySelector(sel); if (el) el.value = val; };
     setNum('[data-cfg=cave-thresh]', state.caveThreshPct);
     setNum('[data-cfg=ib-free-thresh]', state.ibFreeThresh);
     setNum('[data-cfg=collect-max-min]', state.collectMaxMin);
@@ -1953,7 +1957,6 @@
       renderCaveTowns();
     });
 
-    const saveNum = (sel, fn) => sec.querySelector(sel)?.addEventListener('change', e => { fn(+e.target.value); });
     const ct = state.cultureTypes || {};
     setChk('[data-cfg=auto-culture]', state.autoCulture);
     setChk('[data-cfg=cult-festival]', ct.festival !== false);

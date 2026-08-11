@@ -526,7 +526,6 @@
     if (automationPaused(pauseInfo)) return 'paused:' + pauseInfo.reason;
     if (captchaPaused(feature) || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return 'captcha-pause';
     if (write && circuitOpen(feature)) return 'circuit-open';
-    if (write) { const sm=safeModeBlock(feature, null, null, null); if (sm) return sm; }
     if (jtag && jrnSkipped(jtag)) return 'remembered';
     if (write && state.dryRun) return 'dryrun';
     if (!reqBudgetOk('action')) return 'budget';

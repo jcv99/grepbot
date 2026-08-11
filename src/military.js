@@ -171,7 +171,12 @@
     return out;
   }
   function heroLowStaminaPct() {
-    const n = +state.heroLowStaminaPct;
+    // null must NOT count as 0 (which would be a tight throttle). Treat only
+    // null/undefined as "unset" and fall through to the default 20, matching
+    // every other knob's `== null` semantics.
+    const raw = state.heroLowStaminaPct;
+    if (raw == null) return 20;
+    const n = +raw;
     return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 20;
   }
   function heroNotify(event, hero, extra) {

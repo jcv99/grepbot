@@ -62,11 +62,13 @@
     if (!t) return false;
     try {
       if (cost.academy) {
-        const acad = t.getBuildings ? +t.getBuildings().get('academy') : +(t.buildings().attributes || {}).academy;
+        let acad = null;
+        try { acad = t.getBuildings && typeof t.getBuildings().get === 'function' ? +t.getBuildings().get('academy') : +(t.buildings && t.buildings().attributes || {}).academy; } catch (_) { acad = null; }
         if (!(acad >= cost.academy)) return false;
       }
       if (cost.theater) {
-        const th = t.getBuildings ? +t.getBuildings().get('theater') : +(t.buildings().attributes || {}).theater;
+        let th = null;
+        try { th = t.getBuildings && typeof t.getBuildings().get === 'function' ? +t.getBuildings().get('theater') : +(t.buildings && t.buildings().attributes || {}).theater; } catch (_) { th = null; }
         if (!(th >= cost.theater)) return false;
       }
       if (cost.gold) return true;

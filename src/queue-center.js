@@ -467,8 +467,10 @@
         w.style.right = 'auto';
       };
       const up = () => { gbQueueCenterDrag = null; };
-      document.addEventListener('mousemove', move);
-      document.addEventListener('mouseup', up);
+      // Route through gbListen so the listener is gated on gbInstanceAlive() and
+      // torn down through the same bag entry — addEventListener bypassed both.
+      gbListen(document, 'mousemove', move);
+      gbListen(document, 'mouseup', up);
       gbListenerBag.push({ target: document, type: 'mousemove', fn: move, opts: undefined }, { target: document, type: 'mouseup', fn: up, opts: undefined });
     }
     gbQueueCenter.style.display = 'flex';

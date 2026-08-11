@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.43.0
+// @version      4.44.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -2644,7 +2644,6 @@ const STORE = {
     if (automationPaused(pauseInfo)) return 'paused:' + pauseInfo.reason;
     if (captchaPaused(feature) || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return 'captcha-pause';
     if (write && circuitOpen(feature)) return 'circuit-open';
-    if (write) { const sm=safeModeBlock(feature, null, null, null); if (sm) return sm; }
     if (jtag && jrnSkipped(jtag)) return 'remembered';
     if (write && state.dryRun) return 'dryrun';
     if (!reqBudgetOk('action')) return 'budget';
@@ -4380,7 +4379,10 @@ const STORE = {
       for (const p of parts) {
         if (/^\d+\s*(?:min|h|m)$/i.test(p) || /^\d{1,2}:\d{2}$/.test(p)) { out.eta = p; break; }
       }
-      const skip = new Set([out.eta, out.x != null ? `${out.x} ${out.y}` : null, `${out.x},${out.y}`, id]);
+
+      const coordSpace = out.x != null && out.y != null ? `${out.x} ${out.y}` : null;
+      const coordComma = out.x != null && out.y != null ? `${out.x},${out.y}` : null;
+      const skip = new Set([out.eta, coordSpace, coordComma, id].filter(Boolean));
       out.notes = parts.slice(1).filter(p => p && !skip.has(p)).join(' | ') || null;
       return out;
     }).filter(Boolean);
@@ -7090,7 +7092,25 @@ const STORE = {
   function goalOrderIds(townId,kind,ids){const seen=new Set(),base=(ids||[]).map(String).filter(x=>x&&!seen.has(x)&&seen.add(x));return base.filter(id=>!goalQueueSuppressed(townId,kind,id)).sort((a,b)=>{const A=goalQueueRank(townId,kind,a),B=goalQueueRank(townId,kind,b);return (B.mandatory-A.mandatory)||(A.index-B.index)||(base.indexOf(a)-base.indexOf(b));});}
   function goalBuildOrder(townId,extra){const base=abEnsureOrder();return goalOrderIds(townId,'build',base.concat((extra||[]).filter(k=>!base.includes(k))));}
   function goalQueueDecorate(townId,actions){const q=goalQueueCfg(townId);const arr=(actions||[]).filter(a=>!q.hidden[goalActionKey(a)]).map(a=>{const key=goalActionKey(a),blocked=!!q.blocked[key];return Object.assign({},a,{queueKey:key,mandatory:!!q.mandatory[key],status:blocked?'user-blocked':a.status,why:blocked?'blocked by user':a.why});});return arr.sort((a,b)=>{const A=goalQueueRank(townId,a.kind,a.id),B=goalQueueRank(townId,b.kind,b.id);return (B.mandatory-A.mandatory)||(A.index-B.index);});}
-  function goalQueueMove(townId,key,delta){const q=goalQueueCfg(townId);const clean=q.order.filter(x=>x!==key);let idx=q.order.indexOf(key);if(idx<0)idx=clean.length;idx=Math.max(0,Math.min(clean.length,idx+(+delta||0)));clean.splice(idx,0,key);q.order=clean;goalQueueSave();goalPlanTown(townId);return true;}
+  function goalQueueMove(townId,key,delta){
+    const q=goalQueueCfg(townId);
+
+    if (q.order.indexOf(key) < 0) {
+      q.order = q.order.concat([key]);
+      goalQueueSave();
+      goalPlanTown(townId);
+      return true;
+    }
+    const clean=q.order.filter(x=>x!==key);
+    let idx=clean.indexOf(key);
+    if (idx < 0) idx = clean.length;
+    idx=Math.max(0,Math.min(clean.length,idx+(+delta||0)));
+    clean.splice(idx,0,key);
+    q.order=clean;
+    goalQueueSave();
+    goalPlanTown(townId);
+    return true;
+  }
   function goalQueueToggleBlock(townId,key){const q=goalQueueCfg(townId);if(q.blocked[key])delete q.blocked[key];else q.blocked[key]=true;delete q.hidden[key];goalQueueSave();goalPlanTown(townId);return !!q.blocked[key];}
   function goalQueueToggleMandatory(townId,key){const q=goalQueueCfg(townId);if(q.mandatory[key])delete q.mandatory[key];else q.mandatory[key]=true;goalQueueSave();goalPlanTown(townId);return !!q.mandatory[key];}
   function goalQueueHide(townId,key){const q=goalQueueCfg(townId);q.hidden[key]=true;q.blocked[key]=true;goalQueueSave();goalPlanTown(townId);return true;}
@@ -8913,11 +8933,13 @@ const STORE = {
     if (!t) return false;
     try {
       if (cost.academy) {
-        const acad = t.getBuildings ? +t.getBuildings().get('academy') : +(t.buildings().attributes || {}).academy;
+        let acad = null;
+        try { acad = t.getBuildings && typeof t.getBuildings().get === 'function' ? +t.getBuildings().get('academy') : +(t.buildings && t.buildings().attributes || {}).academy; } catch (_) { acad = null; }
         if (!(acad >= cost.academy)) return false;
       }
       if (cost.theater) {
-        const th = t.getBuildings ? +t.getBuildings().get('theater') : +(t.buildings().attributes || {}).theater;
+        let th = null;
+        try { th = t.getBuildings && typeof t.getBuildings().get === 'function' ? +t.getBuildings().get('theater') : +(t.buildings && t.buildings().attributes || {}).theater; } catch (_) { th = null; }
         if (!(th >= cost.theater)) return false;
       }
       if (cost.gold) return true;
@@ -9393,6 +9415,8 @@ const STORE = {
       if (!src || !(src.cap > 0) || src.tradeCap < minBatch) continue;
       for (const res of RES) {
         if (src[res] / src.cap < 0.97) continue;
+
+        let best = null;
         for (const tgtId of ids) {
           if (tgtId === srcId) continue;
           const tgt = ledger[tgtId];
@@ -9401,12 +9425,16 @@ const STORE = {
           if (headroom < minBatch) continue;
           const amount = Math.floor(Math.min(headroom, src.tradeCap, src[res] * 0.5));
           if (amount < minBatch) continue;
-          const job = { from: srcId, to: tgtId, wood: 0, stone: 0, iron: 0, deadlock: true };
-          job[res] = amount;
+          if (!best || headroom > best.headroom) {
+            best = { tgtId, amount };
+          }
+        }
+        if (best) {
+          const job = { from: srcId, to: best.tgtId, wood: 0, stone: 0, iron: 0, deadlock: true };
+          job[res] = best.amount;
           jobs.push(job);
           tradeApplyJob(ledger, job);
           if (jobs.length >= 4) return jobs;
-          break;
         }
       }
     }
@@ -9953,7 +9981,9 @@ const STORE = {
     try {
       const r = ironReservedForCave(srcId);
       if (r && r.reserved) {
-        const thresh = Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100;
+
+        const rawThresh = (state.caveThreshPct == null) ? 90 : +state.caveThreshPct;
+        const thresh = Math.min(99, Math.max(50, Number.isFinite(rawThresh) ? rawThresh : 90)) / 100;
         ironKeep = Math.max(keep, Math.ceil(src.cap * thresh));
         gbLogT('transport-iron-reserved-' + srcId, 600000,
           `transport: town ${srcId} iron held for cave (keep ${ironKeep})`);
@@ -10415,7 +10445,7 @@ const STORE = {
       }
     } else {
 
-      for (let level = 1; level < maxLvl; level++) {
+      for (let level = 1; level <= maxLvl; level++) {
         const cost = levelCosts[level - 1] || 100;
         if (available < cost) break;
         for (const tid of townIds) {
@@ -10426,7 +10456,8 @@ const STORE = {
             if (+a.relation_status !== 1) continue;
             if (a.expansion_at) continue;
             const stage = +a.expansion_stage || 0;
-            if (stage > level) continue;
+
+            if (stage !== level - 1) continue;
             if (stage >= maxLvl) continue;
             const ft = farmById[a.farm_town_id];
             if (!ft || ft.island_x !== xy.x || ft.island_y !== xy.y) continue;
@@ -11631,7 +11662,8 @@ const STORE = {
           give = resHits[0]; get = resHits[1];
         }
       }
-      const stockM = txt.replace(/\./g, '').match(/(\d{2,7})/);
+
+      const stockM = txt.replace(/(\d)\.(\d{3})(?!\d)/g, '$1$2').match(/(\d{2,7})/);
       const id = el.getAttribute('data-offer-id') || el.getAttribute('data-id')
         || el.getAttribute('data-offer_id') || String(i);
       offers.push({
@@ -12482,7 +12514,14 @@ const STORE = {
   }
   function defenseShouldDodge(mov,incoming){const mode=defenseMode(),a=defenseAssessment(mov,incoming);if(mode==='notify')return{yes:false,assessment:a,why:'notify'};if(mode==='safe')return{yes:true,assessment:a,why:'safe'};if(!state.defenseCfg.smartAuto)return{yes:false,assessment:a,why:'smart-auto-off'};if(!a.evac.ok)return{yes:false,assessment:a,why:'cannot-evacuate'};if(a.hasCs||a.risk>=dodgeRiskThreshold(a.weights))return{yes:true,assessment:a,why:`risk band=${a.band} ${defenseFactorText(a.factors)}`};return{yes:false,assessment:a,why:'defend/observe'}}
   function dodgeReturnSave(){save(STORE.DODGE_RETURNS,state.dodgeReturns||{})}
-  function dodgeReturnRecord(mov,from,dest,data){const id=String((data&&(data.command_id||data.commandId||data.movement_id||data.id))||'');if(!id)return;const arrival=+(mov&&mov.arrival)||0,margin=Math.max(0,+((state.defenseCfg&&state.defenseCfg.returnMarginSec)||120));const due=(arrival>1e12?arrival:arrival*1000)+margin*1000;state.dodgeReturns[id]={commandId:id,attackId:String(mov.id||''),from:String(from),dest:String(dest),attackArrival:arrival,dueAt:due||Date.now()+margin*1000,state:'waiting',createdAt:Date.now()};dodgeReturnSave()}
+  function dodgeReturnRecord(mov,from,dest,data){const id=String((data&&(data.command_id||data.commandId||data.movement_id||data.id))||'');if(!id)return;const arrival=+(mov&&mov.arrival)||0,margin=Math.max(0,+((state.defenseCfg&&state.defenseCfg.returnMarginSec)||120));
+
+    let due=0;
+    if (Number.isFinite(arrival) && arrival > 0) {
+      due = (arrival > 1e12 ? arrival : arrival * 1000) + margin * 1000;
+    }
+    if (!due) due = Date.now() + margin * 1000;
+    state.dodgeReturns[id]={commandId:id,attackId:String(mov.id||''),from:String(from),dest:String(dest),attackArrival:arrival,dueAt:due,state:'waiting',createdAt:Date.now()};dodgeReturnSave()}
   function dodgeReturnTick(){if(!hostEnabled()||automationPaused({}))return;const now=Date.now();for(const[id,r]of Object.entries(state.dodgeReturns||{})){if(!r||r.state==='done'||r.state==='manual')continue;if(+r.dueAt>now)continue;const live=militaryOutgoingMovements().find(x=>String(x.commandId)===String(r.commandId));if(live&&state.cancelTpl){r.state='returning';dodgeReturnSave();militaryCancelCommand(r.commandId,{confirmed:true,automation:true},err=>{if(!err){r.state='done';r.doneAt=Date.now()}else if(err==='not-cancelable'){r.state='manual';r.why='support already arrived; withdraw manually'}else{r.state='waiting';r.lastError=String(err)}dodgeReturnSave()});}else{r.state='manual';r.why=live?'cancel template missing':'movement no longer cancelable/visible';dodgeReturnSave();gbLogT('dodge-return-'+id,60000,`dodge return ${id}: ${r.why}`)}}}
 
   const DODGE_CHECK_MS = 5000;
@@ -16379,10 +16418,6 @@ const STORE = {
     if (!Object.keys(boats).length && !sameIsland) return { ok: false, need: needPop, cap: 0, sameIsland: false, reason: 'no-boats' };
     return { ok: cap >= needPop, need: needPop, cap, sameIsland: !!sameIsland, reason: cap >= needPop ? 'ok' : 'under-boated' };
   }
-
-  function attackBoatViaCalc(units, sameIsland) {
-    return gbLootEstimate({ kind: 'attack-boat', units, sameIsland });
-  }
   function classifyUnitFn(id) {
     const m = unitMeta(id);
     if (!m) return 'unknown';
@@ -16793,7 +16828,7 @@ const STORE = {
       const v = tplArgs[k];
       if (typeof v === 'string' || typeof v === 'boolean') args[k] = v;
     }
-    if (mission) args.type = mission;
+    if (mission) args.type = safeMission;
     else if (!args.type && tplArgs.type) args.type = tplArgs.type;
     args.id = destId;
     Object.assign(args, sendUnits);
@@ -16826,7 +16861,6 @@ const STORE = {
   function cancelArmedAttack() {
     if (!attackArmed) return;
     (attackArmed.timers || []).forEach(id => gbClearTimeout(id));
-    if (attackArmed.raf) cancelAnimationFrame(attackArmed.raf);
     gbLog('attack: cancelled armed wave');
     flash('ataque cancelado');
     attackArmed = null;
@@ -17134,10 +17168,6 @@ const STORE = {
       } catch (_) {}
     }
     const srcBox = sec.querySelector('.atk-sources');
-    if (srcBox && !srcBox.dataset.bound) {
-      srcBox.dataset.bound = '1';
-
-    }
     if (srcBox) {
       const selected = new Set(Array.isArray(plan.sourceTownIds) ? plan.sourceTownIds.map(String) : (state.towns || []).map(t => String(t.id)));
 
@@ -17517,7 +17547,10 @@ const STORE = {
     return out;
   }
   function heroLowStaminaPct() {
-    const n = +state.heroLowStaminaPct;
+
+    const raw = state.heroLowStaminaPct;
+    if (raw == null) return 20;
+    const n = +raw;
     return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 20;
   }
   function heroNotify(event, hero, extra) {
@@ -18237,12 +18270,14 @@ const STORE = {
     if (!lockToken) { gbLogT('support-busy', 60000, 'support: another burst in flight - will retry on the next pass'); return; }
     let i = 0, sent = 0;
     const slowest = donors.reduce((m, d) => Math.max(m, d.travel), 0);
-    (function next() {
+
+    function next() {
       try { supportStep(); } catch (e) {
         gbUnlock('support', lockToken);
         gbLogT('support-throw', 60000, 'support: burst aborted - ' + String(e).slice(0, 60));
       }
-    })();
+    }
+    next();
     function supportStep() {
       gbLockTouch('support', lockToken);
       if (i >= donors.length) {
@@ -20106,8 +20141,9 @@ const STORE = {
         w.style.right = 'auto';
       };
       const up = () => { gbQueueCenterDrag = null; };
-      document.addEventListener('mousemove', move);
-      document.addEventListener('mouseup', up);
+
+      gbListen(document, 'mousemove', move);
+      gbListen(document, 'mouseup', up);
       gbListenerBag.push({ target: document, type: 'mousemove', fn: move, opts: undefined }, { target: document, type: 'mouseup', fn: up, opts: undefined });
     }
     gbQueueCenter.style.display = 'flex';
@@ -21885,6 +21921,9 @@ const STORE = {
     const hostEl = sec.querySelector('.cfg-host');
     if (hostEl) hostEl.textContent = location.host;
     const setChk = (sel, val) => { const el = sec.querySelector(sel); if (el) el.checked = !!val; };
+
+    const setNum = (sel, val) => { const el = sec.querySelector(sel); if (el) el.value = val; };
+    const saveNum = (sel, fn) => sec.querySelector(sel)?.addEventListener('change', e => { fn(+e.target.value); });
     setChk('[data-cfg=enabled-host]', state.enabledHosts[location.host] === true);
     setChk('[data-cfg=auto-collect]', state.autoCollect);
     setChk('[data-cfg=collect-all]', state.collectAll);
@@ -21903,7 +21942,6 @@ const STORE = {
     setChk('[data-cfg=auto-quest-build]', state.questAutoBuild);
     setChk('[data-cfg=auto-quest-res]', state.questAutoRes);
     setChk('[data-cfg=auto-cave]', state.autoCave);
-    const setNum = (sel, val) => { const el = sec.querySelector(sel); if (el) el.value = val; };
     setNum('[data-cfg=cave-thresh]', state.caveThreshPct);
     setNum('[data-cfg=ib-free-thresh]', state.ibFreeThresh);
     setNum('[data-cfg=collect-max-min]', state.collectMaxMin);
@@ -22031,7 +22069,6 @@ const STORE = {
       renderCaveTowns();
     });
 
-    const saveNum = (sel, fn) => sec.querySelector(sel)?.addEventListener('change', e => { fn(+e.target.value); });
     const ct = state.cultureTypes || {};
     setChk('[data-cfg=auto-culture]', state.autoCulture);
     setChk('[data-cfg=cult-festival]', ct.festival !== false);

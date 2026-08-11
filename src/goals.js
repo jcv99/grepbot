@@ -257,7 +257,27 @@
   function goalOrderIds(townId,kind,ids){const seen=new Set(),base=(ids||[]).map(String).filter(x=>x&&!seen.has(x)&&seen.add(x));return base.filter(id=>!goalQueueSuppressed(townId,kind,id)).sort((a,b)=>{const A=goalQueueRank(townId,kind,a),B=goalQueueRank(townId,kind,b);return (B.mandatory-A.mandatory)||(A.index-B.index)||(base.indexOf(a)-base.indexOf(b));});}
   function goalBuildOrder(townId,extra){const base=abEnsureOrder();return goalOrderIds(townId,'build',base.concat((extra||[]).filter(k=>!base.includes(k))));}
   function goalQueueDecorate(townId,actions){const q=goalQueueCfg(townId);const arr=(actions||[]).filter(a=>!q.hidden[goalActionKey(a)]).map(a=>{const key=goalActionKey(a),blocked=!!q.blocked[key];return Object.assign({},a,{queueKey:key,mandatory:!!q.mandatory[key],status:blocked?'user-blocked':a.status,why:blocked?'blocked by user':a.why});});return arr.sort((a,b)=>{const A=goalQueueRank(townId,a.kind,a.id),B=goalQueueRank(townId,b.kind,b.id);return (B.mandatory-A.mandatory)||(A.index-B.index);});}
-  function goalQueueMove(townId,key,delta){const q=goalQueueCfg(townId);const clean=q.order.filter(x=>x!==key);let idx=q.order.indexOf(key);if(idx<0)idx=clean.length;idx=Math.max(0,Math.min(clean.length,idx+(+delta||0)));clean.splice(idx,0,key);q.order=clean;goalQueueSave();goalPlanTown(townId);return true;}
+  function goalQueueMove(townId,key,delta){
+    const q=goalQueueCfg(townId);
+    // Absent key → inserting a new entry; land it at the end of the queue so
+    // delta's "+1 / -1" semantics are consistent with a present-key move (delta
+    // is for re-ordering an existing entry, not for choosing an insert slot).
+    if (q.order.indexOf(key) < 0) {
+      q.order = q.order.concat([key]);
+      goalQueueSave();
+      goalPlanTown(townId);
+      return true;
+    }
+    const clean=q.order.filter(x=>x!==key);
+    let idx=clean.indexOf(key);
+    if (idx < 0) idx = clean.length;
+    idx=Math.max(0,Math.min(clean.length,idx+(+delta||0)));
+    clean.splice(idx,0,key);
+    q.order=clean;
+    goalQueueSave();
+    goalPlanTown(townId);
+    return true;
+  }
   function goalQueueToggleBlock(townId,key){const q=goalQueueCfg(townId);if(q.blocked[key])delete q.blocked[key];else q.blocked[key]=true;delete q.hidden[key];goalQueueSave();goalPlanTown(townId);return !!q.blocked[key];}
   function goalQueueToggleMandatory(townId,key){const q=goalQueueCfg(townId);if(q.mandatory[key])delete q.mandatory[key];else q.mandatory[key]=true;goalQueueSave();goalPlanTown(townId);return !!q.mandatory[key];}
   function goalQueueHide(townId,key){const q=goalQueueCfg(townId);q.hidden[key]=true;q.blocked[key]=true;goalQueueSave();goalPlanTown(townId);return true;}

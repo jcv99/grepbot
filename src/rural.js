@@ -196,7 +196,10 @@
       }
     } else {
       // UPGRADE PHASE: world-wide locked.length === 0, so upgrades are safe to fire.
-      for (let level = 1; level < maxLvl; level++) {
+      // Walk every own-island relation once per upgrade step (level - 1 → level);
+      // each relation advances at most one step per pass, so maxLvl-1 logical
+      // upgrades cost maxLvl-1 KP steps, not (maxLvl-1)*(maxLvl-1)/2.
+      for (let level = 1; level <= maxLvl; level++) {
         const cost = levelCosts[level - 1] || 100;
         if (available < cost) break;
         for (const tid of townIds) {
@@ -207,7 +210,10 @@
             if (+a.relation_status !== 1) continue;
             if (a.expansion_at) continue;
             const stage = +a.expansion_stage || 0;
-            if (stage > level) continue;
+            // Relation is exactly one step behind `level`; not "stage <= level"
+            // (which re-pushed the same relation up to maxLvl-1 times while
+            // debiting `available` on every push).
+            if (stage !== level - 1) continue;
             if (stage >= maxLvl) continue;
             const ft = farmById[a.farm_town_id];
             if (!ft || ft.island_x !== xy.x || ft.island_y !== xy.y) continue;

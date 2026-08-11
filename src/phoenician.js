@@ -114,7 +114,10 @@
           give = resHits[0]; get = resHits[1];
         }
       }
-      const stockM = txt.replace(/\./g, '').match(/(\d{2,7})/);
+      // Strip only European-style thousand separators ("5.000" → "5000") and
+      // leave decimal points alone so a ratio like "0.5:1" doesn't merge with
+      // a neighbour digit into a wrong stock read.
+      const stockM = txt.replace(/(\d)\.(\d{3})(?!\d)/g, '$1$2').match(/(\d{2,7})/);
       const id = el.getAttribute('data-offer-id') || el.getAttribute('data-id')
         || el.getAttribute('data-offer_id') || String(i);
       offers.push({

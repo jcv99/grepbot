@@ -105,6 +105,10 @@
       if (!src || !(src.cap > 0) || src.tradeCap < minBatch) continue;
       for (const res of RES) {
         if (src[res] / src.cap < 0.97) continue;
+        // Pick the target with the most headroom in this resource, instead of
+        // the first pushable one — the inner `break` after `jobs.push` was
+        // capping per (src, res) at 1 anyway, but it was the wrong 1.
+        let best = null;
         for (const tgtId of ids) {
           if (tgtId === srcId) continue;
           const tgt = ledger[tgtId];
@@ -113,12 +117,16 @@
           if (headroom < minBatch) continue;
           const amount = Math.floor(Math.min(headroom, src.tradeCap, src[res] * 0.5));
           if (amount < minBatch) continue;
-          const job = { from: srcId, to: tgtId, wood: 0, stone: 0, iron: 0, deadlock: true };
-          job[res] = amount;
+          if (!best || headroom > best.headroom) {
+            best = { tgtId, amount };
+          }
+        }
+        if (best) {
+          const job = { from: srcId, to: best.tgtId, wood: 0, stone: 0, iron: 0, deadlock: true };
+          job[res] = best.amount;
           jobs.push(job);
           tradeApplyJob(ledger, job);
           if (jobs.length >= 4) return jobs;
-          break;
         }
       }
     }

@@ -138,11 +138,6 @@
     if (!Object.keys(boats).length && !sameIsland) return { ok: false, need: needPop, cap: 0, sameIsland: false, reason: 'no-boats' };
     return { ok: cap >= needPop, need: needPop, cap, sameIsland: !!sameIsland, reason: cap >= needPop ? 'ok' : 'under-boated' };
   }
-  // Thin cross-feature wrapper (v4 plan 2.12). Existing callers of
-  // boatCapacityCheck read the raw shape and are deliberately untouched.
-  function attackBoatViaCalc(units, sameIsland) {
-    return gbLootEstimate({ kind: 'attack-boat', units, sameIsland });
-  }
   function classifyUnitFn(id) {
     const m = unitMeta(id);
     if (!m) return 'unknown';
@@ -560,7 +555,7 @@
       const v = tplArgs[k];
       if (typeof v === 'string' || typeof v === 'boolean') args[k] = v;
     }
-    if (mission) args.type = mission;
+    if (mission) args.type = safeMission;
     else if (!args.type && tplArgs.type) args.type = tplArgs.type;
     args.id = destId;
     Object.assign(args, sendUnits);
@@ -596,7 +591,6 @@
   function cancelArmedAttack() {
     if (!attackArmed) return;
     (attackArmed.timers || []).forEach(id => gbClearTimeout(id));
-    if (attackArmed.raf) cancelAnimationFrame(attackArmed.raf);
     gbLog('attack: cancelled armed wave');
     flash('ataque cancelado');
     attackArmed = null;
@@ -904,10 +898,6 @@
       } catch (_) {}
     }
     const srcBox = sec.querySelector('.atk-sources');
-    if (srcBox && !srcBox.dataset.bound) {
-      srcBox.dataset.bound = '1';
-
-    }
     if (srcBox) {
       const selected = new Set(Array.isArray(plan.sourceTownIds) ? plan.sourceTownIds.map(String) : (state.towns || []).map(t => String(t.id)));
 
