@@ -745,7 +745,7 @@
     #grepbot-panel .atk-btns button{background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);padding:3px 8px;border-radius:3px;cursor:pointer;font-size:11px;margin-right:4px}
     #grepbot-panel .atk-btns #gb-atk-now{color:var(--gb-warn-3)}
     #grepbot-panel .atk-btns #gb-atk-arm{color:var(--gb-link)}
-    #grepbot-panel .atk-harass button,#grepbot-panel .atk-roles button,#grepbot-panel #gb-atk-src-all,#grepbot-panel #gb-atk-src-none,#grepbot-panel #gb-atk-src-off,#grepbot-panel #gb-atk-src-def,#grepbot-panel #gb-atk-cmds-refresh,#grepbot-panel #gb-atk-heroes-refresh,#grepbot-panel #gb-atk-comp-refresh,#grepbot-panel #gb-atk-colony-refresh,#grepbot-panel .atk-colony button,#grepbot-panel .atk-comp button,#grepbot-panel .atk-cmds button,#grepbot-panel .atk-heroes button{background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);padding:1px 6px;cursor:pointer;font-size:10px}
+    #grepbot-panel .atk-harass button,#grepbot-panel .atk-roles button,#grepbot-panel #gb-atk-src-all,#grepbot-panel #gb-atk-src-none,#grepbot-panel #gb-atk-src-off,#grepbot-panel #gb-atk-src-def,#grepbot-panel #gb-atk-cmds-refresh,#grepbot-panel #gb-atk-heroes-refresh,#grepbot-panel #gb-atk-comp-refresh,#grepbot-panel #gb-atk-colony-refresh,#grepbot-panel #gb-plan-import,#grepbot-panel #gb-plan-export,#grepbot-panel #gb-plan-clear,#grepbot-panel .atk-colony button,#grepbot-panel .atk-comp button,#grepbot-panel .atk-cmds button,#grepbot-panel .atk-heroes button{background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);padding:1px 6px;cursor:pointer;font-size:10px}
     #grepbot-panel .atk-cmds button:disabled,#grepbot-panel .atk-heroes button:disabled{opacity:.45;cursor:not-allowed}
     #grepbot-panel .quest-list{max-height:200px;overflow:auto;font-size:10px}
     #grepbot-panel .quest-row{display:grid;grid-template-columns:1.4fr .5fr 1fr .6fr;gap:4px;border-bottom:1px solid var(--gb-rule);padding:3px 0}
@@ -896,6 +896,14 @@
         <b style="font-size:11px;color:#f5a623">Enviados / cancelar</b>
         <button type="button" id="gb-atk-cmds-refresh" style="margin-left:auto">Refrescar</button>
       </div>
+      <div style="border-top:1px solid #333;margin:8px 0 4px;padding-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <b style="font-size:11px;color:#5be">Plan compartido</b>
+        <span style="font-size:9px;color:#888">solo pegar · nunca dispara solo</span>
+        <button type="button" id="gb-plan-import" style="margin-left:auto">Importar...</button>
+        <button type="button" id="gb-plan-export">Exportar</button>
+        <button type="button" id="gb-plan-clear">Vaciar</button>
+      </div>
+      <div class="atk-shared" style="max-height:110px;overflow:auto;font-size:10px"></div>
       <div class="atk-cmds" style="max-height:120px;overflow:auto"></div>
       <div style="border-top:1px solid #333;margin:8px 0 4px;padding-top:6px;display:flex;align-items:center;gap:6px">
         <b style="font-size:11px;color:#f5a623">Colonización / revuelta</b>
@@ -1130,6 +1138,7 @@
           <label><input type="checkbox" data-cfg="wh-culture"/> culture</label>
           <label title="Aviso ~10 min antes de que un almacen llegue al limite."><input type="checkbox" data-cfg="wh-capping"/> Pre-aviso de almacen (~10 min)</label>
           <label title="Aviso cuando alguien te espia repetidamente en 24h."><input type="checkbox" data-cfg="wh-counter-intel"/> contra-inteligencia</label>
+          <label title="ALTO RIESGO de divulgacion: publica resumenes de tus informes de espionaje al webhook. Por defecto OFF y con nombres ocultos."><input type="checkbox" data-cfg="intel-digest"/> resumen de espionaje</label>
         </label>
         <label>Telegram chat_id <input type="text" data-cfg="wh-tg-chat" placeholder="optional if not in URL" style="width:140px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px;font-size:10px"/></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Notificaciones del navegador. Comparten el mismo antirrebote de 5 min que los webhooks: un evento, un aviso."><input type="checkbox" data-cfg="notify-enabled"/> Notificaciones de escritorio</label>
@@ -1551,6 +1560,23 @@
     return false;
   }
   const INTEL_VIEWS = ['summary', 'heatmap', 'defense', 'pool', 'activity'];
+  panel.querySelector('#gb-plan-import')?.addEventListener('click', () => {
+    const raw = prompt('Pega aqui el plan compartido (JSON). Solo se importan objetivos: nada se envia y nada se arma automaticamente.');
+    if (raw == null) return;
+    const r = sharedPlanImport(raw);
+    if (!r.ok) { alert('No se importa nada.\n\n' + (r.errors.join('\n') || 'sin objetivos validos') + (r.rejected.length ? '\n\nRechazados:\n' + r.rejected.join('\n') : '')); return; }
+    const added = sharedPlanApplyToAttackPlan(r);
+    flash(`${added} objetivo(s) importados${r.rejected.length ? `, ${r.rejected.length} rechazados` : ''}`);
+    renderAttack();
+  });
+  panel.querySelector('#gb-plan-export')?.addEventListener('click', () => {
+    const text = JSON.stringify(sharedPlanExport(), null, 2);
+    navigator.clipboard.writeText(text).then(() => flash('plan copiado')).catch(() => flash('fallo al copiar'));
+  });
+  panel.querySelector('#gb-plan-clear')?.addEventListener('click', () => {
+    if (!confirm('Vaciar los objetivos importados?')) return;
+    sharedPlanClear(); renderAttack(); flash('objetivos vaciados');
+  });
   panel.querySelector('[data-intel=view]')?.addEventListener('change', e => {
     intelView = INTEL_VIEWS.includes(e.target.value) ? e.target.value : 'summary';
     renderIntel();
@@ -2023,6 +2049,7 @@
     setChk('[data-cfg=wh-culture]', !!we.culture);
     setChk('[data-cfg=wh-capping]', !!we.cappingPreWarn);
     setChk('[data-cfg=wh-counter-intel]', we['counter-intel'] !== false);
+    setChk('[data-cfg=intel-digest]', !!state.intelDigest);
     setChk('[data-cfg=notify-enabled]', !!state.notifyEnabled);
     setChk('[data-cfg=notify-muted]', !!state.notifyMuted);
     setNum('[data-cfg=notify-volume]', Math.round((Number.isFinite(+state.notifyVolume) ? +state.notifyVolume : 0.4) * 100));
@@ -2302,6 +2329,12 @@
       sec.querySelector('[data-cfg=' + k + ']')?.addEventListener('change', saveWebhookEvents);
     });
     sec.querySelector('[data-cfg=wh-tg-chat]')?.addEventListener('change', saveWebhookEvents);
+    sec.querySelector('[data-cfg=intel-digest]')?.addEventListener('change', e => {
+      state.intelDigest = !!e.target.checked;
+      save(STORE.INTEL_DIGEST, state.intelDigest);
+      gbLog('intel digest ' + (state.intelDigest ? 'ON - spy summaries go to the webhook' : 'OFF'));
+      if (state.intelDigest && !(state.webhookUrl || '').trim()) flash('resumen ON pero sin URL de webhook');
+    });
     sec.querySelector('[data-cfg=notify-enabled]')?.addEventListener('change', e => {
       state.notifyEnabled = !!e.target.checked;
       save(STORE.NOTIFY_ENABLED, state.notifyEnabled);

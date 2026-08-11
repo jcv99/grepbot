@@ -68,6 +68,7 @@ MODULES = [
     'intel.js',
     'quests.js',
     'attack.js',
+    'shared-plan.js',
     'military.js',
     'support.js',
     'stats.js',

@@ -172,3 +172,75 @@
     }
   }
 
+
+  // ===== Mass intel auto-post (v4 plan 7.4) ==================================
+  // Purely OUTBOUND, and only through the webhook the user already configured.
+  // No new transport, no new @connect host, no new scheduler: the digest rides
+  // the spy ingest hook and flushes on a burst or a 30-minute gap.
+  //
+  // HIGH-RISK by disclosure rather than by post: it publishes intel about other
+  // players to a third party, so it is default OFF and redacted unless the user
+  // has explicitly turned redaction off for everything else too.
+  const INTEL_DIGEST_MAX = 12;
+  const INTEL_DIGEST_MS = 30 * 60 * 1000;
+  const INTEL_DIGEST_QUEUE_CAP = 60;
+  const intelDigestState = { queue: [], lastFlushAt: 0 };
+  function intelDigestRedactName(name) {
+    const n = String(name == null ? '?' : name);
+    return state.exportRedact === false ? n : n.slice(0, 2) + '***';
+  }
+  function intelDigestEnqueue(f) {
+    if (!state.intelDigest) return;
+    if (!f || !f.id) return;
+    const who = intelPlayerKey(f.attacker || f.defender) || 'unknown';
+    intelDigestState.queue.push({
+      ts: +f.ts || Date.now(),
+      playerKey: who,
+      // Only fields the parser actually produced. No coordinates are invented
+      // and no unit counts are fabricated for a report that lacked them.
+      summary: {
+        type: f.type || null,
+        town: f.town && f.town.id != null ? String(f.town.id) : null,
+        wall: f.wall != null ? f.wall : null,
+        units: f.units ? Object.keys(f.units).length : null,
+        buildings: f.buildings && Object.keys(f.buildings).length ? Object.keys(f.buildings).length : null,
+      },
+    });
+    // Bounded: an unflushed queue must not grow without limit if the webhook
+    // is misconfigured.
+    while (intelDigestState.queue.length > INTEL_DIGEST_QUEUE_CAP) intelDigestState.queue.shift();
+    if (intelDigestState.queue.length >= INTEL_DIGEST_MAX) intelDigestFlush('burst');
+  }
+  function intelDigestTick() {
+    if (!state.intelDigest) return;
+    if (!intelDigestState.queue.length) return;
+    if (Date.now() - intelDigestState.lastFlushAt < INTEL_DIGEST_MS) return;
+    intelDigestFlush('cadence');
+  }
+  function intelDigestFlush(reason) {
+    if (!state.intelDigest) { intelDigestState.queue.length = 0; return; }
+    if (!(state.webhookUrl || '').trim()) return;
+    const items = intelDigestState.queue.splice(0, INTEL_DIGEST_MAX);
+    if (!items.length) return;
+    intelDigestState.lastFlushAt = Date.now();
+    const byPlayer = {};
+    for (const it of items) {
+      const r = byPlayer[it.playerKey] || (byPlayer[it.playerKey] = { n: 0, towns: new Set(), last: 0 });
+      r.n++;
+      if (it.summary.town) r.towns.add(it.summary.town);
+      r.last = Math.max(r.last, it.ts);
+    }
+    const payload = {
+      reason: reason || 'digest',
+      window: '30m',
+      reports: items.length,
+      players: Object.entries(byPlayer).map(([k, v]) => ({
+        player: intelDigestRedactName(k),
+        reports: v.n,
+        towns: v.towns.size,
+        last: v.last,
+      })),
+    };
+    try { alertWebhook('intel-digest', payload); } catch (_) {}
+    gbLog(`intel digest: posted ${items.length} report(s) across ${payload.players.length} player(s) (${reason})`);
+  }

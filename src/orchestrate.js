@@ -158,6 +158,8 @@
     // change can affect this same tick's pause behaviour. It only ever calls
     // qolApplyPreset - no post, no scheduler.
     try { profileAutoTick(); } catch (_) {}
+    // v4 plan 7.4: cadence flush rides this tick; no scheduler of its own.
+    try { intelDigestTick(); } catch (_) {}
     // Read-only pre-warn pass, ABOVE the pause gate on purpose: a warehouse
     // still fills during night pause, and silencing the warning is exactly when
     // the user most needs it. It posts nothing to the game.

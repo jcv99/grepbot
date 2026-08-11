@@ -252,6 +252,7 @@
       state.findings.splice(500);
     }
     save(STORE.FINDINGS, state.findings);
+    try { intelDigestEnqueue(parsed); } catch (_) {}
     renderFindings();
     return true;
   }

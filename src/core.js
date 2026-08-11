@@ -370,7 +370,7 @@
     notifyEvents: load(STORE.NOTIFY_EVENTS, {}) || {},
     notifyVolume: load(STORE.NOTIFY_VOLUME, 0.4),
     notifyMuted: load(STORE.NOTIFY_MUTED, false),
-    webhookEvents: load(STORE.WEBHOOK_EVENTS, { captcha: true, attack: true, warehouse: false, culture: false, cappingPreWarn: false, 'counter-intel': true, hero: false }),
+    webhookEvents: load(STORE.WEBHOOK_EVENTS, { captcha: true, attack: true, warehouse: false, culture: false, cappingPreWarn: false, 'counter-intel': true, hero: false, 'intel-digest': true }),
     autoMerchant: load(STORE.AUTO_MERCHANT, false),
     merchantWish: load(STORE.MERCHANT_WISH, []),
     autoFavor: load(STORE.AUTO_FAVOR, false),
@@ -403,6 +403,8 @@
     grepodataIndex: load(STORE.GREPODATA_INDEX, false),
     captchaGlobalKill: load(STORE.CAPTCHA_GLOBAL, true),
     reqBudgetPerMin: load(STORE.REQ_BUDGET, 40),
+    // v4 plan 7.4: publishes intel about other players to a third party.
+    intelDigest: load(STORE.INTEL_DIGEST, false),
     napStatus: load(STORE.NAP_STATUS, { players: {}, alliances: {} }),
     intelAllianceFilter: load(STORE.INTEL_ALLY_FILTER, '') || '',
     allianceNotes: load(STORE.ALLIANCE_NOTES, {}),

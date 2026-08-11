@@ -207,6 +207,8 @@
     return out;
   }
   function defaultAttackPlan() {
+    // v4 plan 7.1: staged shared-plan candidates. Never auto-armed.
+
     return {
       targetId: '',
       targetType: 'town',
@@ -273,6 +275,11 @@
     const learnedId = tpl && tpl.arguments && tpl.arguments.id;
     if (learnedId != null) add({ id: learnedId, ts: tpl.learned_at || 0 }, 'template');
     return Array.from(map.values()).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  }
+  function ensureAttackPlanTargets() {
+    const p = ensureAttackPlan();
+    if (!Array.isArray(p.targets)) p.targets = [];
+    return p.targets;
   }
   function applyAttackTarget(t) {
     if (!t || t.id == null || !/^\d+$/.test(String(t.id))) return false;
@@ -962,6 +969,7 @@
     renderMilitaryHelpers(sec, plan);
     renderCompositionAdvisor(sec);
     renderColonyThreats(sec);
+    renderSharedPlan(sec);
   }
   function readAttackForm() {
     const sec = panel && panel.querySelector('section[data-tab=attack]');
