@@ -1750,6 +1750,10 @@
   function bindConfig() {
     const sec = panel.querySelector('section[data-tab=config]');
     if (!sec) return;
+    // Declared above the configBound re-render branch: that branch calls setNum
+    // (profile-auto-hold) and returns before the bind path runs, so a const
+    // declared further down threw TDZ on every repaint of an already-bound tab.
+    const setNum = (sel, val) => { const el = sec.querySelector(sel); if (el) el.value = val; };
     if (configBound) {
       sec.querySelector('[data-cfg=enabled-host]').checked = state.enabledHosts[location.host] === true;
       const acoll = sec.querySelector('[data-cfg=auto-collect]'); if (acoll) acoll.checked = !!state.autoCollect;
@@ -1807,10 +1811,8 @@
     const hostEl = sec.querySelector('.cfg-host');
     if (hostEl) hostEl.textContent = location.host;
     const setChk = (sel, val) => { const el = sec.querySelector(sel); if (el) el.checked = !!val; };
-    // Hoisted above all early setNum callsites (bandit-cap/build-swap-min) and
-    // saveNum callsites further down — a const setNum/saveNum declared after
-    // its first use would throw TDZ and the whole config panel would never paint.
-    const setNum = (sel, val) => { const el = sec.querySelector(sel); if (el) el.value = val; };
+    // saveNum is hoisted above its callsites further down for the same reason
+    // setNum is hoisted to the top of bindConfig.
     const saveNum = (sel, fn) => sec.querySelector(sel)?.addEventListener('change', e => { fn(+e.target.value); });
     setChk('[data-cfg=enabled-host]', state.enabledHosts[location.host] === true);
     setChk('[data-cfg=auto-collect]', state.autoCollect);

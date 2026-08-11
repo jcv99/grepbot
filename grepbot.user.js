@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.44.0
+// @version      4.44.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -21864,6 +21864,8 @@ const STORE = {
   function bindConfig() {
     const sec = panel.querySelector('section[data-tab=config]');
     if (!sec) return;
+
+    const setNum = (sel, val) => { const el = sec.querySelector(sel); if (el) el.value = val; };
     if (configBound) {
       sec.querySelector('[data-cfg=enabled-host]').checked = state.enabledHosts[location.host] === true;
       const acoll = sec.querySelector('[data-cfg=auto-collect]'); if (acoll) acoll.checked = !!state.autoCollect;
@@ -21922,7 +21924,6 @@ const STORE = {
     if (hostEl) hostEl.textContent = location.host;
     const setChk = (sel, val) => { const el = sec.querySelector(sel); if (el) el.checked = !!val; };
 
-    const setNum = (sel, val) => { const el = sec.querySelector(sel); if (el) el.value = val; };
     const saveNum = (sel, fn) => sec.querySelector(sel)?.addEventListener('change', e => { fn(+e.target.value); });
     setChk('[data-cfg=enabled-host]', state.enabledHosts[location.host] === true);
     setChk('[data-cfg=auto-collect]', state.autoCollect);
