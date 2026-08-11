@@ -961,6 +961,7 @@
     renderAttackRoles(sec);
     renderMilitaryHelpers(sec, plan);
     renderCompositionAdvisor(sec);
+    renderColonyThreats(sec);
   }
   function readAttackForm() {
     const sec = panel && panel.querySelector('section[data-tab=attack]');

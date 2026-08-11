@@ -190,6 +190,17 @@
           : `${n} informes, ${withVerdict} con resultado` + (n < 5 ? ' - muestra pequena' : ''),
       };
     }));
+    out.push(preflightProbe('colony threats', () => {
+      const rows = militaryColonyThreats();
+      const known = rows.filter(r => r.etaKnown).length;
+      const withRecall = rows.filter(r => r.recallCandidates.length).length;
+      return {
+        ok: true,
+        warn: rows.length - known > 0,
+        detail: `${rows.length} amenazas, ${known} con ETA legible, ${withRecall} con refuerzo retirable` +
+          (state.cancelTpl ? '' : ' - plantilla de cancelacion SIN aprender'),
+      };
+    }));
     out.push(preflightProbe('support: auto-send', () => {
       const cfg = supportCfg();
       const tpl = !!(state.supportTpl && state.supportTpl.action_name);

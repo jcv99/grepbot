@@ -199,6 +199,109 @@
       hbox.appendChild(row);
     });
   }
+  // ===== Colony / revolt tracker (v4 plan 3.3) ===============================
+  // Read + UI glue only. The recall CTA posts through the SAME
+  // militaryCancelCommand the Attack tab's Cancel button already uses, with the
+  // same confirmed gate - this plan adds no post surface of its own.
+  const COLONY_KINDS = {
+    revolt: 'revuelta',
+    colonize: 'colonizacion',
+    take_over: 'toma',
+    conquer: 'conquista',
+    portal_attack: 'portal',
+    'cs-sighted': 'nave colonizadora',
+  };
+  function militaryColonyKind(mov) {
+    const t = String((mov && mov.type) || '');
+    if (Object.prototype.hasOwnProperty.call(COLONY_KINDS, t) && t !== 'cs-sighted') return t;
+    // Fallback to the unit breakdown, the same signal dodge derives hasCs from.
+    // Whether the server exposes the attacker's units on an INCOMING movement
+    // is not verifiable from this tree, so this is a bonus path, never the
+    // primary one: an unfamiliar type simply does not classify.
+    const u = (mov && mov.units) || {};
+    if (u.colonize_ship || u.colony_ship) return 'cs-sighted';
+    return null;
+  }
+  function militaryColonyLabel(kind) { return COLONY_KINDS[kind] || kind || '?'; }
+  function militaryColonyThreats() {
+    let incoming = [];
+    try { incoming = (typeof dodgeIncomingMovements === 'function') ? dodgeIncomingMovements() : []; } catch (_) { return []; }
+    let outs = [];
+    try { outs = militaryOutgoingMovements() || []; } catch (_) { outs = []; }
+    const out = [];
+    for (const mov of incoming) {
+      const kind = militaryColonyKind(mov);
+      if (!kind) continue;
+      const eta = (typeof dodgeEtaSec === 'function') ? dodgeEtaSec(mov) : null;
+      // Only REINFORCEMENT is recallable here. Matching every outgoing command
+      // to that town would offer to cancel an attack the player launched
+      // against it, which is a different decision entirely. A command this bot
+      // sent (present in state.dodgeReturns) also qualifies even if its type
+      // string is unfamiliar on this world.
+      const returns = state.dodgeReturns || {};
+      const recallCandidates = outs
+        .filter(r => String(r.target) === String(mov.dest))
+        .filter(r => /^(support|support_sea)$/.test(String(r.type || '')) || returns[String(r.commandId)])
+        .map(r => ({ commandId: r.commandId, type: r.type, until: r.until, cancelLeft: r.cancelLeft }));
+      out.push({ mov, kind, eta, etaKnown: eta != null, recallCandidates });
+    }
+    return out.sort((a, b) => (a.eta == null ? Infinity : a.eta) - (b.eta == null ? Infinity : b.eta));
+  }
+  function renderColonyThreats(sec) {
+    const box = sec && sec.querySelector('.atk-colony');
+    if (!box || sec.hidden) return;
+    box.replaceChildren();
+    const rows = militaryColonyThreats();
+    if (!rows.length) {
+      const e = document.createElement('div');
+      e.style.cssText = 'color:#666;font-size:10px';
+      e.textContent = 'Sin colonizaciones ni revueltas entrantes';
+      box.appendChild(e);
+      return;
+    }
+    for (const r of rows) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:grid;grid-template-columns:1fr .8fr .6fr auto;gap:4px;font-size:10px;border-bottom:1px solid #2a2a2a;padding:2px 0;align-items:center';
+      const c1 = document.createElement('b'); c1.style.color = '#f5a623';
+      c1.textContent = militaryColonyLabel(r.kind);
+      const c2 = document.createElement('span');
+      c2.textContent = `${townNameById(r.mov.dest)} (#${r.mov.dest})`;
+      c2.title = `desde ${r.mov.origin || '?'}`;
+      const c3 = document.createElement('span');
+      // ETA unknown renders '?', never 0 - a movement whose arrival could not
+      // be read is not an imminent one.
+      c3.textContent = r.etaKnown ? fmtSec(r.eta) : '?';
+      c3.style.color = r.etaKnown ? '#fc6' : '#888';
+      const acts = document.createElement('span');
+      acts.style.cssText = 'display:flex;gap:2px;flex-wrap:wrap';
+      r.recallCandidates.forEach(cand => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = 'Retirar';
+        b.disabled = !state.cancelTpl;
+        b.title = state.cancelTpl
+          ? `Retirar el comando ${cand.commandId} (${cand.type || 'move'}) enviado a esta ciudad`
+          : 'Cancela un comando a mano una vez para aprender la accion canonica';
+        b.addEventListener('click', () => {
+          if (!confirm(`Retirar ${cand.type || 'comando'} ${cand.commandId} de ${townNameById(r.mov.dest)}?`)) return;
+          militaryCancelCommand(cand.commandId, { confirmed: true }, err => {
+            flash(err ? 'retirada fallida: ' + err : 'refuerzo retirado');
+            renderAttack();
+          });
+        });
+        acts.appendChild(b);
+      });
+      if (!r.recallCandidates.length) {
+        const none = document.createElement('span');
+        none.style.color = '#666';
+        none.textContent = 'sin refuerzo propio';
+        acts.appendChild(none);
+      }
+      row.append(c1, c2, c3, acts);
+      box.appendChild(row);
+    }
+  }
+
   // ===== Unit composition advisor (v4 plan 2.11) =============================
   // Pure read. Never changes recruitScan and never posts: auto-recruit stays
   // HIGH-RISK default OFF. Every verdict below is the one the recruit scan's
@@ -361,6 +464,7 @@
     const sec = panel && panel.querySelector('section[data-tab=attack]');
     if (!sec || sec.dataset.bound) return;
     sec.dataset.bound = '1';
+    sec.querySelector('#gb-atk-colony-refresh')?.addEventListener('click', () => renderColonyThreats(sec));
     sec.querySelector('#gb-atk-comp-refresh')?.addEventListener('click', () => {
       militaryCompositionInvalidate();
       renderCompositionAdvisor(sec);

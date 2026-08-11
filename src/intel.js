@@ -595,6 +595,9 @@
     const sec = box.closest('section[data-tab]');
     if (sec && sec.hidden) return;
     const threats = intelThreatBoard();
+    // v4 plan 3.3: same label in both tabs, computed once for the whole loop.
+    const colonyKind = {};
+    try { for (const c of militaryColonyThreats()) colonyKind[String(c.mov.id)] = c.kind; } catch (_) {}
     const dossiers = intelDossiers().slice(0, 30);
     let html = '';
     html += '=== Entrantes ===\n';
@@ -610,7 +613,8 @@
           ` | riesgo ${da.band} ${da.risk} (${defenseFactorText(da.factors)})` +
           ` | ETA ${da.eta==null?'?':fmtSec(da.eta)} | simult ${da.simultaneous}` +
           ` | apoyo ${sup} | milicia ${da.militia && da.militia.ok ? 'si' : 'no'}` +
-          ` | esquivar ${da.evac.ok?'si':'no'}${da.evac.ok?'':' ('+(da.evac.why||'?')+')'}` + '\n';
+          ` | esquivar ${da.evac.ok?'si':'no'}${da.evac.ok?'':' ('+(da.evac.why||'?')+')'}` +
+          (colonyKind[String(t.id)] ? ` | ${militaryColonyLabel(colonyKind[String(t.id)])}` : '') + '\n';
       });
     }
     html += '\n=== Fichas ===\n';

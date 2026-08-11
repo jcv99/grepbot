@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.9.1
+// @version      4.10.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -13148,6 +13148,9 @@ const STORE = {
     const sec = box.closest('section[data-tab]');
     if (sec && sec.hidden) return;
     const threats = intelThreatBoard();
+
+    const colonyKind = {};
+    try { for (const c of militaryColonyThreats()) colonyKind[String(c.mov.id)] = c.kind; } catch (_) {}
     const dossiers = intelDossiers().slice(0, 30);
     let html = '';
     html += '=== Entrantes ===\n';
@@ -13163,7 +13166,8 @@ const STORE = {
           ` | riesgo ${da.band} ${da.risk} (${defenseFactorText(da.factors)})` +
           ` | ETA ${da.eta==null?'?':fmtSec(da.eta)} | simult ${da.simultaneous}` +
           ` | apoyo ${sup} | milicia ${da.militia && da.militia.ok ? 'si' : 'no'}` +
-          ` | esquivar ${da.evac.ok?'si':'no'}${da.evac.ok?'':' ('+(da.evac.why||'?')+')'}` + '\n';
+          ` | esquivar ${da.evac.ok?'si':'no'}${da.evac.ok?'':' ('+(da.evac.why||'?')+')'}` +
+          (colonyKind[String(t.id)] ? ` | ${militaryColonyLabel(colonyKind[String(t.id)])}` : '') + '\n';
       });
     }
     html += '\n=== Fichas ===\n';
@@ -14865,6 +14869,7 @@ const STORE = {
     renderAttackRoles(sec);
     renderMilitaryHelpers(sec, plan);
     renderCompositionAdvisor(sec);
+    renderColonyThreats(sec);
   }
   function readAttackForm() {
     const sec = panel && panel.querySelector('section[data-tab=attack]');
@@ -15100,6 +15105,97 @@ const STORE = {
     });
   }
 
+  const COLONY_KINDS = {
+    revolt: 'revuelta',
+    colonize: 'colonizacion',
+    take_over: 'toma',
+    conquer: 'conquista',
+    portal_attack: 'portal',
+    'cs-sighted': 'nave colonizadora',
+  };
+  function militaryColonyKind(mov) {
+    const t = String((mov && mov.type) || '');
+    if (Object.prototype.hasOwnProperty.call(COLONY_KINDS, t) && t !== 'cs-sighted') return t;
+
+    const u = (mov && mov.units) || {};
+    if (u.colonize_ship || u.colony_ship) return 'cs-sighted';
+    return null;
+  }
+  function militaryColonyLabel(kind) { return COLONY_KINDS[kind] || kind || '?'; }
+  function militaryColonyThreats() {
+    let incoming = [];
+    try { incoming = (typeof dodgeIncomingMovements === 'function') ? dodgeIncomingMovements() : []; } catch (_) { return []; }
+    let outs = [];
+    try { outs = militaryOutgoingMovements() || []; } catch (_) { outs = []; }
+    const out = [];
+    for (const mov of incoming) {
+      const kind = militaryColonyKind(mov);
+      if (!kind) continue;
+      const eta = (typeof dodgeEtaSec === 'function') ? dodgeEtaSec(mov) : null;
+
+      const returns = state.dodgeReturns || {};
+      const recallCandidates = outs
+        .filter(r => String(r.target) === String(mov.dest))
+        .filter(r => /^(support|support_sea)$/.test(String(r.type || '')) || returns[String(r.commandId)])
+        .map(r => ({ commandId: r.commandId, type: r.type, until: r.until, cancelLeft: r.cancelLeft }));
+      out.push({ mov, kind, eta, etaKnown: eta != null, recallCandidates });
+    }
+    return out.sort((a, b) => (a.eta == null ? Infinity : a.eta) - (b.eta == null ? Infinity : b.eta));
+  }
+  function renderColonyThreats(sec) {
+    const box = sec && sec.querySelector('.atk-colony');
+    if (!box || sec.hidden) return;
+    box.replaceChildren();
+    const rows = militaryColonyThreats();
+    if (!rows.length) {
+      const e = document.createElement('div');
+      e.style.cssText = 'color:#666;font-size:10px';
+      e.textContent = 'Sin colonizaciones ni revueltas entrantes';
+      box.appendChild(e);
+      return;
+    }
+    for (const r of rows) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:grid;grid-template-columns:1fr .8fr .6fr auto;gap:4px;font-size:10px;border-bottom:1px solid #2a2a2a;padding:2px 0;align-items:center';
+      const c1 = document.createElement('b'); c1.style.color = '#f5a623';
+      c1.textContent = militaryColonyLabel(r.kind);
+      const c2 = document.createElement('span');
+      c2.textContent = `${townNameById(r.mov.dest)} (#${r.mov.dest})`;
+      c2.title = `desde ${r.mov.origin || '?'}`;
+      const c3 = document.createElement('span');
+
+      c3.textContent = r.etaKnown ? fmtSec(r.eta) : '?';
+      c3.style.color = r.etaKnown ? '#fc6' : '#888';
+      const acts = document.createElement('span');
+      acts.style.cssText = 'display:flex;gap:2px;flex-wrap:wrap';
+      r.recallCandidates.forEach(cand => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = 'Retirar';
+        b.disabled = !state.cancelTpl;
+        b.title = state.cancelTpl
+          ? `Retirar el comando ${cand.commandId} (${cand.type || 'move'}) enviado a esta ciudad`
+          : 'Cancela un comando a mano una vez para aprender la accion canonica';
+        b.addEventListener('click', () => {
+          if (!confirm(`Retirar ${cand.type || 'comando'} ${cand.commandId} de ${townNameById(r.mov.dest)}?`)) return;
+          militaryCancelCommand(cand.commandId, { confirmed: true }, err => {
+            flash(err ? 'retirada fallida: ' + err : 'refuerzo retirado');
+            renderAttack();
+          });
+        });
+        acts.appendChild(b);
+      });
+      if (!r.recallCandidates.length) {
+        const none = document.createElement('span');
+        none.style.color = '#666';
+        none.textContent = 'sin refuerzo propio';
+        acts.appendChild(none);
+      }
+      row.append(c1, c2, c3, acts);
+      box.appendChild(row);
+    }
+  }
+
   const COMP_MAX_SHORTAGE = 8;
   const COMP_CACHE_MS = 10000;
   let compCache = Object.create(null);
@@ -15252,6 +15348,7 @@ const STORE = {
     const sec = panel && panel.querySelector('section[data-tab=attack]');
     if (!sec || sec.dataset.bound) return;
     sec.dataset.bound = '1';
+    sec.querySelector('#gb-atk-colony-refresh')?.addEventListener('click', () => renderColonyThreats(sec));
     sec.querySelector('#gb-atk-comp-refresh')?.addEventListener('click', () => {
       militaryCompositionInvalidate();
       renderCompositionAdvisor(sec);
@@ -15763,6 +15860,17 @@ const STORE = {
         detail: state.intelBattleStats === false
           ? 'desactivado en Config'
           : `${n} informes, ${withVerdict} con resultado` + (n < 5 ? ' - muestra pequena' : ''),
+      };
+    }));
+    out.push(preflightProbe('colony threats', () => {
+      const rows = militaryColonyThreats();
+      const known = rows.filter(r => r.etaKnown).length;
+      const withRecall = rows.filter(r => r.recallCandidates.length).length;
+      return {
+        ok: true,
+        warn: rows.length - known > 0,
+        detail: `${rows.length} amenazas, ${known} con ETA legible, ${withRecall} con refuerzo retirable` +
+          (state.cancelTpl ? '' : ' - plantilla de cancelacion SIN aprender'),
       };
     }));
     out.push(preflightProbe('support: auto-send', () => {
@@ -17163,7 +17271,7 @@ const STORE = {
     #grepbot-panel .atk-btns button{background:#333;border:1px solid #555;color:#eee;padding:3px 8px;border-radius:3px;cursor:pointer;font-size:11px;margin-right:4px}
     #grepbot-panel .atk-btns #gb-atk-now{color:#f96}
     #grepbot-panel .atk-btns #gb-atk-arm{color:#6cf}
-    #grepbot-panel .atk-harass button,#grepbot-panel .atk-roles button,#grepbot-panel #gb-atk-src-all,#grepbot-panel #gb-atk-src-none,#grepbot-panel #gb-atk-src-off,#grepbot-panel #gb-atk-src-def,#grepbot-panel #gb-atk-cmds-refresh,#grepbot-panel #gb-atk-heroes-refresh,#grepbot-panel #gb-atk-comp-refresh,#grepbot-panel .atk-comp button,#grepbot-panel .atk-cmds button,#grepbot-panel .atk-heroes button{background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px}
+    #grepbot-panel .atk-harass button,#grepbot-panel .atk-roles button,#grepbot-panel #gb-atk-src-all,#grepbot-panel #gb-atk-src-none,#grepbot-panel #gb-atk-src-off,#grepbot-panel #gb-atk-src-def,#grepbot-panel #gb-atk-cmds-refresh,#grepbot-panel #gb-atk-heroes-refresh,#grepbot-panel #gb-atk-comp-refresh,#grepbot-panel #gb-atk-colony-refresh,#grepbot-panel .atk-colony button,#grepbot-panel .atk-comp button,#grepbot-panel .atk-cmds button,#grepbot-panel .atk-heroes button{background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px}
     #grepbot-panel .atk-cmds button:disabled,#grepbot-panel .atk-heroes button:disabled{opacity:.45;cursor:not-allowed}
     #grepbot-panel .quest-list{max-height:200px;overflow:auto;font-size:10px}
     #grepbot-panel .quest-row{display:grid;grid-template-columns:1.4fr .5fr 1fr .6fr;gap:4px;border-bottom:1px solid #2a2a2a;padding:3px 0}
@@ -17305,6 +17413,12 @@ const STORE = {
         <button type="button" id="gb-atk-cmds-refresh" style="margin-left:auto">Refrescar</button>
       </div>
       <div class="atk-cmds" style="max-height:120px;overflow:auto"></div>
+      <div style="border-top:1px solid #333;margin:8px 0 4px;padding-top:6px;display:flex;align-items:center;gap:6px">
+        <b style="font-size:11px;color:#f5a623">Colonizaci\u00f3n / revuelta</b>
+        <span style="font-size:9px;color:#888">incidentes en curso \u00b7 retirar refuerzo</span>
+        <button type="button" id="gb-atk-colony-refresh" style="margin-left:auto">Refrescar</button>
+      </div>
+      <div class="atk-colony" style="max-height:120px;overflow:auto"></div>
       <div style="border-top:1px solid #333;margin:8px 0 4px;padding-top:6px;display:flex;align-items:center;gap:6px">
         <b style="font-size:11px;color:#f5a623">Heroes</b>
         <button type="button" id="gb-atk-heroes-refresh" style="margin-left:auto">Refrescar</button>
