@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.44.9
+// @version      4.44.10
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1332,6 +1332,8 @@ const STORE = {
       return (uw.GameData && uw.GameData[table] && uw.GameData[table][key]) || null;
     } catch (_) { return null; }
   }
+
+  function scanReason(reason) { return reason || 'scan'; }
   function captchaLadder() {
     const raw = state.captchaLadder;
     if (Array.isArray(raw) && raw.length >= 1) {
@@ -4160,7 +4162,7 @@ const STORE = {
     }
     const cfg = spyCfg();
     const ranked = spyRankTargets();
-    if (!ranked.length) { gbLogT('spy-idle', 300000, `spy: no target due (${reason || 'scan'})`); return; }
+    if (!ranked.length) { gbLogT('spy-idle', 300000, `spy: no target due (${scanReason(reason)})`); return; }
     const picks = ranked.slice(0, cfg.perCycle);
     if (cfg.confirmOncePerCycle && !spyConfirmedThisSession) {
       const top = ranked.slice(0, 3).map(t => `#${t.id} (score ${Math.round(t.score / 1000)}k${t.watch ? ', vigilada' : ''})`).join('\n  ');
@@ -8804,7 +8806,7 @@ const STORE = {
       jobs.push({ id, amt, iron: info.iron, cap: info.cap });
     }
     if (!jobs.length) {
-      gbLogT('cave-idle', 120000, `cave: nothing to stash (${reason || 'scan'})`);
+      gbLogT('cave-idle', 120000, `cave: nothing to stash (${scanReason(reason)})`);
       return;
     }
     const lockToken = gbLock('cave');
@@ -9095,7 +9097,7 @@ const STORE = {
       if (jobs.length >= 8) break;
     }
     if (!jobs.length) {
-      gbLogT('culture-idle', 180000, `culture: nothing to start (${reason || 'scan'})`);
+      gbLogT('culture-idle', 180000, `culture: nothing to start (${scanReason(reason)})`);
       return;
     }
     const cultureLock = gbLock('culture');
@@ -9881,7 +9883,7 @@ const STORE = {
     }
     if (state.islandShip) jobs = jobs.concat(tradeIslandShipJobs(towns, ledger));
     if (!jobs.length) {
-      gbLogT('trade-idle', 180000, `trade: nothing to send (${reason || 'scan'})`);
+      gbLogT('trade-idle', 180000, `trade: nothing to send (${scanReason(reason)})`);
       return;
     }
     const lockToken = gbLock('trade');
@@ -10412,7 +10414,7 @@ const STORE = {
       if (jobs.length >= 6) break;
     }
     if (!jobs.length) {
-      gbLogT('ruraltrade-idle', 180000, `rural-trade: idle (${reason || 'scan'})`);
+      gbLogT('ruraltrade-idle', 180000, `rural-trade: idle (${scanReason(reason)})`);
       return;
     }
     const ruralTradeLock = gbLock('rural-trade', Math.max(180000, jobs.length * 30000));
@@ -10526,7 +10528,7 @@ const STORE = {
     }
 
     if (!jobQueue.length) {
-      gbLogT('rurallevel-idle', 180000, `rural-level: idle (${reason || 'scan'})`);
+      gbLogT('rurallevel-idle', 180000, `rural-level: idle (${scanReason(reason)})`);
       return;
     }
 
@@ -11227,7 +11229,7 @@ const STORE = {
     }
     if (!job) {
       researchIdleUntil = Date.now() + RESEARCH_IDLE_BACKOFF_MS;
-      gbLogT('research-idle', 180000, `research: idle (${reason || 'scan'})`);
+      gbLogT('research-idle', 180000, `research: idle (${scanReason(reason)})`);
       return;
     }
     researchIdleUntil = 0;
@@ -11534,7 +11536,7 @@ const STORE = {
       if (col && col.models) offers = col.models;
     } catch (_) {}
     if (!offers.length) {
-      gbLogT('merchant-none', 180000, `merchant: no offers (${reason || 'scan'})`);
+      gbLogT('merchant-none', 180000, `merchant: no offers (${scanReason(reason)})`);
       return;
     }
 
@@ -11922,7 +11924,7 @@ const STORE = {
     if (gbLocked('pt-trade')) return;
     const townId = ptSalesmanTown();
     if (townId == null) {
-      gbLogT('pt-noship', 600000, `phoenician: no merchant ship readable (${reason || 'scan'})`);
+      gbLogT('pt-noship', 600000, `phoenician: no merchant ship readable (${scanReason(reason)})`);
       return;
     }
     if (!state.ptTradeTpl) {
@@ -12311,7 +12313,7 @@ const STORE = {
       });
       return;
     }
-    gbLogT('godspell-idle', 600000, `godspell: nothing to cast (${reason || 'scan'})`);
+    gbLogT('godspell-idle', 600000, `godspell: nothing to cast (${scanReason(reason)})`);
   }
   function wonderLoadSpent() {
     const day = gbServerDay();
@@ -12390,7 +12392,7 @@ const STORE = {
       break;
     }
     if (!job) {
-      gbLogT('wonder-idle', 180000, `wonder: no surplus (${reason || 'scan'})`);
+      gbLogT('wonder-idle', 180000, `wonder: no surplus (${scanReason(reason)})`);
       return;
     }
     const fresh = tradeTownRes(job.townId);
@@ -12588,7 +12590,7 @@ const STORE = {
     });
     bridgePost('wonder', payload, (err) => {
       gbUnlock('wonder-favor', wfLock);
-      if (!err) gbLog('wonder favor: cast OK (' + (reason || 'scan') + ')');
+      if (!err) gbLog('wonder favor: cast OK (' + scanReason(reason) + ')');
       else if (err !== 'captcha' && err !== 'captcha-pause' && err !== 'dryrun') {
         gbLogT('wonder-favor-err', 60000, 'wonder favor err ' + err);
       }
@@ -13405,7 +13407,7 @@ const STORE = {
       if (job) break;
     }
     if (!job) {
-      gbLogT('recruit-idle', 180000, `recruit: idle (${reason || 'scan'})`);
+      gbLogT('recruit-idle', 180000, `recruit: idle (${scanReason(reason)})`);
       return;
     }
     const lockToken = gbLock('recruit');

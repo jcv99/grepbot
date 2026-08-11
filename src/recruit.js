@@ -357,7 +357,7 @@
       if (job) break;
     }
     if (!job) {
-      gbLogT('recruit-idle', 180000, `recruit: idle (${reason || 'scan'})`);
+      gbLogT('recruit-idle', 180000, `recruit: idle (${scanReason(reason)})`);
       return;
     }
     const lockToken = gbLock('recruit');

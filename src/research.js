@@ -643,7 +643,7 @@
     }
     if (!job) {
       researchIdleUntil = Date.now() + RESEARCH_IDLE_BACKOFF_MS;
-      gbLogT('research-idle', 180000, `research: idle (${reason || 'scan'})`);
+      gbLogT('research-idle', 180000, `research: idle (${scanReason(reason)})`);
       return;
     }
     researchIdleUntil = 0;

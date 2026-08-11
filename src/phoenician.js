@@ -337,7 +337,7 @@
     if (gbLocked('pt-trade')) return;
     const townId = ptSalesmanTown();
     if (townId == null) {
-      gbLogT('pt-noship', 600000, `phoenician: no merchant ship readable (${reason || 'scan'})`);
+      gbLogT('pt-noship', 600000, `phoenician: no merchant ship readable (${scanReason(reason)})`);
       return;
     }
     if (!state.ptTradeTpl) {

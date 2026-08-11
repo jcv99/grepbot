@@ -495,7 +495,7 @@
     }
     const cfg = spyCfg();
     const ranked = spyRankTargets();
-    if (!ranked.length) { gbLogT('spy-idle', 300000, `spy: no target due (${reason || 'scan'})`); return; }
+    if (!ranked.length) { gbLogT('spy-idle', 300000, `spy: no target due (${scanReason(reason)})`); return; }
     const picks = ranked.slice(0, cfg.perCycle);
     if (cfg.confirmOncePerCycle && !spyConfirmedThisSession) {
       const top = ranked.slice(0, 3).map(t => `#${t.id} (score ${Math.round(t.score / 1000)}k${t.watch ? ', vigilada' : ''})`).join('\n  ');

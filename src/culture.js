@@ -153,7 +153,7 @@
       if (jobs.length >= 8) break;
     }
     if (!jobs.length) {
-      gbLogT('culture-idle', 180000, `culture: nothing to start (${reason || 'scan'})`);
+      gbLogT('culture-idle', 180000, `culture: nothing to start (${scanReason(reason)})`);
       return;
     }
     const cultureLock = gbLock('culture');

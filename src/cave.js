@@ -189,7 +189,7 @@
       jobs.push({ id, amt, iron: info.iron, cap: info.cap });
     }
     if (!jobs.length) {
-      gbLogT('cave-idle', 120000, `cave: nothing to stash (${reason || 'scan'})`);
+      gbLogT('cave-idle', 120000, `cave: nothing to stash (${scanReason(reason)})`);
       return;
     }
     const lockToken = gbLock('cave');

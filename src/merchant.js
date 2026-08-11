@@ -24,7 +24,7 @@
       if (col && col.models) offers = col.models;
     } catch (_) {}
     if (!offers.length) {
-      gbLogT('merchant-none', 180000, `merchant: no offers (${reason || 'scan'})`);
+      gbLogT('merchant-none', 180000, `merchant: no offers (${scanReason(reason)})`);
       return;
     }
 

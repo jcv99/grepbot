@@ -75,7 +75,7 @@
       break;
     }
     if (!job) {
-      gbLogT('wonder-idle', 180000, `wonder: no surplus (${reason || 'scan'})`);
+      gbLogT('wonder-idle', 180000, `wonder: no surplus (${scanReason(reason)})`);
       return;
     }
     const fresh = tradeTownRes(job.townId);
@@ -310,7 +310,7 @@
     });
     bridgePost('wonder', payload, (err) => {
       gbUnlock('wonder-favor', wfLock);
-      if (!err) gbLog('wonder favor: cast OK (' + (reason || 'scan') + ')');
+      if (!err) gbLog('wonder favor: cast OK (' + scanReason(reason) + ')');
       else if (err !== 'captcha' && err !== 'captcha-pause' && err !== 'dryrun') {
         gbLogT('wonder-favor-err', 60000, 'wonder favor err ' + err);
       }

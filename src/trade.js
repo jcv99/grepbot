@@ -536,7 +536,7 @@
     }
     if (state.islandShip) jobs = jobs.concat(tradeIslandShipJobs(towns, ledger));
     if (!jobs.length) {
-      gbLogT('trade-idle', 180000, `trade: nothing to send (${reason || 'scan'})`);
+      gbLogT('trade-idle', 180000, `trade: nothing to send (${scanReason(reason)})`);
       return;
     }
     const lockToken = gbLock('trade');

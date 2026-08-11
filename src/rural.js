@@ -102,7 +102,7 @@
       if (jobs.length >= 6) break;
     }
     if (!jobs.length) {
-      gbLogT('ruraltrade-idle', 180000, `rural-trade: idle (${reason || 'scan'})`);
+      gbLogT('ruraltrade-idle', 180000, `rural-trade: idle (${scanReason(reason)})`);
       return;
     }
     const ruralTradeLock = gbLock('rural-trade', Math.max(180000, jobs.length * 30000));
@@ -225,7 +225,7 @@
     }
 
     if (!jobQueue.length) {
-      gbLogT('rurallevel-idle', 180000, `rural-level: idle (${reason || 'scan'})`);
+      gbLogT('rurallevel-idle', 180000, `rural-level: idle (${scanReason(reason)})`);
       return;
     }
     // Batch dispatch: a single lock guards the whole queue so the orch tick can't

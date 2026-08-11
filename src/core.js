@@ -1115,6 +1115,9 @@
       return (uw.GameData && uw.GameData[table] && uw.GameData[table][key]) || null;
     } catch (_) { return null; }
   }
+  // Idle-log scan suffix. Replaces the `${reason || 'scan'}` idiom in 13 sites
+  // so future style changes touch one place.
+  function scanReason(reason) { return reason || 'scan'; }
   function captchaLadder() {
     const raw = state.captchaLadder;
     if (Array.isArray(raw) && raw.length >= 1) {

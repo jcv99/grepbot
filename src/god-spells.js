@@ -153,5 +153,5 @@
       });
       return; // one cast per scan
     }
-    gbLogT('godspell-idle', 600000, `godspell: nothing to cast (${reason || 'scan'})`);
+    gbLogT('godspell-idle', 600000, `godspell: nothing to cast (${scanReason(reason)})`);
   }
