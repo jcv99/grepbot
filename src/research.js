@@ -132,6 +132,76 @@
     for (const q of (queuedIds || [])) have.add(String(q));
     return have;
   }
+  // ===== Academy slot optimizer (v4 plan 5.5) ================================
+  // Ranks the eligible candidates the existing loop already validated. It never
+  // invents a research id, never starts a prerequisite, and never overrides
+  // researchValidateJob - which still runs after the pick, because the queue
+  // can change between ranking and posting.
+  //
+  // Every factor is a value that was actually READ. An unreadable one simply
+  // does not contribute, and the configured order remains the tie-break, so a
+  // blind world behaves exactly like it does today.
+  const RESEARCH_CANDIDATE_MAX = 24;
+  function researchCandidate(townId, tech, targets, info) {
+    const tgt = (targets || {})[tech] || {};
+    let missing = null;
+    try {
+      const p = researchPathFor(townId, tech);
+      if (p && p.known) missing = p.missing.length;
+    } catch (_) {}
+    // A tech named in this town's own profile is an explicit user preference,
+    // which outranks the global order.
+    let profiled = false;
+    try {
+      const e = goalEffective(townId);
+      profiled = !!(e && e.research && +e.research[tech] > 0);
+    } catch (_) {}
+    let points = null;
+    try { const n = researchPointsAvailable(townId, info); if (Number.isFinite(n)) points = n; } catch (_) {}
+    // researchCost returns wood/stone/iron only, so the research-POINT cost has
+    // to come off the definition. Probe candidates; a miss leaves cost null and
+    // the slack factor simply does not contribute.
+    let cost = null;
+    try {
+      const d = researchDef(tech);
+      if (d) {
+        for (const k of ['research_points', 'researchPoints', 'points', 'cost_points']) {
+          const n = +d[k];
+          if (Number.isFinite(n) && n > 0) { cost = n; break; }
+        }
+      }
+    } catch (_) {}
+    return {
+      townId: String(townId), tech,
+      order: +tgt.order || 0,
+      missing, profiled, points, cost,
+      // Slack is only meaningful when BOTH numbers were readable.
+      slack: (points != null && cost != null) ? points - cost : null,
+    };
+  }
+  function researchCandidateCmp(a, b) {
+    // 1. explicit per-town profile preference
+    if (a.profiled !== b.profiled) return a.profiled ? -1 : 1;
+    // 2. fewer missing prerequisites, when the graph could read them at all
+    const am = a.missing == null ? Infinity : a.missing;
+    const bm = b.missing == null ? Infinity : b.missing;
+    if (am !== bm) return am - bm;
+    // 3. more research-point slack left after starting it
+    const as = a.slack == null ? -Infinity : a.slack;
+    const bs = b.slack == null ? -Infinity : b.slack;
+    if (as !== bs) return bs - as;
+    // 4. configured order, then town id - fully deterministic.
+    if (a.order !== b.order) return a.order - b.order;
+    return String(a.townId).localeCompare(String(b.townId));
+  }
+  function researchCandidateWhy(c) {
+    const parts = [];
+    if (c.profiled) parts.push('perfil');
+    parts.push(c.missing == null ? 'prerreq ?' : `prerreq ${c.missing}`);
+    if (c.slack != null) parts.push(`holgura ${c.slack}`);
+    parts.push(`orden ${c.order}`);
+    return parts.join(', ');
+  }
   function researchAdviseOrder(townId, ordered, targets, info) {
     try {
       const graph = researchGraphBuild();
@@ -510,6 +580,7 @@
     // A FIFO job supersedes the planner for this tick. A blocked FIFO head does
     // NOT: the target-list towns are independent and must still be scanned.
     if (job || !state.autoResearch) townIds = [];
+    const candidates = [];
     for (const tid of townIds) {
       if (nativeQueueIsFifo(tid, 'research')) continue;
       const targets = goalEffectiveResearchTargets(tid, globalTargets);
@@ -553,10 +624,29 @@
             `research: ${tech} @${tid} skipped from memory (${memWhy}) — trying next tech`);
           continue;
         }
-        job = { townId: tid, tech };
-        break;
+        // v4 plan 5.5: collect instead of taking the first eligible, so the
+        // pick is the best candidate across ALL towns rather than whichever
+        // town happened to be walked first.
+        // Collect EVERY eligible tech for this town, not just the first in
+        // advised order: otherwise a town's second-best can never be compared
+        // against another town's, and the cross-town ranking is decided before
+        // the comparator ever sees it. Bounded so a wide target list cannot
+        // make the scan quadratic.
+        candidates.push(researchCandidate(tid, tech, targets, info));
+        if (candidates.length >= RESEARCH_CANDIDATE_MAX) break;
       }
-      if (job) break;
+      if (candidates.length >= RESEARCH_CANDIDATE_MAX) break;
+    }
+    if (!job && candidates.length) {
+      candidates.sort(researchCandidateCmp);
+      const pick = candidates[0];
+      // researchValidateJob re-runs below and stays the final authority: the
+      // queue can change between ranking and posting.
+      job = { townId: pick.townId, tech: pick.tech };
+      if (candidates.length > 1) {
+        gbLogT('research-rank', 300000,
+          `research: picked ${pick.tech} @${pick.townId} (${researchCandidateWhy(pick)}) from ${candidates.length} candidates`);
+      }
     }
     if (!job) {
       researchIdleUntil = Date.now() + RESEARCH_IDLE_BACKOFF_MS;

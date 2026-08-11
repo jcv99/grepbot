@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.23.0
+// @version      4.24.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -10431,6 +10431,65 @@ const STORE = {
     for (const q of (queuedIds || [])) have.add(String(q));
     return have;
   }
+
+  const RESEARCH_CANDIDATE_MAX = 24;
+  function researchCandidate(townId, tech, targets, info) {
+    const tgt = (targets || {})[tech] || {};
+    let missing = null;
+    try {
+      const p = researchPathFor(townId, tech);
+      if (p && p.known) missing = p.missing.length;
+    } catch (_) {}
+
+    let profiled = false;
+    try {
+      const e = goalEffective(townId);
+      profiled = !!(e && e.research && +e.research[tech] > 0);
+    } catch (_) {}
+    let points = null;
+    try { const n = researchPointsAvailable(townId, info); if (Number.isFinite(n)) points = n; } catch (_) {}
+
+    let cost = null;
+    try {
+      const d = researchDef(tech);
+      if (d) {
+        for (const k of ['research_points', 'researchPoints', 'points', 'cost_points']) {
+          const n = +d[k];
+          if (Number.isFinite(n) && n > 0) { cost = n; break; }
+        }
+      }
+    } catch (_) {}
+    return {
+      townId: String(townId), tech,
+      order: +tgt.order || 0,
+      missing, profiled, points, cost,
+
+      slack: (points != null && cost != null) ? points - cost : null,
+    };
+  }
+  function researchCandidateCmp(a, b) {
+
+    if (a.profiled !== b.profiled) return a.profiled ? -1 : 1;
+
+    const am = a.missing == null ? Infinity : a.missing;
+    const bm = b.missing == null ? Infinity : b.missing;
+    if (am !== bm) return am - bm;
+
+    const as = a.slack == null ? -Infinity : a.slack;
+    const bs = b.slack == null ? -Infinity : b.slack;
+    if (as !== bs) return bs - as;
+
+    if (a.order !== b.order) return a.order - b.order;
+    return String(a.townId).localeCompare(String(b.townId));
+  }
+  function researchCandidateWhy(c) {
+    const parts = [];
+    if (c.profiled) parts.push('perfil');
+    parts.push(c.missing == null ? 'prerreq ?' : `prerreq ${c.missing}`);
+    if (c.slack != null) parts.push(`holgura ${c.slack}`);
+    parts.push(`orden ${c.order}`);
+    return parts.join(', ');
+  }
   function researchAdviseOrder(townId, ordered, targets, info) {
     try {
       const graph = researchGraphBuild();
@@ -10765,6 +10824,7 @@ const STORE = {
     }
 
     if (job || !state.autoResearch) townIds = [];
+    const candidates = [];
     for (const tid of townIds) {
       if (nativeQueueIsFifo(tid, 'research')) continue;
       const targets = goalEffectiveResearchTargets(tid, globalTargets);
@@ -10804,10 +10864,21 @@ const STORE = {
             `research: ${tech} @${tid} skipped from memory (${memWhy}) \u2014 trying next tech`);
           continue;
         }
-        job = { townId: tid, tech };
-        break;
+
+        candidates.push(researchCandidate(tid, tech, targets, info));
+        if (candidates.length >= RESEARCH_CANDIDATE_MAX) break;
       }
-      if (job) break;
+      if (candidates.length >= RESEARCH_CANDIDATE_MAX) break;
+    }
+    if (!job && candidates.length) {
+      candidates.sort(researchCandidateCmp);
+      const pick = candidates[0];
+
+      job = { townId: pick.townId, tech: pick.tech };
+      if (candidates.length > 1) {
+        gbLogT('research-rank', 300000,
+          `research: picked ${pick.tech} @${pick.townId} (${researchCandidateWhy(pick)}) from ${candidates.length} candidates`);
+      }
     }
     if (!job) {
       researchIdleUntil = Date.now() + RESEARCH_IDLE_BACKOFF_MS;
