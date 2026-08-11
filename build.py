@@ -71,6 +71,7 @@ MODULES = [
     'shared-plan.js',
     'military.js',
     'support.js',
+    'diagnostics.js',
     'stats.js',
     'context-menu.js',
     'hud.js',
@@ -322,6 +323,57 @@ def strip_artifact_comments(body):
     return header + strip_js_comments(body[m.end():])
 
 
+def compact_whitespace(text):
+    """Conservative whitespace squeeze for the --prod artifact.
+
+    Deliberately NOT a minifier: it never renames, never reorders, never drops
+    a statement and never touches anything inside a string or template literal.
+    A real minifier would need a JS parser this repo does not ship and cannot
+    validate against fixtures, and a wrong rename in a paste-only userscript is
+    unfixable from the user's side.
+
+    It only strips leading indentation and drops blank lines, which the
+    ==UserScript== block tolerates and `node --check` still verifies.
+    """
+    out = []
+    in_block = False
+    for line in text.split('\n'):
+        # The metadata block is parsed as TEXT by Tampermonkey, not as JS, so
+        # its exact leading '// ' must survive untouched.
+        if '// ==UserScript==' in line:
+            in_block = True
+        if in_block:
+            out.append(line)
+            if '// ==/UserScript==' in line:
+                in_block = False
+            continue
+        stripped = line.strip()
+        if not stripped:
+            continue
+        out.append(stripped if _safe_to_strip(line) else line)
+    return '\n'.join(out) + '\n'
+
+
+def _safe_to_strip(line):
+    """True when leading whitespace is not inside a multi-line template literal.
+
+    Counting unescaped backticks per line is a heuristic, so it errs toward
+    KEEPING the line untouched: an odd count means we are entering or leaving a
+    template and the indentation may be significant.
+    """
+    ticks = 0
+    i = 0
+    while i < len(line):
+        c = line[i]
+        if c == '\\':
+            i += 2
+            continue
+        if c == '`':
+            ticks += 1
+        i += 1
+    return ticks % 2 == 0
+
+
 def ascii_escape_artifact(body):
     """Escape every non-ASCII char in the JS body to \\uXXXX.
 
@@ -445,7 +497,10 @@ def build():
         print('error: ==UserScript== metadata block missing from the artifact '
               '- src/header.js must open with it (TM refuses to install without it)')
         raise SystemExit(1)
+    prod = '--prod' in sys.argv
     tmp = OUT.replace('.user.js', '.build.js')  # node --check needs a .js name
+    if prod:
+        body = compact_whitespace(body)
     body = ascii_escape_artifact(body)
     if not body.isascii():
         print('error: artifact still holds non-ASCII after escaping')
@@ -456,11 +511,15 @@ def build():
         os.remove(tmp)
         raise SystemExit(1)
     version = version_of(parts)
-    if not version_gate(parts, version):
+    if not prod and not version_gate(parts, version):
         os.remove(tmp)
         raise SystemExit(1)
-    os.replace(tmp, OUT)
-    print(f'built {OUT} ({len(parts)} modules, v{version})')
+    # --prod writes a SIBLING file. Never in place: a broken prod build must not
+    # be able to take out the dev paste path the whole workflow depends on.
+    dest = OUT + '.prod' if prod else OUT
+    os.replace(tmp, dest)
+    size = os.path.getsize(dest)
+    print(f'built {dest} ({len(parts)} modules, v{version}, {size // 1024} KB)')
 
 
 if __name__ == '__main__':

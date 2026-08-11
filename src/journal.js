@@ -234,6 +234,31 @@
       .filter(([, s]) => s && s.until && s.until > now)
       .map(([k, s]) => ({ key: k, until: s.until, trips: s.trips, r: s.r }));
   }
+  // ===== Replay (v4 plan 8.5) ================================================
+  // Read-only slice of the decision ring, oldest first - the opposite order to
+  // the live log - so a wave can be walked forward in the order it happened.
+  function jrnSlice(opts) {
+    const o = opts || {};
+    const since = Number.isFinite(+o.since) ? +o.since : 0;
+    const until = Number.isFinite(+o.until) ? +o.until : Infinity;
+    const feature = o.feature ? String(o.feature) : null;
+    const result = o.result ? String(o.result) : null;
+    const out = [];
+    for (const r of (state.decisions || [])) {
+      if (!r || r.ts < since || r.ts > until) continue;
+      if (feature && r.f !== feature) continue;
+      if (result && r.r !== result) continue;
+      out.push(r);
+    }
+    return out.sort((a, b) => a.ts - b.ts);
+  }
+  // The skip window a row belongs to, if one is open. Pure lookup, no I/O.
+  function jrnWindowOf(row) {
+    if (!row) return null;
+    const key = jrnId({ f: row.f, a: row.a, k: row.k });
+    const w = (state.decisionSkips || {})[key];
+    return w ? Object.assign({ key }, w) : null;
+  }
   function jrnClearSkips() {
     state.decisionSkips = {};
     jrnSave(true);

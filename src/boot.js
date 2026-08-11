@@ -119,7 +119,7 @@
   contextMenuStart();
   gbTimeout(() => { try { hudRestore(); } catch (_) {} }, 1500);
 
-  gbInterval(gbLockSweep, 10000);
+  gbInterval(() => { gbLockSweep(); try { diagnosticsTick(); } catch (_) {} }, 10000);
   const releaseLocks = () => {
     try { cancelArmedAttack(); } catch (_) {}
     // An armed instant-complete timer that survives the page exit fires against
@@ -130,6 +130,7 @@
     try { if (typeof dodgeQueueSave === 'function') dodgeQueueSave(); } catch (_) {}
     try { if (typeof questClaimFailSave === 'function') questClaimFailSave(); } catch (_) {}
     try { if (typeof persistServerCooldown === 'function') persistServerCooldown(); } catch (_) {}
+    try { snapshotBuild('exit'); } catch (_) {}
   };
   gbListen(window, 'beforeunload', releaseLocks);
   gbListen(window, 'pagehide', releaseLocks);

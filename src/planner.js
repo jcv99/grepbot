@@ -174,9 +174,33 @@
     if (!state.circuits || typeof state.circuits !== 'object') state.circuits = {};
     return state.circuits[feature] || null;
   }
+  // ===== Circuit half-open recovery (v4 plan 8.1) ============================
+  // The breaker used to open permanently until a hand-clear. It now cools down
+  // and HALF-OPENS: the next attempt becomes a probe, a success closes it, and
+  // a failure re-opens with a doubled cooldown up to an hour. That is the whole
+  // difference between "a dead endpoint stops the bot forever" and "a transient
+  // outage costs one cooldown".
+  const CIRCUIT_COOLDOWN_BASE_MS = 15 * 60 * 1000;
+  const CIRCUIT_COOLDOWN_MAX_MS = 60 * 60 * 1000;
+  function circuitCooldownMs(c) {
+    const n = +((c && c.cooldownMs) || CIRCUIT_COOLDOWN_BASE_MS);
+    return Math.max(60000, Math.min(CIRCUIT_COOLDOWN_MAX_MS, n));
+  }
   function circuitOpen(feature) {
     const c = circuitState(feature);
-    return !!(c && c.open);
+    if (!c || !c.open) return false;
+    if (state.circuitAutoClear === false) return true;
+    // Elapsed cooldown does not CLOSE the breaker - it lets exactly one probe
+    // through. Closing on a timer alone would forget that the endpoint was
+    // broken without ever testing it.
+    if (c.halfOpen) return false;
+    if (+c.openedAt && Date.now() - +c.openedAt >= circuitCooldownMs(c)) {
+      c.halfOpen = true;
+      circuitSave();
+      gbLog(`CIRCUIT HALF-OPEN: ${feature} - next attempt is a probe`);
+      return false;
+    }
+    return true;
   }
   function circuitNote(feature, err) {
     if (!feature || !err || err === 'timeout' || err === 'timeout_unknown' || err === 'captcha' || err === 'captcha-pause') return;
@@ -186,9 +210,22 @@
     c.strikes = (c.strikes || 0) + 1;
     c.lastError = msg.slice(0, 160);
     c.lastAt = Date.now();
+    if (c.halfOpen) {
+      // The probe failed: re-open and back off, so a genuinely dead endpoint is
+      // retried ever less often instead of every cooldown.
+      c.halfOpen = false;
+      c.cooldownMs = Math.min(CIRCUIT_COOLDOWN_MAX_MS, circuitCooldownMs(c) * 2);
+      c.open = true;
+      c.openedAt = Date.now();
+      state.circuits[feature] = c;
+      circuitSave();
+      gbLog(`CIRCUIT RE-OPEN: ${feature} probe failed, next retry in ${Math.round(c.cooldownMs / 60000)}min`);
+      return;
+    }
     if (c.strikes >= CIRCUIT_TRIP) {
       c.open = true;
       c.openedAt = Date.now();
+      c.cooldownMs = c.cooldownMs || CIRCUIT_COOLDOWN_BASE_MS;
       gbLog(`CIRCUIT OPEN: ${feature} disabled after ${c.strikes} structural errors: ${c.lastError}`);
       try { flash(`circuit: ${feature} disabled`); } catch (_) {}
     }
@@ -197,7 +234,17 @@
   }
   function circuitSuccess(feature) {
     const c = circuitState(feature);
-    if (!c || c.open || !c.strikes) return;
+    if (!c) return;
+    // A HALF-OPEN breaker whose probe succeeded must close. The old guard bailed
+    // on `c.open`, so once tripped the breaker could only ever be cleared by
+    // hand - the recovery half of the state machine never ran.
+    if (c.halfOpen || c.open) {
+      delete state.circuits[feature];
+      circuitSave();
+      gbLog(`CIRCUIT CLOSED: ${feature} recovered`);
+      return;
+    }
+    if (!c.strikes) return;
     c.strikes = 0;
     c.lastError = '';
     state.circuits[feature] = c;

@@ -387,6 +387,31 @@
       } catch (e) { return { ok: false, detail: String(e).slice(0, 60) }; }
       return { ok: true, detail: `${towns.length} ciudades, ${jobs.length} movimiento(s) mejorarian el reparto ahora` };
     }));
+    out.push(preflightProbe('snapshots', () => {
+      const l = snapshotList();
+      const kb = Math.round(snapshotTotalBytes() / 1024);
+      return {
+        ok: true,
+        warn: state.snapshotsOn !== false && !l.length,
+        detail: state.snapshotsOn === false ? 'desactivado'
+          : `${l.length}/${SNAPSHOT_SLOTS} ranuras, ${kb} KB` + (l.length ? `, ultima ${new Date(l[l.length - 1].at).toLocaleTimeString()}` : ''),
+      };
+    }));
+    out.push(preflightProbe('profiler', () => {
+      const n = Object.keys(state.profileRings || {}).length;
+      return { ok: true, detail: state.profilerOn ? `activo, ${n} clave(s) muestreadas` : 'desactivado (por defecto)' };
+    }));
+    out.push(preflightProbe('memory probe', () => {
+      if (!state.memProbeOn) return { ok: true, detail: 'desactivado (por defecto)' };
+      const s0 = memSample();
+      return {
+        ok: true,
+        // A blind heap API is EXPECTED off Chromium; the map tally still works.
+        warn: s0.blind,
+        detail: (s0.blind ? 'heap no legible (solo Chromium), ' : `heap ${(s0.used / 1048576).toFixed(1)} Mb, `) +
+          `${(state.memSamples || []).length} muestras`,
+      };
+    }));
     out.push(preflightProbe('favor pool read', () => {
       let fav = null;
       try { fav = favorCurrent(); } catch (_) {}
@@ -749,6 +774,8 @@
     }
     lines.push('');
     try { const g = growthBlock(); if (g.length) { lines.push(...g); lines.push(''); } } catch (_) {}
+    try { const p0 = profTopLines(8); if (p0.length) { lines.push(...p0); lines.push(''); } } catch (_) {}
+    try { const m0 = memLines(); if (m0.length) { lines.push(...m0); lines.push(''); } } catch (_) {}
     try { lines.push(...favorHudBlock()); } catch (_) {}
     try {
       const bh = (typeof banditAttackHistory !== 'undefined' ? banditAttackHistory : []).slice(-3).reverse();

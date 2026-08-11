@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.39.0
+// @version      4.42.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -183,6 +183,7 @@ const STORE = {
     WONDER_SPENT: 'grepbot:wonder-spent',
 
     DECISIONS: 'grepbot:decisions',
+    REPLAY_CURSOR: 'grepbot:replay-cursor',
     DECISION_SKIPS: 'grepbot:decision-skips',
     DECISION_MEM: 'grepbot:decision-memory',
     DRY_RUN: 'grepbot:dry-run',
@@ -194,6 +195,7 @@ const STORE = {
     AUTO_COLLECT: 'grepbot:auto-collect',
     TX_STATE: 'grepbot:tx-state',
     CIRCUITS: 'grepbot:circuits',
+    CIRCUIT_AUTO_CLEAR: 'grepbot:circuit-auto-clear',
     AB_ORDER: 'grepbot:ab-order',
     AB_OPTIMAL_ORDER: 'grepbot:ab-optimal-order',
     AB_OPTIMAL_ORDER_ON: 'grepbot:ab-optimal-order-on',
@@ -213,6 +215,10 @@ const STORE = {
     SUPPORT_TEMPLATE: 'grepbot:support-tpl',
     DODGE_RETURNS: 'grepbot:dodge-returns',
     HEALTH: 'grepbot:health',
+    SNAPSHOTS: 'grepbot:snapshots',
+    SNAPSHOTS_ON: 'grepbot:snapshots-on',
+    PROFILER_ON: 'grepbot:profiler-on',
+    MEM_PROBE_ON: 'grepbot:mem-probe-on',
     CLIENT_FP: 'grepbot:client-fingerprint',
     SAFE_MODE: 'grepbot:safe-mode',
     SIM_CFG: 'grepbot:sim-cfg',
@@ -264,7 +270,7 @@ const STORE = {
     STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES, STORE.NAP_STATUS, STORE.SPY_CFG, STORE.SPY_HISTORY, STORE.SPY_TPL,
     STORE.CAPTCHA_GLOBAL_UNTIL,
     STORE.SERVER_COOLDOWN, STORE.QUEST_CLAIM_FAIL, STORE.DODGE_QUEUE,
-    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PROFILE_AUTO_CFG, STORE.PROFILE_AUTO_LAST, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER, STORE.CONFIG_UNDO, STORE.CONFIG_REDO,
+    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PROFILE_AUTO_CFG, STORE.PROFILE_AUTO_LAST, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.SNAPSHOTS, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER, STORE.CONFIG_UNDO, STORE.CONFIG_REDO,
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
     STORE.SPELL_COOLDOWN,
@@ -677,6 +683,7 @@ const STORE = {
     configVer: load(STORE.CONFIG_VER, 1),
     configUndo: load(STORE.CONFIG_UNDO, []) || [],
     configRedo: load(STORE.CONFIG_REDO, []) || [],
+    replayCursor: 0,
     decisions: load(STORE.DECISIONS, []),
     decisionSkips: load(STORE.DECISION_SKIPS, {}),
     decisionMemory: load(STORE.DECISION_MEM, true),
@@ -685,6 +692,7 @@ const STORE = {
     exportRedact: load(STORE.EXPORT_REDACT, true),
     orchAdaptive: load(STORE.ORCH_ADAPTIVE, true),
     txState: load(STORE.TX_STATE, {}),
+    circuitAutoClear: load(STORE.CIRCUIT_AUTO_CLEAR, true),
     circuits: load(STORE.CIRCUITS, {}),
     abOrder: load(STORE.AB_ORDER, null),
 
@@ -708,6 +716,12 @@ const STORE = {
     supportLastSend: load(STORE.SUPPORT_LAST_SEND, {}) || {},
     supportTpl: load(STORE.SUPPORT_TEMPLATE, null),
     dodgeReturns: load(STORE.DODGE_RETURNS, {}),
+    snapshots: load(STORE.SNAPSHOTS, []) || [],
+    snapshotsOn: load(STORE.SNAPSHOTS_ON, true),
+    profilerOn: load(STORE.PROFILER_ON, false),
+    memProbeOn: load(STORE.MEM_PROBE_ON, false),
+    profileRings: {},
+    memSamples: [],
     health: load(STORE.HEALTH, {}),
     clientFingerprint: load(STORE.CLIENT_FP, null),
     safeMode: load(STORE.SAFE_MODE, true),
@@ -1079,7 +1093,7 @@ const STORE = {
         return;
       }
       const item = gbWakeQueue.shift();
-      try { item.fn(); } catch (e) { gbLogT('wake-err', 30000, 'wake: ' + item.key + ' ' + String(e).slice(0, 60)); }
+      try { profTime('wake:' + item.key, () => item.fn()); } catch (e) { gbLogT('wake-err', 30000, 'wake: ' + item.key + ' ' + String(e).slice(0, 60)); }
       const spacing = WAKE_SPACING_MS + Math.floor(Math.random() * 400);
       if (gbWakeQueue.length) gbTimeout(step, spacing);
       else gbWakeDraining = false;
@@ -1994,9 +2008,26 @@ const STORE = {
     if (!state.circuits || typeof state.circuits !== 'object') state.circuits = {};
     return state.circuits[feature] || null;
   }
+
+  const CIRCUIT_COOLDOWN_BASE_MS = 15 * 60 * 1000;
+  const CIRCUIT_COOLDOWN_MAX_MS = 60 * 60 * 1000;
+  function circuitCooldownMs(c) {
+    const n = +((c && c.cooldownMs) || CIRCUIT_COOLDOWN_BASE_MS);
+    return Math.max(60000, Math.min(CIRCUIT_COOLDOWN_MAX_MS, n));
+  }
   function circuitOpen(feature) {
     const c = circuitState(feature);
-    return !!(c && c.open);
+    if (!c || !c.open) return false;
+    if (state.circuitAutoClear === false) return true;
+
+    if (c.halfOpen) return false;
+    if (+c.openedAt && Date.now() - +c.openedAt >= circuitCooldownMs(c)) {
+      c.halfOpen = true;
+      circuitSave();
+      gbLog(`CIRCUIT HALF-OPEN: ${feature} - next attempt is a probe`);
+      return false;
+    }
+    return true;
   }
   function circuitNote(feature, err) {
     if (!feature || !err || err === 'timeout' || err === 'timeout_unknown' || err === 'captcha' || err === 'captcha-pause') return;
@@ -2006,9 +2037,21 @@ const STORE = {
     c.strikes = (c.strikes || 0) + 1;
     c.lastError = msg.slice(0, 160);
     c.lastAt = Date.now();
+    if (c.halfOpen) {
+
+      c.halfOpen = false;
+      c.cooldownMs = Math.min(CIRCUIT_COOLDOWN_MAX_MS, circuitCooldownMs(c) * 2);
+      c.open = true;
+      c.openedAt = Date.now();
+      state.circuits[feature] = c;
+      circuitSave();
+      gbLog(`CIRCUIT RE-OPEN: ${feature} probe failed, next retry in ${Math.round(c.cooldownMs / 60000)}min`);
+      return;
+    }
     if (c.strikes >= CIRCUIT_TRIP) {
       c.open = true;
       c.openedAt = Date.now();
+      c.cooldownMs = c.cooldownMs || CIRCUIT_COOLDOWN_BASE_MS;
       gbLog(`CIRCUIT OPEN: ${feature} disabled after ${c.strikes} structural errors: ${c.lastError}`);
       try { flash(`circuit: ${feature} disabled`); } catch (_) {}
     }
@@ -2017,7 +2060,15 @@ const STORE = {
   }
   function circuitSuccess(feature) {
     const c = circuitState(feature);
-    if (!c || c.open || !c.strikes) return;
+    if (!c) return;
+
+    if (c.halfOpen || c.open) {
+      delete state.circuits[feature];
+      circuitSave();
+      gbLog(`CIRCUIT CLOSED: ${feature} recovered`);
+      return;
+    }
+    if (!c.strikes) return;
     c.strikes = 0;
     c.lastError = '';
     state.circuits[feature] = c;
@@ -3514,6 +3565,29 @@ const STORE = {
     return Object.entries(state.decisionSkips)
       .filter(([, s]) => s && s.until && s.until > now)
       .map(([k, s]) => ({ key: k, until: s.until, trips: s.trips, r: s.r }));
+  }
+
+  function jrnSlice(opts) {
+    const o = opts || {};
+    const since = Number.isFinite(+o.since) ? +o.since : 0;
+    const until = Number.isFinite(+o.until) ? +o.until : Infinity;
+    const feature = o.feature ? String(o.feature) : null;
+    const result = o.result ? String(o.result) : null;
+    const out = [];
+    for (const r of (state.decisions || [])) {
+      if (!r || r.ts < since || r.ts > until) continue;
+      if (feature && r.f !== feature) continue;
+      if (result && r.r !== result) continue;
+      out.push(r);
+    }
+    return out.sort((a, b) => a.ts - b.ts);
+  }
+
+  function jrnWindowOf(row) {
+    if (!row) return null;
+    const key = jrnId({ f: row.f, a: row.a, k: row.k });
+    const w = (state.decisionSkips || {})[key];
+    return w ? Object.assign({ key }, w) : null;
   }
   function jrnClearSkips() {
     state.decisionSkips = {};
@@ -14229,23 +14303,23 @@ const STORE = {
   const orchJrnMark = {};
   function orchSafe(key,fn){try{return fn()}catch(e){const msg=String(e&&e.stack||e).slice(0,220);gbLog(`orch ${key} exception: ${msg}`);markModuleHealth(key,'err',{error:msg});whyNote(key,'orchestrator','error',msg);orchIdle[key]=0;return null}}
   const ORCH_HANDLERS = {
-    culture:()=>orchSafe('culture',()=>cultureScan('orch')),
-    cave:()=>orchSafe('cave',()=>caveScan('orch')),
-    build:()=>orchSafe('build',()=>{abEnsureTargets();abScan('orch')}),
-    research:()=>orchSafe('research',()=>researchScan('orch')),
-    trade:()=>orchSafe('trade',()=>tradeScan('orch')),
-    farm:()=>orchSafe('farm',()=>autoClaimFarms('orch')),
-    ruraltrade:()=>orchSafe('ruraltrade',()=>ruralTradeScan('orch')),
-    rurallevel:()=>orchSafe('rurallevel',()=>ruralLevelScan('orch')),
-    recruit:()=>orchSafe('recruit',()=>recruitScan('orch')),
-    villrecruit:()=>orchSafe('villrecruit',()=>villageRecruitScan('orch')),
-    merchant:()=>orchSafe('merchant',()=>merchantScan('orch')),
-    pttrade:()=>orchSafe('pttrade',()=>ptTradeScan('orch')),
-    favor:()=>orchSafe('favor',()=>favorScan('orch')),
-    wonder:()=>orchSafe('wonder',()=>{wonderScan('orch');wonderFavorScan('orch')}),
-    spy:()=>orchSafe('spy',()=>spyCycle('orch')),
-    hero:()=>orchSafe('hero',()=>heroScan('orch')),
-    godspell:()=>orchSafe('godspell',()=>godSpellScan('orch')),
+    culture:()=>orchSafe('culture',()=>profTime('orch:culture',()=>cultureScan('orch'))),
+    cave:()=>orchSafe('cave',()=>profTime('orch:cave',()=>caveScan('orch'))),
+    build:()=>orchSafe('build',()=>profTime('orch:build',()=>{abEnsureTargets();abScan('orch')})),
+    research:()=>orchSafe('research',()=>profTime('orch:research',()=>researchScan('orch'))),
+    trade:()=>orchSafe('trade',()=>profTime('orch:trade',()=>tradeScan('orch'))),
+    farm:()=>orchSafe('farm',()=>profTime('orch:farm',()=>autoClaimFarms('orch'))),
+    ruraltrade:()=>orchSafe('ruraltrade',()=>profTime('orch:ruraltrade',()=>ruralTradeScan('orch'))),
+    rurallevel:()=>orchSafe('rurallevel',()=>profTime('orch:rurallevel',()=>ruralLevelScan('orch'))),
+    recruit:()=>orchSafe('recruit',()=>profTime('orch:recruit',()=>recruitScan('orch'))),
+    villrecruit:()=>orchSafe('villrecruit',()=>profTime('orch:villrecruit',()=>villageRecruitScan('orch'))),
+    merchant:()=>orchSafe('merchant',()=>profTime('orch:merchant',()=>merchantScan('orch'))),
+    pttrade:()=>orchSafe('pttrade',()=>profTime('orch:pttrade',()=>ptTradeScan('orch'))),
+    favor:()=>orchSafe('favor',()=>profTime('orch:favor',()=>favorScan('orch'))),
+    wonder:()=>orchSafe('wonder',()=>profTime('orch:wonder',()=>{wonderScan('orch');wonderFavorScan('orch')})),
+    spy:()=>orchSafe('spy',()=>profTime('orch:spy',()=>spyCycle('orch'))),
+    hero:()=>orchSafe('hero',()=>profTime('orch:hero',()=>heroScan('orch'))),
+    godspell:()=>orchSafe('godspell',()=>profTime('orch:godspell',()=>godSpellScan('orch'))),
   };
   function orchFeatureEnabled(key) {
     return {
@@ -18143,6 +18217,170 @@ const STORE = {
       supportRecallWindow(movId);
     }
   }
+
+  const SNAPSHOT_SLOTS = 6;
+  const SNAPSHOT_INTERVAL_MS = 300000;
+  const SNAPSHOT_BUDGET_BYTES = 200000;
+  let snapshotLastAt = 0;
+
+  function snapshotRing() {
+    if (!Array.isArray(state.snapshots)) state.snapshots = [];
+    return state.snapshots;
+  }
+  function snapshotPayload() {
+    let jrn = null;
+    try { jrn = (typeof jrnStats === 'function') ? jrnStats(24 * 3600000) : null; } catch (_) {}
+    return {
+      cV: state.configVer,
+      cfg: {
+        autoFarm: !!state.autoFarm, autoCave: !!state.autoCave, autoTrade: !!state.autoTrade,
+        abAuto: !!state.abAuto, ibAuto: !!state.ibAuto, autoResearch: !!state.autoResearch,
+        autoRecruit: !!state.autoRecruit, autoCulture: !!state.autoCulture,
+        dryRun: !!state.dryRun, safeMode: !!state.safeMode,
+      },
+      plans: {
+        abTargets: state.abTargets, researchTargets: state.researchTargets,
+        recruitTargets: state.recruitTargets, merchantWish: state.merchantWish,
+      },
+      txState: state.txState,
+      circuits: state.circuits,
+      decisionSkips: state.decisionSkips,
+      farmOptionMap: state.farmOptionMap,
+      farmSleepDay: state.farmSleepDay,
+      lastSeenTs: state.lastSeenTs,
+
+      decisions: jrn ? { ok: jrn.ok, err: jrn.err, total: jrn.total } : null,
+    };
+  }
+  function snapshotBuild(reason) {
+    if (state.snapshotsOn === false) return false;
+    let text = '';
+    try { text = JSON.stringify(snapshotPayload()); } catch (_) { return false; }
+
+    if (text.length > SNAPSHOT_BUDGET_BYTES) {
+      gbLogT('snapshot-oversize', 60000, `snapshot: ${text.length}B over the ${SNAPSHOT_BUDGET_BYTES}B budget - dropped`);
+      return false;
+    }
+    const ring = snapshotRing();
+    ring.push({ at: Date.now(), sizeBytes: text.length, reason: reason || 'tick', payload: JSON.parse(text) });
+    while (ring.length > SNAPSHOT_SLOTS) ring.shift();
+    snapshotLastAt = Date.now();
+    save(STORE.SNAPSHOTS, ring);
+    return true;
+  }
+  function snapshotTick() {
+    if (state.snapshotsOn === false) return;
+    if (Date.now() - snapshotLastAt < SNAPSHOT_INTERVAL_MS) return;
+
+    if (automationPaused({})) return;
+    snapshotBuild('tick');
+  }
+  function snapshotList() {
+    return snapshotRing().map((s, i) => ({ slot: i, at: s.at, sizeBytes: s.sizeBytes, reason: s.reason }));
+  }
+  function snapshotTotalBytes() { return snapshotRing().reduce((n, s) => n + (+s.sizeBytes || 0), 0); }
+
+  function snapshotRestore(slot) {
+    if (state.safeMode) { flash('modo seguro: restaurar esta desactivado'); return false; }
+    const s = snapshotRing()[slot];
+    if (!s || !s.payload) return false;
+    const p = s.payload;
+    const put = (key, store, v) => { if (v === undefined) return; state[key] = v; save(store, v); };
+    put('abTargets', STORE.AB_TARGETS, p.plans && p.plans.abTargets);
+    put('researchTargets', STORE.RESEARCH_TARGETS, p.plans && p.plans.researchTargets);
+    put('recruitTargets', STORE.RECRUIT_TARGETS, p.plans && p.plans.recruitTargets);
+    put('merchantWish', STORE.MERCHANT_WISH, p.plans && p.plans.merchantWish);
+    put('txState', STORE.TX_STATE, p.txState);
+    put('circuits', STORE.CIRCUITS, p.circuits);
+    put('decisionSkips', STORE.DECISION_SKIPS, p.decisionSkips);
+    put('farmOptionMap', STORE.FARM_OPTION_MAP, p.farmOptionMap);
+    gbLog(`snapshot: restored slot ${slot} from ${new Date(s.at).toLocaleString()}`);
+    return true;
+  }
+
+  function profRings() {
+    if (!state.profileRings || typeof state.profileRings !== 'object') state.profileRings = {};
+    return state.profileRings;
+  }
+  function profTime(key, fn) {
+    if (!state.profilerOn) return fn();
+    const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    try {
+      return fn();
+    } finally {
+
+      const dt = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - t0;
+      const r = profRings();
+      const e = r[key] || (r[key] = { count: 0, sumMs: 0, maxMs: 0, lastMs: 0, lastAt: 0 });
+      e.count++; e.sumMs += dt; e.lastMs = dt; e.lastAt = Date.now();
+      if (dt > e.maxMs) e.maxMs = dt;
+    }
+  }
+  function profTopLines(n) {
+    const r = profRings();
+    const rows = Object.entries(r)
+      .filter(([, e]) => e && e.count > 0)
+      .map(([k, e]) => ({ k, avg: e.sumMs / e.count, max: e.maxMs, count: e.count }))
+      .sort((a, b) => b.avg - a.avg)
+      .slice(0, n || 8);
+    if (!rows.length) return [];
+    return ['perfilador (ms por llamada)'].concat(
+      rows.map(x => `  ${x.k.padEnd(22)} ${x.avg.toFixed(1).padStart(7)} med  ${x.max.toFixed(1).padStart(7)} max  ${String(x.count).padStart(5)} llam.`));
+  }
+
+  const MEM_SAMPLE_MS = 300000;
+  const MEM_RING = 24;
+  const MEM_MAPS = ['dodgeReturns', 'txState', 'decisionSkips', 'farmResources', 'townResources', 'spellCooldown', 'buildSwapIgnore'];
+  let memNextAt = 0;
+  function memRing() {
+    if (!Array.isArray(state.memSamples)) state.memSamples = [];
+    return state.memSamples;
+  }
+  function memSample() {
+    let used = null, total = null;
+    try {
+      const m = (typeof performance !== 'undefined') ? performance.memory : null;
+      if (m && Number.isFinite(+m.usedJSHeapSize)) { used = +m.usedJSHeapSize; total = +m.totalJSHeapSize; }
+    } catch (_) {}
+    const maps = {};
+    for (const k of MEM_MAPS) {
+      const v = state[k];
+      maps[k] = (v && typeof v === 'object') ? Object.keys(v).length : null;
+    }
+
+    return { ts: Date.now(), used, total, maps, blind: used == null };
+  }
+  function memTick() {
+    if (!state.memProbeOn) return;
+    const now = Date.now();
+    if (now < memNextAt) return;
+    memNextAt = now + MEM_SAMPLE_MS;
+    const ring = memRing();
+    ring.push(memSample());
+    while (ring.length > MEM_RING) ring.shift();
+  }
+  function memLines() {
+    const ring = memRing();
+    if (!ring.length) return [];
+    const last = ring[ring.length - 1], first = ring[0];
+    const mb = n => (n == null ? null : (n / 1048576).toFixed(1));
+    const lines = [];
+    if (last.blind) {
+      gbLogT('mem-api', 3600000, 'memory probe: performance.memory no disponible (solo Chromium) - solo tamanos de mapas');
+      lines.push('memoria: API no disponible (solo Chromium)');
+    } else {
+      const d = (last.used != null && first.used != null) ? last.used - first.used : null;
+      lines.push(`memoria: ${mb(last.used)} Mb usados / ${mb(last.total)} Mb total` +
+        (d != null ? ` (delta ${d >= 0 ? '+' : ''}${mb(d)} Mb en ${ring.length} muestras)` : ''));
+    }
+    lines.push('mapas: ' + MEM_MAPS.map(k => `${k}=${last.maps[k] == null ? '?' : last.maps[k]}`).join(' '));
+    return lines;
+  }
+
+  function diagnosticsTick() {
+    try { snapshotTick(); } catch (_) {}
+    try { memTick(); } catch (_) {}
+  }
   function statsPct(n, d) { return d ? Math.round(n / d * 100) + '%' : '-'; }
 
   const FAVOR_HUD_WINDOW_MS = 600000;
@@ -18503,6 +18741,31 @@ const STORE = {
       } catch (e) { return { ok: false, detail: String(e).slice(0, 60) }; }
       return { ok: true, detail: `${towns.length} ciudades, ${jobs.length} movimiento(s) mejorarian el reparto ahora` };
     }));
+    out.push(preflightProbe('snapshots', () => {
+      const l = snapshotList();
+      const kb = Math.round(snapshotTotalBytes() / 1024);
+      return {
+        ok: true,
+        warn: state.snapshotsOn !== false && !l.length,
+        detail: state.snapshotsOn === false ? 'desactivado'
+          : `${l.length}/${SNAPSHOT_SLOTS} ranuras, ${kb} KB` + (l.length ? `, ultima ${new Date(l[l.length - 1].at).toLocaleTimeString()}` : ''),
+      };
+    }));
+    out.push(preflightProbe('profiler', () => {
+      const n = Object.keys(state.profileRings || {}).length;
+      return { ok: true, detail: state.profilerOn ? `activo, ${n} clave(s) muestreadas` : 'desactivado (por defecto)' };
+    }));
+    out.push(preflightProbe('memory probe', () => {
+      if (!state.memProbeOn) return { ok: true, detail: 'desactivado (por defecto)' };
+      const s0 = memSample();
+      return {
+        ok: true,
+
+        warn: s0.blind,
+        detail: (s0.blind ? 'heap no legible (solo Chromium), ' : `heap ${(s0.used / 1048576).toFixed(1)} Mb, `) +
+          `${(state.memSamples || []).length} muestras`,
+      };
+    }));
     out.push(preflightProbe('favor pool read', () => {
       let fav = null;
       try { fav = favorCurrent(); } catch (_) {}
@@ -18855,6 +19118,8 @@ const STORE = {
     }
     lines.push('');
     try { const g = growthBlock(); if (g.length) { lines.push(...g); lines.push(''); } } catch (_) {}
+    try { const p0 = profTopLines(8); if (p0.length) { lines.push(...p0); lines.push(''); } } catch (_) {}
+    try { const m0 = memLines(); if (m0.length) { lines.push(...m0); lines.push(''); } } catch (_) {}
     try { lines.push(...favorHudBlock()); } catch (_) {}
     try {
       const bh = (typeof banditAttackHistory !== 'undefined' ? banditAttackHistory : []).slice(-3).reverse();
@@ -20883,6 +21148,10 @@ const STORE = {
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Ctrl/Cmd+Shift+tecla. Nunca se dispara mientras escribes en un campo del juego o del panel."><input type="checkbox" data-cfg="keyboard-shortcuts"/> Atajos de teclado</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Anade un menu GrepBot junto al popup de ciudad del juego. No intercepta ningun evento del juego: solo se monta al lado."><input type="checkbox" data-cfg="context-menu"/> Menu contextual junto al popup del juego</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Guarda cada 5 min una instantanea acotada de la configuracion y el estado de transacciones. No copia la bitacora ni los hallazgos."><input type="checkbox" data-cfg="snapshots-on"/> Instantaneas de estado</label>
+        <label style="margin-left:12px;font-size:10px"><button data-cfg="snapshot-restore" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Restaurar instantanea...</button></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Mide ms por llamada de cada bucle. Muy barato, pero por defecto OFF."><input type="checkbox" data-cfg="profiler-on"/> Perfilador de rendimiento</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Muestrea el heap (solo Chromium) y el tamano de los mapas de estado cada 5 min."><input type="checkbox" data-cfg="mem-probe-on"/> Sonda de memoria</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Aplica un perfil (AFK / recoleccion / guerra) segun dia, hora y condiciones. Lista de reglas acotada: no acepta codigo ni texto libre."><input type="checkbox" data-cfg="profile-auto"/> Cambio automatico de perfiles</label>
         <label style="margin-left:12px;font-size:10px">Permanencia minima <input type="number" data-cfg="profile-auto-hold" min="15" max="1440" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> min
           <button data-cfg="profile-auto-edit" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px;margin-left:6px">Reglas...</button>
@@ -21016,7 +21285,7 @@ const STORE = {
     <section data-tab="log" hidden>
       <div class="gb-logsub">
         <button data-logsub="live" class="on">Registro en vivo</button>
-        <button data-logsub="mem">Decisiones</button>
+        <button data-logsub="mem">Decisiones</button><button data-logsub="replay">Reproducir</button>
         <input class="jrn-filter" placeholder="filter feature/action/target"/>
       </div>
       <div class="log-list"></div>
@@ -21090,13 +21359,17 @@ const STORE = {
 
   panel.querySelectorAll('.gb-logsub button').forEach(btn => {
     btn.addEventListener('click', () => {
-      const mem = btn.dataset.logsub === 'mem';
+      const sub = btn.dataset.logsub;
+
+      const usesPane = sub === 'mem' || sub === 'replay';
       panel.querySelectorAll('.gb-logsub button').forEach(b => b.classList.toggle('on', b === btn));
       const live = panel.querySelector('.log-list');
       const pane = panel.querySelector('.jrn-pane');
-      if (live) live.hidden = mem;
-      if (pane) pane.hidden = !mem;
-      if (mem) renderJournal(); else renderLog();
+      if (live) live.hidden = usesPane;
+      if (pane) pane.hidden = !usesPane;
+      if (sub === 'mem') renderJournal();
+      else if (sub === 'replay') renderReplay();
+      else renderLog();
     });
   });
   panel.querySelectorAll('[data-stats]').forEach(btn => {
@@ -21509,6 +21782,9 @@ const STORE = {
       const th = sec.querySelector('[data-cfg=theme]'); if (th) th.value = GB_THEMES.includes(state.theme) ? state.theme : 'dark';
       const ks = sec.querySelector('[data-cfg=keyboard-shortcuts]'); if (ks) ks.checked = state.keyboardShortcuts !== false;
       const cm = sec.querySelector('[data-cfg=context-menu]'); if (cm) cm.checked = state.contextMenu !== false;
+      const sn = sec.querySelector('[data-cfg=snapshots-on]'); if (sn) sn.checked = state.snapshotsOn !== false;
+      const pf = sec.querySelector('[data-cfg=profiler-on]'); if (pf) pf.checked = !!state.profilerOn;
+      const mp = sec.querySelector('[data-cfg=mem-probe-on]'); if (mp) mp.checked = !!state.memProbeOn;
       { const pa = profileAutoCfg();
         const pc = sec.querySelector('[data-cfg=profile-auto]'); if (pc) pc.checked = pa.enabled;
         setNum('[data-cfg=profile-auto-hold]', pa.minHoldMin);
@@ -22137,6 +22413,28 @@ const STORE = {
         bindConfig();
       } catch (_) { flash('JSON de reglas invalido'); }
     });
+    sec.querySelector('[data-cfg=snapshots-on]')?.addEventListener('change', e => {
+      state.snapshotsOn = !!e.target.checked; save(STORE.SNAPSHOTS_ON, state.snapshotsOn);
+    });
+    sec.querySelector('[data-cfg=profiler-on]')?.addEventListener('change', e => {
+      state.profilerOn = !!e.target.checked; save(STORE.PROFILER_ON, state.profilerOn);
+      if (!state.profilerOn) state.profileRings = {};
+    });
+    sec.querySelector('[data-cfg=mem-probe-on]')?.addEventListener('change', e => {
+      state.memProbeOn = !!e.target.checked; save(STORE.MEM_PROBE_ON, state.memProbeOn);
+    });
+    sec.querySelector('[data-cfg=snapshot-restore]')?.addEventListener('click', () => {
+      const l = snapshotList();
+      if (!l.length) { flash('sin instantaneas'); return; }
+      const menu = l.map(x => `${x.slot}: ${new Date(x.at).toLocaleString()} (${Math.round(x.sizeBytes / 1024)} KB)`).join('\n');
+      const pick = prompt('Restaurar que ranura?\n' + menu, String(l[l.length - 1].slot));
+      if (pick == null) return;
+      const slot = +pick;
+      if (!Number.isInteger(slot) || !l.some(x => x.slot === slot)) { flash('ranura no valida'); return; }
+      if (!confirm('Restaurar sobrescribe objetivos, transacciones y ventanas de salto. Continuar?')) return;
+      if (snapshotRestore(slot)) { flash('instantanea restaurada'); bindConfig(); updateStatus(); }
+      else flash('no se pudo restaurar');
+    });
     sec.querySelector('[data-cfg=context-menu]')?.addEventListener('change', e => {
       state.contextMenu = !!e.target.checked;
       save(STORE.CONTEXT_MENU, state.contextMenu);
@@ -22467,6 +22765,64 @@ const STORE = {
     }
   }
 
+  const REPLAY_WINDOWS = { '1h': 3600000, '24h': 86400000, '7d': 604800000 };
+  let replayWindow = '24h';
+  function renderReplay() {
+    const pane = panel && panel.querySelector('.jrn-pane');
+    const list = pane && pane.querySelector('.jrn-list');
+    if (!list || pane.hidden) return;
+    const rows = jrnSlice({ since: Date.now() - REPLAY_WINDOWS[replayWindow] });
+    const cur = Math.max(0, Math.min(rows.length - 1, +state.replayCursor || 0));
+    state.replayCursor = cur;
+    list.replaceChildren();
+    const bar = document.createElement('div');
+    bar.style.cssText = 'display:flex;gap:4px;align-items:center;font-size:10px;margin-bottom:4px;flex-wrap:wrap';
+    for (const w of Object.keys(REPLAY_WINDOWS)) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = w;
+      b.style.cssText = 'background:' + (w === replayWindow ? 'var(--gb-chrome-3)' : 'var(--gb-chrome)') +
+        ';border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);font-size:10px;padding:1px 6px;cursor:pointer';
+      b.addEventListener('click', () => { replayWindow = w; state.replayCursor = 0; renderReplay(); });
+      bar.appendChild(b);
+    }
+    const mk = (label, fn) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = label;
+      b.style.cssText = 'background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);font-size:10px;padding:1px 6px;cursor:pointer';
+      b.disabled = !rows.length;
+      b.addEventListener('click', () => { fn(); renderReplay(); });
+      return b;
+    };
+    bar.appendChild(mk('<', () => { state.replayCursor = Math.max(0, cur - 1); }));
+    bar.appendChild(mk('>', () => { state.replayCursor = Math.min(rows.length - 1, cur + 1); }));
+    bar.appendChild(mk('fin', () => { state.replayCursor = Math.max(0, rows.length - 1); }));
+    const pos = document.createElement('span');
+    pos.style.color = 'var(--gb-fg-mute)';
+    pos.textContent = rows.length ? `${cur + 1}/${rows.length}` : 'sin filas en la ventana';
+    bar.appendChild(pos);
+    list.appendChild(bar);
+    if (!rows.length) return;
+    const row = rows[cur];
+    const win = jrnWindowOf(row);
+    const box = document.createElement('div');
+    box.style.cssText = 'font-size:11px;white-space:pre-wrap;line-height:1.5';
+    box.textContent =
+      `${new Date(row.ts).toLocaleString()}\n` +
+      `feature : ${row.f}\n` +
+      `accion  : ${row.a}\n` +
+      `objetivo: ${row.k}\n` +
+      `resultado: ${row.r}${row.n > 1 ? ` (x${row.n})` : ''}\n` +
+      (row.d ? `detalle : ${row.d}\n` : '') +
+      (win ? `ventana de salto: ${win.r}, ${Math.max(0, Math.round((win.until - Date.now()) / 1000))}s restantes, ${win.trips} disparo(s)` : 'sin ventana de salto abierta');
+    list.appendChild(box);
+
+    const ctx = document.createElement('div');
+    ctx.style.cssText = 'margin-top:6px;font-size:10px;color:var(--gb-fg-mute);white-space:pre-wrap';
+    ctx.textContent = rows.slice(Math.max(0, cur - 3), cur + 4)
+      .map((r, i) => `${(Math.max(0, cur - 3) + i) === cur ? '> ' : '  '}${new Date(r.ts).toLocaleTimeString()} ${r.f} ${r.a} ${r.r}`)
+      .join('\n');
+    list.appendChild(ctx);
+  }
   function renderJournal() {
     const pane = panel && panel.querySelector('.jrn-pane');
     const list = pane && pane.querySelector('.jrn-list');
@@ -22924,7 +23280,7 @@ const STORE = {
   contextMenuStart();
   gbTimeout(() => { try { hudRestore(); } catch (_) {} }, 1500);
 
-  gbInterval(gbLockSweep, 10000);
+  gbInterval(() => { gbLockSweep(); try { diagnosticsTick(); } catch (_) {} }, 10000);
   const releaseLocks = () => {
     try { cancelArmedAttack(); } catch (_) {}
 
@@ -22934,6 +23290,7 @@ const STORE = {
     try { if (typeof dodgeQueueSave === 'function') dodgeQueueSave(); } catch (_) {}
     try { if (typeof questClaimFailSave === 'function') questClaimFailSave(); } catch (_) {}
     try { if (typeof persistServerCooldown === 'function') persistServerCooldown(); } catch (_) {}
+    try { snapshotBuild('exit'); } catch (_) {}
   };
   gbListen(window, 'beforeunload', releaseLocks);
   gbListen(window, 'pagehide', releaseLocks);

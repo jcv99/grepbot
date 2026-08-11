@@ -411,6 +411,7 @@
     configVer: load(STORE.CONFIG_VER, 1),
     configUndo: load(STORE.CONFIG_UNDO, []) || [],
     configRedo: load(STORE.CONFIG_REDO, []) || [],
+    replayCursor: 0,
     decisions: load(STORE.DECISIONS, []),
     decisionSkips: load(STORE.DECISION_SKIPS, {}),
     decisionMemory: load(STORE.DECISION_MEM, true),
@@ -419,6 +420,7 @@
     exportRedact: load(STORE.EXPORT_REDACT, true),
     orchAdaptive: load(STORE.ORCH_ADAPTIVE, true),
     txState: load(STORE.TX_STATE, {}),
+    circuitAutoClear: load(STORE.CIRCUIT_AUTO_CLEAR, true),
     circuits: load(STORE.CIRCUITS, {}),
     abOrder: load(STORE.AB_ORDER, null),
     // v4 plan 4.5: repairs cost resources without user action, so default OFF.
@@ -443,6 +445,12 @@
     supportLastSend: load(STORE.SUPPORT_LAST_SEND, {}) || {},
     supportTpl: load(STORE.SUPPORT_TEMPLATE, null),
     dodgeReturns: load(STORE.DODGE_RETURNS, {}),
+    snapshots: load(STORE.SNAPSHOTS, []) || [],
+    snapshotsOn: load(STORE.SNAPSHOTS_ON, true),
+    profilerOn: load(STORE.PROFILER_ON, false),
+    memProbeOn: load(STORE.MEM_PROBE_ON, false),
+    profileRings: {},
+    memSamples: [],
     health: load(STORE.HEALTH, {}),
     clientFingerprint: load(STORE.CLIENT_FP, null),
     safeMode: load(STORE.SAFE_MODE, true),
@@ -843,7 +851,7 @@
         return;
       }
       const item = gbWakeQueue.shift();
-      try { item.fn(); } catch (e) { gbLogT('wake-err', 30000, 'wake: ' + item.key + ' ' + String(e).slice(0, 60)); }
+      try { profTime('wake:' + item.key, () => item.fn()); } catch (e) { gbLogT('wake-err', 30000, 'wake: ' + item.key + ' ' + String(e).slice(0, 60)); }
       const spacing = WAKE_SPACING_MS + Math.floor(Math.random() * 400);
       if (gbWakeQueue.length) gbTimeout(step, spacing);
       else gbWakeDraining = false;

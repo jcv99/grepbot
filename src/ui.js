@@ -1117,6 +1117,10 @@
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Ctrl/Cmd+Shift+tecla. Nunca se dispara mientras escribes en un campo del juego o del panel."><input type="checkbox" data-cfg="keyboard-shortcuts"/> Atajos de teclado</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Anade un menu GrepBot junto al popup de ciudad del juego. No intercepta ningun evento del juego: solo se monta al lado."><input type="checkbox" data-cfg="context-menu"/> Menu contextual junto al popup del juego</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Guarda cada 5 min una instantanea acotada de la configuracion y el estado de transacciones. No copia la bitacora ni los hallazgos."><input type="checkbox" data-cfg="snapshots-on"/> Instantaneas de estado</label>
+        <label style="margin-left:12px;font-size:10px"><button data-cfg="snapshot-restore" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Restaurar instantanea...</button></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Mide ms por llamada de cada bucle. Muy barato, pero por defecto OFF."><input type="checkbox" data-cfg="profiler-on"/> Perfilador de rendimiento</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Muestrea el heap (solo Chromium) y el tamano de los mapas de estado cada 5 min."><input type="checkbox" data-cfg="mem-probe-on"/> Sonda de memoria</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Aplica un perfil (AFK / recoleccion / guerra) segun dia, hora y condiciones. Lista de reglas acotada: no acepta codigo ni texto libre."><input type="checkbox" data-cfg="profile-auto"/> Cambio automatico de perfiles</label>
         <label style="margin-left:12px;font-size:10px">Permanencia minima <input type="number" data-cfg="profile-auto-hold" min="15" max="1440" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> min
           <button data-cfg="profile-auto-edit" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px;margin-left:6px">Reglas...</button>
@@ -1250,7 +1254,7 @@
     <section data-tab="log" hidden>
       <div class="gb-logsub">
         <button data-logsub="live" class="on">Registro en vivo</button>
-        <button data-logsub="mem">Decisiones</button>
+        <button data-logsub="mem">Decisiones</button><button data-logsub="replay">Reproducir</button>
         <input class="jrn-filter" placeholder="filter feature/action/target"/>
       </div>
       <div class="log-list"></div>
@@ -1324,13 +1328,19 @@
 
   panel.querySelectorAll('.gb-logsub button').forEach(btn => {
     btn.addEventListener('click', () => {
-      const mem = btn.dataset.logsub === 'mem';
+      const sub = btn.dataset.logsub;
+      // The journal pane hosts BOTH non-live sub-views, so it must be visible
+      // for replay too - keying its visibility off 'mem' alone left the replay
+      // rendering into a hidden pane.
+      const usesPane = sub === 'mem' || sub === 'replay';
       panel.querySelectorAll('.gb-logsub button').forEach(b => b.classList.toggle('on', b === btn));
       const live = panel.querySelector('.log-list');
       const pane = panel.querySelector('.jrn-pane');
-      if (live) live.hidden = mem;
-      if (pane) pane.hidden = !mem;
-      if (mem) renderJournal(); else renderLog();
+      if (live) live.hidden = usesPane;
+      if (pane) pane.hidden = !usesPane;
+      if (sub === 'mem') renderJournal();
+      else if (sub === 'replay') renderReplay();
+      else renderLog();
     });
   });
   panel.querySelectorAll('[data-stats]').forEach(btn => {
@@ -1761,6 +1771,9 @@
       const th = sec.querySelector('[data-cfg=theme]'); if (th) th.value = GB_THEMES.includes(state.theme) ? state.theme : 'dark';
       const ks = sec.querySelector('[data-cfg=keyboard-shortcuts]'); if (ks) ks.checked = state.keyboardShortcuts !== false;
       const cm = sec.querySelector('[data-cfg=context-menu]'); if (cm) cm.checked = state.contextMenu !== false;
+      const sn = sec.querySelector('[data-cfg=snapshots-on]'); if (sn) sn.checked = state.snapshotsOn !== false;
+      const pf = sec.querySelector('[data-cfg=profiler-on]'); if (pf) pf.checked = !!state.profilerOn;
+      const mp = sec.querySelector('[data-cfg=mem-probe-on]'); if (mp) mp.checked = !!state.memProbeOn;
       { const pa = profileAutoCfg();
         const pc = sec.querySelector('[data-cfg=profile-auto]'); if (pc) pc.checked = pa.enabled;
         setNum('[data-cfg=profile-auto-hold]', pa.minHoldMin);
@@ -2392,6 +2405,28 @@
         bindConfig();
       } catch (_) { flash('JSON de reglas invalido'); }
     });
+    sec.querySelector('[data-cfg=snapshots-on]')?.addEventListener('change', e => {
+      state.snapshotsOn = !!e.target.checked; save(STORE.SNAPSHOTS_ON, state.snapshotsOn);
+    });
+    sec.querySelector('[data-cfg=profiler-on]')?.addEventListener('change', e => {
+      state.profilerOn = !!e.target.checked; save(STORE.PROFILER_ON, state.profilerOn);
+      if (!state.profilerOn) state.profileRings = {};
+    });
+    sec.querySelector('[data-cfg=mem-probe-on]')?.addEventListener('change', e => {
+      state.memProbeOn = !!e.target.checked; save(STORE.MEM_PROBE_ON, state.memProbeOn);
+    });
+    sec.querySelector('[data-cfg=snapshot-restore]')?.addEventListener('click', () => {
+      const l = snapshotList();
+      if (!l.length) { flash('sin instantaneas'); return; }
+      const menu = l.map(x => `${x.slot}: ${new Date(x.at).toLocaleString()} (${Math.round(x.sizeBytes / 1024)} KB)`).join('\n');
+      const pick = prompt('Restaurar que ranura?\n' + menu, String(l[l.length - 1].slot));
+      if (pick == null) return;
+      const slot = +pick;
+      if (!Number.isInteger(slot) || !l.some(x => x.slot === slot)) { flash('ranura no valida'); return; }
+      if (!confirm('Restaurar sobrescribe objetivos, transacciones y ventanas de salto. Continuar?')) return;
+      if (snapshotRestore(slot)) { flash('instantanea restaurada'); bindConfig(); updateStatus(); }
+      else flash('no se pudo restaurar');
+    });
     sec.querySelector('[data-cfg=context-menu]')?.addEventListener('change', e => {
       state.contextMenu = !!e.target.checked;
       save(STORE.CONTEXT_MENU, state.contextMenu);
@@ -2724,6 +2759,67 @@
     }
   }
 
+  // v4 plan 8.5: walk the decision ring forward, one row at a time, with the
+  // open skip window for that row beside it. Read-only - the replay never
+  // writes a decision.
+  const REPLAY_WINDOWS = { '1h': 3600000, '24h': 86400000, '7d': 604800000 };
+  let replayWindow = '24h';
+  function renderReplay() {
+    const pane = panel && panel.querySelector('.jrn-pane');
+    const list = pane && pane.querySelector('.jrn-list');
+    if (!list || pane.hidden) return;
+    const rows = jrnSlice({ since: Date.now() - REPLAY_WINDOWS[replayWindow] });
+    const cur = Math.max(0, Math.min(rows.length - 1, +state.replayCursor || 0));
+    state.replayCursor = cur;
+    list.replaceChildren();
+    const bar = document.createElement('div');
+    bar.style.cssText = 'display:flex;gap:4px;align-items:center;font-size:10px;margin-bottom:4px;flex-wrap:wrap';
+    for (const w of Object.keys(REPLAY_WINDOWS)) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = w;
+      b.style.cssText = 'background:' + (w === replayWindow ? 'var(--gb-chrome-3)' : 'var(--gb-chrome)') +
+        ';border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);font-size:10px;padding:1px 6px;cursor:pointer';
+      b.addEventListener('click', () => { replayWindow = w; state.replayCursor = 0; renderReplay(); });
+      bar.appendChild(b);
+    }
+    const mk = (label, fn) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = label;
+      b.style.cssText = 'background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);font-size:10px;padding:1px 6px;cursor:pointer';
+      b.disabled = !rows.length;
+      b.addEventListener('click', () => { fn(); renderReplay(); });
+      return b;
+    };
+    bar.appendChild(mk('<', () => { state.replayCursor = Math.max(0, cur - 1); }));
+    bar.appendChild(mk('>', () => { state.replayCursor = Math.min(rows.length - 1, cur + 1); }));
+    bar.appendChild(mk('fin', () => { state.replayCursor = Math.max(0, rows.length - 1); }));
+    const pos = document.createElement('span');
+    pos.style.color = 'var(--gb-fg-mute)';
+    pos.textContent = rows.length ? `${cur + 1}/${rows.length}` : 'sin filas en la ventana';
+    bar.appendChild(pos);
+    list.appendChild(bar);
+    if (!rows.length) return;
+    const row = rows[cur];
+    const win = jrnWindowOf(row);
+    const box = document.createElement('div');
+    box.style.cssText = 'font-size:11px;white-space:pre-wrap;line-height:1.5';
+    box.textContent =
+      `${new Date(row.ts).toLocaleString()}\n` +
+      `feature : ${row.f}\n` +
+      `accion  : ${row.a}\n` +
+      `objetivo: ${row.k}\n` +
+      `resultado: ${row.r}${row.n > 1 ? ` (x${row.n})` : ''}\n` +
+      (row.d ? `detalle : ${row.d}\n` : '') +
+      (win ? `ventana de salto: ${win.r}, ${Math.max(0, Math.round((win.until - Date.now()) / 1000))}s restantes, ${win.trips} disparo(s)` : 'sin ventana de salto abierta');
+    list.appendChild(box);
+    // Neighbouring rows for context, in chronological order.
+    const ctx = document.createElement('div');
+    ctx.style.cssText = 'margin-top:6px;font-size:10px;color:var(--gb-fg-mute);white-space:pre-wrap';
+    ctx.textContent = rows.slice(Math.max(0, cur - 3), cur + 4)
+      .map((r, i) => `${(Math.max(0, cur - 3) + i) === cur ? '> ' : '  '}${new Date(r.ts).toLocaleTimeString()} ${r.f} ${r.a} ${r.r}`)
+      .join('\n');
+    list.appendChild(ctx);
+  }
   function renderJournal() {
     const pane = panel && panel.querySelector('.jrn-pane');
     const list = pane && pane.querySelector('.jrn-list');
