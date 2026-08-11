@@ -348,6 +348,7 @@
     decisionSkips: load(STORE.DECISION_SKIPS, {}),
     decisionMemory: load(STORE.DECISION_MEM, true),
     dryRun: load(STORE.DRY_RUN, false),
+    intelBattleStats: load(STORE.INTEL_BATTLE_STATS, true),
     exportRedact: load(STORE.EXPORT_REDACT, true),
     orchAdaptive: load(STORE.ORCH_ADAPTIVE, true),
     txState: load(STORE.TX_STATE, {}),

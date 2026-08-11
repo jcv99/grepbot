@@ -77,8 +77,127 @@
         d.allianceNote = state.allianceNotes[f.alliance];
       }
     }
+    // Plan 2.5 work item 2: the battle profile rides on the dossier entry so
+    // any dossier consumer gets it without recomputing the aggregate.
+    try {
+      const loss = intelLossRatio(state.findings || []);
+      for (const d of Object.values(byPlayer)) if (loss.has(d.key)) d.loss = loss.get(d.key);
+    } catch (_) {}
     return Object.values(byPlayer).sort((a, b) => b.last - a.last);
   }
+  // ===== Battle report analyzer (v4 plan 2.5) ================================
+  // DELIBERATE DEVIATION from plan 2.5 section 3: it asks for popLost/popKilled.
+  // parseReport exposes no per-unit casualty field - `units` is the roster the
+  // report showed, not a loss count - so a "losses" number could only be
+  // invented. This analyzer reports what it can actually read: the outcome-based
+  // win rate (plan 2.1 normalised `outcome`) and the pop-weighted force each
+  // side is recorded as having committed. Unknown or naval units are skipped,
+  // never estimated (the wonder.js defenseLocalStrength precedent).
+  const INTEL_LOSS_TOP = 5;
+  const INTEL_FARM_TOP = 20;
+  // Naval is deliberately excluded (the wonder.js defenseLocalStrength
+  // precedent) but that is a FILTER, not an unknown - keeping the two counters
+  // apart is what makes the diagnostic readable.
+  function intelUnitPop(bag) {
+    let pop = 0, known = 0, unknown = 0, naval = 0;
+    for (const [id, n0] of Object.entries(bag || {})) {
+      const n = +n0 || 0;
+      if (!(n > 0)) continue;
+      const m = unitMeta(id);
+      if (!m) { unknown += n; continue; }
+      if (m.is_naval) { naval += n; continue; }
+      pop += n * Math.max(1, +m.population || 1);
+      known += n;
+    }
+    return { pop, known, unknown, naval };
+  }
+  function intelLossRatio(findings) {
+    const out = new Map();
+    const me = intelMyIdentity();
+    if (me.id == null && me.name == null) {
+      gbLogT('intel-identity-blind', 300000, 'intel: own identity unreadable - battle stats not scoped to you');
+    }
+    const row = (key, label) => {
+      let r = out.get(key);
+      if (!r) { r = { key, player: label, battles: 0, asAttacker: 0, wins: 0, losses: 0, draws: 0, popAtk: 0, popDef: 0, unknownUnits: 0, navalUnits: 0 }; out.set(key, r); }
+      return r;
+    };
+    for (const f of (findings || [])) {
+      if (!f || !f.outcome) continue; // no verdict read == no battle counted
+      const atk = f.attacker, def = f.defender;
+      // The subject is the OTHER player: a report about my own attack is scored
+      // against the defender, and vice versa.
+      let subject = null, subjectIsAttacker = false;
+      if (intelActorIsMe(atk, me) && def) { subject = def; subjectIsAttacker = false; }
+      else if (intelActorIsMe(def, me) && atk) { subject = atk; subjectIsAttacker = true; }
+      else if (atk) { subject = atk; subjectIsAttacker = true; }
+      else if (def) { subject = def; subjectIsAttacker = false; }
+      const key = intelPlayerKey(subject);
+      if (!key || key === 'unknown') continue;
+      const r = row(key, intelPlayerLabel(subject, key));
+      r.battles++;
+      r.asAttacker += subjectIsAttacker ? 1 : 0;
+      // Counted exactly as the report recorded it. The client never states
+      // whose point of view `outcome` belongs to, so flipping it per side would
+      // be a guess - the column is labelled as the report's own verdict.
+      if (f.outcome === 'win') r.wins++;
+      else if (f.outcome === 'lose') r.losses++;
+      else r.draws++;
+      const a = intelUnitPop(f.units_attacker || (f.units_defender ? null : f.units));
+      const d = intelUnitPop(f.units_defender);
+      r.popAtk += a.pop; r.popDef += d.pop;
+      r.unknownUnits += a.unknown + d.unknown;
+      r.navalUnits += a.naval + d.naval;
+    }
+    for (const r of out.values()) {
+      r.winRate = r.battles ? r.wins / r.battles : null;
+      r.lossRate = r.battles ? r.losses / r.battles : null;
+    }
+    return out;
+  }
+  function intelFarmProfitability(findings, me) {
+    const byVill = new Map();
+    const own = me || intelMyIdentity();
+    const mineKnown = own.id != null || own.name != null;
+    for (const f of (findings || [])) {
+      if (!f || f.vill_id == null || f.vill_id === '') continue;
+      // When identity is unreadable every raid counts - degrade to "show
+      // everything", never to a silent empty table. But once identity IS known,
+      // a raid with no attacker on record is not provably yours either, so it
+      // must not be attributed to your haul.
+      if (mineKnown && !intelActorIsMe(f.attacker, own)) continue;
+      const key = String(f.vill_id);
+      let r = byVill.get(key);
+      if (!r) { r = { vill_id: key, name: null, raids: 0, haul: 0, hauls: 0, hauledKnown: 0 }; byVill.set(key, r); }
+      r.raids++;
+      if (!r.name && f.town && f.town.name) r.name = f.town.name;
+      const src = f.resources || {};
+      let sum = 0, any = false;
+      for (const k of GB_RES_KEYS) {
+        if (src[k] == null) continue;
+        const n = Number(src[k]);
+        if (!Number.isFinite(n)) continue;
+        sum += n; any = true;
+      }
+      // A raid whose loot was never reported is not a zero-loot raid; it is
+      // excluded from the success denominator rather than counted as a failure.
+      if (!any) continue;
+      r.hauledKnown++;
+      r.haul += sum;
+      if (sum > 0) r.hauls++;
+    }
+    return Array.from(byVill.values())
+      .map(r => Object.assign({}, r, {
+        // Divide by the raids whose loot was actually reported: raids with no
+        // loot data are excluded from the numerator, so counting them in the
+        // denominator would understate a farm that simply reports sparsely.
+        perRaid: r.hauledKnown ? r.haul / r.hauledKnown : 0,
+        successRate: r.hauledKnown ? r.hauls / r.hauledKnown : null,
+      }))
+      .sort((a, b) => b.perRaid - a.perRaid)
+      .slice(0, INTEL_FARM_TOP);
+  }
+
   function intelThreatBoard() {
     return (typeof dodgeIncomingMovements === 'function') ? dodgeIncomingMovements() : [];
   }
@@ -506,6 +625,28 @@
     }
     if (state.attackPatternNote) {
       html += '\n=== Patrones de ataque ===\n' + state.attackPatternNote + '\n';
+    }
+    if (state.intelBattleStats !== false) {
+      const findings = state.findings || [];
+      const loss = Array.from(intelLossRatio(findings).values())
+        // Loss RATE first: 1 loss in 1 battle should not outrank 1 loss in 100.
+        .sort((a, b) => ((b.lossRate || 0) - (a.lossRate || 0)) || (b.losses - a.losses) || (b.battles - a.battles))
+        .slice(0, INTEL_LOSS_TOP);
+      html += '\n=== Pérdidas (verdicto del informe) ===\n';
+      if (!loss.length) html += '(sin informes con resultado)\n';
+      else loss.forEach(r => {
+        const wr = r.winRate == null ? '?' : Math.round(r.winRate * 100) + '%';
+        html += `${r.player}: ${r.battles} batallas (${r.asAttacker} como atacante) | ` +
+          `${r.wins}G/${r.losses}P/${r.draws}E · exito ${wr} | pob atac ${Math.round(r.popAtk)} def ${Math.round(r.popDef)}` +
+          (r.unknownUnits ? ` | ${r.unknownUnits} sin metadatos` : '') + (r.navalUnits ? ` | ${r.navalUnits} navales excluidas` : '') + '\n';
+      });
+      const farms = intelFarmProfitability(findings);
+      html += '\n=== Granjas top (botin por incursion) ===\n';
+      if (!farms.length) html += '(sin incursiones a aldeas)\n';
+      else farms.forEach(r => {
+        const sr = r.successRate == null ? '?' : Math.round(r.successRate * 100) + '%';
+        html += `${r.name || r.vill_id}: ${Math.round(r.perRaid)}/incursion · ${r.raids} incursiones · botin ${Math.round(r.haul)} · exito ${sr}\n`;
+      });
     }
     box.textContent = html;
     try { intelPatternScan(); } catch (_) {}

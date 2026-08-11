@@ -178,6 +178,18 @@
       const research = Object.values(nq.towns || {}).reduce((n, t) => n + (Array.isArray(t.research) ? t.research.length : 0), 0);
       return { ok: towns === 0 || (build + recruit + research) > 0, detail: `${towns} town(s) in native queue, ${build} build / ${recruit} recruit / ${research} research jobs` };
     }));
+    out.push(preflightProbe('intel: battle stats', () => {
+      const n = (state.findings || []).length;
+      const withVerdict = (state.findings || []).filter(f => f && f.outcome).length;
+      return {
+        ok: true,
+        // A small sample is not a failure, it is just not meaningful yet.
+        warn: n < 5,
+        detail: state.intelBattleStats === false
+          ? 'desactivado en Config'
+          : `${n} informes, ${withVerdict} con resultado` + (n < 5 ? ' - muestra pequena' : ''),
+      };
+    }));
     out.push(preflightProbe('goal profile', () => {
       const known = goalProfiles();
       const goals = state.townGoals || {};

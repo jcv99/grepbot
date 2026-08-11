@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.1.6
+// @version      4.1.9
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -132,6 +132,7 @@ const STORE = {
     CAPTCHA_GLOBAL_UNTIL: 'grepbot:captcha-global-until',
     REQ_BUDGET: 'grepbot:req-budget',
     ALLIANCE_NOTES: 'grepbot:alliance-notes',
+    INTEL_BATTLE_STATS: 'grepbot:intel-battle-stats',
     CONFIG_VER: 'grepbot:config-ver',
     WONDER_SPENT: 'grepbot:wonder-spent',
 
@@ -562,6 +563,7 @@ const STORE = {
     decisionSkips: load(STORE.DECISION_SKIPS, {}),
     decisionMemory: load(STORE.DECISION_MEM, true),
     dryRun: load(STORE.DRY_RUN, false),
+    intelBattleStats: load(STORE.INTEL_BATTLE_STATS, true),
     exportRedact: load(STORE.EXPORT_REDACT, true),
     orchAdaptive: load(STORE.ORCH_ADAPTIVE, true),
     txState: load(STORE.TX_STATE, {}),
@@ -11898,8 +11900,108 @@ const STORE = {
         d.allianceNote = state.allianceNotes[f.alliance];
       }
     }
+
+    try {
+      const loss = intelLossRatio(state.findings || []);
+      for (const d of Object.values(byPlayer)) if (loss.has(d.key)) d.loss = loss.get(d.key);
+    } catch (_) {}
     return Object.values(byPlayer).sort((a, b) => b.last - a.last);
   }
+
+  const INTEL_LOSS_TOP = 5;
+  const INTEL_FARM_TOP = 20;
+
+  function intelUnitPop(bag) {
+    let pop = 0, known = 0, unknown = 0, naval = 0;
+    for (const [id, n0] of Object.entries(bag || {})) {
+      const n = +n0 || 0;
+      if (!(n > 0)) continue;
+      const m = unitMeta(id);
+      if (!m) { unknown += n; continue; }
+      if (m.is_naval) { naval += n; continue; }
+      pop += n * Math.max(1, +m.population || 1);
+      known += n;
+    }
+    return { pop, known, unknown, naval };
+  }
+  function intelLossRatio(findings) {
+    const out = new Map();
+    const me = intelMyIdentity();
+    if (me.id == null && me.name == null) {
+      gbLogT('intel-identity-blind', 300000, 'intel: own identity unreadable - battle stats not scoped to you');
+    }
+    const row = (key, label) => {
+      let r = out.get(key);
+      if (!r) { r = { key, player: label, battles: 0, asAttacker: 0, wins: 0, losses: 0, draws: 0, popAtk: 0, popDef: 0, unknownUnits: 0, navalUnits: 0 }; out.set(key, r); }
+      return r;
+    };
+    for (const f of (findings || [])) {
+      if (!f || !f.outcome) continue;
+      const atk = f.attacker, def = f.defender;
+
+      let subject = null, subjectIsAttacker = false;
+      if (intelActorIsMe(atk, me) && def) { subject = def; subjectIsAttacker = false; }
+      else if (intelActorIsMe(def, me) && atk) { subject = atk; subjectIsAttacker = true; }
+      else if (atk) { subject = atk; subjectIsAttacker = true; }
+      else if (def) { subject = def; subjectIsAttacker = false; }
+      const key = intelPlayerKey(subject);
+      if (!key || key === 'unknown') continue;
+      const r = row(key, intelPlayerLabel(subject, key));
+      r.battles++;
+      r.asAttacker += subjectIsAttacker ? 1 : 0;
+
+      if (f.outcome === 'win') r.wins++;
+      else if (f.outcome === 'lose') r.losses++;
+      else r.draws++;
+      const a = intelUnitPop(f.units_attacker || (f.units_defender ? null : f.units));
+      const d = intelUnitPop(f.units_defender);
+      r.popAtk += a.pop; r.popDef += d.pop;
+      r.unknownUnits += a.unknown + d.unknown;
+      r.navalUnits += a.naval + d.naval;
+    }
+    for (const r of out.values()) {
+      r.winRate = r.battles ? r.wins / r.battles : null;
+      r.lossRate = r.battles ? r.losses / r.battles : null;
+    }
+    return out;
+  }
+  function intelFarmProfitability(findings, me) {
+    const byVill = new Map();
+    const own = me || intelMyIdentity();
+    const mineKnown = own.id != null || own.name != null;
+    for (const f of (findings || [])) {
+      if (!f || f.vill_id == null || f.vill_id === '') continue;
+
+      if (mineKnown && !intelActorIsMe(f.attacker, own)) continue;
+      const key = String(f.vill_id);
+      let r = byVill.get(key);
+      if (!r) { r = { vill_id: key, name: null, raids: 0, haul: 0, hauls: 0, hauledKnown: 0 }; byVill.set(key, r); }
+      r.raids++;
+      if (!r.name && f.town && f.town.name) r.name = f.town.name;
+      const src = f.resources || {};
+      let sum = 0, any = false;
+      for (const k of GB_RES_KEYS) {
+        if (src[k] == null) continue;
+        const n = Number(src[k]);
+        if (!Number.isFinite(n)) continue;
+        sum += n; any = true;
+      }
+
+      if (!any) continue;
+      r.hauledKnown++;
+      r.haul += sum;
+      if (sum > 0) r.hauls++;
+    }
+    return Array.from(byVill.values())
+      .map(r => Object.assign({}, r, {
+
+        perRaid: r.hauledKnown ? r.haul / r.hauledKnown : 0,
+        successRate: r.hauledKnown ? r.hauls / r.hauledKnown : null,
+      }))
+      .sort((a, b) => b.perRaid - a.perRaid)
+      .slice(0, INTEL_FARM_TOP);
+  }
+
   function intelThreatBoard() {
     return (typeof dodgeIncomingMovements === 'function') ? dodgeIncomingMovements() : [];
   }
@@ -12297,6 +12399,28 @@ const STORE = {
     }
     if (state.attackPatternNote) {
       html += '\n=== Patrones de ataque ===\n' + state.attackPatternNote + '\n';
+    }
+    if (state.intelBattleStats !== false) {
+      const findings = state.findings || [];
+      const loss = Array.from(intelLossRatio(findings).values())
+
+        .sort((a, b) => ((b.lossRate || 0) - (a.lossRate || 0)) || (b.losses - a.losses) || (b.battles - a.battles))
+        .slice(0, INTEL_LOSS_TOP);
+      html += '\n=== P\u00e9rdidas (verdicto del informe) ===\n';
+      if (!loss.length) html += '(sin informes con resultado)\n';
+      else loss.forEach(r => {
+        const wr = r.winRate == null ? '?' : Math.round(r.winRate * 100) + '%';
+        html += `${r.player}: ${r.battles} batallas (${r.asAttacker} como atacante) | ` +
+          `${r.wins}G/${r.losses}P/${r.draws}E \u00b7 exito ${wr} | pob atac ${Math.round(r.popAtk)} def ${Math.round(r.popDef)}` +
+          (r.unknownUnits ? ` | ${r.unknownUnits} sin metadatos` : '') + (r.navalUnits ? ` | ${r.navalUnits} navales excluidas` : '') + '\n';
+      });
+      const farms = intelFarmProfitability(findings);
+      html += '\n=== Granjas top (botin por incursion) ===\n';
+      if (!farms.length) html += '(sin incursiones a aldeas)\n';
+      else farms.forEach(r => {
+        const sr = r.successRate == null ? '?' : Math.round(r.successRate * 100) + '%';
+        html += `${r.name || r.vill_id}: ${Math.round(r.perRaid)}/incursion \u00b7 ${r.raids} incursiones \u00b7 botin ${Math.round(r.haul)} \u00b7 exito ${sr}\n`;
+      });
     }
     box.textContent = html;
     try { intelPatternScan(); } catch (_) {}
@@ -14412,6 +14536,18 @@ const STORE = {
       const research = Object.values(nq.towns || {}).reduce((n, t) => n + (Array.isArray(t.research) ? t.research.length : 0), 0);
       return { ok: towns === 0 || (build + recruit + research) > 0, detail: `${towns} town(s) in native queue, ${build} build / ${recruit} recruit / ${research} research jobs` };
     }));
+    out.push(preflightProbe('intel: battle stats', () => {
+      const n = (state.findings || []).length;
+      const withVerdict = (state.findings || []).filter(f => f && f.outcome).length;
+      return {
+        ok: true,
+
+        warn: n < 5,
+        detail: state.intelBattleStats === false
+          ? 'desactivado en Config'
+          : `${n} informes, ${withVerdict} con resultado` + (n < 5 ? ' - muestra pequena' : ''),
+      };
+    }));
     out.push(preflightProbe('goal profile', () => {
       const known = goalProfiles();
       const goals = state.townGoals || {};
@@ -15943,6 +16079,7 @@ const STORE = {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Copy/Export replace player names and ids with short hashes. Turn OFF only for local debugging."><input type="checkbox" data-cfg="export-redact"/> Redact names/ids in Copy + Export</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="captcha-global"/> Global captcha kill-switch</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Skip an action that failed the same way 3x in a row (5/15/60min backoff). Journal keeps recording either way."><input type="checkbox" data-cfg="decision-memory"/> Decision memory (skip repeat failures)</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Anade a la pestana Intel el resumen de batallas por jugador y el ranking de granjas por botin. Solo lectura, se recalcula en cada render."><input type="checkbox" data-cfg="intel-battle-stats"/> Estadisticas de batalla en Intel</label>
         <label>Req budget / min <input type="number" data-cfg="req-budget" min="5" max="120" style="width:50px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
         <label>Webhook URL <input type="text" data-cfg="webhook-url" placeholder="Discord webhook or https://api.telegram.org/bot\u2026/sendMessage" style="width:100%;background:#111;color:#cfc;border:1px solid #333;margin-top:2px;font-size:10px"/></label>
         <label style="margin-left:0;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">Events
@@ -16470,6 +16607,7 @@ const STORE = {
     setChk('[data-cfg=auto-trade]', state.autoTrade);
     setChk('[data-cfg=island-ship]', state.islandShip);
     setChk('[data-cfg=auto-transport]', state.autoTransport);
+    setChk('[data-cfg=intel-battle-stats]', state.intelBattleStats !== false);
     setChk('[data-cfg=auto-rural-trade]', state.autoRuralTrade);
     setChk('[data-cfg=auto-rural-level]', state.autoRuralLevel);
     setChk('[data-cfg=auto-research]', state.autoResearch);
@@ -16543,6 +16681,7 @@ const STORE = {
     bindToggle('[data-cfg=auto-trade]', 'autoTrade', STORE.AUTO_TRADE, () => tradeScan('toggle'));
     bindToggle('[data-cfg=island-ship]', 'islandShip', STORE.ISLAND_SHIP, () => tradeScan('toggle'));
     bindToggle('[data-cfg=auto-transport]', 'autoTransport', STORE.AUTO_TRANSPORT, () => tradeScan('toggle'));
+    bindToggle('[data-cfg=intel-battle-stats]', 'intelBattleStats', STORE.INTEL_BATTLE_STATS, () => { try { renderIntel(); } catch (_) {} });
     bindToggle('[data-cfg=auto-rural-trade]', 'autoRuralTrade', STORE.AUTO_RURAL_TRADE, () => ruralTradeScan('toggle'));
     bindToggle('[data-cfg=auto-rural-level]', 'autoRuralLevel', STORE.AUTO_RURAL_LEVEL, () => ruralLevelScan('toggle'));
     bindToggle('[data-cfg=auto-research]', 'autoResearch', STORE.AUTO_RESEARCH, () => researchScan('toggle'));
