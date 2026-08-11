@@ -332,7 +332,7 @@
     cityTemplates: load(STORE.CITY_TEMPLATES, {}),
     townGroups: load(STORE.TOWN_GROUPS, {}),
     webhookUrl: load(STORE.WEBHOOK_URL, ''),
-    webhookEvents: load(STORE.WEBHOOK_EVENTS, { captcha: true, attack: true, warehouse: false, culture: false, cappingPreWarn: false }),
+    webhookEvents: load(STORE.WEBHOOK_EVENTS, { captcha: true, attack: true, warehouse: false, culture: false, cappingPreWarn: false, 'counter-intel': true }),
     autoMerchant: load(STORE.AUTO_MERCHANT, false),
     merchantWish: load(STORE.MERCHANT_WISH, []),
     autoFavor: load(STORE.AUTO_FAVOR, false),

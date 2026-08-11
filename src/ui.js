@@ -893,6 +893,7 @@
           <label><input type="checkbox" data-cfg="wh-warehouse"/> warehouse</label>
           <label><input type="checkbox" data-cfg="wh-culture"/> culture</label>
           <label title="Aviso ~10 min antes de que un almacen llegue al limite."><input type="checkbox" data-cfg="wh-capping"/> Pre-aviso de almacen (~10 min)</label>
+          <label title="Aviso cuando alguien te espia repetidamente en 24h."><input type="checkbox" data-cfg="wh-counter-intel"/> contra-inteligencia</label>
         </label>
         <label>Telegram chat_id <input type="text" data-cfg="wh-tg-chat" placeholder="optional if not in URL" style="width:140px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px;font-size:10px"/></label>
         <div style="border-top:1px solid #333;padding-top:6px;color:#f96;font-size:10px">ALTO RIESGO (por defecto OFF)</div>
@@ -1544,6 +1545,7 @@
     setChk('[data-cfg=wh-warehouse]', !!we.warehouse);
     setChk('[data-cfg=wh-culture]', !!we.culture);
     setChk('[data-cfg=wh-capping]', !!we.cappingPreWarn);
+    setChk('[data-cfg=wh-counter-intel]', we['counter-intel'] !== false);
     const tg = sec.querySelector('[data-cfg=wh-tg-chat]'); if (tg) tg.value = we.telegramChatId || '';
     const tp = sec.querySelector('[data-cfg=trade-preset]'); if (tp) tp.value = state.tradePreset || 'storage';
     setNum('[data-cfg=trade-reserve]', state.tradeReservePct);
@@ -1774,11 +1776,12 @@
         warehouse: !!sec.querySelector('[data-cfg=wh-warehouse]')?.checked,
         culture: !!sec.querySelector('[data-cfg=wh-culture]')?.checked,
         cappingPreWarn: !!sec.querySelector('[data-cfg=wh-capping]')?.checked,
+        'counter-intel': !!sec.querySelector('[data-cfg=wh-counter-intel]')?.checked,
         telegramChatId: (sec.querySelector('[data-cfg=wh-tg-chat]')?.value || '').trim() || undefined,
       };
       save(STORE.WEBHOOK_EVENTS, state.webhookEvents);
     };
-    ['wh-captcha', 'wh-attack', 'wh-warehouse', 'wh-culture', 'wh-capping'].forEach(k => {
+    ['wh-captcha', 'wh-attack', 'wh-warehouse', 'wh-culture', 'wh-capping', 'wh-counter-intel'].forEach(k => {
       sec.querySelector('[data-cfg=' + k + ']')?.addEventListener('change', saveWebhookEvents);
     });
     sec.querySelector('[data-cfg=wh-tg-chat]')?.addEventListener('change', saveWebhookEvents);

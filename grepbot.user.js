@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.15.1
+// @version      4.16.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -569,7 +569,7 @@ const STORE = {
     cityTemplates: load(STORE.CITY_TEMPLATES, {}),
     townGroups: load(STORE.TOWN_GROUPS, {}),
     webhookUrl: load(STORE.WEBHOOK_URL, ''),
-    webhookEvents: load(STORE.WEBHOOK_EVENTS, { captcha: true, attack: true, warehouse: false, culture: false, cappingPreWarn: false }),
+    webhookEvents: load(STORE.WEBHOOK_EVENTS, { captcha: true, attack: true, warehouse: false, culture: false, cappingPreWarn: false, 'counter-intel': true }),
     autoMerchant: load(STORE.AUTO_MERCHANT, false),
     merchantWish: load(STORE.MERCHANT_WISH, []),
     autoFavor: load(STORE.AUTO_FAVOR, false),
@@ -13843,6 +13843,16 @@ const STORE = {
     if (state.attackPatternNote) {
       html += '\n=== Patrones de ataque ===\n' + state.attackPatternNote + '\n';
     }
+    {
+      let ci = [];
+      try { ci = intelCounterIntelScan(); } catch (_) {}
+      if (ci.length) {
+        html += '\n=== Contra-inteligencia (quien me espia) ===\n';
+        ci.slice(0, 5).forEach(r => {
+          html += `${r.name}: ${r.reports} espionaje(s) 24h sobre ${r.distinctTargets} ciudad(es) - ultimo ${new Date(r.last).toLocaleString()}\n`;
+        });
+      }
+    }
     if (state.spyEnabled) {
       html += '\n=== Cola de espionaje ===\n';
       let ranked = [];
@@ -13970,6 +13980,65 @@ const STORE = {
       try { alertWebhook('attack', { watchlist: id, why: m, finding: { type: f.type, ts: f.ts } }); } catch (_) {}
       break;
     }
+  }
+
+  const COUNTER_INTEL_WINDOW_MS = 24 * 3600000;
+  function counterIntelThreshold() {
+    const n = +((state.defenseCfg || {}).counterIntelMin);
+    return Number.isFinite(n) ? Math.max(1, Math.min(50, n)) : 3;
+  }
+  function intelCounterIntelScan() {
+    const now = Date.now();
+    const cut = now - COUNTER_INTEL_WINDOW_MS;
+    const me = intelMyIdentity();
+    const ownTownIds = new Set();
+    try { (townsFromGame() || []).forEach(t => ownTownIds.add(String(t.id))); } catch (_) {}
+    const by = {};
+    for (const f of (state.findings || [])) {
+      if (!f || !(+f.ts >= cut)) continue;
+
+      if (String(f.type || '').toLowerCase() !== 'spy') continue;
+
+      let mine = intelActorIsMe(f.defender, me);
+      if (!mine && !f.defender && f.town && f.town.id != null) mine = ownTownIds.has(String(f.town.id));
+      if (!mine) continue;
+      const key = intelPlayerKey(f.attacker);
+      if (!key || key === 'unknown') continue;
+      if (!by[key]) by[key] = { key, name: intelPlayerLabel(f.attacker, key), reports: 0, towns: [], seen: new Set(), first: +f.ts, last: +f.ts };
+      const b = by[key];
+      b.reports++;
+      b.last = Math.max(b.last, +f.ts);
+      b.first = Math.min(b.first, +f.ts);
+      const tid = f.town && (f.town.id != null ? f.town.id : f.town.name);
+      if (tid != null) {
+
+        b.seen.add(String(tid));
+        if (b.towns.indexOf(String(tid)) < 0 && b.towns.length < 8) b.towns.push(String(tid));
+      }
+    }
+    const rows = Object.values(by).map(b => Object.assign(b, { distinctTargets: b.seen.size }))
+      .sort((a, b) => b.reports - a.reports);
+    const min = counterIntelThreshold();
+    const hits = rows.filter(b => b.reports >= min);
+    hits.forEach(h => {
+      const bucket = Math.floor(now / COUNTER_INTEL_WINDOW_MS);
+      const ak = 'counter-intel:' + h.key + ':' + bucket;
+      if (state.alerted && state.alerted[ak]) return;
+      if (!state.alerted) state.alerted = {};
+      state.alerted[ak] = now;
+      save(STORE.ALERTED, state.alerted);
+      gbLog(`counter-intel: ${h.name} spied me ${h.reports}x/24h across ${h.distinctTargets} town(s)`);
+      try {
+        alertWebhook('counter-intel', {
+          watcher: state.exportRedact !== false ? String(h.name).slice(0, 2) + '***' : h.name,
+          n: h.reports,
+          towns: h.towns.map(t => state.exportRedact !== false ? String(t).slice(0, 2) + '***' : t),
+          distinctTargets: h.distinctTargets,
+          first: h.first, last: h.last, window: '24h',
+        });
+      } catch (_) {}
+    });
+    return rows;
   }
   function intelPatternScan() {
     const now = Date.now();
@@ -18346,6 +18415,7 @@ const STORE = {
           <label><input type="checkbox" data-cfg="wh-warehouse"/> warehouse</label>
           <label><input type="checkbox" data-cfg="wh-culture"/> culture</label>
           <label title="Aviso ~10 min antes de que un almacen llegue al limite."><input type="checkbox" data-cfg="wh-capping"/> Pre-aviso de almacen (~10 min)</label>
+          <label title="Aviso cuando alguien te espia repetidamente en 24h."><input type="checkbox" data-cfg="wh-counter-intel"/> contra-inteligencia</label>
         </label>
         <label>Telegram chat_id <input type="text" data-cfg="wh-tg-chat" placeholder="optional if not in URL" style="width:140px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px;font-size:10px"/></label>
         <div style="border-top:1px solid #333;padding-top:6px;color:#f96;font-size:10px">ALTO RIESGO (por defecto OFF)</div>
@@ -18996,6 +19066,7 @@ const STORE = {
     setChk('[data-cfg=wh-warehouse]', !!we.warehouse);
     setChk('[data-cfg=wh-culture]', !!we.culture);
     setChk('[data-cfg=wh-capping]', !!we.cappingPreWarn);
+    setChk('[data-cfg=wh-counter-intel]', we['counter-intel'] !== false);
     const tg = sec.querySelector('[data-cfg=wh-tg-chat]'); if (tg) tg.value = we.telegramChatId || '';
     const tp = sec.querySelector('[data-cfg=trade-preset]'); if (tp) tp.value = state.tradePreset || 'storage';
     setNum('[data-cfg=trade-reserve]', state.tradeReservePct);
@@ -19226,11 +19297,12 @@ const STORE = {
         warehouse: !!sec.querySelector('[data-cfg=wh-warehouse]')?.checked,
         culture: !!sec.querySelector('[data-cfg=wh-culture]')?.checked,
         cappingPreWarn: !!sec.querySelector('[data-cfg=wh-capping]')?.checked,
+        'counter-intel': !!sec.querySelector('[data-cfg=wh-counter-intel]')?.checked,
         telegramChatId: (sec.querySelector('[data-cfg=wh-tg-chat]')?.value || '').trim() || undefined,
       };
       save(STORE.WEBHOOK_EVENTS, state.webhookEvents);
     };
-    ['wh-captcha', 'wh-attack', 'wh-warehouse', 'wh-culture', 'wh-capping'].forEach(k => {
+    ['wh-captcha', 'wh-attack', 'wh-warehouse', 'wh-culture', 'wh-capping', 'wh-counter-intel'].forEach(k => {
       sec.querySelector('[data-cfg=' + k + ']')?.addEventListener('change', saveWebhookEvents);
     });
     sec.querySelector('[data-cfg=wh-tg-chat]')?.addEventListener('change', saveWebhookEvents);

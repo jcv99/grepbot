@@ -640,6 +640,16 @@
     if (state.attackPatternNote) {
       html += '\n=== Patrones de ataque ===\n' + state.attackPatternNote + '\n';
     }
+    {
+      let ci = [];
+      try { ci = intelCounterIntelScan(); } catch (_) {}
+      if (ci.length) {
+        html += '\n=== Contra-inteligencia (quien me espia) ===\n';
+        ci.slice(0, 5).forEach(r => {
+          html += `${r.name}: ${r.reports} espionaje(s) 24h sobre ${r.distinctTargets} ciudad(es) - ultimo ${new Date(r.last).toLocaleString()}\n`;
+        });
+      }
+    }
     if (state.spyEnabled) {
       html += '\n=== Cola de espionaje ===\n';
       let ranked = [];
@@ -769,6 +779,77 @@
       try { alertWebhook('attack', { watchlist: id, why: m, finding: { type: f.type, ts: f.ts } }); } catch (_) {}
       break; // one webhook per scan pass
     }
+  }
+  // ===== Counter-intel detection (v4 plan 4.2) ===============================
+  // POLICY BOUNDARY: plan 27 section 0 bans anti-pattern detection, i.e.
+  // profiling how other players dodge the bot. This is the INVERSE direction -
+  // it only groups spy reports whose defender resolves to ME, a signal the game
+  // itself delivers as a report. No posts, no probing, no behavioural model of
+  // anyone else. Widening this to predict what the watcher will DO is a new
+  // plan and must be re-checked against section 0 first.
+  const COUNTER_INTEL_WINDOW_MS = 24 * 3600000;
+  function counterIntelThreshold() {
+    const n = +((state.defenseCfg || {}).counterIntelMin);
+    return Number.isFinite(n) ? Math.max(1, Math.min(50, n)) : 3;
+  }
+  function intelCounterIntelScan() {
+    const now = Date.now();
+    const cut = now - COUNTER_INTEL_WINDOW_MS;
+    const me = intelMyIdentity();
+    const ownTownIds = new Set();
+    try { (townsFromGame() || []).forEach(t => ownTownIds.add(String(t.id))); } catch (_) {}
+    const by = {};
+    for (const f of (state.findings || [])) {
+      if (!f || !(+f.ts >= cut)) continue;
+      // Raw type read, no regex classification: a client that renames spy to
+      // something else should break THIS filter loudly, not silently
+      // reclassify attacks as spying.
+      if (String(f.type || '').toLowerCase() !== 'spy') continue;
+      // Never infer identity from a missing field. The defender block is the
+      // primary signal; when it is absent entirely, a town id that is provably
+      // one of mine is an equally hard fact, so the report still counts.
+      let mine = intelActorIsMe(f.defender, me);
+      if (!mine && !f.defender && f.town && f.town.id != null) mine = ownTownIds.has(String(f.town.id));
+      if (!mine) continue;
+      const key = intelPlayerKey(f.attacker);
+      if (!key || key === 'unknown') continue;
+      if (!by[key]) by[key] = { key, name: intelPlayerLabel(f.attacker, key), reports: 0, towns: [], seen: new Set(), first: +f.ts, last: +f.ts };
+      const b = by[key];
+      b.reports++;
+      b.last = Math.max(b.last, +f.ts);
+      b.first = Math.min(b.first, +f.ts);
+      const tid = f.town && (f.town.id != null ? f.town.id : f.town.name);
+      if (tid != null) {
+        // The DISPLAY list is capped at 8; the distinct count is not. Deriving
+        // the count from the capped array made a watcher hitting 12 towns
+        // report 8, which is a number that is simply wrong.
+        b.seen.add(String(tid));
+        if (b.towns.indexOf(String(tid)) < 0 && b.towns.length < 8) b.towns.push(String(tid));
+      }
+    }
+    const rows = Object.values(by).map(b => Object.assign(b, { distinctTargets: b.seen.size }))
+      .sort((a, b) => b.reports - a.reports);
+    const min = counterIntelThreshold();
+    const hits = rows.filter(b => b.reports >= min);
+    hits.forEach(h => {
+      const bucket = Math.floor(now / COUNTER_INTEL_WINDOW_MS);
+      const ak = 'counter-intel:' + h.key + ':' + bucket;
+      if (state.alerted && state.alerted[ak]) return;
+      if (!state.alerted) state.alerted = {};
+      state.alerted[ak] = now;
+      save(STORE.ALERTED, state.alerted);
+      gbLog(`counter-intel: ${h.name} spied me ${h.reports}x/24h across ${h.distinctTargets} town(s)`);
+      try {
+        alertWebhook('counter-intel', {
+          watcher: state.exportRedact !== false ? String(h.name).slice(0, 2) + '***' : h.name,
+          n: h.reports,
+          towns: h.towns.map(t => state.exportRedact !== false ? String(t).slice(0, 2) + '***' : t),
+          distinctTargets: h.distinctTargets,
+          first: h.first, last: h.last, window: '24h',
+        });
+      } catch (_) {}
+    });
+    return rows;
   }
   function intelPatternScan() {
     const now = Date.now();
