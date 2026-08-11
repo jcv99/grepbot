@@ -1,14 +1,5 @@
-  function cultureServerDay() {
-    try {
-      const now = gameNow();
-      const d = new Date(now * 1000);
-      return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
-    } catch (_) {
-      return new Date().toISOString().slice(0, 10);
-    }
-  }
   function cultureGoldSpentLoad() {
-    const day = cultureServerDay();
+    const day = gbServerDay();
     const saved = load(STORE.CULTURE_GOLD_SPENT, null);
     if (saved && saved.day === day) return { day, amount: +saved.amount || 0 };
     return { day, amount: 0 };

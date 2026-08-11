@@ -1096,6 +1096,17 @@
     const n = +v;
     return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : fallback;
   }
+  // Server-UTC date as YYYY-MM-DD. Shared by culture + wonder ledgers so a
+  // failed gameNow() falls back to the same ISO date on both paths.
+  function gbServerDay() {
+    try {
+      const now = gameNow();
+      const d = new Date(now * 1000);
+      return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+    } catch (_) {
+      return new Date().toISOString().slice(0, 10);
+    }
+  }
   function captchaLadder() {
     const raw = state.captchaLadder;
     if (Array.isArray(raw) && raw.length >= 1) {

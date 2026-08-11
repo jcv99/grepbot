@@ -1,14 +1,5 @@
-  function wonderServerDay() {
-    try {
-      const now = gameNow();
-      const d = new Date(now * 1000);
-      return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
-    } catch (_) {
-      return new Date().toISOString().slice(0, 10);
-    }
-  }
   function wonderLoadSpent() {
-    const day = wonderServerDay();
+    const day = gbServerDay();
     const saved = load(STORE.WONDER_SPENT, null);
     if (saved && saved.day === day) return { day, amount: +saved.amount || 0 };
     return { day, amount: 0 };
@@ -28,7 +19,7 @@
       gbLogT('wonder-noid', 300000, 'wonder: set wonderCfg.wonderId');
       return;
     }
-    const day = wonderServerDay();
+    const day = gbServerDay();
     if (wonderSpentToday.day !== day) wonderSpentToday = { day, amount: 0 };
     const budgetN = Number(cfg.budget);
     const budget = Number.isFinite(budgetN) ? Math.max(0, budgetN) : 50000;

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.44.6
+// @version      4.44.7
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1314,6 +1314,16 @@ const STORE = {
   function gbCfgClamp(v, lo, hi, fallback) {
     const n = +v;
     return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : fallback;
+  }
+
+  function gbServerDay() {
+    try {
+      const now = gameNow();
+      const d = new Date(now * 1000);
+      return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+    } catch (_) {
+      return new Date().toISOString().slice(0, 10);
+    }
   }
   function captchaLadder() {
     const raw = state.captchaLadder;
@@ -8923,17 +8933,8 @@ const STORE = {
   };
   const OLYMPIC_GOLD = 50;
   let cultureLast = null;
-  function cultureServerDay() {
-    try {
-      const now = gameNow();
-      const d = new Date(now * 1000);
-      return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
-    } catch (_) {
-      return new Date().toISOString().slice(0, 10);
-    }
-  }
   function cultureGoldSpentLoad() {
-    const day = cultureServerDay();
+    const day = gbServerDay();
     const saved = load(STORE.CULTURE_GOLD_SPENT, null);
     if (saved && saved.day === day) return { day, amount: +saved.amount || 0 };
     return { day, amount: 0 };
@@ -12312,17 +12313,8 @@ const STORE = {
     }
     gbLogT('godspell-idle', 600000, `godspell: nothing to cast (${reason || 'scan'})`);
   }
-  function wonderServerDay() {
-    try {
-      const now = gameNow();
-      const d = new Date(now * 1000);
-      return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
-    } catch (_) {
-      return new Date().toISOString().slice(0, 10);
-    }
-  }
   function wonderLoadSpent() {
-    const day = wonderServerDay();
+    const day = gbServerDay();
     const saved = load(STORE.WONDER_SPENT, null);
     if (saved && saved.day === day) return { day, amount: +saved.amount || 0 };
     return { day, amount: 0 };
@@ -12342,7 +12334,7 @@ const STORE = {
       gbLogT('wonder-noid', 300000, 'wonder: set wonderCfg.wonderId');
       return;
     }
-    const day = wonderServerDay();
+    const day = gbServerDay();
     if (wonderSpentToday.day !== day) wonderSpentToday = { day, amount: 0 };
     const budgetN = Number(cfg.budget);
     const budget = Number.isFinite(budgetN) ? Math.max(0, budgetN) : 50000;
