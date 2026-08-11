@@ -213,6 +213,7 @@
   function qolApplyTemplate(name) {
     const t = state.cityTemplates && state.cityTemplates[name];
     if (!t) { flash('falta plantilla'); return; }
+    const histBefore = qolConfigSnapshot();
 
     if (t.abTargets) {
       state.abTargets = JSON.parse(JSON.stringify(t.abTargets));
@@ -226,6 +227,7 @@
       state.recruitTargets = JSON.parse(JSON.stringify(t.recruitTargets));
       save(STORE.RECRUIT_TARGETS, state.recruitTargets);
     }
+    qolHistoryPush(histBefore, 'template:' + name);
     gbLog(`template: applied "${name}"`);
     flash('plantilla aplicada: ' + name);
     try { renderAbQueue && renderAbQueue(); } catch (_) {}
@@ -442,6 +444,122 @@
     dump.redacted = true;
     return dump;
   }
+  // ===== Config snapshot, history and import preview (v4 plans 6.9 + 6.10) ===
+  // ONE allow-list, shared by export, undo/redo and the import preview. It is
+  // an allow-list on purpose: a deny-list would silently start carrying every
+  // new config key somebody adds, including secrets.
+  //
+  // Deliberately excluded and never snapshotted: webhookUrl and the Telegram
+  // chat id, csrf, captcha breakers, learned templates, findings, decisions and
+  // host consent. Undo must not be able to resurrect a credential or replay a
+  // learned payload.
+  const CONFIG_HISTORY_MAX = 20;
+  const CONFIG_HISTORY_TTL_MS = 7 * 86400000;
+  const CONFIG_SNAPSHOT_KEYS = [
+    'abTargets', 'abOrder', 'researchTargets', 'recruitTargets', 'plannerCfg',
+    'goalProfiles', 'townGoals', 'virtualQueueOverrides', 'nativeQueue',
+    'predictCfg', 'defenseCfg', 'safeMode', 'autoTransport', 'transportReserve',
+    'transportMin', 'cityTemplates', 'townGroups', 'cultureTypes', 'favorCfg',
+    'spyCfg', 'profileAutoCfg', 'wonderCfg', 'merchantWish', 'priorityOrder',
+    'playerNotes', 'watchlist',
+  ];
+  function qolConfigSnapshot() {
+    const out = { schema: CONFIG_EXPORT_SCHEMA, ver: state.configVer || 1, host: location.host };
+    for (const k of CONFIG_SNAPSHOT_KEYS) {
+      if (state[k] === undefined) continue;
+      try { out[k] = JSON.parse(JSON.stringify(state[k])); } catch (_) {}
+    }
+    return out;
+  }
+  function qolHistoryRing(which) {
+    const key = which === 'redo' ? 'configRedo' : 'configUndo';
+    if (!Array.isArray(state[key])) state[key] = [];
+    return state[key];
+  }
+  function qolHistorySave() {
+    save(STORE.CONFIG_UNDO, qolHistoryRing('undo'));
+    save(STORE.CONFIG_REDO, qolHistoryRing('redo'));
+  }
+  function qolHistoryPrune(ring) {
+    const cut = Date.now() - CONFIG_HISTORY_TTL_MS;
+    while (ring.length && (ring.length > CONFIG_HISTORY_MAX || +(ring[0].at || 0) < cut)) ring.shift();
+  }
+  // Push only when the canonical config ACTUALLY differs: a change handler that
+  // rewrote a value to the same thing must not consume an undo slot.
+  function qolHistoryPush(before, reason, which) {
+    const after = qolConfigSnapshot();
+    let same = false;
+    try { same = JSON.stringify(before) === JSON.stringify(after); } catch (_) {}
+    if (same) return false;
+    const ring = qolHistoryRing(which || 'undo');
+    ring.push({ schema: CONFIG_EXPORT_SCHEMA, ver: before.ver, at: Date.now(), reason: String(reason || 'config'), data: before });
+    qolHistoryPrune(ring);
+    if (!which || which === 'undo') { state.configRedo = []; }
+    qolHistorySave();
+    return true;
+  }
+  function qolHistoryCounts() { return { undo: qolHistoryRing('undo').length, redo: qolHistoryRing('redo').length }; }
+  function qolHistoryStep(from, to, label) {
+    const src = qolHistoryRing(from);
+    if (!src.length) return false;
+    const entry = src.pop();
+    // A snapshot from a NEWER schema is refused and put back: applying it would
+    // mean interpreting fields this build does not understand.
+    if (+entry.schema > CONFIG_EXPORT_SCHEMA) {
+      src.push(entry);
+      gbLog(`config ${label}: refused - snapshot schema ${entry.schema} newer than ${CONFIG_EXPORT_SCHEMA}`);
+      return false;
+    }
+    const current = qolConfigSnapshot();
+    // history:false so the apply below cannot recurse into the ring.
+    const ok = qolImportConfig(entry.data, { history: false, source: label });
+    if (!ok) { src.push(entry); gbLog(`config ${label}: nothing applied`); return false; }
+    const dest = qolHistoryRing(to);
+    dest.push({ schema: CONFIG_EXPORT_SCHEMA, ver: current.ver, at: Date.now(), reason: entry.reason, data: current });
+    qolHistoryPrune(dest);
+    qolHistorySave();
+    const norm = (+entry.ver && +entry.ver < CONFIG_VER_CURRENT)
+      ? ` normalized v${entry.ver} -> v${CONFIG_VER_CURRENT}` : '';
+    const c = qolHistoryCounts();
+    gbLog(`config ${label}: ${entry.reason}${norm} (undo ${c.undo}, redo ${c.redo})`);
+    return true;
+  }
+  function qolHistoryUndo() { return qolHistoryStep('undo', 'redo', 'undo'); }
+  function qolHistoryRedo() { return qolHistoryStep('redo', 'undo', 'redo'); }
+  // Validation-only pass. It assigns NOTHING: the wizard can show the user what
+  // would happen before anything is written.
+  function qolPrepareConfigImport(raw) {
+    let obj = raw;
+    if (typeof raw === 'string') {
+      try { obj = JSON.parse(raw); } catch (e) { return { ok: false, errors: ['JSON invalido'], sections: [], ignored: [], candidate: null }; }
+    }
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { ok: false, errors: ['no es un objeto de configuracion'], sections: [], ignored: [], candidate: null };
+    const errors = [];
+    if (obj.host && String(obj.host) !== String(location.host)) errors.push(`mundo distinto: ${obj.host} != ${location.host}`);
+    if (obj.schema != null && +obj.schema > CONFIG_EXPORT_SCHEMA) errors.push(`esquema ${obj.schema} mas nuevo que ${CONFIG_EXPORT_SCHEMA}`);
+    const sections = [], ignored = [];
+    const cur = qolConfigSnapshot();
+    for (const k of Object.keys(obj)) {
+      if (['schema', 'ver', 'host'].includes(k)) continue;
+      if (!CONFIG_SNAPSHOT_KEYS.includes(k)) { ignored.push(k); continue; }
+      let changed = false;
+      try { changed = JSON.stringify(cur[k]) !== JSON.stringify(obj[k]); } catch (_) { changed = true; }
+      sections.push({ key: k, changed });
+    }
+    return {
+      ok: errors.length === 0 && sections.length > 0,
+      errors, sections, ignored,
+      candidate: obj,
+      sourceHost: obj.host || null,
+      schema: obj.schema != null ? +obj.schema : null,
+      ver: obj.ver != null ? +obj.ver : null,
+    };
+  }
+  // The ONLY export path the UI may use: raw qolExportConfig is internal until
+  // redaction has run.
+  function qolExportConfigForUi() {
+    try { return qolRedactConfigDump(qolExportConfig()); } catch (_) { return null; }
+  }
   function qolExportConfig() {
     return { schema:CONFIG_EXPORT_SCHEMA, ver:state.configVer||1, host:location.host,
       abTargets:state.abTargets,abOrder:state.abOrder,researchTargets:state.researchTargets,recruitTargets:state.recruitTargets,
@@ -449,9 +567,9 @@
       autoTransport:!!state.autoTransport,transportReserve:+state.transportReserve||20,transportMin:+state.transportMin||1000,
       cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,spyCfg:state.spyCfg,profileAutoCfg:state.profileAutoCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,playerNotes:state.playerNotes,watchlist:state.watchlist };
   }
-  function qolImportConfig(obj) {
+  function qolImportConfig(obj, opts) {
     if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;if(obj.host&&String(obj.host)!==String(location.host)){gbLog(`config import refused: file host ${obj.host} != ${location.host}`);return false}if(obj.schema!=null&&+obj.schema>CONFIG_EXPORT_SCHEMA){gbLog(`config import refused: schema ${obj.schema} newer than supported ${CONFIG_EXPORT_SCHEMA}`);return false}
-    const clone=v=>JSON.parse(JSON.stringify(v)),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,profileAutoCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray};const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,profileAutoCfg:STORE.PROFILE_AUTO_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
+    const clone=v=>JSON.parse(JSON.stringify(v)),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,profileAutoCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,profileAutoCfg:STORE.PROFILE_AUTO_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
     for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='priorityOrder'){const allowed=new Set(PRIORITY_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(PRIORITY_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
       const clean={version:1,seq:Math.max(0,+v.seq||0),towns:{}},seen=new Set();
       const jobId=(raw,prefix)=>{let id=/^[A-Za-z0-9:._-]{1,160}$/.test(String(raw||''))?String(raw):'';if(!id||seen.has(id)){clean.seq++;id=`${prefix}:import:${clean.seq.toString(36)}`}seen.add(id);return id};
@@ -466,7 +584,11 @@
         clean.towns[townId]={build,recruit,recruitNaval,research,paused:{build:!!(t.paused&&t.paused.build),recruit:!!(t.paused&&t.paused.recruit),recruitNaval:!!(t.paused&&(t.paused.recruitNaval!=null?t.paused.recruitNaval:t.paused.recruit)),research:!!(t.paused&&t.paused.research)},mode:{build:build.length||t.mode&&t.mode.build==='fifo'?'fifo':'legacy',recruit:recruit.length||t.mode&&t.mode.recruit==='fifo'?'fifo':'legacy',recruitNaval:recruitNaval.length||t.mode&&(t.mode.recruitNaval==='fifo'||t.mode.recruitNaval==null&&t.mode.recruit==='fifo')?'fifo':'legacy',research:research.length||t.mode&&t.mode.research==='fifo'?'fifo':'legacy'}}
       }v=clean
     }else if(k==='watchlist')v=v.slice(0,500);else if(k==='merchantWish')v=v.slice(0,100).filter(x=>isObj(x)&&(x.item||x.id)&&Number.isFinite(+x.maxPrice)&&+x.maxPrice>0);state[k]=v;save(storeFor[k],v);applied++}
-    state.configVer=CONFIG_VER_CURRENT;save(STORE.CONFIG_VER,CONFIG_VER_CURRENT);if(state.autoFavor){state.autoFavor=false;save(STORE.AUTO_FAVOR,false)}goalPlanAll();gbLog(`config imported: ${applied} validated section(s)`);return applied>0;
+    state.configVer=CONFIG_VER_CURRENT;save(STORE.CONFIG_VER,CONFIG_VER_CURRENT);if(state.autoFavor){state.autoFavor=false;save(STORE.AUTO_FAVOR,false)}goalPlanAll();
+    // A zero-section import changed nothing, so it must not create an undo
+    // entry the user would then have to step back through.
+    if (applied > 0 && !(opts && opts.history === false)) qolHistoryPush(before, (opts && opts.source) || 'import');
+    gbLog(`config imported: ${applied} validated section(s)`);return applied>0;
   }
 
 
@@ -681,9 +803,10 @@
     save(STORE.PROFILE_AUTO_CFG, state.profileAutoCfg);
     return rules;
   }
-  function qolApplyPreset(name) {
+  function qolApplyPreset(name, opts) {
     const preset = CONFIG_PRESETS[name];
     if (!preset) return false;
+    const histBefore = (opts && opts.history === false) ? null : qolConfigSnapshot();
     const applied = [];
     const put = (key, pair) => {
       const [store, val] = pair;
@@ -702,6 +825,7 @@
       state.webhookEvents = Object.assign({}, state.webhookEvents || {}, { captcha: true, attack: true });
       save(STORE.WEBHOOK_EVENTS, state.webhookEvents);
     }
+    if (histBefore) qolHistoryPush(histBefore, 'preset:' + name);
     gbLog(`config preset "${preset.label}" applied: ${applied.length} setting(s) changed; HIGH-RISK loops forced OFF`);
     return true;
   }

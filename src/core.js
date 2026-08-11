@@ -402,6 +402,8 @@
     reqBudgetPerMin: load(STORE.REQ_BUDGET, 40),
     allianceNotes: load(STORE.ALLIANCE_NOTES, {}),
     configVer: load(STORE.CONFIG_VER, 1),
+    configUndo: load(STORE.CONFIG_UNDO, []) || [],
+    configRedo: load(STORE.CONFIG_REDO, []) || [],
     decisions: load(STORE.DECISIONS, []),
     decisionSkips: load(STORE.DECISION_SKIPS, {}),
     decisionMemory: load(STORE.DECISION_MEM, true),

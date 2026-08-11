@@ -957,7 +957,7 @@
       <details class="gb-section"><summary>Recursos y reservas</summary><div class="gb-section-body"><div class="planner-controls" style="font-size:10px;display:flex;gap:5px;flex-wrap:wrap;align-items:center"></div><div class="planner-panel" style="font-size:10px;max-height:240px;overflow:auto;margin-top:6px"></div></div></details>
       <details class="gb-section"><summary>Simulación y motivos</summary><div class="gb-section-body"><div style="display:flex;gap:5px;align-items:center;margin-bottom:5px"><label>Horizonte <input id="gb-sim-hours" type="number" min="1" max="168" value="24" style="width:55px;background:#111;color:#cfc;border:1px solid #444;border-radius:4px;padding:3px"/> h</label><button id="gb-sim-run" class="gb-action">Simular</button></div><pre class="sim-panel" style="font-size:10px;white-space:pre-wrap;margin:0 0 6px;max-height:160px;overflow:auto"></pre><pre class="why-panel" style="font-size:10px;white-space:pre-wrap;margin:0;max-height:130px;overflow:auto;color:#bbb"></pre></div></details>
       <details class="gb-section"><summary>Salud del sistema</summary><div class="gb-section-body"><div class="health-panel" style="font-size:10px;max-height:220px;overflow:auto"></div></div></details>
-      <details class="gb-section"><summary>Plantillas y copia de seguridad</summary><div class="gb-section-body"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="gb-tpl-name" placeholder="nombre de plantilla" style="width:130px;background:#111;color:#cfc;border:1px solid #444;border-radius:4px;padding:4px;font-size:11px"/><button id="gb-tpl-save" class="gb-action">Guardar plantilla</button><button id="gb-tpl-apply" class="gb-action">Aplicar plantilla</button><button id="gb-cfg-export" class="gb-action">Exportar configuración</button><button id="gb-cfg-import" class="gb-action">Importar configuración</button></div></div></details>
+      <details class="gb-section"><summary>Plantillas y copia de seguridad</summary><div class="gb-section-body"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="gb-tpl-name" placeholder="nombre de plantilla" style="width:130px;background:#111;color:#cfc;border:1px solid #444;border-radius:4px;padding:4px;font-size:11px"/><button id="gb-tpl-save" class="gb-action">Guardar plantilla</button><button id="gb-tpl-apply" class="gb-action">Aplicar plantilla</button><button id="gb-cfg-export" class="gb-action">Exportar configuración</button><button id="gb-cfg-import" class="gb-action">Importar configuración</button><button id="gb-cfg-undo" class="gb-action" title="Deshacer el ultimo cambio de configuracion">Deshacer</button><button id="gb-cfg-redo" class="gb-action" title="Rehacer">Rehacer</button><span id="gb-cfg-hist" style="font-size:10px;color:#888"></span></div></div></details>
     </section>
     <section data-tab="intel" hidden>
       <div style="font-size:11px;color:#f5a623;margin-bottom:4px">Intel / amenazas</div>
@@ -1367,18 +1367,80 @@
     if (n) qolApplyTemplate(n);
   });
   panel.querySelector('#gb-sim-run')?.addEventListener('click',()=>{const h=Math.max(1,+panel.querySelector('#gb-sim-hours')?.value||24);dashboardSimulation=simulateAccount(h);state.simCfg.horizonHours=h;save(STORE.SIM_CFG,state.simCfg);renderDashboard();});
+  // ===== Config wizard (v4 plan 6.9) + undo/redo (v4 plan 6.10) =============
+  // Export goes through qolExportConfigForUi ONLY: the raw dump is internal
+  // until redaction has run, so no UI path can stringify it directly.
+  function renderConfigHistoryButtons() {
+    const c = qolHistoryCounts();
+    const u = panel.querySelector('#gb-cfg-undo'), r = panel.querySelector('#gb-cfg-redo'), h = panel.querySelector('#gb-cfg-hist');
+    if (u) u.disabled = !c.undo;
+    if (r) r.disabled = !c.redo;
+    if (h) h.textContent = `deshacer ${c.undo} / rehacer ${c.redo}`;
+  }
+  function openConfigWizard() {
+    const dump = qolExportConfigForUi();
+    const raw = prompt(
+      'Asistente de configuracion.\n' +
+      'Se muestra tu configuracion ACTUAL ya saneada (sin webhook, csrf, plantillas aprendidas ni hallazgos).\n' +
+      'Copiala para hacer copia de seguridad, o pega otra y acepta para validarla antes de aplicar.',
+      JSON.stringify(dump, null, 2));
+    if (raw == null) return;
+    const prep = qolPrepareConfigImport(raw);
+    if (!prep.ok) {
+      alert('No se aplica nada.\n\n' + (prep.errors.length ? prep.errors.join('\n') : 'ninguna seccion valida') +
+        (prep.ignored.length ? '\n\nIgnoradas: ' + prep.ignored.join(', ') : ''));
+      return;
+    }
+    const changed = prep.sections.filter(x => x.changed);
+    const summary =
+      `Secciones validas: ${prep.sections.length}\n` +
+      `Cambian: ${changed.length ? changed.map(x => x.key).join(', ') : 'ninguna'}\n` +
+      (prep.ignored.length ? `Ignoradas (no reconocidas): ${prep.ignored.join(', ')}\n` : '') +
+      `\nAplicar? Se podra deshacer.`;
+    if (!confirm(summary)) return;
+    if (qolImportConfig(prep.candidate, { source: 'wizard' })) {
+      flash(`configuracion importada (${changed.length} cambios)`);
+      bindConfig(); renderCaveTowns(); updateStatus(); renderConfigHistoryButtons();
+    } else flash('importacion fallida');
+  }
   panel.querySelector('#gb-cfg-export')?.addEventListener('click', () => {
-    const text = JSON.stringify(qolRedactConfigDump(qolExportConfig()), null, 2);
+    const text = JSON.stringify(qolExportConfigForUi(), null, 2);
     navigator.clipboard.writeText(text).then(() => flash('configuracion copiada')).catch(() => flash('fallo al copiar'));
   });
-  panel.querySelector('#gb-cfg-import')?.addEventListener('click', () => {
-    const raw = prompt('Pegar JSON de la config de GrepBot');
-    if (!raw) return;
-    try {
-      if (qolImportConfig(JSON.parse(raw))) flash('configuracion importada');
-      else flash('importacion fallida');
-    } catch (e) { flash('JSON invalido'); }
+  panel.querySelector('#gb-cfg-import')?.addEventListener('click', openConfigWizard);
+  panel.querySelector('#gb-cfg-undo')?.addEventListener('click', () => {
+    if (!qolHistoryUndo()) { flash('nada que deshacer'); return; }
+    flash('cambio deshecho'); bindConfig(); renderCaveTowns(); updateStatus(); renderConfigHistoryButtons();
   });
+  panel.querySelector('#gb-cfg-redo')?.addEventListener('click', () => {
+    if (!qolHistoryRedo()) { flash('nada que rehacer'); return; }
+    flash('cambio rehecho'); bindConfig(); renderCaveTowns(); updateStatus(); renderConfigHistoryButtons();
+  });
+  renderConfigHistoryButtons();
+  // One capture-phase listener on the Config section: snapshot BEFORE the real
+  // handler runs, compare after it returns. Scoped to [data-cfg] controls only,
+  // so panel navigation, the Stats simulation, journal clears and scrape
+  // buttons - which have non-config side effects - never checkpoint.
+  {
+    const cfgSec = panel.querySelector('section[data-tab=config]');
+    if (cfgSec && !cfgSec.dataset.histBound) {
+      cfgSec.dataset.histBound = '1';
+      const checkpoint = e => {
+        const t = e.target;
+        if (!t || !t.closest || !t.closest('[data-cfg]')) return;
+        const before = qolConfigSnapshot();
+        // Deferred to a microtask so the element's own change handler has
+        // already mutated state by the time we compare.
+        gbTimeout(() => {
+          try {
+            if (qolHistoryPush(before, 'config')) renderConfigHistoryButtons();
+          } catch (_) {}
+        }, 0);
+      };
+      gbListen(cfgSec, 'change', checkpoint, true);
+    }
+  }
+
   panel.querySelector('#gb-note-save')?.addEventListener('click', () => {
     const p = panel.querySelector('#gb-note-player')?.value?.trim();
     const n = panel.querySelector('#gb-note-text')?.value?.trim();

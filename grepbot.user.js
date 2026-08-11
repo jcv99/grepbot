@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.33.1
+// @version      4.34.2
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -172,6 +172,8 @@ const STORE = {
     ALLIANCE_NOTES: 'grepbot:alliance-notes',
     INTEL_BATTLE_STATS: 'grepbot:intel-battle-stats',
     CONFIG_VER: 'grepbot:config-ver',
+    CONFIG_UNDO: 'grepbot:config-undo',
+    CONFIG_REDO: 'grepbot:config-redo',
     WONDER_SPENT: 'grepbot:wonder-spent',
 
     DECISIONS: 'grepbot:decisions',
@@ -256,7 +258,7 @@ const STORE = {
     STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES, STORE.SPY_CFG, STORE.SPY_HISTORY, STORE.SPY_TPL,
     STORE.CAPTCHA_GLOBAL_UNTIL,
     STORE.SERVER_COOLDOWN, STORE.QUEST_CLAIM_FAIL, STORE.DODGE_QUEUE,
-    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PROFILE_AUTO_CFG, STORE.PROFILE_AUTO_LAST, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER,
+    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PROFILE_AUTO_CFG, STORE.PROFILE_AUTO_LAST, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER, STORE.CONFIG_UNDO, STORE.CONFIG_REDO,
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
     STORE.SPELL_COOLDOWN,
@@ -660,6 +662,8 @@ const STORE = {
     reqBudgetPerMin: load(STORE.REQ_BUDGET, 40),
     allianceNotes: load(STORE.ALLIANCE_NOTES, {}),
     configVer: load(STORE.CONFIG_VER, 1),
+    configUndo: load(STORE.CONFIG_UNDO, []) || [],
+    configRedo: load(STORE.CONFIG_REDO, []) || [],
     decisions: load(STORE.DECISIONS, []),
     decisionSkips: load(STORE.DECISION_SKIPS, {}),
     decisionMemory: load(STORE.DECISION_MEM, true),
@@ -13528,6 +13532,7 @@ const STORE = {
   function qolApplyTemplate(name) {
     const t = state.cityTemplates && state.cityTemplates[name];
     if (!t) { flash('falta plantilla'); return; }
+    const histBefore = qolConfigSnapshot();
 
     if (t.abTargets) {
       state.abTargets = JSON.parse(JSON.stringify(t.abTargets));
@@ -13541,6 +13546,7 @@ const STORE = {
       state.recruitTargets = JSON.parse(JSON.stringify(t.recruitTargets));
       save(STORE.RECRUIT_TARGETS, state.recruitTargets);
     }
+    qolHistoryPush(histBefore, 'template:' + name);
     gbLog(`template: applied "${name}"`);
     flash('plantilla aplicada: ' + name);
     try { renderAbQueue && renderAbQueue(); } catch (_) {}
@@ -13753,6 +13759,110 @@ const STORE = {
     dump.redacted = true;
     return dump;
   }
+
+  const CONFIG_HISTORY_MAX = 20;
+  const CONFIG_HISTORY_TTL_MS = 7 * 86400000;
+  const CONFIG_SNAPSHOT_KEYS = [
+    'abTargets', 'abOrder', 'researchTargets', 'recruitTargets', 'plannerCfg',
+    'goalProfiles', 'townGoals', 'virtualQueueOverrides', 'nativeQueue',
+    'predictCfg', 'defenseCfg', 'safeMode', 'autoTransport', 'transportReserve',
+    'transportMin', 'cityTemplates', 'townGroups', 'cultureTypes', 'favorCfg',
+    'spyCfg', 'profileAutoCfg', 'wonderCfg', 'merchantWish', 'priorityOrder',
+    'playerNotes', 'watchlist',
+  ];
+  function qolConfigSnapshot() {
+    const out = { schema: CONFIG_EXPORT_SCHEMA, ver: state.configVer || 1, host: location.host };
+    for (const k of CONFIG_SNAPSHOT_KEYS) {
+      if (state[k] === undefined) continue;
+      try { out[k] = JSON.parse(JSON.stringify(state[k])); } catch (_) {}
+    }
+    return out;
+  }
+  function qolHistoryRing(which) {
+    const key = which === 'redo' ? 'configRedo' : 'configUndo';
+    if (!Array.isArray(state[key])) state[key] = [];
+    return state[key];
+  }
+  function qolHistorySave() {
+    save(STORE.CONFIG_UNDO, qolHistoryRing('undo'));
+    save(STORE.CONFIG_REDO, qolHistoryRing('redo'));
+  }
+  function qolHistoryPrune(ring) {
+    const cut = Date.now() - CONFIG_HISTORY_TTL_MS;
+    while (ring.length && (ring.length > CONFIG_HISTORY_MAX || +(ring[0].at || 0) < cut)) ring.shift();
+  }
+
+  function qolHistoryPush(before, reason, which) {
+    const after = qolConfigSnapshot();
+    let same = false;
+    try { same = JSON.stringify(before) === JSON.stringify(after); } catch (_) {}
+    if (same) return false;
+    const ring = qolHistoryRing(which || 'undo');
+    ring.push({ schema: CONFIG_EXPORT_SCHEMA, ver: before.ver, at: Date.now(), reason: String(reason || 'config'), data: before });
+    qolHistoryPrune(ring);
+    if (!which || which === 'undo') { state.configRedo = []; }
+    qolHistorySave();
+    return true;
+  }
+  function qolHistoryCounts() { return { undo: qolHistoryRing('undo').length, redo: qolHistoryRing('redo').length }; }
+  function qolHistoryStep(from, to, label) {
+    const src = qolHistoryRing(from);
+    if (!src.length) return false;
+    const entry = src.pop();
+
+    if (+entry.schema > CONFIG_EXPORT_SCHEMA) {
+      src.push(entry);
+      gbLog(`config ${label}: refused - snapshot schema ${entry.schema} newer than ${CONFIG_EXPORT_SCHEMA}`);
+      return false;
+    }
+    const current = qolConfigSnapshot();
+
+    const ok = qolImportConfig(entry.data, { history: false, source: label });
+    if (!ok) { src.push(entry); gbLog(`config ${label}: nothing applied`); return false; }
+    const dest = qolHistoryRing(to);
+    dest.push({ schema: CONFIG_EXPORT_SCHEMA, ver: current.ver, at: Date.now(), reason: entry.reason, data: current });
+    qolHistoryPrune(dest);
+    qolHistorySave();
+    const norm = (+entry.ver && +entry.ver < CONFIG_VER_CURRENT)
+      ? ` normalized v${entry.ver} -> v${CONFIG_VER_CURRENT}` : '';
+    const c = qolHistoryCounts();
+    gbLog(`config ${label}: ${entry.reason}${norm} (undo ${c.undo}, redo ${c.redo})`);
+    return true;
+  }
+  function qolHistoryUndo() { return qolHistoryStep('undo', 'redo', 'undo'); }
+  function qolHistoryRedo() { return qolHistoryStep('redo', 'undo', 'redo'); }
+
+  function qolPrepareConfigImport(raw) {
+    let obj = raw;
+    if (typeof raw === 'string') {
+      try { obj = JSON.parse(raw); } catch (e) { return { ok: false, errors: ['JSON invalido'], sections: [], ignored: [], candidate: null }; }
+    }
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { ok: false, errors: ['no es un objeto de configuracion'], sections: [], ignored: [], candidate: null };
+    const errors = [];
+    if (obj.host && String(obj.host) !== String(location.host)) errors.push(`mundo distinto: ${obj.host} != ${location.host}`);
+    if (obj.schema != null && +obj.schema > CONFIG_EXPORT_SCHEMA) errors.push(`esquema ${obj.schema} mas nuevo que ${CONFIG_EXPORT_SCHEMA}`);
+    const sections = [], ignored = [];
+    const cur = qolConfigSnapshot();
+    for (const k of Object.keys(obj)) {
+      if (['schema', 'ver', 'host'].includes(k)) continue;
+      if (!CONFIG_SNAPSHOT_KEYS.includes(k)) { ignored.push(k); continue; }
+      let changed = false;
+      try { changed = JSON.stringify(cur[k]) !== JSON.stringify(obj[k]); } catch (_) { changed = true; }
+      sections.push({ key: k, changed });
+    }
+    return {
+      ok: errors.length === 0 && sections.length > 0,
+      errors, sections, ignored,
+      candidate: obj,
+      sourceHost: obj.host || null,
+      schema: obj.schema != null ? +obj.schema : null,
+      ver: obj.ver != null ? +obj.ver : null,
+    };
+  }
+
+  function qolExportConfigForUi() {
+    try { return qolRedactConfigDump(qolExportConfig()); } catch (_) { return null; }
+  }
   function qolExportConfig() {
     return { schema:CONFIG_EXPORT_SCHEMA, ver:state.configVer||1, host:location.host,
       abTargets:state.abTargets,abOrder:state.abOrder,researchTargets:state.researchTargets,recruitTargets:state.recruitTargets,
@@ -13760,9 +13870,9 @@ const STORE = {
       autoTransport:!!state.autoTransport,transportReserve:+state.transportReserve||20,transportMin:+state.transportMin||1000,
       cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,spyCfg:state.spyCfg,profileAutoCfg:state.profileAutoCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,playerNotes:state.playerNotes,watchlist:state.watchlist };
   }
-  function qolImportConfig(obj) {
+  function qolImportConfig(obj, opts) {
     if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;if(obj.host&&String(obj.host)!==String(location.host)){gbLog(`config import refused: file host ${obj.host} != ${location.host}`);return false}if(obj.schema!=null&&+obj.schema>CONFIG_EXPORT_SCHEMA){gbLog(`config import refused: schema ${obj.schema} newer than supported ${CONFIG_EXPORT_SCHEMA}`);return false}
-    const clone=v=>JSON.parse(JSON.stringify(v)),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,profileAutoCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray};const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,profileAutoCfg:STORE.PROFILE_AUTO_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
+    const clone=v=>JSON.parse(JSON.stringify(v)),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,profileAutoCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,profileAutoCfg:STORE.PROFILE_AUTO_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
     for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='priorityOrder'){const allowed=new Set(PRIORITY_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(PRIORITY_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
       const clean={version:1,seq:Math.max(0,+v.seq||0),towns:{}},seen=new Set();
       const jobId=(raw,prefix)=>{let id=/^[A-Za-z0-9:._-]{1,160}$/.test(String(raw||''))?String(raw):'';if(!id||seen.has(id)){clean.seq++;id=`${prefix}:import:${clean.seq.toString(36)}`}seen.add(id);return id};
@@ -13774,7 +13884,10 @@ const STORE = {
         clean.towns[townId]={build,recruit,recruitNaval,research,paused:{build:!!(t.paused&&t.paused.build),recruit:!!(t.paused&&t.paused.recruit),recruitNaval:!!(t.paused&&(t.paused.recruitNaval!=null?t.paused.recruitNaval:t.paused.recruit)),research:!!(t.paused&&t.paused.research)},mode:{build:build.length||t.mode&&t.mode.build==='fifo'?'fifo':'legacy',recruit:recruit.length||t.mode&&t.mode.recruit==='fifo'?'fifo':'legacy',recruitNaval:recruitNaval.length||t.mode&&(t.mode.recruitNaval==='fifo'||t.mode.recruitNaval==null&&t.mode.recruit==='fifo')?'fifo':'legacy',research:research.length||t.mode&&t.mode.research==='fifo'?'fifo':'legacy'}}
       }v=clean
     }else if(k==='watchlist')v=v.slice(0,500);else if(k==='merchantWish')v=v.slice(0,100).filter(x=>isObj(x)&&(x.item||x.id)&&Number.isFinite(+x.maxPrice)&&+x.maxPrice>0);state[k]=v;save(storeFor[k],v);applied++}
-    state.configVer=CONFIG_VER_CURRENT;save(STORE.CONFIG_VER,CONFIG_VER_CURRENT);if(state.autoFavor){state.autoFavor=false;save(STORE.AUTO_FAVOR,false)}goalPlanAll();gbLog(`config imported: ${applied} validated section(s)`);return applied>0;
+    state.configVer=CONFIG_VER_CURRENT;save(STORE.CONFIG_VER,CONFIG_VER_CURRENT);if(state.autoFavor){state.autoFavor=false;save(STORE.AUTO_FAVOR,false)}goalPlanAll();
+
+    if (applied > 0 && !(opts && opts.history === false)) qolHistoryPush(before, (opts && opts.source) || 'import');
+    gbLog(`config imported: ${applied} validated section(s)`);return applied>0;
   }
 
   const CONFIG_PRESET_HIGH_RISK = {
@@ -13969,9 +14082,10 @@ const STORE = {
     save(STORE.PROFILE_AUTO_CFG, state.profileAutoCfg);
     return rules;
   }
-  function qolApplyPreset(name) {
+  function qolApplyPreset(name, opts) {
     const preset = CONFIG_PRESETS[name];
     if (!preset) return false;
+    const histBefore = (opts && opts.history === false) ? null : qolConfigSnapshot();
     const applied = [];
     const put = (key, pair) => {
       const [store, val] = pair;
@@ -13990,6 +14104,7 @@ const STORE = {
       state.webhookEvents = Object.assign({}, state.webhookEvents || {}, { captcha: true, attack: true });
       save(STORE.WEBHOOK_EVENTS, state.webhookEvents);
     }
+    if (histBefore) qolHistoryPush(histBefore, 'preset:' + name);
     gbLog(`config preset "${preset.label}" applied: ${applied.length} setting(s) changed; HIGH-RISK loops forced OFF`);
     return true;
   }
@@ -19968,7 +20083,7 @@ const STORE = {
       <details class="gb-section"><summary>Recursos y reservas</summary><div class="gb-section-body"><div class="planner-controls" style="font-size:10px;display:flex;gap:5px;flex-wrap:wrap;align-items:center"></div><div class="planner-panel" style="font-size:10px;max-height:240px;overflow:auto;margin-top:6px"></div></div></details>
       <details class="gb-section"><summary>Simulaci\u00f3n y motivos</summary><div class="gb-section-body"><div style="display:flex;gap:5px;align-items:center;margin-bottom:5px"><label>Horizonte <input id="gb-sim-hours" type="number" min="1" max="168" value="24" style="width:55px;background:#111;color:#cfc;border:1px solid #444;border-radius:4px;padding:3px"/> h</label><button id="gb-sim-run" class="gb-action">Simular</button></div><pre class="sim-panel" style="font-size:10px;white-space:pre-wrap;margin:0 0 6px;max-height:160px;overflow:auto"></pre><pre class="why-panel" style="font-size:10px;white-space:pre-wrap;margin:0;max-height:130px;overflow:auto;color:#bbb"></pre></div></details>
       <details class="gb-section"><summary>Salud del sistema</summary><div class="gb-section-body"><div class="health-panel" style="font-size:10px;max-height:220px;overflow:auto"></div></div></details>
-      <details class="gb-section"><summary>Plantillas y copia de seguridad</summary><div class="gb-section-body"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="gb-tpl-name" placeholder="nombre de plantilla" style="width:130px;background:#111;color:#cfc;border:1px solid #444;border-radius:4px;padding:4px;font-size:11px"/><button id="gb-tpl-save" class="gb-action">Guardar plantilla</button><button id="gb-tpl-apply" class="gb-action">Aplicar plantilla</button><button id="gb-cfg-export" class="gb-action">Exportar configuraci\u00f3n</button><button id="gb-cfg-import" class="gb-action">Importar configuraci\u00f3n</button></div></div></details>
+      <details class="gb-section"><summary>Plantillas y copia de seguridad</summary><div class="gb-section-body"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="gb-tpl-name" placeholder="nombre de plantilla" style="width:130px;background:#111;color:#cfc;border:1px solid #444;border-radius:4px;padding:4px;font-size:11px"/><button id="gb-tpl-save" class="gb-action">Guardar plantilla</button><button id="gb-tpl-apply" class="gb-action">Aplicar plantilla</button><button id="gb-cfg-export" class="gb-action">Exportar configuraci\u00f3n</button><button id="gb-cfg-import" class="gb-action">Importar configuraci\u00f3n</button><button id="gb-cfg-undo" class="gb-action" title="Deshacer el ultimo cambio de configuracion">Deshacer</button><button id="gb-cfg-redo" class="gb-action" title="Rehacer">Rehacer</button><span id="gb-cfg-hist" style="font-size:10px;color:#888"></span></div></div></details>
     </section>
     <section data-tab="intel" hidden>
       <div style="font-size:11px;color:#f5a623;margin-bottom:4px">Intel / amenazas</div>
@@ -20378,18 +20493,74 @@ const STORE = {
     if (n) qolApplyTemplate(n);
   });
   panel.querySelector('#gb-sim-run')?.addEventListener('click',()=>{const h=Math.max(1,+panel.querySelector('#gb-sim-hours')?.value||24);dashboardSimulation=simulateAccount(h);state.simCfg.horizonHours=h;save(STORE.SIM_CFG,state.simCfg);renderDashboard();});
+
+  function renderConfigHistoryButtons() {
+    const c = qolHistoryCounts();
+    const u = panel.querySelector('#gb-cfg-undo'), r = panel.querySelector('#gb-cfg-redo'), h = panel.querySelector('#gb-cfg-hist');
+    if (u) u.disabled = !c.undo;
+    if (r) r.disabled = !c.redo;
+    if (h) h.textContent = `deshacer ${c.undo} / rehacer ${c.redo}`;
+  }
+  function openConfigWizard() {
+    const dump = qolExportConfigForUi();
+    const raw = prompt(
+      'Asistente de configuracion.\n' +
+      'Se muestra tu configuracion ACTUAL ya saneada (sin webhook, csrf, plantillas aprendidas ni hallazgos).\n' +
+      'Copiala para hacer copia de seguridad, o pega otra y acepta para validarla antes de aplicar.',
+      JSON.stringify(dump, null, 2));
+    if (raw == null) return;
+    const prep = qolPrepareConfigImport(raw);
+    if (!prep.ok) {
+      alert('No se aplica nada.\n\n' + (prep.errors.length ? prep.errors.join('\n') : 'ninguna seccion valida') +
+        (prep.ignored.length ? '\n\nIgnoradas: ' + prep.ignored.join(', ') : ''));
+      return;
+    }
+    const changed = prep.sections.filter(x => x.changed);
+    const summary =
+      `Secciones validas: ${prep.sections.length}\n` +
+      `Cambian: ${changed.length ? changed.map(x => x.key).join(', ') : 'ninguna'}\n` +
+      (prep.ignored.length ? `Ignoradas (no reconocidas): ${prep.ignored.join(', ')}\n` : '') +
+      `\nAplicar? Se podra deshacer.`;
+    if (!confirm(summary)) return;
+    if (qolImportConfig(prep.candidate, { source: 'wizard' })) {
+      flash(`configuracion importada (${changed.length} cambios)`);
+      bindConfig(); renderCaveTowns(); updateStatus(); renderConfigHistoryButtons();
+    } else flash('importacion fallida');
+  }
   panel.querySelector('#gb-cfg-export')?.addEventListener('click', () => {
-    const text = JSON.stringify(qolRedactConfigDump(qolExportConfig()), null, 2);
+    const text = JSON.stringify(qolExportConfigForUi(), null, 2);
     navigator.clipboard.writeText(text).then(() => flash('configuracion copiada')).catch(() => flash('fallo al copiar'));
   });
-  panel.querySelector('#gb-cfg-import')?.addEventListener('click', () => {
-    const raw = prompt('Pegar JSON de la config de GrepBot');
-    if (!raw) return;
-    try {
-      if (qolImportConfig(JSON.parse(raw))) flash('configuracion importada');
-      else flash('importacion fallida');
-    } catch (e) { flash('JSON invalido'); }
+  panel.querySelector('#gb-cfg-import')?.addEventListener('click', openConfigWizard);
+  panel.querySelector('#gb-cfg-undo')?.addEventListener('click', () => {
+    if (!qolHistoryUndo()) { flash('nada que deshacer'); return; }
+    flash('cambio deshecho'); bindConfig(); renderCaveTowns(); updateStatus(); renderConfigHistoryButtons();
   });
+  panel.querySelector('#gb-cfg-redo')?.addEventListener('click', () => {
+    if (!qolHistoryRedo()) { flash('nada que rehacer'); return; }
+    flash('cambio rehecho'); bindConfig(); renderCaveTowns(); updateStatus(); renderConfigHistoryButtons();
+  });
+  renderConfigHistoryButtons();
+
+  {
+    const cfgSec = panel.querySelector('section[data-tab=config]');
+    if (cfgSec && !cfgSec.dataset.histBound) {
+      cfgSec.dataset.histBound = '1';
+      const checkpoint = e => {
+        const t = e.target;
+        if (!t || !t.closest || !t.closest('[data-cfg]')) return;
+        const before = qolConfigSnapshot();
+
+        gbTimeout(() => {
+          try {
+            if (qolHistoryPush(before, 'config')) renderConfigHistoryButtons();
+          } catch (_) {}
+        }, 0);
+      };
+      gbListen(cfgSec, 'change', checkpoint, true);
+    }
+  }
+
   panel.querySelector('#gb-note-save')?.addEventListener('click', () => {
     const p = panel.querySelector('#gb-note-player')?.value?.trim();
     const n = panel.querySelector('#gb-note-text')?.value?.trim();
