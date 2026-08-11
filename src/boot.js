@@ -68,6 +68,7 @@
   gbInterval(renderTimers, 1000);
   gbInterval(updateStatus, 5000);
   gbInterval(() => { try { renderTownSwitch(); } catch (_) {} }, 5000);
+  gbInterval(() => { try { caveTownsTick(); } catch (_) {} }, 10000);
 
   bindQuestObserver();
   gbTimeout(() => { if (hostEnabled()) questScanTick('boot'); }, 5000);

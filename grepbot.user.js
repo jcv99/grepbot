@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.44.1
+// @version      4.44.2
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -8805,34 +8805,81 @@ const STORE = {
     })();
   }
 
+  function caveTownRowText(id, nameById, uw) {
+    let name = nameById[String(id)] || id;
+    if (name === id) {
+      try {
+        const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(id) : uw.ITowns.towns[id]);
+        if (t && t.getName) name = t.getName();
+        else if (t && t.name) name = t.name;
+      } catch (_) {}
+    }
+    const info = caveTownInfo(id);
+    let extra = '';
+    if (info) {
+      const pct = info.cap > 0 && info.iron != null ? Math.round(100 * info.iron / info.cap) : '?';
+      const cave = info.unlimited ? 'inf'
+        : (info.stored != null && info.hideCap != null ? `${info.stored}/${info.hideCap}`
+          : (info.hideCap != null ? `?/${info.hideCap}` : 'n/a'));
+      extra = ` \u2014 hide${info.hideLvl} iron ${pct}% cave ${cave}`;
+      if (pct === '?' || (!info.unlimited && info.hideCap == null)) {
+        gbLogT('cave-unknown-' + id, 300000,
+          `cave: town ${id} unread fields (iron=${info.iron} cap=${info.cap} hideCap=${info.hideCap} stored=${info.stored}) \u2014 run caveDiag()`);
+      }
+    }
+    return `${name} (#${id})${extra}`;
+  }
+
+  function caveTownsTick() {
+    const sec = panel && panel.querySelector('section[data-tab=config]');
+    if (!sec || sec.hidden || panel.classList.contains('collapsed')) return;
+    if (document.hidden) return;
+    renderCaveTowns();
+  }
+
   function renderCaveTowns() {
     const box = panel && panel.querySelector('.cave-towns');
     if (!box) return;
     const ids = caveListTownIds();
-    box.replaceChildren();
     if (!ids.length) {
+      box.replaceChildren();
       const e = document.createElement('div');
       e.style.cssText = 'color:#888;font-size:10px';
       e.textContent = 'no towns loaded yet';
       box.appendChild(e);
       return;
     }
+
+    const have = [...box.querySelectorAll('label[data-cave-town]')];
+    const haveIds = have.map(l => l.dataset.caveTown);
+    const sameSet = haveIds.length === ids.length && ids.every(id => haveIds.includes(String(id)));
+    if (sameSet) {
+      const uwc = uwCached();
+      const names = Object.create(null);
+      try {
+        (townsFromGame() || []).forEach(t => { if (t.id != null && t.name) names[String(t.id)] = t.name; });
+      } catch (_) {}
+      have.forEach(l => {
+        const id = l.dataset.caveTown;
+        const chk = l.querySelector('input');
+        const span = l.querySelector('span');
+        if (chk && document.activeElement !== chk) chk.checked = caveTownEnabled(id);
+        if (span) {
+          const txt = caveTownRowText(id, names, uwc);
+          if (span.textContent !== txt) span.textContent = txt;
+        }
+      });
+      return;
+    }
+    box.replaceChildren();
     const uw = uwCached();
     const nameById = Object.create(null);
     try {
       (townsFromGame() || []).forEach(t => { if (t.id != null && t.name) nameById[String(t.id)] = t.name; });
     } catch (_) {}
     ids.forEach(id => {
-      let name = nameById[String(id)] || id;
-      if (name === id) {
-        try {
-          const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(id) : uw.ITowns.towns[id]);
-          if (t && t.getName) name = t.getName();
-          else if (t && t.name) name = t.name;
-        } catch (_) {}
-      }
-      const info = caveTownInfo(id);
       const label = document.createElement('label');
+      label.dataset.caveTown = String(id);
       label.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;font-size:10px;margin-left:12px';
       const chk = document.createElement('input');
       chk.type = 'checkbox';
@@ -8842,19 +8889,7 @@ const STORE = {
         gbLog(`cave town ${id}`, chk.checked ? 'ON' : 'OFF');
       });
       const span = document.createElement('span');
-      let extra = '';
-      if (info) {
-        const pct = info.cap > 0 && info.iron != null ? Math.round(100 * info.iron / info.cap) : '?';
-        const cave = info.unlimited ? 'inf'
-          : (info.stored != null && info.hideCap != null ? `${info.stored}/${info.hideCap}`
-            : (info.hideCap != null ? `?/${info.hideCap}` : 'n/a'));
-        extra = ` \u2014 hide${info.hideLvl} iron ${pct}% cave ${cave}`;
-        if (pct === '?' || (!info.unlimited && info.hideCap == null)) {
-          gbLogT('cave-unknown-' + id, 300000,
-            `cave: town ${id} unread fields (iron=${info.iron} cap=${info.cap} hideCap=${info.hideCap} stored=${info.stored}) \u2014 run caveDiag()`);
-        }
-      }
-      span.textContent = `${name} (#${id})${extra}`;
+      span.textContent = caveTownRowText(id, nameById, uw);
       label.appendChild(chk);
       label.appendChild(span);
       box.appendChild(label);
@@ -23344,6 +23379,7 @@ const STORE = {
   gbInterval(renderTimers, 1000);
   gbInterval(updateStatus, 5000);
   gbInterval(() => { try { renderTownSwitch(); } catch (_) {} }, 5000);
+  gbInterval(() => { try { caveTownsTick(); } catch (_) {} }, 10000);
 
   bindQuestObserver();
   gbTimeout(() => { if (hostEnabled()) questScanTick('boot'); }, 5000);
