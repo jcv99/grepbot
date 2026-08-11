@@ -111,8 +111,6 @@
     const w = gbWidgets[String(id)];
     if (w) w.dispose();
   }
-  function gbWidgetList() { return Object.keys(gbWidgets); }
-  function gbWidgetGet(id) { return gbWidgets[String(id)] || null; }
   function gbWidgetDisposeAll() { for (const id of Object.keys(gbWidgets)) gbWidgetUnregister(id); }
 
   // ===== Keyboard shortcuts (v4 plan 6.3) ====================================

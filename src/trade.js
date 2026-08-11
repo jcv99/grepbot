@@ -351,11 +351,6 @@
   // reload would skip a real opportunity for a user who reloaded five minutes
   // ago, and it is not worth a storage write per fire.
   const tradeRouteRuntime = Object.create(null);
-  function tradeRouteList() {
-    const r = state.tradeRoutes;
-    if (!r || typeof r !== 'object' || Array.isArray(r)) return [];
-    return Object.values(r).filter(x => x && typeof x === 'object');
-  }
   // Sanitise one route. Returns null when the shape cannot be trusted - an
   // invalid route must never be coerced into a valid-looking one that posts.
   function tradeRouteClean(raw, idx) {

@@ -12,7 +12,6 @@
   // v2.5.7 favor-vs-attack poisoning: one server rejection on type:'support'
   // would invalidate attackTpl and block live attacks too.
 
-  const SUPPORT_LOCK_TTL_MS = 180000;
   const SUPPORT_LEDGER_GRACE_MS = 600000; // arrival + 10min, mirrors dodgeLastStash
   const SUPPORT_LEDGER_PRUNE_MS = 3600000;
   const SUPPORT_BANDS = ['high', 'cs'];

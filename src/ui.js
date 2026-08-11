@@ -688,7 +688,7 @@
     #grepbot-panel.collapsed header button[data-act=toggle]{border:0;padding:0;width:100%;height:100%;font-size:0;font-weight:700;color:var(--gb-accent);border-radius:6px}
     #grepbot-panel.collapsed header button[data-act=toggle]::before{content:"GB";display:block;font-size:11px;line-height:${PANEL_SQ}px}
     /* Hide header status pills when collapsed so the square stays a square. */
-    #grepbot-panel.collapsed .gb-head-main,#grepbot-panel.collapsed .gb-head-status,#grepbot-panel.collapsed .gb-head-mode,#grepbot-panel.collapsed .gb-head-health,#grepbot-panel.collapsed .gb-head-toggle{display:none !important}
+    #grepbot-panel.collapsed .gb-head-main,#grepbot-panel.collapsed .gb-head-status,#grepbot-panel.collapsed .gb-head-mode,#grepbot-panel.collapsed .gb-head-health{display:none !important}
     #grepbot-panel.collapsed .gb-qat,#grepbot-panel.collapsed .gb-nav,#grepbot-panel.collapsed .gb-subtabs,#grepbot-panel.collapsed section,#grepbot-panel.collapsed footer,#grepbot-panel.collapsed .gb-resize{display:none !important}
     #grepbot-panel .farms-list{margin-bottom:6px;max-height:200px;overflow:auto}
     #grepbot-panel .farms-list table{width:100%;border-collapse:collapse;font-size:10px}

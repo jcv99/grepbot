@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.44.4
+// @version      4.44.5
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -183,7 +183,6 @@ const STORE = {
     WONDER_SPENT: 'grepbot:wonder-spent',
 
     DECISIONS: 'grepbot:decisions',
-    REPLAY_CURSOR: 'grepbot:replay-cursor',
     DECISION_SKIPS: 'grepbot:decision-skips',
     DECISION_MEM: 'grepbot:decision-memory',
     DRY_RUN: 'grepbot:dry-run',
@@ -7796,7 +7795,7 @@ const STORE = {
     .gb-native-panel-head{display:flex;align-items:center;gap:5px;margin-bottom:4px;font-weight:bold}.gb-native-panel-head span{flex:1}
     .gb-native-job{display:grid;grid-template-columns:24px minmax(120px,1fr) auto;gap:5px;align-items:center;padding:3px 1px;border-top:1px solid rgba(190,150,75,.22)}
     .gb-native-job:first-of-type{border-top:0}.gb-native-job small{display:block;color:#c7ad78;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gb-native-job-actions{display:flex;gap:2px}
-    .gb-native-empty{color:#b9a983;font-style:italic;padding:2px}.gb-native-disabled{opacity:.55}
+    .gb-native-empty{color:#b9a983;font-style:italic;padding:2px}
   `);
   let nativeUiTimer=0;
   function scheduleNativeUiScan() {
@@ -9700,11 +9699,6 @@ const STORE = {
   const TRADE_ROUTE_TRIGGERS = ['always', 'belowPct', 'abovePct'];
 
   const tradeRouteRuntime = Object.create(null);
-  function tradeRouteList() {
-    const r = state.tradeRoutes;
-    if (!r || typeof r !== 'object' || Array.isArray(r)) return [];
-    return Object.values(r).filter(x => x && typeof x === 'object');
-  }
 
   function tradeRouteClean(raw, idx) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -11279,8 +11273,8 @@ const STORE = {
     gbLog('research: loaded CS-fast tech list');
   }
 
-  const _whRateGuard = state.webhookRatelimit || (state.webhookRatelimit = {});
-  const _whPendGuard = state.webhookPending || (state.webhookPending = {});
+  state.webhookRatelimit || (state.webhookRatelimit = {});
+  state.webhookPending || (state.webhookPending = {});
   function alertIsTelegram(url) {
     return /api\.telegram\.org\/bot/i.test(url) || /telegram/i.test(url);
   }
@@ -13733,8 +13727,6 @@ const STORE = {
     const w = gbWidgets[String(id)];
     if (w) w.dispose();
   }
-  function gbWidgetList() { return Object.keys(gbWidgets); }
-  function gbWidgetGet(id) { return gbWidgets[String(id)] || null; }
   function gbWidgetDisposeAll() { for (const id of Object.keys(gbWidgets)) gbWidgetUnregister(id); }
 
   const GB_KEY_ACTIONS = {
@@ -16600,11 +16592,6 @@ const STORE = {
     if (learnedId != null) add({ id: learnedId, ts: tpl.learned_at || 0 }, 'template');
     return Array.from(map.values()).sort((a, b) => (b.ts || 0) - (a.ts || 0));
   }
-  function ensureAttackPlanTargets() {
-    const p = ensureAttackPlan();
-    if (!Array.isArray(p.targets)) p.targets = [];
-    return p.targets;
-  }
   function applyAttackTarget(t) {
     if (!t || t.id == null || !/^\d+$/.test(String(t.id))) return false;
     const plan = ensureAttackPlan();
@@ -17400,9 +17387,6 @@ const STORE = {
     const plan = ensureAttackPlan();
     return (Array.isArray(plan.targets) ? plan.targets : []).map(t => String(t.id));
   }
-  function attackIsSharedPlanTarget(id) {
-    return sharedPlanTargetIds().includes(String(id));
-  }
 
   function renderSharedPlan(sec) {
     const box = sec && sec.querySelector('.atk-shared');
@@ -18095,7 +18079,6 @@ const STORE = {
   const STATS_WINDOWS = { '1h': 3600000, '24h': 86400000, '7d': 604800000 };
   let statsWindow = '24h';
 
-  const SUPPORT_LOCK_TTL_MS = 180000;
   const SUPPORT_LEDGER_GRACE_MS = 600000;
   const SUPPORT_LEDGER_PRUNE_MS = 3600000;
   const SUPPORT_BANDS = ['high', 'cs'];
@@ -20875,7 +20858,7 @@ const STORE = {
     #grepbot-panel.collapsed header button[data-act=toggle]{border:0;padding:0;width:100%;height:100%;font-size:0;font-weight:700;color:var(--gb-accent);border-radius:6px}
     #grepbot-panel.collapsed header button[data-act=toggle]::before{content:"GB";display:block;font-size:11px;line-height:${PANEL_SQ}px}
     /* Hide header status pills when collapsed so the square stays a square. */
-    #grepbot-panel.collapsed .gb-head-main,#grepbot-panel.collapsed .gb-head-status,#grepbot-panel.collapsed .gb-head-mode,#grepbot-panel.collapsed .gb-head-health,#grepbot-panel.collapsed .gb-head-toggle{display:none !important}
+    #grepbot-panel.collapsed .gb-head-main,#grepbot-panel.collapsed .gb-head-status,#grepbot-panel.collapsed .gb-head-mode,#grepbot-panel.collapsed .gb-head-health{display:none !important}
     #grepbot-panel.collapsed .gb-qat,#grepbot-panel.collapsed .gb-nav,#grepbot-panel.collapsed .gb-subtabs,#grepbot-panel.collapsed section,#grepbot-panel.collapsed footer,#grepbot-panel.collapsed .gb-resize{display:none !important}
     #grepbot-panel .farms-list{margin-bottom:6px;max-height:200px;overflow:auto}
     #grepbot-panel .farms-list table{width:100%;border-collapse:collapse;font-size:10px}

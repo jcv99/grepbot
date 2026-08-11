@@ -688,7 +688,7 @@
     .gb-native-panel-head{display:flex;align-items:center;gap:5px;margin-bottom:4px;font-weight:bold}.gb-native-panel-head span{flex:1}
     .gb-native-job{display:grid;grid-template-columns:24px minmax(120px,1fr) auto;gap:5px;align-items:center;padding:3px 1px;border-top:1px solid rgba(190,150,75,.22)}
     .gb-native-job:first-of-type{border-top:0}.gb-native-job small{display:block;color:#c7ad78;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gb-native-job-actions{display:flex;gap:2px}
-    .gb-native-empty{color:#b9a983;font-style:italic;padding:2px}.gb-native-disabled{opacity:.55}
+    .gb-native-empty{color:#b9a983;font-style:italic;padding:2px}
   `);
   let nativeUiTimer=0;
   function scheduleNativeUiScan() {

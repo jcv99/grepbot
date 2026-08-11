@@ -271,11 +271,6 @@
     if (learnedId != null) add({ id: learnedId, ts: tpl.learned_at || 0 }, 'template');
     return Array.from(map.values()).sort((a, b) => (b.ts || 0) - (a.ts || 0));
   }
-  function ensureAttackPlanTargets() {
-    const p = ensureAttackPlan();
-    if (!Array.isArray(p.targets)) p.targets = [];
-    return p.targets;
-  }
   function applyAttackTarget(t) {
     if (!t || t.id == null || !/^\d+$/.test(String(t.id))) return false;
     const plan = ensureAttackPlan();

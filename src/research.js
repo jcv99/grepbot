@@ -706,5 +706,5 @@
   // `state.webhookPending` (declared in core.js, persisted via STORE.WEBHOOK_*).
   // Module-level maps were wiped by reload/SPA-nav, so the 5-minute dedup
   // window reset and the next captcha/attack/culture event re-posted immediately.
-  const _whRateGuard = state.webhookRatelimit || (state.webhookRatelimit = {});
-  const _whPendGuard = state.webhookPending || (state.webhookPending = {});
+  state.webhookRatelimit || (state.webhookRatelimit = {});
+  state.webhookPending || (state.webhookPending = {});
