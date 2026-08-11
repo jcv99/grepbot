@@ -694,6 +694,12 @@
       <pre class="intel-panel" style="font-size:10px;white-space:pre-wrap;background:#111;padding:6px;border:1px solid #333;max-height:280px;overflow:auto;color:#cfc"></pre>
       <div class="intel-timeline" style="font-size:11px;margin-top:6px"></div>
       <div class="intel-ghost" style="font-size:11px;margin-top:6px"></div>
+      <div class="intel-inactive" style="font-size:11px;margin-top:6px">
+        <div style="color:#888;margin-top:4px">Atacantes inactivos</div>
+        <div class="intel-inactive-atk"></div>
+        <div style="color:#888;margin-top:4px">Defensores inactivos</div>
+        <div class="intel-inactive-def"></div>
+      </div>
       <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <input id="gb-note-player" placeholder="player" style="width:80px;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
         <input id="gb-note-text" placeholder="note" style="flex:1;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>

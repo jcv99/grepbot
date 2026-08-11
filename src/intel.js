@@ -95,6 +95,17 @@
   // signal rather than ordinary silence.
   const GHOST_STALE_MS = 3 * 86400000;
   const GHOST_MAX_ROWS = 30;
+  // 5d = typical Grepolis vacation cap floor, the point where a re-spy starts
+  // paying off; 14d = likely abandoned, where re-spying is wasted.
+  // DELIBERATE DEVIATION from plan 2.4 section 3: the inactivity scan uses its
+  // OWN 14d window, not the shared 7d INTEL_HISTORY_TTL_MS. Inside a 7d window
+  // ageMs can never reach 14d, so 'desaparecido' would be a branch that cannot
+  // fire. 2.2 and 2.3 keep the 7d policy; only this axis needs the longer view,
+  // because its whole point is measuring absence.
+  const PLAYER_INACTIVE_MS = 5 * 86400000;
+  const PLAYER_DISAPPEARED_MS = 14 * 86400000;
+  const PLAYER_HISTORY_MS = PLAYER_DISAPPEARED_MS;
+  const PLAYER_MAX_ROWS = 30;
 
   function intelTownKey(f) {
     if (!f) return null;
@@ -331,7 +342,7 @@
     if (sec && sec.hidden) return;
     const rows = intelGhostTowns();
     if (!rows.length) { placeholder(list, 'sin pueblos fantasma (7d)'); return; }
-    const table = tableShell(list, ['Ciudad', 'Ultima', 'Edad', 'Muro', 'Alianza', 'Razon'], 'intel-ghost');
+    const table = tableShell(list, ['Ciudad', 'Última', 'Edad', 'Muro', 'Alianza', 'Razón'], 'intel-ghost');
     const tbody = table.querySelector('tbody');
     const wanted = rows.map(r => r.townKey);
     const have = new Set(Array.from(tbody.children).map(tr => tr.dataset.key));
@@ -359,6 +370,105 @@
       tr.dataset.sort = [r.label, String(r.lastTs), String(r.ageMs), r.wall == null ? '' : String(r.wall), r.alliance || '', ghostReasonText(r)].join('\t');
     }
     sortApplySaved(table);
+  }
+
+  // ===== Player inactivity tracker (v4 plan 2.4) =============================
+  const inactiveAgeLabel = ghostAgeLabel;
+  function inactiveStatusLabel(row) {
+    if (!row) return '';
+    if (row.disappeared) return 'desaparecido';
+    if (row.inactive) return 'inactivo';
+    return '';
+  }
+  function intelPlayerInactivity() {
+    const now = Date.now();
+    const me = intelMyIdentity();
+    const fresh = (state.findings || []).filter(f => f && +f.ts >= now - PLAYER_HISTORY_MS);
+    const maps = { attackers: new Map(), defenders: new Map() };
+    const bump = (which, actor) => {
+      // A blind identity makes intelActorIsMe false for everything, so the rule
+      // degrades to "show everything" rather than silently dropping rows.
+      if (!actor || intelActorIsMe(actor, me)) return;
+      const key = intelPlayerKey(actor);
+      if (!key || key === 'unknown') return;
+      const m = maps[which];
+      const cur = m.get(key) || { key, player: intelPlayerLabel(actor, key), lastTs: 0, n: 0 };
+      cur.n++;
+      return { m, key, cur };
+    };
+    for (const f of fresh) {
+      for (const [which, actor] of [['attackers', f.attacker], ['defenders', f.defender]]) {
+        const hit = bump(which, actor);
+        if (!hit) continue;
+        if ((+f.ts || 0) > hit.cur.lastTs) {
+          hit.cur.lastTs = +f.ts || 0;
+          const noteKey = (actor && typeof actor === 'object' && actor.name) ? actor.name : hit.cur.player;
+          // Guard, do not assign: a newer finding whose name misses the note map
+          // must not erase a note an earlier finding already resolved.
+          if (state.playerNotes && state.playerNotes[noteKey]) hit.cur.note = state.playerNotes[noteKey];
+        }
+        hit.m.set(hit.key, hit.cur);
+      }
+    }
+    const finish = (m) => Array.from(m.values())
+      .map(r => {
+        const ageMs = now - r.lastTs;
+        return Object.assign({}, r, {
+          ageMs,
+          inactive: ageMs >= PLAYER_INACTIVE_MS,
+          disappeared: ageMs >= PLAYER_DISAPPEARED_MS,
+        });
+      })
+      .filter(r => r.inactive)
+      .sort((a, b) => a.lastTs - b.lastTs)
+      .slice(0, PLAYER_MAX_ROWS);
+    const out = { attackers: finish(maps.attackers), defenders: finish(maps.defenders) };
+    if (!out.attackers.length && !out.defenders.length && (state.findings || []).length) {
+      gbLogT('intel-inactive-empty', 300000, 'intel: player inactivity empty after 14d filter');
+    }
+    return out;
+  }
+  function renderIntelInactiveTable(cls, rows, sortKey, emptyText) {
+    const list = panel && panel.querySelector(cls);
+    if (!list) return;
+    if (!rows.length) { placeholder(list, emptyText); return; }
+    const table = tableShell(list, ['Jugador', 'Última', 'Edad', 'Informes', 'Estado', 'Nota'], sortKey);
+    const tbody = table.querySelector('tbody');
+    const wanted = rows.map(r => r.key);
+    const have = new Set(Array.from(tbody.children).map(tr => tr.dataset.key));
+    const sameSet = have.size === wanted.length && wanted.every(k => have.has(k));
+    if (!sameSet) tbody.replaceChildren();
+    for (const r of rows) {
+      const status = inactiveStatusLabel(r);
+      const cells = [
+        { cls: 'id', text: r.player },
+        { cls: '', text: r.lastTs ? new Date(r.lastTs).toLocaleString() : '?' },
+        { cls: '', text: inactiveAgeLabel(r.ageMs) },
+        { cls: '', text: String(r.n) },
+        { cls: '', text: status },
+        { cls: '', text: r.note || '' },
+      ];
+      let tr = sameSet ? tbody.querySelector(`tr[data-key="${CSS.escape(r.key)}"]`) : null;
+      if (!tr) {
+        tr = document.createElement('tr');
+        tr.dataset.key = r.key;
+        cells.forEach(() => tr.appendChild(document.createElement('td')));
+        tbody.appendChild(tr);
+      }
+      patchCells(tr, cells);
+      // Age sorts on raw ms, not the humanised label ("2d" vs "20h").
+      tr.dataset.sort = [r.player, String(r.lastTs), String(r.ageMs), String(r.n), status, r.note || ''].join('\t');
+    }
+    sortApplySaved(table);
+  }
+  function renderIntelInactive() {
+    const box = panel && panel.querySelector('.intel-inactive');
+    if (!box) return;
+    const sec = box.closest('section[data-tab]');
+    if (sec && sec.hidden) return;
+    const data = intelPlayerInactivity();
+    renderIntelInactiveTable('.intel-inactive-atk', data.attackers, 'intel-inactive-atk', 'sin atacantes inactivos (5d)');
+    renderIntelInactiveTable('.intel-inactive-def', data.defenders, 'intel-inactive-def', 'sin defensores inactivos (5d)');
   }
   function renderIntel() {
     const box = panel && panel.querySelector('.intel-panel');
@@ -401,6 +511,7 @@
     try { intelPatternScan(); } catch (_) {}
     try { renderIntelTimeline(); } catch (_) {}
     try { renderIntelGhost(); } catch (_) {}
+    try { renderIntelInactive(); } catch (_) {}
   }
   function intelSetNote(player, note) {
     if (!state.playerNotes) state.playerNotes = {};
