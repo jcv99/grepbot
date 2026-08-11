@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      3.9.0
+// @version      3.10.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -6167,7 +6167,16 @@ const STORE = {
   };
   const NATIVE_SPECIAL_GROUPS=[['theater','thermal','library','lighthouse'],['tower','statue','oracle','trade_office']];
   let nativeQueueInflightRestored=false;
-  const NATIVE_QUEUE_LANES=['build','recruit','research'];
+
+  const NATIVE_QUEUE_LANES=['build','recruit','recruitNaval','research'];
+  const NATIVE_RECRUIT_LANES=['recruit','recruitNaval'];
+  function nativeUnitIsNaval(unit){try{const d=recruitUnitDef(unit)||{};return !!(d.is_naval||d.naval)}catch(_){return false}}
+  function nativeRecruitLane(unit){return nativeUnitIsNaval(unit)?'recruitNaval':'recruit'}
+
+  function nativeRecruitLaneOf(townId,unit) {
+    for(const lane of NATIVE_RECRUIT_LANES)if(nativeQueueList(townId,lane,false).some(j=>j&&j.unit===unit))return lane;
+    return nativeRecruitLane(unit);
+  }
   function nativeQueueRoot() {
     let q=state.nativeQueue;
     if(!q||typeof q!=='object'||Array.isArray(q))q=state.nativeQueue={version:1,seq:0,towns:{}};
@@ -6179,13 +6188,33 @@ const STORE = {
   function nativeQueueTown(townId,create) {
     const q=nativeQueueRoot(),id=String(townId==null?'':townId);if(!id)return null;
     let t=q.towns[id];
-    if((!t||typeof t!=='object'||Array.isArray(t))&&create!==false)t=q.towns[id]={build:[],recruit:[],research:[],paused:{build:false,recruit:false,research:false},mode:{build:'legacy',recruit:'legacy',research:'legacy'}};
+    if((!t||typeof t!=='object'||Array.isArray(t))&&create!==false)t=q.towns[id]={build:[],recruit:[],recruitNaval:[],research:[],paused:{build:false,recruit:false,recruitNaval:false,research:false},mode:{build:'legacy',recruit:'legacy',recruitNaval:'legacy',research:'legacy'}};
     if(!t)return null;
     for(const lane of NATIVE_QUEUE_LANES)if(!Array.isArray(t[lane]))t[lane]=[];
     if(!t.paused||typeof t.paused!=='object'||Array.isArray(t.paused))t.paused={};
     if(!t.mode||typeof t.mode!=='object'||Array.isArray(t.mode))t.mode={};
     for(const lane of NATIVE_QUEUE_LANES){t.paused[lane]=!!t.paused[lane];if(!['legacy','fifo'].includes(t.mode[lane]))t.mode[lane]='legacy'}
+    nativeRecruitSplitTown(t,id);
     return t;
+  }
+
+  const nativeRecruitSplitDone=new Set();
+  function nativeRecruitSplitTown(t,id) {
+    if(nativeRecruitSplitDone.has(id))return;
+    const land=t.recruit,naval=t.recruitNaval;let moved=0,blind=false;
+    for(let i=land.length-1;i>=0;i--){
+      const j=land[i];if(!j)continue;
+      const d=recruitUnitDef(j.unit);
+      if(!d){blind=true;continue}
+      if(d.is_naval||d.naval){land.splice(i,1);naval.unshift(j);moved++}
+    }
+    if(!blind)nativeRecruitSplitDone.add(id);
+    if(moved){
+      t.mode.recruitNaval='fifo';t.paused.recruitNaval=!!t.paused.recruit;
+
+      try{save(STORE.NATIVE_QUEUE,nativeQueueRoot())}catch(_){}
+      gbLog(`cola nativa: ${moved} orden(es) naval(es) movida(s) a la cola del puerto @${id}`);
+    }
   }
   function nativeQueueList(townId,lane,create){const t=nativeQueueTown(townId,create);return t&&Array.isArray(t[lane])?t[lane]:[];}
   function nativeQueueSave() {
@@ -6199,6 +6228,8 @@ const STORE = {
     if(townId!=null)return nativeQueueList(townId,lane,false).length>0;
     const towns=nativeQueueRoot().towns;return Object.keys(towns).some(id=>nativeQueueList(id,lane,false).length>0);
   }
+
+  function nativeRecruitPending(townId){return NATIVE_RECRUIT_LANES.some(l=>nativeQueueHasPending(l,townId));}
   function nativeQueuePaused(townId,lane){const t=nativeQueueTown(townId,false);return !!(t&&t.paused&&t.paused[lane]);}
   function nativeQueueIsFifo(townId,lane){const t=nativeQueueTown(townId,false);return !!(t&&t.mode&&t.mode[lane]==='fifo');}
   function nativeQueueUseLegacy(townId,lane){const t=nativeQueueTown(townId,true);if(t[lane].length)return false;t.mode[lane]='legacy';t.paused[lane]=false;nativeQueueSave();return true;}
@@ -6207,7 +6238,7 @@ const STORE = {
   function nativeQueueReconcile(townId,lane) {
     if(lane==='build')return nativeQueueReconcileBuild(townId);
     if(lane==='research')return nativeQueueReconcileResearch(townId);
-    return nativeQueueReconcileRecruit(townId);
+    return nativeQueueReconcileRecruit(townId,lane);
   }
   function nativeQueueMove(townId,lane,jobId,delta) {
     nativeQueueReconcile(townId,lane);
@@ -6417,16 +6448,19 @@ const STORE = {
     try{const d=recruitUnitDef(unit)||{};const pop=+d.population||0,freight=+(d.favor??(d.resources&&d.resources.favor))||0;if(d.is_naval||d.naval||d.mythical||d.is_mythical||d.god||pop>=8||freight>0)return 1}catch(_){}
     return 10;
   }
-  function nativeQueueRecruitAmount(townId,unit){return nativeQueueList(townId,'recruit',false).reduce((n,j)=>n+(j&&j.unit===unit?(+j.amount||0):0),0);}
+
+  function nativeQueueRecruitAmount(townId,unit){return NATIVE_RECRUIT_LANES.reduce((n,lane)=>n+nativeQueueList(townId,lane,false).reduce((m,j)=>m+(j&&j.unit===unit?(+j.amount||0):0),0),0);}
   function nativeQueueAddRecruit(townId,unit,amount) {
     const n=Math.max(1,Math.floor(+amount||0));if(!unit||!recruitUnitDef(unit)||!(n>0))return false;
 
-    const town=nativeQueueTown(townId,true);town.mode.recruit='fifo';town.recruit.push({id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:n,status:'pending',reason:'',createdAt:Date.now()});
-    nativeQueueSave();gbLog(`cola nativa: ${n}\u00d7 ${nativeUnitLabel(unit)} @${townId}`);gbTimeout(()=>recruitScan('native'),80);return true;
+    const lane=nativeRecruitLane(unit);
+    const town=nativeQueueTown(townId,true);town.mode[lane]='fifo';town[lane].push({id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:n,status:'pending',reason:'',createdAt:Date.now()});
+    nativeQueueSave();gbLog(`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): ${n}\u00d7 ${nativeUnitLabel(unit)} @${townId}`);gbTimeout(()=>recruitScan('native'),80);return true;
   }
   function nativeQueueRemoveLastRecruit(townId,unit,amount) {
-    nativeQueueReconcileRecruit(townId);
-    const list=nativeQueueList(townId,'recruit',false);const step=Math.max(1,Math.floor(+amount||nativeUnitStep(unit)));for(let i=list.length-1;i>=0;i--){const job=list[i];if(job&&job.unit===unit&&!job.inflight&&!job.manualReview){job.amount=Math.max(0,(+job.amount||0)-step);if(!job.amount)list.splice(i,1);else{job.status='pending';job.reason='';job.updatedAt=Date.now()}nativeQueueSave();return true}}
+    const lane=nativeRecruitLaneOf(townId,unit);
+    nativeQueueReconcileRecruit(townId,lane);
+    const list=nativeQueueList(townId,lane,false);const step=Math.max(1,Math.floor(+amount||nativeUnitStep(unit)));for(let i=list.length-1;i>=0;i--){const job=list[i];if(job&&job.unit===unit&&!job.inflight&&!job.manualReview){job.amount=Math.max(0,(+job.amount||0)-step);if(!job.amount)list.splice(i,1);else{job.status='pending';job.reason='';job.updatedAt=Date.now()}nativeQueueSave();return true}}
     return false;
   }
   function nativeQueueSetJobState(job,status,reason) {
@@ -6479,22 +6513,26 @@ const STORE = {
     nativeQueueSave();
   }
 
-  function nativeQueueReconcileRecruit(townId) {
-    const list=nativeQueueList(townId,'recruit',false);if(!list.length)return false;let changed=false;
-    for(const j of list){if(!j||!j.inflight)continue;if(Date.now()-(+j.inflight.at||0)>120000){j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualiz\u00f3; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}}
+  function nativeQueueReconcileRecruit(townId,lane) {
+    const lanes=lane?[lane]:NATIVE_RECRUIT_LANES;let changed=false;
+    for(const ln of lanes){
+      const list=nativeQueueList(townId,ln,false);if(!list.length)continue;
+      for(const j of list){if(!j||!j.inflight)continue;if(Date.now()-(+j.inflight.at||0)>120000){j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualiz\u00f3; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}}
+    }
     if(changed)nativeQueueSave();return changed;
   }
-  function nativeQueueRecruitHead(townId) {
-    nativeQueueReconcileRecruit(townId);
-    const list=nativeQueueList(townId,'recruit',false),job=list[0];if(!job)return null;
-    if(nativeQueuePaused(townId,'recruit')){nativeQueueSetJobState(job,'paused','cola pausada');return null}
+  function nativeQueueRecruitHead(townId,lane) {
+    lane=lane||'recruit';
+    nativeQueueReconcileRecruit(townId,lane);
+    const list=nativeQueueList(townId,lane,false),job=list[0];if(!job)return null;
+    if(nativeQueuePaused(townId,lane)){nativeQueueSetJobState(job,'paused','cola pausada');return null}
     if(list.some(j=>j&&j!==job&&(j.manualReview||j.inflight))){nativeQueueSetJobState(job,'blocked','hay otra acci\u00f3n pendiente de revisi\u00f3n');return null}
     if(job.manualReview){nativeQueueSetJobState(job,'unknown',job.reason||'comprobar la cola real y quitar este trabajo si no se envi\u00f3');return null}
     if(job.inflight){nativeQueueSetJobState(job,'sending',job.reason||'enviando a la cola real');return null}
     return job;
   }
-  function nativeQueueRecruitApplied(townId,jobId,amount) {
-    const list=nativeQueueList(townId,'recruit',false),job=list[0];if(!job||job.id!==jobId)return;
+  function nativeQueueRecruitApplied(townId,lane,jobId,amount) {
+    const list=nativeQueueList(townId,lane||'recruit',false),job=list[0];if(!job||job.id!==jobId)return;
     job.inflight=null;job.amount=Math.max(0,(+job.amount||0)-Math.max(0,+amount||0));
     if(job.amount<=0)list.shift();else{job.status='pending';job.reason='resto del lote';job.updatedAt=Date.now()}
     nativeQueueSave();
@@ -6647,6 +6685,9 @@ const STORE = {
     .gb-native-qbtn:hover{border-color:#e5b94f;color:#fff}.gb-native-qbtn:disabled{opacity:.42;cursor:default}
     .gb-native-qcount{min-width:58px;text-align:center;white-space:nowrap}.gb-native-qcount.ready{color:#91e5a8}.gb-native-qcount.blocked{color:#ffb0a8}.gb-native-qcount.waiting{color:#ffd27a}
     .gb-native-panel{position:fixed;bottom:10px;right:10px;z-index:2147483000;width:320px;max-width:40vw;max-height:48vh;padding:6px;border:1px solid #8a6725;border-radius:6px;background:rgba(34,27,17,.97);color:#f2dfb2;font:11px/1.3 Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";box-shadow:0 4px 14px rgba(0,0,0,.55);overflow:auto}
+    /* Barracks and harbour can be open at the same time; without the offset the
+       second panel would sit exactly on top of the first. */
+    .gb-native-panel[data-lane="recruitNaval"]{right:340px}
     .gb-native-panel-head{display:flex;align-items:center;gap:5px;margin-bottom:4px;font-weight:bold}.gb-native-panel-head span{flex:1}
     .gb-native-job{display:grid;grid-template-columns:24px minmax(120px,1fr) auto;gap:5px;align-items:center;padding:3px 1px;border-top:1px solid rgba(190,150,75,.22)}
     .gb-native-job:first-of-type{border-top:0}.gb-native-job small{display:block;color:#c7ad78;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gb-native-job-actions{display:flex;gap:2px}
@@ -6835,9 +6876,11 @@ const STORE = {
     ctl.append(minus,count,plus);nativeQctlHitCheck(ctl,building);
   }
   function nativeMountRecruitControl(root,tile,townId,unit) {
-    const list=nativeQueueList(townId,'recruit',false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit);
-    const pos=nativeQueuePosition(townId,'recruit',j=>j&&j.unit===unit),head=pos===1&&list[0];
-    const sig=JSON.stringify([townId,unit,step,pending,pos,frozen,head&&head.status,head&&head.reason]);
+
+    const lane=nativeRecruitLaneOf(townId,unit);
+    const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit);
+    const pos=nativeQueuePosition(townId,lane,j=>j&&j.unit===unit),head=pos===1&&list[0];
+    const sig=JSON.stringify([townId,unit,lane,step,pending,pos,frozen,head&&head.status,head&&head.reason]);
 
     const existing=[...tile.querySelectorAll(':scope > .gb-native-qctl[data-unit]')];
     const keep=existing.find(c=>c.dataset.unit===unit&&c.dataset.sig===sig);
@@ -6888,7 +6931,7 @@ const STORE = {
     let box=document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`);
     if(!box){box=document.createElement('div');box.className='gb-native-panel';box.dataset.lane=lane;box.dataset.town=String(townId);document.body.appendChild(box);box.addEventListener('mousedown',e=>e.stopPropagation());box.addEventListener('click',e=>e.stopPropagation())}
     const oldScroll=box.scrollTop;
-    box.replaceChildren();const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot \u00b7 Construcci\u00f3n':(lane==='research'?'Cola GrepBot \u00b7 Investigaci\u00f3n':'Cola GrepBot \u00b7 Unidades');head.appendChild(title);
+    box.replaceChildren();const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot \u00b7 Construcci\u00f3n':(lane==='research'?'Cola GrepBot \u00b7 Investigaci\u00f3n':(lane==='recruitNaval'?'Cola GrepBot \u00b7 Puerto':'Cola GrepBot \u00b7 Cuartel'));head.appendChild(title);
     const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'>':'||',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
     const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&(j.inflight||j.manualReview));if(!list.length&&nativeQueueIsFifo(townId,lane)){const legacy=nativeQButton('Objetivos','Volver al planificador de objetivos',nativeTownAction(root,townId,()=>nativeQueueUseLegacy(townId,lane)));head.appendChild(legacy)}box.appendChild(head);
     if(!list.length){const empty=document.createElement('div');empty.className='gb-native-empty';empty.textContent=nativeQueueIsFifo(townId,lane)?'Cola vac\u00eda. Usa los botones + de arriba.':'Usa + para crear una cola FIFO en esta ciudad.';box.appendChild(empty);box.scrollTop=oldScroll;return}
@@ -6901,14 +6944,14 @@ const STORE = {
     const mountedTowns=new Set();
     for(const root of roots){const townId=nativeWindowTownId(root);if(!townId){
         if(root.querySelector('.tech_tree_box')||root.querySelector(NATIVE_RESEARCH_SEL_ALL))gbLogT('native-research-notown',300000,'native ui: academy window open but its town id is unreadable - controls skipped');
-        root.querySelectorAll(':scope > .gb-native-panel,.gb-native-qctl').forEach(n=>n.remove());continue}let buildN=0,unitN=0,researchN=0;const mountedBuildIds=new Set(),mountedUnitIds=new Set(),mountedResearchIds=new Set();
+        root.querySelectorAll(':scope > .gb-native-panel,.gb-native-qctl').forEach(n=>n.remove());continue}let buildN=0,researchN=0;const mountedBuildIds=new Set(),mountedUnitIds=new Set(),mountedResearchIds=new Set(),mountedUnitLanes=new Set();
       mountedTowns.add(String(townId));
       const senateContext=!!(root.matches('#building_main,.building_main,.senate')||root.querySelector('#building_main,.building_main,[id^="building_main_"],[id^="special_building_"]'));
 
       const buildTiles=senateContext?[...root.querySelectorAll('[id^="building_main_"],[id^="special_building_"]')]:[];
       for(const tile of buildTiles){if(tile.classList.contains('gb-native-qctl')||tile.closest('.gb-native-qctl,.gb-native-panel'))continue;const id=nativeBuildingId(tile);if(!id||mountedBuildIds.has(id))continue;mountedBuildIds.add(id);nativeMountBuildControl(root,tile,townId,id);buildN++}
       const unitContext=root.matches('#unit_order')?root:root.querySelector('#unit_order');const unitTiles=unitContext?[...unitContext.querySelectorAll('#units .unit_tab,.unit_tab')]:[];
-      for(const tile of unitTiles){const id=nativeUnitId(tile);if(!id||mountedUnitIds.has(id))continue;mountedUnitIds.add(id);nativeMountRecruitControl(root,tile,townId,id);unitN++}
+      for(const tile of unitTiles){const id=nativeUnitId(tile);if(!id||mountedUnitIds.has(id))continue;mountedUnitIds.add(id);mountedUnitLanes.add(nativeRecruitLaneOf(townId,id));nativeMountRecruitControl(root,tile,townId,id)}
 
       const researchTiles=[...root.querySelectorAll(NATIVE_RESEARCH_SEL_ALL)].filter(n=>!n.closest('.gb-native-qctl,.gb-native-panel'));
       const researchOuter=researchTiles.filter(n=>{const id=nativeResearchId(n);return id&&!researchTiles.some(o=>o!==n&&o.contains(n)&&nativeResearchId(o)===id)});
@@ -6924,7 +6967,7 @@ const STORE = {
           +`tech_tree_box ${root.querySelectorAll('.tech_tree_box').length})`);
       }
       root.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>{if(!mountedBuildIds.has(c.dataset.building))c.remove()});root.querySelectorAll('.gb-native-qctl[data-unit]').forEach(c=>{if(!mountedUnitIds.has(c.dataset.unit))c.remove()});root.querySelectorAll('.gb-native-qctl[data-research]').forEach(c=>{if(!mountedResearchIds.has(c.dataset.research))c.remove()});
-      if(buildN)nativeRenderQueuePanel(root,townId,'build');else document.querySelector(`.gb-native-panel[data-lane="build"][data-town="${townId}"]`)?.remove();if(unitN)nativeRenderQueuePanel(root,townId,'recruit');else document.querySelector(`.gb-native-panel[data-lane="recruit"][data-town="${townId}"]`)?.remove();if(researchN)nativeRenderQueuePanel(root,townId,'research');else document.querySelector(`.gb-native-panel[data-lane="research"][data-town="${townId}"]`)?.remove();
+      if(buildN)nativeRenderQueuePanel(root,townId,'build');else document.querySelector(`.gb-native-panel[data-lane="build"][data-town="${townId}"]`)?.remove();for(const lane of NATIVE_RECRUIT_LANES){if(mountedUnitLanes.has(lane))nativeRenderQueuePanel(root,townId,lane);else document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`)?.remove()}if(researchN)nativeRenderQueuePanel(root,townId,'research');else document.querySelector(`.gb-native-panel[data-lane="research"][data-town="${townId}"]`)?.remove();
     }
 
     document.querySelectorAll('.gb-native-panel[data-town]').forEach(p => { if (!mountedTowns.has(p.dataset.town)) p.remove(); });
@@ -10558,15 +10601,16 @@ const STORE = {
     return g;
   }
   function recruitScan(reason) {
-    const nativePending = nativeQueueHasPending('recruit');
+    const nativePending = nativeRecruitPending();
     if (!hostEnabled() || (!state.autoRecruit && !nativePending) || captchaPaused('recruit')) return;
     if (automationPaused({})) return;
     if (gbLocked('recruit')) return;
     recruitScanResetMemo();
     const targets = goalEffectiveRecruitTargets();
-    const explicitIds=Object.keys(nativeQueueRoot().towns).filter(id=>nativeQueueIsFifo(id,'recruit')&&nativeQueueList(id,'recruit',false).length);
-    const legacyIds=Object.keys(targets).filter(id=>!nativeQueueIsFifo(id,'recruit'));
-    const townIds=recruitRotate(explicitIds,recruitNativeCursor++).concat(recruitRotate(legacyIds,recruitLegacyCursor++));
+
+    const explicitIds=Object.keys(nativeQueueRoot().towns).filter(id=>NATIVE_RECRUIT_LANES.some(l=>nativeQueueIsFifo(id,l)&&nativeQueueList(id,l,false).length));
+    const legacyIds=Object.keys(targets).filter(id=>!NATIVE_RECRUIT_LANES.every(l=>nativeQueueIsFifo(id,l)));
+    const townIds=recruitRotate(explicitIds,recruitNativeCursor++).concat(recruitRotate(legacyIds,recruitLegacyCursor++)).filter((id,i,a)=>a.indexOf(id)===i);
     if (!townIds.length) {
       gbLogT('recruit-empty', 300000, 'recruit: no town targets configured');
       return;
@@ -10574,8 +10618,9 @@ const STORE = {
     const uw = gameUw();
     let job = null;
     for (const tid of townIds) {
-      if (nativeQueueIsFifo(tid, 'recruit')) {
-        const explicit = nativeQueueRecruitHead(tid);
+      for (const lane of NATIVE_RECRUIT_LANES) {
+        if (!nativeQueueIsFifo(tid, lane)) continue;
+        const explicit = nativeQueueRecruitHead(tid, lane);
         if (!explicit) continue;
         if (!recruitQueueHasSpace(tid,explicit.unit)) { nativeQueueSetJobState(explicit, 'waiting-slot', 'cola real llena'); continue; }
         if (!recruitCanBuild(tid, explicit.unit) || !recruitControllerFor(explicit.unit)) {
@@ -10584,9 +10629,10 @@ const STORE = {
         const affordable = recruitAffordableAmount(tid, explicit.unit, explicit.amount);
         if (affordable < +explicit.amount) { nativeQueueSetJobState(explicit, 'waiting-resources', 'recursos/poblaci\u00f3n/favor'); continue; }
         nativeQueueSetJobState(explicit, 'ready', 'listo');
-        job = { kind:'build', townId:tid, unit:explicit.unit, amount:+explicit.amount, nativeJobId:explicit.id };
+        job = { kind:'build', townId:tid, unit:explicit.unit, amount:+explicit.amount, nativeJobId:explicit.id, nativeLane:lane };
         break;
       }
+      if (job) break;
       const want = targets[tid];
       if (!want || typeof want !== 'object') continue;
       let t = null;
@@ -10596,6 +10642,8 @@ const STORE = {
       for (const unit of Object.keys(want)) {
         const tgt = +want[unit] || 0;
         if (!(tgt > 0)) continue;
+
+        if (nativeQueueIsFifo(tid, nativeRecruitLane(unit))) continue;
         if (!recruitCanBuild(tid, unit)) continue;
         if (!recruitControllerFor(unit)) continue;
         if (!recruitQueueHasSpace(tid,unit)) continue;
@@ -10646,13 +10694,13 @@ const STORE = {
     const valid = recruitValidateJob(job);
     if (!valid.ok) { gbUnlock('recruit', lockToken); gbLogT('recruit-stale-' + job.townId, 60000, `recruit: final precheck blocked (${valid.why})`); return; }
     if (job.nativeJobId && valid.amount < job.amount) {
-      const head = nativeQueueList(job.townId, 'recruit', false)[0];
+      const head = nativeQueueList(job.townId, job.nativeLane, false)[0];
       nativeQueueSetJobState(head, 'waiting-resources', 'cantidad completa no asequible');
       gbUnlock('recruit', lockToken); return;
     }
     job.amount = valid.amount;
     if (job.nativeJobId) {
-      const head = nativeQueueList(job.townId, 'recruit', false)[0];
+      const head = nativeQueueList(job.townId, job.nativeLane, false)[0];
       if (!head || head.id !== job.nativeJobId) { gbUnlock('recruit', lockToken); return; }
       head.manualReview=false;
       head.inflight = { amount:job.amount, at:Date.now() };
@@ -10662,10 +10710,10 @@ const STORE = {
       gbUnlock('recruit', lockToken);
       if (!err) {
         gbLog(`recruit: town ${job.townId} ${job.amount}\u00d7 ${job.unit}`);
-        if (job.nativeJobId) nativeQueueRecruitApplied(job.townId, job.nativeJobId, job.amount);
+        if (job.nativeJobId) nativeQueueRecruitApplied(job.townId, job.nativeLane, job.nativeJobId, job.amount);
       } else {
         if (job.nativeJobId) {
-          const head = nativeQueueList(job.townId, 'recruit', false)[0];
+          const head = nativeQueueList(job.townId, job.nativeLane, false)[0];
           if (head && head.id === job.nativeJobId) {
             head.inflight = null;
             const ambiguous=err === 'pending' || err === 'timeout_unknown';head.manualReview=ambiguous;
@@ -11084,11 +11132,12 @@ const STORE = {
     for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='priorityOrder'){const allowed=new Set(PRIORITY_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(PRIORITY_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
       const clean={version:1,seq:Math.max(0,+v.seq||0),towns:{}},seen=new Set();
       const jobId=(raw,prefix)=>{let id=/^[A-Za-z0-9:._-]{1,160}$/.test(String(raw||''))?String(raw):'';if(!id||seen.has(id)){clean.seq++;id=`${prefix}:import:${clean.seq.toString(36)}`}seen.add(id);return id};
-      for(const[tid,t]of Object.entries(v.towns||{}).slice(0,500)){if(!/^\d+$/.test(String(tid))||!isObj(t))continue;const townId=String(tid),build=[],recruit=[],research=[];
+      for(const[tid,t]of Object.entries(v.towns||{}).slice(0,500)){if(!/^\d+$/.test(String(tid))||!isObj(t))continue;const townId=String(tid),build=[],recruit=[],recruitNaval=[],research=[];
         for(const j of (Array.isArray(t.build)?t.build:[]).slice(0,300)){if(!isObj(j)||!AB_BUILDINGS.includes(String(j.building))||!Number.isFinite(+j.toLevel)||+j.toLevel<=0)continue;const uncertain=!!(j.inflight||j.manualReview||j.reconcile),flight=j.reconcile||j.inflight||null,flightBuilding=flight&&AB_BUILDINGS.includes(String(flight.building))?String(flight.building):String(j.building);build.push({id:jobId(j.id,'b'),kind:'build',townId,building:String(j.building),fromLevel:Math.max(0,Math.floor(+j.fromLevel||(+j.toLevel-1))),toLevel:Math.max(1,Math.floor(+j.toLevel)),status:uncertain?'unknown':'pending',reason:uncertain?'acci\u00f3n importada pendiente de revisi\u00f3n':'',createdAt:Number.isFinite(+j.createdAt)?+j.createdAt:Date.now(),inflight:null,manualReview:uncertain,reconcile:flight&&isObj(flight)?{building:flightBuilding,targetLevel:Math.max(1,Math.floor(+flight.targetLevel||+j.toLevel)),at:+flight.at||Date.now(),accepted:!!flight.accepted}:null})}
-        for(const j of (Array.isArray(t.recruit)?t.recruit:[]).slice(0,300)){if(!isObj(j)||!/^[a-z0-9_:-]+$/i.test(String(j.unit||''))||!recruitUnitDef(String(j.unit))||!Number.isFinite(+j.amount)||+j.amount<=0)continue;const uncertain=!!(j.inflight||j.manualReview);recruit.push({id:jobId(j.id,'u'),kind:'recruit',townId,unit:String(j.unit),amount:Math.max(1,Math.floor(+j.amount)),status:uncertain?'unknown':'pending',reason:uncertain?'acci\u00f3n importada pendiente de revisi\u00f3n':'',createdAt:Number.isFinite(+j.createdAt)?+j.createdAt:Date.now(),inflight:null,manualReview:uncertain})}
+
+        for(const j of [].concat((Array.isArray(t.recruit)?t.recruit:[]).slice(0,300),(Array.isArray(t.recruitNaval)?t.recruitNaval:[]).slice(0,300))){if(!isObj(j)||!/^[a-z0-9_:-]+$/i.test(String(j.unit||''))||!recruitUnitDef(String(j.unit))||!Number.isFinite(+j.amount)||+j.amount<=0)continue;const uncertain=!!(j.inflight||j.manualReview);const dest=nativeRecruitLane(String(j.unit))==='recruitNaval'?recruitNaval:recruit;dest.push({id:jobId(j.id,'u'),kind:'recruit',townId,unit:String(j.unit),amount:Math.max(1,Math.floor(+j.amount)),status:uncertain?'unknown':'pending',reason:uncertain?'acci\u00f3n importada pendiente de revisi\u00f3n':'',createdAt:Number.isFinite(+j.createdAt)?+j.createdAt:Date.now(),inflight:null,manualReview:uncertain})}
         for(const j of (Array.isArray(t.research)?t.research:[]).slice(0,300)){if(!isObj(j)||!/^[a-z0-9_:-]+$/i.test(String(j.tech||''))||!researchDef(String(j.tech)))continue;const uncertain=!!(j.inflight||j.manualReview);research.push({id:jobId(j.id,'r'),kind:'research',townId,tech:String(j.tech),status:uncertain?'unknown':'pending',reason:uncertain?'acci\u00f3n importada pendiente de revisi\u00f3n':'',createdAt:Number.isFinite(+j.createdAt)?+j.createdAt:Date.now(),inflight:null,manualReview:uncertain})}
-        clean.towns[townId]={build,recruit,research,paused:{build:!!(t.paused&&t.paused.build),recruit:!!(t.paused&&t.paused.recruit),research:!!(t.paused&&t.paused.research)},mode:{build:build.length||t.mode&&t.mode.build==='fifo'?'fifo':'legacy',recruit:recruit.length||t.mode&&t.mode.recruit==='fifo'?'fifo':'legacy',research:research.length||t.mode&&t.mode.research==='fifo'?'fifo':'legacy'}}
+        clean.towns[townId]={build,recruit,recruitNaval,research,paused:{build:!!(t.paused&&t.paused.build),recruit:!!(t.paused&&t.paused.recruit),recruitNaval:!!(t.paused&&(t.paused.recruitNaval!=null?t.paused.recruitNaval:t.paused.recruit)),research:!!(t.paused&&t.paused.research)},mode:{build:build.length||t.mode&&t.mode.build==='fifo'?'fifo':'legacy',recruit:recruit.length||t.mode&&t.mode.recruit==='fifo'?'fifo':'legacy',recruitNaval:recruitNaval.length||t.mode&&(t.mode.recruitNaval==='fifo'||t.mode.recruitNaval==null&&t.mode.recruit==='fifo')?'fifo':'legacy',research:research.length||t.mode&&t.mode.research==='fifo'?'fifo':'legacy'}}
       }v=clean
     }else if(k==='watchlist')v=v.slice(0,500);else if(k==='merchantWish')v=v.slice(0,100).filter(x=>isObj(x)&&(x.item||x.id)&&Number.isFinite(+x.maxPrice)&&+x.maxPrice>0);state[k]=v;save(storeFor[k],v);applied++}
     state.configVer=CONFIG_VER_CURRENT;save(STORE.CONFIG_VER,CONFIG_VER_CURRENT);if(state.autoFavor){state.autoFavor=false;save(STORE.AUTO_FAVOR,false)}goalPlanAll();gbLog(`config imported: ${applied} validated section(s)`);return applied>0;
@@ -11263,7 +11312,7 @@ const STORE = {
       farm: state.autoFarm,
       ruraltrade: state.autoRuralTrade,
       rurallevel: state.autoRuralLevel,
-      recruit: state.autoRecruit || nativeQueueHasPending('recruit'),
+      recruit: state.autoRecruit || nativeRecruitPending(),
       villrecruit: state.autoVillageRecruit,
       merchant: state.autoMerchant,
       pttrade: state.autoPtTrade,
@@ -14260,49 +14309,47 @@ const STORE = {
 
   function renderQueueCenterRecruit(body, townId, wantNaval) {
     const label = wantNaval ? 'Puerto' : 'Cuartel';
+    const lane = wantNaval ? 'recruitNaval' : 'recruit';
     const q = recruitQueueInfo(townId);
     const liveModels = (q.models || []).filter(m => queueCenterUnitIsNaval(queueCenterUnitId(m)) === wantNaval);
     const live = queueCenterCard(`Cola real \u00b7 ${label}`, q.known ? `${liveModels.length}${q.max != null ? ' / ' + q.max : ''}` : 'estado no legible');
     body.appendChild(live.box);
     if (liveModels.length) {
-      liveModels.forEach((m) => {
+      liveModels.forEach((m, i) => {
         const id = queueCenterUnitId(m);
         const r = document.createElement('div'); r.className = 'gb-qc-live-row';
-        const gi = (q.models || []).indexOf(m);
-        const n = document.createElement('span'); n.textContent = `#${gi >= 0 ? gi + 1 : '?'}`;
-        n.title = 'posici\u00f3n en la cola real global de unidades';
+        const n = document.createElement('span'); n.textContent = `#${i + 1}`;
+        n.title = `posici\u00f3n en la cola real de ${label.toLowerCase()}`;
         const nm = document.createElement('b'); nm.textContent = `${queueCenterUnitAmount(m)}\u00d7 ${nativeUnitLabel(id)}`;
         const t = document.createElement('span'); t.textContent = queueCenterFmt(queueCenterTimeLeft(m));
         r.append(n, nm, t); live.box.appendChild(r);
       });
     } else live.box.appendChild(queueCenterEmpty(q.known ? `Sin \u00f3rdenes en ${label.toLowerCase()}` : 'No se puede leer la cola real'));
 
-    const all = nativeQueueList(townId, 'recruit', false);
-    const list = all.filter(j => j && queueCenterUnitIsNaval(j.unit) === wantNaval);
-    const fifo = nativeQueueIsFifo(townId, 'recruit'), paused = nativeQueuePaused(townId, 'recruit');
-    const plan = queueCenterCard(`Plan GrepBot \u00b7 ${label}`, fifo ? (paused ? 'FIFO pausada \u00b7 prioridad global Cuartel/Puerto' : 'FIFO activa \u00b7 prioridad global Cuartel/Puerto') : 'Objetivos autom\u00e1ticos');
+    const list = nativeQueueList(townId, lane, false);
+    const fifo = nativeQueueIsFifo(townId, lane), paused = nativeQueuePaused(townId, lane);
+    const plan = queueCenterCard(`Plan GrepBot \u00b7 ${label}`, fifo ? (paused ? 'FIFO pausada' : 'FIFO activa') : 'Objetivos autom\u00e1ticos');
     body.appendChild(plan.box);
-    plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? 'Reanudar unidades' : 'Pausar unidades', () => nativeQueueTogglePaused(townId, 'recruit')));
-    if (!all.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador autom\u00e1tico', () => nativeQueueUseLegacy(townId, 'recruit')));
+    plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? `Reanudar ${label.toLowerCase()}` : `Pausar ${label.toLowerCase()}`, () => nativeQueueTogglePaused(townId, lane)));
+    if (!list.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador autom\u00e1tico', () => nativeQueueUseLegacy(townId, lane)));
     if (!list.length) { plan.box.appendChild(queueCenterEmpty(fifo ? `No hay \u00f3rdenes ${wantNaval ? 'navales' : 'terrestres'} pendientes. A\u00f1\u00e1delas con + desde ${label}.` : 'Esta ciudad usa objetivos autom\u00e1ticos.')); return; }
-    plan.box.appendChild(queueCenterSequence('Orden FIFO global', all.map((j, i) => ({
+    plan.box.appendChild(queueCenterSequence(`Orden FIFO \u00b7 ${label}`, list.map((j, i) => ({
       text: `#${i + 1} ${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`,
-      title: queueCenterUnitIsNaval(j.unit) ? 'Puerto' : 'Cuartel',
+      title: j.reason || nativeUnitLabel(j.unit),
     }))));
-    const frozen = all.some(j => j && (j.inflight || j.manualReview));
-    list.forEach(j => {
-      const gi = all.indexOf(j);
+    const frozen = list.some(j => j && (j.inflight || j.manualReview));
+    list.forEach((j, i) => {
       const r = document.createElement('div'); r.className = 'gb-qc-job';
-      const num = document.createElement('b'); num.textContent = `#${gi + 1}`; num.title = 'posici\u00f3n en la cola global de unidades';
+      const num = document.createElement('b'); num.textContent = `#${i + 1}`; num.title = `posici\u00f3n en la cola de ${label.toLowerCase()}`;
       const desc = document.createElement('div'); desc.className = 'gb-qc-job-desc';
       const main = document.createElement('span'); main.textContent = `${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`;
       desc.append(main, queueCenterStatusBadge(j.status, j.reason));
       const acts = document.createElement('div'); acts.className = 'gb-qc-acts';
-      const up = queueCenterButton('\u2191', 'Subir en la cola global', () => nativeQueueMove(townId, 'recruit', j.id, -1));
-      const dn = queueCenterButton('\u2193', 'Bajar en la cola global', () => nativeQueueMove(townId, 'recruit', j.id, 1));
-      const del = queueCenterButton('\u00d7', 'Eliminar', () => queueCenterRemove(townId, 'recruit', j, frozen), 'danger');
-      up.disabled = frozen || gi === 0;
-      dn.disabled = frozen || gi === all.length - 1;
+      const up = queueCenterButton('\u2191', 'Subir', () => nativeQueueMove(townId, lane, j.id, -1));
+      const dn = queueCenterButton('\u2193', 'Bajar', () => nativeQueueMove(townId, lane, j.id, 1));
+      const del = queueCenterButton('\u00d7', 'Eliminar', () => queueCenterRemove(townId, lane, j, frozen), 'danger');
+      up.disabled = frozen || i === 0;
+      dn.disabled = frozen || i === list.length - 1;
       del.disabled = !!j.inflight;
       acts.append(up, dn, del); r.append(num, desc, acts); plan.box.appendChild(r);
     });
@@ -16481,7 +16528,7 @@ const STORE = {
   gbTimeout(scheduleNativeUiScan, 1200);
   gbInterval(() => {
     if (nativeQueueHasPending('build')) abScan('native-watch');
-    if (nativeQueueHasPending('recruit')) recruitScan('native-watch');
+    if (nativeRecruitPending()) recruitScan('native-watch');
     if (nativeQueueHasPending('research')) researchScan('native-watch');
 
     scheduleNativeUiScan();

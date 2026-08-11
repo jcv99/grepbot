@@ -272,54 +272,52 @@
     if (!shown) planned.box.appendChild(queueCenterEmpty('No hay investigaciones pendientes en el plan.'));
   }
 
-  // Barracks and docks share ONE recruit lane, so the visible list is filtered by
-  // hull type but the position badge and the reorder buttons always speak the
-  // global index — moving a trireme past a hoplite is a real reorder.
+  // Barracks and docks are two independent queues, in the game and here: each
+  // tab shows only its own lane and its positions are local to that lane, so
+  // reordering triremes can never move a hoplite.
   function renderQueueCenterRecruit(body, townId, wantNaval) {
     const label = wantNaval ? 'Puerto' : 'Cuartel';
+    const lane = wantNaval ? 'recruitNaval' : 'recruit';
     const q = recruitQueueInfo(townId);
     const liveModels = (q.models || []).filter(m => queueCenterUnitIsNaval(queueCenterUnitId(m)) === wantNaval);
     const live = queueCenterCard(`Cola real · ${label}`, q.known ? `${liveModels.length}${q.max != null ? ' / ' + q.max : ''}` : 'estado no legible');
     body.appendChild(live.box);
     if (liveModels.length) {
-      liveModels.forEach((m) => {
+      liveModels.forEach((m, i) => {
         const id = queueCenterUnitId(m);
         const r = document.createElement('div'); r.className = 'gb-qc-live-row';
-        const gi = (q.models || []).indexOf(m);
-        const n = document.createElement('span'); n.textContent = `#${gi >= 0 ? gi + 1 : '?'}`;
-        n.title = 'posición en la cola real global de unidades';
+        const n = document.createElement('span'); n.textContent = `#${i + 1}`;
+        n.title = `posición en la cola real de ${label.toLowerCase()}`;
         const nm = document.createElement('b'); nm.textContent = `${queueCenterUnitAmount(m)}× ${nativeUnitLabel(id)}`;
         const t = document.createElement('span'); t.textContent = queueCenterFmt(queueCenterTimeLeft(m));
         r.append(n, nm, t); live.box.appendChild(r);
       });
     } else live.box.appendChild(queueCenterEmpty(q.known ? `Sin órdenes en ${label.toLowerCase()}` : 'No se puede leer la cola real'));
 
-    const all = nativeQueueList(townId, 'recruit', false);
-    const list = all.filter(j => j && queueCenterUnitIsNaval(j.unit) === wantNaval);
-    const fifo = nativeQueueIsFifo(townId, 'recruit'), paused = nativeQueuePaused(townId, 'recruit');
-    const plan = queueCenterCard(`Plan GrepBot · ${label}`, fifo ? (paused ? 'FIFO pausada · prioridad global Cuartel/Puerto' : 'FIFO activa · prioridad global Cuartel/Puerto') : 'Objetivos automáticos');
+    const list = nativeQueueList(townId, lane, false);
+    const fifo = nativeQueueIsFifo(townId, lane), paused = nativeQueuePaused(townId, lane);
+    const plan = queueCenterCard(`Plan GrepBot · ${label}`, fifo ? (paused ? 'FIFO pausada' : 'FIFO activa') : 'Objetivos automáticos');
     body.appendChild(plan.box);
-    plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? 'Reanudar unidades' : 'Pausar unidades', () => nativeQueueTogglePaused(townId, 'recruit')));
-    if (!all.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador automático', () => nativeQueueUseLegacy(townId, 'recruit')));
+    plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? `Reanudar ${label.toLowerCase()}` : `Pausar ${label.toLowerCase()}`, () => nativeQueueTogglePaused(townId, lane)));
+    if (!list.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador automático', () => nativeQueueUseLegacy(townId, lane)));
     if (!list.length) { plan.box.appendChild(queueCenterEmpty(fifo ? `No hay órdenes ${wantNaval ? 'navales' : 'terrestres'} pendientes. Añádelas con + desde ${label}.` : 'Esta ciudad usa objetivos automáticos.')); return; }
-    plan.box.appendChild(queueCenterSequence('Orden FIFO global', all.map((j, i) => ({
+    plan.box.appendChild(queueCenterSequence(`Orden FIFO · ${label}`, list.map((j, i) => ({
       text: `#${i + 1} ${j.amount}× ${nativeUnitLabel(j.unit)}`,
-      title: queueCenterUnitIsNaval(j.unit) ? 'Puerto' : 'Cuartel',
+      title: j.reason || nativeUnitLabel(j.unit),
     }))));
-    const frozen = all.some(j => j && (j.inflight || j.manualReview));
-    list.forEach(j => {
-      const gi = all.indexOf(j);
+    const frozen = list.some(j => j && (j.inflight || j.manualReview));
+    list.forEach((j, i) => {
       const r = document.createElement('div'); r.className = 'gb-qc-job';
-      const num = document.createElement('b'); num.textContent = `#${gi + 1}`; num.title = 'posición en la cola global de unidades';
+      const num = document.createElement('b'); num.textContent = `#${i + 1}`; num.title = `posición en la cola de ${label.toLowerCase()}`;
       const desc = document.createElement('div'); desc.className = 'gb-qc-job-desc';
       const main = document.createElement('span'); main.textContent = `${j.amount}× ${nativeUnitLabel(j.unit)}`;
       desc.append(main, queueCenterStatusBadge(j.status, j.reason));
       const acts = document.createElement('div'); acts.className = 'gb-qc-acts';
-      const up = queueCenterButton('↑', 'Subir en la cola global', () => nativeQueueMove(townId, 'recruit', j.id, -1));
-      const dn = queueCenterButton('↓', 'Bajar en la cola global', () => nativeQueueMove(townId, 'recruit', j.id, 1));
-      const del = queueCenterButton('×', 'Eliminar', () => queueCenterRemove(townId, 'recruit', j, frozen), 'danger');
-      up.disabled = frozen || gi === 0;
-      dn.disabled = frozen || gi === all.length - 1;
+      const up = queueCenterButton('↑', 'Subir', () => nativeQueueMove(townId, lane, j.id, -1));
+      const dn = queueCenterButton('↓', 'Bajar', () => nativeQueueMove(townId, lane, j.id, 1));
+      const del = queueCenterButton('×', 'Eliminar', () => queueCenterRemove(townId, lane, j, frozen), 'danger');
+      up.disabled = frozen || i === 0;
+      dn.disabled = frozen || i === list.length - 1;
       del.disabled = !!j.inflight;
       acts.append(up, dn, del); r.append(num, desc, acts); plan.box.appendChild(r);
     });

@@ -262,15 +262,19 @@
     return g;
   }
   function recruitScan(reason) {
-    const nativePending = nativeQueueHasPending('recruit');
+    const nativePending = nativeRecruitPending();
     if (!hostEnabled() || (!state.autoRecruit && !nativePending) || captchaPaused('recruit')) return;
     if (automationPaused({})) return;
     if (gbLocked('recruit')) return;
     recruitScanResetMemo();
     const targets = goalEffectiveRecruitTargets();
-    const explicitIds=Object.keys(nativeQueueRoot().towns).filter(id=>nativeQueueIsFifo(id,'recruit')&&nativeQueueList(id,'recruit',false).length);
-    const legacyIds=Object.keys(targets).filter(id=>!nativeQueueIsFifo(id,'recruit'));
-    const townIds=recruitRotate(explicitIds,recruitNativeCursor++).concat(recruitRotate(legacyIds,recruitLegacyCursor++));
+    // Barracks and harbour are separate lanes, so a town can be FIFO for one
+    // hull type and still run the goal planner for the other. Both id lists can
+    // therefore name the same town — dedupe, the per-lane checks below decide
+    // what that town is actually allowed to post.
+    const explicitIds=Object.keys(nativeQueueRoot().towns).filter(id=>NATIVE_RECRUIT_LANES.some(l=>nativeQueueIsFifo(id,l)&&nativeQueueList(id,l,false).length));
+    const legacyIds=Object.keys(targets).filter(id=>!NATIVE_RECRUIT_LANES.every(l=>nativeQueueIsFifo(id,l)));
+    const townIds=recruitRotate(explicitIds,recruitNativeCursor++).concat(recruitRotate(legacyIds,recruitLegacyCursor++)).filter((id,i,a)=>a.indexOf(id)===i);
     if (!townIds.length) {
       gbLogT('recruit-empty', 300000, 'recruit: no town targets configured');
       return;
@@ -278,8 +282,9 @@
     const uw = gameUw();
     let job = null;
     for (const tid of townIds) {
-      if (nativeQueueIsFifo(tid, 'recruit')) {
-        const explicit = nativeQueueRecruitHead(tid);
+      for (const lane of NATIVE_RECRUIT_LANES) {
+        if (!nativeQueueIsFifo(tid, lane)) continue;
+        const explicit = nativeQueueRecruitHead(tid, lane);
         if (!explicit) continue;
         if (!recruitQueueHasSpace(tid,explicit.unit)) { nativeQueueSetJobState(explicit, 'waiting-slot', 'cola real llena'); continue; }
         if (!recruitCanBuild(tid, explicit.unit) || !recruitControllerFor(explicit.unit)) {
@@ -288,9 +293,10 @@
         const affordable = recruitAffordableAmount(tid, explicit.unit, explicit.amount);
         if (affordable < +explicit.amount) { nativeQueueSetJobState(explicit, 'waiting-resources', 'recursos/población/favor'); continue; }
         nativeQueueSetJobState(explicit, 'ready', 'listo');
-        job = { kind:'build', townId:tid, unit:explicit.unit, amount:+explicit.amount, nativeJobId:explicit.id };
+        job = { kind:'build', townId:tid, unit:explicit.unit, amount:+explicit.amount, nativeJobId:explicit.id, nativeLane:lane };
         break;
       }
+      if (job) break;
       const want = targets[tid];
       if (!want || typeof want !== 'object') continue;
       let t = null;
@@ -300,6 +306,9 @@
       for (const unit of Object.keys(want)) {
         const tgt = +want[unit] || 0;
         if (!(tgt > 0)) continue;
+        // A lane the player drives by hand (FIFO) is never topped up by the
+        // goal planner, even when the other hull type still is.
+        if (nativeQueueIsFifo(tid, nativeRecruitLane(unit))) continue;
         if (!recruitCanBuild(tid, unit)) continue;
         if (!recruitControllerFor(unit)) continue;
         if (!recruitQueueHasSpace(tid,unit)) continue;
@@ -354,13 +363,13 @@
     const valid = recruitValidateJob(job);
     if (!valid.ok) { gbUnlock('recruit', lockToken); gbLogT('recruit-stale-' + job.townId, 60000, `recruit: final precheck blocked (${valid.why})`); return; }
     if (job.nativeJobId && valid.amount < job.amount) {
-      const head = nativeQueueList(job.townId, 'recruit', false)[0];
+      const head = nativeQueueList(job.townId, job.nativeLane, false)[0];
       nativeQueueSetJobState(head, 'waiting-resources', 'cantidad completa no asequible');
       gbUnlock('recruit', lockToken); return;
     }
     job.amount = valid.amount;
     if (job.nativeJobId) {
-      const head = nativeQueueList(job.townId, 'recruit', false)[0];
+      const head = nativeQueueList(job.townId, job.nativeLane, false)[0];
       if (!head || head.id !== job.nativeJobId) { gbUnlock('recruit', lockToken); return; }
       head.manualReview=false;
       head.inflight = { amount:job.amount, at:Date.now() };
@@ -370,10 +379,10 @@
       gbUnlock('recruit', lockToken);
       if (!err) {
         gbLog(`recruit: town ${job.townId} ${job.amount}× ${job.unit}`);
-        if (job.nativeJobId) nativeQueueRecruitApplied(job.townId, job.nativeJobId, job.amount);
+        if (job.nativeJobId) nativeQueueRecruitApplied(job.townId, job.nativeLane, job.nativeJobId, job.amount);
       } else {
         if (job.nativeJobId) {
-          const head = nativeQueueList(job.townId, 'recruit', false)[0];
+          const head = nativeQueueList(job.townId, job.nativeLane, false)[0];
           if (head && head.id === job.nativeJobId) {
             head.inflight = null;
             const ambiguous=err === 'pending' || err === 'timeout_unknown';head.manualReview=ambiguous;

@@ -89,7 +89,7 @@
   gbTimeout(scheduleNativeUiScan, 1200);
   gbInterval(() => {
     if (nativeQueueHasPending('build')) abScan('native-watch');
-    if (nativeQueueHasPending('recruit')) recruitScan('native-watch');
+    if (nativeRecruitPending()) recruitScan('native-watch');
     if (nativeQueueHasPending('research')) researchScan('native-watch');
     // Ungated: this used to fire only while a lane already had work, which is a
     // chicken-and-egg lock on a fresh install — no scan means no [+] control,

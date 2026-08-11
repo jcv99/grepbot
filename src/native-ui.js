@@ -1,4 +1,19 @@
-  const NATIVE_QUEUE_LANES=['build','recruit','research'];
+  // Barracks and docks are two INDEPENDENT queues in the game: a full harbour
+  // never blocks a land recruit and vice versa. One shared FIFO lane therefore
+  // stalled every land order behind a naval head (and the reverse), so the
+  // recruit lane is split in two — `recruit` is the barracks, `recruitNaval`
+  // the harbour. Each keeps its own order, its own pause flag and its own mode.
+  const NATIVE_QUEUE_LANES=['build','recruit','recruitNaval','research'];
+  const NATIVE_RECRUIT_LANES=['recruit','recruitNaval'];
+  function nativeUnitIsNaval(unit){try{const d=recruitUnitDef(unit)||{};return !!(d.is_naval||d.naval)}catch(_){return false}}
+  function nativeRecruitLane(unit){return nativeUnitIsNaval(unit)?'recruitNaval':'recruit'}
+  // Lane of an ALREADY QUEUED unit. The array a job actually sits in wins over
+  // GameData: the unit metadata can be unreadable at render time, and falling
+  // back to the land lane there would make a queued trireme invisible.
+  function nativeRecruitLaneOf(townId,unit) {
+    for(const lane of NATIVE_RECRUIT_LANES)if(nativeQueueList(townId,lane,false).some(j=>j&&j.unit===unit))return lane;
+    return nativeRecruitLane(unit);
+  }
   function nativeQueueRoot() {
     let q=state.nativeQueue;
     if(!q||typeof q!=='object'||Array.isArray(q))q=state.nativeQueue={version:1,seq:0,towns:{}};
@@ -10,13 +25,37 @@
   function nativeQueueTown(townId,create) {
     const q=nativeQueueRoot(),id=String(townId==null?'':townId);if(!id)return null;
     let t=q.towns[id];
-    if((!t||typeof t!=='object'||Array.isArray(t))&&create!==false)t=q.towns[id]={build:[],recruit:[],research:[],paused:{build:false,recruit:false,research:false},mode:{build:'legacy',recruit:'legacy',research:'legacy'}};
+    if((!t||typeof t!=='object'||Array.isArray(t))&&create!==false)t=q.towns[id]={build:[],recruit:[],recruitNaval:[],research:[],paused:{build:false,recruit:false,recruitNaval:false,research:false},mode:{build:'legacy',recruit:'legacy',recruitNaval:'legacy',research:'legacy'}};
     if(!t)return null;
     for(const lane of NATIVE_QUEUE_LANES)if(!Array.isArray(t[lane]))t[lane]=[];
     if(!t.paused||typeof t.paused!=='object'||Array.isArray(t.paused))t.paused={};
     if(!t.mode||typeof t.mode!=='object'||Array.isArray(t.mode))t.mode={};
     for(const lane of NATIVE_QUEUE_LANES){t.paused[lane]=!!t.paused[lane];if(!['legacy','fifo'].includes(t.mode[lane]))t.mode[lane]='legacy'}
+    nativeRecruitSplitTown(t,id);
     return t;
+  }
+  // Pre-split storage (and any import) keeps every unit in `recruit`. Move the
+  // naval ones across once GameData can classify them — a town whose units do
+  // not resolve yet is retried on the next access instead of being marked done,
+  // because an unreadable def is "unknown", never "land".
+  const nativeRecruitSplitDone=new Set();
+  function nativeRecruitSplitTown(t,id) {
+    if(nativeRecruitSplitDone.has(id))return;
+    const land=t.recruit,naval=t.recruitNaval;let moved=0,blind=false;
+    for(let i=land.length-1;i>=0;i--){
+      const j=land[i];if(!j)continue;
+      const d=recruitUnitDef(j.unit);
+      if(!d){blind=true;continue}
+      if(d.is_naval||d.naval){land.splice(i,1);naval.unshift(j);moved++}
+    }
+    if(!blind)nativeRecruitSplitDone.add(id);
+    if(moved){
+      t.mode.recruitNaval='fifo';t.paused.recruitNaval=!!t.paused.recruit;
+      // Direct save: nativeQueueSave() re-renders, and this runs from inside
+      // nativeQueueList, which the renderers themselves call.
+      try{save(STORE.NATIVE_QUEUE,nativeQueueRoot())}catch(_){}
+      gbLog(`cola nativa: ${moved} orden(es) naval(es) movida(s) a la cola del puerto @${id}`);
+    }
   }
   function nativeQueueList(townId,lane,create){const t=nativeQueueTown(townId,create);return t&&Array.isArray(t[lane])?t[lane]:[];}
   function nativeQueueSave() {
@@ -30,6 +69,9 @@
     if(townId!=null)return nativeQueueList(townId,lane,false).length>0;
     const towns=nativeQueueRoot().towns;return Object.keys(towns).some(id=>nativeQueueList(id,lane,false).length>0);
   }
+  // Both recruit lanes at once — every caller that used to ask "is there any
+  // unit queued" means barracks OR harbour.
+  function nativeRecruitPending(townId){return NATIVE_RECRUIT_LANES.some(l=>nativeQueueHasPending(l,townId));}
   function nativeQueuePaused(townId,lane){const t=nativeQueueTown(townId,false);return !!(t&&t.paused&&t.paused[lane]);}
   function nativeQueueIsFifo(townId,lane){const t=nativeQueueTown(townId,false);return !!(t&&t.mode&&t.mode[lane]==='fifo');}
   function nativeQueueUseLegacy(townId,lane){const t=nativeQueueTown(townId,true);if(t[lane].length)return false;t.mode[lane]='legacy';t.paused[lane]=false;nativeQueueSave();return true;}
@@ -40,7 +82,7 @@
   function nativeQueueReconcile(townId,lane) {
     if(lane==='build')return nativeQueueReconcileBuild(townId);
     if(lane==='research')return nativeQueueReconcileResearch(townId);
-    return nativeQueueReconcileRecruit(townId);
+    return nativeQueueReconcileRecruit(townId,lane);
   }
   function nativeQueueMove(townId,lane,jobId,delta) {
     nativeQueueReconcile(townId,lane);
@@ -293,17 +335,21 @@
     try{const d=recruitUnitDef(unit)||{};const pop=+d.population||0,freight=+(d.favor??(d.resources&&d.resources.favor))||0;if(d.is_naval||d.naval||d.mythical||d.is_mythical||d.god||pop>=8||freight>0)return 1}catch(_){}
     return 10;
   }
-  function nativeQueueRecruitAmount(townId,unit){return nativeQueueList(townId,'recruit',false).reduce((n,j)=>n+(j&&j.unit===unit?(+j.amount||0):0),0);}
+  // Summed over BOTH lanes on purpose: a unit id belongs to exactly one lane,
+  // so the total is exact and stays right even when the def cannot be read.
+  function nativeQueueRecruitAmount(townId,unit){return NATIVE_RECRUIT_LANES.reduce((n,lane)=>n+nativeQueueList(townId,lane,false).reduce((m,j)=>m+(j&&j.unit===unit?(+j.amount||0):0),0),0);}
   function nativeQueueAddRecruit(townId,unit,amount) {
     const n=Math.max(1,Math.floor(+amount||0));if(!unit||!recruitUnitDef(unit)||!(n>0))return false;
     // Same as the build lane: only the head is ever posted, so a tail append is
     // safe while an order is in flight or awaiting review.
-    const town=nativeQueueTown(townId,true);town.mode.recruit='fifo';town.recruit.push({id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:n,status:'pending',reason:'',createdAt:Date.now()});
-    nativeQueueSave();gbLog(`cola nativa: ${n}× ${nativeUnitLabel(unit)} @${townId}`);gbTimeout(()=>recruitScan('native'),80);return true;
+    const lane=nativeRecruitLane(unit);
+    const town=nativeQueueTown(townId,true);town.mode[lane]='fifo';town[lane].push({id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:n,status:'pending',reason:'',createdAt:Date.now()});
+    nativeQueueSave();gbLog(`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): ${n}× ${nativeUnitLabel(unit)} @${townId}`);gbTimeout(()=>recruitScan('native'),80);return true;
   }
   function nativeQueueRemoveLastRecruit(townId,unit,amount) {
-    nativeQueueReconcileRecruit(townId);
-    const list=nativeQueueList(townId,'recruit',false);const step=Math.max(1,Math.floor(+amount||nativeUnitStep(unit)));for(let i=list.length-1;i>=0;i--){const job=list[i];if(job&&job.unit===unit&&!job.inflight&&!job.manualReview){job.amount=Math.max(0,(+job.amount||0)-step);if(!job.amount)list.splice(i,1);else{job.status='pending';job.reason='';job.updatedAt=Date.now()}nativeQueueSave();return true}}
+    const lane=nativeRecruitLaneOf(townId,unit);
+    nativeQueueReconcileRecruit(townId,lane);
+    const list=nativeQueueList(townId,lane,false);const step=Math.max(1,Math.floor(+amount||nativeUnitStep(unit)));for(let i=list.length-1;i>=0;i--){const job=list[i];if(job&&job.unit===unit&&!job.inflight&&!job.manualReview){job.amount=Math.max(0,(+job.amount||0)-step);if(!job.amount)list.splice(i,1);else{job.status='pending';job.reason='';job.updatedAt=Date.now()}nativeQueueSave();return true}}
     return false;
   }
   function nativeQueueSetJobState(job,status,reason) {
@@ -363,22 +409,26 @@
   // so a dropped callback (superseded tx, transport never settling) froze the
   // whole lane until a page reload. A boolean nobody can clear is exactly what
   // the v1.4.0 lock registry note warns about.
-  function nativeQueueReconcileRecruit(townId) {
-    const list=nativeQueueList(townId,'recruit',false);if(!list.length)return false;let changed=false;
-    for(const j of list){if(!j||!j.inflight)continue;if(Date.now()-(+j.inflight.at||0)>120000){j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualizó; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}}
+  function nativeQueueReconcileRecruit(townId,lane) {
+    const lanes=lane?[lane]:NATIVE_RECRUIT_LANES;let changed=false;
+    for(const ln of lanes){
+      const list=nativeQueueList(townId,ln,false);if(!list.length)continue;
+      for(const j of list){if(!j||!j.inflight)continue;if(Date.now()-(+j.inflight.at||0)>120000){j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualizó; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}}
+    }
     if(changed)nativeQueueSave();return changed;
   }
-  function nativeQueueRecruitHead(townId) {
-    nativeQueueReconcileRecruit(townId);
-    const list=nativeQueueList(townId,'recruit',false),job=list[0];if(!job)return null;
-    if(nativeQueuePaused(townId,'recruit')){nativeQueueSetJobState(job,'paused','cola pausada');return null}
+  function nativeQueueRecruitHead(townId,lane) {
+    lane=lane||'recruit';
+    nativeQueueReconcileRecruit(townId,lane);
+    const list=nativeQueueList(townId,lane,false),job=list[0];if(!job)return null;
+    if(nativeQueuePaused(townId,lane)){nativeQueueSetJobState(job,'paused','cola pausada');return null}
     if(list.some(j=>j&&j!==job&&(j.manualReview||j.inflight))){nativeQueueSetJobState(job,'blocked','hay otra acción pendiente de revisión');return null}
     if(job.manualReview){nativeQueueSetJobState(job,'unknown',job.reason||'comprobar la cola real y quitar este trabajo si no se envió');return null}
     if(job.inflight){nativeQueueSetJobState(job,'sending',job.reason||'enviando a la cola real');return null}
     return job;
   }
-  function nativeQueueRecruitApplied(townId,jobId,amount) {
-    const list=nativeQueueList(townId,'recruit',false),job=list[0];if(!job||job.id!==jobId)return;
+  function nativeQueueRecruitApplied(townId,lane,jobId,amount) {
+    const list=nativeQueueList(townId,lane||'recruit',false),job=list[0];if(!job||job.id!==jobId)return;
     job.inflight=null;job.amount=Math.max(0,(+job.amount||0)-Math.max(0,+amount||0));
     if(job.amount<=0)list.shift();else{job.status='pending';job.reason='resto del lote';job.updatedAt=Date.now()}
     nativeQueueSave();
@@ -546,6 +596,9 @@
     .gb-native-qbtn:hover{border-color:#e5b94f;color:#fff}.gb-native-qbtn:disabled{opacity:.42;cursor:default}
     .gb-native-qcount{min-width:58px;text-align:center;white-space:nowrap}.gb-native-qcount.ready{color:#91e5a8}.gb-native-qcount.blocked{color:#ffb0a8}.gb-native-qcount.waiting{color:#ffd27a}
     .gb-native-panel{position:fixed;bottom:10px;right:10px;z-index:2147483000;width:320px;max-width:40vw;max-height:48vh;padding:6px;border:1px solid #8a6725;border-radius:6px;background:rgba(34,27,17,.97);color:#f2dfb2;font:11px/1.3 Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";box-shadow:0 4px 14px rgba(0,0,0,.55);overflow:auto}
+    /* Barracks and harbour can be open at the same time; without the offset the
+       second panel would sit exactly on top of the first. */
+    .gb-native-panel[data-lane="recruitNaval"]{right:340px}
     .gb-native-panel-head{display:flex;align-items:center;gap:5px;margin-bottom:4px;font-weight:bold}.gb-native-panel-head span{flex:1}
     .gb-native-job{display:grid;grid-template-columns:24px minmax(120px,1fr) auto;gap:5px;align-items:center;padding:3px 1px;border-top:1px solid rgba(190,150,75,.22)}
     .gb-native-job:first-of-type{border-top:0}.gb-native-job small{display:block;color:#c7ad78;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gb-native-job-actions{display:flex;gap:2px}
@@ -766,9 +819,12 @@
     ctl.append(minus,count,plus);nativeQctlHitCheck(ctl,building);
   }
   function nativeMountRecruitControl(root,tile,townId,unit) {
-    const list=nativeQueueList(townId,'recruit',false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit);
-    const pos=nativeQueuePosition(townId,'recruit',j=>j&&j.unit===unit),head=pos===1&&list[0];
-    const sig=JSON.stringify([townId,unit,step,pending,pos,frozen,head&&head.status,head&&head.reason]);
+    // Position and freeze are read from THIS unit's own lane: a stuck trireme
+    // must not grey out the barracks controls.
+    const lane=nativeRecruitLaneOf(townId,unit);
+    const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit);
+    const pos=nativeQueuePosition(townId,lane,j=>j&&j.unit===unit),head=pos===1&&list[0];
+    const sig=JSON.stringify([townId,unit,lane,step,pending,pos,frozen,head&&head.status,head&&head.reason]);
     // Same as the build lane: compare against the mounted node, not a new one.
     const existing=[...tile.querySelectorAll(':scope > .gb-native-qctl[data-unit]')];
     const keep=existing.find(c=>c.dataset.unit===unit&&c.dataset.sig===sig);
@@ -827,7 +883,7 @@
     let box=document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`);
     if(!box){box=document.createElement('div');box.className='gb-native-panel';box.dataset.lane=lane;box.dataset.town=String(townId);document.body.appendChild(box);box.addEventListener('mousedown',e=>e.stopPropagation());box.addEventListener('click',e=>e.stopPropagation())}
     const oldScroll=box.scrollTop;
-    box.replaceChildren();const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot · Construcción':(lane==='research'?'Cola GrepBot · Investigación':'Cola GrepBot · Unidades');head.appendChild(title);
+    box.replaceChildren();const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot · Construcción':(lane==='research'?'Cola GrepBot · Investigación':(lane==='recruitNaval'?'Cola GrepBot · Puerto':'Cola GrepBot · Cuartel'));head.appendChild(title);
     const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'>':'||',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
     const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&(j.inflight||j.manualReview));if(!list.length&&nativeQueueIsFifo(townId,lane)){const legacy=nativeQButton('Objetivos','Volver al planificador de objetivos',nativeTownAction(root,townId,()=>nativeQueueUseLegacy(townId,lane)));head.appendChild(legacy)}box.appendChild(head);
     if(!list.length){const empty=document.createElement('div');empty.className='gb-native-empty';empty.textContent=nativeQueueIsFifo(townId,lane)?'Cola vacía. Usa los botones + de arriba.':'Usa + para crear una cola FIFO en esta ciudad.';box.appendChild(empty);box.scrollTop=oldScroll;return}
@@ -840,7 +896,7 @@
     const mountedTowns=new Set();
     for(const root of roots){const townId=nativeWindowTownId(root);if(!townId){
         if(root.querySelector('.tech_tree_box')||root.querySelector(NATIVE_RESEARCH_SEL_ALL))gbLogT('native-research-notown',300000,'native ui: academy window open but its town id is unreadable - controls skipped');
-        root.querySelectorAll(':scope > .gb-native-panel,.gb-native-qctl').forEach(n=>n.remove());continue}let buildN=0,unitN=0,researchN=0;const mountedBuildIds=new Set(),mountedUnitIds=new Set(),mountedResearchIds=new Set();
+        root.querySelectorAll(':scope > .gb-native-panel,.gb-native-qctl').forEach(n=>n.remove());continue}let buildN=0,researchN=0;const mountedBuildIds=new Set(),mountedUnitIds=new Set(),mountedResearchIds=new Set(),mountedUnitLanes=new Set();
       mountedTowns.add(String(townId));
       const senateContext=!!(root.matches('#building_main,.building_main,.senate')||root.querySelector('#building_main,.building_main,[id^="building_main_"],[id^="special_building_"]'));
       // Iterate the unique per-building wrapper only. The Senate renders
@@ -849,7 +905,7 @@
       const buildTiles=senateContext?[...root.querySelectorAll('[id^="building_main_"],[id^="special_building_"]')]:[];
       for(const tile of buildTiles){if(tile.classList.contains('gb-native-qctl')||tile.closest('.gb-native-qctl,.gb-native-panel'))continue;const id=nativeBuildingId(tile);if(!id||mountedBuildIds.has(id))continue;mountedBuildIds.add(id);nativeMountBuildControl(root,tile,townId,id);buildN++}
       const unitContext=root.matches('#unit_order')?root:root.querySelector('#unit_order');const unitTiles=unitContext?[...unitContext.querySelectorAll('#units .unit_tab,.unit_tab')]:[];
-      for(const tile of unitTiles){const id=nativeUnitId(tile);if(!id||mountedUnitIds.has(id))continue;mountedUnitIds.add(id);nativeMountRecruitControl(root,tile,townId,id);unitN++}
+      for(const tile of unitTiles){const id=nativeUnitId(tile);if(!id||mountedUnitIds.has(id))continue;mountedUnitIds.add(id);mountedUnitLanes.add(nativeRecruitLaneOf(townId,id));nativeMountRecruitControl(root,tile,townId,id)}
       // Academy: every tech entry carries data-research_id. The attribute can sit
       // on the upgrade button itself, so mount on the outermost node per id —
       // appending a control INSIDE a <button> would nest interactive elements.
@@ -869,7 +925,7 @@
           +`tech_tree_box ${root.querySelectorAll('.tech_tree_box').length})`);
       }
       root.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>{if(!mountedBuildIds.has(c.dataset.building))c.remove()});root.querySelectorAll('.gb-native-qctl[data-unit]').forEach(c=>{if(!mountedUnitIds.has(c.dataset.unit))c.remove()});root.querySelectorAll('.gb-native-qctl[data-research]').forEach(c=>{if(!mountedResearchIds.has(c.dataset.research))c.remove()});
-      if(buildN)nativeRenderQueuePanel(root,townId,'build');else document.querySelector(`.gb-native-panel[data-lane="build"][data-town="${townId}"]`)?.remove();if(unitN)nativeRenderQueuePanel(root,townId,'recruit');else document.querySelector(`.gb-native-panel[data-lane="recruit"][data-town="${townId}"]`)?.remove();if(researchN)nativeRenderQueuePanel(root,townId,'research');else document.querySelector(`.gb-native-panel[data-lane="research"][data-town="${townId}"]`)?.remove();
+      if(buildN)nativeRenderQueuePanel(root,townId,'build');else document.querySelector(`.gb-native-panel[data-lane="build"][data-town="${townId}"]`)?.remove();for(const lane of NATIVE_RECRUIT_LANES){if(mountedUnitLanes.has(lane))nativeRenderQueuePanel(root,townId,lane);else document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`)?.remove()}if(researchN)nativeRenderQueuePanel(root,townId,'research');else document.querySelector(`.gb-native-panel[data-lane="research"][data-town="${townId}"]`)?.remove();
     }
     // Drop panels whose town window is gone.
     document.querySelectorAll('.gb-native-panel[data-town]').forEach(p => { if (!mountedTowns.has(p.dataset.town)) p.remove(); });
