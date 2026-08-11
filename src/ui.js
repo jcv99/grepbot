@@ -970,157 +970,157 @@
         <div class="intel-inactive-def"></div>
       </div>
       <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <input id="gb-note-player" placeholder="player" style="width:80px;;font-size:11px"/> class="gb-cfg-input"
-        <input id="gb-note-text" placeholder="note" style="flex:1;;font-size:11px"/> class="gb-cfg-input"
+        <input class="gb-cfg-input" id="gb-note-player" placeholder="player" style="width:80px;;font-size:11px"/>
+        <input class="gb-cfg-input" id="gb-note-text" placeholder="note" style="flex:1;;font-size:11px"/>
         <button id="gb-note-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Guardar nota</button>
       </div>
       <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <input id="gb-anote-ally" placeholder="alianza" style="width:80px;;font-size:11px"/> class="gb-cfg-input"
-        <input id="gb-anote-text" placeholder="nota de alianza" style="flex:1;;font-size:11px"/> class="gb-cfg-input"
+        <input class="gb-cfg-input" id="gb-anote-ally" placeholder="alianza" style="width:80px;;font-size:11px"/>
+        <input class="gb-cfg-input" id="gb-anote-text" placeholder="nota de alianza" style="flex:1;;font-size:11px"/>
         <button id="gb-anote-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px">Guardar nota de alianza</button>
       </div>
     </section>
     <section data-tab="config" hidden>
       <div class="config-panel" style="font-size:11px;display:flex;flex-direction:column;gap:8px">
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="enabled-host"/> Enable on <span class="cfg-host"></span></label>
-        <label style="color:#fc6"> class="gb-cfg-row"<input type="checkbox" data-cfg="safe-mode"/> SAFE MODE (block premium/attacks/favor/killpoints/donations)</label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-collect"/> Auto-collect visible resource rewards</label>
-        <label style="margin-left:12px"> class="gb-cfg-row"<input type="checkbox" data-cfg="collect-all"/> Recolect all (ignore timer cap)</label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-bandit"/> Auto-bandit</label>
-        <label style="margin-left:12px;font-size:10px" title="Tope por tipo de unidad al atacar el campamento. Es un TOPE, no un filtro: nunca deja una unidad a cero. Vacio o 0 = envia todo, como antes.">Tope por unidad <input type="number" data-cfg="bandit-cap" min="0" max="10000" style="width:60px"/> class="gb-cfg-input"</label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-farm"/> Auto-farm</label>
-        <label style="margin-left:12px"> class="gb-cfg-row"<input type="checkbox" data-cfg="farm-skip-full"/> Skip farm/bandit if warehouse full</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="enabled-host"/> Enable on <span class="cfg-host"></span></label>
+        <label class="gb-cfg-row" style="color:#fc6"><input type="checkbox" data-cfg="safe-mode"/> SAFE MODE (block premium/attacks/favor/killpoints/donations)</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-collect"/> Auto-collect visible resource rewards</label>
+        <label class="gb-cfg-row" style="margin-left:12px"><input type="checkbox" data-cfg="collect-all"/> Recolect all (ignore timer cap)</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-bandit"/> Auto-bandit</label>
+        <label style="margin-left:12px;font-size:10px" title="Tope por tipo de unidad al atacar el campamento. Es un TOPE, no un filtro: nunca deja una unidad a cero. Vacio o 0 = envia todo, como antes.">Tope por unidad <input class="gb-cfg-input" type="number" data-cfg="bandit-cap" min="0" max="10000" style="width:60px"/></label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-farm"/> Auto-farm</label>
+        <label class="gb-cfg-row" style="margin-left:12px"><input type="checkbox" data-cfg="farm-skip-full"/> Skip farm/bandit if warehouse full</label>
         <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Warehouse full mode
-          <select data-cfg="farm-full-mode" style="margin-left:6px"> class="gb-cfg-input"
+          <select class="gb-cfg-input" data-cfg="farm-full-mode" style="margin-left:6px">
             <option value="any">cualquier recurso lleno</option>
             <option value="all">los 3 recursos llenos</option>
           </select>
         </label>
-        <label style="margin-left:12px"> class="gb-cfg-row"<input type="checkbox" data-cfg="farm-long-claims"/> 10min claims where villager loyalty researched</label>
-        <label style="margin-left:12px" title="Bajo presion (captcha, enfriamiento del servidor o presupuesto justo) recorta la lista de aldeas en vez de ampliar la cadencia, y reclama primero las mas rentables."> class="gb-cfg-row"<input type="checkbox" data-cfg="adaptive-farm"/> Recoleccion adaptativa bajo presion</label>
-        <label style="margin-left:12px;font-size:10px">Descartar bajo presion <input type="number" data-cfg="farm-drop-pct" min="0" max="90" style="width:45px"/> class="gb-cfg-input" %</label>
+        <label class="gb-cfg-row" style="margin-left:12px"><input type="checkbox" data-cfg="farm-long-claims"/> 10min claims where villager loyalty researched</label>
+        <label class="gb-cfg-row" style="margin-left:12px" title="Bajo presion (captcha, enfriamiento del servidor o presupuesto justo) recorta la lista de aldeas en vez de ampliar la cadencia, y reclama primero las mas rentables."><input type="checkbox" data-cfg="adaptive-farm"/> Recoleccion adaptativa bajo presion</label>
+        <label style="margin-left:12px;font-size:10px">Descartar bajo presion <input class="gb-cfg-input" type="number" data-cfg="farm-drop-pct" min="0" max="90" style="width:45px"/> %</label>
         <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Loyalty tech key
-          <input data-cfg="farm-loyalty-tech" placeholder="auto-detect (server id or label)" title="Server research id (e.g. rural_loyalty) or the localized academy name. Log tab dumps id(label) pairs when auto-detect misses." style="width:190px;;margin-left:6px"/> class="gb-cfg-input"
+          <input class="gb-cfg-input" data-cfg="farm-loyalty-tech" placeholder="auto-detect (server id or label)" title="Server research id (e.g. rural_loyalty) or the localized academy name. Log tab dumps id(label) pairs when auto-detect misses." style="width:190px;;margin-left:6px"/>
         </label>
         <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Sleep claim length
-          <select data-cfg="farm-sleep-dur" style="margin-left:6px"> class="gb-cfg-input"
+          <select class="gb-cfg-input" data-cfg="farm-sleep-dur" style="margin-left:6px">
             <option value="auto">auto (8h si se sabe, si no 4h)</option>
             <option value="14400">4 h</option>
             <option value="28800">8 h</option>
           </select>
         </label>
-        <label style="margin-left:12px"> class="gb-cfg-row"<input type="checkbox" data-cfg="farm-sleep-auto"/> Auto sleep claim (once/day, must end before 24:00)</label>
-        <label style="margin-left:12px" title="Segundos de marcha por unidad de coordenada de isla. El juego no expone la formula de marcha, asi que 0 (por defecto) deja el ranking res/min independiente de la distancia.">Segundos de marcha por unidad de isla <input type="number" data-cfg="farm-travel" min="0" max="600" step="0.5" style="width:60px;;margin-left:6px"/> class="gb-cfg-input"</label>
+        <label class="gb-cfg-row" style="margin-left:12px"><input type="checkbox" data-cfg="farm-sleep-auto"/> Auto sleep claim (once/day, must end before 24:00)</label>
+        <label style="margin-left:12px" title="Segundos de marcha por unidad de coordenada de isla. El juego no expone la formula de marcha, asi que 0 (por defecto) deja el ranking res/min independiente de la distancia.">Segundos de marcha por unidad de isla <input class="gb-cfg-input" type="number" data-cfg="farm-travel" min="0" max="600" step="0.5" style="width:60px;;margin-left:6px"/></label>
         <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Sleep claim max warehouse fill %
-          <input type="number" data-cfg="farm-sleep-fill" min="10" max="95" style="width:60px;;margin-left:6px"/> class="gb-cfg-input"
+          <input class="gb-cfg-input" type="number" data-cfg="farm-sleep-fill" min="10" max="95" style="width:60px;;margin-left:6px"/>
         </label>
         <div id="gb-farm-optmap" style="margin-left:12px;font-size:10px;color:#888"></div>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-build"/> Instant free builds</label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="instant-research"/> Instant free research (academy)</label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-queue"/> Auto-queue builds</label>
-        <label style="margin-left:12px" title="Un muro danado conserva su nivel, asi que el planificador no lo ve. Con esto activado el nivel efectivo baja segun el dano y la cola lo reconstruye. Gasta recursos: por defecto OFF."> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-wall-repair"/> Reparar muralla danada</label>
-        <label style="margin-left:12px;font-size:10px" title="Si la cabeza de la cola lleva bloqueada por recursos mas de estos minutos, Colas > Construccion ofrece ascender la siguiente orden que SI se puede pagar. Solo sugerencia: nunca reordena solo. 0 = desactivado.">Sugerir adelanto tras <input type="number" data-cfg="build-swap-min" min="0" max="120" style="width:45px"/> class="gb-cfg-input" min bloqueada</label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-quest-build"/> Auto-claim quest build discount</label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-quest-res"/> Auto-claim quest resources/favor</label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-cave"/> Auto-cave (stash excess iron)</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-build"/> Instant free builds</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="instant-research"/> Instant free research (academy)</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-queue"/> Auto-queue builds</label>
+        <label class="gb-cfg-row" style="margin-left:12px" title="Un muro danado conserva su nivel, asi que el planificador no lo ve. Con esto activado el nivel efectivo baja segun el dano y la cola lo reconstruye. Gasta recursos: por defecto OFF."><input type="checkbox" data-cfg="auto-wall-repair"/> Reparar muralla danada</label>
+        <label style="margin-left:12px;font-size:10px" title="Si la cabeza de la cola lleva bloqueada por recursos mas de estos minutos, Colas > Construccion ofrece ascender la siguiente orden que SI se puede pagar. Solo sugerencia: nunca reordena solo. 0 = desactivado.">Sugerir adelanto tras <input class="gb-cfg-input" type="number" data-cfg="build-swap-min" min="0" max="120" style="width:45px"/> min bloqueada</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-quest-build"/> Auto-claim quest build discount</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-quest-res"/> Auto-claim quest resources/favor</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-cave"/> Auto-cave (stash excess iron)</label>
         <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Cave when iron ≥ % of warehouse
-          <input type="number" data-cfg="cave-thresh" min="50" max="99" style="width:50px;;margin-left:6px"/> class="gb-cfg-input"
+          <input class="gb-cfg-input" type="number" data-cfg="cave-thresh" min="50" max="99" style="width:50px;;margin-left:6px"/>
         </label>
         <div style="margin-left:12px;font-size:10px;color:#888">Per-town (unchecked = skip that town):</div>
         <div class="cave-towns" style="display:flex;flex-direction:column;gap:2px;max-height:120px;overflow:auto"></div>
-        <label style="color:#f96" title="ALTO RIESGO: guarda plata en la cueva ignorando el umbral cuando un ataque serio va a caer en menos de 15 min. Solo actua sobre ciudades con la cueva activada arriba."> class="gb-cfg-row"<input type="checkbox" data-cfg="emergency-cave-auto"/> Cueva de emergencia ante ataque (ALTO RIESGO, OFF)</label>
+        <label class="gb-cfg-row" style="color:#f96" title="ALTO RIESGO: guarda plata en la cueva ignorando el umbral cuando un ataque serio va a caer en menos de 15 min. Solo actua sobre ciudades con la cueva activada arriba."><input type="checkbox" data-cfg="emergency-cave-auto"/> Cueva de emergencia ante ataque (ALTO RIESGO, OFF)</label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Emergencia:
-          confirmar &gt; <input type="number" data-cfg="emergency-cave-confirm" min="0" max="1000000" step="100" style="width:70px"/> class="gb-cfg-input"
-          minimo <input type="number" data-cfg="emergency-cave-min-iron" min="1" max="100000" style="width:60px"/> class="gb-cfg-input"
+          confirmar &gt; <input class="gb-cfg-input" type="number" data-cfg="emergency-cave-confirm" min="0" max="1000000" step="100" style="width:70px"/>
+          minimo <input class="gb-cfg-input" type="number" data-cfg="emergency-cave-min-iron" min="1" max="100000" style="width:60px"/>
           <button data-cfg="emergency-cave-now" style="background:#333;border:1px solid #555;color:#f96;padding:2px 6px;cursor:pointer;font-size:10px;margin-left:6px" title="Guarda ahora la plata de todas las ciudades con cueva activada, ignorando el umbral.">Guardar plata YA</button>
         </label>
         <div style="border-top:1px solid #333;padding-top:6px;color:#f5a623;font-size:10px">Fase 8+ economia</div>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-culture"/> Auto-culture</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-culture"/> Auto-culture</label>
         <label style="margin-left:12px;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">
           <label><input type="checkbox" data-cfg="cult-festival"/> festival</label>
           <label><input type="checkbox" data-cfg="cult-procession"/> procession</label>
           <label><input type="checkbox" data-cfg="cult-theater"/> theater</label>
           <label><input type="checkbox" data-cfg="cult-olympic"/> olympic</label>
         </label>
-        <label style="margin-left:12px;color:#f96"> class="gb-cfg-row"<input type="checkbox" data-cfg="allow-premium-culture"/> Allow premium culture (olympic = 50 gold)</label>
+        <label class="gb-cfg-row" style="margin-left:12px;color:#f96"><input type="checkbox" data-cfg="allow-premium-culture"/> Allow premium culture (olympic = 50 gold)</label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Olympic daily gold budget
-          <input type="number" data-cfg="culture-gold-budget" min="0" max="500" step="50" style="width:60px;;margin-left:6px"/> class="gb-cfg-input"
+          <input class="gb-cfg-input" type="number" data-cfg="culture-gold-budget" min="0" max="500" step="50" style="width:60px;;margin-left:6px"/>
         </label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-trade"/> Inter-city trade (Fill Storage)</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-trade"/> Inter-city trade (Fill Storage)</label>
         <label style="margin-left:12px;flex-wrap:wrap">Preset
-          <select data-cfg="trade-preset" style="margin-left:4px"> class="gb-cfg-input"
+          <select class="gb-cfg-input" data-cfg="trade-preset" style="margin-left:4px">
             <option value="smart">predictivo inteligente</option>
             <option value="storage">almacen</option>
             <option value="party">fiesta (sin implementar)</option>
             <option value="unit">unidades (sin implementar)</option>
           </select>
-          Reserve % <input type="number" data-cfg="trade-reserve" min="0" max="80" style="width:45px"/> class="gb-cfg-input"
-          Min batch <input type="number" data-cfg="trade-min" min="100" max="50000" step="100" style="width:60px"/> class="gb-cfg-input"
+          Reserve % <input class="gb-cfg-input" type="number" data-cfg="trade-reserve" min="0" max="80" style="width:45px"/>
+          Min batch <input class="gb-cfg-input" type="number" data-cfg="trade-min" min="100" max="50000" step="100" style="width:60px"/>
         </label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="island-ship"/> Mainland→island res ship</label>
-        <label style="color:#f96" title="ALTO RIESGO: envia las rutas guardadas en cada ciclo de comercio. Sin vuelta atras. Pruebalo con Simulacion antes de activarlo."> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-trade-routes"/> Rutas de comercio guardadas</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="island-ship"/> Mainland→island res ship</label>
+        <label class="gb-cfg-row" style="color:#f96" title="ALTO RIESGO: envia las rutas guardadas en cada ciclo de comercio. Sin vuelta atras. Pruebalo con Simulacion antes de activarlo."><input type="checkbox" data-cfg="auto-trade-routes"/> Rutas de comercio guardadas</label>
         <button data-cfg="trade-routes-edit" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px" title="Editar las rutas como JSON. Siempre disponible, incluso con el bucle apagado.">Rutas...</button>
-        <label style="color:#f96" title="ALTO RIESGO: mueve recursos entre tus ciudades sin vuelta atras. Equilibra segun el sesgo 'resource' del perfil de cada ciudad. Pruebalo con Simulacion antes de activarlo."> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-transport"/> Auto transporte inter-ciudad</label>
-        <label style="color:#f96" title="ALTO RIESGO: elige cada movimiento por cuanto acerca a TODA la cuenta a su reparto objetivo (60% madera / 50% piedra / 30% plata), ponderado por el perfil de cada ciudad. Solo mueve si el reparto mejora."> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-transport-ai"/> Equilibrado automatico de recursos</label>
-        <label style="margin-left:12px;flex-wrap:wrap">Reserve % <input type="number" data-cfg="transport-reserve" min="0" max="80" style="width:45px"/> class="gb-cfg-input"
-          Min batch <input type="number" data-cfg="transport-min" min="100" max="10000" step="100" style="width:60px"/> class="gb-cfg-input"
+        <label class="gb-cfg-row" style="color:#f96" title="ALTO RIESGO: mueve recursos entre tus ciudades sin vuelta atras. Equilibra segun el sesgo 'resource' del perfil de cada ciudad. Pruebalo con Simulacion antes de activarlo."><input type="checkbox" data-cfg="auto-transport"/> Auto transporte inter-ciudad</label>
+        <label class="gb-cfg-row" style="color:#f96" title="ALTO RIESGO: elige cada movimiento por cuanto acerca a TODA la cuenta a su reparto objetivo (60% madera / 50% piedra / 30% plata), ponderado por el perfil de cada ciudad. Solo mueve si el reparto mejora."><input type="checkbox" data-cfg="auto-transport-ai"/> Equilibrado automatico de recursos</label>
+        <label style="margin-left:12px;flex-wrap:wrap">Reserve % <input class="gb-cfg-input" type="number" data-cfg="transport-reserve" min="0" max="80" style="width:45px"/>
+          Min batch <input class="gb-cfg-input" type="number" data-cfg="transport-min" min="100" max="10000" step="100" style="width:60px"/>
         </label>
-        <label style="color:#f96" title="ALTO RIESGO: vacia recursos por encima del umbral hacia otras ciudades. Sin vuelta atras. Envia solo la MITAD del excedente y nunca el hierro que la cueva todavia puede guardar."> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-dump"/> Auto vaciado de recursos</label>
+        <label class="gb-cfg-row" style="color:#f96" title="ALTO RIESGO: vacia recursos por encima del umbral hacia otras ciudades. Sin vuelta atras. Envia solo la MITAD del excedente y nunca el hierro que la cueva todavia puede guardar."><input type="checkbox" data-cfg="auto-dump"/> Auto vaciado de recursos</label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Vaciar por encima de %
-          mad <input type="number" data-cfg="dump-th-wood" min="50" max="100" style="width:45px"/> class="gb-cfg-input"
-          pie <input type="number" data-cfg="dump-th-stone" min="50" max="100" style="width:45px"/> class="gb-cfg-input"
-          pla <input type="number" data-cfg="dump-th-iron" min="50" max="100" style="width:45px"/> class="gb-cfg-input"
+          mad <input class="gb-cfg-input" type="number" data-cfg="dump-th-wood" min="50" max="100" style="width:45px"/>
+          pie <input class="gb-cfg-input" type="number" data-cfg="dump-th-stone" min="50" max="100" style="width:45px"/>
+          pla <input class="gb-cfg-input" type="number" data-cfg="dump-th-iron" min="50" max="100" style="width:45px"/>
         </label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Conservar %
-          mad <input type="number" data-cfg="dump-keep-wood" min="0" max="95" style="width:45px"/> class="gb-cfg-input"
-          pie <input type="number" data-cfg="dump-keep-stone" min="0" max="95" style="width:45px"/> class="gb-cfg-input"
-          pla <input type="number" data-cfg="dump-keep-iron" min="0" max="95" style="width:45px"/> class="gb-cfg-input"
+          mad <input class="gb-cfg-input" type="number" data-cfg="dump-keep-wood" min="0" max="95" style="width:45px"/>
+          pie <input class="gb-cfg-input" type="number" data-cfg="dump-keep-stone" min="0" max="95" style="width:45px"/>
+          pla <input class="gb-cfg-input" type="number" data-cfg="dump-keep-iron" min="0" max="95" style="width:45px"/>
         </label>
-        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="Ciudades propias que aceptan el vaciado, separadas por comas. Vacio = usa el sesgo del perfil y luego el planificador de transporte.">Destinos <input data-cfg="dump-sinks" placeholder="vacio = auto" style="width:180px;;margin-left:6px"/> class="gb-cfg-input"</label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-rural-trade"/> Rural village trade</label>
-        <label style="margin-left:12px;flex-wrap:wrap">Min ratio <input type="number" data-cfg="rural-ratio" step="0.25" min="0.25" max="2" style="width:50px"/> class="gb-cfg-input"
-          Res <select data-cfg="rural-res"> class="gb-cfg-input"<option value="iron">plata</option><option value="stone">piedra</option><option value="wood">madera</option></select>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="Ciudades propias que aceptan el vaciado, separadas por comas. Vacio = usa el sesgo del perfil y luego el planificador de transporte.">Destinos <input class="gb-cfg-input" data-cfg="dump-sinks" placeholder="vacio = auto" style="width:180px;;margin-left:6px"/></label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-rural-trade"/> Rural village trade</label>
+        <label style="margin-left:12px;flex-wrap:wrap">Min ratio <input class="gb-cfg-input" type="number" data-cfg="rural-ratio" step="0.25" min="0.25" max="2" style="width:50px"/>
+          Res <select class="gb-cfg-input" data-cfg="rural-res"><option value="iron">plata</option><option value="stone">piedra</option><option value="wood">madera</option></select>
         </label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-rural-level"/> Farm village upgrade</label>
-        <label style="margin-left:12px">Max level <input type="number" data-cfg="rural-level-max" min="1" max="6" style="width:40px"/> class="gb-cfg-input"</label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-research"/> Auto-research</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-rural-level"/> Farm village upgrade</label>
+        <label style="margin-left:12px">Max level <input class="gb-cfg-input" type="number" data-cfg="rural-level-max" min="1" max="6" style="width:40px"/></label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-research"/> Auto-research</label>
         <button data-cfg="research-csfast" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Cargar CS-fast de investigacion</button>
         <div class="research-path" style="margin-left:12px;font-size:9px;color:#8ac;white-space:pre-wrap"></div>
         <div style="border-top:1px solid #333;padding-top:6px;color:#f5a623;font-size:10px">QoL / survival</div>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="pause-activity"/> Pause when I am active</label>
-        <label style="margin-left:12px">Pause min <input type="number" data-cfg="pause-ms" min="1" max="60" style="width:40px"/> class="gb-cfg-input"</label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="night-pause"/> Night pause</label>
-        <label style="margin-left:12px">Hours <input type="number" data-cfg="night-start" min="0" max="23" style="width:40px"/> class="gb-cfg-input"–<input type="number" data-cfg="night-end" min="0" max="23" style="width:40px"/> class="gb-cfg-input"</label>
-        <label title="Log every payload the bot would send and send nothing. Use it to compare bot payloads against a hand-clicked action before enabling a risky feature."> class="gb-cfg-row"<input type="checkbox" data-cfg="dry-run"/> <b style="color:#6cf">Simulacion (registra payloads, no envia nada)</b></label>
-        <label title="A feature that keeps finding nothing to do doubles its own interval (up to 8x) until it acts again."> class="gb-cfg-row"<input type="checkbox" data-cfg="orch-adaptive"/> Adaptive cadence (back off idle features)</label>
-        <label title="Si un almacen se llena y la recoleccion deja de rendir, cueva/comercio/aldeas pasan por delante de la recoleccion y no se les aplica el frenado por inactividad. Solo cambia el ORDEN, nunca el presupuesto."> class="gb-cfg-row"<input type="checkbox" data-cfg="orch-deadlock"/> Resolver atasco de almacen (prioriza vaciado)</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="pause-activity"/> Pause when I am active</label>
+        <label style="margin-left:12px">Pause min <input class="gb-cfg-input" type="number" data-cfg="pause-ms" min="1" max="60" style="width:40px"/></label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="night-pause"/> Night pause</label>
+        <label style="margin-left:12px">Hours <input class="gb-cfg-input" type="number" data-cfg="night-start" min="0" max="23" style="width:40px"/>–<input class="gb-cfg-input" type="number" data-cfg="night-end" min="0" max="23" style="width:40px"/></label>
+        <label class="gb-cfg-row" title="Log every payload the bot would send and send nothing. Use it to compare bot payloads against a hand-clicked action before enabling a risky feature."><input type="checkbox" data-cfg="dry-run"/> <b style="color:#6cf">Simulacion (registra payloads, no envia nada)</b></label>
+        <label class="gb-cfg-row" title="A feature that keeps finding nothing to do doubles its own interval (up to 8x) until it acts again."><input type="checkbox" data-cfg="orch-adaptive"/> Adaptive cadence (back off idle features)</label>
+        <label class="gb-cfg-row" title="Si un almacen se llena y la recoleccion deja de rendir, cueva/comercio/aldeas pasan por delante de la recoleccion y no se les aplica el frenado por inactividad. Solo cambia el ORDEN, nunca el presupuesto."><input type="checkbox" data-cfg="orch-deadlock"/> Resolver atasco de almacen (prioriza vaciado)</label>
         <label style="margin-left:0;flex-wrap:wrap;font-size:10px">Tema
-          <select data-cfg="theme" style="margin-left:6px"> class="gb-cfg-input"
+          <select class="gb-cfg-input" data-cfg="theme" style="margin-left:6px">
             <option value="dark">oscuro</option>
             <option value="light">claro</option>
             <option value="system">del sistema</option>
           </select>
         </label>
-        <label title="Ctrl/Cmd+Shift+tecla. Nunca se dispara mientras escribes en un campo del juego o del panel."> class="gb-cfg-row"<input type="checkbox" data-cfg="keyboard-shortcuts"/> Atajos de teclado</label>
-        <label title="Anade un menu GrepBot junto al popup de ciudad del juego. No intercepta ningun evento del juego: solo se monta al lado."> class="gb-cfg-row"<input type="checkbox" data-cfg="context-menu"/> Menu contextual junto al popup del juego</label>
-        <label title="Guarda cada 5 min una instantanea acotada de la configuracion y el estado de transacciones. No copia la bitacora ni los hallazgos."> class="gb-cfg-row"<input type="checkbox" data-cfg="snapshots-on"/> Instantaneas de estado</label>
+        <label class="gb-cfg-row" title="Ctrl/Cmd+Shift+tecla. Nunca se dispara mientras escribes en un campo del juego o del panel."><input type="checkbox" data-cfg="keyboard-shortcuts"/> Atajos de teclado</label>
+        <label class="gb-cfg-row" title="Anade un menu GrepBot junto al popup de ciudad del juego. No intercepta ningun evento del juego: solo se monta al lado."><input type="checkbox" data-cfg="context-menu"/> Menu contextual junto al popup del juego</label>
+        <label class="gb-cfg-row" title="Guarda cada 5 min una instantanea acotada de la configuracion y el estado de transacciones. No copia la bitacora ni los hallazgos."><input type="checkbox" data-cfg="snapshots-on"/> Instantaneas de estado</label>
         <label style="margin-left:12px;font-size:10px"><button data-cfg="snapshot-restore" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Restaurar instantanea...</button></label>
-        <label title="Mide ms por llamada de cada bucle. Muy barato, pero por defecto OFF."> class="gb-cfg-row"<input type="checkbox" data-cfg="profiler-on"/> Perfilador de rendimiento</label>
-        <label title="Muestrea el heap (solo Chromium) y el tamano de los mapas de estado cada 5 min."> class="gb-cfg-row"<input type="checkbox" data-cfg="mem-probe-on"/> Sonda de memoria</label>
-        <label title="Aplica un perfil (AFK / recoleccion / guerra) segun dia, hora y condiciones. Lista de reglas acotada: no acepta codigo ni texto libre."> class="gb-cfg-row"<input type="checkbox" data-cfg="profile-auto"/> Cambio automatico de perfiles</label>
-        <label style="margin-left:12px;font-size:10px">Permanencia minima <input type="number" data-cfg="profile-auto-hold" min="15" max="1440" style="width:50px"/> class="gb-cfg-input" min
+        <label class="gb-cfg-row" title="Mide ms por llamada de cada bucle. Muy barato, pero por defecto OFF."><input type="checkbox" data-cfg="profiler-on"/> Perfilador de rendimiento</label>
+        <label class="gb-cfg-row" title="Muestrea el heap (solo Chromium) y el tamano de los mapas de estado cada 5 min."><input type="checkbox" data-cfg="mem-probe-on"/> Sonda de memoria</label>
+        <label class="gb-cfg-row" title="Aplica un perfil (AFK / recoleccion / guerra) segun dia, hora y condiciones. Lista de reglas acotada: no acepta codigo ni texto libre."><input type="checkbox" data-cfg="profile-auto"/> Cambio automatico de perfiles</label>
+        <label style="margin-left:12px;font-size:10px">Permanencia minima <input class="gb-cfg-input" type="number" data-cfg="profile-auto-hold" min="15" max="1440" style="width:50px"/> min
           <button data-cfg="profile-auto-edit" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px;margin-left:6px">Reglas...</button>
         </label>
         <div class="profile-auto-list" style="margin-left:12px;font-size:9px;color:#8ac;white-space:pre-wrap"></div>
         <div class="key-list" style="margin-left:12px;font-size:9px;color:#8ac;white-space:pre-wrap"></div>
         <button data-cfg="keybindings-edit" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Reasignar atajos...</button>
-        <label title="Copy/Export replace player names and ids with short hashes. Turn OFF only for local debugging."> class="gb-cfg-row"<input type="checkbox" data-cfg="export-redact"/> Redact names/ids in Copy + Export</label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="captcha-global"/> Global captcha kill-switch</label>
-        <label title="Skip an action that failed the same way 3x in a row (5/15/60min backoff). Journal keeps recording either way."> class="gb-cfg-row"<input type="checkbox" data-cfg="decision-memory"/> Decision memory (skip repeat failures)</label>
-        <label title="Anade a la pestana Intel el resumen de batallas por jugador y el ranking de granjas por botin. Solo lectura, se recalcula en cada render."> class="gb-cfg-row"<input type="checkbox" data-cfg="intel-battle-stats"/> Estadisticas de batalla en Intel</label>
-        <label title="Muestra en Colas > class="gb-cfg-row" Construccion una secuencia aconsejada. Solo consejo: la cola FIFO manda y nada se envia sin pulsar el boton."><input type="checkbox" data-cfg="ab-optimal-order"/> Secuencia optima de construccion (consejo)</label>
-        <label>Req budget / min <input type="number" data-cfg="req-budget" min="5" max="120" style="width:50px;;margin-left:6px"/> class="gb-cfg-input"</label>
-        <label>Webhook URL <input type="text" data-cfg="webhook-url" placeholder="Discord webhook or https://api.telegram.org/bot…/sendMessage" style="width:100%;;margin-top:2px;font-size:10px"/> class="gb-cfg-input"</label>
+        <label class="gb-cfg-row" title="Copy/Export replace player names and ids with short hashes. Turn OFF only for local debugging."><input type="checkbox" data-cfg="export-redact"/> Redact names/ids in Copy + Export</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="captcha-global"/> Global captcha kill-switch</label>
+        <label class="gb-cfg-row" title="Skip an action that failed the same way 3x in a row (5/15/60min backoff). Journal keeps recording either way."><input type="checkbox" data-cfg="decision-memory"/> Decision memory (skip repeat failures)</label>
+        <label class="gb-cfg-row" title="Anade a la pestana Intel el resumen de batallas por jugador y el ranking de granjas por botin. Solo lectura, se recalcula en cada render."><input type="checkbox" data-cfg="intel-battle-stats"/> Estadisticas de batalla en Intel</label>
+        <label class="gb-cfg-row" title="Muestra en Colas > Construccion una secuencia aconsejada. Solo consejo: la cola FIFO manda y nada se envia sin pulsar el boton."><input type="checkbox" data-cfg="ab-optimal-order"/> Secuencia optima de construccion (consejo)</label>
+        <label>Req budget / min <input class="gb-cfg-input" type="number" data-cfg="req-budget" min="5" max="120" style="width:50px;;margin-left:6px"/></label>
+        <label>Webhook URL <input class="gb-cfg-input" type="text" data-cfg="webhook-url" placeholder="Discord webhook or https://api.telegram.org/bot…/sendMessage" style="width:100%;;margin-top:2px;font-size:10px"/></label>
         <label style="margin-left:0;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">Events
           <label><input type="checkbox" data-cfg="wh-captcha"/> captcha</label>
           <label><input type="checkbox" data-cfg="wh-attack"/> attack</label>
@@ -1130,21 +1130,21 @@
           <label title="Aviso cuando alguien te espia repetidamente en 24h."><input type="checkbox" data-cfg="wh-counter-intel"/> contra-inteligencia</label>
           <label title="ALTO RIESGO de divulgacion: publica resumenes de tus informes de espionaje al webhook. Por defecto OFF y con nombres ocultos."><input type="checkbox" data-cfg="intel-digest"/> resumen de espionaje</label>
         </label>
-        <label>Telegram chat_id <input type="text" data-cfg="wh-tg-chat" placeholder="optional if not in URL" style="width:140px;;margin-left:6px;font-size:10px"/> class="gb-cfg-input"</label>
-        <label title="Notificaciones del navegador. Comparten el mismo antirrebote de 5 min que los webhooks: un evento, un aviso."> class="gb-cfg-row"<input type="checkbox" data-cfg="notify-enabled"/> Notificaciones de escritorio</label>
+        <label>Telegram chat_id <input class="gb-cfg-input" type="text" data-cfg="wh-tg-chat" placeholder="optional if not in URL" style="width:140px;;margin-left:6px;font-size:10px"/></label>
+        <label class="gb-cfg-row" title="Notificaciones del navegador. Comparten el mismo antirrebote de 5 min que los webhooks: un evento, un aviso."><input type="checkbox" data-cfg="notify-enabled"/> Notificaciones de escritorio</label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">
           <button data-cfg="notify-permission" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Permitir notificaciones</button>
           <label style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><input type="checkbox" data-cfg="notify-muted"/> silenciar sonido</label>
-          volumen <input type="number" data-cfg="notify-volume" min="0" max="100" step="10" style="width:50px"/> class="gb-cfg-input"%
+          volumen <input class="gb-cfg-input" type="number" data-cfg="notify-volume" min="0" max="100" step="10" style="width:50px"/>%
           <button data-cfg="notify-test" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px;margin-left:6px">Probar</button>
         </label>
         <div style="border-top:1px solid #333;padding-top:6px;color:#f96;font-size:10px">ALTO RIESGO (por defecto OFF)</div>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-merchant"/> Merchant sniper</label>
-        <label title="Las ofertas de recursos del barco mercante empiezan en 0.5:1 y suben +0.1 por trato. Bombea con tratos de 1 unidad y luego envia el trato grande a 1:1."> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-pt-trade"/> Bombeo del ratio del barco mercante</label>
-        <label style="margin-left:12px;font-size:10px">ratio objetivo <input type="number" step="0.1" min="0.5" max="2" data-cfg="pt-ratio" style="width:52px"/> class="gb-cfg-input"
-          cantidad de bombeo <input type="number" min="1" max="100" data-cfg="pt-pump" style="width:52px"/> class="gb-cfg-input"
-          bombeos max. <input type="number" min="0" max="20" data-cfg="pt-maxpumps" style="width:52px"/> class="gb-cfg-input"
-          reserva % <input type="number" min="0" max="90" data-cfg="pt-reserve" style="width:52px"/> class="gb-cfg-input"
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-merchant"/> Merchant sniper</label>
+        <label class="gb-cfg-row" title="Las ofertas de recursos del barco mercante empiezan en 0.5:1 y suben +0.1 por trato. Bombea con tratos de 1 unidad y luego envia el trato grande a 1:1."><input type="checkbox" data-cfg="auto-pt-trade"/> Bombeo del ratio del barco mercante</label>
+        <label style="margin-left:12px;font-size:10px">ratio objetivo <input class="gb-cfg-input" type="number" step="0.1" min="0.5" max="2" data-cfg="pt-ratio" style="width:52px"/>
+          cantidad de bombeo <input class="gb-cfg-input" type="number" min="1" max="100" data-cfg="pt-pump" style="width:52px"/>
+          bombeos max. <input class="gb-cfg-input" type="number" min="0" max="20" data-cfg="pt-maxpumps" style="width:52px"/>
+          reserva % <input class="gb-cfg-input" type="number" min="0" max="90" data-cfg="pt-reserve" style="width:52px"/>
         </label>
         <label style="margin-left:12px;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">recibir
           <label><input type="checkbox" data-cfg="pt-want-wood"/> madera</label>
@@ -1156,73 +1156,73 @@
           <button data-cfg="pt-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Bombear + comerciar ya</button>
           <button data-cfg="pt-copy" title="Copia el HTML de la ventana del mercader abierta - hace falta una vez para confirmar el analizador de ofertas" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Copiar HTML de la oferta</button>
         </div>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-favor" disabled/> Favor farm (disabled: unsafe target path)</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-favor" disabled/> Favor farm (disabled: unsafe target path)</label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="ALTO RIESGO. El favor gastado no vuelve. No se lanza NADA sin escribir aqui un id de poder explicito: nunca hay valor por defecto.">Hechizo divino:
-          poder <input data-cfg="godspell-power" placeholder="id exacto, sin valor por defecto" style="width:170px"/> class="gb-cfg-input"
-          coste <input type="number" data-cfg="godspell-cost" min="0" max="500" style="width:55px"/> class="gb-cfg-input"
-          reserva % <input type="number" data-cfg="godspell-reserve" min="0" max="95" style="width:50px"/> class="gb-cfg-input"
+          poder <input class="gb-cfg-input" data-cfg="godspell-power" placeholder="id exacto, sin valor por defecto" style="width:170px"/>
+          coste <input class="gb-cfg-input" type="number" data-cfg="godspell-cost" min="0" max="500" style="width:55px"/>
+          reserva % <input class="gb-cfg-input" type="number" data-cfg="godspell-reserve" min="0" max="95" style="width:50px"/>
         </label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-wonder"/> WW donations</label>
-        <label title="Gasta favor en la maravilla de la alianza. Requiere haber capturado wonderFavorTpl. Por defecto OFF."> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-wonder-favor"/> Lanzar favor en la Maravilla (captura el poder antes)</label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="cs-alert"/> CS / incoming alerts</label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-militia"/> Auto-militia on incoming</label>
-        <label style="color:#f96" title="Explorador automatico. Gasta plata y puede devolver captcha. Su propia Simulacion viene activada: veras el payload antes de gastar nada. No envia nada hasta aprender la ruta espiando a mano una vez."> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-spy"/> Auto-espionaje (aprende la ruta a mano)</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-wonder"/> WW donations</label>
+        <label class="gb-cfg-row" title="Gasta favor en la maravilla de la alianza. Requiere haber capturado wonderFavorTpl. Por defecto OFF."><input type="checkbox" data-cfg="auto-wonder-favor"/> Lanzar favor en la Maravilla (captura el poder antes)</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="cs-alert"/> CS / incoming alerts</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-militia"/> Auto-militia on incoming</label>
+        <label class="gb-cfg-row" style="color:#f96" title="Explorador automatico. Gasta plata y puede devolver captcha. Su propia Simulacion viene activada: veras el payload antes de gastar nada. No envia nada hasta aprender la ruta espiando a mano una vez."><input type="checkbox" data-cfg="auto-spy"/> Auto-espionaje (aprende la ruta a mano)</label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Espionaje:
-          por ciclo <input type="number" data-cfg="spy-per-cycle" min="1" max="5" style="width:40px"/> class="gb-cfg-input"
-          hueco min <input type="number" data-cfg="spy-min-gap" min="1" max="1440" style="width:50px"/> class="gb-cfg-input" min
-          top informes <input type="number" data-cfg="spy-top" min="0" max="50" style="width:45px"/> class="gb-cfg-input"
+          por ciclo <input class="gb-cfg-input" type="number" data-cfg="spy-per-cycle" min="1" max="5" style="width:40px"/>
+          hueco min <input class="gb-cfg-input" type="number" data-cfg="spy-min-gap" min="1" max="1440" style="width:50px"/> min
+          top informes <input class="gb-cfg-input" type="number" data-cfg="spy-top" min="0" max="50" style="width:45px"/>
           <label style="display:inline-flex;align-items:center;gap:4px"><input type="checkbox" data-cfg="spy-dry"/> Simulacion</label>
         </label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="Milicia inteligente (v4 3.6): consume poblacion que no vuelve durante la oleada, asi que solo se levanta cuando vale la pena.">Milicia:
-          forzar riesgo &gt;= <input type="number" data-cfg="militia-force" min="0" max="100" style="width:45px"/> class="gb-cfg-input"
-          saltar riesgo &lt; <input type="number" data-cfg="militia-skip" min="0" max="100" style="width:45px"/> class="gb-cfg-input"
-          defensa local OK &gt;= <input type="number" data-cfg="militia-local" min="0" max="100000" style="width:60px"/> class="gb-cfg-input"
-          espera zona gris <input type="number" data-cfg="militia-grace" min="0" max="60" style="width:45px"/> class="gb-cfg-input" min
+          forzar riesgo &gt;= <input class="gb-cfg-input" type="number" data-cfg="militia-force" min="0" max="100" style="width:45px"/>
+          saltar riesgo &lt; <input class="gb-cfg-input" type="number" data-cfg="militia-skip" min="0" max="100" style="width:45px"/>
+          defensa local OK &gt;= <input class="gb-cfg-input" type="number" data-cfg="militia-local" min="0" max="100000" style="width:60px"/>
+          espera zona gris <input class="gb-cfg-input" type="number" data-cfg="militia-grace" min="0" max="60" style="width:45px"/> min
         </label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-dodge"/> Auto-dodge</label>
-        <label style="margin-left:12px">Defense mode <select data-cfg="defense-mode"> class="gb-cfg-input"<option value="notify">avisar</option><option value="safe">esquiva segura</option><option value="smart">smart</option></select> <label><input type="checkbox" data-cfg="defense-smart-auto"/> smart auto</label> check return +<input type="number" data-cfg="defense-return-margin" min="0" max="3600" style="width:55px"/> class="gb-cfg-input"s (manual if support arrived) · leave <input type="number" data-cfg="dodge-floor" min="0" max="500" style="width:50px"/> class="gb-cfg-input"</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-dodge"/> Auto-dodge</label>
+        <label style="margin-left:12px">Defense mode <select class="gb-cfg-input" data-cfg="defense-mode"><option value="notify">avisar</option><option value="safe">esquiva segura</option><option value="smart">smart</option></select> <label><input type="checkbox" data-cfg="defense-smart-auto"/> smart auto</label> check return +<input class="gb-cfg-input" type="number" data-cfg="defense-return-margin" min="0" max="3600" style="width:55px"/>s (manual if support arrived) · leave <input class="gb-cfg-input" type="number" data-cfg="dodge-floor" min="0" max="500" style="width:50px"/></label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="Pesos del motor de amenaza (v4 5.3). Los valores por defecto reproducen exactamente el comportamiento anterior.">Amenaza:
-          CS <input type="number" data-cfg="threat-cs" min="0" max="120" style="width:45px"/> class="gb-cfg-input"
-          ETA&lt;15m <input type="number" data-cfg="threat-eta15" min="0" max="60" style="width:45px"/> class="gb-cfg-input"
-          simult <input type="number" data-cfg="threat-sim" min="0" max="30" style="width:45px"/> class="gb-cfg-input"
-          apoyo -<input type="number" data-cfg="threat-support" min="0" max="30" style="width:45px"/> class="gb-cfg-input"
-          umbral <input type="number" data-cfg="threat-threshold" min="0" max="100" style="width:45px"/> class="gb-cfg-input"
+          CS <input class="gb-cfg-input" type="number" data-cfg="threat-cs" min="0" max="120" style="width:45px"/>
+          ETA&lt;15m <input class="gb-cfg-input" type="number" data-cfg="threat-eta15" min="0" max="60" style="width:45px"/>
+          simult <input class="gb-cfg-input" type="number" data-cfg="threat-sim" min="0" max="30" style="width:45px"/>
+          apoyo -<input class="gb-cfg-input" type="number" data-cfg="threat-support" min="0" max="30" style="width:45px"/>
+          umbral <input class="gb-cfg-input" type="number" data-cfg="threat-threshold" min="0" max="100" style="width:45px"/>
         </label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="Riesgo base por tipo de ataque (v4 5.4). Un saqueo y un asedio no son la misma amenaza. El umbral de esquiva, si se rellena, manda sobre el umbral general de arriba.">Esquiva:
-          umbral <input type="number" data-cfg="defense-risk-threshold" min="10" max="200" placeholder="auto" style="width:55px"/> class="gb-cfg-input"
-          CS +<input type="number" data-cfg="defense-risk-cs" min="0" max="120" style="width:45px"/> class="gb-cfg-input"
-          saqueo <input type="number" data-cfg="defense-risk-raid" min="0" max="100" style="width:45px"/> class="gb-cfg-input"
-          asedio <input type="number" data-cfg="defense-risk-siege" min="0" max="100" style="width:45px"/> class="gb-cfg-input"
+          umbral <input class="gb-cfg-input" type="number" data-cfg="defense-risk-threshold" min="10" max="200" placeholder="auto" style="width:55px"/>
+          CS +<input class="gb-cfg-input" type="number" data-cfg="defense-risk-cs" min="0" max="120" style="width:45px"/>
+          saqueo <input class="gb-cfg-input" type="number" data-cfg="defense-risk-raid" min="0" max="100" style="width:45px"/>
+          asedio <input class="gb-cfg-input" type="number" data-cfg="defense-risk-siege" min="0" max="100" style="width:45px"/>
         </label>
-        <label title="Agrupa los entrantes de una ciudad en oleadas y dice si la CS tiene ventana de snipe. Solo lectura."> class="gb-cfg-row"<input type="checkbox" data-cfg="cs-snipe"/> Detector de contra-snipe</label>
+        <label class="gb-cfg-row" title="Agrupa los entrantes de una ciudad en oleadas y dice si la CS tiene ventana de snipe. Solo lectura."><input type="checkbox" data-cfg="cs-snipe"/> Detector de contra-snipe</label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Snipe:
-          agrupar oleadas <input type="number" data-cfg="cs-cluster-gap" min="60" max="21600" style="width:60px"/> class="gb-cfg-input"s
-          cobertura <input type="number" data-cfg="cs-cover" min="5" max="900" style="width:55px"/> class="gb-cfg-input"s
-          muy justa &lt;= <input type="number" data-cfg="cs-tight" min="0" max="120" style="width:45px"/> class="gb-cfg-input"s
+          agrupar oleadas <input class="gb-cfg-input" type="number" data-cfg="cs-cluster-gap" min="60" max="21600" style="width:60px"/>s
+          cobertura <input class="gb-cfg-input" type="number" data-cfg="cs-cover" min="5" max="900" style="width:55px"/>s
+          muy justa &lt;= <input class="gb-cfg-input" type="number" data-cfg="cs-tight" min="0" max="120" style="width:45px"/>s
         </label>
-        <label style="color:#f96" title="ALTO RIESGO: envia tropas reales de otras ciudades cuando llega un ataque de banda alta o con CS. Gasta tropas sin vuelta atras; pide confirmacion por ventana. Aprende su propia plantilla: envia un apoyo a mano una vez."> class="gb-cfg-row"<input type="checkbox" data-cfg="support-auto"/> Apoyo automatico (ALTO RIESGO, OFF)</label>
+        <label class="gb-cfg-row" style="color:#f96" title="ALTO RIESGO: envia tropas reales de otras ciudades cuando llega un ataque de banda alta o con CS. Gasta tropas sin vuelta atras; pide confirmacion por ventana. Aprende su propia plantilla: envia un apoyo a mano una vez."><input type="checkbox" data-cfg="support-auto"/> Apoyo automatico (ALTO RIESGO, OFF)</label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Apoyo:
-          confirmar &gt; <input type="number" data-cfg="support-confirm" min="0" max="10000" style="width:60px"/> class="gb-cfg-input"
-          dejar en casa <input type="number" data-cfg="support-home-floor" min="0" max="50" style="width:45px"/> class="gb-cfg-input"
-          ETA min <input type="number" data-cfg="support-min-eta" min="30" max="3600" style="width:55px"/> class="gb-cfg-input"s
-          no armar bajo <input type="number" data-cfg="support-no-arm" min="10" max="600" style="width:50px"/> class="gb-cfg-input"s
+          confirmar &gt; <input class="gb-cfg-input" type="number" data-cfg="support-confirm" min="0" max="10000" style="width:60px"/>
+          dejar en casa <input class="gb-cfg-input" type="number" data-cfg="support-home-floor" min="0" max="50" style="width:45px"/>
+          ETA min <input class="gb-cfg-input" type="number" data-cfg="support-min-eta" min="30" max="3600" style="width:55px"/>s
+          no armar bajo <input class="gb-cfg-input" type="number" data-cfg="support-no-arm" min="10" max="600" style="width:50px"/>s
         </label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="auto-recruit"/> Auto-recruit</label>
-        <label style="margin-left:12px"> class="gb-cfg-row"<input type="checkbox" data-cfg="recruit-spells"/> Cast recruit spells first</label>
-        <label style="margin-left:12px;color:#f96" title="Convierte aldeanos en unidades cuando la aldea no admite mas recursos. Recompute: compara espada+arquero vs hoplita+hondero, elige la pareja con mas tropas y dentro de ella la unidad con menos. Requiere abrir la aldea y pulsar Aceptar una vez a mano la primera vez."> class="gb-cfg-row"<input type="checkbox" data-cfg="village-recruit"/> Reclutar en aldeas saturadas</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-recruit"/> Auto-recruit</label>
+        <label class="gb-cfg-row" style="margin-left:12px"><input type="checkbox" data-cfg="recruit-spells"/> Cast recruit spells first</label>
+        <label class="gb-cfg-row" style="margin-left:12px;color:#f96" title="Convierte aldeanos en unidades cuando la aldea no admite mas recursos. Recompute: compara espada+arquero vs hoplita+hondero, elige la pareja con mas tropas y dentro de ella la unidad con menos. Requiere abrir la aldea y pulsar Aceptar una vez a mano la primera vez."><input type="checkbox" data-cfg="village-recruit"/> Reclutar en aldeas saturadas</label>
         <label style="margin-left:24px;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">% llenado aldea
-          <input type="number" data-cfg="village-recruit-fill" min="50" max="99" style="width:50px;;margin-left:6px"/> class="gb-cfg-input"
+          <input class="gb-cfg-input" type="number" data-cfg="village-recruit-fill" min="50" max="99" style="width:50px;;margin-left:6px"/>
           cantidad por tick
-          <input type="number" data-cfg="village-recruit-amount" min="1" max="20" style="width:50px;;margin-left:6px"/> class="gb-cfg-input"
+          <input class="gb-cfg-input" type="number" data-cfg="village-recruit-amount" min="1" max="20" style="width:50px;;margin-left:6px"/>
         </label>
-        <label> class="gb-cfg-row"<input type="checkbox" data-cfg="grepodata"/> Grepodata Index+ assist</label>
-        <label>IB free threshold (sec, safety cap 290) <input type="number" data-cfg="ib-free-thresh" min="60" max="300" style="width:70px;;margin-left:6px"/> class="gb-cfg-input"</label>
-        <label>Collect max min <input type="number" data-cfg="collect-max-min" min="1" max="120" style="width:70px;;margin-left:6px"/> class="gb-cfg-input"</label>
-        <label title="Lee los recursos de cada aldea por HTTP. Solo funciona en mundos cuyo cliente responde a una accion farm_town_*. Si no, cada barrido gasta el presupuesto de peticiones sin devolver nada y se apaga solo."> class="gb-cfg-row"<input type="checkbox" data-cfg="farm-scrape"/> Escanear recursos de aldeas (HTTP)</label>
-        <label>Farm cadence min-max (min) <input type="number" data-cfg="farm-min" min="1" max="60" style="width:50px"/> class="gb-cfg-input" - <input type="number" data-cfg="farm-max" min="1" max="60" style="width:50px"/> class="gb-cfg-input"</label>
-        <label>Town cadence min-max (min) <input type="number" data-cfg="town-min" min="1" max="60" style="width:50px"/> class="gb-cfg-input" - <input type="number" data-cfg="town-max" min="1" max="60" style="width:50px"/> class="gb-cfg-input"</label>
-        <label title="Minutos de pausa tras el 1er, 2o, 3er... captcha del mismo modulo. Lista separada por comas, de 1 a 1440. Vacio = 5,15,60.">Escalera de captcha (min) <input type="text" data-cfg="captcha-ladder" placeholder="5,15,60" style="width:110px;;margin-left:6px"/> class="gb-cfg-input"</label>
-        <label title="Por debajo del presupuesto duro: al pasar este % los envios se retrasan en vez de descartarse. 60 = empieza a frenar en el 60% de las peticiones/min.">Freno suave de envios (% del presupuesto) <input type="number" data-cfg="posts-soft-pct" min="10" max="100" style="width:60px;;margin-left:6px"/> class="gb-cfg-input"</label>
+        <label class="gb-cfg-row"><input type="checkbox" data-cfg="grepodata"/> Grepodata Index+ assist</label>
+        <label>IB free threshold (sec, safety cap 290) <input class="gb-cfg-input" type="number" data-cfg="ib-free-thresh" min="60" max="300" style="width:70px;;margin-left:6px"/></label>
+        <label>Collect max min <input class="gb-cfg-input" type="number" data-cfg="collect-max-min" min="1" max="120" style="width:70px;;margin-left:6px"/></label>
+        <label class="gb-cfg-row" title="Lee los recursos de cada aldea por HTTP. Solo funciona en mundos cuyo cliente responde a una accion farm_town_*. Si no, cada barrido gasta el presupuesto de peticiones sin devolver nada y se apaga solo."><input type="checkbox" data-cfg="farm-scrape"/> Escanear recursos de aldeas (HTTP)</label>
+        <label>Farm cadence min-max (min) <input class="gb-cfg-input" type="number" data-cfg="farm-min" min="1" max="60" style="width:50px"/> - <input class="gb-cfg-input" type="number" data-cfg="farm-max" min="1" max="60" style="width:50px"/></label>
+        <label>Town cadence min-max (min) <input class="gb-cfg-input" type="number" data-cfg="town-min" min="1" max="60" style="width:50px"/> - <input class="gb-cfg-input" type="number" data-cfg="town-max" min="1" max="60" style="width:50px"/></label>
+        <label title="Minutos de pausa tras el 1er, 2o, 3er... captcha del mismo modulo. Lista separada por comas, de 1 a 1440. Vacio = 5,15,60.">Escalera de captcha (min) <input class="gb-cfg-input" type="text" data-cfg="captcha-ladder" placeholder="5,15,60" style="width:110px;;margin-left:6px"/></label>
+        <label title="Por debajo del presupuesto duro: al pasar este % los envios se retrasan en vez de descartarse. 60 = empieza a frenar en el 60% de las peticiones/min.">Freno suave de envios (% del presupuesto) <input class="gb-cfg-input" type="number" data-cfg="posts-soft-pct" min="10" max="100" style="width:60px;;margin-left:6px"/></label>
         <button data-cfg="clear-captcha" style="align-self:flex-start;background:#333;border:1px solid #555;color:#f96;padding:3px 8px;cursor:pointer;font-size:11px">Limpiar cortacircuitos de captcha</button>
       </div>
     </section>
@@ -2677,7 +2677,7 @@
     const filt = document.createElement('div');
     filt.className = 'findings-filter';
     filt.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap';
-    filt.innerHTML = '<input data-f="type" placeholder="type filter" style="flex:1;min-width:60px;;padding:2px 4px;font:11px monospace"/> class="gb-cfg-input"<input data-f="attacker" placeholder="attacker filter" style="flex:1;min-width:60px;;padding:2px 4px;font:11px monospace"/> class="gb-cfg-input"';
+    filt.innerHTML = '<input class="gb-cfg-input" data-f="type" placeholder="type filter" style="flex:1;min-width:60px;;padding:2px 4px;font:11px monospace"/><input class="gb-cfg-input" data-f="attacker" placeholder="attacker filter" style="flex:1;min-width:60px;;padding:2px 4px;font:11px monospace"/>';
     filt.querySelectorAll('input').forEach(inp => {
       inp.value = state.findingsFilter[inp.dataset.f] || '';
       inp.addEventListener('input', () => {
