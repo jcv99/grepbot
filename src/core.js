@@ -295,6 +295,10 @@
     tradePreset: load(STORE.TRADE_PRESET, 'storage'),
     tradeReservePct: load(STORE.TRADE_RESERVE, 20),
     tradeMinBatch: load(STORE.TRADE_MIN, 1000),
+    // HIGH-RISK: tradeSend has no rollback path, so this defaults OFF.
+    autoTransport: load(STORE.AUTO_TRANSPORT, false),
+    transportReserve: load(STORE.TRANSPORT_RESERVE, 20),
+    transportMin: load(STORE.TRANSPORT_MIN, 1000),
     autoRuralTrade: load(STORE.AUTO_RURAL_TRADE, false),
     ruralTradeRatio: load(STORE.RURAL_TRADE_RATIO, 1.0),
     ruralTradeRes: load(STORE.RURAL_TRADE_RES, 'iron'),

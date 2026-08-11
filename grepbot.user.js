@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      3.12.1
+// @version      4.0.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -90,6 +90,9 @@ const STORE = {
     TRADE_PRESET: 'grepbot:trade-preset',
     TRADE_RESERVE: 'grepbot:trade-reserve',
     TRADE_MIN: 'grepbot:trade-min',
+    AUTO_TRANSPORT: 'grepbot:auto-transport',
+    TRANSPORT_RESERVE: 'grepbot:transport-reserve',
+    TRANSPORT_MIN: 'grepbot:transport-min',
     AUTO_RURAL_TRADE: 'grepbot:auto-rural-trade',
     RURAL_TRADE_RATIO: 'grepbot:rural-trade-ratio',
     RURAL_TRADE_RES: 'grepbot:rural-trade-res',
@@ -506,6 +509,10 @@ const STORE = {
     tradePreset: load(STORE.TRADE_PRESET, 'storage'),
     tradeReservePct: load(STORE.TRADE_RESERVE, 20),
     tradeMinBatch: load(STORE.TRADE_MIN, 1000),
+
+    autoTransport: load(STORE.AUTO_TRANSPORT, false),
+    transportReserve: load(STORE.TRANSPORT_RESERVE, 20),
+    transportMin: load(STORE.TRANSPORT_MIN, 1000),
     autoRuralTrade: load(STORE.AUTO_RURAL_TRADE, false),
     ruralTradeRatio: load(STORE.RURAL_TRADE_RATIO, 1.0),
     ruralTradeRes: load(STORE.RURAL_TRADE_RES, 'iron'),
@@ -8382,7 +8389,7 @@ const STORE = {
   }
 
   function tradeScan(reason) {
-    if (!hostEnabled() || (!state.autoTrade && !state.islandShip) || captchaPaused('trade')) return;
+    if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport) || captchaPaused('trade')) return;
     if (automationPaused({})) return;
     if (gbLocked('trade')) return;
     const towns = tradeListTowns();
@@ -8391,6 +8398,8 @@ const STORE = {
     if(!ledger){gbLogT('trade-incoming-unreadable',180000,'trade: incoming movements unavailable \u2014 fail closed');return}
     let jobs = [];
     const preset = state.tradePreset || 'storage';
+
+    if (state.autoTransport) jobs = jobs.concat(transportBalanceJobs(towns, ledger));
 
     if (state.autoTrade && preset === 'smart') {
       jobs = jobs.concat(tradePredictiveJobs(towns, ledger));
@@ -8436,6 +8445,196 @@ const STORE = {
         gbTimeout(next, 800 + Math.random() * 600);
       });
     })();
+  }
+
+  const TRANSPORT_MAX_JOBS = 4;
+  const TRANSPORT_SRC_FILL = 0.85;
+  const TRANSPORT_TGT_FILL = 0.25;
+  const TRANSPORT_ETA_MAX_MS = 24 * 3600 * 1000;
+
+  function transportReservePct() {
+    return Math.min(80, Math.max(0, gbCfgNum(state.transportReserve, 20))) / 100;
+  }
+  function transportMinBatch() {
+    return Math.min(10000, Math.max(100, gbCfgNum(state.transportMin, 1000)));
+  }
+
+  function transportProduction(townId) {
+    let t = null;
+    try {
+      const uw = gameUw();
+      t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+    } catch (_) {}
+    if (!t) return null;
+    let p = null;
+    try { p = t.getProduction ? t.getProduction() : (t.production && t.production()); } catch (_) {}
+    if (!p || typeof p !== 'object') return null;
+
+    const out = {};
+    let any = false;
+    for (const k of GB_RES_KEYS) {
+      const raw = +p[k];
+      if (!Number.isFinite(raw) || raw < 0) { out[k] = null; continue; }
+      out[k] = raw > 100 ? raw / 3600 : raw;
+      any = true;
+    }
+    return any ? out : null;
+  }
+
+  function transportTownRes(townId) {
+    const base = tradeTownRes(townId);
+    if (!base) return null;
+    const blind = !(base.cap > 0);
+    const prod = transportProduction(townId);
+    const fillPct = {};
+    const eta = {};
+    for (const k of GB_RES_KEYS) {
+      fillPct[k] = base.cap > 0 ? Math.max(0, Math.min(1, (+base[k] || 0) / base.cap)) : null;
+      if (!(base.cap > 0)) { eta[k] = null; continue; }
+      const room = base.cap - (+base[k] || 0);
+      if (room <= 0) { eta[k] = 0; continue; }
+      const rate = prod ? prod[k] : null;
+      eta[k] = rate > 0 ? (room / rate) * 1000 : null;
+    }
+    const prodBlind = !prod || GB_RES_KEYS.some(k => prod[k] == null);
+    return {
+      id: base.id, wood: base.wood, stone: base.stone, iron: base.iron,
+      cap: base.cap, tradeCap: base.tradeCap, pop: base.pop,
+      small: base.small, islandType: base.small ? 'small' : 'main',
+      fillPct,
+      etaWoodMs: eta.wood, etaStoneMs: eta.stone, etaIronMs: eta.iron,
+      production: prod,
+      blind: blind || prodBlind,
+    };
+  }
+
+  function transportProjectHeadroom(townId, deltaMs) {
+    const st = transportTownRes(townId);
+    if (!st || !(st.cap > 0)) return { woodFree: null, stoneFree: null, ironFree: null, blind: true };
+    const inc = tradeIncomingByTown();
+
+    if (!inc.known) return { woodFree: null, stoneFree: null, ironFree: null, blind: true };
+    const mov = inc.byTown[String(townId)] || {};
+    const ms = Math.max(0, +deltaMs || 0);
+
+    let ironDrain = 0;
+    try {
+      const r = ironReservedForCave(townId);
+      if (r && r.reserved) ironDrain = Math.ceil(st.cap * (Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100));
+    } catch (_) {}
+    const out = { blind: false };
+    for (const k of GB_RES_KEYS) {
+      const rate = st.production ? st.production[k] : null;
+      if (rate == null) { out[k + 'Free'] = null; out.blind = true; continue; }
+      const grown = rate * (ms / 1000);
+      const projected = (+st[k] || 0) + (+mov[k] || 0) + grown + (k === 'iron' ? ironDrain : 0);
+      out[k + 'Free'] = Math.max(0, st.cap - projected);
+    }
+    return { woodFree: out.woodFree, stoneFree: out.stoneFree, ironFree: out.ironFree, blind: out.blind };
+  }
+
+  function transportTownETA(townId, resource, targetFillPct) {
+    if (!GB_RES_KEYS.includes(resource)) return null;
+    const st = transportTownRes(townId);
+    if (!st || !(st.cap > 0)) return { ms: null, blind: true };
+    if (!st.production || st.production[resource] == null) return { ms: null, blind: true };
+    const want = Math.max(0, Math.min(1, +targetFillPct || 0)) * st.cap;
+    const key = resource + 'Free';
+
+    let delta = TRANSPORT_ETA_MAX_MS / 128;
+    for (let i = 0; i < 8 && delta <= TRANSPORT_ETA_MAX_MS; i++) {
+      const h = transportProjectHeadroom(townId, delta);
+      if (h[key] == null) return { ms: null, blind: true };
+      if (st.cap - h[key] >= want) return { ms: delta, blind: false };
+      delta *= 2;
+    }
+    return null;
+  }
+
+  function transportBias(townId, res) {
+    let p = null;
+    try { p = goalEffective(townId); } catch (_) {}
+    const v = p && p.resource ? +p.resource[res] : 0;
+    return Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0;
+  }
+
+  function transportBalanceSourceTown(srcId, ids, ledger, jobs) {
+    const src = ledger[srcId];
+    if (!src || !(src.cap > 0)) {
+      gbLogT('transport-blind-' + srcId, 600000, `transport: town ${srcId} capacity unreadable - skipped`);
+      return false;
+    }
+    const minBatch = transportMinBatch();
+    const reserve = transportReservePct();
+    if (src.tradeCap < minBatch) return false;
+    const keep = Math.floor(src.cap * reserve);
+
+    let ironKeep = keep;
+    try {
+      const r = ironReservedForCave(srcId);
+      if (r && r.reserved) {
+        const thresh = Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100;
+        ironKeep = Math.max(keep, Math.ceil(src.cap * thresh));
+        gbLogT('transport-iron-reserved-' + srcId, 600000,
+          `transport: town ${srcId} iron held for cave (keep ${ironKeep})`);
+      } else if (r && r.blind) {
+        gbLogT('transport-iron-blind-' + srcId, 600000,
+          `transport: town ${srcId} cave reserve unreadable - no iron deduction`);
+      }
+    } catch (_) {}
+    for (const res of GB_RES_KEYS) {
+
+      if (src.tradeCap < minBatch) return false;
+      if (src[res] / src.cap < TRANSPORT_SRC_FILL) continue;
+      const srcKeep = res === 'iron' ? ironKeep : keep;
+      const surplus = Math.max(0, src[res] - srcKeep);
+      if (surplus < minBatch) continue;
+
+      if (transportBias(srcId, res) > 0) continue;
+
+      const dests = ids
+        .filter(id => id !== srcId)
+        .map(id => ({ id, bias: transportBias(id, res) }))
+        .filter(d => d.bias >= 0)
+        .sort((a, b) => b.bias - a.bias);
+      for (const d of dests) {
+        const tgt = ledger[d.id];
+        if (!tgt || !(tgt.cap > 0)) {
+          gbLogT('transport-blind-' + d.id, 600000, `transport: town ${d.id} capacity unreadable - skipped`);
+          continue;
+        }
+        const tgtFill = tgt[res] / tgt.cap;
+
+        const tgtGate = TRANSPORT_TGT_FILL + d.bias * 0.25;
+        if (tgtFill > tgtGate) {
+          gbLogT('transport-pair-' + srcId + '-' + d.id, 600000,
+            `transport: ${srcId}->${d.id} ${res} skipped (target ${Math.round(tgtFill * 100)}% > ${Math.round(tgtGate * 100)}%)`);
+          continue;
+        }
+        const headroom = Math.max(0, tgt.cap - tgt[res]);
+        const amount = Math.floor(Math.min(headroom, src.tradeCap, surplus));
+        if (amount < minBatch) continue;
+        const job = { from: srcId, to: d.id, wood: 0, stone: 0, iron: 0, reason: 'transport-balance' };
+        job[res] = amount;
+        jobs.push(job);
+        tradeApplyJob(ledger, job);
+        if (jobs.length >= TRANSPORT_MAX_JOBS) return true;
+        break;
+      }
+    }
+    return false;
+  }
+
+  function transportBalanceJobs(towns, L) {
+    if (!state.autoTransport) return [];
+    const ledger = L || tradeLedger(towns);
+    if (!ledger) return [];
+    const jobs = [];
+    const ids = towns.map(t => t.id);
+    for (const srcId of ids) {
+      if (transportBalanceSourceTown(srcId, ids, ledger, jobs)) break;
+    }
+    return jobs;
   }
   function ruralRelModels() {
     try {
@@ -11188,11 +11387,12 @@ const STORE = {
     return { schema:CONFIG_EXPORT_SCHEMA, ver:state.configVer||1, host:location.host,
       abTargets:state.abTargets,abOrder:state.abOrder,researchTargets:state.researchTargets,recruitTargets:state.recruitTargets,
       plannerCfg:state.plannerCfg,goalProfiles:state.goalProfiles,townGoals:state.townGoals,virtualQueueOverrides:state.virtualQueueOverrides,nativeQueue:state.nativeQueue,predictCfg:state.predictCfg,defenseCfg:state.defenseCfg,safeMode:!!state.safeMode,
+      autoTransport:!!state.autoTransport,transportReserve:+state.transportReserve||20,transportMin:+state.transportMin||1000,
       cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,playerNotes:state.playerNotes,watchlist:state.watchlist };
   }
   function qolImportConfig(obj) {
     if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;if(obj.host&&String(obj.host)!==String(location.host)){gbLog(`config import refused: file host ${obj.host} != ${location.host}`);return false}if(obj.schema!=null&&+obj.schema>CONFIG_EXPORT_SCHEMA){gbLog(`config import refused: schema ${obj.schema} newer than supported ${CONFIG_EXPORT_SCHEMA}`);return false}
-    const clone=v=>JSON.parse(JSON.stringify(v)),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray};const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
+    const clone=v=>JSON.parse(JSON.stringify(v)),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray};const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
     for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='priorityOrder'){const allowed=new Set(PRIORITY_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(PRIORITY_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
       const clean={version:1,seq:Math.max(0,+v.seq||0),towns:{}},seen=new Set();
       const jobId=(raw,prefix)=>{let id=/^[A-Za-z0-9:._-]{1,160}$/.test(String(raw||''))?String(raw):'';if(!id||seen.has(id)){clean.seq++;id=`${prefix}:import:${clean.seq.toString(36)}`}seen.add(id);return id};
@@ -11372,7 +11572,7 @@ const STORE = {
       cave: state.autoCave,
       build: state.abAuto || nativeQueueHasPending('build'),
       research: state.autoResearch || nativeQueueHasPending('research'),
-      trade: state.autoTrade || state.islandShip,
+      trade: state.autoTrade || state.islandShip || state.autoTransport,
       farm: state.autoFarm,
       ruraltrade: state.autoRuralTrade,
       rurallevel: state.autoRuralLevel,
@@ -13934,6 +14134,14 @@ const STORE = {
     lines.push('planificador (cadencia con adaptativa por inactividad)');
     orchStatus().filter(s => s.on).forEach(s => {
       lines.push(`  ${s.key.padEnd(11)} cada ${fmtSec(Math.round(s.cadenceMs / 1000)).padEnd(6)} proxima ${fmtSec(Math.round(s.dueInMs / 1000)).padEnd(6)}${s.idle ? ' inact. x' + s.idle : ''}${s.captcha ? ' CAPTCHA' : ''}`);
+
+      if (s.key === 'trade' && state.autoTransport) {
+        const since = Date.now() - 3600000;
+        const rows = (state.decisions || []).filter(d => d && d.f === 'trade' && (+d.ts || 0) >= since);
+        const ok = rows.filter(d => d.r === 'ok').reduce((n, d) => n + (+d.n || 1), 0);
+        const skip = rows.filter(d => /^skip/.test(String(d.r || ''))).reduce((n, d) => n + (+d.n || 1), 0);
+        lines.push(`    transporte ON - ultima hora en la cola de comercio: ${ok} ok / ${skip} skip`);
+      }
     });
     const locks = gbLockList();
     lines.push('');
@@ -15261,6 +15469,10 @@ const STORE = {
           Min batch <input type="number" data-cfg="trade-min" min="100" max="50000" step="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="island-ship"/> Mainland\u2192island res ship</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="ALTO RIESGO: mueve recursos entre tus ciudades sin vuelta atras. Equilibra segun el sesgo 'resource' del perfil de cada ciudad. Pruebalo con Simulacion antes de activarlo."><input type="checkbox" data-cfg="auto-transport"/> Auto transporte inter-ciudad</label>
+        <label style="margin-left:12px;flex-wrap:wrap">Reserve % <input type="number" data-cfg="transport-reserve" min="0" max="80" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          Min batch <input type="number" data-cfg="transport-min" min="100" max="10000" step="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
+        </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-rural-trade"/> Rural village trade</label>
         <label style="margin-left:12px;flex-wrap:wrap">Min ratio <input type="number" data-cfg="rural-ratio" step="0.25" min="0.25" max="2" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>
           Res <select data-cfg="rural-res" style="background:#111;color:#cfc;border:1px solid #333"><option value="iron">plata</option><option value="stone">piedra</option><option value="wood">madera</option></select>
@@ -15806,6 +16018,7 @@ const STORE = {
     setNum('[data-cfg=culture-gold-budget]', state.cultureGoldBudget || 0);
     setChk('[data-cfg=auto-trade]', state.autoTrade);
     setChk('[data-cfg=island-ship]', state.islandShip);
+    setChk('[data-cfg=auto-transport]', state.autoTransport);
     setChk('[data-cfg=auto-rural-trade]', state.autoRuralTrade);
     setChk('[data-cfg=auto-rural-level]', state.autoRuralLevel);
     setChk('[data-cfg=auto-research]', state.autoResearch);
@@ -15866,6 +16079,8 @@ const STORE = {
     const tp = sec.querySelector('[data-cfg=trade-preset]'); if (tp) tp.value = state.tradePreset || 'storage';
     setNum('[data-cfg=trade-reserve]', state.tradeReservePct);
     setNum('[data-cfg=trade-min]', state.tradeMinBatch);
+    setNum('[data-cfg=transport-reserve]', state.transportReserve);
+    setNum('[data-cfg=transport-min]', state.transportMin);
     const bindToggle = (sel, key, store, onOn) => {
       sec.querySelector(sel)?.addEventListener('change', e => {
         state[key] = e.target.checked; save(store, state[key]);
@@ -15876,6 +16091,7 @@ const STORE = {
     bindToggle('[data-cfg=auto-culture]', 'autoCulture', STORE.AUTO_CULTURE, () => cultureScan('toggle'));
     bindToggle('[data-cfg=auto-trade]', 'autoTrade', STORE.AUTO_TRADE, () => tradeScan('toggle'));
     bindToggle('[data-cfg=island-ship]', 'islandShip', STORE.ISLAND_SHIP, () => tradeScan('toggle'));
+    bindToggle('[data-cfg=auto-transport]', 'autoTransport', STORE.AUTO_TRANSPORT, () => tradeScan('toggle'));
     bindToggle('[data-cfg=auto-rural-trade]', 'autoRuralTrade', STORE.AUTO_RURAL_TRADE, () => ruralTradeScan('toggle'));
     bindToggle('[data-cfg=auto-rural-level]', 'autoRuralLevel', STORE.AUTO_RURAL_LEVEL, () => ruralLevelScan('toggle'));
     bindToggle('[data-cfg=auto-research]', 'autoResearch', STORE.AUTO_RESEARCH, () => researchScan('toggle'));
@@ -16002,6 +16218,12 @@ const STORE = {
     });
     saveNum('[data-cfg=trade-min]', v => {
       state.tradeMinBatch = Math.max(100, v); save(STORE.TRADE_MIN, state.tradeMinBatch);
+    });
+    saveNum('[data-cfg=transport-reserve]', v => {
+      state.transportReserve = Math.min(80, Math.max(0, v)); save(STORE.TRANSPORT_RESERVE, state.transportReserve);
+    });
+    saveNum('[data-cfg=transport-min]', v => {
+      state.transportMin = Math.min(10000, Math.max(100, v)); save(STORE.TRANSPORT_MIN, state.transportMin);
     });
     sec.querySelector('[data-cfg=research-csfast]')?.addEventListener('click', () => {
       researchLoadCsFast(); flash('CS-fast research');
@@ -16700,6 +16922,11 @@ const STORE = {
       goalEffective,
 
       gbCityProfile: goalEffective,
+
+      transportTownRes,
+      transportProjectHeadroom,
+      transportTownETA,
+      transportBalanceJobs,
       goalPlanTown,
       goalPlanAll,
       goalSetProfile,

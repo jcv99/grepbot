@@ -49,6 +49,7 @@ MODULES = [
     'cave.js',
     'culture.js',
     'trade.js',
+    'transport.js',
     'rural.js',
     'research.js',
     'alerts.js',

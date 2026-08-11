@@ -348,7 +348,7 @@
   }
 
   function tradeScan(reason) {
-    if (!hostEnabled() || (!state.autoTrade && !state.islandShip) || captchaPaused('trade')) return;
+    if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport) || captchaPaused('trade')) return;
     if (automationPaused({})) return;
     if (gbLocked('trade')) return;
     const towns = tradeListTowns();
@@ -357,6 +357,10 @@
     if(!ledger){gbLogT('trade-incoming-unreadable',180000,'trade: incoming movements unavailable — fail closed');return}
     let jobs = [];
     const preset = state.tradePreset || 'storage';
+
+    // Transport claims headroom first; the shared tradeApplyJob ledger means a
+    // later sub-planner cannot over-plan a target this loop already filled.
+    if (state.autoTransport) jobs = jobs.concat(transportBalanceJobs(towns, ledger));
 
     if (state.autoTrade && preset === 'smart') {
       jobs = jobs.concat(tradePredictiveJobs(towns, ledger));
