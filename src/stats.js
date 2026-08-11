@@ -77,6 +77,72 @@
     return lines;
   }
 
+  // ===== Growth timeline (v4 plan 6.12) ======================================
+  // Read-only. The sampler rides the existing town-scrape cadence; there is no
+  // new scheduler, no post surface and nothing persisted beyond a bounded ring.
+  const GROWTH_MAX_SAMPLES = 96;
+  const GROWTH_TTL_MS = 7 * 86400000;
+  const GROWTH_SPARK = '\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588';
+  function townGrowthHist() {
+    if (!state.townGrowthHist || typeof state.townGrowthHist !== 'object' || Array.isArray(state.townGrowthHist)) state.townGrowthHist = {};
+    return state.townGrowthHist;
+  }
+  function townGrowthSample(ids) {
+    // An empty id list means the town read FAILED, not that the account has no
+    // towns. Pruning against it would delete every town's history on one bad
+    // scrape.
+    if (!Array.isArray(ids) || !ids.length) return;
+    const H = townGrowthHist();
+    const now = Date.now(), cut = now - GROWTH_TTL_MS;
+    let changed = false;
+    for (const id of (ids || [])) {
+      const key = String(id);
+      const r = (state.townResources || {})[id] || (state.townResources || {})[key];
+      if (!r || !r.ok) continue;
+      // Only record values that were actually READ. A missing field is left
+      // out of the sample rather than stored as 0, or the chart would show a
+      // cliff where the scrape simply failed.
+      const row = { t: now };
+      for (const k of GB_RES_KEYS) if (Number.isFinite(+r[k])) row[k] = +r[k];
+      if (Number.isFinite(+r.pop)) row.pop = +r.pop;
+      if (Object.keys(row).length < 2) continue;
+      const list = H[key] || (H[key] = []);
+      list.push(row);
+      while (list.length && (list.length > GROWTH_MAX_SAMPLES || list[0].t < cut)) list.shift();
+      changed = true;
+    }
+    // Drop towns that are no longer ours.
+    const live = new Set((ids || []).map(String));
+    for (const k of Object.keys(H)) if (!live.has(k)) { delete H[k]; changed = true; }
+    if (changed) save(STORE.TOWN_GROWTH_HIST, H);
+  }
+  function growthSpark(values) {
+    const v = values.filter(x => Number.isFinite(x));
+    if (v.length < 2) return '';
+    const min = Math.min(...v), max = Math.max(...v), span = max - min;
+    // A flat series is flat, not noise: without this guard the divide by zero
+    // would render a random-looking bar pattern for a town that never changed.
+    if (!(span > 0)) return GROWTH_SPARK[0].repeat(Math.min(24, v.length));
+    return v.slice(-24).map(x => GROWTH_SPARK[Math.min(GROWTH_SPARK.length - 1, Math.floor((x - min) / span * (GROWTH_SPARK.length - 1)))]).join('');
+  }
+  function growthBlock() {
+    const H = townGrowthHist();
+    const id = (typeof hudCurrentTownId === 'function' ? hudCurrentTownId() : null) || Object.keys(H)[0];
+    const list = id ? H[String(id)] : null;
+    if (!list || list.length < 2) return [];
+    const spanMs = list[list.length - 1].t - list[0].t;
+    const days = Math.max(0.1, spanMs / 86400000);
+    const lines = [`crecimiento - ${townNameById(id)} (${id})  ${list.length} muestras / ${days.toFixed(1)}d`];
+    for (const [key, label] of [['pop', 'pob  '], ['wood', 'mad  '], ['stone', 'pie  '], ['iron', 'pla  ']]) {
+      const vals = list.map(x => x[key]).filter(x => Number.isFinite(x));
+      if (vals.length < 2) continue;
+      const first = vals[0], last = vals[vals.length - 1], d = last - first;
+      lines.push(`  ${label}${growthSpark(vals)}  ${fmt(first)} -> ${fmt(last)}  ` +
+        `${d >= 0 ? '+' : ''}${fmt(d)} / ${days.toFixed(1)}d`);
+    }
+    return lines.length > 1 ? lines : [];
+  }
+
   function preflightProbe(name, fn) {
     try {
       const r = fn();
@@ -682,6 +748,7 @@
       st.topSkips.forEach(([k, n]) => lines.push(`  ${n}x ${k}`));
     }
     lines.push('');
+    try { const g = growthBlock(); if (g.length) { lines.push(...g); lines.push(''); } } catch (_) {}
     try { lines.push(...favorHudBlock()); } catch (_) {}
     try {
       const bh = (typeof banditAttackHistory !== 'undefined' ? banditAttackHistory : []).slice(-3).reverse();

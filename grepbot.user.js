@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.34.2
+// @version      4.35.2
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -66,6 +66,9 @@ const STORE = {
     FINDINGS_FILTER: 'grepbot:findings-filter',
     PANEL_GEOM: 'grepbot:panel-geom',
     WIDGET_GEOM: 'grepbot:widget-geom',
+    HUD_PRODUCTION: 'grepbot:hud-production',
+    HUD_COUNTDOWN: 'grepbot:hud-countdown',
+    TOWN_GROWTH_HIST: 'grepbot:town-growth-hist',
     THEME: 'grepbot:theme',
     CONTEXT_MENU: 'grepbot:context-menu',
     PROFILE_AUTO_CFG: 'grepbot:profile-auto-cfg',
@@ -244,7 +247,7 @@ const STORE = {
 
   const WORLD_SCOPED_BASES = new Set([
     STORE.FINDINGS, STORE.FARMS, STORE.FARMS_PARSED, STORE.FARM_RES, STORE.SEEN,
-    STORE.TOWNS, STORE.TOWN_RES, STORE.THRESH, STORE.ALERTED,
+    STORE.TOWNS, STORE.TOWN_RES, STORE.TOWN_GROWTH_HIST, STORE.THRESH, STORE.ALERTED,
     STORE.NEXT_FARM, STORE.NEXT_TOWNS, STORE.BANDIT_LOG,
     STORE.CSRF, STORE.FARM_ACTION, STORE.COLLECT_TPL, STORE.CLAIM_TPL, STORE.ACCEPT_UNITS_TPL,
     STORE.IB_ACTION, STORE.IB_ACTION_R, STORE.FARM_OPTION_MAP, STORE.FARM_LOYALTY_TECH, STORE.FARM_SLEEP_DAY, STORE.FARM_PROFIT, STORE.FARM_TRAVEL, STORE.FARM_CLAIMS_TODAY, STORE.FARM_CLAIMS_DAY,
@@ -572,6 +575,9 @@ const STORE = {
     keyboardShortcuts: load(STORE.KEYBOARD_SHORTCUTS, true),
     keybindings: load(STORE.KEYBINDINGS, {}) || {},
     widgetGeom: load(STORE.WIDGET_GEOM, {}) || {},
+    hudProduction: load(STORE.HUD_PRODUCTION, false),
+    hudCountdown: load(STORE.HUD_COUNTDOWN, false),
+    townGrowthHist: load(STORE.TOWN_GROWTH_HIST, {}) || {},
     panelGeom: load(STORE.PANEL_GEOM, null),
     activeTab: load(STORE.ACTIVE_TAB, 'overview'),
     farmSkipFull: load(STORE.FARM_SKIP_FULL, true),
@@ -5660,7 +5666,10 @@ const STORE = {
     const finish = (fromGame, fromHttp) => {
       gbUnlock('town-scrape', townScrapeLock);
       const ids = state.towns.map(t => t.id);
-      pruneMapsToIds(state.townResources, ids); save(STORE.TOWN_RES, state.townResources); renderWorld();
+      pruneMapsToIds(state.townResources, ids); save(STORE.TOWN_RES, state.townResources);
+
+      try { townGrowthSample(ids); } catch (_) {}
+      renderWorld();
       gbLog(`towns scrape: ${state.towns.length} towns (${fromGame} via game data, ${fromHttp} via HTTP)`);
     };
     const gameTowns = townsFromGame();
@@ -17757,6 +17766,64 @@ const STORE = {
     return lines;
   }
 
+  const GROWTH_MAX_SAMPLES = 96;
+  const GROWTH_TTL_MS = 7 * 86400000;
+  const GROWTH_SPARK = '\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588';
+  function townGrowthHist() {
+    if (!state.townGrowthHist || typeof state.townGrowthHist !== 'object' || Array.isArray(state.townGrowthHist)) state.townGrowthHist = {};
+    return state.townGrowthHist;
+  }
+  function townGrowthSample(ids) {
+
+    if (!Array.isArray(ids) || !ids.length) return;
+    const H = townGrowthHist();
+    const now = Date.now(), cut = now - GROWTH_TTL_MS;
+    let changed = false;
+    for (const id of (ids || [])) {
+      const key = String(id);
+      const r = (state.townResources || {})[id] || (state.townResources || {})[key];
+      if (!r || !r.ok) continue;
+
+      const row = { t: now };
+      for (const k of GB_RES_KEYS) if (Number.isFinite(+r[k])) row[k] = +r[k];
+      if (Number.isFinite(+r.pop)) row.pop = +r.pop;
+      if (Object.keys(row).length < 2) continue;
+      const list = H[key] || (H[key] = []);
+      list.push(row);
+      while (list.length && (list.length > GROWTH_MAX_SAMPLES || list[0].t < cut)) list.shift();
+      changed = true;
+    }
+
+    const live = new Set((ids || []).map(String));
+    for (const k of Object.keys(H)) if (!live.has(k)) { delete H[k]; changed = true; }
+    if (changed) save(STORE.TOWN_GROWTH_HIST, H);
+  }
+  function growthSpark(values) {
+    const v = values.filter(x => Number.isFinite(x));
+    if (v.length < 2) return '';
+    const min = Math.min(...v), max = Math.max(...v), span = max - min;
+
+    if (!(span > 0)) return GROWTH_SPARK[0].repeat(Math.min(24, v.length));
+    return v.slice(-24).map(x => GROWTH_SPARK[Math.min(GROWTH_SPARK.length - 1, Math.floor((x - min) / span * (GROWTH_SPARK.length - 1)))]).join('');
+  }
+  function growthBlock() {
+    const H = townGrowthHist();
+    const id = (typeof hudCurrentTownId === 'function' ? hudCurrentTownId() : null) || Object.keys(H)[0];
+    const list = id ? H[String(id)] : null;
+    if (!list || list.length < 2) return [];
+    const spanMs = list[list.length - 1].t - list[0].t;
+    const days = Math.max(0.1, spanMs / 86400000);
+    const lines = [`crecimiento - ${townNameById(id)} (${id})  ${list.length} muestras / ${days.toFixed(1)}d`];
+    for (const [key, label] of [['pop', 'pob  '], ['wood', 'mad  '], ['stone', 'pie  '], ['iron', 'pla  ']]) {
+      const vals = list.map(x => x[key]).filter(x => Number.isFinite(x));
+      if (vals.length < 2) continue;
+      const first = vals[0], last = vals[vals.length - 1], d = last - first;
+      lines.push(`  ${label}${growthSpark(vals)}  ${fmt(first)} -> ${fmt(last)}  ` +
+        `${d >= 0 ? '+' : ''}${fmt(d)} / ${days.toFixed(1)}d`);
+    }
+    return lines.length > 1 ? lines : [];
+  }
+
   function preflightProbe(name, fn) {
     try {
       const r = fn();
@@ -18341,6 +18408,7 @@ const STORE = {
       st.topSkips.forEach(([k, n]) => lines.push(`  ${n}x ${k}`));
     }
     lines.push('');
+    try { const g = growthBlock(); if (g.length) { lines.push(...g); lines.push(''); } } catch (_) {}
     try { lines.push(...favorHudBlock()); } catch (_) {}
     try {
       const bh = (typeof banditAttackHistory !== 'undefined' ? banditAttackHistory : []).slice(-3).reverse();
@@ -18708,6 +18776,132 @@ const STORE = {
   function contextMenuStart() {
     if (ctxTimer) return;
     ctxTimer = gbTimeout(contextMenuScan, CTX_SCAN_MS);
+  }
+
+  const HUD_TICK_MS = 1000;
+  const HUD_ETA_CAP_H = 24;
+  let hudProdWidget = null;
+  let hudEtaWidget = null;
+
+  function hudCurrentTownId() {
+    try { const id = gameUw().Game && gameUw().Game.townId; if (id != null) return String(id); } catch (_) {}
+    const t = (state.towns || [])[0];
+    return t ? String(t.id) : null;
+  }
+  function hudTownOrder() {
+    let ids = [];
+    try { ids = Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}).map(String); } catch (_) {}
+    if (!ids.length) ids = (state.towns || []).map(t => String(t.id));
+    const cur = hudCurrentTownId();
+
+    return cur && ids.includes(cur) ? [cur].concat(ids.filter(x => x !== cur)) : ids;
+  }
+  function hudEtaText(sec) {
+    if (sec == null || !Number.isFinite(sec)) return '\u2014';
+    if (sec <= 0) return 'lleno';
+    if (sec >= HUD_ETA_CAP_H * 3600) return HUD_ETA_CAP_H + 'h+';
+    const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+    return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
+  }
+  function hudCell(text, color) {
+    const s = document.createElement('span');
+    s.textContent = text;
+    if (color) s.style.color = color;
+    return s;
+  }
+  function hudRenderProduction(body) {
+    body.replaceChildren();
+    const ids = hudTownOrder();
+    if (!ids.length) { body.appendChild(hudCell('sin ciudades legibles', 'var(--gb-fg-mute)')); return; }
+    const head = document.createElement('div');
+    head.style.cssText = 'display:grid;grid-template-columns:1.2fr repeat(3,1fr) .8fr;gap:4px;font-size:9px;color:var(--gb-fg-mute);border-bottom:1px solid var(--gb-border-soft);padding-bottom:2px';
+    ['ciudad', 'madera', 'piedra', 'plata', 'lleno en'].forEach(t => head.appendChild(hudCell(t)));
+    body.appendChild(head);
+    for (const id of ids.slice(0, 12)) {
+      const rs = (typeof townResState === 'function') ? townResState(id) : null;
+      const rate = (typeof economyProductionRate === 'function') ? economyProductionRate(id) : null;
+      const row = document.createElement('div');
+      row.style.cssText = 'display:grid;grid-template-columns:1.2fr repeat(3,1fr) .8fr;gap:4px;padding:1px 0;border-bottom:1px solid var(--gb-rule)';
+      row.appendChild(hudCell(townNameById(id)));
+      let soonest = null;
+      for (const k of GB_RES_KEYS) {
+        if (!rs || !(rs.cap > 0)) { row.appendChild(hudCell('\u2014', 'var(--gb-fg-mute)')); continue; }
+        const cur = +rs[k] || 0;
+        const perH = rate ? +rate[k] : null;
+        const pct = Math.round(cur / rs.cap * 100);
+        row.appendChild(hudCell(`${fmt(cur)} ${perH == null ? '\u2014' : '+' + Math.round(perH) + '/h'}`,
+          pct >= 97 ? 'var(--gb-err-3)' : (pct >= 85 ? 'var(--gb-warn-2)' : null)));
+        if (perH != null && perH > 0) {
+          const sec = Math.max(0, (rs.cap - cur) / perH * 3600);
+          if (soonest == null || sec < soonest) soonest = sec;
+        }
+      }
+      row.appendChild(hudCell(hudEtaText(soonest), soonest != null && soonest < 3600 ? 'var(--gb-warn-2)' : null));
+      body.appendChild(row);
+    }
+  }
+  function hudRenderCountdown(body) {
+    body.replaceChildren();
+    let incoming = [];
+    try { incoming = dodgeIncomingMovements() || []; } catch (_) {
+      body.appendChild(hudCell('movimientos no legibles', 'var(--gb-fg-mute)'));
+      return;
+    }
+    if (!incoming.length) { body.appendChild(hudCell('sin ataques entrantes', 'var(--gb-fg-mute)')); return; }
+    const rows = incoming
+      .map(m => ({ m, eta: dodgeEtaSec(m) }))
+
+      .sort((a, b) => (a.eta == null ? Infinity : a.eta) - (b.eta == null ? Infinity : b.eta));
+    for (const { m, eta } of rows.slice(0, 12)) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:6px;align-items:center;padding:1px 0;border-bottom:1px solid var(--gb-rule);white-space:nowrap';
+      const etaCell = hudCell(eta == null ? '\u2014' : queueCenterFmt(eta));
+      etaCell.style.fontWeight = 'bold';
+      etaCell.style.color = eta == null ? 'var(--gb-fg-mute)'
+        : (eta < 300 ? 'var(--gb-err-3)' : (eta < 900 ? 'var(--gb-warn-2)' : 'var(--gb-fg-2)'));
+      row.appendChild(etaCell);
+      row.appendChild(hudCell(String(m.type || 'atk')));
+      row.appendChild(hudCell('\u2192 ' + townNameById(m.dest)));
+      row.appendChild(hudCell('de ' + (m.origin || '?'), 'var(--gb-fg-mute)'));
+
+      if (m.hasCs) row.appendChild(hudCell('[CS]', 'var(--gb-err-3)'));
+      let n = 0;
+      try { n = Object.values(m.units || {}).reduce((a, b) => a + (+b || 0), 0); } catch (_) {}
+      if (n > 0) row.appendChild(hudCell(n + ' u.', 'var(--gb-fg-mute)'));
+      body.appendChild(row);
+    }
+  }
+  function hudEnsure() {
+    if (!hudProdWidget) {
+      hudProdWidget = gbWidgetRegister({
+        id: 'production', title: 'Producci\u00f3n',
+        defaultPos: { left: '8px', top: '60px' },
+        tickMs: 5000, render: hudRenderProduction,
+      });
+    }
+    if (!hudEtaWidget) {
+      hudEtaWidget = gbWidgetRegister({
+        id: 'countdown', title: 'Ataques entrantes',
+        defaultPos: { left: '8px', top: '260px' },
+        tickMs: HUD_TICK_MS, render: hudRenderCountdown,
+      });
+    }
+  }
+  function hudToggle(which) {
+    hudEnsure();
+    const w = which === 'countdown' ? hudEtaWidget : hudProdWidget;
+    if (!w) return false;
+    const open = !w.isOpen();
+    if (open) w.open(); else w.close();
+    const key = which === 'countdown' ? 'hudCountdown' : 'hudProduction';
+    state[key] = open;
+    save(which === 'countdown' ? STORE.HUD_COUNTDOWN : STORE.HUD_PRODUCTION, open);
+    return open;
+  }
+  function hudRestore() {
+    hudEnsure();
+    if (state.hudProduction && hudProdWidget) hudProdWidget.open();
+    if (state.hudCountdown && hudEtaWidget) hudEtaWidget.open();
   }
 
   let gbQueueCenter = null;
@@ -19941,6 +20135,8 @@ const STORE = {
       <button type="button" data-qat="farms" title="Cobrar aldeas y re-escanear">Aldeas</button>
       <button type="button" data-qat="dodge" title="Escanear entrantes ahora">Dodge</button>
       <button type="button" data-qat="queue" title="Ejecutar la cola de construccion ahora">Cola</button>
+      <button type="button" data-qat="hud-prod" title="Mostrar/ocultar el HUD de produccion">Prod</button>
+      <button type="button" data-qat="hud-eta" title="Mostrar/ocultar la cuenta atras de ataques">ETA</button>
       <button type="button" data-qat="panic" title="Parada de emergencia" style="color:var(--gb-err-3);font-weight:bold">PANICO</button>
     </div>
     <div class="gb-nav" role="tablist" aria-label="GrepBot groups"></div>
@@ -20601,6 +20797,8 @@ const STORE = {
     qat('farms', () => { state.nextFarmScrape = 0; save(STORE.NEXT_FARM, 0); autoClaimFarms('manual'); farmTick(); flash('cobrando aldeas'); });
     qat('dodge', () => { dodgeScan('manual'); flash('escaneando entrantes'); });
     qat('queue', () => { abEnsureTargets(); abScan('manual'); flash('cola de construccion'); });
+    qat('hud-prod', () => { flash('HUD produccion ' + (hudToggle('production') ? 'ON' : 'OFF')); });
+    qat('hud-eta', () => { flash('HUD ataques ' + (hudToggle('countdown') ? 'ON' : 'OFF')); });
     qat('panic', () => {
       if (!gbPanicActivate()) { flash('panico ya activo'); return; }
       const dr = panel.querySelector('[data-cfg=dry-run]'); if (dr) dr.checked = true;
@@ -22214,6 +22412,7 @@ const STORE = {
   qolBindActivityPause();
   gbKeyBind();
   contextMenuStart();
+  gbTimeout(() => { try { hudRestore(); } catch (_) {} }, 1500);
 
   gbInterval(gbLockSweep, 10000);
   const releaseLocks = () => {

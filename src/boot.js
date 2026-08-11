@@ -117,6 +117,7 @@
   qolBindActivityPause();
   gbKeyBind();
   contextMenuStart();
+  gbTimeout(() => { try { hudRestore(); } catch (_) {} }, 1500);
 
   gbInterval(gbLockSweep, 10000);
   const releaseLocks = () => {

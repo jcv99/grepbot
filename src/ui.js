@@ -815,6 +815,8 @@
       <button type="button" data-qat="farms" title="Cobrar aldeas y re-escanear">Aldeas</button>
       <button type="button" data-qat="dodge" title="Escanear entrantes ahora">Dodge</button>
       <button type="button" data-qat="queue" title="Ejecutar la cola de construccion ahora">Cola</button>
+      <button type="button" data-qat="hud-prod" title="Mostrar/ocultar el HUD de produccion">Prod</button>
+      <button type="button" data-qat="hud-eta" title="Mostrar/ocultar la cuenta atras de ataques">ETA</button>
       <button type="button" data-qat="panic" title="Parada de emergencia" style="color:var(--gb-err-3);font-weight:bold">PANICO</button>
     </div>
     <div class="gb-nav" role="tablist" aria-label="GrepBot groups"></div>
@@ -1484,6 +1486,8 @@
     qat('farms', () => { state.nextFarmScrape = 0; save(STORE.NEXT_FARM, 0); autoClaimFarms('manual'); farmTick(); flash('cobrando aldeas'); });
     qat('dodge', () => { dodgeScan('manual'); flash('escaneando entrantes'); });
     qat('queue', () => { abEnsureTargets(); abScan('manual'); flash('cola de construccion'); });
+    qat('hud-prod', () => { flash('HUD produccion ' + (hudToggle('production') ? 'ON' : 'OFF')); });
+    qat('hud-eta', () => { flash('HUD ataques ' + (hudToggle('countdown') ? 'ON' : 'OFF')); });
     qat('panic', () => {
       if (!gbPanicActivate()) { flash('panico ya activo'); return; }
       const dr = panel.querySelector('[data-cfg=dry-run]'); if (dr) dr.checked = true;

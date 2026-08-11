@@ -188,7 +188,11 @@
     const finish = (fromGame, fromHttp) => {
       gbUnlock('town-scrape', townScrapeLock);
       const ids = state.towns.map(t => t.id);
-      pruneMapsToIds(state.townResources, ids); save(STORE.TOWN_RES, state.townResources); renderWorld();
+      pruneMapsToIds(state.townResources, ids); save(STORE.TOWN_RES, state.townResources);
+      // v4 plan 6.12: sample off the EXISTING 6-7min town scrape cadence rather
+      // than adding a scheduler for a read-only chart.
+      try { townGrowthSample(ids); } catch (_) {}
+      renderWorld();
       gbLog(`towns scrape: ${state.towns.length} towns (${fromGame} via game data, ${fromHttp} via HTTP)`);
     };
     const gameTowns = townsFromGame();
