@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.29.0
+// @version      4.30.2
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -135,6 +135,10 @@ const STORE = {
     TOWN_GROUPS: 'grepbot:town-groups',
     WEBHOOK_URL: 'grepbot:webhook-url',
     WEBHOOK_EVENTS: 'grepbot:webhook-events',
+    NOTIFY_ENABLED: 'grepbot:notify-enabled',
+    NOTIFY_EVENTS: 'grepbot:notify-events',
+    NOTIFY_VOLUME: 'grepbot:notify-volume',
+    NOTIFY_MUTED: 'grepbot:notify-muted',
     AUTO_MERCHANT: 'grepbot:auto-merchant',
     MERCHANT_WISH: 'grepbot:merchant-wish',
     AUTO_FAVOR: 'grepbot:auto-favor',
@@ -610,6 +614,10 @@ const STORE = {
     cityTemplates: load(STORE.CITY_TEMPLATES, {}),
     townGroups: load(STORE.TOWN_GROUPS, {}),
     webhookUrl: load(STORE.WEBHOOK_URL, ''),
+    notifyEnabled: load(STORE.NOTIFY_ENABLED, false),
+    notifyEvents: load(STORE.NOTIFY_EVENTS, {}) || {},
+    notifyVolume: load(STORE.NOTIFY_VOLUME, 0.4),
+    notifyMuted: load(STORE.NOTIFY_MUTED, false),
     webhookEvents: load(STORE.WEBHOOK_EVENTS, { captcha: true, attack: true, warehouse: false, culture: false, cappingPreWarn: false, 'counter-intel': true, hero: false }),
     autoMerchant: load(STORE.AUTO_MERCHANT, false),
     merchantWish: load(STORE.MERCHANT_WISH, []),
@@ -11095,7 +11103,78 @@ const STORE = {
     const subtype = p.cs ? 'cs' : (p.resource ? String(p.resource) : '');
     return `${event}:${subtype}:${String(id || '-').slice(0, 96)}`;
   }
+
+  const CHIME_TONES = {
+    captcha: [880, 660], attack: [740, 440], pattern: [620, 620],
+    culture: [520, 780], hero: [700, 700], 'counter-intel': [500, 600],
+    _default: [660, 520],
+  };
+  function alertPlayChime(event) {
+    if (state.notifyMuted) return;
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const tones = CHIME_TONES[event] || CHIME_TONES._default;
+      const vol = Math.max(0, Math.min(1, Number.isFinite(+state.notifyVolume) ? +state.notifyVolume : 0.4));
+      tones.forEach((hz, i) => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sine'; o.frequency.value = hz;
+        g.gain.value = vol * 0.25;
+        o.connect(g); g.connect(ctx.destination);
+        const t0 = ctx.currentTime + i * 0.14;
+        o.start(t0); o.stop(t0 + 0.12);
+      });
+
+      setTimeout(() => { try { ctx.close(); } catch (_) {} }, 800);
+    } catch (e) { gbLogT('chime-' + event, 60000, 'chime: ' + String(e).slice(0, 60)); }
+  }
+  function alertNotifyText(event, payload) {
+    const p = payload || {};
+    const bits = [];
+    if (p.dest != null) bits.push('ciudad ' + p.dest);
+    if (p.townId != null) bits.push('ciudad ' + p.townId);
+    if (p.resource) bits.push(p.resource);
+    if (p.etaMin != null) bits.push('~' + p.etaMin + ' min');
+    if (p.cs) bits.push('CS');
+    if (p.watcher) bits.push(p.watcher);
+    if (p.n != null) bits.push(p.n + 'x');
+    return { title: 'GrepBot: ' + event, body: bits.join(' \u00b7 ') || location.host };
+  }
+  function alertDesktop(event, payload, key) {
+    if (!state.notifyEnabled) return false;
+    const ev = state.notifyEvents || {};
+    if (ev[event] === false) return false;
+    try {
+      if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false;
+      const n = alertNotifyText(event, payload);
+      new Notification(n.title, { body: n.body, tag: key });
+    } catch (e) {
+      gbLogT('notify-' + event, 60000, 'notify: ' + String(e).slice(0, 60));
+      return false;
+    }
+    alertPlayChime(event);
+    return true;
+  }
+
+  const alertNotifiedAt = Object.create(null);
+  function alertNotify(event, payload) {
+    const now = Date.now();
+    const key = alertWebhookKey(event, payload);
+    if ((alertNotifiedAt[key] || 0) + 5 * 60 * 1000 > now) return;
+    if (alertDesktop(event, payload, key)) {
+      alertNotifiedAt[key] = now;
+
+      const cut = now - 30 * 60 * 1000;
+      for (const k of Object.keys(alertNotifiedAt)) if (alertNotifiedAt[k] < cut) delete alertNotifiedAt[k];
+    }
+  }
   function alertWebhook(event, payload) {
+
+    try {
+      const ev = state.webhookEvents || {};
+      if (ev[event] !== false) alertNotify(event, payload);
+    } catch (_) {}
     const url = (state.webhookUrl || '').trim();
     if (!url) return;
     if (state.dryRun) {
@@ -19777,6 +19856,13 @@ const STORE = {
           <label title="Aviso cuando alguien te espia repetidamente en 24h."><input type="checkbox" data-cfg="wh-counter-intel"/> contra-inteligencia</label>
         </label>
         <label>Telegram chat_id <input type="text" data-cfg="wh-tg-chat" placeholder="optional if not in URL" style="width:140px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px;font-size:10px"/></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Notificaciones del navegador. Comparten el mismo antirrebote de 5 min que los webhooks: un evento, un aviso."><input type="checkbox" data-cfg="notify-enabled"/> Notificaciones de escritorio</label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">
+          <button data-cfg="notify-permission" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Permitir notificaciones</button>
+          <label style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><input type="checkbox" data-cfg="notify-muted"/> silenciar sonido</label>
+          volumen <input type="number" data-cfg="notify-volume" min="0" max="100" step="10" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>%
+          <button data-cfg="notify-test" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px;margin-left:6px">Probar</button>
+        </label>
         <div style="border-top:1px solid #333;padding-top:6px;color:#f96;font-size:10px">ALTO RIESGO (por defecto OFF)</div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-merchant"/> Merchant sniper</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Las ofertas de recursos del barco mercante empiezan en 0.5:1 y suben +0.1 por trato. Bombea con tratos de 1 unidad y luego envia el trato grande a 1:1."><input type="checkbox" data-cfg="auto-pt-trade"/> Bombeo del ratio del barco mercante</label>
@@ -20476,6 +20562,18 @@ const STORE = {
     setChk('[data-cfg=wh-culture]', !!we.culture);
     setChk('[data-cfg=wh-capping]', !!we.cappingPreWarn);
     setChk('[data-cfg=wh-counter-intel]', we['counter-intel'] !== false);
+    setChk('[data-cfg=notify-enabled]', !!state.notifyEnabled);
+    setChk('[data-cfg=notify-muted]', !!state.notifyMuted);
+    setNum('[data-cfg=notify-volume]', Math.round((Number.isFinite(+state.notifyVolume) ? +state.notifyVolume : 0.4) * 100));
+    { const pb = sec.querySelector('[data-cfg=notify-permission]');
+      if (pb) {
+        let perm = 'unsupported';
+        try { perm = (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported'; } catch (_) {}
+        const ES = { granted: 'concedido', denied: 'denegado', default: 'sin pedir', unsupported: 'no soportado' };
+        pb.textContent = 'Permiso: ' + (ES[perm] || perm);
+
+        pb.disabled = perm !== 'default';
+      } }
     const tg = sec.querySelector('[data-cfg=wh-tg-chat]'); if (tg) tg.value = we.telegramChatId || '';
     const tp = sec.querySelector('[data-cfg=trade-preset]'); if (tp) tp.value = state.tradePreset || 'storage';
     setNum('[data-cfg=trade-reserve]', state.tradeReservePct);
@@ -20741,6 +20839,35 @@ const STORE = {
       sec.querySelector('[data-cfg=' + k + ']')?.addEventListener('change', saveWebhookEvents);
     });
     sec.querySelector('[data-cfg=wh-tg-chat]')?.addEventListener('change', saveWebhookEvents);
+    sec.querySelector('[data-cfg=notify-enabled]')?.addEventListener('change', e => {
+      state.notifyEnabled = !!e.target.checked;
+      save(STORE.NOTIFY_ENABLED, state.notifyEnabled);
+      let perm = 'unsupported';
+      try { perm = (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported'; } catch (_) {}
+      if (state.notifyEnabled && perm !== 'granted') flash('falta permiso del navegador: pulsa "Permiso"');
+    });
+    sec.querySelector('[data-cfg=notify-muted]')?.addEventListener('change', e => {
+      state.notifyMuted = !!e.target.checked; save(STORE.NOTIFY_MUTED, state.notifyMuted);
+    });
+    saveNum('[data-cfg=notify-volume]', v => {
+      state.notifyVolume = Math.max(0, Math.min(1, (Number.isFinite(+v) ? +v : 40) / 100));
+      save(STORE.NOTIFY_VOLUME, state.notifyVolume);
+    });
+    sec.querySelector('[data-cfg=notify-permission]')?.addEventListener('click', () => {
+
+      try {
+        const r = Notification.requestPermission();
+        if (r && typeof r.then === 'function') r.then(() => bindConfig());
+        else bindConfig();
+      } catch (e) { flash('notificaciones no soportadas'); }
+    });
+    sec.querySelector('[data-cfg=notify-test]')?.addEventListener('click', () => {
+      try { alertPlayChime('attack'); } catch (_) {}
+      let perm = 'unsupported';
+      try { perm = (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported'; } catch (_) {}
+      if (perm === 'granted') { try { new Notification('GrepBot', { body: 'prueba de notificacion', tag: 'gb-test' }); } catch (_) {} }
+      else flash('sonido probado; permiso de notificacion: ' + perm);
+    });
     sec.querySelector('[data-cfg=keyboard-shortcuts]')?.addEventListener('change', e => {
       state.keyboardShortcuts = !!e.target.checked;
       save(STORE.KEYBOARD_SHORTCUTS, state.keyboardShortcuts);

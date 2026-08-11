@@ -1110,6 +1110,13 @@
           <label title="Aviso cuando alguien te espia repetidamente en 24h."><input type="checkbox" data-cfg="wh-counter-intel"/> contra-inteligencia</label>
         </label>
         <label>Telegram chat_id <input type="text" data-cfg="wh-tg-chat" placeholder="optional if not in URL" style="width:140px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px;font-size:10px"/></label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Notificaciones del navegador. Comparten el mismo antirrebote de 5 min que los webhooks: un evento, un aviso."><input type="checkbox" data-cfg="notify-enabled"/> Notificaciones de escritorio</label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">
+          <button data-cfg="notify-permission" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Permitir notificaciones</button>
+          <label style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><input type="checkbox" data-cfg="notify-muted"/> silenciar sonido</label>
+          volumen <input type="number" data-cfg="notify-volume" min="0" max="100" step="10" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>%
+          <button data-cfg="notify-test" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px;margin-left:6px">Probar</button>
+        </label>
         <div style="border-top:1px solid #333;padding-top:6px;color:#f96;font-size:10px">ALTO RIESGO (por defecto OFF)</div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-merchant"/> Merchant sniper</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Las ofertas de recursos del barco mercante empiezan en 0.5:1 y suben +0.1 por trato. Bombea con tratos de 1 unidad y luego envia el trato grande a 1:1."><input type="checkbox" data-cfg="auto-pt-trade"/> Bombeo del ratio del barco mercante</label>
@@ -1810,6 +1817,19 @@
     setChk('[data-cfg=wh-culture]', !!we.culture);
     setChk('[data-cfg=wh-capping]', !!we.cappingPreWarn);
     setChk('[data-cfg=wh-counter-intel]', we['counter-intel'] !== false);
+    setChk('[data-cfg=notify-enabled]', !!state.notifyEnabled);
+    setChk('[data-cfg=notify-muted]', !!state.notifyMuted);
+    setNum('[data-cfg=notify-volume]', Math.round((Number.isFinite(+state.notifyVolume) ? +state.notifyVolume : 0.4) * 100));
+    { const pb = sec.querySelector('[data-cfg=notify-permission]');
+      if (pb) {
+        let perm = 'unsupported';
+        try { perm = (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported'; } catch (_) {}
+        const ES = { granted: 'concedido', denied: 'denegado', default: 'sin pedir', unsupported: 'no soportado' };
+        pb.textContent = 'Permiso: ' + (ES[perm] || perm);
+        // Only 'default' can be acted on: the API ignores requestPermission
+        // once the user has decided either way, so an enabled button would lie.
+        pb.disabled = perm !== 'default';
+      } }
     const tg = sec.querySelector('[data-cfg=wh-tg-chat]'); if (tg) tg.value = we.telegramChatId || '';
     const tp = sec.querySelector('[data-cfg=trade-preset]'); if (tp) tp.value = state.tradePreset || 'storage';
     setNum('[data-cfg=trade-reserve]', state.tradeReservePct);
@@ -2076,6 +2096,36 @@
       sec.querySelector('[data-cfg=' + k + ']')?.addEventListener('change', saveWebhookEvents);
     });
     sec.querySelector('[data-cfg=wh-tg-chat]')?.addEventListener('change', saveWebhookEvents);
+    sec.querySelector('[data-cfg=notify-enabled]')?.addEventListener('change', e => {
+      state.notifyEnabled = !!e.target.checked;
+      save(STORE.NOTIFY_ENABLED, state.notifyEnabled);
+      let perm = 'unsupported';
+      try { perm = (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported'; } catch (_) {}
+      if (state.notifyEnabled && perm !== 'granted') flash('falta permiso del navegador: pulsa "Permiso"');
+    });
+    sec.querySelector('[data-cfg=notify-muted]')?.addEventListener('change', e => {
+      state.notifyMuted = !!e.target.checked; save(STORE.NOTIFY_MUTED, state.notifyMuted);
+    });
+    saveNum('[data-cfg=notify-volume]', v => {
+      state.notifyVolume = Math.max(0, Math.min(1, (Number.isFinite(+v) ? +v : 40) / 100));
+      save(STORE.NOTIFY_VOLUME, state.notifyVolume);
+    });
+    sec.querySelector('[data-cfg=notify-permission]')?.addEventListener('click', () => {
+      // Must be called from the click handler itself: browsers only honour
+      // requestPermission inside a real user gesture.
+      try {
+        const r = Notification.requestPermission();
+        if (r && typeof r.then === 'function') r.then(() => bindConfig());
+        else bindConfig();
+      } catch (e) { flash('notificaciones no soportadas'); }
+    });
+    sec.querySelector('[data-cfg=notify-test]')?.addEventListener('click', () => {
+      try { alertPlayChime('attack'); } catch (_) {}
+      let perm = 'unsupported';
+      try { perm = (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported'; } catch (_) {}
+      if (perm === 'granted') { try { new Notification('GrepBot', { body: 'prueba de notificacion', tag: 'gb-test' }); } catch (_) {} }
+      else flash('sonido probado; permiso de notificacion: ' + perm);
+    });
     sec.querySelector('[data-cfg=keyboard-shortcuts]')?.addEventListener('change', e => {
       state.keyboardShortcuts = !!e.target.checked;
       save(STORE.KEYBOARD_SHORTCUTS, state.keyboardShortcuts);
