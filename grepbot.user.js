@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.44.10
+// @version      4.44.11
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -19815,6 +19815,30 @@ const STORE = {
     wrap.appendChild(line); return wrap;
   }
 
+  function queueCenterLiveRow(num, label, timeStr, numTitle) {
+    const r = document.createElement('div'); r.className = 'gb-qc-live-row';
+    const n = document.createElement('span'); n.textContent = `#${num}`; if (numTitle) n.title = numTitle;
+    const nm = document.createElement('b'); nm.textContent = label;
+    const t = document.createElement('span'); t.textContent = timeStr;
+    r.append(n, nm, t); return r;
+  }
+
+  function queueCenterJobRow(num, desc, badge, lane, townId, job, frozen, i, list) {
+    const r = document.createElement('div'); r.className = 'gb-qc-job';
+    const numEl = document.createElement('b'); numEl.textContent = `#${num}`;
+    const descEl = document.createElement('div'); descEl.className = 'gb-qc-job-desc';
+    const main = document.createElement('span'); main.textContent = desc;
+    descEl.append(main, badge);
+    const acts = document.createElement('div'); acts.className = 'gb-qc-acts';
+    const up = queueCenterButton('\u2191', 'Subir', () => nativeQueueMove(townId, lane, job.id, -1));
+    const dn = queueCenterButton('\u2193', 'Bajar', () => nativeQueueMove(townId, lane, job.id, 1));
+    const del = queueCenterButton('\u00d7', 'Eliminar', () => queueCenterRemove(townId, lane, job, frozen), 'danger');
+    up.disabled = frozen || i === 0;
+    dn.disabled = frozen || i === list.length - 1;
+    del.disabled = !!job.inflight;
+    acts.append(up, dn, del); r.append(numEl, descEl, acts); return r;
+  }
+
   function queueCenterRemove(townId, lane, job, frozen) {
     if (job.inflight) { flash('Esta orden se est\u00e1 enviando; espera a que termine'); return false; }
     if (job.manualReview) {
@@ -19835,13 +19859,8 @@ const STORE = {
     body.appendChild(live.box);
     if (q.known && q.orders.length) {
       q.orders.forEach((o, i) => {
-        const r = document.createElement('div'); r.className = 'gb-qc-live-row';
-        const n = document.createElement('span'); n.textContent = `#${i + 1}`;
-        const nm = document.createElement('b'); nm.textContent = nativeBuildLabel(o.building_type);
-        const t = document.createElement('span');
         const left = o.to_be_completed_at ? Math.max(0, +o.to_be_completed_at - gameNow()) : o.building_time;
-        t.textContent = queueCenterFmt(left);
-        r.append(n, nm, t); live.box.appendChild(r);
+        live.box.appendChild(queueCenterLiveRow(i + 1, nativeBuildLabel(o.building_type), queueCenterFmt(left)));
       });
     } else live.box.appendChild(queueCenterEmpty(q.known ? 'Sin construcciones reales' : 'No se puede leer la cola real'));
 
@@ -19858,19 +19877,12 @@ const STORE = {
     }))));
     const frozen = list.some(j => j && (j.inflight || j.manualReview));
     list.forEach((j, i) => {
-      const r = document.createElement('div'); r.className = 'gb-qc-job';
-      const num = document.createElement('b'); num.textContent = `#${i + 1}`;
-      const desc = document.createElement('div'); desc.className = 'gb-qc-job-desc';
-      const main = document.createElement('span'); main.textContent = `${nativeBuildLabel(j.building)} ${j.fromLevel}\u2192${j.toLevel}`;
-      desc.append(main, queueCenterStatusBadge(j.status, j.reason));
-      const acts = document.createElement('div'); acts.className = 'gb-qc-acts';
-      const up = queueCenterButton('\u2191', 'Subir', () => nativeQueueMove(townId, 'build', j.id, -1));
-      const dn = queueCenterButton('\u2193', 'Bajar', () => nativeQueueMove(townId, 'build', j.id, 1));
-      const del = queueCenterButton('\u00d7', 'Eliminar', () => queueCenterRemove(townId, 'build', j, frozen), 'danger');
-      up.disabled = frozen || i === 0;
-      dn.disabled = frozen || i === list.length - 1;
-      del.disabled = !!j.inflight;
-      acts.append(up, dn, del); r.append(num, desc, acts); plan.box.appendChild(r);
+      plan.box.appendChild(queueCenterJobRow(
+        i + 1,
+        `${nativeBuildLabel(j.building)} ${j.fromLevel}\u2192${j.toLevel}`,
+        queueCenterStatusBadge(j.status, j.reason),
+        'build', townId, j, frozen, i, list,
+      ));
     });
     renderQueueCenterSwap(body, townId);
     renderQueueCenterOptimal(body, townId);
@@ -19981,11 +19993,7 @@ const STORE = {
     if (orders.length) {
       orders.forEach((o, i) => {
         const id = researchOrderTechId(o);
-        const r = document.createElement('div'); r.className = 'gb-qc-live-row';
-        const n = document.createElement('span'); n.textContent = `#${i + 1}`;
-        const nm = document.createElement('b'); nm.textContent = researchLabel(id) || String(id || '?');
-        const t = document.createElement('span'); t.textContent = queueCenterFmt(queueCenterTimeLeft(o));
-        r.append(n, nm, t); live.box.appendChild(r);
+        live.box.appendChild(queueCenterLiveRow(i + 1, researchLabel(id) || String(id || '?'), queueCenterFmt(queueCenterTimeLeft(o))));
       });
     } else live.box.appendChild(queueCenterEmpty(info ? 'Sin investigaciones en curso' : 'No se puede leer la Academia'));
 
@@ -20004,19 +20012,12 @@ const STORE = {
       }))));
       const frozen = list.some(j => j && (j.inflight || j.manualReview));
       list.forEach((j, i) => {
-        const r = document.createElement('div'); r.className = 'gb-qc-job';
-        const num = document.createElement('b'); num.textContent = `#${i + 1}`;
-        const desc = document.createElement('div'); desc.className = 'gb-qc-job-desc';
-        const main = document.createElement('span'); main.textContent = nativeResearchLabel(j.tech);
-        desc.append(main, queueCenterStatusBadge(j.status, j.reason));
-        const acts = document.createElement('div'); acts.className = 'gb-qc-acts';
-        const up = queueCenterButton('\u2191', 'Subir', () => nativeQueueMove(townId, 'research', j.id, -1));
-        const dn = queueCenterButton('\u2193', 'Bajar', () => nativeQueueMove(townId, 'research', j.id, 1));
-        const del = queueCenterButton('\u00d7', 'Eliminar', () => queueCenterRemove(townId, 'research', j, frozen), 'danger');
-        up.disabled = frozen || i === 0;
-        dn.disabled = frozen || i === list.length - 1;
-        del.disabled = !!j.inflight;
-        acts.append(up, dn, del); r.append(num, desc, acts); plan.box.appendChild(r);
+        plan.box.appendChild(queueCenterJobRow(
+          i + 1,
+          nativeResearchLabel(j.tech),
+          queueCenterStatusBadge(j.status, j.reason),
+          'research', townId, j, frozen, i, list,
+        ));
       });
     }
 
@@ -20058,12 +20059,12 @@ const STORE = {
     if (liveModels.length) {
       liveModels.forEach((m, i) => {
         const id = queueCenterUnitId(m);
-        const r = document.createElement('div'); r.className = 'gb-qc-live-row';
-        const n = document.createElement('span'); n.textContent = `#${i + 1}`;
-        n.title = `posici\u00f3n en la cola real de ${label.toLowerCase()}`;
-        const nm = document.createElement('b'); nm.textContent = `${queueCenterUnitAmount(m)}\u00d7 ${nativeUnitLabel(id)}`;
-        const t = document.createElement('span'); t.textContent = queueCenterFmt(queueCenterTimeLeft(m));
-        r.append(n, nm, t); live.box.appendChild(r);
+        live.box.appendChild(queueCenterLiveRow(
+          i + 1,
+          `${queueCenterUnitAmount(m)}\u00d7 ${nativeUnitLabel(id)}`,
+          queueCenterFmt(queueCenterTimeLeft(m)),
+          `posici\u00f3n en la cola real de ${label.toLowerCase()}`,
+        ));
       });
     } else live.box.appendChild(queueCenterEmpty(q.known ? `Sin \u00f3rdenes en ${label.toLowerCase()}` : 'No se puede leer la cola real'));
 
@@ -20080,19 +20081,12 @@ const STORE = {
     }))));
     const frozen = list.some(j => j && (j.inflight || j.manualReview));
     list.forEach((j, i) => {
-      const r = document.createElement('div'); r.className = 'gb-qc-job';
-      const num = document.createElement('b'); num.textContent = `#${i + 1}`; num.title = `posici\u00f3n en la cola de ${label.toLowerCase()}`;
-      const desc = document.createElement('div'); desc.className = 'gb-qc-job-desc';
-      const main = document.createElement('span'); main.textContent = `${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`;
-      desc.append(main, queueCenterStatusBadge(j.status, j.reason));
-      const acts = document.createElement('div'); acts.className = 'gb-qc-acts';
-      const up = queueCenterButton('\u2191', 'Subir', () => nativeQueueMove(townId, lane, j.id, -1));
-      const dn = queueCenterButton('\u2193', 'Bajar', () => nativeQueueMove(townId, lane, j.id, 1));
-      const del = queueCenterButton('\u00d7', 'Eliminar', () => queueCenterRemove(townId, lane, j, frozen), 'danger');
-      up.disabled = frozen || i === 0;
-      dn.disabled = frozen || i === list.length - 1;
-      del.disabled = !!j.inflight;
-      acts.append(up, dn, del); r.append(num, desc, acts); plan.box.appendChild(r);
+      plan.box.appendChild(queueCenterJobRow(
+        i + 1,
+        `${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`,
+        queueCenterStatusBadge(j.status, j.reason),
+        lane, townId, j, frozen, i, list,
+      ));
     });
   }
 
