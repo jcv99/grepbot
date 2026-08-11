@@ -575,6 +575,16 @@
       seedMap('dumpThreshold', STORE.DUMP_THRESHOLD, { wood: 95, stone: 95, iron: 90 });
       seedMap('dumpKeep', STORE.DUMP_KEEP, { wood: 50, stone: 50, iron: 50 });
       if (!Array.isArray(state.dumpSinks)) { state.dumpSinks = []; save(STORE.DUMP_SINKS, state.dumpSinks); }
+      // v4 plan 3.7: clamp the snipe-detector tunables inside the existing
+      // defenseCfg object so a hand-edited value cannot produce a nonsense
+      // cluster window.
+      if (!state.defenseCfg || typeof state.defenseCfg !== 'object') state.defenseCfg = { mode: 'notify', returnMarginSec: 120, smartAuto: false };
+      state.defenseCfg.snipeDetect = state.defenseCfg.snipeDetect !== false;
+      const clampD = (k, d, lo, hi) => { const n = +state.defenseCfg[k]; state.defenseCfg[k] = Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
+      clampD('csClusterGapSec', 900, 60, 21600);
+      clampD('csCoverSec', 180, 5, 900);
+      clampD('csTightSec', 5, 0, 120);
+      save(STORE.DEFENSE_CFG, state.defenseCfg);
       ver = 12;
     }
     if (ver !== state.configVer) {

@@ -598,6 +598,8 @@
     // v4 plan 3.3: same label in both tabs, computed once for the whole loop.
     const colonyKind = {};
     try { for (const c of militaryColonyThreats()) colonyKind[String(c.mov.id)] = c.kind; } catch (_) {}
+    let csTrains = [];
+    try { csTrains = csWaveClusters(threats) || []; } catch (_) {}
     const dossiers = intelDossiers().slice(0, 30);
     let html = '';
     html += '=== Entrantes ===\n';
@@ -614,7 +616,8 @@
           ` | ETA ${da.eta==null?'?':fmtSec(da.eta)} | simult ${da.simultaneous}` +
           ` | apoyo ${sup} | milicia ${da.militia && da.militia.ok ? 'si' : 'no'}` +
           ` | esquivar ${da.evac.ok?'si':'no'}${da.evac.ok?'':' ('+(da.evac.why||'?')+')'}` +
-          (colonyKind[String(t.id)] ? ` | ${militaryColonyLabel(colonyKind[String(t.id)])}` : '') + '\n';
+          (colonyKind[String(t.id)] ? ` | ${militaryColonyLabel(colonyKind[String(t.id)])}` : '') +
+          (() => { const tr = csTrains.find(x => String(x.dest) === String(t.dest)); return (tr && tr.verdict !== 'no-cs') ? ' | ' + csTrainLine(tr) : ''; })() + '\n';
       });
     }
     html += '\n=== Fichas ===\n';

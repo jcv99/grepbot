@@ -172,11 +172,109 @@
     }
     return { ok: true, boats };
   }
-  function dodgeEtaSec(mov) {
+  // One definition of the ms-vs-seconds rule. null means UNREADABLE.
+  function dodgeArrivalSec(mov) {
     let a = +(mov && mov.arrival);
     if (!Number.isFinite(a) || a <= 0) return null;
-    if (a > 1e12) a = Math.floor(a / 1000);
-    return Math.max(0, a - gameNow());
+    return a > 1e12 ? Math.floor(a / 1000) : a;
+  }
+  function dodgeEtaSec(mov) {
+    const a = dodgeArrivalSec(mov);
+    return a == null ? null : Math.max(0, a - gameNow());
+  }
+
+  // ===== Counter-snipe detector (v4 plan 3.7 / 5.7) ==========================
+  // Groups the incoming on one town into "trains" and reports whether the CS
+  // has a snipe window: how long after the previous landing it arrives, and how
+  // many friendly returns could land inside that window.
+  //
+  // Gap arithmetic is a difference of two SERVER arrival stamps, so it is
+  // immune to local clock drift; only the ETA display uses gameNow().
+  // Pure: it never touches the model, callers pass the list they already have.
+  const CS_CLUSTER_GAP_DEFAULT = 900;
+  const CS_COVER_DEFAULT = 180;
+  const CS_TIGHT_DEFAULT = 5;
+  function csCfg() {
+    const c = (state.defenseCfg && typeof state.defenseCfg === 'object') ? state.defenseCfg : {};
+    const num = (v, d, lo, hi) => { const n = +v; return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
+    return {
+      on: c.snipeDetect !== false,
+      clusterGapSec: num(c.csClusterGapSec, CS_CLUSTER_GAP_DEFAULT, 60, 21600),
+      coverSec: num(c.csCoverSec, CS_COVER_DEFAULT, 5, 900),
+      tightSec: num(c.csTightSec, CS_TIGHT_DEFAULT, 0, 120),
+    };
+  }
+  function csWaveClusters(incoming) {
+    const cfg = csCfg();
+    const byTown = new Map();
+    for (const mov of (incoming || [])) {
+      if (!mov || mov.dest == null) continue;
+      const k = String(mov.dest);
+      if (!byTown.has(k)) byTown.set(k, []);
+      byTown.get(k).push(mov);
+    }
+    const out = [];
+    for (const [dest, list] of byTown) {
+      const timed = [];
+      let unknownArrival = 0;
+      for (const m of list) {
+        const at = dodgeArrivalSec(m);
+        // An unreadable arrival is counted, never guessed into the ordering:
+        // a fabricated stamp would produce a fabricated snipe window.
+        if (at == null) { unknownArrival++; continue; }
+        timed.push({ at, hasCs: !!m.hasCs, id: m.id });
+      }
+      timed.sort((a, b) => a.at - b.at);
+      if (!timed.length) {
+        out.push({ dest, n: list.length, unknownArrival, firstAt: null, lastAt: null, csAt: null, gapSec: null, cover: 0, tightestGapSec: null, verdict: 'unknown' });
+        continue;
+      }
+      // Only the leading cluster matters: a landing more than clusterGapSec
+      // after the previous one is a separate wave, not part of this train.
+      const cluster = [timed[0]];
+      for (let i = 1; i < timed.length; i++) {
+        if (timed[i].at - cluster[cluster.length - 1].at > cfg.clusterGapSec) break;
+        cluster.push(timed[i]);
+      }
+      let tightestGapSec = null;
+      for (let i = 1; i < cluster.length; i++) {
+        const g = cluster[i].at - cluster[i - 1].at;
+        if (tightestGapSec == null || g < tightestGapSec) tightestGapSec = g;
+      }
+      const csIdx = cluster.findIndex(x => x.hasCs);
+      const firstAt = cluster[0].at, lastAt = cluster[cluster.length - 1].at;
+      if (csIdx < 0) {
+        out.push({ dest, n: cluster.length, unknownArrival, firstAt, lastAt, csAt: null, gapSec: null, cover: 0, tightestGapSec, verdict: 'no-cs' });
+        continue;
+      }
+      const csAt = cluster[csIdx].at;
+      if (csIdx === 0) {
+        // Nothing lands before the CS, so the snipe window cannot be derived
+        // from the incoming list alone.
+        out.push({ dest, n: cluster.length, unknownArrival, firstAt, lastAt, csAt, gapSec: null, cover: 0, tightestGapSec, verdict: 'cs-solo' });
+        continue;
+      }
+      const gapSec = csAt - cluster[csIdx - 1].at;
+      // How many other landings fall inside the coverSec window before the CS.
+      let cover = 0;
+      for (const x of cluster) if (x.at < csAt && csAt - x.at <= cfg.coverSec) cover++;
+      let verdict;
+      if (gapSec <= cfg.tightSec) verdict = 'tight';
+      else if (cover >= 1) verdict = 'covered';
+      else verdict = 'open';
+      out.push({ dest, n: cluster.length, unknownArrival, firstAt, lastAt, csAt, gapSec, cover, tightestGapSec, verdict });
+    }
+    return out;
+  }
+  const CS_VERDICT_ES = { open: 'ventana abierta', covered: 'cubierta', tight: 'muy justa', 'cs-solo': 'CS sola', 'no-cs': 'sin CS', unknown: 'ilegible' };
+  function csTrainLine(train) {
+    if (!train) return '';
+    const parts = [`tren ${train.n}`, CS_VERDICT_ES[train.verdict] || train.verdict];
+    if (train.gapSec != null) parts.push(`ventana ${train.gapSec}s`);
+    else if (train.tightestGapSec != null) parts.push(`hueco min ${train.tightestGapSec}s`);
+    if (train.cover) parts.push(`cubierta ${train.cover}`);
+    if (train.unknownArrival) parts.push(`${train.unknownArrival} sin hora`);
+    return parts.join(' \u00b7 ');
   }
   const DODGE_MILITIA_WINDOW_SEC = 15 * 60;
   // ===== Militia smart activation (v4 plan 3.6) ==============================
@@ -251,15 +349,18 @@
     return { yes: true, why: `zona gris agotada (riesgo ${a.risk})`, group: 'grace' };
   }
 
-  function dodgeNotify(mov, entry) {
+  function dodgeNotify(mov, entry, train) {
     if (entry.notified) return;
     entry.notified = true;
+    const trainTxt = (train && train.verdict !== 'no-cs') ? ' | ' + csTrainLine(train) : '';
     const msg = `incoming ${mov.type || 'atk'} → town ${mov.dest}` + (mov.hasCs ? ' [CS]' : '') +
-      (mov.arrival ? ` ETA ${mov.arrival}` : '');
+      (mov.arrival ? ` ETA ${mov.arrival}` : '') + trainTxt;
     gbLog('dodge: ' + msg);
     flash(msg);
     try {
-      if (!mov.hasCs || state.csAlert !== false) alertWebhook('attack', Object.assign({}, mov, { cs: !!mov.hasCs }));
+      const payload = Object.assign({}, mov, { cs: !!mov.hasCs });
+      if (train && train.verdict !== 'no-cs') payload.snipe = { verdict: train.verdict, gapSec: train.gapSec, cover: train.cover, n: train.n };
+      if (!mov.hasCs || state.csAlert !== false) alertWebhook('attack', payload);
     } catch (_) {}
 
   }
@@ -345,6 +446,9 @@
     const militiaOk = wantMilitia && !captchaPausedAny('militia', 'dodge');
     if (!dodgeOk && !militiaOk && !wantCs) return;
     const incoming = dodgeIncomingMovements();
+    // Computed ONCE per pass and shared by every movement in it.
+    const trains = (wantCs && csCfg().on) ? csWaveClusters(incoming) : [];
+    const trainFor = dest => trains.find(t => String(t.dest) === String(dest)) || null;
     const live = new Set();
     const now = Date.now();
     for (const mov of incoming) {
@@ -359,7 +463,7 @@
         };
       }
       entry.hasCs=!!(entry.hasCs||mov.hasCs);entry.type=mov.type||entry.type;entry.dest=mov.dest||entry.dest;
-      if (wantCs || militiaOk || dodgeOk) dodgeNotify(mov, entry);
+      if (wantCs || militiaOk || dodgeOk) dodgeNotify(mov, entry, trainFor(mov.dest));
       if(militiaOk)dodgeTryMilitia(mov,entry);
       if (!dodgeOk) continue;
       if (entry.state === 'sent') continue;
@@ -371,6 +475,16 @@
       // v4 plan 3.2: support only arms for movements dodge did NOT act on, and
       // rides this same 5s loop rather than adding a second timer.
       if (!entry || entry.state !== 'sent') { try { supportTryBurst(mov); } catch (_) {} }
+    }
+    // dodgeNotify fires once per movement, so a wave added AFTER the first
+    // notification would otherwise be invisible. The throttle key carries the
+    // verdict and cover count, so a changed picture defeats it while a stable
+    // one stays quiet - no extra state needed.
+    for (const t of trains) {
+      if (t.verdict === 'no-cs') continue;
+      gbLogT(`cs-${t.dest}-${t.verdict}-${t.cover}`, 60000,
+        `cs: town ${t.dest} ${t.verdict} n=${t.n} gap=${t.gapSec == null ? '?' : t.gapSec}s cover=${t.cover}` +
+        (t.unknownArrival ? ` unreadable=${t.unknownArrival}` : ''));
     }
     try { supportScan('dodge'); } catch (_) {}
     try { emergencyScan('dodge'); } catch (_) {}

@@ -933,6 +933,12 @@
           apoyo -<input type="number" data-cfg="threat-support" min="0" max="30" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
           umbral <input type="number" data-cfg="threat-threshold" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Agrupa los entrantes de una ciudad en oleadas y dice si la CS tiene ventana de snipe. Solo lectura."><input type="checkbox" data-cfg="cs-snipe"/> Detector de contra-snipe</label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Snipe:
+          agrupar oleadas <input type="number" data-cfg="cs-cluster-gap" min="60" max="21600" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>s
+          cobertura <input type="number" data-cfg="cs-cover" min="5" max="900" style="width:55px;background:#111;color:#cfc;border:1px solid #333"/>s
+          muy justa &lt;= <input type="number" data-cfg="cs-tight" min="0" max="120" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>s
+        </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="ALTO RIESGO: envia tropas reales de otras ciudades cuando llega un ataque de banda alta o con CS. Gasta tropas sin vuelta atras; pide confirmacion por ventana. Aprende su propia plantilla: envia un apoyo a mano una vez."><input type="checkbox" data-cfg="support-auto"/> Apoyo automatico (ALTO RIESGO, OFF)</label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Apoyo:
           confirmar &gt; <input type="number" data-cfg="support-confirm" min="0" max="10000" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
@@ -1478,6 +1484,11 @@
     setChk('[data-cfg=auto-favor]', state.autoFavor);
     setChk('[data-cfg=auto-wonder]', state.autoWonder);
     setChk('[data-cfg=cs-alert]', state.csAlert !== false);
+    { const cs = csCfg();
+      setChk('[data-cfg=cs-snipe]', cs.on);
+      setNum('[data-cfg=cs-cluster-gap]', cs.clusterGapSec);
+      setNum('[data-cfg=cs-cover]', cs.coverSec);
+      setNum('[data-cfg=cs-tight]', cs.tightSec); }
     { const mc = militiaCfg();
       setNum('[data-cfg=militia-force]', mc.forceRisk);
       setNum('[data-cfg=militia-skip]', mc.skipRisk);
@@ -1695,6 +1706,14 @@
       gbLog('support auto ' + (state.supportCfg.auto ? 'ON - real troops, confirm gate per window' : 'OFF'));
       if (state.supportCfg.auto && !state.supportTpl) flash('apoyo ON pero sin plantilla: envia un apoyo a mano una vez');
     });
+    const saveDefense = (key, v) => {
+      state.defenseCfg = Object.assign({}, state.defenseCfg, { [key]: v });
+      save(STORE.DEFENSE_CFG, state.defenseCfg);
+    };
+    sec.querySelector('[data-cfg=cs-snipe]')?.addEventListener('change', e => saveDefense('snipeDetect', !!e.target.checked));
+    saveNum('[data-cfg=cs-cluster-gap]', v => saveDefense('csClusterGapSec', Math.max(60, Math.min(21600, +v || 900))));
+    saveNum('[data-cfg=cs-cover]', v => saveDefense('csCoverSec', Math.max(5, Math.min(900, +v || 180))));
+    saveNum('[data-cfg=cs-tight]', v => saveDefense('csTightSec', Math.max(0, Math.min(120, Number.isFinite(+v) ? +v : 5))));
     const saveMilitia = (key, v, lo, hi, mul) => {
       if (!state.militiaCfg || typeof state.militiaCfg !== 'object') state.militiaCfg = {};
       const n = Number.isFinite(+v) ? +v * (mul || 1) : null;

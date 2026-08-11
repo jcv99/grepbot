@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.13.1
+// @version      4.14.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -791,6 +791,14 @@ const STORE = {
       seedMap('dumpThreshold', STORE.DUMP_THRESHOLD, { wood: 95, stone: 95, iron: 90 });
       seedMap('dumpKeep', STORE.DUMP_KEEP, { wood: 50, stone: 50, iron: 50 });
       if (!Array.isArray(state.dumpSinks)) { state.dumpSinks = []; save(STORE.DUMP_SINKS, state.dumpSinks); }
+
+      if (!state.defenseCfg || typeof state.defenseCfg !== 'object') state.defenseCfg = { mode: 'notify', returnMarginSec: 120, smartAuto: false };
+      state.defenseCfg.snipeDetect = state.defenseCfg.snipeDetect !== false;
+      const clampD = (k, d, lo, hi) => { const n = +state.defenseCfg[k]; state.defenseCfg[k] = Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
+      clampD('csClusterGapSec', 900, 60, 21600);
+      clampD('csCoverSec', 180, 5, 900);
+      clampD('csTightSec', 5, 0, 120);
+      save(STORE.DEFENSE_CFG, state.defenseCfg);
       ver = 12;
     }
     if (ver !== state.configVer) {
@@ -11391,7 +11399,7 @@ const STORE = {
     return 'low';
   }
   function defenseFactorText(f) {
-    return `cs=${f.cs},eta=${f.eta},sim=${f.simultaneous},weak=${f.weak},support=${f.support}`;
+    return `cs=${f.cs},eta=${f.eta},sim=${f.simultaneous},weak=${f.weak},support=${f.support}` + (f.snipe ? `,snipe=${f.snipe}` : '');
   }
   function defenseAssessment(mov,incoming,weightsOver){
     const w=defenseThreatWeights(weightsOver);
@@ -11409,10 +11417,14 @@ const STORE = {
       weak: local.score<THREAT_WEAK_FLOOR?w.weak:0,
       support: supports.length?-Math.min(w.supportCap,supports.length*w.supportPer):0,
     };
-    const raw=factors.cs+factors.eta+factors.simultaneous+factors.weak+factors.support;
+
+    let snipe = null;
+    try { snipe = (csWaveClusters(all) || []).find(t => String(t.dest) === String(mov.dest)) || null; } catch (_) {}
+    factors.snipe = (snipe && snipe.verdict === 'covered') ? 10 : 0;
+    const raw=factors.cs+factors.eta+factors.simultaneous+factors.weak+factors.support+factors.snipe;
 
     const risk=Math.max(0,Math.min(100,raw));
-    return{eta,simultaneous,local,supports,safeTown:safe,evac,militia,risk,hasCs:!!mov.hasCs,
+    return{eta,simultaneous,local,supports,safeTown:safe,evac,militia,risk,hasCs:!!mov.hasCs,snipe,
       band:defenseThreatBand(risk,!!mov.hasCs),factors,weights:w,computedAt:Date.now()};
   }
   function defenseShouldDodge(mov,incoming){const mode=defenseMode(),a=defenseAssessment(mov,incoming);if(mode==='notify')return{yes:false,assessment:a,why:'notify'};if(mode==='safe')return{yes:true,assessment:a,why:'safe'};if(!state.defenseCfg.smartAuto)return{yes:false,assessment:a,why:'smart-auto-off'};if(!a.evac.ok)return{yes:false,assessment:a,why:'cannot-evacuate'};if(a.hasCs||a.risk>=a.weights.smartThreshold)return{yes:true,assessment:a,why:`risk band=${a.band} ${defenseFactorText(a.factors)}`};return{yes:false,assessment:a,why:'defend/observe'}}
@@ -11623,11 +11635,98 @@ const STORE = {
     }
     return { ok: true, boats };
   }
-  function dodgeEtaSec(mov) {
+
+  function dodgeArrivalSec(mov) {
     let a = +(mov && mov.arrival);
     if (!Number.isFinite(a) || a <= 0) return null;
-    if (a > 1e12) a = Math.floor(a / 1000);
-    return Math.max(0, a - gameNow());
+    return a > 1e12 ? Math.floor(a / 1000) : a;
+  }
+  function dodgeEtaSec(mov) {
+    const a = dodgeArrivalSec(mov);
+    return a == null ? null : Math.max(0, a - gameNow());
+  }
+
+  const CS_CLUSTER_GAP_DEFAULT = 900;
+  const CS_COVER_DEFAULT = 180;
+  const CS_TIGHT_DEFAULT = 5;
+  function csCfg() {
+    const c = (state.defenseCfg && typeof state.defenseCfg === 'object') ? state.defenseCfg : {};
+    const num = (v, d, lo, hi) => { const n = +v; return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
+    return {
+      on: c.snipeDetect !== false,
+      clusterGapSec: num(c.csClusterGapSec, CS_CLUSTER_GAP_DEFAULT, 60, 21600),
+      coverSec: num(c.csCoverSec, CS_COVER_DEFAULT, 5, 900),
+      tightSec: num(c.csTightSec, CS_TIGHT_DEFAULT, 0, 120),
+    };
+  }
+  function csWaveClusters(incoming) {
+    const cfg = csCfg();
+    const byTown = new Map();
+    for (const mov of (incoming || [])) {
+      if (!mov || mov.dest == null) continue;
+      const k = String(mov.dest);
+      if (!byTown.has(k)) byTown.set(k, []);
+      byTown.get(k).push(mov);
+    }
+    const out = [];
+    for (const [dest, list] of byTown) {
+      const timed = [];
+      let unknownArrival = 0;
+      for (const m of list) {
+        const at = dodgeArrivalSec(m);
+
+        if (at == null) { unknownArrival++; continue; }
+        timed.push({ at, hasCs: !!m.hasCs, id: m.id });
+      }
+      timed.sort((a, b) => a.at - b.at);
+      if (!timed.length) {
+        out.push({ dest, n: list.length, unknownArrival, firstAt: null, lastAt: null, csAt: null, gapSec: null, cover: 0, tightestGapSec: null, verdict: 'unknown' });
+        continue;
+      }
+
+      const cluster = [timed[0]];
+      for (let i = 1; i < timed.length; i++) {
+        if (timed[i].at - cluster[cluster.length - 1].at > cfg.clusterGapSec) break;
+        cluster.push(timed[i]);
+      }
+      let tightestGapSec = null;
+      for (let i = 1; i < cluster.length; i++) {
+        const g = cluster[i].at - cluster[i - 1].at;
+        if (tightestGapSec == null || g < tightestGapSec) tightestGapSec = g;
+      }
+      const csIdx = cluster.findIndex(x => x.hasCs);
+      const firstAt = cluster[0].at, lastAt = cluster[cluster.length - 1].at;
+      if (csIdx < 0) {
+        out.push({ dest, n: cluster.length, unknownArrival, firstAt, lastAt, csAt: null, gapSec: null, cover: 0, tightestGapSec, verdict: 'no-cs' });
+        continue;
+      }
+      const csAt = cluster[csIdx].at;
+      if (csIdx === 0) {
+
+        out.push({ dest, n: cluster.length, unknownArrival, firstAt, lastAt, csAt, gapSec: null, cover: 0, tightestGapSec, verdict: 'cs-solo' });
+        continue;
+      }
+      const gapSec = csAt - cluster[csIdx - 1].at;
+
+      let cover = 0;
+      for (const x of cluster) if (x.at < csAt && csAt - x.at <= cfg.coverSec) cover++;
+      let verdict;
+      if (gapSec <= cfg.tightSec) verdict = 'tight';
+      else if (cover >= 1) verdict = 'covered';
+      else verdict = 'open';
+      out.push({ dest, n: cluster.length, unknownArrival, firstAt, lastAt, csAt, gapSec, cover, tightestGapSec, verdict });
+    }
+    return out;
+  }
+  const CS_VERDICT_ES = { open: 'ventana abierta', covered: 'cubierta', tight: 'muy justa', 'cs-solo': 'CS sola', 'no-cs': 'sin CS', unknown: 'ilegible' };
+  function csTrainLine(train) {
+    if (!train) return '';
+    const parts = [`tren ${train.n}`, CS_VERDICT_ES[train.verdict] || train.verdict];
+    if (train.gapSec != null) parts.push(`ventana ${train.gapSec}s`);
+    else if (train.tightestGapSec != null) parts.push(`hueco min ${train.tightestGapSec}s`);
+    if (train.cover) parts.push(`cubierta ${train.cover}`);
+    if (train.unknownArrival) parts.push(`${train.unknownArrival} sin hora`);
+    return parts.join(' \u00b7 ');
   }
   const DODGE_MILITIA_WINDOW_SEC = 15 * 60;
 
@@ -11681,15 +11780,18 @@ const STORE = {
     return { yes: true, why: `zona gris agotada (riesgo ${a.risk})`, group: 'grace' };
   }
 
-  function dodgeNotify(mov, entry) {
+  function dodgeNotify(mov, entry, train) {
     if (entry.notified) return;
     entry.notified = true;
+    const trainTxt = (train && train.verdict !== 'no-cs') ? ' | ' + csTrainLine(train) : '';
     const msg = `incoming ${mov.type || 'atk'} \u2192 town ${mov.dest}` + (mov.hasCs ? ' [CS]' : '') +
-      (mov.arrival ? ` ETA ${mov.arrival}` : '');
+      (mov.arrival ? ` ETA ${mov.arrival}` : '') + trainTxt;
     gbLog('dodge: ' + msg);
     flash(msg);
     try {
-      if (!mov.hasCs || state.csAlert !== false) alertWebhook('attack', Object.assign({}, mov, { cs: !!mov.hasCs }));
+      const payload = Object.assign({}, mov, { cs: !!mov.hasCs });
+      if (train && train.verdict !== 'no-cs') payload.snipe = { verdict: train.verdict, gapSec: train.gapSec, cover: train.cover, n: train.n };
+      if (!mov.hasCs || state.csAlert !== false) alertWebhook('attack', payload);
     } catch (_) {}
 
   }
@@ -11773,6 +11875,9 @@ const STORE = {
     const militiaOk = wantMilitia && !captchaPausedAny('militia', 'dodge');
     if (!dodgeOk && !militiaOk && !wantCs) return;
     const incoming = dodgeIncomingMovements();
+
+    const trains = (wantCs && csCfg().on) ? csWaveClusters(incoming) : [];
+    const trainFor = dest => trains.find(t => String(t.dest) === String(dest)) || null;
     const live = new Set();
     const now = Date.now();
     for (const mov of incoming) {
@@ -11787,7 +11892,7 @@ const STORE = {
         };
       }
       entry.hasCs=!!(entry.hasCs||mov.hasCs);entry.type=mov.type||entry.type;entry.dest=mov.dest||entry.dest;
-      if (wantCs || militiaOk || dodgeOk) dodgeNotify(mov, entry);
+      if (wantCs || militiaOk || dodgeOk) dodgeNotify(mov, entry, trainFor(mov.dest));
       if(militiaOk)dodgeTryMilitia(mov,entry);
       if (!dodgeOk) continue;
       if (entry.state === 'sent') continue;
@@ -11798,6 +11903,13 @@ const STORE = {
       }
 
       if (!entry || entry.state !== 'sent') { try { supportTryBurst(mov); } catch (_) {} }
+    }
+
+    for (const t of trains) {
+      if (t.verdict === 'no-cs') continue;
+      gbLogT(`cs-${t.dest}-${t.verdict}-${t.cover}`, 60000,
+        `cs: town ${t.dest} ${t.verdict} n=${t.n} gap=${t.gapSec == null ? '?' : t.gapSec}s cover=${t.cover}` +
+        (t.unknownArrival ? ` unreadable=${t.unknownArrival}` : ''));
     }
     try { supportScan('dodge'); } catch (_) {}
     try { emergencyScan('dodge'); } catch (_) {}
@@ -13504,6 +13616,8 @@ const STORE = {
 
     const colonyKind = {};
     try { for (const c of militaryColonyThreats()) colonyKind[String(c.mov.id)] = c.kind; } catch (_) {}
+    let csTrains = [];
+    try { csTrains = csWaveClusters(threats) || []; } catch (_) {}
     const dossiers = intelDossiers().slice(0, 30);
     let html = '';
     html += '=== Entrantes ===\n';
@@ -13520,7 +13634,8 @@ const STORE = {
           ` | ETA ${da.eta==null?'?':fmtSec(da.eta)} | simult ${da.simultaneous}` +
           ` | apoyo ${sup} | milicia ${da.militia && da.militia.ok ? 'si' : 'no'}` +
           ` | esquivar ${da.evac.ok?'si':'no'}${da.evac.ok?'':' ('+(da.evac.why||'?')+')'}` +
-          (colonyKind[String(t.id)] ? ` | ${militaryColonyLabel(colonyKind[String(t.id)])}` : '') + '\n';
+          (colonyKind[String(t.id)] ? ` | ${militaryColonyLabel(colonyKind[String(t.id)])}` : '') +
+          (() => { const tr = csTrains.find(x => String(x.dest) === String(t.dest)); return (tr && tr.verdict !== 'no-cs') ? ' | ' + csTrainLine(tr) : ''; })() + '\n';
       });
     }
     html += '\n=== Fichas ===\n';
@@ -16417,7 +16532,14 @@ const STORE = {
     }));
     out.push(preflightProbe('incoming', () => {
       const mv = (typeof dodgeIncomingMovements === 'function' ? (dodgeIncomingMovements() || []) : []);
-      return { ok: true, detail: `${mv.length} incoming movements visible` };
+      const trains = (typeof csWaveClusters === 'function' ? (csWaveClusters(mv) || []) : []);
+      const unknown = trains.reduce((n, t) => n + (t.unknownArrival || 0), 0);
+
+      return {
+        ok: true,
+        warn: unknown > 0,
+        detail: `${mv.length} incoming movements visible, ${trains.length} tren(es), ${unknown} sin hora de llegada legible`,
+      };
     }));
     out.push(preflightProbe('quests', () => {
       const col = mmCol('Progressable') || mmCol('IslandQuest');
@@ -18055,6 +18177,12 @@ const STORE = {
           apoyo -<input type="number" data-cfg="threat-support" min="0" max="30" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
           umbral <input type="number" data-cfg="threat-threshold" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Agrupa los entrantes de una ciudad en oleadas y dice si la CS tiene ventana de snipe. Solo lectura."><input type="checkbox" data-cfg="cs-snipe"/> Detector de contra-snipe</label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Snipe:
+          agrupar oleadas <input type="number" data-cfg="cs-cluster-gap" min="60" max="21600" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>s
+          cobertura <input type="number" data-cfg="cs-cover" min="5" max="900" style="width:55px;background:#111;color:#cfc;border:1px solid #333"/>s
+          muy justa &lt;= <input type="number" data-cfg="cs-tight" min="0" max="120" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>s
+        </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="ALTO RIESGO: envia tropas reales de otras ciudades cuando llega un ataque de banda alta o con CS. Gasta tropas sin vuelta atras; pide confirmacion por ventana. Aprende su propia plantilla: envia un apoyo a mano una vez."><input type="checkbox" data-cfg="support-auto"/> Apoyo automatico (ALTO RIESGO, OFF)</label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Apoyo:
           confirmar &gt; <input type="number" data-cfg="support-confirm" min="0" max="10000" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
@@ -18599,6 +18727,11 @@ const STORE = {
     setChk('[data-cfg=auto-favor]', state.autoFavor);
     setChk('[data-cfg=auto-wonder]', state.autoWonder);
     setChk('[data-cfg=cs-alert]', state.csAlert !== false);
+    { const cs = csCfg();
+      setChk('[data-cfg=cs-snipe]', cs.on);
+      setNum('[data-cfg=cs-cluster-gap]', cs.clusterGapSec);
+      setNum('[data-cfg=cs-cover]', cs.coverSec);
+      setNum('[data-cfg=cs-tight]', cs.tightSec); }
     { const mc = militiaCfg();
       setNum('[data-cfg=militia-force]', mc.forceRisk);
       setNum('[data-cfg=militia-skip]', mc.skipRisk);
@@ -18816,6 +18949,14 @@ const STORE = {
       gbLog('support auto ' + (state.supportCfg.auto ? 'ON - real troops, confirm gate per window' : 'OFF'));
       if (state.supportCfg.auto && !state.supportTpl) flash('apoyo ON pero sin plantilla: envia un apoyo a mano una vez');
     });
+    const saveDefense = (key, v) => {
+      state.defenseCfg = Object.assign({}, state.defenseCfg, { [key]: v });
+      save(STORE.DEFENSE_CFG, state.defenseCfg);
+    };
+    sec.querySelector('[data-cfg=cs-snipe]')?.addEventListener('change', e => saveDefense('snipeDetect', !!e.target.checked));
+    saveNum('[data-cfg=cs-cluster-gap]', v => saveDefense('csClusterGapSec', Math.max(60, Math.min(21600, +v || 900))));
+    saveNum('[data-cfg=cs-cover]', v => saveDefense('csCoverSec', Math.max(5, Math.min(900, +v || 180))));
+    saveNum('[data-cfg=cs-tight]', v => saveDefense('csTightSec', Math.max(0, Math.min(120, Number.isFinite(+v) ? +v : 5))));
     const saveMilitia = (key, v, lo, hi, mul) => {
       if (!state.militiaCfg || typeof state.militiaCfg !== 'object') state.militiaCfg = {};
       const n = Number.isFinite(+v) ? +v * (mul || 1) : null;

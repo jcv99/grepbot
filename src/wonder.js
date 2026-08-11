@@ -207,7 +207,7 @@
     return 'low';
   }
   function defenseFactorText(f) {
-    return `cs=${f.cs},eta=${f.eta},sim=${f.simultaneous},weak=${f.weak},support=${f.support}`;
+    return `cs=${f.cs},eta=${f.eta},sim=${f.simultaneous},weak=${f.weak},support=${f.support}` + (f.snipe ? `,snipe=${f.snipe}` : '');
   }
   function defenseAssessment(mov,incoming,weightsOver){
     const w=defenseThreatWeights(weightsOver);
@@ -226,11 +226,17 @@
       weak: local.score<THREAT_WEAK_FLOOR?w.weak:0,
       support: supports.length?-Math.min(w.supportCap,supports.length*w.supportPer):0,
     };
-    const raw=factors.cs+factors.eta+factors.simultaneous+factors.weak+factors.support;
+    // v4 plan 3.7: a covered snipe window is genuinely worse - the CS lands
+    // behind cover. Deliberately a small, separate bump: re-weighting the
+    // existing factors is plan 5.4's job, not this one's.
+    let snipe = null;
+    try { snipe = (csWaveClusters(all) || []).find(t => String(t.dest) === String(mov.dest)) || null; } catch (_) {}
+    factors.snipe = (snipe && snipe.verdict === 'covered') ? 10 : 0;
+    const raw=factors.cs+factors.eta+factors.simultaneous+factors.weak+factors.support+factors.snipe;
     // Clamped so a hand-edited negative weight cannot produce a band the
     // consumer has no branch for.
     const risk=Math.max(0,Math.min(100,raw));
-    return{eta,simultaneous,local,supports,safeTown:safe,evac,militia,risk,hasCs:!!mov.hasCs,
+    return{eta,simultaneous,local,supports,safeTown:safe,evac,militia,risk,hasCs:!!mov.hasCs,snipe,
       band:defenseThreatBand(risk,!!mov.hasCs),factors,weights:w,computedAt:Date.now()};
   }
   function defenseShouldDodge(mov,incoming){const mode=defenseMode(),a=defenseAssessment(mov,incoming);if(mode==='notify')return{yes:false,assessment:a,why:'notify'};if(mode==='safe')return{yes:true,assessment:a,why:'safe'};if(!state.defenseCfg.smartAuto)return{yes:false,assessment:a,why:'smart-auto-off'};if(!a.evac.ok)return{yes:false,assessment:a,why:'cannot-evacuate'};if(a.hasCs||a.risk>=a.weights.smartThreshold)return{yes:true,assessment:a,why:`risk band=${a.band} ${defenseFactorText(a.factors)}`};return{yes:false,assessment:a,why:'defend/observe'}}

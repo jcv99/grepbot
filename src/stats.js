@@ -399,7 +399,15 @@
     }));
     out.push(preflightProbe('incoming', () => {
       const mv = (typeof dodgeIncomingMovements === 'function' ? (dodgeIncomingMovements() || []) : []);
-      return { ok: true, detail: `${mv.length} incoming movements visible` };
+      const trains = (typeof csWaveClusters === 'function' ? (csWaveClusters(mv) || []) : []);
+      const unknown = trains.reduce((n, t) => n + (t.unknownArrival || 0), 0);
+      // This is the probe that proves the arrival field is readable on this
+      // client build - without it no snipe window can be computed at all.
+      return {
+        ok: true,
+        warn: unknown > 0,
+        detail: `${mv.length} incoming movements visible, ${trains.length} tren(es), ${unknown} sin hora de llegada legible`,
+      };
     }));
     out.push(preflightProbe('quests', () => {
       const col = mmCol('Progressable') || mmCol('IslandQuest');
