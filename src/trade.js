@@ -328,6 +328,154 @@
     }
     return jobs;
   }
+  // ===== Trade route manager (v4 plan 3.1) ===================================
+  // A route is a stored user rule: "from town A to town B, these amounts, while
+  // this trigger holds". Routes run as a tradeScan sub-planner on the SAME
+  // ledger every other sub-planner mutates, so a route that claims headroom is
+  // visible to fill-storage in the same scan and neither can over-plan the
+  // other's target. No new orch key, no new lock, no new captcha key: a captcha
+  // on the trade queue must pause routes too, or a route burns budget against a
+  // paused queue.
+  const TRADE_ROUTE_THROTTLE_MS = 60000;
+  const TRADE_ROUTE_MAX_JOBS = 4;
+  const TRADE_ROUTE_TRIGGERS = ['always', 'belowPct', 'abovePct'];
+  // lastFiredAt is in-memory on purpose: a 1-minute throttle that survived a
+  // reload would skip a real opportunity for a user who reloaded five minutes
+  // ago, and it is not worth a storage write per fire.
+  const tradeRouteRuntime = Object.create(null);
+  function tradeRouteList() {
+    const r = state.tradeRoutes;
+    if (!r || typeof r !== 'object' || Array.isArray(r)) return [];
+    return Object.values(r).filter(x => x && typeof x === 'object');
+  }
+  // Sanitise one route. Returns null when the shape cannot be trusted - an
+  // invalid route must never be coerced into a valid-looking one that posts.
+  function tradeRouteClean(raw, idx) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const from = String(raw.from == null ? '' : raw.from);
+    const to = String(raw.to == null ? '' : raw.to);
+    if (!from || !to || from === to) return null;
+    const amt = k => {
+      const n = +raw[k];
+      return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+    };
+    const wood = amt('wood'), stone = amt('stone'), iron = amt('iron');
+    if (!(wood + stone + iron > 0)) return null;
+    const t = (raw.trigger && typeof raw.trigger === 'object') ? raw.trigger : {};
+    const mode = TRADE_ROUTE_TRIGGERS.includes(t.mode) ? t.mode : 'always';
+    const resource = GB_RES_KEYS.includes(t.resource) ? t.resource : 'wood';
+    const value = Math.max(0, Math.min(100, Number.isFinite(+t.value) ? +t.value : 0));
+    // The fallback id must be STABLE: a timestamp would mint a fresh id on
+    // every scan, miss the runtime throttle map, and let the route fire every
+    // tick while leaking one stale entry per scan.
+    const id = /^[A-Za-z0-9_:-]{1,32}$/.test(String(raw.id || '')) ? String(raw.id)
+      : ('r_' + from + '_' + to + (idx == null ? '' : '_' + idx));
+    return {
+      id, from, to, wood, stone, iron,
+      minBatch: Math.max(1, Number.isFinite(+raw.minBatch) ? Math.floor(+raw.minBatch) : 100),
+      maxPerCycle: Math.max(0, Number.isFinite(+raw.maxPerCycle) ? Math.floor(+raw.maxPerCycle) : 0),
+      trigger: { mode, resource, value },
+      enabled: raw.enabled !== false,
+    };
+  }
+  function tradeRoutesSave(list) {
+    const out = {};
+    (Array.isArray(list) ? list : []).forEach((r, i) => {
+      const c = tradeRouteClean(r, i);
+      if (c && !out[c.id]) out[c.id] = c;
+    });
+    state.tradeRoutes = out;
+    save(STORE.TRADE_ROUTES, out);
+    return out;
+  }
+  // true = fire, false = do not, null = BLIND (unreadable). Blind is not "no":
+  // it idles this scan and logs once, it never silently disables the route.
+  function tradeRouteTriggerOk(route, tgtLive) {
+    const mode = route.trigger && route.trigger.mode;
+    if (mode === 'always' || !mode) return true;
+    if (!tgtLive || !(tgtLive.cap > 0)) return null;
+    const res = route.trigger.resource;
+    const have = +tgtLive[res];
+    if (!Number.isFinite(have)) return null;
+    const pct = have / tgtLive.cap * 100;
+    return mode === 'belowPct' ? pct < route.trigger.value : pct > route.trigger.value;
+  }
+  function tradeRouteJobs(towns, L) {
+    if (!state.autoTradeRoutes) return [];
+    const ledger = L || tradeLedger(towns);
+    if (!ledger) return [];
+    const jobs = [];
+    const now = Date.now();
+    const reserve = Math.min(80, Math.max(0, gbCfgNum(state.tradeReservePct, 20))) / 100;
+    const stored = (state.tradeRoutes && typeof state.tradeRoutes === 'object' && !Array.isArray(state.tradeRoutes)) ? state.tradeRoutes : {};
+    const liveIds = new Set(Object.keys(stored));
+    // Drop runtime rows for routes the user deleted, or the map grows for the
+    // life of the page across route edits.
+    for (const k of Object.keys(tradeRouteRuntime)) if (!liveIds.has(k)) delete tradeRouteRuntime[k];
+    for (const [key, raw] of Object.entries(stored)) {
+      const route = tradeRouteClean(raw, null);
+      if (!route || !route.enabled) continue;
+      // The STORAGE key is the identity, not whatever id the payload carries:
+      // that is what keeps the throttle attached to the route the user edited.
+      route.id = key;
+      const rt = tradeRouteRuntime[key] || (tradeRouteRuntime[key] = { lastFiredAt: 0, lastSent: null });
+      if (now - rt.lastFiredAt < TRADE_ROUTE_THROTTLE_MS) continue;
+      const src = ledger[route.from], tgt = ledger[route.to];
+      if (!src || !tgt || !(src.cap > 0) || !(tgt.cap > 0)) {
+        gbLogT('trade-route-blind-' + route.id, 600000, `trade route ${route.id}: ${route.from}->${route.to} town state unreadable - idling`);
+        continue;
+      }
+      // The trigger reads the LEDGER, which already carries in-flight arrivals.
+      // Reading the live warehouse instead would let a 'below 60%' route re-fire
+      // on every scan until the first haul physically lands, stacking several
+      // shipments for a target that is already on its way to being full.
+      const fire = tradeRouteTriggerOk(route, tgt);
+      if (fire === null) {
+        gbLogT('trade-route-blind-' + route.id, 600000, `trade route ${route.id}: trigger resource unreadable on ${route.to} - idling`);
+        continue;
+      }
+      if (!fire) continue;
+      const keep = Math.floor(src.cap * reserve);
+      let ironKeep = keep;
+      if (route.iron > 0) {
+        try {
+          const r = ironReservedForCave(route.from);
+          if (r && r.reserved) {
+            const thresh = Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100;
+            ironKeep = Math.max(keep, Math.ceil(src.cap * thresh));
+            gbLogT('trade-route-iron-reserved-' + route.id, 600000, `trade route ${route.id}: iron held for cave on ${route.from}`);
+          }
+        } catch (_) {}
+      }
+      const send = {};
+      for (const k of GB_RES_KEYS) {
+        const want = +route[k] || 0;
+        if (!(want > 0)) { send[k] = 0; continue; }
+        const k2 = k === 'iron' ? ironKeep : keep;
+        send[k] = Math.max(0, Math.min(want, src[k] - k2, src.tradeCap, tgt.cap - tgt[k]));
+      }
+      let total = send.wood + send.stone + send.iron;
+      if (route.maxPerCycle > 0 && total > route.maxPerCycle) {
+        const scale = route.maxPerCycle / total;
+        for (const k of GB_RES_KEYS) send[k] = Math.floor(send[k] * scale);
+        total = send.wood + send.stone + send.iron;
+      }
+      if (total > src.tradeCap) {
+        const scale = src.tradeCap / total;
+        for (const k of GB_RES_KEYS) send[k] = Math.floor(send[k] * scale);
+        total = send.wood + send.stone + send.iron;
+      }
+      if (total < route.minBatch) continue;
+      const job = { from: route.from, to: route.to, wood: send.wood, stone: send.stone, iron: send.iron, route: route.id };
+      jobs.push(job);
+      tradeApplyJob(ledger, job);
+      rt.lastFiredAt = now;
+      rt.lastSent = { wood: send.wood, stone: send.stone, iron: send.iron, ts: now };
+      if (jobs.length >= TRADE_ROUTE_MAX_JOBS) break;
+    }
+    return jobs;
+  }
+
   function tradeValidateJob(job) {
     const src = tradeTownRes(job.from), tgt = tradeTownRes(job.to);
     if (!src || !tgt || !(src.cap > 0) || !(tgt.cap > 0)) return { ok: false, why: 'town-state-unreadable' };
@@ -348,7 +496,7 @@
   }
 
   function tradeScan(reason) {
-    if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport) || captchaPaused('trade')) return;
+    if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes) || captchaPaused('trade')) return;
     if (automationPaused({})) return;
     if (gbLocked('trade')) return;
     const towns = tradeListTowns();
@@ -358,8 +506,10 @@
     let jobs = [];
     const preset = state.tradePreset || 'storage';
 
-    // Transport claims headroom first; the shared tradeApplyJob ledger means a
-    // later sub-planner cannot over-plan a target this loop already filled.
+    // User-defined routes are explicit intent, so they claim headroom before
+    // anything automatic. The shared tradeApplyJob ledger means a later
+    // sub-planner cannot over-plan a target these already filled.
+    if (state.autoTradeRoutes) jobs = jobs.concat(tradeRouteJobs(towns, ledger));
     if (state.autoTransport) jobs = jobs.concat(transportBalanceJobs(towns, ledger));
 
     if (state.autoTrade && preset === 'smart') {

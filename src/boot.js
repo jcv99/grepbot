@@ -184,6 +184,8 @@
       economyProductionRate,
       economyForecast,
       tradePredictiveJobs,
+      tradeRouteJobs,
+      tradeRoutesSave,
       defenseAssessment,
       defenseThreatWeights,
       defenseThreatBand,

@@ -833,6 +833,8 @@
           Min batch <input type="number" data-cfg="trade-min" min="100" max="50000" step="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="island-ship"/> Mainland→island res ship</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="ALTO RIESGO: envia las rutas guardadas en cada ciclo de comercio. Sin vuelta atras. Pruebalo con Simulacion antes de activarlo."><input type="checkbox" data-cfg="auto-trade-routes"/> Rutas de comercio guardadas</label>
+        <button data-cfg="trade-routes-edit" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px" title="Editar las rutas como JSON. Siempre disponible, incluso con el bucle apagado.">Rutas...</button>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="ALTO RIESGO: mueve recursos entre tus ciudades sin vuelta atras. Equilibra segun el sesgo 'resource' del perfil de cada ciudad. Pruebalo con Simulacion antes de activarlo."><input type="checkbox" data-cfg="auto-transport"/> Auto transporte inter-ciudad</label>
         <label style="margin-left:12px;flex-wrap:wrap">Reserve % <input type="number" data-cfg="transport-reserve" min="0" max="80" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
           Min batch <input type="number" data-cfg="transport-min" min="100" max="10000" step="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
@@ -1396,6 +1398,7 @@
     setNum('[data-cfg=culture-gold-budget]', state.cultureGoldBudget || 0);
     setChk('[data-cfg=auto-trade]', state.autoTrade);
     setChk('[data-cfg=island-ship]', state.islandShip);
+    setChk('[data-cfg=auto-trade-routes]', state.autoTradeRoutes);
     setChk('[data-cfg=auto-transport]', state.autoTransport);
     setChk('[data-cfg=intel-battle-stats]', state.intelBattleStats !== false);
     setChk('[data-cfg=ab-optimal-order]', state.abOptimalOrderOn !== false);
@@ -1476,6 +1479,23 @@
     bindToggle('[data-cfg=auto-culture]', 'autoCulture', STORE.AUTO_CULTURE, () => cultureScan('toggle'));
     bindToggle('[data-cfg=auto-trade]', 'autoTrade', STORE.AUTO_TRADE, () => tradeScan('toggle'));
     bindToggle('[data-cfg=island-ship]', 'islandShip', STORE.ISLAND_SHIP, () => tradeScan('toggle'));
+    bindToggle('[data-cfg=auto-trade-routes]', 'autoTradeRoutes', STORE.AUTO_TRADE_ROUTES, () => tradeScan('toggle'));
+    sec.querySelector('[data-cfg=trade-routes-edit]')?.addEventListener('click', () => {
+      const cur = Object.values(state.tradeRoutes || {});
+      const raw = prompt(
+        'Rutas de comercio (JSON, lista).\nClaves: from, to, wood, stone, iron, minBatch, maxPerCycle, enabled,\ntrigger:{mode:"always"|"belowPct"|"abovePct", resource:"wood"|"stone"|"iron", value:0-100}.\nUna ruta con from===to o sin cantidades se descarta.',
+        JSON.stringify(cur.length ? cur : [{ from: '', to: '', wood: 500, stone: 0, iron: 0, minBatch: 100, maxPerCycle: 0, enabled: true, trigger: { mode: 'always', resource: 'wood', value: 0 } }], null, 2));
+      if (raw == null) return;
+      try {
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) throw new Error('not a list');
+        const before = parsed.length;
+        const saved = tradeRoutesSave(parsed);
+        const kept = Object.keys(saved).length;
+        flash(kept === before ? `${kept} rutas guardadas` : `${kept}/${before} rutas guardadas (el resto invalidas)`);
+        gbLog(`trade routes: ${kept}/${before} saved`);
+      } catch (e) { flash('JSON de rutas invalido'); }
+    });
     bindToggle('[data-cfg=auto-transport]', 'autoTransport', STORE.AUTO_TRANSPORT, () => tradeScan('toggle'));
     bindToggle('[data-cfg=intel-battle-stats]', 'intelBattleStats', STORE.INTEL_BATTLE_STATS, () => { try { renderIntel(); } catch (_) {} });
     bindToggle('[data-cfg=ab-optimal-order]', 'abOptimalOrderOn', STORE.AB_OPTIMAL_ORDER_ON, () => { if (state.abOptimalOrderOn === false) abOptimalOrderClear(); });

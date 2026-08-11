@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.7.1
+// @version      4.8.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -92,6 +92,8 @@ const STORE = {
     TRADE_PRESET: 'grepbot:trade-preset',
     TRADE_RESERVE: 'grepbot:trade-reserve',
     TRADE_MIN: 'grepbot:trade-min',
+    TRADE_ROUTES: 'grepbot:trade-routes',
+    AUTO_TRADE_ROUTES: 'grepbot:auto-trade-routes',
     AUTO_TRANSPORT: 'grepbot:auto-transport',
     TRANSPORT_RESERVE: 'grepbot:transport-reserve',
     TRANSPORT_MIN: 'grepbot:transport-min',
@@ -214,7 +216,7 @@ const STORE = {
     STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES,
     STORE.CAPTCHA_GLOBAL_UNTIL,
     STORE.SERVER_COOLDOWN, STORE.QUEST_CLAIM_FAIL, STORE.DODGE_QUEUE,
-    STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER,
+    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER,
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
     STORE.SPELL_COOLDOWN,
@@ -517,6 +519,9 @@ const STORE = {
     tradeReservePct: load(STORE.TRADE_RESERVE, 20),
     tradeMinBatch: load(STORE.TRADE_MIN, 1000),
 
+    tradeRoutes: load(STORE.TRADE_ROUTES, {}) || {},
+
+    autoTradeRoutes: load(STORE.AUTO_TRADE_ROUTES, false),
     autoTransport: load(STORE.AUTO_TRANSPORT, false),
     transportReserve: load(STORE.TRANSPORT_RESERVE, 20),
     transportMin: load(STORE.TRANSPORT_MIN, 1000),
@@ -730,6 +735,13 @@ const STORE = {
       ver = 10;
     }
     if (ver < 11) {
+
+      if (!state.tradeRoutes || typeof state.tradeRoutes !== 'object' || Array.isArray(state.tradeRoutes)) {
+        state.tradeRoutes = {}; save(STORE.TRADE_ROUTES, state.tradeRoutes);
+      }
+      if (typeof state.autoTradeRoutes !== 'boolean') {
+        state.autoTradeRoutes = false; save(STORE.AUTO_TRADE_ROUTES, state.autoTradeRoutes);
+      }
 
       ver = 11;
     }
@@ -8813,6 +8825,136 @@ const STORE = {
     }
     return jobs;
   }
+
+  const TRADE_ROUTE_THROTTLE_MS = 60000;
+  const TRADE_ROUTE_MAX_JOBS = 4;
+  const TRADE_ROUTE_TRIGGERS = ['always', 'belowPct', 'abovePct'];
+
+  const tradeRouteRuntime = Object.create(null);
+  function tradeRouteList() {
+    const r = state.tradeRoutes;
+    if (!r || typeof r !== 'object' || Array.isArray(r)) return [];
+    return Object.values(r).filter(x => x && typeof x === 'object');
+  }
+
+  function tradeRouteClean(raw, idx) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const from = String(raw.from == null ? '' : raw.from);
+    const to = String(raw.to == null ? '' : raw.to);
+    if (!from || !to || from === to) return null;
+    const amt = k => {
+      const n = +raw[k];
+      return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+    };
+    const wood = amt('wood'), stone = amt('stone'), iron = amt('iron');
+    if (!(wood + stone + iron > 0)) return null;
+    const t = (raw.trigger && typeof raw.trigger === 'object') ? raw.trigger : {};
+    const mode = TRADE_ROUTE_TRIGGERS.includes(t.mode) ? t.mode : 'always';
+    const resource = GB_RES_KEYS.includes(t.resource) ? t.resource : 'wood';
+    const value = Math.max(0, Math.min(100, Number.isFinite(+t.value) ? +t.value : 0));
+
+    const id = /^[A-Za-z0-9_:-]{1,32}$/.test(String(raw.id || '')) ? String(raw.id)
+      : ('r_' + from + '_' + to + (idx == null ? '' : '_' + idx));
+    return {
+      id, from, to, wood, stone, iron,
+      minBatch: Math.max(1, Number.isFinite(+raw.minBatch) ? Math.floor(+raw.minBatch) : 100),
+      maxPerCycle: Math.max(0, Number.isFinite(+raw.maxPerCycle) ? Math.floor(+raw.maxPerCycle) : 0),
+      trigger: { mode, resource, value },
+      enabled: raw.enabled !== false,
+    };
+  }
+  function tradeRoutesSave(list) {
+    const out = {};
+    (Array.isArray(list) ? list : []).forEach((r, i) => {
+      const c = tradeRouteClean(r, i);
+      if (c && !out[c.id]) out[c.id] = c;
+    });
+    state.tradeRoutes = out;
+    save(STORE.TRADE_ROUTES, out);
+    return out;
+  }
+
+  function tradeRouteTriggerOk(route, tgtLive) {
+    const mode = route.trigger && route.trigger.mode;
+    if (mode === 'always' || !mode) return true;
+    if (!tgtLive || !(tgtLive.cap > 0)) return null;
+    const res = route.trigger.resource;
+    const have = +tgtLive[res];
+    if (!Number.isFinite(have)) return null;
+    const pct = have / tgtLive.cap * 100;
+    return mode === 'belowPct' ? pct < route.trigger.value : pct > route.trigger.value;
+  }
+  function tradeRouteJobs(towns, L) {
+    if (!state.autoTradeRoutes) return [];
+    const ledger = L || tradeLedger(towns);
+    if (!ledger) return [];
+    const jobs = [];
+    const now = Date.now();
+    const reserve = Math.min(80, Math.max(0, gbCfgNum(state.tradeReservePct, 20))) / 100;
+    const stored = (state.tradeRoutes && typeof state.tradeRoutes === 'object' && !Array.isArray(state.tradeRoutes)) ? state.tradeRoutes : {};
+    const liveIds = new Set(Object.keys(stored));
+
+    for (const k of Object.keys(tradeRouteRuntime)) if (!liveIds.has(k)) delete tradeRouteRuntime[k];
+    for (const [key, raw] of Object.entries(stored)) {
+      const route = tradeRouteClean(raw, null);
+      if (!route || !route.enabled) continue;
+
+      route.id = key;
+      const rt = tradeRouteRuntime[key] || (tradeRouteRuntime[key] = { lastFiredAt: 0, lastSent: null });
+      if (now - rt.lastFiredAt < TRADE_ROUTE_THROTTLE_MS) continue;
+      const src = ledger[route.from], tgt = ledger[route.to];
+      if (!src || !tgt || !(src.cap > 0) || !(tgt.cap > 0)) {
+        gbLogT('trade-route-blind-' + route.id, 600000, `trade route ${route.id}: ${route.from}->${route.to} town state unreadable - idling`);
+        continue;
+      }
+
+      const fire = tradeRouteTriggerOk(route, tgt);
+      if (fire === null) {
+        gbLogT('trade-route-blind-' + route.id, 600000, `trade route ${route.id}: trigger resource unreadable on ${route.to} - idling`);
+        continue;
+      }
+      if (!fire) continue;
+      const keep = Math.floor(src.cap * reserve);
+      let ironKeep = keep;
+      if (route.iron > 0) {
+        try {
+          const r = ironReservedForCave(route.from);
+          if (r && r.reserved) {
+            const thresh = Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100;
+            ironKeep = Math.max(keep, Math.ceil(src.cap * thresh));
+            gbLogT('trade-route-iron-reserved-' + route.id, 600000, `trade route ${route.id}: iron held for cave on ${route.from}`);
+          }
+        } catch (_) {}
+      }
+      const send = {};
+      for (const k of GB_RES_KEYS) {
+        const want = +route[k] || 0;
+        if (!(want > 0)) { send[k] = 0; continue; }
+        const k2 = k === 'iron' ? ironKeep : keep;
+        send[k] = Math.max(0, Math.min(want, src[k] - k2, src.tradeCap, tgt.cap - tgt[k]));
+      }
+      let total = send.wood + send.stone + send.iron;
+      if (route.maxPerCycle > 0 && total > route.maxPerCycle) {
+        const scale = route.maxPerCycle / total;
+        for (const k of GB_RES_KEYS) send[k] = Math.floor(send[k] * scale);
+        total = send.wood + send.stone + send.iron;
+      }
+      if (total > src.tradeCap) {
+        const scale = src.tradeCap / total;
+        for (const k of GB_RES_KEYS) send[k] = Math.floor(send[k] * scale);
+        total = send.wood + send.stone + send.iron;
+      }
+      if (total < route.minBatch) continue;
+      const job = { from: route.from, to: route.to, wood: send.wood, stone: send.stone, iron: send.iron, route: route.id };
+      jobs.push(job);
+      tradeApplyJob(ledger, job);
+      rt.lastFiredAt = now;
+      rt.lastSent = { wood: send.wood, stone: send.stone, iron: send.iron, ts: now };
+      if (jobs.length >= TRADE_ROUTE_MAX_JOBS) break;
+    }
+    return jobs;
+  }
+
   function tradeValidateJob(job) {
     const src = tradeTownRes(job.from), tgt = tradeTownRes(job.to);
     if (!src || !tgt || !(src.cap > 0) || !(tgt.cap > 0)) return { ok: false, why: 'town-state-unreadable' };
@@ -8833,7 +8975,7 @@ const STORE = {
   }
 
   function tradeScan(reason) {
-    if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport) || captchaPaused('trade')) return;
+    if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes) || captchaPaused('trade')) return;
     if (automationPaused({})) return;
     if (gbLocked('trade')) return;
     const towns = tradeListTowns();
@@ -8843,6 +8985,7 @@ const STORE = {
     let jobs = [];
     const preset = state.tradePreset || 'storage';
 
+    if (state.autoTradeRoutes) jobs = jobs.concat(tradeRouteJobs(towns, ledger));
     if (state.autoTransport) jobs = jobs.concat(transportBalanceJobs(towns, ledger));
 
     if (state.autoTrade && preset === 'smart') {
@@ -15323,6 +15466,19 @@ const STORE = {
           : `${n} informes, ${withVerdict} con resultado` + (n < 5 ? ' - muestra pequena' : ''),
       };
     }));
+    out.push(preflightProbe('trade routes', () => {
+      const all = Object.values(state.tradeRoutes || {});
+      const enabled = all.filter(r => r && r.enabled !== false).length;
+      const towns = new Set((townsFromGame() || []).map(t => String(t.id)));
+
+      const orphan = all.filter(r => r && (!towns.has(String(r.from)) || !towns.has(String(r.to)))).length;
+      return {
+        ok: true,
+        warn: orphan > 0 || (state.autoTradeRoutes && !enabled),
+        detail: `${all.length} rutas, ${enabled} activas, bucle ${state.autoTradeRoutes ? 'ON' : 'OFF'}` +
+          (orphan ? `, ${orphan} con ciudades desconocidas en este mundo` : ''),
+      };
+    }));
     out.push(preflightProbe('intel: threat engine weights', () => {
       const raw = (state.predictCfg && state.predictCfg.threatWeights) || null;
       const w = defenseThreatWeights();
@@ -16984,6 +17140,8 @@ const STORE = {
           Min batch <input type="number" data-cfg="trade-min" min="100" max="50000" step="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="island-ship"/> Mainland\u2192island res ship</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="ALTO RIESGO: envia las rutas guardadas en cada ciclo de comercio. Sin vuelta atras. Pruebalo con Simulacion antes de activarlo."><input type="checkbox" data-cfg="auto-trade-routes"/> Rutas de comercio guardadas</label>
+        <button data-cfg="trade-routes-edit" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px" title="Editar las rutas como JSON. Siempre disponible, incluso con el bucle apagado.">Rutas...</button>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="ALTO RIESGO: mueve recursos entre tus ciudades sin vuelta atras. Equilibra segun el sesgo 'resource' del perfil de cada ciudad. Pruebalo con Simulacion antes de activarlo."><input type="checkbox" data-cfg="auto-transport"/> Auto transporte inter-ciudad</label>
         <label style="margin-left:12px;flex-wrap:wrap">Reserve % <input type="number" data-cfg="transport-reserve" min="0" max="80" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
           Min batch <input type="number" data-cfg="transport-min" min="100" max="10000" step="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
@@ -17546,6 +17704,7 @@ const STORE = {
     setNum('[data-cfg=culture-gold-budget]', state.cultureGoldBudget || 0);
     setChk('[data-cfg=auto-trade]', state.autoTrade);
     setChk('[data-cfg=island-ship]', state.islandShip);
+    setChk('[data-cfg=auto-trade-routes]', state.autoTradeRoutes);
     setChk('[data-cfg=auto-transport]', state.autoTransport);
     setChk('[data-cfg=intel-battle-stats]', state.intelBattleStats !== false);
     setChk('[data-cfg=ab-optimal-order]', state.abOptimalOrderOn !== false);
@@ -17626,6 +17785,23 @@ const STORE = {
     bindToggle('[data-cfg=auto-culture]', 'autoCulture', STORE.AUTO_CULTURE, () => cultureScan('toggle'));
     bindToggle('[data-cfg=auto-trade]', 'autoTrade', STORE.AUTO_TRADE, () => tradeScan('toggle'));
     bindToggle('[data-cfg=island-ship]', 'islandShip', STORE.ISLAND_SHIP, () => tradeScan('toggle'));
+    bindToggle('[data-cfg=auto-trade-routes]', 'autoTradeRoutes', STORE.AUTO_TRADE_ROUTES, () => tradeScan('toggle'));
+    sec.querySelector('[data-cfg=trade-routes-edit]')?.addEventListener('click', () => {
+      const cur = Object.values(state.tradeRoutes || {});
+      const raw = prompt(
+        'Rutas de comercio (JSON, lista).\nClaves: from, to, wood, stone, iron, minBatch, maxPerCycle, enabled,\ntrigger:{mode:"always"|"belowPct"|"abovePct", resource:"wood"|"stone"|"iron", value:0-100}.\nUna ruta con from===to o sin cantidades se descarta.',
+        JSON.stringify(cur.length ? cur : [{ from: '', to: '', wood: 500, stone: 0, iron: 0, minBatch: 100, maxPerCycle: 0, enabled: true, trigger: { mode: 'always', resource: 'wood', value: 0 } }], null, 2));
+      if (raw == null) return;
+      try {
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) throw new Error('not a list');
+        const before = parsed.length;
+        const saved = tradeRoutesSave(parsed);
+        const kept = Object.keys(saved).length;
+        flash(kept === before ? `${kept} rutas guardadas` : `${kept}/${before} rutas guardadas (el resto invalidas)`);
+        gbLog(`trade routes: ${kept}/${before} saved`);
+      } catch (e) { flash('JSON de rutas invalido'); }
+    });
     bindToggle('[data-cfg=auto-transport]', 'autoTransport', STORE.AUTO_TRANSPORT, () => tradeScan('toggle'));
     bindToggle('[data-cfg=intel-battle-stats]', 'intelBattleStats', STORE.INTEL_BATTLE_STATS, () => { try { renderIntel(); } catch (_) {} });
     bindToggle('[data-cfg=ab-optimal-order]', 'abOptimalOrderOn', STORE.AB_OPTIMAL_ORDER_ON, () => { if (state.abOptimalOrderOn === false) abOptimalOrderClear(); });
@@ -18548,6 +18724,8 @@ const STORE = {
       economyProductionRate,
       economyForecast,
       tradePredictiveJobs,
+      tradeRouteJobs,
+      tradeRoutesSave,
       defenseAssessment,
       defenseThreatWeights,
       defenseThreatBand,

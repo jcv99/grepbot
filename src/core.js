@@ -298,6 +298,9 @@
     tradeReservePct: load(STORE.TRADE_RESERVE, 20),
     tradeMinBatch: load(STORE.TRADE_MIN, 1000),
     // HIGH-RISK: tradeSend has no rollback path, so this defaults OFF.
+    tradeRoutes: load(STORE.TRADE_ROUTES, {}) || {},
+    // HIGH-RISK: a recurring irreversible POST loop, so default OFF.
+    autoTradeRoutes: load(STORE.AUTO_TRADE_ROUTES, false),
     autoTransport: load(STORE.AUTO_TRANSPORT, false),
     transportReserve: load(STORE.TRANSPORT_RESERVE, 20),
     transportMin: load(STORE.TRANSPORT_MIN, 1000),
@@ -521,6 +524,14 @@
       ver = 10;
     }
     if (ver < 11) {
+      // v4 plan 3.1: guarantee the route table is an object and the loop flag
+      // a boolean, so a hand-edited storage value cannot reach the planner.
+      if (!state.tradeRoutes || typeof state.tradeRoutes !== 'object' || Array.isArray(state.tradeRoutes)) {
+        state.tradeRoutes = {}; save(STORE.TRADE_ROUTES, state.tradeRoutes);
+      }
+      if (typeof state.autoTradeRoutes !== 'boolean') {
+        state.autoTradeRoutes = false; save(STORE.AUTO_TRADE_ROUTES, state.autoTradeRoutes);
+      }
       // v4 plan 2.7: population state is derived, not stored. The only thing to
       // drop is the memo of a render that predates townPopState, and there is
       // none - so this step exists purely to stamp the version siblings 2.11

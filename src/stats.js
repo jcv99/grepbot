@@ -190,6 +190,20 @@
           : `${n} informes, ${withVerdict} con resultado` + (n < 5 ? ' - muestra pequena' : ''),
       };
     }));
+    out.push(preflightProbe('trade routes', () => {
+      const all = Object.values(state.tradeRoutes || {});
+      const enabled = all.filter(r => r && r.enabled !== false).length;
+      const towns = new Set((townsFromGame() || []).map(t => String(t.id)));
+      // A route pointing at a town this world does not have is dead weight and
+      // the planner will skip it forever - surface it instead of hiding it.
+      const orphan = all.filter(r => r && (!towns.has(String(r.from)) || !towns.has(String(r.to)))).length;
+      return {
+        ok: true,
+        warn: orphan > 0 || (state.autoTradeRoutes && !enabled),
+        detail: `${all.length} rutas, ${enabled} activas, bucle ${state.autoTradeRoutes ? 'ON' : 'OFF'}` +
+          (orphan ? `, ${orphan} con ciudades desconocidas en este mundo` : ''),
+      };
+    }));
     out.push(preflightProbe('intel: threat engine weights', () => {
       const raw = (state.predictCfg && state.predictCfg.threatWeights) || null;
       const w = defenseThreatWeights();
