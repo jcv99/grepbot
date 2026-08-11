@@ -1103,6 +1103,7 @@
           </select>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Ctrl/Cmd+Shift+tecla. Nunca se dispara mientras escribes en un campo del juego o del panel."><input type="checkbox" data-cfg="keyboard-shortcuts"/> Atajos de teclado</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Anade un menu GrepBot junto al popup de ciudad del juego. No intercepta ningun evento del juego: solo se monta al lado."><input type="checkbox" data-cfg="context-menu"/> Menu contextual junto al popup del juego</label>
         <div class="key-list" style="margin-left:12px;font-size:9px;color:#8ac;white-space:pre-wrap"></div>
         <button data-cfg="keybindings-edit" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Reasignar atajos...</button>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Copy/Export replace player names and ids with short hashes. Turn OFF only for local debugging."><input type="checkbox" data-cfg="export-redact"/> Redact names/ids in Copy + Export</label>
@@ -1630,6 +1631,7 @@
       const er = sec.querySelector('[data-cfg=export-redact]'); if (er) er.checked = state.exportRedact !== false;
       const th = sec.querySelector('[data-cfg=theme]'); if (th) th.value = GB_THEMES.includes(state.theme) ? state.theme : 'dark';
       const ks = sec.querySelector('[data-cfg=keyboard-shortcuts]'); if (ks) ks.checked = state.keyboardShortcuts !== false;
+      const cm = sec.querySelector('[data-cfg=context-menu]'); if (cm) cm.checked = state.contextMenu !== false;
       const kl = sec.querySelector('.key-list');
       if (kl) {
         const b = gbKeyBindings();
@@ -2212,6 +2214,12 @@
       try { perm = (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported'; } catch (_) {}
       if (perm === 'granted') { try { new Notification('GrepBot', { body: 'prueba de notificacion', tag: 'gb-test' }); } catch (_) {} }
       else flash('sonido probado; permiso de notificacion: ' + perm);
+    });
+    sec.querySelector('[data-cfg=context-menu]')?.addEventListener('change', e => {
+      state.contextMenu = !!e.target.checked;
+      save(STORE.CONTEXT_MENU, state.contextMenu);
+      if (!state.contextMenu) { try { ctxDispose(); } catch (_) {} }
+      else { try { contextMenuStart(); } catch (_) {} }
     });
     sec.querySelector('[data-cfg=keyboard-shortcuts]')?.addEventListener('change', e => {
       state.keyboardShortcuts = !!e.target.checked;

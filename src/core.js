@@ -148,6 +148,7 @@
     // not the same as removing the elements - do both, and sweep any host a
     // previous instance left behind.
     try { gbWidgetDisposeAll(); } catch (_) {}
+    try { contextMenuStop(); } catch (_) {}
     try { document.querySelectorAll('.gb-widget').forEach(el => el.remove()); } catch (_) {}
     try { document.querySelectorAll('.gb-native-qctl,.gb-native-panel').forEach(el=>el.remove()); } catch (_) {}
     if (GB_ROOT.__grepbotInstanceId === GB_INSTANCE_ID) {
@@ -305,6 +306,7 @@
     captchaBreakers: load(STORE.CAPTCHA, null) || {},
     findingsFilter: load(STORE.FINDINGS_FILTER, { type: '', attacker: '' }),
     theme: load(STORE.THEME, 'dark'),
+    contextMenu: load(STORE.CONTEXT_MENU, true),
     keyboardShortcuts: load(STORE.KEYBOARD_SHORTCUTS, true),
     keybindings: load(STORE.KEYBINDINGS, {}) || {},
     widgetGeom: load(STORE.WIDGET_GEOM, {}) || {},

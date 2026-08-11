@@ -116,6 +116,7 @@
   }, 15000);
   qolBindActivityPause();
   gbKeyBind();
+  contextMenuStart();
 
   gbInterval(gbLockSweep, 10000);
   const releaseLocks = () => {

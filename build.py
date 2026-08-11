@@ -71,6 +71,7 @@ MODULES = [
     'military.js',
     'support.js',
     'stats.js',
+    'context-menu.js',
     'queue-center.js',
     'ui.js',
     'boot.js',

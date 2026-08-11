@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.31.0
+// @version      4.32.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -67,6 +67,7 @@ const STORE = {
     PANEL_GEOM: 'grepbot:panel-geom',
     WIDGET_GEOM: 'grepbot:widget-geom',
     THEME: 'grepbot:theme',
+    CONTEXT_MENU: 'grepbot:context-menu',
     KEYBINDINGS: 'grepbot:keybindings',
     KEYBOARD_SHORTCUTS: 'grepbot:keyboard-shortcuts',
     ACTIVE_TAB: 'grepbot:active-tab',
@@ -407,6 +408,7 @@ const STORE = {
     if (qc) try { qc.remove(); } catch (_) {}
 
     try { gbWidgetDisposeAll(); } catch (_) {}
+    try { contextMenuStop(); } catch (_) {}
     try { document.querySelectorAll('.gb-widget').forEach(el => el.remove()); } catch (_) {}
     try { document.querySelectorAll('.gb-native-qctl,.gb-native-panel').forEach(el=>el.remove()); } catch (_) {}
     if (GB_ROOT.__grepbotInstanceId === GB_INSTANCE_ID) {
@@ -560,6 +562,7 @@ const STORE = {
     captchaBreakers: load(STORE.CAPTCHA, null) || {},
     findingsFilter: load(STORE.FINDINGS_FILTER, { type: '', attacker: '' }),
     theme: load(STORE.THEME, 'dark'),
+    contextMenu: load(STORE.CONTEXT_MENU, true),
     keyboardShortcuts: load(STORE.KEYBOARD_SHORTCUTS, true),
     keybindings: load(STORE.KEYBINDINGS, {}) || {},
     widgetGeom: load(STORE.WIDGET_GEOM, {}) || {},
@@ -18330,6 +18333,151 @@ const STORE = {
     fail();
   }
 
+  const CTX_SCAN_MS = 750;
+  const CTX_POPUP_SEL = '.ui-dialog-content, .gpwindow_content, .town_info, .context_menu';
+  const CTX_ID_ATTRS = ['data-townid', 'data-town-id', 'data-id'];
+  let ctxMenuEl = null;
+  let ctxMenuTown = null;
+  let ctxTimer = 0;
+
+  function ctxReadTownId(popup) {
+    for (const a of CTX_ID_ATTRS) {
+      const holder = popup.matches && popup.matches('[' + a + ']') ? popup : popup.querySelector('[' + a + ']');
+      const v = holder && holder.getAttribute(a);
+      if (v && /^\d+$/.test(String(v).trim())) return String(v).trim();
+    }
+
+    try {
+      const a = popup.querySelector('a[href*="town_id="], a[href*="&town="], a[href*="?town="]');
+      const m = a && String(a.getAttribute('href') || '').match(/(?:town_id|town)=(\d+)/);
+      if (m) return m[1];
+    } catch (_) {}
+    return null;
+  }
+  function ctxFindPopup() {
+    let nodes = [];
+    try { nodes = Array.from(document.querySelectorAll(CTX_POPUP_SEL)); } catch (_) { return null; }
+    for (const n of nodes) {
+
+      if (n.closest('#grepbot-panel, #grepbot-queue-center, .gb-widget, .gb-ctx-menu')) continue;
+      const r = n.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      const id = ctxReadTownId(n);
+      if (!id) continue;
+      return { el: n, id, rect: r };
+    }
+    return null;
+  }
+  function ctxDispose() {
+    if (ctxMenuEl) { try { ctxMenuEl.remove(); } catch (_) {} }
+    ctxMenuEl = null;
+    ctxMenuTown = null;
+  }
+
+  function contextMenuStop() {
+    if (ctxTimer) { try { gbClearTimeout(ctxTimer); } catch (_) {} ctxTimer = 0; }
+    ctxDispose();
+  }
+  function ctxItem(label, title, fn) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.title = title || '';
+    b.style.cssText = 'display:block;width:100%;text-align:left;background:none;border:0;color:var(--gb-fg-2);' +
+      'padding:3px 8px;cursor:pointer;font-size:11px;white-space:nowrap';
+    b.addEventListener('mouseenter', () => { b.style.background = 'var(--gb-bg-raise)'; });
+    b.addEventListener('mouseleave', () => { b.style.background = 'none'; });
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      try { fn(); } catch (err) { flash('fallo: ' + String(err).slice(0, 40)); }
+    });
+    return b;
+  }
+  function ctxBuild(townId, rect) {
+    const m = document.createElement('div');
+    m.className = 'gb-ctx-menu gb-widget';
+    m.style.cssText = `position:fixed;left:${Math.round(rect.right + 12)}px;top:${Math.round(rect.top)}px;` +
+      'z-index:2147483645;min-width:170px;padding:3px 0;border-radius:6px;' +
+      'background:var(--gb-bg-alt);color:var(--gb-fg);border:1px solid var(--gb-border);box-shadow:0 4px 14px rgba(0,0,0,.45)';
+    const head = document.createElement('div');
+    head.style.cssText = 'font-size:10px;color:var(--gb-accent);padding:2px 8px 4px;border-bottom:1px solid var(--gb-border-soft)';
+    head.textContent = `GrepBot \u00b7 ciudad ${townId}`;
+    m.appendChild(head);
+    m.appendChild(ctxItem('Atacar', 'Fija esta ciudad como objetivo del planificador de ataque', () => {
+      applyAttackTarget({ id: +townId, town_id: +townId, kind: 'town' });
+      showTab('attack');
+      flash('objetivo fijado: ' + townId);
+    }));
+    m.appendChild(ctxItem('A la lista de vigilancia', 'Anade esta ciudad a la lista de vigilancia', () => {
+      if (!Array.isArray(state.watchlist)) state.watchlist = [];
+      if (state.watchlist.some(w => String((w && w.id) != null ? w.id : w) === String(townId))) { flash('ya estaba en la lista'); return; }
+      state.watchlist.push({ id: String(townId) });
+      save(STORE.WATCHLIST, state.watchlist);
+      flash('anadida a vigilancia');
+    }));
+    m.appendChild(ctxItem('Nota de jugador...', 'Guarda una nota sobre el jugador de esta ciudad', () => {
+      const who = prompt('Nombre del jugador para la nota:');
+      if (!who) return;
+      const note = prompt('Nota (vacio = borrar):', (state.playerNotes || {})[who] || '');
+      if (note == null) return;
+      intelSetNote(who, note);
+      flash('nota guardada');
+    }));
+    m.appendChild(ctxItem('Nota de alianza...', 'Guarda una nota sobre la alianza', () => {
+      const ally = prompt('Alianza para la nota:');
+      if (!ally) return;
+      const note = prompt('Nota (vacio = borrar):', (state.allianceNotes || {})[ally] || '');
+      if (note == null) return;
+      intelSetAllianceNote(ally, note);
+      flash('nota de alianza guardada');
+    }));
+    m.appendChild(ctxItem('Abrir pestana Ataque', 'Abre el panel en la pestana de ataque', () => showTab('attack')));
+    document.body.appendChild(m);
+    try { applyTheme(); } catch (_) {}
+    return m;
+  }
+
+  function ctxHitCheck() {
+    if (!ctxMenuEl || !ctxMenuEl.isConnected) return;
+    try {
+      const r = ctxMenuEl.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      const hit = document.elementFromPoint(r.left + 4, r.top + 4);
+      if (hit && (hit === ctxMenuEl || ctxMenuEl.contains(hit))) return;
+      gbLogT('ctx-covered', 300000, 'context menu: covered by another element - clicks will not reach it');
+    } catch (_) {}
+  }
+  function contextMenuScan() {
+    ctxTimer = 0;
+    try {
+      if (state.contextMenu === false || !hostEnabled()) { ctxDispose(); return; }
+      const found = ctxFindPopup();
+      if (!found) { ctxDispose(); return; }
+      if (ctxMenuEl && ctxMenuTown === found.id && ctxMenuEl.isConnected) {
+
+        const left = Math.round(found.rect.right + 12) + 'px';
+        const top = Math.round(found.rect.top) + 'px';
+        if (ctxMenuEl.style.left !== left) ctxMenuEl.style.left = left;
+        if (ctxMenuEl.style.top !== top) ctxMenuEl.style.top = top;
+        ctxHitCheck();
+        return;
+      }
+      ctxDispose();
+      ctxMenuTown = found.id;
+      ctxMenuEl = ctxBuild(found.id, found.rect);
+      ctxHitCheck();
+    } catch (e) {
+      gbLogT('ctx-scan-err', 300000, 'context menu: ' + String(e).slice(0, 60));
+    } finally {
+
+      if (!ctxTimer && gbInstanceAlive()) ctxTimer = gbTimeout(contextMenuScan, CTX_SCAN_MS);
+    }
+  }
+  function contextMenuStart() {
+    if (ctxTimer) return;
+    ctxTimer = gbTimeout(contextMenuScan, CTX_SCAN_MS);
+  }
+
   let gbQueueCenter = null;
   let gbQueueCenterTab = 'build';
   let gbQueueCenterTown = null;
@@ -19849,6 +19997,7 @@ const STORE = {
           </select>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Ctrl/Cmd+Shift+tecla. Nunca se dispara mientras escribes en un campo del juego o del panel."><input type="checkbox" data-cfg="keyboard-shortcuts"/> Atajos de teclado</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Anade un menu GrepBot junto al popup de ciudad del juego. No intercepta ningun evento del juego: solo se monta al lado."><input type="checkbox" data-cfg="context-menu"/> Menu contextual junto al popup del juego</label>
         <div class="key-list" style="margin-left:12px;font-size:9px;color:#8ac;white-space:pre-wrap"></div>
         <button data-cfg="keybindings-edit" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Reasignar atajos...</button>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Copy/Export replace player names and ids with short hashes. Turn OFF only for local debugging."><input type="checkbox" data-cfg="export-redact"/> Redact names/ids in Copy + Export</label>
@@ -20365,6 +20514,7 @@ const STORE = {
       const er = sec.querySelector('[data-cfg=export-redact]'); if (er) er.checked = state.exportRedact !== false;
       const th = sec.querySelector('[data-cfg=theme]'); if (th) th.value = GB_THEMES.includes(state.theme) ? state.theme : 'dark';
       const ks = sec.querySelector('[data-cfg=keyboard-shortcuts]'); if (ks) ks.checked = state.keyboardShortcuts !== false;
+      const cm = sec.querySelector('[data-cfg=context-menu]'); if (cm) cm.checked = state.contextMenu !== false;
       const kl = sec.querySelector('.key-list');
       if (kl) {
         const b = gbKeyBindings();
@@ -20944,6 +21094,12 @@ const STORE = {
       try { perm = (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported'; } catch (_) {}
       if (perm === 'granted') { try { new Notification('GrepBot', { body: 'prueba de notificacion', tag: 'gb-test' }); } catch (_) {} }
       else flash('sonido probado; permiso de notificacion: ' + perm);
+    });
+    sec.querySelector('[data-cfg=context-menu]')?.addEventListener('change', e => {
+      state.contextMenu = !!e.target.checked;
+      save(STORE.CONTEXT_MENU, state.contextMenu);
+      if (!state.contextMenu) { try { ctxDispose(); } catch (_) {} }
+      else { try { contextMenuStart(); } catch (_) {} }
     });
     sec.querySelector('[data-cfg=keyboard-shortcuts]')?.addEventListener('change', e => {
       state.keyboardShortcuts = !!e.target.checked;
@@ -21723,6 +21879,7 @@ const STORE = {
   }, 15000);
   qolBindActivityPause();
   gbKeyBind();
+  contextMenuStart();
 
   gbInterval(gbLockSweep, 10000);
   const releaseLocks = () => {
