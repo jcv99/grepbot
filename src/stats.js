@@ -215,6 +215,21 @@
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
       };
     }));
+    out.push(preflightProbe('hero: stamina readable', () => {
+      const hs = (typeof playerHeroesListCached === 'function' ? playerHeroesListCached() : []);
+      if (!hs.length) return { ok: true, detail: heroesEnabled() ? 'sin heroes legibles' : 'heroes desactivados en este mundo' };
+      const withStam = hs.filter(h => h.stamina && h.stamina.current != null).length;
+      const withEquip = hs.filter(h => h.equipment).length;
+      return {
+        ok: true,
+        // Unreadable is the EXPECTED result: the attribute names for this
+        // client have never been captured, so nothing is guessed.
+        warn: withStam === 0,
+        detail: `${hs.length} heroe(s), ${withStam} con vigor legible, ${withEquip} con equipo legible` +
+          (withStam === 0 ? ' - nombres de atributo no capturados en este cliente' : '') +
+          `, auto ${state.autoHero ? 'ON (propone)' : 'OFF'}`,
+      };
+    }));
     out.push(preflightProbe('spy: auto scheduler', () => {
       const cfg = spyCfg();
       const tpl = !!(state.spyTpl && state.spyTpl.action_name);

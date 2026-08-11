@@ -15,6 +15,10 @@
       favor: state.autoFavor,
       wonder: state.autoWonder,
       spy: state.spyEnabled,
+      // Dispatch only where the world actually has heroes. The pass itself is
+      // read-only (stamina alerts + equipment proposals); auto-assign is gated
+      // separately inside heroScan and still needs a confirmed post to fire.
+      hero: (typeof heroesEnabled === 'function') ? heroesEnabled() : false,
     }[key];
   }
   function orchDefaultOrder() {

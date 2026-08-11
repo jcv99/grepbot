@@ -105,6 +105,138 @@
       return { type: String(type), name: String(name), home, origin, arrival, traveling, injured, attacking, assigned, status, level: +(typeof m.getLevel === 'function' && m.getLevel()) || +a.level || 0 };
     }).filter(h => h.type);
   }
+  // ===== Hero manager (v4 plan 4.3) ==========================================
+  // Stamina / mana / equipment attribute names are NOT known for this client.
+  // These are probe candidates, not assumptions: every one missing is the
+  // expected outcome and the reader returns null, which renders '?' and makes
+  // the equipment heuristic propose nothing. Never substitute a guess.
+  const HERO_STAMINA_FNS = ['getStamina', 'getCurrentStamina', 'getEnergy'];
+  const HERO_STAMINA_ATTRS = ['stamina', 'current_stamina', 'energy'];
+  const HERO_STAMINA_MAX_FNS = ['getMaxStamina', 'getStaminaMax', 'getMaxEnergy'];
+  const HERO_STAMINA_MAX_ATTRS = ['max_stamina', 'stamina_max', 'max_energy'];
+  const HERO_MANA_FNS = ['getMana', 'getCurrentMana', 'getPower'];
+  const HERO_MANA_ATTRS = ['mana', 'current_mana', 'power'];
+  const HERO_MANA_MAX_FNS = ['getMaxMana', 'getManaMax'];
+  const HERO_MANA_MAX_ATTRS = ['max_mana', 'mana_max'];
+  const HERO_EQUIP_ATTRS = ['equipment', 'items', 'inventory', 'gear'];
+  function heroPair(m, fns, attrs, maxFns, maxAttrs) {
+    const cur = gbProbeNum(m, fns);
+    const curA = cur == null ? gbProbeAttr(m, attrs) : cur;
+    const max = gbProbeNum(m, maxFns);
+    const maxA = max == null ? gbProbeAttr(m, maxAttrs) : max;
+    if (curA == null && maxA == null) return null;
+    return { current: curA, max: maxA };
+  }
+  function heroEquipSnapshot(m) {
+    const a = (m && m.attributes) || m || {};
+    for (const k of HERO_EQUIP_ATTRS) {
+      const v = a[k];
+      if (v && typeof v === 'object') {
+        // Slot map vs flat bag: keep whichever shape the client actually uses,
+        // verbatim. Nothing here interprets item ids.
+        if (Array.isArray(v)) return { slots: null, items: v.slice(0, 40) };
+        return { slots: Object.assign({}, v), items: null };
+      }
+    }
+    return null;
+  }
+  function heroPct(pair) {
+    if (!pair || !(pair.max > 0) || pair.current == null) return null;
+    return Math.round(pair.current / pair.max * 100);
+  }
+  let _heroListMemo = { at: 0, v: null };
+  // Any hero post changes assignment/status, so the 60s memo must not outlive
+  // it or the panel reports the old state for up to a minute.
+  function heroListInvalidate() { _heroListMemo = { at: 0, v: null }; }
+  const HERO_LIST_MEMO_MS = 60000;
+  function playerHeroesListCached() {
+    if (_heroListMemo.v && Date.now() - _heroListMemo.at < HERO_LIST_MEMO_MS) return _heroListMemo.v;
+    const base = playerHeroesList();
+    const models = playerHeroModels();
+    const byType = new Map();
+    for (const m of models) {
+      const a = m.attributes || {};
+      const type = (typeof m.getId === 'function' && m.getId()) || a.type || a.id || m.id;
+      if (type != null) byType.set(String(type), m);
+    }
+    const out = base.map(h => {
+      const m = byType.get(String(h.type));
+      return Object.assign({}, h, {
+        stamina: m ? heroPair(m, HERO_STAMINA_FNS, HERO_STAMINA_ATTRS, HERO_STAMINA_MAX_FNS, HERO_STAMINA_MAX_ATTRS) : null,
+        mana: m ? heroPair(m, HERO_MANA_FNS, HERO_MANA_ATTRS, HERO_MANA_MAX_FNS, HERO_MANA_MAX_ATTRS) : null,
+        equipment: m ? heroEquipSnapshot(m) : null,
+      });
+    });
+    _heroListMemo = { at: Date.now(), v: out };
+    return out;
+  }
+  function heroLowStaminaPct() {
+    const n = +state.heroLowStaminaPct;
+    return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 20;
+  }
+  function heroNotify(event, hero, extra) {
+    const key = `hero:${event}:${hero.type}`;
+    gbLogT(key, 1800000, `hero ${event}: ${hero.name} (${hero.type})` + (extra ? ' ' + extra : ''));
+    try { alertWebhook('hero', Object.assign({ id: hero.type, event, name: hero.name, level: hero.level }, extra || {})); } catch (_) {}
+  }
+  // Proposals only. It never moves an item, never posts, and never proposes a
+  // destination it cannot name - there is no known equip endpoint in this tree.
+  function heroEquipmentSuggest() {
+    const heroes = playerHeroesListCached();
+    const out = [];
+    for (const h of heroes) {
+      if (!h.equipment) continue;
+      const free = heroes.filter(o => o.type !== h.type && o.status === 'free' && o.equipment && o.equipment.slots);
+      if (!h.equipment.slots) continue;
+      for (const [slot, val] of Object.entries(h.equipment.slots)) {
+        // Only compare values that are both readable NUMBERS. An item id that
+        // is a string tells us nothing about tier and must not be ranked.
+        const mine = +val;
+        if (!Number.isFinite(mine)) continue;
+        for (const o of free) {
+          const theirs = +o.equipment.slots[slot];
+          if (!Number.isFinite(theirs) || theirs <= mine) continue;
+          out.push({ slot, to: h.type, from: o.type, fromValue: theirs, toValue: mine });
+          break;
+        }
+      }
+    }
+    // Persist: the panel would otherwise show nothing after a reload until the
+    // next 5-minute scan. Signature-compared so a steady state costs no write.
+    const sig = JSON.stringify(out);
+    if (JSON.stringify(state.heroEquipSuggest || []) !== sig) {
+      state.heroEquipSuggest = out;
+      save(STORE.HERO_EQUIP_SUGGEST, out);
+    } else state.heroEquipSuggest = out;
+    return out;
+  }
+  function heroScan(reason) {
+    const heroes = playerHeroesListCached();
+    if (!heroes.length) return;
+    const lowPct = heroLowStaminaPct();
+    for (const h of heroes) {
+      const pct = heroPct(h.stamina);
+      // null means the attribute was not readable on this client - that is
+      // not "stamina is zero" and must never fire an alert.
+      if (pct != null && pct <= lowPct) heroNotify('low-stamina', h, { staminaPct: pct });
+      if (h.injured) heroNotify('injured', h, null);
+    }
+    try { heroEquipmentSuggest(); } catch (_) {}
+    if (!state.autoHero) return;
+    if (!hostEnabled() || automationPaused({})) return;
+    if (captchaPausedAny('hero', 'attack')) return;
+    if (!state.heroTpl || !state.heroTpl.assignToTown) {
+      gbLogT('hero-no-tpl', 600000, 'hero: assign template not learned - assign one hero by hand once');
+      return;
+    }
+    const idle = heroes.filter(h => h.status === 'free');
+    if (!idle.length) return;
+    // Propose only. The post itself still needs {confirmed:true}, which only
+    // the panel button supplies - auto-assign never fires unattended.
+    const towns = (state.towns || []).map(t => String(t.id)).filter(id => !heroTownOccupied(id, null));
+    if (!towns.length) return;
+    heroNotify('auto-assign-proposed', idle[0], { town: towns[0] });
+  }
   function heroTownOccupied(townId, exceptType) {
     const tid = +townId;
     return playerHeroesList().some(h => h.type !== exceptType && ((h.assigned && +h.home === tid) || (h.traveling && +h.home === tid)));
@@ -135,6 +267,9 @@
     const payload = { model_url: tpl.model_url, action_name: tpl.action_name, arguments: args, town_id: targetTownId != null ? +targetTownId : tpl.town_id };
     bridgePost('hero', payload, (err, data) => {
       gbUnlock('hero', lockToken);
+      // Any hero post changes assignment/status; the 60s list memo must not
+      // outlive it or the panel reports the old state for up to a minute.
+      try { heroListInvalidate(); } catch (_) {}
       if (!err) gbLog(`hero: ${action} ${type} -> ${targetTownId || '-'} OK`); else gbLog(`hero: ${action} ${type} err ${err}`);
       if (onDone) onDone(err, data);
     });
@@ -185,19 +320,57 @@
     if (!hbox) return;
     hbox.replaceChildren();
     if (!heroesEnabled()) { const e = document.createElement('div'); e.textContent = 'Heroes disabled on this world'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
-    const heroes = playerHeroesList();
+    const heroes = playerHeroesListCached();
     if (!heroes.length) { const e = document.createElement('div'); e.textContent = 'No readable PlayerHero models'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
     const townSel = document.createElement('select'); townSel.style.cssText = 'background:#111;color:#cfc;border:1px solid #333;font-size:10px;margin-bottom:4px';
     (state.towns || []).forEach(t => { const o = document.createElement('option'); o.value = t.id; o.textContent = t.name || t.id; townSel.appendChild(o); }); hbox.appendChild(townSel);
     heroes.forEach(h => {
       const row = document.createElement('div'); row.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:10px;border-bottom:1px solid #2a2a2a;padding:3px 0';
-      const lab = document.createElement('span'); lab.style.flex = '1'; lab.textContent = `${h.name} Lv${h.level} | ${h.status}${h.home ? ' @' + townNameById(h.home) : ''}`; row.appendChild(lab);
+      const lab = document.createElement('span'); lab.style.flex = '1';
+      const st = heroPct(h.stamina), mn = heroPct(h.mana);
+      // '?' means the attribute is not readable on this client build, which is
+      // the expected result until someone captures the real names.
+      lab.textContent = `${h.name} Lv${h.level} | ${h.status}${h.home ? ' @' + townNameById(h.home) : ''}` +
+        ` | vigor ${st == null ? '?' : st + '%'} | mana ${mn == null ? '?' : mn + '%'}`;
+      if (st != null && st <= heroLowStaminaPct()) lab.style.color = '#f66';
+      row.appendChild(lab);
       const addBtn = (text, action, color, fn) => { const b=document.createElement('button'); b.type='button'; b.textContent=text; b.style.color=color; b.disabled=!(state.heroTpl && state.heroTpl[action]); b.title=b.disabled?`Perform ${action} manually once to learn template`:''; b.addEventListener('click',fn); row.appendChild(b); };
       if (h.traveling) addBtn('Cancel travel','cancelTownTravel','#fc6',()=>{ if(confirm(`Cancelar traslado de ${h.name}?`)) heroCancelTravel(h.type,{confirmed:true},err=>{flash(err?'hero cancel failed: '+err:'hero travel cancelled');renderAttack();}); });
       else if (h.assigned || h.attacking) addBtn('Unassign','unassignFromTown','#f96',()=>{ if(confirm(`Desasignar ${h.name}?`)) heroUnassign(h.type,{confirmed:true},err=>{flash(err?'hero unassign failed: '+err:'hero unassigned');renderAttack();}); });
       if (!h.injured && !h.attacking && !h.traveling) addBtn('Assign','assignToTown','#6cf',()=>{ const tid=townSel.value; if(tid&&confirm(`Asignar ${h.name} -> ${townNameById(tid)}?`)) heroAssignToTown(h.type,tid,{confirmed:true},err=>{flash(err?'hero assign failed: '+err:'hero transfer started');renderAttack();}); });
       hbox.appendChild(row);
     });
+    // Equipment proposals: read-only. There is no known equip endpoint in this
+    // tree, so this names a better item another free hero is holding and stops
+    // there - it never moves anything.
+    const sug = (state.heroEquipSuggest || []);
+    if (sug.length) {
+      const s0 = document.createElement('div');
+      s0.style.cssText = 'font-size:9px;color:#8ac;border-top:1px solid #2a2a2a;margin-top:3px;padding-top:3px';
+      s0.textContent = 'equipo (solo consejo): ' + sug.slice(0, 4)
+        .map(x => `${x.slot}: ${x.from} tiene ${x.fromValue} > ${x.to} ${x.toValue}`).join(' | ');
+      hbox.appendChild(s0);
+    }
+    const ctl = document.createElement('div');
+    ctl.style.cssText = 'display:flex;gap:8px;align-items:center;font-size:10px;margin-top:4px;flex-wrap:wrap';
+    const auto = document.createElement('label');
+    auto.style.cssText = 'display:flex;gap:4px;align-items:center;cursor:pointer';
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!state.autoHero;
+    cb.title = 'Solo propone: el envio sigue necesitando el boton Assign.';
+    cb.addEventListener('change', () => { state.autoHero = cb.checked; save(STORE.AUTO_HERO, state.autoHero); gbLog('auto-hero ' + (state.autoHero ? 'ON (solo propone)' : 'OFF')); });
+    auto.append(cb, document.createTextNode('Auto-asignar (propone)'));
+    const lowLab = document.createElement('label');
+    lowLab.style.cssText = 'display:flex;gap:4px;align-items:center';
+    const low = document.createElement('input'); low.type = 'number'; low.min = '0'; low.max = '100';
+    low.value = String(heroLowStaminaPct());
+    low.style.cssText = 'width:45px;background:#111;color:#cfc;border:1px solid #333';
+    low.addEventListener('change', () => {
+      state.heroLowStaminaPct = Math.max(0, Math.min(100, +low.value || 0));
+      save(STORE.HERO_LOW_STAMINA_PCT, state.heroLowStaminaPct);
+    });
+    lowLab.append(document.createTextNode('Aviso vigor <='), low, document.createTextNode('%'));
+    ctl.append(auto, lowLab);
+    hbox.appendChild(ctl);
   }
   // ===== Colony / revolt tracker (v4 plan 3.3) ===============================
   // Read + UI glue only. The recall CTA posts through the SAME
