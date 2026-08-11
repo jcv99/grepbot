@@ -837,6 +837,7 @@
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="captcha-global"/> Global captcha kill-switch</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Skip an action that failed the same way 3x in a row (5/15/60min backoff). Journal keeps recording either way."><input type="checkbox" data-cfg="decision-memory"/> Decision memory (skip repeat failures)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Anade a la pestana Intel el resumen de batallas por jugador y el ranking de granjas por botin. Solo lectura, se recalcula en cada render."><input type="checkbox" data-cfg="intel-battle-stats"/> Estadisticas de batalla en Intel</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Muestra en Colas > Construccion una secuencia aconsejada. Solo consejo: la cola FIFO manda y nada se envia sin pulsar el boton."><input type="checkbox" data-cfg="ab-optimal-order"/> Secuencia optima de construccion (consejo)</label>
         <label>Req budget / min <input type="number" data-cfg="req-budget" min="5" max="120" style="width:50px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
         <label>Webhook URL <input type="text" data-cfg="webhook-url" placeholder="Discord webhook or https://api.telegram.org/bot…/sendMessage" style="width:100%;background:#111;color:#cfc;border:1px solid #333;margin-top:2px;font-size:10px"/></label>
         <label style="margin-left:0;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">Events
@@ -1367,6 +1368,7 @@
     setChk('[data-cfg=island-ship]', state.islandShip);
     setChk('[data-cfg=auto-transport]', state.autoTransport);
     setChk('[data-cfg=intel-battle-stats]', state.intelBattleStats !== false);
+    setChk('[data-cfg=ab-optimal-order]', state.abOptimalOrderOn !== false);
     setChk('[data-cfg=auto-rural-trade]', state.autoRuralTrade);
     setChk('[data-cfg=auto-rural-level]', state.autoRuralLevel);
     setChk('[data-cfg=auto-research]', state.autoResearch);
@@ -1442,6 +1444,7 @@
     bindToggle('[data-cfg=island-ship]', 'islandShip', STORE.ISLAND_SHIP, () => tradeScan('toggle'));
     bindToggle('[data-cfg=auto-transport]', 'autoTransport', STORE.AUTO_TRANSPORT, () => tradeScan('toggle'));
     bindToggle('[data-cfg=intel-battle-stats]', 'intelBattleStats', STORE.INTEL_BATTLE_STATS, () => { try { renderIntel(); } catch (_) {} });
+    bindToggle('[data-cfg=ab-optimal-order]', 'abOptimalOrderOn', STORE.AB_OPTIMAL_ORDER_ON, () => { if (state.abOptimalOrderOn === false) abOptimalOrderClear(); });
     bindToggle('[data-cfg=auto-rural-trade]', 'autoRuralTrade', STORE.AUTO_RURAL_TRADE, () => ruralTradeScan('toggle'));
     bindToggle('[data-cfg=auto-rural-level]', 'autoRuralLevel', STORE.AUTO_RURAL_LEVEL, () => ruralLevelScan('toggle'));
     bindToggle('[data-cfg=auto-research]', 'autoResearch', STORE.AUTO_RESEARCH, () => researchScan('toggle'));

@@ -134,7 +134,9 @@
     body.appendChild(plan.box);
     plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? 'Reanudar cola' : 'Pausar cola', () => nativeQueueTogglePaused(townId, 'build')));
     if (!list.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador automático', () => nativeQueueUseLegacy(townId, 'build')));
-    if (!list.length) { plan.box.appendChild(queueCenterEmpty(fifo ? 'Cola FIFO vacía. Añade edificios con + desde el Senado.' : 'Esta ciudad usa el planificador de objetivos.')); return; }
+    // The advisory card is most useful precisely when the FIFO is empty, so it
+    // must render on this path too, not only after a populated list.
+    if (!list.length) { plan.box.appendChild(queueCenterEmpty(fifo ? 'Cola FIFO vacía. Añade edificios con + desde el Senado.' : 'Esta ciudad usa el planificador de objetivos.')); renderQueueCenterOptimal(body, townId); return; }
     plan.box.appendChild(queueCenterSequence('Orden FIFO', list.map((j, i) => ({
       text: `#${i + 1} ${nativeBuildLabel(j.building)}`,
       title: `${nativeBuildLabel(j.building)} ${j.fromLevel}→${j.toLevel}${j.reason ? ' · ' + j.reason : ''}`,
@@ -155,6 +157,47 @@
       del.disabled = !!j.inflight;
       acts.append(up, dn, del); r.append(num, desc, acts); plan.box.appendChild(r);
     });
+    renderQueueCenterOptimal(body, townId);
+  }
+
+  // ADVISORY card (v4 plan 2.9). Nothing here posts and nothing here re-routes
+  // the auto-queue: the native FIFO head still wins in abPickNextFromLevels.
+  // The only write is an explicit user click that APPENDS to the FIFO tail.
+  function renderQueueCenterOptimal(body, townId) {
+    if (state.abOptimalOrderOn === false) return;
+    let opt = null;
+    try { opt = abOptimalOrderCached(townId); } catch (e) { opt = { error: String(e).slice(0, 60), actions: [] }; }
+    const card = queueCenterCard('Secuencia óptima · Construcción', 'solo consejo - no envia nada');
+    body.appendChild(card.box);
+    if (!opt || opt.error) {
+      card.box.appendChild(queueCenterEmpty('No se puede calcular: ' + ((opt && opt.error) || 'desconocido')));
+      return;
+    }
+    const rows = (opt.actions || []).slice(0, 8);
+    if (!rows.length) { card.box.appendChild(queueCenterEmpty('Sin objetivos de construccion pendientes.')); return; }
+    rows.forEach((a, i) => {
+      const r = document.createElement('div'); r.className = 'gb-qc-job';
+      const num = document.createElement('b'); num.textContent = `#${i + 1}`;
+      const desc = document.createElement('div'); desc.className = 'gb-qc-job-desc';
+      const main = document.createElement('span');
+      main.textContent = `${nativeBuildLabel(a.building)}${a.level ? ' ' + (a.level - 1) + '→' + a.level : ''}` +
+        (a.etaMs ? ' · ' + queueCenterFmt(Math.round(a.etaMs / 1000)) : '');
+      desc.append(main, queueCenterStatusBadge(a.status, a.why));
+      r.append(num, desc); card.box.appendChild(r);
+    });
+    const addable = rows.filter(a => a.building && a.status !== 'blocked');
+    const btn = queueCenterButton('+ Añadir secuencia', 'Anade estos edificios al final de la cola FIFO. No toca la cabeza actual.', () => {
+      let n = 0;
+      for (const a of addable) {
+        // nativeQueueAddBuild flashes its own reason on refusal; abort the rest
+        // rather than skipping past a conflict and queueing out of order.
+        if (!nativeQueueAddBuild(townId, a.building)) break;
+        n++;
+      }
+      if (n) flash(`+${n} edificios anadidos a la cola FIFO @${townId}`);
+    });
+    btn.disabled = !addable.length;
+    card.head.appendChild(btn);
   }
 
   // Academy techs the town could still queue. The list is built from GameData,

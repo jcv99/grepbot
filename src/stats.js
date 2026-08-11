@@ -190,6 +190,21 @@
           : `${n} informes, ${withVerdict} con resultado` + (n < 5 ? ' - muestra pequena' : ''),
       };
     }));
+    out.push(preflightProbe('optimal build order', () => {
+      if (state.abOptimalOrderOn === false) return { ok: true, detail: 'desactivado en Config' };
+      const ids = (townsFromGame() || []).map(t => t.id);
+      const tid = ids.find(id => Object.keys(goalEffectiveBuildTargets(id) || {}).length);
+      if (tid == null) return { ok: true, warn: true, detail: 'ninguna ciudad con objetivos de construccion' };
+      const opt = abOptimalOrderCached(tid);
+      if (opt.error) return { ok: false, detail: `ciudad ${tid}: ${opt.error}` };
+      const blocked = (opt.actions || []).filter(a => a.status === 'blocked' || a.status === 'waiting-resources').length;
+      const ledgerBlind = (opt.actions || []).some(a => a.why === 'planner-unreadable');
+      return {
+        ok: true,
+        warn: ledgerBlind,
+        detail: `${(opt.actions || []).length} entradas \u00b7 ${blocked} bloqueadas` + (ledgerBlind ? ' - contable del planificador no legible' : ''),
+      };
+    }));
     out.push(preflightProbe('goal profile', () => {
       const known = goalProfiles();
       const goals = state.townGoals || {};

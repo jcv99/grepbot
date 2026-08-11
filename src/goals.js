@@ -112,7 +112,132 @@
     const decorated=goalQueueDecorate(townId,actions.slice(0,maxActions));
     const plan={townId:String(townId),profile:e.profile,label:e.label,progress:goalProgress(townId),generatedAt:Date.now(),actions:decorated};
     const prev=state.virtualQueue[String(townId)], sig=JSON.stringify({profile:plan.profile,actions:plan.actions}); const prevSig=prev&&JSON.stringify({profile:prev.profile,actions:prev.actions});
-    state.virtualQueue[String(townId)]=plan; if(sig!==prevSig) save(STORE.VIRTUAL_QUEUE,state.virtualQueue); return plan;
+    state.virtualQueue[String(townId)]=plan; if(sig!==prevSig) save(STORE.VIRTUAL_QUEUE,state.virtualQueue);
+    // One render path keeps both lists current; the advisory sequence is never
+    // read by the auto-queue, so a failure here must not break the plan.
+    if (state.abOptimalOrderOn !== false) { try { abOptimalOrderSave(townId, abOptimalOrderFor(townId)); } catch (_) {} }
+    return plan;
+  }
+  // ===== Optimal building order (v4 plan 2.9) ================================
+  // ADVISORY ONLY. The explicit native FIFO head still wins in
+  // abPickNextFromLevels; nothing here re-routes the auto-queue and nothing
+  // here posts. The user applies a sequence with one click, or ignores it.
+  const AB_OPT_MAX = 40;
+  const AB_OPT_TTL_MS = 7 * 86400000;
+  function abOptDepth(townId, building, levels, depth) {
+    // How many prerequisite hops before this target can start. Mirrors
+    // abResolvePrerequisite's walk rather than duplicating its logic.
+    const d = +depth || 0;
+    if (d > 50) return { depth: d, error: 'chain-too-long' };
+    const r = abResolvePrerequisite(townId, building, levels);
+    if (!r || r.error) return { depth: d, error: (r && r.error) || 'dependency' };
+    if (r.building === building) return { depth: d };
+    return abOptDepth(townId, r.building, levels, d + 1);
+  }
+  function abOptBuildTimeMs(townId, building) {
+    const bd = abBuildDataEntry(townId, building);
+    const sec = bd && +(bd.building_time ?? bd.build_time ?? bd.time);
+    return Number.isFinite(sec) && sec > 0 ? sec * 1000 : null;
+  }
+  function abOptimalOrderFor(townId) {
+    const id = String(townId);
+    const levels = abCurrentLevels(townId);
+    if (!levels) return { townId: id, error: 'levels-unreadable', actions: [] };
+    const targets = goalEffectiveBuildTargets(townId);
+    const avail = plannerAvailable(townId, { allowSoft: true });
+    // A null ledger is UNKNOWN, not zero: the walk still runs and every entry
+    // reports waiting-resources rather than silently claiming affordability.
+    const ledger = avail ? Object.assign({}, avail) : null;
+    const ranked = Object.keys(targets)
+      .filter(b => {
+        const max = abMaxLevel(b);
+        const want = Math.min(+targets[b] || 0, max == null ? +targets[b] || 0 : max);
+        return want > 0 && +(levels[b] || 0) < want;
+      })
+      .map(b => {
+        const dep = abOptDepth(townId, b, levels, 0);
+        const cost = abBuildingCost(townId, b);
+        let gap = 0;
+        if (cost && ledger) for (const k of PLANNER_KEYS) gap += Math.max(0, (+cost[k] || 0) - (+ledger[k] || 0));
+        const rank = goalQueueRank(townId, 'build', b);
+        return { b, depth: dep.depth, err: dep.error || '', gap, eta: abOptBuildTimeMs(townId, b) || 0, rank };
+      })
+      .sort((x, y) =>
+        (y.rank.mandatory - x.rank.mandatory) ||
+        (x.depth - y.depth) ||
+        (x.gap - y.gap) ||
+        (x.eta - y.eta) ||
+        (x.rank.index - y.rank.index));
+    const sim = Object.assign({}, levels), actions = [];
+    let guard = 0;
+    while (actions.length < AB_OPT_MAX && guard++ < 200) {
+      let added = false;
+      for (const t of ranked) {
+        const max = abMaxLevel(t.b);
+        const want = Math.min(+targets[t.b] || 0, max == null ? +targets[t.b] || 0 : max);
+        if (!(want > 0) || +(sim[t.b] || 0) >= want) continue;
+        const dep = abResolvePrerequisite(townId, t.b, sim);
+        if (!dep || !dep.building) {
+          actions.push({ building: t.b, forTarget: t.b, level: null, cost: null, etaMs: null, status: 'blocked', why: (dep && dep.error) || 'dependency' });
+          sim[t.b] = want; added = true; break;
+        }
+        if (goalQueueSuppressed(townId, 'build', dep.building)) { sim[dep.building] = Math.max(sim[dep.building] || 0, want); added = true; break; }
+        const b = dep.building, cost = abBuildingCost(townId, b);
+        const next = +(sim[b] || 0) + 1;
+        const costExact = next === (+(levels[b] || 0) + 1);
+        let status = 'planned', why = dep.reason || '';
+        if (!cost) { status = 'blocked'; why = 'cost-unreadable'; }
+        else if (!ledger) { status = 'waiting-resources'; why = 'planner-unreadable'; }
+        else if (costExact) {
+          for (const k of PLANNER_KEYS) {
+            const n = +cost[k] || 0;
+            if (n > +(ledger[k] || 0)) { status = 'waiting-resources'; why = `${k} ${Math.floor(ledger[k] || 0)}/${n}`; break; }
+          }
+          if (status === 'planned') for (const k of PLANNER_KEYS) ledger[k] -= +cost[k] || 0;
+        } else { status = 'planned-recalc'; why = why || 'future level cost recalculated after prior build'; }
+        actions.push({ building: b, forTarget: t.b, level: next, cost, etaMs: abOptBuildTimeMs(townId, b), status, why });
+        sim[b] = next; added = true; break;
+      }
+      if (!added) break;
+    }
+    return { townId: id, generatedAt: Date.now(), actions };
+  }
+  // goalPlanTown runs per town per render, so an unconditional save() here is
+  // one GM_setValue per town per repaint. Compare the action signature the way
+  // goalPlanTown already does for the virtual queue and write only on a change.
+  function abOptimalOrderSave(townId, plan) {
+    if (!state.abOptimalOrder || typeof state.abOptimalOrder !== 'object') state.abOptimalOrder = {};
+    const id = String(townId);
+    const prev = state.abOptimalOrder[id];
+    const sig = JSON.stringify((plan && plan.actions) || []);
+    const prevSig = prev ? JSON.stringify(prev.actions || []) : null;
+    state.abOptimalOrder[id] = plan;
+    if (sig === prevSig) return;
+    abOptimalOrderPrune();
+    save(STORE.AB_OPTIMAL_ORDER, state.abOptimalOrder);
+  }
+  // Cached read for renderers: recompute only when the cache is missing or
+  // older than AB_OPT_FRESH_MS. Callers that need a guaranteed-fresh plan call
+  // abOptimalOrderFor directly.
+  const AB_OPT_FRESH_MS = 60000;
+  function abOptimalOrderCached(townId) {
+    const id = String(townId);
+    const hit = (state.abOptimalOrder || {})[id];
+    if (hit && Date.now() - (+hit.generatedAt || 0) < AB_OPT_FRESH_MS) return hit;
+    const plan = abOptimalOrderFor(townId);
+    abOptimalOrderSave(id, plan);
+    return plan;
+  }
+  function abOptimalOrderPrune() {
+    const cutoff = Date.now() - AB_OPT_TTL_MS;
+    for (const [k, v] of Object.entries(state.abOptimalOrder || {})) {
+      if (!v || +(v.generatedAt || 0) < cutoff) delete state.abOptimalOrder[k];
+    }
+  }
+  function abOptimalOrderClear() {
+    state.abOptimalOrder = {};
+    save(STORE.AB_OPTIMAL_ORDER, state.abOptimalOrder);
+    gbLog('optimal order: cache cleared');
   }
   function goalPlanAll(){let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){};return ids.map(goalPlanTown)}
   function goalSetProfile(townId,profile){const g=goalTownCfg(townId);if(!goalProfiles()[profile])return false;g.profile=profile;save(STORE.TOWN_GOALS,state.townGoals);goalPlanTown(townId);return true}

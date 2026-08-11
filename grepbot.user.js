@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.2.4
+// @version      4.3.2
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -149,6 +149,8 @@ const STORE = {
     TX_STATE: 'grepbot:tx-state',
     CIRCUITS: 'grepbot:circuits',
     AB_ORDER: 'grepbot:ab-order',
+    AB_OPTIMAL_ORDER: 'grepbot:ab-optimal-order',
+    AB_OPTIMAL_ORDER_ON: 'grepbot:ab-optimal-order-on',
     PLANNER_CFG: 'grepbot:planner-cfg',
     GOAL_PROFILES: 'grepbot:goal-profiles',
     TOWN_GOALS: 'grepbot:town-goals',
@@ -210,7 +212,7 @@ const STORE = {
     STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES,
     STORE.CAPTCHA_GLOBAL_UNTIL,
     STORE.SERVER_COOLDOWN, STORE.QUEST_CLAIM_FAIL, STORE.DODGE_QUEUE,
-    STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER,
+    STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER,
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
     STORE.SPELL_COOLDOWN,
@@ -569,6 +571,8 @@ const STORE = {
     txState: load(STORE.TX_STATE, {}),
     circuits: load(STORE.CIRCUITS, {}),
     abOrder: load(STORE.AB_ORDER, null),
+    abOptimalOrder: load(STORE.AB_OPTIMAL_ORDER, {}),
+    abOptimalOrderOn: load(STORE.AB_OPTIMAL_ORDER_ON, true),
     plannerCfg: load(STORE.PLANNER_CFG, { global: { hard: { wood:0, stone:0, iron:0, population:0 }, soft: { wood:0, stone:0, iron:0, population:0 } }, towns: {} }),
     goalProfiles: load(STORE.GOAL_PROFILES, {}),
     townGoals: load(STORE.TOWN_GOALS, {}),
@@ -6249,7 +6253,122 @@ const STORE = {
     const decorated=goalQueueDecorate(townId,actions.slice(0,maxActions));
     const plan={townId:String(townId),profile:e.profile,label:e.label,progress:goalProgress(townId),generatedAt:Date.now(),actions:decorated};
     const prev=state.virtualQueue[String(townId)], sig=JSON.stringify({profile:plan.profile,actions:plan.actions}); const prevSig=prev&&JSON.stringify({profile:prev.profile,actions:prev.actions});
-    state.virtualQueue[String(townId)]=plan; if(sig!==prevSig) save(STORE.VIRTUAL_QUEUE,state.virtualQueue); return plan;
+    state.virtualQueue[String(townId)]=plan; if(sig!==prevSig) save(STORE.VIRTUAL_QUEUE,state.virtualQueue);
+
+    if (state.abOptimalOrderOn !== false) { try { abOptimalOrderSave(townId, abOptimalOrderFor(townId)); } catch (_) {} }
+    return plan;
+  }
+
+  const AB_OPT_MAX = 40;
+  const AB_OPT_TTL_MS = 7 * 86400000;
+  function abOptDepth(townId, building, levels, depth) {
+
+    const d = +depth || 0;
+    if (d > 50) return { depth: d, error: 'chain-too-long' };
+    const r = abResolvePrerequisite(townId, building, levels);
+    if (!r || r.error) return { depth: d, error: (r && r.error) || 'dependency' };
+    if (r.building === building) return { depth: d };
+    return abOptDepth(townId, r.building, levels, d + 1);
+  }
+  function abOptBuildTimeMs(townId, building) {
+    const bd = abBuildDataEntry(townId, building);
+    const sec = bd && +(bd.building_time ?? bd.build_time ?? bd.time);
+    return Number.isFinite(sec) && sec > 0 ? sec * 1000 : null;
+  }
+  function abOptimalOrderFor(townId) {
+    const id = String(townId);
+    const levels = abCurrentLevels(townId);
+    if (!levels) return { townId: id, error: 'levels-unreadable', actions: [] };
+    const targets = goalEffectiveBuildTargets(townId);
+    const avail = plannerAvailable(townId, { allowSoft: true });
+
+    const ledger = avail ? Object.assign({}, avail) : null;
+    const ranked = Object.keys(targets)
+      .filter(b => {
+        const max = abMaxLevel(b);
+        const want = Math.min(+targets[b] || 0, max == null ? +targets[b] || 0 : max);
+        return want > 0 && +(levels[b] || 0) < want;
+      })
+      .map(b => {
+        const dep = abOptDepth(townId, b, levels, 0);
+        const cost = abBuildingCost(townId, b);
+        let gap = 0;
+        if (cost && ledger) for (const k of PLANNER_KEYS) gap += Math.max(0, (+cost[k] || 0) - (+ledger[k] || 0));
+        const rank = goalQueueRank(townId, 'build', b);
+        return { b, depth: dep.depth, err: dep.error || '', gap, eta: abOptBuildTimeMs(townId, b) || 0, rank };
+      })
+      .sort((x, y) =>
+        (y.rank.mandatory - x.rank.mandatory) ||
+        (x.depth - y.depth) ||
+        (x.gap - y.gap) ||
+        (x.eta - y.eta) ||
+        (x.rank.index - y.rank.index));
+    const sim = Object.assign({}, levels), actions = [];
+    let guard = 0;
+    while (actions.length < AB_OPT_MAX && guard++ < 200) {
+      let added = false;
+      for (const t of ranked) {
+        const max = abMaxLevel(t.b);
+        const want = Math.min(+targets[t.b] || 0, max == null ? +targets[t.b] || 0 : max);
+        if (!(want > 0) || +(sim[t.b] || 0) >= want) continue;
+        const dep = abResolvePrerequisite(townId, t.b, sim);
+        if (!dep || !dep.building) {
+          actions.push({ building: t.b, forTarget: t.b, level: null, cost: null, etaMs: null, status: 'blocked', why: (dep && dep.error) || 'dependency' });
+          sim[t.b] = want; added = true; break;
+        }
+        if (goalQueueSuppressed(townId, 'build', dep.building)) { sim[dep.building] = Math.max(sim[dep.building] || 0, want); added = true; break; }
+        const b = dep.building, cost = abBuildingCost(townId, b);
+        const next = +(sim[b] || 0) + 1;
+        const costExact = next === (+(levels[b] || 0) + 1);
+        let status = 'planned', why = dep.reason || '';
+        if (!cost) { status = 'blocked'; why = 'cost-unreadable'; }
+        else if (!ledger) { status = 'waiting-resources'; why = 'planner-unreadable'; }
+        else if (costExact) {
+          for (const k of PLANNER_KEYS) {
+            const n = +cost[k] || 0;
+            if (n > +(ledger[k] || 0)) { status = 'waiting-resources'; why = `${k} ${Math.floor(ledger[k] || 0)}/${n}`; break; }
+          }
+          if (status === 'planned') for (const k of PLANNER_KEYS) ledger[k] -= +cost[k] || 0;
+        } else { status = 'planned-recalc'; why = why || 'future level cost recalculated after prior build'; }
+        actions.push({ building: b, forTarget: t.b, level: next, cost, etaMs: abOptBuildTimeMs(townId, b), status, why });
+        sim[b] = next; added = true; break;
+      }
+      if (!added) break;
+    }
+    return { townId: id, generatedAt: Date.now(), actions };
+  }
+
+  function abOptimalOrderSave(townId, plan) {
+    if (!state.abOptimalOrder || typeof state.abOptimalOrder !== 'object') state.abOptimalOrder = {};
+    const id = String(townId);
+    const prev = state.abOptimalOrder[id];
+    const sig = JSON.stringify((plan && plan.actions) || []);
+    const prevSig = prev ? JSON.stringify(prev.actions || []) : null;
+    state.abOptimalOrder[id] = plan;
+    if (sig === prevSig) return;
+    abOptimalOrderPrune();
+    save(STORE.AB_OPTIMAL_ORDER, state.abOptimalOrder);
+  }
+
+  const AB_OPT_FRESH_MS = 60000;
+  function abOptimalOrderCached(townId) {
+    const id = String(townId);
+    const hit = (state.abOptimalOrder || {})[id];
+    if (hit && Date.now() - (+hit.generatedAt || 0) < AB_OPT_FRESH_MS) return hit;
+    const plan = abOptimalOrderFor(townId);
+    abOptimalOrderSave(id, plan);
+    return plan;
+  }
+  function abOptimalOrderPrune() {
+    const cutoff = Date.now() - AB_OPT_TTL_MS;
+    for (const [k, v] of Object.entries(state.abOptimalOrder || {})) {
+      if (!v || +(v.generatedAt || 0) < cutoff) delete state.abOptimalOrder[k];
+    }
+  }
+  function abOptimalOrderClear() {
+    state.abOptimalOrder = {};
+    save(STORE.AB_OPTIMAL_ORDER, state.abOptimalOrder);
+    gbLog('optimal order: cache cleared');
   }
   function goalPlanAll(){let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){};return ids.map(goalPlanTown)}
   function goalSetProfile(townId,profile){const g=goalTownCfg(townId);if(!goalProfiles()[profile])return false;g.profile=profile;save(STORE.TOWN_GOALS,state.townGoals);goalPlanTown(townId);return true}
@@ -11381,6 +11500,15 @@ const STORE = {
       const rec=document.createElement('button');rec.textContent='Recalc';rec.style.cssText='font-size:8px;padding:1px 4px';rec.addEventListener('click',()=>{goalPlanTown(tid);rerender()});head.appendChild(rec);
       const reset=document.createElement('button');reset.textContent='Reset Q';reset.title='Clear virtual-queue order/block/mandatory overrides';reset.style.cssText='font-size:8px;padding:1px 4px';reset.addEventListener('click',()=>{goalQueueReset(tid);rerender()});head.appendChild(reset);
       const sel=document.createElement('select');sel.title='Perfil de la ciudad. "Personalizado" = usa los overrides JSON de esta ciudad (boton Edit); cualquier otro perfil los sustituye.';sel.style.cssText='background:#111;color:#cfc;border:1px solid #333;font-size:9px;margin-left:auto';for(const [id,p] of Object.entries(profiles)){const o=document.createElement('option');o.value=id;o.textContent=p.label||id;sel.appendChild(o)}sel.value=plan.profile;sel.addEventListener('change',()=>{goalSetProfile(tid,sel.value);rerender()});head.appendChild(sel);box.appendChild(head);
+
+      if (state.abOptimalOrderOn !== false) {
+        try {
+          const opt=abOptimalOrderCached(tid), first=((opt&&opt.actions)||[]).slice(0,4);
+          if(first.length){const o=document.createElement('div');o.style.cssText='padding:1px 6px;color:#8ac;font-size:9px';
+            o.title='Secuencia aconsejada (solo consejo). Aplicala desde Colas > Construccion.';
+            o.textContent='  optima: '+first.map(a=>`${a.building}${a.level?' '+a.level:''}`).join(' > ');box.appendChild(o)}
+        } catch (_) {}
+      }
       const lines=(plan.actions||[]).slice(0,12);if(!lines.length){const e=document.createElement('div');e.textContent='  objetivo cumplido / sin acciones';e.style.cssText='padding:2px 6px;color:#777';box.appendChild(e)}else for(const a of lines){const row=document.createElement('div');row.style.cssText='display:grid;grid-template-columns:1fr auto;gap:3px;padding:2px 4px;border-bottom:1px solid #1e1e1e;align-items:center';const text=document.createElement('span');const c=a.cost||{},cost=[c.wood||0,c.stone||0,c.iron||0].join('/');text.textContent=`${a.mandatory?'! ':''}${a.kind} ${a.id}${a.level?' \u2192 '+a.level:''}${a.amount?' \u00d7'+a.amount:''} \u00b7 ${a.status} \u00b7 ${cost}${a.why?' \u00b7 '+a.why:''}`;row.appendChild(text);const acts=document.createElement('span');acts.style.cssText='display:flex;gap:2px';const mk=(label,title,fn)=>{const x=document.createElement('button');x.textContent=label;x.title=title;x.style.cssText='font-size:8px;padding:0 3px';x.addEventListener('click',()=>{fn();rerender()});acts.appendChild(x)};mk('\u2191','move earlier',()=>goalQueueMove(tid,a.queueKey,-1));mk('\u2193','move later',()=>goalQueueMove(tid,a.queueKey,1));mk(a.status==='user-blocked'?'ON':'B','block/unblock',()=>goalQueueToggleBlock(tid,a.queueKey));mk(a.mandatory?'*':'!','mandatory priority',()=>goalQueueToggleMandatory(tid,a.queueKey));mk('\u00d7','suppress until Reset Q',()=>goalQueueHide(tid,a.queueKey));row.appendChild(acts);box.appendChild(row)}
     }
   }
@@ -14661,6 +14789,21 @@ const STORE = {
           : `${n} informes, ${withVerdict} con resultado` + (n < 5 ? ' - muestra pequena' : ''),
       };
     }));
+    out.push(preflightProbe('optimal build order', () => {
+      if (state.abOptimalOrderOn === false) return { ok: true, detail: 'desactivado en Config' };
+      const ids = (townsFromGame() || []).map(t => t.id);
+      const tid = ids.find(id => Object.keys(goalEffectiveBuildTargets(id) || {}).length);
+      if (tid == null) return { ok: true, warn: true, detail: 'ninguna ciudad con objetivos de construccion' };
+      const opt = abOptimalOrderCached(tid);
+      if (opt.error) return { ok: false, detail: `ciudad ${tid}: ${opt.error}` };
+      const blocked = (opt.actions || []).filter(a => a.status === 'blocked' || a.status === 'waiting-resources').length;
+      const ledgerBlind = (opt.actions || []).some(a => a.why === 'planner-unreadable');
+      return {
+        ok: true,
+        warn: ledgerBlind,
+        detail: `${(opt.actions || []).length} entradas \u00b7 ${blocked} bloqueadas` + (ledgerBlind ? ' - contable del planificador no legible' : ''),
+      };
+    }));
     out.push(preflightProbe('goal profile', () => {
       const known = goalProfiles();
       const goals = state.townGoals || {};
@@ -15152,7 +15295,8 @@ const STORE = {
     body.appendChild(plan.box);
     plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? 'Reanudar cola' : 'Pausar cola', () => nativeQueueTogglePaused(townId, 'build')));
     if (!list.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador autom\u00e1tico', () => nativeQueueUseLegacy(townId, 'build')));
-    if (!list.length) { plan.box.appendChild(queueCenterEmpty(fifo ? 'Cola FIFO vac\u00eda. A\u00f1ade edificios con + desde el Senado.' : 'Esta ciudad usa el planificador de objetivos.')); return; }
+
+    if (!list.length) { plan.box.appendChild(queueCenterEmpty(fifo ? 'Cola FIFO vac\u00eda. A\u00f1ade edificios con + desde el Senado.' : 'Esta ciudad usa el planificador de objetivos.')); renderQueueCenterOptimal(body, townId); return; }
     plan.box.appendChild(queueCenterSequence('Orden FIFO', list.map((j, i) => ({
       text: `#${i + 1} ${nativeBuildLabel(j.building)}`,
       title: `${nativeBuildLabel(j.building)} ${j.fromLevel}\u2192${j.toLevel}${j.reason ? ' \u00b7 ' + j.reason : ''}`,
@@ -15173,6 +15317,43 @@ const STORE = {
       del.disabled = !!j.inflight;
       acts.append(up, dn, del); r.append(num, desc, acts); plan.box.appendChild(r);
     });
+    renderQueueCenterOptimal(body, townId);
+  }
+
+  function renderQueueCenterOptimal(body, townId) {
+    if (state.abOptimalOrderOn === false) return;
+    let opt = null;
+    try { opt = abOptimalOrderCached(townId); } catch (e) { opt = { error: String(e).slice(0, 60), actions: [] }; }
+    const card = queueCenterCard('Secuencia \u00f3ptima \u00b7 Construcci\u00f3n', 'solo consejo - no envia nada');
+    body.appendChild(card.box);
+    if (!opt || opt.error) {
+      card.box.appendChild(queueCenterEmpty('No se puede calcular: ' + ((opt && opt.error) || 'desconocido')));
+      return;
+    }
+    const rows = (opt.actions || []).slice(0, 8);
+    if (!rows.length) { card.box.appendChild(queueCenterEmpty('Sin objetivos de construccion pendientes.')); return; }
+    rows.forEach((a, i) => {
+      const r = document.createElement('div'); r.className = 'gb-qc-job';
+      const num = document.createElement('b'); num.textContent = `#${i + 1}`;
+      const desc = document.createElement('div'); desc.className = 'gb-qc-job-desc';
+      const main = document.createElement('span');
+      main.textContent = `${nativeBuildLabel(a.building)}${a.level ? ' ' + (a.level - 1) + '\u2192' + a.level : ''}` +
+        (a.etaMs ? ' \u00b7 ' + queueCenterFmt(Math.round(a.etaMs / 1000)) : '');
+      desc.append(main, queueCenterStatusBadge(a.status, a.why));
+      r.append(num, desc); card.box.appendChild(r);
+    });
+    const addable = rows.filter(a => a.building && a.status !== 'blocked');
+    const btn = queueCenterButton('+ A\u00f1adir secuencia', 'Anade estos edificios al final de la cola FIFO. No toca la cabeza actual.', () => {
+      let n = 0;
+      for (const a of addable) {
+
+        if (!nativeQueueAddBuild(townId, a.building)) break;
+        n++;
+      }
+      if (n) flash(`+${n} edificios anadidos a la cola FIFO @${townId}`);
+    });
+    btn.disabled = !addable.length;
+    card.head.appendChild(btn);
   }
 
   function queueCenterResearchOptions(townId, info) {
@@ -16225,6 +16406,7 @@ const STORE = {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="captcha-global"/> Global captcha kill-switch</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Skip an action that failed the same way 3x in a row (5/15/60min backoff). Journal keeps recording either way."><input type="checkbox" data-cfg="decision-memory"/> Decision memory (skip repeat failures)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Anade a la pestana Intel el resumen de batallas por jugador y el ranking de granjas por botin. Solo lectura, se recalcula en cada render."><input type="checkbox" data-cfg="intel-battle-stats"/> Estadisticas de batalla en Intel</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Muestra en Colas > Construccion una secuencia aconsejada. Solo consejo: la cola FIFO manda y nada se envia sin pulsar el boton."><input type="checkbox" data-cfg="ab-optimal-order"/> Secuencia optima de construccion (consejo)</label>
         <label>Req budget / min <input type="number" data-cfg="req-budget" min="5" max="120" style="width:50px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px"/></label>
         <label>Webhook URL <input type="text" data-cfg="webhook-url" placeholder="Discord webhook or https://api.telegram.org/bot\u2026/sendMessage" style="width:100%;background:#111;color:#cfc;border:1px solid #333;margin-top:2px;font-size:10px"/></label>
         <label style="margin-left:0;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">Events
@@ -16754,6 +16936,7 @@ const STORE = {
     setChk('[data-cfg=island-ship]', state.islandShip);
     setChk('[data-cfg=auto-transport]', state.autoTransport);
     setChk('[data-cfg=intel-battle-stats]', state.intelBattleStats !== false);
+    setChk('[data-cfg=ab-optimal-order]', state.abOptimalOrderOn !== false);
     setChk('[data-cfg=auto-rural-trade]', state.autoRuralTrade);
     setChk('[data-cfg=auto-rural-level]', state.autoRuralLevel);
     setChk('[data-cfg=auto-research]', state.autoResearch);
@@ -16829,6 +17012,7 @@ const STORE = {
     bindToggle('[data-cfg=island-ship]', 'islandShip', STORE.ISLAND_SHIP, () => tradeScan('toggle'));
     bindToggle('[data-cfg=auto-transport]', 'autoTransport', STORE.AUTO_TRANSPORT, () => tradeScan('toggle'));
     bindToggle('[data-cfg=intel-battle-stats]', 'intelBattleStats', STORE.INTEL_BATTLE_STATS, () => { try { renderIntel(); } catch (_) {} });
+    bindToggle('[data-cfg=ab-optimal-order]', 'abOptimalOrderOn', STORE.AB_OPTIMAL_ORDER_ON, () => { if (state.abOptimalOrderOn === false) abOptimalOrderClear(); });
     bindToggle('[data-cfg=auto-rural-trade]', 'autoRuralTrade', STORE.AUTO_RURAL_TRADE, () => ruralTradeScan('toggle'));
     bindToggle('[data-cfg=auto-rural-level]', 'autoRuralLevel', STORE.AUTO_RURAL_LEVEL, () => ruralLevelScan('toggle'));
     bindToggle('[data-cfg=auto-research]', 'autoResearch', STORE.AUTO_RESEARCH, () => researchScan('toggle'));
