@@ -35,6 +35,56 @@
     });
     return units;
   }
+  // ===== Booty camp optimizer (v4 plan 5.8) ==================================
+  // A CAP, not a filter: it never zeroes out a unit the player bought, and with
+  // no smartCap configured it returns the legality-filtered map unchanged - the
+  // exact behaviour that shipped before this plan.
+  //
+  // The rank is total resource BUILD COST, an honest proxy for "how much this
+  // unit is worth risking". There is no per-unit loot-carry constant anywhere
+  // in this tree (plan 2.12 proved it), so nothing here pretends to rank by
+  // expected booty.
+  const BANDIT_HISTORY_MAX = 20;
+  const banditAttackHistory = [];
+  function banditUnitCost(uw, unit) {
+    try {
+      const d = uw.GameData && uw.GameData.units && uw.GameData.units[unit];
+      const r = d && (d.resources || d.costs || d.cost);
+      if (!r) return null;
+      const n = (+r.wood || 0) + (+r.stone || 0) + (+r.iron || 0);
+      return n > 0 ? n : null;
+    } catch (_) { return null; }
+  }
+  function banditRankUnits(uw, rawUnits, cfg) {
+    const map = banditAttackUnits(uw, rawUnits);
+    const c = cfg || (state.banditCfg || {});
+    const cap = +c.smartCap;
+    if (!Number.isFinite(cap) || cap <= 0) return map;
+    const floorUnits = Array.isArray(c.dodgeFloorUnits) ? c.dodgeFloorUnits.map(String) : [];
+    const floor = floorUnits.length ? Math.max(0, +state.dodgeFloor || 0) : 0;
+    // Rank descending by build cost. An unreadable cost sorts LAST rather than
+    // as zero, so a unit we cannot price is not treated as the cheapest thing
+    // in the town and shipped first.
+    const ranked = Object.keys(map).sort((a, b) => {
+      const ca = banditUnitCost(uw, a), cb = banditUnitCost(uw, b);
+      if (ca == null && cb == null) return String(a).localeCompare(String(b));
+      if (ca == null) return 1;
+      if (cb == null) return -1;
+      return cb - ca;
+    });
+    const out = {};
+    for (const u of ranked) {
+      let n = +map[u] || 0;
+      if (floorUnits.includes(u)) n -= floor;
+      if (n <= 0) continue;
+      out[u] = Math.max(1, Math.min(cap, n));
+    }
+    return Object.keys(out).length ? out : map;
+  }
+  function banditNoteAttack(units) {
+    banditAttackHistory.push({ ts: Date.now(), units: Object.assign({}, units) });
+    while (banditAttackHistory.length > BANDIT_HISTORY_MAX) banditAttackHistory.shift();
+  }
   const BANDIT_TX_EVIDENCE_MAX_MS = 10 * 60 * 1000;
   function banditFlag(v) {
     if (v === true || v === 1) return true;
@@ -270,8 +320,9 @@
       }
       const t = uw.ITowns && uw.ITowns.towns && uw.ITowns.towns[uw.Game.townId];
       if (!t || !t.units) { gbLogT('bandit-notown', 60000, 'bandit: current town units unavailable'); return true; }
-      const units = banditAttackUnits(uw, t.units());
+      const units = banditRankUnits(uw, t.units());
       if (!Object.keys(units).length) { gbLogT('bandit-nounits', 60000, 'bandit: no offense units in current town'); banditIdle(30000); return true; }
+      banditNoteAttack(units);
       post('attack', units, (err) => {
         if (err) {
           if (err === 'timeout_unknown' || err === 'pending') {

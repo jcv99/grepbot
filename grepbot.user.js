@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.25.1
+// @version      4.26.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -34,6 +34,7 @@ const STORE = {
     COLLECT_ALL: 'grepbot:collect-all',
     COLLECT_TPL: 'grepbot:collect-tpl',
     AUTO_BANDIT: 'grepbot:auto-bandit',
+    BANDIT_CFG: 'grepbot:bandit-cfg',
     BANDIT_LOG:  'grepbot:bandit-log',
     NEXT_FARM:  'grepbot:next-farm',
     NEXT_TOWNS: 'grepbot:next-towns',
@@ -498,6 +499,8 @@ const STORE = {
     autoCollect: load(STORE.AUTO_COLLECT, false),
     collectTpl: load(STORE.COLLECT_TPL, null),
     autoBandit: load(STORE.AUTO_BANDIT, false),
+
+    banditCfg: load(STORE.BANDIT_CFG, {}) || {},
     banditLog:  load(STORE.BANDIT_LOG, []),
     autoFarm:   load(STORE.AUTO_FARM, false),
     claimTpl:   load(STORE.CLAIM_TPL, null),
@@ -5903,6 +5906,46 @@ const STORE = {
     });
     return units;
   }
+
+  const BANDIT_HISTORY_MAX = 20;
+  const banditAttackHistory = [];
+  function banditUnitCost(uw, unit) {
+    try {
+      const d = uw.GameData && uw.GameData.units && uw.GameData.units[unit];
+      const r = d && (d.resources || d.costs || d.cost);
+      if (!r) return null;
+      const n = (+r.wood || 0) + (+r.stone || 0) + (+r.iron || 0);
+      return n > 0 ? n : null;
+    } catch (_) { return null; }
+  }
+  function banditRankUnits(uw, rawUnits, cfg) {
+    const map = banditAttackUnits(uw, rawUnits);
+    const c = cfg || (state.banditCfg || {});
+    const cap = +c.smartCap;
+    if (!Number.isFinite(cap) || cap <= 0) return map;
+    const floorUnits = Array.isArray(c.dodgeFloorUnits) ? c.dodgeFloorUnits.map(String) : [];
+    const floor = floorUnits.length ? Math.max(0, +state.dodgeFloor || 0) : 0;
+
+    const ranked = Object.keys(map).sort((a, b) => {
+      const ca = banditUnitCost(uw, a), cb = banditUnitCost(uw, b);
+      if (ca == null && cb == null) return String(a).localeCompare(String(b));
+      if (ca == null) return 1;
+      if (cb == null) return -1;
+      return cb - ca;
+    });
+    const out = {};
+    for (const u of ranked) {
+      let n = +map[u] || 0;
+      if (floorUnits.includes(u)) n -= floor;
+      if (n <= 0) continue;
+      out[u] = Math.max(1, Math.min(cap, n));
+    }
+    return Object.keys(out).length ? out : map;
+  }
+  function banditNoteAttack(units) {
+    banditAttackHistory.push({ ts: Date.now(), units: Object.assign({}, units) });
+    while (banditAttackHistory.length > BANDIT_HISTORY_MAX) banditAttackHistory.shift();
+  }
   const BANDIT_TX_EVIDENCE_MAX_MS = 10 * 60 * 1000;
   function banditFlag(v) {
     if (v === true || v === 1) return true;
@@ -6133,8 +6176,9 @@ const STORE = {
       }
       const t = uw.ITowns && uw.ITowns.towns && uw.ITowns.towns[uw.Game.townId];
       if (!t || !t.units) { gbLogT('bandit-notown', 60000, 'bandit: current town units unavailable'); return true; }
-      const units = banditAttackUnits(uw, t.units());
+      const units = banditRankUnits(uw, t.units());
       if (!Object.keys(units).length) { gbLogT('bandit-nounits', 60000, 'bandit: no offense units in current town'); banditIdle(30000); return true; }
+      banditNoteAttack(units);
       post('attack', units, (err) => {
         if (err) {
           if (err === 'timeout_unknown' || err === 'pending') {
@@ -17798,6 +17842,14 @@ const STORE = {
     }
     lines.push('');
     try { lines.push(...favorHudBlock()); } catch (_) {}
+    try {
+      const bh = (typeof banditAttackHistory !== 'undefined' ? banditAttackHistory : []).slice(-3).reverse();
+      if (bh.length) {
+        lines.push('');
+        lines.push('bandido (ultimos 3 envios)');
+        bh.forEach(h => lines.push(`  ${new Date(h.ts).toLocaleTimeString()} ${Object.entries(h.units).map(([u, n]) => u + ':' + n).join(' ') || '-'}`));
+      }
+    } catch (_) {}
     lines.push('');
     const dl = (typeof orchDeadlockState === 'function') ? orchDeadlockState() : null;
     if (dl && dl.open) {
@@ -19213,6 +19265,7 @@ const STORE = {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-collect"/> Auto-collect visible resource rewards</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="collect-all"/> Recolect all (ignore timer cap)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-bandit"/> Auto-bandit</label>
+        <label style="margin-left:12px;font-size:10px" title="Tope por tipo de unidad al atacar el campamento. Es un TOPE, no un filtro: nunca deja una unidad a cero. Vacio o 0 = envia todo, como antes.">Tope por unidad <input type="number" data-cfg="bandit-cap" min="0" max="10000" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-farm"/> Auto-farm</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-skip-full"/> Skip farm/bandit if warehouse full</label>
         <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Warehouse full mode
@@ -19767,6 +19820,7 @@ const STORE = {
     setChk('[data-cfg=enabled-host]', state.enabledHosts[location.host] === true);
     setChk('[data-cfg=auto-collect]', state.autoCollect);
     setChk('[data-cfg=collect-all]', state.collectAll);
+    setNum('[data-cfg=bandit-cap]', +((state.banditCfg || {}).smartCap) || 0);
     setChk('[data-cfg=auto-bandit]', state.autoBandit);
     setChk('[data-cfg=auto-farm]', state.autoFarm);
     setChk('[data-cfg=farm-skip-full]', state.farmSkipFull);
@@ -19868,6 +19922,12 @@ const STORE = {
       gbLog('instant-research', state.ibResearch ? 'ON' : 'OFF');
       if (state.ibResearch && state.ibAuto) ibScan();
       else renderBuild();
+    });
+    saveNum('[data-cfg=bandit-cap]', v => {
+      const n = Math.max(0, Math.min(10000, Number.isFinite(+v) ? +v : 0));
+      state.banditCfg = Object.assign({}, state.banditCfg, { smartCap: n });
+      save(STORE.BANDIT_CFG, state.banditCfg);
+      gbLog('bandit cap ' + (n > 0 ? n + ' per unit type' : 'off - sends everything'));
     });
     saveNum('[data-cfg=build-swap-min]', v => {
       state.buildSwapThresholdMin = Math.max(0, Math.min(120, Number.isFinite(+v) ? +v : 5));

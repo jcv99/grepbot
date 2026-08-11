@@ -683,6 +683,14 @@
     }
     lines.push('');
     try { lines.push(...favorHudBlock()); } catch (_) {}
+    try {
+      const bh = (typeof banditAttackHistory !== 'undefined' ? banditAttackHistory : []).slice(-3).reverse();
+      if (bh.length) {
+        lines.push('');
+        lines.push('bandido (ultimos 3 envios)');
+        bh.forEach(h => lines.push(`  ${new Date(h.ts).toLocaleTimeString()} ${Object.entries(h.units).map(([u, n]) => u + ':' + n).join(' ') || '-'}`));
+      }
+    } catch (_) {}
     lines.push('');
     const dl = (typeof orchDeadlockState === 'function') ? orchDeadlockState() : null;
     if (dl && dl.open) {

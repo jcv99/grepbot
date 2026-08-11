@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.25.1
+// @version      4.26.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -34,6 +34,7 @@ const STORE = {
     COLLECT_ALL: 'grepbot:collect-all',
     COLLECT_TPL: 'grepbot:collect-tpl',
     AUTO_BANDIT: 'grepbot:auto-bandit',
+    BANDIT_CFG: 'grepbot:bandit-cfg',
     BANDIT_LOG:  'grepbot:bandit-log',
     NEXT_FARM:  'grepbot:next-farm',
     NEXT_TOWNS: 'grepbot:next-towns',

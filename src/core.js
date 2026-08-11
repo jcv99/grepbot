@@ -249,6 +249,8 @@
     autoCollect: load(STORE.AUTO_COLLECT, false),
     collectTpl: load(STORE.COLLECT_TPL, null),
     autoBandit: load(STORE.AUTO_BANDIT, false),
+    // v4 plan 5.8: empty = ship everything, exactly as before.
+    banditCfg: load(STORE.BANDIT_CFG, {}) || {},
     banditLog:  load(STORE.BANDIT_LOG, []),
     autoFarm:   load(STORE.AUTO_FARM, false),
     claimTpl:   load(STORE.CLAIM_TPL, null),

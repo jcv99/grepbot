@@ -779,6 +779,7 @@
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-collect"/> Auto-collect visible resource rewards</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="collect-all"/> Recolect all (ignore timer cap)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-bandit"/> Auto-bandit</label>
+        <label style="margin-left:12px;font-size:10px" title="Tope por tipo de unidad al atacar el campamento. Es un TOPE, no un filtro: nunca deja una unidad a cero. Vacio o 0 = envia todo, como antes.">Tope por unidad <input type="number" data-cfg="bandit-cap" min="0" max="10000" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-farm"/> Auto-farm</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="farm-skip-full"/> Skip farm/bandit if warehouse full</label>
         <label style="display:flex;align-items:center;gap:6px;margin-left:12px;flex-wrap:wrap">Warehouse full mode
@@ -1334,6 +1335,7 @@
     setChk('[data-cfg=enabled-host]', state.enabledHosts[location.host] === true);
     setChk('[data-cfg=auto-collect]', state.autoCollect);
     setChk('[data-cfg=collect-all]', state.collectAll);
+    setNum('[data-cfg=bandit-cap]', +((state.banditCfg || {}).smartCap) || 0);
     setChk('[data-cfg=auto-bandit]', state.autoBandit);
     setChk('[data-cfg=auto-farm]', state.autoFarm);
     setChk('[data-cfg=farm-skip-full]', state.farmSkipFull);
@@ -1435,6 +1437,12 @@
       gbLog('instant-research', state.ibResearch ? 'ON' : 'OFF');
       if (state.ibResearch && state.ibAuto) ibScan();
       else renderBuild();
+    });
+    saveNum('[data-cfg=bandit-cap]', v => {
+      const n = Math.max(0, Math.min(10000, Number.isFinite(+v) ? +v : 0));
+      state.banditCfg = Object.assign({}, state.banditCfg, { smartCap: n });
+      save(STORE.BANDIT_CFG, state.banditCfg);
+      gbLog('bandit cap ' + (n > 0 ? n + ' per unit type' : 'off - sends everything'));
     });
     saveNum('[data-cfg=build-swap-min]', v => {
       state.buildSwapThresholdMin = Math.max(0, Math.min(120, Number.isFinite(+v) ? +v : 5));
