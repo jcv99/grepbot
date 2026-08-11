@@ -12,11 +12,38 @@
   let gbQueueCenter = null;
   let gbQueueCenterTab = 'build';
   let gbQueueCenterTown = null;
-  let gbQueueCenterDrag = null;
   // A background scan can re-render the window at any time (nativeQueueSetJobState
   // repaints it), so the picker's current choice lives outside the DOM.
   let gbQueueCenterResearchPick = '';
 
+  // Header-only drag wiring. Reusable for any future floating window: clicks on
+  // buttons/selects inside the handle are ignored, and the listeners route
+  // through gbListen + gbListenerBag so the panel teardown bag also tears them
+  // down. The window clamps against its rendered offsetWidth AND the CSS
+  // max-width so a wider box on a narrower viewport cannot escape its bound.
+  function makeDraggable(w, h) {
+    let drag = null;
+    const onDown = e => {
+      if (e.target.closest('button,select')) return;
+      const r = w.getBoundingClientRect();
+      drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+      e.preventDefault();
+    };
+    const onMove = e => {
+      if (!drag) return;
+      const cssMax = parseFloat(getComputedStyle(w).maxWidth) || w.offsetWidth;
+      const maxW = Math.min(w.offsetWidth || 0, Math.max(0, innerWidth - cssMax));
+      const maxH = Math.max(0, innerHeight - w.offsetHeight);
+      w.style.left = Math.max(0, Math.min(innerWidth - maxW, e.clientX - drag.dx)) + 'px';
+      w.style.top = Math.max(0, Math.min(maxH, e.clientY - drag.dy)) + 'px';
+      w.style.right = 'auto';
+    };
+    const onUp = () => { drag = null; };
+    h.addEventListener('mousedown', onDown);
+    gbListen(document, 'mousemove', onMove);
+    gbListen(document, 'mouseup', onUp);
+    gbListenerBag.push({ target: document, type: 'mousemove', fn: onMove, opts: undefined }, { target: document, type: 'mouseup', fn: onUp, opts: undefined });
+  }
   // QC styles live here (not in panel CSS) so they only parse once the user
   // opens the window. Injected once per session.
   if (!state._gbQcCssInjected) {
@@ -474,36 +501,7 @@
       w.querySelector('.gb-qc-refresh').addEventListener('click', renderQueueCenter);
       w.querySelector('.gb-qc-town').addEventListener('change', e => { gbQueueCenterTown = e.target.value; renderQueueCenter(); });
       w.querySelectorAll('.gb-qc-tab').forEach(b => b.addEventListener('click', () => { gbQueueCenterTab = b.dataset.qtab; renderQueueCenter(); }));
-      // The window sits above the game canvas, so drag lives on the header only
-      // and the listeners are registered in gbListenerBag for teardown.
-      const h = w.querySelector('header');
-      h.addEventListener('mousedown', e => {
-        if (e.target.closest('button,select')) return;
-        const r = w.getBoundingClientRect();
-        gbQueueCenterDrag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
-        e.preventDefault();
-      });
-      const move = e => {
-        if (!gbQueueCenterDrag) return;
-        // The window may have `max-width:94vw` applied by its stylesheet, so the
-        // rendered offsetWidth (after shrink) is smaller than the layout box
-        // would have been on a narrower viewport. Clamp against the rendered
-        // width, but also against the configured max-width so a future wider
-        // box (e.g. 760px on a 700px viewport) cannot have its right edge
-        // escape the configured bound.
-        const cssMax = parseFloat(getComputedStyle(w).maxWidth) || w.offsetWidth;
-        const maxW = Math.min(w.offsetWidth || 0, Math.max(0, innerWidth - cssMax));
-        const maxH = Math.max(0, innerHeight - w.offsetHeight);
-        w.style.left = Math.max(0, Math.min(innerWidth - maxW, e.clientX - gbQueueCenterDrag.dx)) + 'px';
-        w.style.top = Math.max(0, Math.min(maxH, e.clientY - gbQueueCenterDrag.dy)) + 'px';
-        w.style.right = 'auto';
-      };
-      const up = () => { gbQueueCenterDrag = null; };
-      // Route through gbListen so the listener is gated on gbInstanceAlive() and
-      // torn down through the same bag entry — addEventListener bypassed both.
-      gbListen(document, 'mousemove', move);
-      gbListen(document, 'mouseup', up);
-      gbListenerBag.push({ target: document, type: 'mousemove', fn: move, opts: undefined }, { target: document, type: 'mouseup', fn: up, opts: undefined });
+      makeDraggable(w, w.querySelector('header'));
     }
     gbQueueCenter.style.display = 'flex';
     renderQueueCenter();

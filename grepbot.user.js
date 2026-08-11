@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.44.15
+// @version      4.44.16
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -19739,9 +19739,32 @@ const STORE = {
   let gbQueueCenter = null;
   let gbQueueCenterTab = 'build';
   let gbQueueCenterTown = null;
-  let gbQueueCenterDrag = null;
 
   let gbQueueCenterResearchPick = '';
+
+  function makeDraggable(w, h) {
+    let drag = null;
+    const onDown = e => {
+      if (e.target.closest('button,select')) return;
+      const r = w.getBoundingClientRect();
+      drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+      e.preventDefault();
+    };
+    const onMove = e => {
+      if (!drag) return;
+      const cssMax = parseFloat(getComputedStyle(w).maxWidth) || w.offsetWidth;
+      const maxW = Math.min(w.offsetWidth || 0, Math.max(0, innerWidth - cssMax));
+      const maxH = Math.max(0, innerHeight - w.offsetHeight);
+      w.style.left = Math.max(0, Math.min(innerWidth - maxW, e.clientX - drag.dx)) + 'px';
+      w.style.top = Math.max(0, Math.min(maxH, e.clientY - drag.dy)) + 'px';
+      w.style.right = 'auto';
+    };
+    const onUp = () => { drag = null; };
+    h.addEventListener('mousedown', onDown);
+    gbListen(document, 'mousemove', onMove);
+    gbListen(document, 'mouseup', onUp);
+    gbListenerBag.push({ target: document, type: 'mousemove', fn: onMove, opts: undefined }, { target: document, type: 'mouseup', fn: onUp, opts: undefined });
+  }
 
   if (!state._gbQcCssInjected) {
     state._gbQcCssInjected = true;
@@ -20171,29 +20194,7 @@ const STORE = {
       w.querySelector('.gb-qc-refresh').addEventListener('click', renderQueueCenter);
       w.querySelector('.gb-qc-town').addEventListener('change', e => { gbQueueCenterTown = e.target.value; renderQueueCenter(); });
       w.querySelectorAll('.gb-qc-tab').forEach(b => b.addEventListener('click', () => { gbQueueCenterTab = b.dataset.qtab; renderQueueCenter(); }));
-
-      const h = w.querySelector('header');
-      h.addEventListener('mousedown', e => {
-        if (e.target.closest('button,select')) return;
-        const r = w.getBoundingClientRect();
-        gbQueueCenterDrag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
-        e.preventDefault();
-      });
-      const move = e => {
-        if (!gbQueueCenterDrag) return;
-
-        const cssMax = parseFloat(getComputedStyle(w).maxWidth) || w.offsetWidth;
-        const maxW = Math.min(w.offsetWidth || 0, Math.max(0, innerWidth - cssMax));
-        const maxH = Math.max(0, innerHeight - w.offsetHeight);
-        w.style.left = Math.max(0, Math.min(innerWidth - maxW, e.clientX - gbQueueCenterDrag.dx)) + 'px';
-        w.style.top = Math.max(0, Math.min(maxH, e.clientY - gbQueueCenterDrag.dy)) + 'px';
-        w.style.right = 'auto';
-      };
-      const up = () => { gbQueueCenterDrag = null; };
-
-      gbListen(document, 'mousemove', move);
-      gbListen(document, 'mouseup', up);
-      gbListenerBag.push({ target: document, type: 'mousemove', fn: move, opts: undefined }, { target: document, type: 'mouseup', fn: up, opts: undefined });
+      makeDraggable(w, w.querySelector('header'));
     }
     gbQueueCenter.style.display = 'flex';
     renderQueueCenter();
