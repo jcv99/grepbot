@@ -159,6 +159,9 @@
       plannerCommit,
       goalProfiles,
       goalEffective,
+      // Canonical name promised to downstream plans 1.3/5.1/5.5/5.6; the
+      // implementation stays goalEffective so existing callers are untouched.
+      gbCityProfile: goalEffective,
       goalPlanTown,
       goalPlanAll,
       goalSetProfile,

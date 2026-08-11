@@ -178,6 +178,18 @@
       const research = Object.values(nq.towns || {}).reduce((n, t) => n + (Array.isArray(t.research) ? t.research.length : 0), 0);
       return { ok: towns === 0 || (build + recruit + research) > 0, detail: `${towns} town(s) in native queue, ${build} build / ${recruit} recruit / ${research} research jobs` };
     }));
+    out.push(preflightProbe('goal profile', () => {
+      const known = goalProfiles();
+      const goals = state.townGoals || {};
+      const ids = Object.keys(goals);
+      const bad = ids.filter(id => !known[(goals[id] || {}).profile || 'custom']);
+      return {
+        ok: bad.length === 0,
+        detail: ids.length
+          ? `${ids.length} town(s) assigned, ${Object.keys(known).length} profiles known` + (bad.length ? `, UNKNOWN profile on ${bad.join(',')}` : '')
+          : `no per-town profile assigned yet, ${Object.keys(known).length} profiles known`,
+      };
+    }));
     out.push(preflightProbe('queue center', () => {
       const towns = (typeof townsFromGame === 'function' ? townsFromGame() : null) || [];
       return {

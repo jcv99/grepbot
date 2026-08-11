@@ -461,13 +461,18 @@
 
 
   // ===== Goal Planner / Dependency Graph / Virtual Queue (v1.8) ===============
+  // `defensive` (0..1, 0.5 neutral) is the wall/dodge weight; `resource`
+  // (-1..+1 per resource) is the transport/planner direction bias. Both are
+  // read-only in v4 plan 1.2 - they exist so 1.3 (transport) and 5.1 (resource
+  // balancing) read a real contract instead of inventing one later.
   const GOAL_PROFILE_DEFAULTS = {
-    custom: { label:'Personalizado', build:{}, research:{}, units:{}, reserve:{} },
-    economy: { label:'Economía', build:{main:15,storage:20,farm:20,market:10,lumber:20,stoner:20,ironer:20}, research:{}, units:{}, reserve:{soft:{wood:5000,stone:5000,iron:5000,population:100}} },
-    offense_land: { label:'Ofensiva terrestre', build:{main:15,storage:20,farm:25,barracks:20,academy:20}, research:{}, units:{}, reserve:{soft:{wood:5000,stone:5000,iron:5000,population:150}} },
-    defense_land: { label:'Defensiva terrestre', build:{main:15,storage:20,farm:25,barracks:20,wall:20,academy:15}, research:{}, units:{}, reserve:{soft:{wood:5000,stone:5000,iron:5000,population:150}} },
-    offense_naval: { label:'Ofensiva naval', build:{main:15,storage:20,farm:25,docks:20,academy:20}, research:{}, units:{}, reserve:{soft:{wood:7000,stone:5000,iron:7000,population:150}} },
-    defense_naval: { label:'Defensiva naval', build:{main:15,storage:20,farm:25,docks:20,wall:15,academy:15}, research:{}, units:{}, reserve:{soft:{wood:7000,stone:5000,iron:7000,population:150}} },
-    conquest: { label:'Conquista / CS', build:{main:25,storage:25,farm:30,academy:30,docks:20,market:15}, research:{colonize_ship:1}, units:{colonize_ship:1}, reserve:{hard:{wood:10000,stone:10000,iron:10000,population:170}} },
-    favor: { label:'Favor / míticas', build:{main:15,storage:20,farm:25,temple:20,academy:20}, research:{}, units:{}, reserve:{soft:{wood:5000,stone:5000,iron:5000,population:100}} },
+    custom: { label:'Personalizado', build:{}, research:{}, units:{}, reserve:{}, defensive:0.5, resource:{wood:0,stone:0,iron:0} },
+    economy: { label:'Economía', build:{main:15,storage:20,farm:20,market:10,lumber:20,stoner:20,ironer:20}, research:{}, units:{}, reserve:{soft:{wood:5000,stone:5000,iron:5000,population:100}}, defensive:0.3, resource:{wood:1,stone:1,iron:1} },
+    balanced: { label:'Equilibrado', build:{main:15,storage:20,farm:25,market:10,lumber:15,stoner:15,ironer:15,barracks:10,docks:10,academy:15,temple:5,wall:10}, research:{}, units:{}, reserve:{soft:{wood:5000,stone:5000,iron:5000,population:120}}, defensive:0.5, resource:{wood:0,stone:0,iron:0} },
+    offense_land: { label:'Ofensiva terrestre', build:{main:15,storage:20,farm:25,barracks:20,academy:20}, research:{}, units:{}, reserve:{soft:{wood:5000,stone:5000,iron:5000,population:150}}, defensive:0.2, resource:{wood:0,stone:0,iron:0} },
+    defense_land: { label:'Defensiva terrestre', build:{main:15,storage:20,farm:25,barracks:20,wall:20,academy:15}, research:{}, units:{}, reserve:{soft:{wood:5000,stone:5000,iron:5000,population:150}}, defensive:0.6, resource:{wood:0,stone:0,iron:0} },
+    offense_naval: { label:'Ofensiva naval', build:{main:15,storage:20,farm:25,docks:20,academy:20}, research:{}, units:{}, reserve:{soft:{wood:7000,stone:5000,iron:7000,population:150}}, defensive:0.2, resource:{wood:0,stone:0,iron:0} },
+    defense_naval: { label:'Defensiva naval', build:{main:15,storage:20,farm:25,docks:20,wall:15,academy:15}, research:{}, units:{}, reserve:{soft:{wood:7000,stone:5000,iron:7000,population:150}}, defensive:0.6, resource:{wood:0,stone:0,iron:0} },
+    conquest: { label:'Conquista / CS', build:{main:25,storage:25,farm:30,academy:30,docks:20,market:15}, research:{colonize_ship:1}, units:{colonize_ship:1}, reserve:{hard:{wood:10000,stone:10000,iron:10000,population:170}}, defensive:0.4, resource:{wood:0,stone:0,iron:0} },
+    favor: { label:'Favor / míticas', build:{main:15,storage:20,farm:25,temple:20,academy:20}, research:{}, units:{}, reserve:{soft:{wood:5000,stone:5000,iron:5000,population:100}}, defensive:0.4, resource:{wood:0,stone:0,iron:0} },
   };

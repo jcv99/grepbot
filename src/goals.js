@@ -5,9 +5,13 @@
   function goalTownCfg(townId) {
     if (!state.townGoals || typeof state.townGoals !== 'object') state.townGoals={};
     const id=String(townId); let g=state.townGoals[id];
-    if (!g || typeof g !== 'object') g=state.townGoals[id]={profile:'custom',build:{},research:{},units:{},reserve:{}};
+    if (!g || typeof g !== 'object') g=state.townGoals[id]={profile:'custom',build:{},research:{},units:{},reserve:{},resource:{}};
     if (!g.profile) g.profile='custom';
-    for (const k of ['build','research','units','reserve']) if (!g[k] || typeof g[k] !== 'object') g[k]={};
+    for (const k of ['build','research','units','reserve','resource']) if (!g[k] || typeof g[k] !== 'object') g[k]={};
+    // `defensive` is intentionally NOT seeded to a number: an always-present
+    // 0.5 would shadow the named profile's own weight in goalEffective. Absent
+    // means "inherit from the profile"; only garbage is dropped.
+    if (g.defensive != null && !Number.isFinite(+g.defensive)) delete g.defensive;
     return g;
   }
   function goalMergeMap(base, over) { const o=Object.assign({},base||{}); for(const [k,v] of Object.entries(over||{})) o[k]=v; return o; }
@@ -15,7 +19,18 @@
     const cfg=goalTownCfg(townId), p=goalProfiles()[cfg.profile]||GOAL_PROFILE_DEFAULTS.custom;
     return { profile:cfg.profile, label:p.label||cfg.profile,
       build:goalMergeMap(p.build,cfg.build), research:goalMergeMap(p.research,cfg.research), units:goalMergeMap(p.units,cfg.units),
-      reserve:{ hard:goalMergeMap((p.reserve||{}).hard,(cfg.reserve||{}).hard), soft:goalMergeMap((p.reserve||{}).soft,(cfg.reserve||{}).soft) } };
+      reserve:{ hard:goalMergeMap((p.reserve||{}).hard,(cfg.reserve||{}).hard), soft:goalMergeMap((p.reserve||{}).soft,(cfg.reserve||{}).soft) },
+      defensive:goalDefensive(cfg,p), resource:goalResourceBias(cfg,p) };
+  }
+  // Merge order for both: town override > named profile > neutral default.
+  function goalDefensive(cfg,p) {
+    const v=Number.isFinite(+(cfg&&cfg.defensive))?+cfg.defensive:(Number.isFinite(+(p&&p.defensive))?+p.defensive:0.5);
+    return Math.max(0,Math.min(1,v));
+  }
+  function goalResourceBias(cfg,p) {
+    const merged=goalMergeMap((p&&p.resource)||{},(cfg&&cfg.resource)||{}),out={};
+    for(const k of GB_RES_KEYS){const n=+merged[k];out[k]=Number.isFinite(n)?Math.max(-1,Math.min(1,n)):0}
+    return out;
   }
   function goalReservePolicy(townId) { const e=goalEffective(townId); return e && e.reserve; }
   function goalEffectiveBuildTargets(townId) {
@@ -120,7 +135,15 @@
   function goalQueueToggleMandatory(townId,key){const q=goalQueueCfg(townId);if(q.mandatory[key])delete q.mandatory[key];else q.mandatory[key]=true;goalQueueSave();goalPlanTown(townId);return !!q.mandatory[key];}
   function goalQueueHide(townId,key){const q=goalQueueCfg(townId);q.hidden[key]=true;q.blocked[key]=true;goalQueueSave();goalPlanTown(townId);return true;}
   function goalQueueReset(townId){delete state.virtualQueueOverrides[String(townId)];goalQueueSave();goalPlanTown(townId);return true;}
-  function goalSetTownOverrides(townId,obj){if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;const g=goalTownCfg(townId),cleanMap=v=>{const o={};if(v&&typeof v==='object'&&!Array.isArray(v))for(const[k,n]of Object.entries(v))if(Number.isFinite(+n)&&+n>=0)o[k]=+n;return o;};if(obj.build!=null)g.build=cleanMap(obj.build);if(obj.research!=null)g.research=cleanMap(obj.research);if(obj.units!=null)g.units=cleanMap(obj.units);if(obj.reserve&&typeof obj.reserve==='object'){g.reserve={hard:cleanMap(obj.reserve.hard),soft:cleanMap(obj.reserve.soft)}}save(STORE.TOWN_GOALS,state.townGoals);goalPlanTown(townId);return true;}
+  function goalSetTownOverrides(townId,obj){if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;const g=goalTownCfg(townId),cleanMap=v=>{const o={};if(v&&typeof v==='object'&&!Array.isArray(v))for(const[k,n]of Object.entries(v))if(Number.isFinite(+n)&&+n>=0)o[k]=+n;return o;};if(obj.build!=null)g.build=cleanMap(obj.build);if(obj.research!=null)g.research=cleanMap(obj.research);if(obj.units!=null)g.units=cleanMap(obj.units);if(obj.reserve&&typeof obj.reserve==='object'){g.reserve={hard:cleanMap(obj.reserve.hard),soft:cleanMap(obj.reserve.soft)}}
+    // defensive: clamp 0..1; an explicit null/'' clears the override so the
+    // named profile's own weight applies again.
+    if(obj.defensive!==undefined){if(obj.defensive===null||obj.defensive==='')delete g.defensive;else if(Number.isFinite(+obj.defensive))g.defensive=Math.max(0,Math.min(1,+obj.defensive));}
+    // resource: clamp -1..+1 per resource, drop non-finite and unknown keys.
+    // Symmetric with defensive: undefined = leave alone, null/'' or a bad shape
+    // = clear the override back to "inherit from the profile".
+    if(obj.resource!==undefined){const r={};if(obj.resource&&typeof obj.resource==='object'&&!Array.isArray(obj.resource))for(const k of GB_RES_KEYS){const n=+obj.resource[k];if(Number.isFinite(n))r[k]=Math.max(-1,Math.min(1,n))}g.resource=r;}
+    save(STORE.TOWN_GOALS,state.townGoals);goalPlanTown(townId);return true;}
   function goalProgress(townId){const e=goalEffective(townId),parts=[];const levels=abCurrentLevels(townId)||{};for(const[id,t]of Object.entries(e.build||{})){const tgt=+t||0;if(tgt>0)parts.push(Math.min(1,(+(levels[id]||0))/tgt))}let info=null;try{info=researchTownTechs(townId)}catch(_){};for(const[id,on]of Object.entries(e.research||{}))if(+on)parts.push(info&&info.techs&&info.techs[id]?1:0);const units=goalUnitCounts(townId);for(const[id,t]of Object.entries(e.units||{})){const tgt=+t||0;if(tgt>0)parts.push(Math.min(1,(+(units[id]||0))/tgt))}return parts.length?Math.round(parts.reduce((a,b)=>a+b,0)/parts.length*100):100;}
   function goalMandatoryModules(){const out=[];for(const [tid,q] of Object.entries(state.virtualQueueOverrides||{})){if(!q||!q.mandatory)continue;for(const key of Object.keys(q.mandatory)){if(!q.mandatory[key]||q.blocked&&q.blocked[key]||q.hidden&&q.hidden[key])continue;const kind=String(key).split(':')[0],mod=kind==='build'?'build':kind==='research'?'research':kind==='recruit'?'recruit':null;if(mod&&!out.includes(mod))out.push(mod)}}return out;}
 
