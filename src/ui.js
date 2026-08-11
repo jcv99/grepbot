@@ -963,7 +963,9 @@
     </section>
     <section data-tab="intel" hidden>
       <div style="font-size:11px;color:#f5a623;margin-bottom:4px">Intel / amenazas</div>
-      <select data-intel="view" title="Cambiar la vista del panel Intel" style="background:var(--gb-input-bg);color:var(--gb-input-fg);border:1px solid var(--gb-chrome);font-size:10px;margin-bottom:4px"><option value="summary">Resumen</option><option value="heatmap">Mapa de calor</option></select>
+      <select data-intel="view" title="Cambiar la vista del panel Intel" style="background:var(--gb-input-bg);color:var(--gb-input-fg);border:1px solid var(--gb-chrome);font-size:10px;margin-bottom:4px"><option value="summary">Resumen</option><option value="heatmap">Mapa de calor</option><option value="defense">Tablero de defensa</option><option value="pool">Reservas por alianza</option><option value="activity">Actividad de miembros</option></select>
+      <input data-intel="ally-filter" placeholder="filtrar alianza" style="background:var(--gb-input-bg);color:var(--gb-input-fg);border:1px solid var(--gb-chrome);font-size:10px;width:120px;margin-left:4px"/>
+      <select data-intel="status" title="Marcar estado diplomatico" style="background:var(--gb-input-bg);color:var(--gb-input-fg);border:1px solid var(--gb-chrome);font-size:10px;margin-left:4px"><option value="">estado...</option><option value="war">guerra</option><option value="ally">aliado</option><option value="nap">NAP</option><option value="neutral">neutral</option><option value="clear">quitar</option></select>
       <pre class="intel-panel" style="font-size:10px;white-space:pre-wrap;background:#111;padding:6px;border:1px solid #333;max-height:280px;overflow:auto;color:#cfc"></pre>
       <div class="intel-timeline" style="font-size:11px;margin-top:6px"></div>
       <div class="intel-ghost" style="font-size:11px;margin-top:6px"></div>
@@ -1548,8 +1550,33 @@
     flash('cambio de ciudad no soportado en este cliente');
     return false;
   }
+  const INTEL_VIEWS = ['summary', 'heatmap', 'defense', 'pool', 'activity'];
   panel.querySelector('[data-intel=view]')?.addEventListener('change', e => {
-    intelView = e.target.value === 'heatmap' ? 'heatmap' : 'summary';
+    intelView = INTEL_VIEWS.includes(e.target.value) ? e.target.value : 'summary';
+    renderIntel();
+  });
+  panel.querySelector('[data-intel=ally-filter]')?.addEventListener('change', e => {
+    state.intelAllianceFilter = String(e.target.value || '').trim().slice(0, 40);
+    save(STORE.INTEL_ALLY_FILTER, state.intelAllianceFilter);
+    renderIntel();
+  });
+  panel.querySelector('[data-intel=status]')?.addEventListener('change', e => {
+    const v = e.target.value;
+    e.target.value = '';
+    if (!v) return;
+    // Alliance-wide when the filter box names one, otherwise ask for the
+    // player. Never inferred from whatever row happens to be on screen.
+    const status = v === 'clear' ? null : v;
+    const ally = state.intelAllianceFilter;
+    if (ally) {
+      if (!confirm(`Marcar la alianza "${ally}" como ${status || 'sin estado'}?`)) return;
+      intelSetAllianceStatus(ally, status);
+    } else {
+      const who = prompt('Jugador a marcar (nombre exacto):');
+      if (!who) return;
+      intelSetPlayerStatus(who.trim(), status);
+    }
+    flash('estado diplomatico actualizado');
     renderIntel();
   });
   panel.querySelector('[data-qs=town]')?.addEventListener('change', e => {

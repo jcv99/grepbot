@@ -403,6 +403,8 @@
     grepodataIndex: load(STORE.GREPODATA_INDEX, false),
     captchaGlobalKill: load(STORE.CAPTCHA_GLOBAL, true),
     reqBudgetPerMin: load(STORE.REQ_BUDGET, 40),
+    napStatus: load(STORE.NAP_STATUS, { players: {}, alliances: {} }),
+    intelAllianceFilter: load(STORE.INTEL_ALLY_FILTER, '') || '',
     allianceNotes: load(STORE.ALLIANCE_NOTES, {}),
     configVer: load(STORE.CONFIG_VER, 1),
     configUndo: load(STORE.CONFIG_UNDO, []) || [],

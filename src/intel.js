@@ -73,6 +73,7 @@
       if (f.ts && f.ts > d.last) d.last = f.ts;
       const noteKey = (raw && typeof raw === 'object' && raw.name) ? raw.name : d.player;
       if (state.playerNotes && state.playerNotes[noteKey]) d.note = state.playerNotes[noteKey];
+      { const st = intelStatusFor(raw, f.alliance); if (st.status) { d.status = st.status; d.statusSource = st.source; } }
       if (state.allianceNotes && f.alliance && state.allianceNotes[f.alliance]) {
         d.allianceNote = state.allianceNotes[f.alliance];
       }
@@ -594,8 +595,11 @@
     if (!box) return;
     const sec = box.closest('section[data-tab]');
     if (sec && sec.hidden) return;
-    if (intelView === 'heatmap') {
-      box.textContent = intelHeatmapLines().join('\n');
+    const VIEWS = { heatmap: intelHeatmapLines, defense: intelDefenseBoardLines, pool: intelPoolLines, activity: intelActivityLines };
+    if (VIEWS[intelView]) {
+      let out = [];
+      try { out = VIEWS[intelView](); } catch (e) { out = ['vista no disponible: ' + String(e).slice(0, 60)]; }
+      box.textContent = out.join('\n');
       // Orthogonal to the view: the pattern scan still runs in either branch.
       try { intelPatternScan(); } catch (_) {}
       try { renderIntelTimeline(); } catch (_) {}
@@ -629,7 +633,7 @@
     }
     html += '\n=== Fichas ===\n';
     dossiers.forEach(d => {
-      html += `${d.player}: ${d.reports} informes` +
+      html += `${d.player}: ${d.reports} informes${d.status ? ' ' + NAP_BADGE[d.status] : ''}` +
         (d.note ? ` — ${d.note}` : '') +
         (d.allianceNote ? ` [aliado: ${d.allianceNote}]` : '') + '\n';
     });
@@ -938,6 +942,192 @@
       lines.push('  ' + `(+${rest.length} alianzas)`.padEnd(18) + ' '.repeat(m.towns.length * 4) + String(tot).padStart(6));
     }
     lines.push('  ' + 'total'.padEnd(18) + m.towns.map(t => String(m.totalForTown[t]).padStart(4)).join(''));
+    return lines;
+  }
+  // ===== NAP / war tracking (v4 plan 7.5) ====================================
+  // A four-value ENUM, not free text: a diplomatic marker that could hold
+  // arbitrary strings would end up rendered into the panel unescaped and
+  // exported to webhooks.
+  const NAP_STATUSES = ['war', 'ally', 'nap', 'neutral'];
+  const NAP_RANK = { war: 4, ally: 3, nap: 2, neutral: 1 };
+  const NAP_BADGE = { war: '[WAR]', ally: '[ALLY]', nap: '[NAP]', neutral: '[NEUTRAL]' };
+  function napStore() {
+    const s0 = state.napStatus;
+    if (!s0 || typeof s0 !== 'object' || Array.isArray(s0)) state.napStatus = { players: {}, alliances: {} };
+    if (!state.napStatus.players || typeof state.napStatus.players !== 'object') state.napStatus.players = {};
+    if (!state.napStatus.alliances || typeof state.napStatus.alliances !== 'object') state.napStatus.alliances = {};
+    return state.napStatus;
+  }
+  function napSave() { save(STORE.NAP_STATUS, napStore()); }
+  function intelSetPlayerStatus(player, status) {
+    const key = intelPlayerKey(player) || (typeof player === 'string' ? player.trim() : null);
+    if (!key) return false;
+    const st = napStore();
+    if (!status || !NAP_STATUSES.includes(status)) delete st.players[key];
+    else st.players[key] = status;
+    napSave();
+    return true;
+  }
+  function intelSetAllianceStatus(alliance, status) {
+    const a = intelAllianceName(alliance);
+    if (!a) return false;
+    const st = napStore();
+    if (!status || !NAP_STATUSES.includes(status)) delete st.alliances[a];
+    else st.alliances[a] = status;
+    napSave();
+    return true;
+  }
+  // The STRONGER of the two wins, so an explicit war with one member is not
+  // hidden by a blanket NAP with their alliance.
+  function intelStatusFor(player, alliance) {
+    const st = napStore();
+    const pk = intelPlayerKey(player);
+    const p = pk ? st.players[pk] : null;
+    const a = intelAllianceName(alliance) ? st.alliances[intelAllianceName(alliance)] : null;
+    if (p && a) return (NAP_RANK[p] >= NAP_RANK[a]) ? { status: p, source: 'player' } : { status: a, source: 'alliance' };
+    if (p) return { status: p, source: 'player' };
+    if (a) return { status: a, source: 'alliance' };
+    return { status: null, source: null };
+  }
+
+  // ===== Defense coordination board (v4 plan 7.2) ============================
+  function intelDefenseBoard(threats) {
+    const byDest = new Map();
+    for (const t of (threats || [])) {
+      const k = String(t.dest);
+      if (!byDest.has(k)) byDest.set(k, []);
+      byDest.get(k).push(t);
+    }
+    const rows = [];
+    for (const [dest, list] of byDest) {
+      let local = null;
+      try { local = defenseLocalStrength(dest); } catch (_) {}
+      const assessed = list.map(t => {
+        let a = null;
+        try { a = defenseAssessment(t, list); } catch (_) {}
+        return { mov: t, a };
+      }).sort((x, y) => ((x.a && x.a.eta) == null ? Infinity : x.a.eta) - ((y.a && y.a.eta) == null ? Infinity : y.a.eta));
+      const worst = assessed.reduce((m, x) => (x.a && (!m || x.a.risk > m.risk)) ? x.a : m, null);
+      rows.push({ dest, list: assessed, local, worst, hasCs: list.some(t => t.hasCs) });
+    }
+    return rows.sort((a, b) => ((b.worst && b.worst.risk) || 0) - ((a.worst && a.worst.risk) || 0));
+  }
+  function intelDefenseBoardLines() {
+    let threats = [];
+    try { threats = intelThreatBoard() || []; } catch (_) {}
+    const rows = intelDefenseBoard(threats);
+    if (!rows.length) return ['tablero de defensa: sin entrantes'];
+    const mode = (state.defenseCfg && state.defenseCfg.mode) || 'notify';
+    const lines = [`tablero de defensa - modo ${mode}`];
+    for (const r of rows) {
+      lines.push(`${townNameById(r.dest)} (#${r.dest})${r.hasCs ? ' [CS]' : ''}` +
+        ` - defensa local ${r.local ? Math.round(r.local.score) : '?'}` +
+        ` - ${r.list.length} entrante(s)` +
+        (r.worst ? ` - peor riesgo ${r.worst.risk} (${r.worst.band})` : ''));
+      for (const x of r.list.slice(0, 4)) {
+        const a = x.a;
+        lines.push(`    ${x.mov.type || 'atk'} de ${x.mov.origin || '?'} ETA ${a && a.eta != null ? fmtSec(a.eta) : '?'}` +
+          (a ? ` | apoyo ${a.supports.length} | esquivar ${a.evac.ok ? 'si' : 'no'}` : ' | evaluacion no legible'));
+      }
+    }
+    return lines;
+  }
+
+  // ===== Alliance resource pool (v4 plan 7.3) ================================
+  // Alliance-wide resources for OTHER members are NOT readable - there is no
+  // Alliance collection in this client. This reports what genuinely can be
+  // read: my own towns, and the last spied stock of towns I have reports for.
+  // It never presents a spied number as current.
+  function intelPoolByAlliance() {
+    const et = () => ({ wood: 0, stone: 0, iron: 0 });
+    const own = { alliance: '(mis ciudades)', totals: et(), towns: 0, spied: false, lastTs: 0 };
+    for (const t of (state.towns || [])) {
+      const r = (state.townResources || {})[t.id];
+      if (!r || !r.ok) continue;
+      for (const k of GB_RES_KEYS) if (Number.isFinite(+r[k])) own.totals[k] += +r[k];
+      own.towns++;
+      if (+r.ts > own.lastTs) own.lastTs = +r.ts;
+    }
+    const byAlly = new Map();
+    const seenTown = new Set();
+    // Newest report per town wins; older ones are strictly worse information.
+    const sorted = (state.findings || []).slice().sort((a, b) => (+b.ts || 0) - (+a.ts || 0));
+    for (const f of sorted) {
+      const a = intelAllianceName(f && f.alliance);
+      if (!a || !f.resources) continue;
+      const tid = f.town && f.town.id != null ? String(f.town.id) : null;
+      if (!tid || seenTown.has(tid)) continue;
+      let any = false;
+      const add = et();
+      for (const k of GB_RES_KEYS) {
+        if (f.resources[k] == null) continue;
+        const n = +f.resources[k];
+        if (!Number.isFinite(n)) continue;
+        add[k] = n; any = true;
+      }
+      if (!any) continue;
+      seenTown.add(tid);
+      let row = byAlly.get(a);
+      if (!row) { row = { alliance: a, totals: et(), towns: 0, spied: true, lastTs: 0 }; byAlly.set(a, row); }
+      for (const k of GB_RES_KEYS) row.totals[k] += add[k];
+      row.towns++;
+      if (+f.ts > row.lastTs) row.lastTs = +f.ts;
+    }
+    const out = Array.from(byAlly.values()).sort((x, y) =>
+      (y.totals.wood + y.totals.stone + y.totals.iron) - (x.totals.wood + x.totals.stone + x.totals.iron));
+    return own.towns ? [own].concat(out) : out;
+  }
+  function intelPoolLines() {
+    const rows = intelPoolByAlliance();
+    if (!rows.length) return ['reservas: nada legible'];
+    const lines = ['reservas por alianza (espiadas = ultimo informe, NO actuales)'];
+    for (const r of rows.slice(0, 12)) {
+      lines.push(`  ${r.alliance.slice(0, 22).padEnd(22)} mad ${fmt(r.totals.wood)} pie ${fmt(r.totals.stone)} pla ${fmt(r.totals.iron)}` +
+        `  ${r.towns} ciudad(es)` + (r.spied ? ` - visto ${r.lastTs ? new Date(r.lastTs).toLocaleString() : '?'}` : ''));
+    }
+    return lines;
+  }
+
+  // ===== Alliance member activity (v4 plan 7.6) ==============================
+  function intelMemberActivity(opts) {
+    const o = opts || {};
+    const filter = String(o.alliance || '').trim().toLowerCase();
+    const cut = Date.now() - ((Number.isFinite(+o.windowHours) ? +o.windowHours : 24 * 7) * 3600000);
+    const me = intelMyIdentity();
+    const byPlayer = {};
+    for (const f of (state.findings || [])) {
+      if (!f || !(+f.ts >= cut)) continue;
+      for (const side of ['attacker', 'defender']) {
+        const actor = f[side];
+        if (!actor || intelActorIsMe(actor, me)) continue;
+        const key = intelPlayerKey(actor);
+        if (!key || key === 'unknown') continue;
+        const ally = intelAllianceName((actor && (actor.alliance || actor.alliance_name)) || (side === 'attacker' ? f.alliance : null));
+        if (filter && String(ally || '').toLowerCase() !== filter) continue;
+        const r = byPlayer[key] || (byPlayer[key] = {
+          key, player: intelPlayerLabel(actor, key), alliance: ally || null,
+          reports: 0, attacksOnMe: 0, attacksByMe: 0, firstTs: +f.ts, lastTs: +f.ts,
+        });
+        if (ally && !r.alliance) r.alliance = ally;
+        r.reports++;
+        if (side === 'attacker' && intelActorIsMe(f.defender, me)) r.attacksOnMe++;
+        if (side === 'defender' && intelActorIsMe(f.attacker, me)) r.attacksByMe++;
+        r.firstTs = Math.min(r.firstTs, +f.ts);
+        r.lastTs = Math.max(r.lastTs, +f.ts);
+      }
+    }
+    return Object.values(byPlayer).map(r => Object.assign(r, intelStatusFor({ name: r.player }, r.alliance)))
+      .sort((a, b) => b.lastTs - a.lastTs);
+  }
+  function intelActivityLines() {
+    const rows = intelMemberActivity({ alliance: state.intelAllianceFilter || '' });
+    if (!rows.length) return ['actividad: sin informes en 7d' + (state.intelAllianceFilter ? ` para "${state.intelAllianceFilter}"` : '')];
+    const lines = [`actividad de miembros (7d)${state.intelAllianceFilter ? ' - filtro: ' + state.intelAllianceFilter : ''}`];
+    for (const r of rows.slice(0, 20)) {
+      lines.push(`  ${(r.player || '?').slice(0, 18).padEnd(18)} ${(r.alliance || '-').slice(0, 14).padEnd(14)}` +
+        ` ${String(r.reports).padStart(3)} inf  ${String(r.attacksOnMe).padStart(2)}->mi  ${String(r.attacksByMe).padStart(2)}<-mi` +
+        `  ${new Date(r.lastTs).toLocaleString()}${r.status ? ' ' + NAP_BADGE[r.status] : ''}`);
+    }
     return lines;
   }
   function intelPatternScan() {
