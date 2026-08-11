@@ -53,6 +53,7 @@
     farmTick();
     try { reportCatchUpEnqueue(); } catch (_) {}
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
+    try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (_) {}
   });
   gbListen(window, 'pageshow', (e) => {
     if (!(e && e.persisted)) return;
@@ -61,6 +62,7 @@
     try { reportCatchUpEnqueue(); } catch (_) {}
     try { bindQuestObserver(); } catch (_) {}
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
+    try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (_) {}
   });
   gbInterval(checkThresholds, 30000);
   gbInterval(renderTimers, 1000);
@@ -89,9 +91,14 @@
   gbTimeout(() => { abEnsureTargets(); }, 12000);
   gbTimeout(scheduleNativeUiScan, 1200);
   gbInterval(() => {
-    if (nativeQueueHasPending('build')) abScan('native-watch');
-    if (nativeRecruitPending()) recruitScan('native-watch');
-    if (nativeQueueHasPending('research')) researchScan('native-watch');
+    // The native-queue lane state must be observed frequently so a hand-edit
+    // or a foreign + tap reflects in the panel within seconds. But the POSTS
+    // themselves are orchestrator-owned (orchTick drives ab/recruit/research
+    // on cadence); calling them here too would double-fire every interval and
+    // invalidate the per-feature `*Scan` lock guards' serialisation. Render-only.
+    if (nativeQueueHasPending('build') || nativeRecruitPending() || nativeQueueHasPending('research')) {
+      try { renderQueueCenter(); } catch (_) {}
+    }
     // Ungated: this used to fire only while a lane already had work, which is a
     // chicken-and-egg lock on a fresh install — no scan means no [+] control,
     // no [+] means the lane stays empty, and the empty lane suppresses the scan.

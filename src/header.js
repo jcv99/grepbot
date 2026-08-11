@@ -251,7 +251,7 @@ const STORE = {
   };
 
   const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
-    'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'merchant', 'pttrade', 'favor', 'wonder', 'hero', 'godspell'];
+    'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'merchant', 'pttrade', 'favor', 'wonder', 'hero', 'godspell', 'spy'];
   const CONFIG_VER_CURRENT = 12;
 
   const WORLD_SCOPED_BASES = new Set([
@@ -276,4 +276,5 @@ const STORE = {
     STORE.SPELL_COOLDOWN,
     // endpoint availability is a property of the world's client, not of the user
     STORE.FARM_SCRAPE, STORE.FARM_SCRAPE_STATE, STORE.TOWN_ACTION, STORE.TOWN_LIST_ACTION,
+    STORE.PT_TRADE_TPL, STORE.PT_VIEW_URL,
   ]);

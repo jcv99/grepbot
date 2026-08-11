@@ -472,8 +472,8 @@
       targetRatio: 1.0, pumpAmount: 1, maxPumps: 6, reservePct: 10,
       wantRes: { wood: true, stone: true, iron: false },
     },
-    ptTradeTpl: load(wkey(STORE.PT_TRADE_TPL), null),
-    ptViewUrl: load(wkey(STORE.PT_VIEW_URL), null),
+    ptTradeTpl: load(STORE.PT_TRADE_TPL, null),
+    ptViewUrl: load(STORE.PT_VIEW_URL, null),
   };
 
   let panel = null;

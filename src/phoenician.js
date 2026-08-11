@@ -217,7 +217,7 @@
     if (!action || /^(index|view|show|load)$/i.test(action)) {
       if (state.ptViewUrl !== url) {
         state.ptViewUrl = url;
-        save(wkey(STORE.PT_VIEW_URL), url);
+        save(STORE.PT_VIEW_URL, url);
         gbLog('phoenician: learned view URL');
       }
       return;
@@ -239,7 +239,7 @@
     };
     tpl.amountKey = ptAmountKey(tpl);
     state.ptTradeTpl = tpl;
-    save(wkey(STORE.PT_TRADE_TPL), tpl);
+    save(STORE.PT_TRADE_TPL, tpl);
     gbLog('phoenician: learned trade payload: ' + JSON.stringify(tpl).slice(0, 200));
     try { tplHealthMarkLearned('ptTradeTpl'); } catch (_) {}
   }

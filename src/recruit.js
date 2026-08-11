@@ -20,6 +20,11 @@
     const def = recruitUnitDef(unitId);
     if (!def) return null;
     if (def.is_naval || def.naval) return { controller: 'building_docks', feature: 'recruit' };
+    // Mythical/god units (ares spartans, athena centaurs, hera amazons, ...) live
+    // behind `building_temple`, not barracks. Without this branch the bot routes
+    // every mythical recruit to barracks every cadence and the server rejects
+    // the post — burning a request budget slot and a decision-memory strike.
+    if (def.is_mythical || def.mythical || def.god) return { controller: 'building_temple', feature: 'recruit' };
     return { controller: 'building_barracks', feature: 'recruit' };
   }
   function recruitHasSpell(townId, powerId) {
@@ -131,6 +136,7 @@
     if (typeof need === 'object') return Object.keys(need).filter(k => need[k]);
     return [];
   }
+  const _recruitBlindLog = new Set();
   function recruitCanBuild(townId, unitId) {
     const def = recruitUnitDef(unitId);
     if (!def) return false;
@@ -140,12 +146,25 @@
       const rdeps = recruitResearchDeps(def);
       if (rdeps.length) {
         const info = typeof researchTownTechs === 'function' ? researchTownTechs(townId) : null;
-        if (!info || !info.techs) return false;
+        if (!info || !info.techs) {
+          // Unreadable techs = unknown, not "missing". Blind precheck: let the
+          // server be the authority. Log once per (townId,unitId) so the player
+          // sees which gate silently went blind instead of a hard block.
+          const k = townId + '|' + unitId + '|tech';
+          if (!_recruitBlindLog.has(k)) { _recruitBlindLog.add(k); gbLogT('recruit-blind-' + townId + '-' + unitId, 300000, 'recruit: ' + unitId + ' techs unreadable in town ' + townId + ' - blind precheck, server judges'); }
+          return true;
+        }
         for (const tech of rdeps) if (!info.techs[tech]) return false;
       }
       let buildings = null;
       try { const b = t.getBuildings ? t.getBuildings() : (t.buildings && t.buildings()); buildings = b && (b.attributes || b); } catch (_) {}
-      if (!buildings) return false;
+      if (!buildings) {
+        // Same blind-on-unknown contract as above: a renamed getter must not
+        // strand a feature. Log once and return true so the server judges.
+        const k = townId + '|' + unitId + '|bld';
+        if (!_recruitBlindLog.has(k)) { _recruitBlindLog.add(k); gbLogT('recruit-blind-' + townId + '-' + unitId, 300000, 'recruit: ' + unitId + ' buildings unreadable in town ' + townId + ' - blind precheck, server judges'); }
+        return true;
+      }
       const bdeps = recruitRequiredBuildings(def);
       for (const [bid, lvl] of Object.entries(bdeps)) if (+(buildings[bid] || 0) < +lvl) return false;
       if (def.is_naval || def.naval) {
@@ -509,7 +528,7 @@
       amount: +amount,
     });
     const modelUrl = (tpl && tpl.model_url) || ('FarmTownPlayerRelation/' + (farm.relation_id || ''));
-    bridgePost('villageRecruit', {
+    bridgePost('villrecruit', {
       model_url: modelUrl,
       action_name: actionName,
       arguments: args,
@@ -520,7 +539,7 @@
   function villageRecruitScan(reason) {
     if (!hostEnabled() || !state.autoVillageRecruit) return;
     if (automationPaused({})) return;
-    if (captchaPaused('villageRecruit')) return;
+    if (captchaPaused('villrecruit')) return;
     if (gbLocked('village-recruit')) return;
 
     // Template must be learned from a hand-click before any post. Log once
