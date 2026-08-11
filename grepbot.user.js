@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.5.1
+// @version      4.5.3
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -2850,6 +2850,68 @@ const STORE = {
     return out;
   }
 
+  const LOOT_RATE_PER_HOUR = 8000;
+  const LOOT_SAFE_FILL_PCT = 0.6;
+
+  const LOOT_CARRY_ATTRS = ['booty', 'carry', 'loot', 'haul_capacity', 'carrying_capacity', 'cargo'];
+  function gbUnitCarry(unitId) {
+    let m = null;
+    try { m = unitMeta(unitId); } catch (_) {}
+    if (!m) return null;
+    const v = gbProbeAttr(m, LOOT_CARRY_ATTRS);
+    return Number.isFinite(v) && v > 0 ? v : null;
+  }
+
+  function gbLootSplit(total) {
+    const t = Math.max(0, Math.floor(+total || 0));
+    const base = Math.floor(t / 3), rem = t - base * 3;
+    return { wood: base + (rem > 0 ? 1 : 0), stone: base + (rem > 1 ? 1 : 0), iron: base };
+  }
+  function gbLootBlind(reason, meta) {
+    return { wood: 0, stone: 0, iron: 0, total: 0, blind: true, blindReason: reason, meta: meta || {} };
+  }
+  function gbLootEstimate(ctx) {
+    const kind = ctx && ctx.kind;
+    if (kind === 'farm-claim') {
+      const dur = Math.max(0, +(ctx.durationSec) || 0);
+      const loyalty = ctx.loyalty != null ? +ctx.loyalty : 1.0;
+      const headroom = ctx.headroom != null ? +ctx.headroom : null;
+      const total = Math.round((dur / 3600) * LOOT_RATE_PER_HOUR * (Number.isFinite(loyalty) ? loyalty : 1));
+
+      const fits = (headroom != null && Number.isFinite(headroom)) ? total <= headroom * LOOT_SAFE_FILL_PCT : null;
+      const split = gbLootSplit(total);
+      return {
+        wood: split.wood, stone: split.stone, iron: split.iron, total,
+        blind: false, blindReason: null,
+        meta: { durationSec: dur, loyalty, headroom, fits, ratePerHour: LOOT_RATE_PER_HOUR, safeFillPct: LOOT_SAFE_FILL_PCT },
+      };
+    }
+    if (kind === 'attack-boat') {
+      let boats = null;
+      try { boats = boatCapacityCheck(ctx.units, ctx.sameIsland); } catch (_) {}
+      if (!boats) return gbLootBlind('boat-capacity-unreadable', { units: ctx.units });
+
+      return { wood: 0, stone: 0, iron: 0, total: 0, blind: false, blindReason: null, meta: { boats } };
+    }
+    if (kind === 'attack-loot') {
+      const units = ctx.units || {};
+      let total = 0, unknown = 0;
+      for (const [u, n0] of Object.entries(units)) {
+        const n = +n0 || 0;
+        if (!(n > 0)) continue;
+        const carry = gbUnitCarry(u);
+        if (carry == null) { unknown += n; continue; }
+        total += carry * n;
+      }
+
+      if (unknown > 0 || total <= 0) return gbLootBlind('unit-carry-unknown', { units, unknownUnits: unknown });
+      const split = gbLootSplit(total);
+      return { wood: split.wood, stone: split.stone, iron: split.iron, total, blind: false, blindReason: null, meta: { units } };
+    }
+    gbLogT('loot-calc-bad-kind', 300000, 'loot estimate: unknown kind ' + String(kind));
+    return gbLootBlind('unknown-kind', { kind });
+  }
+
   const _townPopCache = Object.create(null);
   const POP_WARN_PCT = 90;
   const POP_NEAR_PCT = 75;
@@ -4373,13 +4435,12 @@ const STORE = {
 
     const rs = (typeof townResState === 'function') ? townResState(townId) : null;
     const headroom = rs && rs.cap > 0 ? Math.max(0, rs.cap - Math.max(rs.wood, rs.stone, rs.iron)) : null;
-    const SAFE_FILL_PCT = 0.6;
-    const ROOM_PER_HOUR = 8000;
+
     let best = 300;
     for (const sec of learned) {
 
-      const expected = Math.round(sec / 3600 * ROOM_PER_HOUR);
-      if (headroom != null && expected > headroom * SAFE_FILL_PCT) continue;
+      const est = gbLootEstimate({ kind: 'farm-claim', durationSec: sec, loyalty: 1.0, headroom });
+      if (est.meta.fits === false) continue;
       if (sec > best) best = sec;
     }
     return best;
@@ -13669,6 +13730,10 @@ const STORE = {
     if (!Object.keys(boats).length && !sameIsland) return { ok: false, need: needPop, cap: 0, sameIsland: false, reason: 'no-boats' };
     return { ok: cap >= needPop, need: needPop, cap, sameIsland: !!sameIsland, reason: cap >= needPop ? 'ok' : 'under-boated' };
   }
+
+  function attackBoatViaCalc(units, sameIsland) {
+    return gbLootEstimate({ kind: 'attack-boat', units, sameIsland });
+  }
   function classifyUnitFn(id) {
     const m = unitMeta(id);
     if (!m) return 'unknown';
@@ -15103,6 +15168,17 @@ const STORE = {
         detail: state.intelBattleStats === false
           ? 'desactivado en Config'
           : `${n} informes, ${withVerdict} con resultado` + (n < 5 ? ' - muestra pequena' : ''),
+      };
+    }));
+    out.push(preflightProbe('loot calculator', () => {
+      const e = gbLootEstimate({ kind: 'farm-claim', durationSec: 3600, loyalty: 1, headroom: 100000 });
+      const carry = gbLootEstimate({ kind: 'attack-loot', units: { sword: 1 } });
+      return {
+        ok: true,
+
+        warn: !!e.blind,
+        detail: `farm-claim ${e.total}/h` + (e.blind ? ` BLIND (${e.blindReason})` : '') +
+          ` \u00b7 attack-loot ${carry.blind ? 'ciego (' + carry.blindReason + ')' : carry.total}`,
       };
     }));
     out.push(preflightProbe('composition advisor', () => {

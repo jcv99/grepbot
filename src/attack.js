@@ -138,6 +138,11 @@
     if (!Object.keys(boats).length && !sameIsland) return { ok: false, need: needPop, cap: 0, sameIsland: false, reason: 'no-boats' };
     return { ok: cap >= needPop, need: needPop, cap, sameIsland: !!sameIsland, reason: cap >= needPop ? 'ok' : 'under-boated' };
   }
+  // Thin cross-feature wrapper (v4 plan 2.12). Existing callers of
+  // boatCapacityCheck read the raw shape and are deliberately untouched.
+  function attackBoatViaCalc(units, sameIsland) {
+    return gbLootEstimate({ kind: 'attack-boat', units, sameIsland });
+  }
   function classifyUnitFn(id) {
     const m = unitMeta(id);
     if (!m) return 'unknown';

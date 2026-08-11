@@ -431,14 +431,21 @@
     // of the loyalty multiplier, so prefer them only when headroom allows.
     const rs = (typeof townResState === 'function') ? townResState(townId) : null;
     const headroom = rs && rs.cap > 0 ? Math.max(0, rs.cap - Math.max(rs.wood, rs.stone, rs.iron)) : null;
-    const SAFE_FILL_PCT = 0.6;
-    const ROOM_PER_HOUR = 8000; // vague: grepolis haul rates at ~7k-9k/h at max
+    // loyalty is deliberately 1.0, NOT farmLoyaltyResearched(townId) ? 1 : 0.5.
+    // Plan 2.12 suggested the 0.5 factor but cites no evidence for it, and
+    // getting it wrong in that direction is asymmetric: a halved estimate lets
+    // the picker choose a claim roughly twice as long as the warehouse can
+    // absorb, and the overflow is loot thrown away. 1.0 reproduces the numerics
+    // this picker has always used. The parameter stays in the API so a verified
+    // multiplier can be dropped in later.
     let best = 300;
     for (const sec of learned) {
-      // Rough estimate: the loot scales with duration; refuse to ship a longer
-      // claim than the warehouse can absorb at 60% utilisation.
-      const expected = Math.round(sec / 3600 * ROOM_PER_HOUR);
-      if (headroom != null && expected > headroom * SAFE_FILL_PCT) continue;
+      // The haul estimate now lives in gbLootEstimate (v4 plan 2.12) so the
+      // rate constant has one home. Skip a duration only when fits === false;
+      // fits === null means headroom was unreadable and must not block the
+      // longer claim.
+      const est = gbLootEstimate({ kind: 'farm-claim', durationSec: sec, loyalty: 1.0, headroom });
+      if (est.meta.fits === false) continue;
       if (sec > best) best = sec;
     }
     return best;

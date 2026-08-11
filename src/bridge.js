@@ -275,6 +275,87 @@
     _townResCache[key] = { at: now, v: out };
     return out;
   }
+  // ===== Loot estimate (v4 plan 2.12) ========================================
+  // ONE home for "how much can this action bring back / can the town absorb it".
+  // Three modules carried their own copy of this math; a research multiplier or
+  // a world-specific rate now lands in one place.
+  //
+  // Every branch returns the same shape so a caller can compose checks without
+  // branching by domain:
+  //   {wood, stone, iron, total, blind, blindReason, meta}
+  // `blind:true` means UNKNOWN, and a renderer must print "desconocido", never
+  // "0" - that distinction is the whole point of the helper.
+  const LOOT_RATE_PER_HOUR = 8000; // vague: grepolis haul rates at ~7k-9k/h at max
+  const LOOT_SAFE_FILL_PCT = 0.6;
+  // Per-unit loot carry is NOT named anywhere in src/ and this repo has never
+  // seen a client that exposes it. These names are UNVERIFIED probe candidates,
+  // not an assumption about the field: every one of them missing is the
+  // expected outcome, gbUnitCarry returns null, and the caller stays blind.
+  // Never substitute a guessed number for a missing probe.
+  const LOOT_CARRY_ATTRS = ['booty', 'carry', 'loot', 'haul_capacity', 'carrying_capacity', 'cargo'];
+  function gbUnitCarry(unitId) {
+    let m = null;
+    try { m = unitMeta(unitId); } catch (_) {}
+    if (!m) return null;
+    const v = gbProbeAttr(m, LOOT_CARRY_ATTRS);
+    return Number.isFinite(v) && v > 0 ? v : null;
+  }
+  // Even thirds that actually sum to `total`: rounding each share
+  // independently drifts by up to 2, and a caller rendering the per-resource
+  // numbers next to the total would be reading a contradiction.
+  function gbLootSplit(total) {
+    const t = Math.max(0, Math.floor(+total || 0));
+    const base = Math.floor(t / 3), rem = t - base * 3;
+    return { wood: base + (rem > 0 ? 1 : 0), stone: base + (rem > 1 ? 1 : 0), iron: base };
+  }
+  function gbLootBlind(reason, meta) {
+    return { wood: 0, stone: 0, iron: 0, total: 0, blind: true, blindReason: reason, meta: meta || {} };
+  }
+  function gbLootEstimate(ctx) {
+    const kind = ctx && ctx.kind;
+    if (kind === 'farm-claim') {
+      const dur = Math.max(0, +(ctx.durationSec) || 0);
+      const loyalty = ctx.loyalty != null ? +ctx.loyalty : 1.0;
+      const headroom = ctx.headroom != null ? +ctx.headroom : null;
+      const total = Math.round((dur / 3600) * LOOT_RATE_PER_HOUR * (Number.isFinite(loyalty) ? loyalty : 1));
+      // fits === null means "headroom unreadable", not "does not fit": the
+      // caller must not skip the duration on an unread value.
+      const fits = (headroom != null && Number.isFinite(headroom)) ? total <= headroom * LOOT_SAFE_FILL_PCT : null;
+      const split = gbLootSplit(total);
+      return {
+        wood: split.wood, stone: split.stone, iron: split.iron, total,
+        blind: false, blindReason: null,
+        meta: { durationSec: dur, loyalty, headroom, fits, ratePerHour: LOOT_RATE_PER_HOUR, safeFillPct: LOOT_SAFE_FILL_PCT },
+      };
+    }
+    if (kind === 'attack-boat') {
+      let boats = null;
+      try { boats = boatCapacityCheck(ctx.units, ctx.sameIsland); } catch (_) {}
+      if (!boats) return gbLootBlind('boat-capacity-unreadable', { units: ctx.units });
+      // Transport capacity is not loot; it rides in meta so callers that want
+      // the discriminator get it without a second call.
+      return { wood: 0, stone: 0, iron: 0, total: 0, blind: false, blindReason: null, meta: { boats } };
+    }
+    if (kind === 'attack-loot') {
+      const units = ctx.units || {};
+      let total = 0, unknown = 0;
+      for (const [u, n0] of Object.entries(units)) {
+        const n = +n0 || 0;
+        if (!(n > 0)) continue;
+        const carry = gbUnitCarry(u);
+        if (carry == null) { unknown += n; continue; }
+        total += carry * n;
+      }
+      // Any unreadable unit poisons the whole number: a partial sum would read
+      // as a full answer and understate the haul.
+      if (unknown > 0 || total <= 0) return gbLootBlind('unit-carry-unknown', { units, unknownUnits: unknown });
+      const split = gbLootSplit(total);
+      return { wood: split.wood, stone: split.stone, iron: split.iron, total, blind: false, blindReason: null, meta: { units } };
+    }
+    gbLogT('loot-calc-bad-kind', 300000, 'loot estimate: unknown kind ' + String(kind));
+    return gbLootBlind('unknown-kind', { kind });
+  }
+
   // ===== Population state (v4 plan 2.7) ======================================
   // Own cache keyspace so a pop invalidation never trashes the resource memo.
   const _townPopCache = Object.create(null);

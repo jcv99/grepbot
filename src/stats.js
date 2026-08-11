@@ -190,6 +190,18 @@
           : `${n} informes, ${withVerdict} con resultado` + (n < 5 ? ' - muestra pequena' : ''),
       };
     }));
+    out.push(preflightProbe('loot calculator', () => {
+      const e = gbLootEstimate({ kind: 'farm-claim', durationSec: 3600, loyalty: 1, headroom: 100000 });
+      const carry = gbLootEstimate({ kind: 'attack-loot', units: { sword: 1 } });
+      return {
+        ok: true,
+        // farm-claim is non-blind by design; attack-loot blind is EXPECTED
+        // until a client is found that names the per-unit carry field.
+        warn: !!e.blind,
+        detail: `farm-claim ${e.total}/h` + (e.blind ? ` BLIND (${e.blindReason})` : '') +
+          ` \u00b7 attack-loot ${carry.blind ? 'ciego (' + carry.blindReason + ')' : carry.total}`,
+      };
+    }));
     out.push(preflightProbe('composition advisor', () => {
       const rows = militaryCompositionAll();
       const withShort = rows.filter(r => r.shortageTotal > 0).length;
