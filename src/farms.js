@@ -1076,7 +1076,13 @@
       return;
     }
     gbLog(`farm scrape: ${list.length} farms (${gameFarms} auto-discovered, ${list.length - gameFarms} from textarea)`);
-    let done = 0, ok = 0;
+    let done = 0, ok = 0, hard = 0;
+    // A village that walked the whole ladder and matched nothing is endpoint
+    // evidence; a budget/network stop is not. Counting only whole sweeps meant a
+    // sweep that always ran out of budget on its last village never reached
+    // farmScrapeNoteSweep, so the breaker could never trip and the dead ladder
+    // burned the scrape budget forever.
+    const FARM_SCRAPE_HARD_ABORT = 3;
 
     (function step() {
       gbLockTouch('farm-scrape', farmScrapeLock);
@@ -1095,11 +1101,23 @@
       }
       fetchFarmResources(f, (good, why) => {
         done++; if (good) ok++;
-        if (!good) gbLog(`  farm ${f.vill_id}: no data (${(state.farmResources[f.vill_id] || {}).err || '?'})`);
-        // Out of budget mid-sweep: stop, do not count it as endpoint evidence.
+        const err = (state.farmResources[f.vill_id] || {}).err || '?';
+        if (!good) gbLog(`  farm ${f.vill_id}: no data (${err})`);
+        if (!good && err === 'no endpoint matched') hard++;
+        // Out of budget mid-sweep: stop the sweep, but still charge the breaker
+        // with whatever endpoint evidence this sweep already produced.
         if (why === 'budget' || why === 'disabled' || why === 'disposed') {
           gbUnlock('farm-scrape', farmScrapeLock);
           gbLog(`farm scrape stopped (${why}): ${ok}/${done} ok`);
+          if (ok || hard) farmScrapeNoteSweep(ok);
+          return;
+        }
+        // Nothing on this world answers the ladder: stop burning the rest of the
+        // budget on the remaining villages, the verdict is already in.
+        if (!ok && hard >= FARM_SCRAPE_HARD_ABORT && list.length) {
+          gbUnlock('farm-scrape', farmScrapeLock);
+          gbLog(`farm scrape stopped (no endpoint after ${hard} villages): 0/${done} ok`);
+          farmScrapeNoteSweep(0);
           return;
         }
         gbTimeout(step, 700 + Math.random() * 300);

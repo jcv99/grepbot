@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.44.20
+// @version      4.44.21
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -5467,7 +5467,9 @@ const STORE = {
       return;
     }
     gbLog(`farm scrape: ${list.length} farms (${gameFarms} auto-discovered, ${list.length - gameFarms} from textarea)`);
-    let done = 0, ok = 0;
+    let done = 0, ok = 0, hard = 0;
+
+    const FARM_SCRAPE_HARD_ABORT = 3;
 
     (function step() {
       gbLockTouch('farm-scrape', farmScrapeLock);
@@ -5486,11 +5488,21 @@ const STORE = {
       }
       fetchFarmResources(f, (good, why) => {
         done++; if (good) ok++;
-        if (!good) gbLog(`  farm ${f.vill_id}: no data (${(state.farmResources[f.vill_id] || {}).err || '?'})`);
+        const err = (state.farmResources[f.vill_id] || {}).err || '?';
+        if (!good) gbLog(`  farm ${f.vill_id}: no data (${err})`);
+        if (!good && err === 'no endpoint matched') hard++;
 
         if (why === 'budget' || why === 'disabled' || why === 'disposed') {
           gbUnlock('farm-scrape', farmScrapeLock);
           gbLog(`farm scrape stopped (${why}): ${ok}/${done} ok`);
+          if (ok || hard) farmScrapeNoteSweep(ok);
+          return;
+        }
+
+        if (!ok && hard >= FARM_SCRAPE_HARD_ABORT && list.length) {
+          gbUnlock('farm-scrape', farmScrapeLock);
+          gbLog(`farm scrape stopped (no endpoint after ${hard} villages): 0/${done} ok`);
+          farmScrapeNoteSweep(0);
           return;
         }
         gbTimeout(step, 700 + Math.random() * 300);
