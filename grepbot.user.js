@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.1.1
+// @version      4.1.4
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -11908,6 +11908,9 @@ const STORE = {
   const INTEL_TIMELINE_PER_TOWN = 8;
   const INTEL_TIMELINE_MAX_TOWNS = 30;
 
+  const GHOST_STALE_MS = 3 * 86400000;
+  const GHOST_MAX_ROWS = 30;
+
   function intelTownKey(f) {
     if (!f) return null;
     if (f.town && f.town.id != null && f.town.id !== '') return 'town:' + f.town.id;
@@ -11923,12 +11926,17 @@ const STORE = {
   }
 
   function intelDiffNum(prev, cur, unit) {
-    const a = Number(prev), b = Number(cur);
+
+    if (cur == null) return '?';
+    const b = Number(cur);
     if (!Number.isFinite(b)) return '?';
-    if (!Number.isFinite(a)) return String(b) + (unit ? ' ' + unit : '');
+    const suffix = unit ? ' ' + unit : '';
+    if (prev == null) return String(b) + suffix;
+    const a = Number(prev);
+    if (!Number.isFinite(a)) return String(b) + suffix;
     const d = b - a;
     if (d === 0) return 'sin cambio';
-    return (d > 0 ? '+' : '') + d + (unit ? ' ' + unit : '') + ` (${a}\u2192${b})`;
+    return (d > 0 ? '+' : '') + d + suffix + ` (${a}\u2192${b})`;
   }
   function intelDiffUnits(prev, cur) {
     if (!cur || !Object.keys(cur).length) return 'unidades:?';
@@ -11941,15 +11949,18 @@ const STORE = {
     }
     return parts.length ? parts.join(', ') : 'sin cambio';
   }
+
+  const INTEL_RES_ES = { wood: 'mad', stone: 'pie', iron: 'pla' };
   function intelDiffRes(prev, cur) {
-    const c = cur || {};
+    const c = cur || {}, p = prev || {};
     const parts = [];
     for (const k of GB_RES_KEYS) {
+      if (c[k] == null) continue;
       const b = Number(c[k]);
       if (!Number.isFinite(b)) continue;
-      const a = Number((prev || {})[k]);
-      const d = Number.isFinite(a) ? b - a : null;
-      parts.push(`${k[0].toUpperCase()}${b}` + (d ? (d > 0 ? '+' : '') + d : ''));
+      const a = p[k] == null ? null : Number(p[k]);
+      const d = (a != null && Number.isFinite(a)) ? b - a : null;
+      parts.push(`${INTEL_RES_ES[k]}${b}` + (d ? (d > 0 ? '+' : '') + d : ''));
     }
     return parts.length ? parts.join(' ') : '?';
   }
@@ -12068,6 +12079,87 @@ const STORE = {
     }
     sortApplySaved(table);
   }
+
+  function ghostAgeLabel(ageMs) {
+    const s = Math.max(0, Math.round((+ageMs || 0) / 1000));
+    if (s >= 86400) return Math.floor(s / 86400) + 'd';
+    if (s >= 3600) return Math.floor(s / 3600) + 'h';
+    return Math.floor(s / 60) + 'm';
+  }
+  function ghostReasonText(r) { return (r && r.reasons || []).join(', '); }
+  function intelGhostTowns() {
+    const now = Date.now();
+    const fresh = (state.findings || []).filter(f => f && +f.ts >= now - INTEL_HISTORY_TTL_MS);
+    const latest = new Map();
+    for (const f of fresh) {
+      const key = intelTownKey(f);
+      if (!key) continue;
+      const cur = latest.get(key);
+      if (!cur || (+f.ts || 0) > (+cur.ts || 0)) latest.set(key, f);
+    }
+    const out = [];
+    for (const [key, last] of latest) {
+      const ageMs = now - (+last.ts || 0);
+      const vacation = (last.defender && last.defender.vacation === true) || last.vacation === true;
+
+      const abandoned = !!(last.defender && !last.defender.name);
+      const reasons = [];
+      if (ageMs >= GHOST_STALE_MS) reasons.push('sin actividad 3d');
+      if (vacation) reasons.push('defensor en vacaciones');
+      if (abandoned) reasons.push('sin nombre de defensor');
+      if (!reasons.length) continue;
+      out.push({
+        townKey: key,
+        label: intelTownLabel(last, key),
+        lastTs: +last.ts || 0,
+        ageMs,
+        vacation,
+        abandoned,
+        wall: (last.wall != null && Number.isFinite(+last.wall)) ? +last.wall : null,
+        alliance: last.alliance || null,
+        reasons,
+      });
+    }
+    if (!out.length && (state.findings || []).length) {
+      gbLogT('intel-ghost-empty', 300000, 'intel: ghost towns empty after 7d filter');
+    }
+    return out.sort((a, b) => b.ageMs - a.ageMs).slice(0, GHOST_MAX_ROWS);
+  }
+  function renderIntelGhost() {
+    const list = panel && panel.querySelector('.intel-ghost');
+    if (!list) return;
+    const sec = list.closest('section[data-tab]');
+    if (sec && sec.hidden) return;
+    const rows = intelGhostTowns();
+    if (!rows.length) { placeholder(list, 'sin pueblos fantasma (7d)'); return; }
+    const table = tableShell(list, ['Ciudad', 'Ultima', 'Edad', 'Muro', 'Alianza', 'Razon'], 'intel-ghost');
+    const tbody = table.querySelector('tbody');
+    const wanted = rows.map(r => r.townKey);
+    const have = new Set(Array.from(tbody.children).map(tr => tr.dataset.key));
+    const sameSet = have.size === wanted.length && wanted.every(k => have.has(k));
+    if (!sameSet) tbody.replaceChildren();
+    for (const r of rows) {
+      const cells = [
+        { cls: 'id', text: r.label },
+        { cls: '', text: r.lastTs ? new Date(r.lastTs).toLocaleString() : '?' },
+        { cls: '', text: ghostAgeLabel(r.ageMs) },
+        { cls: '', text: r.wall == null ? '?' : String(r.wall) },
+        { cls: '', text: r.alliance || '?' },
+        { cls: '', text: ghostReasonText(r) },
+      ];
+      let tr = sameSet ? tbody.querySelector(`tr[data-key="${r.townKey}"]`) : null;
+      if (!tr) {
+        tr = document.createElement('tr');
+        tr.dataset.key = r.townKey;
+        cells.forEach(() => tr.appendChild(document.createElement('td')));
+        tbody.appendChild(tr);
+      }
+      patchCells(tr, cells);
+
+      tr.dataset.sort = [r.label, String(r.lastTs), String(r.ageMs), r.wall == null ? '' : String(r.wall), r.alliance || '', ghostReasonText(r)].join('\t');
+    }
+    sortApplySaved(table);
+  }
   function renderIntel() {
     const box = panel && panel.querySelector('.intel-panel');
     if (!box) return;
@@ -12108,6 +12200,7 @@ const STORE = {
     box.textContent = html;
     try { intelPatternScan(); } catch (_) {}
     try { renderIntelTimeline(); } catch (_) {}
+    try { renderIntelGhost(); } catch (_) {}
   }
   function intelSetNote(player, note) {
     if (!state.playerNotes) state.playerNotes = {};
@@ -15641,6 +15734,7 @@ const STORE = {
       <div style="font-size:11px;color:#f5a623;margin-bottom:4px">Intel / amenazas</div>
       <pre class="intel-panel" style="font-size:10px;white-space:pre-wrap;background:#111;padding:6px;border:1px solid #333;max-height:280px;overflow:auto;color:#cfc"></pre>
       <div class="intel-timeline" style="font-size:11px;margin-top:6px"></div>
+      <div class="intel-ghost" style="font-size:11px;margin-top:6px"></div>
       <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <input id="gb-note-player" placeholder="player" style="width:80px;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>
         <input id="gb-note-text" placeholder="note" style="flex:1;background:#111;color:#cfc;border:1px solid #333;font-size:11px"/>

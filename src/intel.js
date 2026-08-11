@@ -90,6 +90,11 @@
   const INTEL_HISTORY_TTL_MS = 7 * 86400000;
   const INTEL_TIMELINE_PER_TOWN = 8;   // rows kept per town, oldest trimmed
   const INTEL_TIMELINE_MAX_TOWNS = 30; // matches the dossier .slice(0, 30)
+  // 3d per the Grepolis vacation-cap norm: a player who takes time off is
+  // usually gone 3-7 days, so anything quieter than that is the actionable
+  // signal rather than ordinary silence.
+  const GHOST_STALE_MS = 3 * 86400000;
+  const GHOST_MAX_ROWS = 30;
 
   function intelTownKey(f) {
     if (!f) return null;
@@ -107,12 +112,19 @@
   // Unknown is rendered '?', never 0. A finding that never carried a wall level
   // must not read as "the wall was torn down".
   function intelDiffNum(prev, cur, unit) {
-    const a = Number(prev), b = Number(cur);
+    // `== null` on purpose: Number(null) is 0, so a `prev && prev.wall` that
+    // collapsed to null would fabricate a 0 baseline and print "+18 muro
+    // (0->18)" on the very first row of every town.
+    if (cur == null) return '?';
+    const b = Number(cur);
     if (!Number.isFinite(b)) return '?';
-    if (!Number.isFinite(a)) return String(b) + (unit ? ' ' + unit : '');
+    const suffix = unit ? ' ' + unit : '';
+    if (prev == null) return String(b) + suffix;
+    const a = Number(prev);
+    if (!Number.isFinite(a)) return String(b) + suffix;
     const d = b - a;
     if (d === 0) return 'sin cambio';
-    return (d > 0 ? '+' : '') + d + (unit ? ' ' + unit : '') + ` (${a}→${b})`;
+    return (d > 0 ? '+' : '') + d + suffix + ` (${a}→${b})`;
   }
   function intelDiffUnits(prev, cur) {
     if (!cur || !Object.keys(cur).length) return 'unidades:?';
@@ -125,15 +137,20 @@
     }
     return parts.length ? parts.join(', ') : 'sin cambio';
   }
+  // extractResources writes null for every unknown and Number(null) is 0, so a
+  // defense report carrying no loot must be skipped, not printed as W0 S0 I0.
+  // Labels follow the Spanish client (iron = plata).
+  const INTEL_RES_ES = { wood: 'mad', stone: 'pie', iron: 'pla' };
   function intelDiffRes(prev, cur) {
-    const c = cur || {};
+    const c = cur || {}, p = prev || {};
     const parts = [];
     for (const k of GB_RES_KEYS) {
+      if (c[k] == null) continue;
       const b = Number(c[k]);
       if (!Number.isFinite(b)) continue;
-      const a = Number((prev || {})[k]);
-      const d = Number.isFinite(a) ? b - a : null;
-      parts.push(`${k[0].toUpperCase()}${b}` + (d ? (d > 0 ? '+' : '') + d : ''));
+      const a = p[k] == null ? null : Number(p[k]);
+      const d = (a != null && Number.isFinite(a)) ? b - a : null;
+      parts.push(`${INTEL_RES_ES[k]}${b}` + (d ? (d > 0 ? '+' : '') + d : ''));
     }
     return parts.length ? parts.join(' ') : '?';
   }
@@ -257,6 +274,92 @@
     }
     sortApplySaved(table);
   }
+
+  // ===== Ghost town detector (v4 plan 2.3) ===================================
+  // Own ladder, not fmtSec: fmtSec tops out at minutes, so a 4-day-quiet town
+  // would read "5760m".
+  function ghostAgeLabel(ageMs) {
+    const s = Math.max(0, Math.round((+ageMs || 0) / 1000));
+    if (s >= 86400) return Math.floor(s / 86400) + 'd';
+    if (s >= 3600) return Math.floor(s / 3600) + 'h';
+    return Math.floor(s / 60) + 'm';
+  }
+  function ghostReasonText(r) { return (r && r.reasons || []).join(', '); }
+  function intelGhostTowns() {
+    const now = Date.now();
+    const fresh = (state.findings || []).filter(f => f && +f.ts >= now - INTEL_HISTORY_TTL_MS);
+    const latest = new Map();
+    for (const f of fresh) {
+      const key = intelTownKey(f);
+      if (!key) continue;
+      const cur = latest.get(key);
+      if (!cur || (+f.ts || 0) > (+cur.ts || 0)) latest.set(key, f);
+    }
+    const out = [];
+    for (const [key, last] of latest) {
+      const ageMs = now - (+last.ts || 0);
+      const vacation = (last.defender && last.defender.vacation === true) || last.vacation === true;
+      // Defenderless is only claimed when a defender block exists but carries no
+      // name. A finding with no defender at all is an unknown, not an abandon.
+      const abandoned = !!(last.defender && !last.defender.name);
+      const reasons = [];
+      if (ageMs >= GHOST_STALE_MS) reasons.push('sin actividad 3d');
+      if (vacation) reasons.push('defensor en vacaciones');
+      if (abandoned) reasons.push('sin nombre de defensor');
+      if (!reasons.length) continue;
+      out.push({
+        townKey: key,
+        label: intelTownLabel(last, key),
+        lastTs: +last.ts || 0,
+        ageMs,
+        vacation,
+        abandoned,
+        wall: (last.wall != null && Number.isFinite(+last.wall)) ? +last.wall : null,
+        alliance: last.alliance || null,
+        reasons,
+      });
+    }
+    if (!out.length && (state.findings || []).length) {
+      gbLogT('intel-ghost-empty', 300000, 'intel: ghost towns empty after 7d filter');
+    }
+    return out.sort((a, b) => b.ageMs - a.ageMs).slice(0, GHOST_MAX_ROWS);
+  }
+  function renderIntelGhost() {
+    const list = panel && panel.querySelector('.intel-ghost');
+    if (!list) return;
+    const sec = list.closest('section[data-tab]');
+    if (sec && sec.hidden) return;
+    const rows = intelGhostTowns();
+    if (!rows.length) { placeholder(list, 'sin pueblos fantasma (7d)'); return; }
+    const table = tableShell(list, ['Ciudad', 'Ultima', 'Edad', 'Muro', 'Alianza', 'Razon'], 'intel-ghost');
+    const tbody = table.querySelector('tbody');
+    const wanted = rows.map(r => r.townKey);
+    const have = new Set(Array.from(tbody.children).map(tr => tr.dataset.key));
+    const sameSet = have.size === wanted.length && wanted.every(k => have.has(k));
+    if (!sameSet) tbody.replaceChildren();
+    for (const r of rows) {
+      const cells = [
+        { cls: 'id', text: r.label },
+        { cls: '', text: r.lastTs ? new Date(r.lastTs).toLocaleString() : '?' },
+        { cls: '', text: ghostAgeLabel(r.ageMs) },
+        { cls: '', text: r.wall == null ? '?' : String(r.wall) },
+        { cls: '', text: r.alliance || '?' },
+        { cls: '', text: ghostReasonText(r) },
+      ];
+      let tr = sameSet ? tbody.querySelector(`tr[data-key="${r.townKey}"]`) : null;
+      if (!tr) {
+        tr = document.createElement('tr');
+        tr.dataset.key = r.townKey;
+        cells.forEach(() => tr.appendChild(document.createElement('td')));
+        tbody.appendChild(tr);
+      }
+      patchCells(tr, cells);
+      // Age sorts on the raw ms, not the humanised label ("2d" vs "20h").
+      // Unknown wall sorts as '' so it is not ranked as level 0.
+      tr.dataset.sort = [r.label, String(r.lastTs), String(r.ageMs), r.wall == null ? '' : String(r.wall), r.alliance || '', ghostReasonText(r)].join('\t');
+    }
+    sortApplySaved(table);
+  }
   function renderIntel() {
     const box = panel && panel.querySelector('.intel-panel');
     if (!box) return;
@@ -297,6 +400,7 @@
     box.textContent = html;
     try { intelPatternScan(); } catch (_) {}
     try { renderIntelTimeline(); } catch (_) {}
+    try { renderIntelGhost(); } catch (_) {}
   }
   function intelSetNote(player, note) {
     if (!state.playerNotes) state.playerNotes = {};
