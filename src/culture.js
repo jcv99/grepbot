@@ -228,7 +228,88 @@
     const projected={}; for(const k of ['wood','stone','iron']) projected[k]=Math.max(0,s.live[k]-s.committed[k]+s.incoming[k]+(prod?prod[k]*sec/3600:0)-demand[k]);
     const overflow={}; for(const k of ['wood','stone','iron']) overflow[k]=s.live.cap>0?projected[k]>=s.live.cap:false;
     const deficit={}; for(const k of ['wood','stone','iron']) deficit[k]=Math.max(0,demand[k]-(s.availableSoft[k]+s.incoming[k]+(prod?prod[k]*sec/3600:0)));
-    return {townId:String(townId),horizonSec:sec,snapshot:s,production:prod,demand,projected,overflow,deficit,productionKnown:!!prod};
+    // etaMinutes (v4 plan 2.8): wall-clock minutes until this resource reaches
+    // cap at the CURRENT production rate, clamped to the horizon. null unless
+    // the projection actually crosses the cap AND production was readable -
+    // an unreadable rate is unknown, never "never fills".
+    // NOT gated on overflow[k]: overflow is "does it cap inside the horizon",
+    // and gating on it would hide every town that caps just outside the window
+    // - exactly the towns a T-10min warning is for. Not clamped to the horizon
+    // either, or a 40min ETA would report as the horizon length. null only when
+    // the production rate or the capacity was genuinely unreadable.
+    const etaMinutes={};
+    for(const k of ['wood','stone','iron']){
+      const rate=prod?+prod[k]:null;
+      if(!(s.live.cap>0)||!(rate>0)){etaMinutes[k]=null;continue}
+      const nowLevel=Math.max(0,s.live[k]-s.committed[k]+s.incoming[k]-demand[k]);
+      const room=s.live.cap-nowLevel;
+      if(room<=0){etaMinutes[k]=0;continue}
+      etaMinutes[k]=(room/(rate/3600))/60; // rate is per hour
+    }
+    return {townId:String(townId),horizonSec:sec,snapshot:s,production:prod,demand,projected,overflow,deficit,etaMinutes,productionKnown:!!prod};
+  }
+
+  // ===== Resource capping pre-warn (v4 plan 2.8) =============================
+  const PREWARN_MIN_MIN = 10;
+  const PREWARN_HORIZON_HOURS = 2;
+  const PREWARN_TTL_MS = 30 * 60 * 1000; // matches the tplHealthOk window
+  const _cappingAlerted = Object.create(null);
+  // Spanish client wording: iron renders as plata.
+  const CAPPING_RES_ES = { wood: 'madera', stone: 'piedra', iron: 'plata' };
+  function cappingForecast(townId) {
+    try { return economyForecast(townId, PREWARN_HORIZON_HOURS * 3600); } catch (_) { return null; }
+  }
+  // Every town whose warehouse is within PREWARN_MIN_MIN of capping.
+  // Shared by the watcher and the World totals row - one computation, one truth.
+  let _cappingMemo = { at: 0, v: [] };
+  const CAPPING_MEMO_MS = 5000;
+  function cappingPending() {
+    // Memoised: renderWorld calls this on every 15s repaint and the watcher on
+    // every orch tick; economyForecast per town is not free.
+    if (Date.now() - _cappingMemo.at < CAPPING_MEMO_MS) return _cappingMemo.v;
+    const out = [];
+    for (const t of (state.towns || [])) {
+      const f = cappingForecast(t.id);
+      if (!f) continue;
+      if (!f.productionKnown) {
+        gbLogT('capping-prod-blind', 600000, 'capping: production rate unreadable - pre-warn silent for that town');
+        continue;
+      }
+      for (const k of ['wood', 'stone', 'iron']) {
+        const eta = f.etaMinutes[k];
+        if (eta == null || !(eta <= PREWARN_MIN_MIN)) continue;
+        const cap = f.snapshot.live.cap;
+        out.push({
+          townId: String(t.id), name: t.name || String(t.id), resource: k,
+          etaMin: Math.max(0, Math.round(eta)),
+          fillPct: cap > 0 ? Math.round(f.snapshot.live[k] / cap * 100) : null,
+        });
+      }
+    }
+    _cappingMemo = { at: Date.now(), v: out };
+    return out;
+  }
+  // DELIBERATE DEVIATION from plan 2.8 work item 2, which puts this pass inside
+  // cultureScan: cultureScan returns early unless state.autoCulture is ON, and
+  // that toggle defaults OFF - the pre-warn would never fire for most users.
+  // orchTick is the existing 20s cadence that always runs, so this rides it
+  // instead. Still no new gbInterval, no new setTimeout.
+  function townCapWatcher() {
+    const now = Date.now();
+    // Sweep FIRST: if the forecast walk throws, orchTick swallows it and an
+    // unswept map would grow for the life of the page.
+    for (const k of Object.keys(_cappingAlerted)) if (_cappingAlerted[k] <= now) delete _cappingAlerted[k];
+    const rows = cappingPending();
+    for (const r of rows) {
+      const key = r.townId + '|' + r.resource;
+      if (_cappingAlerted[key]) continue;
+      _cappingAlerted[key] = now + PREWARN_TTL_MS;
+      const res = CAPPING_RES_ES[r.resource] || r.resource;
+      // The in-panel flash is unconditional; only the webhook is opt-in.
+      try { flash(`AVISO: ${r.name} ${res} en ~${r.etaMin}min (almacen al limite)`); } catch (_) {}
+      gbLog(`capping: ${r.name} ${r.resource} ~${r.etaMin}min to cap (${r.fillPct == null ? '?' : r.fillPct}%)`);
+      try { alertWebhook('cappingPreWarn', r); } catch (_) {}
+    }
   }
   function tradePredictiveJobs(towns,L) {
     const ledger=L||tradeLedger(towns), jobs=[], minBatch=Math.max(100,+state.tradeMinBatch||1000);if(!ledger)return jobs;

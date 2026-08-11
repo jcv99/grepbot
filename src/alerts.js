@@ -22,7 +22,9 @@
     if (!id && p.finding) id = p.finding.id ?? p.finding.report_id ?? p.finding.ts ?? '';
     if (!id && p.watchlist != null) id = 'watch:' + p.watchlist;
     if (!id) id = p.dest ?? p.townId ?? p.town_id ?? p.feature ?? '';
-    const subtype = p.cs ? 'cs' : '';
+    // `resource` discriminates the capping pre-warn: two resources capping in
+    // the same town are two distinct events, not one rate-limited duplicate.
+    const subtype = p.cs ? 'cs' : (p.resource ? String(p.resource) : '');
     return `${event}:${subtype}:${String(id || '-').slice(0, 96)}`;
   }
   function alertWebhook(event, payload) {

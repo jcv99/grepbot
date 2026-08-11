@@ -146,6 +146,12 @@
   }
   function orchTick() {
     if (!hostEnabled()) return;
+    // Read-only pre-warn pass, ABOVE the pause gate on purpose: a warehouse
+    // still fills during night pause, and silencing the warning is exactly when
+    // the user most needs it. It posts nothing to the game.
+    // It lives here rather than in cultureScan (plan 2.8 work item 2) because
+    // cultureScan returns early unless autoCulture is ON, and that defaults OFF.
+    try { townCapWatcher(); } catch (_) {}
     if (automationPaused({})) return;
     const configured = (state.priorityOrder && state.priorityOrder.length)
       ? state.priorityOrder : orchDefaultOrder();

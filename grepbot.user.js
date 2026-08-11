@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.2.2
+// @version      4.2.4
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -529,7 +529,7 @@ const STORE = {
     cityTemplates: load(STORE.CITY_TEMPLATES, {}),
     townGroups: load(STORE.TOWN_GROUPS, {}),
     webhookUrl: load(STORE.WEBHOOK_URL, ''),
-    webhookEvents: load(STORE.WEBHOOK_EVENTS, { captcha: true, attack: true, warehouse: false, culture: false }),
+    webhookEvents: load(STORE.WEBHOOK_EVENTS, { captcha: true, attack: true, warehouse: false, culture: false, cappingPreWarn: false }),
     autoMerchant: load(STORE.AUTO_MERCHANT, false),
     merchantWish: load(STORE.MERCHANT_WISH, []),
     autoFavor: load(STORE.AUTO_FAVOR, false),
@@ -8149,7 +8149,72 @@ const STORE = {
     const projected={}; for(const k of ['wood','stone','iron']) projected[k]=Math.max(0,s.live[k]-s.committed[k]+s.incoming[k]+(prod?prod[k]*sec/3600:0)-demand[k]);
     const overflow={}; for(const k of ['wood','stone','iron']) overflow[k]=s.live.cap>0?projected[k]>=s.live.cap:false;
     const deficit={}; for(const k of ['wood','stone','iron']) deficit[k]=Math.max(0,demand[k]-(s.availableSoft[k]+s.incoming[k]+(prod?prod[k]*sec/3600:0)));
-    return {townId:String(townId),horizonSec:sec,snapshot:s,production:prod,demand,projected,overflow,deficit,productionKnown:!!prod};
+
+    const etaMinutes={};
+    for(const k of ['wood','stone','iron']){
+      const rate=prod?+prod[k]:null;
+      if(!(s.live.cap>0)||!(rate>0)){etaMinutes[k]=null;continue}
+      const nowLevel=Math.max(0,s.live[k]-s.committed[k]+s.incoming[k]-demand[k]);
+      const room=s.live.cap-nowLevel;
+      if(room<=0){etaMinutes[k]=0;continue}
+      etaMinutes[k]=(room/(rate/3600))/60;
+    }
+    return {townId:String(townId),horizonSec:sec,snapshot:s,production:prod,demand,projected,overflow,deficit,etaMinutes,productionKnown:!!prod};
+  }
+
+  const PREWARN_MIN_MIN = 10;
+  const PREWARN_HORIZON_HOURS = 2;
+  const PREWARN_TTL_MS = 30 * 60 * 1000;
+  const _cappingAlerted = Object.create(null);
+
+  const CAPPING_RES_ES = { wood: 'madera', stone: 'piedra', iron: 'plata' };
+  function cappingForecast(townId) {
+    try { return economyForecast(townId, PREWARN_HORIZON_HOURS * 3600); } catch (_) { return null; }
+  }
+
+  let _cappingMemo = { at: 0, v: [] };
+  const CAPPING_MEMO_MS = 5000;
+  function cappingPending() {
+
+    if (Date.now() - _cappingMemo.at < CAPPING_MEMO_MS) return _cappingMemo.v;
+    const out = [];
+    for (const t of (state.towns || [])) {
+      const f = cappingForecast(t.id);
+      if (!f) continue;
+      if (!f.productionKnown) {
+        gbLogT('capping-prod-blind', 600000, 'capping: production rate unreadable - pre-warn silent for that town');
+        continue;
+      }
+      for (const k of ['wood', 'stone', 'iron']) {
+        const eta = f.etaMinutes[k];
+        if (eta == null || !(eta <= PREWARN_MIN_MIN)) continue;
+        const cap = f.snapshot.live.cap;
+        out.push({
+          townId: String(t.id), name: t.name || String(t.id), resource: k,
+          etaMin: Math.max(0, Math.round(eta)),
+          fillPct: cap > 0 ? Math.round(f.snapshot.live[k] / cap * 100) : null,
+        });
+      }
+    }
+    _cappingMemo = { at: Date.now(), v: out };
+    return out;
+  }
+
+  function townCapWatcher() {
+    const now = Date.now();
+
+    for (const k of Object.keys(_cappingAlerted)) if (_cappingAlerted[k] <= now) delete _cappingAlerted[k];
+    const rows = cappingPending();
+    for (const r of rows) {
+      const key = r.townId + '|' + r.resource;
+      if (_cappingAlerted[key]) continue;
+      _cappingAlerted[key] = now + PREWARN_TTL_MS;
+      const res = CAPPING_RES_ES[r.resource] || r.resource;
+
+      try { flash(`AVISO: ${r.name} ${res} en ~${r.etaMin}min (almacen al limite)`); } catch (_) {}
+      gbLog(`capping: ${r.name} ${r.resource} ~${r.etaMin}min to cap (${r.fillPct == null ? '?' : r.fillPct}%)`);
+      try { alertWebhook('cappingPreWarn', r); } catch (_) {}
+    }
   }
   function tradePredictiveJobs(towns,L) {
     const ledger=L||tradeLedger(towns), jobs=[], minBatch=Math.max(100,+state.tradeMinBatch||1000);if(!ledger)return jobs;
@@ -9527,7 +9592,8 @@ const STORE = {
     if (!id && p.finding) id = p.finding.id ?? p.finding.report_id ?? p.finding.ts ?? '';
     if (!id && p.watchlist != null) id = 'watch:' + p.watchlist;
     if (!id) id = p.dest ?? p.townId ?? p.town_id ?? p.feature ?? '';
-    const subtype = p.cs ? 'cs' : '';
+
+    const subtype = p.cs ? 'cs' : (p.resource ? String(p.resource) : '');
     return `${event}:${subtype}:${String(id || '-').slice(0, 96)}`;
   }
   function alertWebhook(event, payload) {
@@ -11819,6 +11885,8 @@ const STORE = {
   }
   function orchTick() {
     if (!hostEnabled()) return;
+
+    try { townCapWatcher(); } catch (_) {}
     if (automationPaused({})) return;
     const configured = (state.priorityOrder && state.priorityOrder.length)
       ? state.priorityOrder : orchDefaultOrder();
@@ -15518,7 +15586,13 @@ const STORE = {
     const popTxt = popRead
       ? ` | poblacion ${popWarn} al limite / ${popNear} cerca / ${popRead} leidas`
       : ' | poblacion no legible';
-    const res = `Wood ${fmt(w)} | Stone ${fmt(s)} | Iron ${fmt(i)} | Pop ${fmt(p)}${popTxt}`;
+
+    let preTxt = '';
+    try {
+      const pre = cappingPending();
+      if (pre.length) preTxt = '\npreaviso: ' + pre.slice(0, 6).map(x => `${x.name}: ${x.resource} ~${x.etaMin}min`).join(' | ');
+    } catch (_) {}
+    const res = `Wood ${fmt(w)} | Stone ${fmt(s)} | Iron ${fmt(i)} | Pop ${fmt(p)}${popTxt}${preTxt}`;
     if (head + res !== _worldTotalsLast) {
       _worldTotalsLast = head + res;
       totals.replaceChildren();
@@ -15528,7 +15602,7 @@ const STORE = {
       if (popWarn) totalsH.className = 'pop-warn-row';
       totals.appendChild(totalsH);
       const totalsR = document.createElement('div');
-      totalsR.style.cssText = 'color:#cfc;margin-top:3px';
+      totalsR.style.cssText = 'color:#cfc;margin-top:3px;white-space:pre-wrap';
       totalsR.textContent = res;
       totals.appendChild(totalsR);
     }
@@ -16158,6 +16232,7 @@ const STORE = {
           <label><input type="checkbox" data-cfg="wh-attack"/> attack</label>
           <label><input type="checkbox" data-cfg="wh-warehouse"/> warehouse</label>
           <label><input type="checkbox" data-cfg="wh-culture"/> culture</label>
+          <label title="Aviso ~10 min antes de que un almacen llegue al limite."><input type="checkbox" data-cfg="wh-capping"/> Pre-aviso de almacen (~10 min)</label>
         </label>
         <label>Telegram chat_id <input type="text" data-cfg="wh-tg-chat" placeholder="optional if not in URL" style="width:140px;background:#111;color:#cfc;border:1px solid #333;margin-left:6px;font-size:10px"/></label>
         <div style="border-top:1px solid #333;padding-top:6px;color:#f96;font-size:10px">ALTO RIESGO (por defecto OFF)</div>
@@ -16735,6 +16810,7 @@ const STORE = {
     setChk('[data-cfg=wh-attack]', we.attack !== false);
     setChk('[data-cfg=wh-warehouse]', !!we.warehouse);
     setChk('[data-cfg=wh-culture]', !!we.culture);
+    setChk('[data-cfg=wh-capping]', !!we.cappingPreWarn);
     const tg = sec.querySelector('[data-cfg=wh-tg-chat]'); if (tg) tg.value = we.telegramChatId || '';
     const tp = sec.querySelector('[data-cfg=trade-preset]'); if (tp) tp.value = state.tradePreset || 'storage';
     setNum('[data-cfg=trade-reserve]', state.tradeReservePct);
@@ -16862,11 +16938,12 @@ const STORE = {
         attack: !!sec.querySelector('[data-cfg=wh-attack]')?.checked,
         warehouse: !!sec.querySelector('[data-cfg=wh-warehouse]')?.checked,
         culture: !!sec.querySelector('[data-cfg=wh-culture]')?.checked,
+        cappingPreWarn: !!sec.querySelector('[data-cfg=wh-capping]')?.checked,
         telegramChatId: (sec.querySelector('[data-cfg=wh-tg-chat]')?.value || '').trim() || undefined,
       };
       save(STORE.WEBHOOK_EVENTS, state.webhookEvents);
     };
-    ['wh-captcha', 'wh-attack', 'wh-warehouse', 'wh-culture'].forEach(k => {
+    ['wh-captcha', 'wh-attack', 'wh-warehouse', 'wh-culture', 'wh-capping'].forEach(k => {
       sec.querySelector('[data-cfg=' + k + ']')?.addEventListener('change', saveWebhookEvents);
     });
     sec.querySelector('[data-cfg=wh-tg-chat]')?.addEventListener('change', saveWebhookEvents);
