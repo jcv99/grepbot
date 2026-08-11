@@ -815,6 +815,12 @@
         </label>
         <div style="margin-left:12px;font-size:10px;color:#888">Per-town (unchecked = skip that town):</div>
         <div class="cave-towns" style="display:flex;flex-direction:column;gap:2px;max-height:120px;overflow:auto"></div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="ALTO RIESGO: guarda plata en la cueva ignorando el umbral cuando un ataque serio va a caer en menos de 15 min. Solo actua sobre ciudades con la cueva activada arriba."><input type="checkbox" data-cfg="emergency-cave-auto"/> Cueva de emergencia ante ataque (ALTO RIESGO, OFF)</label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Emergencia:
+          confirmar &gt; <input type="number" data-cfg="emergency-cave-confirm" min="0" max="1000000" step="100" style="width:70px;background:#111;color:#cfc;border:1px solid #333"/>
+          minimo <input type="number" data-cfg="emergency-cave-min-iron" min="1" max="100000" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
+          <button data-cfg="emergency-cave-now" style="background:#333;border:1px solid #555;color:#f96;padding:2px 6px;cursor:pointer;font-size:10px;margin-left:6px" title="Guarda ahora la plata de todas las ciudades con cueva activada, ignorando el umbral.">Guardar plata YA</button>
+        </label>
         <div style="border-top:1px solid #333;padding-top:6px;color:#f5a623;font-size:10px">Fase 8+ economia</div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-culture"/> Auto-culture</label>
         <label style="margin-left:12px;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">
@@ -1273,6 +1279,9 @@
       sec.querySelector('[data-cfg=auto-quest-res]').checked = state.questAutoRes;
       const ac = sec.querySelector('[data-cfg=auto-cave]'); if (ac) ac.checked = state.autoCave;
       const ct = sec.querySelector('[data-cfg=cave-thresh]'); if (ct) ct.value = state.caveThreshPct;
+      const eca = sec.querySelector('[data-cfg=emergency-cave-auto]'); if (eca) eca.checked = !!state.emergencyCaveAuto;
+      const ecc = sec.querySelector('[data-cfg=emergency-cave-confirm]'); if (ecc) ecc.value = emergencyConfirmAt();
+      const ecm = sec.querySelector('[data-cfg=emergency-cave-min-iron]'); if (ecm) ecm.value = emergencyMinIron();
       const dr = sec.querySelector('[data-cfg=dry-run]'); if (dr) dr.checked = !!state.dryRun;
       const oa = sec.querySelector('[data-cfg=orch-adaptive]'); if (oa) oa.checked = state.orchAdaptive !== false;
       renderResearchPath(sec);
@@ -1723,6 +1732,21 @@
     sec.querySelector('[data-cfg=research-csfast]')?.addEventListener('click', () => {
       researchLoadCsFast(); flash('CS-fast research');
     });
+    sec.querySelector('[data-cfg=emergency-cave-auto]')?.addEventListener('change', e => {
+      state.emergencyCaveAuto = !!e.target.checked;
+      save(STORE.EMERGENCY_CAVE_AUTO, state.emergencyCaveAuto);
+      gbLog('emergency cave auto ' + (state.emergencyCaveAuto ? 'ON - stashes ignoring the threshold on an imminent hit' : 'OFF'));
+      if (state.emergencyCaveAuto && !state.autoCave) flash('emergencia ON: recuerda activar las cuevas por ciudad arriba');
+    });
+    saveNum('[data-cfg=emergency-cave-confirm]', v => {
+      state.emergencyCaveConfirm = Math.max(0, Math.min(1000000, Number.isFinite(+v) ? +v : 1000));
+      save(STORE.EMERGENCY_CAVE_CONFIRM, state.emergencyCaveConfirm);
+    });
+    saveNum('[data-cfg=emergency-cave-min-iron]', v => {
+      state.emergencyCaveMinIron = Math.max(1, Math.min(100000, Number.isFinite(+v) ? +v : 50));
+      save(STORE.EMERGENCY_CAVE_MIN, state.emergencyCaveMinIron);
+    });
+    sec.querySelector('[data-cfg=emergency-cave-now]')?.addEventListener('click', () => { try { emergencyStashAllNow(); } catch (e) { flash('fallo: ' + String(e).slice(0, 40)); } });
     saveNum('[data-cfg=cave-thresh]', v => {
       state.caveThreshPct = Math.min(99, Math.max(50, v || 90));
       save(STORE.CAVE_THRESH, state.caveThreshPct);

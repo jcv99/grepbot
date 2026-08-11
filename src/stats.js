@@ -215,6 +215,18 @@
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
       };
     }));
+    out.push(preflightProbe('cave: emergency', () => {
+      const ids = (typeof caveListTownIds === 'function' ? caveListTownIds() : []);
+      const ready = ids.filter(id => { try { return emergencyPlan(id).ok; } catch (_) { return false; } }).length;
+      const ledger = Object.keys(state.emergencyLastStash || {}).length;
+      return {
+        ok: true,
+        // Auto ON with no town that could actually stash is worth flagging:
+        // the loop would run every 5s and never have anything to do.
+        warn: !!state.emergencyCaveAuto && ready === 0,
+        detail: `auto ${state.emergencyCaveAuto ? 'ON' : 'OFF'}, ${ready}/${ids.length} ciudad(es) listas ahora, minimo ${emergencyMinIron()}, ${ledger} movimiento(s) en registro`,
+      };
+    }));
     out.push(preflightProbe('dump', () => {
       if (!state.autoDump) return { ok: true, detail: 'desactivado (por defecto)' };
       const degenerate = [];

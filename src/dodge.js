@@ -289,6 +289,7 @@
       if (!entry || entry.state !== 'sent') { try { supportTryBurst(mov); } catch (_) {} }
     }
     try { supportScan('dodge'); } catch (_) {}
+    try { emergencyScan('dodge'); } catch (_) {}
 
     const cut = now - DODGE_QUEUE_TTL;
     Object.keys(dodgeQueue).forEach(k => {

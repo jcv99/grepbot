@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.11.1
+// @version      4.12.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -70,6 +70,10 @@ const STORE = {
     AUTO_CAVE: 'grepbot:auto-cave',
     CAVE_THRESH: 'grepbot:cave-thresh',
     CAVE_TOWNS: 'grepbot:cave-towns',
+    EMERGENCY_CAVE_AUTO: 'grepbot:emergency-cave-auto',
+    EMERGENCY_CAVE_CONFIRM: 'grepbot:emergency-cave-confirm',
+    EMERGENCY_CAVE_MIN: 'grepbot:emergency-cave-min',
+    EMERGENCY_LAST: 'grepbot:emergency-last-stash',
     IB_ACTION: 'grepbot:ib-action',
     IB_RESEARCH: 'grepbot:ib-research',
     FARM_OPTION_MAP: 'grepbot:farm-option-map',
@@ -215,7 +219,7 @@ const STORE = {
     STORE.IB_ACTION, STORE.IB_ACTION_R, STORE.FARM_OPTION_MAP, STORE.FARM_LOYALTY_TECH, STORE.FARM_SLEEP_DAY, STORE.FARM_PROFIT, STORE.FARM_TRAVEL,
     STORE.QUEST_REWARDS, STORE.QUEST_HISTORY,
     STORE.ATTACK_TPL, STORE.CANCEL_TPL, STORE.HERO_TPL, STORE.ATTACK_PLAN, STORE.ATTACK_HISTORY, STORE.ATTACK_RECENT, STORE.CAPTCHA,
-    STORE.AB_TARGETS, STORE.CAVE_TOWNS,
+    STORE.AB_TARGETS, STORE.CAVE_TOWNS, STORE.EMERGENCY_LAST,
     STORE.RESEARCH_TARGETS, STORE.CITY_TEMPLATES, STORE.TOWN_GROUPS, STORE.DUMP_SINKS,
     STORE.MERCHANT_WISH, STORE.FAVOR_CFG, STORE.WONDER_CFG, STORE.WONDER_SPENT,
     STORE.CULTURE_GOLD_SPENT,
@@ -381,6 +385,7 @@ const STORE = {
     ib: 300000,
     ab: 300000,
     cave: 180000,
+    'cave-emergency': 60000,
     culture: 180000,
     trade: 180000,
     'rural-trade': 180000,
@@ -517,6 +522,11 @@ const STORE = {
     abTargets: load(STORE.AB_TARGETS, null),
     autoCave: load(STORE.AUTO_CAVE, false),
     caveThreshPct: load(STORE.CAVE_THRESH, 90),
+
+    emergencyCaveAuto: load(STORE.EMERGENCY_CAVE_AUTO, false),
+    emergencyCaveConfirm: load(STORE.EMERGENCY_CAVE_CONFIRM, 1000),
+    emergencyCaveMinIron: load(STORE.EMERGENCY_CAVE_MIN, 50),
+    emergencyLastStash: load(STORE.EMERGENCY_LAST, {}) || {},
     caveTowns: load(STORE.CAVE_TOWNS, {}),
     autoCulture: load(STORE.AUTO_CULTURE, false),
     cultureTypes: load(STORE.CULTURE_TYPES, { festival: true, procession: false, theater: false, olympic: false }),
@@ -8078,8 +8088,8 @@ const STORE = {
     return excess >= CAVE_MIN_STORE ? excess : 0;
   }
 
-  function caveStoreIron(townId, amount, onDone) {
-    bridgePost('cave', {
+  function caveStoreIron(townId, amount, onDone, feature) {
+    bridgePost(feature || 'cave', {
       model_url: 'BuildingHide',
       action_name: 'storeIron',
       arguments: { iron_to_store: +amount },
@@ -8544,6 +8554,137 @@ const STORE = {
       } if(jobs.length>=8)break;
     }
     return jobs;
+  }
+
+  const EMERGENCY_MIN_RISK = 35;
+  const EMERGENCY_LEDGER_GRACE_MS = 600000;
+  const EMERGENCY_LEDGER_PRUNE_MS = 3600000;
+
+  function emergencyMinIron() {
+    const n = +state.emergencyCaveMinIron;
+    return Number.isFinite(n) ? Math.max(1, Math.min(100000, n)) : 50;
+  }
+  function emergencyConfirmAt() {
+    const n = +state.emergencyCaveConfirm;
+    return Number.isFinite(n) ? Math.max(0, Math.min(1000000, n)) : 1000;
+  }
+  function emergencyLedger() {
+    if (!state.emergencyLastStash || typeof state.emergencyLastStash !== 'object' || Array.isArray(state.emergencyLastStash)) {
+      state.emergencyLastStash = {};
+    }
+    return state.emergencyLastStash;
+  }
+  function emergencyLedgerSave() { save(STORE.EMERGENCY_LAST, emergencyLedger()); }
+  function emergencyLastStashPrune() {
+    const L = emergencyLedger();
+    const cut = Date.now() - EMERGENCY_LEDGER_PRUNE_MS;
+    let changed = false;
+    for (const [k, e] of Object.entries(L)) {
+      if (!e || +(e.expires || 0) < cut) { delete L[k]; changed = true; }
+    }
+    if (changed) emergencyLedgerSave();
+  }
+
+  function emergencyStashAmount(info) {
+    if (!info || info.iron == null) return 0;
+    if (!(info.hideLvl > 0)) return 0;
+    let amount = Math.floor(info.iron);
+
+    try {
+      const tid = info.town && (info.town.id || (info.town.attributes && info.town.attributes.id));
+      const av = tid != null ? plannerAvailable(tid) : null;
+      if (av && Number.isFinite(av.iron)) amount = Math.min(amount, Math.floor(av.iron));
+    } catch (_) {}
+    if (!info.unlimited) {
+
+      if (info.hideCap == null || info.stored == null) return 0;
+      const free = Math.floor(info.hideCap - info.stored);
+      if (free <= 0) return 0;
+      amount = Math.min(amount, free);
+    }
+    return amount > 0 ? amount : 0;
+  }
+  function emergencyPlan(townId) {
+    if (!caveTownEnabled(townId)) return { ok: false, why: 'town-disabled', amount: 0 };
+    let info = null;
+    try { info = caveTownInfo(townId); } catch (_) {}
+    if (!info) return { ok: false, why: 'town-unreadable', amount: 0 };
+    if (!(info.hideLvl > 0)) return { ok: false, why: 'no-hide', amount: 0 };
+    const amount = emergencyStashAmount(info);
+    if (amount < emergencyMinIron()) return { ok: false, why: 'below-min', amount };
+    return { ok: true, why: '', amount, info };
+  }
+
+  function emergencyStoreNow(townId, opts, onDone) {
+    const done = (err, data) => { if (onDone) onDone(err, data); return err; };
+    if (!hostEnabled()) return done('host-disabled');
+    if (automationPaused({})) return done('paused');
+    if (captchaPausedAny('cave', 'cave-emergency', 'dodge')) return done('captcha');
+    const plan = emergencyPlan(townId);
+    if (!plan.ok) {
+      gbLogT('cave-emergency-skip-' + townId, 300000, `cave-emergency: town ${townId} skipped (${plan.why})`);
+      return done('skip:' + plan.why);
+    }
+    if (plan.amount > emergencyConfirmAt() && !(opts && opts.confirmed)) return done('need-confirm');
+    const lockToken = gbLock('cave-emergency');
+    if (!lockToken) return done('busy');
+    caveStoreIron(townId, plan.amount, (err, data) => {
+      gbUnlock('cave-emergency', lockToken);
+      if (!err) gbLog(`cave-emergency: town ${townId} stashed ${plan.amount} iron`);
+      else gbLogT('cave-emergency-err', 60000, `cave-emergency: town ${townId} err ${err}`);
+      done(err, data);
+    }, 'cave-emergency');
+  }
+
+  function emergencyScan(reason) {
+    emergencyLastStashPrune();
+    if (!state.emergencyCaveAuto) return;
+    if (!hostEnabled() || automationPaused({})) return;
+    if (captchaPausedAny('cave', 'cave-emergency', 'dodge')) return;
+    if (gbLocked('cave-emergency')) return;
+    let incoming = [];
+    try { incoming = dodgeIncomingMovements() || []; } catch (_) {
+      gbLogT('cave-emergency-nobridge', 60000, 'cave-emergency: incoming movements unreadable - no stash');
+      return;
+    }
+    if (!incoming.length) return;
+    const L = emergencyLedger();
+    const now = Date.now();
+    for (const mov of incoming) {
+      if (!mov || mov.id == null) continue;
+      const key = String(mov.id);
+      if (L[key] && +(L[key].expires || 0) > now) continue;
+      const eta = dodgeEtaSec(mov);
+
+      if (eta == null) continue;
+      if (eta > DODGE_MILITIA_WINDOW_SEC) continue;
+      let assess = null;
+      try { assess = defenseAssessment(mov); } catch (_) { continue; }
+      if (!assess || !(assess.risk >= EMERGENCY_MIN_RISK)) continue;
+      const plan = emergencyPlan(mov.dest);
+      if (!plan.ok) continue;
+
+      L[key] = { townId: String(mov.dest), ts: now, expires: now + eta * 1000 + EMERGENCY_LEDGER_GRACE_MS };
+      emergencyLedgerSave();
+      gbLog(`cave-emergency: ${mov.dest} incoming ${mov.type || 'atk'} in ${fmtSec(eta)} (risk ${assess.risk}) - stashing ${plan.amount}`);
+      emergencyStoreNow(mov.dest, { confirmed: true }, () => {});
+      return;
+    }
+  }
+
+  function emergencyStashAllNow() {
+    const ids = (typeof caveListTownIds === 'function') ? caveListTownIds() : [];
+    const plans = ids.map(id => ({ id, plan: emergencyPlan(id) })).filter(x => x.plan.ok);
+    if (!plans.length) { flash('nada que guardar en la cueva ahora'); return 0; }
+    const total = plans.reduce((a, x) => a + x.plan.amount, 0);
+    if (total > emergencyConfirmAt()) {
+      let ok = false;
+      try { ok = gameUw().confirm(`Guardar ${total} de plata en la cueva de ${plans.length} ciudad(es) ahora?`); } catch (_) { ok = false; }
+      if (!ok) { gbLog('cave-emergency: manual stash declined'); return 0; }
+    }
+    plans.forEach((x, i) => gbTimeout(() => emergencyStoreNow(x.id, { confirmed: true }, () => {}), i * 900));
+    flash(`guardando ${total} de plata en ${plans.length} ciudad(es)`);
+    return plans.length;
   }
   function tradeTownRes(townId) {
     const uw = gameUw();
@@ -11596,6 +11737,7 @@ const STORE = {
       if (!entry || entry.state !== 'sent') { try { supportTryBurst(mov); } catch (_) {} }
     }
     try { supportScan('dodge'); } catch (_) {}
+    try { emergencyScan('dodge'); } catch (_) {}
 
     const cut = now - DODGE_QUEUE_TTL;
     Object.keys(dodgeQueue).forEach(k => {
@@ -16034,6 +16176,17 @@ const STORE = {
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
       };
     }));
+    out.push(preflightProbe('cave: emergency', () => {
+      const ids = (typeof caveListTownIds === 'function' ? caveListTownIds() : []);
+      const ready = ids.filter(id => { try { return emergencyPlan(id).ok; } catch (_) { return false; } }).length;
+      const ledger = Object.keys(state.emergencyLastStash || {}).length;
+      return {
+        ok: true,
+
+        warn: !!state.emergencyCaveAuto && ready === 0,
+        detail: `auto ${state.emergencyCaveAuto ? 'ON' : 'OFF'}, ${ready}/${ids.length} ciudad(es) listas ahora, minimo ${emergencyMinIron()}, ${ledger} movimiento(s) en registro`,
+      };
+    }));
     out.push(preflightProbe('dump', () => {
       if (!state.autoDump) return { ok: true, detail: 'desactivado (por defecto)' };
       const degenerate = [];
@@ -17710,6 +17863,12 @@ const STORE = {
         </label>
         <div style="margin-left:12px;font-size:10px;color:#888">Per-town (unchecked = skip that town):</div>
         <div class="cave-towns" style="display:flex;flex-direction:column;gap:2px;max-height:120px;overflow:auto"></div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="ALTO RIESGO: guarda plata en la cueva ignorando el umbral cuando un ataque serio va a caer en menos de 15 min. Solo actua sobre ciudades con la cueva activada arriba."><input type="checkbox" data-cfg="emergency-cave-auto"/> Cueva de emergencia ante ataque (ALTO RIESGO, OFF)</label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Emergencia:
+          confirmar &gt; <input type="number" data-cfg="emergency-cave-confirm" min="0" max="1000000" step="100" style="width:70px;background:#111;color:#cfc;border:1px solid #333"/>
+          minimo <input type="number" data-cfg="emergency-cave-min-iron" min="1" max="100000" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
+          <button data-cfg="emergency-cave-now" style="background:#333;border:1px solid #555;color:#f96;padding:2px 6px;cursor:pointer;font-size:10px;margin-left:6px" title="Guarda ahora la plata de todas las ciudades con cueva activada, ignorando el umbral.">Guardar plata YA</button>
+        </label>
         <div style="border-top:1px solid #333;padding-top:6px;color:#f5a623;font-size:10px">Fase 8+ economia</div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-culture"/> Auto-culture</label>
         <label style="margin-left:12px;display:flex;gap:8px;flex-wrap:wrap;font-size:10px">
@@ -18167,6 +18326,9 @@ const STORE = {
       sec.querySelector('[data-cfg=auto-quest-res]').checked = state.questAutoRes;
       const ac = sec.querySelector('[data-cfg=auto-cave]'); if (ac) ac.checked = state.autoCave;
       const ct = sec.querySelector('[data-cfg=cave-thresh]'); if (ct) ct.value = state.caveThreshPct;
+      const eca = sec.querySelector('[data-cfg=emergency-cave-auto]'); if (eca) eca.checked = !!state.emergencyCaveAuto;
+      const ecc = sec.querySelector('[data-cfg=emergency-cave-confirm]'); if (ecc) ecc.value = emergencyConfirmAt();
+      const ecm = sec.querySelector('[data-cfg=emergency-cave-min-iron]'); if (ecm) ecm.value = emergencyMinIron();
       const dr = sec.querySelector('[data-cfg=dry-run]'); if (dr) dr.checked = !!state.dryRun;
       const oa = sec.querySelector('[data-cfg=orch-adaptive]'); if (oa) oa.checked = state.orchAdaptive !== false;
       renderResearchPath(sec);
@@ -18617,6 +18779,21 @@ const STORE = {
     sec.querySelector('[data-cfg=research-csfast]')?.addEventListener('click', () => {
       researchLoadCsFast(); flash('CS-fast research');
     });
+    sec.querySelector('[data-cfg=emergency-cave-auto]')?.addEventListener('change', e => {
+      state.emergencyCaveAuto = !!e.target.checked;
+      save(STORE.EMERGENCY_CAVE_AUTO, state.emergencyCaveAuto);
+      gbLog('emergency cave auto ' + (state.emergencyCaveAuto ? 'ON - stashes ignoring the threshold on an imminent hit' : 'OFF'));
+      if (state.emergencyCaveAuto && !state.autoCave) flash('emergencia ON: recuerda activar las cuevas por ciudad arriba');
+    });
+    saveNum('[data-cfg=emergency-cave-confirm]', v => {
+      state.emergencyCaveConfirm = Math.max(0, Math.min(1000000, Number.isFinite(+v) ? +v : 1000));
+      save(STORE.EMERGENCY_CAVE_CONFIRM, state.emergencyCaveConfirm);
+    });
+    saveNum('[data-cfg=emergency-cave-min-iron]', v => {
+      state.emergencyCaveMinIron = Math.max(1, Math.min(100000, Number.isFinite(+v) ? +v : 50));
+      save(STORE.EMERGENCY_CAVE_MIN, state.emergencyCaveMinIron);
+    });
+    sec.querySelector('[data-cfg=emergency-cave-now]')?.addEventListener('click', () => { try { emergencyStashAllNow(); } catch (e) { flash('fallo: ' + String(e).slice(0, 40)); } });
     saveNum('[data-cfg=cave-thresh]', v => {
       state.caveThreshPct = Math.min(99, Math.max(50, v || 90));
       save(STORE.CAVE_THRESH, state.caveThreshPct);
@@ -19394,6 +19571,8 @@ const STORE = {
       defenseThreatBand,
       defenseFactorText,
       defenseShouldDodge,
+      emergencyStoreNow,
+      emergencyScan,
       supportTryBurst,
       supportScan,
       dodgeReturnRecord,

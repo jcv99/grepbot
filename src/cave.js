@@ -130,8 +130,10 @@
     return excess >= CAVE_MIN_STORE ? excess : 0;
   }
 
-  function caveStoreIron(townId, amount, onDone) {
-    bridgePost('cave', {
+  // `feature` lets the emergency path (v4 plan 3.5) post the same hardcoded
+  // payload under its own breaker key without duplicating the payload.
+  function caveStoreIron(townId, amount, onDone, feature) {
+    bridgePost(feature || 'cave', {
       model_url: 'BuildingHide',
       action_name: 'storeIron',
       arguments: { iron_to_store: +amount },

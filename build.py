@@ -48,6 +48,7 @@ MODULES = [
     'build-auto.js',
     'cave.js',
     'culture.js',
+    'emergency.js',
     'trade.js',
     'transport.js',
     'dump.js',

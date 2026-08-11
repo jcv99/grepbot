@@ -193,6 +193,8 @@
       defenseThreatBand,
       defenseFactorText,
       defenseShouldDodge,
+      emergencyStoreNow,
+      emergencyScan,
       supportTryBurst,
       supportScan,
       dodgeReturnRecord,

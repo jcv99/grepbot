@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.11.1
+// @version      4.12.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -70,6 +70,10 @@ const STORE = {
     AUTO_CAVE: 'grepbot:auto-cave',
     CAVE_THRESH: 'grepbot:cave-thresh',
     CAVE_TOWNS: 'grepbot:cave-towns',
+    EMERGENCY_CAVE_AUTO: 'grepbot:emergency-cave-auto',
+    EMERGENCY_CAVE_CONFIRM: 'grepbot:emergency-cave-confirm',
+    EMERGENCY_CAVE_MIN: 'grepbot:emergency-cave-min',
+    EMERGENCY_LAST: 'grepbot:emergency-last-stash',
     IB_ACTION: 'grepbot:ib-action',
     IB_RESEARCH: 'grepbot:ib-research',
     FARM_OPTION_MAP: 'grepbot:farm-option-map',
@@ -215,7 +219,7 @@ const STORE = {
     STORE.IB_ACTION, STORE.IB_ACTION_R, STORE.FARM_OPTION_MAP, STORE.FARM_LOYALTY_TECH, STORE.FARM_SLEEP_DAY, STORE.FARM_PROFIT, STORE.FARM_TRAVEL,
     STORE.QUEST_REWARDS, STORE.QUEST_HISTORY,
     STORE.ATTACK_TPL, STORE.CANCEL_TPL, STORE.HERO_TPL, STORE.ATTACK_PLAN, STORE.ATTACK_HISTORY, STORE.ATTACK_RECENT, STORE.CAPTCHA,
-    STORE.AB_TARGETS, STORE.CAVE_TOWNS,
+    STORE.AB_TARGETS, STORE.CAVE_TOWNS, STORE.EMERGENCY_LAST,
     STORE.RESEARCH_TARGETS, STORE.CITY_TEMPLATES, STORE.TOWN_GROUPS, STORE.DUMP_SINKS,
     STORE.MERCHANT_WISH, STORE.FAVOR_CFG, STORE.WONDER_CFG, STORE.WONDER_SPENT,
     STORE.CULTURE_GOLD_SPENT,
