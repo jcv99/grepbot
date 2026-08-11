@@ -702,5 +702,9 @@
     gbLog('research: loaded CS-fast tech list');
   }
 
-  const alertLastSent = Object.create(null);
-  const alertPending = Object.create(null);
+  // alertLastSent / alertPending live on `state.webhookRatelimit` and
+  // `state.webhookPending` (declared in core.js, persisted via STORE.WEBHOOK_*).
+  // Module-level maps were wiped by reload/SPA-nav, so the 5-minute dedup
+  // window reset and the next captcha/attack/culture event re-posted immediately.
+  const _whRateGuard = state.webhookRatelimit || (state.webhookRatelimit = {});
+  const _whPendGuard = state.webhookPending || (state.webhookPending = {});

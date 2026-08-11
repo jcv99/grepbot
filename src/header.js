@@ -248,6 +248,8 @@ const STORE = {
     VILLAGE_RECRUIT_AMOUNT: 'grepbot:village-recruit-amount',
     ACCEPT_UNITS_TPL: 'grepbot:accept-units-tpl',
     VILLAGE_RECRUIT_STREAKS: 'grepbot:village-recruit-streaks',
+    WEBHOOK_RATELIMIT: 'grepbot:webhook-ratelimit',
+    WEBHOOK_PENDING: 'grepbot:webhook-pending',
   };
 
   const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
@@ -277,4 +279,5 @@ const STORE = {
     // endpoint availability is a property of the world's client, not of the user
     STORE.FARM_SCRAPE, STORE.FARM_SCRAPE_STATE, STORE.TOWN_ACTION, STORE.TOWN_LIST_ACTION,
     STORE.PT_TRADE_TPL, STORE.PT_VIEW_URL,
+    STORE.WEBHOOK_RATELIMIT, STORE.WEBHOOK_PENDING,
   ]);

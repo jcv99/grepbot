@@ -50,7 +50,12 @@
     }
     if(!blind)nativeRecruitSplitDone.add(id);
     if(moved){
-      t.mode.recruitNaval='fifo';t.paused.recruitNaval=!!t.paused.recruit;
+      // Migration only fills empty slots. A user who already chose 'legacy'
+      // for the new lane keeps that choice, and the old recruit pause is only
+      // copied across if the new lane has no explicit preference yet — the
+      // old recruit pause is a deliberate state, not a default to propagate.
+      if (t.mode.recruitNaval == null) t.mode.recruitNaval = 'fifo';
+      if (t.paused.recruitNaval == null) t.paused.recruitNaval = !!t.paused.recruit;
       // Direct save: nativeQueueSave() re-renders, and this runs from inside
       // nativeQueueList, which the renderers themselves call.
       try{save(STORE.NATIVE_QUEUE,nativeQueueRoot())}catch(_){}
@@ -343,7 +348,13 @@
     // Same as the build lane: only the head is ever posted, so a tail append is
     // safe while an order is in flight or awaiting review.
     const lane=nativeRecruitLane(unit);
-    const town=nativeQueueTown(townId,true);town.mode[lane]='fifo';town[lane].push({id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:n,status:'pending',reason:'',createdAt:Date.now()});
+    const town=nativeQueueTown(townId,true);
+    // Adding one recruit must not flip the lane's mode out from under a player
+    // who explicitly chose 'legacy' (auto-planner). Only set fifo when the lane
+    // has no stored preference yet — first add on a fresh lane defaults to fifo
+    // to match historical behaviour, subsequent adds preserve the choice.
+    if (town.mode[lane] == null) town.mode[lane] = 'fifo';
+    town[lane].push({id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:n,status:'pending',reason:'',createdAt:Date.now()});
     nativeQueueSave();gbLog(`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): ${n}× ${nativeUnitLabel(unit)} @${townId}`);gbTimeout(()=>recruitScan('native'),80);return true;
   }
   function nativeQueueRemoveLastRecruit(townId,unit,amount) {
@@ -712,7 +723,7 @@
     // With several open windows, only the focused one may inherit Game.townId.
     let focusProven=false;
     try{const mgr=gameUw().GPWindowMgr,w=mgr&&mgr.getFocusedWindow&&mgr.getFocusedWindow(),jq=w&&w.getJQElement&&w.getJQElement(),el=jq&&(jq[0]||jq.get&&jq.get(0));if(el){focusProven=true;if(!(el===root||el.contains(root)||root.contains(el)))return null}}catch(_){}
-    if(!focusProven){try{const candidates=[...document.querySelectorAll('.window_content,.gpwindow_content,#unit_order')].filter((x,i,a)=>a.indexOf(x)===i&&!x.closest('#grepbot-panel')&&!x.closest('[hidden]')&&(x.getClientRects?x.getClientRects().length>0:true)),visibleRoots=candidates.filter(x=>!candidates.some(y=>y!==x&&y.contains(x))).filter(isRelevant);if(visibleRoots.length!==1||visibleRoots[0]!==root)return null}catch(_){return null}}
+    if(!focusProven){try{const candidates=[...document.querySelectorAll('.window_content,.gpwindow_content,#unit_order')].filter((x,i,a)=>a.indexOf(x)===i&&!x.closest('#grepbot-panel')&&!x.closest('[hidden]')&&(x.getClientRects?x.getClientRects().length>0:true)),visibleRoots=candidates.filter(x=>!candidates.some(y=>y!==x&&y.contains(x))).filter(isRelevant);if(visibleRoots.length!==1||visibleRoots[0]!==root){if(visibleRoots.length>=2){const focused=document.activeElement;let pick=null;for(const r of visibleRoots){if(r===focused||(focused&&r.contains(focused)))pick=r;if(pick)break}if(!pick)pick=visibleRoots[0];if(pick!==root)return null}else return null}}catch(_){return null}}
     const current=abCurrentTownId(),id=current==null?null:String(current);return id&&abGetTown(id)?id:null;
   }
   function nativeTownAction(root,townId,onClick) {

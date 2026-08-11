@@ -474,6 +474,11 @@
     },
     ptTradeTpl: load(STORE.PT_TRADE_TPL, null),
     ptViewUrl: load(STORE.PT_VIEW_URL, null),
+    // Webhook dedup state. Module-level maps were wiped on reload, so the
+    // 5-minute rolling window reset and the next captcha/attack/culture event
+    // re-posted immediately after every SPA nav, devtools refresh, or bfcache.
+    webhookRatelimit: load(STORE.WEBHOOK_RATELIMIT, {}) || {},
+    webhookPending: load(STORE.WEBHOOK_PENDING, {}) || {},
   };
 
   let panel = null;

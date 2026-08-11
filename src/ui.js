@@ -410,7 +410,7 @@
   }
   function applyTheme() {
     const cls = 'gb-theme-' + gbThemeResolved();
-    const targets = [panel, (typeof gbQueueCenter !== 'undefined' ? gbQueueCenter : null)];
+    const targets = [panel, (gbQueueCenter || null)];
     // Widget hosts (v4 plan 6.2) live on document.body, not inside the panel,
     // so they need the theme class themselves or their var() lookups resolve
     // to nothing and they render unstyled.
@@ -682,8 +682,13 @@
       overflow:hidden;padding:0;border-radius:6px;cursor:move}
     #grepbot-panel.collapsed header{padding:0;width:100%;height:100%;justify-content:center;align-items:center;border:0}
     #grepbot-panel.collapsed header b{display:none}
-    #grepbot-panel.collapsed header button{border:0;padding:0;width:100%;height:100%;font-size:0;font-weight:700;color:var(--gb-accent);border-radius:6px}
-    #grepbot-panel.collapsed header button::before{content:"GB";display:block;font-size:11px;line-height:${PANEL_SQ}px}
+    /* Scope the collapse-icon rules to the toggle button only. The Colas button
+       shares the header but must remain a real button (and would otherwise
+       overlap the toggle glyph with its own "GB" ::before). */
+    #grepbot-panel.collapsed header button[data-act=toggle]{border:0;padding:0;width:100%;height:100%;font-size:0;font-weight:700;color:var(--gb-accent);border-radius:6px}
+    #grepbot-panel.collapsed header button[data-act=toggle]::before{content:"GB";display:block;font-size:11px;line-height:${PANEL_SQ}px}
+    /* Hide header status pills when collapsed so the square stays a square. */
+    #grepbot-panel.collapsed .gb-head-main,#grepbot-panel.collapsed .gb-head-status,#grepbot-panel.collapsed .gb-head-mode,#grepbot-panel.collapsed .gb-head-health,#grepbot-panel.collapsed .gb-head-toggle{display:none !important}
     #grepbot-panel.collapsed .gb-qat,#grepbot-panel.collapsed .gb-nav,#grepbot-panel.collapsed .gb-subtabs,#grepbot-panel.collapsed section,#grepbot-panel.collapsed footer,#grepbot-panel.collapsed .gb-resize{display:none !important}
     #grepbot-panel .farms-list{margin-bottom:6px;max-height:200px;overflow:auto}
     #grepbot-panel .farms-list table{width:100%;border-collapse:collapse;font-size:10px}
@@ -881,7 +886,7 @@
         <button type="button" id="gb-atk-src-all">Todo</button>
         <button type="button" id="gb-atk-src-none">Ninguno</button>
         <button type="button" id="gb-atk-src-off">Ofensiva</button>
-        <button type="button" id="gb-atk-src-def">Defense</button>
+        <button type="button" id="gb-atk-src-def">Defensa</button>
       </div>
       <div class="atk-sources"></div>
       <div class="atk-pertown" hidden></div>

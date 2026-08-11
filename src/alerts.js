@@ -125,8 +125,8 @@
     if (ev[event] === false) return;
     const now = Date.now();
     const key = alertWebhookKey(event, payload);
-    if (alertPending[key]) return;
-    if ((alertLastSent[key] || 0) + 5 * 60 * 1000 > now) return;
+    if (state.webhookPending[key]) return;
+    if ((state.webhookRatelimit[key] || 0) + 5 * 60 * 1000 > now) return;
     const text = `GrepBot [${location.host}] ${event}\n` +
       '```json\n' + JSON.stringify(payload || {}, null, 2).slice(0, 1800) + '\n```';
     let body;
@@ -148,7 +148,8 @@
         }],
       };
     }
-    alertPending[key] = now;
+    state.webhookPending[key] = now;
+    try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (_) {}
     try {
       gbXhr({
         scope: 'external',
@@ -157,17 +158,22 @@
         headers: { 'Content-Type': 'application/json' },
         data: JSON.stringify(body),
         onload: (r) => {
-          delete alertPending[key];
-          if (r.status >= 200 && r.status < 300) alertLastSent[key] = Date.now();
-          else gbLogT('webhook-fail-' + key, 60000, 'webhook status ' + r.status);
+          delete state.webhookPending[key];
+          try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (_) {}
+          if (r.status >= 200 && r.status < 300) {
+            state.webhookRatelimit[key] = Date.now();
+            try { save(STORE.WEBHOOK_RATELIMIT, state.webhookRatelimit); } catch (_) {}
+          } else gbLogT('webhook-fail-' + key, 60000, 'webhook status ' + r.status);
         },
         onerror: () => {
-          delete alertPending[key];
+          delete state.webhookPending[key];
+          try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (_) {}
           gbLogT('webhook-err-' + key, 60000, 'webhook transport error');
         },
       });
     } catch (e) {
-      delete alertPending[key];
+      delete state.webhookPending[key];
+      try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (_) {}
       gbLogT('webhook-ex-' + key, 60000, 'webhook ' + String(e));
     }
   }
