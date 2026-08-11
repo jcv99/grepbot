@@ -378,6 +378,8 @@
     txState: load(STORE.TX_STATE, {}),
     circuits: load(STORE.CIRCUITS, {}),
     abOrder: load(STORE.AB_ORDER, null),
+    // v4 plan 4.5: repairs cost resources without user action, so default OFF.
+    autoWallRepair: load(STORE.AUTO_WALL_REPAIR, false),
     abOptimalOrder: load(STORE.AB_OPTIMAL_ORDER, {}),
     abOptimalOrderOn: load(STORE.AB_OPTIMAL_ORDER_ON, true),
     plannerCfg: load(STORE.PLANNER_CFG, { global: { hard: { wood:0, stone:0, iron:0, population:0 }, soft: { wood:0, stone:0, iron:0, population:0 } }, towns: {} }),

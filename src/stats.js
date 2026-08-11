@@ -215,6 +215,20 @@
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
       };
     }));
+    out.push(preflightProbe('wall repair', () => {
+      if (!state.autoWallRepair) return { ok: true, detail: 'desactivado (por defecto)' };
+      const ids = (townsFromGame() || []).map(t => String(t.id));
+      const readable = ids.filter(id => abWallDamage(id) != null).length;
+      const damaged = ids.filter(id => (abWallDamage(id) || 0) > 0).length;
+      return {
+        ok: true,
+        // Unreadable damage is the EXPECTED result until someone captures the
+        // attribute name; the feature then simply applies no offset.
+        warn: readable === 0,
+        detail: `${readable}/${ids.length} ciudad(es) con dano legible, ${damaged} danada(s)` +
+          (readable === 0 ? ' - nombre de atributo no capturado en este cliente' : ''),
+      };
+    }));
     out.push(preflightProbe('godspell', () => {
       const cfg = state.favorCfg || {};
       const power = cfg.spellPower ? String(cfg.spellPower) : '';

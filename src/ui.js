@@ -807,6 +807,7 @@
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-build"/> Instant free builds</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="instant-research"/> Instant free research (academy)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-queue"/> Auto-queue builds</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px" title="Un muro danado conserva su nivel, asi que el planificador no lo ve. Con esto activado el nivel efectivo baja segun el dano y la cola lo reconstruye. Gasta recursos: por defecto OFF."><input type="checkbox" data-cfg="auto-wall-repair"/> Reparar muralla danada</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-build"/> Auto-claim quest build discount</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-res"/> Auto-claim quest resources/favor</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-cave"/> Auto-cave (stash excess iron)</label>
@@ -1300,6 +1301,7 @@
       sec.querySelector('[data-cfg=auto-build]').checked = state.ibAuto;
       const ir = sec.querySelector('[data-cfg=instant-research]'); if (ir) ir.checked = state.ibResearch;
       sec.querySelector('[data-cfg=auto-queue]').checked = state.abAuto;
+      const awr = sec.querySelector('[data-cfg=auto-wall-repair]'); if (awr) awr.checked = !!state.autoWallRepair;
       sec.querySelector('[data-cfg=auto-quest-build]').checked = state.questAutoBuild;
       sec.querySelector('[data-cfg=auto-quest-res]').checked = state.questAutoRes;
       const ac = sec.querySelector('[data-cfg=auto-cave]'); if (ac) ac.checked = state.autoCave;
@@ -1331,6 +1333,7 @@
     setChk('[data-cfg=auto-build]', state.ibAuto);
     setChk('[data-cfg=instant-research]', state.ibResearch);
     setChk('[data-cfg=auto-queue]', state.abAuto);
+    setChk('[data-cfg=auto-wall-repair]', !!state.autoWallRepair);
     setChk('[data-cfg=auto-quest-build]', state.questAutoBuild);
     setChk('[data-cfg=auto-quest-res]', state.questAutoRes);
     setChk('[data-cfg=auto-cave]', state.autoCave);
@@ -1421,6 +1424,12 @@
       gbLog('instant-research', state.ibResearch ? 'ON' : 'OFF');
       if (state.ibResearch && state.ibAuto) ibScan();
       else renderBuild();
+    });
+    sec.querySelector('[data-cfg=auto-wall-repair]')?.addEventListener('change', e => {
+      state.autoWallRepair = !!e.target.checked;
+      save(STORE.AUTO_WALL_REPAIR, state.autoWallRepair);
+      gbLog('wall repair ' + (state.autoWallRepair ? 'ON - damaged walls count as below target' : 'OFF'));
+      try { abScan('toggle'); } catch (_) {}
     });
     sec.querySelector('[data-cfg=auto-queue]')?.addEventListener('change', e => {
       state.abAuto = e.target.checked; save(STORE.AB_AUTO, state.abAuto);

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.18.1
+// @version      4.19.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -69,6 +69,7 @@ const STORE = {
     FARM_SKIP_FULL: 'grepbot:farm-skip-full',
     FARM_FULL_MODE: 'grepbot:farm-full-mode',
     AB_AUTO: 'grepbot:ab-auto',
+    AUTO_WALL_REPAIR: 'grepbot:auto-wall-repair',
     AB_TARGETS: 'grepbot:ab-targets',
     AUTO_CAVE: 'grepbot:auto-cave',
     CAVE_THRESH: 'grepbot:cave-thresh',
@@ -618,6 +619,8 @@ const STORE = {
     txState: load(STORE.TX_STATE, {}),
     circuits: load(STORE.CIRCUITS, {}),
     abOrder: load(STORE.AB_ORDER, null),
+
+    autoWallRepair: load(STORE.AUTO_WALL_REPAIR, false),
     abOptimalOrder: load(STORE.AB_OPTIMAL_ORDER, {}),
     abOptimalOrderOn: load(STORE.AB_OPTIMAL_ORDER_ON, true),
     plannerCfg: load(STORE.PLANNER_CFG, { global: { hard: { wood:0, stone:0, iron:0, population:0 }, soft: { wood:0, stone:0, iron:0, population:0 } }, towns: {} }),
@@ -7697,6 +7700,37 @@ const STORE = {
     try { return uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]); }
     catch (_) { return null; }
   }
+
+  const WALL_DAMAGE_FNS = ['getWallDamage', 'getDamagePercentForBuilding', 'getDamagePercentage', 'getWallDamagePercent'];
+  const WALL_DAMAGE_ATTRS = ['wall_damage', 'wallDamage', 'damage_percent', 'wall_damage_percent'];
+  function abWallDamage(townId) {
+
+    try {
+      const t = gbTownModel(townId);
+      if (!t) return null;
+      let v = gbProbeNum(t, WALL_DAMAGE_FNS, ['wall']);
+      if (v == null) v = gbProbeNum(t, WALL_DAMAGE_FNS);
+      if (v == null) v = gbProbeAttr(t, WALL_DAMAGE_ATTRS);
+
+      return (Number.isFinite(v) && v >= 0 && v <= 100) ? v : null;
+    } catch (_) { return null; }
+  }
+
+  function abWallEffectiveLevel(townId, wallLevel) {
+    if (!state.autoWallRepair) return wallLevel;
+    const dmg = abWallDamage(townId);
+    if (dmg == null) {
+      gbLogT('wall-damage-blind-' + townId, 600000,
+        `wall repair: damage unreadable on town ${townId} - no offset applied`);
+      return wallLevel;
+    }
+    if (!(dmg > 0)) return wallLevel;
+    const lost = Math.floor(wallLevel * dmg / 100);
+    if (lost <= 0) return wallLevel;
+    gbLogT('wall-damage-' + townId, 300000,
+      `wall repair: town ${townId} wall ${wallLevel} at ${dmg}% damage - treating as ${wallLevel - lost}`);
+    return Math.max(0, wallLevel - lost);
+  }
   function abCurrentLevels(townId) {
     const t = abGetTown(townId);
     if (!t) return null;
@@ -7870,7 +7904,9 @@ const STORE = {
       const max = abMaxLevel(target);
       if (max == null) { gbLogT('ab-max-' + target, 300000, `auto-queue: max level unreadable for ${target} \u2014 fail closed`); continue; }
       const want = Math.min(+targets[target] || 0, max);
-      if (want <= 0 || +(levels[target] || 0) >= want) continue;
+
+      const have = target === 'wall' ? abWallEffectiveLevel(townId, +(levels.wall || 0)) : +(levels[target] || 0);
+      if (want <= 0 || have >= want) continue;
       const resolved = abResolvePrerequisite(townId, target, levels);
       if (resolved && resolved.building && goalQueueSuppressed(townId,'build',resolved.building)) {
         gbLogT('ab-user-block-' + townId + '-' + resolved.building, 60000, `auto-queue: ${resolved.building} blocked by virtual queue`);
@@ -16913,6 +16949,19 @@ const STORE = {
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
       };
     }));
+    out.push(preflightProbe('wall repair', () => {
+      if (!state.autoWallRepair) return { ok: true, detail: 'desactivado (por defecto)' };
+      const ids = (townsFromGame() || []).map(t => String(t.id));
+      const readable = ids.filter(id => abWallDamage(id) != null).length;
+      const damaged = ids.filter(id => (abWallDamage(id) || 0) > 0).length;
+      return {
+        ok: true,
+
+        warn: readable === 0,
+        detail: `${readable}/${ids.length} ciudad(es) con dano legible, ${damaged} danada(s)` +
+          (readable === 0 ? ' - nombre de atributo no capturado en este cliente' : ''),
+      };
+    }));
     out.push(preflightProbe('godspell', () => {
       const cfg = state.favorCfg || {};
       const power = cfg.spellPower ? String(cfg.spellPower) : '';
@@ -18650,6 +18699,7 @@ const STORE = {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-build"/> Instant free builds</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="instant-research"/> Instant free research (academy)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-queue"/> Auto-queue builds</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px" title="Un muro danado conserva su nivel, asi que el planificador no lo ve. Con esto activado el nivel efectivo baja segun el dano y la cola lo reconstruye. Gasta recursos: por defecto OFF."><input type="checkbox" data-cfg="auto-wall-repair"/> Reparar muralla danada</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-build"/> Auto-claim quest build discount</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-quest-res"/> Auto-claim quest resources/favor</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-cave"/> Auto-cave (stash excess iron)</label>
@@ -19142,6 +19192,7 @@ const STORE = {
       sec.querySelector('[data-cfg=auto-build]').checked = state.ibAuto;
       const ir = sec.querySelector('[data-cfg=instant-research]'); if (ir) ir.checked = state.ibResearch;
       sec.querySelector('[data-cfg=auto-queue]').checked = state.abAuto;
+      const awr = sec.querySelector('[data-cfg=auto-wall-repair]'); if (awr) awr.checked = !!state.autoWallRepair;
       sec.querySelector('[data-cfg=auto-quest-build]').checked = state.questAutoBuild;
       sec.querySelector('[data-cfg=auto-quest-res]').checked = state.questAutoRes;
       const ac = sec.querySelector('[data-cfg=auto-cave]'); if (ac) ac.checked = state.autoCave;
@@ -19173,6 +19224,7 @@ const STORE = {
     setChk('[data-cfg=auto-build]', state.ibAuto);
     setChk('[data-cfg=instant-research]', state.ibResearch);
     setChk('[data-cfg=auto-queue]', state.abAuto);
+    setChk('[data-cfg=auto-wall-repair]', !!state.autoWallRepair);
     setChk('[data-cfg=auto-quest-build]', state.questAutoBuild);
     setChk('[data-cfg=auto-quest-res]', state.questAutoRes);
     setChk('[data-cfg=auto-cave]', state.autoCave);
@@ -19263,6 +19315,12 @@ const STORE = {
       gbLog('instant-research', state.ibResearch ? 'ON' : 'OFF');
       if (state.ibResearch && state.ibAuto) ibScan();
       else renderBuild();
+    });
+    sec.querySelector('[data-cfg=auto-wall-repair]')?.addEventListener('change', e => {
+      state.autoWallRepair = !!e.target.checked;
+      save(STORE.AUTO_WALL_REPAIR, state.autoWallRepair);
+      gbLog('wall repair ' + (state.autoWallRepair ? 'ON - damaged walls count as below target' : 'OFF'));
+      try { abScan('toggle'); } catch (_) {}
     });
     sec.querySelector('[data-cfg=auto-queue]')?.addEventListener('change', e => {
       state.abAuto = e.target.checked; save(STORE.AB_AUTO, state.abAuto);

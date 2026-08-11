@@ -11,6 +11,55 @@
     try { return uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]); }
     catch (_) { return null; }
   }
+  // ===== Wall auto-repair (v4 plan 4.5) ======================================
+  // A damaged wall keeps its LEVEL - only a separate damage attribute moves -
+  // so the build picker sees want === current and does nothing while the wall
+  // sits at 0% integrity. The fix is to hand the picker an EFFECTIVE level.
+  //
+  // The damage attribute name is NOT known for this client. These are probe
+  // candidates, not assumptions: every one missing is the expected outcome,
+  // the reader returns null, and no offset is applied. A fabricated damage
+  // number would queue wall levels the town does not owe.
+  const WALL_DAMAGE_FNS = ['getWallDamage', 'getDamagePercentForBuilding', 'getDamagePercentage', 'getWallDamagePercent'];
+  const WALL_DAMAGE_ATTRS = ['wall_damage', 'wallDamage', 'damage_percent', 'wall_damage_percent'];
+  function abWallDamage(townId) {
+    // Wrapped like every other read in this file: abCurrentLevels feeds the
+    // planner, the renderer and tx state, and a throwing model proxy must not
+    // take all three down.
+    try {
+      const t = gbTownModel(townId);
+      if (!t) return null;
+      let v = gbProbeNum(t, WALL_DAMAGE_FNS, ['wall']);
+      if (v == null) v = gbProbeNum(t, WALL_DAMAGE_FNS);
+      if (v == null) v = gbProbeAttr(t, WALL_DAMAGE_ATTRS);
+      // Only a percentage in range is believable. Anything else is unreadable.
+      return (Number.isFinite(v) && v >= 0 && v <= 100) ? v : null;
+    } catch (_) { return null; }
+  }
+  // Whole levels only: the picker compares integers and emits one buildUp per
+  // missing level, so a fractional offset would either round away real damage
+  // or queue a level that does not exist.
+  //
+  // DELIBERATELY NOT applied inside abCurrentLevels. Damage is not level, and
+  // that map feeds the planner, the queue renderer, goalProgress, the optimal
+  // order and tx state - deflating wall there made every one of them report a
+  // level the town does not actually have. The offset lives in the ONE
+  // comparison that needs it, in abPickNextFromLevels and abFinalValidate.
+  function abWallEffectiveLevel(townId, wallLevel) {
+    if (!state.autoWallRepair) return wallLevel;
+    const dmg = abWallDamage(townId);
+    if (dmg == null) {
+      gbLogT('wall-damage-blind-' + townId, 600000,
+        `wall repair: damage unreadable on town ${townId} - no offset applied`);
+      return wallLevel;
+    }
+    if (!(dmg > 0)) return wallLevel;
+    const lost = Math.floor(wallLevel * dmg / 100);
+    if (lost <= 0) return wallLevel;
+    gbLogT('wall-damage-' + townId, 300000,
+      `wall repair: town ${townId} wall ${wallLevel} at ${dmg}% damage - treating as ${wallLevel - lost}`);
+    return Math.max(0, wallLevel - lost);
+  }
   function abCurrentLevels(townId) {
     const t = abGetTown(townId);
     if (!t) return null;
@@ -184,7 +233,10 @@
       const max = abMaxLevel(target);
       if (max == null) { gbLogT('ab-max-' + target, 300000, `auto-queue: max level unreadable for ${target} — fail closed`); continue; }
       const want = Math.min(+targets[target] || 0, max);
-      if (want <= 0 || +(levels[target] || 0) >= want) continue;
+      // Wall only: a damaged wall keeps its level, so compare the effective one
+      // or the gap is invisible. Every other building compares raw.
+      const have = target === 'wall' ? abWallEffectiveLevel(townId, +(levels.wall || 0)) : +(levels[target] || 0);
+      if (want <= 0 || have >= want) continue;
       const resolved = abResolvePrerequisite(townId, target, levels);
       if (resolved && resolved.building && goalQueueSuppressed(townId,'build',resolved.building)) {
         gbLogT('ab-user-block-' + townId + '-' + resolved.building, 60000, `auto-queue: ${resolved.building} blocked by virtual queue`);
