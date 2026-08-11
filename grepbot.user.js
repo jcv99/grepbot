@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.32.1
+// @version      4.33.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -68,6 +68,8 @@ const STORE = {
     WIDGET_GEOM: 'grepbot:widget-geom',
     THEME: 'grepbot:theme',
     CONTEXT_MENU: 'grepbot:context-menu',
+    PROFILE_AUTO_CFG: 'grepbot:profile-auto-cfg',
+    PROFILE_AUTO_LAST: 'grepbot:profile-auto-last',
     KEYBINDINGS: 'grepbot:keybindings',
     KEYBOARD_SHORTCUTS: 'grepbot:keyboard-shortcuts',
     ACTIVE_TAB: 'grepbot:active-tab',
@@ -254,7 +256,7 @@ const STORE = {
     STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES, STORE.SPY_CFG, STORE.SPY_HISTORY, STORE.SPY_TPL,
     STORE.CAPTCHA_GLOBAL_UNTIL,
     STORE.SERVER_COOLDOWN, STORE.QUEST_CLAIM_FAIL, STORE.DODGE_QUEUE,
-    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER,
+    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PROFILE_AUTO_CFG, STORE.PROFILE_AUTO_LAST, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER,
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
     STORE.SPELL_COOLDOWN,
@@ -563,6 +565,8 @@ const STORE = {
     findingsFilter: load(STORE.FINDINGS_FILTER, { type: '', attacker: '' }),
     theme: load(STORE.THEME, 'dark'),
     contextMenu: load(STORE.CONTEXT_MENU, true),
+    profileAutoCfg: load(STORE.PROFILE_AUTO_CFG, { enabled: false, minHoldMin: 15, rules: [] }),
+    profileAutoLast: load(STORE.PROFILE_AUTO_LAST, { profile: null, ruleId: null, switchedAt: 0 }),
     keyboardShortcuts: load(STORE.KEYBOARD_SHORTCUTS, true),
     keybindings: load(STORE.KEYBINDINGS, {}) || {},
     widgetGeom: load(STORE.WIDGET_GEOM, {}) || {},
@@ -13754,11 +13758,11 @@ const STORE = {
       abTargets:state.abTargets,abOrder:state.abOrder,researchTargets:state.researchTargets,recruitTargets:state.recruitTargets,
       plannerCfg:state.plannerCfg,goalProfiles:state.goalProfiles,townGoals:state.townGoals,virtualQueueOverrides:state.virtualQueueOverrides,nativeQueue:state.nativeQueue,predictCfg:state.predictCfg,defenseCfg:state.defenseCfg,safeMode:!!state.safeMode,
       autoTransport:!!state.autoTransport,transportReserve:+state.transportReserve||20,transportMin:+state.transportMin||1000,
-      cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,spyCfg:state.spyCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,playerNotes:state.playerNotes,watchlist:state.watchlist };
+      cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,spyCfg:state.spyCfg,profileAutoCfg:state.profileAutoCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,playerNotes:state.playerNotes,watchlist:state.watchlist };
   }
   function qolImportConfig(obj) {
     if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;if(obj.host&&String(obj.host)!==String(location.host)){gbLog(`config import refused: file host ${obj.host} != ${location.host}`);return false}if(obj.schema!=null&&+obj.schema>CONFIG_EXPORT_SCHEMA){gbLog(`config import refused: schema ${obj.schema} newer than supported ${CONFIG_EXPORT_SCHEMA}`);return false}
-    const clone=v=>JSON.parse(JSON.stringify(v)),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray};const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
+    const clone=v=>JSON.parse(JSON.stringify(v)),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,profileAutoCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray};const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,profileAutoCfg:STORE.PROFILE_AUTO_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
     for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='priorityOrder'){const allowed=new Set(PRIORITY_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(PRIORITY_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
       const clean={version:1,seq:Math.max(0,+v.seq||0),towns:{}},seen=new Set();
       const jobId=(raw,prefix)=>{let id=/^[A-Za-z0-9:._-]{1,160}$/.test(String(raw||''))?String(raw):'';if(!id||seen.has(id)){clean.seq++;id=`${prefix}:import:${clean.seq.toString(36)}`}seen.add(id);return id};
@@ -13854,6 +13858,117 @@ const STORE = {
       },
     },
   };
+
+  const PROFILE_AUTO_PRESETS = ['afk', 'farming', 'war'];
+  const PROFILE_AUTO_WHEN = { activity: ['any', 'active', 'idle'], incoming: ['any', 'yes', 'no'], warehouse: ['any', 'full', 'not-full'] };
+  const PROFILE_FULL_RATIO = 0.97;
+  function profileAutoCfg() {
+    const c = (state.profileAutoCfg && typeof state.profileAutoCfg === 'object' && !Array.isArray(state.profileAutoCfg)) ? state.profileAutoCfg : {};
+    const hold = +c.minHoldMin;
+    return {
+      enabled: c.enabled === true,
+
+      minHoldMin: Number.isFinite(hold) ? Math.max(15, Math.min(1440, hold)) : 15,
+      rules: Array.isArray(c.rules) ? c.rules.map(profileAutoNormalise).filter(Boolean) : [],
+    };
+  }
+  function profileAutoNormalise(r) {
+    if (!r || typeof r !== 'object' || Array.isArray(r)) return null;
+    if (!PROFILE_AUTO_PRESETS.includes(r.profile)) return null;
+    const days = Array.isArray(r.days) ? r.days.map(Number).filter(d => Number.isInteger(d) && d >= 0 && d <= 6) : [];
+
+    const mins = v => { const n = +v; return Number.isInteger(n) && n >= 0 && n <= 1439 ? n : null; };
+    const startMin = mins(r.startMin), endMin = mins(r.endMin);
+    if (startMin == null || endMin == null) return null;
+    const w = (r.when && typeof r.when === 'object') ? r.when : {};
+    const when = {};
+    for (const k of Object.keys(PROFILE_AUTO_WHEN)) {
+      when[k] = PROFILE_AUTO_WHEN[k].includes(w[k]) ? w[k] : 'any';
+    }
+    const pr = +r.priority;
+    return {
+      id: /^[A-Za-z0-9_:-]{1,32}$/.test(String(r.id || '')) ? String(r.id) : ('r' + startMin + '-' + endMin + '-' + r.profile),
+      enabled: r.enabled !== false,
+      priority: Number.isFinite(pr) ? Math.max(0, Math.min(999, Math.floor(pr))) : 100,
+      profile: r.profile, days, startMin, endMin, when,
+    };
+  }
+  function profileAutoInWindow(rule, now) {
+    if (!rule.days.includes(now.getDay())) return false;
+    const m = now.getHours() * 60 + now.getMinutes();
+
+    return rule.startMin <= rule.endMin
+      ? (m >= rule.startMin && m < rule.endMin)
+      : (m >= rule.startMin || m < rule.endMin);
+  }
+
+  function profileAutoActivity() {
+    if (!state.pauseOnActivity) return 'idle';
+    return (typeof userPausedUntil === 'number' && Date.now() < userPausedUntil) ? 'active' : 'idle';
+  }
+  function profileAutoIncoming() {
+    try { return (dodgeIncomingMovements() || []).length ? 'yes' : 'no'; } catch (_) { return null; }
+  }
+  function profileAutoWarehouse() {
+    let ids = [];
+    try { ids = Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}); } catch (_) { return null; }
+    if (!ids.length) return null;
+    let anyFull = false, allReadable = true;
+    for (const id of ids) {
+      const rs = (typeof townResState === 'function') ? townResState(id) : null;
+      if (!rs || !(rs.cap > 0)) { allReadable = false; continue; }
+      if (Math.max(rs.wood, rs.stone, rs.iron) / rs.cap >= PROFILE_FULL_RATIO) anyFull = true;
+    }
+    if (anyFull) return 'full';
+
+    return allReadable ? 'not-full' : null;
+  }
+  function profileAutoMatch(rule, reads) {
+    for (const k of Object.keys(PROFILE_AUTO_WHEN)) {
+      const want = rule.when[k];
+      if (want === 'any') continue;
+      const got = reads[k];
+      if (got == null) return false;
+      if (k === 'activity' && got !== want) return false;
+      if (k !== 'activity' && got !== want) return false;
+    }
+    return true;
+  }
+  function profileAutoLast() {
+    const l = state.profileAutoLast;
+    return (l && typeof l === 'object' && !Array.isArray(l)) ? l : { profile: null, ruleId: null, switchedAt: 0 };
+  }
+  function profileAutoTick() {
+    const cfg = profileAutoCfg();
+    if (!cfg.enabled || !cfg.rules.length) return;
+    const now = new Date();
+    const reads = { activity: profileAutoActivity(), incoming: profileAutoIncoming(), warehouse: profileAutoWarehouse() };
+    for (const k of Object.keys(reads)) {
+      if (reads[k] == null) gbLogT('profile-auto-blind-' + k, 600000, `profile-auto: ${k} unreadable - rules needing it will not match`);
+    }
+    const hit = cfg.rules
+      .filter(r => r.enabled && profileAutoInWindow(r, now) && profileAutoMatch(r, reads))
+      .sort((a, b) => (a.priority - b.priority) || String(a.id).localeCompare(String(b.id)))[0];
+
+    if (!hit) return;
+    const last = profileAutoLast();
+    if (last.profile === hit.profile) return;
+    const held = Date.now() - (+last.switchedAt || 0);
+    if (last.profile && held < cfg.minHoldMin * 60000) return;
+    const from = last.profile || '(ninguno)';
+    if (!qolApplyPreset(hit.profile)) return;
+    state.profileAutoLast = { profile: hit.profile, ruleId: hit.id, switchedAt: Date.now() };
+    save(STORE.PROFILE_AUTO_LAST, state.profileAutoLast);
+    gbLog(`profile-auto: switched ${from} -> ${hit.profile} (rule ${hit.id}; activity=${reads.activity}; incoming=${reads.incoming}; warehouse=${reads.warehouse})`);
+    try { updateStatus(); } catch (_) {}
+    try { bindConfig(); } catch (_) {}
+  }
+  function profileAutoSave(list) {
+    const rules = (Array.isArray(list) ? list : []).map(profileAutoNormalise).filter(Boolean);
+    state.profileAutoCfg = Object.assign({}, state.profileAutoCfg, { rules });
+    save(STORE.PROFILE_AUTO_CFG, state.profileAutoCfg);
+    return rules;
+  }
   function qolApplyPreset(name) {
     const preset = CONFIG_PRESETS[name];
     if (!preset) return false;
@@ -14076,6 +14191,8 @@ const STORE = {
   }
   function orchTick() {
     if (!hostEnabled()) return;
+
+    try { profileAutoTick(); } catch (_) {}
 
     try { townCapWatcher(); } catch (_) {}
     if (automationPaused({})) return;
@@ -19998,6 +20115,11 @@ const STORE = {
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Ctrl/Cmd+Shift+tecla. Nunca se dispara mientras escribes en un campo del juego o del panel."><input type="checkbox" data-cfg="keyboard-shortcuts"/> Atajos de teclado</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Anade un menu GrepBot junto al popup de ciudad del juego. No intercepta ningun evento del juego: solo se monta al lado."><input type="checkbox" data-cfg="context-menu"/> Menu contextual junto al popup del juego</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Aplica un perfil (AFK / recoleccion / guerra) segun dia, hora y condiciones. Lista de reglas acotada: no acepta codigo ni texto libre."><input type="checkbox" data-cfg="profile-auto"/> Cambio automatico de perfiles</label>
+        <label style="margin-left:12px;font-size:10px">Permanencia minima <input type="number" data-cfg="profile-auto-hold" min="15" max="1440" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> min
+          <button data-cfg="profile-auto-edit" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px;margin-left:6px">Reglas...</button>
+        </label>
+        <div class="profile-auto-list" style="margin-left:12px;font-size:9px;color:#8ac;white-space:pre-wrap"></div>
         <div class="key-list" style="margin-left:12px;font-size:9px;color:#8ac;white-space:pre-wrap"></div>
         <button data-cfg="keybindings-edit" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Reasignar atajos...</button>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Copy/Export replace player names and ids with short hashes. Turn OFF only for local debugging."><input type="checkbox" data-cfg="export-redact"/> Redact names/ids in Copy + Export</label>
@@ -20515,6 +20637,20 @@ const STORE = {
       const th = sec.querySelector('[data-cfg=theme]'); if (th) th.value = GB_THEMES.includes(state.theme) ? state.theme : 'dark';
       const ks = sec.querySelector('[data-cfg=keyboard-shortcuts]'); if (ks) ks.checked = state.keyboardShortcuts !== false;
       const cm = sec.querySelector('[data-cfg=context-menu]'); if (cm) cm.checked = state.contextMenu !== false;
+      { const pa = profileAutoCfg();
+        const pc = sec.querySelector('[data-cfg=profile-auto]'); if (pc) pc.checked = pa.enabled;
+        setNum('[data-cfg=profile-auto-hold]', pa.minHoldMin);
+        const pl = sec.querySelector('.profile-auto-list');
+        if (pl) {
+          const last = state.profileAutoLast || {};
+          const DAY = ['do', 'lu', 'ma', 'mi', 'ju', 'vi', 'sa'];
+          const hhmm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+          pl.textContent = (pa.rules.length
+            ? pa.rules.map(r => `${r.enabled ? '' : '(off) '}p${r.priority} ${r.profile} ${r.days.map(d => DAY[d]).join('') || 'SIN DIAS'} ${hhmm(r.startMin)}-${hhmm(r.endMin)} ` +
+                Object.entries(r.when).filter(([, v]) => v !== 'any').map(([k, v]) => k + '=' + v).join(' ')).join('\n')
+            : 'sin reglas') +
+            (last.profile ? `\nactual: ${last.profile} (regla ${last.ruleId || '?'})` : '');
+        } }
       const kl = sec.querySelector('.key-list');
       if (kl) {
         const b = gbKeyBindings();
@@ -21094,6 +21230,33 @@ const STORE = {
       try { perm = (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported'; } catch (_) {}
       if (perm === 'granted') { try { new Notification('GrepBot', { body: 'prueba de notificacion', tag: 'gb-test' }); } catch (_) {} }
       else flash('sonido probado; permiso de notificacion: ' + perm);
+    });
+    sec.querySelector('[data-cfg=profile-auto]')?.addEventListener('change', e => {
+      state.profileAutoCfg = Object.assign({}, state.profileAutoCfg, { enabled: !!e.target.checked });
+      save(STORE.PROFILE_AUTO_CFG, state.profileAutoCfg);
+      gbLog('profile-auto ' + (state.profileAutoCfg.enabled ? 'ON' : 'OFF'));
+    });
+    saveNum('[data-cfg=profile-auto-hold]', v => {
+      state.profileAutoCfg = Object.assign({}, state.profileAutoCfg, { minHoldMin: Math.max(15, Math.min(1440, +v || 15)) });
+      save(STORE.PROFILE_AUTO_CFG, state.profileAutoCfg);
+    });
+    sec.querySelector('[data-cfg=profile-auto-edit]')?.addEventListener('click', () => {
+      const cur = profileAutoCfg().rules;
+      const sample = [{ id: 'noche', enabled: true, priority: 10, profile: 'afk', days: [0, 1, 2, 3, 4, 5, 6], startMin: 0, endMin: 420, when: { activity: 'any', incoming: 'no', warehouse: 'any' } }];
+      const raw = prompt(
+        'Reglas de perfil (JSON, lista). Campos: id, enabled, priority, profile (afk|farming|war),\n' +
+        'days [0-6, 0=domingo], startMin/endMin (0-1439, start>end cruza medianoche),\n' +
+        'when {activity:any|active|idle, incoming:any|yes|no, warehouse:any|full|not-full}.\n' +
+        'Sin dias = nunca coincide. No se acepta codigo ni texto libre.',
+        JSON.stringify(cur.length ? cur : sample, null, 2));
+      if (raw == null) return;
+      try {
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) throw new Error('list');
+        const kept = profileAutoSave(parsed);
+        flash(`${kept.length}/${parsed.length} reglas guardadas`);
+        bindConfig();
+      } catch (_) { flash('JSON de reglas invalido'); }
     });
     sec.querySelector('[data-cfg=context-menu]')?.addEventListener('change', e => {
       state.contextMenu = !!e.target.checked;

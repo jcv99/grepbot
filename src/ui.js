@@ -1104,6 +1104,11 @@
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Ctrl/Cmd+Shift+tecla. Nunca se dispara mientras escribes en un campo del juego o del panel."><input type="checkbox" data-cfg="keyboard-shortcuts"/> Atajos de teclado</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Anade un menu GrepBot junto al popup de ciudad del juego. No intercepta ningun evento del juego: solo se monta al lado."><input type="checkbox" data-cfg="context-menu"/> Menu contextual junto al popup del juego</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Aplica un perfil (AFK / recoleccion / guerra) segun dia, hora y condiciones. Lista de reglas acotada: no acepta codigo ni texto libre."><input type="checkbox" data-cfg="profile-auto"/> Cambio automatico de perfiles</label>
+        <label style="margin-left:12px;font-size:10px">Permanencia minima <input type="number" data-cfg="profile-auto-hold" min="15" max="1440" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/> min
+          <button data-cfg="profile-auto-edit" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px;margin-left:6px">Reglas...</button>
+        </label>
+        <div class="profile-auto-list" style="margin-left:12px;font-size:9px;color:#8ac;white-space:pre-wrap"></div>
         <div class="key-list" style="margin-left:12px;font-size:9px;color:#8ac;white-space:pre-wrap"></div>
         <button data-cfg="keybindings-edit" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Reasignar atajos...</button>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Copy/Export replace player names and ids with short hashes. Turn OFF only for local debugging."><input type="checkbox" data-cfg="export-redact"/> Redact names/ids in Copy + Export</label>
@@ -1632,6 +1637,20 @@
       const th = sec.querySelector('[data-cfg=theme]'); if (th) th.value = GB_THEMES.includes(state.theme) ? state.theme : 'dark';
       const ks = sec.querySelector('[data-cfg=keyboard-shortcuts]'); if (ks) ks.checked = state.keyboardShortcuts !== false;
       const cm = sec.querySelector('[data-cfg=context-menu]'); if (cm) cm.checked = state.contextMenu !== false;
+      { const pa = profileAutoCfg();
+        const pc = sec.querySelector('[data-cfg=profile-auto]'); if (pc) pc.checked = pa.enabled;
+        setNum('[data-cfg=profile-auto-hold]', pa.minHoldMin);
+        const pl = sec.querySelector('.profile-auto-list');
+        if (pl) {
+          const last = state.profileAutoLast || {};
+          const DAY = ['do', 'lu', 'ma', 'mi', 'ju', 'vi', 'sa'];
+          const hhmm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+          pl.textContent = (pa.rules.length
+            ? pa.rules.map(r => `${r.enabled ? '' : '(off) '}p${r.priority} ${r.profile} ${r.days.map(d => DAY[d]).join('') || 'SIN DIAS'} ${hhmm(r.startMin)}-${hhmm(r.endMin)} ` +
+                Object.entries(r.when).filter(([, v]) => v !== 'any').map(([k, v]) => k + '=' + v).join(' ')).join('\n')
+            : 'sin reglas') +
+            (last.profile ? `\nactual: ${last.profile} (regla ${last.ruleId || '?'})` : '');
+        } }
       const kl = sec.querySelector('.key-list');
       if (kl) {
         const b = gbKeyBindings();
@@ -2214,6 +2233,33 @@
       try { perm = (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported'; } catch (_) {}
       if (perm === 'granted') { try { new Notification('GrepBot', { body: 'prueba de notificacion', tag: 'gb-test' }); } catch (_) {} }
       else flash('sonido probado; permiso de notificacion: ' + perm);
+    });
+    sec.querySelector('[data-cfg=profile-auto]')?.addEventListener('change', e => {
+      state.profileAutoCfg = Object.assign({}, state.profileAutoCfg, { enabled: !!e.target.checked });
+      save(STORE.PROFILE_AUTO_CFG, state.profileAutoCfg);
+      gbLog('profile-auto ' + (state.profileAutoCfg.enabled ? 'ON' : 'OFF'));
+    });
+    saveNum('[data-cfg=profile-auto-hold]', v => {
+      state.profileAutoCfg = Object.assign({}, state.profileAutoCfg, { minHoldMin: Math.max(15, Math.min(1440, +v || 15)) });
+      save(STORE.PROFILE_AUTO_CFG, state.profileAutoCfg);
+    });
+    sec.querySelector('[data-cfg=profile-auto-edit]')?.addEventListener('click', () => {
+      const cur = profileAutoCfg().rules;
+      const sample = [{ id: 'noche', enabled: true, priority: 10, profile: 'afk', days: [0, 1, 2, 3, 4, 5, 6], startMin: 0, endMin: 420, when: { activity: 'any', incoming: 'no', warehouse: 'any' } }];
+      const raw = prompt(
+        'Reglas de perfil (JSON, lista). Campos: id, enabled, priority, profile (afk|farming|war),\n' +
+        'days [0-6, 0=domingo], startMin/endMin (0-1439, start>end cruza medianoche),\n' +
+        'when {activity:any|active|idle, incoming:any|yes|no, warehouse:any|full|not-full}.\n' +
+        'Sin dias = nunca coincide. No se acepta codigo ni texto libre.',
+        JSON.stringify(cur.length ? cur : sample, null, 2));
+      if (raw == null) return;
+      try {
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) throw new Error('list');
+        const kept = profileAutoSave(parsed);
+        flash(`${kept.length}/${parsed.length} reglas guardadas`);
+        bindConfig();
+      } catch (_) { flash('JSON de reglas invalido'); }
     });
     sec.querySelector('[data-cfg=context-menu]')?.addEventListener('change', e => {
       state.contextMenu = !!e.target.checked;

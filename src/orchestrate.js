@@ -154,6 +154,10 @@
   }
   function orchTick() {
     if (!hostEnabled()) return;
+    // v4 plan 6.8: evaluated BEFORE the pause gate, so a scheduled profile
+    // change can affect this same tick's pause behaviour. It only ever calls
+    // qolApplyPreset - no post, no scheduler.
+    try { profileAutoTick(); } catch (_) {}
     // Read-only pre-warn pass, ABOVE the pause gate on purpose: a warehouse
     // still fills during night pause, and silencing the warning is exactly when
     // the user most needs it. It posts nothing to the game.

@@ -447,11 +447,11 @@
       abTargets:state.abTargets,abOrder:state.abOrder,researchTargets:state.researchTargets,recruitTargets:state.recruitTargets,
       plannerCfg:state.plannerCfg,goalProfiles:state.goalProfiles,townGoals:state.townGoals,virtualQueueOverrides:state.virtualQueueOverrides,nativeQueue:state.nativeQueue,predictCfg:state.predictCfg,defenseCfg:state.defenseCfg,safeMode:!!state.safeMode,
       autoTransport:!!state.autoTransport,transportReserve:+state.transportReserve||20,transportMin:+state.transportMin||1000,
-      cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,spyCfg:state.spyCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,playerNotes:state.playerNotes,watchlist:state.watchlist };
+      cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,spyCfg:state.spyCfg,profileAutoCfg:state.profileAutoCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,playerNotes:state.playerNotes,watchlist:state.watchlist };
   }
   function qolImportConfig(obj) {
     if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;if(obj.host&&String(obj.host)!==String(location.host)){gbLog(`config import refused: file host ${obj.host} != ${location.host}`);return false}if(obj.schema!=null&&+obj.schema>CONFIG_EXPORT_SCHEMA){gbLog(`config import refused: schema ${obj.schema} newer than supported ${CONFIG_EXPORT_SCHEMA}`);return false}
-    const clone=v=>JSON.parse(JSON.stringify(v)),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray};const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
+    const clone=v=>JSON.parse(JSON.stringify(v)),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,profileAutoCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray};const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,profileAutoCfg:STORE.PROFILE_AUTO_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
     for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='priorityOrder'){const allowed=new Set(PRIORITY_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(PRIORITY_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
       const clean={version:1,seq:Math.max(0,+v.seq||0),towns:{}},seen=new Set();
       const jobId=(raw,prefix)=>{let id=/^[A-Za-z0-9:._-]{1,160}$/.test(String(raw||''))?String(raw):'';if(!id||seen.has(id)){clean.seq++;id=`${prefix}:import:${clean.seq.toString(36)}`}seen.add(id);return id};
@@ -558,6 +558,129 @@
       },
     },
   };
+  // ===== Profile auto-switching (v4 plan 6.8) ================================
+  // A BOUNDED RULE LIST, never user JavaScript. No eval, no expression parser,
+  // no free-text condition: a rule is a fixed record of day set, time window and
+  // three enumerated conditions, and anything that does not parse is dropped
+  // rather than coerced. Nothing here simulates a user event or invents an
+  // endpoint - it only calls the existing qolApplyPreset.
+  const PROFILE_AUTO_PRESETS = ['afk', 'farming', 'war'];
+  const PROFILE_AUTO_WHEN = { activity: ['any', 'active', 'idle'], incoming: ['any', 'yes', 'no'], warehouse: ['any', 'full', 'not-full'] };
+  const PROFILE_FULL_RATIO = 0.97;
+  function profileAutoCfg() {
+    const c = (state.profileAutoCfg && typeof state.profileAutoCfg === 'object' && !Array.isArray(state.profileAutoCfg)) ? state.profileAutoCfg : {};
+    const hold = +c.minHoldMin;
+    return {
+      enabled: c.enabled === true,
+      // Floor of 15 minutes: a shorter hold lets two rules ping-pong the whole
+      // config on every 20s tick.
+      minHoldMin: Number.isFinite(hold) ? Math.max(15, Math.min(1440, hold)) : 15,
+      rules: Array.isArray(c.rules) ? c.rules.map(profileAutoNormalise).filter(Boolean) : [],
+    };
+  }
+  function profileAutoNormalise(r) {
+    if (!r || typeof r !== 'object' || Array.isArray(r)) return null;
+    if (!PROFILE_AUTO_PRESETS.includes(r.profile)) return null;
+    const days = Array.isArray(r.days) ? r.days.map(Number).filter(d => Number.isInteger(d) && d >= 0 && d <= 6) : [];
+    // An empty day set never matches. That is deliberate: a rule the user has
+    // not scoped to any day should do nothing, not everything.
+    const mins = v => { const n = +v; return Number.isInteger(n) && n >= 0 && n <= 1439 ? n : null; };
+    const startMin = mins(r.startMin), endMin = mins(r.endMin);
+    if (startMin == null || endMin == null) return null;
+    const w = (r.when && typeof r.when === 'object') ? r.when : {};
+    const when = {};
+    for (const k of Object.keys(PROFILE_AUTO_WHEN)) {
+      when[k] = PROFILE_AUTO_WHEN[k].includes(w[k]) ? w[k] : 'any';
+    }
+    const pr = +r.priority;
+    return {
+      id: /^[A-Za-z0-9_:-]{1,32}$/.test(String(r.id || '')) ? String(r.id) : ('r' + startMin + '-' + endMin + '-' + r.profile),
+      enabled: r.enabled !== false,
+      priority: Number.isFinite(pr) ? Math.max(0, Math.min(999, Math.floor(pr))) : 100,
+      profile: r.profile, days, startMin, endMin, when,
+    };
+  }
+  function profileAutoInWindow(rule, now) {
+    if (!rule.days.includes(now.getDay())) return false;
+    const m = now.getHours() * 60 + now.getMinutes();
+    // Half-open [start, end); start > end crosses midnight. Same explicit form
+    // the night-pause window uses rather than guessing server time.
+    return rule.startMin <= rule.endMin
+      ? (m >= rule.startMin && m < rule.endMin)
+      : (m >= rule.startMin || m < rule.endMin);
+  }
+  // Each reader returns 'yes' | 'no' | null, where null is BLIND. A blind read
+  // never satisfies a condition and never falsifies one - the rule just does
+  // not match, and the reason is logged once.
+  function profileAutoActivity() {
+    if (!state.pauseOnActivity) return 'idle';
+    return (typeof userPausedUntil === 'number' && Date.now() < userPausedUntil) ? 'active' : 'idle';
+  }
+  function profileAutoIncoming() {
+    try { return (dodgeIncomingMovements() || []).length ? 'yes' : 'no'; } catch (_) { return null; }
+  }
+  function profileAutoWarehouse() {
+    let ids = [];
+    try { ids = Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}); } catch (_) { return null; }
+    if (!ids.length) return null;
+    let anyFull = false, allReadable = true;
+    for (const id of ids) {
+      const rs = (typeof townResState === 'function') ? townResState(id) : null;
+      if (!rs || !(rs.cap > 0)) { allReadable = false; continue; }
+      if (Math.max(rs.wood, rs.stone, rs.iron) / rs.cap >= PROFILE_FULL_RATIO) anyFull = true;
+    }
+    if (anyFull) return 'full';
+    // "not-full" requires EVERY town to have been readable: one unreadable town
+    // could be the full one.
+    return allReadable ? 'not-full' : null;
+  }
+  function profileAutoMatch(rule, reads) {
+    for (const k of Object.keys(PROFILE_AUTO_WHEN)) {
+      const want = rule.when[k];
+      if (want === 'any') continue;
+      const got = reads[k];
+      if (got == null) return false; // blind: does not match, does not falsify
+      if (k === 'activity' && got !== want) return false;
+      if (k !== 'activity' && got !== want) return false;
+    }
+    return true;
+  }
+  function profileAutoLast() {
+    const l = state.profileAutoLast;
+    return (l && typeof l === 'object' && !Array.isArray(l)) ? l : { profile: null, ruleId: null, switchedAt: 0 };
+  }
+  function profileAutoTick() {
+    const cfg = profileAutoCfg();
+    if (!cfg.enabled || !cfg.rules.length) return;
+    const now = new Date();
+    const reads = { activity: profileAutoActivity(), incoming: profileAutoIncoming(), warehouse: profileAutoWarehouse() };
+    for (const k of Object.keys(reads)) {
+      if (reads[k] == null) gbLogT('profile-auto-blind-' + k, 600000, `profile-auto: ${k} unreadable - rules needing it will not match`);
+    }
+    const hit = cfg.rules
+      .filter(r => r.enabled && profileAutoInWindow(r, now) && profileAutoMatch(r, reads))
+      .sort((a, b) => (a.priority - b.priority) || String(a.id).localeCompare(String(b.id)))[0];
+    // No match keeps the CURRENT profile. Bouncing back to a default would make
+    // every gap in the schedule a config change.
+    if (!hit) return;
+    const last = profileAutoLast();
+    if (last.profile === hit.profile) return;
+    const held = Date.now() - (+last.switchedAt || 0);
+    if (last.profile && held < cfg.minHoldMin * 60000) return;
+    const from = last.profile || '(ninguno)';
+    if (!qolApplyPreset(hit.profile)) return;
+    state.profileAutoLast = { profile: hit.profile, ruleId: hit.id, switchedAt: Date.now() };
+    save(STORE.PROFILE_AUTO_LAST, state.profileAutoLast);
+    gbLog(`profile-auto: switched ${from} -> ${hit.profile} (rule ${hit.id}; activity=${reads.activity}; incoming=${reads.incoming}; warehouse=${reads.warehouse})`);
+    try { updateStatus(); } catch (_) {}
+    try { bindConfig(); } catch (_) {}
+  }
+  function profileAutoSave(list) {
+    const rules = (Array.isArray(list) ? list : []).map(profileAutoNormalise).filter(Boolean);
+    state.profileAutoCfg = Object.assign({}, state.profileAutoCfg, { rules });
+    save(STORE.PROFILE_AUTO_CFG, state.profileAutoCfg);
+    return rules;
+  }
   function qolApplyPreset(name) {
     const preset = CONFIG_PRESETS[name];
     if (!preset) return false;
