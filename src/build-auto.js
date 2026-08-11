@@ -109,7 +109,10 @@
       const uw = gameUw();
       const models = uw.MM && uw.MM.getModels && uw.MM.getModels();
       let bbd = models && (models.BuildingBuildData || models.BuildData || models.BuildingBuilder);
-      const data = bbd && (bbd[townId] || bbd[String(townId)]);
+      // Use != null not || : an MM collection is a model dict, but a `0` or
+      // `''` town key (renamed client, corrupt snapshot) would otherwise
+      // silently fall through to a stale entry indexed by the string form.
+      const data = bbd && (bbd[townId] != null ? bbd[townId] : (bbd[String(townId)] != null ? bbd[String(townId)] : null));
       return data && data.attributes && data.attributes.building_data && data.attributes.building_data[building] || null;
     } catch (_) { return null; }
   }

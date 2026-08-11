@@ -180,7 +180,7 @@
         gbLogT('cave-nohide-' + id, 300000, `cave: town ${id} has no hide building`);
         continue;
       }
-      if (!info.unlimited && info.hideCap != null && info.stored != null && info.stored >= info.hideCap) {
+      if (!info.unlimited && info.hideCap != null && info.hideCap > 0 && info.stored != null && info.stored >= info.hideCap) {
         gbLogT('cave-full-' + id, 120000, `cave: town ${id} hide full (${info.stored}/${info.hideCap})`);
         continue;
       }

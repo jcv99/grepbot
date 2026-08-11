@@ -201,6 +201,11 @@
           gbLogT('culture-err-' + job.id, 60000, `culture: ${job.type} ${job.id} err ${err}`);
 
           gbUnlock('culture', cultureLock);
+          // The err branch must also advance the batch: skipping next() on a
+          // non-captcha/non-timeout rejection strands every queued job behind
+          // this one for a full cadence. Captcha/timeout take their own
+          // breaker so the loop should keep draining here.
+          gbTimeout(next, 600 + Math.random() * 400);
         }
       });
     })();
@@ -318,7 +323,7 @@
     for(const {t:tgtTown,f:tgtF} of targets){const tgt=ledger[tgtTown.id]; if(!tgt)continue;
       for(const res of ['wood','stone','iron']){let need=Math.floor(tgtF.deficit[res]||0); if(need<minBatch)continue;
         const sources=towns.filter(s=>s.id!==tgtTown.id).map(s=>({s,f:forecasts[s.id],l:ledger[s.id]})).filter(x=>x.f&&x.l).sort((a,b)=>(b.f.overflow[res]?1:0)-(a.f.overflow[res]?1:0));
-        for(const {s,f,l} of sources){const av=plannerAvailable(s.id,{allowSoft:false}); if(!av||av.tradeCap==null)continue; const surplus=Math.max(0,Math.min(av[res], l[res]-Math.max(0,plannerReservePolicy(s.id).hard[res]+plannerReservePolicy(s.id).soft[res]))); const send=Math.floor(Math.min(need,surplus,av.tradeCap,l.tradeCap,tgt.cap-tgt[res])); if(send<minBatch)continue;
+        for(const {s,f,l} of sources){const av=plannerAvailable(s.id,{allowSoft:false}); if(!av)continue; const cap=av.tradeCap==null?Infinity:av.tradeCap; const surplus=Math.max(0,Math.min(av[res], l[res]-Math.max(0,plannerReservePolicy(s.id).hard[res]+plannerReservePolicy(s.id).soft[res]))); const send=Math.floor(Math.min(need,surplus,cap,l.tradeCap,tgt.cap-tgt[res])); if(send<minBatch)continue;
           const job={from:s.id,to:tgtTown.id,wood:0,stone:0,iron:0};job[res]=send;jobs.push(job);tradeApplyJob(ledger,job);need-=send;if(need<minBatch||jobs.length>=8)break;
         } if(jobs.length>=8)break;
       } if(jobs.length>=8)break;

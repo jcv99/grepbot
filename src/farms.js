@@ -367,7 +367,18 @@
         const farms = farmsFromGame() || [];
         const f = farms.find(x => String(x.vill_id) === String(vid));
         if (!f || f.lootable_at == null) return;
-        const sec = farmSnapDuration(f.lootable_at - gameNow());
+        // The 4s re-read races the server: on a slow update the lootable_at is
+        // still the OLD value, and snapping the new option to the OLD duration
+        // mis-maps every future claim for that duration. Require a finite,
+        // positive remaining window bounded by the longest known duration so
+        // we only accept a freshly-landed server reply.
+        const remaining = +f.lootable_at - gameNow();
+        const maxKnown = Math.max.apply(null, FARM_DURATIONS || [14400]);
+        if (!(remaining > 30) || remaining > maxKnown + 5) {
+          gbLogT('farm-learn-stale-' + vid, 60000, 'farm: option learner read stale lootable_at, retry next claim');
+          return;
+        }
+        const sec = farmSnapDuration(remaining);
         if (sec == null) return;
         const map = Object.assign({}, state.farmOptionMap || {});
         if (+map[String(sec)] === opt) return;

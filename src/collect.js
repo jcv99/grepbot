@@ -104,7 +104,7 @@
   }
   function collectAllBackground() {
     if (!state.autoCollect || !state.collectAll) return;
-    if (!hostEnabled() || automationPaused({}) || captchaPaused('collect')) return;
+    if (!hostEnabled() || automationPaused({}) || captchaPaused('collect') || circuitOpen('collect')) return;
     if (gbLocked('collect-bg') || collectBgTimer) return;
     if (!state.csrf) { scheduleCollectBg(30_000); return; }
     if (!state.collectTpl) { scheduleAutoCollect(); scheduleCollectBg(60_000); return; }
