@@ -531,7 +531,7 @@
     #grepbot-panel .atk-btns button{background:#333;border:1px solid #555;color:#eee;padding:3px 8px;border-radius:3px;cursor:pointer;font-size:11px;margin-right:4px}
     #grepbot-panel .atk-btns #gb-atk-now{color:#f96}
     #grepbot-panel .atk-btns #gb-atk-arm{color:#6cf}
-    #grepbot-panel .atk-harass button,#grepbot-panel .atk-roles button,#grepbot-panel #gb-atk-src-all,#grepbot-panel #gb-atk-src-none,#grepbot-panel #gb-atk-src-off,#grepbot-panel #gb-atk-src-def,#grepbot-panel #gb-atk-cmds-refresh,#grepbot-panel #gb-atk-heroes-refresh,#grepbot-panel .atk-cmds button,#grepbot-panel .atk-heroes button{background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px}
+    #grepbot-panel .atk-harass button,#grepbot-panel .atk-roles button,#grepbot-panel #gb-atk-src-all,#grepbot-panel #gb-atk-src-none,#grepbot-panel #gb-atk-src-off,#grepbot-panel #gb-atk-src-def,#grepbot-panel #gb-atk-cmds-refresh,#grepbot-panel #gb-atk-heroes-refresh,#grepbot-panel #gb-atk-comp-refresh,#grepbot-panel .atk-comp button,#grepbot-panel .atk-cmds button,#grepbot-panel .atk-heroes button{background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px}
     #grepbot-panel .atk-cmds button:disabled,#grepbot-panel .atk-heroes button:disabled{opacity:.45;cursor:not-allowed}
     #grepbot-panel .quest-list{max-height:200px;overflow:auto;font-size:10px}
     #grepbot-panel .quest-row{display:grid;grid-template-columns:1.4fr .5fr 1fr .6fr;gap:4px;border-bottom:1px solid #2a2a2a;padding:3px 0}
@@ -678,6 +678,12 @@
         <button type="button" id="gb-atk-heroes-refresh" style="margin-left:auto">Refrescar</button>
       </div>
       <div class="atk-heroes" style="max-height:160px;overflow:auto"></div>
+      <div style="border-top:1px solid #333;margin:8px 0 4px;padding-top:6px;display:flex;align-items:center;gap:6px">
+        <b style="font-size:11px;color:#5be">Composición</b>
+        <span style="font-size:9px;color:#888">por ciudad · solo lectura</span>
+        <button type="button" id="gb-atk-comp-refresh" style="margin-left:auto">Refrescar</button>
+      </div>
+      <div class="atk-comp" style="max-height:200px;overflow:auto"></div>
     </section>
     <section data-tab="quests" hidden>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">

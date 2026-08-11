@@ -199,10 +199,172 @@
       hbox.appendChild(row);
     });
   }
+  // ===== Unit composition advisor (v4 plan 2.11) =============================
+  // Pure read. Never changes recruitScan and never posts: auto-recruit stays
+  // HIGH-RISK default OFF. Every verdict below is the one the recruit scan's
+  // own helpers returned - this view reports them, it does not re-derive them.
+  const COMP_MAX_SHORTAGE = 8;
+  const COMP_CACHE_MS = 10000;
+  let compCache = Object.create(null);
+  function militaryCompositionInvalidate() { compCache = Object.create(null); }
+  // "No units" and "cannot read the units" are different answers and the whole
+  // shortage column is untrustworthy in the second case, so probe the model
+  // rather than inferring readability from an empty bag.
+  function militaryUnitsReadable(townId) {
+    try {
+      const t = gbTownModel(townId);
+      if (!t || typeof t.units !== 'function') return false;
+      return t.units() != null;
+    } catch (_) { return false; }
+  }
+  function militaryCompositionRow(townId, allTargets) {
+    const id = String(townId);
+    const have = (typeof goalUnitCounts === 'function') ? goalUnitCounts(townId) : {};
+    const haveKnown = militaryUnitsReadable(townId);
+    let tgt = {};
+    try {
+      const all = allTargets || goalEffectiveRecruitTargets() || {};
+      tgt = all[id] || all[townId] || {};
+    } catch (_) { tgt = {}; }
+    const byFunction = { offense: 0, defense: 0, both: 0, naval: 0, mythical: 0, militia: 0, unknown: 0 };
+    for (const [u, n0] of Object.entries(have)) {
+      const n = +n0 || 0;
+      if (!(n > 0)) continue;
+      const m = unitMeta(u);
+      if (!m) { gbLogT('comp-meta-unknown-' + u, 600000, `composition: unit ${u} has no GameData entry - excluded`); continue; }
+      const pop = n * Math.max(1, +m.population || 1);
+      // `mythical` is an OVERLAY, not a sibling bucket: a mythical hoplite-class
+      // unit still belongs to its offense/defense split. The renderer labels it
+      // as a subset so the four splits still add up.
+      if (m.god || m.mythical || m.is_mythical) byFunction.mythical += pop;
+      const fn = (typeof classifyUnitFn === 'function') ? classifyUnitFn(u) : 'unknown';
+      if (byFunction[fn] == null) byFunction.unknown += pop; else byFunction[fn] += pop;
+    }
+    const shortage = [];
+    const buildableToday = [];
+    let blind = 0;
+    let qinfo = { known: false, models: [] };
+    try { qinfo = recruitQueueInfo(townId); } catch (_) {}
+    for (const [u, want0] of Object.entries(tgt)) {
+      const want = +want0 || 0;
+      if (!(want > 0)) continue;
+      if (!unitMeta(u)) { gbLogT('comp-meta-unknown-' + u, 600000, `composition: unit ${u} has no GameData entry - excluded`); continue; }
+      const h = +have[u] || 0;
+      // One queue read for the whole town, not two per unit.
+      let queued = 0;
+      for (const m of (qinfo.models || [])) {
+        const a = m.attributes || {};
+        const uid = a.unit_type || a.unit_id || a.type;
+        if (String(uid) === String(u)) queued += +(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)) || 0;
+      }
+      const queueKnown = qinfo.known;
+      const gap = want - h - queued;
+      if (gap <= 0) continue;
+      let status, why;
+      // An unreadable garrison is BLIND, not "you have zero" - the whole gap
+      // number is untrustworthy in that case and must say so.
+      if (!haveKnown || !queueKnown) { status = 'blind'; why = !haveKnown ? 'guarnicion no legible' : 'cola no legible'; blind++; }
+      else if (!recruitCanBuild(townId, u)) { status = 'requirements'; why = 'requisitos'; }
+      else if (!recruitQueueHasSpace(townId, u)) { status = 'queue-full'; why = 'cola llena'; }
+      else {
+        const max = recruitAffordableAmount(townId, u, gap);
+        buildableToday.push({ id: u, maxAmount: max, blind: false });
+        if (max > 0) { status = 'ready'; why = max < gap ? `solo ${max} ahora` : ''; }
+        else { status = 'short'; why = 'recursos/poblacion/favor'; }
+      }
+      shortage.push({ id: u, want, have: h, queued, gap, status, why });
+    }
+    shortage.sort((a, b) => b.gap - a.gap);
+    return {
+      townId: id,
+      haveKnown,
+      byFunction,
+      shortage: shortage.slice(0, COMP_MAX_SHORTAGE),
+      shortageTotal: shortage.length,
+      buildableToday,
+      blind,
+      progress: (typeof goalProgress === 'function') ? goalProgress(townId) : null,
+    };
+  }
+  function militaryCompositionAll() {
+    // Hoisted: goalEffectiveRecruitTargets() walks every town, so calling it
+    // once per town made the advisor O(towns^2).
+    let all = {};
+    try { all = goalEffectiveRecruitTargets() || {}; } catch (_) {}
+    const ids = new Set((state.towns || []).map(t => String(t.id)));
+    Object.keys(all).forEach(k => ids.add(String(k)));
+    const now = Date.now();
+    return Array.from(ids).map(id => {
+      const hit = compCache[id];
+      if (hit && now - hit.at < COMP_CACHE_MS) return hit.v;
+      const v = militaryCompositionRow(id, all);
+      compCache[id] = { at: now, v };
+      return v;
+    });
+  }
+  function renderCompositionAdvisor(sec) {
+    const box = sec && sec.querySelector('.atk-comp');
+    if (!box) return;
+    if (sec.hidden) return;
+    box.replaceChildren();
+    const rows = militaryCompositionAll();
+    if (!rows.length) {
+      const e = document.createElement('div');
+      e.style.cssText = 'color:#666;font-size:10px';
+      e.textContent = 'Sin ciudades legibles';
+      box.appendChild(e);
+      return;
+    }
+    const COLOR = { ready: '#6c6', short: '#f96', 'queue-full': '#fc6', requirements: '#f66', blind: '#a8f' };
+    for (const r of rows) {
+      const d = document.createElement('details');
+      d.style.cssText = 'border-bottom:1px solid #2a2a2a;padding:2px 0';
+      const sum = document.createElement('summary');
+      sum.style.cssText = 'font-size:10px;cursor:pointer';
+      const pct = r.progress;
+      const pctColor = pct == null ? '#888' : (pct >= 75 ? '#6c6' : (pct >= 40 ? '#fc6' : '#f66'));
+      sum.textContent = `${townNameById(r.townId)} · ${pct == null ? '?' : pct}%` +
+        ` · def ${Math.round(r.byFunction.defense)} / ofe ${Math.round(r.byFunction.offense)}` +
+        ` / amb ${Math.round(r.byFunction.both)} / nav ${Math.round(r.byFunction.naval)}` +
+        (r.byFunction.mythical ? ` (de ellas ${Math.round(r.byFunction.mythical)} miticas)` : '') +
+        (r.shortageTotal ? ` · ${r.shortageTotal} faltan` : ' · objetivos cubiertos') +
+        (r.blind ? ' · ciego' : '');
+      sum.style.color = pctColor;
+      d.appendChild(sum);
+      if (!r.haveKnown) {
+        const e = document.createElement('div');
+        e.style.cssText = 'color:#a8f;font-size:10px;padding:2px 0 2px 12px';
+        e.textContent = '(ciego - abre esa ciudad una vez)';
+        d.appendChild(e);
+      }
+      if (r.shortage.length) {
+        const ol = document.createElement('ol');
+        ol.style.cssText = 'margin:2px 0 2px 20px;padding:0;font-size:10px';
+        for (const s of r.shortage) {
+          const li = document.createElement('li');
+          li.style.color = COLOR[s.status] || '#ccc';
+          li.textContent = `${s.id}: faltan ${s.gap} (obj ${s.want}, tienes ${s.have}, en cola ${s.queued}) · ${s.status}${s.why ? ' · ' + s.why : ''}`;
+          ol.appendChild(li);
+        }
+        d.appendChild(ol);
+      }
+      if (r.buildableToday.length) {
+        const b = document.createElement('div');
+        b.style.cssText = 'font-size:9px;color:#8ac;padding-left:20px';
+        b.textContent = 'hoy: ' + r.buildableToday.map(x => `${x.id} x${x.maxAmount}`).join(', ');
+        d.appendChild(b);
+      }
+      box.appendChild(d);
+    }
+  }
   function bindAttackTab() {
     const sec = panel && panel.querySelector('section[data-tab=attack]');
     if (!sec || sec.dataset.bound) return;
     sec.dataset.bound = '1';
+    sec.querySelector('#gb-atk-comp-refresh')?.addEventListener('click', () => {
+      militaryCompositionInvalidate();
+      renderCompositionAdvisor(sec);
+    });
     sec.querySelector('#gb-atk-preview')?.addEventListener('click', () => {
       const plan = readAttackForm();
       const sched = buildAttackSchedule(plan);

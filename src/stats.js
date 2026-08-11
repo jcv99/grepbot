@@ -190,6 +190,16 @@
           : `${n} informes, ${withVerdict} con resultado` + (n < 5 ? ' - muestra pequena' : ''),
       };
     }));
+    out.push(preflightProbe('composition advisor', () => {
+      const rows = militaryCompositionAll();
+      const withShort = rows.filter(r => r.shortageTotal > 0).length;
+      const blind = rows.reduce((n, r) => n + (r.blind || 0), 0);
+      return {
+        ok: true,
+        warn: blind > 0,
+        detail: `${rows.length} ciudades, ${withShort} con faltantes, ${blind} ciegas`,
+      };
+    }));
     out.push(preflightProbe('research graph', () => {
       const g = researchGraphBuild();
       if (!g.known) return { ok: false, detail: g.why };

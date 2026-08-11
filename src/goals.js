@@ -116,6 +116,8 @@
     // One render path keeps both lists current; the advisory sequence is never
     // read by the auto-queue, so a failure here must not break the plan.
     if (state.abOptimalOrderOn !== false) { try { abOptimalOrderSave(townId, abOptimalOrderFor(townId)); } catch (_) {} }
+    // The composition advisor reads the same targets this plan just recomputed.
+    try { militaryCompositionInvalidate(); } catch (_) {}
     return plan;
   }
   // ===== Optimal building order (v4 plan 2.9) ================================
