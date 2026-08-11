@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.26.0
+// @version      4.27.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -65,6 +65,7 @@ const STORE = {
     CAPTCHA: 'grepbot:captcha-breakers',
     FINDINGS_FILTER: 'grepbot:findings-filter',
     PANEL_GEOM: 'grepbot:panel-geom',
+    THEME: 'grepbot:theme',
     ACTIVE_TAB: 'grepbot:active-tab',
     CSRF: 'grepbot:csrf',
     FARM_SKIP_FULL: 'grepbot:farm-skip-full',
@@ -541,6 +542,7 @@ const STORE = {
     attackRecent: load(STORE.ATTACK_RECENT, []),
     captchaBreakers: load(STORE.CAPTCHA, null) || {},
     findingsFilter: load(STORE.FINDINGS_FILTER, { type: '', attacker: '' }),
+    theme: load(STORE.THEME, 'dark'),
     panelGeom: load(STORE.PANEL_GEOM, null),
     activeTab: load(STORE.ACTIVE_TAB, 'overview'),
     farmSkipFull: load(STORE.FARM_SKIP_FULL, true),
@@ -18466,6 +18468,7 @@ const STORE = {
       w.id = 'grepbot-queue-center';
       w.innerHTML = `<header><b>Colas GrepBot</b><select class="gb-qc-town" title="Ciudad que est\u00e1s gestionando"></select><span class="gb-qc-spacer"></span><button class="gb-qc-refresh" title="Actualizar">\u21bb</button><button class="gb-qc-close" title="Cerrar">\u00d7</button></header><nav><button class="gb-qc-tab" data-qtab="build">Construcci\u00f3n</button><button class="gb-qc-tab" data-qtab="research">Investigaci\u00f3n</button><button class="gb-qc-tab" data-qtab="barracks">Cuartel</button><button class="gb-qc-tab" data-qtab="docks">Puerto</button></nav><div class="gb-qc-body"></div>`;
       document.body.appendChild(w);
+      try { applyTheme(); } catch (_) {}
       gbQueueCenter = w;
       w.querySelector('.gb-qc-close').addEventListener('click', () => { w.style.display = 'none'; });
       w.querySelector('.gb-qc-refresh').addEventListener('click', renderQueueCenter);
@@ -18882,6 +18885,22 @@ const STORE = {
     });
   }
 
+  const GB_THEMES = ['dark', 'light', 'system'];
+  function gbThemeResolved() {
+    const t = GB_THEMES.includes(state.theme) ? state.theme : 'dark';
+    if (t !== 'system') return t;
+    try {
+      return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+    } catch (_) { return 'dark'; }
+  }
+  function applyTheme() {
+    const cls = 'gb-theme-' + gbThemeResolved();
+    for (const el of [panel, (typeof gbQueueCenter !== 'undefined' ? gbQueueCenter : null)]) {
+      if (!el || !el.classList) continue;
+      el.classList.remove('gb-theme-dark', 'gb-theme-light');
+      el.classList.add(cls);
+    }
+  }
   function showTab(tabId, opts) {
     if (!panel) return;
     if (!TAB_IDS.includes(tabId)) tabId = 'overview';
@@ -18927,31 +18946,204 @@ const STORE = {
   }
 
   GM_addStyle(`
+    /* ===== Theme system (v4 plan 6.1) =======================================
+       Every recurring palette literal in this stylesheet is a custom property.
+       The DEFAULT rule carries today's exact dark values, so an install that
+       never touches the setting looks identical and no migration is needed.
+       .gb-theme-light re-points the same names; .gb-theme-dark exists as an
+       explicit anchor for the system resolver. Nothing outside #grepbot-panel
+       and #grepbot-queue-center is scoped, so the game's own DOM is untouched.
+       ===================================================================== */
+    #grepbot-panel, #grepbot-queue-center {
+      --gb-bg:#181a1f;
+      --gb-bg-deep:#17191e;
+      --gb-bg-alt:#22252b;
+      --gb-bg-alt2:#202329;
+      --gb-bg-alt3:#22262d;
+      --gb-bg-alt4:#292d35;
+      --gb-bg-raise:#2b3038;
+      --gb-bg-row:#262626;
+      --gb-rule:#2a2a2a;
+      --gb-input-bg:#111;
+      --gb-chrome:#333;
+      --gb-chrome-2:#444;
+      --gb-chrome-3:#555;
+      --gb-border:#414650;
+      --gb-border-soft:#353a44;
+      --gb-border-soft2:#353b45;
+      --gb-border-hard:#59616f;
+      --gb-fg:#eef1f5;
+      --gb-fg-2:#eee;
+      --gb-fg-hi:#fff;
+      --gb-fg-soft:#cbd1da;
+      --gb-fg-soft2:#aeb5c0;
+      --gb-fg-soft3:#ccc;
+      --gb-fg-mute:#aaa;
+      --gb-fg-mute2:#888;
+      --gb-fg-mute3:#777;
+      --gb-fg-mute4:#666;
+      --gb-fg-dim:#8f98a5;
+      --gb-fg-dim2:#9fa7b3;
+      --gb-accent:#f5a623;
+      --gb-accent-2:#f0c060;
+      --gb-accent-3:#c98b22;
+      --gb-link:#6cf;
+      --gb-input-fg:#cfc;
+      --gb-ok:#8fe0a8;
+      --gb-ok-2:#9d9;
+      --gb-ok-3:#6dda7e;
+      --gb-ok-4:#80e090;
+      --gb-ok-5:#4caf50;
+      --gb-ok-border:#3c7350;
+      --gb-ok-bg:#1c3023;
+      --gb-warn:#ffd27a;
+      --gb-warn-2:#fc6;
+      --gb-warn-3:#f96;
+      --gb-warn-bg:#3a321f;
+      --gb-warn-bg2:#382e1c;
+      --gb-warn-border:#8a6725;
+      --gb-err:#ff9aa3;
+      --gb-err-2:#f55;
+      --gb-err-3:#f66;
+      --gb-err-4:#faa;
+      --gb-err-bg:#381f23;
+      --gb-err-border:#8a3b42;
+    }
+    #grepbot-panel.gb-theme-dark, #grepbot-queue-center.gb-theme-dark {
+      --gb-bg:#181a1f;
+      --gb-bg-deep:#17191e;
+      --gb-bg-alt:#22252b;
+      --gb-bg-alt2:#202329;
+      --gb-bg-alt3:#22262d;
+      --gb-bg-alt4:#292d35;
+      --gb-bg-raise:#2b3038;
+      --gb-bg-row:#262626;
+      --gb-rule:#2a2a2a;
+      --gb-input-bg:#111;
+      --gb-chrome:#333;
+      --gb-chrome-2:#444;
+      --gb-chrome-3:#555;
+      --gb-border:#414650;
+      --gb-border-soft:#353a44;
+      --gb-border-soft2:#353b45;
+      --gb-border-hard:#59616f;
+      --gb-fg:#eef1f5;
+      --gb-fg-2:#eee;
+      --gb-fg-hi:#fff;
+      --gb-fg-soft:#cbd1da;
+      --gb-fg-soft2:#aeb5c0;
+      --gb-fg-soft3:#ccc;
+      --gb-fg-mute:#aaa;
+      --gb-fg-mute2:#888;
+      --gb-fg-mute3:#777;
+      --gb-fg-mute4:#666;
+      --gb-fg-dim:#8f98a5;
+      --gb-fg-dim2:#9fa7b3;
+      --gb-accent:#f5a623;
+      --gb-accent-2:#f0c060;
+      --gb-accent-3:#c98b22;
+      --gb-link:#6cf;
+      --gb-input-fg:#cfc;
+      --gb-ok:#8fe0a8;
+      --gb-ok-2:#9d9;
+      --gb-ok-3:#6dda7e;
+      --gb-ok-4:#80e090;
+      --gb-ok-5:#4caf50;
+      --gb-ok-border:#3c7350;
+      --gb-ok-bg:#1c3023;
+      --gb-warn:#ffd27a;
+      --gb-warn-2:#fc6;
+      --gb-warn-3:#f96;
+      --gb-warn-bg:#3a321f;
+      --gb-warn-bg2:#382e1c;
+      --gb-warn-border:#8a6725;
+      --gb-err:#ff9aa3;
+      --gb-err-2:#f55;
+      --gb-err-3:#f66;
+      --gb-err-4:#faa;
+      --gb-err-bg:#381f23;
+      --gb-err-border:#8a3b42;
+    }
+    #grepbot-panel.gb-theme-light, #grepbot-queue-center.gb-theme-light {
+      --gb-bg:#f4f5f7;
+      --gb-bg-deep:#eceef1;
+      --gb-bg-alt:#e8eaee;
+      --gb-bg-alt2:#eceef1;
+      --gb-bg-alt3:#e4e7ec;
+      --gb-bg-alt4:#dfe3e9;
+      --gb-bg-raise:#dde1e7;
+      --gb-bg-row:#e9ebef;
+      --gb-rule:#d5d9df;
+      --gb-input-bg:#ffffff;
+      --gb-chrome:#d9dde3;
+      --gb-chrome-2:#cdd2d9;
+      --gb-chrome-3:#b8bfc9;
+      --gb-border:#b0b7c2;
+      --gb-border-soft:#c6ccd4;
+      --gb-border-soft2:#c6ccd4;
+      --gb-border-hard:#98a1ad;
+      --gb-fg:#1b1e24;
+      --gb-fg-2:#23262c;
+      --gb-fg-hi:#000000;
+      --gb-fg-soft:#33373f;
+      --gb-fg-soft2:#3c4149;
+      --gb-fg-soft3:#3c4149;
+      --gb-fg-mute:#5b6270;
+      --gb-fg-mute2:#5b6270;
+      --gb-fg-mute3:#6b7280;
+      --gb-fg-mute4:#6b7280;
+      --gb-fg-dim:#5b6270;
+      --gb-fg-dim2:#5b6270;
+      --gb-accent:#a3660b;
+      --gb-accent-2:#8a5709;
+      --gb-accent-3:#6f4507;
+      --gb-link:#0b62b0;
+      --gb-input-fg:#14361f;
+      --gb-ok:#1d7a3e;
+      --gb-ok-2:#1d7a3e;
+      --gb-ok-3:#166b34;
+      --gb-ok-4:#166b34;
+      --gb-ok-5:#1d7a3e;
+      --gb-ok-border:#8fc9a4;
+      --gb-ok-bg:#dff3e6;
+      --gb-warn:#8a5a00;
+      --gb-warn-2:#8a5a00;
+      --gb-warn-3:#a34a12;
+      --gb-warn-bg:#fdf1d6;
+      --gb-warn-bg2:#fdf1d6;
+      --gb-warn-border:#d9b268;
+      --gb-err:#b3121f;
+      --gb-err-2:#b3121f;
+      --gb-err-3:#c0202c;
+      --gb-err-4:#c0202c;
+      --gb-err-bg:#fbe3e5;
+      --gb-err-border:#e29aa1;
+    }
     #grepbot-panel{position:fixed;top:10px;right:10px;width:560px;min-width:430px;max-width:92vw;max-height:82vh;z-index:2147483647;
-      background:#181a1f;color:#eef1f5;font:12px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";border:1px solid #414650;border-radius:10px;
+      background:var(--gb-bg);color:var(--gb-fg);font:12px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";border:1px solid var(--gb-border);border-radius:10px;
       box-shadow:0 4px 16px rgba(0,0,0,.5);display:flex;flex-direction:column;visibility:visible !important;opacity:1 !important;
       box-sizing:border-box;}
-    #grepbot-panel header{padding:8px 10px;background:#22252b;cursor:move;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-shrink:0;border-radius:10px 10px 0 0}
-    #grepbot-panel header b{color:#f5a623;font-weight:600}
-    #grepbot-panel header button{background:none;border:1px solid #555;color:#eee;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:11px}
-    #grepbot-panel .gb-nav{display:flex;gap:4px;padding:7px 8px 5px;background:#202329;flex-shrink:0;border-bottom:1px solid #353a44;overflow-x:auto}
-    #grepbot-panel .gb-nav button{flex:0 0 auto;padding:5px 10px;background:#292d35;border:1px solid transparent;border-radius:7px;color:#aeb5c0;cursor:pointer;font:600 11px system-ui,-apple-system,Segoe UI,sans-serif}
-    #grepbot-panel .gb-nav button:hover{color:#ccc}
-    #grepbot-panel .gb-nav button.on{color:#fff;background:#3a321f;border-color:#c98b22}
-    #grepbot-panel .gb-subtabs{display:flex;gap:4px;padding:5px 8px;background:#17191e;border-bottom:1px solid #353a44;flex-shrink:0;overflow-x:auto}
-    #grepbot-panel .gb-subtabs button{flex:0 0 auto;padding:4px 9px;background:transparent;border:1px solid transparent;border-radius:6px;color:#9fa7b3;cursor:pointer;font:11px system-ui,-apple-system,Segoe UI,sans-serif;white-space:nowrap}
-    #grepbot-panel .gb-subtabs button:hover{color:#eee;border-color:#555}
-    #grepbot-panel .gb-subtabs button.on{background:#2b3038;color:#fff;border-color:#59616f}
+    #grepbot-panel header{padding:8px 10px;background:var(--gb-bg-alt);cursor:move;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-shrink:0;border-radius:10px 10px 0 0}
+    #grepbot-panel header b{color:var(--gb-accent);font-weight:600}
+    #grepbot-panel header button{background:none;border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);padding:2px 6px;border-radius:3px;cursor:pointer;font-size:11px}
+    #grepbot-panel .gb-nav{display:flex;gap:4px;padding:7px 8px 5px;background:var(--gb-bg-alt2);flex-shrink:0;border-bottom:1px solid var(--gb-border-soft);overflow-x:auto}
+    #grepbot-panel .gb-nav button{flex:0 0 auto;padding:5px 10px;background:var(--gb-bg-alt4);border:1px solid transparent;border-radius:7px;color:var(--gb-fg-soft2);cursor:pointer;font:600 11px system-ui,-apple-system,Segoe UI,sans-serif}
+    #grepbot-panel .gb-nav button:hover{color:var(--gb-fg-soft3)}
+    #grepbot-panel .gb-nav button.on{color:var(--gb-fg-hi);background:var(--gb-warn-bg);border-color:var(--gb-accent-3)}
+    #grepbot-panel .gb-subtabs{display:flex;gap:4px;padding:5px 8px;background:var(--gb-bg-deep);border-bottom:1px solid var(--gb-border-soft);flex-shrink:0;overflow-x:auto}
+    #grepbot-panel .gb-subtabs button{flex:0 0 auto;padding:4px 9px;background:transparent;border:1px solid transparent;border-radius:6px;color:var(--gb-fg-dim2);cursor:pointer;font:11px system-ui,-apple-system,Segoe UI,sans-serif;white-space:nowrap}
+    #grepbot-panel .gb-subtabs button:hover{color:var(--gb-fg-2);border-color:var(--gb-chrome-3)}
+    #grepbot-panel .gb-subtabs button.on{background:var(--gb-bg-raise);color:var(--gb-fg-hi);border-color:var(--gb-border-hard)}
     #grepbot-panel section{padding:8px 10px;overflow:auto;flex:1;min-height:0}
-    #grepbot-panel footer{padding:6px 10px;border-top:1px solid #444;display:flex;gap:8px;align-items:center;flex-shrink:0;position:relative}
+    #grepbot-panel footer{padding:6px 10px;border-top:1px solid var(--gb-chrome-2);display:flex;gap:8px;align-items:center;flex-shrink:0;position:relative}
     #grepbot-panel footer .gb-status-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex:1;min-width:0;font-size:10px}
     #grepbot-panel footer .gb-actions{position:relative;flex-shrink:0}
-    #grepbot-panel footer .gb-actions > summary{list-style:none;cursor:pointer;background:#333;border:1px solid #555;color:#eee;padding:3px 8px;border-radius:3px;font-size:11px;user-select:none}
+    #grepbot-panel footer .gb-actions > summary{list-style:none;cursor:pointer;background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);padding:3px 8px;border-radius:3px;font-size:11px;user-select:none}
     #grepbot-panel footer .gb-actions > summary::-webkit-details-marker{display:none}
-    #grepbot-panel footer .gb-actions-menu{position:absolute;right:0;bottom:calc(100% + 4px);min-width:140px;background:#262626;border:1px solid #555;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.5);display:flex;flex-direction:column;padding:4px;z-index:5}
-    #grepbot-panel footer .gb-actions-menu button{background:transparent;border:0;color:#eee;padding:5px 8px;text-align:left;cursor:pointer;font:11px monospace;border-radius:2px}
-    #grepbot-panel footer .gb-actions-menu button:hover{background:#333;color:#f5a623}
-    #grepbot-panel textarea{width:100%;height:100%;min-height:180px;background:#111;color:#cfc;border:1px solid #333;font:11px/1.4 monospace;resize:vertical}
+    #grepbot-panel footer .gb-actions-menu{position:absolute;right:0;bottom:calc(100% + 4px);min-width:140px;background:var(--gb-bg-row);border:1px solid var(--gb-chrome-3);border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.5);display:flex;flex-direction:column;padding:4px;z-index:5}
+    #grepbot-panel footer .gb-actions-menu button{background:transparent;border:0;color:var(--gb-fg-2);padding:5px 8px;text-align:left;cursor:pointer;font:11px monospace;border-radius:2px}
+    #grepbot-panel footer .gb-actions-menu button:hover{background:var(--gb-chrome);color:var(--gb-accent)}
+    #grepbot-panel textarea{width:100%;height:100%;min-height:180px;background:var(--gb-input-bg);color:var(--gb-input-fg);border:1px solid var(--gb-chrome);font:11px/1.4 monospace;resize:vertical}
     #grepbot-panel .gb-resize{position:absolute;z-index:2;background:transparent;user-select:none}
     #grepbot-panel .gb-resize-n{top:-2px;left:8px;right:8px;height:8px;cursor:n-resize}
     #grepbot-panel .gb-resize-s{bottom:-2px;left:8px;right:8px;height:8px;cursor:s-resize}
@@ -18961,115 +19153,115 @@ const STORE = {
     #grepbot-panel .gb-resize-ne{top:-2px;right:-2px;cursor:ne-resize}
     #grepbot-panel .gb-resize-nw{top:-2px;left:-2px;cursor:nw-resize}
     #grepbot-panel .gb-resize-se{right:0;bottom:0;cursor:se-resize;
-      background:linear-gradient(135deg,transparent 50%,#666 50%,#666 60%,transparent 60%,transparent 70%,#666 70%,#666 80%,transparent 80%)}
+      background:linear-gradient(135deg,transparent 50%,var(--gb-fg-mute4) 50%,var(--gb-fg-mute4) 60%,transparent 60%,transparent 70%,var(--gb-fg-mute4) 70%,var(--gb-fg-mute4) 80%,transparent 80%)}
     #grepbot-panel .gb-resize-sw{bottom:-2px;left:-2px;cursor:sw-resize}
     #grepbot-panel.collapsed{width:${PANEL_SQ}px !important;height:${PANEL_SQ}px !important;max-height:none !important;min-width:0;min-height:0;
       overflow:hidden;padding:0;border-radius:6px;cursor:move}
     #grepbot-panel.collapsed header{padding:0;width:100%;height:100%;justify-content:center;align-items:center;border:0}
     #grepbot-panel.collapsed header b{display:none}
-    #grepbot-panel.collapsed header button{border:0;padding:0;width:100%;height:100%;font-size:0;font-weight:700;color:#f5a623;border-radius:6px}
+    #grepbot-panel.collapsed header button{border:0;padding:0;width:100%;height:100%;font-size:0;font-weight:700;color:var(--gb-accent);border-radius:6px}
     #grepbot-panel.collapsed header button::before{content:"GB";display:block;font-size:11px;line-height:${PANEL_SQ}px}
     #grepbot-panel.collapsed .gb-nav,#grepbot-panel.collapsed .gb-subtabs,#grepbot-panel.collapsed section,#grepbot-panel.collapsed footer,#grepbot-panel.collapsed .gb-resize{display:none !important}
     #grepbot-panel .farms-list{margin-bottom:6px;max-height:200px;overflow:auto}
     #grepbot-panel .farms-list table{width:100%;border-collapse:collapse;font-size:10px}
-    #grepbot-panel .farms-list th,#grepbot-panel .farms-list td{padding:2px 4px;border-bottom:1px solid #2a2a2a;text-align:right}
-    #grepbot-panel .farms-list th{background:#262626;color:#aaa;text-align:left;font-weight:normal;position:sticky;top:0}
-    #grepbot-panel .farms-list td.id{text-align:left;color:#6cf;font-family:monospace}
-    #grepbot-panel .farms-list td.stale{color:#888}
-    #grepbot-panel .farms-list td.err{color:#f55}
-    #grepbot-panel td.pop-near{color:#fc6}
-    #grepbot-panel td.pop-warn{color:#f66;font-weight:bold}
-    #grepbot-panel .pop-warn-row{color:#f66;font-weight:bold}
-    #grepbot-panel .farms-list tr.alert td{background:rgba(255,80,80,.18);color:#faa}
-    #grepbot-panel .farms-list tr.alert td.id{color:#f55;font-weight:bold}
+    #grepbot-panel .farms-list th,#grepbot-panel .farms-list td{padding:2px 4px;border-bottom:1px solid var(--gb-rule);text-align:right}
+    #grepbot-panel .farms-list th{background:var(--gb-bg-row);color:var(--gb-fg-mute);text-align:left;font-weight:normal;position:sticky;top:0}
+    #grepbot-panel .farms-list td.id{text-align:left;color:var(--gb-link);font-family:monospace}
+    #grepbot-panel .farms-list td.stale{color:var(--gb-fg-mute2)}
+    #grepbot-panel .farms-list td.err{color:var(--gb-err-2)}
+    #grepbot-panel td.pop-near{color:var(--gb-warn-2)}
+    #grepbot-panel td.pop-warn{color:var(--gb-err-3);font-weight:bold}
+    #grepbot-panel .pop-warn-row{color:var(--gb-err-3);font-weight:bold}
+    #grepbot-panel .farms-list tr.alert td{background:rgba(255,80,80,.18);color:var(--gb-err-4)}
+    #grepbot-panel .farms-list tr.alert td.id{color:var(--gb-err-2);font-weight:bold}
     #grepbot-panel .world-list table{width:100%;border-collapse:collapse;font-size:10px}
-    #grepbot-panel .world-list th,#grepbot-panel .world-list td{padding:2px 4px;border-bottom:1px solid #2a2a2a;text-align:right}
-    #grepbot-panel .world-list th{background:#262626;color:#aaa;text-align:left;font-weight:normal;position:sticky;top:0}
-    #grepbot-panel .world-list td.id{text-align:left;color:#6cf;font-family:monospace}
-    #grepbot-panel .finding{padding:6px;border-bottom:1px solid #2a2a2a;font-size:11px}
-    #grepbot-panel .finding .meta{color:#888;margin-bottom:3px}
-    #grepbot-panel .finding .units{color:#6cf}
-    #grepbot-panel .finding .res{color:#f96}
-    #grepbot-panel .log-list{height:100%;min-height:180px;max-height:280px;overflow:auto;font-size:10px;white-space:pre-wrap;word-break:break-word;color:#9d9;background:#111;padding:4px;border:1px solid #333}
+    #grepbot-panel .world-list th,#grepbot-panel .world-list td{padding:2px 4px;border-bottom:1px solid var(--gb-rule);text-align:right}
+    #grepbot-panel .world-list th{background:var(--gb-bg-row);color:var(--gb-fg-mute);text-align:left;font-weight:normal;position:sticky;top:0}
+    #grepbot-panel .world-list td.id{text-align:left;color:var(--gb-link);font-family:monospace}
+    #grepbot-panel .finding{padding:6px;border-bottom:1px solid var(--gb-rule);font-size:11px}
+    #grepbot-panel .finding .meta{color:var(--gb-fg-mute2);margin-bottom:3px}
+    #grepbot-panel .finding .units{color:var(--gb-link)}
+    #grepbot-panel .finding .res{color:var(--gb-warn-3)}
+    #grepbot-panel .log-list{height:100%;min-height:180px;max-height:280px;overflow:auto;font-size:10px;white-space:pre-wrap;word-break:break-word;color:var(--gb-ok-2);background:var(--gb-input-bg);padding:4px;border:1px solid var(--gb-chrome)}
     #grepbot-panel .gb-logsub{display:flex;gap:4px;align-items:center;margin-bottom:4px}
-    #grepbot-panel .gb-logsub button{background:#262626;border:1px solid #333;color:#aaa;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px}
-    #grepbot-panel .gb-logsub button.on{background:#333;color:#fff;border-color:#555}
-    #grepbot-panel .gb-logsub input{flex:1;min-width:0;background:#111;color:#cfc;border:1px solid #333;font:10px monospace;padding:2px 4px}
-    #grepbot-panel .jrn-head{font-size:10px;color:#888;margin-bottom:3px}
-    #grepbot-panel .jrn-head b{color:#f96}
-    #grepbot-panel .jrn-list{min-height:160px;max-height:250px;overflow:auto;font-size:10px;background:#111;border:1px solid #333;padding:2px}
+    #grepbot-panel .gb-logsub button{background:var(--gb-bg-row);border:1px solid var(--gb-chrome);color:var(--gb-fg-mute);padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px}
+    #grepbot-panel .gb-logsub button.on{background:var(--gb-chrome);color:var(--gb-fg-hi);border-color:var(--gb-chrome-3)}
+    #grepbot-panel .gb-logsub input{flex:1;min-width:0;background:var(--gb-input-bg);color:var(--gb-input-fg);border:1px solid var(--gb-chrome);font:10px monospace;padding:2px 4px}
+    #grepbot-panel .jrn-head{font-size:10px;color:var(--gb-fg-mute2);margin-bottom:3px}
+    #grepbot-panel .jrn-head b{color:var(--gb-warn-3)}
+    #grepbot-panel .jrn-list{min-height:160px;max-height:250px;overflow:auto;font-size:10px;background:var(--gb-input-bg);border:1px solid var(--gb-chrome);padding:2px}
     #grepbot-panel .jrn-list table{width:100%;border-collapse:collapse}
-    #grepbot-panel .jrn-list td{padding:1px 3px;border-bottom:1px solid #2a2a2a;vertical-align:top}
-    #grepbot-panel .jrn-list td.t{color:#666;white-space:nowrap}
-    #grepbot-panel .jrn-list td.f{color:#6cf}
-    #grepbot-panel .jrn-list td.a{color:#aaa;word-break:break-all}
-    #grepbot-panel .jrn-list td.k{color:#888;text-align:right}
+    #grepbot-panel .jrn-list td{padding:1px 3px;border-bottom:1px solid var(--gb-rule);vertical-align:top}
+    #grepbot-panel .jrn-list td.t{color:var(--gb-fg-mute4);white-space:nowrap}
+    #grepbot-panel .jrn-list td.f{color:var(--gb-link)}
+    #grepbot-panel .jrn-list td.a{color:var(--gb-fg-mute);word-break:break-all}
+    #grepbot-panel .jrn-list td.k{color:var(--gb-fg-mute2);text-align:right}
     #grepbot-panel .jrn-list td.r{text-align:right;white-space:nowrap}
-    #grepbot-panel .jrn-list tr.ok td.r{color:#6dda7e}
-    #grepbot-panel .jrn-list tr.skip td.r{color:#777}
-    #grepbot-panel .jrn-list tr.err td.r{color:#f55}
+    #grepbot-panel .jrn-list tr.ok td.r{color:var(--gb-ok-3)}
+    #grepbot-panel .jrn-list tr.skip td.r{color:var(--gb-fg-mute3)}
+    #grepbot-panel .jrn-list tr.err td.r{color:var(--gb-err-2)}
     #grepbot-panel .jrn-btns{display:flex;gap:4px;margin-top:4px}
-    #grepbot-panel .jrn-btns button{background:#333;border:1px solid #555;color:#eee;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px}
-    #grepbot-panel .ib-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#555;transition:background .4s}
-    #grepbot-panel .ib-dot.free{background:#4caf50}
-    #grepbot-panel .ib-dot.paid{background:#f0c060}
+    #grepbot-panel .jrn-btns button{background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px}
+    #grepbot-panel .ib-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--gb-chrome-3);transition:background .4s}
+    #grepbot-panel .ib-dot.free{background:var(--gb-ok-5)}
+    #grepbot-panel .ib-dot.paid{background:var(--gb-accent-2)}
     #grepbot-panel .ib-rows{max-height:240px;overflow:auto;font-size:10px}
-    #grepbot-panel .ib-town{color:#888;font-size:9px;margin-top:4px;margin-bottom:1px}
-    #grepbot-panel .ib-row{display:flex;justify-content:space-between;gap:12px;padding:2px 0;border-bottom:1px solid #2a2a2a}
-    #grepbot-panel .ib-type{color:#aaa;flex:1}
-    #grepbot-panel .ib-time{color:#888}
-    #grepbot-panel .ib-cost{color:#f0c060;min-width:36px;text-align:right}
-    #grepbot-panel .ib-free{color:#6dda7e;font-weight:bold;min-width:36px;text-align:right}
-    #grepbot-panel #gb-ib-btn{background:#333;border:1px solid #555;color:#80e090;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px}
+    #grepbot-panel .ib-town{color:var(--gb-fg-mute2);font-size:9px;margin-top:4px;margin-bottom:1px}
+    #grepbot-panel .ib-row{display:flex;justify-content:space-between;gap:12px;padding:2px 0;border-bottom:1px solid var(--gb-rule)}
+    #grepbot-panel .ib-type{color:var(--gb-fg-mute);flex:1}
+    #grepbot-panel .ib-time{color:var(--gb-fg-mute2)}
+    #grepbot-panel .ib-cost{color:var(--gb-accent-2);min-width:36px;text-align:right}
+    #grepbot-panel .ib-free{color:var(--gb-ok-3);font-weight:bold;min-width:36px;text-align:right}
+    #grepbot-panel #gb-ib-btn{background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-ok-4);padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px}
     #grepbot-panel #gb-ib-btn:disabled{opacity:.4;cursor:default}
     #grepbot-panel .ab-queue{max-height:220px;overflow:auto;margin-top:2px}
     #grepbot-panel .atk-sched{max-height:160px;overflow:auto;margin-top:6px}
     #grepbot-panel .atk-sources{max-height:80px;overflow:auto;display:flex;flex-wrap:wrap;gap:4px 8px;margin:4px 0}
     #grepbot-panel .atk-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
-    #grepbot-panel .atk-row input,#grepbot-panel .atk-row select{background:#111;color:#cfc;border:1px solid #333;padding:2px 4px;font:11px monospace}
-    #grepbot-panel .atk-btns button{background:#333;border:1px solid #555;color:#eee;padding:3px 8px;border-radius:3px;cursor:pointer;font-size:11px;margin-right:4px}
-    #grepbot-panel .atk-btns #gb-atk-now{color:#f96}
-    #grepbot-panel .atk-btns #gb-atk-arm{color:#6cf}
-    #grepbot-panel .atk-harass button,#grepbot-panel .atk-roles button,#grepbot-panel #gb-atk-src-all,#grepbot-panel #gb-atk-src-none,#grepbot-panel #gb-atk-src-off,#grepbot-panel #gb-atk-src-def,#grepbot-panel #gb-atk-cmds-refresh,#grepbot-panel #gb-atk-heroes-refresh,#grepbot-panel #gb-atk-comp-refresh,#grepbot-panel #gb-atk-colony-refresh,#grepbot-panel .atk-colony button,#grepbot-panel .atk-comp button,#grepbot-panel .atk-cmds button,#grepbot-panel .atk-heroes button{background:#333;border:1px solid #555;color:#eee;padding:1px 6px;cursor:pointer;font-size:10px}
+    #grepbot-panel .atk-row input,#grepbot-panel .atk-row select{background:var(--gb-input-bg);color:var(--gb-input-fg);border:1px solid var(--gb-chrome);padding:2px 4px;font:11px monospace}
+    #grepbot-panel .atk-btns button{background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);padding:3px 8px;border-radius:3px;cursor:pointer;font-size:11px;margin-right:4px}
+    #grepbot-panel .atk-btns #gb-atk-now{color:var(--gb-warn-3)}
+    #grepbot-panel .atk-btns #gb-atk-arm{color:var(--gb-link)}
+    #grepbot-panel .atk-harass button,#grepbot-panel .atk-roles button,#grepbot-panel #gb-atk-src-all,#grepbot-panel #gb-atk-src-none,#grepbot-panel #gb-atk-src-off,#grepbot-panel #gb-atk-src-def,#grepbot-panel #gb-atk-cmds-refresh,#grepbot-panel #gb-atk-heroes-refresh,#grepbot-panel #gb-atk-comp-refresh,#grepbot-panel #gb-atk-colony-refresh,#grepbot-panel .atk-colony button,#grepbot-panel .atk-comp button,#grepbot-panel .atk-cmds button,#grepbot-panel .atk-heroes button{background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);padding:1px 6px;cursor:pointer;font-size:10px}
     #grepbot-panel .atk-cmds button:disabled,#grepbot-panel .atk-heroes button:disabled{opacity:.45;cursor:not-allowed}
     #grepbot-panel .quest-list{max-height:200px;overflow:auto;font-size:10px}
-    #grepbot-panel .quest-row{display:grid;grid-template-columns:1.4fr .5fr 1fr .6fr;gap:4px;border-bottom:1px solid #2a2a2a;padding:3px 0}
-    #grepbot-panel .quest-hist{max-height:100px;overflow:auto;font-size:9px;color:#9d9;margin-top:6px;background:#111;padding:4px;border:1px solid #333;white-space:pre-wrap}
+    #grepbot-panel .quest-row{display:grid;grid-template-columns:1.4fr .5fr 1fr .6fr;gap:4px;border-bottom:1px solid var(--gb-rule);padding:3px 0}
+    #grepbot-panel .quest-hist{max-height:100px;overflow:auto;font-size:9px;color:var(--gb-ok-2);margin-top:6px;background:var(--gb-input-bg);padding:4px;border:1px solid var(--gb-chrome);white-space:pre-wrap}
     #grepbot-panel .gb-head-main{display:flex;align-items:center;gap:8px;min-width:0}
     #grepbot-panel .gb-head-status{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
-    #grepbot-panel .gb-pill{padding:2px 6px;border-radius:999px;font-size:9px;font-weight:700;border:1px solid #444;background:#2b3038;color:#cbd1da}
-    #grepbot-panel .gb-pill.ok{border-color:#3c7350;color:#8fe0a8;background:#1c3023}
-    #grepbot-panel .gb-pill.warn{border-color:#8a6725;color:#ffd27a;background:#382e1c}
-    #grepbot-panel .gb-pill.bad{border-color:#8a3b42;color:#ff9aa3;background:#381f23}
+    #grepbot-panel .gb-pill{padding:2px 6px;border-radius:999px;font-size:9px;font-weight:700;border:1px solid var(--gb-chrome-2);background:var(--gb-bg-raise);color:var(--gb-fg-soft)}
+    #grepbot-panel .gb-pill.ok{border-color:var(--gb-ok-border);color:var(--gb-ok);background:var(--gb-ok-bg)}
+    #grepbot-panel .gb-pill.warn{border-color:var(--gb-warn-border);color:var(--gb-warn);background:var(--gb-warn-bg2)}
+    #grepbot-panel .gb-pill.bad{border-color:var(--gb-err-border);color:var(--gb-err);background:var(--gb-err-bg)}
     #grepbot-panel .gb-dashboard-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:6px 0 8px}
-    #grepbot-panel .gb-card{background:#22262d;border:1px solid #353b45;border-radius:8px;padding:7px;min-width:0}
-    #grepbot-panel .gb-card .k{font-size:9px;color:#8f98a5;text-transform:uppercase;letter-spacing:.04em}
+    #grepbot-panel .gb-card{background:var(--gb-bg-alt3);border:1px solid var(--gb-border-soft2);border-radius:8px;padding:7px;min-width:0}
+    #grepbot-panel .gb-card .k{font-size:9px;color:var(--gb-fg-dim);text-transform:uppercase;letter-spacing:.04em}
     #grepbot-panel .gb-card .v{font-size:17px;font-weight:700;color:#f5f7fa;line-height:1.2;margin-top:2px}
     #grepbot-panel .gb-card .s{font-size:9px;color:#9ca5b2;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     #grepbot-panel .gb-quick{display:flex;gap:5px;flex-wrap:wrap;margin:6px 0 8px}
-    #grepbot-panel .gb-quick button,#grepbot-panel .gb-action{background:#2b3038;border:1px solid #4a515d;color:#eef1f5;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:10px}
-    #grepbot-panel .gb-quick button:hover,#grepbot-panel .gb-action:hover{border-color:#c98b22}
+    #grepbot-panel .gb-quick button,#grepbot-panel .gb-action{background:var(--gb-bg-raise);border:1px solid #4a515d;color:var(--gb-fg);padding:5px 8px;border-radius:6px;cursor:pointer;font-size:10px}
+    #grepbot-panel .gb-quick button:hover,#grepbot-panel .gb-action:hover{border-color:var(--gb-accent-3)}
     #grepbot-panel .gb-section{margin:7px 0;border:1px solid #343943;border-radius:8px;background:#1c1f25;overflow:hidden}
-    #grepbot-panel .gb-section>summary{cursor:pointer;list-style:none;padding:7px 9px;font-size:11px;font-weight:700;color:#e8ebef;background:#22262d;display:flex;align-items:center;justify-content:space-between}
+    #grepbot-panel .gb-section>summary{cursor:pointer;list-style:none;padding:7px 9px;font-size:11px;font-weight:700;color:#e8ebef;background:var(--gb-bg-alt3);display:flex;align-items:center;justify-content:space-between}
     #grepbot-panel .gb-section>summary::-webkit-details-marker{display:none}
-    #grepbot-panel .gb-section>summary::after{content:'+';color:#8f98a5;font-size:14px}
+    #grepbot-panel .gb-section>summary::after{content:'+';color:var(--gb-fg-dim);font-size:14px}
     #grepbot-panel .gb-section[open]>summary::after{content:'-'}
     #grepbot-panel .gb-section-body{padding:7px}
     #grepbot-panel pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
     @media (max-width:700px){#grepbot-panel{width:94vw;min-width:320px;right:3vw}.gb-dashboard-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
-    #grepbot-queue-center{position:fixed;top:90px;left:90px;width:760px;height:560px;min-width:520px;min-height:320px;max-width:94vw;max-height:88vh;z-index:2147483646;background:#17191e;color:#eef1f5;border:1px solid #4a505b;border-radius:10px;box-shadow:0 10px 32px rgba(0,0,0,.6);display:flex;flex-direction:column;resize:both;overflow:hidden;font:12px/1.35 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+    #grepbot-queue-center{position:fixed;top:90px;left:90px;width:760px;height:560px;min-width:520px;min-height:320px;max-width:94vw;max-height:88vh;z-index:2147483646;background:var(--gb-bg-deep);color:var(--gb-fg);border:1px solid #4a505b;border-radius:10px;box-shadow:0 10px 32px rgba(0,0,0,.6);display:flex;flex-direction:column;resize:both;overflow:hidden;font:12px/1.35 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
     #grepbot-queue-center header{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#24272e;border-bottom:1px solid #3d424c;cursor:move;flex-shrink:0}
-    #grepbot-queue-center header b{color:#f5a623;font-size:13px}#grepbot-queue-center .gb-qc-spacer{flex:1}
-    #grepbot-queue-center header select{max-width:210px;background:#11141a;color:#eef1f5;border:1px solid #4b5260;border-radius:5px;padding:4px 7px}
+    #grepbot-queue-center header b{color:var(--gb-accent);font-size:13px}#grepbot-queue-center .gb-qc-spacer{flex:1}
+    #grepbot-queue-center header select{max-width:210px;background:#11141a;color:var(--gb-fg);border:1px solid #4b5260;border-radius:5px;padding:4px 7px}
     #grepbot-queue-center header button,#grepbot-queue-center .gb-qc-btn{background:#2d323b;color:#e9edf2;border:1px solid #4f5764;border-radius:5px;padding:3px 7px;cursor:pointer;font-size:11px}
     #grepbot-queue-center header button:hover,#grepbot-queue-center .gb-qc-btn:hover{background:#39404b;border-color:#707a89}#grepbot-queue-center button:disabled{opacity:.35;cursor:default}
-    #grepbot-queue-center nav{display:flex;gap:5px;padding:7px 9px;background:#1d2026;border-bottom:1px solid #353a44;flex-shrink:0}
-    #grepbot-queue-center .gb-qc-tab{padding:6px 12px;background:#272b33;color:#aeb5c0;border:1px solid transparent;border-radius:7px;cursor:pointer;font-weight:600}
-    #grepbot-queue-center .gb-qc-tab.on{background:#3a321f;color:#fff;border-color:#c98b22}
-    #grepbot-queue-center .gb-qc-body{padding:10px;flex:1 1 0;min-height:0;height:0;overflow-y:scroll;overflow-x:hidden;scrollbar-gutter:stable;scrollbar-width:auto;scrollbar-color:#5f6978 #17191e;overscroll-behavior:contain;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:max-content;gap:10px;align-content:start}
+    #grepbot-queue-center nav{display:flex;gap:5px;padding:7px 9px;background:#1d2026;border-bottom:1px solid var(--gb-border-soft);flex-shrink:0}
+    #grepbot-queue-center .gb-qc-tab{padding:6px 12px;background:#272b33;color:var(--gb-fg-soft2);border:1px solid transparent;border-radius:7px;cursor:pointer;font-weight:600}
+    #grepbot-queue-center .gb-qc-tab.on{background:var(--gb-warn-bg);color:var(--gb-fg-hi);border-color:var(--gb-accent-3)}
+    #grepbot-queue-center .gb-qc-body{padding:10px;flex:1 1 0;min-height:0;height:0;overflow-y:scroll;overflow-x:hidden;scrollbar-gutter:stable;scrollbar-width:auto;scrollbar-color:#5f6978 var(--gb-bg-deep);overscroll-behavior:contain;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:max-content;gap:10px;align-content:start}
     #grepbot-queue-center .gb-qc-body::-webkit-scrollbar{width:10px}
-    #grepbot-queue-center .gb-qc-body::-webkit-scrollbar-track{background:#17191e;border-left:1px solid #2e333c}
-    #grepbot-queue-center .gb-qc-body::-webkit-scrollbar-thumb{background:#4f5764;border:2px solid #17191e;border-radius:8px}
+    #grepbot-queue-center .gb-qc-body::-webkit-scrollbar-track{background:var(--gb-bg-deep);border-left:1px solid #2e333c}
+    #grepbot-queue-center .gb-qc-body::-webkit-scrollbar-thumb{background:#4f5764;border:2px solid var(--gb-bg-deep);border-radius:8px}
     #grepbot-queue-center .gb-qc-body::-webkit-scrollbar-thumb:hover{background:#6a7484}
     #grepbot-queue-center .gb-qc-card{background:#20232a;border:1px solid #383e48;border-radius:8px;overflow:hidden;min-width:0;align-self:start;height:max-content}
     #grepbot-queue-center .gb-qc-card-head{display:flex;gap:8px;align-items:center;padding:8px 9px;background:#272b33;border-bottom:1px solid #383e48}#grepbot-queue-center .gb-qc-card-head>div:first-child{display:flex;flex-direction:column;flex:1;min-width:0}#grepbot-queue-center .gb-qc-card-head small{color:#89919d;font-size:10px}
@@ -19077,13 +19269,13 @@ const STORE = {
     #grepbot-queue-center .gb-qc-job-desc{display:flex;flex-direction:column;min-width:0}.gb-qc-job-desc>span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     #grepbot-queue-center .gb-qc-acts{display:flex;gap:3px}.gb-qc-btn.danger{color:#ffb0a8}.gb-qc-empty{padding:16px 10px;color:#828a95;text-align:center}
     #grepbot-queue-center .gb-qc-picker{display:flex;gap:6px;align-items:center;padding:8px 9px;border-top:1px solid rgba(255,255,255,.05);background:#1b1e24}
-    #grepbot-queue-center .gb-qc-pick{flex:1;min-width:0;background:#20232a;color:#eef1f5;border:1px solid #454c58;border-radius:5px;padding:3px 5px;font-size:11px}
+    #grepbot-queue-center .gb-qc-pick{flex:1;min-width:0;background:#20232a;color:var(--gb-fg);border:1px solid #454c58;border-radius:5px;padding:3px 5px;font-size:11px}
     #grepbot-queue-center .gb-qc-sequence{padding:8px 9px 9px;border-top:1px solid rgba(255,255,255,.05);background:#1b1e24}
     #grepbot-queue-center .gb-qc-sequence-title{display:block;margin-bottom:6px;color:#f5c36a;font-size:10px;text-transform:uppercase;letter-spacing:.35px}
     #grepbot-queue-center .gb-qc-sequence-line{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
-    #grepbot-queue-center .gb-qc-sequence-chip{padding:3px 6px;border-radius:5px;background:#2b3038;border:1px solid #454c58;color:#eef1f5;font-size:10px;white-space:nowrap}
+    #grepbot-queue-center .gb-qc-sequence-chip{padding:3px 6px;border-radius:5px;background:var(--gb-bg-raise);border:1px solid #454c58;color:var(--gb-fg);font-size:10px;white-space:nowrap}
     #grepbot-queue-center .gb-qc-sequence-arrow{color:#757f8c;font-weight:bold}
-    #grepbot-queue-center .gb-qc-status{font-size:9px;color:#aab2bd}.gb-qc-status.ready{color:#7ddd96}.gb-qc-status.blocked,.gb-qc-status.unknown{color:#ff9e94}.gb-qc-status.paused{color:#ffd27a}.gb-qc-status.waiting-resources,.gb-qc-status.waiting-population,.gb-qc-status.waiting-queue,.gb-qc-status.waiting-requirement{color:#e5bf70}.gb-qc-muted{color:#929aa5;font-size:10px}
+    #grepbot-queue-center .gb-qc-status{font-size:9px;color:#aab2bd}.gb-qc-status.ready{color:#7ddd96}.gb-qc-status.blocked,.gb-qc-status.unknown{color:#ff9e94}.gb-qc-status.paused{color:var(--gb-warn)}.gb-qc-status.waiting-resources,.gb-qc-status.waiting-population,.gb-qc-status.waiting-queue,.gb-qc-status.waiting-requirement{color:#e5bf70}.gb-qc-muted{color:#929aa5;font-size:10px}
     @media(max-width:760px){#grepbot-queue-center{left:2vw!important;top:4vh!important;width:96vw!important;height:80vh!important}#grepbot-queue-center .gb-qc-body{grid-template-columns:1fr}}
   `);
 
@@ -19372,6 +19564,13 @@ const STORE = {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Log every payload the bot would send and send nothing. Use it to compare bot payloads against a hand-clicked action before enabling a risky feature."><input type="checkbox" data-cfg="dry-run"/> <b style="color:#6cf">Simulacion (registra payloads, no envia nada)</b></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="A feature that keeps finding nothing to do doubles its own interval (up to 8x) until it acts again."><input type="checkbox" data-cfg="orch-adaptive"/> Adaptive cadence (back off idle features)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Si un almacen se llena y la recoleccion deja de rendir, cueva/comercio/aldeas pasan por delante de la recoleccion y no se les aplica el frenado por inactividad. Solo cambia el ORDEN, nunca el presupuesto."><input type="checkbox" data-cfg="orch-deadlock"/> Resolver atasco de almacen (prioriza vaciado)</label>
+        <label style="margin-left:0;flex-wrap:wrap;font-size:10px">Tema
+          <select data-cfg="theme" style="background:#111;color:#cfc;border:1px solid #333;margin-left:6px">
+            <option value="dark">oscuro</option>
+            <option value="light">claro</option>
+            <option value="system">del sistema</option>
+          </select>
+        </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Copy/Export replace player names and ids with short hashes. Turn OFF only for local debugging."><input type="checkbox" data-cfg="export-redact"/> Redact names/ids in Copy + Export</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="captcha-global"/> Global captcha kill-switch</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Skip an action that failed the same way 3x in a row (5/15/60min backoff). Journal keeps recording either way."><input type="checkbox" data-cfg="decision-memory"/> Decision memory (skip repeat failures)</label>
@@ -19542,6 +19741,7 @@ const STORE = {
     panel.appendChild(h);
   });
   applyPanelGeom(state.panelGeom);
+  applyTheme();
 
   {
     const start = TAB_IDS.includes(state.activeTab) ? state.activeTab : 'findings';
@@ -19810,6 +20010,7 @@ const STORE = {
       renderResearchPath(sec);
       const od = sec.querySelector('[data-cfg=orch-deadlock]'); if (od) od.checked = state.orchDeadlockResolve !== false;
       const er = sec.querySelector('[data-cfg=export-redact]'); if (er) er.checked = state.exportRedact !== false;
+      const th = sec.querySelector('[data-cfg=theme]'); if (th) th.value = GB_THEMES.includes(state.theme) ? state.theme : 'dark';
       renderCaveTowns();
       return;
     }
@@ -20344,6 +20545,12 @@ const STORE = {
       sec.querySelector('[data-cfg=' + k + ']')?.addEventListener('change', saveWebhookEvents);
     });
     sec.querySelector('[data-cfg=wh-tg-chat]')?.addEventListener('change', saveWebhookEvents);
+    sec.querySelector('[data-cfg=theme]')?.addEventListener('change', e => {
+      state.theme = GB_THEMES.includes(e.target.value) ? e.target.value : 'dark';
+      save(STORE.THEME, state.theme);
+      applyTheme();
+      gbLog('theme ' + state.theme + ' (' + gbThemeResolved() + ')');
+    });
     sec.querySelector('[data-cfg=trade-preset]')?.addEventListener('change', e => {
       state.tradePreset = e.target.value; save(STORE.TRADE_PRESET, state.tradePreset);
       gbLog('tradePreset', state.tradePreset);

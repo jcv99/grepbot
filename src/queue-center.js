@@ -436,6 +436,7 @@
       w.id = 'grepbot-queue-center';
       w.innerHTML = `<header><b>Colas GrepBot</b><select class="gb-qc-town" title="Ciudad que estás gestionando"></select><span class="gb-qc-spacer"></span><button class="gb-qc-refresh" title="Actualizar">↻</button><button class="gb-qc-close" title="Cerrar">×</button></header><nav><button class="gb-qc-tab" data-qtab="build">Construcción</button><button class="gb-qc-tab" data-qtab="research">Investigación</button><button class="gb-qc-tab" data-qtab="barracks">Cuartel</button><button class="gb-qc-tab" data-qtab="docks">Puerto</button></nav><div class="gb-qc-body"></div>`;
       document.body.appendChild(w);
+      try { applyTheme(); } catch (_) {}
       gbQueueCenter = w;
       w.querySelector('.gb-qc-close').addEventListener('click', () => { w.style.display = 'none'; });
       w.querySelector('.gb-qc-refresh').addEventListener('click', renderQueueCenter);

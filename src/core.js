@@ -291,6 +291,7 @@
     attackRecent: load(STORE.ATTACK_RECENT, []),
     captchaBreakers: load(STORE.CAPTCHA, null) || {},
     findingsFilter: load(STORE.FINDINGS_FILTER, { type: '', attacker: '' }),
+    theme: load(STORE.THEME, 'dark'),
     panelGeom: load(STORE.PANEL_GEOM, null),
     activeTab: load(STORE.ACTIVE_TAB, 'overview'),
     farmSkipFull: load(STORE.FARM_SKIP_FULL, true),
