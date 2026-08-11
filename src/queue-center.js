@@ -39,7 +39,7 @@
       w.style.right = 'auto';
     };
     const onUp = () => { drag = null; };
-    h.addEventListener('mousedown', onDown);
+    gbListen(h, 'mousedown', onDown);
     gbListen(document, 'mousemove', onMove);
     gbListen(document, 'mouseup', onUp);
     gbListenerBag.push({ target: document, type: 'mousemove', fn: onMove, opts: undefined }, { target: document, type: 'mouseup', fn: onUp, opts: undefined });

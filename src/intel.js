@@ -760,8 +760,14 @@
         const c = entry.coords || (entry.x + ' ' + entry.y);
         const fx = finding.town && finding.town.x;
         const fy = finding.town && finding.town.y;
-        if (fx != null && fy != null && String(c).indexOf(String(fx)) >= 0 && String(c).indexOf(String(fy)) >= 0) {
-          hits.push({ kind: 'coords', rule: String(c), specificity: 3 });
+        // Token-compare on whitespace-split coords: indexOf would match "100 50"
+        // against x=10 (substring) and x=100 against x=10 (prefix), making every
+        // town whose x starts with "1" trip a watch at (x=100, y=50).
+        if (fx != null && fy != null) {
+          const cTokens = String(c).split(/\s+/).filter(Boolean).map(String);
+          if (cTokens.indexOf(String(fx)) >= 0 && cTokens.indexOf(String(fy)) >= 0) {
+            hits.push({ kind: 'coords', rule: String(c), specificity: 3 });
+          }
         }
       }
       const pname = finding.attacker && (finding.attacker.name || finding.attacker.player_name);

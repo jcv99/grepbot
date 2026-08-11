@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.44.25
+// @version      4.44.26
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -15366,8 +15366,12 @@ const STORE = {
         const c = entry.coords || (entry.x + ' ' + entry.y);
         const fx = finding.town && finding.town.x;
         const fy = finding.town && finding.town.y;
-        if (fx != null && fy != null && String(c).indexOf(String(fx)) >= 0 && String(c).indexOf(String(fy)) >= 0) {
-          hits.push({ kind: 'coords', rule: String(c), specificity: 3 });
+
+        if (fx != null && fy != null) {
+          const cTokens = String(c).split(/\s+/).filter(Boolean).map(String);
+          if (cTokens.indexOf(String(fx)) >= 0 && cTokens.indexOf(String(fy)) >= 0) {
+            hits.push({ kind: 'coords', rule: String(c), specificity: 3 });
+          }
         }
       }
       const pname = finding.attacker && (finding.attacker.name || finding.attacker.player_name);
@@ -19778,7 +19782,7 @@ const STORE = {
       w.style.right = 'auto';
     };
     const onUp = () => { drag = null; };
-    h.addEventListener('mousedown', onDown);
+    gbListen(h, 'mousedown', onDown);
     gbListen(document, 'mousemove', onMove);
     gbListen(document, 'mouseup', onUp);
     gbListenerBag.push({ target: document, type: 'mousemove', fn: onMove, opts: undefined }, { target: document, type: 'mouseup', fn: onUp, opts: undefined });
