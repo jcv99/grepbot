@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      3.10.1
+// @version      3.11.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -596,6 +596,10 @@ const STORE = {
 
   let panel = null;
   let userPausedUntil = 0;
+
+  const GB_PANIC_GRACE_MS = 30000;
+  let panicUntil = 0;
+  let panicNeedsClear = false;
   let captchaGlobalUntil = +load(STORE.CAPTCHA_GLOBAL_UNTIL, 0) || 0;
   const moduleHealth = (state.health && typeof state.health === 'object') ? state.health : {};
   const reqBudgetWindow = [];
@@ -772,7 +776,48 @@ const STORE = {
     gbServerCooldown(10000 + Math.floor(Math.random() * 10000), String(msg).slice(0, 40));
     return true;
   }
+  function gbPanicActive() { return panicUntil > Date.now(); }
+  function gbPanicPending() { return panicNeedsClear; }
+  function gbPanicLeftMs() { return Math.max(0, panicUntil - Date.now()); }
+
+  function gbPanicActivate() {
+    if (gbPanicActive()) { gbLogT('panic-dup', 5000, 'panic: already active'); return false; }
+    panicUntil = Date.now() + GB_PANIC_GRACE_MS;
+    panicNeedsClear = true;
+    if (!state.dryRun) { state.dryRun = true; save(STORE.DRY_RUN, true); }
+    gbUnlockAll();
+    gbLog('panic: activated');
+    try { updateStatus(); } catch (_) {}
+    return true;
+  }
+
+  function gbPanicRecover() {
+    if (!panicNeedsClear) return { ok: false, why: 'inactive' };
+    if (gbPanicActive()) return { ok: false, why: 'grace' };
+
+    try { jrnClearSkips(); } catch (e) {
+      gbLog('panic: clear skips failed - ' + String(e).slice(0, 60));
+      return { ok: false, why: 'clear-failed' };
+    }
+    gbUnlockAll();
+    panicNeedsClear = false;
+    panicUntil = 0;
+    const info = {};
+    const stillPaused = automationPaused(info);
+    if (stillPaused) gbLog('panic: cleared, still paused (' + (info.reason || '?') + ')');
+    else { gbLog('panic: resumed'); try { gbWakeDrain(); } catch (_) {} }
+    try { updateStatus(); } catch (_) {}
+    return { ok: true, reason: stillPaused ? (info.reason || '?') : '' };
+  }
   function automationPaused(reasonOut) {
+    if (panicUntil && Date.now() < panicUntil) {
+      if (reasonOut) reasonOut.reason = 'panic';
+      return true;
+    }
+    if (panicNeedsClear) {
+      if (reasonOut) reasonOut.reason = 'panic-grace';
+      return true;
+    }
     if (captchaGlobalUntil && Date.now() < captchaGlobalUntil) {
       if (reasonOut) reasonOut.reason = 'captcha-global';
       return true;
@@ -15295,6 +15340,8 @@ const STORE = {
       <details class="gb-actions">
         <summary>Acciones</summary>
         <div class="gb-actions-menu">
+          <button type="button" data-act="panic" style="color:#f66;font-weight:bold" title="Parada de emergencia: pausa toda la automatizacion, fuerza Simulacion y libera los bloqueos. No envia nada.">\u26a0 P\u00c1NICO</button>
+          <button type="button" data-act="panic-recover" disabled title="Disponible 30 s despues del panico. Limpia las ventanas de salto y reanuda. Simulacion sigue ON.">Reanudar (limpiar saltos)</button>
           <button type="button" data-act="copy">Copiar JSON</button>
           <button type="button" data-act="export">Exportar</button>
           <button type="button" data-act="refresh">Refrescar ciudades</button>
@@ -15424,6 +15471,18 @@ const STORE = {
   panel.querySelector('#gb-quest-scan')?.addEventListener('click', () => {
     questScanTick('manual');
     gbTimeout(renderQuests, 600);
+  });
+  panel.querySelector('footer button[data-act=panic]')?.addEventListener('click', () => {
+    if (!gbPanicActivate()) { flash('panico ya activo'); return; }
+    const dr = panel.querySelector('[data-cfg=dry-run]'); if (dr) dr.checked = true;
+    flash('PANICO: automatizacion detenida');
+    updateStatus();
+  });
+  panel.querySelector('footer button[data-act=panic-recover]')?.addEventListener('click', () => {
+    const r = gbPanicRecover();
+    if (!r.ok) { flash(r.why === 'grace' ? 'espera 30 s para reanudar' : 'panico no activo'); return; }
+    flash(r.reason ? 'saltos limpiados, sigue en pausa: ' + r.reason : 'automatizacion reanudada');
+    updateStatus();
   });
   panel.querySelector('footer button[data-act=refresh]').addEventListener('click', () => {
     fetchOwnedTowns();
@@ -16223,6 +16282,7 @@ const STORE = {
 
   let _statusLast = '';
   let _statusCsLast = '';
+  let _statusPanicLast = null;
   function updateStatus() {
     if (!panel) return;
     const el = panel.querySelector('#gb-status');
@@ -16253,7 +16313,21 @@ const STORE = {
     try { tplBanner = tplHealthBannerText() || ''; } catch (_) {}
     if (tplBanner) pauseTxt += ' tpl!';
     const dryTxt = state.dryRun ? ' [DRY]' : ''; const safeTxt=state.safeMode?' SAFE':'';
-    const txt = `csrf:${csrfShort} farms:${okFarms}/${farms}${errTxt}${dryTxt}${safeTxt}${pauseTxt}`;
+
+    const panicOn = gbPanicActive();
+    const panicPend = gbPanicPending();
+    const panicTxt = panicOn
+      ? `\u26a0 PANIC ${Math.ceil(gbPanicLeftMs() / 1000)}s `
+      : (panicPend ? '\u26a0 PANIC: clear skips to resume ' : '');
+    const rec = panel.querySelector('footer button[data-act=panic-recover]');
+    if (rec) { const dis = !(panicPend && !panicOn); if (rec.disabled !== dis) rec.disabled = dis; }
+    const panicPhase = panicOn ? 'on' : (panicPend ? 'grace' : '');
+    if (_statusPanicLast !== panicPhase) {
+      _statusPanicLast = panicPhase;
+      el.style.color = panicOn ? '#f44' : (panicPend ? '#fa3' : '#888');
+      el.style.fontWeight = panicPhase ? 'bold' : '';
+    }
+    const txt = `${panicTxt}csrf:${csrfShort} farms:${okFarms}/${farms}${errTxt}${dryTxt}${safeTxt}${pauseTxt}`;
     if (txt !== _statusLast) {
       _statusLast = txt;
       el.textContent = txt;

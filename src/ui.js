@@ -879,6 +879,8 @@
       <details class="gb-actions">
         <summary>Acciones</summary>
         <div class="gb-actions-menu">
+          <button type="button" data-act="panic" style="color:#f66;font-weight:bold" title="Parada de emergencia: pausa toda la automatizacion, fuerza Simulacion y libera los bloqueos. No envia nada.">⚠ PÁNICO</button>
+          <button type="button" data-act="panic-recover" disabled title="Disponible 30 s despues del panico. Limpia las ventanas de salto y reanuda. Simulacion sigue ON.">Reanudar (limpiar saltos)</button>
           <button type="button" data-act="copy">Copiar JSON</button>
           <button type="button" data-act="export">Exportar</button>
           <button type="button" data-act="refresh">Refrescar ciudades</button>
@@ -1008,6 +1010,18 @@
   panel.querySelector('#gb-quest-scan')?.addEventListener('click', () => {
     questScanTick('manual');
     gbTimeout(renderQuests, 600);
+  });
+  panel.querySelector('footer button[data-act=panic]')?.addEventListener('click', () => {
+    if (!gbPanicActivate()) { flash('panico ya activo'); return; }
+    const dr = panel.querySelector('[data-cfg=dry-run]'); if (dr) dr.checked = true;
+    flash('PANICO: automatizacion detenida');
+    updateStatus();
+  });
+  panel.querySelector('footer button[data-act=panic-recover]')?.addEventListener('click', () => {
+    const r = gbPanicRecover();
+    if (!r.ok) { flash(r.why === 'grace' ? 'espera 30 s para reanudar' : 'panico no activo'); return; }
+    flash(r.reason ? 'saltos limpiados, sigue en pausa: ' + r.reason : 'automatizacion reanudada');
+    updateStatus();
   });
   panel.querySelector('footer button[data-act=refresh]').addEventListener('click', () => {
     fetchOwnedTowns();
@@ -1812,6 +1826,7 @@
 
   let _statusLast = '';
   let _statusCsLast = '';
+  let _statusPanicLast = null;
   function updateStatus() {
     if (!panel) return;
     const el = panel.querySelector('#gb-status');
@@ -1842,7 +1857,22 @@
     try { tplBanner = tplHealthBannerText() || ''; } catch (_) {}
     if (tplBanner) pauseTxt += ' tpl!';
     const dryTxt = state.dryRun ? ' [DRY]' : ''; const safeTxt=state.safeMode?' SAFE':'';
-    const txt = `csrf:${csrfShort} farms:${okFarms}/${farms}${errTxt}${dryTxt}${safeTxt}${pauseTxt}`;
+    // Panic owns the head of the status line and its colour; the 5s updateStatus
+    // interval (boot.js) is what flips grace -> recovery, no extra scheduler.
+    const panicOn = gbPanicActive();
+    const panicPend = gbPanicPending();
+    const panicTxt = panicOn
+      ? `⚠ PANIC ${Math.ceil(gbPanicLeftMs() / 1000)}s `
+      : (panicPend ? '⚠ PANIC: clear skips to resume ' : '');
+    const rec = panel.querySelector('footer button[data-act=panic-recover]');
+    if (rec) { const dis = !(panicPend && !panicOn); if (rec.disabled !== dis) rec.disabled = dis; }
+    const panicPhase = panicOn ? 'on' : (panicPend ? 'grace' : '');
+    if (_statusPanicLast !== panicPhase) {
+      _statusPanicLast = panicPhase;
+      el.style.color = panicOn ? '#f44' : (panicPend ? '#fa3' : '#888');
+      el.style.fontWeight = panicPhase ? 'bold' : '';
+    }
+    const txt = `${panicTxt}csrf:${csrfShort} farms:${okFarms}/${farms}${errTxt}${dryTxt}${safeTxt}${pauseTxt}`;
     if (txt !== _statusLast) {
       _statusLast = txt;
       el.textContent = txt;

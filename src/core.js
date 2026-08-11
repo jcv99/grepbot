@@ -385,6 +385,13 @@
 
   let panel = null;
   let userPausedUntil = 0;
+  // Panic latch (v4 plan 1.1). Deliberately transient: a reload disposes the
+  // instance and clears timers/locks anyway, and a persisted deadline would
+  // need a world-scoped migration while risking a stale reload that strands
+  // automation. `dryRun` is the only piece that persists, through STORE.DRY_RUN.
+  const GB_PANIC_GRACE_MS = 30000;
+  let panicUntil = 0;          // hard-stop deadline; automationPaused -> 'panic'
+  let panicNeedsClear = false; // survives the deadline -> 'panic-grace' until recovery
   let captchaGlobalUntil = +load(STORE.CAPTCHA_GLOBAL_UNTIL, 0) || 0;
   const moduleHealth = (state.health && typeof state.health === 'object') ? state.health : {};
   const reqBudgetWindow = [];
@@ -569,7 +576,51 @@
     gbServerCooldown(10000 + Math.floor(Math.random() * 10000), String(msg).slice(0, 40));
     return true;
   }
+  function gbPanicActive() { return panicUntil > Date.now(); }
+  function gbPanicPending() { return panicNeedsClear; }
+  function gbPanicLeftMs() { return Math.max(0, panicUntil - Date.now()); }
+  // Emergency stop. No post surface, no lock, no new scheduler: it only sets a
+  // latch the shared automationPaused() predicate already gates every loop on.
+  function gbPanicActivate() {
+    if (gbPanicActive()) { gbLogT('panic-dup', 5000, 'panic: already active'); return false; }
+    panicUntil = Date.now() + GB_PANIC_GRACE_MS;
+    panicNeedsClear = true;
+    if (!state.dryRun) { state.dryRun = true; save(STORE.DRY_RUN, true); }
+    gbUnlockAll();
+    gbLog('panic: activated');
+    try { updateStatus(); } catch (_) {}
+    return true;
+  }
+  // Recovery never turns dry-run back OFF: the operator may have enabled it
+  // before panic, and this feature has no authority to override that choice.
+  function gbPanicRecover() {
+    if (!panicNeedsClear) return { ok: false, why: 'inactive' };
+    if (gbPanicActive()) return { ok: false, why: 'grace' };
+    // Clearing skips IS the recovery contract. If it throws, keep the latch:
+    // resuming with the skip windows still persisted would be a false recovery.
+    try { jrnClearSkips(); } catch (e) {
+      gbLog('panic: clear skips failed - ' + String(e).slice(0, 60));
+      return { ok: false, why: 'clear-failed' };
+    }
+    gbUnlockAll();
+    panicNeedsClear = false;
+    panicUntil = 0;
+    const info = {};
+    const stillPaused = automationPaused(info);
+    if (stillPaused) gbLog('panic: cleared, still paused (' + (info.reason || '?') + ')');
+    else { gbLog('panic: resumed'); try { gbWakeDrain(); } catch (_) {} }
+    try { updateStatus(); } catch (_) {}
+    return { ok: true, reason: stillPaused ? (info.reason || '?') : '' };
+  }
   function automationPaused(reasonOut) {
+    if (panicUntil && Date.now() < panicUntil) {
+      if (reasonOut) reasonOut.reason = 'panic';
+      return true;
+    }
+    if (panicNeedsClear) {
+      if (reasonOut) reasonOut.reason = 'panic-grace';
+      return true;
+    }
     if (captchaGlobalUntil && Date.now() < captchaGlobalUntil) {
       if (reasonOut) reasonOut.reason = 'captcha-global';
       return true;
