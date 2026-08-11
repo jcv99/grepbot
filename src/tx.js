@@ -593,7 +593,10 @@
 
     txPrune();
     const existing = state.txState[intent];
-    if (existing && /^(planned|precheck|sending|confirming|reconciling|unknown|manual-review)$/.test(existing.state || '')) {
+    // 'dryrun' is a txState stamp set by the dry-run bail above; a second
+    // pass on the same intent (cadence tick, MO replay) must short-circuit
+    // instead of re-logging DRY-RUN every interval.
+    if (existing && /^(planned|precheck|sending|confirming|reconciling|unknown|manual-review|dryrun)$/.test(existing.state || '')) {
       journalTxId = existing.id;
       const age = Date.now() - (+existing.unknownAt || +existing.updatedAt || +existing.createdAt || Date.now());
       if (existing.state !== 'unknown' || age < TX_UNKNOWN_RECHECK_MS) {

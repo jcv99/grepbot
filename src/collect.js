@@ -57,6 +57,10 @@
       }
       const beforeTime = (timeEl.textContent || '').trim();
       attempted++;
+      // Stamp dataset on every successful bail (including dry-run) so the
+      // MutationObserver stops re-trying the same button. In dry-run no click
+      // ever lands — without this stamp the next MO tick finds the button
+      // "fresh" and re-arms auto-collect every ~1s.
       txDomWrite('collect', `dom-collect:${currentTownId || '-'}:${min}:${bi}`,
         { town_id: currentTownId, minutes: min, dom_index: bi },
         () => {
@@ -69,7 +73,11 @@
           return !!nowTime && nowTime !== beforeTime;
         },
         (err) => {
-          if (err && err !== 'dryrun' && btn.isConnected) delete btn.dataset.grepbotClicked;
+          if (!err || err === 'dryrun') {
+            btn.dataset.grepbotClicked = String(Date.now());
+          } else if (btn.isConnected) {
+            delete btn.dataset.grepbotClicked;
+          }
         });
     }
     updateCollectStateBadge(scanned, attempted);
