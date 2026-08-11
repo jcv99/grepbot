@@ -82,6 +82,181 @@
   function intelThreatBoard() {
     return (typeof dodgeIncomingMovements === 'function') ? dodgeIncomingMovements() : [];
   }
+
+  // ===== Enemy city timeline (v4 plan 2.2) ===================================
+  // One retention policy shared by the read trio 2.2 / 2.3 / 2.4. Findings
+  // themselves are bounded by the 500-row ring in spy.js; this is the read-time
+  // soft cap, matching the journal's own 7d window.
+  const INTEL_HISTORY_TTL_MS = 7 * 86400000;
+  const INTEL_TIMELINE_PER_TOWN = 8;   // rows kept per town, oldest trimmed
+  const INTEL_TIMELINE_MAX_TOWNS = 30; // matches the dossier .slice(0, 30)
+
+  function intelTownKey(f) {
+    if (!f) return null;
+    if (f.town && f.town.id != null && f.town.id !== '') return 'town:' + f.town.id;
+    if (f.vill_id != null && f.vill_id !== '') return 'farm:' + f.vill_id;
+    return null;
+  }
+  function intelTownLabel(f, key) {
+    if (f && f.town && f.town.name) {
+      const c = (f.town.x != null && f.town.y != null) ? ` (${f.town.x}|${f.town.y})` : '';
+      return f.town.name + c;
+    }
+    return key;
+  }
+  // Unknown is rendered '?', never 0. A finding that never carried a wall level
+  // must not read as "the wall was torn down".
+  function intelDiffNum(prev, cur, unit) {
+    const a = Number(prev), b = Number(cur);
+    if (!Number.isFinite(b)) return '?';
+    if (!Number.isFinite(a)) return String(b) + (unit ? ' ' + unit : '');
+    const d = b - a;
+    if (d === 0) return 'sin cambio';
+    return (d > 0 ? '+' : '') + d + (unit ? ' ' + unit : '') + ` (${a}→${b})`;
+  }
+  function intelDiffUnits(prev, cur) {
+    if (!cur || !Object.keys(cur).length) return 'unidades:?';
+    const keys = new Set(Object.keys(cur).concat(Object.keys(prev || {})));
+    const parts = [];
+    for (const k of Array.from(keys).sort()) {
+      const a = +(prev || {})[k] || 0, b = +cur[k] || 0;
+      if (!prev) { if (b) parts.push(`${k}:${b}`); continue; }
+      if (a !== b) parts.push(`${k} ${a}→${b}`);
+    }
+    return parts.length ? parts.join(', ') : 'sin cambio';
+  }
+  function intelDiffRes(prev, cur) {
+    const c = cur || {};
+    const parts = [];
+    for (const k of GB_RES_KEYS) {
+      const b = Number(c[k]);
+      if (!Number.isFinite(b)) continue;
+      const a = Number((prev || {})[k]);
+      const d = Number.isFinite(a) ? b - a : null;
+      parts.push(`${k[0].toUpperCase()}${b}` + (d ? (d > 0 ? '+' : '') + d : ''));
+    }
+    return parts.length ? parts.join(' ') : '?';
+  }
+  // Pure: no state read, no log.
+  function intelDiffPair(prev, cur) {
+    const p = prev || null;
+    const boolLabel = v => (v == null ? null : (v ? 'ON' : 'OFF'));
+    const pv = boolLabel(p && p.vacation), cv = boolLabel(cur && cur.vacation);
+    const pName = p && p.town && p.town.name, cName = cur && cur.town && cur.town.name;
+    const pAlly = p && p.alliance, cAlly = cur && cur.alliance;
+    // buildings/hero come from plan 2.1. When a report predates it the fields
+    // are absent and the column stays '—' rather than claiming a change.
+    const pB = (p && p.buildings) || null, cB = (cur && cur.buildings) || null;
+    let deep = '—';
+    if (cB && Object.keys(cB).length) {
+      const keys = Object.keys(cB).sort();
+      // A key missing from the previous bag is UNKNOWN (parseBuildings drops
+      // unreadable entries), so it renders "?→12", never "0→12".
+      const changed = pB ? keys.filter(k => pB[k] == null || +cB[k] !== +pB[k]) : keys;
+      deep = changed.length
+        ? changed.slice(0, 3).map(k => `${k} ${pB ? (pB[k] == null ? '?' : +pB[k]) + '→' : ''}${cB[k]}`).join(', ') + (changed.length > 3 ? ' …' : '')
+        : 'sin cambio';
+    }
+    if (cur && cur.hero) {
+      const h = [cur.hero.name, cur.hero.level != null ? 'lv' + cur.hero.level : null].filter(Boolean).join(' ');
+      deep = (deep === '—' ? '' : deep + ' | ') + 'heroe ' + (h || '?');
+    }
+    return {
+      wall: intelDiffNum(p && p.wall, cur && cur.wall, 'muro'),
+      units: intelDiffUnits(p && p.units, cur && cur.units),
+      res: intelDiffRes(p && p.resources, cur && cur.resources),
+      name: (cName && pName && cName !== pName) ? `nombre: ${pName} → ${cName}` : (cName || '?'),
+      alliance: (cAlly && pAlly && cAlly !== pAlly) ? `alianza: ${pAlly} → ${cAlly}` : (cAlly || '?'),
+      vacation: (cv == null) ? '?' : (pv != null && pv !== cv ? `vacaciones ${cv}` : cv),
+      deep,
+    };
+  }
+  function intelCityTimeline() {
+    const now = Date.now();
+    const all = state.findings || [];
+    const fresh = all.filter(f => f && +f.ts >= now - INTEL_HISTORY_TTL_MS);
+    if (all.length && !fresh.length) {
+      gbLogT('intel-timeline-empty', 300000, 'intel: city timeline empty after 7d filter');
+    }
+    const byTown = new Map();
+    for (const f of fresh) {
+      const key = intelTownKey(f);
+      if (!key) continue;
+      if (!byTown.has(key)) byTown.set(key, []);
+      byTown.get(key).push(f);
+    }
+    const out = [];
+    for (const [key, list] of byTown) {
+      if (list.length < 2) continue; // a single report is not a timeline
+      list.sort((a, b) => (+a.ts || 0) - (+b.ts || 0));
+      const kept = list.slice(-INTEL_TIMELINE_PER_TOWN);
+      const rows = kept.map((cur, i) => ({
+        ts: +cur.ts || 0,
+        prev: i ? kept[i - 1] : null,
+        cur,
+        diff: intelDiffPair(i ? kept[i - 1] : null, cur),
+      }));
+      out.push({
+        townKey: key,
+        label: intelTownLabel(kept[kept.length - 1], key),
+        reports: list.length,
+        lastTs: +kept[kept.length - 1].ts || 0,
+        rows,
+      });
+    }
+    return out.sort((a, b) => b.lastTs - a.lastTs).slice(0, INTEL_TIMELINE_MAX_TOWNS);
+  }
+  function renderIntelTimeline() {
+    const list = panel && panel.querySelector('.intel-timeline');
+    if (!list) return;
+    const sec = list.closest('section[data-tab]');
+    if (sec && sec.hidden) return;
+    const groups = intelCityTimeline();
+    if (!groups.length) {
+      placeholder(list, 'sin historial de ciudad (recibe 2+ informes sobre la misma)');
+      return;
+    }
+    const table = tableShell(list, ['Ciudad', 'Fecha', 'Muro', 'Unidades', 'Recursos', 'Nombre', 'Alianza', 'Vac.', 'Edificios / heroe'], 'intel-timeline');
+    const tbody = table.querySelector('tbody');
+    const wanted = [];
+    // Index-suffixed: two reports on the same town can share a timestamp, and a
+    // duplicate data-key made the set comparison never match (full rebuild + a
+    // lost sort on every 15s render).
+    for (const g of groups) g.rows.forEach((r, i) => wanted.push(g.townKey + '@' + r.ts + '#' + i));
+    const have = new Set(Array.from(tbody.children).map(tr => tr.dataset.key));
+    const sameSet = have.size === wanted.length && wanted.every(k => have.has(k));
+    if (!sameSet) tbody.replaceChildren();
+    for (const g of groups) {
+      g.rows.forEach((r, i) => {
+        const key = g.townKey + '@' + r.ts + '#' + i;
+        const d = r.diff;
+        const cells = [
+          { cls: 'id', text: g.label },
+          { cls: '', text: r.ts ? new Date(r.ts).toLocaleString() : '?' },
+          { cls: '', text: d.wall },
+          { cls: '', text: d.units },
+          { cls: '', text: d.res },
+          { cls: '', text: d.name },
+          { cls: '', text: d.alliance },
+          { cls: '', text: d.vacation },
+          { cls: '', text: d.deep },
+        ];
+        let tr = sameSet ? tbody.querySelector(`tr[data-key="${key}"]`) : null;
+        if (!tr) {
+          tr = document.createElement('tr');
+          tr.dataset.key = key;
+          cells.forEach(() => tr.appendChild(document.createElement('td')));
+          tbody.appendChild(tr);
+        }
+        patchCells(tr, cells);
+        // Unknown wall sorts as '' (string compare), not 0 - ranking an
+        // unspied town as the weakest one is exactly the wrong answer.
+        const wallRaw = (r.cur && r.cur.wall != null && Number.isFinite(+r.cur.wall)) ? String(+r.cur.wall) : '';
+        tr.dataset.sort = [g.label, String(r.ts), wallRaw, d.units, d.res, d.name, d.alliance, d.vacation, d.deep].join('\t');
+      });
+    }
+    sortApplySaved(table);
+  }
   function renderIntel() {
     const box = panel && panel.querySelector('.intel-panel');
     if (!box) return;
@@ -121,6 +296,7 @@
     }
     box.textContent = html;
     try { intelPatternScan(); } catch (_) {}
+    try { renderIntelTimeline(); } catch (_) {}
   }
   function intelSetNote(player, note) {
     if (!state.playerNotes) state.playerNotes = {};
