@@ -218,6 +218,102 @@
     return false;
   }
 
+  // ===== Resource balancing AI (v4 plan 5.1) =================================
+  // Greedy one-move-at-a-time over (from, to, resource) triples, scored on how
+  // much each move closes the fleet's distance to a per-resource target fill.
+  //
+  // Greedy, NOT a linear program, and deliberately: the score is linear and the
+  // constraints are tight, so a solver would return the same answer at the same
+  // cost while adding a dependency this paste-only repo cannot validate against
+  // fixtures. 192 triples is sub-millisecond; the honest win is that the whole
+  // pass is reviewable in one screen.
+  const AI_TARGET_FILL = { wood: 0.60, stone: 0.50, iron: 0.30 };
+  const AI_MAX_JOBS = 6;
+  const AI_SRC_FILL = 0.85;
+  const AI_TGT_FILL = 0.25;
+  // Profile bias in -1..+1 becomes a weight in [0.25, 2.0]: an extreme +1 must
+  // tilt the ranking, not dominate it 8x.
+  function transportAiWeight(townId, res) {
+    const b = transportBias(townId, res);
+    return Math.max(0.25, Math.min(2.0, 1 + b));
+  }
+  function transportAiTownScore(l, townId) {
+    if (!l || !(l.cap > 0)) return 0;
+    let s = 0;
+    for (const r of GB_RES_KEYS) {
+      const fill = (+l[r] || 0) / l.cap;
+      s += transportAiWeight(townId, r) * Math.abs(fill - AI_TARGET_FILL[r]);
+    }
+    return s;
+  }
+  // Lower is better: the score is a DISTANCE from the target fill.
+  function transportAiScore(ledger, ids) {
+    let s = 0;
+    for (const id of ids) s += transportAiTownScore(ledger[id] || ledger[+id], id);
+    return s;
+  }
+  function transportAiJobs(towns, L) {
+    if (!state.autoTransportAi) return [];
+    const ledger = L || tradeLedger(towns);
+    if (!ledger) return [];
+    const ids = towns.map(t => String(t.id));
+    const minBatch = transportMinBatch();
+    const reserve = transportReservePct();
+    const jobs = [];
+    for (let round = 0; round < AI_MAX_JOBS; round++) {
+      const before = transportAiScore(ledger, ids);
+      let best = null;
+      for (const from of ids) {
+        const src = ledger[from] || ledger[+from];
+        if (!src || !(src.cap > 0) || src.tradeCap < minBatch) continue;
+        const keep = Math.floor(src.cap * reserve);
+        for (const res of GB_RES_KEYS) {
+          if ((+src[res] || 0) / src.cap < AI_SRC_FILL) continue;
+          if (res === 'iron') {
+            // Same cave-first claim every other resource mover honours. Blind
+            // is "unknown, not no", so a blind read does not block the move.
+            let reserved = false;
+            try { const r = ironReservedForCave(from); reserved = !!(r && r.reserved); } catch (_) {}
+            if (reserved) continue;
+          }
+          const surplus = Math.max(0, (+src[res] || 0) - keep);
+          if (surplus < minBatch) continue;
+          for (const to of ids) {
+            if (to === from) continue;
+            const tgt = ledger[to] || ledger[+to];
+            if (!tgt || !(tgt.cap > 0)) continue;
+            if ((+tgt[res] || 0) / tgt.cap > AI_TGT_FILL) continue;
+            const room = Math.max(0, tgt.cap - (+tgt[res] || 0));
+            // Size the move to the BALANCE POINT, not to the maximum the
+            // warehouses allow. Shipping everything a source can spare just
+            // moves the imbalance to the other town: 9500/500 becomes
+            // 2000/8000 instead of the 6000/4000 the target fill asks for.
+            const srcIdeal = Math.max(0, (+src[res] || 0) - AI_TARGET_FILL[res] * src.cap);
+            const tgtIdeal = Math.max(0, AI_TARGET_FILL[res] * tgt.cap - (+tgt[res] || 0));
+            const amount = Math.floor(Math.min(srcIdeal, tgtIdeal, surplus, src.tradeCap, room));
+            if (amount < minBatch) continue;
+            // Score the move on a CLONE: transportAiScore must not see a
+            // ledger the trial mutated, or every later trial is measured
+            // against a different world.
+            const probe = Object.create(null);
+            for (const id of ids) probe[id] = Object.assign({}, ledger[id] || ledger[+id]);
+            const job = { from, to, wood: 0, stone: 0, iron: 0, ai: res };
+            job[res] = amount;
+            tradeApplyJob(probe, job);
+            const delta = transportAiScore(probe, ids) - before;
+            // Only a move that actually IMPROVES balance is worth a request.
+            if (delta >= 0) continue;
+            if (!best || delta < best.delta) best = { job, delta };
+          }
+        }
+      }
+      if (!best) break;
+      jobs.push(best.job);
+      tradeApplyJob(ledger, best.job);
+    }
+    return jobs;
+  }
+
   function transportBalanceJobs(towns, L) {
     if (!state.autoTransport) return [];
     const ledger = L || tradeLedger(towns);

@@ -292,6 +292,21 @@
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
       };
     }));
+    out.push(preflightProbe('transport AI', () => {
+      if (!state.autoTransportAi) return { ok: true, detail: 'desactivado (por defecto)' };
+      const towns = tradeListTowns() || [];
+      const ledger = tradeLedger(towns);
+      if (!ledger) return { ok: false, detail: 'movimientos entrantes no legibles - el planificador falla cerrado' };
+      let jobs = [];
+      // Dry probe on a CLONE so the Preflight click cannot deduct from the
+      // ledger a real scan is about to use.
+      try {
+        const probe = Object.create(null);
+        for (const [k, v] of Object.entries(ledger)) probe[k] = Object.assign({}, v);
+        jobs = transportAiJobs(towns, probe) || [];
+      } catch (e) { return { ok: false, detail: String(e).slice(0, 60) }; }
+      return { ok: true, detail: `${towns.length} ciudades, ${jobs.length} movimiento(s) mejorarian el reparto ahora` };
+    }));
     out.push(preflightProbe('favor pool read', () => {
       let fav = null;
       try { fav = favorCurrent(); } catch (_) {}

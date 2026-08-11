@@ -311,6 +311,8 @@
     // HIGH-RISK: a recurring irreversible POST loop, so default OFF.
     autoTradeRoutes: load(STORE.AUTO_TRADE_ROUTES, false),
     autoTransport: load(STORE.AUTO_TRANSPORT, false),
+    // v4 plan 5.1: HIGH-RISK, same irreversible trade post. Default OFF.
+    autoTransportAi: load(STORE.AUTO_TRANSPORT_AI, false),
     // v4 plan 3.4: HIGH-RISK. A trade post is irreversible, so default OFF.
     autoDump: load(STORE.AUTO_DUMP, false),
     dumpThreshold: load(STORE.DUMP_THRESHOLD, { wood: 95, stone: 95, iron: 90 }),

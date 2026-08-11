@@ -4,7 +4,7 @@
       cave: state.autoCave,
       build: state.abAuto || nativeQueueHasPending('build'),
       research: state.autoResearch || nativeQueueHasPending('research'),
-      trade: state.autoTrade || state.islandShip || state.autoTransport || state.autoTradeRoutes || state.autoDump,
+      trade: state.autoTrade || state.islandShip || state.autoTransport || state.autoTradeRoutes || state.autoDump || state.autoTransportAi,
       farm: state.autoFarm,
       ruraltrade: state.autoRuralTrade,
       rurallevel: state.autoRuralLevel,

@@ -168,6 +168,7 @@
       transportProjectHeadroom,
       transportTownETA,
       transportBalanceJobs,
+      transportAiJobs,
       dumpJobs,
       pickDumpDestination,
       goalPlanTown,

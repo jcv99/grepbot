@@ -849,6 +849,7 @@
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="ALTO RIESGO: envia las rutas guardadas en cada ciclo de comercio. Sin vuelta atras. Pruebalo con Simulacion antes de activarlo."><input type="checkbox" data-cfg="auto-trade-routes"/> Rutas de comercio guardadas</label>
         <button data-cfg="trade-routes-edit" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px" title="Editar las rutas como JSON. Siempre disponible, incluso con el bucle apagado.">Rutas...</button>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="ALTO RIESGO: mueve recursos entre tus ciudades sin vuelta atras. Equilibra segun el sesgo 'resource' del perfil de cada ciudad. Pruebalo con Simulacion antes de activarlo."><input type="checkbox" data-cfg="auto-transport"/> Auto transporte inter-ciudad</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="ALTO RIESGO: elige cada movimiento por cuanto acerca a TODA la cuenta a su reparto objetivo (60% madera / 50% piedra / 30% plata), ponderado por el perfil de cada ciudad. Solo mueve si el reparto mejora."><input type="checkbox" data-cfg="auto-transport-ai"/> Equilibrado automatico de recursos</label>
         <label style="margin-left:12px;flex-wrap:wrap">Reserve % <input type="number" data-cfg="transport-reserve" min="0" max="80" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
           Min batch <input type="number" data-cfg="transport-min" min="100" max="10000" step="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
@@ -1468,6 +1469,7 @@
     setChk('[data-cfg=island-ship]', state.islandShip);
     setChk('[data-cfg=auto-trade-routes]', state.autoTradeRoutes);
     setChk('[data-cfg=auto-transport]', state.autoTransport);
+    setChk('[data-cfg=auto-transport-ai]', state.autoTransportAi);
     setChk('[data-cfg=auto-dump]', state.autoDump);
     for (const r of ['wood', 'stone', 'iron']) {
       setNum('[data-cfg=dump-th-' + r + ']', dumpThresholdFor(r));
@@ -1598,6 +1600,7 @@
       } catch (e) { flash('JSON de rutas invalido'); }
     });
     bindToggle('[data-cfg=auto-transport]', 'autoTransport', STORE.AUTO_TRANSPORT, () => tradeScan('toggle'));
+    bindToggle('[data-cfg=auto-transport-ai]', 'autoTransportAi', STORE.AUTO_TRANSPORT_AI, () => tradeScan('toggle'));
     bindToggle('[data-cfg=auto-dump]', 'autoDump', STORE.AUTO_DUMP, () => tradeScan('toggle'));
     const saveDumpMap = (field, store, res, v, lo, hi) => {
       if (!state[field] || typeof state[field] !== 'object') state[field] = {};

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.20.0
+// @version      4.21.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -103,6 +103,7 @@ const STORE = {
     TRADE_ROUTES: 'grepbot:trade-routes',
     AUTO_TRADE_ROUTES: 'grepbot:auto-trade-routes',
     AUTO_TRANSPORT: 'grepbot:auto-transport',
+    AUTO_TRANSPORT_AI: 'grepbot:auto-transport-ai',
     AUTO_DUMP: 'grepbot:auto-dump',
     DUMP_THRESHOLD: 'grepbot:dump-threshold',
     DUMP_KEEP: 'grepbot:dump-keep',
@@ -552,6 +553,8 @@ const STORE = {
 
     autoTradeRoutes: load(STORE.AUTO_TRADE_ROUTES, false),
     autoTransport: load(STORE.AUTO_TRANSPORT, false),
+
+    autoTransportAi: load(STORE.AUTO_TRANSPORT_AI, false),
 
     autoDump: load(STORE.AUTO_DUMP, false),
     dumpThreshold: load(STORE.DUMP_THRESHOLD, { wood: 95, stone: 95, iron: 90 }),
@@ -9392,7 +9395,7 @@ const STORE = {
   }
 
   function tradeScan(reason) {
-    if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes && !state.autoDump) || captchaPaused('trade')) return;
+    if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes && !state.autoDump && !state.autoTransportAi) || captchaPaused('trade')) return;
     if (automationPaused({})) return;
     if (gbLocked('trade')) return;
     const towns = tradeListTowns();
@@ -9404,6 +9407,7 @@ const STORE = {
 
     if (state.autoTradeRoutes) jobs = jobs.concat(tradeRouteJobs(towns, ledger));
     if (state.autoTransport) jobs = jobs.concat(transportBalanceJobs(towns, ledger));
+    if (state.autoTransportAi) jobs = jobs.concat(transportAiJobs(towns, ledger));
 
     if (state.autoDump) jobs = jobs.concat(dumpJobs(towns, ledger));
 
@@ -9629,6 +9633,86 @@ const STORE = {
       }
     }
     return false;
+  }
+
+  const AI_TARGET_FILL = { wood: 0.60, stone: 0.50, iron: 0.30 };
+  const AI_MAX_JOBS = 6;
+  const AI_SRC_FILL = 0.85;
+  const AI_TGT_FILL = 0.25;
+
+  function transportAiWeight(townId, res) {
+    const b = transportBias(townId, res);
+    return Math.max(0.25, Math.min(2.0, 1 + b));
+  }
+  function transportAiTownScore(l, townId) {
+    if (!l || !(l.cap > 0)) return 0;
+    let s = 0;
+    for (const r of GB_RES_KEYS) {
+      const fill = (+l[r] || 0) / l.cap;
+      s += transportAiWeight(townId, r) * Math.abs(fill - AI_TARGET_FILL[r]);
+    }
+    return s;
+  }
+
+  function transportAiScore(ledger, ids) {
+    let s = 0;
+    for (const id of ids) s += transportAiTownScore(ledger[id] || ledger[+id], id);
+    return s;
+  }
+  function transportAiJobs(towns, L) {
+    if (!state.autoTransportAi) return [];
+    const ledger = L || tradeLedger(towns);
+    if (!ledger) return [];
+    const ids = towns.map(t => String(t.id));
+    const minBatch = transportMinBatch();
+    const reserve = transportReservePct();
+    const jobs = [];
+    for (let round = 0; round < AI_MAX_JOBS; round++) {
+      const before = transportAiScore(ledger, ids);
+      let best = null;
+      for (const from of ids) {
+        const src = ledger[from] || ledger[+from];
+        if (!src || !(src.cap > 0) || src.tradeCap < minBatch) continue;
+        const keep = Math.floor(src.cap * reserve);
+        for (const res of GB_RES_KEYS) {
+          if ((+src[res] || 0) / src.cap < AI_SRC_FILL) continue;
+          if (res === 'iron') {
+
+            let reserved = false;
+            try { const r = ironReservedForCave(from); reserved = !!(r && r.reserved); } catch (_) {}
+            if (reserved) continue;
+          }
+          const surplus = Math.max(0, (+src[res] || 0) - keep);
+          if (surplus < minBatch) continue;
+          for (const to of ids) {
+            if (to === from) continue;
+            const tgt = ledger[to] || ledger[+to];
+            if (!tgt || !(tgt.cap > 0)) continue;
+            if ((+tgt[res] || 0) / tgt.cap > AI_TGT_FILL) continue;
+            const room = Math.max(0, tgt.cap - (+tgt[res] || 0));
+
+            const srcIdeal = Math.max(0, (+src[res] || 0) - AI_TARGET_FILL[res] * src.cap);
+            const tgtIdeal = Math.max(0, AI_TARGET_FILL[res] * tgt.cap - (+tgt[res] || 0));
+            const amount = Math.floor(Math.min(srcIdeal, tgtIdeal, surplus, src.tradeCap, room));
+            if (amount < minBatch) continue;
+
+            const probe = Object.create(null);
+            for (const id of ids) probe[id] = Object.assign({}, ledger[id] || ledger[+id]);
+            const job = { from, to, wood: 0, stone: 0, iron: 0, ai: res };
+            job[res] = amount;
+            tradeApplyJob(probe, job);
+            const delta = transportAiScore(probe, ids) - before;
+
+            if (delta >= 0) continue;
+            if (!best || delta < best.delta) best = { job, delta };
+          }
+        }
+      }
+      if (!best) break;
+      jobs.push(best.job);
+      tradeApplyJob(ledger, best.job);
+    }
+    return jobs;
   }
 
   function transportBalanceJobs(towns, L) {
@@ -13241,7 +13325,7 @@ const STORE = {
       cave: state.autoCave,
       build: state.abAuto || nativeQueueHasPending('build'),
       research: state.autoResearch || nativeQueueHasPending('research'),
-      trade: state.autoTrade || state.islandShip || state.autoTransport || state.autoTradeRoutes || state.autoDump,
+      trade: state.autoTrade || state.islandShip || state.autoTransport || state.autoTradeRoutes || state.autoDump || state.autoTransportAi,
       farm: state.autoFarm,
       ruraltrade: state.autoRuralTrade,
       rurallevel: state.autoRuralLevel,
@@ -17016,6 +17100,20 @@ const STORE = {
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
       };
     }));
+    out.push(preflightProbe('transport AI', () => {
+      if (!state.autoTransportAi) return { ok: true, detail: 'desactivado (por defecto)' };
+      const towns = tradeListTowns() || [];
+      const ledger = tradeLedger(towns);
+      if (!ledger) return { ok: false, detail: 'movimientos entrantes no legibles - el planificador falla cerrado' };
+      let jobs = [];
+
+      try {
+        const probe = Object.create(null);
+        for (const [k, v] of Object.entries(ledger)) probe[k] = Object.assign({}, v);
+        jobs = transportAiJobs(towns, probe) || [];
+      } catch (e) { return { ok: false, detail: String(e).slice(0, 60) }; }
+      return { ok: true, detail: `${towns.length} ciudades, ${jobs.length} movimiento(s) mejorarian el reparto ahora` };
+    }));
     out.push(preflightProbe('favor pool read', () => {
       let fav = null;
       try { fav = favorCurrent(); } catch (_) {}
@@ -18824,6 +18922,7 @@ const STORE = {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="ALTO RIESGO: envia las rutas guardadas en cada ciclo de comercio. Sin vuelta atras. Pruebalo con Simulacion antes de activarlo."><input type="checkbox" data-cfg="auto-trade-routes"/> Rutas de comercio guardadas</label>
         <button data-cfg="trade-routes-edit" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px" title="Editar las rutas como JSON. Siempre disponible, incluso con el bucle apagado.">Rutas...</button>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="ALTO RIESGO: mueve recursos entre tus ciudades sin vuelta atras. Equilibra segun el sesgo 'resource' del perfil de cada ciudad. Pruebalo con Simulacion antes de activarlo."><input type="checkbox" data-cfg="auto-transport"/> Auto transporte inter-ciudad</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="ALTO RIESGO: elige cada movimiento por cuanto acerca a TODA la cuenta a su reparto objetivo (60% madera / 50% piedra / 30% plata), ponderado por el perfil de cada ciudad. Solo mueve si el reparto mejora."><input type="checkbox" data-cfg="auto-transport-ai"/> Equilibrado automatico de recursos</label>
         <label style="margin-left:12px;flex-wrap:wrap">Reserve % <input type="number" data-cfg="transport-reserve" min="0" max="80" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
           Min batch <input type="number" data-cfg="transport-min" min="100" max="10000" step="100" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
@@ -19442,6 +19541,7 @@ const STORE = {
     setChk('[data-cfg=island-ship]', state.islandShip);
     setChk('[data-cfg=auto-trade-routes]', state.autoTradeRoutes);
     setChk('[data-cfg=auto-transport]', state.autoTransport);
+    setChk('[data-cfg=auto-transport-ai]', state.autoTransportAi);
     setChk('[data-cfg=auto-dump]', state.autoDump);
     for (const r of ['wood', 'stone', 'iron']) {
       setNum('[data-cfg=dump-th-' + r + ']', dumpThresholdFor(r));
@@ -19572,6 +19672,7 @@ const STORE = {
       } catch (e) { flash('JSON de rutas invalido'); }
     });
     bindToggle('[data-cfg=auto-transport]', 'autoTransport', STORE.AUTO_TRANSPORT, () => tradeScan('toggle'));
+    bindToggle('[data-cfg=auto-transport-ai]', 'autoTransportAi', STORE.AUTO_TRANSPORT_AI, () => tradeScan('toggle'));
     bindToggle('[data-cfg=auto-dump]', 'autoDump', STORE.AUTO_DUMP, () => tradeScan('toggle'));
     const saveDumpMap = (field, store, res, v, lo, hi) => {
       if (!state[field] || typeof state[field] !== 'object') state[field] = {};
@@ -20575,6 +20676,7 @@ const STORE = {
       transportProjectHeadroom,
       transportTownETA,
       transportBalanceJobs,
+      transportAiJobs,
       dumpJobs,
       pickDumpDestination,
       goalPlanTown,
