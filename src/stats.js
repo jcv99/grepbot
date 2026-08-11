@@ -190,6 +190,20 @@
           : `${n} informes, ${withVerdict} con resultado` + (n < 5 ? ' - muestra pequena' : ''),
       };
     }));
+    out.push(preflightProbe('intel: threat engine weights', () => {
+      const raw = (state.predictCfg && state.predictCfg.threatWeights) || null;
+      const w = defenseThreatWeights();
+      // A hand-edited out-of-range value is clamped, not honoured - say so
+      // rather than silently scoring with a number the user did not set.
+      const drift = raw ? Object.keys(w).filter(k => raw[k] != null && +raw[k] !== w[k]) : [];
+      return {
+        ok: true,
+        warn: drift.length > 0,
+        detail: `cs ${w.cs} eta15 ${w.eta15} sim ${w.simPer}/${w.simCap} weak ${w.weak} apoyo -${w.supportPer}/${w.supportCap} umbral ${w.smartThreshold}` +
+          (raw ? '' : ' (por defecto)') + (drift.length ? ` - fuera de rango y ajustado: ${drift.join(',')}` : '') +
+          ` \u00b7 banda ${defenseThreatBand(w.smartThreshold, false)} al umbral`,
+      };
+    }));
     out.push(preflightProbe('farm profit', () => {
       const farms = state.farmsParsed || [];
       const rows = Object.values(state.farmProfit || {});

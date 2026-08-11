@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.6.1
+// @version      4.7.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -10888,8 +10888,77 @@ const STORE = {
   function defenseMode(){const m=String((state.defenseCfg&&state.defenseCfg.mode)||'notify');return ['notify','safe','smart'].includes(m)?m:'notify'}
   function defenseLocalStrength(townId){const u=dodgeTownUnits(townId);let score=0,count=0;for(const[id,n0]of Object.entries(u)){const n=+n0||0,m=unitMeta(id);if(!m||m.is_naval)continue;const fn=classifyUnitFn(id);if(fn==='defense'||fn==='both'){score+=n*Math.max(1,+m.population||1);count+=n}}return{score,count}}
   function defenseSupportOptions(dest,eta){const out=[];let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){};const target={town_id:+dest,id:+dest,kind:'town',...townCoords(dest)};for(const id of ids){if(String(id)===String(dest))continue;const units={};const live=townLiveUnits(id);for(const[k,n]of Object.entries(live)){const fn=classifyUnitFn(k),m=unitMeta(k);if(m&&!m.is_naval&&(fn==='defense'||fn==='both')&&+n>0)units[k]=+n}if(!Object.keys(units).length)continue;const same=isSameIsland(id,target),boats=boatCapacityCheck(units,same);if(!boats.ok)continue;const travel=computeTravelSeconds(id,target,units,true);if(travel!=null&&(eta==null||travel<eta))out.push({from:id,travel,units})}return out.sort((a,b)=>a.travel-b.travel)}
-  function defenseAssessment(mov,incoming){const eta=dodgeEtaSec(mov);const all=incoming||dodgeIncomingMovements();const simultaneous=all.filter(x=>String(x.dest)===String(mov.dest)).length;const local=defenseLocalStrength(mov.dest);const supports=defenseSupportOptions(mov.dest,eta);const safe=dodgeSafeTown(mov.dest,all);const evacUnits=dodgeTownUnits(mov.dest);const evac=safe?dodgeSupportValidate(mov.dest,safe,evacUnits):{ok:false,why:'no-safe-town'};const militia=dodgeCanRaiseMilitia(mov.dest);let risk=0;if(mov.hasCs)risk+=60;if(eta!=null&&eta<15*60)risk+=25;if(simultaneous>1)risk+=Math.min(25,(simultaneous-1)*8);if(local.score<200)risk+=10;if(supports.length)risk-=Math.min(20,supports.length*5);return{eta,simultaneous,local,supports,safeTown:safe,evac,militia,risk,hasCs:!!mov.hasCs}}
-  function defenseShouldDodge(mov,incoming){const mode=defenseMode(),a=defenseAssessment(mov,incoming);if(mode==='notify')return{yes:false,assessment:a,why:'notify'};if(mode==='safe')return{yes:true,assessment:a,why:'safe'};if(!state.defenseCfg.smartAuto)return{yes:false,assessment:a,why:'smart-auto-off'};if(!a.evac.ok)return{yes:false,assessment:a,why:'cannot-evacuate'};if(a.hasCs||a.risk>=35)return{yes:true,assessment:a,why:'risk'};return{yes:false,assessment:a,why:'defend/observe'}}
+
+  const THREAT_CS_BASE = 60;
+  const THREAT_ETA15_BASE = 25;
+  const THREAT_ETA15_SEC = 15 * 60;
+  const THREAT_SIM_PER = 8;
+  const THREAT_SIM_CAP = 25;
+  const THREAT_WEAK_BASE = 10;
+  const THREAT_WEAK_FLOOR = 200;
+  const THREAT_SUPPORT_PER = 5;
+  const THREAT_SUPPORT_CAP = 20;
+  const THREAT_SMART_THRESHOLD = 35;
+
+  const THREAT_BAND_HIGH = 45;
+  const THREAT_BAND_MED = 20;
+
+  let _threatMemo = { src: undefined, v: null };
+  function defenseThreatWeights(over) {
+    const stored = (state.predictCfg && state.predictCfg.threatWeights) || null;
+    if (!over && _threatMemo.src === stored && _threatMemo.v) return _threatMemo.v;
+    const w = (over && typeof over === 'object') ? over : (stored || {});
+    const num = (v, d, lo, hi) => {
+      const n = +v;
+      if (!Number.isFinite(n)) return d;
+      return Math.max(lo, Math.min(hi, n));
+    };
+
+    const out = {
+      cs: num(w.cs, THREAT_CS_BASE, 0, 120),
+      eta15: num(w.eta15, THREAT_ETA15_BASE, 0, 60),
+      simPer: num(w.simPer, THREAT_SIM_PER, 0, 30),
+      simCap: num(w.simCap, THREAT_SIM_CAP, 0, 100),
+      weak: num(w.weak, THREAT_WEAK_BASE, 0, 60),
+      supportPer: num(w.supportPer, THREAT_SUPPORT_PER, 0, 30),
+      supportCap: num(w.supportCap, THREAT_SUPPORT_CAP, 0, 100),
+      smartThreshold: num(w.smartThreshold, THREAT_SMART_THRESHOLD, 0, 100),
+    };
+    if (!over) _threatMemo = { src: stored, v: out };
+    return out;
+  }
+  function defenseThreatBand(risk, hasCs) {
+    if (hasCs) return 'cs';
+    if (risk >= THREAT_BAND_HIGH) return 'high';
+    if (risk >= THREAT_BAND_MED) return 'med';
+    return 'low';
+  }
+  function defenseFactorText(f) {
+    return `cs=${f.cs},eta=${f.eta},sim=${f.simultaneous},weak=${f.weak},support=${f.support}`;
+  }
+  function defenseAssessment(mov,incoming,weightsOver){
+    const w=defenseThreatWeights(weightsOver);
+    const eta=dodgeEtaSec(mov);const all=incoming||dodgeIncomingMovements();
+    const simultaneous=all.filter(x=>String(x.dest)===String(mov.dest)).length;
+    const local=defenseLocalStrength(mov.dest);const supports=defenseSupportOptions(mov.dest,eta);
+    const safe=dodgeSafeTown(mov.dest,all);const evacUnits=dodgeTownUnits(mov.dest);
+    const evac=safe?dodgeSupportValidate(mov.dest,safe,evacUnits):{ok:false,why:'no-safe-town'};
+    const militia=dodgeCanRaiseMilitia(mov.dest);
+    const factors={
+      cs: mov.hasCs?w.cs:0,
+
+      eta:(eta!=null&&eta<THREAT_ETA15_SEC)?w.eta15:0,
+      simultaneous: simultaneous>1?Math.min(w.simCap,(simultaneous-1)*w.simPer):0,
+      weak: local.score<THREAT_WEAK_FLOOR?w.weak:0,
+      support: supports.length?-Math.min(w.supportCap,supports.length*w.supportPer):0,
+    };
+    const raw=factors.cs+factors.eta+factors.simultaneous+factors.weak+factors.support;
+
+    const risk=Math.max(0,Math.min(100,raw));
+    return{eta,simultaneous,local,supports,safeTown:safe,evac,militia,risk,hasCs:!!mov.hasCs,
+      band:defenseThreatBand(risk,!!mov.hasCs),factors,weights:w,computedAt:Date.now()};
+  }
+  function defenseShouldDodge(mov,incoming){const mode=defenseMode(),a=defenseAssessment(mov,incoming);if(mode==='notify')return{yes:false,assessment:a,why:'notify'};if(mode==='safe')return{yes:true,assessment:a,why:'safe'};if(!state.defenseCfg.smartAuto)return{yes:false,assessment:a,why:'smart-auto-off'};if(!a.evac.ok)return{yes:false,assessment:a,why:'cannot-evacuate'};if(a.hasCs||a.risk>=a.weights.smartThreshold)return{yes:true,assessment:a,why:`risk band=${a.band} ${defenseFactorText(a.factors)}`};return{yes:false,assessment:a,why:'defend/observe'}}
   function dodgeReturnSave(){save(STORE.DODGE_RETURNS,state.dodgeReturns||{})}
   function dodgeReturnRecord(mov,from,dest,data){const id=String((data&&(data.command_id||data.commandId||data.movement_id||data.id))||'');if(!id)return;const arrival=+(mov&&mov.arrival)||0,margin=Math.max(0,+((state.defenseCfg&&state.defenseCfg.returnMarginSec)||120));const due=(arrival>1e12?arrival:arrival*1000)+margin*1000;state.dodgeReturns[id]={commandId:id,attackId:String(mov.id||''),from:String(from),dest:String(dest),attackArrival:arrival,dueAt:due||Date.now()+margin*1000,state:'waiting',createdAt:Date.now()};dodgeReturnSave()}
   function dodgeReturnTick(){if(!hostEnabled()||automationPaused({}))return;const now=Date.now();for(const[id,r]of Object.entries(state.dodgeReturns||{})){if(!r||r.state==='done'||r.state==='manual')continue;if(+r.dueAt>now)continue;const live=militaryOutgoingMovements().find(x=>String(x.commandId)===String(r.commandId));if(live&&state.cancelTpl){r.state='returning';dodgeReturnSave();militaryCancelCommand(r.commandId,{confirmed:true,automation:true},err=>{if(!err){r.state='done';r.doneAt=Date.now()}else if(err==='not-cancelable'){r.state='manual';r.why='support already arrived; withdraw manually'}else{r.state='waiting';r.lastError=String(err)}dodgeReturnSave()});}else{r.state='manual';r.why=live?'cancel template missing':'movement no longer cancelable/visible';dodgeReturnSave();gbLogT('dodge-return-'+id,60000,`dodge return ${id}: ${r.why}`)}}}
@@ -12917,8 +12986,15 @@ const STORE = {
     else {
       threats.forEach(t => {
         const da = defenseAssessment(t, threats);
+        const sup = da.supports.length
+          ? `${da.supports.length} (${da.supports.map(s => fmtSec(Math.round(s.travel))).slice(0, 2).join('-')})`
+          : '0';
         html += `${t.hasCs ? '[CS] ' : ''}${t.type || 'atk'} \u2192 ${t.dest} from ${t.origin || '?'}` +
-          (t.arrival ? ` @${t.arrival}` : '') + ` | riesgo ${da.risk} | ETA ${da.eta==null?'?':fmtSec(da.eta)} | apoyo ${da.supports.length} | esquivar ${da.evac.ok?'si':'no'}` + '\n';
+          (t.arrival ? ` @${t.arrival}` : '') +
+          ` | riesgo ${da.band} ${da.risk} (${defenseFactorText(da.factors)})` +
+          ` | ETA ${da.eta==null?'?':fmtSec(da.eta)} | simult ${da.simultaneous}` +
+          ` | apoyo ${sup} | milicia ${da.militia && da.militia.ok ? 'si' : 'no'}` +
+          ` | esquivar ${da.evac.ok?'si':'no'}${da.evac.ok?'':' ('+(da.evac.why||'?')+')'}` + '\n';
       });
     }
     html += '\n=== Fichas ===\n';
@@ -15247,6 +15323,19 @@ const STORE = {
           : `${n} informes, ${withVerdict} con resultado` + (n < 5 ? ' - muestra pequena' : ''),
       };
     }));
+    out.push(preflightProbe('intel: threat engine weights', () => {
+      const raw = (state.predictCfg && state.predictCfg.threatWeights) || null;
+      const w = defenseThreatWeights();
+
+      const drift = raw ? Object.keys(w).filter(k => raw[k] != null && +raw[k] !== w[k]) : [];
+      return {
+        ok: true,
+        warn: drift.length > 0,
+        detail: `cs ${w.cs} eta15 ${w.eta15} sim ${w.simPer}/${w.simCap} weak ${w.weak} apoyo -${w.supportPer}/${w.supportCap} umbral ${w.smartThreshold}` +
+          (raw ? '' : ' (por defecto)') + (drift.length ? ` - fuera de rango y ajustado: ${drift.join(',')}` : '') +
+          ` \u00b7 banda ${defenseThreatBand(w.smartThreshold, false)} al umbral`,
+      };
+    }));
     out.push(preflightProbe('farm profit', () => {
       const farms = state.farmsParsed || [];
       const rows = Object.values(state.farmProfit || {});
@@ -16956,6 +17045,13 @@ const STORE = {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-militia"/> Auto-militia on incoming</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-dodge"/> Auto-dodge</label>
         <label style="margin-left:12px">Defense mode <select data-cfg="defense-mode" style="background:#111;color:#cfc;border:1px solid #333"><option value="notify">avisar</option><option value="safe">esquiva segura</option><option value="smart">smart</option></select> <label><input type="checkbox" data-cfg="defense-smart-auto"/> smart auto</label> check return +<input type="number" data-cfg="defense-return-margin" min="0" max="3600" style="width:55px;background:#111;color:#cfc;border:1px solid #333"/>s (manual if support arrived) \u00b7 leave <input type="number" data-cfg="dodge-floor" min="0" max="500" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="Pesos del motor de amenaza (v4 5.3). Los valores por defecto reproducen exactamente el comportamiento anterior.">Amenaza:
+          CS <input type="number" data-cfg="threat-cs" min="0" max="120" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          ETA&lt;15m <input type="number" data-cfg="threat-eta15" min="0" max="60" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          simult <input type="number" data-cfg="threat-sim" min="0" max="30" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          apoyo -<input type="number" data-cfg="threat-support" min="0" max="30" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          umbral <input type="number" data-cfg="threat-threshold" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+        </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-recruit"/> Auto-recruit</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="recruit-spells"/> Cast recruit spells first</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px;color:#f96" title="Convierte aldeanos en unidades cuando la aldea no admite mas recursos. Recompute: compara espada+arquero vs hoplita+hondero, elige la pareja con mas tropas y dentro de ella la unidad con menos. Requiere abrir la aldea y pulsar Aceptar una vez a mano la primera vez."><input type="checkbox" data-cfg="village-recruit"/> Reclutar en aldeas saturadas</label>
@@ -17502,6 +17598,10 @@ const STORE = {
     const defense=state.defenseCfg||{mode:'notify',smartAuto:false,returnMarginSec:120};
     const dm=sec.querySelector('[data-cfg=defense-mode]');if(dm)dm.value=defenseMode();
     setChk('[data-cfg=defense-smart-auto]',!!defense.smartAuto);
+    { const tw = defenseThreatWeights();
+      setNum('[data-cfg=threat-cs]', tw.cs); setNum('[data-cfg=threat-eta15]', tw.eta15);
+      setNum('[data-cfg=threat-sim]', tw.simPer); setNum('[data-cfg=threat-support]', tw.supportPer);
+      setNum('[data-cfg=threat-threshold]', tw.smartThreshold); }
     setNum('[data-cfg=defense-return-margin]',Math.max(0,+defense.returnMarginSec||120));
     const wh = sec.querySelector('[data-cfg=webhook-url]'); if (wh) wh.value = state.webhookUrl || '';
     const we = state.webhookEvents || {};
@@ -17627,6 +17727,20 @@ const STORE = {
     });
     sec.querySelector('[data-cfg=defense-mode]')?.addEventListener('change',e=>{state.defenseCfg=Object.assign({},state.defenseCfg,{mode:['notify','safe','smart'].includes(e.target.value)?e.target.value:'notify'});save(STORE.DEFENSE_CFG,state.defenseCfg)});
     sec.querySelector('[data-cfg=defense-smart-auto]')?.addEventListener('change',e=>{state.defenseCfg=Object.assign({},state.defenseCfg,{smartAuto:!!e.target.checked});save(STORE.DEFENSE_CFG,state.defenseCfg)});
+
+    const saveThreat = (key, v, lo, hi) => {
+      if (!state.predictCfg || typeof state.predictCfg !== 'object') state.predictCfg = { horizonHours: 6 };
+      const w = Object.assign({}, defenseThreatWeights());
+      w[key] = Math.max(lo, Math.min(hi, Number.isFinite(+v) ? +v : w[key]));
+      state.predictCfg.threatWeights = w;
+      save(STORE.PREDICT_CFG, state.predictCfg);
+      try { renderIntel(); } catch (_) {}
+    };
+    saveNum('[data-cfg=threat-cs]', v => saveThreat('cs', v, 0, 120));
+    saveNum('[data-cfg=threat-eta15]', v => saveThreat('eta15', v, 0, 60));
+    saveNum('[data-cfg=threat-sim]', v => saveThreat('simPer', v, 0, 30));
+    saveNum('[data-cfg=threat-support]', v => saveThreat('supportPer', v, 0, 30));
+    saveNum('[data-cfg=threat-threshold]', v => saveThreat('smartThreshold', v, 0, 100));
     saveNum('[data-cfg=defense-return-margin]',v=>{state.defenseCfg=Object.assign({},state.defenseCfg,{returnMarginSec:Math.max(0,Math.min(3600,+v||0))});save(STORE.DEFENSE_CFG,state.defenseCfg)});
     sec.querySelector('[data-cfg=webhook-url]')?.addEventListener('change', e => {
       state.webhookUrl = e.target.value.trim(); save(STORE.WEBHOOK_URL, state.webhookUrl);
@@ -18435,6 +18549,9 @@ const STORE = {
       economyForecast,
       tradePredictiveJobs,
       defenseAssessment,
+      defenseThreatWeights,
+      defenseThreatBand,
+      defenseFactorText,
       defenseShouldDodge,
       dodgeReturnRecord,
       dodgeReturnTick,

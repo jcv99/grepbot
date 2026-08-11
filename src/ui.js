@@ -894,6 +894,13 @@
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-militia"/> Auto-militia on incoming</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-dodge"/> Auto-dodge</label>
         <label style="margin-left:12px">Defense mode <select data-cfg="defense-mode" style="background:#111;color:#cfc;border:1px solid #333"><option value="notify">avisar</option><option value="safe">esquiva segura</option><option value="smart">smart</option></select> <label><input type="checkbox" data-cfg="defense-smart-auto"/> smart auto</label> check return +<input type="number" data-cfg="defense-return-margin" min="0" max="3600" style="width:55px;background:#111;color:#cfc;border:1px solid #333"/>s (manual if support arrived) · leave <input type="number" data-cfg="dodge-floor" min="0" max="500" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/></label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="Pesos del motor de amenaza (v4 5.3). Los valores por defecto reproducen exactamente el comportamiento anterior.">Amenaza:
+          CS <input type="number" data-cfg="threat-cs" min="0" max="120" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          ETA&lt;15m <input type="number" data-cfg="threat-eta15" min="0" max="60" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          simult <input type="number" data-cfg="threat-sim" min="0" max="30" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          apoyo -<input type="number" data-cfg="threat-support" min="0" max="30" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          umbral <input type="number" data-cfg="threat-threshold" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+        </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-recruit"/> Auto-recruit</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="recruit-spells"/> Cast recruit spells first</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px;color:#f96" title="Convierte aldeanos en unidades cuando la aldea no admite mas recursos. Recompute: compara espada+arquero vs hoplita+hondero, elige la pareja con mas tropas y dentro de ella la unidad con menos. Requiere abrir la aldea y pulsar Aceptar una vez a mano la primera vez."><input type="checkbox" data-cfg="village-recruit"/> Reclutar en aldeas saturadas</label>
@@ -1441,6 +1448,10 @@
     const defense=state.defenseCfg||{mode:'notify',smartAuto:false,returnMarginSec:120};
     const dm=sec.querySelector('[data-cfg=defense-mode]');if(dm)dm.value=defenseMode();
     setChk('[data-cfg=defense-smart-auto]',!!defense.smartAuto);
+    { const tw = defenseThreatWeights();
+      setNum('[data-cfg=threat-cs]', tw.cs); setNum('[data-cfg=threat-eta15]', tw.eta15);
+      setNum('[data-cfg=threat-sim]', tw.simPer); setNum('[data-cfg=threat-support]', tw.supportPer);
+      setNum('[data-cfg=threat-threshold]', tw.smartThreshold); }
     setNum('[data-cfg=defense-return-margin]',Math.max(0,+defense.returnMarginSec||120));
     const wh = sec.querySelector('[data-cfg=webhook-url]'); if (wh) wh.value = state.webhookUrl || '';
     const we = state.webhookEvents || {};
@@ -1566,6 +1577,20 @@
     });
     sec.querySelector('[data-cfg=defense-mode]')?.addEventListener('change',e=>{state.defenseCfg=Object.assign({},state.defenseCfg,{mode:['notify','safe','smart'].includes(e.target.value)?e.target.value:'notify'});save(STORE.DEFENSE_CFG,state.defenseCfg)});
     sec.querySelector('[data-cfg=defense-smart-auto]')?.addEventListener('change',e=>{state.defenseCfg=Object.assign({},state.defenseCfg,{smartAuto:!!e.target.checked});save(STORE.DEFENSE_CFG,state.defenseCfg)});
+    // Weights live under the existing PREDICT_CFG key, already world-scoped.
+    const saveThreat = (key, v, lo, hi) => {
+      if (!state.predictCfg || typeof state.predictCfg !== 'object') state.predictCfg = { horizonHours: 6 };
+      const w = Object.assign({}, defenseThreatWeights());
+      w[key] = Math.max(lo, Math.min(hi, Number.isFinite(+v) ? +v : w[key]));
+      state.predictCfg.threatWeights = w;
+      save(STORE.PREDICT_CFG, state.predictCfg);
+      try { renderIntel(); } catch (_) {}
+    };
+    saveNum('[data-cfg=threat-cs]', v => saveThreat('cs', v, 0, 120));
+    saveNum('[data-cfg=threat-eta15]', v => saveThreat('eta15', v, 0, 60));
+    saveNum('[data-cfg=threat-sim]', v => saveThreat('simPer', v, 0, 30));
+    saveNum('[data-cfg=threat-support]', v => saveThreat('supportPer', v, 0, 30));
+    saveNum('[data-cfg=threat-threshold]', v => saveThreat('smartThreshold', v, 0, 100));
     saveNum('[data-cfg=defense-return-margin]',v=>{state.defenseCfg=Object.assign({},state.defenseCfg,{returnMarginSec:Math.max(0,Math.min(3600,+v||0))});save(STORE.DEFENSE_CFG,state.defenseCfg)});
     sec.querySelector('[data-cfg=webhook-url]')?.addEventListener('change', e => {
       state.webhookUrl = e.target.value.trim(); save(STORE.WEBHOOK_URL, state.webhookUrl);

@@ -602,8 +602,15 @@
     else {
       threats.forEach(t => {
         const da = defenseAssessment(t, threats);
+        const sup = da.supports.length
+          ? `${da.supports.length} (${da.supports.map(s => fmtSec(Math.round(s.travel))).slice(0, 2).join('-')})`
+          : '0';
         html += `${t.hasCs ? '[CS] ' : ''}${t.type || 'atk'} → ${t.dest} from ${t.origin || '?'}` +
-          (t.arrival ? ` @${t.arrival}` : '') + ` | riesgo ${da.risk} | ETA ${da.eta==null?'?':fmtSec(da.eta)} | apoyo ${da.supports.length} | esquivar ${da.evac.ok?'si':'no'}` + '\n';
+          (t.arrival ? ` @${t.arrival}` : '') +
+          ` | riesgo ${da.band} ${da.risk} (${defenseFactorText(da.factors)})` +
+          ` | ETA ${da.eta==null?'?':fmtSec(da.eta)} | simult ${da.simultaneous}` +
+          ` | apoyo ${sup} | milicia ${da.militia && da.militia.ok ? 'si' : 'no'}` +
+          ` | esquivar ${da.evac.ok?'si':'no'}${da.evac.ok?'':' ('+(da.evac.why||'?')+')'}` + '\n';
       });
     }
     html += '\n=== Fichas ===\n';
