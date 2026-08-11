@@ -5,7 +5,7 @@
   // the harbour. Each keeps its own order, its own pause flag and its own mode.
   const NATIVE_QUEUE_LANES=['build','recruit','recruitNaval','research'];
   const NATIVE_RECRUIT_LANES=['recruit','recruitNaval'];
-  function nativeUnitIsNaval(unit){try{const d=recruitUnitDef(unit)||{};return !!(d.is_naval||d.naval)}catch(_){return false}}
+  function nativeUnitIsNaval(unit){try{const d=gbGameDataLookup("units", unit)||{};return !!(d.is_naval||d.naval)}catch(_){return false}}
   function nativeRecruitLane(unit){return nativeUnitIsNaval(unit)?'recruitNaval':'recruit'}
   // Lane of an ALREADY QUEUED unit. The array a job actually sits in wins over
   // GameData: the unit metadata can be unreadable at render time, and falling
@@ -44,7 +44,7 @@
     const land=t.recruit,naval=t.recruitNaval;let moved=0,blind=false;
     for(let i=land.length-1;i>=0;i--){
       const j=land[i];if(!j)continue;
-      const d=recruitUnitDef(j.unit);
+      const d=gbGameDataLookup("units", j.unit);
       if(!d){blind=true;continue}
       if(d.is_naval||d.naval){land.splice(i,1);naval.unshift(j);moved++}
     }
@@ -142,7 +142,7 @@
     return NATIVE_BUILD_LABELS[building]||AB_LABELS[building]||building;
   }
   function nativeUnitLabel(unit) {
-    try{const d=recruitUnitDef(unit);const n=d&&(d.name||d.name_plural||d.label);if(n)return String(n)}catch(_){}
+    try{const d=gbGameDataLookup("units", unit);const n=d&&(d.name||d.name_plural||d.label);if(n)return String(n)}catch(_){}
     return String(unit||'?');
   }
   function nativeQueueProjectedBuildLevel(townId,building) {
@@ -337,14 +337,14 @@
     return false;
   }
   function nativeUnitStep(unit) {
-    try{const d=recruitUnitDef(unit)||{};const pop=+d.population||0,freight=+(d.favor??(d.resources&&d.resources.favor))||0;if(d.is_naval||d.naval||d.mythical||d.is_mythical||d.god||pop>=8||freight>0)return 1}catch(_){}
+    try{const d=gbGameDataLookup("units", unit)||{};const pop=+d.population||0,freight=+(d.favor??(d.resources&&d.resources.favor))||0;if(d.is_naval||d.naval||d.mythical||d.is_mythical||d.god||pop>=8||freight>0)return 1}catch(_){}
     return 10;
   }
   // Summed over BOTH lanes on purpose: a unit id belongs to exactly one lane,
   // so the total is exact and stays right even when the def cannot be read.
   function nativeQueueRecruitAmount(townId,unit){return NATIVE_RECRUIT_LANES.reduce((n,lane)=>n+nativeQueueList(townId,lane,false).reduce((m,j)=>m+(j&&j.unit===unit?(+j.amount||0):0),0),0);}
   function nativeQueueAddRecruit(townId,unit,amount) {
-    const n=Math.max(1,Math.floor(+amount||0));if(!unit||!recruitUnitDef(unit)||!(n>0))return false;
+    const n=Math.max(1,Math.floor(+amount||0));if(!unit||!gbGameDataLookup("units", unit)||!(n>0))return false;
     // Same as the build lane: only the head is ever posted, so a tail append is
     // safe while an order is in flight or awaiting review.
     const lane=nativeRecruitLane(unit);
@@ -599,7 +599,7 @@
   }
   function nativeQueueAddResearch(townId,tech) {
     tech=String(tech||'');
-    if(!tech||!researchDef(tech)){flash('Investigación desconocida');return false}
+    if(!tech||!gbGameDataLookup("researches", tech)){flash('Investigación desconocida');return false}
     nativeQueueReconcileResearch(townId);
     const info=researchTownTechs(townId);
     if(!info){flash('No se puede leer la Academia');return false}
@@ -610,7 +610,7 @@
     const town=nativeQueueTown(townId,true);town.mode.research='fifo';
     const push=(id,reason)=>town.research.push({id:nativeQueueId('r'),kind:'research',townId:String(townId),tech:String(id),status:'pending',reason:reason||'',createdAt:Date.now()});
     let added=0;
-    for(const dep of walk.chain){if(!researchDef(dep))continue;push(dep,`requisito para ${nativeResearchLabel(tech)}`);added++}
+    for(const dep of walk.chain){if(!gbGameDataLookup("researches", dep))continue;push(dep,`requisito para ${nativeResearchLabel(tech)}`);added++}
     push(tech,'');
     nativeQueueSave();
     if(walk.error)gbLogT('native-research-walk-'+tech,300000,`native queue: research prereq walk for ${tech} incomplete (${walk.error})`);
@@ -765,7 +765,7 @@
   }
   function nativeUnitId(node) {
     if(!node)return null;const child=node.querySelector&&node.querySelector('[data-unit_id],[data-unit-id],[data-unit_type],[data-unit-type]');const vals=[node.getAttribute('data-unit_id'),node.getAttribute('data-unit-id'),node.getAttribute('data-unit_type'),node.getAttribute('data-unit-type'),child&&(child.getAttribute('data-unit_id')||child.getAttribute('data-unit-id')||child.getAttribute('data-unit_type')||child.getAttribute('data-unit-type')),node.id].filter(Boolean).map(String);
-    const ids=new Set();for(const id of vals)if(recruitUnitDef(id))ids.add(id);const matchers=nativeUnitMatchers();for(const raw of vals)for(const m of matchers)if(m.re.test(raw))ids.add(m.id);return ids.size===1?[...ids][0]:null;
+    const ids=new Set();for(const id of vals)if(gbGameDataLookup("units", id))ids.add(id);const matchers=nativeUnitMatchers();for(const raw of vals)for(const m of matchers)if(m.re.test(raw))ids.add(m.id);return ids.size===1?[...ids][0]:null;
   }
   // The academy tech tree keys every entry off data-research_id (the game's own
   // `.tech_tree_box .button_upgrade[data-research_id=…]` selector); the dashed
@@ -813,7 +813,7 @@
   function nativeResearchKey(raw) {
     const v=String(raw==null?'':raw).trim();
     if(!v)return null;
-    if(researchDef(v))return v;
+    if(gbGameDataLookup("researches", v))return v;
     let all=null;try{all=gameUw().GameData&&gameUw().GameData.researches}catch(_){}
     if(!all||typeof all!=='object')return null;
     const keys=Object.keys(all),sig=keys.length+':'+keys.join(',');

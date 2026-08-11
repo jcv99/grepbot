@@ -58,7 +58,7 @@
     return out;
   }
   function goalResearchDependencies(townId, tech) {
-    const def=researchDef(tech); if(!def) return {ok:false,why:'research-definition-unreadable',build:[],research:[]};
+    const def=gbGameDataLookup("researches", tech); if(!def) return {ok:false,why:'research-definition-unreadable',build:[],research:[]};
     const b=[],r=[]; const bd=def.building_dependencies||def.required_buildings||{};
     for(const [id,raw] of Object.entries(bd)){ const level=+(raw&&typeof raw==='object'?(raw.level??raw.min_level??raw.value):raw)||0; if(level>0)b.push({id,level}); }
     const ad=+(def.academy_level??def.required_academy_level??def.building_level??def.level??0); if(ad>0)b.push({id:'academy',level:ad});
@@ -67,7 +67,7 @@
     return {ok:true,build:b,research:r};
   }
   function goalUnitDependencies(unit) {
-    const d=recruitUnitDef(unit); if(!d) return {ok:false,why:'unit-definition-unreadable',build:[],research:[]};
+    const d=gbGameDataLookup("units", unit); if(!d) return {ok:false,why:'unit-definition-unreadable',build:[],research:[]};
     const build=[]; if(d.god||d.mythical||d.is_mythical) build.push({id:'temple',level:1}); else if(d.is_naval||d.naval) build.push({id:'docks',level:1}); else build.push({id:'barracks',level:1});
     const need=d.research_required||d.research_dependencies||[]; const list=Array.isArray(need)?need:[need]; const research=list.filter(Boolean).map(x=>typeof x==='string'?x:(x.id||x.research_id||x.research_type)).filter(Boolean);
     return {ok:true,build,research};
@@ -106,7 +106,7 @@
     let t=null;try{t=gbTownModel(townId)}catch(_){}; const have=goalUnitCounts(townId);
     for(const [unit,target] of Object.entries(e.units||{})){const tgt=+target||0;if(!(tgt>0))continue;let queued=0;try{const c=t.getUnitOrdersCollection&&t.getUnitOrdersCollection();for(const m of((c&&c.models)||[])){const a=m.attributes||{};if(String(a.unit_type||a.unit_id||a.type)===unit)queued+=+(a.count||a.amount||0)}}catch(_){}
       const need=tgt-(+have[unit]||0)-queued;if(need<=0)continue;const dep=goalUnitDependencies(unit);let status=dep.ok?'planned':'blocked',why=dep.why||'';if(dep.ok){for(const b of dep.build)if(+(sim[b.id]||0)<b.level){status='waiting-dependency';why=`${b.id}`;break}}
-      const d=recruitUnitDef(unit),cost=d&&d.resources?{wood:(+d.resources.wood||0)*need,stone:(+d.resources.stone||0)*need,iron:(+d.resources.iron||0)*need,population:(+d.population||0)*need}:null;if(!cost){status='blocked';why='cost-unreadable'}
+      const d=gbGameDataLookup("units", unit),cost=d&&d.resources?{wood:(+d.resources.wood||0)*need,stone:(+d.resources.stone||0)*need,iron:(+d.resources.iron||0)*need,population:(+d.population||0)*need}:null;if(!cost){status='blocked';why='cost-unreadable'}
       actions.push({kind:'recruit',id:unit,amount:need,cost,status,why});
     }
     const decorated=goalQueueDecorate(townId,actions.slice(0,maxActions));

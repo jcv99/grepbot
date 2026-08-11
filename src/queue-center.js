@@ -34,7 +34,7 @@
     return String(id || '?');
   }
   function queueCenterUnitIsNaval(unit) {
-    try { const d = recruitUnitDef(unit) || {}; return !!(d.is_naval || d.naval); } catch (_) { return false; }
+    try { const d = gbGameDataLookup("units", unit) || {}; return !!(d.is_naval || d.naval); } catch (_) { return false; }
   }
   function queueCenterUnitId(model) {
     const a = (model && model.attributes) || model || {};
@@ -240,7 +240,7 @@
     let all = [];
     try { all = Object.keys((gameUw().GameData && gameUw().GameData.researches) || {}); } catch (_) {}
     return all.filter(id => {
-      if (!researchDef(id)) return false;
+      if (!gbGameDataLookup("researches", id)) return false;
       if (info && info.techs && info.techs[id]) return false;
       if (info && (info.orders || []).some(o => String(researchOrderTechId(o)) === String(id))) return false;
       return !nativeQueueResearchPending(townId, id);

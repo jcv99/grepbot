@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.44.7
+// @version      4.44.8
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1325,6 +1325,13 @@ const STORE = {
       return new Date().toISOString().slice(0, 10);
     }
   }
+
+  function gbGameDataLookup(table, key) {
+    try {
+      const uw = gameUw();
+      return (uw.GameData && uw.GameData[table] && uw.GameData[table][key]) || null;
+    } catch (_) { return null; }
+  }
   function captchaLadder() {
     const raw = state.captchaLadder;
     if (Array.isArray(raw) && raw.length >= 1) {
@@ -1974,7 +1981,7 @@ const STORE = {
       } else if (feature === 'research') {
         const tech=a.id||a.research_id||a.research||a.research_type, c=researchCost(tech,townId); if(!c) return null; out(townId,c);
       } else if (feature === 'recruit') {
-        const unit=a.unit_id||a.unit_type, n=+a.amount||0, def=recruitUnitDef(unit); if(!def||!def.resources||!(n>0)) return null;
+        const unit=a.unit_id||a.unit_type, n=+a.amount||0, def=gbGameDataLookup("units", unit); if(!def||!def.resources||!(n>0)) return null;
         out(townId,{wood:(+def.resources.wood||0)*n,stone:(+def.resources.stone||0)*n,iron:(+def.resources.iron||0)*n,population:(+def.population||0)*n});
       } else if (feature === 'trade') {
         const c={wood:+a.wood||0,stone:+a.stone||0,iron:+a.iron||0,tradeCap:(+a.wood||0)+(+a.stone||0)+(+a.iron||0)};
@@ -6917,7 +6924,7 @@ const STORE = {
     return out;
   }
   function goalResearchDependencies(townId, tech) {
-    const def=researchDef(tech); if(!def) return {ok:false,why:'research-definition-unreadable',build:[],research:[]};
+    const def=gbGameDataLookup("researches", tech); if(!def) return {ok:false,why:'research-definition-unreadable',build:[],research:[]};
     const b=[],r=[]; const bd=def.building_dependencies||def.required_buildings||{};
     for(const [id,raw] of Object.entries(bd)){ const level=+(raw&&typeof raw==='object'?(raw.level??raw.min_level??raw.value):raw)||0; if(level>0)b.push({id,level}); }
     const ad=+(def.academy_level??def.required_academy_level??def.building_level??def.level??0); if(ad>0)b.push({id:'academy',level:ad});
@@ -6926,7 +6933,7 @@ const STORE = {
     return {ok:true,build:b,research:r};
   }
   function goalUnitDependencies(unit) {
-    const d=recruitUnitDef(unit); if(!d) return {ok:false,why:'unit-definition-unreadable',build:[],research:[]};
+    const d=gbGameDataLookup("units", unit); if(!d) return {ok:false,why:'unit-definition-unreadable',build:[],research:[]};
     const build=[]; if(d.god||d.mythical||d.is_mythical) build.push({id:'temple',level:1}); else if(d.is_naval||d.naval) build.push({id:'docks',level:1}); else build.push({id:'barracks',level:1});
     const need=d.research_required||d.research_dependencies||[]; const list=Array.isArray(need)?need:[need]; const research=list.filter(Boolean).map(x=>typeof x==='string'?x:(x.id||x.research_id||x.research_type)).filter(Boolean);
     return {ok:true,build,research};
@@ -6964,7 +6971,7 @@ const STORE = {
     let t=null;try{t=gbTownModel(townId)}catch(_){}; const have=goalUnitCounts(townId);
     for(const [unit,target] of Object.entries(e.units||{})){const tgt=+target||0;if(!(tgt>0))continue;let queued=0;try{const c=t.getUnitOrdersCollection&&t.getUnitOrdersCollection();for(const m of((c&&c.models)||[])){const a=m.attributes||{};if(String(a.unit_type||a.unit_id||a.type)===unit)queued+=+(a.count||a.amount||0)}}catch(_){}
       const need=tgt-(+have[unit]||0)-queued;if(need<=0)continue;const dep=goalUnitDependencies(unit);let status=dep.ok?'planned':'blocked',why=dep.why||'';if(dep.ok){for(const b of dep.build)if(+(sim[b.id]||0)<b.level){status='waiting-dependency';why=`${b.id}`;break}}
-      const d=recruitUnitDef(unit),cost=d&&d.resources?{wood:(+d.resources.wood||0)*need,stone:(+d.resources.stone||0)*need,iron:(+d.resources.iron||0)*need,population:(+d.population||0)*need}:null;if(!cost){status='blocked';why='cost-unreadable'}
+      const d=gbGameDataLookup("units", unit),cost=d&&d.resources?{wood:(+d.resources.wood||0)*need,stone:(+d.resources.stone||0)*need,iron:(+d.resources.iron||0)*need,population:(+d.population||0)*need}:null;if(!cost){status='blocked';why='cost-unreadable'}
       actions.push({kind:'recruit',id:unit,amount:need,cost,status,why});
     }
     const decorated=goalQueueDecorate(townId,actions.slice(0,maxActions));
@@ -7217,7 +7224,7 @@ const STORE = {
 
   const NATIVE_QUEUE_LANES=['build','recruit','recruitNaval','research'];
   const NATIVE_RECRUIT_LANES=['recruit','recruitNaval'];
-  function nativeUnitIsNaval(unit){try{const d=recruitUnitDef(unit)||{};return !!(d.is_naval||d.naval)}catch(_){return false}}
+  function nativeUnitIsNaval(unit){try{const d=gbGameDataLookup("units", unit)||{};return !!(d.is_naval||d.naval)}catch(_){return false}}
   function nativeRecruitLane(unit){return nativeUnitIsNaval(unit)?'recruitNaval':'recruit'}
 
   function nativeRecruitLaneOf(townId,unit) {
@@ -7251,7 +7258,7 @@ const STORE = {
     const land=t.recruit,naval=t.recruitNaval;let moved=0,blind=false;
     for(let i=land.length-1;i>=0;i--){
       const j=land[i];if(!j)continue;
-      const d=recruitUnitDef(j.unit);
+      const d=gbGameDataLookup("units", j.unit);
       if(!d){blind=true;continue}
       if(d.is_naval||d.naval){land.splice(i,1);naval.unshift(j);moved++}
     }
@@ -7336,7 +7343,7 @@ const STORE = {
     return NATIVE_BUILD_LABELS[building]||AB_LABELS[building]||building;
   }
   function nativeUnitLabel(unit) {
-    try{const d=recruitUnitDef(unit);const n=d&&(d.name||d.name_plural||d.label);if(n)return String(n)}catch(_){}
+    try{const d=gbGameDataLookup("units", unit);const n=d&&(d.name||d.name_plural||d.label);if(n)return String(n)}catch(_){}
     return String(unit||'?');
   }
   function nativeQueueProjectedBuildLevel(townId,building) {
@@ -7494,13 +7501,13 @@ const STORE = {
     return false;
   }
   function nativeUnitStep(unit) {
-    try{const d=recruitUnitDef(unit)||{};const pop=+d.population||0,freight=+(d.favor??(d.resources&&d.resources.favor))||0;if(d.is_naval||d.naval||d.mythical||d.is_mythical||d.god||pop>=8||freight>0)return 1}catch(_){}
+    try{const d=gbGameDataLookup("units", unit)||{};const pop=+d.population||0,freight=+(d.favor??(d.resources&&d.resources.favor))||0;if(d.is_naval||d.naval||d.mythical||d.is_mythical||d.god||pop>=8||freight>0)return 1}catch(_){}
     return 10;
   }
 
   function nativeQueueRecruitAmount(townId,unit){return NATIVE_RECRUIT_LANES.reduce((n,lane)=>n+nativeQueueList(townId,lane,false).reduce((m,j)=>m+(j&&j.unit===unit?(+j.amount||0):0),0),0);}
   function nativeQueueAddRecruit(townId,unit,amount) {
-    const n=Math.max(1,Math.floor(+amount||0));if(!unit||!recruitUnitDef(unit)||!(n>0))return false;
+    const n=Math.max(1,Math.floor(+amount||0));if(!unit||!gbGameDataLookup("units", unit)||!(n>0))return false;
 
     const lane=nativeRecruitLane(unit);
     const town=nativeQueueTown(townId,true);
@@ -7726,7 +7733,7 @@ const STORE = {
   }
   function nativeQueueAddResearch(townId,tech) {
     tech=String(tech||'');
-    if(!tech||!researchDef(tech)){flash('Investigaci\u00f3n desconocida');return false}
+    if(!tech||!gbGameDataLookup("researches", tech)){flash('Investigaci\u00f3n desconocida');return false}
     nativeQueueReconcileResearch(townId);
     const info=researchTownTechs(townId);
     if(!info){flash('No se puede leer la Academia');return false}
@@ -7737,7 +7744,7 @@ const STORE = {
     const town=nativeQueueTown(townId,true);town.mode.research='fifo';
     const push=(id,reason)=>town.research.push({id:nativeQueueId('r'),kind:'research',townId:String(townId),tech:String(id),status:'pending',reason:reason||'',createdAt:Date.now()});
     let added=0;
-    for(const dep of walk.chain){if(!researchDef(dep))continue;push(dep,`requisito para ${nativeResearchLabel(tech)}`);added++}
+    for(const dep of walk.chain){if(!gbGameDataLookup("researches", dep))continue;push(dep,`requisito para ${nativeResearchLabel(tech)}`);added++}
     push(tech,'');
     nativeQueueSave();
     if(walk.error)gbLogT('native-research-walk-'+tech,300000,`native queue: research prereq walk for ${tech} incomplete (${walk.error})`);
@@ -7876,7 +7883,7 @@ const STORE = {
   }
   function nativeUnitId(node) {
     if(!node)return null;const child=node.querySelector&&node.querySelector('[data-unit_id],[data-unit-id],[data-unit_type],[data-unit-type]');const vals=[node.getAttribute('data-unit_id'),node.getAttribute('data-unit-id'),node.getAttribute('data-unit_type'),node.getAttribute('data-unit-type'),child&&(child.getAttribute('data-unit_id')||child.getAttribute('data-unit-id')||child.getAttribute('data-unit_type')||child.getAttribute('data-unit-type')),node.id].filter(Boolean).map(String);
-    const ids=new Set();for(const id of vals)if(recruitUnitDef(id))ids.add(id);const matchers=nativeUnitMatchers();for(const raw of vals)for(const m of matchers)if(m.re.test(raw))ids.add(m.id);return ids.size===1?[...ids][0]:null;
+    const ids=new Set();for(const id of vals)if(gbGameDataLookup("units", id))ids.add(id);const matchers=nativeUnitMatchers();for(const raw of vals)for(const m of matchers)if(m.re.test(raw))ids.add(m.id);return ids.size===1?[...ids][0]:null;
   }
 
   const NATIVE_RESEARCH_SEL='[data-research_id],[data-research-id],[data-research_type],[data-research-type]';
@@ -7904,7 +7911,7 @@ const STORE = {
   function nativeResearchKey(raw) {
     const v=String(raw==null?'':raw).trim();
     if(!v)return null;
-    if(researchDef(v))return v;
+    if(gbGameDataLookup("researches", v))return v;
     let all=null;try{all=gameUw().GameData&&gameUw().GameData.researches}catch(_){}
     if(!all||typeof all!=='object')return null;
     const keys=Object.keys(all),sig=keys.length+':'+keys.join(',');
@@ -9617,7 +9624,7 @@ const STORE = {
         const count = +want[unit] || 0;
         if (!(count > 0)) continue;
         let def = null;
-        try { def = typeof recruitUnitDef === 'function' ? recruitUnitDef(unit) : null; } catch (_) {}
+        try { def = gbGameDataLookup("units", unit); } catch (_) {}
         if (!def || !def.resources) {
           gbLogT('trade-unit-nocost-' + unit, 120000, `trade unit: unknown cost for ${unit} - town ${townId} blind`);
           return null;
@@ -10796,7 +10803,7 @@ const STORE = {
 
     let cost = null;
     try {
-      const d = researchDef(tech);
+      const d = gbGameDataLookup("researches", tech);
       if (d) {
         for (const k of ['research_points', 'researchPoints', 'points', 'cost_points']) {
           const n = +d[k];
@@ -10896,13 +10903,6 @@ const STORE = {
     return '';
   }
 
-  function researchDef(tech) {
-    try {
-      const uw = gameUw();
-      return (uw.GameData && uw.GameData.researches && uw.GameData.researches[tech]) || null;
-    } catch (_) { return null; }
-  }
-
   function researchResMod(townId) {
     try {
       const uw = gameUw();
@@ -10913,7 +10913,7 @@ const STORE = {
     } catch (_) { return null; }
   }
   function researchCost(tech, townId) {
-    const d = researchDef(tech);
+    const d = gbGameDataLookup("researches", tech);
     if (!d) return null;
     const src = d.resources || d.costs || d.cost || d;
     const cost = {
@@ -10932,7 +10932,7 @@ const STORE = {
     return cost;
   }
   function researchPointCost(tech) {
-    const d = researchDef(tech);
+    const d = gbGameDataLookup("researches", tech);
     if (!d) return null;
     const v = gbProbeAttr(d, ['research_points', 'research_points_cost', 'points', 'research_point_cost']);
     return v != null && v > 0 ? v : null;
@@ -11010,7 +11010,7 @@ const STORE = {
     let blind = false;
     let blindWhy = null;
 
-    if (!researchDef(tech)) return { ok: false, blind: false, why: 'tech unknown' };
+    if (!gbGameDataLookup("researches", tech)) return { ok: false, blind: false, why: 'tech unknown' };
     const needPts = researchPointCost(tech);
     const have = researchPointsAvailable(townId, info);
     if (needPts == null || have == null) {
@@ -13082,14 +13082,8 @@ const STORE = {
     spartan_training: 'ares',
     fertility_improvement: 'hera',
   };
-  function recruitUnitDef(unitId) {
-    try {
-      const uw = gameUw();
-      return (uw.GameData && uw.GameData.units && uw.GameData.units[unitId]) || null;
-    } catch (_) { return null; }
-  }
   function recruitControllerFor(unitId) {
-    const def = recruitUnitDef(unitId);
+    const def = gbGameDataLookup("units", unitId);
     if (!def) return null;
     if (def.is_naval || def.naval) return { controller: 'building_docks', feature: 'recruit' };
 
@@ -13202,7 +13196,7 @@ const STORE = {
   }
   const _recruitBlindLog = new Set();
   function recruitCanBuild(townId, unitId) {
-    const def = recruitUnitDef(unitId);
+    const def = gbGameDataLookup("units", unitId);
     if (!def) return false;
     try {
       const t = gbTownModel(townId);
@@ -13262,7 +13256,7 @@ const STORE = {
     if (!t) return { known: false, len: 0, max: null, models: [] };
     let col = null, models = [];
     try { col = t.getUnitOrdersCollection && t.getUnitOrdersCollection();if(!col||!Array.isArray(col.models))return {known:false,len:0,max:null,models:[]};models=col.models.slice(); } catch (_) {return {known:false,len:0,max:null,models:[]}}
-    if(unitId){const want=recruitUnitDef(unitId),wantNaval=!!(want&&(want.is_naval||want.naval));models=models.filter(m=>{const a=m.attributes||m,id=a.unit_type||a.unit_id||a.type,d=recruitUnitDef(id);return !d||!!(d.is_naval||d.naval)===wantNaval})}
+    if(unitId){const want=gbGameDataLookup("units", unitId),wantNaval=!!(want&&(want.is_naval||want.naval));models=models.filter(m=>{const a=m.attributes||m,id=a.unit_type||a.unit_id||a.type,d=gbGameDataLookup("units", id);return !d||!!(d.is_naval||d.naval)===wantNaval})}
     let max = null;
     try { if (col && typeof col.getMaxQueueLength === 'function') max = +col.getMaxQueueLength(); } catch (_) {}
     try { if (!(max > 0) && col && col.max_queue_length != null) max = +col.max_queue_length; } catch (_) {}
@@ -13291,7 +13285,7 @@ const STORE = {
     return q.len === 0;
   }
   function recruitAffordableAmount(townId, unit, want) {
-    const def = recruitUnitDef(unit), t = gbTownModel(townId);
+    const def = gbGameDataLookup("units", unit), t = gbTownModel(townId);
     if (!def || !t || !def.resources) return 0;
     try {
       const r = t.resources && t.resources();
@@ -14153,8 +14147,8 @@ const STORE = {
       for(const[tid,t]of Object.entries(v.towns||{}).slice(0,500)){if(!/^\d+$/.test(String(tid))||!isObj(t))continue;const townId=String(tid),build=[],recruit=[],recruitNaval=[],research=[];
         for(const j of (Array.isArray(t.build)?t.build:[]).slice(0,300)){if(!isObj(j)||!AB_BUILDINGS.includes(String(j.building))||!Number.isFinite(+j.toLevel)||+j.toLevel<=0)continue;const uncertain=!!(j.inflight||j.manualReview||j.reconcile),flight=j.reconcile||j.inflight||null,flightBuilding=flight&&AB_BUILDINGS.includes(String(flight.building))?String(flight.building):String(j.building);build.push({id:jobId(j.id,'b'),kind:'build',townId,building:String(j.building),fromLevel:Math.max(0,Math.floor(+j.fromLevel||(+j.toLevel-1))),toLevel:Math.max(1,Math.floor(+j.toLevel)),status:uncertain?'unknown':'pending',reason:uncertain?'acci\u00f3n importada pendiente de revisi\u00f3n':'',createdAt:Number.isFinite(+j.createdAt)?+j.createdAt:Date.now(),inflight:null,manualReview:uncertain,reconcile:flight&&isObj(flight)?{building:flightBuilding,targetLevel:Math.max(1,Math.floor(+flight.targetLevel||+j.toLevel)),at:+flight.at||Date.now(),accepted:!!flight.accepted}:null})}
 
-        for(const j of [].concat((Array.isArray(t.recruit)?t.recruit:[]).slice(0,300),(Array.isArray(t.recruitNaval)?t.recruitNaval:[]).slice(0,300))){if(!isObj(j)||!/^[a-z0-9_:-]+$/i.test(String(j.unit||''))||!recruitUnitDef(String(j.unit))||!Number.isFinite(+j.amount)||+j.amount<=0)continue;const uncertain=!!(j.inflight||j.manualReview);const dest=nativeRecruitLane(String(j.unit))==='recruitNaval'?recruitNaval:recruit;dest.push({id:jobId(j.id,'u'),kind:'recruit',townId,unit:String(j.unit),amount:Math.max(1,Math.floor(+j.amount)),status:uncertain?'unknown':'pending',reason:uncertain?'acci\u00f3n importada pendiente de revisi\u00f3n':'',createdAt:Number.isFinite(+j.createdAt)?+j.createdAt:Date.now(),inflight:null,manualReview:uncertain})}
-        for(const j of (Array.isArray(t.research)?t.research:[]).slice(0,300)){if(!isObj(j)||!/^[a-z0-9_:-]+$/i.test(String(j.tech||''))||!researchDef(String(j.tech)))continue;const uncertain=!!(j.inflight||j.manualReview);research.push({id:jobId(j.id,'r'),kind:'research',townId,tech:String(j.tech),status:uncertain?'unknown':'pending',reason:uncertain?'acci\u00f3n importada pendiente de revisi\u00f3n':'',createdAt:Number.isFinite(+j.createdAt)?+j.createdAt:Date.now(),inflight:null,manualReview:uncertain})}
+        for(const j of [].concat((Array.isArray(t.recruit)?t.recruit:[]).slice(0,300),(Array.isArray(t.recruitNaval)?t.recruitNaval:[]).slice(0,300))){if(!isObj(j)||!/^[a-z0-9_:-]+$/i.test(String(j.unit||''))||!gbGameDataLookup("units", String(j.unit))||!Number.isFinite(+j.amount)||+j.amount<=0)continue;const uncertain=!!(j.inflight||j.manualReview);const dest=nativeRecruitLane(String(j.unit))==='recruitNaval'?recruitNaval:recruit;dest.push({id:jobId(j.id,'u'),kind:'recruit',townId,unit:String(j.unit),amount:Math.max(1,Math.floor(+j.amount)),status:uncertain?'unknown':'pending',reason:uncertain?'acci\u00f3n importada pendiente de revisi\u00f3n':'',createdAt:Number.isFinite(+j.createdAt)?+j.createdAt:Date.now(),inflight:null,manualReview:uncertain})}
+        for(const j of (Array.isArray(t.research)?t.research:[]).slice(0,300)){if(!isObj(j)||!/^[a-z0-9_:-]+$/i.test(String(j.tech||''))||!gbGameDataLookup("researches", String(j.tech)))continue;const uncertain=!!(j.inflight||j.manualReview);research.push({id:jobId(j.id,'r'),kind:'research',townId,tech:String(j.tech),status:uncertain?'unknown':'pending',reason:uncertain?'acci\u00f3n importada pendiente de revisi\u00f3n':'',createdAt:Number.isFinite(+j.createdAt)?+j.createdAt:Date.now(),inflight:null,manualReview:uncertain})}
         clean.towns[townId]={build,recruit,recruitNaval,research,paused:{build:!!(t.paused&&t.paused.build),recruit:!!(t.paused&&t.paused.recruit),recruitNaval:!!(t.paused&&(t.paused.recruitNaval!=null?t.paused.recruitNaval:t.paused.recruit)),research:!!(t.paused&&t.paused.research)},mode:{build:build.length||t.mode&&t.mode.build==='fifo'?'fifo':'legacy',recruit:recruit.length||t.mode&&t.mode.recruit==='fifo'?'fifo':'legacy',recruitNaval:recruitNaval.length||t.mode&&(t.mode.recruitNaval==='fifo'||t.mode.recruitNaval==null&&t.mode.recruit==='fifo')?'fifo':'legacy',research:research.length||t.mode&&t.mode.research==='fifo'?'fifo':'legacy'}}
       }v=clean
     }else if(k==='watchlist')v=v.slice(0,500);else if(k==='merchantWish')v=v.slice(0,100).filter(x=>isObj(x)&&(x.item||x.id)&&Number.isFinite(+x.maxPrice)&&+x.maxPrice>0);state[k]=v;save(storeFor[k],v);applied++}
@@ -19758,7 +19752,7 @@ const STORE = {
     return String(id || '?');
   }
   function queueCenterUnitIsNaval(unit) {
-    try { const d = recruitUnitDef(unit) || {}; return !!(d.is_naval || d.naval); } catch (_) { return false; }
+    try { const d = gbGameDataLookup("units", unit) || {}; return !!(d.is_naval || d.naval); } catch (_) { return false; }
   }
   function queueCenterUnitId(model) {
     const a = (model && model.attributes) || model || {};
@@ -19948,7 +19942,7 @@ const STORE = {
     let all = [];
     try { all = Object.keys((gameUw().GameData && gameUw().GameData.researches) || {}); } catch (_) {}
     return all.filter(id => {
-      if (!researchDef(id)) return false;
+      if (!gbGameDataLookup("researches", id)) return false;
       if (info && info.techs && info.techs[id]) return false;
       if (info && (info.orders || []).some(o => String(researchOrderTechId(o)) === String(id))) return false;
       return !nativeQueueResearchPending(townId, id);

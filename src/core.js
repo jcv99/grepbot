@@ -1107,6 +1107,14 @@
       return new Date().toISOString().slice(0, 10);
     }
   }
+  // Read-only GameData lookup. Replaces recruitUnitDef + researchDef.
+  // Returns null on missing game context, missing table, or missing key.
+  function gbGameDataLookup(table, key) {
+    try {
+      const uw = gameUw();
+      return (uw.GameData && uw.GameData[table] && uw.GameData[table][key]) || null;
+    } catch (_) { return null; }
+  }
   function captchaLadder() {
     const raw = state.captchaLadder;
     if (Array.isArray(raw) && raw.length >= 1) {

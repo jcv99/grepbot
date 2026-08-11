@@ -254,7 +254,7 @@
         const count = +want[unit] || 0;
         if (!(count > 0)) continue;
         let def = null;
-        try { def = typeof recruitUnitDef === 'function' ? recruitUnitDef(unit) : null; } catch (_) {}
+        try { def = gbGameDataLookup("units", unit); } catch (_) {}
         if (!def || !def.resources) {
           gbLogT('trade-unit-nocost-' + unit, 120000, `trade unit: unknown cost for ${unit} - town ${townId} blind`);
           return null;

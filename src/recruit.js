@@ -10,14 +10,8 @@
     spartan_training: 'ares',
     fertility_improvement: 'hera',
   };
-  function recruitUnitDef(unitId) {
-    try {
-      const uw = gameUw();
-      return (uw.GameData && uw.GameData.units && uw.GameData.units[unitId]) || null;
-    } catch (_) { return null; }
-  }
   function recruitControllerFor(unitId) {
-    const def = recruitUnitDef(unitId);
+    const def = gbGameDataLookup("units", unitId);
     if (!def) return null;
     if (def.is_naval || def.naval) return { controller: 'building_docks', feature: 'recruit' };
     // Mythical/god units (ares spartans, athena centaurs, hera amazons, ...) live
@@ -138,7 +132,7 @@
   }
   const _recruitBlindLog = new Set();
   function recruitCanBuild(townId, unitId) {
-    const def = recruitUnitDef(unitId);
+    const def = gbGameDataLookup("units", unitId);
     if (!def) return false;
     try {
       const t = gbTownModel(townId);
@@ -203,7 +197,7 @@
     if (!t) return { known: false, len: 0, max: null, models: [] };
     let col = null, models = [];
     try { col = t.getUnitOrdersCollection && t.getUnitOrdersCollection();if(!col||!Array.isArray(col.models))return {known:false,len:0,max:null,models:[]};models=col.models.slice(); } catch (_) {return {known:false,len:0,max:null,models:[]}}
-    if(unitId){const want=recruitUnitDef(unitId),wantNaval=!!(want&&(want.is_naval||want.naval));models=models.filter(m=>{const a=m.attributes||m,id=a.unit_type||a.unit_id||a.type,d=recruitUnitDef(id);return !d||!!(d.is_naval||d.naval)===wantNaval})}
+    if(unitId){const want=gbGameDataLookup("units", unitId),wantNaval=!!(want&&(want.is_naval||want.naval));models=models.filter(m=>{const a=m.attributes||m,id=a.unit_type||a.unit_id||a.type,d=gbGameDataLookup("units", id);return !d||!!(d.is_naval||d.naval)===wantNaval})}
     let max = null;
     try { if (col && typeof col.getMaxQueueLength === 'function') max = +col.getMaxQueueLength(); } catch (_) {}
     try { if (!(max > 0) && col && col.max_queue_length != null) max = +col.max_queue_length; } catch (_) {}
@@ -232,7 +226,7 @@
     return q.len === 0;
   }
   function recruitAffordableAmount(townId, unit, want) {
-    const def = recruitUnitDef(unit), t = gbTownModel(townId);
+    const def = gbGameDataLookup("units", unit), t = gbTownModel(townId);
     if (!def || !t || !def.resources) return 0;
     try {
       const r = t.resources && t.resources();

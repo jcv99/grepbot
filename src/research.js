@@ -163,7 +163,7 @@
     // the slack factor simply does not contribute.
     let cost = null;
     try {
-      const d = researchDef(tech);
+      const d = gbGameDataLookup("researches", tech);
       if (d) {
         for (const k of ['research_points', 'researchPoints', 'points', 'cost_points']) {
           const n = +d[k];
@@ -267,13 +267,6 @@
     return '';
   }
 
-  function researchDef(tech) {
-    try {
-      const uw = gameUw();
-      return (uw.GameData && uw.GameData.researches && uw.GameData.researches[tech]) || null;
-    } catch (_) { return null; }
-  }
-
   // GameDataResearches.getResearchCosts = resources x
   // GeneralModifications.getResearchResourcesModification(townId) (the Apheledes
   // hero discount). Reading the raw `resources` over-estimated the cost.
@@ -287,7 +280,7 @@
     } catch (_) { return null; }
   }
   function researchCost(tech, townId) {
-    const d = researchDef(tech);
+    const d = gbGameDataLookup("researches", tech);
     if (!d) return null;
     const src = d.resources || d.costs || d.cost || d;
     const cost = {
@@ -306,7 +299,7 @@
     return cost;
   }
   function researchPointCost(tech) {
-    const d = researchDef(tech);
+    const d = gbGameDataLookup("researches", tech);
     if (!d) return null;
     const v = gbProbeAttr(d, ['research_points', 'research_points_cost', 'points', 'research_point_cost']);
     return v != null && v > 0 ? v : null;
@@ -398,7 +391,7 @@
     // A tech absent from GameData is not blind — there is no id to post and the
     // server would reject it. researchCost() also returns null here, so without
     // this guard an unknown tech would fall through as a blind pass.
-    if (!researchDef(tech)) return { ok: false, blind: false, why: 'tech unknown' };
+    if (!gbGameDataLookup("researches", tech)) return { ok: false, blind: false, why: 'tech unknown' };
     const needPts = researchPointCost(tech);
     const have = researchPointsAvailable(townId, info);
     if (needPts == null || have == null) {
