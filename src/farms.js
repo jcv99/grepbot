@@ -60,8 +60,17 @@
             gbLog('learned instant-research action:', state.ibActionR);
           }
         }
+      } else if (/Town/.test(body) && /"type"\s*:\s*"support"/.test(body)) {
+        // v4 plan 3.2. This branch MUST come before the attack branch below: a
+        // support payload is also Town/<id> + sendUnits, so the attack branch
+        // would otherwise learn it as attackTpl - exactly the cross-feature
+        // template poisoning the separate supportTpl exists to prevent.
+        const j = parseBodyLoose(body);
+        if (j) supportLearnTemplate(j);
       } else if (/model_url.*Town\//i.test(body) || (/Town/.test(body) && /attack|sendUnits/i.test(body))) {
         const j = parseBodyLoose(body);
+        // Belt and braces: never store a support payload as the attack template.
+        if (j && j.arguments && String(j.arguments.type || '') === 'support') { supportLearnTemplate(j); return; }
         if (j && j.model_url && /attack|sendUnits/i.test(j.action_name || '')) {
           state.attackTpl = {
             model_url: j.model_url, action_name: j.action_name,

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.8.1
+// @version      4.9.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -163,6 +163,9 @@ const STORE = {
     NATIVE_QUEUE: 'grepbot:native-action-queue',
     PREDICT_CFG: 'grepbot:predict-cfg',
     DEFENSE_CFG: 'grepbot:defense-cfg',
+    SUPPORT_CFG: 'grepbot:support-cfg',
+    SUPPORT_LAST_SEND: 'grepbot:support-last-send',
+    SUPPORT_TEMPLATE: 'grepbot:support-tpl',
     DODGE_RETURNS: 'grepbot:dodge-returns',
     HEALTH: 'grepbot:health',
     CLIENT_FP: 'grepbot:client-fingerprint',
@@ -216,7 +219,7 @@ const STORE = {
     STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES,
     STORE.CAPTCHA_GLOBAL_UNTIL,
     STORE.SERVER_COOLDOWN, STORE.QUEST_CLAIM_FAIL, STORE.DODGE_QUEUE,
-    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER,
+    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER,
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
     STORE.SPELL_COOLDOWN,
@@ -384,6 +387,7 @@ const STORE = {
     wonder: 180000,
     'wonder-favor': 180000,
     dodge: 180000,
+    support: 180000,
     recruit: 180000,
     'defense-pull': 180000,
     cancel: 120000,
@@ -590,6 +594,10 @@ const STORE = {
     nativeQueue: load(STORE.NATIVE_QUEUE, { version: 1, seq: 0, towns: {} }),
     predictCfg: load(STORE.PREDICT_CFG, { horizonHours: 6 }),
     defenseCfg: load(STORE.DEFENSE_CFG, { mode: 'notify', returnMarginSec: 120, smartAuto: false }),
+
+    supportCfg: load(STORE.SUPPORT_CFG, { auto: false, confirmThreshold: 100, homeFloor: 0, shareDodgeFloor: true, minEtaSec: 120, noArmSec: 60, overlapSec: 30 }),
+    supportLastSend: load(STORE.SUPPORT_LAST_SEND, {}) || {},
+    supportTpl: load(STORE.SUPPORT_TEMPLATE, null),
     dodgeReturns: load(STORE.DODGE_RETURNS, {}),
     health: load(STORE.HEALTH, {}),
     clientFingerprint: load(STORE.CLIENT_FP, null),
@@ -741,6 +749,13 @@ const STORE = {
       }
       if (typeof state.autoTradeRoutes !== 'boolean') {
         state.autoTradeRoutes = false; save(STORE.AUTO_TRADE_ROUTES, state.autoTradeRoutes);
+      }
+
+      if (!state.supportCfg || typeof state.supportCfg !== 'object' || Array.isArray(state.supportCfg)) state.supportCfg = {};
+      state.supportCfg.auto = state.supportCfg.auto === true;
+      save(STORE.SUPPORT_CFG, state.supportCfg);
+      if (!state.supportLastSend || typeof state.supportLastSend !== 'object' || Array.isArray(state.supportLastSend)) {
+        state.supportLastSend = {}; save(STORE.SUPPORT_LAST_SEND, state.supportLastSend);
       }
 
       ver = 11;
@@ -1047,6 +1062,8 @@ const STORE = {
     farm: 'claimTpl',
     build: 'ibAction', 'instant-build': 'ibAction', 'instant-research': 'ibActionR',
     attack: 'attackTpl', cancel: 'cancelTpl', hero: 'heroTpl',
+
+    support: 'supportTpl',
     collect: 'collectTpl',
     pttrade: 'ptTradeTpl',
     wonder: 'wonderFavorTpl',
@@ -4095,8 +4112,14 @@ const STORE = {
             gbLog('learned instant-research action:', state.ibActionR);
           }
         }
+      } else if (/Town/.test(body) && /"type"\s*:\s*"support"/.test(body)) {
+
+        const j = parseBodyLoose(body);
+        if (j) supportLearnTemplate(j);
       } else if (/model_url.*Town\//i.test(body) || (/Town/.test(body) && /attack|sendUnits/i.test(body))) {
         const j = parseBodyLoose(body);
+
+        if (j && j.arguments && String(j.arguments.type || '') === 'support') { supportLearnTemplate(j); return; }
         if (j && j.model_url && /attack|sendUnits/i.test(j.action_name || '')) {
           state.attackTpl = {
             model_url: j.model_url, action_name: j.action_name,
@@ -11421,7 +11444,10 @@ const STORE = {
       if (entry.state === 'failed' || entry.state === 'pending' || entry.state === 'notified' || entry.state === 'unknown') {
         dodgeTrySend(entry, mov);
       }
+
+      if (!entry || entry.state !== 'sent') { try { supportTryBurst(mov); } catch (_) {} }
     }
+    try { supportScan('dodge'); } catch (_) {}
 
     const cut = now - DODGE_QUEUE_TTL;
     Object.keys(dodgeQueue).forEach(k => {
@@ -15282,6 +15308,279 @@ const STORE = {
 
   const STATS_WINDOWS = { '1h': 3600000, '24h': 86400000, '7d': 604800000 };
   let statsWindow = '24h';
+
+  const SUPPORT_LOCK_TTL_MS = 180000;
+  const SUPPORT_LEDGER_GRACE_MS = 600000;
+  const SUPPORT_LEDGER_PRUNE_MS = 3600000;
+  const SUPPORT_BANDS = ['high', 'cs'];
+
+  function supportCfg() {
+    const c = (state.supportCfg && typeof state.supportCfg === 'object') ? state.supportCfg : {};
+    const num = (v, d, lo, hi) => {
+      const n = +v;
+      return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d;
+    };
+    return {
+      auto: c.auto === true,
+      confirmThreshold: num(c.confirmThreshold, 100, 0, 10000),
+      homeFloor: num(c.homeFloor, 0, 0, 50),
+      shareDodgeFloor: c.shareDodgeFloor !== false,
+      minEtaSec: num(c.minEtaSec, 120, 30, 3600),
+      noArmSec: num(c.noArmSec, 60, 10, 600),
+      overlapSec: num(c.overlapSec, 30, 0, 3600),
+    };
+  }
+  function supportLedger() {
+    if (!state.supportLastSend || typeof state.supportLastSend !== 'object' || Array.isArray(state.supportLastSend)) {
+      state.supportLastSend = {};
+    }
+    return state.supportLastSend;
+  }
+  function supportLedgerSave() { save(STORE.SUPPORT_LAST_SEND, supportLedger()); }
+  function supportLedgerPrune() {
+    const L = supportLedger();
+    const cut = Date.now() - SUPPORT_LEDGER_PRUNE_MS;
+    let changed = false;
+    for (const [k, e] of Object.entries(L)) {
+      if (!e || +(e.expires || 0) < cut) { delete L[k]; changed = true; }
+    }
+    if (changed) supportLedgerSave();
+  }
+
+  function supportLearnTemplate(j) {
+    if (!j || !j.model_url || !j.action_name) return;
+    const args = j.arguments || {};
+    if (String(args.type || '') !== 'support') return;
+    if (typeof isSelfBridge === 'function' && isSelfBridge(j)) return;
+    state.supportTpl = {
+      model_url: j.model_url, action_name: j.action_name,
+      arguments: { type: 'support' }, version: 1, learned_at: Date.now(),
+    };
+    save(wkey(STORE.SUPPORT_TEMPLATE), state.supportTpl);
+    gbLog('learned support template: ' + j.action_name);
+    try { tplHealthMarkLearned('supportTpl'); } catch (_) {}
+  }
+
+  function supportBridgePost(fromTownId, destTownId, units, onDone) {
+    const tpl = state.supportTpl;
+    if (!tpl || !tpl.model_url || !tpl.action_name) {
+      gbLogT('support-template', 60000, 'support: no learned template - send one support by hand once');
+      return onDone && onDone('template-required');
+    }
+    const payload = {
+      model_url: 'Town/' + fromTownId,
+      action_name: tpl.action_name,
+      arguments: Object.assign({ id: +destTownId, type: 'support' }, units),
+      town_id: +fromTownId,
+    };
+    bridgePost('support', payload, onDone);
+  }
+
+  function supportSelectUnits(fromTownId) {
+    const cfg = supportCfg();
+    const floor = cfg.shareDodgeFloor ? Math.max(0, +state.dodgeFloor || 0) : cfg.homeFloor;
+    const out = {};
+    let live = {};
+    try { live = townLiveUnits(fromTownId) || {}; } catch (_) { live = {}; }
+    for (const [u, n0] of Object.entries(live)) {
+      const n = +n0 || 0;
+      if (!(n > 0) || u === 'militia') continue;
+      const m = unitMeta(u);
+      if (!m || m.is_naval) continue;
+      const fn = classifyUnitFn(u);
+      if (fn !== 'defense' && fn !== 'both') continue;
+      const send = n - floor;
+      if (send > 0) out[u] = send;
+    }
+    return out;
+  }
+
+  function supportAlreadyCovered(destId, arrivalSec) {
+    let outs = [];
+    try { outs = militaryOutgoingMovements() || []; } catch (_) { return false; }
+    const cfg = supportCfg();
+    for (const m of outs) {
+      if (String(m.target) !== String(destId)) continue;
+      if (!/^(support|support_sea)$/.test(String(m.type || ''))) continue;
+      const arr = +m.arrival || 0;
+      if (!arr) continue;
+      const a = arr > 1e12 ? Math.floor(arr / 1000) : arr;
+      if (a <= arrivalSec - cfg.overlapSec) return true;
+    }
+    return false;
+  }
+  function supportDonorLabel(id) {
+    try { return townNameById(id); } catch (_) { return String(id); }
+  }
+  function supportComposeBurst(mov, assess) {
+    const eta = assess.eta;
+    const donors = [];
+    for (const d of (assess.supports || [])) {
+      const units = supportSelectUnits(d.from);
+      if (!Object.keys(units).length) continue;
+      const valid = dodgeSupportValidate(d.from, mov.dest, units);
+      if (!valid.ok) {
+        gbLogT('support-donor-' + d.from + '-' + mov.dest, 600000,
+          `support: donor ${d.from} rejected (${valid.why})`);
+        continue;
+      }
+
+      let travel = null;
+      try {
+        travel = computeTravelSeconds(d.from, { town_id: +mov.dest, id: +mov.dest, kind: 'town', ...townCoords(mov.dest) }, units, true);
+      } catch (_) {}
+      if (travel == null) {
+        gbLogT('support-travel-' + d.from, 600000, `support: travel time unreadable from ${d.from} - donor skipped`);
+        continue;
+      }
+      if (eta != null && travel >= eta) continue;
+      donors.push({ from: d.from, units, travel, count: Object.values(units).reduce((a, b) => a + b, 0) });
+    }
+    donors.sort((a, b) => a.travel - b.travel);
+    return donors;
+  }
+  function supportConfirmText(mov, assess, donors, total) {
+    const cfg = supportCfg();
+    const lines = [];
+    lines.push((state.dryRun ? '[DRY-RUN] ' : '') + `Apoyo a ${supportDonorLabel(mov.dest)} (#${mov.dest})`);
+    lines.push(`Ataque hostil: ${mov.type || 'atk'}${mov.hasCs ? ' [CS]' : ''} desde ${mov.origin || '?'} en ${assess.eta == null ? '?' : fmtSec(assess.eta)}`);
+    lines.push(`Riesgo ${assess.band} (${defenseFactorText(assess.factors)})`);
+    lines.push('Donantes propuestos:');
+    donors.forEach(d => {
+      const mix = Object.entries(d.units).map(([u, n]) => `${u}:${n}`).join(' ');
+      lines.push(`  - ${supportDonorLabel(d.from)} (#${d.from}): ${mix} - llega en ${fmtSec(Math.round(d.travel))}`);
+    });
+    lines.push(`Total: ${total} unidades / ${donors.length} ciudades`);
+    lines.push(`Umbral de confirmacion: ${cfg.confirmThreshold}; envio actual: ${total}`);
+    lines.push('Enviar? (Cancelar = saltar esta ventana)');
+    return lines.join('\n');
+  }
+  function supportRecordSend(movId, donors, arrivalMs) {
+    const L = supportLedger();
+    L[String(movId)] = {
+      ts: Date.now(),
+      expires: arrivalMs + SUPPORT_LEDGER_GRACE_MS,
+      donorIds: donors.map(d => String(d.from)),
+      state: 'sent',
+    };
+    supportLedgerSave();
+  }
+
+  function supportRecallWindow(movId) {
+    const L = supportLedger();
+    const e = L[String(movId)];
+    if (!e || e.state !== 'sent') return;
+    if (!state.cancelTpl) {
+      gbLogT('support-recall-tpl', 600000, 'support: recall needs the cancel template - cancel one command by hand once');
+      return;
+    }
+    let outs = [];
+    try { outs = militaryOutgoingMovements() || []; } catch (_) { return; }
+    const mine = outs.filter(m => /^(support|support_sea)$/.test(String(m.type || '')) && e.donorIds.includes(String(m.home)));
+    if (!mine.length) { e.state = 'done'; supportLedgerSave(); return; }
+    e.state = 'recalling'; supportLedgerSave();
+    for (const m of mine) {
+      militaryCancelCommand(m.commandId, { confirmed: true, automation: true }, (err) => {
+        if (!err) gbLog(`support: recalled ${m.commandId} from ${m.home}`);
+        else if (err === 'not-cancelable') gbLog(`support: recall ${m.commandId} - arrived already`);
+        else gbLogT('support-recall-err', 60000, `support: recall ${m.commandId} err ${err}`);
+      });
+    }
+  }
+
+  function supportTryBurst(mov) {
+    const cfg = supportCfg();
+    if (!cfg.auto) return;
+    if (!hostEnabled() || automationPaused({})) return;
+    if (captchaPausedAny('support', 'dodge')) return;
+    if (!mov || mov.id == null) return;
+    const movId = String(mov.id);
+    const L = supportLedger();
+    const prev = L[movId];
+    if (prev && +(prev.expires || 0) > Date.now()) {
+      gbLogT('support-flap-' + movId, 300000, `support: already-sent for ${movId}`);
+      return;
+    }
+    const eta = dodgeEtaSec(mov);
+    if (eta == null) { gbLogT('support-eta-null', 60000, `support: ETA unreadable for ${movId} - no arm`); return; }
+    if (eta <= cfg.noArmSec) { gbLogT('support-closed-' + movId, 300000, `support: window closed for ${movId} at ${eta}s`); return; }
+    if (eta < cfg.minEtaSec) return;
+    let assess = null;
+    try { assess = defenseAssessment(mov); } catch (_) { return; }
+    if (!assess) return;
+
+    if (!SUPPORT_BANDS.includes(assess.band)) {
+      if (assess.band === 'med') gbLogT('support-advice-' + movId, 600000, `support: ${mov.dest} band med - advisory only, no arm`);
+      return;
+    }
+    const arrivalSec = gameNow() + eta;
+    if (supportAlreadyCovered(mov.dest, arrivalSec)) {
+      gbLogT('support-covered-' + movId, 300000, `support: ${mov.dest} already covered by a friendly in flight`);
+      return;
+    }
+    const donors = supportComposeBurst(mov, assess);
+    if (!donors.length) { gbLogT('support-nodonor-' + movId, 300000, `support: no donor for ${mov.dest}`); return; }
+    const total = donors.reduce((a, d) => a + d.count, 0);
+    if (total > cfg.confirmThreshold) {
+      let ok = false;
+      try { ok = gameUw().confirm(supportConfirmText(mov, assess, donors, total)); } catch (_) { ok = false; }
+      if (!ok) {
+        gbLog(`support: confirm declined for window ${mov.dest}`);
+
+        return;
+      }
+    }
+    const lockToken = gbLock('support');
+
+    if (!lockToken) { gbLogT('support-busy', 60000, 'support: another burst in flight - will retry on the next pass'); return; }
+    let i = 0, sent = 0;
+    const slowest = donors.reduce((m, d) => Math.max(m, d.travel), 0);
+    (function next() {
+      try { supportStep(); } catch (e) {
+        gbUnlock('support', lockToken);
+        gbLogT('support-throw', 60000, 'support: burst aborted - ' + String(e).slice(0, 60));
+      }
+    })();
+    function supportStep() {
+      gbLockTouch('support', lockToken);
+      if (i >= donors.length) {
+        gbUnlock('support', lockToken);
+        if (sent) {
+          supportRecordSend(movId, donors, Date.now() + slowest * 1000);
+          gbLog(`support: sent ${sent}/${donors.length} donor(s) to ${mov.dest}`);
+        }
+        return;
+      }
+      const d = donors[i++];
+
+      const valid = dodgeSupportValidate(d.from, mov.dest, d.units);
+      if (!valid.ok) {
+        gbLogT('support-stale-' + d.from, 60000, `support: donor ${d.from} stale (${valid.why})`);
+        gbTimeout(next, 200);
+        return;
+      }
+      supportBridgePost(d.from, mov.dest, d.units, (err) => {
+        if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('support', lockToken); return; }
+        if (!err) { sent++; gbLog(`support bridge: sendUnits town ${d.from} -> ${mov.dest} (support, ${Object.keys(d.units).length} tipos / ${d.count} unidades)`); }
+        else gbLogT('support-err', 60000, `support err ${err}`);
+        gbTimeout(next, 700 + Math.random() * 500);
+      });
+    }
+  }
+
+  function supportScan(reason) {
+    supportLedgerPrune();
+    if (!supportCfg().auto) return;
+    if (!hostEnabled() || automationPaused({})) return;
+
+    let live = new Set();
+    try { live = new Set((dodgeIncomingMovements() || []).map(m => String(m.id))); } catch (_) { return; }
+    for (const [movId, e] of Object.entries(supportLedger())) {
+      if (!e || e.state !== 'sent') continue;
+      if (live.has(movId)) continue;
+      supportRecallWindow(movId);
+    }
+  }
   function statsPct(n, d) { return d ? Math.round(n / d * 100) + '%' : '-'; }
 
   function preflightProbe(name, fn) {
@@ -15464,6 +15763,19 @@ const STORE = {
         detail: state.intelBattleStats === false
           ? 'desactivado en Config'
           : `${n} informes, ${withVerdict} con resultado` + (n < 5 ? ' - muestra pequena' : ''),
+      };
+    }));
+    out.push(preflightProbe('support: auto-send', () => {
+      const cfg = supportCfg();
+      const tpl = !!(state.supportTpl && state.supportTpl.action_name);
+      const paused = captchaPaused('support');
+      const ledger = Object.keys(state.supportLastSend || {}).length;
+      return {
+
+        ok: true,
+        warn: (cfg.auto && !tpl) || (cfg.auto && paused),
+        detail: `auto ${cfg.auto ? 'ON' : 'OFF'}, tpl ${tpl ? state.supportTpl.action_name : 'SIN aprender (envia un apoyo a mano)'}` +
+          `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
       };
     }));
     out.push(preflightProbe('trade routes', () => {
@@ -17210,6 +17522,13 @@ const STORE = {
           apoyo -<input type="number" data-cfg="threat-support" min="0" max="30" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
           umbral <input type="number" data-cfg="threat-threshold" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="ALTO RIESGO: envia tropas reales de otras ciudades cuando llega un ataque de banda alta o con CS. Gasta tropas sin vuelta atras; pide confirmacion por ventana. Aprende su propia plantilla: envia un apoyo a mano una vez."><input type="checkbox" data-cfg="support-auto"/> Apoyo automatico (ALTO RIESGO, OFF)</label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Apoyo:
+          confirmar &gt; <input type="number" data-cfg="support-confirm" min="0" max="10000" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
+          dejar en casa <input type="number" data-cfg="support-home-floor" min="0" max="50" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          ETA min <input type="number" data-cfg="support-min-eta" min="30" max="3600" style="width:55px;background:#111;color:#cfc;border:1px solid #333"/>s
+          no armar bajo <input type="number" data-cfg="support-no-arm" min="10" max="600" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>s
+        </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-recruit"/> Auto-recruit</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="recruit-spells"/> Cast recruit spells first</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px;color:#f96" title="Convierte aldeanos en unidades cuando la aldea no admite mas recursos. Recompute: compara espada+arquero vs hoplita+hondero, elige la pareja con mas tropas y dentro de ella la unidad con menos. Requiere abrir la aldea y pulsar Aceptar una vez a mano la primera vez."><input type="checkbox" data-cfg="village-recruit"/> Reclutar en aldeas saturadas</label>
@@ -17757,6 +18076,12 @@ const STORE = {
     const defense=state.defenseCfg||{mode:'notify',smartAuto:false,returnMarginSec:120};
     const dm=sec.querySelector('[data-cfg=defense-mode]');if(dm)dm.value=defenseMode();
     setChk('[data-cfg=defense-smart-auto]',!!defense.smartAuto);
+    { const sc = supportCfg();
+      setChk('[data-cfg=support-auto]', sc.auto);
+      setNum('[data-cfg=support-confirm]', sc.confirmThreshold);
+      setNum('[data-cfg=support-home-floor]', sc.homeFloor);
+      setNum('[data-cfg=support-min-eta]', sc.minEtaSec);
+      setNum('[data-cfg=support-no-arm]', sc.noArmSec); }
     { const tw = defenseThreatWeights();
       setNum('[data-cfg=threat-cs]', tw.cs); setNum('[data-cfg=threat-eta15]', tw.eta15);
       setNum('[data-cfg=threat-sim]', tw.simPer); setNum('[data-cfg=threat-support]', tw.supportPer);
@@ -17912,6 +18237,22 @@ const STORE = {
       save(STORE.PREDICT_CFG, state.predictCfg);
       try { renderIntel(); } catch (_) {}
     };
+    const saveSupport = (key, v, lo, hi) => {
+      if (!state.supportCfg || typeof state.supportCfg !== 'object') state.supportCfg = {};
+      state.supportCfg[key] = Math.max(lo, Math.min(hi, Number.isFinite(+v) ? +v : state.supportCfg[key]));
+      save(STORE.SUPPORT_CFG, state.supportCfg);
+    };
+    sec.querySelector('[data-cfg=support-auto]')?.addEventListener('change', e => {
+      if (!state.supportCfg || typeof state.supportCfg !== 'object') state.supportCfg = {};
+      state.supportCfg.auto = !!e.target.checked;
+      save(STORE.SUPPORT_CFG, state.supportCfg);
+      gbLog('support auto ' + (state.supportCfg.auto ? 'ON - real troops, confirm gate per window' : 'OFF'));
+      if (state.supportCfg.auto && !state.supportTpl) flash('apoyo ON pero sin plantilla: envia un apoyo a mano una vez');
+    });
+    saveNum('[data-cfg=support-confirm]', v => saveSupport('confirmThreshold', v, 0, 10000));
+    saveNum('[data-cfg=support-home-floor]', v => saveSupport('homeFloor', v, 0, 50));
+    saveNum('[data-cfg=support-min-eta]', v => saveSupport('minEtaSec', v, 30, 3600));
+    saveNum('[data-cfg=support-no-arm]', v => saveSupport('noArmSec', v, 10, 600));
     saveNum('[data-cfg=threat-cs]', v => saveThreat('cs', v, 0, 120));
     saveNum('[data-cfg=threat-eta15]', v => saveThreat('eta15', v, 0, 60));
     saveNum('[data-cfg=threat-sim]', v => saveThreat('simPer', v, 0, 30));
@@ -18731,6 +19072,8 @@ const STORE = {
       defenseThreatBand,
       defenseFactorText,
       defenseShouldDodge,
+      supportTryBurst,
+      supportScan,
       dodgeReturnRecord,
       dodgeReturnTick,
       clientFingerprintNow,

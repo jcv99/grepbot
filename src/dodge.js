@@ -284,7 +284,11 @@
       if (entry.state === 'failed' || entry.state === 'pending' || entry.state === 'notified' || entry.state === 'unknown') {
         dodgeTrySend(entry, mov);
       }
+      // v4 plan 3.2: support only arms for movements dodge did NOT act on, and
+      // rides this same 5s loop rather than adding a second timer.
+      if (!entry || entry.state !== 'sent') { try { supportTryBurst(mov); } catch (_) {} }
     }
+    try { supportScan('dodge'); } catch (_) {}
 
     const cut = now - DODGE_QUEUE_TTL;
     Object.keys(dodgeQueue).forEach(k => {

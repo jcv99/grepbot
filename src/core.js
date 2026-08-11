@@ -159,6 +159,7 @@
     wonder: 180000,
     'wonder-favor': 180000,
     dodge: 180000,
+    support: 180000,
     recruit: 180000,
     'defense-pull': 180000,
     cancel: 120000,
@@ -369,6 +370,11 @@
     nativeQueue: load(STORE.NATIVE_QUEUE, { version: 1, seq: 0, towns: {} }),
     predictCfg: load(STORE.PREDICT_CFG, { horizonHours: 6 }),
     defenseCfg: load(STORE.DEFENSE_CFG, { mode: 'notify', returnMarginSec: 120, smartAuto: false }),
+    // v4 plan 3.2: HIGH-RISK. auto defaults OFF in code AND in shipped config -
+    // no user may get a send-support-without-clicking path on first install.
+    supportCfg: load(STORE.SUPPORT_CFG, { auto: false, confirmThreshold: 100, homeFloor: 0, shareDodgeFloor: true, minEtaSec: 120, noArmSec: 60, overlapSec: 30 }),
+    supportLastSend: load(STORE.SUPPORT_LAST_SEND, {}) || {},
+    supportTpl: load(STORE.SUPPORT_TEMPLATE, null),
     dodgeReturns: load(STORE.DODGE_RETURNS, {}),
     health: load(STORE.HEALTH, {}),
     clientFingerprint: load(STORE.CLIENT_FP, null),
@@ -531,6 +537,14 @@
       }
       if (typeof state.autoTradeRoutes !== 'boolean') {
         state.autoTradeRoutes = false; save(STORE.AUTO_TRADE_ROUTES, state.autoTradeRoutes);
+      }
+      // v4 plan 3.2: force the HIGH-RISK auto flag to a real boolean and the
+      // ledger to an object, so a hand-edited storage value cannot arm a send.
+      if (!state.supportCfg || typeof state.supportCfg !== 'object' || Array.isArray(state.supportCfg)) state.supportCfg = {};
+      state.supportCfg.auto = state.supportCfg.auto === true;
+      save(STORE.SUPPORT_CFG, state.supportCfg);
+      if (!state.supportLastSend || typeof state.supportLastSend !== 'object' || Array.isArray(state.supportLastSend)) {
+        state.supportLastSend = {}; save(STORE.SUPPORT_LAST_SEND, state.supportLastSend);
       }
       // v4 plan 2.7: population state is derived, not stored. The only thing to
       // drop is the memo of a render that predates townPopState, and there is
@@ -857,6 +871,10 @@
     farm: 'claimTpl',
     build: 'ibAction', 'instant-build': 'ibAction', 'instant-research': 'ibActionR',
     attack: 'attackTpl', cancel: 'cancelTpl', hero: 'heroTpl',
+    // Separate from attackTpl on purpose: identical payload signature, but a
+    // support rejection must never invalidate the attack template (v2.5.7
+    // favor precedent, see the comment below).
+    support: 'supportTpl',
     collect: 'collectTpl',
     pttrade: 'ptTradeTpl',
     wonder: 'wonderFavorTpl',

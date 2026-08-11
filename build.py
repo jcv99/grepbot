@@ -66,6 +66,7 @@ MODULES = [
     'quests.js',
     'attack.js',
     'military.js',
+    'support.js',
     'stats.js',
     'queue-center.js',
     'ui.js',

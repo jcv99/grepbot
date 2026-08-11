@@ -903,6 +903,13 @@
           apoyo -<input type="number" data-cfg="threat-support" min="0" max="30" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
           umbral <input type="number" data-cfg="threat-threshold" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f96" title="ALTO RIESGO: envia tropas reales de otras ciudades cuando llega un ataque de banda alta o con CS. Gasta tropas sin vuelta atras; pide confirmacion por ventana. Aprende su propia plantilla: envia un apoyo a mano una vez."><input type="checkbox" data-cfg="support-auto"/> Apoyo automatico (ALTO RIESGO, OFF)</label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Apoyo:
+          confirmar &gt; <input type="number" data-cfg="support-confirm" min="0" max="10000" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>
+          dejar en casa <input type="number" data-cfg="support-home-floor" min="0" max="50" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          ETA min <input type="number" data-cfg="support-min-eta" min="30" max="3600" style="width:55px;background:#111;color:#cfc;border:1px solid #333"/>s
+          no armar bajo <input type="number" data-cfg="support-no-arm" min="10" max="600" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>s
+        </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-recruit"/> Auto-recruit</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px"><input type="checkbox" data-cfg="recruit-spells"/> Cast recruit spells first</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:12px;color:#f96" title="Convierte aldeanos en unidades cuando la aldea no admite mas recursos. Recompute: compara espada+arquero vs hoplita+hondero, elige la pareja con mas tropas y dentro de ella la unidad con menos. Requiere abrir la aldea y pulsar Aceptar una vez a mano la primera vez."><input type="checkbox" data-cfg="village-recruit"/> Reclutar en aldeas saturadas</label>
@@ -1451,6 +1458,12 @@
     const defense=state.defenseCfg||{mode:'notify',smartAuto:false,returnMarginSec:120};
     const dm=sec.querySelector('[data-cfg=defense-mode]');if(dm)dm.value=defenseMode();
     setChk('[data-cfg=defense-smart-auto]',!!defense.smartAuto);
+    { const sc = supportCfg();
+      setChk('[data-cfg=support-auto]', sc.auto);
+      setNum('[data-cfg=support-confirm]', sc.confirmThreshold);
+      setNum('[data-cfg=support-home-floor]', sc.homeFloor);
+      setNum('[data-cfg=support-min-eta]', sc.minEtaSec);
+      setNum('[data-cfg=support-no-arm]', sc.noArmSec); }
     { const tw = defenseThreatWeights();
       setNum('[data-cfg=threat-cs]', tw.cs); setNum('[data-cfg=threat-eta15]', tw.eta15);
       setNum('[data-cfg=threat-sim]', tw.simPer); setNum('[data-cfg=threat-support]', tw.supportPer);
@@ -1606,6 +1619,22 @@
       save(STORE.PREDICT_CFG, state.predictCfg);
       try { renderIntel(); } catch (_) {}
     };
+    const saveSupport = (key, v, lo, hi) => {
+      if (!state.supportCfg || typeof state.supportCfg !== 'object') state.supportCfg = {};
+      state.supportCfg[key] = Math.max(lo, Math.min(hi, Number.isFinite(+v) ? +v : state.supportCfg[key]));
+      save(STORE.SUPPORT_CFG, state.supportCfg);
+    };
+    sec.querySelector('[data-cfg=support-auto]')?.addEventListener('change', e => {
+      if (!state.supportCfg || typeof state.supportCfg !== 'object') state.supportCfg = {};
+      state.supportCfg.auto = !!e.target.checked;
+      save(STORE.SUPPORT_CFG, state.supportCfg);
+      gbLog('support auto ' + (state.supportCfg.auto ? 'ON - real troops, confirm gate per window' : 'OFF'));
+      if (state.supportCfg.auto && !state.supportTpl) flash('apoyo ON pero sin plantilla: envia un apoyo a mano una vez');
+    });
+    saveNum('[data-cfg=support-confirm]', v => saveSupport('confirmThreshold', v, 0, 10000));
+    saveNum('[data-cfg=support-home-floor]', v => saveSupport('homeFloor', v, 0, 50));
+    saveNum('[data-cfg=support-min-eta]', v => saveSupport('minEtaSec', v, 30, 3600));
+    saveNum('[data-cfg=support-no-arm]', v => saveSupport('noArmSec', v, 10, 600));
     saveNum('[data-cfg=threat-cs]', v => saveThreat('cs', v, 0, 120));
     saveNum('[data-cfg=threat-eta15]', v => saveThreat('eta15', v, 0, 60));
     saveNum('[data-cfg=threat-sim]', v => saveThreat('simPer', v, 0, 30));

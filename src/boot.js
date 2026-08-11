@@ -191,6 +191,8 @@
       defenseThreatBand,
       defenseFactorText,
       defenseShouldDodge,
+      supportTryBurst,
+      supportScan,
       dodgeReturnRecord,
       dodgeReturnTick,
       clientFingerprintNow,

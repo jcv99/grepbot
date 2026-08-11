@@ -190,6 +190,20 @@
           : `${n} informes, ${withVerdict} con resultado` + (n < 5 ? ' - muestra pequena' : ''),
       };
     }));
+    out.push(preflightProbe('support: auto-send', () => {
+      const cfg = supportCfg();
+      const tpl = !!(state.supportTpl && state.supportTpl.action_name);
+      const paused = captchaPaused('support');
+      const ledger = Object.keys(state.supportLastSend || {}).length;
+      return {
+        // Auto ON with no learned template is the one state worth flagging:
+        // the feature will refuse every post until a hand-sent support is seen.
+        ok: true,
+        warn: (cfg.auto && !tpl) || (cfg.auto && paused),
+        detail: `auto ${cfg.auto ? 'ON' : 'OFF'}, tpl ${tpl ? state.supportTpl.action_name : 'SIN aprender (envia un apoyo a mano)'}` +
+          `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
+      };
+    }));
     out.push(preflightProbe('trade routes', () => {
       const all = Object.values(state.tradeRoutes || {});
       const enabled = all.filter(r => r && r.enabled !== false).length;
