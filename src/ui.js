@@ -950,6 +950,12 @@
           apoyo -<input type="number" data-cfg="threat-support" min="0" max="30" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
           umbral <input type="number" data-cfg="threat-threshold" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="Riesgo base por tipo de ataque (v4 5.4). Un saqueo y un asedio no son la misma amenaza. El umbral de esquiva, si se rellena, manda sobre el umbral general de arriba.">Esquiva:
+          umbral <input type="number" data-cfg="defense-risk-threshold" min="10" max="200" placeholder="auto" style="width:55px;background:#111;color:#cfc;border:1px solid #333"/>
+          CS +<input type="number" data-cfg="defense-risk-cs" min="0" max="120" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          saqueo <input type="number" data-cfg="defense-risk-raid" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          asedio <input type="number" data-cfg="defense-risk-siege" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+        </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Agrupa los entrantes de una ciudad en oleadas y dice si la CS tiene ventana de snipe. Solo lectura."><input type="checkbox" data-cfg="cs-snipe"/> Detector de contra-snipe</label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Snipe:
           agrupar oleadas <input type="number" data-cfg="cs-cluster-gap" min="60" max="21600" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>s
@@ -1514,6 +1520,12 @@
     setChk('[data-cfg=auto-favor]', state.autoFavor);
     setChk('[data-cfg=auto-wonder]', state.autoWonder);
     setChk('[data-cfg=cs-alert]', state.csAlert !== false);
+    { const dc = state.defenseCfg || {}, ar = dc.attackRisk || {};
+      const dt = sec.querySelector('[data-cfg=defense-risk-threshold]');
+      if (dt) dt.value = Number.isFinite(+dc.riskThresholdDodge) ? +dc.riskThresholdDodge : '';
+      setNum('[data-cfg=defense-risk-cs]', Number.isFinite(+ar.csBonus) ? +ar.csBonus : defenseThreatWeights().cs);
+      setNum('[data-cfg=defense-risk-raid]', riskForAttackType('raid'));
+      setNum('[data-cfg=defense-risk-siege]', riskForAttackType('siege')); }
     { const cs = csCfg();
       setChk('[data-cfg=cs-snipe]', cs.on);
       setNum('[data-cfg=cs-cluster-gap]', cs.clusterGapSec);
@@ -1776,6 +1788,19 @@
       state.defenseCfg = Object.assign({}, state.defenseCfg, { [key]: v });
       save(STORE.DEFENSE_CFG, state.defenseCfg);
     };
+    const saveAttackRisk = (key, v, lo, hi) => {
+      const ar = Object.assign({}, (state.defenseCfg || {}).attackRisk || {});
+      ar[key] = Math.max(lo, Math.min(hi, Number.isFinite(+v) ? +v : 0));
+      saveDefense('attackRisk', ar);
+    };
+    sec.querySelector('[data-cfg=defense-risk-threshold]')?.addEventListener('change', e => {
+      const raw = String(e.target.value || '').trim();
+      // Empty means "no override": the 5.3 weight applies again.
+      saveDefense('riskThresholdDodge', raw === '' ? null : Math.max(10, Math.min(200, +raw || 35)));
+    });
+    saveNum('[data-cfg=defense-risk-cs]', v => saveAttackRisk('csBonus', v, 0, 120));
+    saveNum('[data-cfg=defense-risk-raid]', v => saveAttackRisk('raid', v, 0, 100));
+    saveNum('[data-cfg=defense-risk-siege]', v => saveAttackRisk('siege', v, 0, 100));
     sec.querySelector('[data-cfg=cs-snipe]')?.addEventListener('change', e => saveDefense('snipeDetect', !!e.target.checked));
     saveNum('[data-cfg=cs-cluster-gap]', v => saveDefense('csClusterGapSec', Math.max(60, Math.min(21600, +v || 900))));
     saveNum('[data-cfg=cs-cover]', v => saveDefense('csCoverSec', Math.max(5, Math.min(900, +v || 180))));

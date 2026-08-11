@@ -164,6 +164,46 @@
   const THREAT_SUPPORT_PER = 5;
   const THREAT_SUPPORT_CAP = 20;
   const THREAT_SMART_THRESHOLD = 35;
+  // ===== Smart dodge typed risk (v4 plan 5.4) ================================
+  // The base risk used to be a single hasCs literal, so a raid and a siege
+  // scored identically. This is a per-attack-type base that FEEDS the same
+  // factor block plan 5.3 defined - one risk number, not two, or the panel and
+  // the decision would disagree about what the threat is.
+  const THREAT_TYPE_RISK = {
+    raid: 5,
+    attack: 15,
+    attack_sea: 15,
+    siege: 40,
+    revolt: 70,
+    colonize: 70,
+    take_over: 70,
+    conquer: 70,
+    portal_attack: 70,
+    _default: 25,
+  };
+  function riskForAttackType(type) {
+    const table = (state.defenseCfg && state.defenseCfg.attackRisk) || {};
+    const key = String(type || '').toLowerCase();
+    const raw = table[key] != null ? table[key] : (THREAT_TYPE_RISK[key] != null ? THREAT_TYPE_RISK[key] : null);
+    if (raw != null) {
+      const n = +raw;
+      return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : THREAT_TYPE_RISK._default;
+    }
+    // An UNKNOWN type gets the default, not zero: a movement whose type this
+    // build cannot name is not automatically harmless.
+    const d = +(table._default != null ? table._default : THREAT_TYPE_RISK._default);
+    return Number.isFinite(d) ? Math.max(0, Math.min(100, d)) : THREAT_TYPE_RISK._default;
+  }
+  // Plans 5.3 and 5.4 each define a dodge threshold. Rather than ship two knobs
+  // that silently fight, defenseCfg.riskThresholdDodge is an explicit OVERRIDE:
+  // set it and it wins, leave it unset and the 5.3 weight applies. Taking the
+  // min of the two would have made raising the threshold do nothing.
+  function dodgeRiskThreshold(weights) {
+    const n = +((state.defenseCfg || {}).riskThresholdDodge);
+    if (Number.isFinite(n)) return Math.max(10, Math.min(200, n));
+    const w = weights && +weights.smartThreshold;
+    return Number.isFinite(w) ? w : THREAT_SMART_THRESHOLD;
+  }
   // Band cut-points live here, not in state: changing them is a one-line edit
   // and they are part of the contract, not a user preference. `band` is a UI
   // bucket and `smartThreshold` is the action gate; they are deliberately
@@ -207,7 +247,7 @@
     return 'low';
   }
   function defenseFactorText(f) {
-    return `cs=${f.cs},eta=${f.eta},sim=${f.simultaneous},weak=${f.weak},support=${f.support}` + (f.snipe ? `,snipe=${f.snipe}` : '');
+    return `type=${f.type},cs=${f.cs},eta=${f.eta},sim=${f.simultaneous},weak=${f.weak},support=${f.support}` + (f.snipe ? `,snipe=${f.snipe}` : '');
   }
   function defenseAssessment(mov,incoming,weightsOver){
     const w=defenseThreatWeights(weightsOver);
@@ -218,6 +258,8 @@
     const evac=safe?dodgeSupportValidate(mov.dest,safe,evacUnits):{ok:false,why:'no-safe-town'};
     const militia=dodgeCanRaiseMilitia(mov.dest);
     const factors={
+      // Typed base: plan 5.4. A raid and a siege are not the same threat.
+      type: riskForAttackType(mov.type),
       cs: mov.hasCs?w.cs:0,
       // eta === null is UNREADABLE, not "far away": the branch is skipped
       // rather than scored either way.
@@ -232,14 +274,14 @@
     let snipe = null;
     try { snipe = (csWaveClusters(all) || []).find(t => String(t.dest) === String(mov.dest)) || null; } catch (_) {}
     factors.snipe = (snipe && snipe.verdict === 'covered') ? 10 : 0;
-    const raw=factors.cs+factors.eta+factors.simultaneous+factors.weak+factors.support+factors.snipe;
+    const raw=factors.type+factors.cs+factors.eta+factors.simultaneous+factors.weak+factors.support+factors.snipe;
     // Clamped so a hand-edited negative weight cannot produce a band the
     // consumer has no branch for.
     const risk=Math.max(0,Math.min(100,raw));
     return{eta,simultaneous,local,supports,safeTown:safe,evac,militia,risk,hasCs:!!mov.hasCs,snipe,
-      band:defenseThreatBand(risk,!!mov.hasCs),factors,weights:w,computedAt:Date.now()};
+      band:defenseThreatBand(risk,!!mov.hasCs),attackType:String(mov.type||''),factors,weights:w,computedAt:Date.now()};
   }
-  function defenseShouldDodge(mov,incoming){const mode=defenseMode(),a=defenseAssessment(mov,incoming);if(mode==='notify')return{yes:false,assessment:a,why:'notify'};if(mode==='safe')return{yes:true,assessment:a,why:'safe'};if(!state.defenseCfg.smartAuto)return{yes:false,assessment:a,why:'smart-auto-off'};if(!a.evac.ok)return{yes:false,assessment:a,why:'cannot-evacuate'};if(a.hasCs||a.risk>=a.weights.smartThreshold)return{yes:true,assessment:a,why:`risk band=${a.band} ${defenseFactorText(a.factors)}`};return{yes:false,assessment:a,why:'defend/observe'}}
+  function defenseShouldDodge(mov,incoming){const mode=defenseMode(),a=defenseAssessment(mov,incoming);if(mode==='notify')return{yes:false,assessment:a,why:'notify'};if(mode==='safe')return{yes:true,assessment:a,why:'safe'};if(!state.defenseCfg.smartAuto)return{yes:false,assessment:a,why:'smart-auto-off'};if(!a.evac.ok)return{yes:false,assessment:a,why:'cannot-evacuate'};if(a.hasCs||a.risk>=dodgeRiskThreshold(a.weights))return{yes:true,assessment:a,why:`risk band=${a.band} ${defenseFactorText(a.factors)}`};return{yes:false,assessment:a,why:'defend/observe'}}
   function dodgeReturnSave(){save(STORE.DODGE_RETURNS,state.dodgeReturns||{})}
   function dodgeReturnRecord(mov,from,dest,data){const id=String((data&&(data.command_id||data.commandId||data.movement_id||data.id))||'');if(!id)return;const arrival=+(mov&&mov.arrival)||0,margin=Math.max(0,+((state.defenseCfg&&state.defenseCfg.returnMarginSec)||120));const due=(arrival>1e12?arrival:arrival*1000)+margin*1000;state.dodgeReturns[id]={commandId:id,attackId:String(mov.id||''),from:String(from),dest:String(dest),attackArrival:arrival,dueAt:due||Date.now()+margin*1000,state:'waiting',createdAt:Date.now()};dodgeReturnSave()}
   function dodgeReturnTick(){if(!hostEnabled()||automationPaused({}))return;const now=Date.now();for(const[id,r]of Object.entries(state.dodgeReturns||{})){if(!r||r.state==='done'||r.state==='manual')continue;if(+r.dueAt>now)continue;const live=militaryOutgoingMovements().find(x=>String(x.commandId)===String(r.commandId));if(live&&state.cancelTpl){r.state='returning';dodgeReturnSave();militaryCancelCommand(r.commandId,{confirmed:true,automation:true},err=>{if(!err){r.state='done';r.doneAt=Date.now()}else if(err==='not-cancelable'){r.state='manual';r.why='support already arrived; withdraw manually'}else{r.state='waiting';r.lastError=String(err)}dodgeReturnSave()});}else{r.state='manual';r.why=live?'cancel template missing':'movement no longer cancelable/visible';dodgeReturnSave();gbLogT('dodge-return-'+id,60000,`dodge return ${id}: ${r.why}`)}}}

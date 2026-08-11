@@ -385,11 +385,39 @@
     const token=gbLock('militia',30000);if(!token){entry.militiaNextAt=now+2000;return}entry.militiaState='sending';dodgeQueueSave();
     dodgeRaiseMilitia(mov.dest,err=>{gbUnlock('militia',token);if(!err){entry.militiaState='raised';entry.militiaNextAt=0;gbLog(`militia: raised in ${mov.dest} (ETA ${fmtSec(eta)})`)}else if(err==='timeout_unknown'||err==='pending'){entry.militiaState='unknown';entry.militiaNextAt=Date.now() + 5 * 60 * 1000;gbLog(`militia: outcome unknown (${err}); retry bounded to 5min — militia consumes population and re-firing without resolution is unsafe`)}else{entry.militiaState='pending';entry.militiaNextAt=Date.now()+30000;gbLogT('militia-retry-'+mov.dest,30000,`militia: retry scheduled (${err})`)}dodgeQueueSave()});
   }
+  // Read-only decision trail (v4 plan 5.4). No post surface; it exists so the
+  // operator can see WHY a wave was or was not dodged after the fact.
+  const DEFENSE_HISTORY_MAX = 200;
+  const DEFENSE_HISTORY_TTL_MS = 3600000;
+  function defenseHistoryNote(mov, decision) {
+    if (!Array.isArray(state.defenseHistory)) state.defenseHistory = [];
+    const a = decision && decision.assessment;
+    const row = {
+      ts: Date.now(),
+      movId: String(mov.id),
+      attackType: (a && a.attackType) || String(mov.type || ''),
+      risk: a ? a.risk : null,
+      band: a ? a.band : null,
+      decision: decision && decision.yes ? 'dodge' : 'hold',
+      why: (decision && decision.why) || '',
+    };
+    const last = state.defenseHistory[state.defenseHistory.length - 1];
+    // One row per (movement, decision): the 5s loop re-evaluates constantly and
+    // an unfiltered append would bury the actual transitions.
+    if (last && last.movId === row.movId && last.decision === row.decision && last.band === row.band) return;
+    state.defenseHistory.push(row);
+    const cut = Date.now() - DEFENSE_HISTORY_TTL_MS;
+    while (state.defenseHistory.length && (state.defenseHistory.length > DEFENSE_HISTORY_MAX || state.defenseHistory[0].ts < cut)) {
+      state.defenseHistory.shift();
+    }
+    save(STORE.DEFENSE_HISTORY, state.defenseHistory);
+  }
   function dodgeTrySend(entry, mov) {
     if (entry.state === 'sent' || entry.state === 'sending') return;
     if (!state.autoDodge) { entry.state='notified'; return; }
     const incomingNow = dodgeIncomingMovements();
     const decision = defenseShouldDodge(mov, incomingNow);
+    try { defenseHistoryNote(mov, decision); } catch (_) {}
     if (!decision.yes) { entry.state='notified'; whyNote('defense',mov.dest,'no-dodge',`${decision.why}; risk=${decision.assessment.risk}`); gbLogT('defense-decide-'+mov.id,60000,`defense: ${mov.dest} no dodge (${decision.why}, risk=${decision.assessment.risk})`); return; }
     if (captchaPaused('dodge')) return;
     if (gbLocked('dodge')) {

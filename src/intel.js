@@ -650,6 +650,18 @@
         });
       }
     }
+    {
+      const hist = (state.defenseHistory || []).slice(-20).reverse();
+      if (hist.length) {
+        html += '\n=== Decisiones de defensa (ultimas 20) ===\n';
+        const byType = {};
+        hist.forEach(h => { const k = h.attackType || '?'; byType[k] = byType[k] || { dodge: 0, hold: 0 }; byType[k][h.decision]++; });
+        Object.entries(byType).forEach(([t, c]) => { html += `${t}: ${c.dodge} esquivadas / ${c.hold} mantenidas\n`; });
+        hist.slice(0, 6).forEach(h => {
+          html += `  ${new Date(h.ts).toLocaleTimeString()} ${h.attackType || '?'} riesgo ${h.risk == null ? '?' : h.risk} (${h.band || '?'}) -> ${h.decision}\n`;
+        });
+      }
+    }
     if (state.spyEnabled) {
       html += '\n=== Cola de espionaje ===\n';
       let ranked = [];

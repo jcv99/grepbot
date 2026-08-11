@@ -399,6 +399,7 @@
     defenseCfg: load(STORE.DEFENSE_CFG, { mode: 'notify', returnMarginSec: 120, smartAuto: false }),
     // v4 plan 3.2: HIGH-RISK. auto defaults OFF in code AND in shipped config -
     // no user may get a send-support-without-clicking path on first install.
+    defenseHistory: load(STORE.DEFENSE_HISTORY, []) || [],
     militiaCfg: load(STORE.MILITIA_CFG, { forceRisk: 50, skipRisk: 10, localOk: 400, graceMs: 180000 }),
     supportCfg: load(STORE.SUPPORT_CFG, { auto: false, confirmThreshold: 100, homeFloor: 0, shareDodgeFloor: true, minEtaSec: 120, noArmSec: 60, overlapSec: 30 }),
     supportLastSend: load(STORE.SUPPORT_LAST_SEND, {}) || {},

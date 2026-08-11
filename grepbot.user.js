@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.22.1
+// @version      4.23.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -185,6 +185,7 @@ const STORE = {
     NATIVE_QUEUE: 'grepbot:native-action-queue',
     PREDICT_CFG: 'grepbot:predict-cfg',
     DEFENSE_CFG: 'grepbot:defense-cfg',
+    DEFENSE_HISTORY: 'grepbot:defense-history',
     SUPPORT_CFG: 'grepbot:support-cfg',
     SUPPORT_LAST_SEND: 'grepbot:support-last-send',
     SUPPORT_TEMPLATE: 'grepbot:support-tpl',
@@ -241,7 +242,7 @@ const STORE = {
     STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES, STORE.SPY_CFG, STORE.SPY_HISTORY, STORE.SPY_TPL,
     STORE.CAPTCHA_GLOBAL_UNTIL,
     STORE.SERVER_COOLDOWN, STORE.QUEST_CLAIM_FAIL, STORE.DODGE_QUEUE,
-    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER,
+    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER,
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
     STORE.SPELL_COOLDOWN,
@@ -644,6 +645,7 @@ const STORE = {
     predictCfg: load(STORE.PREDICT_CFG, { horizonHours: 6 }),
     defenseCfg: load(STORE.DEFENSE_CFG, { mode: 'notify', returnMarginSec: 120, smartAuto: false }),
 
+    defenseHistory: load(STORE.DEFENSE_HISTORY, []) || [],
     militiaCfg: load(STORE.MILITIA_CFG, { forceRisk: 50, skipRisk: 10, localOk: 400, graceMs: 180000 }),
     supportCfg: load(STORE.SUPPORT_CFG, { auto: false, confirmThreshold: 100, homeFloor: 0, shareDodgeFloor: true, minEtaSec: 120, noArmSec: 60, overlapSec: 30 }),
     supportLastSend: load(STORE.SUPPORT_LAST_SEND, {}) || {},
@@ -11899,6 +11901,38 @@ const STORE = {
   const THREAT_SUPPORT_CAP = 20;
   const THREAT_SMART_THRESHOLD = 35;
 
+  const THREAT_TYPE_RISK = {
+    raid: 5,
+    attack: 15,
+    attack_sea: 15,
+    siege: 40,
+    revolt: 70,
+    colonize: 70,
+    take_over: 70,
+    conquer: 70,
+    portal_attack: 70,
+    _default: 25,
+  };
+  function riskForAttackType(type) {
+    const table = (state.defenseCfg && state.defenseCfg.attackRisk) || {};
+    const key = String(type || '').toLowerCase();
+    const raw = table[key] != null ? table[key] : (THREAT_TYPE_RISK[key] != null ? THREAT_TYPE_RISK[key] : null);
+    if (raw != null) {
+      const n = +raw;
+      return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : THREAT_TYPE_RISK._default;
+    }
+
+    const d = +(table._default != null ? table._default : THREAT_TYPE_RISK._default);
+    return Number.isFinite(d) ? Math.max(0, Math.min(100, d)) : THREAT_TYPE_RISK._default;
+  }
+
+  function dodgeRiskThreshold(weights) {
+    const n = +((state.defenseCfg || {}).riskThresholdDodge);
+    if (Number.isFinite(n)) return Math.max(10, Math.min(200, n));
+    const w = weights && +weights.smartThreshold;
+    return Number.isFinite(w) ? w : THREAT_SMART_THRESHOLD;
+  }
+
   const THREAT_BAND_HIGH = 45;
   const THREAT_BAND_MED = 20;
 
@@ -11933,7 +11967,7 @@ const STORE = {
     return 'low';
   }
   function defenseFactorText(f) {
-    return `cs=${f.cs},eta=${f.eta},sim=${f.simultaneous},weak=${f.weak},support=${f.support}` + (f.snipe ? `,snipe=${f.snipe}` : '');
+    return `type=${f.type},cs=${f.cs},eta=${f.eta},sim=${f.simultaneous},weak=${f.weak},support=${f.support}` + (f.snipe ? `,snipe=${f.snipe}` : '');
   }
   function defenseAssessment(mov,incoming,weightsOver){
     const w=defenseThreatWeights(weightsOver);
@@ -11944,6 +11978,8 @@ const STORE = {
     const evac=safe?dodgeSupportValidate(mov.dest,safe,evacUnits):{ok:false,why:'no-safe-town'};
     const militia=dodgeCanRaiseMilitia(mov.dest);
     const factors={
+
+      type: riskForAttackType(mov.type),
       cs: mov.hasCs?w.cs:0,
 
       eta:(eta!=null&&eta<THREAT_ETA15_SEC)?w.eta15:0,
@@ -11955,13 +11991,13 @@ const STORE = {
     let snipe = null;
     try { snipe = (csWaveClusters(all) || []).find(t => String(t.dest) === String(mov.dest)) || null; } catch (_) {}
     factors.snipe = (snipe && snipe.verdict === 'covered') ? 10 : 0;
-    const raw=factors.cs+factors.eta+factors.simultaneous+factors.weak+factors.support+factors.snipe;
+    const raw=factors.type+factors.cs+factors.eta+factors.simultaneous+factors.weak+factors.support+factors.snipe;
 
     const risk=Math.max(0,Math.min(100,raw));
     return{eta,simultaneous,local,supports,safeTown:safe,evac,militia,risk,hasCs:!!mov.hasCs,snipe,
-      band:defenseThreatBand(risk,!!mov.hasCs),factors,weights:w,computedAt:Date.now()};
+      band:defenseThreatBand(risk,!!mov.hasCs),attackType:String(mov.type||''),factors,weights:w,computedAt:Date.now()};
   }
-  function defenseShouldDodge(mov,incoming){const mode=defenseMode(),a=defenseAssessment(mov,incoming);if(mode==='notify')return{yes:false,assessment:a,why:'notify'};if(mode==='safe')return{yes:true,assessment:a,why:'safe'};if(!state.defenseCfg.smartAuto)return{yes:false,assessment:a,why:'smart-auto-off'};if(!a.evac.ok)return{yes:false,assessment:a,why:'cannot-evacuate'};if(a.hasCs||a.risk>=a.weights.smartThreshold)return{yes:true,assessment:a,why:`risk band=${a.band} ${defenseFactorText(a.factors)}`};return{yes:false,assessment:a,why:'defend/observe'}}
+  function defenseShouldDodge(mov,incoming){const mode=defenseMode(),a=defenseAssessment(mov,incoming);if(mode==='notify')return{yes:false,assessment:a,why:'notify'};if(mode==='safe')return{yes:true,assessment:a,why:'safe'};if(!state.defenseCfg.smartAuto)return{yes:false,assessment:a,why:'smart-auto-off'};if(!a.evac.ok)return{yes:false,assessment:a,why:'cannot-evacuate'};if(a.hasCs||a.risk>=dodgeRiskThreshold(a.weights))return{yes:true,assessment:a,why:`risk band=${a.band} ${defenseFactorText(a.factors)}`};return{yes:false,assessment:a,why:'defend/observe'}}
   function dodgeReturnSave(){save(STORE.DODGE_RETURNS,state.dodgeReturns||{})}
   function dodgeReturnRecord(mov,from,dest,data){const id=String((data&&(data.command_id||data.commandId||data.movement_id||data.id))||'');if(!id)return;const arrival=+(mov&&mov.arrival)||0,margin=Math.max(0,+((state.defenseCfg&&state.defenseCfg.returnMarginSec)||120));const due=(arrival>1e12?arrival:arrival*1000)+margin*1000;state.dodgeReturns[id]={commandId:id,attackId:String(mov.id||''),from:String(from),dest:String(dest),attackArrival:arrival,dueAt:due||Date.now()+margin*1000,state:'waiting',createdAt:Date.now()};dodgeReturnSave()}
   function dodgeReturnTick(){if(!hostEnabled()||automationPaused({}))return;const now=Date.now();for(const[id,r]of Object.entries(state.dodgeReturns||{})){if(!r||r.state==='done'||r.state==='manual')continue;if(+r.dueAt>now)continue;const live=militaryOutgoingMovements().find(x=>String(x.commandId)===String(r.commandId));if(live&&state.cancelTpl){r.state='returning';dodgeReturnSave();militaryCancelCommand(r.commandId,{confirmed:true,automation:true},err=>{if(!err){r.state='done';r.doneAt=Date.now()}else if(err==='not-cancelable'){r.state='manual';r.why='support already arrived; withdraw manually'}else{r.state='waiting';r.lastError=String(err)}dodgeReturnSave()});}else{r.state='manual';r.why=live?'cancel template missing':'movement no longer cancelable/visible';dodgeReturnSave();gbLogT('dodge-return-'+id,60000,`dodge return ${id}: ${r.why}`)}}}
@@ -12348,11 +12384,37 @@ const STORE = {
     const token=gbLock('militia',30000);if(!token){entry.militiaNextAt=now+2000;return}entry.militiaState='sending';dodgeQueueSave();
     dodgeRaiseMilitia(mov.dest,err=>{gbUnlock('militia',token);if(!err){entry.militiaState='raised';entry.militiaNextAt=0;gbLog(`militia: raised in ${mov.dest} (ETA ${fmtSec(eta)})`)}else if(err==='timeout_unknown'||err==='pending'){entry.militiaState='unknown';entry.militiaNextAt=Date.now() + 5 * 60 * 1000;gbLog(`militia: outcome unknown (${err}); retry bounded to 5min \u2014 militia consumes population and re-firing without resolution is unsafe`)}else{entry.militiaState='pending';entry.militiaNextAt=Date.now()+30000;gbLogT('militia-retry-'+mov.dest,30000,`militia: retry scheduled (${err})`)}dodgeQueueSave()});
   }
+
+  const DEFENSE_HISTORY_MAX = 200;
+  const DEFENSE_HISTORY_TTL_MS = 3600000;
+  function defenseHistoryNote(mov, decision) {
+    if (!Array.isArray(state.defenseHistory)) state.defenseHistory = [];
+    const a = decision && decision.assessment;
+    const row = {
+      ts: Date.now(),
+      movId: String(mov.id),
+      attackType: (a && a.attackType) || String(mov.type || ''),
+      risk: a ? a.risk : null,
+      band: a ? a.band : null,
+      decision: decision && decision.yes ? 'dodge' : 'hold',
+      why: (decision && decision.why) || '',
+    };
+    const last = state.defenseHistory[state.defenseHistory.length - 1];
+
+    if (last && last.movId === row.movId && last.decision === row.decision && last.band === row.band) return;
+    state.defenseHistory.push(row);
+    const cut = Date.now() - DEFENSE_HISTORY_TTL_MS;
+    while (state.defenseHistory.length && (state.defenseHistory.length > DEFENSE_HISTORY_MAX || state.defenseHistory[0].ts < cut)) {
+      state.defenseHistory.shift();
+    }
+    save(STORE.DEFENSE_HISTORY, state.defenseHistory);
+  }
   function dodgeTrySend(entry, mov) {
     if (entry.state === 'sent' || entry.state === 'sending') return;
     if (!state.autoDodge) { entry.state='notified'; return; }
     const incomingNow = dodgeIncomingMovements();
     const decision = defenseShouldDodge(mov, incomingNow);
+    try { defenseHistoryNote(mov, decision); } catch (_) {}
     if (!decision.yes) { entry.state='notified'; whyNote('defense',mov.dest,'no-dodge',`${decision.why}; risk=${decision.assessment.risk}`); gbLogT('defense-decide-'+mov.id,60000,`defense: ${mov.dest} no dodge (${decision.why}, risk=${decision.assessment.risk})`); return; }
     if (captchaPaused('dodge')) return;
     if (gbLocked('dodge')) {
@@ -14210,6 +14272,18 @@ const STORE = {
         html += '\n=== Contra-inteligencia (quien me espia) ===\n';
         ci.slice(0, 5).forEach(r => {
           html += `${r.name}: ${r.reports} espionaje(s) 24h sobre ${r.distinctTargets} ciudad(es) - ultimo ${new Date(r.last).toLocaleString()}\n`;
+        });
+      }
+    }
+    {
+      const hist = (state.defenseHistory || []).slice(-20).reverse();
+      if (hist.length) {
+        html += '\n=== Decisiones de defensa (ultimas 20) ===\n';
+        const byType = {};
+        hist.forEach(h => { const k = h.attackType || '?'; byType[k] = byType[k] || { dodge: 0, hold: 0 }; byType[k][h.decision]++; });
+        Object.entries(byType).forEach(([t, c]) => { html += `${t}: ${c.dodge} esquivadas / ${c.hold} mantenidas\n`; });
+        hist.slice(0, 6).forEach(h => {
+          html += `  ${new Date(h.ts).toLocaleTimeString()} ${h.attackType || '?'} riesgo ${h.risk == null ? '?' : h.risk} (${h.band || '?'}) -> ${h.decision}\n`;
         });
       }
     }
@@ -19140,6 +19214,12 @@ const STORE = {
           apoyo -<input type="number" data-cfg="threat-support" min="0" max="30" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
           umbral <input type="number" data-cfg="threat-threshold" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
         </label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="Riesgo base por tipo de ataque (v4 5.4). Un saqueo y un asedio no son la misma amenaza. El umbral de esquiva, si se rellena, manda sobre el umbral general de arriba.">Esquiva:
+          umbral <input type="number" data-cfg="defense-risk-threshold" min="10" max="200" placeholder="auto" style="width:55px;background:#111;color:#cfc;border:1px solid #333"/>
+          CS +<input type="number" data-cfg="defense-risk-cs" min="0" max="120" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          saqueo <input type="number" data-cfg="defense-risk-raid" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+          asedio <input type="number" data-cfg="defense-risk-siege" min="0" max="100" style="width:45px;background:#111;color:#cfc;border:1px solid #333"/>
+        </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Agrupa los entrantes de una ciudad en oleadas y dice si la CS tiene ventana de snipe. Solo lectura."><input type="checkbox" data-cfg="cs-snipe"/> Detector de contra-snipe</label>
         <label style="margin-left:12px;flex-wrap:wrap;font-size:10px">Snipe:
           agrupar oleadas <input type="number" data-cfg="cs-cluster-gap" min="60" max="21600" style="width:60px;background:#111;color:#cfc;border:1px solid #333"/>s
@@ -19703,6 +19783,12 @@ const STORE = {
     setChk('[data-cfg=auto-favor]', state.autoFavor);
     setChk('[data-cfg=auto-wonder]', state.autoWonder);
     setChk('[data-cfg=cs-alert]', state.csAlert !== false);
+    { const dc = state.defenseCfg || {}, ar = dc.attackRisk || {};
+      const dt = sec.querySelector('[data-cfg=defense-risk-threshold]');
+      if (dt) dt.value = Number.isFinite(+dc.riskThresholdDodge) ? +dc.riskThresholdDodge : '';
+      setNum('[data-cfg=defense-risk-cs]', Number.isFinite(+ar.csBonus) ? +ar.csBonus : defenseThreatWeights().cs);
+      setNum('[data-cfg=defense-risk-raid]', riskForAttackType('raid'));
+      setNum('[data-cfg=defense-risk-siege]', riskForAttackType('siege')); }
     { const cs = csCfg();
       setChk('[data-cfg=cs-snipe]', cs.on);
       setNum('[data-cfg=cs-cluster-gap]', cs.clusterGapSec);
@@ -19964,6 +20050,19 @@ const STORE = {
       state.defenseCfg = Object.assign({}, state.defenseCfg, { [key]: v });
       save(STORE.DEFENSE_CFG, state.defenseCfg);
     };
+    const saveAttackRisk = (key, v, lo, hi) => {
+      const ar = Object.assign({}, (state.defenseCfg || {}).attackRisk || {});
+      ar[key] = Math.max(lo, Math.min(hi, Number.isFinite(+v) ? +v : 0));
+      saveDefense('attackRisk', ar);
+    };
+    sec.querySelector('[data-cfg=defense-risk-threshold]')?.addEventListener('change', e => {
+      const raw = String(e.target.value || '').trim();
+
+      saveDefense('riskThresholdDodge', raw === '' ? null : Math.max(10, Math.min(200, +raw || 35)));
+    });
+    saveNum('[data-cfg=defense-risk-cs]', v => saveAttackRisk('csBonus', v, 0, 120));
+    saveNum('[data-cfg=defense-risk-raid]', v => saveAttackRisk('raid', v, 0, 100));
+    saveNum('[data-cfg=defense-risk-siege]', v => saveAttackRisk('siege', v, 0, 100));
     sec.querySelector('[data-cfg=cs-snipe]')?.addEventListener('change', e => saveDefense('snipeDetect', !!e.target.checked));
     saveNum('[data-cfg=cs-cluster-gap]', v => saveDefense('csClusterGapSec', Math.max(60, Math.min(21600, +v || 900))));
     saveNum('[data-cfg=cs-cover]', v => saveDefense('csCoverSec', Math.max(5, Math.min(900, +v || 180))));
