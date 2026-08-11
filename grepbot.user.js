@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.44.16
+// @version      4.44.17
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -22914,6 +22914,15 @@ const STORE = {
 
   const REPLAY_WINDOWS = { '1h': 3600000, '24h': 86400000, '7d': 604800000 };
   let replayWindow = '24h';
+
+  function replayButton(label, fn, disabled) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = label;
+    b.style.cssText = 'background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);font-size:10px;padding:1px 6px;cursor:pointer';
+    b.disabled = !!disabled;
+    b.addEventListener('click', () => { fn(); renderReplay(); });
+    return b;
+  }
   function renderReplay() {
     const pane = panel && panel.querySelector('.jrn-pane');
     const list = pane && pane.querySelector('.jrn-list');
@@ -22932,17 +22941,9 @@ const STORE = {
       b.addEventListener('click', () => { replayWindow = w; state.replayCursor = 0; renderReplay(); });
       bar.appendChild(b);
     }
-    const mk = (label, fn) => {
-      const b = document.createElement('button');
-      b.type = 'button'; b.textContent = label;
-      b.style.cssText = 'background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);font-size:10px;padding:1px 6px;cursor:pointer';
-      b.disabled = !rows.length;
-      b.addEventListener('click', () => { fn(); renderReplay(); });
-      return b;
-    };
-    bar.appendChild(mk('<', () => { state.replayCursor = Math.max(0, cur - 1); }));
-    bar.appendChild(mk('>', () => { state.replayCursor = Math.min(rows.length - 1, cur + 1); }));
-    bar.appendChild(mk('fin', () => { state.replayCursor = Math.max(0, rows.length - 1); }));
+    bar.appendChild(replayButton('<', () => { state.replayCursor = Math.max(0, cur - 1); }, !rows.length));
+    bar.appendChild(replayButton('>', () => { state.replayCursor = Math.min(rows.length - 1, cur + 1); }, !rows.length));
+    bar.appendChild(replayButton('fin', () => { state.replayCursor = Math.max(0, rows.length - 1); }, !rows.length));
     const pos = document.createElement('span');
     pos.style.color = 'var(--gb-fg-mute)';
     pos.textContent = rows.length ? `${cur + 1}/${rows.length}` : 'sin filas en la ventana';
