@@ -123,6 +123,71 @@
     return 2; // conservative base-game queue only
   }
 
+  // ===== Research path advisor (v4 plan 2.10) ================================
+  // Read-only. Feeds verified definitions + live town state into the pure graph
+  // helpers and returns a REORDERING of the caller's own target list.
+  function researchHaveSet(info, queuedIds) {
+    const have = new Set();
+    for (const k of Object.keys((info && info.techs) || {})) if (info.techs[k]) have.add(String(k));
+    for (const q of (queuedIds || [])) have.add(String(q));
+    return have;
+  }
+  function researchAdviseOrder(townId, ordered, targets, info) {
+    try {
+      const graph = researchGraphBuild();
+      if (!graph.known) {
+        gbLogT('research-graph-blind', 600000, `research graph blind: ${graph.why}`);
+        return ordered;
+      }
+      // Only trust the queue when it was actually read: treating an unread
+      // queue as empty is fine (nothing is claimed), treating it as authoritative
+      // would mark techs as satisfied that may not be queued at all.
+      const queued = (info && info.ordersKnown ? info.orders : []).map(researchOrderTechId).filter(x => x != null);
+      const have = researchHaveSet(info, queued);
+      const idx = t => (+((targets || {})[t] || {}).order || 0);
+      const ranked = researchGraphRank(graph, ordered, have, idx);
+      if (graph.blind) gbLogT('research-graph-partial', 600000, `research graph partial: ${graph.why}`);
+      return ranked.map(r => r.tech);
+    } catch (e) {
+      gbLogT('research-graph-err', 600000, 'research graph: ' + String(e).slice(0, 60));
+      return ordered;
+    }
+  }
+  // {known, blind, target, missing:[{id,label}], why} for the panel. Never
+  // returns an empty path to mean "unreadable" - `known:false` says so.
+  function researchPathFor(townId, target) {
+    const graph = researchGraphBuild();
+    if (!graph.known) return { known: false, blind: true, target, missing: [], why: graph.why };
+    const info = researchTownTechs(townId);
+    if (!info) return { known: false, blind: true, target, missing: [], why: 'town unreadable' };
+    if (!info.techs) return { known: false, blind: true, target, missing: [], why: 'researched flags unreadable' };
+    const queued = (info.ordersKnown ? info.orders : []).map(researchOrderTechId).filter(x => x != null);
+    const c = researchGraphClosure(graph, target, researchHaveSet(info, queued));
+    return {
+      known: !c.blind,
+      blind: c.blind,
+      target,
+      ordersKnown: !!info.ordersKnown,
+      missing: c.missing.map(id => ({ id, label: researchLabel(id) || id })),
+      why: c.why || (c.blind ? 'camino no legible' : ''),
+    };
+  }
+  // The next target the advisor would rank first for this town, or null.
+  function researchNextTargetFor(townId) {
+    try {
+      const info = researchTownTechs(townId);
+      if (!info) return null;
+      // Read state directly: researchEnsureTargets() SAVES, and this is called
+      // from a render path that must not write storage.
+      const targets = goalEffectiveResearchTargets(townId, state.researchTargets || {});
+      const ordered = Object.keys(targets)
+        .filter(t => targets[t] && targets[t].tgt && !(info.techs || {})[t])
+        .sort((a, b) => (+targets[a].order || 0) - (+targets[b].order || 0));
+      if (!ordered.length) return null;
+      return researchAdviseOrder(townId, ordered, targets, info)[0] || null;
+    } catch (_) { return null; }
+  }
+
   function researchLabel(key) {
     try {
       const uw = gameUw();
@@ -448,7 +513,7 @@
     for (const tid of townIds) {
       if (nativeQueueIsFifo(tid, 'research')) continue;
       const targets = goalEffectiveResearchTargets(tid, globalTargets);
-      const ordered = Object.keys(targets).sort((a, b) => (+targets[a].order || 0) - (+targets[b].order || 0));
+      let ordered = Object.keys(targets).sort((a, b) => (+targets[a].order || 0) - (+targets[b].order || 0));
       const info = researchTownTechs(tid);
       if (!info || !(info.academy > 0)) continue;
       // Unknown real queue: every "already queued" / "queue full" gate below
@@ -465,6 +530,11 @@
         const id = researchOrderTechId(o);
         if (id != null) queued.add(String(id));
       });
+      // v4 plan 2.10: the graph only RE-RANKS the targets the user already
+      // configured. It never adds a tech, never enqueues a prerequisite, and a
+      // blind path sorts last so an unreadable graph can only ever cost this
+      // tick its ordering preference - not correctness.
+      ordered = researchAdviseOrder(tid, ordered, targets, info);
       for (const tech of ordered) {
         if (info.techs[tech]) continue;
         if (queued.has(String(tech))) continue;

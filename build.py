@@ -51,6 +51,7 @@ MODULES = [
     'trade.js',
     'transport.js',
     'rural.js',
+    'research-graph.js',
     'research.js',
     'alerts.js',
     'merchant.js',

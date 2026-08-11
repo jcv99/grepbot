@@ -190,6 +190,11 @@
           : `${n} informes, ${withVerdict} con resultado` + (n < 5 ? ' - muestra pequena' : ''),
       };
     }));
+    out.push(preflightProbe('research graph', () => {
+      const g = researchGraphBuild();
+      if (!g.known) return { ok: false, detail: g.why };
+      return { ok: true, warn: !!g.blind, detail: `${g.ids.length} tecnologias leidas` + (g.blind ? ' - ' + g.why : '') };
+    }));
     out.push(preflightProbe('optimal build order', () => {
       if (state.abOptimalOrderOn === false) return { ok: true, detail: 'desactivado en Config' };
       const ids = (townsFromGame() || []).map(t => t.id);

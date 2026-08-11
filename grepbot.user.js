@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.3.2
+// @version      4.4.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -9202,6 +9202,106 @@ const STORE = {
   }
 
   const RESEARCH_CS_FAST = ['booty', 'ceramics', 'architecture', 'crane', 'shipwright', 'colonize_ship', 'mathematics'];
+
+  const RG_MAX_DEPTH = 60;
+
+  function researchGraphDeps(def) {
+    if (!def || typeof def !== 'object') return null;
+    const raw = def.research_dependencies !== undefined ? def.research_dependencies
+      : (def.dependencies !== undefined ? def.dependencies : undefined);
+    if (raw === undefined) return [];
+    if (raw === null) return null;
+    let list;
+    if (Array.isArray(raw)) list = raw;
+    else if (typeof raw === 'object') list = Object.keys(raw).filter(k => raw[k]);
+    else return null;
+    const out = [];
+    for (const d of list) {
+      const id = typeof d === 'string' ? d : (d && (d.id || d.research_id || d.research_type));
+      if (!id) return null;
+      out.push(String(id));
+    }
+    return out;
+  }
+
+  let _rgMemo = { at: 0, v: null };
+  const RG_MEMO_MS = 60000;
+  function researchGraphBuild() {
+    if (_rgMemo.v && Date.now() - _rgMemo.at < RG_MEMO_MS) return _rgMemo.v;
+    const built = researchGraphBuildRaw();
+
+    if (built.known) _rgMemo = { at: Date.now(), v: built };
+    return built;
+  }
+  function researchGraphBuildRaw() {
+    let defs = null;
+    try { defs = gameUw().GameData && gameUw().GameData.researches; } catch (_) {}
+    if (!defs || typeof defs !== 'object') {
+      return { known: false, blind: true, ids: [], edges: {}, why: 'GameData.researches unreadable' };
+    }
+    const ids = Object.keys(defs);
+    if (!ids.length) return { known: false, blind: true, ids: [], edges: {}, why: 'GameData.researches empty' };
+    const edges = Object.create(null);
+    let partial = 0;
+    for (const id of ids) {
+      const deps = researchGraphDeps(defs[id]);
+      if (deps === null) { edges[id] = null; partial++; continue; }
+
+      edges[id] = deps;
+      if (deps.some(d => !Object.prototype.hasOwnProperty.call(defs, d))) partial++;
+    }
+    return {
+      known: true,
+      blind: partial > 0,
+      ids,
+      edges,
+      why: partial ? `${partial} definition(s) with unreadable dependencies` : '',
+    };
+  }
+
+  function researchGraphClosure(graph, target, have) {
+    if (!graph || !graph.known) return { ok: false, blind: true, order: [], missing: [], why: (graph && graph.why) || 'graph unreadable' };
+    if (!Object.prototype.hasOwnProperty.call(graph.edges, target)) {
+      return { ok: false, blind: false, order: [], missing: [], why: `tech unknown: ${target}` };
+    }
+    const done = have instanceof Set ? have : new Set(Object.keys(have || {}).filter(k => (have || {})[k]));
+    const order = [];
+    const seen = new Set();
+    const stack = new Set();
+    let blind = false, why = '';
+    const visit = (id, depth) => {
+      if (depth > RG_MAX_DEPTH) { blind = true; why = why || 'chain-too-long'; return false; }
+      if (done.has(id) || seen.has(id)) return true;
+      if (stack.has(id)) { blind = true; why = why || `dependency-cycle at ${id}`; return false; }
+      const deps = graph.edges[id];
+      if (deps === null || deps === undefined) { blind = true; why = why || `dependencies unreadable for ${id}`; return false; }
+      for (const d of deps) {
+        if (!Object.prototype.hasOwnProperty.call(graph.edges, d)) { blind = true; why = why || `unresolvable prerequisite ${d} of ${id}`; return false; }
+      }
+      stack.add(id);
+      for (const d of deps) if (!visit(d, depth + 1)) { stack.delete(id); return false; }
+      stack.delete(id);
+      seen.add(id);
+      order.push(id);
+      return true;
+    };
+    const ok = visit(String(target), 0);
+
+    const missing = order.slice(0, Math.max(0, order.length - 1));
+    return { ok: ok && !blind, blind, order, missing, why };
+  }
+
+  function researchGraphRank(graph, targets, have, orderOf) {
+    const idx = typeof orderOf === 'function' ? orderOf : (() => 0);
+    return (targets || []).map(t => {
+      const c = researchGraphClosure(graph, t, have);
+      return { tech: t, missing: c.missing.length, blind: c.blind || !c.ok, order: +idx(t) || 0, closure: c };
+    }).sort((a, b) =>
+      (a.blind - b.blind) ||
+      (a.missing - b.missing) ||
+      (a.order - b.order) ||
+      String(a.tech).localeCompare(String(b.tech)));
+  }
   function researchEnsureTargets() {
     if (state.researchTargets && typeof state.researchTargets === 'object') return state.researchTargets;
     const t = {};
@@ -9306,6 +9406,64 @@ const STORE = {
       if (p && p.isAdvisorActivated && p.isAdvisorActivated('curator')) return 7;
     } catch (_) {}
     return 2;
+  }
+
+  function researchHaveSet(info, queuedIds) {
+    const have = new Set();
+    for (const k of Object.keys((info && info.techs) || {})) if (info.techs[k]) have.add(String(k));
+    for (const q of (queuedIds || [])) have.add(String(q));
+    return have;
+  }
+  function researchAdviseOrder(townId, ordered, targets, info) {
+    try {
+      const graph = researchGraphBuild();
+      if (!graph.known) {
+        gbLogT('research-graph-blind', 600000, `research graph blind: ${graph.why}`);
+        return ordered;
+      }
+
+      const queued = (info && info.ordersKnown ? info.orders : []).map(researchOrderTechId).filter(x => x != null);
+      const have = researchHaveSet(info, queued);
+      const idx = t => (+((targets || {})[t] || {}).order || 0);
+      const ranked = researchGraphRank(graph, ordered, have, idx);
+      if (graph.blind) gbLogT('research-graph-partial', 600000, `research graph partial: ${graph.why}`);
+      return ranked.map(r => r.tech);
+    } catch (e) {
+      gbLogT('research-graph-err', 600000, 'research graph: ' + String(e).slice(0, 60));
+      return ordered;
+    }
+  }
+
+  function researchPathFor(townId, target) {
+    const graph = researchGraphBuild();
+    if (!graph.known) return { known: false, blind: true, target, missing: [], why: graph.why };
+    const info = researchTownTechs(townId);
+    if (!info) return { known: false, blind: true, target, missing: [], why: 'town unreadable' };
+    if (!info.techs) return { known: false, blind: true, target, missing: [], why: 'researched flags unreadable' };
+    const queued = (info.ordersKnown ? info.orders : []).map(researchOrderTechId).filter(x => x != null);
+    const c = researchGraphClosure(graph, target, researchHaveSet(info, queued));
+    return {
+      known: !c.blind,
+      blind: c.blind,
+      target,
+      ordersKnown: !!info.ordersKnown,
+      missing: c.missing.map(id => ({ id, label: researchLabel(id) || id })),
+      why: c.why || (c.blind ? 'camino no legible' : ''),
+    };
+  }
+
+  function researchNextTargetFor(townId) {
+    try {
+      const info = researchTownTechs(townId);
+      if (!info) return null;
+
+      const targets = goalEffectiveResearchTargets(townId, state.researchTargets || {});
+      const ordered = Object.keys(targets)
+        .filter(t => targets[t] && targets[t].tgt && !(info.techs || {})[t])
+        .sort((a, b) => (+targets[a].order || 0) - (+targets[b].order || 0));
+      if (!ordered.length) return null;
+      return researchAdviseOrder(townId, ordered, targets, info)[0] || null;
+    } catch (_) { return null; }
   }
 
   function researchLabel(key) {
@@ -9593,7 +9751,7 @@ const STORE = {
     for (const tid of townIds) {
       if (nativeQueueIsFifo(tid, 'research')) continue;
       const targets = goalEffectiveResearchTargets(tid, globalTargets);
-      const ordered = Object.keys(targets).sort((a, b) => (+targets[a].order || 0) - (+targets[b].order || 0));
+      let ordered = Object.keys(targets).sort((a, b) => (+targets[a].order || 0) - (+targets[b].order || 0));
       const info = researchTownTechs(tid);
       if (!info || !(info.academy > 0)) continue;
 
@@ -9609,6 +9767,8 @@ const STORE = {
         const id = researchOrderTechId(o);
         if (id != null) queued.add(String(id));
       });
+
+      ordered = researchAdviseOrder(tid, ordered, targets, info);
       for (const tech of ordered) {
         if (info.techs[tech]) continue;
         if (queued.has(String(tech))) continue;
@@ -14789,6 +14949,11 @@ const STORE = {
           : `${n} informes, ${withVerdict} con resultado` + (n < 5 ? ' - muestra pequena' : ''),
       };
     }));
+    out.push(preflightProbe('research graph', () => {
+      const g = researchGraphBuild();
+      if (!g.known) return { ok: false, detail: g.why };
+      return { ok: true, warn: !!g.blind, detail: `${g.ids.length} tecnologias leidas` + (g.blind ? ' - ' + g.why : '') };
+    }));
     out.push(preflightProbe('optimal build order', () => {
       if (state.abOptimalOrderOn === false) return { ok: true, detail: 'desactivado en Config' };
       const ids = (townsFromGame() || []).map(t => t.id);
@@ -16394,6 +16559,7 @@ const STORE = {
         <label style="margin-left:12px">Max level <input type="number" data-cfg="rural-level-max" min="1" max="6" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-research"/> Auto-research</label>
         <button data-cfg="research-csfast" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Cargar CS-fast de investigacion</button>
+        <div class="research-path" style="margin-left:12px;font-size:9px;color:#8ac;white-space:pre-wrap"></div>
         <div style="border-top:1px solid #333;padding-top:6px;color:#f5a623;font-size:10px">QoL / survival</div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="pause-activity"/> Pause when I am active</label>
         <label style="margin-left:12px">Pause min <input type="number" data-cfg="pause-ms" min="1" max="60" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
@@ -16788,6 +16954,7 @@ const STORE = {
       const ct = sec.querySelector('[data-cfg=cave-thresh]'); if (ct) ct.value = state.caveThreshPct;
       const dr = sec.querySelector('[data-cfg=dry-run]'); if (dr) dr.checked = !!state.dryRun;
       const oa = sec.querySelector('[data-cfg=orch-adaptive]'); if (oa) oa.checked = state.orchAdaptive !== false;
+      renderResearchPath(sec);
       const od = sec.querySelector('[data-cfg=orch-deadlock]'); if (od) od.checked = state.orchDeadlockResolve !== false;
       const er = sec.querySelector('[data-cfg=export-redact]'); if (er) er.checked = state.exportRedact !== false;
       renderCaveTowns();
@@ -17475,6 +17642,30 @@ const STORE = {
       return out;
     });
     return { findings, farms: dump.farms };
+  }
+
+  function renderResearchPath(sec) {
+    const box = (sec || panel) && (sec || panel).querySelector('.research-path');
+    if (!box) return;
+    const ids = (townsFromGame() || []).map(t => t.id);
+    const lines = [];
+    for (const tid of ids.slice(0, 6)) {
+      let target = null;
+      try { target = researchNextTargetFor(tid); } catch (_) {}
+      if (!target) { lines.push(`${tid}: sin objetivo pendiente`); continue; }
+      const p = researchPathFor(tid, target);
+      const label = researchLabel(target) || target;
+      if (!p.known) { lines.push(`${tid}: ${label} - camino no legible (${p.why})`); continue; }
+
+      const caveat = p.ordersKnown === false ? ' [cola real no leida]' : '';
+      lines.push(`${tid}: ${label}` + (p.missing.length
+        ? ' <- ' + p.missing.map(m => m.label).join(' <- ')
+        : ' (sin prerrequisitos pendientes)') + caveat);
+    }
+    let head = 'camino de investigacion';
+    try { const g = researchGraphBuild(); if (g.known && g.blind) head += ' (grafo parcial: ' + g.why + ')'; } catch (_) {}
+    const txt = lines.length ? head + '\n' + lines.join('\n') : '';
+    if (box.textContent !== txt) box.textContent = txt;
   }
 
   let _statusLast = '';

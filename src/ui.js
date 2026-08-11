@@ -825,6 +825,7 @@
         <label style="margin-left:12px">Max level <input type="number" data-cfg="rural-level-max" min="1" max="6" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-research"/> Auto-research</label>
         <button data-cfg="research-csfast" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Cargar CS-fast de investigacion</button>
+        <div class="research-path" style="margin-left:12px;font-size:9px;color:#8ac;white-space:pre-wrap"></div>
         <div style="border-top:1px solid #333;padding-top:6px;color:#f5a623;font-size:10px">QoL / survival</div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="pause-activity"/> Pause when I am active</label>
         <label style="margin-left:12px">Pause min <input type="number" data-cfg="pause-ms" min="1" max="60" style="width:40px;background:#111;color:#cfc;border:1px solid #333"/></label>
@@ -1220,6 +1221,7 @@
       const ct = sec.querySelector('[data-cfg=cave-thresh]'); if (ct) ct.value = state.caveThreshPct;
       const dr = sec.querySelector('[data-cfg=dry-run]'); if (dr) dr.checked = !!state.dryRun;
       const oa = sec.querySelector('[data-cfg=orch-adaptive]'); if (oa) oa.checked = state.orchAdaptive !== false;
+      renderResearchPath(sec);
       const od = sec.querySelector('[data-cfg=orch-deadlock]'); if (od) od.checked = state.orchDeadlockResolve !== false;
       const er = sec.querySelector('[data-cfg=export-redact]'); if (er) er.checked = state.exportRedact !== false;
       renderCaveTowns();
@@ -1912,6 +1914,33 @@
       return out;
     });
     return { findings, farms: dump.farms };
+  }
+
+  // v4 plan 2.10: read-only "camino de investigacion". No button, no post - it
+  // only reports what the graph could and could not read.
+  function renderResearchPath(sec) {
+    const box = (sec || panel) && (sec || panel).querySelector('.research-path');
+    if (!box) return;
+    const ids = (townsFromGame() || []).map(t => t.id);
+    const lines = [];
+    for (const tid of ids.slice(0, 6)) {
+      let target = null;
+      try { target = researchNextTargetFor(tid); } catch (_) {}
+      if (!target) { lines.push(`${tid}: sin objetivo pendiente`); continue; }
+      const p = researchPathFor(tid, target);
+      const label = researchLabel(target) || target;
+      if (!p.known) { lines.push(`${tid}: ${label} - camino no legible (${p.why})`); continue; }
+      // A partial graph or an unread real queue means the path shown is a lower
+      // bound, not a complete answer - say so rather than implying it is done.
+      const caveat = p.ordersKnown === false ? ' [cola real no leida]' : '';
+      lines.push(`${tid}: ${label}` + (p.missing.length
+        ? ' <- ' + p.missing.map(m => m.label).join(' <- ')
+        : ' (sin prerrequisitos pendientes)') + caveat);
+    }
+    let head = 'camino de investigacion';
+    try { const g = researchGraphBuild(); if (g.known && g.blind) head += ' (grafo parcial: ' + g.why + ')'; } catch (_) {}
+    const txt = lines.length ? head + '\n' + lines.join('\n') : '';
+    if (box.textContent !== txt) box.textContent = txt;
   }
 
   let _statusLast = '';
