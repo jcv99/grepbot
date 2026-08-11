@@ -115,6 +115,88 @@
   function gbWidgetGet(id) { return gbWidgets[String(id)] || null; }
   function gbWidgetDisposeAll() { for (const id of Object.keys(gbWidgets)) gbWidgetUnregister(id); }
 
+  // ===== Keyboard shortcuts (v4 plan 6.3) ====================================
+  // One document-level keydown, registered through gbListen so teardown is
+  // already handled. It PASSIVELY checks focus and never pushes focus or
+  // synthesises a focus event.
+  //
+  // A bare key is never a shortcut: it would steal the game's own chat, search
+  // and unit-pick keys. Alt is rejected outright so AltGr on a European layout
+  // cannot spuriously fire one.
+  const GB_KEY_ACTIONS = {
+    'panel-config': { label: 'Abrir Config', run: () => { showTab('config'); } },
+    'preflight': { label: 'Comprobar sistema', run: () => { showTab('stats'); preflightRunAndRender(); } },
+    'copy-findings': { label: 'Copiar hallazgos', run: () => { const b = panel && panel.querySelector('footer button[data-act=copy]'); if (b) b.click(); } },
+    'queue-center': { label: 'Abrir Colas', run: () => openQueueCenter() },
+    'rescan-inbox': { label: 'Releer bandeja', run: () => scrapeInboxDom() },
+    'toggle-pause': {
+      label: 'Pausa por actividad',
+      run: () => {
+        state.pauseOnActivity = !state.pauseOnActivity;
+        save(STORE.PAUSE_ON_ACTIVITY, state.pauseOnActivity);
+        // Writes state directly; the Config checkbox re-reads it on next open.
+        flash('pausa por actividad ' + (state.pauseOnActivity ? 'ON' : 'OFF'));
+      },
+    },
+    'diag': { label: 'Diagnostico', run: () => diagRun() },
+  };
+  const GB_KEY_DEFAULTS = {
+    'Ctrl+Shift+,': 'panel-config',
+    'Ctrl+Shift+P': 'preflight',
+    'Ctrl+Shift+F': 'copy-findings',
+    'Ctrl+Shift+Q': 'queue-center',
+    'Ctrl+Shift+R': 'rescan-inbox',
+    'Ctrl+Shift+L': 'toggle-pause',
+    'Ctrl+Shift+D': 'diag',
+  };
+  function gbKeyBindings() {
+    const b = state.keybindings;
+    return (b && typeof b === 'object' && !Array.isArray(b)) ? Object.assign({}, GB_KEY_DEFAULTS, b) : Object.assign({}, GB_KEY_DEFAULTS);
+  }
+  function gbKeyFingerprint(e) {
+    if (e.altKey) return null;
+    if (!(e.ctrlKey || e.metaKey)) return null;
+    const k = String(e.key || '');
+    // Single printable character only: a bare modifier press has key 'Shift'
+    // and must not resolve to a binding.
+    if (k.length !== 1) return null;
+    const parts = ['Ctrl'];
+    if (e.shiftKey) parts.push('Shift');
+    parts.push(k.length === 1 ? k.toUpperCase() : k);
+    return parts.join('+');
+  }
+  function gbKeyTypingTarget(e) {
+    const ae = document.activeElement;
+    if (ae) {
+      const tag = String(ae.tagName || '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if (ae.isContentEditable) return true;
+    }
+    // The focused node may not be the contenteditable ROOT - a chat widget can
+    // put the attribute on an ancestor - so test the event target's chain too.
+    try {
+      const t = e.target;
+      if (t && t.closest && t.closest('[contenteditable="true"], [contenteditable=""], input, textarea, select')) return true;
+    } catch (_) {}
+    return false;
+  }
+  function gbKeyBind() {
+    if (gbKeyBind._bound) return;
+    gbKeyBind._bound = true;
+    gbListen(document, 'keydown', e => {
+      if (state.keyboardShortcuts === false) return;
+      if (gbKeyTypingTarget(e)) return;
+      const fp = gbKeyFingerprint(e);
+      if (!fp) return;
+      const actionId = gbKeyBindings()[fp];
+      const action = actionId && GB_KEY_ACTIONS[actionId];
+      if (!action) return;
+      e.preventDefault();
+      e.stopPropagation();
+      try { action.run(); } catch (err) { gbLogT('key-' + actionId, 60000, `shortcut ${fp}: ${String(err).slice(0, 60)}`); }
+      gbLogT('key-fired-' + actionId, 5000, `shortcut ${fp} -> ${action.label}`);
+    }, true);
+  }
   function qolSaveTemplate(name) {
     if (!name) return;
     if (!state.cityTemplates) state.cityTemplates = {};

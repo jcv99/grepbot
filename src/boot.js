@@ -114,6 +114,7 @@
     intelWatchlistScan();
   }, 15000);
   qolBindActivityPause();
+  gbKeyBind();
 
   gbInterval(gbLockSweep, 10000);
   const releaseLocks = () => {

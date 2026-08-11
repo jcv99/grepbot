@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.28.2
+// @version      4.29.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -67,6 +67,8 @@ const STORE = {
     PANEL_GEOM: 'grepbot:panel-geom',
     WIDGET_GEOM: 'grepbot:widget-geom',
     THEME: 'grepbot:theme',
+    KEYBINDINGS: 'grepbot:keybindings',
+    KEYBOARD_SHORTCUTS: 'grepbot:keyboard-shortcuts',
     ACTIVE_TAB: 'grepbot:active-tab',
     CSRF: 'grepbot:csrf',
     FARM_SKIP_FULL: 'grepbot:farm-skip-full',
@@ -554,6 +556,8 @@ const STORE = {
     captchaBreakers: load(STORE.CAPTCHA, null) || {},
     findingsFilter: load(STORE.FINDINGS_FILTER, { type: '', attacker: '' }),
     theme: load(STORE.THEME, 'dark'),
+    keyboardShortcuts: load(STORE.KEYBOARD_SHORTCUTS, true),
+    keybindings: load(STORE.KEYBINDINGS, {}) || {},
     widgetGeom: load(STORE.WIDGET_GEOM, {}) || {},
     panelGeom: load(STORE.PANEL_GEOM, null),
     activeTab: load(STORE.ACTIVE_TAB, 'overview'),
@@ -13350,6 +13354,78 @@ const STORE = {
   function gbWidgetGet(id) { return gbWidgets[String(id)] || null; }
   function gbWidgetDisposeAll() { for (const id of Object.keys(gbWidgets)) gbWidgetUnregister(id); }
 
+  const GB_KEY_ACTIONS = {
+    'panel-config': { label: 'Abrir Config', run: () => { showTab('config'); } },
+    'preflight': { label: 'Comprobar sistema', run: () => { showTab('stats'); preflightRunAndRender(); } },
+    'copy-findings': { label: 'Copiar hallazgos', run: () => { const b = panel && panel.querySelector('footer button[data-act=copy]'); if (b) b.click(); } },
+    'queue-center': { label: 'Abrir Colas', run: () => openQueueCenter() },
+    'rescan-inbox': { label: 'Releer bandeja', run: () => scrapeInboxDom() },
+    'toggle-pause': {
+      label: 'Pausa por actividad',
+      run: () => {
+        state.pauseOnActivity = !state.pauseOnActivity;
+        save(STORE.PAUSE_ON_ACTIVITY, state.pauseOnActivity);
+
+        flash('pausa por actividad ' + (state.pauseOnActivity ? 'ON' : 'OFF'));
+      },
+    },
+    'diag': { label: 'Diagnostico', run: () => diagRun() },
+  };
+  const GB_KEY_DEFAULTS = {
+    'Ctrl+Shift+,': 'panel-config',
+    'Ctrl+Shift+P': 'preflight',
+    'Ctrl+Shift+F': 'copy-findings',
+    'Ctrl+Shift+Q': 'queue-center',
+    'Ctrl+Shift+R': 'rescan-inbox',
+    'Ctrl+Shift+L': 'toggle-pause',
+    'Ctrl+Shift+D': 'diag',
+  };
+  function gbKeyBindings() {
+    const b = state.keybindings;
+    return (b && typeof b === 'object' && !Array.isArray(b)) ? Object.assign({}, GB_KEY_DEFAULTS, b) : Object.assign({}, GB_KEY_DEFAULTS);
+  }
+  function gbKeyFingerprint(e) {
+    if (e.altKey) return null;
+    if (!(e.ctrlKey || e.metaKey)) return null;
+    const k = String(e.key || '');
+
+    if (k.length !== 1) return null;
+    const parts = ['Ctrl'];
+    if (e.shiftKey) parts.push('Shift');
+    parts.push(k.length === 1 ? k.toUpperCase() : k);
+    return parts.join('+');
+  }
+  function gbKeyTypingTarget(e) {
+    const ae = document.activeElement;
+    if (ae) {
+      const tag = String(ae.tagName || '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if (ae.isContentEditable) return true;
+    }
+
+    try {
+      const t = e.target;
+      if (t && t.closest && t.closest('[contenteditable="true"], [contenteditable=""], input, textarea, select')) return true;
+    } catch (_) {}
+    return false;
+  }
+  function gbKeyBind() {
+    if (gbKeyBind._bound) return;
+    gbKeyBind._bound = true;
+    gbListen(document, 'keydown', e => {
+      if (state.keyboardShortcuts === false) return;
+      if (gbKeyTypingTarget(e)) return;
+      const fp = gbKeyFingerprint(e);
+      if (!fp) return;
+      const actionId = gbKeyBindings()[fp];
+      const action = actionId && GB_KEY_ACTIONS[actionId];
+      if (!action) return;
+      e.preventDefault();
+      e.stopPropagation();
+      try { action.run(); } catch (err) { gbLogT('key-' + actionId, 60000, `shortcut ${fp}: ${String(err).slice(0, 60)}`); }
+      gbLogT('key-fired-' + actionId, 5000, `shortcut ${fp} -> ${action.label}`);
+    }, true);
+  }
   function qolSaveTemplate(name) {
     if (!name) return;
     if (!state.cityTemplates) state.cityTemplates = {};
@@ -19682,6 +19758,9 @@ const STORE = {
             <option value="system">del sistema</option>
           </select>
         </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Ctrl/Cmd+Shift+tecla. Nunca se dispara mientras escribes en un campo del juego o del panel."><input type="checkbox" data-cfg="keyboard-shortcuts"/> Atajos de teclado</label>
+        <div class="key-list" style="margin-left:12px;font-size:9px;color:#8ac;white-space:pre-wrap"></div>
+        <button data-cfg="keybindings-edit" style="align-self:flex-start;margin-left:12px;background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;cursor:pointer;font-size:10px">Reasignar atajos...</button>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Copy/Export replace player names and ids with short hashes. Turn OFF only for local debugging."><input type="checkbox" data-cfg="export-redact"/> Redact names/ids in Copy + Export</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="captcha-global"/> Global captcha kill-switch</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Skip an action that failed the same way 3x in a row (5/15/60min backoff). Journal keeps recording either way."><input type="checkbox" data-cfg="decision-memory"/> Decision memory (skip repeat failures)</label>
@@ -20122,6 +20201,12 @@ const STORE = {
       const od = sec.querySelector('[data-cfg=orch-deadlock]'); if (od) od.checked = state.orchDeadlockResolve !== false;
       const er = sec.querySelector('[data-cfg=export-redact]'); if (er) er.checked = state.exportRedact !== false;
       const th = sec.querySelector('[data-cfg=theme]'); if (th) th.value = GB_THEMES.includes(state.theme) ? state.theme : 'dark';
+      const ks = sec.querySelector('[data-cfg=keyboard-shortcuts]'); if (ks) ks.checked = state.keyboardShortcuts !== false;
+      const kl = sec.querySelector('.key-list');
+      if (kl) {
+        const b = gbKeyBindings();
+        kl.textContent = Object.keys(b).sort().map(fp => `${fp}  ${(GB_KEY_ACTIONS[b[fp]] || {}).label || b[fp]}`).join('\n');
+      }
       renderCaveTowns();
       return;
     }
@@ -20656,6 +20741,32 @@ const STORE = {
       sec.querySelector('[data-cfg=' + k + ']')?.addEventListener('change', saveWebhookEvents);
     });
     sec.querySelector('[data-cfg=wh-tg-chat]')?.addEventListener('change', saveWebhookEvents);
+    sec.querySelector('[data-cfg=keyboard-shortcuts]')?.addEventListener('change', e => {
+      state.keyboardShortcuts = !!e.target.checked;
+      save(STORE.KEYBOARD_SHORTCUTS, state.keyboardShortcuts);
+    });
+    sec.querySelector('[data-cfg=keybindings-edit]')?.addEventListener('click', () => {
+      const raw = prompt(
+        'Atajos (JSON). Clave = combinacion, valor = accion.\nAcciones: ' + Object.keys(GB_KEY_ACTIONS).join(', ') +
+        '\nSolo Ctrl/Cmd(+Shift)+una tecla; Alt no se acepta.',
+        JSON.stringify(gbKeyBindings(), null, 2));
+      if (raw == null) return;
+      try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('shape');
+        const clean = {};
+        for (const [fp, act] of Object.entries(parsed)) {
+
+          if (!GB_KEY_ACTIONS[act]) continue;
+          if (!/^Ctrl(\+Shift)?\+[^+]$/.test(fp)) continue;
+          clean[fp] = act;
+        }
+        state.keybindings = clean;
+        save(STORE.KEYBINDINGS, clean);
+        flash(`${Object.keys(clean).length}/${Object.keys(parsed).length} atajos guardados`);
+        bindConfig();
+      } catch (_) { flash('JSON de atajos invalido'); }
+    });
     sec.querySelector('[data-cfg=theme]')?.addEventListener('change', e => {
       state.theme = GB_THEMES.includes(e.target.value) ? e.target.value : 'dark';
       save(STORE.THEME, state.theme);
@@ -21406,6 +21517,7 @@ const STORE = {
     intelWatchlistScan();
   }, 15000);
   qolBindActivityPause();
+  gbKeyBind();
 
   gbInterval(gbLockSweep, 10000);
   const releaseLocks = () => {
