@@ -48,6 +48,14 @@
     const i = gbTimerBag.findIndex(t => t.kind === 't' && t.id === id);
     if (i >= 0) gbTimerBag.splice(i, 1);
   }
+  // Sibling of gbClearTimeout: a widget that owns an interval (v4 plan 6.2)
+  // must be able to stop it without waiting for instance teardown.
+  function gbClearInterval(id) {
+    if (!id) return;
+    try { clearInterval(id); } catch (_) {}
+    const i = gbTimerBag.findIndex(t => t.kind === 'i' && t.id === id);
+    if (i >= 0) gbTimerBag.splice(i, 1);
+  }
   function gbTryAcquireTabLeader() {
     if(!gbTabCoordSupported||gbDisposed||gbTabLeader||gbTabLockPending)return;gbTabLockPending=true;
     navigator.locks.request(gbTabLockName,{mode:'exclusive',ifAvailable:true},lock=>{gbTabLockPending=false;if(!gbInstanceAlive())return;if(!lock){gbTabLeader=false;gbTimeout(gbTryAcquireTabLeader,5000);try{updateStatus()}catch(_){}return}gbTabLeader=true;try{updateStatus()}catch(_){}return new Promise(resolve=>{gbTabLockRelease=resolve})}).catch(()=>{gbTabLockPending=false;gbTabLeader=false;if(gbInstanceAlive())gbTimeout(gbTryAcquireTabLeader,10000)});
@@ -136,6 +144,11 @@
     if (p) try { p.remove(); } catch (_) {}
     const qc = document.getElementById('grepbot-queue-center');
     if (qc) try { qc.remove(); } catch (_) {}
+    // Widgets (v4 plan 6.2) own their own interval, so disposing the handles is
+    // not the same as removing the elements - do both, and sweep any host a
+    // previous instance left behind.
+    try { gbWidgetDisposeAll(); } catch (_) {}
+    try { document.querySelectorAll('.gb-widget').forEach(el => el.remove()); } catch (_) {}
     try { document.querySelectorAll('.gb-native-qctl,.gb-native-panel').forEach(el=>el.remove()); } catch (_) {}
     if (GB_ROOT.__grepbotInstanceId === GB_INSTANCE_ID) {
       try { delete GB_ROOT.__grepbotInstanceId; } catch (_) { GB_ROOT.__grepbotInstanceId = null; }
@@ -292,6 +305,7 @@
     captchaBreakers: load(STORE.CAPTCHA, null) || {},
     findingsFilter: load(STORE.FINDINGS_FILTER, { type: '', attacker: '' }),
     theme: load(STORE.THEME, 'dark'),
+    widgetGeom: load(STORE.WIDGET_GEOM, {}) || {},
     panelGeom: load(STORE.PANEL_GEOM, null),
     activeTab: load(STORE.ACTIVE_TAB, 'overview'),
     farmSkipFull: load(STORE.FARM_SKIP_FULL, true),

@@ -410,7 +410,12 @@
   }
   function applyTheme() {
     const cls = 'gb-theme-' + gbThemeResolved();
-    for (const el of [panel, (typeof gbQueueCenter !== 'undefined' ? gbQueueCenter : null)]) {
+    const targets = [panel, (typeof gbQueueCenter !== 'undefined' ? gbQueueCenter : null)];
+    // Widget hosts (v4 plan 6.2) live on document.body, not inside the panel,
+    // so they need the theme class themselves or their var() lookups resolve
+    // to nothing and they render unstyled.
+    try { document.querySelectorAll('.gb-widget').forEach(w => targets.push(w)); } catch (_) {}
+    for (const el of targets) {
       if (!el || !el.classList) continue;
       el.classList.remove('gb-theme-dark', 'gb-theme-light');
       el.classList.add(cls);
@@ -469,7 +474,7 @@
        explicit anchor for the system resolver. Nothing outside #grepbot-panel
        and #grepbot-queue-center is scoped, so the game's own DOM is untouched.
        ===================================================================== */
-    #grepbot-panel, #grepbot-queue-center {
+    #grepbot-panel, #grepbot-queue-center, .gb-widget {
       --gb-bg:#181a1f;
       --gb-bg-deep:#17191e;
       --gb-bg-alt:#22252b;
@@ -524,7 +529,7 @@
       --gb-err-bg:#381f23;
       --gb-err-border:#8a3b42;
     }
-    #grepbot-panel.gb-theme-dark, #grepbot-queue-center.gb-theme-dark {
+    #grepbot-panel.gb-theme-dark, #grepbot-queue-center.gb-theme-dark, .gb-widget.gb-theme-dark {
       --gb-bg:#181a1f;
       --gb-bg-deep:#17191e;
       --gb-bg-alt:#22252b;
@@ -579,7 +584,7 @@
       --gb-err-bg:#381f23;
       --gb-err-border:#8a3b42;
     }
-    #grepbot-panel.gb-theme-light, #grepbot-queue-center.gb-theme-light {
+    #grepbot-panel.gb-theme-light, #grepbot-queue-center.gb-theme-light, .gb-widget.gb-theme-light {
       --gb-bg:#f4f5f7;
       --gb-bg-deep:#eceef1;
       --gb-bg-alt:#e8eaee;

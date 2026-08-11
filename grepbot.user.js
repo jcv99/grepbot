@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.27.1
+// @version      4.28.2
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -65,6 +65,7 @@ const STORE = {
     CAPTCHA: 'grepbot:captcha-breakers',
     FINDINGS_FILTER: 'grepbot:findings-filter',
     PANEL_GEOM: 'grepbot:panel-geom',
+    WIDGET_GEOM: 'grepbot:widget-geom',
     THEME: 'grepbot:theme',
     ACTIVE_TAB: 'grepbot:active-tab',
     CSRF: 'grepbot:csrf',
@@ -303,6 +304,13 @@ const STORE = {
     const i = gbTimerBag.findIndex(t => t.kind === 't' && t.id === id);
     if (i >= 0) gbTimerBag.splice(i, 1);
   }
+
+  function gbClearInterval(id) {
+    if (!id) return;
+    try { clearInterval(id); } catch (_) {}
+    const i = gbTimerBag.findIndex(t => t.kind === 'i' && t.id === id);
+    if (i >= 0) gbTimerBag.splice(i, 1);
+  }
   function gbTryAcquireTabLeader() {
     if(!gbTabCoordSupported||gbDisposed||gbTabLeader||gbTabLockPending)return;gbTabLockPending=true;
     navigator.locks.request(gbTabLockName,{mode:'exclusive',ifAvailable:true},lock=>{gbTabLockPending=false;if(!gbInstanceAlive())return;if(!lock){gbTabLeader=false;gbTimeout(gbTryAcquireTabLeader,5000);try{updateStatus()}catch(_){}return}gbTabLeader=true;try{updateStatus()}catch(_){}return new Promise(resolve=>{gbTabLockRelease=resolve})}).catch(()=>{gbTabLockPending=false;gbTabLeader=false;if(gbInstanceAlive())gbTimeout(gbTryAcquireTabLeader,10000)});
@@ -391,6 +399,9 @@ const STORE = {
     if (p) try { p.remove(); } catch (_) {}
     const qc = document.getElementById('grepbot-queue-center');
     if (qc) try { qc.remove(); } catch (_) {}
+
+    try { gbWidgetDisposeAll(); } catch (_) {}
+    try { document.querySelectorAll('.gb-widget').forEach(el => el.remove()); } catch (_) {}
     try { document.querySelectorAll('.gb-native-qctl,.gb-native-panel').forEach(el=>el.remove()); } catch (_) {}
     if (GB_ROOT.__grepbotInstanceId === GB_INSTANCE_ID) {
       try { delete GB_ROOT.__grepbotInstanceId; } catch (_) { GB_ROOT.__grepbotInstanceId = null; }
@@ -543,6 +554,7 @@ const STORE = {
     captchaBreakers: load(STORE.CAPTCHA, null) || {},
     findingsFilter: load(STORE.FINDINGS_FILTER, { type: '', attacker: '' }),
     theme: load(STORE.THEME, 'dark'),
+    widgetGeom: load(STORE.WIDGET_GEOM, {}) || {},
     panelGeom: load(STORE.PANEL_GEOM, null),
     activeTab: load(STORE.ACTIVE_TAB, 'overview'),
     farmSkipFull: load(STORE.FARM_SKIP_FULL, true),
@@ -13242,6 +13254,102 @@ const STORE = {
       if (!document.hidden) bumpUserActivity();
     });
   }
+
+  const GB_WIDGET_DEFAULT_POS = { left: '8px', top: '60px' };
+  const gbWidgets = Object.create(null);
+  function gbWidgetGeom() {
+    if (!state.widgetGeom || typeof state.widgetGeom !== 'object' || Array.isArray(state.widgetGeom)) state.widgetGeom = {};
+    return state.widgetGeom;
+  }
+  function gbWidgetSaveGeom(id, pos) {
+    const g = gbWidgetGeom();
+    g[String(id)] = { left: pos.left, top: pos.top };
+    save(STORE.WIDGET_GEOM, g);
+  }
+  function gbWidgetRegister(opts) {
+    const o = opts || {};
+    const id = String(o.id || '');
+    if (!id) return null;
+
+    if (gbWidgets[id]) { try { gbWidgets[id].dispose(); } catch (_) {} }
+    const host = document.createElement('div');
+    host.className = 'gb-widget';
+    host.dataset.widget = id;
+    const geom = gbWidgetGeom()[id] || o.defaultPos || GB_WIDGET_DEFAULT_POS;
+    host.style.cssText = `position:fixed;left:${geom.left};top:${geom.top};z-index:2147483646;display:none;` +
+      'min-width:180px;max-width:60vw;max-height:70vh;overflow:auto;' +
+      'background:var(--gb-bg-alt);color:var(--gb-fg);border:1px solid var(--gb-border);border-radius:8px;' +
+      'box-shadow:0 4px 16px rgba(0,0,0,.45);font:11px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif';
+    const head = document.createElement('div');
+    head.className = 'gb-widget-head';
+    head.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 6px;cursor:move;' +
+      'background:var(--gb-bg-raise);border-bottom:1px solid var(--gb-border-soft);border-radius:8px 8px 0 0;user-select:none';
+    const title = document.createElement('b');
+    title.textContent = o.title || id;
+    title.style.color = 'var(--gb-accent)';
+    const close = document.createElement('button');
+    close.type = 'button'; close.textContent = '\u00d7'; close.title = 'Cerrar';
+    close.style.cssText = 'margin-left:auto;background:none;border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);cursor:pointer;font-size:11px;line-height:1;padding:0 5px';
+    head.append(title, close);
+    const body = document.createElement('div');
+    body.className = 'gb-widget-body';
+    body.style.cssText = 'padding:6px';
+    host.append(head, body);
+    document.body.appendChild(host);
+    try { applyTheme(); } catch (_) {}
+
+    let drag = null;
+    let timer = 0;
+    const render = () => { try { if (typeof o.render === 'function') o.render(body); } catch (e) { gbLogT('widget-render-' + id, 60000, `widget ${id}: ${String(e).slice(0, 60)}`); } };
+    gbListen(head, 'mousedown', e => {
+      if (e.target.closest('button, select, input')) return;
+      const r = host.getBoundingClientRect();
+      drag = { dx: e.clientX - r.left, dy: e.clientY - r.top, left0: host.style.left, top0: host.style.top };
+      e.preventDefault();
+    });
+    gbListen(document, 'mousemove', e => {
+      if (!drag) return;
+      host.style.left = Math.max(0, Math.min(innerWidth - host.offsetWidth, e.clientX - drag.dx)) + 'px';
+      host.style.top = Math.max(0, Math.min(innerHeight - host.offsetHeight, e.clientY - drag.dy)) + 'px';
+    });
+    gbListen(document, 'mouseup', () => {
+      if (!drag) return;
+      const moved = host.style.left !== drag.left0 || host.style.top !== drag.top0;
+      drag = null;
+
+      if (moved) gbWidgetSaveGeom(id, { left: host.style.left, top: host.style.top });
+    });
+    const api = {
+      id,
+      el: host,
+      isOpen: () => host.style.display !== 'none',
+      open() {
+        host.style.display = 'block';
+        render();
+
+        if (o.tickMs && !timer) timer = gbInterval(() => { if (api.isOpen()) render(); }, o.tickMs);
+      },
+      close() { host.style.display = 'none'; },
+      refresh() { if (api.isOpen()) render(); },
+      dispose() {
+        try { if (timer) gbClearInterval(timer); } catch (_) {}
+        timer = 0;
+        try { host.remove(); } catch (_) {}
+        delete gbWidgets[id];
+      },
+    };
+    gbListen(close, 'click', () => api.close());
+    gbWidgets[id] = api;
+    return api;
+  }
+  function gbWidgetUnregister(id) {
+    const w = gbWidgets[String(id)];
+    if (w) w.dispose();
+  }
+  function gbWidgetList() { return Object.keys(gbWidgets); }
+  function gbWidgetGet(id) { return gbWidgets[String(id)] || null; }
+  function gbWidgetDisposeAll() { for (const id of Object.keys(gbWidgets)) gbWidgetUnregister(id); }
+
   function qolSaveTemplate(name) {
     if (!name) return;
     if (!state.cityTemplates) state.cityTemplates = {};
@@ -18895,7 +19003,10 @@ const STORE = {
   }
   function applyTheme() {
     const cls = 'gb-theme-' + gbThemeResolved();
-    for (const el of [panel, (typeof gbQueueCenter !== 'undefined' ? gbQueueCenter : null)]) {
+    const targets = [panel, (typeof gbQueueCenter !== 'undefined' ? gbQueueCenter : null)];
+
+    try { document.querySelectorAll('.gb-widget').forEach(w => targets.push(w)); } catch (_) {}
+    for (const el of targets) {
       if (!el || !el.classList) continue;
       el.classList.remove('gb-theme-dark', 'gb-theme-light');
       el.classList.add(cls);
@@ -18954,7 +19065,7 @@ const STORE = {
        explicit anchor for the system resolver. Nothing outside #grepbot-panel
        and #grepbot-queue-center is scoped, so the game's own DOM is untouched.
        ===================================================================== */
-    #grepbot-panel, #grepbot-queue-center {
+    #grepbot-panel, #grepbot-queue-center, .gb-widget {
       --gb-bg:#181a1f;
       --gb-bg-deep:#17191e;
       --gb-bg-alt:#22252b;
@@ -19009,7 +19120,7 @@ const STORE = {
       --gb-err-bg:#381f23;
       --gb-err-border:#8a3b42;
     }
-    #grepbot-panel.gb-theme-dark, #grepbot-queue-center.gb-theme-dark {
+    #grepbot-panel.gb-theme-dark, #grepbot-queue-center.gb-theme-dark, .gb-widget.gb-theme-dark {
       --gb-bg:#181a1f;
       --gb-bg-deep:#17191e;
       --gb-bg-alt:#22252b;
@@ -19064,7 +19175,7 @@ const STORE = {
       --gb-err-bg:#381f23;
       --gb-err-border:#8a3b42;
     }
-    #grepbot-panel.gb-theme-light, #grepbot-queue-center.gb-theme-light {
+    #grepbot-panel.gb-theme-light, #grepbot-queue-center.gb-theme-light, .gb-widget.gb-theme-light {
       --gb-bg:#f4f5f7;
       --gb-bg-deep:#eceef1;
       --gb-bg-alt:#e8eaee;

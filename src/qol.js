@@ -9,6 +9,112 @@
       if (!document.hidden) bumpUserActivity();
     });
   }
+  // ===== Draggable widget system (v4 plan 6.2) ===============================
+  // One host + drag + persistence helper so 6.11 / 6.12 / 6.14 do not each
+  // reinvent the Queue Center's chrome. The clamp math is taken verbatim from
+  // queue-center.js so a widget cannot be dragged off-screen either.
+  //
+  // Every listener goes through gbListen, so teardown is already handled by the
+  // existing gbListenerBag sweep - a widget cannot leak a document-level
+  // mousemove past a hot reload.
+  const GB_WIDGET_DEFAULT_POS = { left: '8px', top: '60px' };
+  const gbWidgets = Object.create(null);
+  function gbWidgetGeom() {
+    if (!state.widgetGeom || typeof state.widgetGeom !== 'object' || Array.isArray(state.widgetGeom)) state.widgetGeom = {};
+    return state.widgetGeom;
+  }
+  function gbWidgetSaveGeom(id, pos) {
+    const g = gbWidgetGeom();
+    g[String(id)] = { left: pos.left, top: pos.top };
+    save(STORE.WIDGET_GEOM, g);
+  }
+  function gbWidgetRegister(opts) {
+    const o = opts || {};
+    const id = String(o.id || '');
+    if (!id) return null;
+    // Re-registering the same id disposes the old one first: a hot reload must
+    // not leave two hosts fighting over the same geometry key.
+    if (gbWidgets[id]) { try { gbWidgets[id].dispose(); } catch (_) {} }
+    const host = document.createElement('div');
+    host.className = 'gb-widget';
+    host.dataset.widget = id;
+    const geom = gbWidgetGeom()[id] || o.defaultPos || GB_WIDGET_DEFAULT_POS;
+    host.style.cssText = `position:fixed;left:${geom.left};top:${geom.top};z-index:2147483646;display:none;` +
+      'min-width:180px;max-width:60vw;max-height:70vh;overflow:auto;' +
+      'background:var(--gb-bg-alt);color:var(--gb-fg);border:1px solid var(--gb-border);border-radius:8px;' +
+      'box-shadow:0 4px 16px rgba(0,0,0,.45);font:11px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif';
+    const head = document.createElement('div');
+    head.className = 'gb-widget-head';
+    head.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 6px;cursor:move;' +
+      'background:var(--gb-bg-raise);border-bottom:1px solid var(--gb-border-soft);border-radius:8px 8px 0 0;user-select:none';
+    const title = document.createElement('b');
+    title.textContent = o.title || id;
+    title.style.color = 'var(--gb-accent)';
+    const close = document.createElement('button');
+    close.type = 'button'; close.textContent = '\u00d7'; close.title = 'Cerrar';
+    close.style.cssText = 'margin-left:auto;background:none;border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);cursor:pointer;font-size:11px;line-height:1;padding:0 5px';
+    head.append(title, close);
+    const body = document.createElement('div');
+    body.className = 'gb-widget-body';
+    body.style.cssText = 'padding:6px';
+    host.append(head, body);
+    document.body.appendChild(host);
+    try { applyTheme(); } catch (_) {}
+
+    let drag = null;
+    let timer = 0;
+    const render = () => { try { if (typeof o.render === 'function') o.render(body); } catch (e) { gbLogT('widget-render-' + id, 60000, `widget ${id}: ${String(e).slice(0, 60)}`); } };
+    gbListen(head, 'mousedown', e => {
+      if (e.target.closest('button, select, input')) return;
+      const r = host.getBoundingClientRect();
+      drag = { dx: e.clientX - r.left, dy: e.clientY - r.top, left0: host.style.left, top0: host.style.top };
+      e.preventDefault();
+    });
+    gbListen(document, 'mousemove', e => {
+      if (!drag) return;
+      host.style.left = Math.max(0, Math.min(innerWidth - host.offsetWidth, e.clientX - drag.dx)) + 'px';
+      host.style.top = Math.max(0, Math.min(innerHeight - host.offsetHeight, e.clientY - drag.dy)) + 'px';
+    });
+    gbListen(document, 'mouseup', () => {
+      if (!drag) return;
+      const moved = host.style.left !== drag.left0 || host.style.top !== drag.top0;
+      drag = null;
+      // A click on the header that never moved is not a reposition; writing
+      // storage for it would burn a GM_setValue on every open/close.
+      if (moved) gbWidgetSaveGeom(id, { left: host.style.left, top: host.style.top });
+    });
+    const api = {
+      id,
+      el: host,
+      isOpen: () => host.style.display !== 'none',
+      open() {
+        host.style.display = 'block';
+        render();
+        // The tick belongs to the widget and only runs while it is OPEN, so a
+        // closed countdown widget costs nothing.
+        if (o.tickMs && !timer) timer = gbInterval(() => { if (api.isOpen()) render(); }, o.tickMs);
+      },
+      close() { host.style.display = 'none'; },
+      refresh() { if (api.isOpen()) render(); },
+      dispose() {
+        try { if (timer) gbClearInterval(timer); } catch (_) {}
+        timer = 0;
+        try { host.remove(); } catch (_) {}
+        delete gbWidgets[id];
+      },
+    };
+    gbListen(close, 'click', () => api.close());
+    gbWidgets[id] = api;
+    return api;
+  }
+  function gbWidgetUnregister(id) {
+    const w = gbWidgets[String(id)];
+    if (w) w.dispose();
+  }
+  function gbWidgetList() { return Object.keys(gbWidgets); }
+  function gbWidgetGet(id) { return gbWidgets[String(id)] || null; }
+  function gbWidgetDisposeAll() { for (const id of Object.keys(gbWidgets)) gbWidgetUnregister(id); }
+
   function qolSaveTemplate(name) {
     if (!name) return;
     if (!state.cityTemplates) state.cityTemplates = {};
