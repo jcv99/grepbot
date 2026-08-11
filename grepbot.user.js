@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.44.8
+// @version      4.44.9
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1139,7 +1139,7 @@ const STORE = {
       }
     } catch (_) {}
     if (!(hideLvl > 0) || hideFull) return { reserved: false, etaMs: null, blind: false };
-    const thresh = Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100;
+    const thresh = gbCfgClamp(state.caveThreshPct, 50, 99, 90) / 100;
     const need = Math.ceil(st.cap * thresh);
     if (st.iron >= need) return { reserved: true, etaMs: 0, blind: false };
     let ironPerSec = null;
@@ -8731,7 +8731,7 @@ const STORE = {
   function caveExcessAmount(info) {
     if (!info || !(info.cap > 0) || info.iron == null) return 0;
     if (!(info.hideLvl > 0)) return 0;
-    const pct = Math.min(99, Math.max(50, +state.caveThreshPct || 90));
+    const pct = gbCfgClamp(state.caveThreshPct, 50, 99, 90);
     const keep = Math.floor(info.cap * (pct / 100));
     if (info.iron < keep) return 0;
     let excess = Math.floor(info.iron - keep);
@@ -9231,7 +9231,7 @@ const STORE = {
     }
   }
   function tradePredictiveJobs(towns,L) {
-    const ledger=L||tradeLedger(towns), jobs=[], minBatch=Math.max(100,+state.tradeMinBatch||1000);if(!ledger)return jobs;
+    const ledger=L||tradeLedger(towns), jobs=[], minBatch=gbCfgClamp(state.tradeMinBatch,100,Infinity,1000);if(!ledger)return jobs;
     const forecasts={}; for(const t of towns) forecasts[t.id]=economyForecast(t.id);
     const targets=towns.map(t=>({t,f:forecasts[t.id]})).filter(x=>x.f).sort((a,b)=>Object.values(b.f.deficit).reduce((x,y)=>x+y,0)-Object.values(a.f.deficit).reduce((x,y)=>x+y,0));
     for(const {t:tgtTown,f:tgtF} of targets){const tgt=ledger[tgtTown.id]; if(!tgt)continue;
@@ -9468,7 +9468,7 @@ const STORE = {
   function tradeDeadlockJobs(towns, L) {
     const ledger = L || tradeLedger(towns);
     if (!ledger) return [];
-    const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
+    const minBatch = gbCfgClamp(state.tradeMinBatch, 100, Infinity, 1000);
     const RES = ['wood', 'stone', 'iron'];
     const jobs = [];
     const ids = towns.map(t => t.id);
@@ -9510,7 +9510,7 @@ const STORE = {
     if(!ledger)return [];
     const reserveN = Number(state.tradeReservePct);
     const reserve = Math.min(80, Math.max(0, Number.isFinite(reserveN) ? reserveN : 20)) / 100;
-    const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
+    const minBatch = gbCfgClamp(state.tradeMinBatch, 100, Infinity, 1000);
     const jobs = [];
     const ids = towns.map(t => t.id);
     for (const tgtId of ids) {
@@ -9553,7 +9553,7 @@ const STORE = {
     const ledger = L || tradeLedger(towns);
     if(!ledger)return [];
     const jobs = [];
-    const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
+    const minBatch = gbCfgClamp(state.tradeMinBatch, 100, Infinity, 1000);
     const reserveN = Number(state.tradeReservePct);
     const reservePct = Math.min(80, Math.max(0, Number.isFinite(reserveN) ? reserveN : 20)) / 100;
     const ids = towns.map(t => t.id);
@@ -9640,7 +9640,7 @@ const STORE = {
   function tradeGoalJobs(towns, L, preset) {
     const ledger = L || tradeLedger(towns);
     const reserve = Math.min(80, Math.max(0, gbCfgNum(state.tradeReservePct, 20))) / 100;
-    const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
+    const minBatch = gbCfgClamp(state.tradeMinBatch, 100, Infinity, 1000);
     const byId = Object.create(null);
     towns.forEach(t => { byId[t.id] = t; });
     const jobs = [];
@@ -9795,7 +9795,7 @@ const STORE = {
         try {
           const r = ironReservedForCave(route.from);
           if (r && r.reserved) {
-            const thresh = Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100;
+            const thresh = gbCfgClamp(state.caveThreshPct, 50, 99, 90) / 100;
             ironKeep = Math.max(keep, Math.ceil(src.cap * thresh));
             gbLogT('trade-route-iron-reserved-' + route.id, 600000, `trade route ${route.id}: iron held for cave on ${route.from}`);
           }
@@ -9985,7 +9985,7 @@ const STORE = {
     let ironDrain = 0;
     try {
       const r = ironReservedForCave(townId);
-      if (r && r.reserved) ironDrain = Math.ceil(st.cap * (Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100));
+      if (r && r.reserved) ironDrain = Math.ceil(st.cap * (gbCfgClamp(state.caveThreshPct, 50, 99, 90) / 100));
     } catch (_) {}
     const out = { blind: false };
     for (const k of GB_RES_KEYS) {
@@ -10040,7 +10040,7 @@ const STORE = {
       if (r && r.reserved) {
 
         const rawThresh = (state.caveThreshPct == null) ? 90 : +state.caveThreshPct;
-        const thresh = Math.min(99, Math.max(50, Number.isFinite(rawThresh) ? rawThresh : 90)) / 100;
+        const thresh = gbCfgClamp(rawThresh, 50, 99, 90) / 100;
         ironKeep = Math.max(keep, Math.ceil(src.cap * thresh));
         gbLogT('transport-iron-reserved-' + srcId, 600000,
           `transport: town ${srcId} iron held for cave (keep ${ironKeep})`);
@@ -10296,7 +10296,7 @@ const STORE = {
         const tgt = ledger[to] || ledger[+to];
         if (!tgt || !(tgt.cap > 0)) continue;
         amount = Math.floor(Math.min(amount, src.tradeCap, Math.max(0, tgt.cap - (+tgt[res] || 0))));
-        const minBatch = Math.max(100, gbCfgNum(state.tradeMinBatch, 1000));
+        const minBatch = gbCfgClamp(state.tradeMinBatch, 100, Infinity, 1000);
         if (amount < minBatch) continue;
         const job = { from: id, to, wood: 0, stone: 0, iron: 0, dump: res };
         job[res] = amount;
@@ -22328,7 +22328,7 @@ const STORE = {
     bindToggle('[data-cfg=auto-recruit]', 'autoRecruit', STORE.AUTO_RECRUIT, () => recruitScan('toggle'));
     bindToggle('[data-cfg=village-recruit]', 'autoVillageRecruit', STORE.AUTO_VILLAGE_RECRUIT, () => villageRecruitScan('toggle'));
     saveNum('[data-cfg=village-recruit-fill]', v => {
-      state.villageRecruitFillPct = Math.min(99, Math.max(50, v || 90));
+      state.villageRecruitFillPct = gbCfgClamp(v, 50, 99, 90);
       save(STORE.VILLAGE_RECRUIT_FILL, state.villageRecruitFillPct);
     });
     saveNum('[data-cfg=village-recruit-amount]', v => {
@@ -22606,13 +22606,13 @@ const STORE = {
       state.tradeReservePct = Math.min(80, Math.max(0, v)); save(STORE.TRADE_RESERVE, state.tradeReservePct);
     });
     saveNum('[data-cfg=trade-min]', v => {
-      state.tradeMinBatch = Math.max(100, v); save(STORE.TRADE_MIN, state.tradeMinBatch);
+      state.tradeMinBatch = gbCfgClamp(v, 100, Infinity, 1000); save(STORE.TRADE_MIN, state.tradeMinBatch);
     });
     saveNum('[data-cfg=transport-reserve]', v => {
       state.transportReserve = Math.min(80, Math.max(0, v)); save(STORE.TRANSPORT_RESERVE, state.transportReserve);
     });
     saveNum('[data-cfg=transport-min]', v => {
-      state.transportMin = Math.min(10000, Math.max(100, v)); save(STORE.TRANSPORT_MIN, state.transportMin);
+      state.transportMin = Math.min(10000, gbCfgClamp(v, 100, Infinity, 1000)); save(STORE.TRANSPORT_MIN, state.transportMin);
     });
     sec.querySelector('[data-cfg=research-csfast]')?.addEventListener('click', () => {
       researchLoadCsFast(); flash('CS-fast research');
@@ -22633,7 +22633,7 @@ const STORE = {
     });
     sec.querySelector('[data-cfg=emergency-cave-now]')?.addEventListener('click', () => { try { emergencyStashAllNow(); } catch (e) { flash('fallo: ' + String(e).slice(0, 40)); } });
     saveNum('[data-cfg=cave-thresh]', v => {
-      state.caveThreshPct = Math.min(99, Math.max(50, v || 90));
+      state.caveThreshPct = gbCfgClamp(v, 50, 99, 90);
       save(STORE.CAVE_THRESH, state.caveThreshPct);
       gbLog('cave-thresh', state.caveThreshPct + '%');
     });

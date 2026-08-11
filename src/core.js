@@ -896,7 +896,7 @@
       }
     } catch (_) {}
     if (!(hideLvl > 0) || hideFull) return { reserved: false, etaMs: null, blind: false };
-    const thresh = Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100;
+    const thresh = gbCfgClamp(state.caveThreshPct, 50, 99, 90) / 100;
     const need = Math.ceil(st.cap * thresh);
     if (st.iron >= need) return { reserved: true, etaMs: 0, blind: false };
     let ironPerSec = null;

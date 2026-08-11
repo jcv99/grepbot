@@ -98,7 +98,7 @@
     let ironDrain = 0;
     try {
       const r = ironReservedForCave(townId);
-      if (r && r.reserved) ironDrain = Math.ceil(st.cap * (Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100));
+      if (r && r.reserved) ironDrain = Math.ceil(st.cap * (gbCfgClamp(state.caveThreshPct, 50, 99, 90) / 100));
     } catch (_) {}
     const out = { blind: false };
     for (const k of GB_RES_KEYS) {
@@ -166,7 +166,7 @@
         // Explicit 0 would collapse to 90 via `+x || 90`; treat only null/undefined
         // as "use the default" so an intentional 0 actually pins at the floor.
         const rawThresh = (state.caveThreshPct == null) ? 90 : +state.caveThreshPct;
-        const thresh = Math.min(99, Math.max(50, Number.isFinite(rawThresh) ? rawThresh : 90)) / 100;
+        const thresh = gbCfgClamp(rawThresh, 50, 99, 90) / 100;
         ironKeep = Math.max(keep, Math.ceil(src.cap * thresh));
         gbLogT('transport-iron-reserved-' + srcId, 600000,
           `transport: town ${srcId} iron held for cave (keep ${ironKeep})`);

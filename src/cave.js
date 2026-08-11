@@ -114,7 +114,7 @@
   function caveExcessAmount(info) {
     if (!info || !(info.cap > 0) || info.iron == null) return 0;
     if (!(info.hideLvl > 0)) return 0;
-    const pct = Math.min(99, Math.max(50, +state.caveThreshPct || 90));
+    const pct = gbCfgClamp(state.caveThreshPct, 50, 99, 90);
     const keep = Math.floor(info.cap * (pct / 100));
     if (info.iron < keep) return 0;
     let excess = Math.floor(info.iron - keep);

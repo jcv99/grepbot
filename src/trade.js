@@ -96,7 +96,7 @@
   function tradeDeadlockJobs(towns, L) {
     const ledger = L || tradeLedger(towns);
     if (!ledger) return [];
-    const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
+    const minBatch = gbCfgClamp(state.tradeMinBatch, 100, Infinity, 1000);
     const RES = ['wood', 'stone', 'iron'];
     const jobs = [];
     const ids = towns.map(t => t.id);
@@ -140,7 +140,7 @@
     if(!ledger)return [];
     const reserveN = Number(state.tradeReservePct);
     const reserve = Math.min(80, Math.max(0, Number.isFinite(reserveN) ? reserveN : 20)) / 100;
-    const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
+    const minBatch = gbCfgClamp(state.tradeMinBatch, 100, Infinity, 1000);
     const jobs = [];
     const ids = towns.map(t => t.id);
     for (const tgtId of ids) {
@@ -183,7 +183,7 @@
     const ledger = L || tradeLedger(towns);
     if(!ledger)return [];
     const jobs = [];
-    const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
+    const minBatch = gbCfgClamp(state.tradeMinBatch, 100, Infinity, 1000);
     const reserveN = Number(state.tradeReservePct);
     const reservePct = Math.min(80, Math.max(0, Number.isFinite(reserveN) ? reserveN : 20)) / 100;
     const ids = towns.map(t => t.id);
@@ -270,7 +270,7 @@
   function tradeGoalJobs(towns, L, preset) {
     const ledger = L || tradeLedger(towns);
     const reserve = Math.min(80, Math.max(0, gbCfgNum(state.tradeReservePct, 20))) / 100;
-    const minBatch = Math.max(100, +state.tradeMinBatch || 1000);
+    const minBatch = gbCfgClamp(state.tradeMinBatch, 100, Infinity, 1000);
     const byId = Object.create(null);
     towns.forEach(t => { byId[t.id] = t; });
     const jobs = [];
@@ -444,7 +444,7 @@
         try {
           const r = ironReservedForCave(route.from);
           if (r && r.reserved) {
-            const thresh = Math.min(99, Math.max(50, +state.caveThreshPct || 90)) / 100;
+            const thresh = gbCfgClamp(state.caveThreshPct, 50, 99, 90) / 100;
             ironKeep = Math.max(keep, Math.ceil(src.cap * thresh));
             gbLogT('trade-route-iron-reserved-' + route.id, 600000, `trade route ${route.id}: iron held for cave on ${route.from}`);
           }

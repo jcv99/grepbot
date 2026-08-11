@@ -2205,7 +2205,7 @@
     bindToggle('[data-cfg=auto-recruit]', 'autoRecruit', STORE.AUTO_RECRUIT, () => recruitScan('toggle'));
     bindToggle('[data-cfg=village-recruit]', 'autoVillageRecruit', STORE.AUTO_VILLAGE_RECRUIT, () => villageRecruitScan('toggle'));
     saveNum('[data-cfg=village-recruit-fill]', v => {
-      state.villageRecruitFillPct = Math.min(99, Math.max(50, v || 90));
+      state.villageRecruitFillPct = gbCfgClamp(v, 50, 99, 90);
       save(STORE.VILLAGE_RECRUIT_FILL, state.villageRecruitFillPct);
     });
     saveNum('[data-cfg=village-recruit-amount]', v => {
@@ -2486,13 +2486,13 @@
       state.tradeReservePct = Math.min(80, Math.max(0, v)); save(STORE.TRADE_RESERVE, state.tradeReservePct);
     });
     saveNum('[data-cfg=trade-min]', v => {
-      state.tradeMinBatch = Math.max(100, v); save(STORE.TRADE_MIN, state.tradeMinBatch);
+      state.tradeMinBatch = gbCfgClamp(v, 100, Infinity, 1000); save(STORE.TRADE_MIN, state.tradeMinBatch);
     });
     saveNum('[data-cfg=transport-reserve]', v => {
       state.transportReserve = Math.min(80, Math.max(0, v)); save(STORE.TRANSPORT_RESERVE, state.transportReserve);
     });
     saveNum('[data-cfg=transport-min]', v => {
-      state.transportMin = Math.min(10000, Math.max(100, v)); save(STORE.TRANSPORT_MIN, state.transportMin);
+      state.transportMin = Math.min(10000, gbCfgClamp(v, 100, Infinity, 1000)); save(STORE.TRANSPORT_MIN, state.transportMin);
     });
     sec.querySelector('[data-cfg=research-csfast]')?.addEventListener('click', () => {
       researchLoadCsFast(); flash('CS-fast research');
@@ -2513,7 +2513,7 @@
     });
     sec.querySelector('[data-cfg=emergency-cave-now]')?.addEventListener('click', () => { try { emergencyStashAllNow(); } catch (e) { flash('fallo: ' + String(e).slice(0, 40)); } });
     saveNum('[data-cfg=cave-thresh]', v => {
-      state.caveThreshPct = Math.min(99, Math.max(50, v || 90));
+      state.caveThreshPct = gbCfgClamp(v, 50, 99, 90);
       save(STORE.CAVE_THRESH, state.caveThreshPct);
       gbLog('cave-thresh', state.caveThreshPct + '%');
     });

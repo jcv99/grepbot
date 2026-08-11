@@ -138,7 +138,7 @@
         const tgt = ledger[to] || ledger[+to];
         if (!tgt || !(tgt.cap > 0)) continue;
         amount = Math.floor(Math.min(amount, src.tradeCap, Math.max(0, tgt.cap - (+tgt[res] || 0))));
-        const minBatch = Math.max(100, gbCfgNum(state.tradeMinBatch, 1000));
+        const minBatch = gbCfgClamp(state.tradeMinBatch, 100, Infinity, 1000);
         if (amount < minBatch) continue;
         const job = { from: id, to, wood: 0, stone: 0, iron: 0, dump: res };
         job[res] = amount;

@@ -310,7 +310,7 @@
     }
   }
   function tradePredictiveJobs(towns,L) {
-    const ledger=L||tradeLedger(towns), jobs=[], minBatch=Math.max(100,+state.tradeMinBatch||1000);if(!ledger)return jobs;
+    const ledger=L||tradeLedger(towns), jobs=[], minBatch=gbCfgClamp(state.tradeMinBatch,100,Infinity,1000);if(!ledger)return jobs;
     const forecasts={}; for(const t of towns) forecasts[t.id]=economyForecast(t.id);
     const targets=towns.map(t=>({t,f:forecasts[t.id]})).filter(x=>x.f).sort((a,b)=>Object.values(b.f.deficit).reduce((x,y)=>x+y,0)-Object.values(a.f.deficit).reduce((x,y)=>x+y,0));
     for(const {t:tgtTown,f:tgtF} of targets){const tgt=ledger[tgtTown.id]; if(!tgt)continue;
