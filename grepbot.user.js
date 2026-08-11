@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.17.1
+// @version      4.18.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -216,7 +216,7 @@ const STORE = {
   };
 
   const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
-    'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'merchant', 'pttrade', 'favor', 'wonder'];
+    'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'merchant', 'pttrade', 'favor', 'wonder', 'hero', 'godspell'];
   const CONFIG_VER_CURRENT = 12;
 
   const WORLD_SCOPED_BASES = new Set([
@@ -401,6 +401,7 @@ const STORE = {
     research: 180000,
     merchant: 180000,
     favor: 180000,
+    godspell: 180000,
     wonder: 180000,
     'wonder-favor': 180000,
     dodge: 180000,
@@ -11397,6 +11398,130 @@ const STORE = {
       } else gbLogT('favor-err', 60000, `favor err ${err}`);
     });
   }
+
+  const GODSPELL_DEFAULT_COOLDOWN_MS = 30 * 60 * 1000;
+
+  function godSpellCooldown(townId, powerId) {
+    return recruitSpellCooldown(townId, powerId);
+  }
+  function godSpellCooldownStamp(townId, powerId, ms) {
+    return recruitSpellCooldownStamp(townId, powerId, ms || GODSPELL_DEFAULT_COOLDOWN_MS);
+  }
+  function godSpellHasCast(townId, powerId) {
+    return recruitHasSpell(townId, powerId);
+  }
+
+  function godSpellGateOk(townId, powerId) {
+    if (!powerId) return { ok: false, blind: false, why: 'no-power' };
+    const academy = gbBuildingLevel(townId, 'academy');
+    if (academy != null && academy < 1) return { ok: false, blind: false, why: 'no-academy' };
+    const need = RECRUIT_SPELL_GODS[powerId];
+    if (!need) return { ok: true, blind: true, why: 'unknown-power-id' };
+    const god = recruitTownGod(townId);
+    if (god == null) return { ok: true, blind: true, why: 'god-unreadable' };
+    if (god !== need) return { ok: false, blind: false, why: `god-mismatch:${god}!=${need}` };
+    return { ok: true, blind: false, why: null };
+  }
+  function godSpellCast(townId, powerId, onDone) {
+    if (!powerId) return onDone && onDone('bad-power');
+    gameAjaxPost('spell', 'town_overviews', 'cast_power', {
+      power_id: powerId,
+      town_id: +townId,
+    }, (err, data) => {
+
+      if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {
+        godSpellCooldownStamp(townId, powerId);
+      }
+      if (onDone) onDone(err, data);
+    });
+  }
+  function godSpellReservePct() {
+    const n = +((state.favorCfg || {}).spellReserve);
+    return Number.isFinite(n) ? Math.max(0, Math.min(95, n)) : 50;
+  }
+
+  function godSpellFavorMax(god) {
+    const f = favorCurrent() || {};
+    for (const k of ['max_' + god, god + '_max', 'max_favor', 'favor_max']) {
+      const v = +f[k];
+      if (Number.isFinite(v) && v > 0) return v;
+    }
+    return null;
+  }
+  function godSpellFavorFor(god) {
+    const f = favorCurrent() || {};
+    const v = +(f[god] != null ? f[god] : f['favor_' + god]);
+    return Number.isFinite(v) ? v : null;
+  }
+  function godSpellScan(reason) {
+
+    if (!state.autoFavor) return;
+    if (!hostEnabled() || automationPaused({})) return;
+    if (captchaPaused('godspell')) return;
+    if (gbLocked('godspell')) return;
+    const cfg = state.favorCfg || {};
+    const power = cfg.spellPower ? String(cfg.spellPower) : '';
+    if (!power) {
+      gbLogT('godspell-nopower', 300000, 'godspell: no power id set - nothing is cast without an explicit id');
+      return;
+    }
+    if (!/^[a-z0-9_]{2,48}$/i.test(power)) {
+      gbLogT('godspell-badpower', 600000, `godspell: power id "${power.slice(0, 24)}" is not a plausible id - refusing`);
+      return;
+    }
+
+    if (cfg.targetId) {
+      gbLogT('godspell-target-unknown', 600000,
+        'godspell: a target is configured but the targeted-cast payload is not known on this client - refusing rather than casting at the wrong town');
+      return;
+    }
+    let ids = [];
+    try { ids = (townsFromGame() || []).map(t => String(t.id)); } catch (_) {}
+    if (!ids.length) return;
+    for (const townId of ids) {
+      if (!favorHasTemplePlunder(townId)) continue;
+      if (godSpellHasCast(townId, power)) continue;
+      if (godSpellCooldown(townId, power) > 0) continue;
+      const gate = godSpellGateOk(townId, power);
+      if (!gate.ok) {
+        gbLogT('godspell-gate-' + townId, 300000, `godspell: town ${townId} blocked (${gate.why})`);
+        continue;
+      }
+      if (gate.blind) gbLogT('godspell-blind-' + townId, 600000, `godspell: town ${townId} ${gate.why} - server is the authority`);
+      const need = RECRUIT_SPELL_GODS[power];
+      if (need) {
+        const have = godSpellFavorFor(need);
+
+        if (have == null) {
+          gbLogT('godspell-favor-blind-' + townId, 600000, `godspell: ${need} favor unreadable - not casting`);
+          continue;
+        }
+        const cost = +cfg.spellCost;
+        if (Number.isFinite(cost) && cost > 0) {
+
+          const max = godSpellFavorMax(need);
+          const reserve = max != null
+            ? Math.ceil(max * godSpellReservePct() / 100)
+            : cost;
+          if (have - cost < reserve) {
+            gbLogT('godspell-reserve-' + townId, 300000,
+              `godspell: ${need} ${have} would drop below the reserve (${reserve}${max == null ? ', maximo no legible' : ''})`);
+            continue;
+          }
+        }
+      }
+      const lockToken = gbLock('godspell');
+      if (!lockToken) return;
+      godSpellCooldownStamp(townId, power);
+      godSpellCast(townId, power, (err) => {
+        gbUnlock('godspell', lockToken);
+        if (!err) gbLog(`godspell: cast ${power} from town ${townId}`);
+        else gbLogT('godspell-err', 60000, `godspell: ${power} town ${townId} err ${err}`);
+      });
+      return;
+    }
+    gbLogT('godspell-idle', 600000, `godspell: nothing to cast (${reason || 'scan'})`);
+  }
   function wonderServerDay() {
     try {
       const now = gameNow();
@@ -13036,17 +13161,18 @@ const STORE = {
     wonder: 180000,
     spy: 1800000,
     hero: 300000,
+    godspell: 180000,
   };
   const ORCH_CAPTCHA = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villageRecruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero',
+    recruit: 'recruit', villrecruit: 'villageRecruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
   };
 
   const ORCH_JRN = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villageRecruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero',
+    recruit: 'recruit', villrecruit: 'villageRecruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
   };
   const ORCH_IDLE_TRIP = 4;
   const ORCH_IDLE_MAX = 8;
@@ -13071,6 +13197,7 @@ const STORE = {
     wonder:()=>orchSafe('wonder',()=>{wonderScan('orch');wonderFavorScan('orch')}),
     spy:()=>orchSafe('spy',()=>spyCycle('orch')),
     hero:()=>orchSafe('hero',()=>heroScan('orch')),
+    godspell:()=>orchSafe('godspell',()=>godSpellScan('orch')),
   };
   function orchFeatureEnabled(key) {
     return {
@@ -13087,6 +13214,8 @@ const STORE = {
       merchant: state.autoMerchant,
       pttrade: state.autoPtTrade,
       favor: state.autoFavor,
+
+      godspell: state.autoFavor,
       wonder: state.autoWonder,
       spy: state.spyEnabled,
 
@@ -16784,6 +16913,19 @@ const STORE = {
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
       };
     }));
+    out.push(preflightProbe('godspell', () => {
+      const cfg = state.favorCfg || {};
+      const power = cfg.spellPower ? String(cfg.spellPower) : '';
+      if (!state.autoFavor) return { ok: true, detail: 'desactivado (autoFavor OFF)' };
+      if (!power) return { ok: true, warn: true, detail: 'sin id de poder - no se lanza nada (estado seguro por defecto)' };
+      const known = !!RECRUIT_SPELL_GODS[power];
+      const target = cfg.targetId && ['farm_town', 'farm', 'village'].includes(String(cfg.targetType || ''));
+      return {
+        ok: true,
+        warn: !target || !known,
+        detail: `poder ${power}${known ? '' : ' (dios desconocido - veredicto ciego)'}, objetivo ${target ? 'ok' : 'FALTA farm_town'}, reserva ${godSpellReservePct()}%`,
+      };
+    }));
     out.push(preflightProbe('hero: stamina readable', () => {
       const hs = (typeof playerHeroesListCached === 'function' ? playerHeroesListCached() : []);
       if (!hs.length) return { ok: true, detail: heroesEnabled() ? 'sin heroes legibles' : 'heroes desactivados en este mundo' };
@@ -18616,6 +18758,11 @@ const STORE = {
           <button data-cfg="pt-copy" title="Copia el HTML de la ventana del mercader abierta - hace falta una vez para confirmar el analizador de ofertas" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Copiar HTML de la oferta</button>
         </div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-favor" disabled/> Favor farm (disabled: unsafe target path)</label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="ALTO RIESGO. El favor gastado no vuelve. No se lanza NADA sin escribir aqui un id de poder explicito: nunca hay valor por defecto.">Hechizo divino:
+          poder <input data-cfg="godspell-power" placeholder="id exacto, sin valor por defecto" style="width:170px;background:#111;color:#cfc;border:1px solid #333"/>
+          coste <input type="number" data-cfg="godspell-cost" min="0" max="500" style="width:55px;background:#111;color:#cfc;border:1px solid #333"/>
+          reserva % <input type="number" data-cfg="godspell-reserve" min="0" max="95" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>
+        </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-wonder"/> WW donations</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Gasta favor en la maravilla de la alianza. Requiere haber capturado wonderFavorTpl. Por defecto OFF."><input type="checkbox" data-cfg="auto-wonder-favor"/> Lanzar favor en la Maravilla (captura el poder antes)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="cs-alert"/> CS / incoming alerts</label>
@@ -19189,6 +19336,10 @@ const STORE = {
       if (st) st.textContent = typeof ptStatusText === 'function' ? ptStatusText() : '';
     }
     setChk('[data-cfg=auto-wonder-favor]', !!state.autoWonderFavor);
+    { const fc = state.favorCfg || {};
+      const gp = sec.querySelector('[data-cfg=godspell-power]'); if (gp) gp.value = fc.spellPower || '';
+      setNum('[data-cfg=godspell-cost]', Number.isFinite(+fc.spellCost) ? +fc.spellCost : 0);
+      setNum('[data-cfg=godspell-reserve]', godSpellReservePct()); }
     setChk('[data-cfg=auto-favor]', state.autoFavor);
     setChk('[data-cfg=auto-wonder]', state.autoWonder);
     setChk('[data-cfg=cs-alert]', state.csAlert !== false);
@@ -19421,6 +19572,18 @@ const STORE = {
       gbLog('support auto ' + (state.supportCfg.auto ? 'ON - real troops, confirm gate per window' : 'OFF'));
       if (state.supportCfg.auto && !state.supportTpl) flash('apoyo ON pero sin plantilla: envia un apoyo a mano una vez');
     });
+    const saveFavorCfg = (key, v) => {
+      state.favorCfg = Object.assign({}, state.favorCfg, { [key]: v });
+      save(STORE.FAVOR_CFG, state.favorCfg);
+    };
+    sec.querySelector('[data-cfg=godspell-power]')?.addEventListener('change', e => {
+      const raw = String(e.target.value || '').trim();
+
+      saveFavorCfg('spellPower', raw);
+      gbLog('godspell power ' + (raw ? 'set to ' + raw : 'cleared - nothing will be cast'));
+    });
+    saveNum('[data-cfg=godspell-cost]', v => saveFavorCfg('spellCost', Math.max(0, Math.min(500, +v || 0))));
+    saveNum('[data-cfg=godspell-reserve]', v => saveFavorCfg('spellReserve', Math.max(0, Math.min(95, +v || 50))));
     const saveSpy = (key, v) => {
       if (!state.spyCfg || typeof state.spyCfg !== 'object') state.spyCfg = {};
       state.spyCfg[key] = v;

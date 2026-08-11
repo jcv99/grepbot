@@ -157,6 +157,7 @@
     research: 180000,
     merchant: 180000,
     favor: 180000,
+    godspell: 180000,
     wonder: 180000,
     'wonder-favor': 180000,
     dodge: 180000,

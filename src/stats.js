@@ -215,6 +215,19 @@
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
       };
     }));
+    out.push(preflightProbe('godspell', () => {
+      const cfg = state.favorCfg || {};
+      const power = cfg.spellPower ? String(cfg.spellPower) : '';
+      if (!state.autoFavor) return { ok: true, detail: 'desactivado (autoFavor OFF)' };
+      if (!power) return { ok: true, warn: true, detail: 'sin id de poder - no se lanza nada (estado seguro por defecto)' };
+      const known = !!RECRUIT_SPELL_GODS[power];
+      const target = cfg.targetId && ['farm_town', 'farm', 'village'].includes(String(cfg.targetType || ''));
+      return {
+        ok: true,
+        warn: !target || !known,
+        detail: `poder ${power}${known ? '' : ' (dios desconocido - veredicto ciego)'}, objetivo ${target ? 'ok' : 'FALTA farm_town'}, reserva ${godSpellReservePct()}%`,
+      };
+    }));
     out.push(preflightProbe('hero: stamina readable', () => {
       const hs = (typeof playerHeroesListCached === 'function' ? playerHeroesListCached() : []);
       if (!hs.length) return { ok: true, detail: heroesEnabled() ? 'sin heroes legibles' : 'heroes desactivados en este mundo' };

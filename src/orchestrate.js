@@ -13,6 +13,9 @@
       merchant: state.autoMerchant,
       pttrade: state.autoPtTrade,
       favor: state.autoFavor,
+      // Same toggle as favor: the user's mental model is one 'spend my favor'
+      // switch. The spell loop still refuses without an explicit power id.
+      godspell: state.autoFavor,
       wonder: state.autoWonder,
       spy: state.spyEnabled,
       // Dispatch only where the world actually has heroes. The pass itself is

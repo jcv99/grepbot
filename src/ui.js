@@ -915,6 +915,11 @@
           <button data-cfg="pt-copy" title="Copia el HTML de la ventana del mercader abierta - hace falta una vez para confirmar el analizador de ofertas" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Copiar HTML de la oferta</button>
         </div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-favor" disabled/> Favor farm (disabled: unsafe target path)</label>
+        <label style="margin-left:12px;flex-wrap:wrap;font-size:10px" title="ALTO RIESGO. El favor gastado no vuelve. No se lanza NADA sin escribir aqui un id de poder explicito: nunca hay valor por defecto.">Hechizo divino:
+          poder <input data-cfg="godspell-power" placeholder="id exacto, sin valor por defecto" style="width:170px;background:#111;color:#cfc;border:1px solid #333"/>
+          coste <input type="number" data-cfg="godspell-cost" min="0" max="500" style="width:55px;background:#111;color:#cfc;border:1px solid #333"/>
+          reserva % <input type="number" data-cfg="godspell-reserve" min="0" max="95" style="width:50px;background:#111;color:#cfc;border:1px solid #333"/>
+        </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="auto-wonder"/> WW donations</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Gasta favor en la maravilla de la alianza. Requiere haber capturado wonderFavorTpl. Por defecto OFF."><input type="checkbox" data-cfg="auto-wonder-favor"/> Lanzar favor en la Maravilla (captura el poder antes)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-cfg="cs-alert"/> CS / incoming alerts</label>
@@ -1489,6 +1494,10 @@
       if (st) st.textContent = typeof ptStatusText === 'function' ? ptStatusText() : '';
     }
     setChk('[data-cfg=auto-wonder-favor]', !!state.autoWonderFavor);
+    { const fc = state.favorCfg || {};
+      const gp = sec.querySelector('[data-cfg=godspell-power]'); if (gp) gp.value = fc.spellPower || '';
+      setNum('[data-cfg=godspell-cost]', Number.isFinite(+fc.spellCost) ? +fc.spellCost : 0);
+      setNum('[data-cfg=godspell-reserve]', godSpellReservePct()); }
     setChk('[data-cfg=auto-favor]', state.autoFavor);
     setChk('[data-cfg=auto-wonder]', state.autoWonder);
     setChk('[data-cfg=cs-alert]', state.csAlert !== false);
@@ -1721,6 +1730,19 @@
       gbLog('support auto ' + (state.supportCfg.auto ? 'ON - real troops, confirm gate per window' : 'OFF'));
       if (state.supportCfg.auto && !state.supportTpl) flash('apoyo ON pero sin plantilla: envia un apoyo a mano una vez');
     });
+    const saveFavorCfg = (key, v) => {
+      state.favorCfg = Object.assign({}, state.favorCfg, { [key]: v });
+      save(STORE.FAVOR_CFG, state.favorCfg);
+    };
+    sec.querySelector('[data-cfg=godspell-power]')?.addEventListener('change', e => {
+      const raw = String(e.target.value || '').trim();
+      // Stored verbatim, validated at cast time. An empty box means "cast
+      // nothing", which is the default and the safe state.
+      saveFavorCfg('spellPower', raw);
+      gbLog('godspell power ' + (raw ? 'set to ' + raw : 'cleared - nothing will be cast'));
+    });
+    saveNum('[data-cfg=godspell-cost]', v => saveFavorCfg('spellCost', Math.max(0, Math.min(500, +v || 0))));
+    saveNum('[data-cfg=godspell-reserve]', v => saveFavorCfg('spellReserve', Math.max(0, Math.min(95, +v || 50))));
     const saveSpy = (key, v) => {
       if (!state.spyCfg || typeof state.spyCfg !== 'object') state.spyCfg = {};
       state.spyCfg[key] = v;
