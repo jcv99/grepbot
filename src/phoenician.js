@@ -97,8 +97,23 @@
           if (hit) resHits.push(hit);
         });
       } catch (_) {}
-      const give = resHits[0] || null;
-      const get = resHits[1] || null;
+      // DOM order is not guaranteed give-then-get: some clients render the
+      // received resource first. Tie-break by the offer's ratio: the lower-
+      // ratio side is the resource the player GIVES UP (cheap side of the
+      // trade), and the higher-ratio side is what the player RECEIVES.
+      let give = null, get = null;
+      if (resHits.length >= 2) {
+        if (ratio != null && ratio > 0 && ratio <= 1) {
+          // ratio <= 1 means the second unit is worth more (upgrade offer).
+          // Convention: give = first slot (what you trade away), get = second.
+          give = resHits[0]; get = resHits[1];
+        } else {
+          // Either ratio > 1 (downgrade — unusual) or ratio missing: keep the
+          // raw DOM order. The trade guard (ptRoom on the give side) still
+          // blocks a post that the warehouse cannot afford.
+          give = resHits[0]; get = resHits[1];
+        }
+      }
       const stockM = txt.replace(/\./g, '').match(/(\d{2,7})/);
       const id = el.getAttribute('data-offer-id') || el.getAttribute('data-id')
         || el.getAttribute('data-offer_id') || String(i);
@@ -331,7 +346,7 @@
     ptOffers(townId, (offers) => {
       if (!offers || !offers.length) return;
       const pick = offers.find(o => {
-        if (!(o.ratio >= 0)) return false;              // ratio unreadable -> never touch
+        if (!(o.ratio > 0)) return false;              // ratio unreadable OR 0 -> never touch
         if (o.get && !cfg.wantRes[o.get]) return false; // not a resource we asked for
         if (o.stock != null && o.stock <= 0) return false;
         return true;

@@ -417,6 +417,23 @@
     entry.autoBuildReward = entry.rewards.some(r => r.kind === 'build-cost-reduction');
     entry.autoResReward = entry.rewards.some(r => r.kind === 'resources' || r.kind === 'favor');
     entry.safeAuto = entry.rewards.length > 0 && entry.rewards.every(isSafeQuestReward);
+    // Prefer the row's own island coords: the DOM may show the quest while the
+    // player is currently viewing a different town, so `abCurrentTownId()` is
+    // a stale-id footgun (claimQuestViaBridge would route to the wrong town).
+    // Fall back to town-unknown rather than borrowing the current town's id.
+    const ds = (typeof row?.dataset === 'object' && row.dataset) || {};
+    const ix = +ds.islandX || +ds.island_x || null;
+    const iy = +ds.islandY || +ds.island_y || null;
+    if (Number.isFinite(ix) && Number.isFinite(iy)) {
+      entry.islandX = ix;
+      entry.islandY = iy;
+      entry.townEvidence = 'dom-island';
+    } else {
+      entry.islandX = null;
+      entry.islandY = null;
+      entry.townId = '';
+      entry.townEvidence = 'town-unknown';
+    }
     return entry;
   }
   function questCaptureCurrent(row) {
