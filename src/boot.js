@@ -54,6 +54,7 @@
     try { reportCatchUpEnqueue(); } catch (_) {}
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
     try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (_) {}
+    try { nativeQueueSweep('visible'); } catch (_) {}
   });
   gbListen(window, 'pageshow', (e) => {
     if (!(e && e.persisted)) return;
@@ -63,6 +64,7 @@
     try { bindQuestObserver(); } catch (_) {}
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
     try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (_) {}
+    try { nativeQueueSweep('bfcache'); } catch (_) {}
   });
   gbInterval(checkThresholds, 30000);
   gbInterval(renderTimers, 1000);
@@ -106,6 +108,12 @@
     // nativeUiScan is a no-op when no game window is open.
     scheduleNativeUiScan();
   }, 5000);
+  // Whole-account reconcile of the virtual queues against the real ones. The
+  // per-town pass in renderQueueCenter only covers the town on screen and only
+  // while the window is open; this is what drops a hand-made upgrade from a
+  // background town's plan without waiting for the auto-queue to sweep it.
+  gbTimeout(() => { try { nativeQueueSweep('boot'); } catch (_) {} }, 14000);
+  gbInterval(() => { try { nativeQueueSweep('loop'); } catch (_) {} }, 60000);
   gbInterval(() => dodgeScan('loop'), DODGE_CHECK_MS);
   gbInterval(dodgeReturnTick, 15000);
 

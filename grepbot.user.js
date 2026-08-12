@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.45.0
+// @version      4.46.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -7328,6 +7328,24 @@ const STORE = {
     if(lane==='build')return nativeQueueReconcileBuild(townId);
     if(lane==='research')return nativeQueueReconcileResearch(townId);
     return nativeQueueReconcileRecruit(townId,lane);
+  }
+
+  function nativeQueueReconcileTown(townId) {
+    let changed=false;
+    try{if(nativeQueueList(townId,'build',false).length&&nativeQueueReconcileBuild(townId))changed=true}catch(_){}
+    try{if(nativeQueueList(townId,'research',false).length&&nativeQueueReconcileResearch(townId))changed=true}catch(_){}
+    try{if(nativeRecruitPending(townId)&&nativeQueueReconcileRecruit(townId,null))changed=true}catch(_){}
+    return changed;
+  }
+  let nativeQueueSweepAt=0;
+  function nativeQueueSweep(reason) {
+
+    if(reason!=='manual'&&nativeQueueSweepAt&&Date.now()-nativeQueueSweepAt<5000)return 0;
+    const towns=nativeQueueRoot().towns;let n=0;
+    for(const id of Object.keys(towns))if(nativeQueueReconcileTown(id))n++;
+    nativeQueueSweepAt=Date.now();
+    if(n)gbLog(`native queue sweep (${reason||'loop'}): ${n} town(s) reconciled against the real queue`);
+    return n;
   }
   function nativeQueueMove(townId,lane,jobId,delta) {
     nativeQueueReconcile(townId,lane);
@@ -20269,10 +20287,13 @@ const STORE = {
     });
   }
 
+  let gbQcRendering = false;
+  let gbQcReconciledAt = 0;
   function renderQueueCenter() {
     const w = gbQueueCenter;
     if (!w || !document.body.contains(w)) return;
     if (w.style.display === 'none') return;
+    if (gbQcRendering) return;
     const ids = queueCenterTownIds();
     if (!ids.length) return;
     if (!gbQueueCenterTown || !ids.includes(String(gbQueueCenterTown))) {
@@ -20280,18 +20301,26 @@ const STORE = {
       try { cur = gameUw().Game && gameUw().Game.townId; } catch (_) {}
       gbQueueCenterTown = String(cur || ids[0]);
     }
-    const sel = w.querySelector('.gb-qc-town'); sel.replaceChildren();
-    ids.forEach(id => {
-      const o = document.createElement('option'); o.value = id; o.textContent = queueCenterTownName(id);
-      if (id === String(gbQueueCenterTown)) o.selected = true;
-      sel.appendChild(o);
-    });
-    w.querySelectorAll('.gb-qc-tab').forEach(b => b.classList.toggle('on', b.dataset.qtab === gbQueueCenterTab));
-    const body = w.querySelector('.gb-qc-body'); body.replaceChildren();
-    if (gbQueueCenterTab === 'build') renderQueueCenterBuild(body, gbQueueCenterTown);
-    else if (gbQueueCenterTab === 'research') renderQueueCenterResearch(body, gbQueueCenterTown);
-    else if (gbQueueCenterTab === 'barracks') renderQueueCenterRecruit(body, gbQueueCenterTown, false);
-    else renderQueueCenterRecruit(body, gbQueueCenterTown, true);
+    gbQcRendering = true;
+    try {
+
+      if (Date.now() - gbQcReconciledAt > 2000) {
+        gbQcReconciledAt = Date.now();
+        try { nativeQueueReconcileTown(gbQueueCenterTown); } catch (_) {}
+      }
+      const sel = w.querySelector('.gb-qc-town'); sel.replaceChildren();
+      ids.forEach(id => {
+        const o = document.createElement('option'); o.value = id; o.textContent = queueCenterTownName(id);
+        if (id === String(gbQueueCenterTown)) o.selected = true;
+        sel.appendChild(o);
+      });
+      w.querySelectorAll('.gb-qc-tab').forEach(b => b.classList.toggle('on', b.dataset.qtab === gbQueueCenterTab));
+      const body = w.querySelector('.gb-qc-body'); body.replaceChildren();
+      if (gbQueueCenterTab === 'build') renderQueueCenterBuild(body, gbQueueCenterTown);
+      else if (gbQueueCenterTab === 'research') renderQueueCenterResearch(body, gbQueueCenterTown);
+      else if (gbQueueCenterTab === 'barracks') renderQueueCenterRecruit(body, gbQueueCenterTown, false);
+      else renderQueueCenterRecruit(body, gbQueueCenterTown, true);
+    } finally { gbQcRendering = false; }
   }
 
   function openQueueCenter(tab, townId) {
@@ -20307,7 +20336,12 @@ const STORE = {
       try { applyTheme(); } catch (_) {}
       gbQueueCenter = w;
       w.querySelector('.gb-qc-close').addEventListener('click', () => { w.style.display = 'none'; });
-      w.querySelector('.gb-qc-refresh').addEventListener('click', renderQueueCenter);
+
+      w.querySelector('.gb-qc-refresh').addEventListener('click', () => {
+        try { nativeQueueSweep('manual'); } catch (_) {}
+        gbQcReconciledAt = 0;
+        renderQueueCenter();
+      });
       w.querySelector('.gb-qc-town').addEventListener('change', e => { gbQueueCenterTown = e.target.value; renderQueueCenter(); });
       w.querySelectorAll('.gb-qc-tab').forEach(b => b.addEventListener('click', () => { gbQueueCenterTab = b.dataset.qtab; renderQueueCenter(); }));
       makeDraggable(w, w.querySelector('header'));
@@ -23508,6 +23542,7 @@ const STORE = {
     try { reportCatchUpEnqueue(); } catch (_) {}
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
     try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (_) {}
+    try { nativeQueueSweep('visible'); } catch (_) {}
   });
   gbListen(window, 'pageshow', (e) => {
     if (!(e && e.persisted)) return;
@@ -23517,6 +23552,7 @@ const STORE = {
     try { bindQuestObserver(); } catch (_) {}
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
     try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (_) {}
+    try { nativeQueueSweep('bfcache'); } catch (_) {}
   });
   gbInterval(checkThresholds, 30000);
   gbInterval(renderTimers, 1000);
@@ -23553,6 +23589,9 @@ const STORE = {
 
     scheduleNativeUiScan();
   }, 5000);
+
+  gbTimeout(() => { try { nativeQueueSweep('boot'); } catch (_) {} }, 14000);
+  gbInterval(() => { try { nativeQueueSweep('loop'); } catch (_) {} }, 60000);
   gbInterval(() => dodgeScan('loop'), DODGE_CHECK_MS);
   gbInterval(dodgeReturnTick, 15000);
 

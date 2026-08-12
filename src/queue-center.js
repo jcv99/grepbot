@@ -458,10 +458,16 @@
     });
   }
 
+  // Reentrancy guard: the reconcile below saves through nativeQueueSave, which
+  // calls straight back into this function. Without the guard the window paints
+  // twice per repaint from two different snapshots of the same state.
+  let gbQcRendering = false;
+  let gbQcReconciledAt = 0;
   function renderQueueCenter() {
     const w = gbQueueCenter;
     if (!w || !document.body.contains(w)) return;
     if (w.style.display === 'none') return;
+    if (gbQcRendering) return;
     const ids = queueCenterTownIds();
     if (!ids.length) return;
     if (!gbQueueCenterTown || !ids.includes(String(gbQueueCenterTown))) {
@@ -469,18 +475,29 @@
       try { cur = gameUw().Game && gameUw().Game.townId; } catch (_) {}
       gbQueueCenterTown = String(cur || ids[0]);
     }
-    const sel = w.querySelector('.gb-qc-town'); sel.replaceChildren();
-    ids.forEach(id => {
-      const o = document.createElement('option'); o.value = id; o.textContent = queueCenterTownName(id);
-      if (id === String(gbQueueCenterTown)) o.selected = true;
-      sel.appendChild(o);
-    });
-    w.querySelectorAll('.gb-qc-tab').forEach(b => b.classList.toggle('on', b.dataset.qtab === gbQueueCenterTab));
-    const body = w.querySelector('.gb-qc-body'); body.replaceChildren();
-    if (gbQueueCenterTab === 'build') renderQueueCenterBuild(body, gbQueueCenterTown);
-    else if (gbQueueCenterTab === 'research') renderQueueCenterResearch(body, gbQueueCenterTown);
-    else if (gbQueueCenterTab === 'barracks') renderQueueCenterRecruit(body, gbQueueCenterTown, false);
-    else renderQueueCenterRecruit(body, gbQueueCenterTown, true);
+    gbQcRendering = true;
+    try {
+      // The window is a live view of the game, not of storage: re-check the
+      // shown town against the real model before painting, so a job the player
+      // completed by hand disappears on the next 5s repaint instead of waiting
+      // for an auto-queue sweep. Throttled — every button click lands here too.
+      if (Date.now() - gbQcReconciledAt > 2000) {
+        gbQcReconciledAt = Date.now();
+        try { nativeQueueReconcileTown(gbQueueCenterTown); } catch (_) {}
+      }
+      const sel = w.querySelector('.gb-qc-town'); sel.replaceChildren();
+      ids.forEach(id => {
+        const o = document.createElement('option'); o.value = id; o.textContent = queueCenterTownName(id);
+        if (id === String(gbQueueCenterTown)) o.selected = true;
+        sel.appendChild(o);
+      });
+      w.querySelectorAll('.gb-qc-tab').forEach(b => b.classList.toggle('on', b.dataset.qtab === gbQueueCenterTab));
+      const body = w.querySelector('.gb-qc-body'); body.replaceChildren();
+      if (gbQueueCenterTab === 'build') renderQueueCenterBuild(body, gbQueueCenterTown);
+      else if (gbQueueCenterTab === 'research') renderQueueCenterResearch(body, gbQueueCenterTown);
+      else if (gbQueueCenterTab === 'barracks') renderQueueCenterRecruit(body, gbQueueCenterTown, false);
+      else renderQueueCenterRecruit(body, gbQueueCenterTown, true);
+    } finally { gbQcRendering = false; }
   }
 
   function openQueueCenter(tab, townId) {
@@ -498,7 +515,13 @@
       try { applyTheme(); } catch (_) {}
       gbQueueCenter = w;
       w.querySelector('.gb-qc-close').addEventListener('click', () => { w.style.display = 'none'; });
-      w.querySelector('.gb-qc-refresh').addEventListener('click', renderQueueCenter);
+      // Manual refresh sweeps EVERY town, not just the one on screen — the
+      // button is what a player reaches for after hand-editing several queues.
+      w.querySelector('.gb-qc-refresh').addEventListener('click', () => {
+        try { nativeQueueSweep('manual'); } catch (_) {}
+        gbQcReconciledAt = 0;
+        renderQueueCenter();
+      });
       w.querySelector('.gb-qc-town').addEventListener('change', e => { gbQueueCenterTown = e.target.value; renderQueueCenter(); });
       w.querySelectorAll('.gb-qc-tab').forEach(b => b.addEventListener('click', () => { gbQueueCenterTab = b.dataset.qtab; renderQueueCenter(); }));
       makeDraggable(w, w.querySelector('header'));

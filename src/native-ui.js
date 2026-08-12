@@ -89,6 +89,31 @@
     if(lane==='research')return nativeQueueReconcileResearch(townId);
     return nativeQueueReconcileRecruit(townId,lane);
   }
+  // Periodic reality check across every town and lane. The reconcilers are
+  // otherwise only reached when something already touches the lane (an
+  // auto-queue sweep, a head post, a UI mutation), so a level the player raised
+  // BY HAND in the game window stayed in the virtual plan for as long as those
+  // paths stayed idle — with auto-build off, forever. Read-only: each
+  // reconciler prunes against the live model and saves only when it changed
+  // something, and an unreadable model still means "unknown", never "done".
+  function nativeQueueReconcileTown(townId) {
+    let changed=false;
+    try{if(nativeQueueList(townId,'build',false).length&&nativeQueueReconcileBuild(townId))changed=true}catch(_){}
+    try{if(nativeQueueList(townId,'research',false).length&&nativeQueueReconcileResearch(townId))changed=true}catch(_){}
+    try{if(nativeRecruitPending(townId)&&nativeQueueReconcileRecruit(townId,null))changed=true}catch(_){}
+    return changed;
+  }
+  let nativeQueueSweepAt=0;
+  function nativeQueueSweep(reason) {
+    // Wake events and the 60s loop can land in the same second; a manual click
+    // is always honoured because it is the player asking for a re-read.
+    if(reason!=='manual'&&nativeQueueSweepAt&&Date.now()-nativeQueueSweepAt<5000)return 0;
+    const towns=nativeQueueRoot().towns;let n=0;
+    for(const id of Object.keys(towns))if(nativeQueueReconcileTown(id))n++;
+    nativeQueueSweepAt=Date.now();
+    if(n)gbLog(`native queue sweep (${reason||'loop'}): ${n} town(s) reconciled against the real queue`);
+    return n;
+  }
   function nativeQueueMove(townId,lane,jobId,delta) {
     nativeQueueReconcile(townId,lane);
     const list=nativeQueueList(townId,lane,false);if(list.some(j=>j&&(j.inflight||j.manualReview)))return false;const i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return false;
