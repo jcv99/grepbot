@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.50.1
+// @version      4.51.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1695,6 +1695,10 @@ const STORE = {
     try { GM_setValue(k, val); return true; } catch (_) { return false; }
   }
 
+  function pruneBytesOf(v) {
+    try { return JSON.stringify(v).length; } catch (_) { return 0; }
+  }
+
   function storagePruneForQuota() {
     if (storagePruneBusy) return 0;
     storagePruneBusy = true;
@@ -1702,48 +1706,90 @@ const STORE = {
     try {
       const list = state.decisions;
       if (Array.isArray(list) && list.length > 50) {
-        const drop = list.length - 50;
-        list.splice(0, drop);
-        bytes += drop * 80;
+        bytes += pruneBytesOf(list.splice(0, list.length - 50));
         storageRawSet(wkey(STORE.DECISIONS), list);
       }
     } catch (_) {}
     try {
       const ids = Object.keys(state.seen || {});
       if (ids.length > SEEN_MAX) {
-        const drop = ids.length - SEEN_MAX;
-        ids.slice(0, drop).forEach(k => { delete state.seen[k]; });
-        bytes += drop * 20;
+        const dropped = {};
+        ids.slice(0, ids.length - SEEN_MAX).forEach(k => { dropped[k] = state.seen[k]; delete state.seen[k]; });
+        bytes += pruneBytesOf(dropped);
         storageRawSet(wkey(STORE.SEEN), state.seen);
       }
     } catch (_) {}
     try {
       const cut = Date.now() - 3 * 86400000;
+      const dropped = {};
       let n = 0;
 
       Object.keys(state.alerted || {}).forEach(k => {
         const e = state.alerted[k];
         const ts = (e && typeof e === 'object') ? +e.ts || 0 : +e || 0;
-        if (ts < cut) { delete state.alerted[k]; n++; }
+        if (ts < cut) { dropped[k] = e; delete state.alerted[k]; n++; }
       });
-      if (n) { bytes += n * 24; storageRawSet(wkey(STORE.ALERTED), state.alerted); }
+      if (n) { bytes += pruneBytesOf(dropped); storageRawSet(wkey(STORE.ALERTED), state.alerted); }
     } catch (_) {}
     try {
       if (Array.isArray(state.findings) && state.findings.length > 100) {
-        const drop = state.findings.length - 100;
-        state.findings.splice(0, drop);
-        bytes += drop * 200;
+        bytes += pruneBytesOf(state.findings.splice(0, state.findings.length - 100));
         storageRawSet(wkey(STORE.FINDINGS), state.findings);
       }
     } catch (_) {}
     try {
       const cut = Date.now() - 86400000;
+      const dropped = {};
       let n = 0;
       Object.keys(state.farmResources || {}).forEach(k => {
         const r = state.farmResources[k];
-        if (r && r.ts && r.ts < cut) { delete state.farmResources[k]; n++; }
+        if (r && r.ts && r.ts < cut) { dropped[k] = r; delete state.farmResources[k]; n++; }
       });
-      if (n) { bytes += n * 40; storageRawSet(wkey(STORE.FARM_RES), state.farmResources); }
+      if (n) { bytes += pruneBytesOf(dropped); storageRawSet(wkey(STORE.FARM_RES), state.farmResources); }
+    } catch (_) {}
+
+    try {
+      const ring = state.snapshots;
+      if (Array.isArray(ring) && ring.length > 1) {
+
+        for (const s of ring.splice(0, ring.length - 1)) bytes += (s && +s.sizeBytes) || 0;
+        storageRawSet(wkey(STORE.SNAPSHOTS), ring);
+      }
+    } catch (_) {}
+    try {
+      const list = state.whyLog;
+      if (Array.isArray(list) && list.length > 50) {
+        const dropped = list.splice(50);
+        bytes += pruneBytesOf(dropped);
+        storageRawSet(wkey(STORE.WHY_LOG), list);
+      }
+    } catch (_) {}
+
+    try {
+      const cut = Date.now() - 3 * 86400000;
+      const map = state.dodgeReturns || {};
+      const dropped = [];
+      Object.keys(map).forEach(k => {
+        const e = map[k];
+        const at = (e && (+e.dueAt || +e.createdAt)) || 0;
+        const done = !!e && (e.state === 'done' || e.state === 'sent' || e.state === 'expired');
+        if (!e || (at && at < cut) || (done && at && at < Date.now() - 86400000)) {
+          dropped.push(e); delete map[k];
+        }
+      });
+      if (dropped.length) { bytes += pruneBytesOf(dropped); storageRawSet(wkey(STORE.DODGE_RETURNS), map); }
+    } catch (_) {}
+
+    try {
+      const cut = Date.now() - 7 * 86400000;
+      const map = state.tplHealth || {};
+      const dropped = [];
+      Object.keys(map).forEach(k => {
+        const h = map[k] || {};
+        const last = Math.max(+h.lastOkAt || 0, +h.lastErrAt || 0, +h.learnedAt || 0);
+        if (last && last < cut) { dropped.push(h); delete map[k]; }
+      });
+      if (dropped.length) { bytes += pruneBytesOf(dropped); storageRawSet(wkey(STORE.TPL_HEALTH), map); }
     } catch (_) {}
     storagePruneBusy = false;
     return bytes;

@@ -1532,6 +1532,13 @@
   function storageRawSet(k, val) {
     try { GM_setValue(k, val); return true; } catch (_) { return false; }
   }
+  // The freed-bytes number is logged as fact and read as fact when deciding
+  // whether a prune was worth anything, so measure what was actually dropped
+  // instead of the old per-entry guesses (drop * 80, drop * 24, drop * 200 -
+  // a decision entry alone serializes past 120 bytes).
+  function pruneBytesOf(v) {
+    try { return JSON.stringify(v).length; } catch (_) { return 0; }
+  }
   // Quota is a write-loss event, not a warning: prune the ring buffers that can
   // afford it and retry the write once.
   function storagePruneForQuota() {
@@ -1541,49 +1548,100 @@
     try {
       const list = state.decisions;
       if (Array.isArray(list) && list.length > 50) {
-        const drop = list.length - 50;
-        list.splice(0, drop);
-        bytes += drop * 80;
+        bytes += pruneBytesOf(list.splice(0, list.length - 50));
         storageRawSet(wkey(STORE.DECISIONS), list);
       }
     } catch (_) {}
     try {
       const ids = Object.keys(state.seen || {});
       if (ids.length > SEEN_MAX) {
-        const drop = ids.length - SEEN_MAX;
-        ids.slice(0, drop).forEach(k => { delete state.seen[k]; });
-        bytes += drop * 20;
+        const dropped = {};
+        ids.slice(0, ids.length - SEEN_MAX).forEach(k => { dropped[k] = state.seen[k]; delete state.seen[k]; });
+        bytes += pruneBytesOf(dropped);
         storageRawSet(wkey(STORE.SEEN), state.seen);
       }
     } catch (_) {}
     try {
       const cut = Date.now() - 3 * 86400000;
+      const dropped = {};
       let n = 0;
       // checkThresholds stores {key, ts} objects, so a bare `entry < cut` compared
       // an object against a number and was always false - this prune did nothing.
       Object.keys(state.alerted || {}).forEach(k => {
         const e = state.alerted[k];
         const ts = (e && typeof e === 'object') ? +e.ts || 0 : +e || 0;
-        if (ts < cut) { delete state.alerted[k]; n++; }
+        if (ts < cut) { dropped[k] = e; delete state.alerted[k]; n++; }
       });
-      if (n) { bytes += n * 24; storageRawSet(wkey(STORE.ALERTED), state.alerted); }
+      if (n) { bytes += pruneBytesOf(dropped); storageRawSet(wkey(STORE.ALERTED), state.alerted); }
     } catch (_) {}
     try {
       if (Array.isArray(state.findings) && state.findings.length > 100) {
-        const drop = state.findings.length - 100;
-        state.findings.splice(0, drop);
-        bytes += drop * 200;
+        bytes += pruneBytesOf(state.findings.splice(0, state.findings.length - 100));
         storageRawSet(wkey(STORE.FINDINGS), state.findings);
       }
     } catch (_) {}
     try {
       const cut = Date.now() - 86400000;
+      const dropped = {};
       let n = 0;
       Object.keys(state.farmResources || {}).forEach(k => {
         const r = state.farmResources[k];
-        if (r && r.ts && r.ts < cut) { delete state.farmResources[k]; n++; }
+        if (r && r.ts && r.ts < cut) { dropped[k] = r; delete state.farmResources[k]; n++; }
       });
-      if (n) { bytes += n * 40; storageRawSet(wkey(STORE.FARM_RES), state.farmResources); }
+      if (n) { bytes += pruneBytesOf(dropped); storageRawSet(wkey(STORE.FARM_RES), state.farmResources); }
+    } catch (_) {}
+    // Snapshots are the single biggest thing this script writes: SNAPSHOT_SLOTS
+    // (6) x up to SNAPSHOT_BUDGET_BYTES (200KB) each. Pruning five small rings
+    // and leaving 1.2MB of pure diagnostics untouched is why a prune could free
+    // "enough" bytes on paper and still lose the retried write. Keep the newest
+    // one - a snapshot only exists to diff against, and diagnostics is the first
+    // thing that should yield when the store is full.
+    try {
+      const ring = state.snapshots;
+      if (Array.isArray(ring) && ring.length > 1) {
+        // splice, not reassign: snapshotRing() hands this array out to callers.
+        for (const s of ring.splice(0, ring.length - 1)) bytes += (s && +s.sizeBytes) || 0;
+        storageRawSet(wkey(STORE.SNAPSHOTS), ring);
+      }
+    } catch (_) {}
+    try {
+      const list = state.whyLog;
+      if (Array.isArray(list) && list.length > 50) {
+        const dropped = list.splice(50);
+        bytes += pruneBytesOf(dropped);
+        storageRawSet(wkey(STORE.WHY_LOG), list);
+      }
+    } catch (_) {}
+    // A dodge return that already landed (or whose due time is long past) is
+    // history, not a pending intent - dodgeReturnTick only acts on the live ones.
+    try {
+      const cut = Date.now() - 3 * 86400000;
+      const map = state.dodgeReturns || {};
+      const dropped = [];
+      Object.keys(map).forEach(k => {
+        const e = map[k];
+        const at = (e && (+e.dueAt || +e.createdAt)) || 0;
+        const done = !!e && (e.state === 'done' || e.state === 'sent' || e.state === 'expired');
+        if (!e || (at && at < cut) || (done && at && at < Date.now() - 86400000)) {
+          dropped.push(e); delete map[k];
+        }
+      });
+      if (dropped.length) { bytes += pruneBytesOf(dropped); storageRawSet(wkey(STORE.DODGE_RETURNS), map); }
+    } catch (_) {}
+    // tplHealth is keyed by learned payload name and never expires on its own;
+    // an entry nothing has touched in a week is a template the world no longer
+    // uses. tplHealthOk treats a missing entry as healthy, so dropping one costs
+    // at most one re-learn.
+    try {
+      const cut = Date.now() - 7 * 86400000;
+      const map = state.tplHealth || {};
+      const dropped = [];
+      Object.keys(map).forEach(k => {
+        const h = map[k] || {};
+        const last = Math.max(+h.lastOkAt || 0, +h.lastErrAt || 0, +h.learnedAt || 0);
+        if (last && last < cut) { dropped.push(h); delete map[k]; }
+      });
+      if (dropped.length) { bytes += pruneBytesOf(dropped); storageRawSet(wkey(STORE.TPL_HEALTH), map); }
     } catch (_) {}
     storagePruneBusy = false;
     return bytes;
