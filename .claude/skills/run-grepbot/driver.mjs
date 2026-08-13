@@ -268,8 +268,8 @@ async function runSmoke() {
 
 const REPL_HELP = `commands:
   tabs                list panel tab ids
-  tab <id>            click a panel sub-tab (findings farms world attack quests
-                      build overview intel config stats log)
+  tab <id>            click a panel sub-tab (attack overview intel config
+                      stats log)
   click <selector>    document.querySelector(sel).click()
   text <selector>     innerText of the first match (4k cap)
   html <selector>     outerHTML of the first match (4k cap)
