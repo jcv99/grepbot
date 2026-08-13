@@ -240,6 +240,49 @@
     let lastTick = 0;
     let inFlight = false;
     let lastSnapshot = { farms: null, towns: null, player: null, queues: null };
+    let statusTimer = 0;
+
+    // -- header pill -------------------------------------------------------
+    // The panel header carries #gb-head-ai. relay.js owns it: it is the only
+    // module that knows the socket state. The pill may not exist yet (boot
+    // order, panel not built, collapsed) -- every write is a no-op then.
+    const AI_STATES = {
+      off:  { icon: '○', cls: '',     txt: 'IA sin conexion' },
+      wait: { icon: '◐', cls: 'warn', txt: 'IA conectando' },
+      on:   { icon: '●', cls: 'ok',   txt: 'IA conectada' },
+    };
+
+    function aiState() {
+      if (!ws) return 'off';
+      if (ws.readyState === 0) return 'wait';
+      if (ws.readyState === 1) return 'on';
+      return 'off';
+    }
+
+    function paintAi() {
+      const el = safe(() => document.querySelector('#gb-head-ai'), null);
+      if (!el) return;
+      const key = aiState();
+      const s = AI_STATES[key];
+      const label = s.icon + ' IA';
+      if (el.textContent !== label) el.textContent = label;
+      const cls = 'gb-pill' + (s.cls ? ' ' + s.cls : '');
+      if (el.className !== cls) el.className = cls;
+      let title = s.txt + ' (' + RELAY_URL + ').';
+      if (key === 'on') {
+        title += lastTick
+          ? ' Ultimo envio hace ' + Math.round((Date.now() - lastTick) / 1000) + ' s.'
+          : ' Todavia sin enviar datos.';
+      } else if (key === 'off') {
+        title += ' Arranca el servidor MCP y espera ' + Math.round(RETRY_MS / 1000) + ' s.';
+      }
+      if (el.title !== title) el.title = title;
+    }
+
+    function startStatusTimer() {
+      if (statusTimer) return;
+      statusTimer = setInterval(paintAi, 5000);
+    }
 
     function send(obj) {
       try {
@@ -260,6 +303,7 @@
         if (snap.bp) send({ type: 'data', kind: 'bp', payload: snap.bp });
         if (snap.map) send({ type: 'data', kind: 'map', payload: snap.map });
         lastTick = Date.now();
+        paintAi();
       } finally {
         inFlight = false;
       }
@@ -303,7 +347,9 @@
         return;
       }
       ws = sock;
+      paintAi();
       sock.addEventListener('open', () => {
+        paintAi();
         send({
           type: 'hello', kind: 'hello',
           payload: {
@@ -324,6 +370,8 @@
       });
       sock.addEventListener('close', () => {
         clearTimers();
+        ws = null;
+        paintAi();
         scheduleReconnect();
       });
       sock.addEventListener('error', () => {
@@ -333,6 +381,10 @@
 
     function boot() {
       if (!isWorldPage()) return;
+      // The pill must read "sin conexion" from the moment the panel exists,
+      // not only once a socket has been attempted.
+      startStatusTimer();
+      paintAi();
       // Defer first connect so SPA collection has time to populate.
       setTimeout(connect, 1500);
       // Manual refresh hook on unsafeWindow for the console:

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.55.3
+// @version      4.56.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -21560,7 +21560,7 @@ const STORE = {
   }
 
   panel.innerHTML = `
-    <header><div class="gb-head-main"><b>GrepBot v${runningVersion()}</b><div class="gb-head-status"><span id="gb-head-mode" class="gb-pill">...</span><span id="gb-head-health" class="gb-pill">...</span></div></div><div style="display:flex;gap:4px"><button data-act="queues" title="Abrir centro de colas">Colas</button><button data-act="toggle" title="Minimizar">_</button></div></header>
+    <header><div class="gb-head-main"><b>GrepBot v${runningVersion()}</b><div class="gb-head-status"><span id="gb-head-ai" class="gb-pill" title="Enlace con la IA (relay local). Sin conexion todavia.">&#9675; IA</span><span id="gb-head-mode" class="gb-pill">...</span><span id="gb-head-health" class="gb-pill">...</span></div></div><div style="display:flex;gap:4px"><button data-act="queues" title="Abrir centro de colas">Colas</button><button data-act="toggle" title="Minimizar">_</button></div></header>
     <div class="gb-qat" role="toolbar" aria-label="GrepBot acciones rapidas">
       <select data-qs="town" title="Cambiar de ciudad" style="background:var(--gb-input-bg);color:var(--gb-input-fg);border:1px solid var(--gb-chrome);font-size:10px;max-width:150px"></select>
       <button type="button" data-qat="collect" title="Recoger recursos ahora">Recoger</button>
@@ -24137,6 +24137,45 @@ const STORE = {
     let lastTick = 0;
     let inFlight = false;
     let lastSnapshot = { farms: null, towns: null, player: null, queues: null };
+    let statusTimer = 0;
+
+    const AI_STATES = {
+      off:  { icon: '\u25cb', cls: '',     txt: 'IA sin conexion' },
+      wait: { icon: '\u25d0', cls: 'warn', txt: 'IA conectando' },
+      on:   { icon: '\u25cf', cls: 'ok',   txt: 'IA conectada' },
+    };
+
+    function aiState() {
+      if (!ws) return 'off';
+      if (ws.readyState === 0) return 'wait';
+      if (ws.readyState === 1) return 'on';
+      return 'off';
+    }
+
+    function paintAi() {
+      const el = safe(() => document.querySelector('#gb-head-ai'), null);
+      if (!el) return;
+      const key = aiState();
+      const s = AI_STATES[key];
+      const label = s.icon + ' IA';
+      if (el.textContent !== label) el.textContent = label;
+      const cls = 'gb-pill' + (s.cls ? ' ' + s.cls : '');
+      if (el.className !== cls) el.className = cls;
+      let title = s.txt + ' (' + RELAY_URL + ').';
+      if (key === 'on') {
+        title += lastTick
+          ? ' Ultimo envio hace ' + Math.round((Date.now() - lastTick) / 1000) + ' s.'
+          : ' Todavia sin enviar datos.';
+      } else if (key === 'off') {
+        title += ' Arranca el servidor MCP y espera ' + Math.round(RETRY_MS / 1000) + ' s.';
+      }
+      if (el.title !== title) el.title = title;
+    }
+
+    function startStatusTimer() {
+      if (statusTimer) return;
+      statusTimer = setInterval(paintAi, 5000);
+    }
 
     function send(obj) {
       try {
@@ -24157,6 +24196,7 @@ const STORE = {
         if (snap.bp) send({ type: 'data', kind: 'bp', payload: snap.bp });
         if (snap.map) send({ type: 'data', kind: 'map', payload: snap.map });
         lastTick = Date.now();
+        paintAi();
       } finally {
         inFlight = false;
       }
@@ -24200,7 +24240,9 @@ const STORE = {
         return;
       }
       ws = sock;
+      paintAi();
       sock.addEventListener('open', () => {
+        paintAi();
         send({
           type: 'hello', kind: 'hello',
           payload: {
@@ -24221,6 +24263,8 @@ const STORE = {
       });
       sock.addEventListener('close', () => {
         clearTimers();
+        ws = null;
+        paintAi();
         scheduleReconnect();
       });
       sock.addEventListener('error', () => {
@@ -24230,6 +24274,9 @@ const STORE = {
 
     function boot() {
       if (!isWorldPage()) return;
+
+      startStatusTimer();
+      paintAi();
 
       setTimeout(connect, 1500);
 
