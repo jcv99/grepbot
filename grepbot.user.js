@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.57.0
+// @version      4.57.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -24009,6 +24009,8 @@ const STORE = {
         const pick = (k) => (G[k] != null ? G[k] : null);
         return {
           at: Date.now(),
+
+          gb_version: safe(() => runningVersion(), null),
           player_id: pick('player_id'),
           player_name: pick('player_name'),
           alliance_id: pick('alliance_id'),
@@ -24071,14 +24073,25 @@ const STORE = {
 
     function snapshotMap(u) {
 
-      return safe(() => {
+      const out = {
+        at: Date.now(), towns: [], source: null,
+        chunks_read: 0, chunks_missing: 0, center: null,
+        error: null, has: {},
+      };
+      try {
         const W = u.WMap;
         const IT = u.ITowns;
-        const out = {
-          at: Date.now(), towns: [], source: null,
-          chunks_read: 0, chunks_missing: 0, center: null,
-        };
         const ownPlayerId = safe(() => +u.Game.player_id, null);
+
+        out.has = {
+          WMap: !!W,
+          mapData: !!(W && W.mapData),
+          getChunk: !!(W && W.mapData && typeof W.mapData.getChunk === 'function'),
+          toChunk: !!(W && typeof W.toChunk === 'function'),
+          findTownInChunks: !!(W && W.mapData && typeof W.mapData.findTownInChunks === 'function'),
+          ITowns: !!(IT && typeof IT.getTowns === 'function'),
+          townId: safe(() => u.Game.townId, null),
+        };
 
         const md = W && W.mapData;
         const canChunk = md && typeof md.getChunk === 'function'
@@ -24134,8 +24147,10 @@ const STORE = {
             if (out.towns.length) out.source = 'itowns-own-only';
           } catch (_) {}
         }
-        return out;
-      }, null);
+      } catch (e) {
+        out.error = String((e && e.message) || e);
+      }
+      return out;
     }
 
     function snapshotQueues(u) {

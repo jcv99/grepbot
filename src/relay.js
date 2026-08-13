@@ -106,6 +106,9 @@
         const pick = (k) => (G[k] != null ? G[k] : null);
         return {
           at: Date.now(),
+          // Which build is actually live in the tab -- otherwise a stale
+          // Tampermonkey install is invisible from the MCP side.
+          gb_version: safe(() => runningVersion(), null),
           player_id: pick('player_id'),
           player_name: pick('player_name'),
           alliance_id: pick('alliance_id'),
@@ -183,14 +186,31 @@
       // Only chunks the SPA has already fetched are readable, so this stays
       // best-effort: `chunks_read` / `chunks_missing` make an empty result
       // diagnosable instead of silently meaning "nothing there".
-      return safe(() => {
+      // NEVER return null here. A null is not pushed by tick(), so the MCP
+      // side cannot tell "this threw" from "never sent" -- both read as
+      // relay offline for the `map` kind, with no way to see why. Always
+      // return the envelope and carry the failure in `error`.
+      const out = {
+        at: Date.now(), towns: [], source: null,
+        chunks_read: 0, chunks_missing: 0, center: null,
+        error: null, has: {},
+      };
+      try {
         const W = u.WMap;
         const IT = u.ITowns;
-        const out = {
-          at: Date.now(), towns: [], source: null,
-          chunks_read: 0, chunks_missing: 0, center: null,
-        };
         const ownPlayerId = safe(() => +u.Game.player_id, null);
+
+        // What the page actually exposes -- so an empty result names the
+        // missing accessor instead of being indistinguishable from "no towns".
+        out.has = {
+          WMap: !!W,
+          mapData: !!(W && W.mapData),
+          getChunk: !!(W && W.mapData && typeof W.mapData.getChunk === 'function'),
+          toChunk: !!(W && typeof W.toChunk === 'function'),
+          findTownInChunks: !!(W && W.mapData && typeof W.mapData.findTownInChunks === 'function'),
+          ITowns: !!(IT && typeof IT.getTowns === 'function'),
+          townId: safe(() => u.Game.townId, null),
+        };
 
         const md = W && W.mapData;
         const canChunk = md && typeof md.getChunk === 'function'
@@ -253,8 +273,10 @@
             if (out.towns.length) out.source = 'itowns-own-only';
           } catch (_) {}
         }
-        return out;
-      }, null);
+      } catch (e) {
+        out.error = String((e && e.message) || e);
+      }
+      return out;
     }
 
     function snapshotQueues(u) {
