@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.56.0
+// @version      4.57.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -24053,31 +24053,70 @@ const STORE = {
       }, { at: Date.now(), bp: null });
     }
 
+    const MAP_CHUNK_RADIUS = 2;
+    const MAP_TOWN_CAP = 400;
+
+    function mapTownRow(t, ownPlayerId) {
+
+      const row = {};
+      for (const k in t) {
+        if (!Object.prototype.hasOwnProperty.call(t, k)) continue;
+        const v = t[k];
+        const ty = typeof v;
+        if (v === null || ty === 'number' || ty === 'string' || ty === 'boolean') row[k] = v;
+      }
+      if (ownPlayerId != null && row.player_id != null) row.own = (+row.player_id === +ownPlayerId);
+      return row;
+    }
+
     function snapshotMap(u) {
 
       return safe(() => {
         const W = u.WMap;
         const IT = u.ITowns;
-        const out = { at: Date.now(), towns: [] };
-        if (W && typeof W.getTowns === 'function') {
-          try {
-            const arr = W.getTowns();
-            if (Array.isArray(arr)) {
-              for (const t of arr.slice(0, 200)) {
-                if (!t) continue;
-                const id = t.id || t.town_id;
-                if (!id) continue;
-                out.towns.push({
-                  id: +id,
-                  name: t.name || (typeof t.getName === 'function' ? t.getName() : null),
-                  player_id: t.player_id || null,
-                  points: t.points || null,
-                  x: t.x != null ? +t.x : null,
-                  y: t.y != null ? +t.y : null,
-                });
+        const out = {
+          at: Date.now(), towns: [], source: null,
+          chunks_read: 0, chunks_missing: 0, center: null,
+        };
+        const ownPlayerId = safe(() => +u.Game.player_id, null);
+
+        const md = W && W.mapData;
+        const canChunk = md && typeof md.getChunk === 'function'
+          && W && typeof W.toChunk === 'function';
+        if (canChunk) {
+
+          let center = safe(() => md.findTownInChunks(u.Game.townId), null);
+          if (center && center.x != null && center.y != null) {
+            const c = safe(() => W.toChunk(+center.x, +center.y), null);
+            if (c && c.chunk) {
+              out.center = { x: +center.x, y: +center.y, chunk: c.chunk };
+              const seen = Object.create(null);
+              for (let dx = -MAP_CHUNK_RADIUS; dx <= MAP_CHUNK_RADIUS; dx++) {
+                for (let dy = -MAP_CHUNK_RADIUS; dy <= MAP_CHUNK_RADIUS; dy++) {
+                  const cx = c.chunk.x + dx, cy = c.chunk.y + dy;
+                  if (cx < 0 || cy < 0) continue;
+
+                  const chunk = safe(() => md.getChunk(cx, cy), null);
+                  if (!chunk || !chunk.towns || chunk.loading === true) { out.chunks_missing++; continue; }
+                  out.chunks_read++;
+                  for (const k in chunk.towns) {
+                    if (!Object.prototype.hasOwnProperty.call(chunk.towns, k)) continue;
+                    const t = chunk.towns[k];
+                    if (!t || !t.id || seen[t.id]) continue;
+
+                    if (t.expansion_stage !== undefined) continue;
+                    if (t.points === undefined) continue;
+                    seen[t.id] = 1;
+                    out.towns.push(mapTownRow(t, ownPlayerId));
+                    if (out.towns.length >= MAP_TOWN_CAP) break;
+                  }
+                  if (out.towns.length >= MAP_TOWN_CAP) break;
+                }
+                if (out.towns.length >= MAP_TOWN_CAP) break;
               }
+              if (out.towns.length) out.source = 'wmap-chunks';
             }
-          } catch (_) {}
+          }
         }
 
         if (!out.towns.length && IT && typeof IT.getTowns === 'function') {
@@ -24087,11 +24126,12 @@ const STORE = {
               out.towns.push({
                 id: +t.id,
                 name: typeof t.getName === 'function' ? t.getName() : null,
-                player_id: null,
+                player_id: ownPlayerId,
                 points: typeof t.getPoints === 'function' ? t.getPoints() : null,
                 own: true,
               });
             }
+            if (out.towns.length) out.source = 'itowns-own-only';
           } catch (_) {}
         }
         return out;

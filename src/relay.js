@@ -152,35 +152,92 @@
       }, { at: Date.now(), bp: null });
     }
 
+    const MAP_CHUNK_RADIUS = 2;   // (2*2+1)^2 = 25 chunks around own town
+    const MAP_TOWN_CAP = 400;
+
+    function mapTownRow(t, ownPlayerId) {
+      // Chunk towns are plain server JSON, so copy the scalars wholesale
+      // rather than guessing at field names -- the MCP side picks what it
+      // needs and a renamed field shows up as data instead of as null.
+      const row = {};
+      for (const k in t) {
+        if (!Object.prototype.hasOwnProperty.call(t, k)) continue;
+        const v = t[k];
+        const ty = typeof v;
+        if (v === null || ty === 'number' || ty === 'string' || ty === 'boolean') row[k] = v;
+      }
+      if (ownPlayerId != null && row.player_id != null) row.own = (+row.player_id === +ownPlayerId);
+      return row;
+    }
+
     function snapshotMap(u) {
-      // Visible map towns + their player + garrison estimate. We start from
-      // ITowns (own towns) plus whatever WMap exposes; the SPA loads map
-      // chunks on demand, so this is best-effort.
+      // Towns the client has actually loaded, read out of WMap's chunk cache.
+      //
+      // There is no `WMap.getTowns` in the live client (checked against
+      // archive/captures/grepo-dump/js/game.min.js) -- the earlier version of
+      // this function called it, always threw, and shipped an empty list that
+      // looked like "no enemies nearby". The real accessors are
+      // `WMap.toChunk(x,y)` / `WMap.mapData.getChunk(cx,cy)`, and each chunk
+      // carries a `towns` map of server JSON.
+      //
+      // Only chunks the SPA has already fetched are readable, so this stays
+      // best-effort: `chunks_read` / `chunks_missing` make an empty result
+      // diagnosable instead of silently meaning "nothing there".
       return safe(() => {
         const W = u.WMap;
         const IT = u.ITowns;
-        const out = { at: Date.now(), towns: [] };
-        if (W && typeof W.getTowns === 'function') {
-          try {
-            const arr = W.getTowns();
-            if (Array.isArray(arr)) {
-              for (const t of arr.slice(0, 200)) {
-                if (!t) continue;
-                const id = t.id || t.town_id;
-                if (!id) continue;
-                out.towns.push({
-                  id: +id,
-                  name: t.name || (typeof t.getName === 'function' ? t.getName() : null),
-                  player_id: t.player_id || null,
-                  points: t.points || null,
-                  x: t.x != null ? +t.x : null,
-                  y: t.y != null ? +t.y : null,
-                });
+        const out = {
+          at: Date.now(), towns: [], source: null,
+          chunks_read: 0, chunks_missing: 0, center: null,
+        };
+        const ownPlayerId = safe(() => +u.Game.player_id, null);
+
+        const md = W && W.mapData;
+        const canChunk = md && typeof md.getChunk === 'function'
+          && W && typeof W.toChunk === 'function';
+        if (canChunk) {
+          // Center on the current town; findTownInChunks is the client's own
+          // way of resolving it to island coords.
+          let center = safe(() => md.findTownInChunks(u.Game.townId), null);
+          if (center && center.x != null && center.y != null) {
+            const c = safe(() => W.toChunk(+center.x, +center.y), null);
+            if (c && c.chunk) {
+              out.center = { x: +center.x, y: +center.y, chunk: c.chunk };
+              const seen = Object.create(null);
+              for (let dx = -MAP_CHUNK_RADIUS; dx <= MAP_CHUNK_RADIUS; dx++) {
+                for (let dy = -MAP_CHUNK_RADIUS; dy <= MAP_CHUNK_RADIUS; dy++) {
+                  const cx = c.chunk.x + dx, cy = c.chunk.y + dy;
+                  if (cx < 0 || cy < 0) continue;
+                  // getChunk dereferences a sparse array and throws on a chunk
+                  // the SPA has not fetched -- that is "not loaded", not an error.
+                  const chunk = safe(() => md.getChunk(cx, cy), null);
+                  if (!chunk || !chunk.towns || chunk.loading === true) { out.chunks_missing++; continue; }
+                  out.chunks_read++;
+                  for (const k in chunk.towns) {
+                    if (!Object.prototype.hasOwnProperty.call(chunk.towns, k)) continue;
+                    const t = chunk.towns[k];
+                    if (!t || !t.id || seen[t.id]) continue;
+                    // The client separates real towns from farm villages and
+                    // free spots by these two fields (see mapData.getTown /
+                    // getTownType); a farm village is not an attack target
+                    // for battle points.
+                    if (t.expansion_stage !== undefined) continue;
+                    if (t.points === undefined) continue;
+                    seen[t.id] = 1;
+                    out.towns.push(mapTownRow(t, ownPlayerId));
+                    if (out.towns.length >= MAP_TOWN_CAP) break;
+                  }
+                  if (out.towns.length >= MAP_TOWN_CAP) break;
+                }
+                if (out.towns.length >= MAP_TOWN_CAP) break;
               }
+              if (out.towns.length) out.source = 'wmap-chunks';
             }
-          } catch (_) {}
+          }
         }
-        // If WMap not present, just fall back to ITowns.towns (own towns).
+
+        // Fall back to own towns only -- never a target list, but it keeps
+        // live_map answering something when the map has not rendered.
         if (!out.towns.length && IT && typeof IT.getTowns === 'function') {
           try {
             for (const t of IT.getTowns()) {
@@ -188,11 +245,12 @@
               out.towns.push({
                 id: +t.id,
                 name: typeof t.getName === 'function' ? t.getName() : null,
-                player_id: null,
+                player_id: ownPlayerId,
                 points: typeof t.getPoints === 'function' ? t.getPoints() : null,
                 own: true,
               });
             }
+            if (out.towns.length) out.source = 'itowns-own-only';
           } catch (_) {}
         }
         return out;
