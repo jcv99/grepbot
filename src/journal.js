@@ -169,7 +169,7 @@
     return rec;
   }
 
-  function gbFailStreak(feature, action, target) {
+  function jrnFailStreak(feature, action, target) {
     const list = state.decisions;
     let n = 0;
     for (let i = list.length - 1; i >= 0; i--) {
@@ -191,7 +191,7 @@
       return;
     }
     if (!jrnHard(result)) return;
-    if (gbFailStreak(tag.f, tag.a, tag.k) < JRN_FAIL_TRIP) return;
+    if (jrnFailStreak(tag.f, tag.a, tag.k) < JRN_FAIL_TRIP) return;
     const prev = state.decisionSkips[key] || { trips: 0 };
     if (prev.until && Date.now() < prev.until) return;
     const trips = Math.min((prev.trips || 0) + 1, JRN_BACKOFF.length);

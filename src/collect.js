@@ -157,11 +157,13 @@
           return;
         }
         gameAjaxPost('collect', collectCtrl, collectAction, { town_id: +t.id }, (err, res) => {
-          if (err && err !== 'dryrun' && err !== 'disabled' && err !== 'paused' && err !== 'budget' && err !== 'remembered') {
+          // JRN_SKIP_ERRS = local gates; nothing was posted, so none of them is
+          // evidence about the endpoint. `captcha` is excluded for the same
+          // reason the journal excludes it: the captcha breaker owns that
+          // backoff, and counting it here doubled bg-collect's own on top.
+          if (err && !JRN_SKIP_ERRS[err] && err !== 'captcha') {
             errors++;
-            if (err !== 'captcha' && err !== 'captcha-pause') {
-              flash(`collect ${t.name || t.id}: ${err}`);
-            }
+            flash(`collect ${t.name || t.id}: ${err}`);
           } else if (!err && res && (res.error || res.err)) {
             errors++;
             flash(`collect ${t.name || t.id}: ${res.error || res.err}`);
@@ -205,21 +207,19 @@
         scheduleNativeUiScan();
       });
     }
-    const targets = [];
     // Grepolis windows are NOT inside #ui_box: WindowsView is `el:"body"` and
     // renderWindow mounts with `$parent:this.$el`, so an open window is a
     // SIBLING of #ui_box under <body>. A subtree observer on #ui_box therefore
     // never sees a window open, and nothing scheduled a native-UI scan for it.
     // Observing body costs one extra filter pass and is the only target that
-    // covers both.
-    if (document.body) targets.push(document.body);
-    if (!targets.length) {
-      const ui = document.querySelector('#ui_box');
-      if (ui) targets.push(ui);
-      document.querySelectorAll('.window_content, .quests, #questlog').forEach(el => {
-        if (el && targets.indexOf(el) < 0) targets.push(el);
-      });
+    // covers both. No #ui_box/.window_content fallback: those nodes cannot exist
+    // before <body> either, so the old fallback branch was unreachable — wait
+    // for the document instead.
+    if (!document.body) {
+      gbListen(document, 'DOMContentLoaded', () => ensureDomObserver(), { once: true });
+      return;
     }
+    const targets = [document.body];
     const sig = targets.map(t => (t === document.body ? 'BODY' : (t.id || '') + '.' + (t.className || ''))).join('|');
     if (sig === gbDomObserverSig) return;
     try { gbDomObserver.disconnect(); } catch (_) {}

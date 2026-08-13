@@ -182,9 +182,11 @@
     // A globally empty readable collection also proves the per-town baseline was zero.
     if (before == null && useTown && +s.beforeMovementCount === 0) before = 0;
     if (before != null && Number.isFinite(+before)) return current > +before ? 'applied' : 'unchanged';
-    // Conservative compatibility for an in-flight transaction created by an older
-    // version, which did not persist a movement baseline.
-    return current > 0 ? 'applied' : 'unknown';
+    // No persisted baseline (transaction created by an older version): `current
+    // > 0` is not evidence about OUR post — any pre-existing movement, from any
+    // town, committed the transaction as applied. Without a baseline the outcome
+    // is genuinely unknown, and the unknown path already re-checks later.
+    return 'unknown';
   }
   function banditCommitUnknownFromMovement(townId, evidence) {
     if (!evidence || !evidence.known || !(evidence.count > 0)) return 0;

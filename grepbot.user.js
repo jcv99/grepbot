@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.48.0
+// @version      4.49.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -540,7 +540,13 @@ const STORE = {
     }
     return L;
   }
-  function gbLocked(name) { return !!gbLockLease(name); }
+
+  function gbLockHeld(name) {
+    const L = gbLocks[name];
+    if (!L) return null;
+    return (Date.now() - L.at < (L.ttl || gbLockTtl(name))) ? L : null;
+  }
+  function gbLocked(name) { return !!gbLockHeld(name); }
   function gbLock(name, ttl) {
     if (!gbInstanceAlive() || gbLockLease(name)) return null;
     const token = `${GB_INSTANCE_ID}:${name}:${++gbLockSeq}:${Date.now().toString(36)}`;
@@ -564,9 +570,9 @@ const STORE = {
     delete gbLocks[name];
     return true;
   }
-  function gbLockAge(name) { const L = gbLockLease(name); return L ? Date.now() - L.at : 0; }
+  function gbLockAge(name) { const L = gbLockHeld(name); return L ? Date.now() - L.at : 0; }
   function gbUnlockAll() { for (const k of Object.keys(gbLocks)) delete gbLocks[k]; }
-  function gbLockList() { return Object.keys(gbLocks).filter(k => !!gbLockLease(k)); }
+  function gbLockList() { return Object.keys(gbLocks).filter(k => !!gbLockHeld(k)); }
   function gbLockSweep() { for (const k of Object.keys(gbLocks)) gbLockLease(k); }
 
   const SEEN_MAX = 2000;
@@ -1289,7 +1295,6 @@ const STORE = {
   const TPL_DEFAULTS = { ibAction: 'buyInstant', ibActionR: 'buyInstant' };
   function tplLearned(name) {
     if (!name) return false;
-    if (name === 'farmAction') return true;
     const v = state[name];
     if (!v) return false;
     const def = TPL_DEFAULTS[name];
@@ -1307,6 +1312,7 @@ const STORE = {
     const h = tplHealthEnsure(name);
     h.learnedAt = Date.now();
     h.hardFails = 0;
+    h.stales = 0;
     h.invalidated = false;
     h.lastOkAt = 0;
     tplHealthSave();
@@ -1321,6 +1327,7 @@ const STORE = {
     if (!result || result === 'ok') {
       h.lastOkAt = Date.now();
       h.hardFails = 0;
+      h.stales = 0;
       if (h.invalidated) { h.invalidated = false; gbLog('tpl: ' + name + ' recovered'); }
       tplHealthSave();
       return;
@@ -1348,10 +1355,13 @@ const STORE = {
       return true;
     }
 
-    if (!h.invalidAt || Date.now() - h.invalidAt > TPL_HEALTH_STALE_MS) {
+    const stales = Math.max(0, +h.stales || 0);
+    const staleWindow = TPL_HEALTH_STALE_MS * Math.min(8, Math.pow(2, stales));
+    if (!h.invalidAt || Date.now() - h.invalidAt > staleWindow) {
       h.invalidated = false;
-      h.hardFails = 0;
-      gbLog('tpl: ' + name + ' stale window expired - retrying');
+      h.hardFails = Math.max(0, TPL_HEALTH_FAILS - 1);
+      h.stales = stales + 1;
+      gbLog(`tpl: ${name} stale window (${Math.round(staleWindow / 60000)}min) expired - retrying, attempt ${h.stales}`);
       tplHealthSave();
       return true;
     }
@@ -1460,16 +1470,28 @@ const STORE = {
 
   let seenCount = 0;
   try { seenCount = Object.keys(state.seen || {}).length; } catch (_) { seenCount = 0; }
+
+  (function seenUnscope() {
+    const pre = location.hostname + ':';
+    let n = 0;
+    try {
+      for (const k of Object.keys(state.seen || {})) {
+        if (k.indexOf(pre) !== 0) continue;
+        const id = k.slice(pre.length);
+        if (state.seen[id] == null) state.seen[id] = state.seen[k];
+        delete state.seen[k];
+        n++;
+      }
+    } catch (_) { return; }
+    if (!n) return;
+    seenCount = Object.keys(state.seen).length;
+    try { save(STORE.SEEN, state.seen); } catch (_) {}
+  })();
   function rememberSeen(id) {
-    const key = location.hostname + ':' + id;
+    const key = String(id);
     const isNew = state.seen[key] == null;
     state.seen[key] = Date.now();
     if (isNew) seenCount++;
-
-    if (state.seen[id] != null) {
-      delete state.seen[id];
-      if (String(id) !== key) seenCount = Math.max(0, seenCount - 1);
-    }
     if (seenCount > SEEN_MAX) {
       const keys = Object.keys(state.seen);
       keys.sort((a, b) => state.seen[a] - state.seen[b]);
@@ -2189,22 +2211,31 @@ const STORE = {
   if (!state.txState || typeof state.txState !== 'object' || Array.isArray(state.txState)) state.txState = {};
   (function txLoadNormalize() {
     const now = Date.now();
+
+    const justUnknown = new Set();
     for (const key of Object.keys(state.txState)) {
       const t = state.txState[key];
       if (!t || typeof t !== 'object') { delete state.txState[key]; continue; }
       if (t.state === 'sending' || t.state === 'confirming' || t.state === 'reconciling') {
         t.state = 'unknown';
-        t.unknownAt = t.unknownAt || now;
+        t.unknownAt = now;
         t.detail = 'reloaded while in-flight';
+        justUnknown.add(key);
       }
+    }
+    for (const key of Object.keys(state.txState)) {
+      const t = state.txState[key];
+      if (!t) continue;
       const terminal = /^(committed|failed|aborted|dryrun)$/.test(t.state || '');
       const terminalTtl=t.state==='committed'&&t.snapshot&&t.snapshot.kind==='instant'?TX_INSTANT_TOMBSTONE_TTL:TX_TERMINAL_TTL;
-      if (terminal && now - (+t.updatedAt || +t.createdAt || 0) > terminalTtl) delete state.txState[key];
+      if (terminal && now - (+t.updatedAt || +t.createdAt || 0) > terminalTtl) { delete state.txState[key]; continue; }
+      if (justUnknown.has(key)) continue;
       if (t.state === 'unknown' && now - (+t.unknownAt || +t.updatedAt || 0) > TX_UNKNOWN_MAX_MS) {
 
         t.state = 'manual-review';
         t.detail = 'unknown outcome expired; manual review required';
         t.updatedAt = now;
+        plannerRelease(t, 'manual-review');
       }
     }
     save(STORE.TX_STATE, state.txState);
@@ -2220,7 +2251,8 @@ const STORE = {
     for (const key of Object.keys(state.txState)) {
       const t = state.txState[key];
       if (!t) { delete state.txState[key]; changed = true; continue; }
-      if(t.state==='unknown'&&now-(+t.unknownAt||+t.updatedAt||0)>TX_UNKNOWN_MAX_MS){t.state='manual-review';t.detail='unknown outcome expired; manual review required';t.updatedAt=now;changed=true;continue}
+
+      if(t.state==='unknown'&&now-(+t.unknownAt||+t.updatedAt||0)>TX_UNKNOWN_MAX_MS){t.state='manual-review';t.detail='unknown outcome expired; manual review required';t.updatedAt=now;plannerRelease(t,'manual-review');changed=true;continue}
       const terminalTtl=t.state==='committed'&&t.snapshot&&t.snapshot.kind==='instant'?TX_INSTANT_TOMBSTONE_TTL:TX_TERMINAL_TTL;
       if (/^(committed|failed|aborted|dryrun)$/.test(t.state || '') && now - (+t.updatedAt || +t.createdAt || 0) > terminalTtl) { delete state.txState[key]; changed = true; }
     }
@@ -2735,7 +2767,8 @@ const STORE = {
     if (write && circuitOpen(feature)) return 'circuit-open';
     if (jtag && jrnSkipped(jtag)) return 'remembered';
     if (write && state.dryRun) return 'dryrun';
-    if (!reqBudgetOk('action')) return 'budget';
+
+    if (!reqBudgetOk(write ? 'action' : 'read')) return 'budget';
     return null;
   }
   function txRun(feature, transport, endpoint, data, rawSend, onDone) {
@@ -2786,7 +2819,7 @@ const STORE = {
       }
     }
     if (!write) {
-      reqBudgetMark('action');
+      reqBudgetMark('read');
       return rawSend((err, result) => {
         if (!gbInstanceAlive()) return;
         if (!err) { markModuleHealth(feature, 'ok'); circuitSuccess(feature); }
@@ -2824,7 +2857,8 @@ const STORE = {
         }
         if (r === 'unchanged') {
           existing.state = 'failed'; existing.updatedAt = Date.now(); existing.detail = 'reconciled not applied; retry allowed'; plannerRelease(existing, 'reconciled-unchanged'); txSave();
-          return txRun(feature, transport, endpoint, data, rawSend, onDone);
+
+          return gbTimeout(() => txRun(feature, transport, endpoint, data, rawSend, onDone), 250);
         }
         existing.state = 'unknown'; existing.unknownAt = existing.unknownAt || Date.now(); existing.updatedAt = Date.now(); txSave();
         return bail('timeout_unknown', 'unknown outcome still unresolved');
@@ -2904,11 +2938,40 @@ const STORE = {
   const lastSelfBridge = { sig: '', fingerprint: '', at: 0, owner: '' };
 
   const GB_AJAX_WATCH_MS = 8000;
+  const GB_AJAX_PENDING_MAX = 24;
   const gbAjaxPending = [];
-  function gbAjaxWatch(sig, settle) {
-    const entry = { sig, at: Date.now(), settle };
+
+  function gbAjaxFpNorm(v, depth) {
+    if (v == null) return 'null';
+    if (typeof v !== 'object') return JSON.stringify(String(v));
+    if (depth > 4) return '"..."';
+    if (Array.isArray(v)) return '[' + v.map(x => gbAjaxFpNorm(x, depth + 1)).join(',') + ']';
+    return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + gbAjaxFpNorm(v[k], depth + 1)).join(',') + '}';
+  }
+  function gbAjaxFp(payload) {
+    try { return gbAjaxFpNorm(payload, 0); } catch (_) { return ''; }
+  }
+  function gbAjaxBridgeFp(p) {
+    return gbAjaxFp({
+      model_url: (p && p.model_url) || '',
+      action_name: (p && p.action_name) || '',
+      arguments: (p && p.arguments) || {},
+      town_id: (p && p.town_id) != null ? p.town_id : null,
+    });
+  }
+  function gbAjaxWatch(sig, fp, settle) {
+    const entry = { sig, fp: fp || '', at: Date.now(), settle };
     gbAjaxPending.push(entry);
-    while (gbAjaxPending.length > 24) gbAjaxPending.shift();
+
+    const now = Date.now();
+    for (let i = gbAjaxPending.length - 2; i >= 0; i--) {
+      if (now - gbAjaxPending[i].at > GB_AJAX_WATCH_MS) gbAjaxPending.splice(i, 1);
+    }
+    while (gbAjaxPending.length > GB_AJAX_PENDING_MAX) {
+      const lost = gbAjaxPending.shift();
+      gbLogT('ajax-watch-overflow', 60000,
+        `ajax watch: pending list full (${GB_AJAX_PENDING_MAX}) - dropped watcher ${lost && lost.sig}; that post can only settle on timeout`);
+    }
     return entry;
   }
 
@@ -2919,18 +2982,32 @@ const STORE = {
   }
   function gbAjaxSigs(url, body) {
     const u = String(url || '');
-    const out = [];
-    if (/frontend_bridge/.test(u) && typeof body === 'string') {
-      let j = null;
-      try { j = parseBodyLoose(body); } catch (_) {}
-      if (j && j.model_url) out.push('bridge:' + j.model_url + '|' + String(j.action_name || ''));
+    const out = { sigs: [], fp: '' };
+    let j = null;
+    if (typeof body === 'string') { try { j = parseBodyLoose(body); } catch (_) {} }
+    if (/frontend_bridge/.test(u)) {
+      if (j && j.model_url) {
+        out.sigs.push('bridge:' + j.model_url + '|' + String(j.action_name || ''));
+        out.fp = gbAjaxBridgeFp(j);
+      }
       return out;
     }
     const ctrl = (u.match(/[?&]controller=([a-z_0-9]+)/i) || u.match(/\/game\/([a-z_0-9]+)/i) || [])[1] || '';
     const act = (u.match(/[?&]action=([a-z_0-9]+)/i) || [])[1] || '';
-    if (ctrl && act) out.push('ajax:' + ctrl + '/' + act);
+    if (ctrl && act) {
+      out.sigs.push('ajax:' + ctrl + '/' + act);
+
+      let payload = j;
+      if (payload && payload.json != null) {
+        let inner = payload.json;
+        if (typeof inner === 'string') { try { inner = JSON.parse(inner); } catch (_) { inner = null; } }
+        if (inner && typeof inner === 'object') payload = inner;
+      }
+      if (payload) out.fp = gbAjaxFp(payload);
+    }
     return out;
   }
+
   function gbAjaxClaim(url, body) {
     if (!gbAjaxPending.length) return null;
     const now = Date.now();
@@ -2938,8 +3015,14 @@ const STORE = {
       if (now - gbAjaxPending[i].at > GB_AJAX_WATCH_MS) gbAjaxPending.splice(i, 1);
     }
     if (!gbAjaxPending.length) return null;
-    const sigs = gbAjaxSigs(url, body);
+    const { sigs, fp } = gbAjaxSigs(url, body);
     if (!sigs.length) return null;
+    if (fp) {
+      for (let i = 0; i < gbAjaxPending.length; i++) {
+        const e = gbAjaxPending[i];
+        if (e.fp === fp && sigs.indexOf(e.sig) >= 0) return gbAjaxPending.splice(i, 1)[0].settle;
+      }
+    }
     for (let i = 0; i < gbAjaxPending.length; i++) {
       if (sigs.indexOf(gbAjaxPending[i].sig) >= 0) return gbAjaxPending.splice(i, 1)[0].settle;
     }
@@ -3022,6 +3105,7 @@ const STORE = {
 
     watchEntry = gbAjaxWatch(
       'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
+      gbAjaxBridgeFp(payload),
       (status, raw) => {
         if (settled) return;
         if (!status) return finish('neterr');
@@ -3049,7 +3133,11 @@ const STORE = {
       gbAjaxDrop(watchEntry);
       done(err, res);
     };
-    const timer = gbTimeout(() => finish('timeout'), BRIDGE_TIMEOUT_MS);
+
+    const timer = gbTimeout(() => {
+      gbLogT('ajax-timeout-' + feature, 30000, `${feature}: ajax timeout ${BRIDGE_TIMEOUT_MS}ms (${controller}/${action})`);
+      finish('timeout');
+    }, BRIDGE_TIMEOUT_MS);
     const classify = (res) => {
       if (!gbInstanceAlive()) return;
       try {
@@ -3064,7 +3152,7 @@ const STORE = {
         finish(null, res);
       } catch (e) { finish(String(e)); }
     };
-    watchEntry = gbAjaxWatch('ajax:' + controller + '/' + action, (status, raw) => {
+    watchEntry = gbAjaxWatch('ajax:' + controller + '/' + action, gbAjaxFp(data), (status, raw) => {
       if (settled) return;
       if (!status) return finish('neterr');
       if (status < 200 || status >= 300) {
@@ -3605,7 +3693,7 @@ const STORE = {
     return rec;
   }
 
-  function gbFailStreak(feature, action, target) {
+  function jrnFailStreak(feature, action, target) {
     const list = state.decisions;
     let n = 0;
     for (let i = list.length - 1; i >= 0; i--) {
@@ -3625,7 +3713,7 @@ const STORE = {
       return;
     }
     if (!jrnHard(result)) return;
-    if (gbFailStreak(tag.f, tag.a, tag.k) < JRN_FAIL_TRIP) return;
+    if (jrnFailStreak(tag.f, tag.a, tag.k) < JRN_FAIL_TRIP) return;
     const prev = state.decisionSkips[key] || { trips: 0 };
     if (prev.until && Date.now() < prev.until) return;
     const trips = Math.min((prev.trips || 0) + 1, JRN_BACKOFF.length);
@@ -3763,8 +3851,8 @@ const STORE = {
   gbListen(document, 'visibilitychange', () => { if (document.hidden) jrnFlush(); });
 
   const seenThisRun = new Set();
-  const seenHost = location.hostname;
-  function seenKey(id) { return seenHost + ':' + id; }
+
+  function seenKey(id) { return String(id); }
 
   function hookFetch() {
     const uw = gameUw();
@@ -3891,18 +3979,22 @@ const STORE = {
         const m = /[?&]id=(\d+)/.exec(a.href || '') || /report\/(\d+)/.exec(a.href || '');
         if (!m) return;
         const id = m[1];
-        if (state.seen[seenKey(id)] || state.seen[id] || seenThisRun.has(seenKey(id))) return;
+        if (state.seen[seenKey(id)] || seenThisRun.has(seenKey(id))) return;
         ids.push(id);
       });
     } catch (_) {}
-    const batch = ids.slice(0, maxN);
+
+    const firstRun = !state.lastSeenTs;
+    const staleFloor = !!(state.lastSeenTs && state.lastSeenTs < cut);
+    const cap = (firstRun || staleFloor) ? 5 : maxN;
+    const batch = ids.slice(0, cap);
     const release = () => { gbUnlock('report-catchup', token); };
     if (!batch.length) {
       release();
       gbLogT('catchup-empty', 120000, 'report catch-up: nothing new in inbox DOM');
       return;
     }
-    gbLog(`report catch-up: fetching up to ${batch.length} (cap ${maxN}, age\u226472h, lastSeen=${state.lastSeenTs || 0})`);
+    gbLog(`report catch-up: fetching up to ${batch.length} (cap ${cap}${firstRun ? ' first-run sample' : staleFloor ? ` lastSeen older than ${Math.round(maxAgeMs / 3600000)}h` : ''}, lastSeen=${state.lastSeenTs || 0})`);
     let i = 0, fetched = 0;
     (function step() {
       let done = false;
@@ -3915,10 +4007,6 @@ const STORE = {
           done = true;
         } else {
           const id = batch[i++];
-
-          if (state.lastSeenTs && state.lastSeenTs < cut) {
-
-          }
           fetchReport(id);
           fetched++;
         }
@@ -3954,8 +4042,8 @@ const STORE = {
         if (k === 'reports' && Array.isArray(v)) {
           for (const r of v) {
             if (!r || typeof r !== 'object') continue;
-            const rid = r.report_id != null ? r.report_id : r.id;
-            if (numericId(rid) && (r.report_id != null || looksReport(r))) queueReport(String(rid), srcUrl);
+
+            if (r.report_id == null && numericId(r.id) && looksReport(r)) queueReport(String(r.id), srcUrl);
             walk(r);
           }
         } else if (v && typeof v === 'object') {
@@ -3970,7 +4058,8 @@ const STORE = {
   const REPORT_RETRY_MAX = 3;
   function scrapeInboxDom() {
     document.querySelectorAll('a[href*="action=report"][href*="id="]').forEach(a => {
-      const m = a.href.match(/id=(\d+)/);
+
+      const m = a.href.match(/[?&]id=(\d+)/);
       if (m) queueReport(m[1], a.href);
     });
   }
@@ -3978,7 +4067,7 @@ const STORE = {
     if (!id) return;
     if (!hostEnabled() || automationPaused({}) || captchaPaused('report')) return;
     const k = seenKey(id);
-    if (seenThisRun.has(k) || state.seen[k] || state.seen[id]) return;
+    if (seenThisRun.has(k) || state.seen[k]) return;
     if (seenThisRun.size > 5000) seenThisRun.clear();
     seenThisRun.add(k);
     gbTimeout(() => fetchReport(id, hintUrl), 200 + Math.random() * 800);
@@ -4020,7 +4109,7 @@ const STORE = {
   }
 
   function fetchReport(id, hintUrl) {
-    if (state.seen[seenKey(id)] || state.seen[id]) return;
+    if (state.seen[seenKey(id)]) return;
     if (!hostEnabled() || automationPaused({}) || captchaPaused('report')) {
       seenThisRun.delete(seenKey(id));
       return;
@@ -5143,7 +5232,7 @@ const STORE = {
       if (i >= work.length || captcha || captchaPaused('farm')) {
         gbTimeout(() => {
           try {
-            const flipped = verifyClaims(before);
+            const flipped = verifyClaims(before, work);
 
             farmScheduleClaimWake(null, 'post-claim', true);
 
@@ -5324,12 +5413,16 @@ const STORE = {
       }
     });
   }
-  function verifyClaims(before) {
+  function verifyClaims(before, attempted) {
     const farms = farmsFromGame();
     if (!farms) return 0;
     const now = gameNow();
+    const only = attempted ? new Set(attempted.map(f => String(f && f.vill_id))) : null;
     let updated = 0;
     farms.forEach(f => {
+
+      if (!Object.prototype.hasOwnProperty.call(before, f.vill_id)) return;
+      if (only && !only.has(String(f.vill_id))) return;
       if (f.lootable_at != null && f.lootable_at > now && before[f.vill_id] !== f.lootable_at) updated++;
     });
     gbLog(`farm claim verify: ${updated} village(s) now gathering${updated ? '' : ' - claims did NOT land (open Senado once, click Recoger manually, then paste me the Log tab)'}`);
@@ -5512,9 +5605,12 @@ const STORE = {
       gbLogT('farm-scrape-off', 600000, 'farm scrape: off (' +
         (farmScrapeState().dead ? 'endpoint dead' : 'disabled in Config') + ')');
 
-      state.nextFarmScrape = Date.now() + SYNC.FARM_MIN_MS;
-      save(STORE.NEXT_FARM, state.nextFarmScrape);
-      renderTimers();
+      const off = Date.now() + SYNC.FARM_MIN_MS;
+      if (!(+state.nextFarmScrape > off)) {
+        state.nextFarmScrape = off;
+        save(STORE.NEXT_FARM, state.nextFarmScrape);
+        renderTimers();
+      }
       return;
     }
     if (gbLocked('farm-scrape')) { gbLogT('farm-scrape-inflight', 30000, 'farm scrape: skipped (in flight)'); return; }
@@ -5592,7 +5688,8 @@ const STORE = {
         list.forEach((opt, i) => {
           if (opt == null) return;
           const idx = opt.option != null ? +opt.option : (opt.id != null ? +opt.id : i + 1);
-          const sec = +opt.duration || +opt.time || +opt.booty_duration || +opt.collect_time;
+
+          const sec = pickNum(opt.duration, opt.time, opt.booty_duration, opt.collect_time);
           if (!(idx > 0) || !(sec > 0)) return;
           const snapped = farmSnapDuration(sec);
           if (snapped != null) out[String(snapped)] = idx;
@@ -6066,11 +6163,10 @@ const STORE = {
           return;
         }
         gameAjaxPost('collect', collectCtrl, collectAction, { town_id: +t.id }, (err, res) => {
-          if (err && err !== 'dryrun' && err !== 'disabled' && err !== 'paused' && err !== 'budget' && err !== 'remembered') {
+
+          if (err && !JRN_SKIP_ERRS[err] && err !== 'captcha') {
             errors++;
-            if (err !== 'captcha' && err !== 'captcha-pause') {
-              flash(`collect ${t.name || t.id}: ${err}`);
-            }
+            flash(`collect ${t.name || t.id}: ${err}`);
           } else if (!err && res && (res.error || res.err)) {
             errors++;
             flash(`collect ${t.name || t.id}: ${res.error || res.err}`);
@@ -6108,16 +6204,12 @@ const STORE = {
         scheduleNativeUiScan();
       });
     }
-    const targets = [];
 
-    if (document.body) targets.push(document.body);
-    if (!targets.length) {
-      const ui = document.querySelector('#ui_box');
-      if (ui) targets.push(ui);
-      document.querySelectorAll('.window_content, .quests, #questlog').forEach(el => {
-        if (el && targets.indexOf(el) < 0) targets.push(el);
-      });
+    if (!document.body) {
+      gbListen(document, 'DOMContentLoaded', () => ensureDomObserver(), { once: true });
+      return;
     }
+    const targets = [document.body];
     const sig = targets.map(t => (t === document.body ? 'BODY' : (t.id || '') + '.' + (t.className || ''))).join('|');
     if (sig === gbDomObserverSig) return;
     try { gbDomObserver.disconnect(); } catch (_) {}
@@ -6299,7 +6391,7 @@ const STORE = {
     if (before == null && useTown && +s.beforeMovementCount === 0) before = 0;
     if (before != null && Number.isFinite(+before)) return current > +before ? 'applied' : 'unchanged';
 
-    return current > 0 ? 'applied' : 'unknown';
+    return 'unknown';
   }
   function banditCommitUnknownFromMovement(townId, evidence) {
     if (!evidence || !evidence.known || !(evidence.count > 0)) return 0;
@@ -7212,10 +7304,10 @@ const STORE = {
       goalPlanTown(townId);
       return true;
     }
+
+    const at=q.order.indexOf(key);
     const clean=q.order.filter(x=>x!==key);
-    let idx=clean.indexOf(key);
-    if (idx < 0) idx = clean.length;
-    idx=Math.max(0,Math.min(clean.length,idx+(+delta||0)));
+    const idx=Math.max(0,Math.min(clean.length,at+(+delta||0)));
     clean.splice(idx,0,key);
     q.order=clean;
     goalQueueSave();
@@ -7347,6 +7439,8 @@ const STORE = {
   function nativeRecruitSplitTown(t,id) {
     if(nativeRecruitSplitDone.has(id))return;
     const land=t.recruit,naval=t.recruitNaval;let moved=0,blind=false;
+
+    const navalWasEmpty=naval.length===0;
     for(let i=land.length-1;i>=0;i--){
       const j=land[i];if(!j)continue;
       const d=gbGameDataLookup("units", j.unit);
@@ -7356,16 +7450,26 @@ const STORE = {
     if(!blind)nativeRecruitSplitDone.add(id);
     if(moved){
 
-      if (t.mode.recruitNaval == null) t.mode.recruitNaval = 'fifo';
-      if (t.paused.recruitNaval == null) t.paused.recruitNaval = !!t.paused.recruit;
+      if (navalWasEmpty) { t.mode.recruitNaval = t.mode.recruit; t.paused.recruitNaval = !!t.paused.recruit; }
 
       try{save(STORE.NATIVE_QUEUE,nativeQueueRoot())}catch(_){}
       gbLog(`cola nativa: ${moved} orden(es) naval(es) movida(s) a la cola del puerto @${id}`);
     }
   }
   function nativeQueueList(townId,lane,create){const t=nativeQueueTown(townId,create);return t&&Array.isArray(t[lane])?t[lane]:[];}
-  function nativeQueueSave() {
+
+  let nativeQueueSaveTimer=0;
+  function nativeQueueSaveNow() {
+    if(nativeQueueSaveTimer){try{gbClearTimeout(nativeQueueSaveTimer)}catch(_){}nativeQueueSaveTimer=0}
     save(STORE.NATIVE_QUEUE,nativeQueueRoot());
+  }
+  function nativeQueueSaveSoon() {
+    if(nativeQueueSaveTimer)return;
+    nativeQueueSaveTimer=gbTimeout(()=>{nativeQueueSaveTimer=0;try{save(STORE.NATIVE_QUEUE,nativeQueueRoot())}catch(_){}},250);
+  }
+  function nativeQueueSaveFlush(){if(nativeQueueSaveTimer)nativeQueueSaveNow()}
+  function nativeQueueSave() {
+    nativeQueueSaveNow();
     try{scheduleNativeUiScan()}catch(_){}
     try{renderAbQueue()}catch(_){}
     try{renderQueueCenter()}catch(_){}
@@ -7621,7 +7725,7 @@ const STORE = {
     const lane=nativeRecruitLane(unit);
     const town=nativeQueueTown(townId,true);
 
-    if (town.mode[lane] == null) town.mode[lane] = 'fifo';
+    town.mode[lane] = 'fifo';
     town[lane].push({id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:n,status:'pending',reason:'',createdAt:Date.now()});
     nativeQueueSave();gbLog(`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): ${n}\u00d7 ${nativeUnitLabel(unit)} @${townId}`);gbTimeout(()=>recruitScan('native'),80);return true;
   }
@@ -7638,7 +7742,7 @@ const STORE = {
       const stable=x=>String(x||'').replace(/\d+(?:[.,]\d+)?/g,'#');
       if(stable(job.reason)===stable(r)&&now-(+job.reasonUpdatedAt||+job.updatedAt||0)<300000)return;
     }
-    job.status=status;job.reason=r;job.reasonUpdatedAt=now;job.updatedAt=now;save(STORE.NATIVE_QUEUE,nativeQueueRoot());try{scheduleNativeUiScan()}catch(_){}try{renderQueueCenter()}catch(_){}
+    job.status=status;job.reason=r;job.reasonUpdatedAt=now;job.updatedAt=now;nativeQueueSaveSoon();try{scheduleNativeUiScan()}catch(_){}try{renderQueueCenter()}catch(_){}
   }
 
   const BUILD_SWAP_DEFAULT_MIN = 5;
@@ -7749,9 +7853,25 @@ const STORE = {
 
   function nativeQueueReconcileRecruit(townId,lane) {
     const lanes=lane?[lane]:NATIVE_RECRUIT_LANES;let changed=false;
+
+    let queueKnown=false;
+    try{queueKnown=!!(recruitQueueInfo(townId)||{}).known}catch(_){}
     for(const ln of lanes){
       const list=nativeQueueList(townId,ln,false);if(!list.length)continue;
-      for(const j of list){if(!j||!j.inflight)continue;if(Date.now()-(+j.inflight.at||0)>120000){j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualiz\u00f3; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}}
+      const head=list[0];
+      for(const j of list){
+        if(!j||!j.inflight)continue;
+        const fl=j.inflight;
+        if(queueKnown&&j===head&&fl.token&&fl.queuedBefore!=null&&j.unit){
+          let now=null;
+          try{now=recruitQueuedAmount(townId,j.unit)}catch(_){now=null}
+          if(now!=null&&now>=(+fl.queuedBefore||0)+(+fl.amount||0)){
+            nativeQueueRecruitApplied(townId,ln,j.id,+fl.amount||0,fl.token);
+            changed=true;continue;
+          }
+        }
+        if(Date.now()-(+fl.at||0)>120000){j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualiz\u00f3; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}
+      }
     }
     if(changed)nativeQueueSave();return changed;
   }
@@ -7765,8 +7885,10 @@ const STORE = {
     if(job.inflight){nativeQueueSetJobState(job,'sending',job.reason||'enviando a la cola real');return null}
     return job;
   }
-  function nativeQueueRecruitApplied(townId,lane,jobId,amount) {
+  function nativeQueueRecruitApplied(townId,lane,jobId,amount,token) {
     const list=nativeQueueList(townId,lane||'recruit',false),job=list[0];if(!job||job.id!==jobId)return;
+
+    if(token&&!(job.inflight&&job.inflight.token===token))return;
     job.inflight=null;job.amount=Math.max(0,(+job.amount||0)-Math.max(0,+amount||0));
     if(job.amount<=0)list.shift();else{job.status='pending';job.reason='resto del lote';job.updatedAt=Date.now()}
     nativeQueueSave();
@@ -7850,15 +7972,20 @@ const STORE = {
     if((info.orders||[]).some(o=>String(researchOrderTechId(o))===tech)){flash(`${nativeResearchLabel(tech)} ya est\u00e1 en la cola real`);return false}
     if(nativeQueueResearchPending(townId,tech)){flash(`${nativeResearchLabel(tech)} ya est\u00e1 en la cola virtual`);return false}
     const walk=nativeResearchPrereqChain(townId,tech);
+
+    if(walk.error&&!walk.chain.length){flash(`Requisitos no resolubles: ${walk.error}`);return false}
     const town=nativeQueueTown(townId,true);town.mode.research='fifo';
     const push=(id,reason)=>town.research.push({id:nativeQueueId('r'),kind:'research',townId:String(townId),tech:String(id),status:'pending',reason:reason||'',createdAt:Date.now()});
     let added=0;
     for(const dep of walk.chain){if(!gbGameDataLookup("researches", dep))continue;push(dep,`requisito para ${nativeResearchLabel(tech)}`);added++}
-    push(tech,'');
+    if(!walk.error)push(tech,'');
     nativeQueueSave();
-    if(walk.error)gbLogT('native-research-walk-'+tech,300000,`native queue: research prereq walk for ${tech} incomplete (${walk.error})`);
-    if(added)flash(`+${added} requisito(s) antes de ${nativeResearchLabel(tech)}`);
-    gbLog(`cola nativa: investigaci\u00f3n ${tech}${added?` + ${added} requisito(s) [${walk.chain.join(', ')}]`:''} @${townId}`);
+    if(walk.error){
+      gbLogT('native-research-walk-'+tech,300000,`native queue: research prereq walk for ${tech} incomplete (${walk.error})`);
+      flash(`${added} requisito(s) a\u00f1adidos; el objetivo final no se puede resolver: ${walk.error}`);
+    }
+    else if(added)flash(`+${added} requisito(s) antes de ${nativeResearchLabel(tech)}`);
+    gbLog(`cola nativa: investigaci\u00f3n ${walk.error?`(solo requisitos, ${walk.error}) `:''}${tech}${added?` + ${added} requisito(s) [${walk.chain.join(', ')}]`:''} @${townId}`);
     gbTimeout(()=>researchScan('native'),80);return true;
   }
   function nativeQueueRemoveResearch(townId,tech) {
@@ -8817,6 +8944,9 @@ const STORE = {
         if (Number.isFinite(unlimitedLevel) && unlimitedLevel > 0 && hideLvl === unlimitedLevel) unlimited = true;
       }
     } catch (_) {}
+
+    if (hideCap != null && hideCap < 0) { unlimited = true; hideCap = null; }
+    if (stored != null && stored < 0) stored = null;
     const levelCapacity = caveCapacityFromLevel(hideLvl);
     if (levelCapacity.unlimited) unlimited = true;
     else if (hideCap == null) hideCap = levelCapacity.capacity;
@@ -8854,7 +8984,13 @@ const STORE = {
     try { const av = plannerAvailable(info.town && (info.town.id || (info.town.attributes && info.town.attributes.id))); if (av && Number.isFinite(av.iron)) excess = Math.min(excess, Math.floor(av.iron)); } catch (_) {}
     if (excess < CAVE_MIN_STORE) return 0;
 
-    if (!info.unlimited && (info.hideCap == null || info.stored == null)) return 0;
+    if (!info.unlimited && (info.hideCap == null || info.stored == null)) {
+
+      const tid = (info.town && (info.town.id || (info.town.attributes && info.town.attributes.id))) || '?';
+      const what = [info.hideCap == null ? 'capacidad' : null, info.stored == null ? 'almacenado' : null].filter(Boolean).join('+');
+      gbLogT('cave-unreadable-' + tid, 300000, `cave: town ${tid} hide ${what} unreadable - skipping (no blind stash)`);
+      return 0;
+    }
     if (!info.unlimited && info.hideCap != null && info.hideCap > 0 && info.stored != null) {
       const free = Math.floor(info.hideCap - info.stored);
       if (free <= 0) return 0;
@@ -9080,14 +9216,22 @@ const STORE = {
     } catch (_) {}
     return out;
   }
+
   function cultureKillpointsAvailable() {
     try {
       const uw = gameUw();
       const kp = uw.MM && uw.MM.getModelByNameAndPlayerId && uw.MM.getModelByNameAndPlayerId('PlayerKillpoints');
-      if (!kp || !kp.attributes) return 0;
+      if (!kp || !kp.attributes) return null;
       const a = kp.attributes;
+      if (a.att == null && a.def == null) return null;
       return (+a.att || 0) + (+a.def || 0) - (+a.used || 0);
-    } catch (_) { return 0; }
+    } catch (_) { return null; }
+  }
+
+  function cultureBlind(what, townId, type) {
+    gbLogT('culture-blind-' + type + '-' + what, 300000,
+      `culture: ${type} @${townId} ${what} unreadable - letting the server decide`);
+    return true;
   }
   function cultureCanAfford(townId, type, ledger) {
     const cost = CULTURE_COSTS[type];
@@ -9097,37 +9241,42 @@ const STORE = {
       if (!state.allowPremiumCulture) return false;
       const spent = ledger && ledger.goldSpent != null ? ledger.goldSpent : cultureGoldSpentLoad().amount;
       const budget = +state.cultureGoldBudget || 0;
+
       if (!(budget >= OLYMPIC_GOLD) || spent + OLYMPIC_GOLD > budget) return false;
       const gold = ledger && ledger.playerGold != null ? ledger.playerGold : culturePlayerGold();
-      if (gold == null || gold < OLYMPIC_GOLD) return false;
+      if (gold == null) return cultureBlind('gold', townId, type);
+      if (gold < OLYMPIC_GOLD) return false;
     }
     if (cost.killpoints) {
       const kp = ledger && ledger.killpoints != null ? ledger.killpoints : cultureKillpointsAvailable();
+      if (kp == null) return cultureBlind('killpoints', townId, type);
       return kp >= cost.killpoints;
     }
-    const uw = gameUw();
-    let t = null;
-    try { t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]); } catch (_) {}
-    if (!t) return false;
+    const t = gbTownModel(townId);
+    if (!t) return cultureBlind('town-model', townId, type);
     try {
       if (cost.academy) {
-        let acad = null;
-        try { acad = t.getBuildings && typeof t.getBuildings().get === 'function' ? +t.getBuildings().get('academy') : +(t.buildings && t.buildings().attributes || {}).academy; } catch (_) { acad = null; }
-        if (!(acad >= cost.academy)) return false;
+        const acad = gbBuildingLevel(townId, 'academy');
+        if (acad == null) return cultureBlind('academy', townId, type);
+        if (acad < cost.academy) return false;
       }
       if (cost.theater) {
-        let th = null;
-        try { th = t.getBuildings && typeof t.getBuildings().get === 'function' ? +t.getBuildings().get('theater') : +(t.buildings && t.buildings().attributes || {}).theater; } catch (_) { th = null; }
-        if (!(th >= cost.theater)) return false;
+        const th = gbBuildingLevel(townId, 'theater');
+        if (th == null) return cultureBlind('theater', townId, type);
+        if (th < cost.theater) return false;
       }
       if (cost.gold) return true;
       const r = (ledger && ledger.res && ledger.res[townId]) || (t.resources && t.resources());
-      if (!r) return false;
-      if (cost.wood && r.wood < cost.wood) return false;
-      if (cost.stone && r.stone < cost.stone) return false;
-      if (cost.iron && r.iron < cost.iron) return false;
+      if (!r) return cultureBlind('resources', townId, type);
+      for (const k of GB_RES_KEYS) {
+        const need = +cost[k] || 0;
+        if (need <= 0) continue;
+
+        if (r[k] == null || !isFinite(+r[k])) return cultureBlind(k, townId, type);
+        if (+r[k] < need) return false;
+      }
       return true;
-    } catch (_) { return false; }
+    } catch (_) { return cultureBlind('read-error', townId, type); }
   }
   function cultureStart(type, townId, onDone) {
 
@@ -9195,7 +9344,8 @@ const STORE = {
 
         const cost = CULTURE_COSTS[ctype];
         if (cost) {
-          if (cost.killpoints) ledger.killpoints -= cost.killpoints;
+
+          if (cost.killpoints && ledger.killpoints != null) ledger.killpoints -= cost.killpoints;
           if (cost.gold) {
             ledger.goldSpent += cost.gold;
             if (ledger.playerGold != null) ledger.playerGold -= cost.gold;
@@ -9724,7 +9874,11 @@ const STORE = {
         if (ctype === 'triumph') continue;
         break;
       }
-      if (!ctype || !CULTURE_COSTS[ctype]) return { wood: 0, stone: 0, iron: 0 };
+
+      if (!ctype || !CULTURE_COSTS[ctype]) {
+        gbLogT('trade-party-notype', 300000, 'trade party: no resource-priced culture type enabled - skipping preset');
+        return null;
+      }
       const cost = CULTURE_COSTS[ctype];
       return {
         wood: +cost.wood || 0,
@@ -9734,7 +9888,11 @@ const STORE = {
     }
     if (preset === 'unit') {
       const want = (state.recruitTargets || {})[townId] || (state.recruitTargets || {})[String(townId)];
-      if (!want || typeof want !== 'object') return { wood: 0, stone: 0, iron: 0 };
+
+      if (!want || typeof want !== 'object') {
+        gbLogT('trade-unit-notarget-' + townId, 300000, `trade unit: town ${townId} has no recruit target - skipping preset`);
+        return null;
+      }
       let wood = 0, stone = 0, iron = 0;
       for (const unit of Object.keys(want)) {
         const count = +want[unit] || 0;
@@ -10471,9 +10629,12 @@ const STORE = {
     }, onDone);
   }
 
+  const RURAL_MS_EPOCH_FLOOR = 1e12;
   function ruralTradeReadyAt(a) {
-    const v = gbProbeAttr(a, ['trade_at', 'tradeable_at', 'next_trade_at', 'lootable_at']);
-    return v != null && v > 0 ? v : null;
+    let v = gbProbeAttr(a, ['trade_at', 'tradeable_at', 'next_trade_at', 'lootable_at']);
+    if (v == null || !(v > 0)) return null;
+    if (v >= RURAL_MS_EPOCH_FLOOR) v = Math.floor(v / 1000);
+    return v;
   }
   function ruralTradeScan(reason) {
     if (!hostEnabled() || !state.autoRuralTrade || captchaPaused('ruraltrade')) return;
@@ -10842,8 +11003,12 @@ const STORE = {
         const b = t.getBuildings ? t.getBuildings() : (t.buildings && t.buildings());
         buildings = (b && (b.attributes || b)) || null;
       } catch (_) {}
-      let acad = 0;
-      try { acad = t.getBuildings ? +t.getBuildings().get('academy') : +(buildings || {}).academy; } catch (_) {}
+
+      let acad = null;
+      try {
+        if (t.getBuildings) { const v = +t.getBuildings().get('academy'); if (isFinite(v)) acad = v; }
+        if (acad == null && buildings && buildings.academy != null) { const v = +buildings.academy; if (isFinite(v)) acad = v; }
+      } catch (_) {}
 
       let library = null;
       try {
@@ -11107,6 +11272,7 @@ const STORE = {
     if (!info) return null;
     const perAcademy = researchConstant('points_per_academy_level');
     if (perAcademy == null) return null;
+    if (info.academy == null) return null;
     const acad = +info.academy;
     if (!isFinite(acad) || acad < 0) return null;
     const level = researchAcademyTearingDown(townId) === true ? Math.max(0, acad - 1) : acad;
@@ -11204,6 +11370,7 @@ const STORE = {
         if (have < need) return { ok: false, blind: false, why: `${b} ${have}/${need}` };
       }
       const academyNeed = +(def.academy_level ?? def.required_academy_level ?? def.building_level ?? def.level ?? 0);
+      if (academyNeed > 0 && info.academy == null) return { ok: false, blind: true, why: 'nivel de academia ilegible' };
       if (academyNeed > 0 && +info.academy < academyNeed) return { ok: false, blind: false, why: `academia ${info.academy}/${academyNeed}` };
 
       if (def.requires_farming_villages && info.smallIsland === true) {
@@ -11227,7 +11394,13 @@ const STORE = {
   }
   function researchValidateJob(job) {
     const info = researchTownTechs(job.townId);
-    if (!info || !(info.academy > 0)) return { ok: false, why: 'research state unreadable' };
+    if (!info) return { ok: false, why: 'research state unreadable' };
+
+    if (info.academy === 0) return { ok: false, why: 'sin academia' };
+    if (info.academy == null) {
+      gbLogT('research-academy-blind-' + job.townId, 600000,
+        `research: academy level for town ${job.townId} unreadable - letting the server decide`);
+    }
     if (info.techs && info.techs[job.tech]) return { ok: false, why: 'already researched' };
 
     if (!info.ordersKnown) {
@@ -11291,7 +11464,8 @@ const STORE = {
       const targets = goalEffectiveResearchTargets(tid, globalTargets);
       let ordered = Object.keys(targets).sort((a, b) => (+targets[a].order || 0) - (+targets[b].order || 0));
       const info = researchTownTechs(tid);
-      if (!info || !(info.academy > 0)) continue;
+
+      if (!info || info.academy === 0) continue;
 
       if (!info.ordersKnown) {
         gbLogT('research-orders-unknown-' + tid, 600000,
@@ -11723,6 +11897,19 @@ const STORE = {
 
       if (!/unknown.?action|invalid.?action|not.?found|does.?not.?exist/i.test(String(err))) {
         gbLogT('merchant-err', 60000, `merchant err ${err}`);
+        gbUnlock('merchant', merchantLock);
+        return;
+      }
+
+      const goldNow = gbPlayerGold();
+      const spent = (freshGold != null && goldNow != null) ? freshGold - goldNow : null;
+      if (spent == null) {
+        gbLogT('merchant-noreconcile', 60000, `merchant: ${err} but gold unreadable - no ajax fallback`);
+        gbUnlock('merchant', merchantLock);
+        return;
+      }
+      if (spent >= livePrice) {
+        gbLog(`merchant: ${err} but gold fell ${spent} (price ${livePrice}) - purchase landed, no fallback`);
         gbUnlock('merchant', merchantLock);
         return;
       }
@@ -13095,7 +13282,8 @@ const STORE = {
       entry.nextAt = Date.now() + 2000;
       return;
     }
-    const safe = dodgeSafeTown(mov.dest);
+
+    const safe = dodgeSafeTown(mov.dest, incomingNow);
     const units = dodgeTownUnits(mov.dest);
     const valid = dodgeSupportValidate(mov.dest, safe, units);
     if (!valid.ok) {
@@ -13550,14 +13738,16 @@ const STORE = {
       const head = nativeQueueList(job.townId, job.nativeLane, false)[0];
       if (!head || head.id !== job.nativeJobId) { gbUnlock('recruit', lockToken); return; }
       head.manualReview=false;
-      head.inflight = { amount:job.amount, at:Date.now() };
+
+      job.nativeToken = nativeQueueId('f');
+      head.inflight = { amount:job.amount, at:Date.now(), unit:job.unit, queuedBefore:recruitQueuedAmount(job.townId, job.unit), token:job.nativeToken };
       nativeQueueSave();
     }
     recruitBuild(job.townId, job.unit, job.amount, (err) => {
       gbUnlock('recruit', lockToken);
       if (!err) {
         gbLog(`recruit: town ${job.townId} ${job.amount}\u00d7 ${job.unit}`);
-        if (job.nativeJobId) nativeQueueRecruitApplied(job.townId, job.nativeLane, job.nativeJobId, job.amount);
+        if (job.nativeJobId) nativeQueueRecruitApplied(job.townId, job.nativeLane, job.nativeJobId, job.amount, job.nativeToken);
       } else {
         if (job.nativeJobId) {
           const head = nativeQueueList(job.townId, job.nativeLane, false)[0];
@@ -13866,16 +14056,28 @@ const STORE = {
     const b = state.keybindings;
     return (b && typeof b === 'object' && !Array.isArray(b)) ? Object.assign({}, GB_KEY_DEFAULTS, b) : Object.assign({}, GB_KEY_DEFAULTS);
   }
-  function gbKeyFingerprint(e) {
-    if (e.altKey) return null;
-    if (!(e.ctrlKey || e.metaKey)) return null;
-    const k = String(e.key || '');
 
-    if (k.length !== 1) return null;
-    const parts = ['Ctrl'];
-    if (e.shiftKey) parts.push('Shift');
-    parts.push(k.length === 1 ? k.toUpperCase() : k);
-    return parts.join('+');
+  const GB_KEY_CODE_CHAR = {
+    Comma: ',', Period: '.', Slash: '/', Semicolon: ';', Quote: "'",
+    BracketLeft: '[', BracketRight: ']', Backslash: '\\', Backquote: '`',
+    Minus: '-', Equal: '=',
+  };
+  function gbKeyChars(e) {
+    const out = [];
+    const code = String(e.code || '');
+    if (/^Key[A-Z]$/.test(code)) out.push(code.slice(3));
+    else if (/^Digit[0-9]$/.test(code)) out.push(code.slice(5));
+    else if (GB_KEY_CODE_CHAR[code]) out.push(GB_KEY_CODE_CHAR[code]);
+
+    const k = String(e.key || '');
+    if (k.length === 1) { const u = k.toUpperCase(); if (!out.includes(u)) out.push(u); }
+    return out;
+  }
+  function gbKeyFingerprints(e) {
+    if (e.altKey) return [];
+    if (!(e.ctrlKey || e.metaKey)) return [];
+    const prefix = e.shiftKey ? 'Ctrl+Shift+' : 'Ctrl+';
+    return gbKeyChars(e).map(c => prefix + c);
   }
   function gbKeyTypingTarget(e) {
     const ae = document.activeElement;
@@ -13897,9 +14099,11 @@ const STORE = {
     gbListen(document, 'keydown', e => {
       if (state.keyboardShortcuts === false) return;
       if (gbKeyTypingTarget(e)) return;
-      const fp = gbKeyFingerprint(e);
-      if (!fp) return;
-      const actionId = gbKeyBindings()[fp];
+      const fps = gbKeyFingerprints(e);
+      if (!fps.length) return;
+      const binds = gbKeyBindings();
+      const fp = fps.find(c => binds[c]);
+      const actionId = fp && binds[fp];
       const action = actionId && GB_KEY_ACTIONS[actionId];
       if (!action) return;
       e.preventDefault();
@@ -16233,16 +16437,18 @@ const STORE = {
       if (ok) flash('reclamo de mision: ' + kinds);
       gbTimeout(() => { gbUnlock('quest-auto', autoToken); questScanTick('post-claim'); renderQuests(); }, 2500);
     };
-    const questStillClaimable = () => {
+
+    const questStillClaimable = (liveOnly) => {
       try {
         const live = questsFromGame().find(q => String(q.questId) === String(entry.questId)||String(q.progressableId)===String(entry.progressableId));
         if (live && live.claimStateKnown) return !!live.canClaim;
       } catch (_) {}
+      if (liveOnly) return null;
       const cur = state.questRewards[entry.questId];return cur&&cur.claimStateKnown?!!cur.canClaim:null;
     };
     claimQuestViaBridge(entry, (err) => {
       if (/^(?:timeout|timeout_unknown|pending)(?::|$)/.test(String(err||''))) {
-        if (questStillClaimable()===false) {setClaimState(false);return finish('bridge-reconcile', true)}
+        if (questStillClaimable(true)===false) {setClaimState(false);return finish('bridge-reconcile', true)}
         setClaimState(true,err);return finish('bridge-review', false, err||'timeout_unknown');
       }
       if (err) return finish('bridge', false, err);
@@ -17213,7 +17419,9 @@ const STORE = {
     } else {
       const wanted = rows.map(r => String(r.townId));
       const have = Array.from(table.querySelectorAll('div[data-town]')).map(d => d.dataset.town);
-      const sameSet = !table.dataset.empty && have.length === wanted.length && have.every((k, i) => k === wanted[i]);
+
+      const wantedSet = new Set(wanted);
+      const sameSet = !table.dataset.empty && have.length === wanted.length && have.every(k => wantedSet.has(k));
       if (!sameSet) {
         table.replaceChildren();
         delete table.dataset.empty;
@@ -18843,7 +19051,7 @@ const STORE = {
       const ids = (townsFromGame() || []).map(t => t.id);
       const info = ids.length ? researchTownTechs(ids[0]) : null;
       const n = info && info.techs ? Object.keys(info.techs).length : 0;
-      return { ok: !!info && info.academy >= 0 && n >= 0, warn: !n, detail: info ? `${n} researched-tech flags, academy ${info.academy}` : 'academy techs unreadable' };
+      return { ok: !!info && info.academy != null && info.academy >= 0 && n >= 0, warn: !n, detail: info ? `${n} researched-tech flags, academy ${info.academy == null ? 'UNREADABLE' : info.academy}` : 'academy techs unreadable' };
     }));
 
     out.push(preflightProbe('academy read path', () => {
@@ -18857,7 +19065,8 @@ const STORE = {
       try { defs = Object.keys((gameUw().GameData && gameUw().GameData.researches) || {}).length; } catch (_) {}
       if (defs) parts.push(`GameData.researches ${defs}`);
       else { parts.push('GameData.researches UNREADABLE'); bad++; }
-      parts.push(`academy ${info.academy}`);
+      if (info.academy == null) { parts.push('academy UNREADABLE'); bad++; }
+      else parts.push(`academy ${info.academy}`);
       parts.push(info.library == null ? 'library UNREADABLE' : `library ${info.library}`);
       if (info.library == null) bad++;
       parts.push(info.ordersKnown ? `real queue ${info.orders.length}/${researchQueueMax()}` : 'real queue UNREADABLE (open that town once)');
@@ -20022,8 +20231,13 @@ const STORE = {
     } catch (_) {}
     return String(id || '?');
   }
+
   function queueCenterUnitIsNaval(unit) {
-    try { const d = gbGameDataLookup("units", unit) || {}; return !!(d.is_naval || d.naval); } catch (_) { return false; }
+    try {
+      const d = gbGameDataLookup("units", unit);
+      if (!d) return null;
+      return !!(d.is_naval || d.naval);
+    } catch (_) { return null; }
   }
   function queueCenterUnitId(model) {
     const a = (model && model.attributes) || model || {};
@@ -20327,7 +20541,9 @@ const STORE = {
     const label = wantNaval ? 'Puerto' : 'Cuartel';
     const lane = wantNaval ? 'recruitNaval' : 'recruit';
     const q = recruitQueueInfo(townId);
-    const liveModels = (q.models || []).filter(m => queueCenterUnitIsNaval(queueCenterUnitId(m)) === wantNaval);
+    const allModels = q.models || [];
+    const liveModels = allModels.filter(m => queueCenterUnitIsNaval(queueCenterUnitId(m)) === wantNaval);
+    const unclassified = allModels.filter(m => queueCenterUnitIsNaval(queueCenterUnitId(m)) == null);
     const live = queueCenterCard(`Cola real \u00b7 ${label}`, q.known ? `${liveModels.length}${q.max != null ? ' / ' + q.max : ''}` : 'estado no legible');
     body.appendChild(live.box);
     if (liveModels.length) {
@@ -20341,6 +20557,10 @@ const STORE = {
         ));
       });
     } else live.box.appendChild(queueCenterEmpty(q.known ? `Sin \u00f3rdenes en ${label.toLowerCase()}` : 'No se puede leer la cola real'));
+
+    if (unclassified.length) {
+      live.box.appendChild(queueCenterEmpty(`${unclassified.length} orden(es) con tipo de unidad no legible \u2014 sin clasificar`));
+    }
 
     const list = nativeQueueList(townId, lane, false);
     const fifo = nativeQueueIsFifo(townId, lane), paused = nativeQueuePaused(townId, lane);
@@ -20370,8 +20590,10 @@ const STORE = {
   let gbQcPaintTimer = 0;
   let gbQcTickTimer = 0;
 
+  const QC_TAB_LANES = { build: ['build'], research: ['research'], barracks: ['recruit'], docks: ['recruitNaval'] };
   function queueCenterKey(townId) {
-    const lanes = ['build', 'research', 'recruit', 'recruitNaval'];
+
+    const lanes = QC_TAB_LANES[gbQueueCenterTab] || ['build', 'research', 'recruit', 'recruitNaval'];
     let k = gbQueueCenterTab + '|' + townId;
     for (const lane of lanes) {
       k += '|' + lane + ':';
@@ -23779,6 +24001,7 @@ const STORE = {
     try { if (typeof dodgeQueueSave === 'function') dodgeQueueSave(); } catch (_) {}
     try { if (typeof questClaimFailSave === 'function') questClaimFailSave(); } catch (_) {}
     try { if (typeof persistServerCooldown === 'function') persistServerCooldown(); } catch (_) {}
+    try { if (typeof nativeQueueSaveFlush === 'function') nativeQueueSaveFlush(); } catch (_) {}
     try { snapshotBuild('exit'); } catch (_) {}
   };
   gbListen(window, 'beforeunload', releaseLocks);

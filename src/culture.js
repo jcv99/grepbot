@@ -22,14 +22,27 @@
     } catch (_) {}
     return out;
   }
+  // A missing model is UNKNOWN, not "zero killpoints". Returning 0 made the
+  // `kp >= cost.killpoints` gate block a celebration on a value never read,
+  // which is exactly what the precondition invariant forbids.
   function cultureKillpointsAvailable() {
     try {
       const uw = gameUw();
       const kp = uw.MM && uw.MM.getModelByNameAndPlayerId && uw.MM.getModelByNameAndPlayerId('PlayerKillpoints');
-      if (!kp || !kp.attributes) return 0;
+      if (!kp || !kp.attributes) return null;
       const a = kp.attributes;
+      if (a.att == null && a.def == null) return null;
       return (+a.att || 0) + (+a.def || 0) - (+a.used || 0);
-    } catch (_) { return 0; }
+    } catch (_) { return null; }
+  }
+  // Same contract as gbAfford: a check may only BLOCK on a value it actually
+  // read. Unreadable is `blind` - log once, let the server be the authority -
+  // never a silent skip, because a renamed client getter would otherwise turn
+  // the whole culture feature off with no trace.
+  function cultureBlind(what, townId, type) {
+    gbLogT('culture-blind-' + type + '-' + what, 300000,
+      `culture: ${type} @${townId} ${what} unreadable - letting the server decide`);
+    return true;
   }
   function cultureCanAfford(townId, type, ledger) {
     const cost = CULTURE_COSTS[type];
@@ -39,37 +52,44 @@
       if (!state.allowPremiumCulture) return false;
       const spent = ledger && ledger.goldSpent != null ? ledger.goldSpent : cultureGoldSpentLoad().amount;
       const budget = +state.cultureGoldBudget || 0;
+      // Local ledger, always readable — this is the real bound on gold spend,
+      // so a blind balance below still cannot overrun the daily budget.
       if (!(budget >= OLYMPIC_GOLD) || spent + OLYMPIC_GOLD > budget) return false;
       const gold = ledger && ledger.playerGold != null ? ledger.playerGold : culturePlayerGold();
-      if (gold == null || gold < OLYMPIC_GOLD) return false;
+      if (gold == null) return cultureBlind('gold', townId, type);
+      if (gold < OLYMPIC_GOLD) return false;
     }
     if (cost.killpoints) {
       const kp = ledger && ledger.killpoints != null ? ledger.killpoints : cultureKillpointsAvailable();
+      if (kp == null) return cultureBlind('killpoints', townId, type);
       return kp >= cost.killpoints;
     }
-    const uw = gameUw();
-    let t = null;
-    try { t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]); } catch (_) {}
-    if (!t) return false;
+    const t = gbTownModel(townId);
+    if (!t) return cultureBlind('town-model', townId, type);
     try {
       if (cost.academy) {
-        let acad = null;
-        try { acad = t.getBuildings && typeof t.getBuildings().get === 'function' ? +t.getBuildings().get('academy') : +(t.buildings && t.buildings().attributes || {}).academy; } catch (_) { acad = null; }
-        if (!(acad >= cost.academy)) return false;
+        const acad = gbBuildingLevel(townId, 'academy');
+        if (acad == null) return cultureBlind('academy', townId, type);
+        if (acad < cost.academy) return false;
       }
       if (cost.theater) {
-        let th = null;
-        try { th = t.getBuildings && typeof t.getBuildings().get === 'function' ? +t.getBuildings().get('theater') : +(t.buildings && t.buildings().attributes || {}).theater; } catch (_) { th = null; }
-        if (!(th >= cost.theater)) return false;
+        const th = gbBuildingLevel(townId, 'theater');
+        if (th == null) return cultureBlind('theater', townId, type);
+        if (th < cost.theater) return false;
       }
       if (cost.gold) return true;
       const r = (ledger && ledger.res && ledger.res[townId]) || (t.resources && t.resources());
-      if (!r) return false;
-      if (cost.wood && r.wood < cost.wood) return false;
-      if (cost.stone && r.stone < cost.stone) return false;
-      if (cost.iron && r.iron < cost.iron) return false;
+      if (!r) return cultureBlind('resources', townId, type);
+      for (const k of GB_RES_KEYS) {
+        const need = +cost[k] || 0;
+        if (need <= 0) continue;
+        // null/undefined coerced through `<` reads as 0 — i.e. as a shortage.
+        // Unreadable stock must not masquerade as an empty warehouse.
+        if (r[k] == null || !isFinite(+r[k])) return cultureBlind(k, townId, type);
+        if (+r[k] < need) return false;
+      }
       return true;
-    } catch (_) { return false; }
+    } catch (_) { return cultureBlind('read-error', townId, type); }
   }
   function cultureStart(type, townId, onDone) {
 
@@ -137,7 +157,9 @@
 
         const cost = CULTURE_COSTS[ctype];
         if (cost) {
-          if (cost.killpoints) ledger.killpoints -= cost.killpoints;
+          // null means "unreadable"; decrementing it would produce a negative
+          // number that then reads as a hard shortage for every later town.
+          if (cost.killpoints && ledger.killpoints != null) ledger.killpoints -= cost.killpoints;
           if (cost.gold) {
             ledger.goldSpent += cost.gold;
             if (ledger.playerGold != null) ledger.playerGold -= cost.gold;

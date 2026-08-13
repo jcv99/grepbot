@@ -65,8 +65,15 @@
         const b = t.getBuildings ? t.getBuildings() : (t.buildings && t.buildings());
         buildings = (b && (b.attributes || b)) || null;
       } catch (_) {}
-      let acad = 0;
-      try { acad = t.getBuildings ? +t.getBuildings().get('academy') : +(buildings || {}).academy; } catch (_) {}
+      // null = level UNREADABLE, 0 = town genuinely has no academy. The old
+      // `let acad = 0` + `+(buildings||{}).academy` (NaN when absent) collapsed
+      // both into "no academy" and every caller then blocked on a value it had
+      // never read.
+      let acad = null;
+      try {
+        if (t.getBuildings) { const v = +t.getBuildings().get('academy'); if (isFinite(v)) acad = v; }
+        if (acad == null && buildings && buildings.academy != null) { const v = +buildings.academy; if (isFinite(v)) acad = v; }
+      } catch (_) {}
       // getAdditionalResearchPoints() keys off hasLibrary() === (level === 1),
       // so the level itself has to be readable, not just its truthiness.
       let library = null;
@@ -367,6 +374,7 @@
     if (!info) return null;
     const perAcademy = researchConstant('points_per_academy_level');
     if (perAcademy == null) return null;
+    if (info.academy == null) return null;
     const acad = +info.academy;
     if (!isFinite(acad) || acad < 0) return null;
     const level = researchAcademyTearingDown(townId) === true ? Math.max(0, acad - 1) : acad;
@@ -479,6 +487,7 @@
         if (have < need) return { ok: false, blind: false, why: `${b} ${have}/${need}` };
       }
       const academyNeed = +(def.academy_level ?? def.required_academy_level ?? def.building_level ?? def.level ?? 0);
+      if (academyNeed > 0 && info.academy == null) return { ok: false, blind: true, why: 'nivel de academia ilegible' };
       if (academyNeed > 0 && +info.academy < academyNeed) return { ok: false, blind: false, why: `academia ${info.academy}/${academyNeed}` };
       // A2: the game's own can_be_bought carries !(requires_farming_villages &&
       // on_small_island). Posting one of these on a small island is a guaranteed
@@ -505,7 +514,15 @@
   }
   function researchValidateJob(job) {
     const info = researchTownTechs(job.townId);
-    if (!info || !(info.academy > 0)) return { ok: false, why: 'research state unreadable' };
+    if (!info) return { ok: false, why: 'research state unreadable' };
+    // 0 = no academy (a real block). null = level unreadable, which is UNKNOWN:
+    // log once and let the server be the authority rather than blocking on a
+    // value we never read.
+    if (info.academy === 0) return { ok: false, why: 'sin academia' };
+    if (info.academy == null) {
+      gbLogT('research-academy-blind-' + job.townId, 600000,
+        `research: academy level for town ${job.townId} unreadable - letting the server decide`);
+    }
     if (info.techs && info.techs[job.tech]) return { ok: false, why: 'already researched' };
     // H4: an unreadable real queue must not be read as "empty, slot free". Both
     // gates below need it, so without it the post is a coin flip against the
@@ -579,7 +596,9 @@
       const targets = goalEffectiveResearchTargets(tid, globalTargets);
       let ordered = Object.keys(targets).sort((a, b) => (+targets[a].order || 0) - (+targets[b].order || 0));
       const info = researchTownTechs(tid);
-      if (!info || !(info.academy > 0)) continue;
+      // academy === 0 is a real "no academy" skip; null is unreadable and the
+      // per-tech gates below still get their chance.
+      if (!info || info.academy === 0) continue;
       // Unknown real queue: every "already queued" / "queue full" gate below
       // would silently pass. Skip the town instead of posting blind.
       if (!info.ordersKnown) {

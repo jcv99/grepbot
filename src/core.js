@@ -287,7 +287,17 @@
     }
     return L;
   }
-  function gbLocked(name) { return !!gbLockLease(name); }
+  // Read-only probe. gbLockLease DELETES an expired entry as a side effect, so a
+  // passive gbLocked() landing exactly on the expiry edge evicted the lease, let
+  // a fresh gbLock win, and then made the original holder's gbUnlock look
+  // foreign (`lock-owner-<name>`), leaking the new lease until its own TTL.
+  // Expiring a lease is the sweeper's job (and gbLock's), never a reader's.
+  function gbLockHeld(name) {
+    const L = gbLocks[name];
+    if (!L) return null;
+    return (Date.now() - L.at < (L.ttl || gbLockTtl(name))) ? L : null;
+  }
+  function gbLocked(name) { return !!gbLockHeld(name); }
   function gbLock(name, ttl) {
     if (!gbInstanceAlive() || gbLockLease(name)) return null;
     const token = `${GB_INSTANCE_ID}:${name}:${++gbLockSeq}:${Date.now().toString(36)}`;
@@ -311,9 +321,9 @@
     delete gbLocks[name];
     return true;
   }
-  function gbLockAge(name) { const L = gbLockLease(name); return L ? Date.now() - L.at : 0; }
+  function gbLockAge(name) { const L = gbLockHeld(name); return L ? Date.now() - L.at : 0; }
   function gbUnlockAll() { for (const k of Object.keys(gbLocks)) delete gbLocks[k]; }
-  function gbLockList() { return Object.keys(gbLocks).filter(k => !!gbLockLease(k)); }
+  function gbLockList() { return Object.keys(gbLocks).filter(k => !!gbLockHeld(k)); }
   function gbLockSweep() { for (const k of Object.keys(gbLocks)) gbLockLease(k); }
 
   const SEEN_MAX = 2000;
@@ -1092,7 +1102,6 @@
   const TPL_DEFAULTS = { ibAction: 'buyInstant', ibActionR: 'buyInstant' };
   function tplLearned(name) {
     if (!name) return false;
-    if (name === 'farmAction') return true;
     const v = state[name];
     if (!v) return false;
     const def = TPL_DEFAULTS[name];
@@ -1110,6 +1119,7 @@
     const h = tplHealthEnsure(name);
     h.learnedAt = Date.now();
     h.hardFails = 0;
+    h.stales = 0;
     h.invalidated = false;
     h.lastOkAt = 0;
     tplHealthSave();
@@ -1124,6 +1134,7 @@
     if (!result || result === 'ok') {
       h.lastOkAt = Date.now();
       h.hardFails = 0;
+      h.stales = 0;
       if (h.invalidated) { h.invalidated = false; gbLog('tpl: ' + name + ' recovered'); }
       tplHealthSave();
       return;
@@ -1153,11 +1164,19 @@
     }
     // Self-heal: without this, the gate blocks the only post that could ever
     // record an 'ok', so a single bad streak killed the feature until a
-    // hand-click. Expiry lets it spend one more streak proving it is really dead.
-    if (!h.invalidAt || Date.now() - h.invalidAt > TPL_HEALTH_STALE_MS) {
+    // hand-click. Expiry lets it spend one more strike proving it is really dead.
+    //
+    // Zeroing hardFails here made a chronically dead endpoint cycle
+    // open/expire/open forever at the same 30min period, burning 5 rejections
+    // each time and never escalating. Decay ONE strike instead: the next hard
+    // fail re-invalidates immediately and the retry window doubles, to 8x.
+    const stales = Math.max(0, +h.stales || 0);
+    const staleWindow = TPL_HEALTH_STALE_MS * Math.min(8, Math.pow(2, stales));
+    if (!h.invalidAt || Date.now() - h.invalidAt > staleWindow) {
       h.invalidated = false;
-      h.hardFails = 0;
-      gbLog('tpl: ' + name + ' stale window expired - retrying');
+      h.hardFails = Math.max(0, TPL_HEALTH_FAILS - 1);
+      h.stales = stales + 1;
+      gbLog(`tpl: ${name} stale window (${Math.round(staleWindow / 60000)}min) expired - retrying, attempt ${h.stales}`);
       tplHealthSave();
       return true;
     }
@@ -1274,16 +1293,31 @@
 
   let seenCount = 0;
   try { seenCount = Object.keys(state.seen || {}).length; } catch (_) { seenCount = 0; }
+  // STORE.SEEN is world-scoped in storage already (wkey appends '@<hostname>'),
+  // so the `<hostname>:<id>` in-memory key scoped the map a second time - and
+  // that is why every `state.seen[id]` fallback read in spy.js was dead. Strip
+  // the legacy prefix once on load; the key is the bare report id from here on.
+  (function seenUnscope() {
+    const pre = location.hostname + ':';
+    let n = 0;
+    try {
+      for (const k of Object.keys(state.seen || {})) {
+        if (k.indexOf(pre) !== 0) continue;
+        const id = k.slice(pre.length);
+        if (state.seen[id] == null) state.seen[id] = state.seen[k];
+        delete state.seen[k];
+        n++;
+      }
+    } catch (_) { return; }
+    if (!n) return;
+    seenCount = Object.keys(state.seen).length;
+    try { save(STORE.SEEN, state.seen); } catch (_) {}
+  })();
   function rememberSeen(id) {
-    const key = location.hostname + ':' + id;
+    const key = String(id);
     const isNew = state.seen[key] == null;
     state.seen[key] = Date.now();
     if (isNew) seenCount++;
-
-    if (state.seen[id] != null) {
-      delete state.seen[id];
-      if (String(id) !== key) seenCount = Math.max(0, seenCount - 1);
-    }
     if (seenCount > SEEN_MAX) {
       const keys = Object.keys(state.seen);
       keys.sort((a, b) => state.seen[a] - state.seen[b]);

@@ -45,9 +45,15 @@
     }, onDone);
   }
 
+  // Normalize to SECONDS: gameNow() is a second epoch, so a client that reports
+  // one of these fields in MILLIS made `readyAt > gameNow()` permanently true
+  // and the relation self-skipped every cadence, forever.
+  const RURAL_MS_EPOCH_FLOOR = 1e12; // ~2001 read as ms; year 33658 read as s
   function ruralTradeReadyAt(a) {
-    const v = gbProbeAttr(a, ['trade_at', 'tradeable_at', 'next_trade_at', 'lootable_at']);
-    return v != null && v > 0 ? v : null;
+    let v = gbProbeAttr(a, ['trade_at', 'tradeable_at', 'next_trade_at', 'lootable_at']);
+    if (v == null || !(v > 0)) return null;
+    if (v >= RURAL_MS_EPOCH_FLOOR) v = Math.floor(v / 1000);
+    return v;
   }
   function ruralTradeScan(reason) {
     if (!hostEnabled() || !state.autoRuralTrade || captchaPaused('ruraltrade')) return;

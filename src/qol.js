@@ -162,17 +162,33 @@
     const b = state.keybindings;
     return (b && typeof b === 'object' && !Array.isArray(b)) ? Object.assign({}, GB_KEY_DEFAULTS, b) : Object.assign({}, GB_KEY_DEFAULTS);
   }
-  function gbKeyFingerprint(e) {
-    if (e.altKey) return null;
-    if (!(e.ctrlKey || e.metaKey)) return null;
-    const k = String(e.key || '');
+  // e.key is the LAYOUT-DEPENDENT character: with Shift held, Ctrl+Shift+, and
+  // Ctrl+Shift+. arrive as '<' and '>' on most layouts, so neither published
+  // default ever matched. e.code names the PHYSICAL key and is locale-free, so
+  // it is tried first; the e.key form stays as a fallback so a user binding on a
+  // locale-specific character keeps working.
+  const GB_KEY_CODE_CHAR = {
+    Comma: ',', Period: '.', Slash: '/', Semicolon: ';', Quote: "'",
+    BracketLeft: '[', BracketRight: ']', Backslash: '\\', Backquote: '`',
+    Minus: '-', Equal: '=',
+  };
+  function gbKeyChars(e) {
+    const out = [];
+    const code = String(e.code || '');
+    if (/^Key[A-Z]$/.test(code)) out.push(code.slice(3));
+    else if (/^Digit[0-9]$/.test(code)) out.push(code.slice(5));
+    else if (GB_KEY_CODE_CHAR[code]) out.push(GB_KEY_CODE_CHAR[code]);
     // Single printable character only: a bare modifier press has key 'Shift'
     // and must not resolve to a binding.
-    if (k.length !== 1) return null;
-    const parts = ['Ctrl'];
-    if (e.shiftKey) parts.push('Shift');
-    parts.push(k.length === 1 ? k.toUpperCase() : k);
-    return parts.join('+');
+    const k = String(e.key || '');
+    if (k.length === 1) { const u = k.toUpperCase(); if (!out.includes(u)) out.push(u); }
+    return out;
+  }
+  function gbKeyFingerprints(e) {
+    if (e.altKey) return [];
+    if (!(e.ctrlKey || e.metaKey)) return [];
+    const prefix = e.shiftKey ? 'Ctrl+Shift+' : 'Ctrl+';
+    return gbKeyChars(e).map(c => prefix + c);
   }
   function gbKeyTypingTarget(e) {
     const ae = document.activeElement;
@@ -195,9 +211,11 @@
     gbListen(document, 'keydown', e => {
       if (state.keyboardShortcuts === false) return;
       if (gbKeyTypingTarget(e)) return;
-      const fp = gbKeyFingerprint(e);
-      if (!fp) return;
-      const actionId = gbKeyBindings()[fp];
+      const fps = gbKeyFingerprints(e);
+      if (!fps.length) return;
+      const binds = gbKeyBindings();
+      const fp = fps.find(c => binds[c]);
+      const actionId = fp && binds[fp];
       const action = actionId && GB_KEY_ACTIONS[actionId];
       if (!action) return;
       e.preventDefault();

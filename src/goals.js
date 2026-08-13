@@ -268,10 +268,12 @@
       goalPlanTown(townId);
       return true;
     }
+    // Capture the index BEFORE removing the key: clean.indexOf(key) is always
+    // -1 (the filter just took it out), so every ↓ jumped the entry to the end
+    // of the queue and ↑ on the first entry pushed it one slot later.
+    const at=q.order.indexOf(key);
     const clean=q.order.filter(x=>x!==key);
-    let idx=clean.indexOf(key);
-    if (idx < 0) idx = clean.length;
-    idx=Math.max(0,Math.min(clean.length,idx+(+delta||0)));
+    const idx=Math.max(0,Math.min(clean.length,at+(+delta||0)));
     clean.splice(idx,0,key);
     q.order=clean;
     goalQueueSave();

@@ -42,6 +42,11 @@
   function nativeRecruitSplitTown(t,id) {
     if(nativeRecruitSplitDone.has(id))return;
     const land=t.recruit,naval=t.recruitNaval;let moved=0,blind=false;
+    // nativeQueueTown normalizes mode/paused BEFORE calling this, so both fields
+    // are always set by the time we get here — the old `== null` guards could
+    // never fire and the migrated lane stayed 'legacy', which recruitScan skips.
+    // "Only fills empty slots" now keys off the lane actually being empty.
+    const navalWasEmpty=naval.length===0;
     for(let i=land.length-1;i>=0;i--){
       const j=land[i];if(!j)continue;
       const d=gbGameDataLookup("units", j.unit);
@@ -50,12 +55,10 @@
     }
     if(!blind)nativeRecruitSplitDone.add(id);
     if(moved){
-      // Migration only fills empty slots. A user who already chose 'legacy'
-      // for the new lane keeps that choice, and the old recruit pause is only
-      // copied across if the new lane has no explicit preference yet — the
-      // old recruit pause is a deliberate state, not a default to propagate.
-      if (t.mode.recruitNaval == null) t.mode.recruitNaval = 'fifo';
-      if (t.paused.recruitNaval == null) t.paused.recruitNaval = !!t.paused.recruit;
+      // A lane split inherits the settings of the lane it split off from; a
+      // recruitNaval lane that already held jobs is a deliberate configuration
+      // and is left alone.
+      if (navalWasEmpty) { t.mode.recruitNaval = t.mode.recruit; t.paused.recruitNaval = !!t.paused.recruit; }
       // Direct save: nativeQueueSave() re-renders, and this runs from inside
       // nativeQueueList, which the renderers themselves call.
       try{save(STORE.NATIVE_QUEUE,nativeQueueRoot())}catch(_){}
@@ -63,8 +66,21 @@
     }
   }
   function nativeQueueList(townId,lane,create){const t=nativeQueueTown(townId,create);return t&&Array.isArray(t[lane])?t[lane]:[];}
-  function nativeQueueSave() {
+  // Status churn (a sweep re-labelling 20 jobs 'waiting-resources') used to fire
+  // one GM_setValue per job while the render was already coalesced. Debounce the
+  // write; anything structural still goes through nativeQueueSave().
+  let nativeQueueSaveTimer=0;
+  function nativeQueueSaveNow() {
+    if(nativeQueueSaveTimer){try{gbClearTimeout(nativeQueueSaveTimer)}catch(_){}nativeQueueSaveTimer=0}
     save(STORE.NATIVE_QUEUE,nativeQueueRoot());
+  }
+  function nativeQueueSaveSoon() {
+    if(nativeQueueSaveTimer)return;
+    nativeQueueSaveTimer=gbTimeout(()=>{nativeQueueSaveTimer=0;try{save(STORE.NATIVE_QUEUE,nativeQueueRoot())}catch(_){}},250);
+  }
+  function nativeQueueSaveFlush(){if(nativeQueueSaveTimer)nativeQueueSaveNow()}
+  function nativeQueueSave() {
+    nativeQueueSaveNow();
     try{scheduleNativeUiScan()}catch(_){}
     try{renderAbQueue()}catch(_){}
     try{renderQueueCenter()}catch(_){}
@@ -374,11 +390,12 @@
     // safe while an order is in flight or awaiting review.
     const lane=nativeRecruitLane(unit);
     const town=nativeQueueTown(townId,true);
-    // Adding one recruit must not flip the lane's mode out from under a player
-    // who explicitly chose 'legacy' (auto-planner). Only set fifo when the lane
-    // has no stored preference yet — first add on a fresh lane defaults to fifo
-    // to match historical behaviour, subsequent adds preserve the choice.
-    if (town.mode[lane] == null) town.mode[lane] = 'fifo';
+    // Same as the build (:mode.build) and research (:mode.research) lanes: a
+    // manual [+] puts the lane in FIFO. The old `== null` guard could never fire
+    // — nativeQueueTown normalizes every lane to 'legacy' first — so the job
+    // landed in the virtual list while recruitScan, which only walks FIFO lanes,
+    // skipped it forever. Use "Cola automática" to hand the lane back.
+    town.mode[lane] = 'fifo';
     town[lane].push({id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:n,status:'pending',reason:'',createdAt:Date.now()});
     nativeQueueSave();gbLog(`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): ${n}× ${nativeUnitLabel(unit)} @${townId}`);gbTimeout(()=>recruitScan('native'),80);return true;
   }
@@ -395,7 +412,7 @@
       const stable=x=>String(x||'').replace(/\d+(?:[.,]\d+)?/g,'#');
       if(stable(job.reason)===stable(r)&&now-(+job.reasonUpdatedAt||+job.updatedAt||0)<300000)return;
     }
-    job.status=status;job.reason=r;job.reasonUpdatedAt=now;job.updatedAt=now;save(STORE.NATIVE_QUEUE,nativeQueueRoot());try{scheduleNativeUiScan()}catch(_){}try{renderQueueCenter()}catch(_){}
+    job.status=status;job.reason=r;job.reasonUpdatedAt=now;job.updatedAt=now;nativeQueueSaveSoon();try{scheduleNativeUiScan()}catch(_){}try{renderQueueCenter()}catch(_){}
   }
   // ===== Build queue optimizer (v4 plan 5.6) =================================
   // A FIFO head that cannot be paid for stalls every job behind it. This offers
@@ -522,9 +539,29 @@
   // the v1.4.0 lock registry note warns about.
   function nativeQueueReconcileRecruit(townId,lane) {
     const lanes=lane?[lane]:NATIVE_RECRUIT_LANES;let changed=false;
+    // Real-queue confirmation, the half the build (:491) and research (:680)
+    // reconcilers already had. `queuedBefore` is the baseline this unit's queued
+    // count had when the post left, so reaching baseline+amount proves OUR batch
+    // landed — a dropped bridge callback no longer strands the head for 120s.
+    // An unreadable queue (known:false) stays UNKNOWN and confirms nothing.
+    let queueKnown=false;
+    try{queueKnown=!!(recruitQueueInfo(townId)||{}).known}catch(_){}
     for(const ln of lanes){
       const list=nativeQueueList(townId,ln,false);if(!list.length)continue;
-      for(const j of list){if(!j||!j.inflight)continue;if(Date.now()-(+j.inflight.at||0)>120000){j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualizó; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}}
+      const head=list[0];
+      for(const j of list){
+        if(!j||!j.inflight)continue;
+        const fl=j.inflight;
+        if(queueKnown&&j===head&&fl.token&&fl.queuedBefore!=null&&j.unit){
+          let now=null;
+          try{now=recruitQueuedAmount(townId,j.unit)}catch(_){now=null}
+          if(now!=null&&now>=(+fl.queuedBefore||0)+(+fl.amount||0)){
+            nativeQueueRecruitApplied(townId,ln,j.id,+fl.amount||0,fl.token);
+            changed=true;continue;
+          }
+        }
+        if(Date.now()-(+fl.at||0)>120000){j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualizó; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}
+      }
     }
     if(changed)nativeQueueSave();return changed;
   }
@@ -538,8 +575,12 @@
     if(job.inflight){nativeQueueSetJobState(job,'sending',job.reason||'enviando a la cola real');return null}
     return job;
   }
-  function nativeQueueRecruitApplied(townId,lane,jobId,amount) {
+  function nativeQueueRecruitApplied(townId,lane,jobId,amount,token) {
     const list=nativeQueueList(townId,lane||'recruit',false),job=list[0];if(!job||job.id!==jobId)return;
+    // The inflight token is the idempotency key. Both the bridge callback and
+    // nativeQueueReconcileRecruit can reach this for the same batch; applying it
+    // twice would eat units the game never recruited.
+    if(token&&!(job.inflight&&job.inflight.token===token))return;
     job.inflight=null;job.amount=Math.max(0,(+job.amount||0)-Math.max(0,+amount||0));
     if(job.amount<=0)list.shift();else{job.status='pending';job.reason='resto del lote';job.updatedAt=Date.now()}
     nativeQueueSave();
@@ -632,15 +673,23 @@
     if((info.orders||[]).some(o=>String(researchOrderTechId(o))===tech)){flash(`${nativeResearchLabel(tech)} ya está en la cola real`);return false}
     if(nativeQueueResearchPending(townId,tech)){flash(`${nativeResearchLabel(tech)} ya está en la cola virtual`);return false}
     const walk=nativeResearchPrereqChain(townId,tech);
+    // Same refusal as nativeQueueAddBuild (:330): an unresolved prerequisite
+    // chain must not put the target at the lane head, where it would sit
+    // 'blocked' forever behind a requirement nobody queued. Partial prereqs are
+    // still pushed — they are valid research on their own.
+    if(walk.error&&!walk.chain.length){flash(`Requisitos no resolubles: ${walk.error}`);return false}
     const town=nativeQueueTown(townId,true);town.mode.research='fifo';
     const push=(id,reason)=>town.research.push({id:nativeQueueId('r'),kind:'research',townId:String(townId),tech:String(id),status:'pending',reason:reason||'',createdAt:Date.now()});
     let added=0;
     for(const dep of walk.chain){if(!gbGameDataLookup("researches", dep))continue;push(dep,`requisito para ${nativeResearchLabel(tech)}`);added++}
-    push(tech,'');
+    if(!walk.error)push(tech,'');
     nativeQueueSave();
-    if(walk.error)gbLogT('native-research-walk-'+tech,300000,`native queue: research prereq walk for ${tech} incomplete (${walk.error})`);
-    if(added)flash(`+${added} requisito(s) antes de ${nativeResearchLabel(tech)}`);
-    gbLog(`cola nativa: investigación ${tech}${added?` + ${added} requisito(s) [${walk.chain.join(', ')}]`:''} @${townId}`);
+    if(walk.error){
+      gbLogT('native-research-walk-'+tech,300000,`native queue: research prereq walk for ${tech} incomplete (${walk.error})`);
+      flash(`${added} requisito(s) añadidos; el objetivo final no se puede resolver: ${walk.error}`);
+    }
+    else if(added)flash(`+${added} requisito(s) antes de ${nativeResearchLabel(tech)}`);
+    gbLog(`cola nativa: investigación ${walk.error?`(solo requisitos, ${walk.error}) `:''}${tech}${added?` + ${added} requisito(s) [${walk.chain.join(', ')}]`:''} @${townId}`);
     gbTimeout(()=>researchScan('native'),80);return true;
   }
   function nativeQueueRemoveResearch(townId,tech) {

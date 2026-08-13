@@ -665,7 +665,7 @@
       if (i >= work.length || captcha || captchaPaused('farm')) {
         gbTimeout(() => {
           try {
-            const flipped = verifyClaims(before);
+            const flipped = verifyClaims(before, work);
             // Re-read model deadlines after the batch and arm the next exact claim wake.
             farmScheduleClaimWake(null, 'post-claim', true);
 
@@ -854,12 +854,18 @@
       }
     });
   }
-  function verifyClaims(before) {
+  function verifyClaims(before, attempted) {
     const farms = farmsFromGame();
     if (!farms) return 0;
     const now = gameNow();
+    const only = attempted ? new Set(attempted.map(f => String(f && f.vill_id))) : null;
     let updated = 0;
     farms.forEach(f => {
+      // A village absent from the baseline was never observed before the batch,
+      // so its deadline appearing now is the model filling in lazily, not proof
+      // a claim landed. Same for a village we never posted a claim for.
+      if (!Object.prototype.hasOwnProperty.call(before, f.vill_id)) return;
+      if (only && !only.has(String(f.vill_id))) return;
       if (f.lootable_at != null && f.lootable_at > now && before[f.vill_id] !== f.lootable_at) updated++;
     });
     gbLog(`farm claim verify: ${updated} village(s) now gathering${updated ? '' : ' - claims did NOT land (open Senado once, click Recoger manually, then paste me the Log tab)'}`);
@@ -1054,10 +1060,15 @@
     if (!force && !farmScrapeEnabled()) {
       gbLogT('farm-scrape-off', 600000, 'farm scrape: off (' +
         (farmScrapeState().dead ? 'endpoint dead' : 'disabled in Config') + ')');
-      // Keep the cadence stamped so farmTick does not re-enter every 15s.
-      state.nextFarmScrape = Date.now() + SYNC.FARM_MIN_MS;
-      save(STORE.NEXT_FARM, state.nextFarmScrape);
-      renderTimers();
+      // Keep the cadence stamped so farmTick does not re-enter every 15s — but
+      // never SHORTEN a deadline a real sweep already set (min < the 5-6min
+      // window a live sweep stamps, so this used to pull the next one forward).
+      const off = Date.now() + SYNC.FARM_MIN_MS;
+      if (!(+state.nextFarmScrape > off)) {
+        state.nextFarmScrape = off;
+        save(STORE.NEXT_FARM, state.nextFarmScrape);
+        renderTimers();
+      }
       return;
     }
     if (gbLocked('farm-scrape')) { gbLogT('farm-scrape-inflight', 30000, 'farm scrape: skipped (in flight)'); return; }
@@ -1143,7 +1154,10 @@
         list.forEach((opt, i) => {
           if (opt == null) return;
           const idx = opt.option != null ? +opt.option : (opt.id != null ? +opt.id : i + 1);
-          const sec = +opt.duration || +opt.time || +opt.booty_duration || +opt.collect_time;
+          // pickNum, not `||`: a present-but-0 duration short-circuits to the
+          // next candidate, and a 0 here should fail the `sec > 0` gate below
+          // rather than silently borrow another field's value.
+          const sec = pickNum(opt.duration, opt.time, opt.booty_duration, opt.collect_time);
           if (!(idx > 0) || !(sec > 0)) return;
           const snapped = farmSnapDuration(sec);
           if (snapped != null) out[String(snapped)] = idx;

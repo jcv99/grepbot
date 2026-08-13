@@ -2,8 +2,11 @@
   // tail of journal.js, so the module that owns it could not be reordered
   // without a TDZ failure in a file that never mentions reports.
   const seenThisRun = new Set();
-  const seenHost = location.hostname;
-  function seenKey(id) { return seenHost + ':' + id; }
+  // state.seen is persisted under a world-scoped storage key already (wkey
+  // appends '@<hostname>'), so the old `<hostname>:<id>` in-memory prefix scoped
+  // it a second time — and made every `state.seen[id]` fallback dead code. The
+  // key is the bare report id; core.js strips legacy prefixes once on load.
+  function seenKey(id) { return String(id); }
 
   function hookFetch() {
     const uw = gameUw();
@@ -135,18 +138,25 @@
         const m = /[?&]id=(\d+)/.exec(a.href || '') || /report\/(\d+)/.exec(a.href || '');
         if (!m) return;
         const id = m[1];
-        if (state.seen[seenKey(id)] || state.seen[id] || seenThisRun.has(seenKey(id))) return;
+        if (state.seen[seenKey(id)] || seenThisRun.has(seenKey(id))) return;
         ids.push(id);
       });
     } catch (_) {}
-    const batch = ids.slice(0, maxN);
+    // Inbox links carry no timestamp, so the only age signal is lastSeenTs. On a
+    // fresh install it is 0 and nothing bounded the batch: the first run spent 25
+    // requests on reports that could be weeks old. Sample a few instead — the
+    // first one that parses sets lastSeenTs and the full cap applies from then on.
+    const firstRun = !state.lastSeenTs;
+    const staleFloor = !!(state.lastSeenTs && state.lastSeenTs < cut);
+    const cap = (firstRun || staleFloor) ? 5 : maxN;
+    const batch = ids.slice(0, cap);
     const release = () => { gbUnlock('report-catchup', token); };
     if (!batch.length) {
       release();
       gbLogT('catchup-empty', 120000, 'report catch-up: nothing new in inbox DOM');
       return;
     }
-    gbLog(`report catch-up: fetching up to ${batch.length} (cap ${maxN}, age≤72h, lastSeen=${state.lastSeenTs || 0})`);
+    gbLog(`report catch-up: fetching up to ${batch.length} (cap ${cap}${firstRun ? ' first-run sample' : staleFloor ? ` lastSeen older than ${Math.round(maxAgeMs / 3600000)}h` : ''}, lastSeen=${state.lastSeenTs || 0})`);
     let i = 0, fetched = 0;
     (function step() {
       let done = false;
@@ -159,10 +169,6 @@
           done = true;
         } else {
           const id = batch[i++];
-          // Age bound uses lastSeenTs floor when we have no per-id ts yet
-          if (state.lastSeenTs && state.lastSeenTs < cut) {
-            /* still try recent inbox ids; age bound is soft for DOM-discovered */
-          }
           fetchReport(id);
           fetched++;
         }
@@ -198,8 +204,10 @@
         if (k === 'reports' && Array.isArray(v)) {
           for (const r of v) {
             if (!r || typeof r !== 'object') continue;
-            const rid = r.report_id != null ? r.report_id : r.id;
-            if (numericId(rid) && (r.report_id != null || looksReport(r))) queueReport(String(rid), srcUrl);
+            // walk(r) already queues r.report_id; queueing it here too meant
+            // every nested report was enqueued twice and only seenThisRun kept
+            // the second one from becoming a second request.
+            if (r.report_id == null && numericId(r.id) && looksReport(r)) queueReport(String(r.id), srcUrl);
             walk(r);
           }
         } else if (v && typeof v === 'object') {
@@ -215,7 +223,9 @@
   const REPORT_RETRY_MAX = 3;
   function scrapeInboxDom() {
     document.querySelectorAll('a[href*="action=report"][href*="id="]').forEach(a => {
-      const m = a.href.match(/id=(\d+)/);
+      // Anchored like reportCatchUpRun's matcher: a bare /id=(\d+)/ also matches
+      // town_id= / view_id= / player_id= and queued those as report ids.
+      const m = a.href.match(/[?&]id=(\d+)/);
       if (m) queueReport(m[1], a.href);
     });
   }
@@ -223,7 +233,7 @@
     if (!id) return;
     if (!hostEnabled() || automationPaused({}) || captchaPaused('report')) return;
     const k = seenKey(id);
-    if (seenThisRun.has(k) || state.seen[k] || state.seen[id]) return;
+    if (seenThisRun.has(k) || state.seen[k]) return;
     if (seenThisRun.size > 5000) seenThisRun.clear();
     seenThisRun.add(k);
     gbTimeout(() => fetchReport(id, hintUrl), 200 + Math.random() * 800);
@@ -265,7 +275,7 @@
   }
 
   function fetchReport(id, hintUrl) {
-    if (state.seen[seenKey(id)] || state.seen[id]) return;
+    if (state.seen[seenKey(id)]) return;
     if (!hostEnabled() || automationPaused({}) || captchaPaused('report')) {
       seenThisRun.delete(seenKey(id));
       return;

@@ -238,7 +238,13 @@
         if (ctype === 'triumph') continue; // killpoints, not resources
         break;
       }
-      if (!ctype || !CULTURE_COSTS[ctype]) return { wood: 0, stone: 0, iron: 0 };
+      // No resource-priced celebration enabled = the preset has no goal at all.
+      // Returning a zero deficit made that look like "already satisfied", which
+      // is indistinguishable from a healthy town in the Log. Log + skip.
+      if (!ctype || !CULTURE_COSTS[ctype]) {
+        gbLogT('trade-party-notype', 300000, 'trade party: no resource-priced culture type enabled - skipping preset');
+        return null;
+      }
       const cost = CULTURE_COSTS[ctype];
       return {
         wood: +cost.wood || 0,
@@ -248,7 +254,11 @@
     }
     if (preset === 'unit') {
       const want = (state.recruitTargets || {})[townId] || (state.recruitTargets || {})[String(townId)];
-      if (!want || typeof want !== 'object') return { wood: 0, stone: 0, iron: 0 };
+      // No recruit target for this town = no goal, not a satisfied one.
+      if (!want || typeof want !== 'object') {
+        gbLogT('trade-unit-notarget-' + townId, 300000, `trade unit: town ${townId} has no recruit target - skipping preset`);
+        return null;
+      }
       let wood = 0, stone = 0, iron = 0;
       for (const unit of Object.keys(want)) {
         const count = +want[unit] || 0;

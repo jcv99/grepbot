@@ -377,16 +377,20 @@
       if (ok) flash('reclamo de mision: ' + kinds);
       gbTimeout(() => { gbUnlock('quest-auto', autoToken); questScanTick('post-claim'); renderQuests(); }, 2500);
     };
-    const questStillClaimable = () => {
+    // liveOnly: the persisted questRewards entry is OUR OWN last snapshot, so
+    // using it to reconcile a timeout lets a stale cache confirm a claim that
+    // never landed. Only the live collection may settle an ambiguous outcome.
+    const questStillClaimable = (liveOnly) => {
       try {
         const live = questsFromGame().find(q => String(q.questId) === String(entry.questId)||String(q.progressableId)===String(entry.progressableId));
         if (live && live.claimStateKnown) return !!live.canClaim;
       } catch (_) {}
+      if (liveOnly) return null;
       const cur = state.questRewards[entry.questId];return cur&&cur.claimStateKnown?!!cur.canClaim:null;
     };
     claimQuestViaBridge(entry, (err) => {
       if (/^(?:timeout|timeout_unknown|pending)(?::|$)/.test(String(err||''))) {
-        if (questStillClaimable()===false) {setClaimState(false);return finish('bridge-reconcile', true)}
+        if (questStillClaimable(true)===false) {setClaimState(false);return finish('bridge-reconcile', true)}
         setClaimState(true,err);return finish('bridge-review', false, err||'timeout_unknown');
       }
       if (err) return finish('bridge', false, err);

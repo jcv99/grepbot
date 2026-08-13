@@ -9,7 +9,10 @@
     for (const key of Object.keys(state.txState)) {
       const t = state.txState[key];
       if (!t) { delete state.txState[key]; changed = true; continue; }
-      if(t.state==='unknown'&&now-(+t.unknownAt||+t.updatedAt||0)>TX_UNKNOWN_MAX_MS){t.state='manual-review';t.detail='unknown outcome expired; manual review required';t.updatedAt=now;changed=true;continue}
+      // plannerRelease: plannerReservationActive() reports manual-review as
+      // inactive, so a held reservation left behind here made the planner ledger
+      // and the reservation state disagree for the life of the tombstone.
+      if(t.state==='unknown'&&now-(+t.unknownAt||+t.updatedAt||0)>TX_UNKNOWN_MAX_MS){t.state='manual-review';t.detail='unknown outcome expired; manual review required';t.updatedAt=now;plannerRelease(t,'manual-review');changed=true;continue}
       const terminalTtl=t.state==='committed'&&t.snapshot&&t.snapshot.kind==='instant'?TX_INSTANT_TOMBSTONE_TTL:TX_TERMINAL_TTL;
       if (/^(committed|failed|aborted|dryrun)$/.test(t.state || '') && now - (+t.updatedAt || +t.createdAt || 0) > terminalTtl) { delete state.txState[key]; changed = true; }
     }
@@ -528,7 +531,10 @@
     if (write && circuitOpen(feature)) return 'circuit-open';
     if (jtag && jrnSkipped(jtag)) return 'remembered';
     if (write && state.dryRun) return 'dryrun';
-    if (!reqBudgetOk('action')) return 'budget';
+    // Scope must match what the caller will MARK below. Charging a read against
+    // the action scope pinned actions at the hard cap while the soft throttle -
+    // which counts scope-specific - never saw the pressure and never delayed.
+    if (!reqBudgetOk(write ? 'action' : 'read')) return 'budget';
     return null;
   }
   function txRun(feature, transport, endpoint, data, rawSend, onDone) {
@@ -580,7 +586,7 @@
       }
     }
     if (!write) {
-      reqBudgetMark('action');
+      reqBudgetMark('read');
       return rawSend((err, result) => {
         if (!gbInstanceAlive()) return;
         if (!err) { markModuleHealth(feature, 'ok'); circuitSuccess(feature); }
@@ -625,7 +631,11 @@
         }
         if (r === 'unchanged') {
           existing.state = 'failed'; existing.updatedAt = Date.now(); existing.detail = 'reconciled not applied; retry allowed'; plannerRelease(existing, 'reconciled-unchanged'); txSave();
-          return txRun(feature, transport, endpoint, data, rawSend, onDone);
+          // Deferred, not a synchronous re-entry: the immediate retry ran inside
+          // the same tick and re-charged a tx record, a journal row and a budget
+          // slot before any gate could see the pressure. Same shape as the soft
+          // ceiling delay above.
+          return gbTimeout(() => txRun(feature, transport, endpoint, data, rawSend, onDone), 250);
         }
         existing.state = 'unknown'; existing.unknownAt = existing.unknownAt || Date.now(); existing.updatedAt = Date.now(); txSave();
         return bail('timeout_unknown', 'unknown outcome still unresolved');

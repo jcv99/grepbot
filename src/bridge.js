@@ -3,11 +3,45 @@
   // server-side rejection. The XHR spy claims the matching watcher on loadend
   // and settles the post from the raw response.
   const GB_AJAX_WATCH_MS = 8000;
+  const GB_AJAX_PENDING_MAX = 24;
   const gbAjaxPending = [];
-  function gbAjaxWatch(sig, settle) {
-    const entry = { sig, at: Date.now(), settle };
+  // Stable, order-independent stringify. The watcher side has the outgoing
+  // payload OBJECT and the claim side has the serialized request BODY; both must
+  // hash to the same string, so key order is normalized and every scalar is
+  // compared as text (form encoding loses the number/string distinction).
+  function gbAjaxFpNorm(v, depth) {
+    if (v == null) return 'null';
+    if (typeof v !== 'object') return JSON.stringify(String(v));
+    if (depth > 4) return '"..."';
+    if (Array.isArray(v)) return '[' + v.map(x => gbAjaxFpNorm(x, depth + 1)).join(',') + ']';
+    return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + gbAjaxFpNorm(v[k], depth + 1)).join(',') + '}';
+  }
+  function gbAjaxFp(payload) {
+    try { return gbAjaxFpNorm(payload, 0); } catch (_) { return ''; }
+  }
+  function gbAjaxBridgeFp(p) {
+    return gbAjaxFp({
+      model_url: (p && p.model_url) || '',
+      action_name: (p && p.action_name) || '',
+      arguments: (p && p.arguments) || {},
+      town_id: (p && p.town_id) != null ? p.town_id : null,
+    });
+  }
+  function gbAjaxWatch(sig, fp, settle) {
+    const entry = { sig, fp: fp || '', at: Date.now(), settle };
     gbAjaxPending.push(entry);
-    while (gbAjaxPending.length > 24) gbAjaxPending.shift();
+    // Expire before evicting: a burst of 25 posts inside 8s used to drop the
+    // OLDEST live watchers silently, and those posts then had no raw-response
+    // settle left and hung the full BRIDGE_TIMEOUT_MS on any rejection.
+    const now = Date.now();
+    for (let i = gbAjaxPending.length - 2; i >= 0; i--) {
+      if (now - gbAjaxPending[i].at > GB_AJAX_WATCH_MS) gbAjaxPending.splice(i, 1);
+    }
+    while (gbAjaxPending.length > GB_AJAX_PENDING_MAX) {
+      const lost = gbAjaxPending.shift();
+      gbLogT('ajax-watch-overflow', 60000,
+        `ajax watch: pending list full (${GB_AJAX_PENDING_MAX}) - dropped watcher ${lost && lost.sig}; that post can only settle on timeout`);
+    }
     return entry;
   }
   // A watcher whose post already settled (gpAjax callback won the race) MUST be
@@ -22,18 +56,37 @@
   }
   function gbAjaxSigs(url, body) {
     const u = String(url || '');
-    const out = [];
-    if (/frontend_bridge/.test(u) && typeof body === 'string') {
-      let j = null;
-      try { j = parseBodyLoose(body); } catch (_) {}
-      if (j && j.model_url) out.push('bridge:' + j.model_url + '|' + String(j.action_name || ''));
+    const out = { sigs: [], fp: '' };
+    let j = null;
+    if (typeof body === 'string') { try { j = parseBodyLoose(body); } catch (_) {} }
+    if (/frontend_bridge/.test(u)) {
+      if (j && j.model_url) {
+        out.sigs.push('bridge:' + j.model_url + '|' + String(j.action_name || ''));
+        out.fp = gbAjaxBridgeFp(j);
+      }
       return out;
     }
     const ctrl = (u.match(/[?&]controller=([a-z_0-9]+)/i) || u.match(/\/game\/([a-z_0-9]+)/i) || [])[1] || '';
     const act = (u.match(/[?&]action=([a-z_0-9]+)/i) || [])[1] || '';
-    if (ctrl && act) out.push('ajax:' + ctrl + '/' + act);
+    if (ctrl && act) {
+      out.sigs.push('ajax:' + ctrl + '/' + act);
+      // parseBodyLoose only unwraps `json` for bridge-shaped payloads, so peel
+      // it here to line the body up with the `data` object the watcher holds.
+      let payload = j;
+      if (payload && payload.json != null) {
+        let inner = payload.json;
+        if (typeof inner === 'string') { try { inner = JSON.parse(inner); } catch (_) { inner = null; } }
+        if (inner && typeof inner === 'object') payload = inner;
+      }
+      if (payload) out.fp = gbAjaxFp(payload);
+    }
     return out;
   }
+  // Two concurrent posts can share a signature (same model_url|action_name for
+  // two towns), and a signature-only match pairs the response with whichever
+  // watcher happens to be first — settling post A from post B's response. The
+  // request FINGERPRINT is the only 1:1 key, so it wins; signature order is the
+  // fallback for a body we could not parse.
   function gbAjaxClaim(url, body) {
     if (!gbAjaxPending.length) return null;
     const now = Date.now();
@@ -41,8 +94,14 @@
       if (now - gbAjaxPending[i].at > GB_AJAX_WATCH_MS) gbAjaxPending.splice(i, 1);
     }
     if (!gbAjaxPending.length) return null;
-    const sigs = gbAjaxSigs(url, body);
+    const { sigs, fp } = gbAjaxSigs(url, body);
     if (!sigs.length) return null;
+    if (fp) {
+      for (let i = 0; i < gbAjaxPending.length; i++) {
+        const e = gbAjaxPending[i];
+        if (e.fp === fp && sigs.indexOf(e.sig) >= 0) return gbAjaxPending.splice(i, 1)[0].settle;
+      }
+    }
     for (let i = 0; i < gbAjaxPending.length; i++) {
       if (sigs.indexOf(gbAjaxPending[i].sig) >= 0) return gbAjaxPending.splice(i, 1)[0].settle;
     }
@@ -130,6 +189,7 @@
     // settles this post from the raw response; whichever fires first wins.
     watchEntry = gbAjaxWatch(
       'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
+      gbAjaxBridgeFp(payload),
       (status, raw) => {
         if (settled) return;
         if (!status) return finish('neterr');
@@ -158,7 +218,12 @@
       gbAjaxDrop(watchEntry);
       done(err, res);
     };
-    const timer = gbTimeout(() => finish('timeout'), BRIDGE_TIMEOUT_MS);
+    // Same log as bridgeRaw: an ajax timeout used to be completely silent, so a
+    // dead controller/action looked like "nothing happened" in the Log tab.
+    const timer = gbTimeout(() => {
+      gbLogT('ajax-timeout-' + feature, 30000, `${feature}: ajax timeout ${BRIDGE_TIMEOUT_MS}ms (${controller}/${action})`);
+      finish('timeout');
+    }, BRIDGE_TIMEOUT_MS);
     const classify = (res) => {
       if (!gbInstanceAlive()) return;
       try {
@@ -173,7 +238,7 @@
         finish(null, res);
       } catch (e) { finish(String(e)); }
     };
-    watchEntry = gbAjaxWatch('ajax:' + controller + '/' + action, (status, raw) => {
+    watchEntry = gbAjaxWatch('ajax:' + controller + '/' + action, gbAjaxFp(data), (status, raw) => {
       if (settled) return;
       if (!status) return finish('neterr');
       if (status < 200 || status >= 300) {

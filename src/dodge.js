@@ -423,7 +423,9 @@
       entry.nextAt = Date.now() + 2000;
       return;
     }
-    const safe = dodgeSafeTown(mov.dest);
+    // Reuse the list read at :416 instead of re-walking MovementsUnits: two reads
+    // one tick apart can also disagree about which towns are threatened.
+    const safe = dodgeSafeTown(mov.dest, incomingNow);
     const units = dodgeTownUnits(mov.dest);
     const valid = dodgeSupportValidate(mov.dest, safe, units);
     if (!valid.ok) {

@@ -97,8 +97,16 @@
     } catch (_) {}
     return String(id || '?');
   }
+  // null = hull UNKNOWN. Returning false on an unreadable def dropped a trireme
+  // into the barracks tab and contradicted nativeRecruitLaneOf, which treats an
+  // unreadable def as "not land". Unclassified orders are counted separately by
+  // the renderer instead of being quietly filed under the wrong lane.
   function queueCenterUnitIsNaval(unit) {
-    try { const d = gbGameDataLookup("units", unit) || {}; return !!(d.is_naval || d.naval); } catch (_) { return false; }
+    try {
+      const d = gbGameDataLookup("units", unit);
+      if (!d) return null;
+      return !!(d.is_naval || d.naval);
+    } catch (_) { return null; }
   }
   function queueCenterUnitId(model) {
     const a = (model && model.attributes) || model || {};
@@ -438,7 +446,9 @@
     const label = wantNaval ? 'Puerto' : 'Cuartel';
     const lane = wantNaval ? 'recruitNaval' : 'recruit';
     const q = recruitQueueInfo(townId);
-    const liveModels = (q.models || []).filter(m => queueCenterUnitIsNaval(queueCenterUnitId(m)) === wantNaval);
+    const allModels = q.models || [];
+    const liveModels = allModels.filter(m => queueCenterUnitIsNaval(queueCenterUnitId(m)) === wantNaval);
+    const unclassified = allModels.filter(m => queueCenterUnitIsNaval(queueCenterUnitId(m)) == null);
     const live = queueCenterCard(`Cola real · ${label}`, q.known ? `${liveModels.length}${q.max != null ? ' / ' + q.max : ''}` : 'estado no legible');
     body.appendChild(live.box);
     if (liveModels.length) {
@@ -452,6 +462,11 @@
         ));
       });
     } else live.box.appendChild(queueCenterEmpty(q.known ? `Sin órdenes en ${label.toLowerCase()}` : 'No se puede leer la cola real'));
+    // Shown in BOTH tabs on purpose: the hull is unknown, so claiming it belongs
+    // to this one would be the same guess the filter above no longer makes.
+    if (unclassified.length) {
+      live.box.appendChild(queueCenterEmpty(`${unclassified.length} orden(es) con tipo de unidad no legible — sin clasificar`));
+    }
 
     const list = nativeQueueList(townId, lane, false);
     const fifo = nativeQueueIsFifo(townId, lane), paused = nativeQueuePaused(townId, lane);
@@ -488,8 +503,12 @@
   // and every virtual job in the town's four lanes. gbPaint patches while this
   // holds and rebuilds when it moves, so an ↑/↓/× button can never act on a job
   // that has since shifted position or left the queue.
+  const QC_TAB_LANES = { build: ['build'], research: ['research'], barracks: ['recruit'], docks: ['recruitNaval'] };
   function queueCenterKey(townId) {
-    const lanes = ['build', 'research', 'recruit', 'recruitNaval'];
+    // Only the lane(s) the visible tab actually renders. Keying on all four made
+    // an unrelated lane's job id churn (an auto-queue sweep in another lane)
+    // rebuild the whole body, throwing away scroll position and :hover.
+    const lanes = QC_TAB_LANES[gbQueueCenterTab] || ['build', 'research', 'recruit', 'recruitNaval'];
     let k = gbQueueCenterTab + '|' + townId;
     for (const lane of lanes) {
       k += '|' + lane + ':';

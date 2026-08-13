@@ -436,7 +436,13 @@ def check_duplicate_decls(parts):
             m = DECL_RE.match(line)
             if not m:
                 continue
-            ident = m.group(1) or m.group(2) or m.group(3)
+            # Groups 4-6 are the `export` alternatives; reading only 1-3 made
+            # every ESM export collapse to ident=None, and two of them in
+            # different modules then reported a bogus duplicate named "None".
+            # The bare `import ... from '...'` alternative captures nothing.
+            ident = next((g for g in m.groups() if g), None)
+            if ident is None:
+                continue
             if ident in seen and seen[ident] != name:
                 dupes.append((ident, seen[ident], name))
             else:

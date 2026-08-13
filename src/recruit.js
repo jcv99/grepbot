@@ -385,14 +385,18 @@
       const head = nativeQueueList(job.townId, job.nativeLane, false)[0];
       if (!head || head.id !== job.nativeJobId) { gbUnlock('recruit', lockToken); return; }
       head.manualReview=false;
-      head.inflight = { amount:job.amount, at:Date.now() };
+      // queuedBefore is the baseline nativeQueueReconcileRecruit compares the
+      // live unit queue against; token makes the apply idempotent across the
+      // callback and the reconciler.
+      job.nativeToken = nativeQueueId('f');
+      head.inflight = { amount:job.amount, at:Date.now(), unit:job.unit, queuedBefore:recruitQueuedAmount(job.townId, job.unit), token:job.nativeToken };
       nativeQueueSave();
     }
     recruitBuild(job.townId, job.unit, job.amount, (err) => {
       gbUnlock('recruit', lockToken);
       if (!err) {
         gbLog(`recruit: town ${job.townId} ${job.amount}× ${job.unit}`);
-        if (job.nativeJobId) nativeQueueRecruitApplied(job.townId, job.nativeLane, job.nativeJobId, job.amount);
+        if (job.nativeJobId) nativeQueueRecruitApplied(job.townId, job.nativeLane, job.nativeJobId, job.amount, job.nativeToken);
       } else {
         if (job.nativeJobId) {
           const head = nativeQueueList(job.townId, job.nativeLane, false)[0];

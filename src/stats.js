@@ -236,7 +236,7 @@
       const ids = (townsFromGame() || []).map(t => t.id);
       const info = ids.length ? researchTownTechs(ids[0]) : null;
       const n = info && info.techs ? Object.keys(info.techs).length : 0;
-      return { ok: !!info && info.academy >= 0 && n >= 0, warn: !n, detail: info ? `${n} researched-tech flags, academy ${info.academy}` : 'academy techs unreadable' };
+      return { ok: !!info && info.academy != null && info.academy >= 0 && n >= 0, warn: !n, detail: info ? `${n} researched-tech flags, academy ${info.academy == null ? 'UNREADABLE' : info.academy}` : 'academy techs unreadable' };
     }));
     // The academy read path is the one that silently produced "nothing ever
     // posts": every gate was blocked on a value that could not be read. Name the
@@ -252,7 +252,8 @@
       try { defs = Object.keys((gameUw().GameData && gameUw().GameData.researches) || {}).length; } catch (_) {}
       if (defs) parts.push(`GameData.researches ${defs}`);
       else { parts.push('GameData.researches UNREADABLE'); bad++; }
-      parts.push(`academy ${info.academy}`);
+      if (info.academy == null) { parts.push('academy UNREADABLE'); bad++; }
+      else parts.push(`academy ${info.academy}`);
       parts.push(info.library == null ? 'library UNREADABLE' : `library ${info.library}`);
       if (info.library == null) bad++;
       parts.push(info.ordersKnown ? `real queue ${info.orders.length}/${researchQueueMax()}` : 'real queue UNREADABLE (open that town once)');

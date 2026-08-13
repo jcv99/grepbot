@@ -103,6 +103,22 @@
         gbUnlock('merchant', merchantLock);
         return;
       }
+      // A buy is irreversible, and an error STRING is not proof the post did not
+      // land — the same reasoning the timeout branch above follows. Reconcile
+      // against the gold balance before spending a second time; unreadable gold
+      // means unknown, so no fallback.
+      const goldNow = gbPlayerGold();
+      const spent = (freshGold != null && goldNow != null) ? freshGold - goldNow : null;
+      if (spent == null) {
+        gbLogT('merchant-noreconcile', 60000, `merchant: ${err} but gold unreadable - no ajax fallback`);
+        gbUnlock('merchant', merchantLock);
+        return;
+      }
+      if (spent >= livePrice) {
+        gbLog(`merchant: ${err} but gold fell ${spent} (price ${livePrice}) - purchase landed, no fallback`);
+        gbUnlock('merchant', merchantLock);
+        return;
+      }
       gameAjaxPost('merchant', 'phoenician_salesman', 'buy', {
         offer_id: oid,
         town_id: +job.townId,

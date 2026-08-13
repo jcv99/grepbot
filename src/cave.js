@@ -84,6 +84,12 @@
         if (Number.isFinite(unlimitedLevel) && unlimitedLevel > 0 && hideLvl === unlimitedLevel) unlimited = true;
       }
     } catch (_) {}
+    // -1 is the client's UNLIMITED sentinel, not a capacity. Promoting it only
+    // inside the level-10 branch left every other path treating -1 as finite, so
+    // `stored >= hideCap` was true for any stored value and the town was skipped
+    // as "hide full".
+    if (hideCap != null && hideCap < 0) { unlimited = true; hideCap = null; }
+    if (stored != null && stored < 0) stored = null;
     const levelCapacity = caveCapacityFromLevel(hideLvl);
     if (levelCapacity.unlimited) unlimited = true;
     else if (hideCap == null) hideCap = levelCapacity.capacity;
@@ -121,7 +127,15 @@
     try { const av = plannerAvailable(info.town && (info.town.id || (info.town.attributes && info.town.attributes.id))); if (av && Number.isFinite(av.iron)) excess = Math.min(excess, Math.floor(av.iron)); } catch (_) {}
     if (excess < CAVE_MIN_STORE) return 0;
 
-    if (!info.unlimited && (info.hideCap == null || info.stored == null)) return 0;
+    if (!info.unlimited && (info.hideCap == null || info.stored == null)) {
+      // Deliberate: no blind stash. But it used to be a silent `return 0`, so a
+      // renamed capacity/stored getter switched auto-cave off with nothing in
+      // the Log to say why.
+      const tid = (info.town && (info.town.id || (info.town.attributes && info.town.attributes.id))) || '?';
+      const what = [info.hideCap == null ? 'capacidad' : null, info.stored == null ? 'almacenado' : null].filter(Boolean).join('+');
+      gbLogT('cave-unreadable-' + tid, 300000, `cave: town ${tid} hide ${what} unreadable - skipping (no blind stash)`);
+      return 0;
+    }
     if (!info.unlimited && info.hideCap != null && info.hideCap > 0 && info.stored != null) {
       const free = Math.floor(info.hideCap - info.stored);
       if (free <= 0) return 0;

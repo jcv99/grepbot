@@ -789,7 +789,11 @@
     } else {
       const wanted = rows.map(r => String(r.townId));
       const have = Array.from(table.querySelectorAll('div[data-town]')).map(d => d.dataset.town);
-      const sameSet = !table.dataset.empty && have.length === wanted.length && have.every((k, i) => k === wanted[i]);
+      // Membership, not order — the v1.4.0 keyed-row rule. Comparing positions
+      // means the first column-sort handler added to this table would wipe the
+      // rows (and the user's sort) on every repaint.
+      const wantedSet = new Set(wanted);
+      const sameSet = !table.dataset.empty && have.length === wanted.length && have.every(k => wantedSet.has(k));
       if (!sameSet) {
         table.replaceChildren();
         delete table.dataset.empty;

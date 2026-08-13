@@ -269,23 +269,39 @@
   if (!state.txState || typeof state.txState !== 'object' || Array.isArray(state.txState)) state.txState = {};
   (function txLoadNormalize() {
     const now = Date.now();
+    // Two passes on purpose. One pass could take an entry sending -> unknown ->
+    // manual-review in a single go (an entry carrying an old unknownAt from an
+    // earlier episode skips the whole 6h ambiguity window), which turns a plain
+    // reload into a tombstone nobody can clear except by hand.
+    const justUnknown = new Set();
     for (const key of Object.keys(state.txState)) {
       const t = state.txState[key];
       if (!t || typeof t !== 'object') { delete state.txState[key]; continue; }
       if (t.state === 'sending' || t.state === 'confirming' || t.state === 'reconciling') {
         t.state = 'unknown';
-        t.unknownAt = t.unknownAt || now;
+        t.unknownAt = now;
         t.detail = 'reloaded while in-flight';
+        justUnknown.add(key);
       }
+    }
+    for (const key of Object.keys(state.txState)) {
+      const t = state.txState[key];
+      if (!t) continue;
       const terminal = /^(committed|failed|aborted|dryrun)$/.test(t.state || '');
       const terminalTtl=t.state==='committed'&&t.snapshot&&t.snapshot.kind==='instant'?TX_INSTANT_TOMBSTONE_TTL:TX_TERMINAL_TTL;
-      if (terminal && now - (+t.updatedAt || +t.createdAt || 0) > terminalTtl) delete state.txState[key];
+      if (terminal && now - (+t.updatedAt || +t.createdAt || 0) > terminalTtl) { delete state.txState[key]; continue; }
+      if (justUnknown.has(key)) continue;
       if (t.state === 'unknown' && now - (+t.unknownAt || +t.updatedAt || 0) > TX_UNKNOWN_MAX_MS) {
         // Never silently retry an ancient ambiguous write. Keep a blocking
-        // tombstone until the user explicitly clears it.
+        // tombstone until the user explicitly clears it — but DO drop the
+        // planner reservation: plannerReservationActive() already reports
+        // manual-review as inactive, so leaving reservation.state held made the
+        // budget and the reservation ledger disagree for as long as the
+        // tombstone lived.
         t.state = 'manual-review';
         t.detail = 'unknown outcome expired; manual review required';
         t.updatedAt = now;
+        plannerRelease(t, 'manual-review');
       }
     }
     save(STORE.TX_STATE, state.txState);
