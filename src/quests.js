@@ -522,8 +522,10 @@
     bindQuestObserver._t = null;
   }
   try {
-    const _uw = (typeof unsafeWindow !== 'undefined' && unsafeWindow) ? unsafeWindow : window;
-    _uw.__grepbotQuestDispose = questDispose;
+    // GB_ROOT, not a private unsafeWindow copy: __grepbotDispose reads the hook
+    // off GB_ROOT, so a second resolution of the same expression is one more
+    // place for the two to disagree (Firefox's wrappedJSObject fallback).
+    GB_ROOT.__grepbotQuestDispose = questDispose;
   } catch (_) {}
   function renderQuests() {
     const sec = panel && panel.querySelector('section[data-tab=quests]');

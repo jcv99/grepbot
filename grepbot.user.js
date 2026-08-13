@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.49.0
+// @version      4.50.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -299,6 +299,7 @@ const STORE = {
   const gbListenerBag = [];
   const gbXhrBag = [];
   const gbMenuCmds = [];
+  const gbStyleBag = [];
   const gbHookOrig = { fetch: null, xhrOpen: null, xhrSend: null, pushState: null, replaceState: null };
   let gbDomObserver = null;
 
@@ -458,12 +459,48 @@ const STORE = {
     }
   }
 
+  function gbAddStyle(name, css) {
+    try {
+      document.querySelectorAll('style[data-grepbot-style="' + name + '"]').forEach(el => el.remove());
+    } catch (_) {}
+
+    let before = null;
+    try { before = new Set(document.querySelectorAll('style')); } catch (_) {}
+    let el = null;
+    try { el = GM_addStyle(css); } catch (_) { return null; }
+    if (!el || typeof el.setAttribute !== 'function') {
+      el = null;
+      try {
+        for (const s of document.querySelectorAll('style')) {
+          if (!before || !before.has(s)) { el = s; break; }
+        }
+      } catch (_) {}
+    }
+    try {
+      if (el && typeof el.setAttribute === 'function') {
+        el.setAttribute('data-grepbot-style', name);
+        gbStyleBag.push(el);
+      }
+    } catch (_) {}
+    return el;
+  }
+  function gbRemoveStyles() {
+    for (const el of gbStyleBag.slice()) {
+      try { el.remove(); } catch (_) {}
+    }
+    gbStyleBag.length = 0;
+
+    try { document.querySelectorAll('style[data-grepbot-style]').forEach(el => el.remove()); } catch (_) {}
+  }
+
   GB_ROOT.__grepbotDispose = function grepbotDispose() {
     if (gbDisposed) return;
     gbDisposed = true;
     if(gbTabLockRelease){try{gbTabLockRelease()}catch(_){}gbTabLockRelease=null}gbTabLeader=false;
     try { if (typeof txDispose === 'function') txDispose(); } catch (_) {}
     try { if (typeof jrnFlush === 'function') jrnFlush(); } catch (_) {}
+
+    try { if (typeof gbAjaxDispose === 'function') gbAjaxDispose(); } catch (_) {}
     gbClearTimers();
     gbAbortXhrs();
     gbRestoreHooks();
@@ -488,6 +525,7 @@ const STORE = {
     try { contextMenuStop(); } catch (_) {}
     try { document.querySelectorAll('.gb-widget').forEach(el => el.remove()); } catch (_) {}
     try { document.querySelectorAll('.gb-native-qctl,.gb-native-panel').forEach(el=>el.remove()); } catch (_) {}
+    gbRemoveStyles();
     if (GB_ROOT.__grepbotInstanceId === GB_INSTANCE_ID) {
       try { delete GB_ROOT.__grepbotInstanceId; } catch (_) { GB_ROOT.__grepbotInstanceId = null; }
     }
@@ -2979,6 +3017,10 @@ const STORE = {
     if (!entry) return;
     const i = gbAjaxPending.indexOf(entry);
     if (i >= 0) gbAjaxPending.splice(i, 1);
+  }
+
+  function gbAjaxDispose() {
+    gbAjaxPending.length = 0;
   }
   function gbAjaxSigs(url, body) {
     const u = String(url || '');
@@ -8035,7 +8077,7 @@ const STORE = {
     list.shift();nativeQueueSave();
   }
 
-  GM_addStyle(`
+  gbAddStyle('native-ui', `
     /* The senate tile stacks absolutely-positioned overlays (building caption,
        level badge, hover hitbox) on top of its content. A statically-positioned
        control paints UNDER all of them, so the caption text swallowed the click
@@ -16572,8 +16614,8 @@ const STORE = {
     bindQuestObserver._t = null;
   }
   try {
-    const _uw = (typeof unsafeWindow !== 'undefined' && unsafeWindow) ? unsafeWindow : window;
-    _uw.__grepbotQuestDispose = questDispose;
+
+    GB_ROOT.__grepbotQuestDispose = questDispose;
   } catch (_) {}
   function renderQuests() {
     const sec = panel && panel.querySelector('section[data-tab=quests]');
@@ -17427,6 +17469,7 @@ const STORE = {
         delete table.dataset.empty;
         const hdr = document.createElement('div');
         hdr.style.cssText = 'display:grid;grid-template-columns:1.2fr .7fr .9fr .7fr .8fr;gap:4px;color:#888;font-size:9px;margin-bottom:2px';
+
         hdr.innerHTML = '<span>town</span><span>travel</span><span>sendAt</span><span>boats</span><span>status</span>';
         table.appendChild(hdr);
       }
@@ -20182,7 +20225,7 @@ const STORE = {
 
   if (!state._gbQcCssInjected) {
     state._gbQcCssInjected = true;
-    GM_addStyle(`
+    gbAddStyle('queue-center', `
     #grepbot-queue-center{position:fixed;top:90px;left:90px;width:760px;height:560px;min-width:520px;min-height:320px;max-width:94vw;max-height:88vh;z-index:2147483646;background:var(--gb-bg-deep);color:var(--gb-fg);border:1px solid #4a505b;border-radius:10px;box-shadow:0 10px 32px rgba(0,0,0,.6);display:flex;flex-direction:column;resize:both;overflow:hidden;font:12px/1.35 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
     #grepbot-queue-center header{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#24272e;border-bottom:1px solid #3d424c;cursor:move;flex-shrink:0}
     #grepbot-queue-center header b{color:var(--gb-accent);font-size:13px}#grepbot-queue-center .gb-qc-spacer{flex:1}
@@ -20699,6 +20742,7 @@ const STORE = {
     if (!gbQueueCenter) {
       const w = document.createElement('div');
       w.id = 'grepbot-queue-center';
+
       w.innerHTML = `<header><b>Colas GrepBot</b><select class="gb-qc-town" title="Ciudad que est\u00e1s gestionando"></select><span class="gb-qc-spacer"></span><button class="gb-qc-refresh" title="Actualizar">\u21bb</button><button class="gb-qc-close" title="Cerrar">\u00d7</button></header><nav><button class="gb-qc-tab" data-qtab="build">Construcci\u00f3n</button><button class="gb-qc-tab" data-qtab="research">Investigaci\u00f3n</button><button class="gb-qc-tab" data-qtab="barracks">Cuartel</button><button class="gb-qc-tab" data-qtab="docks">Puerto</button></nav><div class="gb-qc-body"></div>`;
       document.body.appendChild(w);
       try { applyTheme(); } catch (_) {}
@@ -21179,71 +21223,19 @@ const STORE = {
     if (tabId === 'stats') renderStats();
   }
 
-  GM_addStyle(`
+  gbAddStyle('panel', `
     /* ===== Theme system (v4 plan 6.1) =======================================
        Every recurring palette literal in this stylesheet is a custom property.
        The DEFAULT rule carries today's exact dark values, so an install that
        never touches the setting looks identical and no migration is needed.
-       .gb-theme-light re-points the same names; .gb-theme-dark exists as an
-       explicit anchor for the system resolver. Nothing outside #grepbot-panel
+       .gb-theme-light re-points the same names. There is deliberately NO
+       .gb-theme-dark rule: it used to be a byte-identical copy of the default
+       block (54 duplicated declarations parsed on every install) and applyTheme
+       only ever ADDS a class, so the default already covers both the class-less
+       host and the resolved-dark one. Nothing outside #grepbot-panel
        and #grepbot-queue-center is scoped, so the game's own DOM is untouched.
        ===================================================================== */
     #grepbot-panel, #grepbot-queue-center, .gb-widget {
-      --gb-bg:#181a1f;
-      --gb-bg-deep:#17191e;
-      --gb-bg-alt:#22252b;
-      --gb-bg-alt2:#202329;
-      --gb-bg-alt3:#22262d;
-      --gb-bg-alt4:#292d35;
-      --gb-bg-raise:#2b3038;
-      --gb-bg-row:#262626;
-      --gb-rule:#2a2a2a;
-      --gb-input-bg:#111;
-      --gb-chrome:#333;
-      --gb-chrome-2:#444;
-      --gb-chrome-3:#555;
-      --gb-border:#414650;
-      --gb-border-soft:#353a44;
-      --gb-border-soft2:#353b45;
-      --gb-border-hard:#59616f;
-      --gb-fg:#eef1f5;
-      --gb-fg-2:#eee;
-      --gb-fg-hi:#fff;
-      --gb-fg-soft:#cbd1da;
-      --gb-fg-soft2:#aeb5c0;
-      --gb-fg-soft3:#ccc;
-      --gb-fg-mute:#aaa;
-      --gb-fg-mute2:#888;
-      --gb-fg-mute3:#777;
-      --gb-fg-mute4:#666;
-      --gb-fg-dim:#8f98a5;
-      --gb-fg-dim2:#9fa7b3;
-      --gb-accent:#f5a623;
-      --gb-accent-2:#f0c060;
-      --gb-accent-3:#c98b22;
-      --gb-link:#6cf;
-      --gb-input-fg:#cfc;
-      --gb-ok:#8fe0a8;
-      --gb-ok-2:#9d9;
-      --gb-ok-3:#6dda7e;
-      --gb-ok-4:#80e090;
-      --gb-ok-5:#4caf50;
-      --gb-ok-border:#3c7350;
-      --gb-ok-bg:#1c3023;
-      --gb-warn:#ffd27a;
-      --gb-warn-2:#fc6;
-      --gb-warn-3:#f96;
-      --gb-warn-bg:#3a321f;
-      --gb-warn-bg2:#382e1c;
-      --gb-warn-border:#8a6725;
-      --gb-err:#ff9aa3;
-      --gb-err-2:#f55;
-      --gb-err-3:#f66;
-      --gb-err-4:#faa;
-      --gb-err-bg:#381f23;
-      --gb-err-border:#8a3b42;
-    }
-    #grepbot-panel.gb-theme-dark, #grepbot-queue-center.gb-theme-dark, .gb-widget.gb-theme-dark {
       --gb-bg:#181a1f;
       --gb-bg-deep:#17191e;
       --gb-bg-alt:#22252b;
@@ -21510,6 +21502,7 @@ const STORE = {
   function gbSection(title, body, open) {
     return `<details class="gb-section"${open ? ' open' : ''}><summary>${title}</summary><div class="gb-section-body">${body}</div></details>`;
   }
+
   panel.innerHTML = `
     <header><div class="gb-head-main"><b>GrepBot v${runningVersion()}</b><div class="gb-head-status"><span id="gb-head-mode" class="gb-pill">...</span><span id="gb-head-health" class="gb-pill">...</span></div></div><div style="display:flex;gap:4px"><button data-act="queues" title="Abrir centro de colas">Colas</button><button data-act="toggle" title="Minimizar">_</button></div></header>
     <div class="gb-qat" role="toolbar" aria-label="GrepBot acciones rapidas">
@@ -23377,6 +23370,7 @@ const STORE = {
     const filt = document.createElement('div');
     filt.className = 'findings-filter';
     filt.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap';
+
     filt.innerHTML = '<input class="gb-cfg-input" data-f="type" placeholder="type filter" style="flex:1;min-width:60px;;padding:2px 4px;font:11px monospace"/><input class="gb-cfg-input" data-f="attacker" placeholder="attacker filter" style="flex:1;min-width:60px;;padding:2px 4px;font:11px monospace"/>';
     filt.querySelectorAll('input').forEach(inp => {
       inp.value = state.findingsFilter[inp.dataset.f] || '';

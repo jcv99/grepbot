@@ -17,6 +17,7 @@
   const gbListenerBag = [];
   const gbXhrBag = [];
   const gbMenuCmds = [];
+  const gbStyleBag = [];
   const gbHookOrig = { fetch: null, xhrOpen: null, xhrSend: null, pushState: null, replaceState: null };
   let gbDomObserver = null;
 
@@ -202,6 +203,49 @@
       try { GM_registerMenuCommand(label, () => { if (gbInstanceAlive()) fn(); }); } catch (__) {}
     }
   }
+  // GM_addStyle appends a <style> that NOTHING removes - not the panel teardown,
+  // not the engine. A hot reload (TM editor save, devtools re-inject) therefore
+  // left the previous instance's sheet in <head> and injected a second full copy
+  // of it, so every selector existed twice and the older copy still won wherever
+  // the two disagreed. Tag each sheet, drop any same-named sheet a previous
+  // instance left behind, and tear ours down on dispose.
+  function gbAddStyle(name, css) {
+    try {
+      document.querySelectorAll('style[data-grepbot-style="' + name + '"]').forEach(el => el.remove());
+    } catch (_) {}
+    // Tampermonkey and Violentmonkey return the <style> node, but that return is
+    // not in any GM spec and an engine is free to return nothing (the smoke stub
+    // does). Snapshot the document's <style> nodes and diff, so the tag lands on
+    // every engine instead of only the two that happen to return the element.
+    let before = null;
+    try { before = new Set(document.querySelectorAll('style')); } catch (_) {}
+    let el = null;
+    try { el = GM_addStyle(css); } catch (_) { return null; }
+    if (!el || typeof el.setAttribute !== 'function') {
+      el = null;
+      try {
+        for (const s of document.querySelectorAll('style')) {
+          if (!before || !before.has(s)) { el = s; break; }
+        }
+      } catch (_) {}
+    }
+    try {
+      if (el && typeof el.setAttribute === 'function') {
+        el.setAttribute('data-grepbot-style', name);
+        gbStyleBag.push(el);
+      }
+    } catch (_) {}
+    return el;
+  }
+  function gbRemoveStyles() {
+    for (const el of gbStyleBag.slice()) {
+      try { el.remove(); } catch (_) {}
+    }
+    gbStyleBag.length = 0;
+    // Belt and braces: an engine whose GM_addStyle returns nothing never made it
+    // into the bag, so sweep by attribute too.
+    try { document.querySelectorAll('style[data-grepbot-style]').forEach(el => el.remove()); } catch (_) {}
+  }
 
   GB_ROOT.__grepbotDispose = function grepbotDispose() {
     if (gbDisposed) return;
@@ -209,6 +253,10 @@
     if(gbTabLockRelease){try{gbTabLockRelease()}catch(_){}gbTabLockRelease=null}gbTabLeader=false;
     try { if (typeof txDispose === 'function') txDispose(); } catch (_) {}
     try { if (typeof jrnFlush === 'function') jrnFlush(); } catch (_) {}
+    // Pending gpAjax watchers outlive the instance otherwise: the XHR spy is
+    // restored below, but an entry already in the list keeps its settle closure
+    // (and its 8s TTL slot) alive against a dead instance.
+    try { if (typeof gbAjaxDispose === 'function') gbAjaxDispose(); } catch (_) {}
     gbClearTimers();
     gbAbortXhrs();
     gbRestoreHooks();
@@ -235,6 +283,7 @@
     try { contextMenuStop(); } catch (_) {}
     try { document.querySelectorAll('.gb-widget').forEach(el => el.remove()); } catch (_) {}
     try { document.querySelectorAll('.gb-native-qctl,.gb-native-panel').forEach(el=>el.remove()); } catch (_) {}
+    gbRemoveStyles();
     if (GB_ROOT.__grepbotInstanceId === GB_INSTANCE_ID) {
       try { delete GB_ROOT.__grepbotInstanceId; } catch (_) { GB_ROOT.__grepbotInstanceId = null; }
     }

@@ -465,71 +465,19 @@
     if (tabId === 'stats') renderStats();
   }
 
-  GM_addStyle(`
+  gbAddStyle('panel', `
     /* ===== Theme system (v4 plan 6.1) =======================================
        Every recurring palette literal in this stylesheet is a custom property.
        The DEFAULT rule carries today's exact dark values, so an install that
        never touches the setting looks identical and no migration is needed.
-       .gb-theme-light re-points the same names; .gb-theme-dark exists as an
-       explicit anchor for the system resolver. Nothing outside #grepbot-panel
+       .gb-theme-light re-points the same names. There is deliberately NO
+       .gb-theme-dark rule: it used to be a byte-identical copy of the default
+       block (54 duplicated declarations parsed on every install) and applyTheme
+       only ever ADDS a class, so the default already covers both the class-less
+       host and the resolved-dark one. Nothing outside #grepbot-panel
        and #grepbot-queue-center is scoped, so the game's own DOM is untouched.
        ===================================================================== */
     #grepbot-panel, #grepbot-queue-center, .gb-widget {
-      --gb-bg:#181a1f;
-      --gb-bg-deep:#17191e;
-      --gb-bg-alt:#22252b;
-      --gb-bg-alt2:#202329;
-      --gb-bg-alt3:#22262d;
-      --gb-bg-alt4:#292d35;
-      --gb-bg-raise:#2b3038;
-      --gb-bg-row:#262626;
-      --gb-rule:#2a2a2a;
-      --gb-input-bg:#111;
-      --gb-chrome:#333;
-      --gb-chrome-2:#444;
-      --gb-chrome-3:#555;
-      --gb-border:#414650;
-      --gb-border-soft:#353a44;
-      --gb-border-soft2:#353b45;
-      --gb-border-hard:#59616f;
-      --gb-fg:#eef1f5;
-      --gb-fg-2:#eee;
-      --gb-fg-hi:#fff;
-      --gb-fg-soft:#cbd1da;
-      --gb-fg-soft2:#aeb5c0;
-      --gb-fg-soft3:#ccc;
-      --gb-fg-mute:#aaa;
-      --gb-fg-mute2:#888;
-      --gb-fg-mute3:#777;
-      --gb-fg-mute4:#666;
-      --gb-fg-dim:#8f98a5;
-      --gb-fg-dim2:#9fa7b3;
-      --gb-accent:#f5a623;
-      --gb-accent-2:#f0c060;
-      --gb-accent-3:#c98b22;
-      --gb-link:#6cf;
-      --gb-input-fg:#cfc;
-      --gb-ok:#8fe0a8;
-      --gb-ok-2:#9d9;
-      --gb-ok-3:#6dda7e;
-      --gb-ok-4:#80e090;
-      --gb-ok-5:#4caf50;
-      --gb-ok-border:#3c7350;
-      --gb-ok-bg:#1c3023;
-      --gb-warn:#ffd27a;
-      --gb-warn-2:#fc6;
-      --gb-warn-3:#f96;
-      --gb-warn-bg:#3a321f;
-      --gb-warn-bg2:#382e1c;
-      --gb-warn-border:#8a6725;
-      --gb-err:#ff9aa3;
-      --gb-err-2:#f55;
-      --gb-err-3:#f66;
-      --gb-err-4:#faa;
-      --gb-err-bg:#381f23;
-      --gb-err-border:#8a3b42;
-    }
-    #grepbot-panel.gb-theme-dark, #grepbot-queue-center.gb-theme-dark, .gb-widget.gb-theme-dark {
       --gb-bg:#181a1f;
       --gb-bg-deep:#17191e;
       --gb-bg-alt:#22252b;
@@ -799,6 +747,12 @@
   function gbSection(title, body, open) {
     return `<details class="gb-section"${open ? ' open' : ''}><summary>${title}</summary><div class="gb-section-body">${body}</div></details>`;
   }
+  // LITERAL ONLY - no interpolation. The only `${}` allowed in this template are
+  // build-time constants (runningVersion()) and gbSection() calls whose bodies
+  // are themselves literal. Never interpolate a player name, town name, alliance
+  // name, report field or anything else that came off the wire: this is the one
+  // string in the panel big enough that an added `${x}` reads as harmless, and it
+  // would be the repo's first XSS sink. Wire data goes through textContent.
   panel.innerHTML = `
     <header><div class="gb-head-main"><b>GrepBot v${runningVersion()}</b><div class="gb-head-status"><span id="gb-head-mode" class="gb-pill">...</span><span id="gb-head-health" class="gb-pill">...</span></div></div><div style="display:flex;gap:4px"><button data-act="queues" title="Abrir centro de colas">Colas</button><button data-act="toggle" title="Minimizar">_</button></div></header>
     <div class="gb-qat" role="toolbar" aria-label="GrepBot acciones rapidas">
@@ -2703,6 +2657,8 @@
     const filt = document.createElement('div');
     filt.className = 'findings-filter';
     filt.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap';
+    // LITERAL ONLY - no interpolation (the filter VALUES are read back off these
+    // inputs; they are never written into this string).
     filt.innerHTML = '<input class="gb-cfg-input" data-f="type" placeholder="type filter" style="flex:1;min-width:60px;;padding:2px 4px;font:11px monospace"/><input class="gb-cfg-input" data-f="attacker" placeholder="attacker filter" style="flex:1;min-width:60px;;padding:2px 4px;font:11px monospace"/>';
     filt.querySelectorAll('input').forEach(inp => {
       inp.value = state.findingsFilter[inp.dataset.f] || '';

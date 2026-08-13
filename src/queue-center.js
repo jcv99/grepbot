@@ -45,10 +45,12 @@
     gbListenerBag.push({ target: document, type: 'mousemove', fn: onMove, opts: undefined }, { target: document, type: 'mouseup', fn: onUp, opts: undefined });
   }
   // QC styles live here (not in panel CSS) so they only parse once the user
-  // opens the window. Injected once per session.
+  // opens the window. The state flag guards re-entry inside one instance;
+  // gbAddStyle guards the cross-instance case (a hot reload starts with a fresh
+  // state object but the previous instance's <style> is still in <head>).
   if (!state._gbQcCssInjected) {
     state._gbQcCssInjected = true;
-    GM_addStyle(`
+    gbAddStyle('queue-center', `
     #grepbot-queue-center{position:fixed;top:90px;left:90px;width:760px;height:560px;min-width:520px;min-height:320px;max-width:94vw;max-height:88vh;z-index:2147483646;background:var(--gb-bg-deep);color:var(--gb-fg);border:1px solid #4a505b;border-radius:10px;box-shadow:0 10px 32px rgba(0,0,0,.6);display:flex;flex-direction:column;resize:both;overflow:hidden;font:12px/1.35 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
     #grepbot-queue-center header{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#24272e;border-bottom:1px solid #3d424c;cursor:move;flex-shrink:0}
     #grepbot-queue-center header b{color:var(--gb-accent);font-size:13px}#grepbot-queue-center .gb-qc-spacer{flex:1}
@@ -634,6 +636,9 @@
     if (!gbQueueCenter) {
       const w = document.createElement('div');
       w.id = 'grepbot-queue-center';
+      // LITERAL ONLY - no interpolation. The town <select> is populated with
+      // createElement + textContent (queueCenterSyncTowns); job names, town names
+      // and building names must never be spliced into this chrome string.
       w.innerHTML = `<header><b>Colas GrepBot</b><select class="gb-qc-town" title="Ciudad que estás gestionando"></select><span class="gb-qc-spacer"></span><button class="gb-qc-refresh" title="Actualizar">↻</button><button class="gb-qc-close" title="Cerrar">×</button></header><nav><button class="gb-qc-tab" data-qtab="build">Construcción</button><button class="gb-qc-tab" data-qtab="research">Investigación</button><button class="gb-qc-tab" data-qtab="barracks">Cuartel</button><button class="gb-qc-tab" data-qtab="docks">Puerto</button></nav><div class="gb-qc-body"></div>`;
       document.body.appendChild(w);
       try { applyTheme(); } catch (_) {}

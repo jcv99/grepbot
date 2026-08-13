@@ -745,7 +745,7 @@
     list.shift();nativeQueueSave();
   }
 
-  GM_addStyle(`
+  gbAddStyle('native-ui', `
     /* The senate tile stacks absolutely-positioned overlays (building caption,
        level badge, hover hitbox) on top of its content. A statically-positioned
        control paints UNDER all of them, so the caption text swallowed the click

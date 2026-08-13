@@ -54,6 +54,14 @@
     const i = gbAjaxPending.indexOf(entry);
     if (i >= 0) gbAjaxPending.splice(i, 1);
   }
+  // Called from __grepbotDispose. bridgePost's finish() already refuses to act
+  // for a dead instance, so a leftover watcher cannot post - but it keeps its
+  // settle closure alive and occupies a GB_AJAX_PENDING_MAX slot that the NEXT
+  // instance's spy can still claim, which would settle a fresh post from a stale
+  // instance's response.
+  function gbAjaxDispose() {
+    gbAjaxPending.length = 0;
+  }
   function gbAjaxSigs(url, body) {
     const u = String(url || '');
     const out = { sigs: [], fp: '' };

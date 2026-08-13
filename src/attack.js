@@ -799,6 +799,8 @@
         delete table.dataset.empty;
         const hdr = document.createElement('div');
         hdr.style.cssText = 'display:grid;grid-template-columns:1.2fr .7fr .9fr .7fr .8fr;gap:4px;color:#888;font-size:9px;margin-bottom:2px';
+        // LITERAL ONLY - no interpolation. Town names reach this table through
+        // textContent on the row cells, never through the header string.
         hdr.innerHTML = '<span>town</span><span>travel</span><span>sendAt</span><span>boats</span><span>status</span>';
         table.appendChild(hdr);
       }
