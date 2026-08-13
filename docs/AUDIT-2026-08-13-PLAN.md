@@ -43,7 +43,15 @@ Do not spend work here.
   rewrite of the build and the module graph for a working paste-only artifact.
   Out of scope; the `MODULES` concat order is load-bearing and gated.
 
-## Tier 1 — verified defects, cheap, user-visible
+## Tier 1 — verified defects, cheap, user-visible — DONE (v4.52.0)
+
+Closed by `0221ea6` (items 2, 3, 4, 6, 7), `9ac825d` (item 5) and
+`bf6a661` (item 1). Two findings the work turned up that the audit missed:
+the bind path had never initialised 11 controls (theme, the diagnostics
+toggles, emergency-cave) on FIRST render, the mirror image of the repaint
+hole; and `GM_addStyle`'s return value cannot be trusted for the dedupe tag,
+since it is in no GM spec and the smoke stub returns nothing.
+
 
 1. **`bindConfig` rebind leaves ~130 controls stale** (`src/ui.js:1743`,
    branch `:1750-1801`). Confirmed: 166 distinct `[data-cfg]` controls exist,
