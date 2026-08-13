@@ -39,8 +39,7 @@ const noBuild = argv.includes('--no-build');
 const keepOpen = argv.includes('--keep-open');
 
 // Panel tab ids, in nav order (src/ui.js TAB_GROUPS).
-const TABS = ['findings', 'farms', 'world', 'attack', 'quests', 'build',
-              'overview', 'intel', 'config', 'stats', 'log'];
+const TABS = ['attack', 'overview', 'intel', 'config', 'stats', 'log'];
 
 const log = (...a) => console.log('[driver]', ...a);
 function fail(msg, code = 1) { console.error('[driver] FAIL:', msg); process.exit(code); }

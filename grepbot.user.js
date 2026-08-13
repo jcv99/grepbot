@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.52.0
+// @version      4.53.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -21100,18 +21100,9 @@ const STORE = {
     { id: 'home', label: 'Inicio', tabs: [
       { id: 'overview', label: 'Resumen' },
     ]},
-    { id: 'economy', label: 'Econom\u00eda', tabs: [
-      { id: 'world', label: 'Ciudades' },
-      { id: 'farms', label: 'Aldeas' },
-      { id: 'build', label: 'Construcci\u00f3n' },
-      { id: 'quests', label: 'Misiones' },
-    ]},
     { id: 'military', label: 'Militar', tabs: [
       { id: 'attack', label: 'Ataques' },
       { id: 'intel', label: 'Inteligencia' },
-    ]},
-    { id: 'data', label: 'Datos', tabs: [
-      { id: 'findings', label: 'Hallazgos' },
     ]},
     { id: 'system', label: 'Sistema', tabs: [
       { id: 'config', label: 'Ajustes' },
@@ -21239,29 +21230,15 @@ const STORE = {
       s.hidden = s.dataset.tab !== tabId;
     });
     if (same) {
-      if (tabId === 'findings') renderFindings();
-      else if (tabId === 'world') renderWorld();
-      else if (tabId === 'build') renderBuild();
-      else if (tabId === 'attack') renderAttack();
-      else if (tabId === 'quests') renderQuests();
+      if (tabId === 'attack') renderAttack();
       else if (tabId === 'log') { renderLog(); renderJournal(); }
       else if (tabId === 'stats') renderStats();
       else if (tabId === 'overview') renderOverview();
       else if (tabId === 'intel') renderIntel();
-      else if (tabId === 'farms') renderFarms();
       else if (tabId === 'config') { bindConfig(); renderCaveTowns(); }
       return;
     }
-    if (tabId === 'findings') renderFindings();
-    if (tabId === 'farms') renderFarms();
-    if (tabId === 'world') renderWorld();
-    if (tabId === 'build') {
-      const el = panel.querySelector('#gb-ab-auto');
-      if (el) el.checked = !!state.abAuto;
-      renderBuild();
-    }
     if (tabId === 'attack') { bindAttackTab(); renderAttack(); }
-    if (tabId === 'quests') renderQuests();
     if (tabId === 'config') { bindConfig(); renderCaveTowns(); }
     if (tabId === 'overview') renderOverview();
     if (tabId === 'intel') renderIntel();
@@ -21563,20 +21540,6 @@ const STORE = {
     </div>
     <div class="gb-nav" role="tablist" aria-label="GrepBot groups"></div>
     <div class="gb-subtabs" role="tablist" aria-label="GrepBot tabs"></div>
-    <section data-tab="findings"></section>
-    <section data-tab="farms" hidden>
-      <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
-        <button id="gb-sleep-claim" style="background:#333;border:1px solid #555;color:#8cf;padding:2px 8px;cursor:pointer;font-size:11px">Sleep claim (4h/8h)</button>
-        <span id="gb-sleep-status" style="font-size:10px;color:#888"></span>
-      </div>
-      <div id="gb-farm-teach-banner" hidden style="font-size:10px;color:#fc6;background:#2a2211;border:1px solid #664;padding:4px 6px;margin-bottom:4px;border-radius:3px"></div>
-      <div class="farms-list"></div>
-      <textarea placeholder="vill_id | x y | ETA | notes&#10;12345 | 500 600 | 2h | safe"></textarea>
-    </section>
-    <section data-tab="world" hidden>
-      <div class="world-totals" style="padding:6px;background:#262626;border-radius:3px;margin-bottom:6px;font-size:11px"></div>
-      <div class="world-list"></div>
-    </section>
     <section data-tab="attack" hidden>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
         <b style="font-size:11px;color:#f5a623">Attack sync</b>
@@ -21664,33 +21627,6 @@ const STORE = {
         <button type="button" id="gb-atk-comp-refresh" style="margin-left:auto">Refrescar</button>
       </div>
       <div class="atk-comp" style="max-height:200px;overflow:auto"></div>
-    </section>
-    <section data-tab="quests" hidden>
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-        <b style="font-size:11px;color:#f5a623">Misiones</b>
-        <button id="gb-quest-scan" style="background:#333;border:1px solid #555;color:#eee;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;margin-left:auto">Escanear ya</button>
-      </div>
-      <div class="quest-list"></div>
-      <div style="font-size:9px;color:#888;margin-top:6px">historial</div>
-      <div class="quest-hist"></div>
-    </section>
-    <section data-tab="build" hidden>
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
-        <span id="gb-ib-dot" class="ib-dot"></span><b style="font-size:11px;color:#f5a623">Construccion instantanea</b>
-        <span style="flex:1"></span>
-        <button id="gb-ib-btn">Complete all free</button>
-      </div>
-      <div class="ib-rows"></div>
-      <div id="gb-ib-status" style="font-size:10px;color:#888;margin-top:4px"></div>
-      <div style="border-top:1px solid #333;margin:8px 0 6px;padding-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-        <b style="font-size:11px;color:#f5a623">Auto-cola</b>
-        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:10px"><input type="checkbox" id="gb-ab-auto"/> ON</label>
-        <button id="gb-ab-csfast" style="background:#333;border:1px solid #555;color:#6cf;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Cargar CS-fast</button>
-        <button id="gb-ab-now" style="background:#333;border:1px solid #555;color:#80e090;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px">Enviar cola ya</button>
-      </div>
-      <div style="font-size:9px;color:#888;margin-bottom:4px">Las colas creadas con + en el Senado son FIFO estrictas por ciudad. Se rellena cada hueco real libre, nivel a nivel, revalidando coste y requisitos. Las ciudades sin cola FIFO siguen usando cur/tgt/max.</div>
-      <div class="ab-queue"></div>
-      <div id="gb-ab-status" style="font-size:10px;color:#888;margin-top:4px"></div>
     </section>
     <section data-tab="overview" hidden>
       <div style="font-size:15px;font-weight:750;margin-bottom:2px">Resumen de la cuenta</div>
@@ -22054,7 +21990,7 @@ const STORE = {
   try { renderTownSwitch(); } catch (_) {}
 
   {
-    const start = TAB_IDS.includes(state.activeTab) ? state.activeTab : 'findings';
+    const start = TAB_IDS.includes(state.activeTab) ? state.activeTab : 'overview';
     const g0 = tabGroupOf(start);
     _lastTabInGroup[g0.id] = start;
     paintNav(start);
@@ -22372,7 +22308,7 @@ const STORE = {
     btn.title = panel.classList.contains('collapsed') ? 'Restore' : 'Minimize';
     savePanelGeom();
   });
-  panel.querySelector('#gb-ib-btn').addEventListener('click', () => {
+  panel.querySelector('#gb-ib-btn')?.addEventListener('click', () => {
     if (gbLocked('ib')) return;
     ibCompleteAll(ibOrders());
   });
@@ -23270,22 +23206,9 @@ const STORE = {
   }
   bindConfig();
   {
-    const start = TAB_IDS.includes(state.activeTab) ? state.activeTab : 'findings';
+    const start = TAB_IDS.includes(state.activeTab) ? state.activeTab : 'overview';
     showTab(start, { force: true });
   }
-
-  const ta = panel.querySelector('textarea');
-  ta.value = state.farms;
-  let farmsInputTimer = null;
-  ta.addEventListener('input', () => {
-    state.farms = ta.value;
-    gbClearTimeout(farmsInputTimer);
-    farmsInputTimer = gbTimeout(() => {
-      save(STORE.FARMS, state.farms);
-      refreshFarmsParsed();
-      renderFarms();
-    }, 400);
-  });
 
   (function drag(el) {
     let sx, sy, dx, dy, dragging = false, moved = false, pid = null;
