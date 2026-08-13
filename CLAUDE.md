@@ -379,6 +379,19 @@ Single-script loop pattern:
   v3.10.1 (`recruit` = cuartel, `recruitNaval` = puerto): own order, own pause
   flag, own FIFO/legacy mode, positions local to the lane.
   `nativeQueueSave` / `nativeQueueSetJobState` re-render it.
+  **Render contract (v4.47.0)**: `renderQueueCenter()` is a *request* (dirty
+  flag + 90ms coalesce) — a sweep that touches 20 jobs paints once, not 20
+  times. `renderQueueCenterFlush()` is the click path: paints now and skips the
+  throttled `nativeQueueReconcileTown` because the mutation already reconciled
+  the lane. Every paint renders into a **detached** node and swaps only when
+  `queueCenterSig()` (innerHTML with the `.gb-qc-eta` cells blanked) differs, so
+  an unchanged window keeps its DOM, its scroll offset and the `:hover` under
+  the cursor; on a skipped swap the fresh eta baselines are copied onto the live
+  cells. Real-queue clocks are moved by a 1s ticker that only writes text into
+  `.gb-qc-eta` (`data-eta` seconds + `data-t0` stamp) and asks for one repaint
+  when a row reaches 0. Background paints defer while a `<select>` inside the
+  window holds focus. Do not go back to an unconditional `body.replaceChildren()`
+  per call.
 - **Logging** (`gbLog`/`gbLogT`): console.info + ring buffer (200) rendered in the panel's **Log tab**. `gbLogT(key, ms, ...)` throttles repeat messages. `renderLog` is deferred 250ms and skipped while the Log tab is hidden (v0.5.0 — gbLog fires per line in hot loops). Diag button dumps `gameBridgeStatus()`.
 - **CSRF hunt** (`huntCsrf`): every 5s, try `window.csrfToken`, `window.csrf_token`, `window.h`, `Game.csrfToken`, meta/input/data-h, cookie. First match wins. Still needed for GM_xmlhttpRequest report fetching (gpAjax path signs itself).
 - **AJAX spy** (`hookFetch` + `hookXhr`): patches `unsafeWindow.fetch` + `XMLHttpRequest.prototype.open/send` to catch report id urls in real time. The response-JSON recursive walk is skipped for payloads >100KB unless the URL is report-ish (v0.5.0 — map payloads are huge).

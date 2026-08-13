@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.46.0
+// @version      4.47.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -19909,6 +19909,7 @@ const STORE = {
     #grepbot-queue-center header select{max-width:210px;background:#11141a;color:var(--gb-fg);border:1px solid #4b5260;border-radius:5px;padding:4px 7px}
     #grepbot-queue-center header button,#grepbot-queue-center .gb-qc-btn{background:#2d323b;color:#e9edf2;border:1px solid #4f5764;border-radius:5px;padding:3px 7px;cursor:pointer;font-size:11px}
     #grepbot-queue-center header button:hover,#grepbot-queue-center .gb-qc-btn:hover{background:#39404b;border-color:#707a89}#grepbot-queue-center button:disabled{opacity:.35;cursor:default}
+    #grepbot-queue-center .gb-qc-btn:active{background:#4b5462}#grepbot-queue-center .gb-qc-btn.busy{background:#4b5462;border-color:#8a94a3}
     #grepbot-queue-center nav{display:flex;gap:5px;padding:7px 9px;background:#1d2026;border-bottom:1px solid var(--gb-border-soft);flex-shrink:0}
     #grepbot-queue-center .gb-qc-tab{padding:6px 12px;background:#272b33;color:var(--gb-fg-soft2);border:1px solid transparent;border-radius:7px;cursor:pointer;font-weight:600}
     #grepbot-queue-center .gb-qc-tab.on{background:var(--gb-warn-bg);color:var(--gb-fg-hi);border-color:var(--gb-accent-3)}
@@ -19982,8 +19983,11 @@ const STORE = {
       e.preventDefault(); e.stopPropagation();
       if (!gbInstanceAlive()) return;
       if (!gbTabLeader) { flash('GrepBot est\u00e1 activo en otra pesta\u00f1a'); return; }
-      const r = fn && fn(e);
-      if (r !== false) renderQueueCenter();
+
+      b.classList.add('busy');
+      let r;
+      try { r = fn && fn(e); } finally { b.classList.remove('busy'); }
+      if (r !== false) renderQueueCenterFlush();
     });
     return b;
   }
@@ -20012,11 +20016,13 @@ const STORE = {
     wrap.appendChild(line); return wrap;
   }
 
-  function queueCenterLiveRow(num, label, timeStr, numTitle) {
+  function queueCenterLiveRow(num, label, sec, numTitle) {
     const r = document.createElement('div'); r.className = 'gb-qc-live-row';
     const n = document.createElement('span'); n.textContent = `#${num}`; if (numTitle) n.title = numTitle;
     const nm = document.createElement('b'); nm.textContent = label;
-    const t = document.createElement('span'); t.textContent = timeStr;
+
+    const t = document.createElement('span'); t.className = 'gb-qc-eta'; t.textContent = queueCenterFmt(sec);
+    if (sec != null && Number.isFinite(+sec)) { t.dataset.eta = String(Math.max(0, +sec)); t.dataset.t0 = String(Date.now()); }
     r.append(n, nm, t); return r;
   }
 
@@ -20057,7 +20063,7 @@ const STORE = {
     if (q.known && q.orders.length) {
       q.orders.forEach((o, i) => {
         const left = o.to_be_completed_at ? Math.max(0, +o.to_be_completed_at - gameNow()) : o.building_time;
-        live.box.appendChild(queueCenterLiveRow(i + 1, nativeBuildLabel(o.building_type), queueCenterFmt(left)));
+        live.box.appendChild(queueCenterLiveRow(i + 1, nativeBuildLabel(o.building_type), left));
       });
     } else live.box.appendChild(queueCenterEmpty(q.known ? 'Sin construcciones reales' : 'No se puede leer la cola real'));
 
@@ -20190,7 +20196,7 @@ const STORE = {
     if (orders.length) {
       orders.forEach((o, i) => {
         const id = researchOrderTechId(o);
-        live.box.appendChild(queueCenterLiveRow(i + 1, researchLabel(id) || String(id || '?'), queueCenterFmt(queueCenterTimeLeft(o))));
+        live.box.appendChild(queueCenterLiveRow(i + 1, researchLabel(id) || String(id || '?'), queueCenterTimeLeft(o)));
       });
     } else live.box.appendChild(queueCenterEmpty(info ? 'Sin investigaciones en curso' : 'No se puede leer la Academia'));
 
@@ -20259,7 +20265,7 @@ const STORE = {
         live.box.appendChild(queueCenterLiveRow(
           i + 1,
           `${queueCenterUnitAmount(m)}\u00d7 ${nativeUnitLabel(id)}`,
-          queueCenterFmt(queueCenterTimeLeft(m)),
+          queueCenterTimeLeft(m),
           `posici\u00f3n en la cola real de ${label.toLowerCase()}`,
         ));
       });
@@ -20289,11 +20295,42 @@ const STORE = {
 
   let gbQcRendering = false;
   let gbQcReconciledAt = 0;
-  function renderQueueCenter() {
+  let gbQcDirty = false;
+  let gbQcPaintTimer = 0;
+  let gbQcTickTimer = 0;
+
+  const QC_ETA_RE = /<span class="gb-qc-eta"[\s\S]*?<\/span>/g;
+  function queueCenterSig(html) { return String(html || '').replace(QC_ETA_RE, '<eta/>'); }
+  function queueCenterVisible() {
     const w = gbQueueCenter;
-    if (!w || !document.body.contains(w)) return;
-    if (w.style.display === 'none') return;
+    return !!(w && document.body.contains(w) && w.style.display !== 'none');
+  }
+
+  function queueCenterUserBusy() {
+    const w = gbQueueCenter, a = document.activeElement;
+    return !!(w && a && a !== document.body && a.tagName === 'SELECT' && w.contains(a));
+  }
+
+  function renderQueueCenter() {
+    if (!queueCenterVisible()) { gbQcDirty = false; return; }
+    gbQcDirty = true;
+    if (gbQcPaintTimer) return;
+    gbQcPaintTimer = gbTimeout(() => { gbQcPaintTimer = 0; queueCenterPaint(false); }, 90);
+  }
+
+  function renderQueueCenterFlush() {
+    if (gbQcPaintTimer) { gbClearTimeout(gbQcPaintTimer); gbQcPaintTimer = 0; }
+    queueCenterPaint(true);
+  }
+  function queueCenterPaint(userDriven) {
+    const w = gbQueueCenter;
+    if (!queueCenterVisible()) { gbQcDirty = false; return; }
     if (gbQcRendering) return;
+    if (!userDriven && queueCenterUserBusy()) {
+
+      if (!gbQcPaintTimer) gbQcPaintTimer = gbTimeout(() => { gbQcPaintTimer = 0; queueCenterPaint(false); }, 400);
+      return;
+    }
     const ids = queueCenterTownIds();
     if (!ids.length) return;
     if (!gbQueueCenterTown || !ids.includes(String(gbQueueCenterTown))) {
@@ -20302,25 +20339,71 @@ const STORE = {
       gbQueueCenterTown = String(cur || ids[0]);
     }
     gbQcRendering = true;
+    gbQcDirty = false;
     try {
 
-      if (Date.now() - gbQcReconciledAt > 2000) {
+      if (!userDriven && Date.now() - gbQcReconciledAt > 2000) {
         gbQcReconciledAt = Date.now();
         try { nativeQueueReconcileTown(gbQueueCenterTown); } catch (_) {}
       }
-      const sel = w.querySelector('.gb-qc-town'); sel.replaceChildren();
-      ids.forEach(id => {
-        const o = document.createElement('option'); o.value = id; o.textContent = queueCenterTownName(id);
-        if (id === String(gbQueueCenterTown)) o.selected = true;
-        sel.appendChild(o);
-      });
+
+      const sel = w.querySelector('.gb-qc-town');
+      const sig = ids.map(id => id + '' + queueCenterTownName(id)).join('');
+      if (sel.dataset.sig !== sig) {
+        sel.dataset.sig = sig;
+        sel.replaceChildren();
+        ids.forEach(id => {
+          const o = document.createElement('option'); o.value = id; o.textContent = queueCenterTownName(id);
+          sel.appendChild(o);
+        });
+      }
+      if (sel.value !== String(gbQueueCenterTown)) sel.value = String(gbQueueCenterTown);
       w.querySelectorAll('.gb-qc-tab').forEach(b => b.classList.toggle('on', b.dataset.qtab === gbQueueCenterTab));
-      const body = w.querySelector('.gb-qc-body'); body.replaceChildren();
-      if (gbQueueCenterTab === 'build') renderQueueCenterBuild(body, gbQueueCenterTown);
-      else if (gbQueueCenterTab === 'research') renderQueueCenterResearch(body, gbQueueCenterTown);
-      else if (gbQueueCenterTab === 'barracks') renderQueueCenterRecruit(body, gbQueueCenterTown, false);
-      else renderQueueCenterRecruit(body, gbQueueCenterTown, true);
+      const body = w.querySelector('.gb-qc-body');
+
+      const stage = document.createElement('div');
+      if (gbQueueCenterTab === 'build') renderQueueCenterBuild(stage, gbQueueCenterTown);
+      else if (gbQueueCenterTab === 'research') renderQueueCenterResearch(stage, gbQueueCenterTown);
+      else if (gbQueueCenterTab === 'barracks') renderQueueCenterRecruit(stage, gbQueueCenterTown, false);
+      else renderQueueCenterRecruit(stage, gbQueueCenterTown, true);
+      if (queueCenterSig(stage.innerHTML) === queueCenterSig(body.innerHTML)) {
+
+        const fresh = stage.querySelectorAll('.gb-qc-eta'), old = body.querySelectorAll('.gb-qc-eta');
+        if (fresh.length === old.length) {
+          for (let i = 0; i < fresh.length; i++) {
+            if (fresh[i].dataset.eta == null) continue;
+            old[i].dataset.eta = fresh[i].dataset.eta; old[i].dataset.t0 = fresh[i].dataset.t0;
+            delete old[i].dataset.done;
+          }
+        }
+        return;
+      }
+
+      const top = body.scrollTop;
+      body.replaceChildren.apply(body, Array.prototype.slice.call(stage.childNodes));
+      if (top && body.scrollHeight > body.clientHeight) body.scrollTop = Math.min(top, body.scrollHeight - body.clientHeight);
     } finally { gbQcRendering = false; }
+  }
+
+  function queueCenterTick() {
+    if (!queueCenterVisible()) { queueCenterStopTick(); return; }
+    if (document.hidden) return;
+    const now = Date.now();
+    let finished = false;
+    gbQueueCenter.querySelectorAll('.gb-qc-live-row [data-eta]').forEach(el => {
+      const left = +el.dataset.eta - (now - (+el.dataset.t0 || now)) / 1000;
+      el.textContent = queueCenterFmt(Math.max(0, left));
+      if (left <= 0 && el.dataset.done !== '1') { el.dataset.done = '1'; finished = true; }
+    });
+    if (finished) { gbQcReconciledAt = 0; renderQueueCenter(); }
+  }
+  function queueCenterStartTick() {
+    if (gbQcTickTimer) return;
+    gbQcTickTimer = gbInterval(queueCenterTick, 1000);
+  }
+  function queueCenterStopTick() {
+    if (!gbQcTickTimer) return;
+    gbClearInterval(gbQcTickTimer); gbQcTickTimer = 0;
   }
 
   function openQueueCenter(tab, townId) {
@@ -20335,19 +20418,29 @@ const STORE = {
       document.body.appendChild(w);
       try { applyTheme(); } catch (_) {}
       gbQueueCenter = w;
-      w.querySelector('.gb-qc-close').addEventListener('click', () => { w.style.display = 'none'; });
+      w.querySelector('.gb-qc-close').addEventListener('click', () => { w.style.display = 'none'; queueCenterStopTick(); });
 
       w.querySelector('.gb-qc-refresh').addEventListener('click', () => {
         try { nativeQueueSweep('manual'); } catch (_) {}
         gbQcReconciledAt = 0;
+        queueCenterPaint(false);
+      });
+
+      w.querySelector('.gb-qc-town').addEventListener('change', e => { gbQueueCenterTown = e.target.value; gbQcReconciledAt = 0; queueCenterPaint(false); });
+      w.querySelectorAll('.gb-qc-tab').forEach(b => b.addEventListener('click', () => { gbQueueCenterTab = b.dataset.qtab; renderQueueCenterFlush(); }));
+
+      gbListen(document, 'visibilitychange', () => {
+        if (document.hidden || !queueCenterVisible()) return;
+        gbQcReconciledAt = 0;
         renderQueueCenter();
       });
-      w.querySelector('.gb-qc-town').addEventListener('change', e => { gbQueueCenterTown = e.target.value; renderQueueCenter(); });
-      w.querySelectorAll('.gb-qc-tab').forEach(b => b.addEventListener('click', () => { gbQueueCenterTab = b.dataset.qtab; renderQueueCenter(); }));
       makeDraggable(w, w.querySelector('header'));
     }
     gbQueueCenter.style.display = 'flex';
-    renderQueueCenter();
+    gbQcReconciledAt = 0;
+    if (gbQcPaintTimer) { gbClearTimeout(gbQcPaintTimer); gbQcPaintTimer = 0; }
+    queueCenterPaint(false);
+    queueCenterStartTick();
   }
 
   function tabFilters() {
@@ -23583,7 +23676,7 @@ const STORE = {
   gbTimeout(scheduleNativeUiScan, 1200);
   gbInterval(() => {
 
-    if (nativeQueueHasPending('build') || nativeRecruitPending() || nativeQueueHasPending('research')) {
+    if (queueCenterVisible() || nativeQueueHasPending('build') || nativeRecruitPending() || nativeQueueHasPending('research')) {
       try { renderQueueCenter(); } catch (_) {}
     }
 

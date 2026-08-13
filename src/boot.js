@@ -99,7 +99,10 @@
     // themselves are orchestrator-owned (orchTick drives ab/recruit/research
     // on cadence); calling them here too would double-fire every interval and
     // invalidate the per-feature `*Scan` lock guards' serialisation. Render-only.
-    if (nativeQueueHasPending('build') || nativeRecruitPending() || nativeQueueHasPending('research')) {
+    // An OPEN window repaints regardless of pending virtual jobs: it also shows
+    // the game's real queues, so a hand-queued order used to stay invisible for
+    // as long as every GrepBot lane happened to be empty.
+    if (queueCenterVisible() || nativeQueueHasPending('build') || nativeRecruitPending() || nativeQueueHasPending('research')) {
       try { renderQueueCenter(); } catch (_) {}
     }
     // Ungated: this used to fire only while a lane already had work, which is a

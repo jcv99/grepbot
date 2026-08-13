@@ -55,6 +55,7 @@
     #grepbot-queue-center header select{max-width:210px;background:#11141a;color:var(--gb-fg);border:1px solid #4b5260;border-radius:5px;padding:4px 7px}
     #grepbot-queue-center header button,#grepbot-queue-center .gb-qc-btn{background:#2d323b;color:#e9edf2;border:1px solid #4f5764;border-radius:5px;padding:3px 7px;cursor:pointer;font-size:11px}
     #grepbot-queue-center header button:hover,#grepbot-queue-center .gb-qc-btn:hover{background:#39404b;border-color:#707a89}#grepbot-queue-center button:disabled{opacity:.35;cursor:default}
+    #grepbot-queue-center .gb-qc-btn:active{background:#4b5462}#grepbot-queue-center .gb-qc-btn.busy{background:#4b5462;border-color:#8a94a3}
     #grepbot-queue-center nav{display:flex;gap:5px;padding:7px 9px;background:#1d2026;border-bottom:1px solid var(--gb-border-soft);flex-shrink:0}
     #grepbot-queue-center .gb-qc-tab{padding:6px 12px;background:#272b33;color:var(--gb-fg-soft2);border:1px solid transparent;border-radius:7px;cursor:pointer;font-weight:600}
     #grepbot-queue-center .gb-qc-tab.on{background:var(--gb-warn-bg);color:var(--gb-fg-hi);border-color:var(--gb-accent-3)}
@@ -123,14 +124,22 @@
   }
   // Every button re-renders unless the handler returns false (a refused action
   // already flashed its own reason and left the model untouched).
+  // The repaint is a FLUSH, not the coalesced request: a click is the one paint
+  // the player is waiting on, and the mutation itself already reconciled the
+  // lane (nativeQueueMove / nativeQueueRemove both start with a reconcile), so
+  // the paint skips its own throttled reconcile instead of re-reading the town.
   function queueCenterButton(txt, title, fn, cls) {
     const b = document.createElement('button'); b.type = 'button'; b.textContent = txt; b.title = title || ''; b.className = 'gb-qc-btn' + (cls ? ' ' + cls : '');
     b.addEventListener('click', e => {
       e.preventDefault(); e.stopPropagation();
       if (!gbInstanceAlive()) return;
       if (!gbTabLeader) { flash('GrepBot está activo en otra pestaña'); return; }
-      const r = fn && fn(e);
-      if (r !== false) renderQueueCenter();
+      // Immediate optical feedback: the handler can block on a native confirm()
+      // or on a save, and a dead-looking button is the whole complaint.
+      b.classList.add('busy');
+      let r;
+      try { r = fn && fn(e); } finally { b.classList.remove('busy'); }
+      if (r !== false) renderQueueCenterFlush();
     });
     return b;
   }
@@ -159,11 +168,19 @@
     wrap.appendChild(line); return wrap;
   }
   // Live-row DOM for the "real queue" card. Renders `#N`, label, time.
-  function queueCenterLiveRow(num, label, timeStr, numTitle) {
+  // `sec` is the raw remaining seconds, not a formatted string: the cell keeps
+  // it (plus the wall clock at paint time) so the 1s ticker can count it down
+  // without a repaint. A repaint every second to move a clock would fight every
+  // hover, scroll and open dropdown in the window.
+  function queueCenterLiveRow(num, label, sec, numTitle) {
     const r = document.createElement('div'); r.className = 'gb-qc-live-row';
     const n = document.createElement('span'); n.textContent = `#${num}`; if (numTitle) n.title = numTitle;
     const nm = document.createElement('b'); nm.textContent = label;
-    const t = document.createElement('span'); t.textContent = timeStr;
+    // Class first: queueCenterSig() keys off `<span class="gb-qc-eta"` to blank
+    // these cells out of the repaint comparison, and attributes serialize in
+    // insertion order.
+    const t = document.createElement('span'); t.className = 'gb-qc-eta'; t.textContent = queueCenterFmt(sec);
+    if (sec != null && Number.isFinite(+sec)) { t.dataset.eta = String(Math.max(0, +sec)); t.dataset.t0 = String(Date.now()); }
     r.append(n, nm, t); return r;
   }
   // Plan-job DOM for the GrepBot virtual FIFO card. Renders reorder/remove
@@ -209,7 +226,7 @@
     if (q.known && q.orders.length) {
       q.orders.forEach((o, i) => {
         const left = o.to_be_completed_at ? Math.max(0, +o.to_be_completed_at - gameNow()) : o.building_time;
-        live.box.appendChild(queueCenterLiveRow(i + 1, nativeBuildLabel(o.building_type), queueCenterFmt(left)));
+        live.box.appendChild(queueCenterLiveRow(i + 1, nativeBuildLabel(o.building_type), left));
       });
     } else live.box.appendChild(queueCenterEmpty(q.known ? 'Sin construcciones reales' : 'No se puede leer la cola real'));
 
@@ -356,7 +373,7 @@
     if (orders.length) {
       orders.forEach((o, i) => {
         const id = researchOrderTechId(o);
-        live.box.appendChild(queueCenterLiveRow(i + 1, researchLabel(id) || String(id || '?'), queueCenterFmt(queueCenterTimeLeft(o))));
+        live.box.appendChild(queueCenterLiveRow(i + 1, researchLabel(id) || String(id || '?'), queueCenterTimeLeft(o)));
       });
     } else live.box.appendChild(queueCenterEmpty(info ? 'Sin investigaciones en curso' : 'No se puede leer la Academia'));
 
@@ -430,7 +447,7 @@
         live.box.appendChild(queueCenterLiveRow(
           i + 1,
           `${queueCenterUnitAmount(m)}× ${nativeUnitLabel(id)}`,
-          queueCenterFmt(queueCenterTimeLeft(m)),
+          queueCenterTimeLeft(m),
           `posición en la cola real de ${label.toLowerCase()}`,
         ));
       });
@@ -463,11 +480,51 @@
   // twice per repaint from two different snapshots of the same state.
   let gbQcRendering = false;
   let gbQcReconciledAt = 0;
-  function renderQueueCenter() {
+  let gbQcDirty = false;
+  let gbQcPaintTimer = 0;
+  let gbQcTickTimer = 0;
+
+  // Countdown cells are volatile by design (they move every second, and every
+  // paint re-reads them a few seconds later), so they are blanked before two
+  // renders are compared. Everything else — order, labels, status badges,
+  // disabled states — is compared verbatim.
+  const QC_ETA_RE = /<span class="gb-qc-eta"[\s\S]*?<\/span>/g;
+  function queueCenterSig(html) { return String(html || '').replace(QC_ETA_RE, '<eta/>'); }
+  function queueCenterVisible() {
     const w = gbQueueCenter;
-    if (!w || !document.body.contains(w)) return;
-    if (w.style.display === 'none') return;
+    return !!(w && document.body.contains(w) && w.style.display !== 'none');
+  }
+  // A repaint tears the body down, which closes an open <select> under the
+  // player's cursor. Buttons carry no state worth protecting, so only an open
+  // picker defers a BACKGROUND paint — a click still flushes immediately.
+  function queueCenterUserBusy() {
+    const w = gbQueueCenter, a = document.activeElement;
+    return !!(w && a && a !== document.body && a.tagName === 'SELECT' && w.contains(a));
+  }
+  // Coalesced entry point. Every external caller (nativeQueueSave, the per-job
+  // nativeQueueSetJobState, the 5s loop) lands here: one sweep used to repaint
+  // the whole window once per job it touched.
+  function renderQueueCenter() {
+    if (!queueCenterVisible()) { gbQcDirty = false; return; }
+    gbQcDirty = true;
+    if (gbQcPaintTimer) return;
+    gbQcPaintTimer = gbTimeout(() => { gbQcPaintTimer = 0; queueCenterPaint(false); }, 90);
+  }
+  // User-driven paint: now, and skip the throttled reconcile because the
+  // mutation that triggered it already reconciled the lane.
+  function renderQueueCenterFlush() {
+    if (gbQcPaintTimer) { gbClearTimeout(gbQcPaintTimer); gbQcPaintTimer = 0; }
+    queueCenterPaint(true);
+  }
+  function queueCenterPaint(userDriven) {
+    const w = gbQueueCenter;
+    if (!queueCenterVisible()) { gbQcDirty = false; return; }
     if (gbQcRendering) return;
+    if (!userDriven && queueCenterUserBusy()) {
+      // Stay dirty and come back once the picker is closed.
+      if (!gbQcPaintTimer) gbQcPaintTimer = gbTimeout(() => { gbQcPaintTimer = 0; queueCenterPaint(false); }, 400);
+      return;
+    }
     const ids = queueCenterTownIds();
     if (!ids.length) return;
     if (!gbQueueCenterTown || !ids.includes(String(gbQueueCenterTown))) {
@@ -476,28 +533,86 @@
       gbQueueCenterTown = String(cur || ids[0]);
     }
     gbQcRendering = true;
+    gbQcDirty = false;
     try {
       // The window is a live view of the game, not of storage: re-check the
       // shown town against the real model before painting, so a job the player
-      // completed by hand disappears on the next 5s repaint instead of waiting
-      // for an auto-queue sweep. Throttled — every button click lands here too.
-      if (Date.now() - gbQcReconciledAt > 2000) {
+      // completed by hand disappears on the next repaint instead of waiting
+      // for an auto-queue sweep. Throttled, and skipped entirely on a click —
+      // the reconcile is the expensive half of a paint.
+      if (!userDriven && Date.now() - gbQcReconciledAt > 2000) {
         gbQcReconciledAt = Date.now();
         try { nativeQueueReconcileTown(gbQueueCenterTown); } catch (_) {}
       }
-      const sel = w.querySelector('.gb-qc-town'); sel.replaceChildren();
-      ids.forEach(id => {
-        const o = document.createElement('option'); o.value = id; o.textContent = queueCenterTownName(id);
-        if (id === String(gbQueueCenterTown)) o.selected = true;
-        sel.appendChild(o);
-      });
+      // Rebuild the town picker only when the option set actually changed:
+      // replaceChildren() on every paint dropped the focus ring and shut the
+      // dropdown mid-selection.
+      const sel = w.querySelector('.gb-qc-town');
+      const sig = ids.map(id => id + '' + queueCenterTownName(id)).join('');
+      if (sel.dataset.sig !== sig) {
+        sel.dataset.sig = sig;
+        sel.replaceChildren();
+        ids.forEach(id => {
+          const o = document.createElement('option'); o.value = id; o.textContent = queueCenterTownName(id);
+          sel.appendChild(o);
+        });
+      }
+      if (sel.value !== String(gbQueueCenterTown)) sel.value = String(gbQueueCenterTown);
       w.querySelectorAll('.gb-qc-tab').forEach(b => b.classList.toggle('on', b.dataset.qtab === gbQueueCenterTab));
-      const body = w.querySelector('.gb-qc-body'); body.replaceChildren();
-      if (gbQueueCenterTab === 'build') renderQueueCenterBuild(body, gbQueueCenterTown);
-      else if (gbQueueCenterTab === 'research') renderQueueCenterResearch(body, gbQueueCenterTown);
-      else if (gbQueueCenterTab === 'barracks') renderQueueCenterRecruit(body, gbQueueCenterTown, false);
-      else renderQueueCenterRecruit(body, gbQueueCenterTown, true);
+      const body = w.querySelector('.gb-qc-body');
+      // Render into a detached node first. Most background paints produce the
+      // exact same window, and swapping it in anyway is what dropped the scroll
+      // position, killed :hover on the button under the cursor and made a click
+      // that landed mid-repaint feel lost.
+      const stage = document.createElement('div');
+      if (gbQueueCenterTab === 'build') renderQueueCenterBuild(stage, gbQueueCenterTown);
+      else if (gbQueueCenterTab === 'research') renderQueueCenterResearch(stage, gbQueueCenterTown);
+      else if (gbQueueCenterTab === 'barracks') renderQueueCenterRecruit(stage, gbQueueCenterTown, false);
+      else renderQueueCenterRecruit(stage, gbQueueCenterTown, true);
+      if (queueCenterSig(stage.innerHTML) === queueCenterSig(body.innerHTML)) {
+        // Same window: keep the live DOM, but hand the ticker the fresh
+        // baselines it would otherwise have missed. Identical signatures mean
+        // identical row structure, so the index match is safe.
+        const fresh = stage.querySelectorAll('.gb-qc-eta'), old = body.querySelectorAll('.gb-qc-eta');
+        if (fresh.length === old.length) {
+          for (let i = 0; i < fresh.length; i++) {
+            if (fresh[i].dataset.eta == null) continue;
+            old[i].dataset.eta = fresh[i].dataset.eta; old[i].dataset.t0 = fresh[i].dataset.t0;
+            delete old[i].dataset.done;
+          }
+        }
+        return;
+      }
+      // Scroll position is the other casualty of a full rebuild: without this
+      // any background paint yanked a scrolled-down player back to the top.
+      const top = body.scrollTop;
+      body.replaceChildren.apply(body, Array.prototype.slice.call(stage.childNodes));
+      if (top && body.scrollHeight > body.clientHeight) body.scrollTop = Math.min(top, body.scrollHeight - body.clientHeight);
     } finally { gbQcRendering = false; }
+  }
+  // 1s clock for the real-queue rows. Touches text nodes only — never the tree —
+  // so it cannot fight a hover, a scroll or an open picker. When a row hits zero
+  // it asks for one coalesced repaint so the finished order actually leaves the
+  // list instead of sitting at 0m 00s until the next 5s tick.
+  function queueCenterTick() {
+    if (!queueCenterVisible()) { queueCenterStopTick(); return; }
+    if (document.hidden) return;
+    const now = Date.now();
+    let finished = false;
+    gbQueueCenter.querySelectorAll('.gb-qc-live-row [data-eta]').forEach(el => {
+      const left = +el.dataset.eta - (now - (+el.dataset.t0 || now)) / 1000;
+      el.textContent = queueCenterFmt(Math.max(0, left));
+      if (left <= 0 && el.dataset.done !== '1') { el.dataset.done = '1'; finished = true; }
+    });
+    if (finished) { gbQcReconciledAt = 0; renderQueueCenter(); }
+  }
+  function queueCenterStartTick() {
+    if (gbQcTickTimer) return;
+    gbQcTickTimer = gbInterval(queueCenterTick, 1000);
+  }
+  function queueCenterStopTick() {
+    if (!gbQcTickTimer) return;
+    gbClearInterval(gbQcTickTimer); gbQcTickTimer = 0;
   }
 
   function openQueueCenter(tab, townId) {
@@ -514,18 +629,30 @@
       document.body.appendChild(w);
       try { applyTheme(); } catch (_) {}
       gbQueueCenter = w;
-      w.querySelector('.gb-qc-close').addEventListener('click', () => { w.style.display = 'none'; });
+      w.querySelector('.gb-qc-close').addEventListener('click', () => { w.style.display = 'none'; queueCenterStopTick(); });
       // Manual refresh sweeps EVERY town, not just the one on screen — the
       // button is what a player reaches for after hand-editing several queues.
       w.querySelector('.gb-qc-refresh').addEventListener('click', () => {
         try { nativeQueueSweep('manual'); } catch (_) {}
         gbQcReconciledAt = 0;
+        queueCenterPaint(false);
+      });
+      // A town switch shows a lane nobody reconciled yet, so it clears the
+      // throttle instead of flushing past the reconcile like a button does.
+      w.querySelector('.gb-qc-town').addEventListener('change', e => { gbQueueCenterTown = e.target.value; gbQcReconciledAt = 0; queueCenterPaint(false); });
+      w.querySelectorAll('.gb-qc-tab').forEach(b => b.addEventListener('click', () => { gbQueueCenterTab = b.dataset.qtab; renderQueueCenterFlush(); }));
+      // A background tab clamps the 1s ticker, so its clocks are stale on
+      // return; repaint on the way back in instead of showing frozen times.
+      gbListen(document, 'visibilitychange', () => {
+        if (document.hidden || !queueCenterVisible()) return;
+        gbQcReconciledAt = 0;
         renderQueueCenter();
       });
-      w.querySelector('.gb-qc-town').addEventListener('change', e => { gbQueueCenterTown = e.target.value; renderQueueCenter(); });
-      w.querySelectorAll('.gb-qc-tab').forEach(b => b.addEventListener('click', () => { gbQueueCenterTab = b.dataset.qtab; renderQueueCenter(); }));
       makeDraggable(w, w.querySelector('header'));
     }
     gbQueueCenter.style.display = 'flex';
-    renderQueueCenter();
+    gbQcReconciledAt = 0;
+    if (gbQcPaintTimer) { gbClearTimeout(gbQcPaintTimer); gbQcPaintTimer = 0; }
+    queueCenterPaint(false);
+    queueCenterStartTick();
   }
