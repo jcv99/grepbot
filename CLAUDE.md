@@ -350,6 +350,19 @@ Single-script loop pattern:
 - **Auto-recruit** (`recruitScan`, default OFF, HIGH-RISK): controller from unit metadata (barracks / docks / temple). Spells require explicit power id — never default to `call_of_the_ocean`. Unknown unit cost blocks.
 - **Orchestration** (`orchTick`, v1.1.0, rebuilt v1.4.0): cadence-aware sole scheduler for econ features (farm/cave/culture/trade/ab/…); no parallel per-feature intervals. `ibScan` / `dodge` / scrapes stay on their own timers. v1.4.0: up to `ORCH_MAX_PER_TICK` (3) due features per 20s tick spaced ~450ms — one-per-tick capped the whole econ at 3 actions/min while cave+build+recruit alone want 6; overdue-ness breaks priority ties past 2 ticks so the tail of `priorityOrder` cannot starve; cadences carry ±20% jitter so features do not re-align into periodic bursts; **adaptive backoff** (`state.orchAdaptive`, default ON) doubles a feature's cadence up to 8× after 4 runs that posted nothing (measured by journal entry count) and resets on the first post. `orchStatus()` feeds the Stats tab.
 - **QoL** (`qol.js`): pause-on-activity, night pause, city templates, Overview health, config import/export.
+- **Config tab layout** (v4.55.0): the 169 controls of Sistema > Ajustes live in
+  11 `gbCfgGroup()` `<details>` blocks (General y seguridad / Recoleccion /
+  Construccion / Almacen-comercio / Cultura / Ritmo / Interfaz / Avisos /
+  Diagnostico / Defensa / Premium), the last two flagged `risk`. Grouping is
+  **presentation only** — `bindConfig` still resolves every control by
+  `[data-cfg=…]` scoped to `section[data-tab=config]`, so a control may be moved
+  between groups freely but must keep its `data-cfg` value. Row classes:
+  `gb-cfg-row` (toggle), `gb-cfg-num` (label + inputs), `gb-cfg-sub` (indented
+  child of the toggle above it), `gb-cfg-note` (read-only text). The filter box
+  hides rows/groups with the `hidden` property, and a matched non-`gb-cfg-sub`
+  row drags its following `gb-cfg-sub`/`gb-cfg-note` siblings with it — a
+  toggle and its thresholds are one unit. `.config-panel [hidden]` needs
+  `display:none!important` because the row classes set `display:flex`.
 - **Intel** (`intel.js`): threat board, dossiers, player notes, Grepodata Index+ assist, watchlist (matches `f.town.id`).
 - **Hardening** (v1.0.0 + v1.5.3 audit): global captcha kill-switch, request budget/min (bridge + `gbXhr`), `gameAjaxPost`, module health, captcha skips consumer onload, host-gated scrapes/reports, timeout ≠ retry for irreversible actions.
 - **Instant build + research** (`ibScan`/`ibCompleteAll`, toggle `ibAuto`, default OFF): every 10s reads orders via `gameNow()`; free only when remaining ≤ thresh **and** `GameDataInstantBuy` price === 0. Posts `completeInstant` (or sniffed free action); **never** auto-falls back to `buyInstant`. Timeout → reconcile only. Academy research shares the path (`ibActionR`).

@@ -123,6 +123,82 @@
       }, null);
     }
 
+    function snapshotBp(u) {
+      // Battle points ("puntos de combate"). Source of truth is the in-page
+      // DOM node the topbar uses -- safer than relying on a backbone method
+      // that varies across client builds. Falls back to Player model method.
+      return safe(() => {
+        const node = document.querySelector(
+          '.nui_battlepoints_container .points'
+        );
+        const txt = node && node.textContent ? node.textContent.trim() : null;
+        if (txt) {
+          const n = parseInt(txt.replace(/\s+/g, ''), 10);
+          if (Number.isFinite(n)) return { at: Date.now(), bp: n };
+        }
+        // Backbone fallback
+        const MM = u.MM;
+        if (MM && typeof MM.getOnlyModelByName === 'function') {
+          const pl = MM.getOnlyModelByName('Player');
+          if (pl) {
+            const fn = pl.getBattlePoints || pl.getHonor || pl.getPoints;
+            if (typeof fn === 'function') {
+              const v = parseInt(fn.call(pl), 10);
+              if (Number.isFinite(v)) return { at: Date.now(), bp: v };
+            }
+          }
+        }
+        return { at: Date.now(), bp: null, hint: 'BP not visible yet -- open world map first' };
+      }, { at: Date.now(), bp: null });
+    }
+
+    function snapshotMap(u) {
+      // Visible map towns + their player + garrison estimate. We start from
+      // ITowns (own towns) plus whatever WMap exposes; the SPA loads map
+      // chunks on demand, so this is best-effort.
+      return safe(() => {
+        const W = u.WMap;
+        const IT = u.ITowns;
+        const out = { at: Date.now(), towns: [] };
+        if (W && typeof W.getTowns === 'function') {
+          try {
+            const arr = W.getTowns();
+            if (Array.isArray(arr)) {
+              for (const t of arr.slice(0, 200)) {
+                if (!t) continue;
+                const id = t.id || t.town_id;
+                if (!id) continue;
+                out.towns.push({
+                  id: +id,
+                  name: t.name || (typeof t.getName === 'function' ? t.getName() : null),
+                  player_id: t.player_id || null,
+                  points: t.points || null,
+                  x: t.x != null ? +t.x : null,
+                  y: t.y != null ? +t.y : null,
+                });
+              }
+            }
+          } catch (_) {}
+        }
+        // If WMap not present, just fall back to ITowns.towns (own towns).
+        if (!out.towns.length && IT && typeof IT.getTowns === 'function') {
+          try {
+            for (const t of IT.getTowns()) {
+              if (!t) continue;
+              out.towns.push({
+                id: +t.id,
+                name: typeof t.getName === 'function' ? t.getName() : null,
+                player_id: null,
+                points: typeof t.getPoints === 'function' ? t.getPoints() : null,
+                own: true,
+              });
+            }
+          } catch (_) {}
+        }
+        return out;
+      }, null);
+    }
+
     function snapshotQueues(u) {
       // GrepBot's native queue state. The minimal shape the LLM needs:
       // build / research / recruit / recruitNaval per-town plan lists.
@@ -152,6 +228,8 @@
         towns: snapshotTowns(u),
         player: snapshotPlayer(u),
         queues: snapshotQueues(u),
+        bp: snapshotBp(u),
+        map: snapshotMap(u),
       };
     }
 
@@ -179,6 +257,8 @@
         if (snap.towns) send({ type: 'data', kind: 'towns', payload: snap.towns });
         if (snap.player) send({ type: 'data', kind: 'player', payload: snap.player });
         if (snap.queues) send({ type: 'data', kind: 'queues', payload: snap.queues });
+        if (snap.bp) send({ type: 'data', kind: 'bp', payload: snap.bp });
+        if (snap.map) send({ type: 'data', kind: 'map', payload: snap.map });
         lastTick = Date.now();
       } finally {
         inFlight = false;
@@ -192,6 +272,8 @@
       else if (k === 'towns') lastSnapshot.towns = snapshotTowns(u);
       else if (k === 'player') lastSnapshot.player = snapshotPlayer(u);
       else if (k === 'queues') lastSnapshot.queues = snapshotQueues(u);
+      else if (k === 'bp') lastSnapshot.bp = snapshotBp(u);
+      else if (k === 'map') lastSnapshot.map = snapshotMap(u);
       else { send({ type: 'ack', kind: 'unknown' }); return; }
       send({ type: 'data', kind: k, payload: lastSnapshot[k] });
     }
