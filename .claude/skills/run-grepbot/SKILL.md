@@ -40,12 +40,14 @@ Different chromium binary? `GREPBOT_CHROME=google-chrome-stable node …`.
 
 ```sh
 python3 build.py
-# built /…/grepbot.user.js (31 modules, v1.5.8)
+# built /…/grepbot.user.js (51 modules, v4.56.0, 1165 KB)
 ```
 
 `build.py` is a gated concat: it refuses to write the artifact on a
 duplicate top-level declaration across `src/*.js` (everything shares one
-IIFE) or on a `node --check` failure, exiting 1 either way.
+IIFE) or on a `node --check` failure, exiting 1 either way. As of v4.x
+it also ASCII-escapes every non-ASCII char in the JS body (the
+`==UserScript==` block stays raw — TM parses it as text).
 
 ## Run (agent path)
 
@@ -57,13 +59,13 @@ Output of a clean run:
 
 ```
 [driver] build: python3 build.py
-built /…/grepbot.user.js (31 modules, v1.5.8)
-[driver] artifact OK: 451788 bytes, v1.5.8, node --check clean
+built /…/grepbot.user.js (51 modules, v4.56.0, 1165 KB)
+[driver] artifact OK: 1192989 bytes, v4.56.0, node --check clean
 [driver] title: SMOKE_OK errors=0
-[driver] panel header: GrepBot v1.5.8
-[driver] tabs: findings:shown farms:shown world:shown attack:shown quests:shown build:shown overview:shown intel:shown config:shown stats:shown log:shown
-[driver] preflight: 30 lines -> /…/data/smoke/1786083523334-preflight.txt
-[driver] screenshot: /…/data/smoke/1786083523334-preflight.png
+[driver] panel header: GrepBot v4.56.0
+[driver] tabs: attack:shown overview:shown intel:shown config:shown stats:shown log:shown
+[driver] preflight: 68 lines -> /…/data/smoke/1786651755936-preflight.txt
+[driver] screenshot: /…/data/smoke/1786651755936-preflight.png
 [driver] PASS — artifacts in /…/data/smoke
 ```
 
@@ -76,12 +78,13 @@ Steps, in order:
 3. `node --check grepbot.user.js`
 4. chromium `--headless=new` on `smoke.html`, driven over CDP
 5. asserts `#grepbot-panel` mounted and its header reads the built version
-6. clicks all 11 tabs, screenshots each, asserts each section unhides
+6. clicks all 6 tabs (`attack` `overview` `intel` `config` `stats`
+   `log`), screenshots each, asserts each section unhides
 7. opens `Actions > Preflight`, dumps the Stats output to `.txt`
 8. fails on any `window.error` / `unhandledrejection` / `console.error`
 
-Artifacts land in `data/smoke/` (no `.gitignore` here — this repo is not
-a git checkout; delete the dir when you are done):
+Artifacts land in `data/smoke/` (ephemeral per `CLAUDE.md` — delete
+the dir when you are done):
 
 ```sh
 ls data/smoke/
@@ -118,8 +121,8 @@ printf 'tab config\ntext #grepbot-panel section[data-tab=config]\nss cfg\nerrors
 | `errors` | dump `window.__SMOKE_ERRORS__` |
 | `preflight` | run `Actions > Preflight`, print the Stats output |
 
-Tab ids: `findings farms world attack quests build overview intel config
-stats log`.
+Tab ids: `attack overview intel config stats log` (six, in nav order;
+matches `TABS` in `driver.mjs:42` and `TAB_GROUPS` in `src/ui.js:289`).
 
 ## Direct invocation (no browser)
 
@@ -146,9 +149,10 @@ auth-gated.
 
 ## Gotchas
 
-- **The panel nav is two levels.** `.gb-nav` groups (Scout / Action /
-  Account / System) and `.gb-subtabs` tabs. A sub-tab button **does not
-  exist in the DOM** until its group is active, so `querySelector('[data-tab=stats]')`
+- **The panel nav is two levels.** `.gb-nav` groups (`Inicio` /
+  `Militar` / `Sistema` — `TAB_GROUPS` at `src/ui.js:289`) and
+  `.gb-subtabs` tabs. A sub-tab button **does not exist in the DOM**
+  until its group is active, so `querySelector('[data-tab=stats]')`
   returns null from a cold start. Walk the group buttons first — that's
   what `selectTabExpr()` in the driver does.
 - **`GM_info` must be stubbed or the panel lies about its version.**
