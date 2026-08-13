@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.47.0
+// @version      4.48.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -351,6 +351,64 @@ const STORE = {
     target.addEventListener(type, wrapped, opts);
     gbListenerBag.push({ target, type, fn: wrapped, opts });
     return wrapped;
+  }
+
+  function gbPaint(host, build, opts) {
+    if (!host || typeof build !== 'function') return 'skip';
+    const o = opts || {};
+    const stage = document.createElement('div');
+    build(stage);
+    const key = String(o.key == null ? '' : o.key);
+    const top = host.scrollTop;
+    let out;
+    if (host.dataset.gbPaintKey !== key) {
+      host.replaceChildren.apply(host, Array.prototype.slice.call(stage.childNodes));
+      host.dataset.gbPaintKey = key;
+      out = 'replace';
+    } else {
+      const r = gbPaintPatch(host, stage);
+      if (r === false) {
+        host.replaceChildren.apply(host, Array.prototype.slice.call(stage.childNodes));
+        out = 'replace';
+      } else out = r ? 'patch' : 'same';
+    }
+    if (out === 'replace' && top && host.scrollHeight > host.clientHeight) {
+      host.scrollTop = Math.min(top, host.scrollHeight - host.clientHeight);
+    }
+    return out;
+  }
+
+  function gbPaintPatch(cur, next) {
+    if (cur.childNodes.length !== next.childNodes.length) return false;
+    let wrote = 0;
+    for (let i = 0; i < cur.childNodes.length; i++) {
+      const a = cur.childNodes[i], b = next.childNodes[i];
+      if (a.nodeType !== b.nodeType) return false;
+      if (a.nodeType === 3 || a.nodeType === 8) {
+        if (a.data !== b.data) { a.data = b.data; wrote = 1; }
+        continue;
+      }
+      if (a.nodeType !== 1) return false;
+      if (a.tagName !== b.tagName) return false;
+      const an = a.attributes, bn = b.attributes;
+      for (let k = an.length - 1; k >= 0; k--) {
+        if (!b.hasAttribute(an[k].name)) { a.removeAttribute(an[k].name); wrote = 1; }
+      }
+      for (let k = 0; k < bn.length; k++) {
+        if (a.getAttribute(bn[k].name) !== bn[k].value) { a.setAttribute(bn[k].name, bn[k].value); wrote = 1; }
+      }
+      const r = gbPaintPatch(a, b);
+      if (r === false) return false;
+      if (r) wrote = 1;
+
+      if (a === document.activeElement) continue;
+      if (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT') {
+        if (a.type === 'checkbox' || a.type === 'radio') {
+          if (a.checked !== b.checked) { a.checked = b.checked; wrote = 1; }
+        } else if (a.value !== b.value) { a.value = b.value; wrote = 1; }
+      }
+    }
+    return wrote;
   }
   function gbClearTimers() {
     for (const t of gbTimerBag.slice()) {
@@ -8122,12 +8180,16 @@ const STORE = {
 
     let box=document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`);
     if(!box){box=document.createElement('div');box.className='gb-native-panel';box.dataset.lane=lane;box.dataset.town=String(townId);document.body.appendChild(box);box.addEventListener('mousedown',e=>e.stopPropagation());box.addEventListener('click',e=>e.stopPropagation())}
-    const oldScroll=box.scrollTop;
-    box.replaceChildren();const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot \u00b7 Construcci\u00f3n':(lane==='research'?'Cola GrepBot \u00b7 Investigaci\u00f3n':(lane==='recruitNaval'?'Cola GrepBot \u00b7 Puerto':'Cola GrepBot \u00b7 Cuartel'));head.appendChild(title);
-    const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'>':'||',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
-    const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&(j.inflight||j.manualReview));if(!list.length&&nativeQueueIsFifo(townId,lane)){const legacy=nativeQButton('Objetivos','Volver al planificador de objetivos',nativeTownAction(root,townId,()=>nativeQueueUseLegacy(townId,lane)));head.appendChild(legacy)}box.appendChild(head);
-    if(!list.length){const empty=document.createElement('div');empty.className='gb-native-empty';empty.textContent=nativeQueueIsFifo(townId,lane)?'Cola vac\u00eda. Usa los botones + de arriba.':'Usa + para crear una cola FIFO en esta ciudad.';box.appendChild(empty);box.scrollTop=oldScroll;return}
-    list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}\u2192${j.toLevel}`:(lane==='research'?nativeResearchLabel(j.tech):`${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`);const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' \u00b7 '+j.reason:''}`;desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const up=nativeQButton('\u2191','Mover antes',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('\u2193','Mover despu\u00e9s',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const del=nativeQButton('\u00d7','Quitar de la cola virtual',nativePanelAction(townId,()=>{if(j.inflight){flash('Esta orden se est\u00e1 enviando; espera a que termine');return false}if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acci\u00f3n se envi\u00f3 o no.')}catch(_){ok=false}if(!ok)return false}else if(frozen){let ok=false;try{ok=gameUw().confirm('Hay otra acci\u00f3n pendiente en esta cola. \u00bfBorrar este elemento de todos modos?')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id,{force:true})}));del.disabled=!!j.inflight;acts.append(up,down,del);row.append(num,desc,acts);box.appendChild(row)});box.scrollTop=oldScroll;
+
+    const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&(j.inflight||j.manualReview));
+    const key=`${lane}|${townId}|${frozen?'F':'-'}|`+list.map(j=>`${j.id}:${j.inflight?1:0}${j.manualReview?'m':''}`).join(',');
+    gbPaint(box,stage=>{
+      const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot \u00b7 Construcci\u00f3n':(lane==='research'?'Cola GrepBot \u00b7 Investigaci\u00f3n':(lane==='recruitNaval'?'Cola GrepBot \u00b7 Puerto':'Cola GrepBot \u00b7 Cuartel'));head.appendChild(title);
+      const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'>':'||',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
+      if(!list.length&&nativeQueueIsFifo(townId,lane)){const legacy=nativeQButton('Objetivos','Volver al planificador de objetivos',nativeTownAction(root,townId,()=>nativeQueueUseLegacy(townId,lane)));head.appendChild(legacy)}stage.appendChild(head);
+      if(!list.length){const empty=document.createElement('div');empty.className='gb-native-empty';empty.textContent=nativeQueueIsFifo(townId,lane)?'Cola vac\u00eda. Usa los botones + de arriba.':'Usa + para crear una cola FIFO en esta ciudad.';stage.appendChild(empty);return}
+      list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}\u2192${j.toLevel}`:(lane==='research'?nativeResearchLabel(j.tech):`${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`);const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' \u00b7 '+j.reason:''}`;desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const up=nativeQButton('\u2191','Mover antes',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('\u2193','Mover despu\u00e9s',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const del=nativeQButton('\u00d7','Quitar de la cola virtual',nativePanelAction(townId,()=>{if(j.inflight){flash('Esta orden se est\u00e1 enviando; espera a que termine');return false}if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acci\u00f3n se envi\u00f3 o no.')}catch(_){ok=false}if(!ok)return false}else if(frozen){let ok=false;try{ok=gameUw().confirm('Hay otra acci\u00f3n pendiente en esta cola. \u00bfBorrar este elemento de todos modos?')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id,{force:true})}));del.disabled=!!j.inflight;acts.append(up,down,del);row.append(num,desc,acts);stage.appendChild(row)});
+    },{key});
   }
   function nativeUiScan() {
     if(!gbInstanceAlive()||!document.body)return;nativeEnsureBuildingIds();
@@ -8580,14 +8642,16 @@ const STORE = {
     abEnsureTargets();
     const townId = abCurrentTownId() || (abTownIds()[0]);
     const levels = townId ? abCurrentLevels(townId) : null;
-    box.replaceChildren();
+
+    const order = abEnsureOrder();
+    gbPaint(box, stage => {
     const head = document.createElement('div');
     head.style.cssText = 'display:grid;grid-template-columns:1.2fr .5fr .5fr .5fr auto;gap:4px;font-size:9px;color:#888;margin-bottom:2px';
     ['building', 'cur', 'tgt', 'max', ''].forEach(t => {
       const s = document.createElement('span'); s.textContent = t; head.appendChild(s);
     });
-    box.appendChild(head);
-    abEnsureOrder().forEach(b => {
+    stage.appendChild(head);
+    order.forEach(b => {
       const row = document.createElement('div');
       row.className = 'ab-row';
       row.style.cssText = 'display:grid;grid-template-columns:1.2fr .5fr .5fr .5fr auto;gap:4px;align-items:center;padding:1px 0;border-bottom:1px solid #2a2a2a;font-size:10px';
@@ -8633,8 +8697,9 @@ const STORE = {
       row.appendChild(tgtEl);
       row.appendChild(maxEl);
       row.appendChild(btns);
-      box.appendChild(row);
+      stage.appendChild(row);
     });
+    }, { key: String(townId || '') + '|' + order.join(',') });
     if (status) {
       const q = townId ? abQueueInfo(townId) : null;
       const next = townId && q && q.len < q.max ? abPickNext(townId) : null;
@@ -13716,7 +13781,13 @@ const STORE = {
 
     let drag = null;
     let timer = 0;
-    const render = () => { try { if (typeof o.render === 'function') o.render(body); } catch (e) { gbLogT('widget-render-' + id, 60000, `widget ${id}: ${String(e).slice(0, 60)}`); } };
+
+    const render = () => {
+      try {
+        if (typeof o.render !== 'function') return;
+        gbPaint(body, stage => o.render(stage), { key: typeof o.key === 'function' ? o.key() : o.key });
+      } catch (e) { gbLogT('widget-render-' + id, 60000, `widget ${id}: ${String(e).slice(0, 60)}`); }
+    };
     gbListen(head, 'mousedown', e => {
       if (e.target.closest('button, select, input')) return;
       const r = host.getBoundingClientRect();
@@ -13743,7 +13814,7 @@ const STORE = {
         host.style.display = 'block';
         render();
 
-        if (o.tickMs && !timer) timer = gbInterval(() => { if (api.isOpen()) render(); }, o.tickMs);
+        if (o.tickMs && !timer) timer = gbInterval(() => { if (api.isOpen() && !document.hidden) render(); }, o.tickMs);
       },
       close() { host.style.display = 'none'; },
       refresh() { if (api.isOpen()) render(); },
@@ -20299,8 +20370,15 @@ const STORE = {
   let gbQcPaintTimer = 0;
   let gbQcTickTimer = 0;
 
-  const QC_ETA_RE = /<span class="gb-qc-eta"[\s\S]*?<\/span>/g;
-  function queueCenterSig(html) { return String(html || '').replace(QC_ETA_RE, '<eta/>'); }
+  function queueCenterKey(townId) {
+    const lanes = ['build', 'research', 'recruit', 'recruitNaval'];
+    let k = gbQueueCenterTab + '|' + townId;
+    for (const lane of lanes) {
+      k += '|' + lane + ':';
+      try { k += nativeQueueList(townId, lane, false).map(j => `${j.id}${j.inflight ? '!' : ''}${j.manualReview ? 'm' : ''}`).join(','); } catch (_) { k += '?'; }
+    }
+    return k;
+  }
   function queueCenterVisible() {
     const w = gbQueueCenter;
     return !!(w && document.body.contains(w) && w.style.display !== 'none');
@@ -20359,29 +20437,14 @@ const STORE = {
       }
       if (sel.value !== String(gbQueueCenterTown)) sel.value = String(gbQueueCenterTown);
       w.querySelectorAll('.gb-qc-tab').forEach(b => b.classList.toggle('on', b.dataset.qtab === gbQueueCenterTab));
+
       const body = w.querySelector('.gb-qc-body');
-
-      const stage = document.createElement('div');
-      if (gbQueueCenterTab === 'build') renderQueueCenterBuild(stage, gbQueueCenterTown);
-      else if (gbQueueCenterTab === 'research') renderQueueCenterResearch(stage, gbQueueCenterTown);
-      else if (gbQueueCenterTab === 'barracks') renderQueueCenterRecruit(stage, gbQueueCenterTown, false);
-      else renderQueueCenterRecruit(stage, gbQueueCenterTown, true);
-      if (queueCenterSig(stage.innerHTML) === queueCenterSig(body.innerHTML)) {
-
-        const fresh = stage.querySelectorAll('.gb-qc-eta'), old = body.querySelectorAll('.gb-qc-eta');
-        if (fresh.length === old.length) {
-          for (let i = 0; i < fresh.length; i++) {
-            if (fresh[i].dataset.eta == null) continue;
-            old[i].dataset.eta = fresh[i].dataset.eta; old[i].dataset.t0 = fresh[i].dataset.t0;
-            delete old[i].dataset.done;
-          }
-        }
-        return;
-      }
-
-      const top = body.scrollTop;
-      body.replaceChildren.apply(body, Array.prototype.slice.call(stage.childNodes));
-      if (top && body.scrollHeight > body.clientHeight) body.scrollTop = Math.min(top, body.scrollHeight - body.clientHeight);
+      gbPaint(body, stage => {
+        if (gbQueueCenterTab === 'build') renderQueueCenterBuild(stage, gbQueueCenterTown);
+        else if (gbQueueCenterTab === 'research') renderQueueCenterResearch(stage, gbQueueCenterTown);
+        else if (gbQueueCenterTab === 'barracks') renderQueueCenterRecruit(stage, gbQueueCenterTown, false);
+        else renderQueueCenterRecruit(stage, gbQueueCenterTown, true);
+      }, { key: queueCenterKey(gbQueueCenterTown) });
     } finally { gbQcRendering = false; }
   }
 

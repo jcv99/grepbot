@@ -484,12 +484,19 @@
   let gbQcPaintTimer = 0;
   let gbQcTickTimer = 0;
 
-  // Countdown cells are volatile by design (they move every second, and every
-  // paint re-reads them a few seconds later), so they are blanked before two
-  // renders are compared. Everything else — order, labels, status badges,
-  // disabled states — is compared verbatim.
-  const QC_ETA_RE = /<span class="gb-qc-eta"[\s\S]*?<\/span>/g;
-  function queueCenterSig(html) { return String(html || '').replace(QC_ETA_RE, '<eta/>'); }
+  // Identity of everything the painted handlers close over: the tab, the town,
+  // and every virtual job in the town's four lanes. gbPaint patches while this
+  // holds and rebuilds when it moves, so an ↑/↓/× button can never act on a job
+  // that has since shifted position or left the queue.
+  function queueCenterKey(townId) {
+    const lanes = ['build', 'research', 'recruit', 'recruitNaval'];
+    let k = gbQueueCenterTab + '|' + townId;
+    for (const lane of lanes) {
+      k += '|' + lane + ':';
+      try { k += nativeQueueList(townId, lane, false).map(j => `${j.id}${j.inflight ? '!' : ''}${j.manualReview ? 'm' : ''}`).join(','); } catch (_) { k += '?'; }
+    }
+    return k;
+  }
   function queueCenterVisible() {
     const w = gbQueueCenter;
     return !!(w && document.body.contains(w) && w.style.display !== 'none');
@@ -559,35 +566,18 @@
       }
       if (sel.value !== String(gbQueueCenterTown)) sel.value = String(gbQueueCenterTown);
       w.querySelectorAll('.gb-qc-tab').forEach(b => b.classList.toggle('on', b.dataset.qtab === gbQueueCenterTab));
+      // Paint through the shared primitive: an unchanged window is patched in
+      // place (text + attributes), so the scroll offset, the :hover under the
+      // cursor and the eta baselines the ticker reads all survive a background
+      // repaint. The key is every job the row handlers close over — a reorder or
+      // a removal rebuilds instead of patching, so no button outlives its job.
       const body = w.querySelector('.gb-qc-body');
-      // Render into a detached node first. Most background paints produce the
-      // exact same window, and swapping it in anyway is what dropped the scroll
-      // position, killed :hover on the button under the cursor and made a click
-      // that landed mid-repaint feel lost.
-      const stage = document.createElement('div');
-      if (gbQueueCenterTab === 'build') renderQueueCenterBuild(stage, gbQueueCenterTown);
-      else if (gbQueueCenterTab === 'research') renderQueueCenterResearch(stage, gbQueueCenterTown);
-      else if (gbQueueCenterTab === 'barracks') renderQueueCenterRecruit(stage, gbQueueCenterTown, false);
-      else renderQueueCenterRecruit(stage, gbQueueCenterTown, true);
-      if (queueCenterSig(stage.innerHTML) === queueCenterSig(body.innerHTML)) {
-        // Same window: keep the live DOM, but hand the ticker the fresh
-        // baselines it would otherwise have missed. Identical signatures mean
-        // identical row structure, so the index match is safe.
-        const fresh = stage.querySelectorAll('.gb-qc-eta'), old = body.querySelectorAll('.gb-qc-eta');
-        if (fresh.length === old.length) {
-          for (let i = 0; i < fresh.length; i++) {
-            if (fresh[i].dataset.eta == null) continue;
-            old[i].dataset.eta = fresh[i].dataset.eta; old[i].dataset.t0 = fresh[i].dataset.t0;
-            delete old[i].dataset.done;
-          }
-        }
-        return;
-      }
-      // Scroll position is the other casualty of a full rebuild: without this
-      // any background paint yanked a scrolled-down player back to the top.
-      const top = body.scrollTop;
-      body.replaceChildren.apply(body, Array.prototype.slice.call(stage.childNodes));
-      if (top && body.scrollHeight > body.clientHeight) body.scrollTop = Math.min(top, body.scrollHeight - body.clientHeight);
+      gbPaint(body, stage => {
+        if (gbQueueCenterTab === 'build') renderQueueCenterBuild(stage, gbQueueCenterTown);
+        else if (gbQueueCenterTab === 'research') renderQueueCenterResearch(stage, gbQueueCenterTown);
+        else if (gbQueueCenterTab === 'barracks') renderQueueCenterRecruit(stage, gbQueueCenterTown, false);
+        else renderQueueCenterRecruit(stage, gbQueueCenterTown, true);
+      }, { key: queueCenterKey(gbQueueCenterTown) });
     } finally { gbQcRendering = false; }
   }
   // 1s clock for the real-queue rows. Touches text nodes only — never the tree —

@@ -461,6 +461,20 @@ In-app SPA navigation (Reports / World / Farms) keeps the tab visible → no `se
   (`tr[data-key]`, `div[data-town]`) and rebuild only when the id **set** changes
   — compare membership, not order, or a user column-sort is wiped on every
   repaint. `renderAttack` no longer interpolates town names into `innerHTML`.
+- v4.48.0 `gbPaint(host, build, {key})` (core) generalises that convention to
+  every window. `build(stage)` fills a **detached** node; identical structure is
+  then patched in place (text data + attributes, plus `value`/`checked` on any
+  control that is **not** `document.activeElement`), so live nodes keep their
+  listeners, their scroll offset, their `:hover` and whatever the user was
+  typing. It never moves/inserts/deletes nodes — a structural difference falls
+  back to a wholesale replace. `key` is the identity of what the handlers close
+  over (job ids, town id, row order); when it changes the subtree is replaced
+  instead of patched, so a kept button can never fire for a job that moved or
+  left. Users: Queue Center body, `nativeRenderQueuePanel`, `renderAbQueue`, and
+  every `gbWidgetRegister` widget (`o.key` optional). Do not replace a `gbPaint`
+  call with a bare `replaceChildren()` loop on a timer — that is the bug it
+  exists to prevent (the Build tab's target inputs were wiped mid-typing by any
+  queue mutation, and the 1s HUD countdown rebuilt its whole window every tick).
 - v1.5.3 audit: free instant requires model gold===0 + gameNow(); never
   buyInstant fallback on timeout; olympic needs allowPremiumCulture+budget;
   quests every()+no DOM fallback; dodge hostile-only; attack town targets +

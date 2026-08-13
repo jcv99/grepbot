@@ -71,6 +71,90 @@
     gbListenerBag.push({ target, type, fn: wrapped, opts });
     return wrapped;
   }
+  // --- Repaint primitive (v4.48.0) -----------------------------------------
+  // Every window in this script used to repaint by clearing its host and
+  // rebuilding the subtree from scratch, on a timer. That is what made the UI
+  // feel dead under the cursor: the node being hovered, the row being clicked,
+  // the scroll offset and the focused control are all destroyed several times a
+  // minute even when nothing about the render changed.
+  //
+  // gbPaint builds into a DETACHED node, then reconciles: identical structure is
+  // patched in place (text + attributes only), so live nodes and their listeners
+  // survive and only what actually changed is written to the document.
+  //
+  // `opts.key` is the identity of the things being rendered (job ids, town id,
+  // …). A kept node keeps its listeners, and those closures captured the entity
+  // they were built for — so when the key changes the subtree is REPLACED
+  // wholesale rather than patched, and no handler can outlive its subject.
+  // Callers that render nothing but text may omit it.
+  //
+  // Returns 'same' | 'patch' | 'replace' | 'skip'.
+  function gbPaint(host, build, opts) {
+    if (!host || typeof build !== 'function') return 'skip';
+    const o = opts || {};
+    const stage = document.createElement('div');
+    build(stage);
+    const key = String(o.key == null ? '' : o.key);
+    const top = host.scrollTop;
+    let out;
+    if (host.dataset.gbPaintKey !== key) {
+      host.replaceChildren.apply(host, Array.prototype.slice.call(stage.childNodes));
+      host.dataset.gbPaintKey = key;
+      out = 'replace';
+    } else {
+      const r = gbPaintPatch(host, stage);
+      if (r === false) {
+        host.replaceChildren.apply(host, Array.prototype.slice.call(stage.childNodes));
+        out = 'replace';
+      } else out = r ? 'patch' : 'same';
+    }
+    if (out === 'replace' && top && host.scrollHeight > host.clientHeight) {
+      host.scrollTop = Math.min(top, host.scrollHeight - host.clientHeight);
+    }
+    return out;
+  }
+  // Returns false when the two trees differ structurally (caller replaces),
+  // true when something was written, 0 when they were already identical.
+  // Deliberately shallow-minded: it never moves, inserts or deletes nodes, so a
+  // reorder is a structural miss and falls back to a replace. Anything it does
+  // touch is a text node's data or an element's attributes — never a property,
+  // so a half-typed <input> value or an open <select> is left alone.
+  function gbPaintPatch(cur, next) {
+    if (cur.childNodes.length !== next.childNodes.length) return false;
+    let wrote = 0;
+    for (let i = 0; i < cur.childNodes.length; i++) {
+      const a = cur.childNodes[i], b = next.childNodes[i];
+      if (a.nodeType !== b.nodeType) return false;
+      if (a.nodeType === 3 || a.nodeType === 8) {
+        if (a.data !== b.data) { a.data = b.data; wrote = 1; }
+        continue;
+      }
+      if (a.nodeType !== 1) return false;
+      if (a.tagName !== b.tagName) return false;
+      const an = a.attributes, bn = b.attributes;
+      for (let k = an.length - 1; k >= 0; k--) {
+        if (!b.hasAttribute(an[k].name)) { a.removeAttribute(an[k].name); wrote = 1; }
+      }
+      for (let k = 0; k < bn.length; k++) {
+        if (a.getAttribute(bn[k].name) !== bn[k].value) { a.setAttribute(bn[k].name, bn[k].value); wrote = 1; }
+      }
+      const r = gbPaintPatch(a, b);
+      if (r === false) return false;
+      if (r) wrote = 1;
+      // Form controls hold their state in the PROPERTY, not the attribute, so
+      // an attribute-only patch would freeze every input at its first render.
+      // The focused control is exempt: whatever the user is typing or has open
+      // outranks a background repaint — that is the whole point of patching
+      // instead of rebuilding.
+      if (a === document.activeElement) continue;
+      if (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT') {
+        if (a.type === 'checkbox' || a.type === 'radio') {
+          if (a.checked !== b.checked) { a.checked = b.checked; wrote = 1; }
+        } else if (a.value !== b.value) { a.value = b.value; wrote = 1; }
+      }
+    }
+    return wrote;
+  }
   function gbClearTimers() {
     for (const t of gbTimerBag.slice()) {
       try { if (t.kind === 'i') clearInterval(t.id); else clearTimeout(t.id); } catch (_) {}

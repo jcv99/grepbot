@@ -63,7 +63,17 @@
 
     let drag = null;
     let timer = 0;
-    const render = () => { try { if (typeof o.render === 'function') o.render(body); } catch (e) { gbLogT('widget-render-' + id, 60000, `widget ${id}: ${String(e).slice(0, 60)}`); } };
+    // Widgets tick as fast as 1s (the incoming-attack countdown), so they paint
+    // through gbPaint: the row structure is stable between ticks, only the
+    // clocks move, and patching those text nodes leaves the window's scroll,
+    // hover and selection alone. o.key(), when the widget renders anything
+    // clickable, is what forces a real rebuild instead of a patch.
+    const render = () => {
+      try {
+        if (typeof o.render !== 'function') return;
+        gbPaint(body, stage => o.render(stage), { key: typeof o.key === 'function' ? o.key() : o.key });
+      } catch (e) { gbLogT('widget-render-' + id, 60000, `widget ${id}: ${String(e).slice(0, 60)}`); }
+    };
     gbListen(head, 'mousedown', e => {
       if (e.target.closest('button, select, input')) return;
       const r = host.getBoundingClientRect();
@@ -92,7 +102,7 @@
         render();
         // The tick belongs to the widget and only runs while it is OPEN, so a
         // closed countdown widget costs nothing.
-        if (o.tickMs && !timer) timer = gbInterval(() => { if (api.isOpen()) render(); }, o.tickMs);
+        if (o.tickMs && !timer) timer = gbInterval(() => { if (api.isOpen() && !document.hidden) render(); }, o.tickMs);
       },
       close() { host.style.display = 'none'; },
       refresh() { if (api.isOpen()) render(); },

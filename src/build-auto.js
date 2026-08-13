@@ -437,14 +437,19 @@
     abEnsureTargets();
     const townId = abCurrentTownId() || (abTownIds()[0]);
     const levels = townId ? abCurrentLevels(townId) : null;
-    box.replaceChildren();
+    // Painted, not rebuilt: nativeQueueSave() calls this on every queue
+    // mutation, and a wholesale rebuild threw away whatever target the player
+    // was typing into one of these number inputs. gbPaint leaves the focused
+    // control alone and the row order is the key, so ↑/↓ still rebuilds.
+    const order = abEnsureOrder();
+    gbPaint(box, stage => {
     const head = document.createElement('div');
     head.style.cssText = 'display:grid;grid-template-columns:1.2fr .5fr .5fr .5fr auto;gap:4px;font-size:9px;color:#888;margin-bottom:2px';
     ['building', 'cur', 'tgt', 'max', ''].forEach(t => {
       const s = document.createElement('span'); s.textContent = t; head.appendChild(s);
     });
-    box.appendChild(head);
-    abEnsureOrder().forEach(b => {
+    stage.appendChild(head);
+    order.forEach(b => {
       const row = document.createElement('div');
       row.className = 'ab-row';
       row.style.cssText = 'display:grid;grid-template-columns:1.2fr .5fr .5fr .5fr auto;gap:4px;align-items:center;padding:1px 0;border-bottom:1px solid #2a2a2a;font-size:10px';
@@ -490,8 +495,9 @@
       row.appendChild(tgtEl);
       row.appendChild(maxEl);
       row.appendChild(btns);
-      box.appendChild(row);
+      stage.appendChild(row);
     });
+    }, { key: String(townId || '') + '|' + order.join(',') });
     if (status) {
       const q = townId ? abQueueInfo(townId) : null;
       const next = townId && q && q.len < q.max ? abPickNext(townId) : null;
