@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.51.0
+// @version      4.52.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -22473,67 +22473,16 @@ const STORE = {
   function bindConfig() {
     const sec = panel.querySelector('section[data-tab=config]');
     if (!sec) return;
-
     const setNum = (sel, val) => { const el = sec.querySelector(sel); if (el) el.value = val; };
-    if (configBound) {
-      sec.querySelector('[data-cfg=enabled-host]').checked = state.enabledHosts[location.host] === true;
-      const acoll = sec.querySelector('[data-cfg=auto-collect]'); if (acoll) acoll.checked = !!state.autoCollect;
-      sec.querySelector('[data-cfg=collect-all]').checked = state.collectAll;
-      sec.querySelector('[data-cfg=auto-bandit]').checked = state.autoBandit;
-      sec.querySelector('[data-cfg=auto-farm]').checked = state.autoFarm;
-      sec.querySelector('[data-cfg=farm-skip-full]').checked = state.farmSkipFull;
-      const fm = sec.querySelector('[data-cfg=farm-full-mode]'); if (fm) fm.value = state.farmFullMode || 'any';
-      syncFarmTimingCfg(sec);
-      sec.querySelector('[data-cfg=auto-build]').checked = state.ibAuto;
-      const ir = sec.querySelector('[data-cfg=instant-research]'); if (ir) ir.checked = state.ibResearch;
-      sec.querySelector('[data-cfg=auto-queue]').checked = state.abAuto;
-      const awr = sec.querySelector('[data-cfg=auto-wall-repair]'); if (awr) awr.checked = !!state.autoWallRepair;
-      sec.querySelector('[data-cfg=auto-quest-build]').checked = state.questAutoBuild;
-      sec.querySelector('[data-cfg=auto-quest-res]').checked = state.questAutoRes;
-      const ac = sec.querySelector('[data-cfg=auto-cave]'); if (ac) ac.checked = state.autoCave;
-      const ct = sec.querySelector('[data-cfg=cave-thresh]'); if (ct) ct.value = state.caveThreshPct;
-      const eca = sec.querySelector('[data-cfg=emergency-cave-auto]'); if (eca) eca.checked = !!state.emergencyCaveAuto;
-      const ecc = sec.querySelector('[data-cfg=emergency-cave-confirm]'); if (ecc) ecc.value = emergencyConfirmAt();
-      const ecm = sec.querySelector('[data-cfg=emergency-cave-min-iron]'); if (ecm) ecm.value = emergencyMinIron();
-      const dr = sec.querySelector('[data-cfg=dry-run]'); if (dr) dr.checked = !!state.dryRun;
-      const oa = sec.querySelector('[data-cfg=orch-adaptive]'); if (oa) oa.checked = state.orchAdaptive !== false;
-      renderResearchPath(sec);
-      const od = sec.querySelector('[data-cfg=orch-deadlock]'); if (od) od.checked = state.orchDeadlockResolve !== false;
-      const er = sec.querySelector('[data-cfg=export-redact]'); if (er) er.checked = state.exportRedact !== false;
-      const th = sec.querySelector('[data-cfg=theme]'); if (th) th.value = GB_THEMES.includes(state.theme) ? state.theme : 'dark';
-      const ks = sec.querySelector('[data-cfg=keyboard-shortcuts]'); if (ks) ks.checked = state.keyboardShortcuts !== false;
-      const cm = sec.querySelector('[data-cfg=context-menu]'); if (cm) cm.checked = state.contextMenu !== false;
-      const sn = sec.querySelector('[data-cfg=snapshots-on]'); if (sn) sn.checked = state.snapshotsOn !== false;
-      const pf = sec.querySelector('[data-cfg=profiler-on]'); if (pf) pf.checked = !!state.profilerOn;
-      const mp = sec.querySelector('[data-cfg=mem-probe-on]'); if (mp) mp.checked = !!state.memProbeOn;
-      { const pa = profileAutoCfg();
-        const pc = sec.querySelector('[data-cfg=profile-auto]'); if (pc) pc.checked = pa.enabled;
-        setNum('[data-cfg=profile-auto-hold]', pa.minHoldMin);
-        const pl = sec.querySelector('.profile-auto-list');
-        if (pl) {
-          const last = state.profileAutoLast || {};
-          const DAY = ['do', 'lu', 'ma', 'mi', 'ju', 'vi', 'sa'];
-          const hhmm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
-          pl.textContent = (pa.rules.length
-            ? pa.rules.map(r => `${r.enabled ? '' : '(off) '}p${r.priority} ${r.profile} ${r.days.map(d => DAY[d]).join('') || 'SIN DIAS'} ${hhmm(r.startMin)}-${hhmm(r.endMin)} ` +
-                Object.entries(r.when).filter(([, v]) => v !== 'any').map(([k, v]) => k + '=' + v).join(' ')).join('\n')
-            : 'sin reglas') +
-            (last.profile ? `\nactual: ${last.profile} (regla ${last.ruleId || '?'})` : '');
-        } }
-      const kl = sec.querySelector('.key-list');
-      if (kl) {
-        const b = gbKeyBindings();
-        kl.textContent = Object.keys(b).sort().map(fp => `${fp}  ${(GB_KEY_ACTIONS[b[fp]] || {}).label || b[fp]}`).join('\n');
-      }
-      renderCaveTowns();
-      return;
-    }
+
+    const bindNow = !configBound;
     configBound = true;
+    const onCfg = (sel, type, fn) => { if (bindNow) sec.querySelector(sel)?.addEventListener(type, fn); };
     const hostEl = sec.querySelector('.cfg-host');
     if (hostEl) hostEl.textContent = location.host;
     const setChk = (sel, val) => { const el = sec.querySelector(sel); if (el) el.checked = !!val; };
 
-    const saveNum = (sel, fn) => sec.querySelector(sel)?.addEventListener('change', e => { fn(+e.target.value); });
+    const saveNum = (sel, fn) => onCfg(sel, 'change', e => { fn(+e.target.value); });
     setChk('[data-cfg=enabled-host]', state.enabledHosts[location.host] === true);
     setChk('[data-cfg=auto-collect]', state.autoCollect);
     setChk('[data-cfg=collect-all]', state.collectAll);
@@ -22563,23 +22512,23 @@ const STORE = {
     setNum('[data-cfg=posts-soft-pct]', state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60);
     const cl = sec.querySelector('[data-cfg=captcha-ladder]');
     if (cl) cl.value = (Array.isArray(state.captchaLadder) && state.captchaLadder.length ? state.captchaLadder : [5, 15, 60]).join(',');
-    sec.querySelector('[data-cfg=safe-mode]')?.addEventListener('change',e=>{state.safeMode=!!e.target.checked;save(STORE.SAFE_MODE,state.safeMode);gbLog('safeMode',state.safeMode);updateStatus();});
-    sec.querySelector('[data-cfg=enabled-host]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=safe-mode]', 'change',e=>{state.safeMode=!!e.target.checked;save(STORE.SAFE_MODE,state.safeMode);gbLog('safeMode',state.safeMode);updateStatus();});
+    onCfg('[data-cfg=enabled-host]', 'change', e => {
       state.enabledHosts[location.host] = e.target.checked;
       save(STORE.ENABLED_HOSTS, state.enabledHosts);
       flash(e.target.checked ? 'enabled on ' + location.host : 'disabled on ' + location.host);
     });
-    sec.querySelector('[data-cfg=auto-collect]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=auto-collect]', 'change', e => {
       state.autoCollect = e.target.checked; save(STORE.AUTO_COLLECT, state.autoCollect);
       gbLog('auto-collect', state.autoCollect ? 'ON' : 'OFF');
       if (state.autoCollect) autoCollectResources();
     });
-    sec.querySelector('[data-cfg=collect-all]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=collect-all]', 'change', e => {
       state.collectAll = e.target.checked; save(STORE.COLLECT_ALL, state.collectAll);
       flash(state.collectAll ? 'collect-all ON' : 'collect-all OFF');
       if (state.collectAll) collectAllBackground();
     });
-    sec.querySelector('[data-cfg=auto-bandit]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=auto-bandit]', 'change', e => {
       state.autoBandit = e.target.checked; save(STORE.AUTO_BANDIT, state.autoBandit);
       gbLog('auto-bandit', state.autoBandit ? 'ON' : 'OFF');
       if (state.autoBandit) {
@@ -22588,52 +22537,52 @@ const STORE = {
         banditScan();
       }
     });
-    sec.querySelector('[data-cfg=auto-farm]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=auto-farm]', 'change', e => {
       state.autoFarm = e.target.checked; save(STORE.AUTO_FARM, state.autoFarm);
       gbLog('auto-farm', state.autoFarm ? 'ON' : 'OFF');
       if (state.autoFarm) { autoClaimFarms('toggle'); farmScheduleClaimWake(null, 'toggle', true); }
       else farmCancelClaimWake();
     });
-    sec.querySelector('[data-cfg=farm-skip-full]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=farm-skip-full]', 'change', e => {
       state.farmSkipFull = e.target.checked; save(STORE.FARM_SKIP_FULL, state.farmSkipFull);
       gbLog('farm-skip-full', state.farmSkipFull ? 'ON' : 'OFF');
     });
-    sec.querySelector('[data-cfg=farm-full-mode]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=farm-full-mode]', 'change', e => {
       state.farmFullMode = e.target.value === 'all' ? 'all' : 'any';
       save(STORE.FARM_FULL_MODE, state.farmFullMode);
       gbLog('farm-full-mode', state.farmFullMode);
     });
-    sec.querySelector('[data-cfg=auto-build]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=auto-build]', 'change', e => {
       state.ibAuto = e.target.checked; save(STORE.IB_AUTO, state.ibAuto);
       gbLog('instant-build', state.ibAuto ? 'ON' : 'OFF');
       if (state.ibAuto) ibScan();
     });
-    sec.querySelector('[data-cfg=farm-long-claims]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=farm-long-claims]', 'change', e => {
       state.farmLongClaims = e.target.checked; save(STORE.FARM_LONG_CLAIMS, state.farmLongClaims);
       gbLog('farm 10min claims', state.farmLongClaims ? 'ON' : 'OFF');
     });
-    sec.querySelector('[data-cfg=farm-scrape]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=farm-scrape]', 'change', e => {
       state.farmScrape = e.target.checked; save(STORE.FARM_SCRAPE, state.farmScrape);
       if (state.farmScrape) farmScrapeRevive('config ON');
       else farmScrapeClearErrors();
       gbLog('farm resource scrape', state.farmScrape ? 'ON' : 'OFF');
       updateStatus();
     });
-    sec.querySelector('[data-cfg=farm-loyalty-tech]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=farm-loyalty-tech]', 'change', e => {
       state.farmLoyaltyTech = String(e.target.value || '').trim();
       save(wkey(STORE.FARM_LOYALTY_TECH), state.farmLoyaltyTech);
       farmLoyaltyReset();
       gbLog('farm loyalty tech: ' + (state.farmLoyaltyTech || 'auto-detect'));
     });
-    sec.querySelector('[data-cfg=farm-sleep-dur]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=farm-sleep-dur]', 'change', e => {
       state.farmSleepDur = e.target.value; save(STORE.FARM_SLEEP_DUR, state.farmSleepDur);
       syncFarmTimingCfg(sec);
     });
-    sec.querySelector('[data-cfg=farm-sleep-auto]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=farm-sleep-auto]', 'change', e => {
       state.farmSleepAuto = e.target.checked; save(STORE.FARM_SLEEP_AUTO, state.farmSleepAuto);
       gbLog('auto sleep claim', state.farmSleepAuto ? 'ON' : 'OFF');
     });
-    sec.querySelector('[data-cfg=instant-research]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=instant-research]', 'change', e => {
       state.ibResearch = e.target.checked; save(STORE.IB_RESEARCH, state.ibResearch);
       gbLog('instant-research', state.ibResearch ? 'ON' : 'OFF');
       if (state.ibResearch && state.ibAuto) ibScan();
@@ -22649,30 +22598,30 @@ const STORE = {
       state.buildSwapThresholdMin = Math.max(0, Math.min(120, Number.isFinite(+v) ? +v : 5));
       save(STORE.BUILD_SWAP_MIN, state.buildSwapThresholdMin);
     });
-    sec.querySelector('[data-cfg=auto-wall-repair]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=auto-wall-repair]', 'change', e => {
       state.autoWallRepair = !!e.target.checked;
       save(STORE.AUTO_WALL_REPAIR, state.autoWallRepair);
       gbLog('wall repair ' + (state.autoWallRepair ? 'ON - damaged walls count as below target' : 'OFF'));
       try { abScan('toggle'); } catch (_) {}
     });
-    sec.querySelector('[data-cfg=auto-queue]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=auto-queue]', 'change', e => {
       state.abAuto = e.target.checked; save(STORE.AB_AUTO, state.abAuto);
       gbLog('auto-queue', state.abAuto ? 'ON' : 'OFF');
       const el = panel.querySelector('#gb-ab-auto'); if (el) el.checked = state.abAuto;
       if (state.abAuto) abScan('toggle');
       renderAbQueue();
     });
-    sec.querySelector('[data-cfg=auto-quest-build]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=auto-quest-build]', 'change', e => {
       state.questAutoBuild = e.target.checked; save(STORE.QUEST_AUTO_BUILD, state.questAutoBuild);
       gbLog('auto-quest-build', state.questAutoBuild ? 'ON' : 'OFF');
       if (state.questAutoBuild) questScanTick('toggle');
     });
-    sec.querySelector('[data-cfg=auto-quest-res]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=auto-quest-res]', 'change', e => {
       state.questAutoRes = e.target.checked; save(STORE.QUEST_AUTO_RES, state.questAutoRes);
       gbLog('auto-quest-res', state.questAutoRes ? 'ON' : 'OFF');
       if (state.questAutoRes) questScanTick('toggle');
     });
-    sec.querySelector('[data-cfg=auto-cave]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=auto-cave]', 'change', e => {
       state.autoCave = e.target.checked; save(STORE.AUTO_CAVE, state.autoCave);
       gbLog('auto-cave', state.autoCave ? 'ON' : 'OFF');
       if (state.autoCave) caveScan('toggle');
@@ -22814,7 +22763,7 @@ const STORE = {
     setNum('[data-cfg=transport-reserve]', state.transportReserve);
     setNum('[data-cfg=transport-min]', state.transportMin);
     const bindToggle = (sel, key, store, onOn) => {
-      sec.querySelector(sel)?.addEventListener('change', e => {
+      onCfg(sel, 'change', e => {
         state[key] = e.target.checked; save(store, state[key]);
         gbLog(key, state[key] ? 'ON' : 'OFF');
         if (state[key] && onOn) onOn();
@@ -22824,7 +22773,7 @@ const STORE = {
     bindToggle('[data-cfg=auto-trade]', 'autoTrade', STORE.AUTO_TRADE, () => tradeScan('toggle'));
     bindToggle('[data-cfg=island-ship]', 'islandShip', STORE.ISLAND_SHIP, () => tradeScan('toggle'));
     bindToggle('[data-cfg=auto-trade-routes]', 'autoTradeRoutes', STORE.AUTO_TRADE_ROUTES, () => tradeScan('toggle'));
-    sec.querySelector('[data-cfg=trade-routes-edit]')?.addEventListener('click', () => {
+    onCfg('[data-cfg=trade-routes-edit]', 'click', () => {
       const cur = Object.values(state.tradeRoutes || {});
       const raw = prompt(
         'Rutas de comercio (JSON, lista).\nClaves: from, to, wood, stone, iron, minBatch, maxPerCycle, enabled,\ntrigger:{mode:"always"|"belowPct"|"abovePct", resource:"wood"|"stone"|"iron", value:0-100}.\nUna ruta con from===to o sin cantidades se descarta.',
@@ -22852,7 +22801,7 @@ const STORE = {
       saveNum('[data-cfg=dump-th-' + r + ']', v => saveDumpMap('dumpThreshold', STORE.DUMP_THRESHOLD, r, v, 50, 100));
       saveNum('[data-cfg=dump-keep-' + r + ']', v => saveDumpMap('dumpKeep', STORE.DUMP_KEEP, r, v, 0, 95));
     }
-    sec.querySelector('[data-cfg=dump-sinks]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=dump-sinks]', 'change', e => {
 
       const own = new Set((townsFromGame() || []).map(t => String(t.id)));
       const raw = String(e.target.value || '').split(/[,\s]+/).map(x => x.trim()).filter(Boolean);
@@ -22874,7 +22823,7 @@ const STORE = {
     bindToggle('[data-cfg=orch-adaptive]', 'orchAdaptive', STORE.ORCH_ADAPTIVE);
     bindToggle('[data-cfg=orch-deadlock]', 'orchDeadlockResolve', STORE.ORCH_DEADLOCK);
     bindToggle('[data-cfg=export-redact]', 'exportRedact', STORE.EXPORT_REDACT);
-    sec.querySelector('[data-cfg=dry-run]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=dry-run]', 'change', e => {
       state.dryRun = e.target.checked; save(STORE.DRY_RUN, state.dryRun);
       gbLog('DRY RUN ' + (state.dryRun ? 'ON - payloads logged, nothing sent' : 'OFF - posts go to the server'));
       flash(state.dryRun ? 'dry run ON' : 'dry run OFF');
@@ -22910,16 +22859,16 @@ const STORE = {
       });
     };
     ['pt-want-wood', 'pt-want-stone', 'pt-want-iron'].forEach(k => {
-      sec.querySelector('[data-cfg=' + k + ']')?.addEventListener('change', savePtWant);
+      onCfg('[data-cfg=' + k + ']', 'change', savePtWant);
     });
-    sec.querySelector('[data-cfg=pt-now]')?.addEventListener('click', () => {
+    onCfg('[data-cfg=pt-now]', 'click', () => {
       if (!state.ptTradeTpl) { flash('comercia una vez a mano primero'); return; }
       if (!confirm('Bombear el ratio del barco mercante y enviar ahora el trato grande?')) return;
       const was = state.autoPtTrade;
       if (!was) { state.autoPtTrade = true; save(STORE.AUTO_PT_TRADE, true); }
       ptTradeScan('manual');
     });
-    sec.querySelector('[data-cfg=pt-copy]')?.addEventListener('click', () => {
+    onCfg('[data-cfg=pt-copy]', 'click', () => {
       const root = typeof ptWindowRoot === 'function' ? ptWindowRoot() : null;
       if (!root) { flash('abre primero la ventana del mercader'); return; }
       navigator.clipboard.writeText(root.innerHTML.slice(0, 20000))
@@ -22953,7 +22902,7 @@ const STORE = {
       save(STORE.CULTURE_TYPES, state.cultureTypes);
     };
     ['cult-festival', 'cult-procession', 'cult-theater', 'cult-olympic'].forEach(k => {
-      sec.querySelector('[data-cfg=' + k + ']')?.addEventListener('change', saveCult);
+      onCfg('[data-cfg=' + k + ']', 'change', saveCult);
     });
     bindToggle('[data-cfg=allow-premium-culture]', 'allowPremiumCulture', STORE.ALLOW_PREMIUM_CULTURE);
     saveNum('[data-cfg=culture-gold-budget]', v => {
@@ -22967,11 +22916,11 @@ const STORE = {
     saveNum('[data-cfg=night-end]', v => { state.nightEnd = v; save(STORE.NIGHT_END, v); });
     saveNum('[data-cfg=req-budget]', v => { state.reqBudgetPerMin = v; save(STORE.REQ_BUDGET, v); });
     saveNum('[data-cfg=dodge-floor]', v => { state.dodgeFloor = v; save(STORE.DODGE_FLOOR, v); });
-    sec.querySelector('[data-cfg=rural-res]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=rural-res]', 'change', e => {
       state.ruralTradeRes = e.target.value; save(STORE.RURAL_TRADE_RES, state.ruralTradeRes);
     });
-    sec.querySelector('[data-cfg=defense-mode]')?.addEventListener('change',e=>{state.defenseCfg=Object.assign({},state.defenseCfg,{mode:['notify','safe','smart'].includes(e.target.value)?e.target.value:'notify'});save(STORE.DEFENSE_CFG,state.defenseCfg)});
-    sec.querySelector('[data-cfg=defense-smart-auto]')?.addEventListener('change',e=>{state.defenseCfg=Object.assign({},state.defenseCfg,{smartAuto:!!e.target.checked});save(STORE.DEFENSE_CFG,state.defenseCfg)});
+    onCfg('[data-cfg=defense-mode]', 'change',e=>{state.defenseCfg=Object.assign({},state.defenseCfg,{mode:['notify','safe','smart'].includes(e.target.value)?e.target.value:'notify'});save(STORE.DEFENSE_CFG,state.defenseCfg)});
+    onCfg('[data-cfg=defense-smart-auto]', 'change',e=>{state.defenseCfg=Object.assign({},state.defenseCfg,{smartAuto:!!e.target.checked});save(STORE.DEFENSE_CFG,state.defenseCfg)});
 
     const saveThreat = (key, v, lo, hi) => {
       if (!state.predictCfg || typeof state.predictCfg !== 'object') state.predictCfg = { horizonHours: 6 };
@@ -22986,7 +22935,7 @@ const STORE = {
       state.supportCfg[key] = Math.max(lo, Math.min(hi, Number.isFinite(+v) ? +v : state.supportCfg[key]));
       save(STORE.SUPPORT_CFG, state.supportCfg);
     };
-    sec.querySelector('[data-cfg=support-auto]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=support-auto]', 'change', e => {
       if (!state.supportCfg || typeof state.supportCfg !== 'object') state.supportCfg = {};
       state.supportCfg.auto = !!e.target.checked;
       save(STORE.SUPPORT_CFG, state.supportCfg);
@@ -22997,7 +22946,7 @@ const STORE = {
       state.favorCfg = Object.assign({}, state.favorCfg, { [key]: v });
       save(STORE.FAVOR_CFG, state.favorCfg);
     };
-    sec.querySelector('[data-cfg=godspell-power]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=godspell-power]', 'change', e => {
       const raw = String(e.target.value || '').trim();
 
       saveFavorCfg('spellPower', raw);
@@ -23010,13 +22959,13 @@ const STORE = {
       state.spyCfg[key] = v;
       spyCfgSave();
     };
-    sec.querySelector('[data-cfg=auto-spy]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=auto-spy]', 'change', e => {
       state.spyEnabled = !!e.target.checked;
       save(STORE.AUTO_SPY, state.spyEnabled);
       gbLog('auto-spy ' + (state.spyEnabled ? 'ON' : 'OFF'));
       if (state.spyEnabled && !state.spyTpl) flash('espionaje ON pero sin ruta: espia una ciudad a mano una vez');
     });
-    sec.querySelector('[data-cfg=spy-dry]')?.addEventListener('change', e => saveSpy('dryRun', !!e.target.checked));
+    onCfg('[data-cfg=spy-dry]', 'change', e => saveSpy('dryRun', !!e.target.checked));
     saveNum('[data-cfg=spy-per-cycle]', v => saveSpy('perCycle', Math.max(1, Math.min(5, +v || 1))));
     saveNum('[data-cfg=spy-min-gap]', v => saveSpy('minGapMs', Math.max(60000, Math.min(86400000, (+v || 20) * 60000))));
     saveNum('[data-cfg=spy-top]', v => saveSpy('autoTopReported', Math.max(0, Math.min(50, +v || 0))));
@@ -23029,7 +22978,7 @@ const STORE = {
       ar[key] = Math.max(lo, Math.min(hi, Number.isFinite(+v) ? +v : 0));
       saveDefense('attackRisk', ar);
     };
-    sec.querySelector('[data-cfg=defense-risk-threshold]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=defense-risk-threshold]', 'change', e => {
       const raw = String(e.target.value || '').trim();
 
       saveDefense('riskThresholdDodge', raw === '' ? null : Math.max(10, Math.min(200, +raw || 35)));
@@ -23037,7 +22986,7 @@ const STORE = {
     saveNum('[data-cfg=defense-risk-cs]', v => saveAttackRisk('csBonus', v, 0, 120));
     saveNum('[data-cfg=defense-risk-raid]', v => saveAttackRisk('raid', v, 0, 100));
     saveNum('[data-cfg=defense-risk-siege]', v => saveAttackRisk('siege', v, 0, 100));
-    sec.querySelector('[data-cfg=cs-snipe]')?.addEventListener('change', e => saveDefense('snipeDetect', !!e.target.checked));
+    onCfg('[data-cfg=cs-snipe]', 'change', e => saveDefense('snipeDetect', !!e.target.checked));
     saveNum('[data-cfg=cs-cluster-gap]', v => saveDefense('csClusterGapSec', Math.max(60, Math.min(21600, +v || 900))));
     saveNum('[data-cfg=cs-cover]', v => saveDefense('csCoverSec', Math.max(5, Math.min(900, +v || 180))));
     saveNum('[data-cfg=cs-tight]', v => saveDefense('csTightSec', Math.max(0, Math.min(120, Number.isFinite(+v) ? +v : 5))));
@@ -23062,7 +23011,7 @@ const STORE = {
     saveNum('[data-cfg=threat-support]', v => saveThreat('supportPer', v, 0, 30));
     saveNum('[data-cfg=threat-threshold]', v => saveThreat('smartThreshold', v, 0, 100));
     saveNum('[data-cfg=defense-return-margin]',v=>{state.defenseCfg=Object.assign({},state.defenseCfg,{returnMarginSec:Math.max(0,Math.min(3600,+v||0))});save(STORE.DEFENSE_CFG,state.defenseCfg)});
-    sec.querySelector('[data-cfg=webhook-url]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=webhook-url]', 'change', e => {
       state.webhookUrl = e.target.value.trim(); save(STORE.WEBHOOK_URL, state.webhookUrl);
       gbLog('webhook url', state.webhookUrl ? 'set' : 'cleared');
     });
@@ -23079,30 +23028,30 @@ const STORE = {
       save(STORE.WEBHOOK_EVENTS, state.webhookEvents);
     };
     ['wh-captcha', 'wh-attack', 'wh-warehouse', 'wh-culture', 'wh-capping', 'wh-counter-intel'].forEach(k => {
-      sec.querySelector('[data-cfg=' + k + ']')?.addEventListener('change', saveWebhookEvents);
+      onCfg('[data-cfg=' + k + ']', 'change', saveWebhookEvents);
     });
-    sec.querySelector('[data-cfg=wh-tg-chat]')?.addEventListener('change', saveWebhookEvents);
-    sec.querySelector('[data-cfg=intel-digest]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=wh-tg-chat]', 'change', saveWebhookEvents);
+    onCfg('[data-cfg=intel-digest]', 'change', e => {
       state.intelDigest = !!e.target.checked;
       save(STORE.INTEL_DIGEST, state.intelDigest);
       gbLog('intel digest ' + (state.intelDigest ? 'ON - spy summaries go to the webhook' : 'OFF'));
       if (state.intelDigest && !(state.webhookUrl || '').trim()) flash('resumen ON pero sin URL de webhook');
     });
-    sec.querySelector('[data-cfg=notify-enabled]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=notify-enabled]', 'change', e => {
       state.notifyEnabled = !!e.target.checked;
       save(STORE.NOTIFY_ENABLED, state.notifyEnabled);
       let perm = 'unsupported';
       try { perm = (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported'; } catch (_) {}
       if (state.notifyEnabled && perm !== 'granted') flash('falta permiso del navegador: pulsa "Permiso"');
     });
-    sec.querySelector('[data-cfg=notify-muted]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=notify-muted]', 'change', e => {
       state.notifyMuted = !!e.target.checked; save(STORE.NOTIFY_MUTED, state.notifyMuted);
     });
     saveNum('[data-cfg=notify-volume]', v => {
       state.notifyVolume = Math.max(0, Math.min(1, (Number.isFinite(+v) ? +v : 40) / 100));
       save(STORE.NOTIFY_VOLUME, state.notifyVolume);
     });
-    sec.querySelector('[data-cfg=notify-permission]')?.addEventListener('click', () => {
+    onCfg('[data-cfg=notify-permission]', 'click', () => {
 
       try {
         const r = Notification.requestPermission();
@@ -23110,14 +23059,14 @@ const STORE = {
         else bindConfig();
       } catch (e) { flash('notificaciones no soportadas'); }
     });
-    sec.querySelector('[data-cfg=notify-test]')?.addEventListener('click', () => {
+    onCfg('[data-cfg=notify-test]', 'click', () => {
       try { alertPlayChime('attack'); } catch (_) {}
       let perm = 'unsupported';
       try { perm = (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported'; } catch (_) {}
       if (perm === 'granted') { try { new Notification('GrepBot', { body: 'prueba de notificacion', tag: 'gb-test' }); } catch (_) {} }
       else flash('sonido probado; permiso de notificacion: ' + perm);
     });
-    sec.querySelector('[data-cfg=profile-auto]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=profile-auto]', 'change', e => {
       state.profileAutoCfg = Object.assign({}, state.profileAutoCfg, { enabled: !!e.target.checked });
       save(STORE.PROFILE_AUTO_CFG, state.profileAutoCfg);
       gbLog('profile-auto ' + (state.profileAutoCfg.enabled ? 'ON' : 'OFF'));
@@ -23126,7 +23075,7 @@ const STORE = {
       state.profileAutoCfg = Object.assign({}, state.profileAutoCfg, { minHoldMin: Math.max(15, Math.min(1440, +v || 15)) });
       save(STORE.PROFILE_AUTO_CFG, state.profileAutoCfg);
     });
-    sec.querySelector('[data-cfg=profile-auto-edit]')?.addEventListener('click', () => {
+    onCfg('[data-cfg=profile-auto-edit]', 'click', () => {
       const cur = profileAutoCfg().rules;
       const sample = [{ id: 'noche', enabled: true, priority: 10, profile: 'afk', days: [0, 1, 2, 3, 4, 5, 6], startMin: 0, endMin: 420, when: { activity: 'any', incoming: 'no', warehouse: 'any' } }];
       const raw = prompt(
@@ -23144,17 +23093,17 @@ const STORE = {
         bindConfig();
       } catch (_) { flash('JSON de reglas invalido'); }
     });
-    sec.querySelector('[data-cfg=snapshots-on]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=snapshots-on]', 'change', e => {
       state.snapshotsOn = !!e.target.checked; save(STORE.SNAPSHOTS_ON, state.snapshotsOn);
     });
-    sec.querySelector('[data-cfg=profiler-on]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=profiler-on]', 'change', e => {
       state.profilerOn = !!e.target.checked; save(STORE.PROFILER_ON, state.profilerOn);
       if (!state.profilerOn) state.profileRings = {};
     });
-    sec.querySelector('[data-cfg=mem-probe-on]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=mem-probe-on]', 'change', e => {
       state.memProbeOn = !!e.target.checked; save(STORE.MEM_PROBE_ON, state.memProbeOn);
     });
-    sec.querySelector('[data-cfg=snapshot-restore]')?.addEventListener('click', () => {
+    onCfg('[data-cfg=snapshot-restore]', 'click', () => {
       const l = snapshotList();
       if (!l.length) { flash('sin instantaneas'); return; }
       const menu = l.map(x => `${x.slot}: ${new Date(x.at).toLocaleString()} (${Math.round(x.sizeBytes / 1024)} KB)`).join('\n');
@@ -23166,17 +23115,17 @@ const STORE = {
       if (snapshotRestore(slot)) { flash('instantanea restaurada'); bindConfig(); updateStatus(); }
       else flash('no se pudo restaurar');
     });
-    sec.querySelector('[data-cfg=context-menu]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=context-menu]', 'change', e => {
       state.contextMenu = !!e.target.checked;
       save(STORE.CONTEXT_MENU, state.contextMenu);
       if (!state.contextMenu) { try { ctxDispose(); } catch (_) {} }
       else { try { contextMenuStart(); } catch (_) {} }
     });
-    sec.querySelector('[data-cfg=keyboard-shortcuts]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=keyboard-shortcuts]', 'change', e => {
       state.keyboardShortcuts = !!e.target.checked;
       save(STORE.KEYBOARD_SHORTCUTS, state.keyboardShortcuts);
     });
-    sec.querySelector('[data-cfg=keybindings-edit]')?.addEventListener('click', () => {
+    onCfg('[data-cfg=keybindings-edit]', 'click', () => {
       const raw = prompt(
         'Atajos (JSON). Clave = combinacion, valor = accion.\nAcciones: ' + Object.keys(GB_KEY_ACTIONS).join(', ') +
         '\nSolo Ctrl/Cmd(+Shift)+una tecla; Alt no se acepta.',
@@ -23198,13 +23147,13 @@ const STORE = {
         bindConfig();
       } catch (_) { flash('JSON de atajos invalido'); }
     });
-    sec.querySelector('[data-cfg=theme]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=theme]', 'change', e => {
       state.theme = GB_THEMES.includes(e.target.value) ? e.target.value : 'dark';
       save(STORE.THEME, state.theme);
       applyTheme();
       gbLog('theme ' + state.theme + ' (' + gbThemeResolved() + ')');
     });
-    sec.querySelector('[data-cfg=trade-preset]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=trade-preset]', 'change', e => {
       state.tradePreset = e.target.value; save(STORE.TRADE_PRESET, state.tradePreset);
       gbLog('tradePreset', state.tradePreset);
     });
@@ -23220,10 +23169,10 @@ const STORE = {
     saveNum('[data-cfg=transport-min]', v => {
       state.transportMin = Math.min(10000, gbCfgClamp(v, 100, Infinity, 1000)); save(STORE.TRANSPORT_MIN, state.transportMin);
     });
-    sec.querySelector('[data-cfg=research-csfast]')?.addEventListener('click', () => {
+    onCfg('[data-cfg=research-csfast]', 'click', () => {
       researchLoadCsFast(); flash('CS-fast research');
     });
-    sec.querySelector('[data-cfg=emergency-cave-auto]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=emergency-cave-auto]', 'change', e => {
       state.emergencyCaveAuto = !!e.target.checked;
       save(STORE.EMERGENCY_CAVE_AUTO, state.emergencyCaveAuto);
       gbLog('emergency cave auto ' + (state.emergencyCaveAuto ? 'ON - stashes ignoring the threshold on an imminent hit' : 'OFF'));
@@ -23237,7 +23186,7 @@ const STORE = {
       state.emergencyCaveMinIron = Math.max(1, Math.min(100000, Number.isFinite(+v) ? +v : 50));
       save(STORE.EMERGENCY_CAVE_MIN, state.emergencyCaveMinIron);
     });
-    sec.querySelector('[data-cfg=emergency-cave-now]')?.addEventListener('click', () => { try { emergencyStashAllNow(); } catch (e) { flash('fallo: ' + String(e).slice(0, 40)); } });
+    onCfg('[data-cfg=emergency-cave-now]', 'click', () => { try { emergencyStashAllNow(); } catch (e) { flash('fallo: ' + String(e).slice(0, 40)); } });
     saveNum('[data-cfg=cave-thresh]', v => {
       state.caveThreshPct = gbCfgClamp(v, 50, 99, 90);
       save(STORE.CAVE_THRESH, state.caveThreshPct);
@@ -23247,7 +23196,7 @@ const STORE = {
       state.farmSleepFillPct = Math.min(95, Math.max(10, v || 60));
       save(STORE.FARM_SLEEP_FILL, state.farmSleepFillPct);
     });
-    sec.querySelector('[data-cfg=adaptive-farm]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=adaptive-farm]', 'change', e => {
       state.adaptiveFarm = !!e.target.checked;
       save(STORE.ADAPTIVE_FARM, state.adaptiveFarm);
       gbLog('adaptive farm ' + (state.adaptiveFarm ? 'ON - trims the claim set under pressure' : 'OFF'));
@@ -23268,7 +23217,7 @@ const STORE = {
     saveNum('[data-cfg=farm-max]', v => { state.farmMaxMs = v * 60000; save(STORE.FARM_MAX, state.farmMaxMs); });
     saveNum('[data-cfg=town-min]', v => { state.townMinMs = v * 60000; save(STORE.TOWN_MIN, state.townMinMs); });
     saveNum('[data-cfg=town-max]', v => { state.townMaxMs = v * 60000; save(STORE.TOWN_MAX, state.townMaxMs); });
-    sec.querySelector('[data-cfg=captcha-ladder]')?.addEventListener('change', e => {
+    onCfg('[data-cfg=captcha-ladder]', 'change', e => {
       const raw = String(e.target.value || '').split(/[,\s]+/).map(x => parseInt(x, 10))
         .filter(n => Number.isFinite(n) && n >= 1 && n <= 24 * 60);
 
@@ -23282,11 +23231,41 @@ const STORE = {
       save(STORE.POSTS_SOFT_PCT, state.postsPerMinSoftPct);
       gbLog('posts soft ceiling =', state.postsPerMinSoftPct + '% of ' + (state.reqBudgetPerMin || 40) + '/min');
     });
-    sec.querySelector('[data-cfg=clear-captcha]')?.addEventListener('click', () => {
+    onCfg('[data-cfg=clear-captcha]', 'click', () => {
       captchaClear();
       gbLog('captcha breakers cleared by user');
       flash('cortacircuitos de captcha limpiados');
     });
+
+    setChk('[data-cfg=snapshots-on]', state.snapshotsOn !== false);
+    setChk('[data-cfg=profiler-on]', !!state.profilerOn);
+    setChk('[data-cfg=mem-probe-on]', !!state.memProbeOn);
+    setChk('[data-cfg=keyboard-shortcuts]', state.keyboardShortcuts !== false);
+    setChk('[data-cfg=context-menu]', state.contextMenu !== false);
+    setChk('[data-cfg=emergency-cave-auto]', !!state.emergencyCaveAuto);
+    setNum('[data-cfg=emergency-cave-confirm]', emergencyConfirmAt());
+    setNum('[data-cfg=emergency-cave-min-iron]', emergencyMinIron());
+    { const th = sec.querySelector('[data-cfg=theme]'); if (th) th.value = GB_THEMES.includes(state.theme) ? state.theme : 'dark'; }
+    { const pa = profileAutoCfg();
+      setChk('[data-cfg=profile-auto]', pa.enabled);
+      setNum('[data-cfg=profile-auto-hold]', pa.minHoldMin);
+      const pl = sec.querySelector('.profile-auto-list');
+      if (pl) {
+        const last = state.profileAutoLast || {};
+        const DAY = ['do', 'lu', 'ma', 'mi', 'ju', 'vi', 'sa'];
+        const hhmm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+        pl.textContent = (pa.rules.length
+          ? pa.rules.map(r => `${r.enabled ? '' : '(off) '}p${r.priority} ${r.profile} ${r.days.map(d => DAY[d]).join('') || 'SIN DIAS'} ${hhmm(r.startMin)}-${hhmm(r.endMin)} ` +
+              Object.entries(r.when).filter(([, v]) => v !== 'any').map(([k, v]) => k + '=' + v).join(' ')).join('\n')
+          : 'sin reglas') +
+          (last.profile ? `\nactual: ${last.profile} (regla ${last.ruleId || '?'})` : '');
+      } }
+    { const kl = sec.querySelector('.key-list');
+      if (kl) {
+        const b = gbKeyBindings();
+        kl.textContent = Object.keys(b).sort().map(fp => `${fp}  ${(GB_KEY_ACTIONS[b[fp]] || {}).label || b[fp]}`).join('\n');
+      } }
+    renderResearchPath(sec);
     renderCaveTowns();
   }
   bindConfig();
