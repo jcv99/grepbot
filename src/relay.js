@@ -686,15 +686,21 @@
         risk: 'write',
         doc: 'Send units from one of your towns at a target town. mission: attack|support|revolt.',
         args: {
-          target_id: 'number', from_town_id: 'number', mission: 'attack|support|revolt',
+          target_id: 'number (alias: target_town_id)', from_town_id: 'number', mission: 'attack|support|revolt',
           units: '{unitId:count} (optional)', troop_mode: 'all|offense|defense|all_of_type|harass (used when units is absent)',
           unit_type: 'string (all_of_type)', exclude: '[unitId] (optional)', exclude_transports: 'bool',
         },
         run: (a, done) => {
           const src = +a.from_town_id;
           if (!src) return done('no-source');
+          // `target_town_id` is the name the MCP wrapper has always published
+          // (tools/relay-mcp/src/commands.ts) while this handler only ever read
+          // `target_id` — so every gbAttack call resolved an EMPTY id and died
+          // as 'bad-target', which reads like a rejected target rather than a
+          // dropped argument. Both names are accepted; neither side is wrong.
+          const targetId = a.target_id != null ? a.target_id : a.target_town_id;
           const target = safe(() => resolveTarget({
-            targetId: String(a.target_id || ''), targetType: a.target_type || 'town',
+            targetId: String(targetId || ''), targetType: a.target_type || 'town',
             targetX: a.x, targetY: a.y,
           }), null);
           if (!target) return done('bad-target');
