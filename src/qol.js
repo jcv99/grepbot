@@ -228,9 +228,9 @@
     if (!name) return;
     if (!state.cityTemplates) state.cityTemplates = {};
     state.cityTemplates[name] = {
-      abTargets: JSON.parse(JSON.stringify(state.abTargets || {})),
-      researchTargets: JSON.parse(JSON.stringify(state.researchTargets || {})),
-      recruitTargets: JSON.parse(JSON.stringify(state.recruitTargets || {})),
+      abTargets: structuredClone(state.abTargets || {}),
+      researchTargets: structuredClone(state.researchTargets || {}),
+      recruitTargets: structuredClone(state.recruitTargets || {}),
       savedAt: Date.now(),
     };
     save(STORE.CITY_TEMPLATES, state.cityTemplates);
@@ -243,15 +243,15 @@
     const histBefore = qolConfigSnapshot();
 
     if (t.abTargets) {
-      state.abTargets = JSON.parse(JSON.stringify(t.abTargets));
+      state.abTargets = structuredClone(t.abTargets);
       save(STORE.AB_TARGETS, state.abTargets);
     }
     if (t.researchTargets) {
-      state.researchTargets = JSON.parse(JSON.stringify(t.researchTargets));
+      state.researchTargets = structuredClone(t.researchTargets);
       save(STORE.RESEARCH_TARGETS, state.researchTargets);
     }
     if (t.recruitTargets) {
-      state.recruitTargets = JSON.parse(JSON.stringify(t.recruitTargets));
+      state.recruitTargets = structuredClone(t.recruitTargets);
       save(STORE.RECRUIT_TARGETS, state.recruitTargets);
     }
     qolHistoryPush(histBefore, 'template:' + name);
@@ -494,7 +494,10 @@
     const out = { schema: CONFIG_EXPORT_SCHEMA, ver: state.configVer || 1, host: location.host };
     for (const k of CONFIG_SNAPSHOT_KEYS) {
       if (state[k] === undefined) continue;
-      try { out[k] = JSON.parse(JSON.stringify(state[k])); } catch (_) {}
+      // structuredClone preserves Date/Map/Set/RegExp that JSON would silently
+      // mangle, and throws DataCloneError on unsupported types so a regression
+      // is logged instead of masquerading as a clean snapshot.
+      try { out[k] = structuredClone(state[k]); } catch (e) { gbLogT('cfg-snap-' + k, 60000, 'config snapshot: ' + k + ' ' + String(e && e.message || e).slice(0, 80)); }
     }
     return out;
   }
@@ -596,7 +599,7 @@
   }
   function qolImportConfig(obj, opts) {
     if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;if(obj.host&&String(obj.host)!==String(location.host)){gbLog(`config import refused: file host ${obj.host} != ${location.host}`);return false}if(obj.schema!=null&&+obj.schema>CONFIG_EXPORT_SCHEMA){gbLog(`config import refused: schema ${obj.schema} newer than supported ${CONFIG_EXPORT_SCHEMA}`);return false}
-    const clone=v=>JSON.parse(JSON.stringify(v)),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,profileAutoCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,profileAutoCfg:STORE.PROFILE_AUTO_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
+    const clone=v=>structuredClone(v),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,profileAutoCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,profileAutoCfg:STORE.PROFILE_AUTO_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
     for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='priorityOrder'){const allowed=new Set(PRIORITY_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(PRIORITY_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
       const clean={version:1,seq:Math.max(0,+v.seq||0),towns:{}},seen=new Set();
       const jobId=(raw,prefix)=>{let id=/^[A-Za-z0-9:._-]{1,160}$/.test(String(raw||''))?String(raw):'';if(!id||seen.has(id)){clean.seq++;id=`${prefix}:import:${clean.seq.toString(36)}`}seen.add(id);return id};

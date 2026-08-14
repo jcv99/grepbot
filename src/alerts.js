@@ -12,7 +12,7 @@
       try {
         const m = /[?&]chat_id=([^&]+)/.exec(url);
         if (m) chatId = decodeURIComponent(m[1]);
-      } catch (_) {}
+      } catch (e) { gbLogT('webhook-chat-id', 60000, 'telegram chat_id decode: ' + String(e?.message || e).slice(0, 80)); }
     }
     return chatId ? String(chatId) : '';
   }
@@ -56,7 +56,7 @@
       });
       // Free the context once the blip is done; leaking one per alert would
       // eventually hit the browser's context limit.
-      setTimeout(() => { try { ctx.close(); } catch (_) {} }, 800);
+      setTimeout(() => { try { ctx.close(); } catch (e) { gbLogT('chime-close', 60000, 'audio ctx close: ' + String(e?.message || e).slice(0, 80)); } }, 800);
     } catch (e) { gbLogT('chime-' + event, 60000, 'chime: ' + String(e).slice(0, 60)); }
   }
   function alertNotifyText(event, payload) {
@@ -110,7 +110,7 @@
     try {
       const ev = state.webhookEvents || {};
       if (ev[event] !== false) alertNotify(event, payload);
-    } catch (_) {}
+    } catch (e) { gbLogT('webhook-notify-' + event, 60000, 'desktop notify: ' + String(e?.message || e).slice(0, 80)); }
     const url = (state.webhookUrl || '').trim();
     if (!url) return;
     if (state.dryRun) {
@@ -149,7 +149,7 @@
       };
     }
     state.webhookPending[key] = now;
-    try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (_) {}
+    try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (e) { gbLogT('webhook-save', 60000, 'webhook pending save: ' + String(e?.message || e).slice(0, 80)); }
     try {
       gbXhr({
         scope: 'external',
@@ -159,21 +159,21 @@
         data: JSON.stringify(body),
         onload: (r) => {
           delete state.webhookPending[key];
-          try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (_) {}
+          try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (e) { gbLogT('webhook-save', 60000, 'webhook pending save: ' + String(e?.message || e).slice(0, 80)); }
           if (r.status >= 200 && r.status < 300) {
             state.webhookRatelimit[key] = Date.now();
-            try { save(STORE.WEBHOOK_RATELIMIT, state.webhookRatelimit); } catch (_) {}
+            try { save(STORE.WEBHOOK_RATELIMIT, state.webhookRatelimit); } catch (e) { gbLogT('webhook-save', 60000, 'webhook ratelimit save: ' + String(e?.message || e).slice(0, 80)); }
           } else gbLogT('webhook-fail-' + key, 60000, 'webhook status ' + r.status);
         },
         onerror: () => {
           delete state.webhookPending[key];
-          try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (_) {}
+          try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (e) { gbLogT('webhook-save', 60000, 'webhook pending save: ' + String(e?.message || e).slice(0, 80)); }
           gbLogT('webhook-err-' + key, 60000, 'webhook transport error');
         },
       });
     } catch (e) {
       delete state.webhookPending[key];
-      try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (_) {}
+      try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (e2) { gbLogT('webhook-save', 60000, 'webhook pending save: ' + String(e2?.message || e2).slice(0, 80)); }
       gbLogT('webhook-ex-' + key, 60000, 'webhook ' + String(e));
     }
   }
@@ -247,6 +247,6 @@
         last: v.last,
       })),
     };
-    try { alertWebhook('intel-digest', payload); } catch (_) {}
+    try { alertWebhook('intel-digest', payload); } catch (e) { gbLogT('intel-digest-post', 60000, 'digest post: ' + String(e?.message || e).slice(0, 80)); }
     gbLog(`intel digest: posted ${items.length} report(s) across ${payload.players.length} player(s) (${reason})`);
   }

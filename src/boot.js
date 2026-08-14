@@ -1,3 +1,37 @@
+  // ===== Timing constants (better-practice sweep, v5) ========================
+  // Cadences that used to be naked literals in the boot block. Hoisted here so
+  // a future tuning pass touches one place, and so the persisted-deadline pair
+  // (state.nextFarmScrape / state.nextTownsScrape) reads in the same named unit
+  // as the in-memory intervals that drive them.
+  const BOOT_TIMING = Object.freeze({
+    // persistence deadlines — first fire of the persistent loops after install
+    FIRST_FARM_DEADLINE_MS: 20000,
+    FIRST_TOWNS_DEADLINE_MS: 30000,
+    // scrape / poll cadences
+    INBOX_SCRAPE_MS: 30000,
+    FARM_TICK_MS: 15000,
+    THRESHOLD_CHECK_MS: 30000,
+    TIMERS_RENDER_MS: 1000,
+    STATUS_UPDATE_MS: 5000,
+    TOWN_SWITCH_MS: 5000,
+    CAVE_TICK_MS: 10000,
+    LOCK_SWEEP_MS: 10000,
+    DODGE_RETURN_MS: 15000,
+    NATIVE_QUEUE_LOOP_MS: 60000,
+    QUEUE_CENTER_PAINT_MS: 5000,
+    OVERVIEW_RENDER_MS: 15000,
+    // one-shot boot delays — staggered so the panel + scan + reconcile each
+    // find a settled UI by the time they paint
+    HUD_RESTORE_MS: 1500,
+    FARM_WAKE_MS: 2500,
+    QUEST_SCAN_BOOT_MS: 5000,
+    IB_SCAN_BOOT_MS: 8000,
+    AB_TARGETS_MS: 12000,
+    NATIVE_UI_SCAN_MS: 1200,
+    NATIVE_QUEUE_BOOT_MS: 14000,
+    ORCH_FIRST_TICK_MS: 15000,
+    IB_CLICK_HOOK_MS: 2000,
+  });
   function ensurePanelMounted() {
     if (!panel) return;
     if (!document.body.contains(panel)) {
@@ -34,52 +68,52 @@
   }
   hookSpaNav();
 
-  gbInterval(scrapeInboxDom, 30000);
+  gbInterval(scrapeInboxDom, BOOT_TIMING.INBOX_SCRAPE_MS);
   refreshFarmsParsed();
   renderFarms();
   renderTimers();
   updateStatus();
 
-  if (!state.nextFarmScrape) { state.nextFarmScrape = Date.now() + 20000; save(STORE.NEXT_FARM, state.nextFarmScrape); }
-  if (!state.nextTownsScrape) { state.nextTownsScrape = Date.now() + 30000; save(STORE.NEXT_TOWNS, state.nextTownsScrape); }
-  gbInterval(farmTick, 15000);
-  gbTimeout(() => { if (state.autoFarm) farmScheduleClaimWake(null, 'boot', true); }, 2500);
+  if (!state.nextFarmScrape) { state.nextFarmScrape = Date.now() + BOOT_TIMING.FIRST_FARM_DEADLINE_MS; save(STORE.NEXT_FARM, state.nextFarmScrape); }
+  if (!state.nextTownsScrape) { state.nextTownsScrape = Date.now() + BOOT_TIMING.FIRST_TOWNS_DEADLINE_MS; save(STORE.NEXT_TOWNS, state.nextTownsScrape); }
+  gbInterval(farmTick, BOOT_TIMING.FARM_TICK_MS);
+  gbTimeout(() => { if (state.autoFarm) farmScheduleClaimWake(null, 'boot', true); }, BOOT_TIMING.FARM_WAKE_MS);
   // Hidden tabs clamp timers, so every clamped loop fires at once on wake and
   // the armed instant-build timer can be minutes late. Mark the burst so the
   // catch-up is serialized, then re-read orders.
   gbListen(document, 'visibilitychange', () => {
     if (document.hidden) return;
-    try { gbWakeMarkResume('visible'); } catch (_) {}
+    try { gbWakeMarkResume('visible'); } catch (e) { gbLogT('boot-wake-visible', 60000, 'wake visible: ' + String(e?.message || e).slice(0, 80)); }
     farmTick();
-    try { reportCatchUpEnqueue(); } catch (_) {}
-    try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
-    try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (_) {}
-    try { nativeQueueSweep('visible'); } catch (_) {}
+    try { reportCatchUpEnqueue(); } catch (e) { gbLogT('boot-catchup', 60000, 'catchup: ' + String(e?.message || e).slice(0, 80)); }
+    try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (e) { gbLogT('boot-wake-ib', 60000, 'wake ibScan: ' + String(e?.message || e).slice(0, 80)); }
+    try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (e) { gbLogT('boot-wake-orch', 60000, 'wake orchTick: ' + String(e?.message || e).slice(0, 80)); }
+    try { nativeQueueSweep('visible'); } catch (e) { gbLogT('boot-nqs-visible', 60000, 'nqs visible: ' + String(e?.message || e).slice(0, 80)); }
   });
   gbListen(window, 'pageshow', (e) => {
     if (!(e && e.persisted)) return;
-    try { gbWakeMarkResume('bfcache'); } catch (_) {}
+    try { gbWakeMarkResume('bfcache'); } catch (e) { gbLogT('boot-wake-bfcache', 60000, 'wake bfcache: ' + String(e?.message || e).slice(0, 80)); }
     farmTick();
-    try { reportCatchUpEnqueue(); } catch (_) {}
-    try { bindQuestObserver(); } catch (_) {}
-    try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
-    try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (_) {}
-    try { nativeQueueSweep('bfcache'); } catch (_) {}
+    try { reportCatchUpEnqueue(); } catch (e) { gbLogT('boot-catchup', 60000, 'catchup: ' + String(e?.message || e).slice(0, 80)); }
+    try { bindQuestObserver(); } catch (e) { gbLogT('boot-quest-obs', 60000, 'quest observer: ' + String(e?.message || e).slice(0, 80)); }
+    try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (e) { gbLogT('boot-wake-ib', 60000, 'wake ibScan: ' + String(e?.message || e).slice(0, 80)); }
+    try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (e) { gbLogT('boot-wake-orch', 60000, 'wake orchTick: ' + String(e?.message || e).slice(0, 80)); }
+    try { nativeQueueSweep('bfcache'); } catch (e) { gbLogT('boot-nqs-bfcache', 60000, 'nqs bfcache: ' + String(e?.message || e).slice(0, 80)); }
   });
-  gbInterval(checkThresholds, 30000);
-  gbInterval(renderTimers, 1000);
-  gbInterval(updateStatus, 5000);
-  gbInterval(() => { try { renderTownSwitch(); } catch (_) {} }, 5000);
-  gbInterval(() => { try { caveTownsTick(); } catch (_) {} }, 10000);
+  gbInterval(checkThresholds, BOOT_TIMING.THRESHOLD_CHECK_MS);
+  gbInterval(renderTimers, BOOT_TIMING.TIMERS_RENDER_MS);
+  gbInterval(updateStatus, BOOT_TIMING.STATUS_UPDATE_MS);
+  gbInterval(() => { try { renderTownSwitch(); } catch (e) { gbLogT('boot-town-switch', 60000, 'town switch: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.TOWN_SWITCH_MS);
+  gbInterval(() => { try { caveTownsTick(); } catch (e) { gbLogT('boot-cave-tick', 60000, 'cave tick: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.CAVE_TICK_MS);
 
   bindQuestObserver();
-  gbTimeout(() => { if (hostEnabled()) questScanTick('boot'); }, 5000);
+  gbTimeout(() => { if (hostEnabled()) questScanTick('boot'); }, BOOT_TIMING.QUEST_SCAN_BOOT_MS);
   gbInterval(() => { if (hostEnabled()) questScanTick('loop'); }, QUEST_SCAN_MS);
 
   gbListen(document, 'click', (e) => {
     let t = e.target;
     for (let i = 0; i < 5 && t; i++) {
-      if (String(t.className || '').indexOf('button_build') !== -1) { gbTimeout(ibScan, 2000); break; }
+      if (String(t.className || '').indexOf('button_build') !== -1) { gbTimeout(ibScan, BOOT_TIMING.IB_CLICK_HOOK_MS); break; }
       t = t.parentElement;
     }
   }, true);
@@ -90,9 +124,9 @@
     };
     scan();
     gbInterval(scan, IB_CHECK_MS);
-  }, 8000);
-  gbTimeout(() => { abEnsureTargets(); }, 12000);
-  gbTimeout(scheduleNativeUiScan, 1200);
+  }, BOOT_TIMING.IB_SCAN_BOOT_MS);
+  gbTimeout(() => { abEnsureTargets(); }, BOOT_TIMING.AB_TARGETS_MS);
+  gbTimeout(scheduleNativeUiScan, BOOT_TIMING.NATIVE_UI_SCAN_MS);
   gbInterval(() => {
     // The native-queue lane state must be observed frequently so a hand-edit
     // or a foreign + tap reflects in the panel within seconds. But the POSTS
@@ -103,24 +137,24 @@
     // the game's real queues, so a hand-queued order used to stay invisible for
     // as long as every GrepBot lane happened to be empty.
     if (queueCenterVisible() || nativeQueueHasPending('build') || nativeRecruitPending() || nativeQueueHasPending('research')) {
-      try { renderQueueCenter(); } catch (_) {}
+      try { renderQueueCenter(); } catch (e) { gbLogT('boot-qc-paint', 60000, 'queue center paint: ' + String(e?.message || e).slice(0, 80)); }
     }
     // Ungated: this used to fire only while a lane already had work, which is a
     // chicken-and-egg lock on a fresh install — no scan means no [+] control,
     // no [+] means the lane stays empty, and the empty lane suppresses the scan.
     // nativeUiScan is a no-op when no game window is open.
     scheduleNativeUiScan();
-  }, 5000);
+  }, BOOT_TIMING.QUEUE_CENTER_PAINT_MS);
   // Whole-account reconcile of the virtual queues against the real ones. The
   // per-town pass in renderQueueCenter only covers the town on screen and only
   // while the window is open; this is what drops a hand-made upgrade from a
   // background town's plan without waiting for the auto-queue to sweep it.
-  gbTimeout(() => { try { nativeQueueSweep('boot'); } catch (_) {} }, 14000);
-  gbInterval(() => { try { nativeQueueSweep('loop'); } catch (_) {} }, 60000);
+  gbTimeout(() => { try { nativeQueueSweep('boot'); } catch (e) { gbLogT('boot-nqs-boot', 60000, 'native queue boot: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.NATIVE_QUEUE_BOOT_MS);
+  gbInterval(() => { try { nativeQueueSweep('loop'); } catch (e) { gbLogT('boot-nqs-loop', 60000, 'native queue loop: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.NATIVE_QUEUE_LOOP_MS);
   gbInterval(() => dodgeScan('loop'), DODGE_CHECK_MS);
-  gbInterval(dodgeReturnTick, 15000);
+  gbInterval(dodgeReturnTick, BOOT_TIMING.DODGE_RETURN_MS);
 
-  gbTimeout(() => { if (hostEnabled()) orchTick(); }, 15000);
+  gbTimeout(() => { if (hostEnabled()) orchTick(); }, BOOT_TIMING.ORCH_FIRST_TICK_MS);
   gbInterval(() => {
     if (gbInWakeBurst && gbInWakeBurst()) gbWake('orchTick', () => orchTick(), { priority: 30 });
     else orchTick();
@@ -132,25 +166,25 @@
     renderStats();
     intelGrepodataAssist();
     intelWatchlistScan();
-  }, 15000);
+  }, BOOT_TIMING.OVERVIEW_RENDER_MS);
   qolBindActivityPause();
   gbKeyBind();
   contextMenuStart();
-  gbTimeout(() => { try { hudRestore(); } catch (_) {} }, 1500);
+  gbTimeout(() => { try { hudRestore(); } catch (e) { gbLogT('boot-hud-restore', 60000, 'hud restore: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.HUD_RESTORE_MS);
 
-  gbInterval(() => { gbLockSweep(); try { diagnosticsTick(); } catch (_) {} }, 10000);
+  gbInterval(() => { gbLockSweep(); try { diagnosticsTick(); } catch (e) { gbLogT('boot-diag-tick', 60000, 'diag tick: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.LOCK_SWEEP_MS);
   const releaseLocks = () => {
-    try { cancelArmedAttack(); } catch (_) {}
+    try { cancelArmedAttack(); } catch (e) { gbLogT('boot-release-armed', 60000, 'cancel armed: ' + String(e?.message || e).slice(0, 80)); }
     // An armed instant-complete timer that survives the page exit fires against
     // a disposed instance on bfcache restore and posts from a stale order list.
-    try { ibClearArmed(); } catch (_) {}
-    try { gbUnlockAll(); } catch (_) {}
-    try { banditAttackSentAt = 0; } catch (_) {}
-    try { if (typeof dodgeQueueSave === 'function') dodgeQueueSave(); } catch (_) {}
-    try { if (typeof questClaimFailSave === 'function') questClaimFailSave(); } catch (_) {}
-    try { if (typeof persistServerCooldown === 'function') persistServerCooldown(); } catch (_) {}
-    try { if (typeof nativeQueueSaveFlush === 'function') nativeQueueSaveFlush(); } catch (_) {}
-    try { snapshotBuild('exit'); } catch (_) {}
+    try { ibClearArmed(); } catch (e) { gbLogT('boot-release-ib', 60000, 'ib clear armed: ' + String(e?.message || e).slice(0, 80)); }
+    try { gbUnlockAll(); } catch (e) { gbLogT('boot-release-locks', 60000, 'unlock all: ' + String(e?.message || e).slice(0, 80)); }
+    try { banditAttackSentAt = 0; } catch (e) { gbLogT('boot-release-bandit', 60000, 'bandit stamp: ' + String(e?.message || e).slice(0, 80)); }
+    try { if (typeof dodgeQueueSave === 'function') dodgeQueueSave(); } catch (e) { gbLogT('boot-release-dodge', 60000, 'dodge save: ' + String(e?.message || e).slice(0, 80)); }
+    try { if (typeof questClaimFailSave === 'function') questClaimFailSave(); } catch (e) { gbLogT('boot-release-quest', 60000, 'quest save: ' + String(e?.message || e).slice(0, 80)); }
+    try { if (typeof persistServerCooldown === 'function') persistServerCooldown(); } catch (e) { gbLogT('boot-release-cooldown', 60000, 'cooldown save: ' + String(e?.message || e).slice(0, 80)); }
+    try { if (typeof nativeQueueSaveFlush === 'function') nativeQueueSaveFlush(); } catch (e) { gbLogT('boot-release-nqs', 60000, 'nqs flush: ' + String(e?.message || e).slice(0, 80)); }
+    try { snapshotBuild('exit'); } catch (e) { gbLogT('boot-release-snap', 60000, 'snapshot: ' + String(e?.message || e).slice(0, 80)); }
   };
   gbListen(window, 'beforeunload', releaseLocks);
   gbListen(window, 'pagehide', releaseLocks);

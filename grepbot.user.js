@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.61.0
+// @version      4.62.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -3033,6 +3033,25 @@ const STORE = {
         jrnPush(jtag, 'ok', tx.detail, tx.id);
         try { tplHealthNote(feature, 'ok', transport === 'bridge' ? data : null); } catch (_) {}
         if (onDone) onDone(null, result);
+      }
+    });
+  }
+
+  function txRunAsync(feature, transport, endpoint, data, rawSend, opts) {
+    const sig = opts && opts.signal;
+    return new Promise((resolve, reject) => {
+      if (sig && sig.aborted) return reject(new DOMException('aborted', 'AbortError'));
+      const onAbort = () => reject(new DOMException('aborted', 'AbortError'));
+      if (sig) sig.addEventListener('abort', onAbort, { once: true });
+      try {
+        txRun(feature, transport, endpoint, data, rawSend, (err, result) => {
+          if (sig) sig.removeEventListener('abort', onAbort);
+          if (err) reject(err instanceof Error ? err : new Error(String(err)));
+          else resolve(result);
+        });
+      } catch (e) {
+        if (sig) sig.removeEventListener('abort', onAbort);
+        reject(e);
       }
     });
   }
@@ -11725,7 +11744,7 @@ const STORE = {
       try {
         const m = /[?&]chat_id=([^&]+)/.exec(url);
         if (m) chatId = decodeURIComponent(m[1]);
-      } catch (_) {}
+      } catch (e) { gbLogT('webhook-chat-id', 60000, 'telegram chat_id decode: ' + String(e?.message || e).slice(0, 80)); }
     }
     return chatId ? String(chatId) : '';
   }
@@ -11762,7 +11781,7 @@ const STORE = {
         o.start(t0); o.stop(t0 + 0.12);
       });
 
-      setTimeout(() => { try { ctx.close(); } catch (_) {} }, 800);
+      setTimeout(() => { try { ctx.close(); } catch (e) { gbLogT('chime-close', 60000, 'audio ctx close: ' + String(e?.message || e).slice(0, 80)); } }, 800);
     } catch (e) { gbLogT('chime-' + event, 60000, 'chime: ' + String(e).slice(0, 60)); }
   }
   function alertNotifyText(event, payload) {
@@ -11810,7 +11829,7 @@ const STORE = {
     try {
       const ev = state.webhookEvents || {};
       if (ev[event] !== false) alertNotify(event, payload);
-    } catch (_) {}
+    } catch (e) { gbLogT('webhook-notify-' + event, 60000, 'desktop notify: ' + String(e?.message || e).slice(0, 80)); }
     const url = (state.webhookUrl || '').trim();
     if (!url) return;
     if (state.dryRun) {
@@ -11849,7 +11868,7 @@ const STORE = {
       };
     }
     state.webhookPending[key] = now;
-    try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (_) {}
+    try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (e) { gbLogT('webhook-save', 60000, 'webhook pending save: ' + String(e?.message || e).slice(0, 80)); }
     try {
       gbXhr({
         scope: 'external',
@@ -11859,21 +11878,21 @@ const STORE = {
         data: JSON.stringify(body),
         onload: (r) => {
           delete state.webhookPending[key];
-          try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (_) {}
+          try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (e) { gbLogT('webhook-save', 60000, 'webhook pending save: ' + String(e?.message || e).slice(0, 80)); }
           if (r.status >= 200 && r.status < 300) {
             state.webhookRatelimit[key] = Date.now();
-            try { save(STORE.WEBHOOK_RATELIMIT, state.webhookRatelimit); } catch (_) {}
+            try { save(STORE.WEBHOOK_RATELIMIT, state.webhookRatelimit); } catch (e) { gbLogT('webhook-save', 60000, 'webhook ratelimit save: ' + String(e?.message || e).slice(0, 80)); }
           } else gbLogT('webhook-fail-' + key, 60000, 'webhook status ' + r.status);
         },
         onerror: () => {
           delete state.webhookPending[key];
-          try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (_) {}
+          try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (e) { gbLogT('webhook-save', 60000, 'webhook pending save: ' + String(e?.message || e).slice(0, 80)); }
           gbLogT('webhook-err-' + key, 60000, 'webhook transport error');
         },
       });
     } catch (e) {
       delete state.webhookPending[key];
-      try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (_) {}
+      try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (e2) { gbLogT('webhook-save', 60000, 'webhook pending save: ' + String(e2?.message || e2).slice(0, 80)); }
       gbLogT('webhook-ex-' + key, 60000, 'webhook ' + String(e));
     }
   }
@@ -11936,7 +11955,7 @@ const STORE = {
         last: v.last,
       })),
     };
-    try { alertWebhook('intel-digest', payload); } catch (_) {}
+    try { alertWebhook('intel-digest', payload); } catch (e) { gbLogT('intel-digest-post', 60000, 'digest post: ' + String(e?.message || e).slice(0, 80)); }
     gbLog(`intel digest: posted ${items.length} report(s) across ${payload.players.length} player(s) (${reason})`);
   }
   function merchantExactMatch(wishName, offerId) {
@@ -14257,9 +14276,9 @@ const STORE = {
     if (!name) return;
     if (!state.cityTemplates) state.cityTemplates = {};
     state.cityTemplates[name] = {
-      abTargets: JSON.parse(JSON.stringify(state.abTargets || {})),
-      researchTargets: JSON.parse(JSON.stringify(state.researchTargets || {})),
-      recruitTargets: JSON.parse(JSON.stringify(state.recruitTargets || {})),
+      abTargets: structuredClone(state.abTargets || {}),
+      researchTargets: structuredClone(state.researchTargets || {}),
+      recruitTargets: structuredClone(state.recruitTargets || {}),
       savedAt: Date.now(),
     };
     save(STORE.CITY_TEMPLATES, state.cityTemplates);
@@ -14272,15 +14291,15 @@ const STORE = {
     const histBefore = qolConfigSnapshot();
 
     if (t.abTargets) {
-      state.abTargets = JSON.parse(JSON.stringify(t.abTargets));
+      state.abTargets = structuredClone(t.abTargets);
       save(STORE.AB_TARGETS, state.abTargets);
     }
     if (t.researchTargets) {
-      state.researchTargets = JSON.parse(JSON.stringify(t.researchTargets));
+      state.researchTargets = structuredClone(t.researchTargets);
       save(STORE.RESEARCH_TARGETS, state.researchTargets);
     }
     if (t.recruitTargets) {
-      state.recruitTargets = JSON.parse(JSON.stringify(t.recruitTargets));
+      state.recruitTargets = structuredClone(t.recruitTargets);
       save(STORE.RECRUIT_TARGETS, state.recruitTargets);
     }
     qolHistoryPush(histBefore, 'template:' + name);
@@ -14511,7 +14530,8 @@ const STORE = {
     const out = { schema: CONFIG_EXPORT_SCHEMA, ver: state.configVer || 1, host: location.host };
     for (const k of CONFIG_SNAPSHOT_KEYS) {
       if (state[k] === undefined) continue;
-      try { out[k] = JSON.parse(JSON.stringify(state[k])); } catch (_) {}
+
+      try { out[k] = structuredClone(state[k]); } catch (e) { gbLogT('cfg-snap-' + k, 60000, 'config snapshot: ' + k + ' ' + String(e && e.message || e).slice(0, 80)); }
     }
     return out;
   }
@@ -14609,7 +14629,7 @@ const STORE = {
   }
   function qolImportConfig(obj, opts) {
     if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;if(obj.host&&String(obj.host)!==String(location.host)){gbLog(`config import refused: file host ${obj.host} != ${location.host}`);return false}if(obj.schema!=null&&+obj.schema>CONFIG_EXPORT_SCHEMA){gbLog(`config import refused: schema ${obj.schema} newer than supported ${CONFIG_EXPORT_SCHEMA}`);return false}
-    const clone=v=>JSON.parse(JSON.stringify(v)),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,profileAutoCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,profileAutoCfg:STORE.PROFILE_AUTO_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
+    const clone=v=>structuredClone(v),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,profileAutoCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,profileAutoCfg:STORE.PROFILE_AUTO_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
     for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='priorityOrder'){const allowed=new Set(PRIORITY_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(PRIORITY_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
       const clean={version:1,seq:Math.max(0,+v.seq||0),towns:{}},seen=new Set();
       const jobId=(raw,prefix)=>{let id=/^[A-Za-z0-9:._-]{1,160}$/.test(String(raw||''))?String(raw):'';if(!id||seen.has(id)){clean.seq++;id=`${prefix}:import:${clean.seq.toString(36)}`}seen.add(id);return id};
@@ -25188,6 +25208,35 @@ const STORE = {
 
     boot();
   })();
+
+  const BOOT_TIMING = Object.freeze({
+
+    FIRST_FARM_DEADLINE_MS: 20000,
+    FIRST_TOWNS_DEADLINE_MS: 30000,
+
+    INBOX_SCRAPE_MS: 30000,
+    FARM_TICK_MS: 15000,
+    THRESHOLD_CHECK_MS: 30000,
+    TIMERS_RENDER_MS: 1000,
+    STATUS_UPDATE_MS: 5000,
+    TOWN_SWITCH_MS: 5000,
+    CAVE_TICK_MS: 10000,
+    LOCK_SWEEP_MS: 10000,
+    DODGE_RETURN_MS: 15000,
+    NATIVE_QUEUE_LOOP_MS: 60000,
+    QUEUE_CENTER_PAINT_MS: 5000,
+    OVERVIEW_RENDER_MS: 15000,
+
+    HUD_RESTORE_MS: 1500,
+    FARM_WAKE_MS: 2500,
+    QUEST_SCAN_BOOT_MS: 5000,
+    IB_SCAN_BOOT_MS: 8000,
+    AB_TARGETS_MS: 12000,
+    NATIVE_UI_SCAN_MS: 1200,
+    NATIVE_QUEUE_BOOT_MS: 14000,
+    ORCH_FIRST_TICK_MS: 15000,
+    IB_CLICK_HOOK_MS: 2000,
+  });
   function ensurePanelMounted() {
     if (!panel) return;
     if (!document.body.contains(panel)) {
@@ -25222,50 +25271,50 @@ const STORE = {
   }
   hookSpaNav();
 
-  gbInterval(scrapeInboxDom, 30000);
+  gbInterval(scrapeInboxDom, BOOT_TIMING.INBOX_SCRAPE_MS);
   refreshFarmsParsed();
   renderFarms();
   renderTimers();
   updateStatus();
 
-  if (!state.nextFarmScrape) { state.nextFarmScrape = Date.now() + 20000; save(STORE.NEXT_FARM, state.nextFarmScrape); }
-  if (!state.nextTownsScrape) { state.nextTownsScrape = Date.now() + 30000; save(STORE.NEXT_TOWNS, state.nextTownsScrape); }
-  gbInterval(farmTick, 15000);
-  gbTimeout(() => { if (state.autoFarm) farmScheduleClaimWake(null, 'boot', true); }, 2500);
+  if (!state.nextFarmScrape) { state.nextFarmScrape = Date.now() + BOOT_TIMING.FIRST_FARM_DEADLINE_MS; save(STORE.NEXT_FARM, state.nextFarmScrape); }
+  if (!state.nextTownsScrape) { state.nextTownsScrape = Date.now() + BOOT_TIMING.FIRST_TOWNS_DEADLINE_MS; save(STORE.NEXT_TOWNS, state.nextTownsScrape); }
+  gbInterval(farmTick, BOOT_TIMING.FARM_TICK_MS);
+  gbTimeout(() => { if (state.autoFarm) farmScheduleClaimWake(null, 'boot', true); }, BOOT_TIMING.FARM_WAKE_MS);
 
   gbListen(document, 'visibilitychange', () => {
     if (document.hidden) return;
-    try { gbWakeMarkResume('visible'); } catch (_) {}
+    try { gbWakeMarkResume('visible'); } catch (e) { gbLogT('boot-wake-visible', 60000, 'wake visible: ' + String(e?.message || e).slice(0, 80)); }
     farmTick();
-    try { reportCatchUpEnqueue(); } catch (_) {}
-    try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
-    try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (_) {}
-    try { nativeQueueSweep('visible'); } catch (_) {}
+    try { reportCatchUpEnqueue(); } catch (e) { gbLogT('boot-catchup', 60000, 'catchup: ' + String(e?.message || e).slice(0, 80)); }
+    try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (e) { gbLogT('boot-wake-ib', 60000, 'wake ibScan: ' + String(e?.message || e).slice(0, 80)); }
+    try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (e) { gbLogT('boot-wake-orch', 60000, 'wake orchTick: ' + String(e?.message || e).slice(0, 80)); }
+    try { nativeQueueSweep('visible'); } catch (e) { gbLogT('boot-nqs-visible', 60000, 'nqs visible: ' + String(e?.message || e).slice(0, 80)); }
   });
   gbListen(window, 'pageshow', (e) => {
     if (!(e && e.persisted)) return;
-    try { gbWakeMarkResume('bfcache'); } catch (_) {}
+    try { gbWakeMarkResume('bfcache'); } catch (e) { gbLogT('boot-wake-bfcache', 60000, 'wake bfcache: ' + String(e?.message || e).slice(0, 80)); }
     farmTick();
-    try { reportCatchUpEnqueue(); } catch (_) {}
-    try { bindQuestObserver(); } catch (_) {}
-    try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
-    try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (_) {}
-    try { nativeQueueSweep('bfcache'); } catch (_) {}
+    try { reportCatchUpEnqueue(); } catch (e) { gbLogT('boot-catchup', 60000, 'catchup: ' + String(e?.message || e).slice(0, 80)); }
+    try { bindQuestObserver(); } catch (e) { gbLogT('boot-quest-obs', 60000, 'quest observer: ' + String(e?.message || e).slice(0, 80)); }
+    try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (e) { gbLogT('boot-wake-ib', 60000, 'wake ibScan: ' + String(e?.message || e).slice(0, 80)); }
+    try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (e) { gbLogT('boot-wake-orch', 60000, 'wake orchTick: ' + String(e?.message || e).slice(0, 80)); }
+    try { nativeQueueSweep('bfcache'); } catch (e) { gbLogT('boot-nqs-bfcache', 60000, 'nqs bfcache: ' + String(e?.message || e).slice(0, 80)); }
   });
-  gbInterval(checkThresholds, 30000);
-  gbInterval(renderTimers, 1000);
-  gbInterval(updateStatus, 5000);
-  gbInterval(() => { try { renderTownSwitch(); } catch (_) {} }, 5000);
-  gbInterval(() => { try { caveTownsTick(); } catch (_) {} }, 10000);
+  gbInterval(checkThresholds, BOOT_TIMING.THRESHOLD_CHECK_MS);
+  gbInterval(renderTimers, BOOT_TIMING.TIMERS_RENDER_MS);
+  gbInterval(updateStatus, BOOT_TIMING.STATUS_UPDATE_MS);
+  gbInterval(() => { try { renderTownSwitch(); } catch (e) { gbLogT('boot-town-switch', 60000, 'town switch: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.TOWN_SWITCH_MS);
+  gbInterval(() => { try { caveTownsTick(); } catch (e) { gbLogT('boot-cave-tick', 60000, 'cave tick: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.CAVE_TICK_MS);
 
   bindQuestObserver();
-  gbTimeout(() => { if (hostEnabled()) questScanTick('boot'); }, 5000);
+  gbTimeout(() => { if (hostEnabled()) questScanTick('boot'); }, BOOT_TIMING.QUEST_SCAN_BOOT_MS);
   gbInterval(() => { if (hostEnabled()) questScanTick('loop'); }, QUEST_SCAN_MS);
 
   gbListen(document, 'click', (e) => {
     let t = e.target;
     for (let i = 0; i < 5 && t; i++) {
-      if (String(t.className || '').indexOf('button_build') !== -1) { gbTimeout(ibScan, 2000); break; }
+      if (String(t.className || '').indexOf('button_build') !== -1) { gbTimeout(ibScan, BOOT_TIMING.IB_CLICK_HOOK_MS); break; }
       t = t.parentElement;
     }
   }, true);
@@ -25276,24 +25325,24 @@ const STORE = {
     };
     scan();
     gbInterval(scan, IB_CHECK_MS);
-  }, 8000);
-  gbTimeout(() => { abEnsureTargets(); }, 12000);
-  gbTimeout(scheduleNativeUiScan, 1200);
+  }, BOOT_TIMING.IB_SCAN_BOOT_MS);
+  gbTimeout(() => { abEnsureTargets(); }, BOOT_TIMING.AB_TARGETS_MS);
+  gbTimeout(scheduleNativeUiScan, BOOT_TIMING.NATIVE_UI_SCAN_MS);
   gbInterval(() => {
 
     if (queueCenterVisible() || nativeQueueHasPending('build') || nativeRecruitPending() || nativeQueueHasPending('research')) {
-      try { renderQueueCenter(); } catch (_) {}
+      try { renderQueueCenter(); } catch (e) { gbLogT('boot-qc-paint', 60000, 'queue center paint: ' + String(e?.message || e).slice(0, 80)); }
     }
 
     scheduleNativeUiScan();
-  }, 5000);
+  }, BOOT_TIMING.QUEUE_CENTER_PAINT_MS);
 
-  gbTimeout(() => { try { nativeQueueSweep('boot'); } catch (_) {} }, 14000);
-  gbInterval(() => { try { nativeQueueSweep('loop'); } catch (_) {} }, 60000);
+  gbTimeout(() => { try { nativeQueueSweep('boot'); } catch (e) { gbLogT('boot-nqs-boot', 60000, 'native queue boot: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.NATIVE_QUEUE_BOOT_MS);
+  gbInterval(() => { try { nativeQueueSweep('loop'); } catch (e) { gbLogT('boot-nqs-loop', 60000, 'native queue loop: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.NATIVE_QUEUE_LOOP_MS);
   gbInterval(() => dodgeScan('loop'), DODGE_CHECK_MS);
-  gbInterval(dodgeReturnTick, 15000);
+  gbInterval(dodgeReturnTick, BOOT_TIMING.DODGE_RETURN_MS);
 
-  gbTimeout(() => { if (hostEnabled()) orchTick(); }, 15000);
+  gbTimeout(() => { if (hostEnabled()) orchTick(); }, BOOT_TIMING.ORCH_FIRST_TICK_MS);
   gbInterval(() => {
     if (gbInWakeBurst && gbInWakeBurst()) gbWake('orchTick', () => orchTick(), { priority: 30 });
     else orchTick();
@@ -25305,24 +25354,24 @@ const STORE = {
     renderStats();
     intelGrepodataAssist();
     intelWatchlistScan();
-  }, 15000);
+  }, BOOT_TIMING.OVERVIEW_RENDER_MS);
   qolBindActivityPause();
   gbKeyBind();
   contextMenuStart();
-  gbTimeout(() => { try { hudRestore(); } catch (_) {} }, 1500);
+  gbTimeout(() => { try { hudRestore(); } catch (e) { gbLogT('boot-hud-restore', 60000, 'hud restore: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.HUD_RESTORE_MS);
 
-  gbInterval(() => { gbLockSweep(); try { diagnosticsTick(); } catch (_) {} }, 10000);
+  gbInterval(() => { gbLockSweep(); try { diagnosticsTick(); } catch (e) { gbLogT('boot-diag-tick', 60000, 'diag tick: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.LOCK_SWEEP_MS);
   const releaseLocks = () => {
-    try { cancelArmedAttack(); } catch (_) {}
+    try { cancelArmedAttack(); } catch (e) { gbLogT('boot-release-armed', 60000, 'cancel armed: ' + String(e?.message || e).slice(0, 80)); }
 
-    try { ibClearArmed(); } catch (_) {}
-    try { gbUnlockAll(); } catch (_) {}
-    try { banditAttackSentAt = 0; } catch (_) {}
-    try { if (typeof dodgeQueueSave === 'function') dodgeQueueSave(); } catch (_) {}
-    try { if (typeof questClaimFailSave === 'function') questClaimFailSave(); } catch (_) {}
-    try { if (typeof persistServerCooldown === 'function') persistServerCooldown(); } catch (_) {}
-    try { if (typeof nativeQueueSaveFlush === 'function') nativeQueueSaveFlush(); } catch (_) {}
-    try { snapshotBuild('exit'); } catch (_) {}
+    try { ibClearArmed(); } catch (e) { gbLogT('boot-release-ib', 60000, 'ib clear armed: ' + String(e?.message || e).slice(0, 80)); }
+    try { gbUnlockAll(); } catch (e) { gbLogT('boot-release-locks', 60000, 'unlock all: ' + String(e?.message || e).slice(0, 80)); }
+    try { banditAttackSentAt = 0; } catch (e) { gbLogT('boot-release-bandit', 60000, 'bandit stamp: ' + String(e?.message || e).slice(0, 80)); }
+    try { if (typeof dodgeQueueSave === 'function') dodgeQueueSave(); } catch (e) { gbLogT('boot-release-dodge', 60000, 'dodge save: ' + String(e?.message || e).slice(0, 80)); }
+    try { if (typeof questClaimFailSave === 'function') questClaimFailSave(); } catch (e) { gbLogT('boot-release-quest', 60000, 'quest save: ' + String(e?.message || e).slice(0, 80)); }
+    try { if (typeof persistServerCooldown === 'function') persistServerCooldown(); } catch (e) { gbLogT('boot-release-cooldown', 60000, 'cooldown save: ' + String(e?.message || e).slice(0, 80)); }
+    try { if (typeof nativeQueueSaveFlush === 'function') nativeQueueSaveFlush(); } catch (e) { gbLogT('boot-release-nqs', 60000, 'nqs flush: ' + String(e?.message || e).slice(0, 80)); }
+    try { snapshotBuild('exit'); } catch (e) { gbLogT('boot-release-snap', 60000, 'snapshot: ' + String(e?.message || e).slice(0, 80)); }
   };
   gbListen(window, 'beforeunload', releaseLocks);
   gbListen(window, 'pagehide', releaseLocks);
