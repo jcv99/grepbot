@@ -699,6 +699,22 @@
     out.push(preflightProbe('resource planner',()=>{let ids=[];try{ids=Object.keys((uw.ITowns&&uw.ITowns.towns)||{})}catch(_){};const bad=ids.filter(id=>!plannerSnapshot(id));return{ok:bad.length===0,detail:bad.length?`unreadable towns: ${bad.join(',')}`:`${ids.length} town snapshots`}}));
     out.push(preflightProbe('goal planner',()=>{const plans=goalPlanAll();const bad=plans.filter(p=>p.error);return{ok:bad.length===0,warn:bad.length>0,detail:`${plans.length} plans, ${bad.length} unreadable`}}));
     out.push(preflightProbe('safe mode',()=>({ok:true,warn:!!state.safeMode,detail:state.safeMode?'ON: high-impact writes blocked':'off'})));
+    out.push(preflightProbe('ai relay', () => {
+      let api = null;
+      try { api = GB_ROOT.__grepbotRelay || null; } catch (_) {}
+      if (!api) return { ok: true, detail: 'relay module not booted (not a world page?)' };
+      const on = state.relayCommands === true;
+      const armedMs = api.armedMs();
+      const bits = [
+        'socket ' + (api.connected() ? 'connected' : 'offline'),
+        'commands ' + (on ? 'ON' : 'OFF'),
+        'raw ' + (state.relayRaw === true ? 'ON' : 'OFF'),
+        armedMs > 0 ? 'ARMED ' + Math.ceil(armedMs / 60000) + 'min' : 'not armed (read-only)',
+      ];
+      // An open write window is a warning, not a failure: it is legitimate but
+      // must never be invisible in a self-check the user is reading.
+      return { ok: true, warn: on && armedMs > 0, detail: bits.join(', ') };
+    }));
     out.push(preflightProbe('guards', () => {
       const locks = gbLockList();
       const paused = Object.keys(state.captchaBreakers || {}).filter(k => captchaPaused(k));
@@ -887,7 +903,8 @@
     Object.keys(state).forEach(k => {
       if (/^auto[A-Z]/.test(k) || k === 'dryRun' || k === 'ibAuto' || k === 'ibResearch' ||
           k === 'collectAll' || k === 'decisionMemory' || k === 'captchaGlobalKill' ||
-          k === 'orchAdaptive' || k === 'farmLongClaims' || k === 'farmSleepAuto') {
+          k === 'orchAdaptive' || k === 'farmLongClaims' || k === 'farmSleepAuto' ||
+          k === 'relayCommands' || k === 'relayRaw') {
         toggles[k] = !!state[k];
       }
     });

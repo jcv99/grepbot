@@ -768,7 +768,7 @@
   // string in the panel big enough that an added `${x}` reads as harmless, and it
   // would be the repo's first XSS sink. Wire data goes through textContent.
   panel.innerHTML = `
-    <header><div class="gb-head-main"><b>GrepBot v${runningVersion()}</b><div class="gb-head-status"><span id="gb-head-ai" class="gb-pill" title="Enlace con la IA (relay local). Sin conexion todavia.">&#9675; IA</span><span id="gb-head-mode" class="gb-pill">...</span><span id="gb-head-health" class="gb-pill">...</span></div></div><div style="display:flex;gap:4px"><button data-act="queues" title="Abrir centro de colas">Colas</button><button data-act="toggle" title="Minimizar">_</button></div></header>
+    <header><div class="gb-head-main"><b>GrepBot v${runningVersion()}</b><div class="gb-head-status"><span id="gb-head-ai" class="gb-pill" title="Enlace con la IA (relay local). Sin conexion todavia.">&#9675; IA</span><span id="gb-head-armed" class="gb-pill" title="Comandos de IA desactivados.">- IA-W</span><span id="gb-head-mode" class="gb-pill">...</span><span id="gb-head-health" class="gb-pill">...</span></div></div><div style="display:flex;gap:4px"><button data-act="queues" title="Abrir centro de colas">Colas</button><button data-act="toggle" title="Minimizar">_</button></div></header>
     <div class="gb-qat" role="toolbar" aria-label="GrepBot acciones rapidas">
       <select data-qs="town" title="Cambiar de ciudad" style="background:var(--gb-input-bg);color:var(--gb-input-fg);border:1px solid var(--gb-chrome);font-size:10px;max-width:150px"></select>
       <button type="button" data-qat="collect" title="Recoger recursos ahora">Recoger</button>
@@ -1185,6 +1185,15 @@
           </label>
           <label class="gb-cfg-row"><input type="checkbox" data-cfg="auto-wonder"/> Donaciones a la Maravilla</label>
           <label class="gb-cfg-row" title="Gasta favor en la maravilla de la alianza. Requiere haber capturado wonderFavorTpl. Por defecto OFF."><input type="checkbox" data-cfg="auto-wonder-favor"/> Lanzar favor en la Maravilla (captura el poder antes)</label>
+        `, false, 'risk')}
+        ${gbCfgGroup('Enlace IA (ALTO RIESGO)', `
+          <label class="gb-cfg-row" title="Permite que una IA conectada al relay local pida acciones. Las lecturas funcionan en cuanto lo actives; para escribir hace falta ademas abrir la ventana con Armar IA."><input type="checkbox" data-cfg="relay-commands"/> <b class="gb-cfg-accent">Aceptar comandos de la IA</b></label>
+          <label class="gb-cfg-row gb-cfg-sub" title="ALTO RIESGO. Deja que la IA envie cualquier payload al servidor (colonizar, alianza, mensajes, mercado). No hay comprobacion semantica: lo que diga el payload es lo que se envia, y algunas acciones no se pueden deshacer. Pruebalo primero con Simulacion activada."><input type="checkbox" data-cfg="relay-raw"/> Passthrough directo (bridge/ajax sin comprobar)</label>
+          <label class="gb-cfg-num gb-cfg-sub" title="Duracion de la ventana de escritura que abre el boton Armar IA. Maximo 60.">Minutos de armado <input class="gb-cfg-input" type="number" data-cfg="relay-arm-min" min="1" max="60" style="width:55px"/></label>
+          <label class="gb-cfg-num gb-cfg-sub" title="Tope de acciones de escritura que la IA puede ejecutar por hora, independiente del presupuesto de peticiones.">Escrituras por hora <input class="gb-cfg-input" type="number" data-cfg="relay-write-cap" min="1" max="500" style="width:55px"/></label>
+          <button data-cfg="relay-arm" class="gb-cfg-btn gb-cfg-sub ok">Armar IA</button>
+          <button data-cfg="relay-disarm" class="gb-cfg-btn gb-cfg-sub danger">Desarmar</button>
+          <div class="gb-cfg-note" data-cfg="relay-note">Enlace IA: sin estado todavia.</div>
         `, false, 'risk')}
       </div>
     </section>
@@ -1777,6 +1786,24 @@
     // saveNum is hoisted above its callsites further down for the same reason
     // setNum is hoisted to the top of bindConfig.
     const saveNum = (sel, fn) => onCfg(sel, 'change', e => { fn(+e.target.value); });
+    // Read-only status line for the AI link. relay.js owns the socket and the
+    // arm clock, so read them back through the handle it publishes rather than
+    // duplicating the state here.
+    const relayApi = () => { try { return GB_ROOT.__grepbotRelay || null; } catch (_) { return null; } };
+    const relayNote = () => {
+      const el = sec.querySelector('[data-cfg=relay-note]');
+      if (!el) return;
+      const api = relayApi();
+      const left = api ? api.armedMs() : Math.max(0, +(state.relayArmUntil || 0) - Date.now());
+      const parts = [];
+      parts.push('socket ' + (api && api.connected() ? 'conectado' : 'sin conexion'));
+      parts.push('comandos ' + (state.relayCommands === true ? 'ON' : 'OFF'));
+      parts.push('passthrough ' + (state.relayRaw === true ? 'ON' : 'OFF'));
+      parts.push(left > 0 ? 'armado ' + Math.ceil(left / 60000) + ' min' : 'sin armar (solo lectura)');
+      if (api) parts.push(api.writesLeft() + ' escrituras restantes esta hora');
+      const txt = 'Enlace IA: ' + parts.join(' - ');
+      if (el.textContent !== txt) el.textContent = txt;
+    };
     setChk('[data-cfg=enabled-host]', state.enabledHosts[location.host] === true);
     setChk('[data-cfg=auto-collect]', state.autoCollect);
     setChk('[data-cfg=collect-all]', state.collectAll);
@@ -1951,6 +1978,11 @@
     setChk('[data-cfg=captcha-global]', state.captchaGlobalKill !== false);
     setChk('[data-cfg=decision-memory]', state.decisionMemory !== false);
     setChk('[data-cfg=dry-run]', !!state.dryRun);
+    setChk('[data-cfg=relay-commands]', state.relayCommands === true);
+    setChk('[data-cfg=relay-raw]', state.relayRaw === true);
+    setNum('[data-cfg=relay-arm-min]', state.relayArmMin);
+    setNum('[data-cfg=relay-write-cap]', state.relayWriteCap);
+    relayNote();
     setChk('[data-cfg=orch-adaptive]', state.orchAdaptive !== false);
     setChk('[data-cfg=orch-deadlock]', state.orchDeadlockResolve !== false);
     setChk('[data-cfg=export-redact]', state.exportRedact !== false);
@@ -2115,6 +2147,44 @@
     bindToggle('[data-cfg=night-pause]', 'nightPause', STORE.NIGHT_PAUSE);
     bindToggle('[data-cfg=captcha-global]', 'captchaGlobalKill', STORE.CAPTCHA_GLOBAL);
     bindToggle('[data-cfg=decision-memory]', 'decisionMemory', STORE.DECISION_MEM);
+    // AI link. Turning the master toggle OFF also slams the arm window shut --
+    // leaving a live window behind a disabled channel is the one state that
+    // would silently re-authorise writes the moment it is re-enabled.
+    onCfg('[data-cfg=relay-commands]', 'change', e => {
+      state.relayCommands = e.target.checked; save(STORE.RELAY_CMDS, state.relayCommands);
+      if (!state.relayCommands) { state.relayArmUntil = 0; save(STORE.RELAY_ARM_UNTIL, 0); }
+      gbLog('relayCommands ' + (state.relayCommands ? 'ON' : 'OFF'));
+      flash(state.relayCommands ? 'comandos de IA ON' : 'comandos de IA OFF');
+      const api = relayApi(); if (api) api.paint();
+      relayNote(); updateStatus();
+    });
+    onCfg('[data-cfg=relay-raw]', 'change', e => {
+      state.relayRaw = e.target.checked; save(STORE.RELAY_RAW, state.relayRaw);
+      gbLog('relayRaw ' + (state.relayRaw ? 'ON - la IA puede enviar payloads sin comprobar' : 'OFF'));
+      flash(state.relayRaw ? 'passthrough directo ON' : 'passthrough directo OFF');
+      const api = relayApi(); if (api) api.paint();
+      relayNote();
+    });
+    saveNum('[data-cfg=relay-arm-min]', v => {
+      state.relayArmMin = Math.max(1, Math.min(60, v || 15)); save(STORE.RELAY_ARM_MIN, state.relayArmMin);
+    });
+    saveNum('[data-cfg=relay-write-cap]', v => {
+      state.relayWriteCap = Math.max(1, Math.min(500, v || 40)); save(STORE.RELAY_WRITE_CAP, state.relayWriteCap);
+    });
+    onCfg('[data-cfg=relay-arm]', 'click', () => {
+      if (state.relayCommands !== true) { flash('activa primero los comandos de IA'); return; }
+      const api = relayApi();
+      if (!api) { flash('relay no iniciado'); return; }
+      const min = api.arm(state.relayArmMin);
+      flash('IA armada ' + min + ' min');
+      relayNote(); updateStatus();
+    });
+    onCfg('[data-cfg=relay-disarm]', 'click', () => {
+      const api = relayApi();
+      if (api) api.disarm(); else { state.relayArmUntil = 0; save(STORE.RELAY_ARM_UNTIL, 0); }
+      flash('IA desarmada');
+      relayNote(); updateStatus();
+    });
     bindToggle('[data-cfg=orch-adaptive]', 'orchAdaptive', STORE.ORCH_ADAPTIVE);
     bindToggle('[data-cfg=orch-deadlock]', 'orchDeadlockResolve', STORE.ORCH_DEADLOCK);
     bindToggle('[data-cfg=export-redact]', 'exportRedact', STORE.EXPORT_REDACT);
@@ -2989,6 +3059,10 @@
     if (openCircuits.length) pauseTxt += ` circuit:${openCircuits.length}`;
     if (unknownTx) pauseTxt += ` tx?:${unknownTx}`;
     if (gbServerPaused()) pauseTxt += ` ||srv:${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}`;
+    // An open AI write window is the one state a glance at the footer must
+    // never miss: it is the difference between a read-only link and a live one.
+    const relayLeftMs = state.relayCommands === true ? Math.max(0, +(state.relayArmUntil || 0) - Date.now()) : 0;
+    if (relayLeftMs > 0) pauseTxt += ` ai:${fmtSec(Math.round(relayLeftMs / 1000))}${state.relayRaw === true ? '+raw' : ''}`;
     if(gbTabCoordSupported&&!gbTabLeader)pauseTxt+=' ||other-tab';
     if (storageWarnUntil > Date.now()) pauseTxt += ` !${storageWarnMsg || 'quota'}`;
     if (typeof orchDeadlockOpen === 'function' && orchDeadlockOpen()) pauseTxt += ' !WH';

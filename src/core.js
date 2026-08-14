@@ -321,6 +321,10 @@
     'report-catchup': 300000,
     'quest-scan': 180000,
     'quest-auto': 180000,
+    // One AI command at a time. Short TTL: a command that strands this lock
+    // must not wedge the channel for the 180s default.
+    'relay-cmd': 60000,
+    airaw: 120000,
   };
   const GB_LOCK_DEFAULT_TTL = 180000;
   const gbLocks = Object.create(null);
@@ -559,6 +563,15 @@
     decisionSkips: load(STORE.DECISION_SKIPS, {}),
     decisionMemory: load(STORE.DECISION_MEM, true),
     dryRun: load(STORE.DRY_RUN, false),
+    // AI command channel (relay.js). Both default OFF: the socket is read-only
+    // until the user opts in, and `relayRaw` additionally unlocks the
+    // unguarded bridge/ajax passthrough. `relayArmUntil` is the timed window
+    // that must be open for any write to execute.
+    relayCommands: load(STORE.RELAY_CMDS, false),
+    relayRaw: load(STORE.RELAY_RAW, false),
+    relayArmUntil: load(STORE.RELAY_ARM_UNTIL, 0),
+    relayArmMin: load(STORE.RELAY_ARM_MIN, 15),
+    relayWriteCap: load(STORE.RELAY_WRITE_CAP, 40),
     intelBattleStats: load(STORE.INTEL_BATTLE_STATS, true),
     exportRedact: load(STORE.EXPORT_REDACT, true),
     orchAdaptive: load(STORE.ORCH_ADAPTIVE, true),

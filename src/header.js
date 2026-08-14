@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.57.1
+// @version      4.58.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -186,6 +186,11 @@ const STORE = {
     DECISION_SKIPS: 'grepbot:decision-skips',
     DECISION_MEM: 'grepbot:decision-memory',
     DRY_RUN: 'grepbot:dry-run',
+    RELAY_CMDS: 'grepbot:relay-commands',
+    RELAY_RAW: 'grepbot:relay-raw',
+    RELAY_ARM_UNTIL: 'grepbot:relay-arm-until',
+    RELAY_ARM_MIN: 'grepbot:relay-arm-min',
+    RELAY_WRITE_CAP: 'grepbot:relay-write-cap',
     EXPORT_REDACT: 'grepbot:export-redact',
     ORCH_ADAPTIVE: 'grepbot:orch-adaptive',
     SERVER_COOLDOWN: 'grepbot:server-cooldown',
@@ -279,4 +284,7 @@ const STORE = {
     STORE.FARM_SCRAPE, STORE.FARM_SCRAPE_STATE, STORE.TOWN_ACTION, STORE.TOWN_LIST_ACTION,
     STORE.PT_TRADE_TPL, STORE.PT_VIEW_URL,
     STORE.WEBHOOK_RATELIMIT, STORE.WEBHOOK_PENDING,
+    // An arm window authorises writes against ONE world. Carrying it across a
+    // world switch would hand the AI a live window it was never granted there.
+    STORE.RELAY_ARM_UNTIL,
   ]);
