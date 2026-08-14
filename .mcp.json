@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "grepbot": {
+      "command": "node",
+      "args": [
+        "/media/vol/linux/Backups/j/Documents/DeV/grepbot/tools/relay-mcp/dist/index.js"
+      ],
+      "env": {
+        "GREPBOT_RELAY_URL": "ws://127.0.0.1:8731"
+      }
+    }
+  }
+}

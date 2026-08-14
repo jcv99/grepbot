@@ -1,3 +1,34 @@
+# GrepBot MCP relay (AI → bot)
+
+GrepBot exposes a local WebSocket relay at `ws://127.0.0.1:8731` from every
+running world tab (`src/relay.js`, since v2.x). An MCP server wraps that
+relay and exposes 34 commands as MCP tools — read / write / raw risk classes.
+
+Wire shape (in-tab → out):
+- inbound  `{type:'command', name, args, id}`
+- outbound `{type:'result', id, ...}`, `{type:'snapshot', ...}`, `{type:'event', ...}`
+
+Server entry: `tools/relay-mcp/dist/index.js` (stdio MCP). Configs reference it:
+- Claude Code: `.mcp.json` + `.claude/settings.local.json` → `enabledMcpjsonServers: ["grepolis","grepbot"]`
+- Kimi: `.kimi-code/mcp.json` → `mcpServers.grepbot`
+
+Agent rules when driving GrepBot via MCP:
+1. Confirm a world tab is connected before any read tool (`status` → `connected:true`).
+2. Writes require an open arm window; first write auto-arms with a confirmation
+   prompt unless `state.relayRaw` is OFF (default OFF — raw passthrough refused).
+3. `arm` can only EXTEND a live window, never open one from cold if `relayCommands`
+   is OFF (Config in the bot, default OFF — the master gate).
+4. Match the path option #1 from spec: stdio MCP, single-session, one tab per
+   Claude process. Multi-tab worlds need a separate server process per tab.
+5. Dry-run by default — set `state.dryRun` ON in the bot Config before writes
+   if you only want payload validation. The relay honours dry-run.
+6. After any high-risk call (`attack`, `recruit`, `dodge`, `favor`, `raw`), wait
+   for the result envelope and journal it. Decision memory lives in the tab.
+
+The wrapper server is intentionally local-only (127.0.0.1) — bot is paste-only,
+no public surface. When the wrapper is built, drop it into `tools/relay-mcp/`
+and rebuild — the configs already point at `dist/index.js`.
+
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands
 
