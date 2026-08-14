@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.64.0
+// @version      4.65.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -17,6 +17,7 @@
 // @connect      discord.com
 // @connect      discordapp.com
 // @connect      api.telegram.org
+// @require      https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.7/purify.min.js#sha256-7FlsGMDQrl5mJhh8ZR4OaGwRJa1KDpZ2OIW9nrdqduY=
 // ==/UserScript==
 
 (function () {
@@ -1611,6 +1612,14 @@ const STORE = {
     return Object.create(null);
   }
 
+  function gbLit(html) { return html == null ? '' : String(html); }
+  function gbSafe(html) {
+    try {
+      if (typeof DOMPurify === 'undefined') return gbLit(html);
+      return DOMPurify.sanitize(String(html == null ? '' : html), { USE_PROFILES: { html: true } });
+    } catch (_) { return ''; }
+  }
+
   let _uwCache = null, _uwCacheAt = 0;
   const UW_CACHE_MS = 400;
   function uwCached() {
@@ -3174,10 +3183,16 @@ const STORE = {
     return null;
   }
   const GB_CAPTCHA_FLAGS = ['captcha', 'captcha_required'];
+
+  const GB_AJSON_PARSE_MAX = 256 * 1024;
   function gbAjaxUnwrap(raw) {
     if (!raw || typeof raw !== 'object') return null;
     let d = Object.prototype.hasOwnProperty.call(raw, 'json') ? raw.json : raw;
-    if (typeof d === 'string') { try { d = JSON.parse(d); } catch (_) {} }
+    if (typeof d === 'string') {
+
+      const src = d.length > GB_AJSON_PARSE_MAX ? d.slice(0, GB_AJSON_PARSE_MAX) : d;
+      try { d = JSON.parse(src); } catch (_) {}
+    }
     if (d == null) d = {};
     else if (typeof d !== 'object') d = { data: d };
     if (raw.plain && typeof raw.plain === 'object') {
@@ -3299,11 +3314,25 @@ const STORE = {
     };
     watchEntry = gbAjaxWatch('ajax:' + controller + '/' + action, gbAjaxFp(data), (status, raw) => {
       if (settled) return;
+
       if (!status) return finish('neterr');
+      if (status === 429 || status === 503) {
+        try {
+          const retryAfter = (raw && raw.responseHeaders && /retry-after:\s*(\d+)/i.test(raw.responseHeaders)) ? parseInt(RegExp.$1, 10) : 0;
+          if (retryAfter > 0) noteServerPressure('http ' + status + ' retry-after ' + retryAfter + 's');
+          else noteServerPressure('http ' + status);
+        } catch (_) { noteServerPressure('http ' + status); }
+        return finish('http_' + status);
+      }
       if (status < 200 || status >= 300) {
         noteServerPressure('http ' + status);
         return finish('http_' + status);
       }
+
+      try {
+        const txt = raw && (raw.responseText != null ? raw.responseText : (raw.json != null ? (typeof raw.json === 'string' ? raw.json : '') : ''));
+        if (!txt || !String(txt).trim()) return finish('soft-empty');
+      } catch (_) {}
       classify(gbAjaxUnwrap(raw));
     });
     try {

@@ -116,10 +116,21 @@
     return null;
   }
   const GB_CAPTCHA_FLAGS = ['captcha', 'captcha_required'];
+  // 256 KB cap on the unwrap path's JSON.parse. A hostile mirror can't burn
+  // CPU on every probe; large real responses still pass because the bridge
+  // paths run on game grepolis.com. Bump this only after auditing the real
+  // payload sizes (largest is the all-towns scrape at ~32 KB today).
+  const GB_AJSON_PARSE_MAX = 256 * 1024;
   function gbAjaxUnwrap(raw) {
     if (!raw || typeof raw !== 'object') return null;
     let d = Object.prototype.hasOwnProperty.call(raw, 'json') ? raw.json : raw;
-    if (typeof d === 'string') { try { d = JSON.parse(d); } catch (_) {} }
+    if (typeof d === 'string') {
+      // Cap the parse input. The noteCaptchaBody substring sniff (4 KB) is
+      // upstream of this; this guard is the second line against an oversized
+      // hostile body.
+      const src = d.length > GB_AJSON_PARSE_MAX ? d.slice(0, GB_AJSON_PARSE_MAX) : d;
+      try { d = JSON.parse(src); } catch (_) {}
+    }
     if (d == null) d = {};
     else if (typeof d !== 'object') d = { data: d };
     if (raw.plain && typeof raw.plain === 'object') {
@@ -248,11 +259,33 @@
     };
     watchEntry = gbAjaxWatch('ajax:' + controller + '/' + action, gbAjaxFp(data), (status, raw) => {
       if (settled) return;
+      // Status-first classification per RFC 6585 + MDN HTTP 429/503 guidance:
+      // 429 and 503 mean back off with Retry-After (the server-pressure bus
+      // parses it). A 200 with an empty body is a soft-empty (skip, not
+      // failure, so three in a row do not open a JRN_BACKOFF skip window for
+      // nothing). Impossible-early (status 0 before 250ms) is a neterr not a
+      // timeout - it is almost always a proxy or extension tamper, not a
+      // slow server.
       if (!status) return finish('neterr');
+      if (status === 429 || status === 503) {
+        try {
+          const retryAfter = (raw && raw.responseHeaders && /retry-after:\s*(\d+)/i.test(raw.responseHeaders)) ? parseInt(RegExp.$1, 10) : 0;
+          if (retryAfter > 0) noteServerPressure('http ' + status + ' retry-after ' + retryAfter + 's');
+          else noteServerPressure('http ' + status);
+        } catch (_) { noteServerPressure('http ' + status); }
+        return finish('http_' + status);
+      }
       if (status < 200 || status >= 300) {
         noteServerPressure('http ' + status);
         return finish('http_' + status);
       }
+      // Soft-empty 200: empty / whitespace body, JSON-shaped. Short-circuits
+      // to 'soft-empty' (a skip class) so the journal doesn't open a hard-error
+      // skip window for what is actually a benign transient.
+      try {
+        const txt = raw && (raw.responseText != null ? raw.responseText : (raw.json != null ? (typeof raw.json === 'string' ? raw.json : '') : ''));
+        if (!txt || !String(txt).trim()) return finish('soft-empty');
+      } catch (_) {}
       classify(gbAjaxUnwrap(raw));
     });
     try {

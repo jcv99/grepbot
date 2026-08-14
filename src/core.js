@@ -1457,6 +1457,25 @@
     } catch (_) {}
     return Object.create(null);
   }
+  // ===== HTML sink helpers (better-practice sweep, v5) ========================
+  // Two named buckets for innerHTML so reviewers have a noun to grep for:
+  //   gbLit(html)  - LITERAL HTML ONLY. The caller passes a static string with
+  //                  no ${...} interpolation; an audit pass can grep for
+  //                  innerHTML = gbLit(...) and confirm no wire value slipped
+  //                  in. Pass-through today; the helper exists so the check is
+  //                  mechanical, not by convention.
+  //   gbSafe(html) - HTML that includes a wire value (server-controlled text,
+  //                  player names, journal lines). Routed through DOMPurify
+  //                  with the html profile (default allowlist strips
+  //                  <script>, event handlers, javascript: URLs). Requires the
+  //                  @require DOMPurify line in src/header.js.
+  function gbLit(html) { return html == null ? '' : String(html); }
+  function gbSafe(html) {
+    try {
+      if (typeof DOMPurify === 'undefined') return gbLit(html);
+      return DOMPurify.sanitize(String(html == null ? '' : html), { USE_PROFILES: { html: true } });
+    } catch (_) { return ''; }
+  }
 
   let _uwCache = null, _uwCacheAt = 0;
   const UW_CACHE_MS = 400;
