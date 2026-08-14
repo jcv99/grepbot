@@ -428,6 +428,76 @@ Single-script loop pattern:
 - **Farm endpoint discovery**: `state.farmAction` (persisted) caches the first working action; `farmGuesses()` tries it first. `learnFarmAction` sniffs farm-ish action names from the game's own XHR/fetch traffic. `ACTION_GUESSES` is module-scope — `fetchTownResources` also reads it. Both resource fetchers share `parseResourceJson` (v0.5.0).
 - **Auto-collect**: `autoCollectResources` — TreeWalker finds leaf elements matching `/^\d{1,2}\s*min$/`, walks up to find a `Recoger` button, marks `btn.dataset.grepbotClicked` to prevent re-click. MutationObserver-debounced 400ms + 5s polling fallback.
 
+## Better-practice helpers (v4.62 - v4.65 sweep)
+
+Added during the research-driven sweep. All are platform primitives, no new
+dependencies. Reach for them by name; the next maintainer should grep for
+them, not reinvent them.
+
+- **`structuredClone(value)`** — prefer over `JSON.parse(JSON.stringify(x))`
+  for any config / state snapshot. Preserves `Date` / `Map` / `Set` /
+  `RegExp` / `ArrayBuffer` / typed arrays / `Error` with `cause` / `stack`,
+  handles circular references, throws `DataCloneError` instead of silently
+  dropping `undefined` / functions / `Symbol`s. Already used in `qol.js`
+  (qolConfigSnapshot / qolSaveTemplate / qolApplyTemplate / qolImportConfig).
+- **`BOOT_TIMING`** (src/boot.js) — frozen module-scope object of every
+  cadence the boot block uses (INBOX_SCRAPE_MS, FARM_TICK_MS, THRESHOLD_CHECK_MS,
+  STATUS_UPDATE_MS, OVERVIEW_RENDER_MS, LOCK_SWEEP_MS, NATIVE_QUEUE_LOOP_MS,
+  plus boot-step delays FARM_WAKE_MS / QUEST_SCAN_BOOT_MS / IB_SCAN_BOOT_MS /
+  AB_TARGETS_MS / NATIVE_UI_SCAN_MS / NATIVE_QUEUE_BOOT_MS /
+  ORCH_FIRST_TICK_MS / HUD_RESTORE_MS / IB_CLICK_HOOK_MS, plus
+  FIRST_FARM_DEADLINE_MS / FIRST_TOWNS_DEADLINE_MS that pair with the
+  persisted `state.nextFarmScrape` / `state.nextTownsScrape` deadlines).
+  Naked `30000` / `15000` / `10000` in boot.js is a regression.
+- **`txRunAsync(feature, transport, endpoint, data, rawSend, opts)`**
+  (src/tx.js) — Promise wrapper around `txRun`. `opts.signal` cancels the
+  OUTER promise via AbortController; the in-flight tx keeps going through
+  its own state machine (server post + reconcile are already race-safe).
+  Opt-in for modules that already use async; callback callers are unchanged.
+- **`gbLit(html)` / `gbSafe(html)`** (src/core.js) — two named buckets for
+  `innerHTML`. `gbLit` is LITERAL HTML ONLY (pass-through; the audit pass
+  greps `innerHTML = gbLit(...)` and confirms no `${…}` interpolation).
+  `gbSafe` routes through `DOMPurify.sanitize(html, { USE_PROFILES: { html: true } })`
+  for any markup that includes a wire value. Requires the `@require`
+  DOMPurify line in src/header.js.
+- **`statsYieldToMain()`** (src/stats.js) — `scheduler.yield()` when
+  available (Chrome/Edge 129+, Firefox 142+), `setTimeout(0)` otherwise.
+  The web.dev optimize-long-tasks deadline-batched shape; ready for the
+  next async refactor of the evidenceLastByFeature / journal rollup walks.
+- **Listener bag `AbortController`** (src/core.js) — one per-instance
+  `AbortController`; every `gbListen` call passes `{ signal: gbListenerSignal }`
+  so dispose calls `gbListenerAbort.abort()` and detaches every listener in
+  one call. The bag survives as a debug mirror only.
+- **gbPaint selection preservation** (src/core.js) — snapshots
+  `document.activeElement.id` + `selectionStart` / `selectionEnd` /
+  `selectionDirection` before a structural replace; restores focus + caret
+  in the new tree via `CSS.escape(id)` + `setSelectionRange`. The patch
+  path was already safe via the `activeElement` skip on `.value` /
+  `.checked` (line 160-165); this guards the rarer REPLACE path.
+- **renderLog rAF coalesce** (src/core.js) — visible tab coalesces per
+  frame via `requestAnimationFrame` so a burst of log lines paints once,
+  not once-per-line. Hidden tab keeps a 250ms `gbTimeout` (rAF is paused).
+- **scheduleAutoCollect rAF** (src/collect.js) — same pattern for the
+  `MutationObserver` → auto-collect path; visible tab coalesces per
+  frame, hidden tab keeps the 800ms timer.
+- **JSON.parse size cap** (src/bridge.js) — `gbAjaxUnwrap` caps the
+  `JSON.parse` input at `GB_AJSON_PARSE_MAX = 256 KB`. `noteCaptchaBody`
+  still sniffs only the first 4 KB upstream; this guard is the second
+  line against an oversized hostile body. Largest legitimate bridge
+  payload today is the all-towns scrape at ~32 KB.
+- **Captcha status pre-check** (src/bridge.js) — `gbAjaxWatch`'s settle
+  callback classifies status-first: 429 / 503 open the server-pressure
+  bus with `Retry-After` parsed to seconds; a 200 with an empty body
+  short-circuits to `'soft-empty'` (a skip class, not a hard error, so
+  three in a row don't open a JRN_BACKOFF skip window for nothing).
+  `captcha_required === true` precedence is preserved.
+- **Error.cause on swallowed catches** — bare `catch (_) {}` in
+  alerts.js (webhook save paths, desktop notify, intel digest) and
+  boot.js (boot ticks, visibilitychange / pageshow handlers,
+  releaseLocks sequence) now route to `gbLogT('silent-err:tag',
+  60_000, 'name: ' + String(e?.message || e).slice(0, 80))`. The
+  surrounding tick keeps running; the cause is on the Log tab.
+
 ## Workflow rule: version + syntax check
 
 Any edit under `src/` should be followed by:
