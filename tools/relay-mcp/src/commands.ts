@@ -37,6 +37,7 @@ const entries: CommandSpec[] = [
   { name: 'gbIntel', cmd: 'intel', risk: 'read', summary: 'Threat board, dossiers and ranked spy targets.', args: {} },
   { name: 'gbJournal', cmd: 'journal', risk: 'read', summary: 'Decision-journal slice, rollup stats, active skip windows.', args: { limit: { type: 'number', description: 'rows to return', required: false }, feature: { type: 'string', description: 'filter by feature key', required: false } } },
   { name: 'gbPreflight', cmd: 'preflight', risk: 'read', summary: 'Run every module read-path probe. Sends nothing.', args: {} },
+  { name: 'gbSpy', cmd: 'spy', risk: 'read', summary: 'Ranked scout targets spyCycle would spy on this pass. Sends nothing.', args: {} },
 
   // -- write --------------------------------------------------------------
   { name: 'gbArm', cmd: 'arm', risk: 'write', summary: 'Extend an ALREADY OPEN arm window. Cannot open one from cold.', args: { minutes: { type: 'number', description: 'minutes to extend by', required: true } } },
@@ -63,9 +64,11 @@ const entries: CommandSpec[] = [
   { name: 'gbQuest', cmd: 'quest_claim', risk: 'write', summary: 'Try to auto-claim every quest whose rewards are all safe.', args: {} },
   { name: 'gbSetTarget', cmd: 'set_target', risk: 'write', summary: 'Set an intel target (player id or town id).', args: { kind: { type: 'string', description: 'player|town', required: true }, id: { type: 'number', description: 'target id', required: true } } },
   { name: 'gbToggle', cmd: 'toggle', risk: 'write', summary: 'Flip one whitelisted toggle. Master gates (dryRun, safeMode, captchaGlobalKill, hosts) are NOT togglable here.', args: { key: { type: 'string', description: 'toggle key (e.g. autoFarm)', required: true }, value: { type: 'boolean', description: 'new value', required: true } } },
-  { name: 'gbKick', cmd: 'kick', risk: 'write', summary: 'Re-run one econ scan immediately.', args: { scan: { type: 'string', description: 'orch|farm|cave|culture|trade|build|research|recruit|ruraltrade|rurallevel|merchant|pttrade|wonder|hero|godspell|dodge|support|emergency|bandit|quests|instant|queues', required: true } } },
+  { name: 'gbKick', cmd: 'kick', risk: 'write', summary: 'Re-run one econ scan immediately.', args: { scan: { type: 'string', description: 'orch|farm|cave|culture|trade|build|research|recruit|ruraltrade|rurallevel|merchant|pttrade|wonder|hero|godspell|dodge|support|emergency|bandit|quests|instant|queues|spy|favor', required: true } } },
   { name: 'gbPanic', cmd: 'panic', risk: 'write', summary: 'Hard pause: stop the orchestrator and lock every lock.', args: {} },
   { name: 'gbRecover', cmd: 'recover', risk: 'write', summary: 'Clear the panic state and resume after a manual review.', args: {} },
+  { name: 'gbFavor', cmd: 'favor', risk: 'write', summary: 'Run the favor spend scan once. Honours every feature gate; no-op while FAVOR_AUTOMATION_ENABLED=false.', args: {} },
+  { name: 'gbWonder', cmd: 'wonder', risk: 'write', summary: 'Contribute resources to one World Wonder from one of your towns. Amounts are exact, not budget-aware.', args: { town_id: { type: 'number', description: 'own town id', required: true }, wonder_id: { type: 'number', description: 'wonder id', required: true }, wood: { type: 'number', description: 'wood amount (default 0)', required: false }, stone: { type: 'number', description: 'stone amount (default 0)', required: false }, iron: { type: 'number', description: 'iron amount (default 0)', required: false } } },
 
   // -- raw -----------------------------------------------------------------
   { name: 'gbBridge', cmd: 'bridge', risk: 'raw', summary: 'Raw gpAjax.ajaxPost passthrough. Requires relayRaw=ON.', args: { model_url: { type: 'string', description: 'e.g. "frontend_bridge"', required: true }, action_name: { type: 'string', description: 'action id', required: true }, arguments: { type: 'object', description: 'arguments bag', required: true }, town_id: { type: 'number', description: 'town id (optional)', required: false } } },

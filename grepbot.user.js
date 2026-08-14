@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.58.2
+// @version      4.59.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -24474,6 +24474,8 @@ const STORE = {
       quests: () => questScanTick('relay'),
       instant: () => ibScan(),
       queues: () => nativeQueueSweep('manual'),
+      spy: () => spyCycle('relay'),
+      favor: () => favorScan('relay'),
     };
 
     const RELAY_LANES = { build: 1, recruit: 1, recruitNaval: 1, research: 1 };
@@ -24608,6 +24610,12 @@ const STORE = {
       preflight: {
         risk: 'read', doc: 'Run every module read-path probe. Sends nothing.',
         run: (a, done) => done(null, safe(() => preflightRun(), null)),
+      },
+      spy: {
+
+        risk: 'read',
+        doc: 'Ranked scout targets spyCycle would spy on this pass. Sends nothing.',
+        run: (a, done) => done(null, safe(() => spyRankTargets(), []) || []),
       },
       arm: {
 
@@ -24896,6 +24904,46 @@ const STORE = {
           if (!fn) return done('unknown-scan');
           try { fn(); } catch (e) { return done(String(e)); }
           done(null, { kicked: k });
+        },
+      },
+      favor: {
+
+        risk: 'write', doc: 'Run the favor spend scan once. Honours every feature gate (host, captcha, lock, automation, FAVOR_AUTOMATION_ENABLED).',
+        run: (a, done) => {
+          try { favorScan('relay-cmd'); done(null, { kicked: 'favor' }); }
+          catch (e) { done(String(e)); }
+        },
+      },
+      wonder: {
+
+        risk: 'write',
+        doc: 'Contribute resources to one World Wonder from one of your towns. Amounts are exact, not budget-aware.',
+        args: { town_id: 'number', wonder_id: 'number', wood: 'number (default 0)', stone: 'number (default 0)', iron: 'number (default 0)' },
+        run: (a, done) => {
+          const tid = +a.town_id, wid = +a.wonder_id;
+          if (!tid || !wid) return done('bad-args');
+          const w = +a.wood || 0, s = +a.stone || 0, i = +a.iron || 0;
+          if (!(w + s + i > 0)) return done('no-resources');
+          if (!hostEnabled() || automationPaused({})) return done('host-off');
+          if (captchaPaused('wonder')) return done('captcha-pause');
+          const lockToken = gbLock('wonder');
+          if (!lockToken) return done('busy');
+          const send = (controller, action, args, cb) => gameAjaxPost('wonder', controller, action, args, (err) => {
+            if (!err) { gbUnlock('wonder', lockToken); return cb(null, { sent: { wood: w, stone: s, iron: i }, town_id: tid, wonder_id: wid, controller, action }); }
+            cb(err);
+          });
+          send('wonders', 'send_resources', { id: wid, wood: w, stone: s, iron: i, town_id: tid }, (err, ok) => {
+            if (ok) return done(null, ok);
+            if (!/unknown|not.?found|does.?not.?exist|invalid.?controller|invalid.?action/i.test(String(err))) {
+              gbUnlock('wonder', lockToken);
+              return done(err);
+            }
+            send('factions', 'send_resources', { wonder_id: wid, wood: w, stone: s, iron: i, town_id: tid }, (err2, ok2) => {
+              gbUnlock('wonder', lockToken);
+              if (ok2) return done(null, ok2);
+              done(err2 || err);
+            });
+          });
         },
       },
       panic: {
