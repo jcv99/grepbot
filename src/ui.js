@@ -1978,6 +1978,11 @@
     setChk('[data-cfg=captcha-global]', state.captchaGlobalKill !== false);
     setChk('[data-cfg=decision-memory]', state.decisionMemory !== false);
     setChk('[data-cfg=dry-run]', !!state.dryRun);
+    // safe-mode had a change listener but no value-set, so the box always
+    // rendered UNCHECKED while state.safeMode was true - the panel and
+    // safeModeBlock() disagreed, and unticking an already-unticked box fired
+    // no change event, so the gate could not be cleared from the UI at all.
+    setChk('[data-cfg=safe-mode]', !!state.safeMode);
     setChk('[data-cfg=relay-commands]', state.relayCommands === true);
     setChk('[data-cfg=relay-raw]', state.relayRaw === true);
     setNum('[data-cfg=relay-arm-min]', state.relayArmMin);
