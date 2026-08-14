@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.63.0
+// @version      4.64.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -371,6 +371,11 @@ const STORE = {
     if (!host || typeof build !== 'function') return 'skip';
     const o = opts || {};
     const stage = document.createElement('div');
+
+    const ae = document.activeElement;
+    const selSnap = (ae && typeof ae.id === 'string' && ae.id && typeof ae.setSelectionRange === 'function' && ae.selectionStart != null)
+      ? { id: ae.id, start: ae.selectionStart, end: ae.selectionEnd, dir: ae.selectionDirection || 'forward' }
+      : null;
     build(stage);
     const key = String(o.key == null ? '' : o.key);
     const top = host.scrollTop;
@@ -388,6 +393,12 @@ const STORE = {
     }
     if (out === 'replace' && top && host.scrollHeight > host.clientHeight) {
       host.scrollTop = Math.min(top, host.scrollHeight - host.clientHeight);
+    }
+    if (out === 'replace' && selSnap) {
+      const fresh = host.querySelector('#' + (window.CSS && CSS.escape ? CSS.escape(selSnap.id) : selSnap.id));
+      if (fresh && fresh !== document.activeElement && typeof fresh.setSelectionRange === 'function') {
+        try { fresh.focus(); fresh.setSelectionRange(selSnap.start, selSnap.end, selSnap.dir); } catch (_) {}
+      }
     }
     return out;
   }
@@ -1575,14 +1586,18 @@ const STORE = {
 
     if (!list || sec.hidden || list.hidden || logRenderQueued) return;
     logRenderQueued = true;
-    gbTimeout(() => {
+
+    const flush = () => {
       logRenderQueued = false;
       if (sec.hidden || list.hidden) return;
       const start = Math.max(logHead, logBuf.length - 80);
       const lines = logBuf.slice(start);
       list.textContent = lines.map(l => new Date(l.ts).toLocaleTimeString() + ' ' + l.msg).join('\n');
       list.scrollTop = list.scrollHeight;
-    }, 250);
+    };
+    if (document.hidden) gbTimeout(flush, 250);
+    else if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
+    else gbTimeout(flush, 250);
   }
 
   function gameUw() {
@@ -6308,9 +6323,16 @@ const STORE = {
     flash(`bg-collect x${n}`);
   }
   let collectTimer = null;
+  let collectRafPending = false;
   function scheduleAutoCollect() {
-    if (collectTimer) return;
-    collectTimer = gbTimeout(() => { collectTimer = null; autoCollectResources(); }, 800);
+    if (collectTimer || collectRafPending) return;
+
+    if (!document.hidden && typeof requestAnimationFrame === 'function') {
+      collectRafPending = true;
+      requestAnimationFrame(() => { collectRafPending = false; autoCollectResources(); });
+    } else {
+      collectTimer = gbTimeout(() => { collectTimer = null; autoCollectResources(); }, 800);
+    }
   }
 
   let gbDomObserverSig = '';
@@ -19013,6 +19035,10 @@ const STORE = {
     try { memTick(); } catch (_) {}
   }
   function statsPct(n, d) { return d ? Math.round(n / d * 100) + '%' : '-'; }
+
+  const statsYieldToMain = () => (globalThis.scheduler && typeof globalThis.scheduler.yield === 'function')
+    ? globalThis.scheduler.yield()
+    : new Promise(r => setTimeout(r, 0));
 
   const FAVOR_HUD_WINDOW_MS = 600000;
   const FAVOR_HUD_GODS = ['zeus', 'poseidon', 'hera', 'athena', 'hades', 'ares', 'artemis', 'aphrodite'];

@@ -104,6 +104,16 @@
     if (!host || typeof build !== 'function') return 'skip';
     const o = opts || {};
     const stage = document.createElement('div');
+    // A structural replace detaches every descendant, including the focused
+    // control. Snapshot activeElement + selection so the caret survives the
+    // swap. Number/email inputs have no selection (setSelectionRange throws);
+    // guard the call. We can only restore by ID/name because the original DOM
+    // node is gone; if the new tree has nothing matching, we simply lose focus
+    // (the same outcome as the previous behavior).
+    const ae = document.activeElement;
+    const selSnap = (ae && typeof ae.id === 'string' && ae.id && typeof ae.setSelectionRange === 'function' && ae.selectionStart != null)
+      ? { id: ae.id, start: ae.selectionStart, end: ae.selectionEnd, dir: ae.selectionDirection || 'forward' }
+      : null;
     build(stage);
     const key = String(o.key == null ? '' : o.key);
     const top = host.scrollTop;
@@ -121,6 +131,12 @@
     }
     if (out === 'replace' && top && host.scrollHeight > host.clientHeight) {
       host.scrollTop = Math.min(top, host.scrollHeight - host.clientHeight);
+    }
+    if (out === 'replace' && selSnap) {
+      const fresh = host.querySelector('#' + (window.CSS && CSS.escape ? CSS.escape(selSnap.id) : selSnap.id));
+      if (fresh && fresh !== document.activeElement && typeof fresh.setSelectionRange === 'function') {
+        try { fresh.focus(); fresh.setSelectionRange(selSnap.start, selSnap.end, selSnap.dir); } catch (_) {}
+      }
     }
     return out;
   }
@@ -1415,14 +1431,20 @@
 
     if (!list || sec.hidden || list.hidden || logRenderQueued) return;
     logRenderQueued = true;
-    gbTimeout(() => {
+    // Visible tab: coalesce per-frame via rAF so a burst of log lines paints
+    // once, not once-per-line. Hidden tab: keep a 250ms timer so the next
+    // visible paint sees the whole batch (rAF is paused in hidden tabs).
+    const flush = () => {
       logRenderQueued = false;
       if (sec.hidden || list.hidden) return;
       const start = Math.max(logHead, logBuf.length - 80);
       const lines = logBuf.slice(start);
       list.textContent = lines.map(l => new Date(l.ts).toLocaleTimeString() + ' ' + l.msg).join('\n');
       list.scrollTop = list.scrollHeight;
-    }, 250);
+    };
+    if (document.hidden) gbTimeout(flush, 250);
+    else if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
+    else gbTimeout(flush, 250);
   }
 
   function gameUw() {

@@ -175,9 +175,18 @@
     flash(`bg-collect x${n}`);
   }
   let collectTimer = null;
+  let collectRafPending = false;
   function scheduleAutoCollect() {
-    if (collectTimer) return;
-    collectTimer = gbTimeout(() => { collectTimer = null; autoCollectResources(); }, 800);
+    if (collectTimer || collectRafPending) return;
+    // rAF when the tab is visible paints inside the next frame so a burst of
+    // MO records collapses to one auto-collect; the 800ms timer stays for
+    // hidden tabs (rAF is paused) and for engines without rAF.
+    if (!document.hidden && typeof requestAnimationFrame === 'function') {
+      collectRafPending = true;
+      requestAnimationFrame(() => { collectRafPending = false; autoCollectResources(); });
+    } else {
+      collectTimer = gbTimeout(() => { collectTimer = null; autoCollectResources(); }, 800);
+    }
   }
 
   let gbDomObserverSig = '';
