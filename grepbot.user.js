@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.62.0
+// @version      4.63.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -308,6 +308,11 @@ const STORE = {
   const gbMenuCmds = [];
   const gbStyleBag = [];
   const gbHookOrig = { fetch: null, xhrOpen: null, xhrSend: null, pushState: null, replaceState: null };
+
+  let gbListenerAbort = null;
+  let gbListenerSignal = null;
+  gbListenerAbort = new AbortController();
+  gbListenerSignal = gbListenerAbort.signal;
   let gbDomObserver = null;
 
   function gbInterval(fn, ms) {
@@ -356,7 +361,8 @@ const STORE = {
       if (!gbInstanceAlive()) return;
       return fn.apply(this, arguments);
     };
-    target.addEventListener(type, wrapped, opts);
+    const o = Object.assign({}, opts || {}, { signal: gbListenerSignal });
+    target.addEventListener(type, wrapped, o);
     gbListenerBag.push({ target, type, fn: wrapped, opts });
     return wrapped;
   }
@@ -512,9 +518,8 @@ const STORE = {
     gbAbortXhrs();
     gbRestoreHooks();
     gbUnregisterMenus();
-    for (const L of gbListenerBag) {
-      try { L.target.removeEventListener(L.type, L.fn, L.opts); } catch (_) {}
-    }
+
+    try { gbListenerAbort.abort(); } catch (_) {}
     gbListenerBag.length = 0;
     if (gbDomObserver) {
       try { gbDomObserver.disconnect(); } catch (_) {}

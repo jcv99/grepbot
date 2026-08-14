@@ -19,6 +19,15 @@
   const gbMenuCmds = [];
   const gbStyleBag = [];
   const gbHookOrig = { fetch: null, xhrOpen: null, xhrSend: null, pushState: null, replaceState: null };
+  // One AbortController per instance owns every listener gbListen registers.
+  // Disposing the instance calls gbListenerAbort.abort() and every listener
+  // (visibilitychange / pageshow / click / popstate / …) is detached in one
+  // call instead of iterating removeEventListener on each. The bag below stays
+  // as a debug mirror - the signal is the source of truth for removal.
+  let gbListenerAbort = null;
+  let gbListenerSignal = null;
+  gbListenerAbort = new AbortController();
+  gbListenerSignal = gbListenerAbort.signal;
   let gbDomObserver = null;
 
   function gbInterval(fn, ms) {
@@ -68,7 +77,8 @@
       if (!gbInstanceAlive()) return;
       return fn.apply(this, arguments);
     };
-    target.addEventListener(type, wrapped, opts);
+    const o = Object.assign({}, opts || {}, { signal: gbListenerSignal });
+    target.addEventListener(type, wrapped, o);
     gbListenerBag.push({ target, type, fn: wrapped, opts });
     return wrapped;
   }
@@ -261,9 +271,10 @@
     gbAbortXhrs();
     gbRestoreHooks();
     gbUnregisterMenus();
-    for (const L of gbListenerBag) {
-      try { L.target.removeEventListener(L.type, L.fn, L.opts); } catch (_) {}
-    }
+    // AbortController removes every listener this instance registered with the
+    // shared signal in one call. The bag survives as a debug mirror only; the
+    // entries still reference the now-detached signal and are cleared below.
+    try { gbListenerAbort.abort(); } catch (_) {}
     gbListenerBag.length = 0;
     if (gbDomObserver) {
       try { gbDomObserver.disconnect(); } catch (_) {}
