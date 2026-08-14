@@ -508,6 +508,33 @@
     return { ok: true };
   }
 
+  // Towns with at least one hostile incoming movement. Returns null when the
+  // MovementsUnits model is unreadable — a blind set is not "no one is
+  // attacked", and a trade scan that ships to a town we cannot read is the
+  // exact loss this gate exists to prevent.
+  let tradeUnderAttackCache = { at: 0, known: false, value: null };
+  function tradeTownsUnderAttack() {
+    if (Date.now() - tradeUnderAttackCache.at < 1000) return { known: tradeUnderAttackCache.known, value: tradeUnderAttackCache.value };
+    let value = null, known = false;
+    try {
+      if (typeof dodgeIncomingMovements === 'function') {
+        const moves = dodgeIncomingMovements();
+        if (Array.isArray(moves)) {
+          const set = new Set();
+          for (const m of moves) { if (m && m.dest != null) set.add(String(m.dest)); }
+          value = set; known = true;
+        }
+      }
+    } catch (_) {}
+    tradeUnderAttackCache = { at: Date.now(), known, value };
+    return { known, value };
+  }
+  function tradeTownUnderAttack(townId) {
+    const u = tradeTownsUnderAttack();
+    if (!u.known || !u.value) return false;
+    return u.value.has(String(townId));
+  }
+
   function tradeScan(reason) {
     if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes && !state.autoDump && !state.autoTransportAi) || captchaPaused('trade')) return;
     if (automationPaused({})) return;
@@ -545,6 +572,23 @@
       jobs = jobs.concat(tradeGoalJobs(towns, ledger, preset));
     }
     if (state.islandShip) jobs = jobs.concat(tradeIslandShipJobs(towns, ledger));
+    // Block every shipment to a town with an incoming hostile movement.
+    // Routes, fill-storage, deadlock, island, dump and goal presets all flow
+    // through this single gate so the user-visible rule — "do not feed a city
+    // that is about to be hit" — is enforced regardless of which sub-planner
+    // produced the job. Blind incoming = fail closed for the same reason the
+    // incoming-trades gate above does.
+    const underAttack = tradeTownsUnderAttack();
+    if (!underAttack.known) {
+      gbLogT('trade-incoming-unreadable', 180000, 'trade: incoming attacks unreadable — fail closed');
+      return;
+    }
+    if (underAttack.value && underAttack.value.size) {
+      const before = jobs.length;
+      jobs = jobs.filter(j => !underAttack.value.has(String(j.to)));
+      const dropped = before - jobs.length;
+      if (dropped) gbLog(`trade: ${dropped} job(s) dropped — target under attack`);
+    }
     if (!jobs.length) {
       gbLogT('trade-idle', 180000, `trade: nothing to send (${scanReason(reason)})`);
       return;

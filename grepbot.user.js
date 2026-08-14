@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.60.0
+// @version      4.61.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -10229,6 +10229,29 @@ const STORE = {
     return { ok: true };
   }
 
+  let tradeUnderAttackCache = { at: 0, known: false, value: null };
+  function tradeTownsUnderAttack() {
+    if (Date.now() - tradeUnderAttackCache.at < 1000) return { known: tradeUnderAttackCache.known, value: tradeUnderAttackCache.value };
+    let value = null, known = false;
+    try {
+      if (typeof dodgeIncomingMovements === 'function') {
+        const moves = dodgeIncomingMovements();
+        if (Array.isArray(moves)) {
+          const set = new Set();
+          for (const m of moves) { if (m && m.dest != null) set.add(String(m.dest)); }
+          value = set; known = true;
+        }
+      }
+    } catch (_) {}
+    tradeUnderAttackCache = { at: Date.now(), known, value };
+    return { known, value };
+  }
+  function tradeTownUnderAttack(townId) {
+    const u = tradeTownsUnderAttack();
+    if (!u.known || !u.value) return false;
+    return u.value.has(String(townId));
+  }
+
   function tradeScan(reason) {
     if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes && !state.autoDump && !state.autoTransportAi) || captchaPaused('trade')) return;
     if (automationPaused({})) return;
@@ -10260,6 +10283,18 @@ const STORE = {
       jobs = jobs.concat(tradeGoalJobs(towns, ledger, preset));
     }
     if (state.islandShip) jobs = jobs.concat(tradeIslandShipJobs(towns, ledger));
+
+    const underAttack = tradeTownsUnderAttack();
+    if (!underAttack.known) {
+      gbLogT('trade-incoming-unreadable', 180000, 'trade: incoming attacks unreadable \u2014 fail closed');
+      return;
+    }
+    if (underAttack.value && underAttack.value.size) {
+      const before = jobs.length;
+      jobs = jobs.filter(j => !underAttack.value.has(String(j.to)));
+      const dropped = before - jobs.length;
+      if (dropped) gbLog(`trade: ${dropped} job(s) dropped \u2014 target under attack`);
+    }
     if (!jobs.length) {
       gbLogT('trade-idle', 180000, `trade: nothing to send (${scanReason(reason)})`);
       return;
