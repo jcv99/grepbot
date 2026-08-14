@@ -501,6 +501,11 @@
     return { target, rows, now, skew };
   }
   const ATTACK_GENERIC_MISSIONS = new Set(['attack', 'support', 'revolt']);
+  // requestContentGet("town_info", <action>, {id:<target>}) is how the client
+  // opens the attack/support dialog for a town, and the dialog posts back to
+  // the same controller. Villages use farm_town_info and are refused upstream
+  // by attackSendAllowed(), so this constant is town-only on purpose.
+  const ATTACK_CONTROLLER = 'town_info';
   function sendAttackViaBridge(target, srcTownId, units, mission, onDone) {
     if (!hostEnabled()) { flash('bot desactivado en este servidor'); return onDone && onDone('disabled'); }
     const safeMission = String(mission || 'attack').toLowerCase();
@@ -537,9 +542,40 @@
       const have = +live[k] || 0;
       if (want > 0 && have > 0) sendUnits[k] = Math.min(want, have);
     });
+    delete sendUnits.militia;
     if (!Object.keys(sendUnits).length) return onDone && onDone('no-units');
     const destId = +target.town_id;
     const tpl = state.attackTpl;
+    const settle = (err, data) => {
+      if (err) { flash('ataque fallido: ' + err); return onDone && onDone(err); }
+      flash('ataque enviado #' + srcTownId);
+      attackRememberTarget(target.town_id, { x: target.x, y: target.y, src: 'sent' });
+      if (state.exportRedact === false) gbLog('attack response:', JSON.stringify(data).slice(0, 200));
+      else gbLog('attack response: ok');
+      if (onDone) onDone(null, data);
+    };
+    // Canonical transport. The game client does NOT send a town attack through
+    // frontend_bridge: TownAttack.prototype.sendUnits builds
+    //   u = {<unit>:n, …, id:<target town>, type:'attack'|'support'|'revolt'}
+    // and posts `this.wnd.ajaxRequestPost(controller_type, 'send_units', u)`,
+    // which is gpAjax.ajaxPost(controller, action, params) with town_id
+    // defaulted to Game.townId (archive/captures/grepo-dump/js/game.min.js).
+    // controller_type is 'town_info' for a town target — the same controller
+    // trade.js already posts to. Because that post never touches the bridge,
+    // sniffBridgeBody could never learn `attackTpl` from a hand-sent attack, so
+    // the old bridge-only path was permanently stuck on "template NOT learned"
+    // and the templateless payload it built earned an internal server error.
+    // attackTpl stays supported as an explicit override for a world whose
+    // client really does route sendUnits through the bridge.
+    if (!tpl) {
+      const params = Object.assign({}, sendUnits, {
+        id: destId, type: safeMission, town_id: +srcTownId,
+      });
+      const n = Object.values(sendUnits).reduce((a, b) => a + (+b || 0), 0);
+      if (state.exportRedact === false) gbLog('attack ajax:', JSON.stringify(params));
+      else gbLog(`attack ajax: ${ATTACK_CONTROLLER}/send_units town ${srcTownId} -> ${destId} (${safeMission}, ${Object.keys(sendUnits).length} tipos / ${n} unidades)`);
+      return gameAjaxPost('attack', ATTACK_CONTROLLER, 'send_units', params, settle);
+    }
     const tplArgs = (tpl && tpl.arguments) || {};
     const args = {};
     for (const k of Object.keys(tplArgs)) {
@@ -569,14 +605,7 @@
     const unitCount = Object.values(sendUnits).reduce((a, b) => a + (+b || 0), 0);
     if (state.exportRedact === false) gbLog('attack bridge:', JSON.stringify(payload));
     else gbLog(`attack bridge: ${payload.action_name} town ${srcTownId} → ${destId} (${args.type || '?'}, ${Object.keys(sendUnits).length} tipos / ${unitCount} unidades)`);
-    bridgePost('attack', payload, (err, data) => {
-      if (err) { flash('ataque fallido: ' + err); return onDone && onDone(err); }
-      flash('ataque enviado #' + srcTownId);
-      attackRememberTarget(target.town_id, { x: target.x, y: target.y, src: 'sent' });
-      if (state.exportRedact === false) gbLog('attack response:', JSON.stringify(data).slice(0, 200));
-      else gbLog('attack response: ok');
-      if (onDone) onDone(null, data);
-    });
+    bridgePost('attack', payload, settle);
   }
   function pushAttackHistory(entry) {
     state.attackHistory.unshift(entry);

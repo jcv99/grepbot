@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      4.59.2
+// @version      4.60.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -17245,6 +17245,8 @@ const STORE = {
     return { target, rows, now, skew };
   }
   const ATTACK_GENERIC_MISSIONS = new Set(['attack', 'support', 'revolt']);
+
+  const ATTACK_CONTROLLER = 'town_info';
   function sendAttackViaBridge(target, srcTownId, units, mission, onDone) {
     if (!hostEnabled()) { flash('bot desactivado en este servidor'); return onDone && onDone('disabled'); }
     const safeMission = String(mission || 'attack').toLowerCase();
@@ -17277,9 +17279,28 @@ const STORE = {
       const have = +live[k] || 0;
       if (want > 0 && have > 0) sendUnits[k] = Math.min(want, have);
     });
+    delete sendUnits.militia;
     if (!Object.keys(sendUnits).length) return onDone && onDone('no-units');
     const destId = +target.town_id;
     const tpl = state.attackTpl;
+    const settle = (err, data) => {
+      if (err) { flash('ataque fallido: ' + err); return onDone && onDone(err); }
+      flash('ataque enviado #' + srcTownId);
+      attackRememberTarget(target.town_id, { x: target.x, y: target.y, src: 'sent' });
+      if (state.exportRedact === false) gbLog('attack response:', JSON.stringify(data).slice(0, 200));
+      else gbLog('attack response: ok');
+      if (onDone) onDone(null, data);
+    };
+
+    if (!tpl) {
+      const params = Object.assign({}, sendUnits, {
+        id: destId, type: safeMission, town_id: +srcTownId,
+      });
+      const n = Object.values(sendUnits).reduce((a, b) => a + (+b || 0), 0);
+      if (state.exportRedact === false) gbLog('attack ajax:', JSON.stringify(params));
+      else gbLog(`attack ajax: ${ATTACK_CONTROLLER}/send_units town ${srcTownId} -> ${destId} (${safeMission}, ${Object.keys(sendUnits).length} tipos / ${n} unidades)`);
+      return gameAjaxPost('attack', ATTACK_CONTROLLER, 'send_units', params, settle);
+    }
     const tplArgs = (tpl && tpl.arguments) || {};
     const args = {};
     for (const k of Object.keys(tplArgs)) {
@@ -17305,14 +17326,7 @@ const STORE = {
     const unitCount = Object.values(sendUnits).reduce((a, b) => a + (+b || 0), 0);
     if (state.exportRedact === false) gbLog('attack bridge:', JSON.stringify(payload));
     else gbLog(`attack bridge: ${payload.action_name} town ${srcTownId} \u2192 ${destId} (${args.type || '?'}, ${Object.keys(sendUnits).length} tipos / ${unitCount} unidades)`);
-    bridgePost('attack', payload, (err, data) => {
-      if (err) { flash('ataque fallido: ' + err); return onDone && onDone(err); }
-      flash('ataque enviado #' + srcTownId);
-      attackRememberTarget(target.town_id, { x: target.x, y: target.y, src: 'sent' });
-      if (state.exportRedact === false) gbLog('attack response:', JSON.stringify(data).slice(0, 200));
-      else gbLog('attack response: ok');
-      if (onDone) onDone(null, data);
-    });
+    bridgePost('attack', payload, settle);
   }
   function pushAttackHistory(entry) {
     state.attackHistory.unshift(entry);
@@ -19552,11 +19566,16 @@ const STORE = {
       else { parts.push('building costs unreadable (open a build window once)'); blind++; }
       return { ok: blind < 5, warn: blind > 0, detail: parts.join(', ') };
     }));
-    out.push(preflightProbe('attack', () => ({
-      ok: !!state.attackTpl,
-      warn: !state.attackTpl,
-      detail: state.attackTpl ? 'template learned' : 'template NOT learned (send one attack by hand)',
-    })));
+    out.push(preflightProbe('attack', () => {
+
+      const ajax = (() => { try { return !!(gameUw().gpAjax && gameUw().gpAjax.ajaxPost); } catch (_) { return false; } })();
+      return {
+        ok: ajax,
+        warn: false,
+        detail: (ajax ? 'gpAjax ready, town_info/send_units' : 'gpAjax UNAVAILABLE (open the game tab)')
+          + (state.attackTpl ? ' + bridge template override learned' : ''),
+      };
+    }));
     out.push(preflightProbe('cancel', () => {
       const n = typeof militaryOutgoingMovements === 'function' ? militaryOutgoingMovements().length : 0;
       return { ok: true, warn: !state.cancelTpl, detail: state.cancelTpl ? `template learned; ${n} cancelable` : `template not learned; ${n} cancelable (cancel once manually)` };

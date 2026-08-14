@@ -650,11 +650,19 @@
       else { parts.push('building costs unreadable (open a build window once)'); blind++; }
       return { ok: blind < 5, warn: blind > 0, detail: parts.join(', ') };
     }));
-    out.push(preflightProbe('attack', () => ({
-      ok: !!state.attackTpl,
-      warn: !state.attackTpl,
-      detail: state.attackTpl ? 'template learned' : 'template NOT learned (send one attack by hand)',
-    })));
+    out.push(preflightProbe('attack', () => {
+      // No template is the NORMAL state: the client posts town_info/send_units,
+      // not a frontend_bridge execute, so attackTpl only ever exists as an
+      // explicit override. Flagging its absence as a warning told users to
+      // hand-send an attack that could never teach it. See sendAttackViaBridge.
+      const ajax = (() => { try { return !!(gameUw().gpAjax && gameUw().gpAjax.ajaxPost); } catch (_) { return false; } })();
+      return {
+        ok: ajax,
+        warn: false,
+        detail: (ajax ? 'gpAjax ready, town_info/send_units' : 'gpAjax UNAVAILABLE (open the game tab)')
+          + (state.attackTpl ? ' + bridge template override learned' : ''),
+      };
+    }));
     out.push(preflightProbe('cancel', () => {
       const n = typeof militaryOutgoingMovements === 'function' ? militaryOutgoingMovements().length : 0;
       return { ok: true, warn: !state.cancelTpl, detail: state.cancelTpl ? `template learned; ${n} cancelable` : `template not learned; ${n} cancelable (cancel once manually)` };
