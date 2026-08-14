@@ -737,6 +737,28 @@
           autoClaimFarms('relay', a.duration ? +a.duration : undefined, (res) => done(null, res || null));
         },
       },
+      claim_relation: {
+        risk: 'write',
+        doc: 'Claim ONE farming-village relation. Same payload claimFarm posts, including the learned claim template.',
+        args: { relation_id: 'number', farm_town_id: 'number', town_id: 'number', option: 'number (learned index, default 1)' },
+        run: (a, done) => {
+          const rel = +a.relation_id, farm = +a.farm_town_id, tid = +a.town_id;
+          if (!rel || !farm || !tid) return done('bad-args');
+          const tpl = state.claimTpl || null;
+          const tplArgs = (tpl && tpl.arguments) || {};
+          const args = Object.assign({}, tplArgs, {
+            type: 'resources',
+            option: +a.option > 0 ? +a.option : 1,
+            farm_town_id: farm,
+          });
+          bridgePost('farm', {
+            model_url: 'FarmTownPlayerRelation/' + rel,
+            action_name: (tpl && tpl.action_name) || 'claim',
+            arguments: args,
+            town_id: tid,
+          }, done);
+        },
+      },
       cave_store: {
         risk: 'write', doc: 'Stash silver in a town cave. Omit amount to use the emergency plan.',
         args: { town_id: 'number', amount: 'number (optional)' },
