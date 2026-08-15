@@ -158,11 +158,11 @@
     const map = { pending: 'pendiente', ready: 'listo', sending: 'enviando', paused: 'pausada', blocked: 'bloqueada', unknown: 'revisar', 'waiting-resources': 'recursos', 'waiting-population': 'población', 'waiting-queue': 'cola llena', 'waiting-requirement': 'requisito' };
     s.textContent = map[status] || status || 'pendiente'; if (reason) s.title = reason; return s;
   }
-  function queueCenterCard(title, subtitle) {
+  function queueCenterCard(title, subtitle, subTitle) {
     const box = document.createElement('div'); box.className = 'gb-qc-card';
     const h = document.createElement('div'); h.className = 'gb-qc-card-head';
     const left = document.createElement('div'); const b = document.createElement('b'); b.textContent = title; left.appendChild(b);
-    if (subtitle) { const sm = document.createElement('small'); sm.textContent = subtitle; left.appendChild(sm); }
+    if (subtitle) { const sm = document.createElement('small'); sm.textContent = subtitle; if (subTitle) gbTip(sm, subTitle); left.appendChild(sm); }
     h.appendChild(left); box.appendChild(h); return { box, head: h };
   }
   function queueCenterEmpty(text) { const d = document.createElement('div'); d.className = 'gb-qc-empty'; d.textContent = text; return d; }
@@ -199,8 +199,10 @@
   function queueCenterJobRow(num, desc, badge, lane, townId, job, frozen, i, list) {
     const r = document.createElement('div'); r.className = 'gb-qc-job';
     const numEl = document.createElement('b'); numEl.textContent = `#${num}`;
+    gbTip(numEl, 'Posicion en la cola virtual');
     const descEl = document.createElement('div'); descEl.className = 'gb-qc-job-desc';
     const main = document.createElement('span'); main.textContent = desc;
+    gbTip(main, 'Descripcion de la orden virtual');
     descEl.append(main, badge);
     const acts = document.createElement('div'); acts.className = 'gb-qc-acts';
     const up = queueCenterButton('↑', 'Subir', () => nativeQueueMove(townId, lane, job.id, -1));
@@ -231,7 +233,7 @@
 
   function renderQueueCenterBuild(body, townId) {
     const q = abQueueInfo(townId);
-    const live = queueCenterCard('Cola real de construcción', q.known ? `${q.len}/${q.max}` : 'estado no legible');
+    const live = queueCenterCard('Cola real de construcción', q.known ? `${q.len}/${q.max}` : 'estado no legible', 'Numero de ordenes reales en la cola del juego');
     body.appendChild(live.box);
     if (q.known && q.orders.length) {
       q.orders.forEach((o, i) => {
@@ -241,7 +243,7 @@
     } else live.box.appendChild(queueCenterEmpty(q.known ? 'Sin construcciones reales' : 'No se puede leer la cola real'));
 
     const list = nativeQueueList(townId, 'build', false), fifo = nativeQueueIsFifo(townId, 'build'), paused = nativeQueuePaused(townId, 'build');
-    const plan = queueCenterCard('Plan GrepBot · Construcción', fifo ? (paused ? 'FIFO pausada' : 'FIFO activa') : 'Objetivos automáticos');
+    const plan = queueCenterCard('Plan GrepBot · Construcción', fifo ? (paused ? 'FIFO pausada' : 'FIFO activa') : 'Objetivos automáticos', fifo ? (paused ? 'Cola FIFO en pausa - el plan automatico no actua' : 'Cola FIFO activa - gestionas las ordenes manualmente') : 'El plan automatico es el dueño de esta cola');
     body.appendChild(plan.box);
     plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? 'Reanudar cola' : 'Pausar cola', () => nativeQueueTogglePaused(townId, 'build')));
     if (!list.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador automático', () => nativeQueueUseLegacy(townId, 'build')));
@@ -304,7 +306,7 @@
     if (state.abOptimalOrderOn === false) return;
     let opt = null;
     try { opt = abOptimalOrderCached(townId); } catch (e) { opt = { error: String(e).slice(0, 60), actions: [] }; }
-    const card = queueCenterCard('Secuencia óptima · Construcción', 'solo consejo - no envia nada');
+    const card = queueCenterCard('Secuencia óptima · Construcción', 'solo consejo - no envia nada', 'Sugerencia de orden: solo se aplica si la pulsas, no se envia sola');
     body.appendChild(card.box);
     if (!opt || opt.error) {
       card.box.appendChild(queueCenterEmpty('No se puede calcular: ' + ((opt && opt.error) || 'desconocido')));
@@ -378,7 +380,7 @@
     const liveSub = !info ? 'estado no legible'
       : (info.ordersKnown ? `${orders.length}/${researchQueueMax()} · Academia ${info.academy || 0}`
         : `cola real ilegible · Academia ${info.academy || 0}`);
-    const live = queueCenterCard('Cola real de investigación', liveSub);
+    const live = queueCenterCard('Cola real de investigación', liveSub, 'Estado actual de la cola de investigacion real');
     body.appendChild(live.box);
     if (orders.length) {
       orders.forEach((o, i) => {
@@ -389,7 +391,7 @@
 
     // Virtual FIFO lane — same contract as build/recruit: reorder, pause, remove.
     const list = nativeQueueList(townId, 'research', false), fifo = nativeQueueIsFifo(townId, 'research'), paused = nativeQueuePaused(townId, 'research');
-    const plan = queueCenterCard('Plan GrepBot · Investigación', fifo ? (paused ? 'FIFO pausada' : 'FIFO activa') : 'Objetivos automáticos');
+    const plan = queueCenterCard('Plan GrepBot · Investigación', fifo ? (paused ? 'FIFO pausada' : 'FIFO activa') : 'Objetivos automáticos', fifo ? (paused ? 'Cola FIFO en pausa - el plan automatico no actua' : 'Cola FIFO activa - gestionas las ordenes manualmente') : 'El plan automatico es el dueño de esta cola');
     body.appendChild(plan.box);
     plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? 'Reanudar cola' : 'Pausar cola', () => nativeQueueTogglePaused(townId, 'research')));
     if (!list.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador automático', () => nativeQueueUseLegacy(townId, 'research')));
@@ -413,7 +415,7 @@
     }
 
     const targets = goalEffectiveResearchTargets(townId, researchEnsureTargets());
-    const planned = queueCenterCard('Próximas investigaciones', fifo && list.length ? 'planificador automático (en pausa: manda la cola FIFO)' : 'orden del planificador');
+    const planned = queueCenterCard('Próximas investigaciones', fifo && list.length ? 'planificador automático (en pausa: manda la cola FIFO)' : 'orden del planificador', 'Cola del planificador automatico: lo siguiente que investigara si no tienes FIFO activa');
     body.appendChild(planned.box);
     let shown = 0;
     Object.keys(targets).sort((a, b) => (+targets[a].order || 0) - (+targets[b].order || 0)).forEach(id => {
@@ -451,7 +453,7 @@
     const allModels = q.models || [];
     const liveModels = allModels.filter(m => queueCenterUnitIsNaval(queueCenterUnitId(m)) === wantNaval);
     const unclassified = allModels.filter(m => queueCenterUnitIsNaval(queueCenterUnitId(m)) == null);
-    const live = queueCenterCard(`Cola real · ${label}`, q.known ? `${liveModels.length}${q.max != null ? ' / ' + q.max : ''}` : 'estado no legible');
+    const live = queueCenterCard(`Cola real · ${label}`, q.known ? `${liveModels.length}${q.max != null ? ' / ' + q.max : ''}` : 'estado no legible', 'Numero de ordenes reales en la cola del cuartel/puerto');
     body.appendChild(live.box);
     if (liveModels.length) {
       liveModels.forEach((m, i) => {
@@ -472,7 +474,7 @@
 
     const list = nativeQueueList(townId, lane, false);
     const fifo = nativeQueueIsFifo(townId, lane), paused = nativeQueuePaused(townId, lane);
-    const plan = queueCenterCard(`Plan GrepBot · ${label}`, fifo ? (paused ? 'FIFO pausada' : 'FIFO activa') : 'Objetivos automáticos');
+    const plan = queueCenterCard(`Plan GrepBot · ${label}`, fifo ? (paused ? 'FIFO pausada' : 'FIFO activa') : 'Objetivos automáticos', fifo ? (paused ? 'Cola FIFO en pausa - el plan automatico no actua' : 'Cola FIFO activa - gestionas las ordenes manualmente') : 'El plan automatico es el dueño de esta cola');
     body.appendChild(plan.box);
     plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? `Reanudar ${label.toLowerCase()}` : `Pausar ${label.toLowerCase()}`, () => nativeQueueTogglePaused(townId, lane)));
     if (!list.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador automático', () => nativeQueueUseLegacy(townId, lane)));
@@ -639,8 +641,9 @@
       // LITERAL ONLY - no interpolation. The town <select> is populated with
       // createElement + textContent (queueCenterSyncTowns); job names, town names
       // and building names must never be spliced into this chrome string.
-      w.innerHTML = `<header><b>Colas GrepBot</b><select class="gb-qc-town" title="Ciudad que estás gestionando"></select><span class="gb-qc-spacer"></span><button class="gb-qc-refresh" title="Actualizar">↻</button><button class="gb-qc-close" title="Cerrar">×</button></header><nav><button class="gb-qc-tab" data-qtab="build">Construcción</button><button class="gb-qc-tab" data-qtab="research">Investigación</button><button class="gb-qc-tab" data-qtab="barracks">Cuartel</button><button class="gb-qc-tab" data-qtab="docks">Puerto</button></nav><div class="gb-qc-body"></div>`;
+      w.innerHTML = `<header><b>Colas GrepBot</b><select class="gb-qc-town" title="Ciudad que estás gestionando"></select><span class="gb-qc-spacer"></span><button class="gb-qc-refresh" title="Actualizar">↻</button><button class="gb-qc-close" title="Cerrar">×</button></header><nav><button class="gb-qc-tab" data-qtab="build" data-gb-tip="Cola de construccion (edificios)">Construcción</button><button class="gb-qc-tab" data-qtab="research" data-gb-tip="Cola de investigacion (academia)">Investigación</button><button class="gb-qc-tab" data-qtab="barracks" data-gb-tip="Cola de reclutamiento del cuartel">Cuartel</button><button class="gb-qc-tab" data-qtab="docks" data-gb-tip="Cola de reclutamiento del puerto">Puerto</button></nav><div class="gb-qc-body"></div>`;
       document.body.appendChild(w);
+      gbTipWalk(w);
       try { applyTheme(); } catch (_) {}
       gbQueueCenter = w;
       w.querySelector('.gb-qc-close').addEventListener('click', () => { w.style.display = 'none'; queueCenterStopTick(); });

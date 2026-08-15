@@ -2560,9 +2560,14 @@ v1.6.3 health-rule (`tplHealthOk` treats unlearned as healthy + 30min expiry).
 
 ## 5. Smart / AI cluster
 
+*Removed in v5.0.0.* The resource-balancing AI (5.1) and the relay-driven
+auto-farming heuristics (5.2) were removed with the relay module. The
+remaining rows (5.3–5.8) are heuristics that were never built; this
+section is kept for historical reference only.
+
 | # | Feature | Risk | Size | Module |
 |---|---|---|---|---|
-| 5.1 | Resource balancing AI (greedy LP solver) | Med | L | extend `transport.js` |
+| 5.1 | ~~Resource balancing AI (greedy LP solver)~~ | — | — | *removed (v5.0.0)* |
 | 5.2 | Adaptive farming (target rotation by profit) | Med | M | extend `farms.js` |
 | 5.3 | Threat assessment engine (score incoming) | Low | M | extend `intel.js` |
 | 5.4 | Smart dodge (predict attack type) | High | L | extend `military.js` |
@@ -2573,7 +2578,7 @@ v1.6.3 health-rule (`tplHealthOk` treats unlearned as healthy + 30min expiry).
 
 Dependencies:
 
-- 5.1 requires 1.3.
+- ~~5.1 requires 1.3.~~
 - 5.2 requires 2.6.
 - 5.4 requires 5.3.
 - 5.5 + 5.6 require 1.2.

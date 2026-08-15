@@ -14,7 +14,10 @@
 //      matches @version in src/header.js  (stale-artifact detector)
 //   5. clicks through every panel tab, screenshotting each
 //   6. runs the real Actions > Preflight flow and captures its output
-//   7. fails on any window.error / unhandledrejection / console.error
+//   7. opens the Queue Center window and walks its four lane tabs
+//   8. arms dry run and pushes a real write through bridgePost -> txRun,
+//      asserting it bails 'dryrun' and journals skip:dryrun (nothing sent)
+//   9. fails on any window.error / unhandledrejection / console.error
 //
 // This is an INIT smoke, not a real-game smoke: the bot needs a logged-in
 // Grepolis session. See SKILL.md.
@@ -37,11 +40,22 @@ const argv = process.argv.slice(2);
 const mode = argv.find(a => !a.startsWith('-')) || 'smoke';
 const noBuild = argv.includes('--no-build');
 const keepOpen = argv.includes('--keep-open');
+// Suppress smoke.html's __grepbotTestMode, i.e. boot exactly as Tampermonkey
+// does. Costs you window.__grepbotTest and everything built on it.
+const noTest = argv.includes('--notest');
 
 // Panel tab ids, in nav order (src/ui.js TAB_GROUPS).
 const TABS = ['attack', 'overview', 'intel', 'config', 'stats', 'log'];
+// Queue Center lane tabs (src/queue-center.js, the `Colas` header button).
+const QTABS = ['build', 'research', 'barracks', 'docks'];
 
 const log = (...a) => console.log('[driver]', ...a);
+// evaluate() returns the '__ERR__…' sentinel on a page-side throw, which is
+// not JSON. Never hand its result straight to JSON.parse.
+const jparse = (s, dflt) => {
+  if (typeof s !== 'string' || s.startsWith('__ERR__')) return dflt;
+  try { return JSON.parse(s); } catch (_) { return dflt; }
+};
 function fail(msg, code = 1) { console.error('[driver] FAIL:', msg); process.exit(code); }
 
 // ---------------------------------------------------------------- build ----
@@ -105,7 +119,7 @@ async function launch() {
     '--disable-web-security',
     '--remote-debugging-port=0',
     `--user-data-dir=${profile}`,
-    'file://' + smokeHtml,
+    'file://' + smokeHtml + (noTest ? '?notest' : ''),
   ], { stdio: ['ignore', 'ignore', 'pipe'] });
 
   let chromeErr = '';
@@ -202,6 +216,38 @@ const selectTabExpr = (tab) => `(() => {
   return s && !s.hidden ? 'shown' : 'hidden';
 })()`;
 
+// ---- the internals handle -------------------------------------------------
+// boot.js publishes window.__grepbotTest only when __grepbotTestMode === true
+// was set BEFORE the IIFE ran (smoke.html does that). Everything else in the
+// bot is sealed inside one IIFE and unreachable from CDP.
+const T = 'window.__grepbotTest';
+
+// Open the Queue Center (header `Colas`) and select a lane.
+const queuesExpr = (qtab) => `(() => {
+  const btn = document.querySelector('#grepbot-panel header button[data-act=queues]');
+  if (!btn) return 'no-button';
+  btn.click();
+  const w = document.getElementById('grepbot-queue-center');
+  if (!w) return 'no-window';
+  ${qtab ? `const t = w.querySelector('.gb-qc-tab[data-qtab="${qtab}"]'); if (!t) return 'no-tab'; t.click();` : ''}
+  return w.style.display === 'none' ? 'hidden' : 'shown';
+})()`;
+
+// Two preconditions gate every write, both false on a file:// stub page:
+// txRun bails 'disabled' unless state.enabledHosts[location.host] === true,
+// and only features in TX_WRITE_FEATURES (planner.js) reach the dry-run gate.
+const armExpr = `(() => {
+  const t = ${T}; if (!t) return 'no-test-mode';
+  t.state.dryRun = true;
+  t.state.enabledHosts[location.host] = true;
+  return 'armed host=' + JSON.stringify(location.host) + ' dryRun=true';
+})()`;
+
+// bridgePost is callback-style; evaluate() awaits promises, so wrap it.
+const postExpr = (feature, json) => `new Promise(r => ${T}.bridgePost(${JSON.stringify(feature)}, ${json}, (res, err) => r(JSON.stringify({ res, err: err && String(err) }))))`;
+
+const journalExpr = (n) => `JSON.stringify((${T}.state.decisions || []).slice(-${n || 5}), null, 1)`;
+
 // ---------------------------------------------------------------- smoke ----
 
 async function runSmoke() {
@@ -249,8 +295,44 @@ async function runSmoke() {
     log(`preflight: ${preLines.length} lines -> ${join(outDir, `${stamp}-preflight.txt`)}`);
     log('screenshot:', preShot);
 
+    // ---- internals handle ----
+    const apiCount = await d.evaluate(`Object.keys(${T} || {}).length`);
+    log('test exports:', apiCount);
+    const hasApi = apiCount > 50;
+    if (!bad && !hasApi && !noTest) {
+      bad = `window.__grepbotTest has ${apiCount} keys — __grepbotTestMode was not true before the IIFE ran (smoke.html)`;
+    }
+
+    // ---- Queue Center: separate window, four lanes ----
+    const qseen = [];
+    for (const q of QTABS) {
+      const r = await d.evaluate(queuesExpr(q));
+      qseen.push(`${q}:${r}`);
+      if (r !== 'shown' && !bad) bad = `queue center lane ${q} (${r})`;
+    }
+    log('queue center:', qseen.join(' '));
+    await d.screenshot(`${stamp}-queue-center`);
+
+    // ---- real write flow, dry run: bridgePost -> txRun -> journal ----
+    // Last, because it mutates state.dryRun / enabledHosts. Needs the
+    // internals handle, so --notest legitimately has no write coverage.
+    if (!hasApi) {
+      log('dry-run post: skipped (no __grepbotTest handle)');
+    } else {
+      log('arm:', await d.evaluate(armExpr));
+      const posted = jparse(await d.evaluate(postExpr('farm', '{ town_id: 7 }')), {});
+      const jtail = jparse(await d.evaluate(journalExpr(1)), []);
+      log(`dry-run post: res=${posted.res} journal=${(jtail[0] || {}).r}`);
+      if (!bad && posted.res !== 'dryrun') {
+        bad = `dry-run bridgePost returned "${posted.res}", expected "dryrun" — the write never reached the dry-run gate`;
+      }
+      if (!bad && (jtail[0] || {}).r !== 'skip:dryrun') {
+        bad = `journal recorded "${(jtail[0] || {}).r}", expected "skip:dryrun"`;
+      }
+    }
+
     // ---- error verdict ----
-    const errs = JSON.parse(await d.evaluate(errorsExpr) || '[]');
+    const errs = jparse(await d.evaluate(errorsExpr), []);
     if (errs.length) {
       console.error('[driver] captured page errors:\n' + JSON.stringify(errs, null, 2).slice(0, 3000));
       bad = bad || `${errs.length} page error(s); first: ${errs[0].msg || errs[0].reason || '?'}`;
@@ -277,6 +359,14 @@ const REPL_HELP = `commands:
   ss [name]           screenshot -> data/smoke/<name>.png
   errors              dump window.__SMOKE_ERRORS__
   preflight           open Actions > Preflight, print the Stats output
+  queues [lane]       open the Queue Center (build research barracks docks)
+  cfg <key> [value]   read/set a [data-cfg=<key>] control (fires 'change')
+internals (window.__grepbotTest — needs __grepbotTestMode, see smoke.html):
+  api [substr]        list exported internals, optionally filtered
+  arm                 enable this host + dry run (every write needs both)
+  post <feat> <json>  bridgePost through the real txRun stack; \`arm\` first
+  call <name> [json]  invoke an export: call orchTick / call plannerSnapshot
+  journal [n]         last n decision-memory entries
   help                this
   quit                exit`;
 
@@ -309,6 +399,40 @@ async function runRepl() {
       else if (cmd === 'eval') console.log(await d.evaluate(arg));
       else if (cmd === 'ss') console.log(await d.screenshot(arg || `repl-${Date.now()}`));
       else if (cmd === 'errors') console.log(await d.evaluate(errorsExpr));
+      else if (cmd === 'queues') console.log(await d.evaluate(queuesExpr(arg)));
+      else if (cmd === 'cfg') {
+        const sp2 = arg.indexOf(' ');
+        const key = sp2 < 0 ? arg : arg.slice(0, sp2);
+        const val = sp2 < 0 ? null : arg.slice(sp2 + 1).trim();
+        console.log(await d.evaluate(`(() => {
+          const e = document.querySelector('#grepbot-panel [data-cfg=' + ${JSON.stringify(JSON.stringify(key))} + ']');
+          if (!e) return 'no such data-cfg';
+          ${val === null ? '' : `const v = ${JSON.stringify(val)};
+          if (e.type === 'checkbox') e.checked = (v === 'true' || v === '1' || v === 'on'); else e.value = v;
+          e.dispatchEvent(new Event('change', { bubbles: true }));
+          e.dispatchEvent(new Event('input', { bubbles: true }));`}
+          return e.type === 'checkbox' ? String(e.checked) : String(e.value);
+        })()`));
+      }
+      else if (cmd === 'api') console.log(await d.evaluate(
+        `Object.keys(${T} || {}).filter(k => k.toLowerCase().includes(${JSON.stringify(arg.toLowerCase())})).join('\\n') || '(none — is __grepbotTestMode set?)'`));
+      else if (cmd === 'arm') console.log(await d.evaluate(armExpr));
+      else if (cmd === 'post') {
+        const sp2 = arg.indexOf(' ');
+        if (sp2 < 0) console.log('usage: post <feature> <payload-json>');
+        else console.log(await d.evaluate(postExpr(arg.slice(0, sp2), arg.slice(sp2 + 1))));
+      }
+      else if (cmd === 'call') {
+        const sp2 = arg.indexOf(' ');
+        const fn = sp2 < 0 ? arg : arg.slice(0, sp2);
+        const args = sp2 < 0 ? '' : arg.slice(sp2 + 1).trim();
+        console.log(await d.evaluate(
+          `(() => { const f = (${T} || {})[${JSON.stringify(fn)}];
+             if (typeof f !== 'function') return typeof f === 'undefined' ? 'no such export' : JSON.stringify(f);
+             const r = f(...[${args}]);
+             return r && typeof r.then === 'function' ? r.then(v => JSON.stringify(v)) : JSON.stringify(r ?? null); })()`));
+      }
+      else if (cmd === 'journal') console.log(await d.evaluate(journalExpr(Number(arg) || 5)));
       else if (cmd === 'preflight') {
         await d.evaluate('document.querySelector("#grepbot-panel details.gb-actions").open = true');
         await d.evaluate('document.querySelector("#grepbot-panel footer button[data-act=preflight]").click()');

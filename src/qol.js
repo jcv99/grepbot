@@ -267,7 +267,7 @@
     for(const tid of ids){let name=tid;try{const t=gbTownModel(tid);name=(t&&t.getName&&t.getName())||name}catch(_){} const plan=goalPlanTown(tid);
       const head=document.createElement('div');head.style.cssText='display:flex;gap:4px;align-items:center;padding:4px;border-bottom:1px solid #333';const b=document.createElement('b');b.textContent=`${name} · ${plan.progress}%`;head.appendChild(b);
       const edit=document.createElement('button');edit.textContent='Edit';edit.title='Edit per-town goal overrides/reserves as JSON';edit.style.cssText='font-size:8px;padding:1px 4px';edit.addEventListener('click',()=>{const cur=goalTownCfg(tid),raw=prompt('Overrides de objetivos por ciudad JSON\nClaves: build, research, units, reserve:{hard,soft}, defensive (0..1, null = hereda del perfil), resource:{wood,stone,iron} (-1..+1)',JSON.stringify({build:cur.build,research:cur.research,units:cur.units,reserve:cur.reserve,defensive:cur.defensive!=null?cur.defensive:null,resource:cur.resource||{}},null,2));if(raw==null)return;try{if(!goalSetTownOverrides(tid,JSON.parse(raw)))throw new Error('invalid object');rerender()}catch(e){flash('JSON de objetivos invalido')}});head.appendChild(edit);
-      const rec=document.createElement('button');rec.textContent='Recalc';rec.style.cssText='font-size:8px;padding:1px 4px';rec.addEventListener('click',()=>{goalPlanTown(tid);rerender()});head.appendChild(rec);
+      const rec=document.createElement('button');rec.textContent='Recalc';gbTip(rec,'Recalcular el plan de objetivos de esta ciudad');rec.style.cssText='font-size:8px;padding:1px 4px';rec.addEventListener('click',()=>{goalPlanTown(tid);rerender()});head.appendChild(rec);
       const reset=document.createElement('button');reset.textContent='Reset Q';reset.title='Clear virtual-queue order/block/mandatory overrides';reset.style.cssText='font-size:8px;padding:1px 4px';reset.addEventListener('click',()=>{goalQueueReset(tid);rerender()});head.appendChild(reset);
       const sel=document.createElement('select');sel.title='Perfil de la ciudad. "Personalizado" = usa los overrides JSON de esta ciudad (boton Edit); cualquier otro perfil los sustituye.';sel.style.cssText='background:#111;color:#cfc;border:1px solid #333;font-size:9px;margin-left:auto';for(const [id,p] of Object.entries(profiles)){const o=document.createElement('option');o.value=id;o.textContent=p.label||id;sel.appendChild(o)}sel.value=plan.profile;sel.addEventListener('change',()=>{goalSetProfile(tid,sel.value);rerender()});head.appendChild(sel);box.appendChild(head);
       // v4 plan 2.9 work item 5: advisory sequence as a third line per town.
@@ -279,7 +279,7 @@
             o.textContent='  optima: '+first.map(a=>`${a.building}${a.level?' '+a.level:''}`).join(' > ');box.appendChild(o)}
         } catch (_) {}
       }
-      const lines=(plan.actions||[]).slice(0,12);if(!lines.length){const e=document.createElement('div');e.textContent='  objetivo cumplido / sin acciones';e.style.cssText='padding:2px 6px;color:#777';box.appendChild(e)}else for(const a of lines){const row=document.createElement('div');row.style.cssText='display:grid;grid-template-columns:1fr auto;gap:3px;padding:2px 4px;border-bottom:1px solid #1e1e1e;align-items:center';const text=document.createElement('span');const c=a.cost||{},cost=[c.wood||0,c.stone||0,c.iron||0].join('/');text.textContent=`${a.mandatory?'! ':''}${a.kind} ${a.id}${a.level?' → '+a.level:''}${a.amount?' ×'+a.amount:''} · ${a.status} · ${cost}${a.why?' · '+a.why:''}`;row.appendChild(text);const acts=document.createElement('span');acts.style.cssText='display:flex;gap:2px';const mk=(label,title,fn)=>{const x=document.createElement('button');x.textContent=label;x.title=title;x.style.cssText='font-size:8px;padding:0 3px';x.addEventListener('click',()=>{fn();rerender()});acts.appendChild(x)};mk('↑','move earlier',()=>goalQueueMove(tid,a.queueKey,-1));mk('↓','move later',()=>goalQueueMove(tid,a.queueKey,1));mk(a.status==='user-blocked'?'ON':'B','block/unblock',()=>goalQueueToggleBlock(tid,a.queueKey));mk(a.mandatory?'*':'!','mandatory priority',()=>goalQueueToggleMandatory(tid,a.queueKey));mk('×','suppress until Reset Q',()=>goalQueueHide(tid,a.queueKey));row.appendChild(acts);box.appendChild(row)}
+      const lines=(plan.actions||[]).slice(0,12);if(!lines.length){const e=document.createElement('div');e.textContent='  objetivo cumplido / sin acciones';e.style.cssText='padding:2px 6px;color:#777';gbTip(e,'No hay acciones pendientes: o el plan esta cumplido o la ciudad no tiene objetivos');box.appendChild(e)}else for(const a of lines){const row=document.createElement('div');row.style.cssText='display:grid;grid-template-columns:1fr auto;gap:3px;padding:2px 4px;border-bottom:1px solid #1e1e1e;align-items:center';const text=document.createElement('span');const c=a.cost||{},cost=[c.wood||0,c.stone||0,c.iron||0].join('/');text.textContent=`${a.mandatory?'! ':''}${a.kind} ${a.id}${a.level?' → '+a.level:''}${a.amount?' ×'+a.amount:''} · ${a.status} · ${cost}${a.why?' · '+a.why:''}`;gbTip(text,'Accion del plan: tipo, nivel, cantidad, estado, coste y motivo');row.appendChild(text);const acts=document.createElement('span');acts.style.cssText='display:flex;gap:2px';const mk=(label,title,fn)=>{const x=document.createElement('button');x.textContent=label;gbTip(x,title);x.style.cssText='font-size:8px;padding:0 3px';x.addEventListener('click',()=>{fn();rerender()});acts.appendChild(x)};mk('↑','Subir en la cola virtual',()=>goalQueueMove(tid,a.queueKey,-1));mk('↓','Bajar en la cola virtual',()=>goalQueueMove(tid,a.queueKey,1));mk(a.status==='user-blocked'?'ON':'B','Bloquear o desbloquear esta accion',()=>goalQueueToggleBlock(tid,a.queueKey));mk(a.mandatory?'*':'!','Marcar o desmarcar como prioridad obligatoria',()=>goalQueueToggleMandatory(tid,a.queueKey));mk('×','Suprimir hasta Reset Q',()=>goalQueueHide(tid,a.queueKey));row.appendChild(acts);box.appendChild(row)}
     }
   }
 
@@ -295,7 +295,9 @@
       controls.dataset.bound='1'; controls.replaceChildren();
       for (const mode of ['hard','soft']) for (const k of PLANNER_KEYS) {
         const lab=document.createElement('label'); lab.textContent=`${mode[0].toUpperCase()} ${k.slice(0,3)} `;
+        gbTip(lab, `Reserva ${mode} (se respeta antes de enviar) para ${k}`);
         const inp=document.createElement('input'); inp.type='number'; inp.min='0'; inp.style.cssText='width:55px;background:#111;color:#cfc;border:1px solid #333;font-size:9px';
+        gbTip(inp, `Cantidad de ${k} que se reserva (${mode})`);
         inp.dataset.mode=mode; inp.dataset.key=k; inp.value=g[mode][k]||0;
         // Resolve the config root at change time: qolImportConfig replaces
         // state.plannerCfg wholesale, so a captured `g` would be an orphan and
@@ -311,12 +313,12 @@
     }
     box.replaceChildren();
     const hdr=document.createElement('div'); hdr.style.cssText='display:grid;grid-template-columns:1.3fr repeat(3,.8fr) .7fr .7fr;gap:3px;padding:3px;color:#888;border-bottom:1px solid #333';
-    hdr.textContent=''; ['town','real W/S/I','reserved W/S/I','available W/S/I','pop','merchants'].forEach(x=>{const s=document.createElement('span');s.textContent=x;hdr.appendChild(s)}); box.appendChild(hdr);
+    hdr.textContent=''; ['town','real W/S/I','reserved W/S/I','available W/S/I','pop','merchants'].forEach(x=>{const s=document.createElement('span');s.textContent=x;gbTip(s, ['Nombre de la ciudad','Stock real en el almacen (madera/piedra/plata)','Reservado por la cola virtual','Disponible tras restar la reserva','Poblacion libre para reclutar','Capacidad de mercantes libres'][ ['town','real W/S/I','reserved W/S/I','available W/S/I','pop','merchants'].indexOf(x) ]||'');hdr.appendChild(s)}); gbTip(hdr, 'Cabecera de la tabla de recursos y reservas por ciudad'); box.appendChild(hdr);
     const ids=[]; try{ Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{}).forEach(x=>ids.push(x)); }catch(_){}
     for(const tid of ids){ const s=plannerSnapshot(tid); if(!s) continue; let name=tid; try{const t=gbTownModel(tid); name=(t&&t.getName&&t.getName())||name}catch(_){}
       const row=document.createElement('div'); row.style.cssText='display:grid;grid-template-columns:1.3fr repeat(3,.8fr) .7fr .7fr;gap:3px;padding:3px;border-bottom:1px solid #222';
       const vals=[name,`${plannerFmt(s.live.wood)}/${plannerFmt(s.live.stone)}/${plannerFmt(s.live.iron)}`,`${plannerFmt(s.committed.wood)}/${plannerFmt(s.committed.stone)}/${plannerFmt(s.committed.iron)}`,`${plannerFmt(s.availableSoft.wood)}/${plannerFmt(s.availableSoft.stone)}/${plannerFmt(s.availableSoft.iron)}`,`${plannerFmt(s.availableSoft.population)}`,`${plannerFmt(s.availableSoft.tradeCap)}`];
-      vals.forEach(v=>{const e=document.createElement('span');e.textContent=v;row.appendChild(e)}); row.title=`hard reserve ${JSON.stringify(s.reserve.hard)} | soft ${JSON.stringify(s.reserve.soft)} | incoming ${JSON.stringify(s.incoming)}`; box.appendChild(row);
+      vals.forEach(v=>{const e=document.createElement('span');e.textContent=v;row.appendChild(e)}); row.title=`hard reserve ${JSON.stringify(s.reserve.hard)} | soft ${JSON.stringify(s.reserve.soft)} | incoming ${JSON.stringify(s.incoming)}`; gbTip(row, `Reservas duras: ${JSON.stringify(s.reserve.hard)} | blandas: ${JSON.stringify(s.reserve.soft)} | entrantes: ${JSON.stringify(s.incoming)}`); box.appendChild(row);
     }
   }
 
@@ -371,8 +373,8 @@
     const sec=panel&&panel.querySelector('section[data-tab=overview]');if(!sec||sec.hidden)return;const box=sec.querySelector('.health-panel');if(!box)return;box.replaceChildren();
     const names=new Set([...Object.keys(moduleHealth||{}),...Object.keys(state.circuits||{})]);
     if(!names.size){box.textContent='(no module activity yet)';return}
-    const hdr=document.createElement('div');hdr.style.cssText='display:grid;grid-template-columns:1fr repeat(5,.7fr);gap:3px;color:#888;border-bottom:1px solid #333;padding:2px';['module','ok/err','timeout','lat ms','last','circuit'].forEach(v=>{const x=document.createElement('span');x.textContent=v;hdr.appendChild(x)});box.appendChild(hdr);
-    [...names].sort().forEach(name=>{const h=moduleHealth[name]||{},c=state.circuits&&state.circuits[name];const row=document.createElement('div');row.style.cssText='display:grid;grid-template-columns:1fr repeat(5,.7fr);gap:3px;border-bottom:1px solid #222;padding:2px';const age=h.last?fmtSec((Date.now()-h.last)/1000):'-';const vals=[name,`${h.ok||0}/${h.err||0}`,String(h.timeout||0),h.avgLatency==null?'-':String(Math.round(h.avgLatency)),age,c&&c.open?'OPEN':(c&&c.strikes?`strike ${c.strikes}`:'ok')];vals.forEach(v=>{const x=document.createElement('span');x.textContent=v;row.appendChild(x)});box.appendChild(row)})
+    const hdr=document.createElement('div');hdr.style.cssText='display:grid;grid-template-columns:1fr repeat(5,.7fr);gap:3px;color:#888;border-bottom:1px solid #333;padding:2px';['module','ok/err','timeout','lat ms','last','circuit'].forEach(v=>{const x=document.createElement('span');x.textContent=v;gbTip(x, ['Nombre del modulo','OK / errores acumulados','Timeouts acumulados','Latencia media (ms)','Segundos desde la ultima actividad','Estado del cortacircuito'][ ['module','ok/err','timeout','lat ms','last','circuit'].indexOf(v) ]||'');hdr.appendChild(x)});gbTip(hdr,'Cabecera de la tabla de salud de cada modulo');box.appendChild(hdr);
+    [...names].sort().forEach(name=>{const h=moduleHealth[name]||{},c=state.circuits&&state.circuits[name];const row=document.createElement('div');row.style.cssText='display:grid;grid-template-columns:1fr repeat(5,.7fr);gap:3px;border-bottom:1px solid #222;padding:2px';gbTip(row, `Salud del modulo ${name}`);const age=h.last?fmtSec((Date.now()-h.last)/1000):'-';const vals=[name,`${h.ok||0}/${h.err||0}`,String(h.timeout||0),h.avgLatency==null?'-':String(Math.round(h.avgLatency)),age,c&&c.open?'OPEN':(c&&c.strikes?`strike ${c.strikes}`:'ok')];vals.forEach(v=>{const x=document.createElement('span');x.textContent=v;row.appendChild(x)});box.appendChild(row)})
   }
 
   // ===== Dashboard + Simulator (v2.0) ========================================
@@ -402,10 +404,10 @@
         ['Amenazas',threats.length,threats.length?'requieren revisión':'sin entradas hostiles detectadas'],
         ['Sistema',compatible&&!unknown&&!circuits.length?'OK':'Revisar',paused?`pausado: ${pauseInfo.reason}`:(state.safeMode?'SAFE MODE':'automatización disponible')],
       ];
-      for(const [k,v,sub] of data){const c=document.createElement('div');c.className='gb-card';const a=document.createElement('div');a.className='k';a.textContent=k;const b=document.createElement('div');b.className='v';b.textContent=String(v);const d=document.createElement('div');d.className='s';d.textContent=sub;c.append(a,b,d);cards.appendChild(c)}
+      for(const [k,v,sub] of data){const c=document.createElement('div');c.className='gb-card';gbTip(c, sub);const a=document.createElement('div');a.className='k';a.textContent=k;const b=document.createElement('div');b.className='v';b.textContent=String(v);const d=document.createElement('div');d.className='s';d.textContent=sub;c.append(a,b,d);cards.appendChild(c)}
     }
     const mode=panel.querySelector('#gb-head-mode');if(mode){mode.textContent=state.safeMode?'SAFE':'NORMAL';mode.className='gb-pill '+(state.safeMode?'warn':'ok')}
-    const health=panel.querySelector('#gb-head-health');if(health){const bad=!compatible||unknown||circuits.length;health.textContent=bad?'REVISAR':'SISTEMA OK';health.className='gb-pill '+(bad?'bad':'ok')}
+    const health=panel.querySelector('#gb-head-health');if(health){const bad=!compatible||unknown||circuits.length;health.textContent=bad?'REVISAR':'SISTEMA OK';health.className='gb-pill '+(bad?'bad':'ok');const tipParts=[];if(!compatible){const miss=Object.entries(fps.required||{}).filter(([,v])=>!v).map(([k])=>k);tipParts.push('fp falta: '+(miss.length?miss.join(','):'fingerprint roto'))}if(unknown){const stuck=Object.entries(state.txState||{}).filter(([,t])=>t&&/^(unknown|manual-review)$/.test(t.state||'')).map(([k])=>k);tipParts.push('tx '+unknown+': '+(stuck.slice(0,4).join(',')+(stuck.length>4?' +'+(stuck.length-4):'')))}if(circuits.length){tipParts.push('cb '+circuits.length+': '+circuits.slice(0,4).join(',')+(circuits.length>4?' +'+(circuits.length-4):''))}gbTip(health, tipParts.length?tipParts.join(' · '):'Salud agregada OK')}
     const quickSafe=sec.querySelector('#gb-quick-safe');if(quickSafe)quickSafe.textContent=state.safeMode?'SAFE MODE: ON':'SAFE MODE: OFF';
     const rows=[];
     for(const id of ids){let name=id;try{name=gbTownModel(id).getName()||id}catch(_){}const p=goalPlanTown(id),f=economyForecast(id);const a=(p.actions||[])[0];if(a)rows.push(`${name}: ${a.kind} ${a.id}${a.level?' → '+a.level:''} · ${a.status}${a.why?' · '+a.why:''}`);if(f&&Object.values(f.overflow).some(Boolean))rows.push(`${name}: AVISO · almacén previsto al límite en ${Object.entries(f.overflow).filter(([,v])=>v).map(([k])=>k).join(', ')}`)}
@@ -487,7 +489,7 @@
     'goalProfiles', 'townGoals', 'virtualQueueOverrides', 'nativeQueue',
     'predictCfg', 'defenseCfg', 'safeMode', 'autoTransport', 'transportReserve',
     'transportMin', 'cityTemplates', 'townGroups', 'cultureTypes', 'favorCfg',
-    'spyCfg', 'profileAutoCfg', 'wonderCfg', 'merchantWish', 'priorityOrder',
+    'spyCfg', 'wonderCfg', 'merchantWish', 'priorityOrder',
     'playerNotes', 'watchlist',
   ];
   function qolConfigSnapshot() {
@@ -595,11 +597,11 @@
       abTargets:state.abTargets,abOrder:state.abOrder,researchTargets:state.researchTargets,recruitTargets:state.recruitTargets,
       plannerCfg:state.plannerCfg,goalProfiles:state.goalProfiles,townGoals:state.townGoals,virtualQueueOverrides:state.virtualQueueOverrides,nativeQueue:state.nativeQueue,predictCfg:state.predictCfg,defenseCfg:state.defenseCfg,safeMode:!!state.safeMode,
       autoTransport:!!state.autoTransport,transportReserve:+state.transportReserve||20,transportMin:+state.transportMin||1000,
-      cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,spyCfg:state.spyCfg,profileAutoCfg:state.profileAutoCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,playerNotes:state.playerNotes,watchlist:state.watchlist };
+      cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,spyCfg:state.spyCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,playerNotes:state.playerNotes,watchlist:state.watchlist };
   }
   function qolImportConfig(obj, opts) {
     if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;if(obj.host&&String(obj.host)!==String(location.host)){gbLog(`config import refused: file host ${obj.host} != ${location.host}`);return false}if(obj.schema!=null&&+obj.schema>CONFIG_EXPORT_SCHEMA){gbLog(`config import refused: schema ${obj.schema} newer than supported ${CONFIG_EXPORT_SCHEMA}`);return false}
-    const clone=v=>structuredClone(v),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,profileAutoCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,profileAutoCfg:STORE.PROFILE_AUTO_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
+    const clone=v=>structuredClone(v),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
     for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='priorityOrder'){const allowed=new Set(PRIORITY_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(PRIORITY_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
       const clean={version:1,seq:Math.max(0,+v.seq||0),towns:{}},seen=new Set();
       const jobId=(raw,prefix)=>{let id=/^[A-Za-z0-9:._-]{1,160}$/.test(String(raw||''))?String(raw):'';if(!id||seen.has(id)){clean.seq++;id=`${prefix}:import:${clean.seq.toString(36)}`}seen.add(id);return id};
@@ -710,129 +712,6 @@
       },
     },
   };
-  // ===== Profile auto-switching (v4 plan 6.8) ================================
-  // A BOUNDED RULE LIST, never user JavaScript. No eval, no expression parser,
-  // no free-text condition: a rule is a fixed record of day set, time window and
-  // three enumerated conditions, and anything that does not parse is dropped
-  // rather than coerced. Nothing here simulates a user event or invents an
-  // endpoint - it only calls the existing qolApplyPreset.
-  const PROFILE_AUTO_PRESETS = ['afk', 'farming', 'war'];
-  const PROFILE_AUTO_WHEN = { activity: ['any', 'active', 'idle'], incoming: ['any', 'yes', 'no'], warehouse: ['any', 'full', 'not-full'] };
-  const PROFILE_FULL_RATIO = 0.97;
-  function profileAutoCfg() {
-    const c = (state.profileAutoCfg && typeof state.profileAutoCfg === 'object' && !Array.isArray(state.profileAutoCfg)) ? state.profileAutoCfg : {};
-    const hold = +c.minHoldMin;
-    return {
-      enabled: c.enabled === true,
-      // Floor of 15 minutes: a shorter hold lets two rules ping-pong the whole
-      // config on every 20s tick.
-      minHoldMin: Number.isFinite(hold) ? Math.max(15, Math.min(1440, hold)) : 15,
-      rules: Array.isArray(c.rules) ? c.rules.map(profileAutoNormalise).filter(Boolean) : [],
-    };
-  }
-  function profileAutoNormalise(r) {
-    if (!r || typeof r !== 'object' || Array.isArray(r)) return null;
-    if (!PROFILE_AUTO_PRESETS.includes(r.profile)) return null;
-    const days = Array.isArray(r.days) ? r.days.map(Number).filter(d => Number.isInteger(d) && d >= 0 && d <= 6) : [];
-    // An empty day set never matches. That is deliberate: a rule the user has
-    // not scoped to any day should do nothing, not everything.
-    const mins = v => { const n = +v; return Number.isInteger(n) && n >= 0 && n <= 1439 ? n : null; };
-    const startMin = mins(r.startMin), endMin = mins(r.endMin);
-    if (startMin == null || endMin == null) return null;
-    const w = (r.when && typeof r.when === 'object') ? r.when : {};
-    const when = {};
-    for (const k of Object.keys(PROFILE_AUTO_WHEN)) {
-      when[k] = PROFILE_AUTO_WHEN[k].includes(w[k]) ? w[k] : 'any';
-    }
-    const pr = +r.priority;
-    return {
-      id: /^[A-Za-z0-9_:-]{1,32}$/.test(String(r.id || '')) ? String(r.id) : ('r' + startMin + '-' + endMin + '-' + r.profile),
-      enabled: r.enabled !== false,
-      priority: Number.isFinite(pr) ? Math.max(0, Math.min(999, Math.floor(pr))) : 100,
-      profile: r.profile, days, startMin, endMin, when,
-    };
-  }
-  function profileAutoInWindow(rule, now) {
-    if (!rule.days.includes(now.getDay())) return false;
-    const m = now.getHours() * 60 + now.getMinutes();
-    // Half-open [start, end); start > end crosses midnight. Same explicit form
-    // the night-pause window uses rather than guessing server time.
-    return rule.startMin <= rule.endMin
-      ? (m >= rule.startMin && m < rule.endMin)
-      : (m >= rule.startMin || m < rule.endMin);
-  }
-  // Each reader returns 'yes' | 'no' | null, where null is BLIND. A blind read
-  // never satisfies a condition and never falsifies one - the rule just does
-  // not match, and the reason is logged once.
-  function profileAutoActivity() {
-    if (!state.pauseOnActivity) return 'idle';
-    return (typeof userPausedUntil === 'number' && Date.now() < userPausedUntil) ? 'active' : 'idle';
-  }
-  function profileAutoIncoming() {
-    try { return (dodgeIncomingMovements() || []).length ? 'yes' : 'no'; } catch (_) { return null; }
-  }
-  function profileAutoWarehouse() {
-    let ids = [];
-    try { ids = Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}); } catch (_) { return null; }
-    if (!ids.length) return null;
-    let anyFull = false, allReadable = true;
-    for (const id of ids) {
-      const rs = (typeof townResState === 'function') ? townResState(id) : null;
-      if (!rs || !(rs.cap > 0)) { allReadable = false; continue; }
-      if (Math.max(rs.wood, rs.stone, rs.iron) / rs.cap >= PROFILE_FULL_RATIO) anyFull = true;
-    }
-    if (anyFull) return 'full';
-    // "not-full" requires EVERY town to have been readable: one unreadable town
-    // could be the full one.
-    return allReadable ? 'not-full' : null;
-  }
-  function profileAutoMatch(rule, reads) {
-    for (const k of Object.keys(PROFILE_AUTO_WHEN)) {
-      const want = rule.when[k];
-      if (want === 'any') continue;
-      const got = reads[k];
-      if (got == null) return false; // blind: does not match, does not falsify
-      if (k === 'activity' && got !== want) return false;
-      if (k !== 'activity' && got !== want) return false;
-    }
-    return true;
-  }
-  function profileAutoLast() {
-    const l = state.profileAutoLast;
-    return (l && typeof l === 'object' && !Array.isArray(l)) ? l : { profile: null, ruleId: null, switchedAt: 0 };
-  }
-  function profileAutoTick() {
-    const cfg = profileAutoCfg();
-    if (!cfg.enabled || !cfg.rules.length) return;
-    const now = new Date();
-    const reads = { activity: profileAutoActivity(), incoming: profileAutoIncoming(), warehouse: profileAutoWarehouse() };
-    for (const k of Object.keys(reads)) {
-      if (reads[k] == null) gbLogT('profile-auto-blind-' + k, 600000, `profile-auto: ${k} unreadable - rules needing it will not match`);
-    }
-    const hit = cfg.rules
-      .filter(r => r.enabled && profileAutoInWindow(r, now) && profileAutoMatch(r, reads))
-      .sort((a, b) => (a.priority - b.priority) || String(a.id).localeCompare(String(b.id)))[0];
-    // No match keeps the CURRENT profile. Bouncing back to a default would make
-    // every gap in the schedule a config change.
-    if (!hit) return;
-    const last = profileAutoLast();
-    if (last.profile === hit.profile) return;
-    const held = Date.now() - (+last.switchedAt || 0);
-    if (last.profile && held < cfg.minHoldMin * 60000) return;
-    const from = last.profile || '(ninguno)';
-    if (!qolApplyPreset(hit.profile)) return;
-    state.profileAutoLast = { profile: hit.profile, ruleId: hit.id, switchedAt: Date.now() };
-    save(STORE.PROFILE_AUTO_LAST, state.profileAutoLast);
-    gbLog(`profile-auto: switched ${from} -> ${hit.profile} (rule ${hit.id}; activity=${reads.activity}; incoming=${reads.incoming}; warehouse=${reads.warehouse})`);
-    try { updateStatus(); } catch (_) {}
-    try { bindConfig(); } catch (_) {}
-  }
-  function profileAutoSave(list) {
-    const rules = (Array.isArray(list) ? list : []).map(profileAutoNormalise).filter(Boolean);
-    state.profileAutoCfg = Object.assign({}, state.profileAutoCfg, { rules });
-    save(STORE.PROFILE_AUTO_CFG, state.profileAutoCfg);
-    return rules;
-  }
   function qolApplyPreset(name, opts) {
     const preset = CONFIG_PRESETS[name];
     if (!preset) return false;
@@ -849,7 +728,7 @@
     Object.keys(CONFIG_PRESET_HIGH_RISK).forEach(k => put(k, CONFIG_PRESET_HIGH_RISK[k]));
     if (name === 'war') {
       // Notify, never auto: dodging on its own is the highest-risk loop there is.
-      if (!state.defenseCfg || typeof state.defenseCfg !== 'object') state.defenseCfg = { mode: 'notify', returnMarginSec: 120, smartAuto: false };
+      if (!state.defenseCfg || typeof state.defenseCfg !== 'object') state.defenseCfg = { mode: 'notify', returnMarginSec: 120 };
       state.defenseCfg.mode = 'notify';
       save(STORE.DEFENSE_CFG, state.defenseCfg);
       state.webhookEvents = Object.assign({}, state.webhookEvents || {}, { captcha: true, attack: true });

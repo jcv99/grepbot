@@ -44,6 +44,18 @@
     }
     txSave();
   }
+  function txClearOne(intent) {
+    const t = state.txState && state.txState[intent];
+    if (!t) return false;
+    if (!/^(unknown|manual-review)$/.test(t.state || '')) return false;
+    try{if(t.snapshot&&t.snapshot.kind==='quest')questClearReviewForTx(t)}catch(_){}
+    t.state = 'aborted';
+    t.updatedAt = Date.now();
+    t.detail = 'manually cleared';
+    plannerRelease(t, 'manual-clear');
+    txSave();
+    return true;
+  }
   function txStableObj(obj) {
     const out = {};
     Object.keys(obj || {}).sort().forEach(k => {

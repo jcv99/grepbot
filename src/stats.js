@@ -380,21 +380,6 @@
           (ranked === 0 && total ? ' - sin puntuaciones el recorte no tiene orden' : ''),
       };
     }));
-    out.push(preflightProbe('transport AI', () => {
-      if (!state.autoTransportAi) return { ok: true, detail: 'desactivado (por defecto)' };
-      const towns = tradeListTowns() || [];
-      const ledger = tradeLedger(towns);
-      if (!ledger) return { ok: false, detail: 'movimientos entrantes no legibles - el planificador falla cerrado' };
-      let jobs = [];
-      // Dry probe on a CLONE so the Preflight click cannot deduct from the
-      // ledger a real scan is about to use.
-      try {
-        const probe = Object.create(null);
-        for (const [k, v] of Object.entries(ledger)) probe[k] = Object.assign({}, v);
-        jobs = transportAiJobs(towns, probe) || [];
-      } catch (e) { return { ok: false, detail: String(e).slice(0, 60) }; }
-      return { ok: true, detail: `${towns.length} ciudades, ${jobs.length} movimiento(s) mejorarian el reparto ahora` };
-    }));
     out.push(preflightProbe('snapshots', () => {
       const l = snapshotList();
       const kb = Math.round(snapshotTotalBytes() / 1024);
@@ -490,16 +475,11 @@
           `, simulacion ${cfg.dryRun ? 'ON' : 'OFF'}, ${ranked} objetivo(s) en cola`,
       };
     }));
-    out.push(preflightProbe('militia: smart gate', () => {
-      const c = militiaCfg();
-      // skipRisk above forceRisk makes the skip branch unreachable: the toggle
-      // reads as tuned but the gate is effectively the old unconditional one.
-      const degenerate = c.skipRisk > c.forceRisk;
+    out.push(preflightProbe('militia', () => {
       return {
         ok: true,
-        warn: !!state.autoMilitia && degenerate,
-        detail: `auto ${state.autoMilitia ? 'ON' : 'OFF'}, forzar>=${c.forceRisk}, saltar<${c.skipRisk}, defensa local ${c.localOk}, gris ${Math.round(c.graceMs / 60000)}min` +
-          (degenerate ? ' - saltar > forzar, la rama de salto no se alcanza' : ''),
+        warn: false,
+        detail: `auto ${state.autoMilitia ? 'ON' : 'OFF'} (levanta dentro de la ventana de ETA)`,
       };
     }));
     out.push(preflightProbe('cave: emergency', () => {
@@ -558,9 +538,8 @@
       return {
         ok: true,
         warn: drift.length > 0,
-        detail: `cs ${w.cs} eta15 ${w.eta15} sim ${w.simPer}/${w.simCap} weak ${w.weak} apoyo -${w.supportPer}/${w.supportCap} umbral ${w.smartThreshold}` +
-          (raw ? '' : ' (por defecto)') + (drift.length ? ` - fuera de rango y ajustado: ${drift.join(',')}` : '') +
-          ` \u00b7 banda ${defenseThreatBand(w.smartThreshold, false)} al umbral`,
+        detail: `cs ${w.cs} eta15 ${w.eta15} sim ${w.simPer}/${w.simCap} weak ${w.weak} apoyo -${w.supportPer}/${w.supportCap}` +
+          (raw ? '' : ' (por defecto)') + (drift.length ? ` - fuera de rango y ajustado: ${drift.join(',')}` : ''),
       };
     }));
     out.push(preflightProbe('farm profit', () => {
@@ -714,22 +693,6 @@
     out.push(preflightProbe('resource planner',()=>{let ids=[];try{ids=Object.keys((uw.ITowns&&uw.ITowns.towns)||{})}catch(_){};const bad=ids.filter(id=>!plannerSnapshot(id));return{ok:bad.length===0,detail:bad.length?`unreadable towns: ${bad.join(',')}`:`${ids.length} town snapshots`}}));
     out.push(preflightProbe('goal planner',()=>{const plans=goalPlanAll();const bad=plans.filter(p=>p.error);return{ok:bad.length===0,warn:bad.length>0,detail:`${plans.length} plans, ${bad.length} unreadable`}}));
     out.push(preflightProbe('safe mode',()=>({ok:true,warn:!!state.safeMode,detail:state.safeMode?'ON: high-impact writes blocked':'off'})));
-    out.push(preflightProbe('ai relay', () => {
-      let api = null;
-      try { api = GB_ROOT.__grepbotRelay || null; } catch (_) {}
-      if (!api) return { ok: true, detail: 'relay module not booted (not a world page?)' };
-      const on = state.relayCommands === true;
-      const armedMs = api.armedMs();
-      const bits = [
-        'socket ' + (api.connected() ? 'connected' : 'offline'),
-        'commands ' + (on ? 'ON' : 'OFF'),
-        'raw ' + (state.relayRaw === true ? 'ON' : 'OFF'),
-        armedMs > 0 ? 'ARMED ' + Math.ceil(armedMs / 60000) + 'min' : 'not armed (read-only)',
-      ];
-      // An open write window is a warning, not a failure: it is legitimate but
-      // must never be invisible in a self-check the user is reading.
-      return { ok: true, warn: on && armedMs > 0, detail: bits.join(', ') };
-    }));
     out.push(preflightProbe('guards', () => {
       const locks = gbLockList();
       const paused = Object.keys(state.captchaBreakers || {}).filter(k => captchaPaused(k));
@@ -918,8 +881,7 @@
     Object.keys(state).forEach(k => {
       if (/^auto[A-Z]/.test(k) || k === 'dryRun' || k === 'ibAuto' || k === 'ibResearch' ||
           k === 'collectAll' || k === 'decisionMemory' || k === 'captchaGlobalKill' ||
-          k === 'orchAdaptive' || k === 'farmLongClaims' || k === 'farmSleepAuto' ||
-          k === 'relayCommands' || k === 'relayRaw') {
+          k === 'orchAdaptive' || k === 'farmLongClaims' || k === 'farmSleepAuto') {
         toggles[k] = !!state[k];
       }
     });

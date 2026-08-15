@@ -439,23 +439,26 @@
     });
     dot.className = 'ib-dot ' + (hasFree ? 'free' : 'paid');
     btn.disabled = !hasFree || gbLocked('ib');
-    const mk = (cls, txt) => { const s = document.createElement('span'); s.className = cls; s.textContent = txt; return s; };
+    const mk = (cls, txt, tip) => { const s = document.createElement('span'); s.className = cls; s.textContent = txt; if (tip) gbTip(s, tip); return s; };
     for (const [town, ords] of byTown) {
       const t = document.createElement('div');
       t.className = 'ib-town';
       t.textContent = town;
+      gbTip(t, 'Ciudad a la que pertenecen las ordenes de abajo');
       rows.appendChild(t);
       ords.forEach(o => {
         const r = document.createElement('div');
         r.className = 'ib-row';
-        r.appendChild(mk('ib-type', o.type));
-        r.appendChild(mk('ib-time', fmtHMS(o.display)));
+        r.appendChild(mk('ib-type', o.type, 'Tipo: construccion o investigacion'));
+        r.appendChild(mk('ib-time', fmtHMS(o.display), 'Tiempo restante para acabar la orden'));
         r.appendChild(mk(o.isFree ? 'ib-free' : 'ib-cost',
-          o.isFree ? 'FREE' : (o.gold != null ? o.gold + ' gold' : '? gold')));
+          o.isFree ? 'FREE' : (o.gold != null ? o.gold + ' gold' : '? gold'),
+          o.isFree ? 'Gratis - completable sin gastar oro (umbral)' : 'Coste en oro para completar al instante'));
         rows.appendChild(r);
       });
     }
     status.textContent = (gbLocked('ib') ? 'completing... ' : '') + 'last scan: ' + new Date().toLocaleTimeString();
+    gbTip(status, 'Hora del ultimo escaneo de ordenes activas');
     renderAbQueue();
   }
 

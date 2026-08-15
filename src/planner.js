@@ -260,11 +260,12 @@
     'farm', 'collect', 'bandit', 'build', 'instant-build', 'instant-research', 'cave', 'culture', 'trade', 'ruraltrade', 'rurallevel',
     'research', 'merchant', 'favor', 'wonder', 'militia', 'dodge', 'spell', 'recruit', 'villrecruit', 'quest', 'attack',
     'cancel', 'hero', 'pttrade',
-    // AI raw passthrough (relay.js `bridge`/`ajax` commands). This MUST be in
-    // the write set: txRun only applies dry-run, the circuit breaker, safe
-    // mode, template health, tx dedup and the planner to features listed
-    // here. An unlisted feature silently takes the READ path and skips all of
-    // it -- which for an arbitrary AI-supplied payload is the whole guard.
+    // Raw passthrough. Its producer (relay.js) was removed; the entry stays
+    // because it MUST be in the write set: txRun only applies dry-run, the
+    // circuit breaker, safe mode, template health, tx dedup and the planner to
+    // features listed here. An unlisted feature silently takes the READ path
+    // and skips all of it -- which for an arbitrary raw payload is the whole
+    // guard.
     'airaw'
   ]);
   const TX_TERMINAL_TTL = 30 * 60 * 1000;

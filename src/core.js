@@ -89,6 +89,37 @@
   // the scroll offset and the focused control are all destroyed several times a
   // minute even when nothing about the render changed.
   //
+  // Set a Spanish hover description AND an aria-label on any element.
+  // Mirrors the native-ui.js factory pattern (nativeQButton / nativeApplyPlusBlock).
+  // Empty/null text is a no-op so callers can pass a conditional string.
+  // Returns the element so it can be chained: `gbTip(createEl(), '...').click = ...`.
+  function gbTip(el, text) {
+    if (!el || !text) return el;
+    el.title = String(text);
+    el.setAttribute('aria-label', String(text));
+    return el;
+  }
+
+  // Walk a subtree and materialize every `data-gb-tip="..."` attribute into a
+  // real `title` + `aria-label`. Use this after assigning innerHTML strings
+  // that carry `data-gb-tip` instead of `title` (the panel chrome ships ~120
+  // tooltips this way so the HTML stays compact). The attribute is removed
+  // once consumed so re-runs are no-ops.
+  function gbTipWalk(root) {
+    if (!root || typeof root.querySelectorAll !== 'function') return 0;
+    const nodes = root.querySelectorAll('[data-gb-tip]');
+    let n = 0;
+    for (const el of nodes) {
+      const t = el.getAttribute('data-gb-tip');
+      if (!t) continue;
+      el.title = t;
+      el.setAttribute('aria-label', t);
+      el.removeAttribute('data-gb-tip');
+      n++;
+    }
+    return n;
+  }
+
   // gbPaint builds into a DETACHED node, then reconciles: identical structure is
   // patched in place (text + attributes only), so live nodes and their listeners
   // survive and only what actually changed is written to the document.
@@ -348,9 +379,9 @@
     'report-catchup': 300000,
     'quest-scan': 180000,
     'quest-auto': 180000,
-    // One AI command at a time. Short TTL: a command that strands this lock
-    // must not wedge the channel for the 180s default.
-    'relay-cmd': 60000,
+    // Raw passthrough posts (feature `airaw`). relay.js is gone; the entry
+    // stays so any future raw-payload caller inherits a real TTL instead of
+    // the 180s default.
     airaw: 120000,
   };
   const GB_LOCK_DEFAULT_TTL = 180000;
@@ -516,8 +547,6 @@
     // HIGH-RISK: a recurring irreversible POST loop, so default OFF.
     autoTradeRoutes: load(STORE.AUTO_TRADE_ROUTES, false),
     autoTransport: load(STORE.AUTO_TRANSPORT, false),
-    // v4 plan 5.1: HIGH-RISK, same irreversible trade post. Default OFF.
-    autoTransportAi: load(STORE.AUTO_TRANSPORT_AI, false),
     // v4 plan 3.4: HIGH-RISK. A trade post is irreversible, so default OFF.
     autoDump: load(STORE.AUTO_DUMP, false),
     dumpThreshold: load(STORE.DUMP_THRESHOLD, { wood: 95, stone: 95, iron: 90 }),
@@ -590,15 +619,6 @@
     decisionSkips: load(STORE.DECISION_SKIPS, {}),
     decisionMemory: load(STORE.DECISION_MEM, true),
     dryRun: load(STORE.DRY_RUN, false),
-    // AI command channel (relay.js). Both default OFF: the socket is read-only
-    // until the user opts in, and `relayRaw` additionally unlocks the
-    // unguarded bridge/ajax passthrough. `relayArmUntil` is the timed window
-    // that must be open for any write to execute.
-    relayCommands: load(STORE.RELAY_CMDS, false),
-    relayRaw: load(STORE.RELAY_RAW, false),
-    relayArmUntil: load(STORE.RELAY_ARM_UNTIL, 0),
-    relayArmMin: load(STORE.RELAY_ARM_MIN, 15),
-    relayWriteCap: load(STORE.RELAY_WRITE_CAP, 40),
     intelBattleStats: load(STORE.INTEL_BATTLE_STATS, true),
     exportRedact: load(STORE.EXPORT_REDACT, true),
     orchAdaptive: load(STORE.ORCH_ADAPTIVE, true),
@@ -608,6 +628,7 @@
     abOrder: load(STORE.AB_ORDER, null),
     // v4 plan 4.5: repairs cost resources without user action, so default OFF.
     autoWallRepair: load(STORE.AUTO_WALL_REPAIR, false),
+    popRescueFarm: load(STORE.POP_RESCUE_FARM, true),
     abOptimalOrder: load(STORE.AB_OPTIMAL_ORDER, {}),
     abOptimalOrderOn: load(STORE.AB_OPTIMAL_ORDER_ON, true),
     plannerCfg: load(STORE.PLANNER_CFG, { global: { hard: { wood:0, stone:0, iron:0, population:0 }, soft: { wood:0, stone:0, iron:0, population:0 } }, towns: {} }),

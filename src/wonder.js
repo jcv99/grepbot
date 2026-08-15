@@ -129,11 +129,11 @@
 
 
   // ===== Defense Manager (v1.9) ==============================================
-  function defenseMode(){const m=String((state.defenseCfg&&state.defenseCfg.mode)||'notify');return ['notify','safe','smart'].includes(m)?m:'notify'}
+  function defenseMode(){const m=String((state.defenseCfg&&state.defenseCfg.mode)||'notify');return ['notify','safe'].includes(m)?m:'notify'}
   function defenseLocalStrength(townId){const u=dodgeTownUnits(townId);let score=0,count=0;for(const[id,n0]of Object.entries(u)){const n=+n0||0,m=unitMeta(id);if(!m||m.is_naval)continue;const fn=classifyUnitFn(id);if(fn==='defense'||fn==='both'){score+=n*Math.max(1,+m.population||1);count+=n}}return{score,count}}
   function defenseSupportOptions(dest,eta){const out=[];let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){};const target={town_id:+dest,id:+dest,kind:'town',...townCoords(dest)};for(const id of ids){if(String(id)===String(dest))continue;const units={};const live=townLiveUnits(id);for(const[k,n]of Object.entries(live)){const fn=classifyUnitFn(k),m=unitMeta(k);if(m&&!m.is_naval&&(fn==='defense'||fn==='both')&&+n>0)units[k]=+n}if(!Object.keys(units).length)continue;const same=isSameIsland(id,target),boats=boatCapacityCheck(units,same);if(!boats.ok)continue;const travel=computeTravelSeconds(id,target,units,true);if(travel!=null&&(eta==null||travel<eta))out.push({from:id,travel,units})}return out.sort((a,b)=>a.travel-b.travel)}
   // ===== Threat assessment engine (v4 plan 5.3) ==============================
-  // defenseAssessment's output is a CONTRACT that plan 5.4 (smart dodge) reads.
+  // defenseAssessment's output is a CONTRACT that defenseShouldDodge reads.
   // The nine original fields keep their names and meanings; everything below is
   // additive:
   //   band      'low' | 'med' | 'high' | 'cs'  - discrete bucket for UI and 5.4
@@ -154,8 +154,8 @@
   const THREAT_WEAK_FLOOR = 200;
   const THREAT_SUPPORT_PER = 5;
   const THREAT_SUPPORT_CAP = 20;
-  const THREAT_SMART_THRESHOLD = 35;
-  // ===== Smart dodge typed risk (v4 plan 5.4) ================================
+  // ===== Typed risk (v4 plan 5.4) ============================================
+  // The base risk used to be a single hasCs literal, so a raid and a siege
   // The base risk used to be a single hasCs literal, so a raid and a siege
   // scored identically. This is a per-attack-type base that FEEDS the same
   // factor block plan 5.3 defined - one risk number, not two, or the panel and
@@ -185,21 +185,8 @@
     const d = +(table._default != null ? table._default : THREAT_TYPE_RISK._default);
     return Number.isFinite(d) ? Math.max(0, Math.min(100, d)) : THREAT_TYPE_RISK._default;
   }
-  // Plans 5.3 and 5.4 each define a dodge threshold. Rather than ship two knobs
-  // that silently fight, defenseCfg.riskThresholdDodge is an explicit OVERRIDE:
-  // set it and it wins, leave it unset and the 5.3 weight applies. Taking the
-  // min of the two would have made raising the threshold do nothing.
-  function dodgeRiskThreshold(weights) {
-    const n = +((state.defenseCfg || {}).riskThresholdDodge);
-    if (Number.isFinite(n)) return Math.max(10, Math.min(200, n));
-    const w = weights && +weights.smartThreshold;
-    return Number.isFinite(w) ? w : THREAT_SMART_THRESHOLD;
-  }
   // Band cut-points live here, not in state: changing them is a one-line edit
-  // and they are part of the contract, not a user preference. `band` is a UI
-  // bucket and `smartThreshold` is the action gate; they are deliberately
-  // independent, so a 'med' band can still dodge. Preflight surfaces the
-  // relationship rather than forcing them to agree.
+  // and they are part of the contract, not a user preference.
   const THREAT_BAND_HIGH = 45;
   const THREAT_BAND_MED = 20;
   // Memoised on the stored object's identity: defenseAssessment runs per
@@ -221,7 +208,6 @@
       weak: gbCfgClamp(w.weak, 0, 60, THREAT_WEAK_BASE),
       supportPer: gbCfgClamp(w.supportPer, 0, 30, THREAT_SUPPORT_PER),
       supportCap: gbCfgClamp(w.supportCap, 0, 100, THREAT_SUPPORT_CAP),
-      smartThreshold: gbCfgClamp(w.smartThreshold, 0, 100, THREAT_SMART_THRESHOLD),
     };
     if (!over) _threatMemo = { src: stored, v: out };
     return out;
@@ -267,7 +253,7 @@
     return{eta,simultaneous,local,supports,safeTown:safe,evac,militia,risk,hasCs:!!mov.hasCs,snipe,
       band:defenseThreatBand(risk,!!mov.hasCs),attackType:String(mov.type||''),factors,weights:w,computedAt:Date.now()};
   }
-  function defenseShouldDodge(mov,incoming){const mode=defenseMode(),a=defenseAssessment(mov,incoming);if(mode==='notify')return{yes:false,assessment:a,why:'notify'};if(mode==='safe')return{yes:true,assessment:a,why:'safe'};if(!state.defenseCfg.smartAuto)return{yes:false,assessment:a,why:'smart-auto-off'};if(!a.evac.ok)return{yes:false,assessment:a,why:'cannot-evacuate'};if(a.hasCs||a.risk>=dodgeRiskThreshold(a.weights))return{yes:true,assessment:a,why:`risk band=${a.band} ${defenseFactorText(a.factors)}`};return{yes:false,assessment:a,why:'defend/observe'}}
+  function defenseShouldDodge(mov,incoming){const mode=defenseMode(),a=defenseAssessment(mov,incoming);if(mode==='notify')return{yes:false,assessment:a,why:'notify'};if(mode==='safe')return{yes:true,assessment:a,why:'safe'};return{yes:false,assessment:a,why:'defend/observe'}}
   function dodgeReturnSave(){save(STORE.DODGE_RETURNS,state.dodgeReturns||{})}
   function dodgeReturnRecord(mov,from,dest,data){const id=String((data&&(data.command_id||data.commandId||data.movement_id||data.id))||'');if(!id)return;const arrival=+(mov&&mov.arrival)||0,margin=Math.max(0,+((state.defenseCfg&&state.defenseCfg.returnMarginSec)||120));// arrival === 0 means unreadable — the (0 > 1e12 ? 0 : 0*1000) + margin*1000
     // collapse to ~1970 + margin so due is truthy and the fallback never fires;

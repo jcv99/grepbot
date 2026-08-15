@@ -165,9 +165,15 @@
     if (!res || res.wood == null || res.stone == null || res.iron == null || pop == null) return { ok: false, why: 'resources/pop unreadable' };
     const margin = 10;
     const have = { wood:+res.wood, stone:+res.stone, iron:+res.iron, population:pop };
-    if (have.wood < need.wood + margin || have.stone < need.stone + margin || have.iron < need.iron + margin) return { ok: false, why: 'resources', need, have, margin };
-    if (need.pop > 0 && pop < need.pop) return { ok: false, why: 'population', need, have, margin };
-    return { ok: true, need };
+    // Population is compared against THIS building's own population cost, not
+    // against zero: a level that needs 22 free population is blocked at 21 just
+    // as hard as at 0. `popShort` rides along on EVERY negative verdict because
+    // the resources branch returns first — a town short on both would otherwise
+    // hide the population shortfall from the pop rescue until the wood arrives.
+    const popShort = need.pop > 0 && pop < need.pop;
+    if (have.wood < need.wood + margin || have.stone < need.stone + margin || have.iron < need.iron + margin) return { ok: false, why: 'resources', need, have, margin, popShort };
+    if (popShort) return { ok: false, why: 'population', need, have, margin, popShort };
+    return { ok: true, need, popShort: false };
   }
   function abAffordReason(aff) {
     if (!aff) return 'datos de coste ilegibles';
@@ -250,7 +256,15 @@
         continue;
       }
       const aff = abCanAfford(townId, resolved.building);
-      if (!aff.ok) continue; // try next priority target so a free slot is not wasted unnecessarily
+      if (!aff.ok) {
+        // Resources: try the next priority target so a free slot is not wasted.
+        // Population: there is no useful next target — free population is town
+        // wide, so a cost the town cannot cover here will not be covered by the
+        // next building either. Put farm levels at the head of the lane instead
+        // and let the follow-up scan take them.
+        if (aff.popShort && resolved.building !== 'farm' && nativePopRescueFifo(townId, levels, aff)) return null;
+        continue;
+      }
       return { building: resolved.building, forTarget: target, reason: resolved.reason, cost: aff.need };
     }
     return null;
@@ -274,7 +288,14 @@
     if (req == null) return { ok: false, why: 'requirements-unreadable' };
     for (const [dep, need] of Object.entries(req)) if (+(levels[dep] || 0) < +need) return { ok: false, why: `missing:${dep}:${levels[dep] || 0}/${need}` };
     const aff = abCanAfford(townId, fresh.building);
-    if (!aff.ok) return { ok: false, why: aff.why, detail:abAffordReason(aff) };
+    if (!aff.ok) {
+      // Last gate before the post, so this catches the population that a
+      // recruit order ate between the pick and here. Idempotent: the rescue
+      // re-counts what is already queued and adds nothing when the farm levels
+      // are already in front. Nothing is posted on this path either way.
+      if (aff.popShort && fresh.building !== 'farm') nativePopRescueFifo(townId, levels, aff);
+      return { ok: false, why: aff.why, detail:abAffordReason(aff) };
+    }
     return { ok: true, plan: Object.assign({},fresh,{targetLevel}) };
   }
   function abBuildUp(townId, plan) {

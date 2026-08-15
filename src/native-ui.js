@@ -360,6 +360,84 @@
     gbLog(`cola nativa: ${summary}`);
     gbTimeout(() => abScan('native'), 80); return true;
   }
+  // ===== Population rescue ===================================================
+  // A build is population-blocked whenever its own population COST exceeds the
+  // town's free population — 21 free against a cost of 22 stalls exactly like 0
+  // free does, and it blocks every other build behind it too. The farm is the
+  // only building that raises free population, so the rescue puts farm levels
+  // at the HEAD of the lane and the stalled job resumes on its own instead of
+  // sitting in `waiting-population` forever.
+  //
+  // "First check if farms are already being done" is the whole safety of this:
+  // the count is read from the REAL game build queue *and* the virtual lane,
+  // and an unreadable real queue is UNKNOWN, never "nothing queued" — queueing
+  // a third farm on top of two that are already building is exactly the
+  // failure this check exists to prevent.
+  const POP_RESCUE_FARM_LEVELS = 2;
+  function nativeFarmPendingLevels(townId) {
+    const q = abQueueInfo(townId);
+    if (!q || !q.known) return null;
+    let n = 0;
+    for (const o of (q.orders || [])) if (o && o.building_type === 'farm' && !o.tear_down) n++;
+    for (const j of nativeQueueList(townId, 'build', false)) if (j && j.building === 'farm') n++;
+    return n;
+  }
+  // How many farm levels the rescue may still add: 0 = nothing to do (already
+  // building, suppressed, maxed, disabled), null-ish reads also collapse to 0
+  // after logging, so a blind town never gets a blind post.
+  function nativePopRescueRoom(townId, levels) {
+    if (!state.popRescueFarm) return 0;
+    if (!levels) return 0;
+    if (goalQueueSuppressed(townId, 'build', 'farm')) return 0;
+    const max = abMaxLevel('farm');
+    if (max == null) { gbLogT('pop-rescue-max', 300000, 'pop rescue: farm max level unreadable - no farm queued'); return 0; }
+    const pending = nativeFarmPendingLevels(townId);
+    if (pending == null) { gbLogT('pop-rescue-blind-' + townId, 300000, `pop rescue: real build queue unreadable @${townId} - not queueing farm blind`); return 0; }
+    if (pending >= POP_RESCUE_FARM_LEVELS) return 0;
+    // abCurrentLevels already folds the real build queue in, so this is the
+    // PROJECTED farm level, not the standing one.
+    const projected = +(levels.farm || 0);
+    if (projected >= max) {
+      gbLogT('pop-rescue-maxed-' + townId, 600000, `pop rescue: farm already at max (${max}) @${townId} - population cannot be raised by building`);
+      return 0;
+    }
+    return Math.max(0, Math.min(POP_RESCUE_FARM_LEVELS - pending, max - projected));
+  }
+  // Returns the number of farm jobs inserted (0 = nothing done). Works in both
+  // lane modes: the jobs are pushed WITHOUT flipping `mode.build` to 'fifo',
+  // because an empty fifo lane would then own the lane forever and the legacy
+  // goal planner would never pick again.
+  function nativePopRescueFifo(townId, levels, aff) {
+    const room = nativePopRescueRoom(townId, levels);
+    if (!room) return 0;
+    const list = nativeQueueList(townId, 'build', false);
+    // Same rule nativeQueueMove enforces: never reorder around a post that is
+    // already flying or a head waiting on a manual decision.
+    if (list.some(j => j && (j.inflight || j.manualReview))) return 0;
+    const town = nativeQueueTown(townId, true);
+    // Only shown, never used as a gate: an unreadable aff still queues the farm
+    // (the caller already established the shortfall) with a plainer reason.
+    const short = aff && aff.need && aff.have
+      ? `población ${Math.floor(+aff.have.population || 0)}/${Math.ceil(+aff.need.pop || 0)}`
+      : 'población insuficiente';
+    const jobs = [];
+    for (let i = 0; i < room; i++) jobs.push({
+      id: nativeQueueId('b'), kind: 'build', townId: String(townId),
+      building: 'farm', fromLevel: 0, toLevel: 0,
+      status: 'pending', reason: `${short}; granja antes de continuar`,
+      createdAt: Date.now(),
+    });
+    town.build.unshift(...jobs);
+    // Levels are placeholders above on purpose: the rebase is the one place
+    // that knows the projected level of every job in the lane.
+    nativeQueueRebaseBuild(townId);
+    nativeQueueSave();
+    gbLog(`cola nativa: ${short} @${townId} — ${room} nivel(es) de granja al principio de la cola`);
+    // Deliberately not 80ms like the manual [+]: this fires from inside an
+    // abScan sweep that still holds the 'ab' lock, and a re-entry would no-op.
+    gbTimeout(() => abScan('pop-rescue'), 1500);
+    return room;
+  }
   function nativeQueueRemoveLastBuild(townId,building) {
     // Only the target item itself blocks removal; a stuck head must not freeze
     // the entire queued tail. Items flagged manualReview still need a player
@@ -520,7 +598,13 @@
     const resolved=abResolvePrerequisite(townId,job.building,levels);
     if(!resolved||!resolved.building){const why=resolved&&resolved.error||'requisito desconocido';nativeQueueSetJobState(job,'blocked',abReasonText(why));return {hasJob:true,plan:null,why}}
     const aff=abCanAfford(townId,resolved.building);
-    if(!aff.ok){const why=aff.why||'recursos',detail=abAffordReason(aff),status=why==='resources'?'waiting-resources':(why==='population'?'waiting-population':'blocked');nativeQueueSetJobState(job,status,detail);return {hasJob:true,plan:null,why}}
+    if(!aff.ok){const why=aff.why||'recursos',detail=abAffordReason(aff),status=why==='resources'?'waiting-resources':(why==='population'?'waiting-population':'blocked');nativeQueueSetJobState(job,status,detail);
+      // Population is the one block the queue can clear by itself. Keyed off
+      // aff.popShort, not `why`: when wood AND population are both short the
+      // verdict reads 'resources', and waiting for the wood first would only
+      // land on the same population wall a cadence later.
+      if(aff.popShort&&resolved.building!=='farm')nativePopRescueFifo(townId,levels,aff);
+      return {hasJob:true,plan:null,why}}
     const isRequirement=resolved.building!==job.building;
     nativeQueueSetJobState(job,'ready',isRequirement?`antes: ${nativeBuildLabel(resolved.building)}`:'listo');
     return {hasJob:true,plan:{building:resolved.building,forTarget:job.building,reason:isRequirement?`requisito para ${job.building}`:'cola FIFO',cost:aff.need,nativeJobId:job.id,nativeRequestedBuilding:job.building,nativeRequirement:isRequirement}};
@@ -1074,11 +1158,11 @@
     const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&(j.inflight||j.manualReview));
     const key=`${lane}|${townId}|${frozen?'F':'-'}|`+list.map(j=>`${j.id}:${j.inflight?1:0}${j.manualReview?'m':''}`).join(',');
     gbPaint(box,stage=>{
-      const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot · Construcción':(lane==='research'?'Cola GrepBot · Investigación':(lane==='recruitNaval'?'Cola GrepBot · Puerto':'Cola GrepBot · Cuartel'));head.appendChild(title);
+      const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot · Construcción':(lane==='research'?'Cola GrepBot · Investigación':(lane==='recruitNaval'?'Cola GrepBot · Puerto':'Cola GrepBot · Cuartel'));gbTip(title, 'Cola virtual de GrepBot para esta ciudad y tipo de edificio/unidad');head.appendChild(title);
       const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'>':'||',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
       if(!list.length&&nativeQueueIsFifo(townId,lane)){const legacy=nativeQButton('Objetivos','Volver al planificador de objetivos',nativeTownAction(root,townId,()=>nativeQueueUseLegacy(townId,lane)));head.appendChild(legacy)}stage.appendChild(head);
       if(!list.length){const empty=document.createElement('div');empty.className='gb-native-empty';empty.textContent=nativeQueueIsFifo(townId,lane)?'Cola vacía. Usa los botones + de arriba.':'Usa + para crear una cola FIFO en esta ciudad.';stage.appendChild(empty);return}
-      list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}→${j.toLevel}`:(lane==='research'?nativeResearchLabel(j.tech):`${j.amount}× ${nativeUnitLabel(j.unit)}`);const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' · '+j.reason:''}`;desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const up=nativeQButton('↑','Mover antes',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('↓','Mover después',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const del=nativeQButton('×','Quitar de la cola virtual',nativePanelAction(townId,()=>{if(j.inflight){flash('Esta orden se está enviando; espera a que termine');return false}if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acción se envió o no.')}catch(_){ok=false}if(!ok)return false}else if(frozen){let ok=false;try{ok=gameUw().confirm('Hay otra acción pendiente en esta cola. ¿Borrar este elemento de todos modos?')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id,{force:true})}));del.disabled=!!j.inflight;acts.append(up,down,del);row.append(num,desc,acts);stage.appendChild(row)});
+      list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}→${j.toLevel}`:(lane==='research'?nativeResearchLabel(j.tech):`${j.amount}× ${nativeUnitLabel(j.unit)}`);const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' · '+j.reason:''}`;gbTip(sub, 'Estado de la orden virtual + motivo si esta bloqueada');desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const up=nativeQButton('↑','Mover antes',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('↓','Mover después',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const del=nativeQButton('×','Quitar de la cola virtual',nativePanelAction(townId,()=>{if(j.inflight){flash('Esta orden se está enviando; espera a que termine');return false}if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acción se envió o no.')}catch(_){ok=false}if(!ok)return false}else if(frozen){let ok=false;try{ok=gameUw().confirm('Hay otra acción pendiente en esta cola. ¿Borrar este elemento de todos modos?')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id,{force:true})}));del.disabled=!!j.inflight;acts.append(up,down,del);row.append(num,desc,acts);stage.appendChild(row)});
     },{key});
   }
   function nativeUiScan() {

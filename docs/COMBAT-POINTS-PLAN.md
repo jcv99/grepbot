@@ -1,7 +1,6 @@
 # Plan: llegar a 2000 puntos de combate
 
-Generado por Claude al fijar `/goal` el 2026-08-14 (sin relay conectada en
-ese momento, no se pudo leer el mundo actual). El plan asume Grepolis
+Generado por Claude al fijar `/goal` el 2026-08-14. El plan asume Grepolis
 vanilla (sin mods de unidad) y estadísticas estándar de la wiki
 (`attack + defense` = puntos de combate de una unidad, sin bonus de
 liderazgo).
@@ -103,7 +102,7 @@ plausible. Plan de 3-7 días **sin templo**, 1-2 días **con templo Ares
 
 ## Validar antes de dejar el bot solo
 
-Con la pestaña abierta (relay del MCP debe decir `open`):
+Con la pestaña abierta en un mundo:
 
 1. `Acciones > Preflight` → coste-research, warehouses, recruit-controller
    por ciudad. Si algo marca `fail`, NO actives el toggle, arregla el

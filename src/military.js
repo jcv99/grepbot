@@ -313,9 +313,10 @@
       if (!rows.length) { const e = document.createElement('div'); e.textContent = 'No explicitly cancelable outgoing movements'; e.style.cssText = 'color:#666;font-size:10px'; box.appendChild(e); }
       else rows.forEach(r => {
         const row = document.createElement('div'); row.style.cssText = 'display:grid;grid-template-columns:1fr .7fr .6fr auto;gap:4px;font-size:10px;border-bottom:1px solid #2a2a2a;padding:2px 0;align-items:center';
-        const c1 = document.createElement('span'); c1.textContent = `${townNameById(r.home)} -> ${r.target}`; c1.title = `command ${r.commandId}`;
-        const c2 = document.createElement('span'); c2.textContent = r.type || 'move';
-        const c3 = document.createElement('span'); c3.textContent = r.cancelLeft != null ? `${Math.round(r.cancelLeft)}s` : 'ok'; c3.style.color = '#888';
+        gbTip(row, `Movimiento saliente #${r.commandId}`);
+        const c1 = document.createElement('span'); c1.textContent = `${townNameById(r.home)} -> ${r.target}`; c1.title = `command ${r.commandId}`; gbTip(c1, 'Origen -> destino del movimiento');
+        const c2 = document.createElement('span'); c2.textContent = r.type || 'move'; gbTip(c2, 'Tipo de movimiento (ataque / apoyo / colonizacion...)');
+        const c3 = document.createElement('span'); c3.textContent = r.cancelLeft != null ? `${Math.round(r.cancelLeft)}s` : 'ok'; c3.style.color = '#888'; gbTip(c3, 'Tiempo restante en el que se puede cancelar');
         const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Cancel'; b.disabled = !state.cancelTpl; b.title = state.cancelTpl ? 'Cancel this movement' : 'Cancel one movement manually once to learn the canonical action';
         b.addEventListener('click', () => { if (!confirm(`Cancelar ${r.type || 'comando'} ${r.commandId}?`)) return; militaryCancelCommand(r.commandId, { confirmed: true }, err => { flash(err ? 'cancel failed: ' + err : 'command cancelled'); renderAttack(); }); });
         row.append(c1,c2,c3,b); box.appendChild(row);
@@ -328,6 +329,7 @@
     const heroes = playerHeroesListCached();
     if (!heroes.length) { const e = document.createElement('div'); e.textContent = 'No readable PlayerHero models'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
     const townSel = document.createElement('select'); townSel.style.cssText = 'background:#111;color:#cfc;border:1px solid #333;font-size:10px;margin-bottom:4px';
+    gbTip(townSel, 'Ciudad de destino al pulsar Assign');
     (state.towns || []).forEach(t => { const o = document.createElement('option'); o.value = t.id; o.textContent = t.name || t.id; townSel.appendChild(o); }); hbox.appendChild(townSel);
     heroes.forEach(h => {
       const row = document.createElement('div'); row.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:10px;border-bottom:1px solid #2a2a2a;padding:3px 0';
@@ -337,12 +339,13 @@
       // the expected result until someone captures the real names.
       lab.textContent = `${h.name} Lv${h.level} | ${h.status}${h.home ? ' @' + townNameById(h.home) : ''}` +
         ` | vigor ${st == null ? '?' : st + '%'} | mana ${mn == null ? '?' : mn + '%'}`;
+      gbTip(lab, 'Estado del heroe: nombre · nivel · estado · ciudad · vigor · mana');
       if (st != null && st <= heroLowStaminaPct()) lab.style.color = '#f66';
       row.appendChild(lab);
-      const addBtn = (text, action, color, fn) => { const b=document.createElement('button'); b.type='button'; b.textContent=text; b.style.color=color; b.disabled=!(state.heroTpl && state.heroTpl[action]); b.title=b.disabled?`Perform ${action} manually once to learn template`:''; b.addEventListener('click',fn); row.appendChild(b); };
-      if (h.traveling) addBtn('Cancel travel','cancelTownTravel','#fc6',()=>{ if(confirm(`Cancelar traslado de ${h.name}?`)) heroCancelTravel(h.type,{confirmed:true},err=>{flash(err?'hero cancel failed: '+err:'hero travel cancelled');renderAttack();}); });
-      else if (h.assigned || h.attacking) addBtn('Unassign','unassignFromTown','#f96',()=>{ if(confirm(`Desasignar ${h.name}?`)) heroUnassign(h.type,{confirmed:true},err=>{flash(err?'hero unassign failed: '+err:'hero unassigned');renderAttack();}); });
-      if (!h.injured && !h.attacking && !h.traveling) addBtn('Assign','assignToTown','#6cf',()=>{ const tid=townSel.value; if(tid&&confirm(`Asignar ${h.name} -> ${townNameById(tid)}?`)) heroAssignToTown(h.type,tid,{confirmed:true},err=>{flash(err?'hero assign failed: '+err:'hero transfer started');renderAttack();}); });
+      const addBtn = (text, action, color, fn, hint) => { const b=document.createElement('button'); b.type='button'; b.textContent=text; b.style.color=color; b.disabled=!(state.heroTpl && state.heroTpl[action]); b.title=b.disabled?`Perform ${action} manually once to learn template`:(hint||''); b.addEventListener('click',fn); row.appendChild(b); };
+      if (h.traveling) addBtn('Cancel travel','cancelTownTravel','#fc6',()=>{ if(confirm(`Cancelar traslado de ${h.name}?`)) heroCancelTravel(h.type,{confirmed:true},err=>{flash(err?'hero cancel failed: '+err:'hero travel cancelled');renderAttack();}); }, 'Cancelar el traslado en curso del heroe');
+      else if (h.assigned || h.attacking) addBtn('Unassign','unassignFromTown','#f96',()=>{ if(confirm(`Desasignar ${h.name}?`)) heroUnassign(h.type,{confirmed:true},err=>{flash(err?'hero unassign failed: '+err:'hero unassigned');renderAttack();}); }, 'Quitar al heroe de su ciudad actual');
+      if (!h.injured && !h.attacking && !h.traveling) addBtn('Assign','assignToTown','#6cf',()=>{ const tid=townSel.value; if(tid&&confirm(`Asignar ${h.name} -> ${townNameById(tid)}?`)) heroAssignToTown(h.type,tid,{confirmed:true},err=>{flash(err?'hero assign failed: '+err:'hero transfer started');renderAttack();}); }, 'Asignar el heroe a la ciudad seleccionada');
       hbox.appendChild(row);
     });
     // Equipment proposals: read-only. There is no known equip endpoint in this
@@ -360,15 +363,18 @@
     ctl.style.cssText = 'display:flex;gap:8px;align-items:center;font-size:10px;margin-top:4px;flex-wrap:wrap';
     const auto = document.createElement('label');
     auto.style.cssText = 'display:flex;gap:4px;align-items:center;cursor:pointer';
+    gbTip(auto, 'Sugerir asignaciones automaticas de heroes (no envia nada, solo propone)');
     const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!state.autoHero;
     cb.title = 'Solo propone: el envio sigue necesitando el boton Assign.';
     cb.addEventListener('change', () => { state.autoHero = cb.checked; save(STORE.AUTO_HERO, state.autoHero); gbLog('auto-hero ' + (state.autoHero ? 'ON (solo propone)' : 'OFF')); });
     auto.append(cb, document.createTextNode('Auto-asignar (propone)'));
     const lowLab = document.createElement('label');
     lowLab.style.cssText = 'display:flex;gap:4px;align-items:center';
+    gbTip(lowLab, 'Umbral (%) de vigor por debajo del cual el heroe se marca en rojo');
     const low = document.createElement('input'); low.type = 'number'; low.min = '0'; low.max = '100';
     low.value = String(heroLowStaminaPct());
     low.style.cssText = 'width:45px;background:#111;color:#cfc;border:1px solid #333';
+    gbTip(low, 'Porcentaje de vigor umbral (0-100)');
     low.addEventListener('change', () => {
       state.heroLowStaminaPct = Math.max(0, Math.min(100, +low.value || 0));
       save(STORE.HERO_LOW_STAMINA_PCT, state.heroLowStaminaPct);
@@ -440,16 +446,20 @@
     for (const r of rows) {
       const row = document.createElement('div');
       row.style.cssText = 'display:grid;grid-template-columns:1fr .8fr .6fr auto;gap:4px;font-size:10px;border-bottom:1px solid #2a2a2a;padding:2px 0;align-items:center';
+      gbTip(row, `Amenaza: ${militaryColonyLabel(r.kind)} hacia ${townNameById(r.mov.dest)}`);
       const c1 = document.createElement('b'); c1.style.color = '#f5a623';
       c1.textContent = militaryColonyLabel(r.kind);
+      gbTip(c1, 'Tipo de incidente: revuelta, colonizacion, nave colonizadora, etc.');
       const c2 = document.createElement('span');
       c2.textContent = `${townNameById(r.mov.dest)} (#${r.mov.dest})`;
       c2.title = `desde ${r.mov.origin || '?'}`;
+      gbTip(c2, 'Ciudad destino del incidente + origen');
       const c3 = document.createElement('span');
       // ETA unknown renders '?', never 0 - a movement whose arrival could not
       // be read is not an imminent one.
       c3.textContent = r.etaKnown ? fmtSec(r.eta) : '?';
       c3.style.color = r.etaKnown ? '#fc6' : '#888';
+      gbTip(c3, 'ETA hasta la llegada (? = no legible)');
       const acts = document.createElement('span');
       acts.style.cssText = 'display:flex;gap:2px;flex-wrap:wrap';
       r.recallCandidates.forEach(cand => {
@@ -616,6 +626,7 @@
         const e = document.createElement('div');
         e.style.cssText = 'color:#a8f;font-size:10px;padding:2px 0 2px 12px';
         e.textContent = '(ciego - abre esa ciudad una vez)';
+        gbTip(e, 'Composicion no leida: abre la ciudad una vez para que el bot pueda leer las unidades');
         d.appendChild(e);
       }
       if (r.shortage.length) {

@@ -572,7 +572,8 @@
       if (!tr) {
         tr = document.createElement('tr');
         tr.dataset.key = r.key;
-        cells.forEach(() => tr.appendChild(document.createElement('td')));
+        const tdTips = ['Nombre del jugador', 'Marca temporal del ultimo informe', 'Tiempo desde el ultimo informe', 'Numero de informes en la ventana', 'Estado diplomatico guardado', 'Nota personal sobre el jugador'];
+        cells.forEach((_, i) => { const td = document.createElement('td'); gbTip(td, tdTips[i] || ''); tr.appendChild(td); });
         tbody.appendChild(tr);
       }
       patchCells(tr, cells);

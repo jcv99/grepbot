@@ -4,7 +4,7 @@
       cave: state.autoCave,
       build: state.abAuto || nativeQueueHasPending('build'),
       research: state.autoResearch || nativeQueueHasPending('research'),
-      trade: state.autoTrade || state.islandShip || state.autoTransport || state.autoTradeRoutes || state.autoDump || state.autoTransportAi,
+      trade: state.autoTrade || state.islandShip || state.autoTransport || state.autoTradeRoutes || state.autoDump,
       farm: state.autoFarm,
       ruraltrade: state.autoRuralTrade,
       rurallevel: state.autoRuralLevel,
@@ -154,10 +154,6 @@
   }
   function orchTick() {
     if (!hostEnabled()) return;
-    // v4 plan 6.8: evaluated BEFORE the pause gate, so a scheduled profile
-    // change can affect this same tick's pause behaviour. It only ever calls
-    // qolApplyPreset - no post, no scheduler.
-    try { profileAutoTick(); } catch (_) {}
     // v4 plan 7.4: cadence flush rides this tick; no scheduler of its own.
     try { intelDigestTick(); } catch (_) {}
     // Read-only pre-warn pass, ABOVE the pause gate on purpose: a warehouse

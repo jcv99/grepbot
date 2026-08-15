@@ -1,33 +1,25 @@
-# GrepBot MCP relay (AI → bot)
+# GrepBot
 
-GrepBot exposes a local WebSocket relay at `ws://127.0.0.1:8731` from every
-running world tab (`src/relay.js`, since v2.x). An MCP server wraps that
-relay and exposes 34 commands as MCP tools — read / write / raw risk classes.
+Single Tampermonkey userscript (built from `src/` modules) that automates
+Grepolis: scout, farm, build, trade, culture, and (opt-in) military. Paste-
+only: there is no server, no phone-home, no AI command channel. HIGH-RISK
+toggles (recruit, dodge auto, favor) default OFF.
 
-Wire shape (in-tab → out):
-- inbound  `{type:'command', name, args, id}`
-- outbound `{type:'result', id, ...}`, `{type:'snapshot', ...}`, `{type:'event', ...}`
+Build: `python3 build.py` (gates on dup decls, `node --check`, ASCII escape).
+Install: paste `grepbot.user.js` into Tampermonkey. Smoke:
+`node .claude/skills/run-grepbot/driver.mjs`.
 
-Server entry: `tools/relay-mcp/dist/index.js` (stdio MCP). Configs reference it:
-- Claude Code: `.mcp.json` + `.claude/settings.local.json` → `enabledMcpjsonServers: ["grepolis","grepbot"]`
-- Kimi: `.kimi-code/mcp.json` → `mcpServers.grepbot`
+Module concat order (the source of truth lives in `build.py` MODULES):
+`header.js` opens the IIFE, `core.js` defines shared state/bridge/logging/
+storage, `planner.js`/`tx.js`/`bridge.js` define the transaction + post
+layer every feature posts through, then feature modules, `boot.js` runs
+setup/teardown at the end, `footer.js` closes the IIFE. Reordering breaks
+top-level declarations.
 
-Agent rules when driving GrepBot via MCP:
-1. Confirm a world tab is connected before any read tool (`status` → `connected:true`).
-2. Writes require an open arm window; first write auto-arms with a confirmation
-   prompt unless `state.relayRaw` is OFF (default OFF — raw passthrough refused).
-3. `arm` can only EXTEND a live window, never open one from cold if `relayCommands`
-   is OFF (Config in the bot, default OFF — the master gate).
-4. Match the path option #1 from spec: stdio MCP, single-session, one tab per
-   Claude process. Multi-tab worlds need a separate server process per tab.
-5. Dry-run by default — set `state.dryRun` ON in the bot Config before writes
-   if you only want payload validation. The relay honours dry-run.
-6. After any high-risk call (`attack`, `recruit`, `dodge`, `favor`, `raw`), wait
-   for the result envelope and journal it. Decision memory lives in the tab.
-
-The wrapper server is intentionally local-only (127.0.0.1) — bot is paste-only,
-no public surface. When the wrapper is built, drop it into `tools/relay-mcp/`
-and rebuild — the configs already point at `dist/index.js`.
+See `CLAUDE.md` for architecture, hard rules, the feature map and the module
+map. `docs/REGRESSIONS.md` carries the bug archaeology behind each rule;
+`docs/DOCS.md` holds the roadmap, backlog, in-game validation gates and
+error-pattern catalogue.
 
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands
@@ -38,10 +30,10 @@ and rebuild — the configs already point at `dist/index.js`.
 
 **Important**: Even in command chains with `&&`, use `rtk`:
 ```bash
-# ❌ Wrong
+# Wrong
 git add . && git commit -m "msg" && git push
 
-# ✅ Correct
+# Correct
 rtk git add . && rtk git commit -m "msg" && rtk git push
 ```
 
@@ -67,7 +59,7 @@ rtk vitest              # Vitest failures only (99.5%)
 rtk playwright test     # Playwright failures only (94%)
 rtk pytest              # Python test failures only (90%)
 rtk rake test           # Ruby test failures only (90%)
-rtk rspec               # RSpec test failures only (60%)
+rtk rspec               # RSpec failures only (60%)
 rtk test <cmd>          # Generic test wrapper - failures only
 ```
 

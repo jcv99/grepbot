@@ -103,6 +103,11 @@ window.GM_addStyle = (css) => {
   document.head.appendChild(s);
 };
 window.GM_registerMenuCommand = () => {};
+// boot.js only publishes window.__grepbotTest (state, bridgePost, txRun,
+// planner, every *Scan, ...) when this is === true BEFORE the IIFE runs.
+// It is the only handle on the bot's internals -- everything else lives in
+// one sealed IIFE. Never true under Tampermonkey. Disable with ?notest.
+window.__grepbotTestMode = !location.search.includes('notest');
 // runningVersion() in src/core.js reads GM_info.script.version; without
 // this the panel header renders "GrepBot v0.0.0" and the driver's
 // stale-artifact check can never fire. Real version is patched in below,

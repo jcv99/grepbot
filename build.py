@@ -77,7 +77,6 @@ MODULES = [
     'hud.js',
     'queue-center.js',
     'ui.js',
-    'relay.js',
     'boot.js',
     'footer.js',
 ]

@@ -276,77 +276,6 @@
     return parts.join(' \u00b7 ');
   }
   const DODGE_MILITIA_WINDOW_SEC = 15 * 60;
-  // ===== Militia smart activation (v4 plan 3.6) ==============================
-  // Militia is irreversible: it eats a population slot that does not come back
-  // during the wave. Raising it on every sub-15-minute incoming burns it on
-  // noise and leaves the town weaker for the hit that actually matters. These
-  // gates decide whether THIS incoming is worth it; every existing guard
-  // (autoMilitia, captcha, ETA window, pop/farm precondition, the bounded
-  // timeout retry) stays exactly as it was.
-  const M_MILITIA_FORCE = 50;      // risk at or above this: raise regardless
-  const M_MILITIA_SKIP = 10;       // risk below this: skip unless CS
-  const M_MILITIA_LOCAL_OK = 400;  // local defense score that can absorb it alone
-  const DODGE_MILITIA_GRACE_MS = 3 * 60 * 1000;
-  function militiaCfg() {
-    const c = (state.militiaCfg && typeof state.militiaCfg === 'object') ? state.militiaCfg : {};
-    return {
-      forceRisk: gbCfgClamp(c.forceRisk, 0, 100, M_MILITIA_FORCE),
-      skipRisk: gbCfgClamp(c.skipRisk, 0, 100, M_MILITIA_SKIP),
-      localOk: gbCfgClamp(c.localOk, 0, 100000, M_MILITIA_LOCAL_OK),
-      graceMs: gbCfgClamp(c.graceMs, 0, 3600000, DODGE_MILITIA_GRACE_MS),
-    };
-  }
-  // Reuse the assessment the dodge side of this same loop already computed:
-  // defenseSupportOptions inside it is the expensive call and must not be paid
-  // twice per movement per tick.
-  // Memo lives OUTSIDE the queue entry: the assessment holds live backbone town
-  // models, and hanging it on a persisted entry invites a circular-ref throw
-  // the first time anything JSON-stringifies that entry.
-  const dodgeAssessMemo = Object.create(null);
-  function dodgeAssessmentCached(mov, entry) {
-    const now = Date.now();
-    const key = String(mov && mov.id);
-    const hit = dodgeAssessMemo[key];
-    if (hit && now - hit.at < 5000) return hit.v;
-    let a = null;
-    try { a = defenseAssessment(mov); } catch (_) { a = null; }
-    if (a) dodgeAssessMemo[key] = { at: now, v: a };
-    for (const k of Object.keys(dodgeAssessMemo)) if (now - dodgeAssessMemo[k].at > 60000) delete dodgeAssessMemo[k];
-    return a;
-  }
-  // {yes, why, group} with group in {force, skip, grace}.
-  function dodgeShouldMilitia(mov, a, entry) {
-    const cfg = militiaCfg();
-    // An unreadable assessment is UNKNOWN, not "safe": fall back to the old
-    // unconditional behaviour rather than silently withholding the only
-    // reinforcement that arrives in time.
-    if (!a) return { yes: true, why: 'assessment unreadable - raising', group: 'force' };
-    if (mov.hasCs) return { yes: true, why: 'CS incoming', group: 'force' };
-    if (a.risk >= cfg.forceRisk) return { yes: true, why: `risk ${a.risk} >= ${cfg.forceRisk}`, group: 'force' };
-    // Plan 3.6 contradicts itself here: section 3 lists simultaneous >= 2 under
-    // "always raise", section 4 item 4 lists it under "skip". Section 3 wins -
-    // several hostiles converging on one town is an escalation, and
-    // defenseAssessment already scores it as added risk for exactly that
-    // reason. Withholding militia there would be backwards.
-    if (a.simultaneous >= 2) return { yes: true, why: `${a.simultaneous} simultaneas`, group: 'force' };
-    const local = (a.local && +a.local.score) || 0;
-    if (a.risk < cfg.skipRisk && local >= cfg.localOk) {
-      return { yes: false, why: `riesgo ${a.risk} < ${cfg.skipRisk} y defensa local ${local} >= ${cfg.localOk}`, group: 'skip' };
-    }
-    // Gray zone: give the town's own defenders (and any support in flight) a
-    // grace window before spending the population slot - but NEVER wait so long
-    // that the militia can no longer be raised. The window is clamped to the
-    // time actually left, so a movement first seen with 90s to go waits at most
-    // a fraction of that instead of finding its grace already exhausted.
-    const first = entry && +entry.ts;
-    const etaMs = a.eta != null ? a.eta * 1000 : null;
-    const wait = etaMs != null ? Math.min(cfg.graceMs, Math.floor(etaMs / 2)) : cfg.graceMs;
-    if (first && wait > 0 && Date.now() - first < wait) {
-      return { yes: false, why: `zona gris, esperando ${fmtSec(Math.round((wait - (Date.now() - first)) / 1000))}`, group: 'grace' };
-    }
-    return { yes: true, why: `zona gris agotada (riesgo ${a.risk})`, group: 'grace' };
-  }
-
   function dodgeNotify(mov, entry, train) {
     if (entry.notified) return;
     entry.notified = true;
@@ -366,18 +295,6 @@
     if(!state.autoMilitia||captchaPausedAny('militia','dodge')||entry.militiaState==='raised'||entry.militiaState==='sending')return;
     const eta=dodgeEtaSec(mov),now=Date.now();if(eta==null||eta>DODGE_MILITIA_WINDOW_SEC||eta<=0){gbLogT('militia-eta-'+mov.dest,60000,`militia: waiting; hostile ETA ${eta==null?'unknown':fmtSec(eta)}`);return}
     if(entry.militiaNextAt&&entry.militiaNextAt>now)return;
-    // v4 plan 3.6: decide whether this incoming is worth the population slot.
-    // 'skipped' is NOT terminal - the gray-zone branch re-evaluates on the next
-    // pass, so a threat that escalates still gets militia.
-    const dec = dodgeShouldMilitia(mov, dodgeAssessmentCached(mov, entry), entry);
-    if (!dec.yes) {
-      entry.militiaState = 'skipped';
-      entry.militiaNextAt = now + 20000;
-      dodgeQueueSave();
-      gbLogT('militia-skip-reason-' + mov.dest, 60000, `militia: ${mov.dest} skipped (${dec.why})`);
-      try { whyNote('militia', mov.dest, 'skipped', dec.why); } catch (_) {}
-      return;
-    }
     const can=dodgeCanRaiseMilitia(mov.dest);
     if(!can.ok){if(/already standing/.test(can.why||'')){entry.militiaState='raised';dodgeQueueSave()}else{entry.militiaState='pending';entry.militiaNextAt=now+30000}return}
     const token=gbLock('militia',30000);if(!token){entry.militiaNextAt=now+2000;return}entry.militiaState='sending';dodgeQueueSave();

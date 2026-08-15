@@ -320,10 +320,12 @@
     if (!towns.length) { const e = document.createElement('div'); e.textContent = 'load towns first'; e.style.cssText = 'color:#666;font-size:10px'; box.appendChild(e); return; }
     const mk = (title, role, color, set) => {
       const col = document.createElement('div');
-      const h = document.createElement('div'); h.textContent = title; h.style.cssText = `font-size:9px;color:${color};font-weight:bold`; col.appendChild(h);
+      const h = document.createElement('div'); h.textContent = title; h.style.cssText = `font-size:9px;color:${color};font-weight:bold`; gbTip(h, title === 'Offensive cities' ? 'Ciudades que se incluyen al elegir origen "Ofensiva"' : 'Ciudades que se incluyen al elegir origen "Defensa"'); col.appendChild(h);
       towns.forEach(t => {
         const lab = document.createElement('label'); lab.style.cssText = 'display:flex;align-items:center;gap:3px;font-size:10px;cursor:pointer';
+        gbTip(lab, (title === 'Offensive cities' ? 'Marca esta ciudad como ofensiva' : 'Marca esta ciudad como defensiva') + ' (guardado por mundo)');
         const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = set.has(String(t.id));
+        gbTip(cb, 'Alterna el rol de la ciudad');
         cb.addEventListener('change', () => { attackSetTownRole(role, t.id, cb.checked); renderAttackRoles(sec); });
         lab.appendChild(cb); lab.appendChild(document.createTextNode((t.name || t.id).slice(0, 18))); col.appendChild(lab);
       });
@@ -839,9 +841,14 @@
           row = document.createElement('div');
           row.dataset.town = String(r.townId);
           row.style.cssText = 'display:grid;grid-template-columns:1.2fr .7fr .9fr .7fr .8fr;gap:4px;font-size:10px;border-bottom:1px solid #2a2a2a;padding:2px 0';
+          gbTip(row, 'Ciudad de origen planificada para el envio');
           for (let i = 0; i < 5; i++) row.appendChild(document.createElement('span'));
           row.children[4].className = 'atk-st';
           row.children[0].title = String(r.townId);
+          gbTip(row.children[1], 'Tiempo de marcha hasta el objetivo');
+          gbTip(row.children[2], 'Hora local a la que se enviara el ataque');
+          gbTip(row.children[3], 'Capacidad de transporte disponible vs necesaria');
+          gbTip(row.children[4], 'Estado del envio: armado, enviado, error, cancelado');
           table.appendChild(row);
         }
         const boatTxt = r.boats.ok ? `OK ${r.boats.cap}/${r.boats.need}` : `NO ${r.boats.cap}/${r.boats.need}`;
@@ -943,9 +950,11 @@
         (state.towns || []).forEach(t => {
           const lab = document.createElement('label');
           lab.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:10px;cursor:pointer';
+          gbTip(lab, 'Incluye/excluye esta ciudad como origen del envio');
           const cb = document.createElement('input');
           cb.type = 'checkbox';
           cb.checked = selected.has(String(t.id));
+          gbTip(cb, 'Marca para usar como origen');
           cb.addEventListener('change', () => {
             const ids = Array.from(srcBox.querySelectorAll('input:checked')).map(c => c.dataset.id);
             plan.sourceTownIds = ids;
@@ -972,8 +981,10 @@
           const lab = document.createElement('div');
           lab.style.cssText = 'color:#888;font-size:9px';
           lab.textContent = town.name || tid2;
+          gbTip(lab, 'Nombre de la ciudad (override por ciudad)');
           const ta = document.createElement('textarea');
           ta.style.cssText = 'width:100%;height:40px;background:#111;color:#cfc;border:1px solid #333;font:10px monospace';
+          gbTip(ta, 'Tropas exactas que envia esta ciudad. Formato: cantidad tipo (ej: "50 espada 30 arquero")');
           const live = selectUnitsForTown(tid2, 'offense', plan.unitType, null);
           ta.value = unitsToArea(plan.perTownUnits[tid2] || live);
           ta.addEventListener('change', () => {

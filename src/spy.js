@@ -8,6 +8,7 @@
   // key is the bare report id; core.js strips legacy prefixes once on load.
   function seenKey(id) { return String(id); }
 
+
   function hookFetch() {
     const uw = gameUw();
     if (!uw.fetch) return;
