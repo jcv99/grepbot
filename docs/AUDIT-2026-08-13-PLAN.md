@@ -101,10 +101,11 @@ since it is in no GM spec and the smoke stub returns nothing.
 
 ## Tier 2 — perf, measurable, low blast radius
 
-8. **`saveSoon(key, val)`** — microtask/rAF-coalesced `GM_setValue` wrapper
-   (§B M5, `src/core.js:1508`). In-memory `state` stays live; only the write is
-   debounced. Route the Config tab's checkbox and `saveNum` chains through it.
-   Must flush on `pagehide` next to `jrnFlush`.
+8. ~~**`saveSoon(key, val)`**~~ **Done (v5.3.0).** 400ms coalesce, `saveFlush()`
+   wired into `releaseLocks` (last step) and `__grepbotDispose` (before
+   `gbClearTimers`). Applied to the farm/town village sweep and `whyNote`.
+   The Config checkbox / `saveNum` chains are still on the bare `save` — a
+   single user click is not the write-amplification case this was built for.
 9. **Gate boot intervals on their feature flags** (§B H2, `src/boot.js:37-141`,
    14 `gbInterval` calls). Keep `renderTimers` (1 s), `updateStatus` (5 s),
    `gbLockSweep`/`diagnosticsTick` (10 s) unconditional; the rest already

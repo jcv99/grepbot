@@ -9,20 +9,20 @@
 
 ---
 
-## TL;DR — the 10 things to do first
+## TL;DR — the 9 things to do first
 
 In rough order of "effort ÷ impact" (smallest patches first):
 
-1. **`src/spy.js:87-107`** — attach the XHR `load` listener only when the URL matches a report/quest pattern. Removes one full `responseText` materialization + `JSON.parse` + recursive `Object.entries` walk from every game request.
-2. **`src/farms.js:1020-1023`** and **`src/towns.js:138-167`** — debounce the per-village `save(STORE.FARM_RES, …)` + `renderFarms()` + `checkThresholds()` cascade. Mark dirty, flush once per sweep. ~40× fewer `GM_setValue` writes + table repaints per cycle.
-3. **`src/boot.js:70` + `src/ui.js:3104`** — add `document.hidden` and `section[data-tab=farm].hidden` guards to `renderTimers`/`renderFarms`; add the missing `sec.hidden` guard to `renderFarms` that already exists in `renderStats`/`renderIntel`/`renderOverview`. Stops a per-second collection walk and an O(N²) table repaint when the tab is hidden.
-4. **`src/relay.js:390, 1098-1099, 1126`** — route the relay's three raw `setInterval`s and the raw `WebSocket` through `gbInterval`/`gbTimeout`/`gbXhrBag`, and close the socket in `__grepbotDispose`. Removes duplicate-socket traffic after every hot reload.
-5. **`src/context-menu.js:134-160`** — skip the 750 ms `contextMenuScan` poll when `document.hidden`, and only run `getBoundingClientRect` / `elementFromPoint` when a popup actually appeared. Removes ~80 forced layout flushes/min on idle tabs.
-6. **`src/qol.js:134-156`** — register `Ctrl+Shift+Backspace` as a panic key (panic exists but no global shortcut). One keystroke from anywhere in the game.
-7. **`src/ui.js:449-740`** — add `:focus-visible` outline, `prefers-reduced-motion`, and `forced-colors` blocks to the panel CSS. Two media blocks and one `:focus-visible` rule; fixes the whole panel's accessibility in one diff.
-8. **`src/ui.js` (status pill in `updateStatus`)** — render the existing `reqBudgetByScope` counters and `captchaGlobalUntil` countdown in the status pill. Data exists; just surface it.
-9. **`src/collect.js:222-228`** — drop `attributes` from the global MutationObserver's filter where `class`/`style` aren't needed, and hoist `GB_OWN_SEL`/`ownEl` out of the per-record callback. Likely the single largest steady-state CPU item on the map screen.
-10. **`src/stats.js:1076-1115` + UI** — make `bundleCopy` and `bundleDownload` discoverable as buttons in the Stats tab (today they are only reachable via the secret `Ctrl+Shift+L`-style shortcut), and default-bind `bundleCopy` to `Ctrl+Shift+B`. One-click diagnostic dump for bug reports.
+1. ~~**`src/spy.js:87-107`** — attach the XHR `load` listener only when the URL matches a report/quest pattern.~~ **Done (v5.3.0)** — `SPY_LOAD_GATE_RE`.
+2. ~~**`src/farms.js:1020-1023`** and **`src/towns.js:138-167`** — debounce the per-village cascade.~~ **Done (v5.3.0)** — `saveSoon` / `renderFarmsSoon` / `renderWorldSoon` / `checkThresholdsSoon`, flushed by `saveFlush()` on pagehide.
+3. ~~**`src/boot.js:70` + `src/ui.js:3104`** — `document.hidden` / hidden-section guards on `renderTimers` / `renderFarms` / `renderWorld`.~~ **Done (v5.3.0)**, with `boot.js` repainting on `visibilitychange`/`pageshow`. **Correction to this item:** the O(N²) `renderFarms` repaint it describes cannot be happening — `.farms-list`, `.world-list`, `.world-totals` and `#gb-sleep-status` are absent from the panel markup in the current tab set, so `renderFarms`/`renderWorld`/`renderSleepStatus` early-return on every call. Whether those tables should come back is a product decision, not a perf fix.
+4. ~~**`src/relay.js:390, 1098-1099, 1126`** — route the relay's raw timers + socket through `gbInterval`/`gbTimeout`/`gbXhrBag`, and close the socket in `__grepbotDispose`.~~ **Done (v5.0.0).** The relay module and the MCP wrapper (`tools/relay-mcp/`) were removed; raw timers + WebSocket in the bot are gone with them.
+5. ~~**`src/context-menu.js:134-160`** — skip the 750 ms poll when `document.hidden`.~~ **Done (v5.3.0).** The "only on popup appear" half is still open.
+6. ~~**`src/qol.js:134-156`** — register `Ctrl+Shift+Backspace` as a panic key.~~ **Done (v5.3.0).** Required fixing `gbKeyFingerprints`, which rejected every Alt binding and every named (non-printable) key — see `docs/REGRESSIONS.md` §8.
+7. ~~**`src/ui.js:449-740`** — add `:focus-visible`, `prefers-reduced-motion`, `forced-colors` blocks.~~ **Done (v5.3.0).**
+8. ~~**`src/ui.js` (status pill in `updateStatus`)** — render `reqBudgetByScope` + `captchaGlobalUntil` countdown.~~ **Done (v5.3.0)** — `req:<scrape>/<read>/<action>·<cap>` (hidden while all-zero) and `||ALL:<mm:ss>`; soft delay added to the tooltip.
+9. **`src/collect.js:222-228`** — **partly moot.** The `attributeFilter` carries no `class`/`style` today (verified at v5.2.5), so the animation-frame storm this described does not happen. Hoisting `GB_OWN_SEL`/`ownEl` out of the per-record callback is still open.
+10. ~~**`src/stats.js:1076-1115` + UI** — discoverable `bundleCopy` / `bundleDownload`.~~ **Already done** (buttons at `src/ui.js:1652-1655`); the `Ctrl+Shift+B` default bind landed in v5.3.0.
 
 ---
 
@@ -168,20 +168,16 @@ In rough order of "effort ÷ impact" (smallest patches first):
 
 ### 3.1 Module boundaries & ownership
 
-- **F1 (high)** — `src/core.js:385` declares `const state = { … 200 keys … }`; writes scattered across `src/ui.js:1554`, `src/relay.js:456`, `src/native-ui.js:19`, `src/diagnostics.js:80`. Nothing declares who owns each key. **Fix:** introduce a `stateApi({ get, set, mutate, persist })` wrapping the literal; treat `state` as private. Module-facing reads go through the api.
+- **F1 (high)** — `src/core.js:385` declares `const state = { … 200 keys … }`; writes scattered across `src/ui.js:1554`, `src/native-ui.js:19`, `src/diagnostics.js:80`. Nothing declares who owns each key. **Fix:** introduce a `stateApi({ get, set, mutate, persist })` wrapping the literal; treat `state` as private. Module-facing reads go through the api.
 - **F2 (medium)** — Top-level tunables live far from their primary module (see §1.2). Same fix.
 - **F3 (medium)** — `src/core.js:650` does `const moduleHealth = state.health || {}`, then `:823` writes `state.health = moduleHealth`. Works only because every migration mutates in place. **Fix:** single `getHealth()` helper.
-- **F4 (medium)** — `src/relay.js:17-1143` wraps everything in its own IIFE; inside it references outer-IIFE names (`state`, `mergedFarms()`, `STORE`, `save`, `gbLog`, `gbInstanceAlive`, `GB_ROOT`, `TX_WRITE_FEATURES`, `unitMeta`, `GB_INSTANCE_ID`). The IIFE boundary makes this look like a public API but it's just lexical scope. **Fix:** drop the IIFE so relay lives in the main concat, OR expose `__gbApi` from `core.js` and import at the top of `relay.js`.
-- **F5 (low)** — `src/relay.js:42` reads `u.__gbState` but nothing writes it. **Fix:** delete `getState()` and the comment block, OR publish `__gbState` from core.js.
 - **F6 (low)** — `gbPaint`/`gbPaintPatch` (`src/core.js:93-158`) and `gbAddStyle` (`:212-248`) are the only DOM-rendering code in core.js. **Fix:** move to `src/ui.js` or a new `src/render.js`; keep core.js DOM-free.
 - **F7 (low)** — `state` literal is a 250-line dictionary parsed and executed at every boot (§2.7). **Fix:** split into per-domain blocks (`coreStateBoot()`, `plannerStateBoot()`, …).
 
 ### 3.2 Hidden coupling
 
-- **F8 (medium)** — `TX_WRITE_FEATURES` is the de facto feature registry and lives in `planner.js`. Adding a write feature requires editing `planner.js:259-269` + `src/tx.js:270-501` (three trees) + `src/journal.js:64` + possibly `src/relay.js`. **Fix:** lift into a single `tx/` table keyed by feature name with handler objects.
-- **F9 (high)** — `RELAY_TOGGLES` (`src/relay.js:488-497`) is a hard-coded 17-key whitelist; rest of `state` (webhook URL, dry-run, safe mode, csrf) is not exposed to AI commands — by design — but the wiring is split. **Fix:** move `RELAY_TOGGLES` next to the storage keys it flips.
+- **F8 (medium)** — `TX_WRITE_FEATURES` is the de facto feature registry and lives in `planner.js`. Adding a write feature requires editing `planner.js:259-269` + `src/tx.js:270-501` (three trees) + `src/journal.js:64`. **Fix:** lift into a single `tx/` table keyed by feature name with handler objects.
 - **F10 (low)** — `gbXhr` (`src/core.js:1693-1774`) decides host gating on `opts.scope`. The cross-origin contract is `@connect` in `src/header.js:17-19` plus a hand-rolled regex `alertWebhookUrlOk` (`src/alerts.js:4-8`). **Fix:** centralise allowed hosts in `core.js` and have `gbXhr` enforce before issuing the request.
-- **F11 (high)** — Bridge protocol has two surfaces that don't match: `bridgePost(feature, payload, onDone)` and `gameAjaxPost(feature, controller, action, data, onDone)` both funnel through `txRun` (`src/tx.js:540`), but `gbAjaxBridgeFp` (`src/bridge.js:22-29`) only matches the `bridge:` path; `ajax:` falls back to signature matching (`src/bridge.js:113-115`, `src/relay.js:983`). The wire side and the JS side can drift silently. **Fix:** move both endpoints to a single `txApi({transport, …})` and have `gbAjaxBridgeFp` derive from the same endpoint string `txRun` would log.
 
 ### 3.3 Build.py gaps
 
@@ -195,7 +191,7 @@ In rough order of "effort ÷ impact" (smallest patches first):
 
 - **F17 (medium)** — `gbDispose()` (`src/core.js:250-290`) does **not** touch `moduleHealth`, `userPausedUntil`, `panicUntil`, `panicNeedsClear`, `captchaGlobalUntil`. `panicNeedsClear` is a sticky latch — if it was true at reload, the new instance boots in `'panic-grace'` and refuses to act until `gbPanicRecover` is called. **Fix:** explicit dispose block for the panic state and `moduleHealth`.
 - **F18 (high)** — `hostEnabled()` (`src/bridge.js:571-574`) returns `state.enabledHosts[location.host] === true && gbTabLeader`. Two problems: (a) per-tab `gbTabLeader` means the second tab disables itself entirely; (b) `state.enabledHosts` is global (not world-scoped — `STORE.ENABLED_HOSTS` is not in `WORLD_SCOPED_BASES`), so enabling for one Grepolis world disables for every other world. **Fix:** verify `STORE.ENABLED_HOSTS` scoping; reconsider the per-tab disable rule.
-- **F19 (medium)** — Hot reload of `relay.js` reconnects WebSocket to the previous instance's MCP. The handshake (`src/relay.js:1074-1116`) registers a `setInterval(tick, 15000)` but `clearTimers()` (`:1060`) only stops the timer bag of THIS instance; previous instance's `tickTimer` was cleared by its own boot but the MCP-side socket may not be reaped. **Fix:** embed `GB_INSTANCE_ID` in the relay `hello` payload so MCP can drop stale connections.
+- **F19 (medium)** — *Removed in v5.0.0.* The relay module and its WebSocket are gone; the stale-handshake class of bug this entry described no longer exists.
 
 ### 3.5 Test exposure
 
@@ -214,7 +210,7 @@ In rough order of "effort ÷ impact" (smallest patches first):
 - **F26 (medium)** — `txRun` is a 130-line function (`src/tx.js:540-715`) with ten distinct responsibilities: classification, gate evaluation, capture, budget/timing, journal, tx state, lock, transport, reconcile, error normalisation. **Fix:** split into `txPrepare`, `txDispatch`, `txReconcileLoop` — each <50 lines.
 - **F27 (medium)** — `txCapture`/`txIntent`/`txReconcileNow` (`src/tx.js:270-501`) are per-feature trees. **Fix:** register a feature with `{ capture, intent, reconcile, journalTag }` object — see F8.
 - **F28 (low)** — `bridgePost` and `gameAjaxPost` duplicate the watcher/fingerprint logic (`src/bridge.js:156-216` `bridgeRaw` vs `:217-262` `gameAjaxRaw`). **Fix:** unify on `rawSend({ transport, payload, settle })`.
-- **F29 (low)** — `BRIDGE_TIMEOUT_MS = 15000` (`src/core.js:1811`) and `RELAY_CMD_TIMEOUT_MS = 25000` (`src/relay.js:442`) are loose. **Fix:** `RELAY_CMD_TIMEOUT_MS = BRIDGE_TIMEOUT_MS + 10000`.
+- **F29 (low)** — *Removed in v5.0.0.* The relay timeout constant it referenced no longer exists.
 
 ### 3.8 UI / Panel
 
@@ -236,7 +232,7 @@ In rough order of "effort ÷ impact" (smallest patches first):
 - **F36 (medium)** — `safeModeBlock` (`src/planner.js:168`) is a string-list check against `feature === 'attack'`. **Fix:** `TX_WRITE_FEATURES_RISK = { attack: 'high', culture-olympic: 'premium', … }`.
 - **F37 (low)** — `INTEL_DIGEST_QUEUE_CAP = 60` and `INTEL_DIGEST_MAX = 12` (`src/alerts.js:190-218`) interact (`while queue > 60 shift`, `splice(0, 12)`) but undocumented. **Fix:** comment block explaining the burst/cadence interaction.
 - **F38 (low)** — `data/smoke/` is a fixture dump, not a test runner. **Fix:** revive a minimal smoke runner (Node + JSDOM) or document the "no tests" policy.
-- **F39 (low)** — `parse-inline.js` is a leaf module. **Fix:** if the relay MCP doesn't import it, leave as-is; otherwise expose via `__grepbotParseReport`.
+- **F39 (low)** — `parse-inline.js` is a leaf module. **Fix:** leave as-is; no external MCP imports it (the MCP wrapper was removed in v5.0.0).
 - **F40 (low)** — `gbInstanceAlive` is checked 100+ times but never auto-cleaned. After `gbDisposed = true`, the interval keeps firing (just no-ops) until clearTimeout. **Fix:** on dispose, walk `gbTimerBag` and clear even after `gbDisposed`.
 
 ---
@@ -297,12 +293,12 @@ Whole codebase has 6 `aria-*` attributes and 0 `tabindex` — and they are only 
 - **No confirmation on `gbPanicRecover`** (medium) — Recovery re-enables automation in 30 s; today the user clicks one button. **Fix:** confirm dialog or sticky toast with `Reanudar` action.
 - **`state.dryRun` is sticky after panic** (medium) — Recovery never turns dry-run back OFF, and there's no obvious way to turn it on either. **Fix:** show "modo simulación sigue activado" pill in status row whenever `state.dryRun === true`.
 - **Captcha global kill has no countdown** (low UX) — `captchaGlobalUntil > now` but pill just says "captcha". **Fix:** show "Captcha kill: 14 min left" in pill.
-- **Arm window expires silently** (low safety) — When `state.relayCommands === true && relayArmLeftMs() === 0`, pill says "sin armar" but no notification. **Fix:** emit a sticky `gbToast('Ventana de escritura cerrada: la IA ya no puede ejecutar')` on disarm.
+- **Arm window expires silently** (low safety) — *Removed in v5.0.0.* The relay arm window is gone; no disarm toast to emit.
 
 ### 4.7 Self-healing when the game DOM changes
 
 - **`tplHealthOk` covers action templates only** (**high** resilience) — Script learned to recover from stale `action_name` templates (`src/core.js:1127-1226`), but the CSS selectors in `src/farms.js` (`.collect_btn`), `src/collect.js` (`.farm_town_silver_loot_button`), `src/bandit.js`, `src/build-tab.js` have no such gate. **Fix:** `selectorHealthOk(selector)` records hit/miss; auto-recover a selector that returns 0 matches across N scans; surface as a "selectores obsoletos: …" banner.
-- **No fingerprint compare against client version** (medium diagnostics) — `snapshotPlayer` records `gb_version` but not the game's (`src/relay.js:124-132`). **Fix:** capture `Game.js_build_number` on first load; store in `state.clientFp`; on mismatch show a one-time toast.
+- **No fingerprint compare against client version** (medium diagnostics) — `snapshotPlayer` records `gb_version` but not the game's. **Fix:** capture `Game.js_build_number` on first load; store in `state.clientFp`; on mismatch show a one-time toast. (Originally the comparison was anchored on `src/relay.js:124-132`; the relay was removed in v5.0.0 — the fingerprint check itself is still useful.)
 - **Snapshot restore is gated by `safeMode` only** (low safety) — Restore path silently overwrites `abTargets`, `researchTargets`, `merchantWish`, `txState`. **Fix:** confirmation modal listing changes (re-use `qolPrepareConfigImport` machinery at `src/qol.js:540-575`).
 
 ### 4.8 Performance-budget overlay
@@ -315,13 +311,13 @@ Whole codebase has 6 `aria-*` attributes and 0 `tabindex` — and they are only 
 
 - **`bundleCopy` works but no GitHub issue integration** (medium) — Add "Report a bug" button that opens `github.com/.../issues/new?title=GrepBot <ver> on <host>: <short>&body=<first 4KB of bundle redacted>`.
 - **Bundle has no redaction of webhook URL** (low privacy) — `gbBundleText` (`src/stats.js:1049-1075`) calls `qolExportConfigForUi` which is redacted, but `state.webhookUrl` is never included — that's the current behaviour. Either document "intentionally absent" or include with a "ROTATE AFTER SHARING" warning.
-- **No way to send bundle to relay/AI** (low) — `relaySocket.send({type:'data', kind:'bundle', payload: text})`. **Fix:** add `'bundle'` to `RELAY_DATA_KINDS`.
+- **No way to send bundle to relay/AI** (low) — *Removed in v5.0.0.* There is no relay socket to send a bundle to.
 
 ### 4.10 Dynamic feature loading
 
-- **Everything is in one IIFE, no lazy paths** (medium bundle/first-run) — Each feature module could split into core + extension loaded only when the user enables the toggle. **Where:** `src/boot.js`, `src/qol.js:31-119`. **Fix (high effort):** start with `attack.js`, `relay.js`, `native-ui.js`.
+- **Everything is in one IIFE, no lazy paths** (medium bundle/first-run) — Each feature module could split into core + extension loaded only when the user enables the toggle. **Where:** `src/boot.js`, `src/qol.js:31-119`. **Fix (high effort):** start with `attack.js`, `native-ui.js` (relay was removed in v5.0.0).
 - **No way to disable a feature without editing source** (low) — Add `state.disabledFeatures = []` and have `boot.js` skip initialisation for each.
-- **AI command list is hardcoded** (low) — `RELAY_TOGGLES` keys should be checkboxes in Config > AI for transparency. **Where:** `src/relay.js:488-497`.
+- **AI command list is hardcoded** (low) — *Removed in v5.0.0.* `RELAY_TOGGLES` is gone.
 
 ### 4.11 Config export/import (`qolExportConfig` exists)
 
@@ -342,7 +338,7 @@ The findings above overlap and conflict in places; the order below keeps each st
 2. `src/collect.js:222-228` — drop `attributes` filter where `class`/`style` not needed; hoist `GB_OWN_SEL` (§2.3).
 3. `src/farms.js:1020-1023` + `src/towns.js:138-167` — debounce per-village saves (§2.2 #11, #12).
 4. `src/boot.js:70` + `src/ui.js:130,3104` — `document.hidden` / `sec.hidden` guards on `renderTimers`, `renderFarms` (§2.1 #1, §2.2 #9).
-5. `src/relay.js:390, 1098-1099, 1126` — route raw timers + socket through `gbInterval`/`gbTimeout`/`gbXhrBag`; close socket in dispose (§2.6).
+5. ~~`src/relay.js:390, 1098-1099, 1126` — route raw timers + socket through `gbInterval`/`gbTimeout`/`gbXhrBag`; close socket in dispose (§2.6).~~ **Done (v5.0.0).** Relay module removed.
 6. `src/context-menu.js:134-160` — `document.hidden` skip on 750 ms poll (§2.1 #5).
 7. `src/qol.js:134-156` — register `Ctrl+Shift+Backspace` panic shortcut (§4.6).
 8. `src/ui.js:449-740` — `:focus-visible` + `prefers-reduced-motion` + `forced-colors` CSS (§4.3).
@@ -354,7 +350,7 @@ The findings above overlap and conflict in places; the order below keeps each st
 11. `src/core.js:385-638` — split `state` literal into per-domain `*StateBoot()` (§3.1 F1, F7).
 12. `src/ui.js:1708-2700` — extract `CFG_BINDINGS` table (§3.8 F30).
 13. `src/tunables.js` — centralise the 5 cross-file cadences (§1.2 / §3.1 F2).
-14. `src/relay.js` — drop inner IIFE or expose `__gbApi` (§3.1 F4).
+14. ~~`src/relay.js` — drop inner IIFE or expose `__gbApi` (§3.1 F4).~~ **Done (v5.0.0).** Relay module removed.
 15. `src/tx.js:540-715` — split `txRun` into `txPrepare`/`txDispatch`/`txReconcileLoop` (§3.7 F26).
 16. `src/planner.js:259-269` + `src/tx.js` + `src/journal.js:64` — feature registry table (§3.2 F8).
 17. `src/header.js:24-257` + `src/header.js:263-289` — merge `STORE` + `WORLD_SCOPED_BASES` into `STORE.meta` (§3.6 F22).
@@ -372,7 +368,7 @@ The findings above overlap and conflict in places; the order below keeps each st
 26. `src/ui.js:1708-…` + new `src/i18n.js` — `gbI18n.t()` with `es.json` + `en.json` (§4.4).
 27. `src/core.js:1127-1226` + feature modules — `selectorHealthOk` + auto-recovery banner (§4.7).
 28. `src/qol.js:587-625` — `qolConfigShareUrl()` + value-bounds validators (§4.11).
-29. `src/relay.js:1074-1116` — embed `GB_INSTANCE_ID` in relay `hello` (§3.4 F19).
+29. ~~`src/relay.js:1074-1116` — embed `GB_INSTANCE_ID` in relay `hello` (§3.4 F19).~~ **Done (v5.0.0).** Relay module removed.
 30. `build.py:31-83` — `ARCH.txt` dependency diagram + `check_const_order` pass (§3.3 F12, F13).
 
 ---
@@ -402,7 +398,7 @@ The findings above overlap and conflict in places; the order below keeps each st
 | MutationObserver | weak | Global observer watches `attributes` on `document.body` (§2.3) |
 | Network interception | weak | Every game XHR triggers a full `responseText`+`JSON.parse` (§2.4) |
 | Storage writes | weak | Per-village full-map `GM_setValue` cascades (§2.5 #11) |
-| Leaks / instance hygiene | weak | Raw timers + socket in `relay.js` survive hot reload (§2.6) |
+| Leaks / instance hygiene | weak | Hard-module boot init runs synchronously (§2.6 — was: `relay.js` raw timers + socket; removed v5.0.0) |
 | Startup | weak | 222+ synchronous `GM_getValue` calls at boot (§2.7) |
 
 ### 6.3 A11y / UX / Safety gap
@@ -425,7 +421,7 @@ The findings above overlap and conflict in places; the order below keeps each st
 - All perf costs are static-analysis estimates. Before scheduling a perf-stage commit, run a 30 min profiler pass on a live game tab (Chrome DevTools Performance, with `profilerOn = true` and a 10-town account) and confirm the §2 ranking.
 - The ToS risk stated in `src/header.js:5` ("Los ToS prohiben la automatizacion; riesgo = ban") should drive every safety/UX decision in §4.6 — anything that lowers the chance of an accidental automated click is a real win, not a polish item.
 - The `__grepbotTest` exposure (§3.5 F20, F21) is a security footgun: any code path that ships to production with `__grepbotTestMode === true` would let a page-script mutate state. Consider gating it behind `?grepbotTest=1` query param and stripping on load.
-- The "AI command list" (§3.2 F9, §4.10) is the most user-trust-sensitive surface — the more transparent and per-toggled it becomes, the more confident the user can be in enabling relay mode.
+- The "AI command list" (§3.2 F9, §4.10) was the most user-trust-sensitive surface — the more transparent and per-toggled it became, the more confident the user could be in enabling relay mode. Removed in v5.0.0.
 
 ---
 

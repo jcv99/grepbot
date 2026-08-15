@@ -546,7 +546,18 @@
         changed = true;
       }
     }
-    if (changed) { save(STORE.ALERTED, state.alerted); renderFarms(); }
+    if (changed) { saveSoon(STORE.ALERTED, state.alerted); renderFarmsSoon(); }
+  }
+  // The village sweep called checkThresholds() once per village: a full walk of
+  // farmsParsed per village, i.e. O(N^2) flashes' worth of work per cycle for a
+  // result that only depends on the finished state. One pass at the end is the
+  // same answer. Kept separate from the bare form, which the 12s boot interval
+  // and manual paths still use.
+  const CHECK_THRESHOLDS_SOON_MS = 200;
+  let _checkThreshT = 0;
+  function checkThresholdsSoon() {
+    if (_checkThreshT) return;
+    _checkThreshT = gbTimeout(() => { _checkThreshT = 0; try { checkThresholds(); } catch (_) {} }, CHECK_THRESHOLDS_SOON_MS);
   }
 
   const CAVE_MIN_STORE = 100;

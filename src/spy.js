@@ -8,6 +8,20 @@
   // key is the bare report id; core.js strips legacy prefixes once on load.
   function seenKey(id) { return String(id); }
 
+  // Gate for the XHR `load` reader (see patchedSend). A URL that matches none of
+  // these cannot carry a report id or a quest reward, so there is nothing to
+  // read out of its body. Deliberately generous - a false positive costs one
+  // JSON.parse, a false negative silently loses a report:
+  //  - report / tombstone / attack_planner: the report paths themselves
+  //  - quest / progressable / island_quest: the quest-reward learner
+  //  - frontend_bridge: the bridge envelope, where the >100KB "report_id buried
+  //    in a big payload" fallback finds ids the URL never named
+  // NOT gated in: a bare `/index.php?...`. It is the game's generic endpoint and
+  // matches nearly every SPA request, which is exactly the cost this gate
+  // exists to remove. The consequence is that the big-payload scavenger no
+  // longer runs on an unnamed /index.php response; the named report URLs are
+  // still caught on the send path by queueReport / queueReportList above.
+  const SPY_LOAD_GATE_RE = /report|tombstone|attack_planner|quest|progressable|frontend_bridge/i;
 
   function hookFetch() {
     const uw = gameUw();
@@ -85,7 +99,16 @@
         }
       } catch (_) {}
       try {
-        this.addEventListener('load', () => {
+        // Pre-filter on the URL BEFORE attaching. Attaching unconditionally made
+        // every single game XHR materialize responseText and run a full
+        // JSON.parse plus a recursive report walk - the SPA issues these
+        // constantly. Only a URL that could plausibly carry a report or a quest
+        // reward is worth reading.
+        // The `>100KB` branch below is the fallback for a report id buried in a
+        // response whose URL says nothing, so the gate must let big-payload
+        // *bundle* URLs through too; `frontend_bridge` is where those arrive.
+        const urlInteresting = SPY_LOAD_GATE_RE.test(u);
+        if (urlInteresting) this.addEventListener('load', () => {
           if (!gbInstanceAlive()) return;
           try {
             const txt = this.responseText || '';

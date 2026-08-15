@@ -127,10 +127,36 @@
     if (!p || p.score == null) return { cls: 'stale', text: '-' };
     return { cls: '', text: String(Math.round(p.score * 60)) };
   }
+  // A village sweep updates state per village and used to repaint the whole
+  // table (and the whole World table) once per village - 40 full rebuilds per
+  // 5min cycle for a 40-village account. These coalesce the burst into one paint
+  // at the end of the sweep. Use the *Soon form from any per-item loop; the bare
+  // render stays for click paths that must paint now.
+  const RENDER_SOON_MS = 120;
+  let _renderFarmsSoonT = 0;
+  let _renderWorldSoonT = 0;
+  function renderFarmsSoon() {
+    if (_renderFarmsSoonT) return;
+    _renderFarmsSoonT = gbTimeout(() => { _renderFarmsSoonT = 0; try { renderFarms(); } catch (_) {} }, RENDER_SOON_MS);
+  }
+  function renderWorldSoon() {
+    if (_renderWorldSoonT) return;
+    _renderWorldSoonT = gbTimeout(() => { _renderWorldSoonT = 0; try { renderWorld(); } catch (_) {} }, RENDER_SOON_MS);
+  }
   function renderFarms() {
     renderSleepStatus();
-    const list = panel.querySelector('.farms-list');
+    const list = panel && panel.querySelector('.farms-list');
     if (!list) return;
+    // Nothing below is observable while the browser tab is hidden or the hosting
+    // panel section is not the visible one; a village sweep otherwise rebuilds
+    // the table once per village for nobody. showTab() re-renders on the way in,
+    // so there is no stale-paint window.
+    // Resolved via closest() rather than a fixed data-tab value: the farms list
+    // is a block inside a section, not a tab of its own (TAB_GROUPS has no
+    // 'farms' id), so a hardcoded selector would silently never match.
+    if (document.hidden) return;
+    const sec = list.closest('section[data-tab]');
+    if (sec && sec.hidden) return;
     if (!state.farmsParsed.length) {
       if (!list.querySelector('div')) placeholder(list, 'no farms parsed yet - add vill_id lines below');
       return;
@@ -186,6 +212,11 @@
     const totals = panel.querySelector('.world-totals');
     const list = panel.querySelector('.world-list');
     if (!totals || !list) return;
+    // Same rationale as renderFarms: towns.js calls this once per scraped town,
+    // and townPopState() runs per town inside. Hidden = no observer, no work.
+    if (document.hidden) return;
+    const sec = list.closest('section[data-tab]');
+    if (sec && sec.hidden) return;
     let w = 0, s = 0, i = 0, p = 0, okN = 0;
     for (const r of Object.values(state.townResources)) {
       if (!r || !r.ok) continue;
@@ -739,6 +770,51 @@
     #grepbot-panel .cave-towns{display:flex;flex-direction:column;gap:2px;max-height:120px;overflow:auto;margin-left:16px}
     #grepbot-panel pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
     @media (max-width:700px){#grepbot-panel{width:94vw;min-width:320px;right:3vw}.gb-dashboard-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+
+    /* ===== Accessibility ===================================================
+       The panel had no focus indicator at all: a keyboard user tabbing through
+       ~300 Config controls could not tell where they were. :focus-visible only
+       paints for keyboard focus, so mouse users see no change.
+       Scoped to our own roots - the game's DOM is never restyled.
+       ===================================================================== */
+    #grepbot-panel :focus-visible,
+    #grepbot-queue-center :focus-visible,
+    .gb-widget :focus-visible {
+      outline:2px solid var(--gb-link);
+      outline-offset:1px;
+      border-radius:2px;
+    }
+    /* Vestibular safety: honour the OS "reduce motion" setting. The panel's
+       transitions are decorative (hover tints, toast fades); none carries
+       information that is lost by removing them. */
+    @media (prefers-reduced-motion: reduce){
+      #grepbot-panel *,#grepbot-queue-center *,.gb-widget *{
+        animation-duration:.001ms!important;
+        animation-iteration-count:1!important;
+        transition-duration:.001ms!important;
+        scroll-behavior:auto!important;
+      }
+    }
+    /* Windows high-contrast / forced-colors: our custom properties are all
+       ignored there, so an unstyled panel renders as invisible text on an
+       invisible ground. Re-anchor on the system keywords and keep a visible
+       border so the panel still reads as a distinct surface. */
+    @media (forced-colors: active){
+      #grepbot-panel,#grepbot-queue-center,.gb-widget{
+        border:1px solid CanvasText;
+        background:Canvas;
+        color:CanvasText;
+        forced-color-adjust:none;
+      }
+      #grepbot-panel button,#grepbot-queue-center button,.gb-widget button{
+        border:1px solid ButtonText;
+        background:ButtonFace;
+        color:ButtonText;
+      }
+      #grepbot-panel :focus-visible,
+      #grepbot-queue-center :focus-visible,
+      .gb-widget :focus-visible{outline:2px solid Highlight}
+    }
   `);
 
   // Sweep stale panel instances BEFORE assigning id + appending, otherwise the
@@ -3020,7 +3096,9 @@
     automationPaused(pauseInfo);
     let pauseTxt = paused.length ? ` ||${paused.join(',')}` : '';
     if (pauseInfo.reason) pauseTxt += ` ||${pauseInfo.reason}`;
-    if (captchaGlobalUntil > Date.now()) pauseTxt += ' ||ALL';
+    // The global captcha kill said only 'ALL' with no idea how long it lasts,
+    // so the operator's only options were reload-and-hope or wait blind.
+    if (captchaGlobalUntil > Date.now()) pauseTxt += ` ||ALL:${fmtSec(Math.ceil((captchaGlobalUntil - Date.now()) / 1000))}`;
     const memSkips = jrnActiveSkips();
     if (memSkips.length) pauseTxt += ` mem:${memSkips.length}`;
     const openCircuits = Object.keys(state.circuits || {}).filter(k => state.circuits[k] && state.circuits[k].open);
@@ -3050,11 +3128,26 @@
       el.style.color = panicOn ? '#f44' : (panicPend ? '#fa3' : '#888');
       el.style.fontWeight = panicPhase ? 'bold' : '';
     }
-    const txt = `${panicTxt}csrf:${csrfShort} farms:${okFarms}/${farms}${errTxt}${dryTxt}${safeTxt}${pauseTxt}`;
+    // Request budget by scope. This was already computed and journalled but was
+    // only reachable through the Stats tab, so `skip:budget` in the Decisions
+    // view was the first the operator heard of a starved pool. Rendered only
+    // once something is actually consumed, to keep an idle pill quiet.
+    let budgetTxt = '';
+    let budget = null;
+    try {
+      budget = reqBudgetByScope();
+      const cap = state.reqBudgetPerMin || 40;
+      if (budget && (budget.scrape || budget.read || budget.action)) {
+        budgetTxt = ` req:${budget.scrape}/${budget.read}/${budget.action}·${cap}`;
+      }
+    } catch (_) {}
+    const txt = `${panicTxt}csrf:${csrfShort} farms:${okFarms}/${farms}${errTxt}${dryTxt}${safeTxt}${budgetTxt}${pauseTxt}`;
     if (txt !== _statusLast) {
       _statusLast = txt;
       el.textContent = txt;
-      el.title = (tplBanner ? tplBanner + ' | ' : '') + JSON.stringify({ csrf: !!state.csrf, captcha: state.captchaBreakers, pause: pauseInfo.reason, memory: memSkips.map(s => s.key), circuits: openCircuits, unknownTransactions: unknownTx });
+      el.title = (tplBanner ? tplBanner + ' | ' : '')
+        + 'req = scrape/read/accion por minuto\n'
+        + JSON.stringify({ csrf: !!state.csrf, captcha: state.captchaBreakers, captchaAllUntil: captchaGlobalUntil || 0, requestBudget: budget, softDelayMs: (() => { try { return reqBudgetSoftDelayMs(); } catch (_) { return null; } })(), pause: pauseInfo.reason, memory: memSkips.map(s => s.key), circuits: openCircuits, unknownTransactions: unknownTx });
     }
     const cs = panel.querySelector('#gb-collect-state');
     if (cs) {
@@ -3068,6 +3161,11 @@
   let _timerFarmLast = '', _timerTownLast = '';
   function renderTimers() {
     if (!panel) return;
+    // 1s cadence. The farm branch calls farmClaimTiming(), which walks the whole
+    // FarmTownPlayerRelation collection - pointless against a hidden tab, where
+    // nobody can read the countdown. boot.js re-renders on visibilitychange /
+    // pageshow, so the first visible frame is correct.
+    if (document.hidden) return;
     const fe = panel.querySelector('#gb-next-farms');
     const te = panel.querySelector('#gb-next-towns');
     if (fe) {

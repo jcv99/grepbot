@@ -288,6 +288,19 @@ frozen — a naked `30000` in `boot.js` is a regression); `txRunAsync`;
 `gbLit` / `gbSafe`; `statsYieldToMain`; `gbPaint`; the `gbListen` +
 `AbortController` listener bag; `gbWidgetRegister`.
 
+**Coalescers (v5.3.0).** Anything inside a per-item sweep uses the `*Soon` form,
+never the bare one: `saveSoon(key, val)` (400ms, flushed by `saveFlush()` from
+`releaseLocks` + `__grepbotDispose` — a debounced write with no flush loses the
+tail of a sweep on tab exit), `renderFarmsSoon` / `renderWorldSoon` (120ms),
+`checkThresholdsSoon` (200ms). The bare `save` / `render*` / `checkThresholds`
+stay for click paths that must land now. **`txSave` is deliberately NOT
+debounced** — a committed transaction has to be durable before the next tick, or
+a crash re-posts an irreversible action.
+
+`renderFarms` / `renderWorld` / `renderTimers` bail on `document.hidden` and on a
+hidden hosting `section[data-tab]`; `boot.js` repaints all of them on
+`visibilitychange` / `pageshow`, which is what keeps the guard honest.
+
 ## Tab visibility
 
 In-app SPA navigation (Reports / World / Farms) keeps the tab visible → no

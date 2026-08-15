@@ -956,8 +956,8 @@
       if (!gbInstanceAlive() || !hostEnabled() || automationPaused({})) { if (onDone) onDone(false); return; }
       if (i >= guesses.length) {
         state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: 'no endpoint matched' };
-        save(STORE.FARM_RES, state.farmResources);
-        renderFarms();
+        saveSoon(STORE.FARM_RES, state.farmResources);
+        renderFarmsSoon();
         if (onDone) onDone(false);
         return;
       }
@@ -975,11 +975,11 @@
           const retryMs = httpRetryAfterMs(res);
           if (retryMs) {
             state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: 'HTTP ' + res.status };
-            save(STORE.FARM_RES, state.farmResources);
+            saveSoon(STORE.FARM_RES, state.farmResources);
             const n = pressureRetries || 0;
             if (n >= 3) {
               state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: 'HTTP ' + res.status + ' retry limit' };
-              save(STORE.FARM_RES, state.farmResources);
+              saveSoon(STORE.FARM_RES, state.farmResources);
               if (onDone) onDone(false);
               return;
             }
@@ -1017,10 +1017,10 @@
             if (i + 1 < guesses.length) return tryGuess(entry, i + 1, 0);
             state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: String(e).slice(0, 100) };
           }
-          save(STORE.FARM_RES, state.farmResources);
+          saveSoon(STORE.FARM_RES, state.farmResources);
 
-          renderFarms();
-          checkThresholds();
+          renderFarmsSoon();
+          checkThresholdsSoon();
           if (onDone) onDone(!!state.farmResources[entry.vill_id].ok);
         },
         onerror(e) {
@@ -1030,14 +1030,14 @@
           const why = e && e.error ? String(e.error) : '';
           if (why === 'budget' || why === 'disabled' || why === 'disposed') {
             state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: why };
-            save(STORE.FARM_RES, state.farmResources);
+            saveSoon(STORE.FARM_RES, state.farmResources);
             if (onDone) onDone(false, why);
             return;
           }
           if (i + 1 < guesses.length) return tryGuess(entry, i + 1, 0);
           state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: 'network' };
-          save(STORE.FARM_RES, state.farmResources);
-          renderFarms();
+          saveSoon(STORE.FARM_RES, state.farmResources);
+          renderFarmsSoon();
           if (onDone) onDone(false);
         },
       });

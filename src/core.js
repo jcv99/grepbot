@@ -310,6 +310,9 @@
     if(gbTabLockRelease){try{gbTabLockRelease()}catch(_){}gbTabLockRelease=null}gbTabLeader=false;
     try { if (typeof txDispose === 'function') txDispose(); } catch (_) {}
     try { if (typeof jrnFlush === 'function') jrnFlush(); } catch (_) {}
+    // Debounced writes must land before the timers are cleared below, or the
+    // last save of a sweep dies with the instance.
+    try { saveFlush(); } catch (_) {}
     // Pending gpAjax watchers outlive the instance otherwise: the XHR spy is
     // restored below, but an entry already in the list keeps its settle closure
     // (and its 8s TTL slot) alive against a dead instance.
@@ -888,7 +891,10 @@
     const last=state.whyLog[0]; const key=`${feature}|${action}|${status}|${why||''}`;
     if (last && last.key===key && Date.now()-last.ts<15000) return;
     state.whyLog.unshift({ts:Date.now(),feature:String(feature||''),action:String(action||'').slice(0,120),status:String(status||''),why:String(why||'').slice(0,180),key});
-    if(state.whyLog.length>200)state.whyLog.length=200; save(STORE.WHY_LOG,state.whyLog);
+    // Coalesced: every decision note used to re-serialize the whole 200-row ring
+    // through GM_setValue, and a single orch tick can emit several. saveFlush()
+    // on pagehide/dispose is what keeps the tail durable.
+    if(state.whyLog.length>200)state.whyLog.length=200; saveSoon(STORE.WHY_LOG,state.whyLog);
   }
 
 
@@ -1760,6 +1766,33 @@
       console.warn('[grepbot] save fail', key, e);
       try { gbLog('storage: save fail', key, String(e).slice(0, 80)); } catch (_) {}
     }
+  }
+
+  // Coalesced write. `state` stays live in memory; only the GM_setValue is
+  // debounced, so a sweep that touches 40 villages serializes the whole map once
+  // instead of 40 times. Last value per key wins - callers pass the whole
+  // container (`state.farmResources`), never a delta, so there is nothing to
+  // merge. MUST be flushed on pagehide/dispose or the last write of a sweep is
+  // lost on a tab exit; `saveFlush()` is wired into releaseLocks and
+  // __grepbotDispose.
+  const SAVE_SOON_MS = 400;
+  const saveSoonPending = new Map();
+  let saveSoonTimer = 0;
+  function saveFlush() {
+    if (saveSoonTimer) { try { gbClearTimeout(saveSoonTimer); } catch (_) {} saveSoonTimer = 0; }
+    if (!saveSoonPending.size) return;
+    // Snapshot first: save() can throw into the quota path, which prunes and may
+    // itself call back in here.
+    const entries = Array.from(saveSoonPending.entries());
+    saveSoonPending.clear();
+    for (const [k, v] of entries) {
+      try { save(k, v); } catch (_) {}
+    }
+  }
+  function saveSoon(key, val) {
+    saveSoonPending.set(key, val);
+    if (saveSoonTimer) return;
+    saveSoonTimer = gbTimeout(() => { saveSoonTimer = 0; saveFlush(); }, SAVE_SOON_MS);
   }
 
   const GM_XHR_DEFAULT_TIMEOUT = 30000;

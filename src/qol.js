@@ -148,6 +148,25 @@
       },
     },
     'diag': { label: 'Diagnostico', run: () => diagRun() },
+    // Kill switch. No confirm on the way IN on purpose: the whole point is that
+    // one keystroke stops every post from anywhere in the game, and gbPanicActivate
+    // is itself reversible (gbPanicRecover). Confirming would cost the seconds
+    // the operator pressed it to save.
+    'panic': {
+      label: 'PANICO (parar todo)',
+      run: () => {
+        const fired = gbPanicActivate();
+        flash(fired ? 'PANICO: automatizacion detenida' : 'PANICO ya activo');
+      },
+    },
+    'toggle-profiler': {
+      label: 'Perfilador ON/OFF',
+      run: () => {
+        state.profilerOn = !state.profilerOn;
+        save(STORE.PROFILER_ON, state.profilerOn);
+        flash('perfilador ' + (state.profilerOn ? 'ON' : 'OFF'));
+      },
+    },
   };
   const GB_KEY_DEFAULTS = {
     'Ctrl+Shift+,': 'panel-config',
@@ -157,6 +176,9 @@
     'Ctrl+Shift+R': 'rescan-inbox',
     'Ctrl+Shift+L': 'toggle-pause',
     'Ctrl+Shift+D': 'diag',
+    'Ctrl+Shift+B': 'copy-all',
+    'Ctrl+Shift+Backspace': 'panic',
+    'Ctrl+Alt+P': 'toggle-profiler',
   };
   function gbKeyBindings() {
     const b = state.keybindings;
@@ -172,22 +194,31 @@
     BracketLeft: '[', BracketRight: ']', Backslash: '\\', Backquote: '`',
     Minus: '-', Equal: '=',
   };
+  // Named non-printable keys usable in a binding. e.key for these is a WORD
+  // ('Backspace'), not a character, so the length===1 test below rejects them
+  // and without this set a binding on one could never fire. Kept to the keys
+  // that are safe to steal from the game while Ctrl is already held.
+  const GB_KEY_NAMED = new Set(['Backspace', 'Delete', 'Escape', 'Enter', 'Home', 'End']);
   function gbKeyChars(e) {
     const out = [];
     const code = String(e.code || '');
     if (/^Key[A-Z]$/.test(code)) out.push(code.slice(3));
     else if (/^Digit[0-9]$/.test(code)) out.push(code.slice(5));
     else if (GB_KEY_CODE_CHAR[code]) out.push(GB_KEY_CODE_CHAR[code]);
+    const k = String(e.key || '');
     // Single printable character only: a bare modifier press has key 'Shift'
     // and must not resolve to a binding.
-    const k = String(e.key || '');
     if (k.length === 1) { const u = k.toUpperCase(); if (!out.includes(u)) out.push(u); }
+    else if (GB_KEY_NAMED.has(k) && !out.includes(k)) out.push(k);
     return out;
   }
+  // Modifier order in a binding string is fixed: Ctrl+Alt+Shift+<key>. Ctrl (or
+  // Meta) is still REQUIRED - a bare Alt+key or Shift+key belongs to the game,
+  // and stealing it would break typing in the game's own widgets. Alt used to
+  // hard-return here, which made every Ctrl+Alt+... binding unreachable.
   function gbKeyFingerprints(e) {
-    if (e.altKey) return [];
     if (!(e.ctrlKey || e.metaKey)) return [];
-    const prefix = e.shiftKey ? 'Ctrl+Shift+' : 'Ctrl+';
+    const prefix = 'Ctrl+' + (e.altKey ? 'Alt+' : '') + (e.shiftKey ? 'Shift+' : '');
     return gbKeyChars(e).map(c => prefix + c);
   }
   function gbKeyTypingTarget(e) {

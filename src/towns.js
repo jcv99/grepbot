@@ -135,7 +135,7 @@
       if (!hostEnabled() || automationPaused({}) || !gbInstanceAlive()) return finish(false);
       if (i >= ladder.length) {
         state.townResources[town.id] = { ts: Date.now(), ok: false, err: 'no endpoint' };
-        save(STORE.TOWN_RES, state.townResources); renderWorld(); finish(false); return;
+        saveSoon(STORE.TOWN_RES, state.townResources); renderWorldSoon(); finish(false); return;
       }
       const action = ladder[i];
       const params = new URLSearchParams();
@@ -148,7 +148,7 @@
           if (retryMs) {
             if (++pressureRetries > 3) {
               state.townResources[town.id] = { ts: Date.now(), ok: false, err: 'HTTP retry cap ' + res.status };
-              save(STORE.TOWN_RES, state.townResources); renderWorld(); finish(false); return;
+              saveSoon(STORE.TOWN_RES, state.townResources); renderWorldSoon(); finish(false); return;
             }
             gbLogT('town-res-http', 30000, `town ${town.id} HTTP ${res.status}, retry ${retryMs}ms`);
             gbTimeout(() => tryGuess(town, i), retryMs); return;
@@ -164,7 +164,7 @@
               ts: Date.now(), wood: p.wood, stone: p.stone, iron: p.iron,
               pop: p.pop, cap: p.cap, ok: true, action,
             };
-            save(STORE.TOWN_RES, state.townResources); renderWorld();
+            saveSoon(STORE.TOWN_RES, state.townResources); renderWorldSoon();
             townLearnAction('townAction', STORE.TOWN_ACTION, action);
             finish(true);
           } catch (_) { tryGuess(town, i + 1); }

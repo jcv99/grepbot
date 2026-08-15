@@ -271,6 +271,57 @@ detail is here.
   `'soft-empty'` (a skip class, not a hard error, so three in a row don't open a
   `JRN_BACKOFF` skip window for nothing). `captcha_required === true` precedence
   is preserved.
+- **`saveSoon(key, val)` / `saveFlush()`** (`src/core.js`, v5.3.0) — 400ms
+  coalesced `GM_setValue`. `state` stays live in memory; only the write is
+  debounced, last value per key wins. The village sweep was the motivating case:
+  `fetchFarmResources` wrote the **whole** `state.farmResources` map and
+  `towns.js` the whole `state.townResources` map once **per village/town**, so a
+  40-village account paid 40 full serializations per 5min cycle. `whyNote` had
+  the same shape (the entire 200-row `whyLog` re-serialized per decision note).
+  **A debounced write is only safe because of the flush**: `saveFlush()` is
+  called from `releaseLocks` (`boot.js`, on `pagehide`/`beforeunload`) as the
+  LAST step — after every other handler has had its chance to queue a write —
+  and from `__grepbotDispose` BEFORE `gbClearTimers()`, or the pending timer dies
+  with its payload. `txSave` is deliberately left synchronous: a `committed`
+  transaction must be durable immediately, since the recovery path for a lost
+  write is re-posting an irreversible action.
+- **`renderFarmsSoon` / `renderWorldSoon` / `checkThresholdsSoon`** (v5.3.0) —
+  same fix on the paint side of that cascade; `checkThresholds` is a full walk of
+  `farmsParsed`, and calling it per village made the sweep O(N²) for an answer
+  that only depends on the finished state.
+- **Hidden-tab render guards** (v5.3.0) — `renderTimers` (1s) called
+  `farmClaimTiming()`, which walks the whole `FarmTownPlayerRelation` collection,
+  against a tab nobody was looking at; `contextMenuScan` (750ms) ran
+  `querySelectorAll` + `getBoundingClientRect` + `elementFromPoint`, three forced
+  layout flushes 80×/min, likewise. All now bail on `document.hidden`, and
+  `boot.js` repaints on `visibilitychange`/`pageshow` so the first visible frame
+  is correct instead of a frozen countdown. The context menu deliberately does
+  NOT dispose while hidden — a hidden tab is not a closed popup.
+  **Note:** `renderFarms` / `renderWorld` also grew a hidden-section guard, but
+  their hosts (`.farms-list`, `.world-list`, `.world-totals`, `#gb-sleep-status`)
+  are **absent from the panel markup** in the current tab set, so both functions
+  early-return on every call today. They were left in place rather than deleted:
+  restoring those tables is a product decision, not a cleanup.
+- **`SPY_LOAD_GATE_RE`** (`src/spy.js`, v5.3.0) — the XHR `load` reader used to
+  be attached to **every** game request and, under 100KB, read `responseText` and
+  ran a full `JSON.parse` plus a recursive report walk. The SPA issues these
+  constantly. The listener is now attached only when the URL could plausibly
+  carry a report or quest reward. A bare `/index.php?...` is deliberately NOT in
+  the gate — it is the game's generic endpoint and matches nearly every request,
+  which is the exact cost being removed. The tradeoff: the >100KB "report_id
+  buried in an unnamed payload" scavenger no longer runs on those responses;
+  named report URLs are still caught on the send path by `queueReport` /
+  `queueReportList`.
+- **Keyboard fingerprints** (`src/qol.js`, v5.3.0) — `gbKeyFingerprints` had
+  `if (e.altKey) return []`, so **every** `Ctrl+Alt+…` binding was unreachable,
+  and `gbKeyChars` only emitted single printable characters, so any binding on a
+  named key (`Backspace`, `Escape`, …) could never match either. Both were silent
+  — the binding simply never fired. Modifier order in a binding string is now
+  fixed as `Ctrl+Alt+Shift+<key>`; Ctrl/Meta is still REQUIRED so a bare
+  `Alt+key` still belongs to the game. New defaults: `Ctrl+Shift+Backspace`
+  (panic — no confirm on the way in on purpose, it is the kill switch and is
+  itself reversible via `gbPanicRecover`), `Ctrl+Alt+P` (profiler),
+  `Ctrl+Shift+B` (copy bundle).
 - **`Error.cause` on swallowed catches** — bare `catch (_) {}` in `alerts.js`
   (webhook save paths, desktop notify, intel digest) and `boot.js` (boot ticks,
   `visibilitychange` / `pageshow` handlers, releaseLocks sequence) route to

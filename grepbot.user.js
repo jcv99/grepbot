@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.2.5
+// @version      5.3.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -537,6 +537,8 @@ const STORE = {
     if(gbTabLockRelease){try{gbTabLockRelease()}catch(_){}gbTabLockRelease=null}gbTabLeader=false;
     try { if (typeof txDispose === 'function') txDispose(); } catch (_) {}
     try { if (typeof jrnFlush === 'function') jrnFlush(); } catch (_) {}
+
+    try { saveFlush(); } catch (_) {}
 
     try { if (typeof gbAjaxDispose === 'function') gbAjaxDispose(); } catch (_) {}
     gbClearTimers();
@@ -1078,7 +1080,8 @@ const STORE = {
     const last=state.whyLog[0]; const key=`${feature}|${action}|${status}|${why||''}`;
     if (last && last.key===key && Date.now()-last.ts<15000) return;
     state.whyLog.unshift({ts:Date.now(),feature:String(feature||''),action:String(action||'').slice(0,120),status:String(status||''),why:String(why||'').slice(0,180),key});
-    if(state.whyLog.length>200)state.whyLog.length=200; save(STORE.WHY_LOG,state.whyLog);
+
+    if(state.whyLog.length>200)state.whyLog.length=200; saveSoon(STORE.WHY_LOG,state.whyLog);
   }
 
   let serverCooldownUntil = 0;
@@ -1872,6 +1875,25 @@ const STORE = {
       console.warn('[grepbot] save fail', key, e);
       try { gbLog('storage: save fail', key, String(e).slice(0, 80)); } catch (_) {}
     }
+  }
+
+  const SAVE_SOON_MS = 400;
+  const saveSoonPending = new Map();
+  let saveSoonTimer = 0;
+  function saveFlush() {
+    if (saveSoonTimer) { try { gbClearTimeout(saveSoonTimer); } catch (_) {} saveSoonTimer = 0; }
+    if (!saveSoonPending.size) return;
+
+    const entries = Array.from(saveSoonPending.entries());
+    saveSoonPending.clear();
+    for (const [k, v] of entries) {
+      try { save(k, v); } catch (_) {}
+    }
+  }
+  function saveSoon(key, val) {
+    saveSoonPending.set(key, val);
+    if (saveSoonTimer) return;
+    saveSoonTimer = gbTimeout(() => { saveSoonTimer = 0; saveFlush(); }, SAVE_SOON_MS);
   }
 
   const GM_XHR_DEFAULT_TIMEOUT = 30000;
@@ -4045,6 +4067,8 @@ const STORE = {
 
   function seenKey(id) { return String(id); }
 
+  const SPY_LOAD_GATE_RE = /report|tombstone|attack_planner|quest|progressable|frontend_bridge/i;
+
   function hookFetch() {
     const uw = gameUw();
     if (!uw.fetch) return;
@@ -4119,7 +4143,9 @@ const STORE = {
         }
       } catch (_) {}
       try {
-        this.addEventListener('load', () => {
+
+        const urlInteresting = SPY_LOAD_GATE_RE.test(u);
+        if (urlInteresting) this.addEventListener('load', () => {
           if (!gbInstanceAlive()) return;
           try {
             const txt = this.responseText || '';
@@ -5696,8 +5722,8 @@ const STORE = {
       if (!gbInstanceAlive() || !hostEnabled() || automationPaused({})) { if (onDone) onDone(false); return; }
       if (i >= guesses.length) {
         state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: 'no endpoint matched' };
-        save(STORE.FARM_RES, state.farmResources);
-        renderFarms();
+        saveSoon(STORE.FARM_RES, state.farmResources);
+        renderFarmsSoon();
         if (onDone) onDone(false);
         return;
       }
@@ -5715,11 +5741,11 @@ const STORE = {
           const retryMs = httpRetryAfterMs(res);
           if (retryMs) {
             state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: 'HTTP ' + res.status };
-            save(STORE.FARM_RES, state.farmResources);
+            saveSoon(STORE.FARM_RES, state.farmResources);
             const n = pressureRetries || 0;
             if (n >= 3) {
               state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: 'HTTP ' + res.status + ' retry limit' };
-              save(STORE.FARM_RES, state.farmResources);
+              saveSoon(STORE.FARM_RES, state.farmResources);
               if (onDone) onDone(false);
               return;
             }
@@ -5757,10 +5783,10 @@ const STORE = {
             if (i + 1 < guesses.length) return tryGuess(entry, i + 1, 0);
             state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: String(e).slice(0, 100) };
           }
-          save(STORE.FARM_RES, state.farmResources);
+          saveSoon(STORE.FARM_RES, state.farmResources);
 
-          renderFarms();
-          checkThresholds();
+          renderFarmsSoon();
+          checkThresholdsSoon();
           if (onDone) onDone(!!state.farmResources[entry.vill_id].ok);
         },
         onerror(e) {
@@ -5768,14 +5794,14 @@ const STORE = {
           const why = e && e.error ? String(e.error) : '';
           if (why === 'budget' || why === 'disabled' || why === 'disposed') {
             state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: why };
-            save(STORE.FARM_RES, state.farmResources);
+            saveSoon(STORE.FARM_RES, state.farmResources);
             if (onDone) onDone(false, why);
             return;
           }
           if (i + 1 < guesses.length) return tryGuess(entry, i + 1, 0);
           state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: 'network' };
-          save(STORE.FARM_RES, state.farmResources);
-          renderFarms();
+          saveSoon(STORE.FARM_RES, state.farmResources);
+          renderFarmsSoon();
           if (onDone) onDone(false);
         },
       });
@@ -6105,7 +6131,7 @@ const STORE = {
       if (!hostEnabled() || automationPaused({}) || !gbInstanceAlive()) return finish(false);
       if (i >= ladder.length) {
         state.townResources[town.id] = { ts: Date.now(), ok: false, err: 'no endpoint' };
-        save(STORE.TOWN_RES, state.townResources); renderWorld(); finish(false); return;
+        saveSoon(STORE.TOWN_RES, state.townResources); renderWorldSoon(); finish(false); return;
       }
       const action = ladder[i];
       const params = new URLSearchParams();
@@ -6118,7 +6144,7 @@ const STORE = {
           if (retryMs) {
             if (++pressureRetries > 3) {
               state.townResources[town.id] = { ts: Date.now(), ok: false, err: 'HTTP retry cap ' + res.status };
-              save(STORE.TOWN_RES, state.townResources); renderWorld(); finish(false); return;
+              saveSoon(STORE.TOWN_RES, state.townResources); renderWorldSoon(); finish(false); return;
             }
             gbLogT('town-res-http', 30000, `town ${town.id} HTTP ${res.status}, retry ${retryMs}ms`);
             gbTimeout(() => tryGuess(town, i), retryMs); return;
@@ -6134,7 +6160,7 @@ const STORE = {
               ts: Date.now(), wood: p.wood, stone: p.stone, iron: p.iron,
               pop: p.pop, cap: p.cap, ok: true, action,
             };
-            save(STORE.TOWN_RES, state.townResources); renderWorld();
+            saveSoon(STORE.TOWN_RES, state.townResources); renderWorldSoon();
             townLearnAction('townAction', STORE.TOWN_ACTION, action);
             finish(true);
           } catch (_) { tryGuess(town, i + 1); }
@@ -9103,7 +9129,14 @@ const STORE = {
         changed = true;
       }
     }
-    if (changed) { save(STORE.ALERTED, state.alerted); renderFarms(); }
+    if (changed) { saveSoon(STORE.ALERTED, state.alerted); renderFarmsSoon(); }
+  }
+
+  const CHECK_THRESHOLDS_SOON_MS = 200;
+  let _checkThreshT = 0;
+  function checkThresholdsSoon() {
+    if (_checkThreshT) return;
+    _checkThreshT = gbTimeout(() => { _checkThreshT = 0; try { checkThresholds(); } catch (_) {} }, CHECK_THRESHOLDS_SOON_MS);
   }
 
   const CAVE_MIN_STORE = 100;
@@ -14164,6 +14197,22 @@ const STORE = {
       },
     },
     'diag': { label: 'Diagnostico', run: () => diagRun() },
+
+    'panic': {
+      label: 'PANICO (parar todo)',
+      run: () => {
+        const fired = gbPanicActivate();
+        flash(fired ? 'PANICO: automatizacion detenida' : 'PANICO ya activo');
+      },
+    },
+    'toggle-profiler': {
+      label: 'Perfilador ON/OFF',
+      run: () => {
+        state.profilerOn = !state.profilerOn;
+        save(STORE.PROFILER_ON, state.profilerOn);
+        flash('perfilador ' + (state.profilerOn ? 'ON' : 'OFF'));
+      },
+    },
   };
   const GB_KEY_DEFAULTS = {
     'Ctrl+Shift+,': 'panel-config',
@@ -14173,6 +14222,9 @@ const STORE = {
     'Ctrl+Shift+R': 'rescan-inbox',
     'Ctrl+Shift+L': 'toggle-pause',
     'Ctrl+Shift+D': 'diag',
+    'Ctrl+Shift+B': 'copy-all',
+    'Ctrl+Shift+Backspace': 'panic',
+    'Ctrl+Alt+P': 'toggle-profiler',
   };
   function gbKeyBindings() {
     const b = state.keybindings;
@@ -14184,21 +14236,24 @@ const STORE = {
     BracketLeft: '[', BracketRight: ']', Backslash: '\\', Backquote: '`',
     Minus: '-', Equal: '=',
   };
+
+  const GB_KEY_NAMED = new Set(['Backspace', 'Delete', 'Escape', 'Enter', 'Home', 'End']);
   function gbKeyChars(e) {
     const out = [];
     const code = String(e.code || '');
     if (/^Key[A-Z]$/.test(code)) out.push(code.slice(3));
     else if (/^Digit[0-9]$/.test(code)) out.push(code.slice(5));
     else if (GB_KEY_CODE_CHAR[code]) out.push(GB_KEY_CODE_CHAR[code]);
-
     const k = String(e.key || '');
+
     if (k.length === 1) { const u = k.toUpperCase(); if (!out.includes(u)) out.push(u); }
+    else if (GB_KEY_NAMED.has(k) && !out.includes(k)) out.push(k);
     return out;
   }
+
   function gbKeyFingerprints(e) {
-    if (e.altKey) return [];
     if (!(e.ctrlKey || e.metaKey)) return [];
-    const prefix = e.shiftKey ? 'Ctrl+Shift+' : 'Ctrl+';
+    const prefix = 'Ctrl+' + (e.altKey ? 'Alt+' : '') + (e.shiftKey ? 'Shift+' : '');
     return gbKeyChars(e).map(c => prefix + c);
   }
   function gbKeyTypingTarget(e) {
@@ -20037,6 +20092,8 @@ const STORE = {
     ctxTimer = 0;
     try {
       if (state.contextMenu === false || !hostEnabled()) { ctxDispose(); return; }
+
+      if (document.hidden) return;
       const found = ctxFindPopup();
       if (!found) { ctxDispose(); return; }
       if (ctxMenuEl && ctxMenuTown === found.id && ctxMenuEl.isConnected) {
@@ -20897,10 +20954,26 @@ const STORE = {
     if (!p || p.score == null) return { cls: 'stale', text: '-' };
     return { cls: '', text: String(Math.round(p.score * 60)) };
   }
+
+  const RENDER_SOON_MS = 120;
+  let _renderFarmsSoonT = 0;
+  let _renderWorldSoonT = 0;
+  function renderFarmsSoon() {
+    if (_renderFarmsSoonT) return;
+    _renderFarmsSoonT = gbTimeout(() => { _renderFarmsSoonT = 0; try { renderFarms(); } catch (_) {} }, RENDER_SOON_MS);
+  }
+  function renderWorldSoon() {
+    if (_renderWorldSoonT) return;
+    _renderWorldSoonT = gbTimeout(() => { _renderWorldSoonT = 0; try { renderWorld(); } catch (_) {} }, RENDER_SOON_MS);
+  }
   function renderFarms() {
     renderSleepStatus();
-    const list = panel.querySelector('.farms-list');
+    const list = panel && panel.querySelector('.farms-list');
     if (!list) return;
+
+    if (document.hidden) return;
+    const sec = list.closest('section[data-tab]');
+    if (sec && sec.hidden) return;
     if (!state.farmsParsed.length) {
       if (!list.querySelector('div')) placeholder(list, 'no farms parsed yet - add vill_id lines below');
       return;
@@ -20954,6 +21027,10 @@ const STORE = {
     const totals = panel.querySelector('.world-totals');
     const list = panel.querySelector('.world-list');
     if (!totals || !list) return;
+
+    if (document.hidden) return;
+    const sec = list.closest('section[data-tab]');
+    if (sec && sec.hidden) return;
     let w = 0, s = 0, i = 0, p = 0, okN = 0;
     for (const r of Object.values(state.townResources)) {
       if (!r || !r.ok) continue;
@@ -21497,6 +21574,51 @@ const STORE = {
     #grepbot-panel .cave-towns{display:flex;flex-direction:column;gap:2px;max-height:120px;overflow:auto;margin-left:16px}
     #grepbot-panel pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
     @media (max-width:700px){#grepbot-panel{width:94vw;min-width:320px;right:3vw}.gb-dashboard-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+
+    /* ===== Accessibility ===================================================
+       The panel had no focus indicator at all: a keyboard user tabbing through
+       ~300 Config controls could not tell where they were. :focus-visible only
+       paints for keyboard focus, so mouse users see no change.
+       Scoped to our own roots - the game's DOM is never restyled.
+       ===================================================================== */
+    #grepbot-panel :focus-visible,
+    #grepbot-queue-center :focus-visible,
+    .gb-widget :focus-visible {
+      outline:2px solid var(--gb-link);
+      outline-offset:1px;
+      border-radius:2px;
+    }
+    /* Vestibular safety: honour the OS "reduce motion" setting. The panel's
+       transitions are decorative (hover tints, toast fades); none carries
+       information that is lost by removing them. */
+    @media (prefers-reduced-motion: reduce){
+      #grepbot-panel *,#grepbot-queue-center *,.gb-widget *{
+        animation-duration:.001ms!important;
+        animation-iteration-count:1!important;
+        transition-duration:.001ms!important;
+        scroll-behavior:auto!important;
+      }
+    }
+    /* Windows high-contrast / forced-colors: our custom properties are all
+       ignored there, so an unstyled panel renders as invisible text on an
+       invisible ground. Re-anchor on the system keywords and keep a visible
+       border so the panel still reads as a distinct surface. */
+    @media (forced-colors: active){
+      #grepbot-panel,#grepbot-queue-center,.gb-widget{
+        border:1px solid CanvasText;
+        background:Canvas;
+        color:CanvasText;
+        forced-color-adjust:none;
+      }
+      #grepbot-panel button,#grepbot-queue-center button,.gb-widget button{
+        border:1px solid ButtonText;
+        background:ButtonFace;
+        color:ButtonText;
+      }
+      #grepbot-panel :focus-visible,
+      #grepbot-queue-center :focus-visible,
+      .gb-widget :focus-visible{outline:2px solid Highlight}
+    }
   `);
 
   document.querySelectorAll('#grepbot-panel').forEach(p => { try { p.remove(); } catch (_) {} });
@@ -23689,7 +23811,8 @@ const STORE = {
     automationPaused(pauseInfo);
     let pauseTxt = paused.length ? ` ||${paused.join(',')}` : '';
     if (pauseInfo.reason) pauseTxt += ` ||${pauseInfo.reason}`;
-    if (captchaGlobalUntil > Date.now()) pauseTxt += ' ||ALL';
+
+    if (captchaGlobalUntil > Date.now()) pauseTxt += ` ||ALL:${fmtSec(Math.ceil((captchaGlobalUntil - Date.now()) / 1000))}`;
     const memSkips = jrnActiveSkips();
     if (memSkips.length) pauseTxt += ` mem:${memSkips.length}`;
     const openCircuits = Object.keys(state.circuits || {}).filter(k => state.circuits[k] && state.circuits[k].open);
@@ -23718,11 +23841,23 @@ const STORE = {
       el.style.color = panicOn ? '#f44' : (panicPend ? '#fa3' : '#888');
       el.style.fontWeight = panicPhase ? 'bold' : '';
     }
-    const txt = `${panicTxt}csrf:${csrfShort} farms:${okFarms}/${farms}${errTxt}${dryTxt}${safeTxt}${pauseTxt}`;
+
+    let budgetTxt = '';
+    let budget = null;
+    try {
+      budget = reqBudgetByScope();
+      const cap = state.reqBudgetPerMin || 40;
+      if (budget && (budget.scrape || budget.read || budget.action)) {
+        budgetTxt = ` req:${budget.scrape}/${budget.read}/${budget.action}\u00b7${cap}`;
+      }
+    } catch (_) {}
+    const txt = `${panicTxt}csrf:${csrfShort} farms:${okFarms}/${farms}${errTxt}${dryTxt}${safeTxt}${budgetTxt}${pauseTxt}`;
     if (txt !== _statusLast) {
       _statusLast = txt;
       el.textContent = txt;
-      el.title = (tplBanner ? tplBanner + ' | ' : '') + JSON.stringify({ csrf: !!state.csrf, captcha: state.captchaBreakers, pause: pauseInfo.reason, memory: memSkips.map(s => s.key), circuits: openCircuits, unknownTransactions: unknownTx });
+      el.title = (tplBanner ? tplBanner + ' | ' : '')
+        + 'req = scrape/read/accion por minuto\n'
+        + JSON.stringify({ csrf: !!state.csrf, captcha: state.captchaBreakers, captchaAllUntil: captchaGlobalUntil || 0, requestBudget: budget, softDelayMs: (() => { try { return reqBudgetSoftDelayMs(); } catch (_) { return null; } })(), pause: pauseInfo.reason, memory: memSkips.map(s => s.key), circuits: openCircuits, unknownTransactions: unknownTx });
     }
     const cs = panel.querySelector('#gb-collect-state');
     if (cs) {
@@ -23736,6 +23871,8 @@ const STORE = {
   let _timerFarmLast = '', _timerTownLast = '';
   function renderTimers() {
     if (!panel) return;
+
+    if (document.hidden) return;
     const fe = panel.querySelector('#gb-next-farms');
     const te = panel.querySelector('#gb-next-towns');
     if (fe) {
@@ -23990,6 +24127,8 @@ const STORE = {
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (e) { gbLogT('boot-wake-ib', 60000, 'wake ibScan: ' + String(e?.message || e).slice(0, 80)); }
     try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (e) { gbLogT('boot-wake-orch', 60000, 'wake orchTick: ' + String(e?.message || e).slice(0, 80)); }
     try { nativeQueueSweep('visible'); } catch (e) { gbLogT('boot-nqs-visible', 60000, 'nqs visible: ' + String(e?.message || e).slice(0, 80)); }
+
+    try { renderTimers(); renderFarms(); renderWorld(); updateStatus(); } catch (e) { gbLogT('boot-repaint-visible', 60000, 'repaint visible: ' + String(e?.message || e).slice(0, 80)); }
   });
   gbListen(window, 'pageshow', (e) => {
     if (!(e && e.persisted)) return;
@@ -24000,6 +24139,7 @@ const STORE = {
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (e) { gbLogT('boot-wake-ib', 60000, 'wake ibScan: ' + String(e?.message || e).slice(0, 80)); }
     try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (e) { gbLogT('boot-wake-orch', 60000, 'wake orchTick: ' + String(e?.message || e).slice(0, 80)); }
     try { nativeQueueSweep('bfcache'); } catch (e) { gbLogT('boot-nqs-bfcache', 60000, 'nqs bfcache: ' + String(e?.message || e).slice(0, 80)); }
+    try { renderTimers(); renderFarms(); renderWorld(); updateStatus(); } catch (e) { gbLogT('boot-repaint-bfcache', 60000, 'repaint bfcache: ' + String(e?.message || e).slice(0, 80)); }
   });
   gbInterval(checkThresholds, BOOT_TIMING.THRESHOLD_CHECK_MS);
   gbInterval(renderTimers, BOOT_TIMING.TIMERS_RENDER_MS);
@@ -24072,6 +24212,8 @@ const STORE = {
     try { if (typeof persistServerCooldown === 'function') persistServerCooldown(); } catch (e) { gbLogT('boot-release-cooldown', 60000, 'cooldown save: ' + String(e?.message || e).slice(0, 80)); }
     try { if (typeof nativeQueueSaveFlush === 'function') nativeQueueSaveFlush(); } catch (e) { gbLogT('boot-release-nqs', 60000, 'nqs flush: ' + String(e?.message || e).slice(0, 80)); }
     try { snapshotBuild('exit'); } catch (e) { gbLogT('boot-release-snap', 60000, 'snapshot: ' + String(e?.message || e).slice(0, 80)); }
+
+    try { if (typeof saveFlush === 'function') saveFlush(); } catch (e) { gbLogT('boot-release-save', 60000, 'save flush: ' + String(e?.message || e).slice(0, 80)); }
   };
   gbListen(window, 'beforeunload', releaseLocks);
   gbListen(window, 'pagehide', releaseLocks);

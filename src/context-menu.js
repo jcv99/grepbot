@@ -135,6 +135,13 @@
     ctxTimer = 0;
     try {
       if (state.contextMenu === false || !hostEnabled()) { ctxDispose(); return; }
+      // Each pass costs a querySelectorAll plus getBoundingClientRect and
+      // elementFromPoint - three forced layout flushes, 80x/min. The game popup
+      // this menu anchors to cannot appear while the tab is hidden (it needs a
+      // click), so there is nothing to find. Keep the existing menu mounted
+      // rather than disposing: a hidden tab is not a closed popup, and the
+      // re-arm in `finally` keeps the poll alive for the return to visible.
+      if (document.hidden) return;
       const found = ctxFindPopup();
       if (!found) { ctxDispose(); return; }
       if (ctxMenuEl && ctxMenuTown === found.id && ctxMenuEl.isConnected) {
