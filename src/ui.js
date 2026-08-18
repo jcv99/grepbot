@@ -1022,6 +1022,23 @@
             </select>
           </label>
           <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Pedir cobros de 10 min en aldeas donde la lealtad esta investigada"><input type="checkbox" data-cfg="farm-long-claims"/> Cobros de 10 min donde la lealtad de aldeanos esta investigada</label>
+          <label class="gb-cfg-num gb-cfg-sub" title="La aldea tiene dos mitades: recursos y unidades. Con 'al agotarse los recursos' la aldea solo pasa a pedir unidades cuando el cupo diario esta gastado o la aldea no ofrece recursos. Las unidades ocupan poblacion.">Cobrar unidades en aldeas
+            <select class="gb-cfg-input" data-cfg="farm-units-mode" data-gb-tip="Cuando pedir unidades en vez de recursos">
+              <option value="off">nunca (solo recursos)</option>
+              <option value="fallback">al agotarse los recursos del dia</option>
+              <option value="always">siempre (solo unidades)</option>
+            </select>
+          </label>
+          <label class="gb-cfg-num gb-cfg-sub" title="Que carta de unidad pedir. 'automatica' elige la carta de mas valor que la ciudad puede aceptar (poblacion libre y edificio requerido); 'aprendida' repite la que pulsaste a mano.">Unidad a pedir
+            <select class="gb-cfg-input" data-cfg="farm-units-pref" data-gb-tip="Unidad que se pide en la mitad de unidades de la aldea">
+              <option value="auto">automatica (mejor valor)</option>
+              <option value="learned">aprendida (pulsa una vez a mano)</option>
+              <option value="sword">Espadachin</option>
+              <option value="slinger">Hondero</option>
+              <option value="archer">Arquero</option>
+              <option value="hoplite">Hoplita</option>
+            </select>
+          </label>
           <label class="gb-cfg-row gb-cfg-sub" title="Bajo presion (captcha, enfriamiento del servidor o presupuesto justo) recorta la lista de aldeas en vez de ampliar la cadencia, y reclama primero las mas rentables."><input type="checkbox" data-cfg="adaptive-farm"/> Recoleccion adaptativa bajo presion</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Porcentaje de aldeas a descartar bajo presion (de menos rentable a mas)">Descartar bajo presion <input class="gb-cfg-input" type="number" data-cfg="farm-drop-pct" min="0" max="90" style="width:45px"/> %</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="ID o nombre exacto de la investigacion de lealtad (la pestana Registro lo vuelca si la deteccion automatica falla)">Clave de la investigacion de lealtad
@@ -1767,6 +1784,8 @@
     const sd = sec.querySelector('[data-cfg=farm-sleep-dur]'); if (sd) sd.value = String(state.farmSleepDur || 'auto');
     const sa = sec.querySelector('[data-cfg=farm-sleep-auto]'); if (sa) sa.checked = !!state.farmSleepAuto;
     const sf = sec.querySelector('[data-cfg=farm-sleep-fill]'); if (sf) sf.value = state.farmSleepFillPct;
+    const um = sec.querySelector('[data-cfg=farm-units-mode]'); if (um) um.value = String(state.farmUnitsMode || 'off');
+    const up = sec.querySelector('[data-cfg=farm-units-pref]'); if (up) up.value = String(state.farmUnitsPref || 'auto');
     const om = sec.querySelector('#gb-farm-optmap');
     if (om) {
       om.textContent = 'learned claim options: ' + farmOptionMapText() +
@@ -1927,6 +1946,19 @@
       state.ibAuto = e.target.checked; save(STORE.IB_AUTO, state.ibAuto);
       gbLog('instant-build', state.ibAuto ? 'ON' : 'OFF');
       if (state.ibAuto) ibScan();
+    });
+    onCfg('[data-cfg=farm-units-mode]', 'change', e => {
+      const v = String(e.target.value || 'off');
+      state.farmUnitsMode = /^(off|fallback|always)$/.test(v) ? v : 'off';
+      save(STORE.FARM_UNITS_MODE, state.farmUnitsMode);
+      gbLog('farm unit claims:', state.farmUnitsMode);
+      syncFarmTimingCfg(sec);
+    });
+    onCfg('[data-cfg=farm-units-pref]', 'change', e => {
+      state.farmUnitsPref = String(e.target.value || 'auto');
+      save(STORE.FARM_UNITS_PREF, state.farmUnitsPref);
+      gbLog('farm unit claim card:', state.farmUnitsPref);
+      syncFarmTimingCfg(sec);
     });
     onCfg('[data-cfg=farm-long-claims]', 'change', e => {
       state.farmLongClaims = e.target.checked; save(STORE.FARM_LONG_CLAIMS, state.farmLongClaims);

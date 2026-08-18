@@ -35,6 +35,7 @@
       circuits: state.circuits,
       decisionSkips: state.decisionSkips,
       farmOptionMap: state.farmOptionMap,
+      farmUnitsOption: state.farmUnitsOption,
       farmSleepDay: state.farmSleepDay,
       lastSeenTs: state.lastSeenTs,
       // The journal ring is SUMMARISED, never copied: it is the single heaviest
@@ -86,6 +87,7 @@
     put('circuits', STORE.CIRCUITS, p.circuits);
     put('decisionSkips', STORE.DECISION_SKIPS, p.decisionSkips);
     put('farmOptionMap', STORE.FARM_OPTION_MAP, p.farmOptionMap);
+    put('farmUnitsOption', STORE.FARM_UNITS_OPTION, p.farmUnitsOption);
     gbLog(`snapshot: restored slot ${slot} from ${new Date(s.at).toLocaleString()}`);
     return true;
   }

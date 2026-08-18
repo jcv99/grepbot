@@ -481,6 +481,13 @@
     ibAction:   load(STORE.IB_ACTION, null) || 'buyInstant',
     ibResearch: load(STORE.IB_RESEARCH, false),
     farmOptionMap: load(STORE.FARM_OPTION_MAP, null) || { 300: 1 },
+    // Village halves: resources (always preferred) and units. 'off' never asks
+    // for units; 'fallback' only once the resource half is provably spent.
+    farmUnitsMode: load(STORE.FARM_UNITS_MODE, 'off') || 'off',
+    farmUnitsPref: load(STORE.FARM_UNITS_PREF, 'auto') || 'auto',
+    farmUnitsOption: load(STORE.FARM_UNITS_OPTION, null),
+    farmResDry: load(STORE.FARM_RES_DRY, {}) || {},
+    farmResDryDay: load(STORE.FARM_RES_DRY_DAY, '') || '',
     farmLongClaims: load(STORE.FARM_LONG_CLAIMS, true),
     farmLoyaltyTech: load(STORE.FARM_LOYALTY_TECH, '') || '',
     farmSleepDur: load(STORE.FARM_SLEEP_DUR, 'auto'),
