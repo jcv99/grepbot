@@ -16,7 +16,6 @@
     if (JRN_SKIP_ERRS[s.split(':')[0]] || jrnTransientDynamicResult(s)) return 'skip:' + s.slice(0, 40);
     return s.slice(0, 60);
   }
-
   function jrnPendingResult(r) {
     const s = String(r || '');
     return s === 'timeout_unknown' || /^pending(?::|$)/i.test(s) || /^unknown outcome/i.test(s);
@@ -27,7 +26,6 @@
       && !jrnPendingResult(s) && s.slice(0, 5) !== 'skip:';
   }
   function jrnId(tag) { return tag.f + '|' + tag.a + '|' + tag.k; }
-
   // Journal keys are world-scoped: a town/village id means nothing on another
   // world, so an unscoped journal would skip valid targets after a world switch.
   let jrnHost = location.hostname;
@@ -38,6 +36,10 @@
   }
   function jrnCheckHost() {
     if (location.hostname === jrnHost) return;
+    // Flush what is still in memory under the world it belongs to. jrnFlush()
+    // saves through wkey(), which already reads the NEW hostname — the pending
+    // batch would have been written to the new world's key, importing another
+    // world's skip windows and town ids wholesale.
     // Flush what is still in memory under the world it belongs to. jrnFlush()
     // saves through wkey(), which already reads the NEW hostname — the pending
     // batch would have been written to the new world's key, importing another
@@ -69,7 +71,6 @@
     };
     return jrnSkipped(tag) ? (jrnWhy(tag) || 'remembered') : '';
   }
-
   function jrnTag(feature, payload) {
     let action = '', target = '', town = '';
     try {
@@ -90,7 +91,6 @@
     const key = `${town !== '' ? 't' + town : 't-'}:${target !== '' ? target : '-'}`;
     return { f: feature, a: String(action || 'post').slice(0, 48), k: key.slice(0, 72) };
   }
-
   function jrnPrune() {
     const cut = Date.now() - JRN_TTL_MS;
     const list = state.decisions;
@@ -99,7 +99,6 @@
     if (i) list.splice(0, i);
     while (list.length > JRN_MAX) list.shift();
   }
-
   let jrnSaveQueued = false;
   function jrnSave(immediate) {
     if (!immediate) {
@@ -113,11 +112,12 @@
     save(wkey(STORE.DECISION_SKIPS), state.decisionSkips);
   }
   function jrnFlush() { if (jrnSaveQueued) { jrnSaveQueued = false; jrnSave(true); } }
-
   function jrnPush(tag, result, detail, txId) {
     jrnCheckHost();
     const list = state.decisions;
     const now = Date.now();
+    // A transaction has one journal row whose provisional result can later be
+    // reconciled. Replacing timeout -> ok avoids counting one SEND twice.
     // A transaction has one journal row whose provisional result can later be
     // reconciled. Replacing timeout -> ok avoids counting one SEND twice.
     if (txId != null && txId !== '') {
@@ -133,6 +133,8 @@
           jrnNote(tag, result); jrnSave();
           return r;
         }
+        // Remove the provisional row; the terminal result continues through the
+        // normal compacting path so repeated successful transactions still use n.
         // Remove the provisional row; the terminal result continues through the
         // normal compacting path so repeated successful transactions still use n.
         list.splice(i, 1);
@@ -168,7 +170,6 @@
     jrnSave();
     return rec;
   }
-
   function jrnFailStreak(feature, action, target) {
     const list = state.decisions;
     let n = 0;
@@ -181,9 +182,6 @@
     }
     return n;
   }
-
-
-
   function jrnNote(tag, result) {
     const key = jrnId(tag);
     if (result === 'ok') {
@@ -200,13 +198,14 @@
     gbLog(`memory: ${tag.f} ${tag.a} ${tag.k} failed ${JRN_FAIL_TRIP}x (${result}) - skipping ${mins}m`);
     jrnSave(true);
   }
-
   function jrnSkipped(tag) {
     jrnCheckHost();
     if (state.decisionMemory === false) return false;
     const key = jrnId(tag);
     const s = state.decisionSkips[key];
     if (!s || !s.until) return false;
+    // Repair windows persisted before jrnTransientDynamicResult existed — a live
+    // resource shortage must be re-decided by the precheck, never remembered.
     // Repair windows persisted before jrnTransientDynamicResult existed — a live
     // resource shortage must be re-decided by the precheck, never remembered.
     if (jrnTransientDynamicResult(s.r)) {
@@ -270,7 +269,6 @@
     jrnSave(true);
     gbLog('memory: journal cleared');
   }
-
   function jrnStats(windowMs) {
     const since = Date.now() - (windowMs || 24 * 60 * 60 * 1000);
     const byFeature = Object.create(null);
@@ -316,7 +314,6 @@
       byFeature, topSkips, topErrors, topPending,
     };
   }
-
   function jrnCountOk(feature, actionRe, windowMs) {
     const since = Date.now() - (windowMs || 86400000);
     let n = 0;

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.8.1
+// @version      5.8.2
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -262,11 +262,9 @@ const STORE = {
     WEBHOOK_RATELIMIT: 'grepbot:webhook-ratelimit',
     WEBHOOK_PENDING: 'grepbot:webhook-pending',
   };
-
   const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
     'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'merchant', 'pttrade', 'favor', 'wonder', 'hero', 'godspell', 'spy'];
   const CONFIG_VER_CURRENT = 13;
-
   const WORLD_SCOPED_BASES = new Set([
     STORE.FINDINGS, STORE.FARMS, STORE.FARMS_PARSED, STORE.FARM_RES, STORE.SEEN,
     STORE.TOWNS, STORE.TOWN_RES, STORE.TOWN_GROWTH_HIST, STORE.THRESH, STORE.ALERTED,
@@ -295,7 +293,6 @@ const STORE = {
     STORE.WEBHOOK_RATELIMIT, STORE.WEBHOOK_PENDING,
   ]);
   function wkey(base) { return base + '@' + location.hostname; }
-
   const GB_ROOT = (typeof unsafeWindow !== 'undefined' && unsafeWindow) ? unsafeWindow : window;
   if (typeof GB_ROOT.__grepbotDispose === 'function') {
     try { GB_ROOT.__grepbotDispose(); } catch (_) {}
@@ -308,7 +305,6 @@ const STORE = {
   function gbInstanceAlive() {
     return !gbDisposed && GB_ROOT.__grepbotInstanceId === GB_INSTANCE_ID;
   }
-
   const gbTimerBag = [];
   const gbListenerBag = [];
   const gbXhrBag = [];
@@ -321,7 +317,6 @@ const STORE = {
   gbListenerAbort = new AbortController();
   gbListenerSignal = gbListenerAbort.signal;
   let gbDomObserver = null;
-
   function gbInterval(fn, ms) {
     if (!gbInstanceAlive()) return 0;
     const entry = { kind: 'i', id: 0 };
@@ -588,7 +583,6 @@ const STORE = {
       try { delete GB_ROOT.__grepbotInstanceId; } catch (_) { GB_ROOT.__grepbotInstanceId = null; }
     }
   };
-
   const GB_LOCK_TTL = {
     claim: 180000,
     'farm-scrape': 300000,
@@ -626,7 +620,6 @@ const STORE = {
   };
   const GB_LOCK_DEFAULT_TTL = 180000;
   const gbLocks = Object.create(null);
-
   const gbLockExpired = Object.create(null);
   const GB_LOCK_EXPIRED_MEMORY_MS = 600000;
   let gbLockSeq = 0;
@@ -693,10 +686,8 @@ const STORE = {
     const cut = Date.now() - GB_LOCK_EXPIRED_MEMORY_MS;
     for (const k of Object.keys(gbLockExpired)) if (gbLockExpired[k].at < cut) delete gbLockExpired[k];
   }
-
   const SEEN_MAX = 2000;
   const LOG_THROTTLE_MAX = 200;
-
   const state = {
     findings: load(STORE.FINDINGS, []),
     farms:    load(STORE.FARMS, ''),
@@ -949,7 +940,6 @@ const STORE = {
     webhookRatelimit: load(STORE.WEBHOOK_RATELIMIT, {}) || {},
     webhookPending: load(STORE.WEBHOOK_PENDING, {}) || {},
   };
-
   let panel = null;
   let userPausedUntil = 0;
 
@@ -1124,7 +1114,6 @@ const STORE = {
       gbLog('config migrated \u2192 v' + ver);
     }
   }
-
   let healthSaveTimer = 0;
   function healthSaveSoon() {
     state.health = moduleHealth;
@@ -1150,7 +1139,6 @@ const STORE = {
 
     if(state.whyLog.length>200)state.whyLog.length=200; saveSoon(STORE.WHY_LOG,state.whyLog);
   }
-
   let serverCooldownUntil = 0;
   const SERVER_COOLDOWN_MAX = 300000;
   const SERVER_PRESSURE_RE = /too many|rate limit|429|503|502|504|temporarily unavailable|maintenance|slow down/i;
@@ -1177,7 +1165,6 @@ const STORE = {
   }
   function gbServerPaused() { return serverCooldownUntil > Date.now(); }
   function gbServerCooldownLeftMs() { return Math.max(0, serverCooldownUntil - Date.now()); }
-
   function noteServerPressure(msg) {
     if (!msg || !SERVER_PRESSURE_RE.test(String(msg))) return false;
     gbServerCooldown(10000 + Math.floor(Math.random() * 10000), String(msg).slice(0, 40));
@@ -1253,7 +1240,6 @@ const STORE = {
     if (!state.pauseOnActivity) return;
     userPausedUntil = Date.now() + (state.pauseActivityMs || 180000);
   }
-
   let reqBudgetHead = 0;
 
   const REQ_SCOPE_FRACTION = { scrape: 0.6, read: 0.85, action: 1 };
@@ -1556,7 +1542,6 @@ const STORE = {
     }
     return [5, 15, 60];
   }
-
   const logBuf = [];
   let logHead = 0;
   const logThrottle = new Map();
@@ -1580,7 +1565,6 @@ const STORE = {
   function gbLogDumpText(n) {
     return gbLogDump(n).map(l => new Date(l.ts).toISOString() + ' ' + l.msg).join('\n');
   }
-
   function gbLogT(key, ms, ...args) {
     const now = Date.now();
     if ((logThrottle.get(key) || 0) + ms > now) return;
@@ -1613,7 +1597,6 @@ const STORE = {
     el.click();
     return true;
   }
-
   let seenCount = 0;
   try { seenCount = Object.keys(state.seen || {}).length; } catch (_) { seenCount = 0; }
 
@@ -1654,7 +1637,6 @@ const STORE = {
     }
     return n;
   }
-
   let logRenderQueued = false;
   function renderLog() {
     const sec = panel && panel.querySelector('section[data-tab=log]');
@@ -1675,7 +1657,6 @@ const STORE = {
     else if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
     else gbTimeout(flush, 250);
   }
-
   function gameUw() {
 
     try {
@@ -1694,7 +1675,6 @@ const STORE = {
       return DOMPurify.sanitize(String(html == null ? '' : html), { USE_PROFILES: { html: true } });
     } catch (_) { return ''; }
   }
-
   let _uwCache = null, _uwCacheAt = 0;
   const UW_CACHE_MS = 400;
   function uwCached() {
@@ -1706,7 +1686,6 @@ const STORE = {
   }
   const _mmColCache = Object.create(null);
   let _mmColCacheAt = 0;
-
   const MM_MODELS_CACHE_MS = 250;
   const _mmModelsAllCache = Object.create(null);
   let _mmModelsAllCacheAt = 0;
@@ -1729,7 +1708,6 @@ const STORE = {
     _mmColCache[name] = (col && col.models) ? col : null;
     return _mmColCache[name];
   }
-
   function gbMovementType(a) {
     if (!a) return '';
     for (const v of [a.type, a.movement_type, a.command_type]) {
@@ -1738,7 +1716,6 @@ const STORE = {
     }
     return '';
   }
-
   function mmModelsAll(name) {
     const now = Date.now();
     if (now - _mmModelsAllCacheAt >= MM_MODELS_CACHE_MS) {
@@ -1805,7 +1782,6 @@ const STORE = {
     const s = gameBridgeStatus();
     return s.MM && s.gpAjax && s.ITowns;
   }
-
   function gameNow() {
     const uw = gameUw();
     try {
@@ -1822,7 +1798,6 @@ const STORE = {
     } catch (_) {}
     return Math.floor(Date.now() / 1000);
   }
-
   const SYNC = {
 
     get FARM_MIN_MS() { return state.farmMinMs; },
@@ -1830,7 +1805,6 @@ const STORE = {
     get TOWN_MIN_MS() { return state.townMinMs; },
     get TOWN_MAX_MS() { return state.townMaxMs; },
   };
-
   function load(key, fallback) {
     try {
       const scopedCall = String(key).indexOf('@') !== -1;
@@ -2020,7 +1994,6 @@ const STORE = {
     if (saveSoonTimer) return;
     saveSoonTimer = gbTimeout(() => { saveSoonTimer = 0; saveFlush(); }, SAVE_SOON_MS);
   }
-
   const GM_XHR_DEFAULT_TIMEOUT = 30000;
   function gbXhr(opts) {
     const scope = opts.scope === 'external' ? 'external' : 'game';
@@ -2102,7 +2075,6 @@ const STORE = {
       return null;
     }
   }
-
   function runningVersion() {
     try { return (GM_info && GM_info.script && GM_info.script.version) || '0.0.0'; }
     catch (_) { return '0.0.0'; }
@@ -2121,7 +2093,6 @@ const STORE = {
     const m = Math.floor(s / 60), r = s % 60;
     return r ? `${m}m${r}s` : `${m}m`;
   }
-
   const I18N = {
     es: { collect: 'Recoger', selectAll: 'Seleccionar todas las unidades', cooldown: 'tiempo de espera' },
     en: { collect: 'Collect', selectAll: 'Select all units', cooldown: 'cooldown' },
@@ -2137,10 +2108,8 @@ const STORE = {
     return I18N[lang] || I18N.en;
   }
   function i18n(key) { return (marketLocale()[key] || I18N.en[key] || key); }
-
   const BRIDGE_TIMEOUT_MS = 15000;
   function saveCaptcha() { save(wkey(STORE.CAPTCHA), state.captchaBreakers); }
-
   function captchaPaused(feature) {
     const b = state.captchaBreakers[feature];
     if (!b || !b.until) return false;
@@ -2155,7 +2124,6 @@ const STORE = {
     }
     return true;
   }
-
   function captchaPausedAny(...features) {
     for (let i = 0; i < features.length; i++) {
       const f = features[i];
@@ -2400,7 +2368,6 @@ const STORE = {
   function clientFingerprintCompatible(prev,cur){if(!cur)return{ok:false,why:'fingerprint-unreadable'};for(const k of ['MM','gpAjax','ITowns','GameData'])if(!cur.required[k])return{ok:false,why:`missing-${k}`};if(!prev)return{ok:true,first:true};for(const k of ['MM','gpAjax','ITowns','GameData'])if(prev.required&&prev.required[k]&&!cur.required[k])return{ok:false,why:`lost-${k}`};for(const k of ['units','buildings']){const a=+(prev.counts&&prev.counts[k]||0),b=+(cur.counts&&cur.counts[k]||0);if(a>0&&b>0&&Math.abs(b-a)/a>0.45)return{ok:false,why:`${k}-shape-changed:${a}->${b}`}}return{ok:true}}
   function clientFingerprintCheck() {const cur=clientFingerprintNow(),cmp=clientFingerprintCompatible(state.clientFingerprint,cur);if(!cmp.ok){state.safeMode=true;save(STORE.SAFE_MODE,true);gbLog(`SAFE MODE: Grepolis client compatibility check failed (${cmp.why})`);whyNote('system','client fingerprint','blocked',cmp.why);}else if(!state.clientFingerprint){state.clientFingerprint=cur;save(STORE.CLIENT_FP,cur);}else{state.clientFingerprint=cur;save(STORE.CLIENT_FP,cur);}return{current:cur,check:cmp}}
   function safeModeBlock(feature,transport,endpoint,data){if(!state.safeMode)return null;const f=String(feature||'');if(['attack','support','spy','favor','wonder','rurallevel','merchant','spell','airaw'].includes(f))return 'safe-mode-high-impact';if(f==='culture'){const a=transport==='bridge'?(data&&data.arguments||{}):(data||{});if(/olympic/i.test(String(a.celebration_type||endpoint||'')))return 'safe-mode-premium';}return null}
-
   const CIRCUIT_TRIP = 3;
   const CIRCUIT_STRUCTURAL_RE = /unknown.?action|invalid.?action|unknown.?model|model.?not.?found|unknown.?controller|controller.?not.?found|no.?such.?action|does.?not.?exist|unsupported.?action|invalid.?model|endpoint.?not.?found/i;
   function circuitSave() { save(STORE.CIRCUITS, state.circuits || {}); }
@@ -2479,7 +2446,6 @@ const STORE = {
     else state.circuits = {};
     circuitSave();
   }
-
   const TX_WRITE_FEATURES = new Set([
     'farm', 'collect', 'bandit', 'build', 'instant-build', 'instant-research', 'cave', 'culture', 'trade', 'ruraltrade', 'rurallevel',
     'research', 'merchant', 'favor', 'wonder', 'militia', 'dodge', 'spell', 'recruit', 'villrecruit', 'quest', 'attack',
@@ -2916,7 +2882,6 @@ const STORE = {
     if (feature === 'pttrade') return `pttrade:${townId || '-'}:${a.offer_id || a.offer || (d.model_url ? String(d.model_url).split('/').pop() : '') || endpoint}`;
     return `${feature}:${townId || '-'}:${endpoint}:${JSON.stringify(txStableObj(a)).slice(0, 100)}`;
   }
-
   function txNum(v) { return Number.isFinite(+v) ? +v : null; }
   function txLt(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x < y; }
   function txGt(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x > y; }
@@ -3276,7 +3241,6 @@ const STORE = {
       }
     });
   }
-
   const SELF_BRIDGE_MAX = 12;
   const SELF_BRIDGE_TTL_MS = 10000;
   const selfBridgeLog = [];
@@ -3579,14 +3543,12 @@ const STORE = {
       gbTimeout(verify, 500);
     }, onDone);
   }
-
   function dryRunFmt(payload) {
     try {
       const s = JSON.stringify(payload);
       return s.length > 220 ? s.slice(0, 220) + '\u2026' : s;
     } catch (_) { return String(payload); }
   }
-
   function httpRetryAfterMs(res) {
     const st = res && res.status;
     if (!(st === 429 || st === 503 || st === 502 || st === 504)) return 0;
@@ -3597,7 +3559,6 @@ const STORE = {
     gbServerCooldown(ms, 'http ' + st);
     return ms;
   }
-
   const _townResCache = Object.create(null);
   const TOWN_RES_CACHE_MS = 3000;
   function townResState(townId) {
@@ -3792,7 +3753,6 @@ const STORE = {
     return null;
   }
   const GB_RES_KEYS = ['wood', 'stone', 'iron'];
-
   function gbAfford(townId, cost, opts) {
     const o = opts || {};
     const margin = o.margin != null ? +o.margin : 0;
@@ -3818,7 +3778,6 @@ const STORE = {
     }
     return { ok: !blind && short.length === 0, blind, short, detail: short.join(', ') };
   }
-
   function gbBuildingLevel(townId, building) {
     const t = gbTownModel(townId);
     if (!t) return null;
@@ -3838,7 +3797,6 @@ const STORE = {
     } catch (_) {}
     return null;
   }
-
   function hostEnabled() {
 
     return state.enabledHosts[location.host] === true && gbTabLeader;
@@ -3851,7 +3809,6 @@ const STORE = {
       gbLog('host ' + h + ' disabled by default \u2014 enable in Config');
     }
   }
-
   const CSRF_TOK16 = /^[a-f0-9]{16,64}$/i;
   const CSRF_TOK32 = /^[a-f0-9]{32,64}$/i;
   const CSRF_COOKIE_H = /(?:^|;\s*)h=([a-f0-9]{32,64})(?:;|$)/i;
@@ -3860,7 +3817,6 @@ const STORE = {
     if (!v) return false;
     return (min >= 32 ? CSRF_TOK32 : CSRF_TOK16).test(String(v));
   }
-
   const CSRF_PROBES = [
     [w => w.csrfToken, 16],
     [w => w.csrf_token, 16],
@@ -3895,7 +3851,6 @@ const STORE = {
     }
     return null;
   }
-
   function csrfForceHunt() {
     const fresh = huntCsrf();
     if (fresh && fresh !== state.csrf) {
@@ -3917,7 +3872,6 @@ const STORE = {
 
     gbTimeout(csrfLoop, state.csrf ? 120000 : 5000);
   })();
-
   const JRN_MAX = 400;
   const JRN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
   const JRN_DEDUP_MS = 10 * 60 * 1000;
@@ -3944,7 +3898,6 @@ const STORE = {
     if (JRN_SKIP_ERRS[s.split(':')[0]] || jrnTransientDynamicResult(s)) return 'skip:' + s.slice(0, 40);
     return s.slice(0, 60);
   }
-
   function jrnPendingResult(r) {
     const s = String(r || '');
     return s === 'timeout_unknown' || /^pending(?::|$)/i.test(s) || /^unknown outcome/i.test(s);
@@ -3988,7 +3941,6 @@ const STORE = {
     };
     return jrnSkipped(tag) ? (jrnWhy(tag) || 'remembered') : '';
   }
-
   function jrnTag(feature, payload) {
     let action = '', target = '', town = '';
     try {
@@ -4009,7 +3961,6 @@ const STORE = {
     const key = `${town !== '' ? 't' + town : 't-'}:${target !== '' ? target : '-'}`;
     return { f: feature, a: String(action || 'post').slice(0, 48), k: key.slice(0, 72) };
   }
-
   function jrnPrune() {
     const cut = Date.now() - JRN_TTL_MS;
     const list = state.decisions;
@@ -4018,7 +3969,6 @@ const STORE = {
     if (i) list.splice(0, i);
     while (list.length > JRN_MAX) list.shift();
   }
-
   let jrnSaveQueued = false;
   function jrnSave(immediate) {
     if (!immediate) {
@@ -4032,7 +3982,6 @@ const STORE = {
     save(wkey(STORE.DECISION_SKIPS), state.decisionSkips);
   }
   function jrnFlush() { if (jrnSaveQueued) { jrnSaveQueued = false; jrnSave(true); } }
-
   function jrnPush(tag, result, detail, txId) {
     jrnCheckHost();
     const list = state.decisions;
@@ -4085,7 +4034,6 @@ const STORE = {
     jrnSave();
     return rec;
   }
-
   function jrnFailStreak(feature, action, target) {
     const list = state.decisions;
     let n = 0;
@@ -4098,7 +4046,6 @@ const STORE = {
     }
     return n;
   }
-
   function jrnNote(tag, result) {
     const key = jrnId(tag);
     if (result === 'ok') {
@@ -4115,7 +4062,6 @@ const STORE = {
     gbLog(`memory: ${tag.f} ${tag.a} ${tag.k} failed ${JRN_FAIL_TRIP}x (${result}) - skipping ${mins}m`);
     jrnSave(true);
   }
-
   function jrnSkipped(tag) {
     jrnCheckHost();
     if (state.decisionMemory === false) return false;
@@ -4182,7 +4128,6 @@ const STORE = {
     jrnSave(true);
     gbLog('memory: journal cleared');
   }
-
   function jrnStats(windowMs) {
     const since = Date.now() - (windowMs || 24 * 60 * 60 * 1000);
     const byFeature = Object.create(null);
@@ -4228,7 +4173,6 @@ const STORE = {
       byFeature, topSkips, topErrors, topPending,
     };
   }
-
   function jrnCountOk(feature, actionRe, windowMs) {
     const since = Date.now() - (windowMs || 86400000);
     let n = 0;
@@ -4248,7 +4192,6 @@ const STORE = {
   function seenKey(id) { return String(id); }
 
   const SPY_LOAD_GATE_RE = /report|tombstone|attack_planner|quest|progressable|frontend_bridge/i;
-
   function hookFetch() {
     const uw = gameUw();
     if (!uw.fetch) return;
@@ -4277,7 +4220,6 @@ const STORE = {
     patched.__grepbotOwner = GB_INSTANCE_ID;
     uw.fetch = patched;
   }
-
   function hookXhr() {
     const uw = gameUw();
     if (!uw.XMLHttpRequest) return;
@@ -4450,7 +4392,6 @@ const STORE = {
     };
     walk(data);
   }
-
   const reportRetry = Object.create(null);
   const REPORT_RETRY_MAX = 3;
   function scrapeInboxDom() {
@@ -4473,7 +4414,6 @@ const STORE = {
 
     gbTimeout(scrapeInboxDom, 1500);
   }
-
   function ingestReport(id, data) {
     const parsed = parseReport(id, data);
     if (!parsed) {
@@ -4504,7 +4444,6 @@ const STORE = {
     if (n < REPORT_RETRY_MAX) seenThisRun.delete(seenKey(id));
     else gbLogT('report-retry-cap', 60000, 'report retry capped for', id);
   }
-
   function fetchReport(id, hintUrl) {
     if (state.seen[seenKey(id)]) return;
     if (!hostEnabled() || automationPaused({}) || captchaPaused('report')) {
@@ -4585,7 +4524,6 @@ const STORE = {
       },
     });
   }
-
   function buildReportUrl(id, hintUrl) {
 
     const params = new URLSearchParams();
@@ -4651,7 +4589,6 @@ const STORE = {
     if (spyInFlightAt[k] && spyInFlightAt[k].length) spyInFlightAt[k].shift();
     if (spyInFlightAt[k] && !spyInFlightAt[k].length) delete spyInFlightAt[k];
   }
-
   function spyReports24h() {
     const since = Date.now() - 86400000;
     const byTown = Object.create(null);
@@ -4791,7 +4728,6 @@ const STORE = {
       vacation: p.vacation ?? p.on_vacation ?? null,
     };
   }
-
   function cleanUnitBag(src) {
     if (!src || typeof src !== 'object' || Array.isArray(src)) return null;
     const u = {};
@@ -4816,7 +4752,6 @@ const STORE = {
     }
     return Object.keys(u).length ? u : null;
   }
-
   function extractResources(r) {
     const src = r.resources || r.loot || r.resource_pillage || r.haul || {};
     return {
@@ -4871,7 +4806,6 @@ const STORE = {
     };
     return (out.id != null || out.name || out.level != null || out.cls) ? out : null;
   }
-
   function parseReport(id, data) {
     if (data == null) return null;
     let root = data;
@@ -4940,7 +4874,6 @@ const STORE = {
       vacation: r.vacation ?? r.on_vacation ?? null,
     };
   }
-
   function parseFarms(text) {
     return text.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
       const parts = line.split('|').map(s => s.trim());
@@ -4967,7 +4900,6 @@ const STORE = {
       return out;
     }).filter(Boolean);
   }
-
   function parseBodyLoose(s) {
     let j = null;
     try { j = JSON.parse(s); } catch (_) {}
@@ -4991,7 +4923,6 @@ const STORE = {
     }
     return j;
   }
-
   function parseResourceJson(data) {
     const json = (data && data.json) ? (typeof data.json === 'string' ? (() => { try { return JSON.parse(data.json); } catch (_) { return data; } })() : data.json) : data;
 
@@ -5141,7 +5072,6 @@ const STORE = {
       }
     } catch (_) {}
   }
-
   let farmRelLogSig = '';
   function farmRelationCol() {
     return mmCol('FarmTownPlayerRelation');
@@ -5153,7 +5083,6 @@ const STORE = {
     const s = attrs.relation_status;
     return s != null && s > 0;
   }
-
   function farmIsLootable(r, attrs) {
     try {
       if (typeof r.isLootable === 'function') return !!r.isLootable();
@@ -5284,7 +5213,6 @@ const STORE = {
     if (pruneMapsToIds(state.thresholds, ids)) save(STORE.THRESH, state.thresholds);
     if (pruneMapsToIds(state.farmProfit, ids)) save(STORE.FARM_PROFIT, state.farmProfit);
   }
-
   function islandTownMap() {
     const map = Object.create(null);
     const uw = uwCached();
@@ -5315,7 +5243,6 @@ const STORE = {
     ids.sort((a,b)=>{const A=townWarehouseState(a),B=townWarehouseState(b);const af=A&&A.cap>0?A.cap-Math.max(+A.wood||0,+A.stone||0,+A.iron||0):-1;const bf=B&&B.cap>0?B.cap-Math.max(+B.wood||0,+B.stone||0,+B.iron||0):-1;return bf-af});
     return ids.find(id=>!townWarehouseBlocks(id))||ids[0];
   }
-
   function townWarehouseState(townId) { return townResState(townId); }
   function townWarehouseBlocks(townId) {
     if (!state.farmSkipFull) return false;
@@ -5334,7 +5261,6 @@ const STORE = {
       return tid != null && townWarehouseBlocks(tid);
     } catch (_) { return false; }
   }
-
   const FARM_DURATIONS = [300, 600, 1200, 2400, 5400, 10800, 14400, 28800];
   function farmDurLabel(sec) {
     if (sec >= 3600) return (sec / 3600) + 'h';
@@ -5350,7 +5276,6 @@ const STORE = {
     const parts = FARM_DURATIONS.filter(s => m[String(s)] != null).map(s => `${farmDurLabel(s)}=${m[String(s)]}`);
     return parts.length ? parts.join(' ') : 'none';
   }
-
   function farmOptionMapConflicts() {
     const m = state.farmOptionMap || {};
     const byOpt = Object.create(null);
@@ -5419,14 +5344,12 @@ const STORE = {
       }, 4000);
     } catch (_) {}
   }
-
   const FARM_LOYALTY_IDS = ['rural_loyalty', 'loyalty', 'villagers_loyalty', 'villager_loyalty'];
   const FARM_LOYALTY_RE = /loyal(?:ty)?|lealtad|treue|fidel(?:ity|idad)|villager.{0,12}loyal|aldean.{0,12}leal/i;
   const farmLoyaltyCache = Object.create(null);
   function farmLoyaltyReset() {
     Object.keys(farmLoyaltyCache).forEach(k => { delete farmLoyaltyCache[k]; });
   }
-
   function farmLoyaltyPinHit(techs, pin) {
     const want = pin.toLowerCase();
     const keys = Object.keys(techs).filter(k => techs[k]);
@@ -5564,7 +5487,6 @@ const STORE = {
 
   const FARM_UNIT_ORDER = ['sword', 'slinger', 'archer', 'hoplite'];
   function farmUnitIdFor(option) { return FARM_UNIT_ORDER[(+option || 0) - 1] || null; }
-
   function farmVillageLevel(farm) {
     const rel = farm && farm._rel;
     const a = (farm && farm._attrs) || {};
@@ -5575,7 +5497,6 @@ const STORE = {
     if (status === 0) return 0;
     return Number.isFinite(+a.expansion_stage) ? +a.expansion_stage : null;
   }
-
   function farmClaimUnitsTable(farm) {
     const t = gbGameDataLookup('farm_town', 'claim_units');
     if (!t || typeof t !== 'object') return null;
@@ -5587,7 +5508,6 @@ const STORE = {
     if (FARM_UNIT_ORDER.some(u => t[u] != null)) return t;
     return null;
   }
-
   function farmUnitOption(farm, townId) {
     const pref = String(state.farmUnitsPref || 'auto');
     if (pref !== 'auto' && pref !== 'learned') {
@@ -5639,7 +5559,6 @@ const STORE = {
     if (!Number.isFinite(loot)) return null;
     return Math.max(0, perDay * speed - loot);
   }
-
   function farmUnitsClaimBlocked(farm, townId, option) {
     const unit = farmUnitIdFor(option);
     if (!unit) return 'unit-unknown';
@@ -5693,11 +5612,6 @@ const STORE = {
     return state.farmResDry;
   }
 
-  // A hard error on a resource claim is NOT proof the village is out of
-  // resources - a stale template, a warehouse race or one server hiccup all
-  // land here. Resources are the strictly better claim, so the bot re-probes
-  // them: three consecutive hard errors inside the window, and the mark itself
-  // expires, so a village can never be stuck on units for the rest of the day.
   const FARM_RES_DRY_STRIKES = 3;
   const FARM_RES_DRY_TTL_MS = 5400000;
   function farmResDryMarked(villId) {
@@ -5709,7 +5623,7 @@ const STORE = {
     const m = farmResDryMap();
     const key = String(villId);
     const row = m[key] && typeof m[key] === 'object' ? m[key] : { n: 0 };
-    // Strikes must be consecutive in time, not merely counted across a day.
+
     if (row.at && Date.now() - (+row.at || 0) > FARM_RES_DRY_TTL_MS) row.n = 0;
     if (row.n >= FARM_RES_DRY_STRIKES) { row.at = Date.now(); m[key] = row; saveSoon(wkey(STORE.FARM_RES_DRY), m); return; }
     row.n = (+row.n || 0) + 1;
@@ -5743,7 +5657,6 @@ const STORE = {
     if (farmResExhausted(farm) === true) return 'units';
     return farmResDryMarked(farm.vill_id) ? 'units' : 'resources';
   }
-
   function farmClaimDiag(limit) {
     const farms = farmsFromGame();
     if (!farms) { gbLog('farm diag: game collections not ready'); return; }
@@ -5775,7 +5688,6 @@ const STORE = {
     }
     if (farms.length > n) gbLog(`  \u2026 ${farms.length - n} more village(s) not shown`);
   }
-
   function claimFarm(farm, islandMap, whCache, durOverride, onDone) {
     const done = (err) => { if (onDone) onDone(err); };
     if (captchaPaused('farm')) return done('captcha');
@@ -5825,8 +5737,6 @@ const STORE = {
     }, (err) => {
       if (!err && whCache) delete whCache[tid];
 
-      // 'remembered' is the bot's own skip window, not the server saying the
-      // village is empty - it must never flip a village to unit claims.
       const hard = err && err !== 'remembered' && !JRN_SKIP_ERRS[String(err).split(':')[0]] && err !== 'captcha' && !jrnPendingResult(err);
       if (hard) {
         if (String(state.farmUnitsMode || 'off') === 'fallback') farmMarkResDry(farm.vill_id, String(err).slice(0, 40));
@@ -5860,18 +5770,13 @@ const STORE = {
       town_id: tid,
     }, (err) => done(err || null));
   }
-  // Farm-first (hard rule): unit production never takes a dispatch slot while a
-  // farming-village claim is still possible. Mirrors the eligibility filter in
-  // autoClaimFarms exactly - lootable AND an owning town whose warehouse can
-  // still store the loot - so a warehouse-full town reports NO pending work,
-  // which is the one case where spending resources unblocks farming again.
-  // Unreadable collections are UNKNOWN, never "pending", so a blind read cannot
-  // deadlock recruitment; a farm captcha pause is likewise not pending.
+
   const FARM_PENDING_MEMO_MS = 3000;
   let farmPendingMemo = { at: 0, val: false };
   function farmClaimPending() {
     if (!state.autoFarm || !hostEnabled()) return false;
     if (captchaPaused('farm')) return false;
+
     if (gbLocked('claim')) return true;
     const stamp = Date.now();
     if (stamp - farmPendingMemo.at < FARM_PENDING_MEMO_MS) return farmPendingMemo.val;
@@ -5901,13 +5806,12 @@ const STORE = {
     farmPendingMemo = { at: stamp, val };
     return val;
   }
-  // One log line per 5min per holder, not per skipped scan.
+
   function farmFirstHold(who) {
     if (!farmClaimPending()) return false;
     gbLogT('farm-first-' + who, 300000, `${who}: held - farming village claim pending (farm-first)`);
     return true;
   }
-
   function autoClaimFarms(reason, durOverride, onBatchDone) {
     if (!hostEnabled() || !state.autoFarm || captchaPaused('farm') || automationPaused({})) {
       if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
@@ -6215,7 +6119,6 @@ const STORE = {
     gbLog('farm scrape: breaker cleared (' + (why || 'manual') + ')');
     return true;
   }
-
   const ACTION_GUESSES = ['farm_town_info', 'get_farm_towns', 'farm_town_overview'];
   const FARM_ACTION_OK = /^(farm_town_|get_farm|farm_info|island_farm)/;
   const FARM_ACTION_BAD = /farm_remove|village_attack|attack_log|farm_town_lock/;
@@ -6229,7 +6132,6 @@ const STORE = {
     }
     return g;
   }
-
   function learnFarmAction(u) {
     const m = String(u || '').match(/[?&]action=([a-z0-9_]+)/i);
     if (!m) return;
@@ -6701,7 +6603,6 @@ const STORE = {
       });
     }
   }
-
   function scrapeAllTowns() {
     if (!hostEnabled() || automationPaused({})) return;
     if (gbLocked('town-scrape')) { gbLogT('town-scrape-inflight', 30000, 'town scrape: skipped (in flight)'); return; }
@@ -6836,7 +6737,6 @@ const STORE = {
     if (attempted) { gbLog(`auto-collect: attempted ${attempted}/${scanned} Recoger buttons`); flash(`auto-collect x${attempted}`); }
     else if (scanned > 0) gbLogT('collect-skip', 120000, `auto-collect: 0/${scanned} eligible`, skipped.slice(0, 4).join(', '));
   }
-
   function updateCollectStateBadge(scanned, clicked) {
     const e = panel?.querySelector('#gb-collect-state');
     if (!e) return;
@@ -6852,7 +6752,6 @@ const STORE = {
       e.style.color = '#888';
     }
   }
-
   let collectBgBackoff = 90_000;
   let collectBgTimer = null;
   function scheduleCollectBg(ms) {
@@ -6934,7 +6833,6 @@ const STORE = {
       collectTimer = gbTimeout(() => { collectTimer = null; autoCollectResources(); }, 800);
     }
   }
-
   let gbDomObserverSig = '';
   function ensureDomObserver() {
     if (!gbDomObserver) {
@@ -7345,13 +7243,11 @@ const STORE = {
   banditScheduleNext();
   gbInterval(autoCollectResources, 5000);
   if (state.autoCollect && state.collectAll) collectAllBackground();
-
   const IB_CHECK_MS = 10000;
   const IB_FREE_ACTIONS = new Set(['buyInstant']);
   const IB_FREE_SERVER_MARGIN_SEC = 10;
   function ibFreeThresh() { return Math.max(1,Math.min(300,+state.ibFreeThresh||300)); }
   function ibSafeFreeThresh(){return Math.min(300-IB_FREE_SERVER_MARGIN_SEC,ibFreeThresh());}
-
   function ibGoldCost(kind, seconds) {
     try {
       const uw = uwCached();
@@ -7453,7 +7349,6 @@ const STORE = {
     } catch (_) {}
     return names;
   }
-
   function ibHeadIds(cols) {
     const groups=new Map(),seen=new Set();let seq=0;
     for(const col of cols||[])for(const model of ((col&&col.models)||[])){
@@ -7472,7 +7367,6 @@ const STORE = {
       if(byCreated)heads.set(town,byCreated.id)}
     return heads;
   }
-
   function ibResearchOrders(names) {
     const now = gameNow();
     const out = [];
@@ -8069,7 +7963,6 @@ const STORE = {
     save(STORE.TOWN_GOALS,state.townGoals);goalPlanTown(townId);return true;}
   function goalProgress(townId){const e=goalEffective(townId),parts=[];const levels=abCurrentLevels(townId)||{};for(const[id,t]of Object.entries(e.build||{})){const tgt=+t||0;if(tgt>0)parts.push(Math.min(1,(+(levels[id]||0))/tgt))}let info=null;try{info=researchTownTechs(townId)}catch(_){};for(const[id,on]of Object.entries(e.research||{}))if(+on)parts.push(info&&info.techs&&info.techs[id]?1:0);const units=goalUnitCounts(townId);for(const[id,t]of Object.entries(e.units||{})){const tgt=+t||0;if(tgt>0)parts.push(Math.min(1,(+(units[id]||0))/tgt))}return parts.length?Math.round(parts.reduce((a,b)=>a+b,0)/parts.length*100):100;}
   function goalMandatoryModules(){const out=[];for(const [tid,q] of Object.entries(state.virtualQueueOverrides||{})){if(!q||!q.mandatory)continue;for(const key of Object.keys(q.mandatory)){if(!q.mandatory[key]||q.blocked&&q.blocked[key]||q.hidden&&q.hidden[key])continue;const kind=String(key).split(':')[0],mod=kind==='build'?'build':kind==='research'?'research':kind==='recruit'?'recruit':null;if(mod&&!out.includes(mod))out.push(mod)}}return out;}
-
   const AB_BUILDINGS = ['main', 'storage', 'farm', 'academy', 'temple', 'barracks', 'docks', 'market', 'hide', 'lumber', 'stoner', 'ironer', 'wall',
     'theater', 'thermal', 'library', 'lighthouse', 'tower', 'statue', 'oracle', 'trade_office'];
   const AB_LABELS = {
@@ -8084,7 +7977,6 @@ const STORE = {
     barracks: 10, temple: 5, market: 10, hide: 10,
     lumber: 15, stoner: 15, ironer: 15, wall: 10,
   };
-
   const AB_SEND_SPACING_MS = 1100;
   function abDefaultTargets() { return Object.assign({}, AB_CS_FAST); }
   function abDefaultOrder() { return AB_BUILDINGS.slice(); }
@@ -8535,7 +8427,6 @@ const STORE = {
     gbLog(job.chunkSize?`${label} en lotes de ${job.chunkSize}`:label);
     gbTimeout(()=>recruitScan('native'),80);return true;
   }
-
   function nativeQueueCompactRecruit(townId,lane) {
     lane=lane||'recruit';
     const list=nativeQueueList(townId,lane,false);
@@ -8559,7 +8450,6 @@ const STORE = {
     }
     return merged;
   }
-
   function nativeQueueAddRecruitBatch(townId,unit,total,chunk) {
     const T=Math.floor(+total||0),C=Math.floor(+chunk||0);
     if(!unit||!gbGameDataLookup("units", unit))return {ok:false,why:'unidad desconocida'};
@@ -9169,14 +9059,12 @@ const STORE = {
     row.append(plus,more);ctl.append(row);
     nativeQctlHitCheck(ctl,unit);
   }
-
   let nativeQPopCleanup=null;
   function nativeQPopClose() {
     try{if(nativeQPopCleanup)nativeQPopCleanup()}catch(_){}
     nativeQPopCleanup=null;
     try{document.querySelectorAll('.gb-native-qpop').forEach(n=>n.remove())}catch(_){}
   }
-
   function nativeRecruitPopover(root,tile,townId,unit,anchor) {
     nativeQPopClose();
     const at=anchor||tile;
@@ -9261,9 +9149,7 @@ const STORE = {
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
     ctl.append(minus,count);nativeQctlHitCheck(ctl,tech);
   }
-
   const nativeQPanelCollapsed=Object.create(null);
-
   function nativeLayoutPanels() {
     try{
       const order={build:0,research:1,recruit:2,recruitNaval:3};
@@ -9287,7 +9173,6 @@ const STORE = {
       });
     }catch(_){}
   }
-
   function nativeRenderQueuePanel(root,townId,lane,units) {
 
     let box=document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`);
@@ -9535,6 +9420,7 @@ const STORE = {
     if (need.popBlind) {
       gbLogT('ab-pop-blind-' + building, 900000, `build: population cost for ${building} unreadable - population check is blind, server decides`);
     }
+
     const popShort = need.pop > 0 && pop < need.pop;
     if (have.wood < need.wood + margin || have.stone < need.stone + margin || have.iron < need.iron + margin) return { ok: false, why: 'resources', need, have, margin, popShort };
     if (popShort) return { ok: false, why: 'population', need, have, margin, popShort };
@@ -9881,7 +9767,6 @@ const STORE = {
         + (state.abAuto ? ' \u00b7 AUTO' : ' \u00b7 off');
     }
   }
-
   function checkThresholds() {
     let changed = false;
     for (const f of state.farmsParsed) {
@@ -9907,7 +9792,6 @@ const STORE = {
     if (_checkThreshT) return;
     _checkThreshT = gbTimeout(() => { _checkThreshT = 0; try { checkThresholds(); } catch (_) {} }, CHECK_THRESHOLDS_SOON_MS);
   }
-
   const CAVE_MIN_STORE = 100;
   function caveTownEnabled(townId) {
     const id = String(townId);
@@ -9921,19 +9805,16 @@ const STORE = {
     state.caveTowns[id] = !!on;
     save(STORE.CAVE_TOWNS, state.caveTowns);
   }
-
   const CAVE_CAP_FNS = ['getHideStorageCapacity', 'getEspionageStorageCapacity', 'getHideCapacity',
     'getMaxEspionageStorage', 'getEspionageStoreCapacity'];
   const CAVE_STORED_FNS = ['getEspionageStorage', 'getHideStorage', 'getEspionageStore',
     'getStoredIron', 'getHideIron'];
-
   function caveCapacityFromLevel(level) {
 
     const n = Math.max(0, Math.floor(+level || 0));
     if (n === 10) return { capacity: null, unlimited: true };
     return { capacity: n > 0 && n < 10 ? n * 1000 : null, unlimited: false };
   }
-
   function caveTownInfo(townId) {
     const uw = uwCached();
     let t = null;
@@ -10003,7 +9884,6 @@ const STORE = {
     else if (hideCap == null) hideCap = levelCapacity.capacity;
     return { town: t, hideLvl, iron, cap, hideCap, stored, unlimited };
   }
-
   function caveDiag(townId) {
     const uw = uwCached();
     const id = townId != null ? townId : (caveListTownIds()[0]);
@@ -10024,7 +9904,6 @@ const STORE = {
     gbLog(`cave diag town ${id}: hide${info && info.hideLvl} iron=${info && info.iron} cap=${info && info.cap} hideCap=${info && info.hideCap} stored=${info && info.stored} unlimited=${info && info.unlimited}`);
     return { keys: hits, attrs, info };
   }
-
   function caveExcessAmount(info) {
     if (!info || !(info.cap > 0) || info.iron == null) return 0;
     if (!(info.hideLvl > 0)) return 0;
@@ -10058,7 +9937,6 @@ const STORE = {
       town_id: +townId,
     }, onDone);
   }
-
   function caveListTownIds() {
     const ids = [];
     const seen = new Set();
@@ -10082,7 +9960,6 @@ const STORE = {
     } catch (_) {}
     return ids;
   }
-
   function caveScan(reason) {
     if (!hostEnabled() || !state.autoCave || captchaPaused('cave')) return;
     if (gbLocked('cave')) { gbLogT('cave-inflight', 30000, 'cave: skipped (in flight)'); return; }
@@ -10143,7 +10020,6 @@ const STORE = {
       });
     })();
   }
-
   function caveTownRowText(id, nameById, uw) {
     let name = nameById[String(id)] || id;
     if (name === id) {
@@ -10175,7 +10051,6 @@ const STORE = {
     if (document.hidden) return;
     renderCaveTowns();
   }
-
   function renderCaveTowns() {
     const box = panel && panel.querySelector('.cave-towns');
     if (!box) return;
@@ -10238,7 +10113,6 @@ const STORE = {
       box.appendChild(label);
     });
   }
-
   const CULTURE_COSTS = {
     party: { wood: 15000, stone: 18000, iron: 15000, academy: 30 },
     triumph: { killpoints: 300 },
@@ -10256,7 +10130,6 @@ const STORE = {
   function cultureGoldSpentSave(spent) {
     save(wkey(STORE.CULTURE_GOLD_SPENT), { day: spent.day, amount: spent.amount });
   }
-
   function culturePlayerGold() { return gbPlayerGold(); }
   function cultureBusyTowns(type) {
     const uw = gameUw();
@@ -10566,7 +10439,6 @@ const STORE = {
   const EMERGENCY_MIN_RISK = 35;
   const EMERGENCY_LEDGER_GRACE_MS = 600000;
   const EMERGENCY_LEDGER_PRUNE_MS = 3600000;
-
   function emergencyMinIron() {
     const n = +state.emergencyCaveMinIron;
     return Number.isFinite(n) ? Math.max(1, Math.min(100000, n)) : 50;
@@ -10739,7 +10611,6 @@ const STORE = {
       nl_init: true,
     }, onDone);
   }
-
   let tradeIncomingCache={at:0,known:false,value:Object.create(null)};
   function tradeIncomingByTown() {
     if(Date.now()-tradeIncomingCache.at<1000)return {known:tradeIncomingCache.known,byTown:tradeIncomingCache.value};
@@ -10762,7 +10633,6 @@ const STORE = {
     }catch(_){}}
     tradeIncomingCache={at:Date.now(),known,value:out};return {known,byTown:out};
   }
-
   function tradeLedger(towns) {
     const incomingState=tradeIncomingByTown();if(!incomingState.known)return null;const L = Object.create(null),incoming=incomingState.byTown;
     for (const t of towns) {
@@ -11155,7 +11025,6 @@ const STORE = {
     }
     return jobs;
   }
-
   function tradeValidateJob(job) {
     const src = tradeTownRes(job.from), tgt = tradeTownRes(job.to);
     if (!src || !tgt || !(src.cap > 0) || !(tgt.cap > 0)) return { ok: false, why: 'town-state-unreadable' };
@@ -11202,7 +11071,6 @@ const STORE = {
     if (!u.known || !u.value) return false;
     return u.value.has(String(townId));
   }
-
   function tradeScan(reason) {
     if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes && !state.autoDump) || captchaPaused('trade')) return;
     if (automationPaused({})) return;
@@ -11279,7 +11147,6 @@ const STORE = {
   const TRANSPORT_SRC_FILL = 0.85;
   const TRANSPORT_TGT_FILL = 0.25;
   const TRANSPORT_ETA_MAX_MS = 24 * 3600 * 1000;
-
   function transportReservePct() {
     return Math.min(80, Math.max(0, gbCfgNum(state.transportReserve, 20))) / 100;
   }
@@ -11469,7 +11336,6 @@ const STORE = {
 
   const DUMP_MAX_JOBS = 4;
   const DUMP_SURPLUS_SHARE = 0.5;
-
   function dumpCfgNum(map, key, def, lo, hi) {
     const v = +((map || {})[key]);
     return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : def;
@@ -11855,7 +11721,6 @@ const STORE = {
       });
     })();
   }
-
   const RESEARCH_CS_FAST = ['booty', 'ceramics', 'architecture', 'crane', 'shipwright', 'colonize_ship', 'mathematics'];
 
   const RG_MAX_DEPTH = 60;
@@ -12183,7 +12048,6 @@ const STORE = {
       return researchAdviseOrder(townId, ordered, targets, info)[0] || null;
     } catch (_) { return null; }
   }
-
   function researchLabel(key) {
     try {
       const uw = gameUw();
@@ -12814,7 +12678,6 @@ const STORE = {
     if (!w || !id) return false;
     return w === id;
   }
-
   function merchantRowPrice(w) {
     if (!w || typeof w !== 'object') return null;
     if (String(w.pricedIn || '') !== 'exchange') return null;
@@ -12929,7 +12792,6 @@ const STORE = {
   const PT_VIEW_TTL_MS = 30000;
   const PT_RES = ['wood', 'stone', 'iron'];
   let ptViewCache = null;
-
   function ptCfg() {
     const c = state.ptCfg || {};
     return {
@@ -12963,7 +12825,6 @@ const STORE = {
     } catch (_) {}
     return null;
   }
-
   function ptInitBlob(text) {
     const s = String(text || '');
     const m = s.match(/PhoenicianSalesman\s*\.\s*initialize\s*\(\s*\{/);
@@ -12990,7 +12851,6 @@ const STORE = {
     }
     return null;
   }
-
   function ptOffersFromInit(init) {
     if (!init || typeof init !== 'object') return null;
     const goods = init.goods;
@@ -13020,7 +12880,6 @@ const STORE = {
     (Array.isArray(goods.units) ? goods.units : []).forEach((e, i) => push('unit', e, i));
     return offers.length ? offers : null;
   }
-
   function ptExchangeFromRow(el) {
     let hay = '';
     try {
@@ -13033,7 +12892,6 @@ const STORE = {
     }
     return hits.size === 1 ? [...hits][0] : null;
   }
-
   function ptOffersFromDomRows(root) {
     if (!root || !root.querySelectorAll) return null;
     let rows = [];
@@ -13070,6 +12928,7 @@ const STORE = {
     });
     return offers.length ? offers : null;
   }
+
   function ptParseOffers(root) {
     if (!root) return null;
     let blob = null;
@@ -13229,7 +13088,6 @@ const STORE = {
     });
     return best;
   }
-
   function ptCanonicalTrade(offer, amount) {
     if (!offer || !offer.name) return null;
     const kind = offer.kind === 'unit' ? 'unit' : 'resource';
@@ -13238,7 +13096,6 @@ const STORE = {
     data[kind + '_amount'] = Math.max(1, Math.floor(amount));
     return { action: 'trade_' + kind + 's', data };
   }
-
   function ptTradePost(townId, offer, amount, onDone, feature) {
     const feat = feature || 'pttrade';
     const tpl = state.ptTradeTpl;
@@ -13522,7 +13379,6 @@ const STORE = {
   }
 
   const GODSPELL_DEFAULT_COOLDOWN_MS = 30 * 60 * 1000;
-
   function godSpellCooldown(townId, powerId) {
     return recruitSpellCooldown(townId, powerId);
   }
@@ -13652,7 +13508,6 @@ const STORE = {
     save(STORE.WONDER_SPENT, { day: spent.day, amount: spent.amount });
   }
   let wonderSpentToday = wonderLoadSpent();
-
   function wonderCoords() {
     const cfg = state.wonderCfg || {};
     const x = Number(cfg.islandX != null ? cfg.islandX : cfg.island_x);
@@ -13661,7 +13516,6 @@ const STORE = {
     return { x: Math.trunc(x), y: Math.trunc(y) };
   }
   function wonderCoordLabel(c) { return c ? `${c.x}/${c.y}` : '\u2014'; }
-
   function wonderScan(reason) {
     if (!hostEnabled() || !state.autoWonder || captchaPaused('wonder')) return;
     if (automationPaused({})) return;
@@ -13881,7 +13735,6 @@ const STORE = {
     if (!due) due = Date.now() + margin * 1000;
     state.dodgeReturns[id]={commandId:id,attackId:String(mov.id||''),from:String(from),dest:String(dest),attackArrival:arrival,dueAt:due,state:'waiting',createdAt:Date.now()};dodgeReturnSave()}
   function dodgeReturnTick(){if(!hostEnabled()||automationPaused({}))return;const now=Date.now();for(const[id,r]of Object.entries(state.dodgeReturns||{})){if(!r||r.state==='done'||r.state==='manual')continue;if(+r.dueAt>now)continue;const live=militaryOutgoingMovements().find(x=>String(x.commandId)===String(r.commandId));if(live&&state.cancelTpl){r.state='returning';dodgeReturnSave();militaryCancelCommand(r.commandId,{confirmed:true,automation:true},err=>{if(!err){r.state='done';r.doneAt=Date.now()}else if(err==='not-cancelable'){r.state='manual';r.why='support already arrived; withdraw manually'}else{r.state='waiting';r.lastError=String(err)}dodgeReturnSave()});}else{r.state='manual';r.why=live?'cancel template missing':'movement no longer cancelable/visible';dodgeReturnSave();gbLogT('dodge-return-'+id,60000,`dodge return ${id}: ${r.why}`)}}}
-
   const DODGE_CHECK_MS = 5000;
   const DODGE_FAIL_BACKOFF = [15000, 45000, 120000];
   const DODGE_QUEUE_TTL = 3600000;
@@ -13958,13 +13811,10 @@ const STORE = {
       save(STORE.DODGE_QUEUE, out);
     } catch (_) {}
   }
-
   const dodgeQueue = dodgeQueueLoad();
-
   const DODGE_HOSTILE_TYPES = /^(attack|attack_land|attack_sea|attack_takeover|raid|siege|revolt|colonize|take_over|conquer|portal_attack|portal_attack_olympus|portal_revolt_olympus)$/;
   const DODGE_HOSTILE_PREFIX = /^(attack|portal_attack|portal_revolt)(_|$)/;
   const DODGE_FRIENDLY_TYPES = /^(support|support_sea|portal_support_olympus|trade|return|spy|farm|reward|abort)$/;
-
   function dodgeIsHostileMovement(a) {
     const type = gbMovementType(a);
     if (DODGE_FRIENDLY_TYPES.test(type)) return false;
@@ -14018,7 +13868,6 @@ const STORE = {
     } catch (_) {}
     return out;
   }
-
   function dodgeSafeTown(excludeId, incoming) {
     try {
       const uw = gameUw();
@@ -14039,7 +13888,6 @@ const STORE = {
     } catch (_) {}
     return null;
   }
-
   function dodgeCanRaiseMilitia(townId) {
     const farm = gbBuildingLevel(townId, 'farm');
     if (farm != null && farm < 1) return { ok: false, why: 'no farm building' };
@@ -14414,7 +14262,6 @@ const STORE = {
     if (need && god !== need) return { ok: false, why: `god-mismatch:${god}!=${need}` };
     return { ok: true, blind: false, why: null };
   }
-
   function spellCastPost(townId, powerId, onDone) {
     return bridgePost('spell', {
       model_url: 'CastedPowers',
@@ -14606,7 +14453,6 @@ const STORE = {
     if (!(amount > 0)) return { ok: false, why: 'resources/pop/favor' };
     return { ok: true, amount: Math.min(amount, job.amount) };
   }
-
   let recruitNativeCursor=0,recruitLegacyCursor=0;
   function recruitRotate(ids,cursor){if(!ids.length)return ids;const at=Math.max(0,cursor%ids.length);return ids.slice(at).concat(ids.slice(0,at))}
 
@@ -14626,7 +14472,7 @@ const STORE = {
     if (!hostEnabled() || (!state.autoRecruit && !nativePending) || captchaPaused('recruit')) return;
     if (automationPaused({})) return;
     if (gbLocked('recruit')) return;
-    // Farm precedence: no unit post while a village claim is still possible.
+
     if (farmFirstHold('recruit')) return;
     recruitScanResetMemo();
     const targets = goalEffectiveRecruitTargets();
@@ -14759,7 +14605,6 @@ const STORE = {
   const VILLAGE_PAIR_LOW = ['sword', 'archer'];
   const VILLAGE_PAIR_HIGH = ['hoplite', 'slinger'];
   const VILLAGE_RECRUIT_STREAK_TRIP = 2;
-
   function villagePairPick(unitCounts) {
 
     if (!unitCounts || typeof unitCounts !== 'object') return null;
@@ -14853,14 +14698,12 @@ const STORE = {
       town_id: +farm.owning_town_id || 0,
     }, onDone);
   }
-
   function villageRecruitScan(reason) {
     if (!hostEnabled() || !state.autoVillageRecruit) return;
     if (automationPaused({})) return;
     if (captchaPaused('villrecruit')) return;
     if (gbLocked('village-recruit')) return;
-    // Same hard rule: accepting units from a village never outranks claiming
-    // its resources, even though this loop only fires on a saturated village.
+
     if (farmFirstHold('villrecruit')) return;
 
     if (!state.acceptUnitsTpl || !state.acceptUnitsTpl.action_name) {
@@ -14910,7 +14753,6 @@ const STORE = {
       return;
     }
   }
-
   function batchRecruitNormLists() {
     let root = state.batchRecruitLists;
     if (!root || typeof root !== 'object' || Array.isArray(root)) root = state.batchRecruitLists = { towns: {} };
@@ -14975,7 +14817,6 @@ const STORE = {
       batchRecruitListSave();
     }
   }
-
   function batchRecruitCostPreview(townId, rows) {
     const t = (typeof gbTownModel === 'function') ? gbTownModel(townId) : null;
     const list = Array.isArray(rows) ? rows : batchRecruitTownList(townId);
@@ -15004,7 +14845,6 @@ const STORE = {
       && pop <= (havePop == null ? Infinity : havePop);
     return { wood, stone, iron, pop, favor, haveWood, haveStone, haveIron, havePop, fits, missing };
   }
-
   const _batchRecruitBlind = new Set();
   function batchRecruitAtomicAfford(townId) {
     const list = batchRecruitTownList(townId);
@@ -15028,7 +14868,6 @@ const STORE = {
     }
     return { ok: true };
   }
-
   function batchRecruitFire(townId) {
     const list = batchRecruitTownList(townId);
     if (!list.length) return;
@@ -15075,7 +14914,6 @@ const STORE = {
     } catch (_) {}
     return false;
   }
-
   function batchRecruitUiAllUnits() {
     const out = [];
     try {
@@ -15141,7 +14979,6 @@ const STORE = {
     const withLists = ids.filter(id => batchRecruitTownList(id).length);
     return withLists[0] || ids[0] || '';
   }
-
   function batchRecruitUiPaint() {
     const sec = trainSection();
     if (!sec) return;
@@ -15291,7 +15128,6 @@ const STORE = {
     if (!batchRecruitHasAnyTown()) { flash('no hay listas armadas'); return; }
     batchRecruitScan('manual');
   }
-
   const RECRUIT_PACK_NAME_MAX = 40;
   function recruitPacksRoot() {
     if (!state.recruitPacks || typeof state.recruitPacks !== 'object' || Array.isArray(state.recruitPacks)) {
@@ -15299,14 +15135,12 @@ const STORE = {
     }
     return state.recruitPacks;
   }
-
   function recruitPacksSave() {
     try { save(STORE.RECRUIT_PACKS, recruitPacksRoot()); } catch (_) {}
   }
   function recruitPackNames() {
     return Object.keys(recruitPacksRoot()).sort((a, b) => a.localeCompare(b));
   }
-
   function recruitPackRows(name) {
     const key = String(name == null ? '' : name);
     if (!key) return [];
@@ -15337,7 +15171,6 @@ const STORE = {
     recruitPacksSave();
     return true;
   }
-
   function recruitPackAddRow(name, unit, amount) {
     const key = String(name == null ? '' : name);
     if (!key || !unit || !gbGameDataLookup('units', unit)) return false;
@@ -15365,7 +15198,6 @@ const STORE = {
     recruitPacksSave();
     return true;
   }
-
   function recruitPackApply(name, townId, mode) {
     const rows = recruitPackRows(name);
     const id = String(townId == null ? '' : townId);
@@ -15387,7 +15219,6 @@ const STORE = {
     for (const id of ids) { if (recruitPackApply(name, id, mode) > 0) towns++; }
     return towns;
   }
-
   function trainSection() {
     return panel && panel.querySelector('section[data-tab=train]');
   }
@@ -15400,7 +15231,6 @@ const STORE = {
   function recruitTargetsSave() {
     try { save(STORE.RECRUIT_TARGETS, recruitTargetsRoot()); } catch (_) {}
   }
-
   function recruitTargetTownMap(townId, create) {
     const root = recruitTargetsRoot();
     const id = String(townId == null ? '' : townId);
@@ -15419,7 +15249,6 @@ const STORE = {
       return m && typeof m === 'object' && !Array.isArray(m) && Object.keys(m).length;
     }).length;
   }
-
   function recruitTargetSet(townId, unit, amount) {
     const id = String(townId == null ? '' : townId);
     if (!id || !unit || !gbGameDataLookup('units', unit)) return false;
@@ -15465,7 +15294,6 @@ const STORE = {
         : 'sin objetivos \u2014 el reclutamiento automatico no tiene nada que reponer';
     }
   }
-
   function trainTargetRowText(townId, unit, tgt) {
     let have = null, queued = null;
     try { const counts = goalUnitCounts(townId); have = counts && Object.prototype.hasOwnProperty.call(counts, unit) ? +counts[unit] || 0 : (counts ? 0 : null); } catch (_) {}
@@ -15804,7 +15632,6 @@ const STORE = {
     on('[data-cfg=batch-recruit-arm]', 'click', e => { e.preventDefault(); try { batchRecruitUiArm(); } catch (err) { gbLog(`batch-recruit arm err: ${err}`); } });
     on('[data-cfg=batch-recruit-clear]', 'click', e => { e.preventDefault(); try { batchRecruitUiClear(); } catch (err) { gbLog(`batch-recruit clear err: ${err}`); } });
   }
-
   function batchRecruitScan(reason) {
     if (!hostEnabled() || !state.batchRecruit) return;
     if (automationPaused({})) return;
@@ -16095,7 +15922,6 @@ const STORE = {
     flash('plantilla aplicada: ' + name);
     try { renderAbQueue && renderAbQueue(); } catch (_) {}
   }
-
   function renderGoals() {
     const sec=panel&&panel.querySelector('section[data-tab=overview]');if(!sec||sec.hidden)return;const box=sec.querySelector('.goals-panel');if(!box)return;
     let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){};const profiles=goalProfiles();
@@ -16125,7 +15951,6 @@ const STORE = {
       const lines=(plan.actions||[]).slice(0,12);if(!lines.length){const e=document.createElement('div');e.textContent='  objetivo cumplido / sin acciones';e.style.cssText='padding:2px 6px;color:#777';gbTip(e,'No hay acciones pendientes: o el plan esta cumplido o la ciudad no tiene objetivos');box.appendChild(e)}else for(const a of lines){const row=document.createElement('div');row.style.cssText='display:grid;grid-template-columns:1fr auto;gap:3px;padding:2px 4px;border-bottom:1px solid #1e1e1e;align-items:center';const text=document.createElement('span');const c=a.cost||{},cost=[c.wood||0,c.stone||0,c.iron||0].join('/');text.textContent=`${a.mandatory?'! ':''}${a.kind} ${a.id}${a.level?' \u2192 '+a.level:''}${a.amount?' \u00d7'+a.amount:''} \u00b7 ${a.status} \u00b7 ${cost}${a.why?' \u00b7 '+a.why:''}`;gbTip(text,'Accion del plan: tipo, nivel, cantidad, estado, coste y motivo');row.appendChild(text);const acts=document.createElement('span');acts.style.cssText='display:flex;gap:2px';const mk=(label,title,fn)=>{const x=document.createElement('button');x.textContent=label;gbTip(x,title);x.style.cssText='font-size:8px;padding:0 3px';x.addEventListener('click',()=>{fn();rerender()});acts.appendChild(x)};mk('\u2191','Subir en la cola virtual',()=>goalQueueMove(tid,a.queueKey,-1));mk('\u2193','Bajar en la cola virtual',()=>goalQueueMove(tid,a.queueKey,1));mk(a.status==='user-blocked'?'ON':'B','Bloquear o desbloquear esta accion',()=>goalQueueToggleBlock(tid,a.queueKey));mk(a.mandatory?'*':'!','Marcar o desmarcar como prioridad obligatoria',()=>goalQueueToggleMandatory(tid,a.queueKey));mk('\u00d7','Suprimir hasta Reset Q',()=>goalQueueHide(tid,a.queueKey));row.appendChild(acts);box.appendChild(row)}
     }
   }
-
   function plannerFmt(n) { return n == null || !Number.isFinite(+n) ? '?' : Math.floor(+n).toLocaleString(); }
   function renderPlanner() {
     const sec = panel && panel.querySelector('section[data-tab=overview]');
@@ -16167,7 +15992,6 @@ const STORE = {
       vals.forEach(v=>{const e=document.createElement('span');e.textContent=v;row.appendChild(e)}); row.title=`hard reserve ${JSON.stringify(s.reserve.hard)} | soft ${JSON.stringify(s.reserve.soft)} | incoming ${JSON.stringify(s.incoming)}`; gbTip(row, `Reservas duras: ${JSON.stringify(s.reserve.hard)} | blandas: ${JSON.stringify(s.reserve.soft)} | entrantes: ${JSON.stringify(s.incoming)}`); box.appendChild(row);
     }
   }
-
   function qolOverviewData() {
     const uw = gameUw();
     let townN = 0, farmReady = 0, farmTotal = 0, cultureBusy = 0;
@@ -16214,7 +16038,6 @@ const STORE = {
       userPause: userPausedUntil > Date.now() ? userPausedUntil : 0,
     };
   }
-
   function renderHealth() {
     const sec=panel&&panel.querySelector('section[data-tab=overview]');if(!sec||sec.hidden)return;const box=sec.querySelector('.health-panel');if(!box)return;
     const names=new Set([...Object.keys(moduleHealth||{}),...Object.keys(state.circuits||{})]);
@@ -16268,7 +16091,6 @@ const STORE = {
     const why=sec.querySelector('.why-panel');if(why)why.textContent=(state.whyLog||[]).slice(0,12).map(x=>`${new Date(x.ts).toLocaleTimeString()} \u00b7 ${x.feature} \u00b7 ${x.status}${x.why?' \u00b7 '+x.why:''}`).join('\n')||'Todav\u00eda no hay decisiones registradas.';
     renderHealth();
   }
-
   function renderOverview() {
     const box = panel && panel.querySelector('.overview-panel');
     if (!box) return;
@@ -16565,7 +16387,6 @@ const STORE = {
     gbLog(`config preset "${preset.label}" applied: ${applied.length} setting(s) changed; HIGH-RISK loops forced OFF`);
     return true;
   }
-
   const ORCH_MS = 20000;
   const ORCH_MAX_PER_TICK = 3;
   const ORCH_SPACING_MS = 450;
@@ -16596,7 +16417,6 @@ const STORE = {
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
     recruit: 'recruit', villrecruit: 'villageRecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
   };
-
   const ORCH_JRN = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
@@ -16672,10 +16492,7 @@ const STORE = {
 
   const ORCH_PIN_RATIO = 0.97;
   const ORCH_DRAIN_KEYS = ['cave', 'trade', 'ruraltrade'];
-  // Unit production is strictly worse than free village income: it spends a
-  // request-budget slot and a captcha risk on units the village would have
-  // handed over for nothing. recruitScan/villageRecruitScan repeat the gate at
-  // the post site so a wake or toggle path cannot route around the scheduler.
+
   const ORCH_UNIT_KEYS = ['recruit', 'villrecruit'];
   function orchFarmFirst() {
     try { return typeof farmClaimPending === 'function' && farmClaimPending(); }
@@ -16734,13 +16551,11 @@ const STORE = {
     orchDeadlock.stuckLoggedAt = now;
     gbLog(`orch: deadlock cannot drain (${why}) - spend resources by hand (build/recruit/culture)`);
   }
-
   function orchIdleFactor(key) {
     if (state.orchAdaptive === false) return 1;
 
     if (orchDeadlock.open && ORCH_DRAIN_KEYS.includes(key)) return 1;
-    // A ready village is known work, not idleness. Widening farm's cadence to
-    // 8x while units are held behind it would stall both.
+
     if (key === 'farm' && orchFarmFirst()) return 1;
     const streak = orchIdle[key] || 0;
     if (streak < ORCH_IDLE_TRIP) return 1;
@@ -16766,7 +16581,6 @@ const STORE = {
       gbLog(`orch: ${key} idle ${ORCH_IDLE_TRIP}x - widening cadence (adaptive)`);
     }
   }
-
   function orchStatus() {
     const now = Date.now();
     return orchDefaultOrder().map(key => ({
@@ -17017,7 +16831,6 @@ const STORE = {
       .sort((a, b) => b.perRaid - a.perRaid)
       .slice(0, INTEL_FARM_TOP);
   }
-
   function intelThreatBoard() {
     return (typeof dodgeIncomingMovements === 'function') ? dodgeIncomingMovements() : [];
   }
@@ -17033,7 +16846,6 @@ const STORE = {
   const PLAYER_DISAPPEARED_MS = 14 * 86400000;
   const PLAYER_HISTORY_MS = PLAYER_DISAPPEARED_MS;
   const PLAYER_MAX_ROWS = 30;
-
   function intelTownKey(f) {
     if (!f) return null;
     if (f.town && f.town.id != null && f.town.id !== '') return 'town:' + f.town.id;
@@ -17933,7 +17745,6 @@ const STORE = {
     });
     return hits;
   }
-
   const QUEST_SCAN_MS = 12000;
   const QUEST_HISTORY_MAX = 100;
   let questMo = null;
@@ -17974,10 +17785,8 @@ const STORE = {
     gbLog('quest: claim backoff', id, 'fail #' + f.n, Math.round(wait / 60000) + 'min', String(err || ''));
   }
   function questClaimOk(id) { delete questClaimFail[id]; questClaimFailSave(); }
-
   const QUEST_SAFE_BUILD = /build_cost_reduction|construction_cost_reduction|buildcostreduction|building_cost_reduction/;
   const QUEST_SAFE_RES = /^(resources|favor)$/i;
-
   function questRows() {
     return Array.from(document.querySelectorAll('.quests .quest, #questlog .quest, .questlog .quest'))
       .filter(el => el && el.dataset && el.dataset.questId);
@@ -18510,7 +18319,6 @@ const STORE = {
       hist.textContent = lines.join('\n') || '(empty)';
     }
   }
-
   const ATTACK_HISTORY_MAX = 50;
   const ATTACK_ROLE_OFFENSE = '__attack_offense';
   const ATTACK_ROLE_DEFENSE = '__attack_defense';
@@ -19117,7 +18925,6 @@ const STORE = {
     attackArmed = null;
     renderAttack();
   }
-
   function patchAttackFireStatus() {
     const sec = panel && panel.querySelector('section[data-tab=attack]');
     if (!sec || sec.hidden) return;
@@ -19134,7 +18941,6 @@ const STORE = {
     const armed = sec.querySelector('#gb-atk-armed');
     if (armed) armed.textContent = attackArmed ? `ARMED (${attackArmed.rows.length})` : '';
   }
-
   const ATTACK_ARM_MAX_MS = 90000;
   function armAttackWave(plan, rows) {
     cancelArmedAttack();
@@ -19612,7 +19418,6 @@ const STORE = {
     const plan = ensureAttackPlan();
     return (Array.isArray(plan.targets) ? plan.targets : []).map(t => String(t.id));
   }
-
   function renderSharedPlan(sec) {
     const box = sec && sec.querySelector('.atk-shared');
     if (!box || sec.hidden) return;
@@ -20313,14 +20118,12 @@ const STORE = {
     sec.querySelector('#gb-atk-cmds-refresh')?.addEventListener('click', () => renderAttack());
     sec.querySelector('#gb-atk-heroes-refresh')?.addEventListener('click', () => renderAttack());
   }
-
   const STATS_WINDOWS = { '1h': 3600000, '24h': 86400000, '7d': 604800000 };
   let statsWindow = '24h';
 
   const SUPPORT_LEDGER_GRACE_MS = 600000;
   const SUPPORT_LEDGER_PRUNE_MS = 3600000;
   const SUPPORT_BANDS = ['high', 'cs'];
-
   function supportCfg() {
     const c = (state.supportCfg && typeof state.supportCfg === 'object') ? state.supportCfg : {};
     return {
@@ -20490,7 +20293,6 @@ const STORE = {
       });
     }
   }
-
   function supportTryBurst(mov) {
     const cfg = supportCfg();
     if (!cfg.auto) return;
@@ -20572,7 +20374,6 @@ const STORE = {
       });
     }
   }
-
   function supportScan(reason) {
     supportLedgerPrune();
     if (!supportCfg().auto) return;
@@ -20593,7 +20394,6 @@ const STORE = {
   const RF_MODE_ES = { land: 'terrestre', naval: 'naval', both: 'ambas', all_of_type: 'todo el tipo', per_town: 'por ciudad' };
   let rfArmed = null;
   let rfPreviewRows = [];
-
   function rfDefaultPlan() {
     return {
       targetId: '',
@@ -20687,7 +20487,6 @@ const STORE = {
     if (isSameIsland(townId, target)) return units;
     return attackAddMinimumTransports(townId, units);
   }
-
   function rfResolveTarget(plan) {
     const id = String(plan.targetId || '').trim();
     if (!id) return null;
@@ -20733,7 +20532,6 @@ const STORE = {
     flash('destino -> ' + (t.name ? `${t.name} (#${t.id})` : String(t.id)));
     return true;
   }
-
   function rfBuildSchedule(planArg) {
     const plan = planArg || rfPlan();
     const target = rfResolveTarget(plan);
@@ -20767,7 +20565,6 @@ const STORE = {
     });
     return { target, rows, now, skew };
   }
-
   function rfSend(target, srcTownId, units, onDone) {
     if (!hostEnabled()) { flash('bot desactivado en este servidor'); return onDone && onDone('disabled'); }
     if (captchaPaused('support')) { flash('refuerzos pausados (captcha)'); return onDone && onDone('captcha'); }
@@ -20825,7 +20622,6 @@ const STORE = {
     else gbLog(`support ajax: town_info/send_units town ${srcTownId} -> ${destId} (support, ${Object.keys(sendUnits).length} tipos / ${count} unidades)`);
     gameAjaxPost('support', 'town_info', 'send_units', params, settle);
   }
-
   function rfPushHistory(entry) {
     if (!Array.isArray(state.reinforceHistory)) state.reinforceHistory = [];
     state.reinforceHistory.unshift(entry);
@@ -20989,7 +20785,6 @@ const STORE = {
       });
     })();
   }
-
   function rfReadForm() {
     const sec = panel && panel.querySelector('section[data-tab=reinforce]');
     const plan = rfPlan();
@@ -21031,7 +20826,6 @@ const STORE = {
     rfSelectSources(ids);
     flash(`${role === ATTACK_ROLE_DEFENSE ? 'defensa' : 'ofensiva'} ciudades seleccionadas (${ids.length})`);
   }
-
   function rfRenderSources(sec, plan) {
     const srcBox = sec.querySelector('.rf-sources');
     if (!srcBox) return;
@@ -21239,7 +21033,6 @@ const STORE = {
     rfRenderPerTown(sec, plan);
     rfRenderSchedule(sec);
   }
-
   function bindReinforceTab() {
     const sec = panel && panel.querySelector('section[data-tab=reinforce]');
     if (!sec || sec.dataset.bound) return;
@@ -21291,7 +21084,6 @@ const STORE = {
   const SPS_HISTORY_MAX = 40;
   const SPS_DEFAULT_CHUNK = 1000;
   let spsStopFlag = false;
-
   function spsCfg() {
     const c = (state.spySendCfg && typeof state.spySendCfg === 'object' && !Array.isArray(state.spySendCfg)) ? state.spySendCfg : {};
     return {
@@ -21360,7 +21152,6 @@ const STORE = {
     } catch (_) {}
     return towns.length ? String(towns[0].id) : '';
   }
-
   function spsPost(srcTownId, targetId, amount, onDone) {
     const params = { id: +targetId, espionage_iron: Math.floor(+amount), town_id: +srcTownId };
     if (state.exportRedact === false) gbLog('spy ajax:', JSON.stringify(params));
@@ -21515,7 +21306,6 @@ const STORE = {
     };
     step();
   }
-
   function spsReadForm() {
     const sec = panel && panel.querySelector('section[data-tab=spy]');
     if (!sec) return spsCfg();
@@ -21674,7 +21464,6 @@ const STORE = {
   const SNAPSHOT_INTERVAL_MS = 300000;
   const SNAPSHOT_BUDGET_BYTES = 200000;
   let snapshotLastAt = 0;
-
   function snapshotRing() {
     if (!Array.isArray(state.snapshots)) state.snapshots = [];
     return state.snapshots;
@@ -21965,7 +21754,6 @@ const STORE = {
     }
     return lines.length > 1 ? lines : [];
   }
-
   function preflightProbe(name, fn) {
     try {
       const r = fn();
@@ -22529,6 +22317,7 @@ const STORE = {
           if (!dropped.includes(t)) dropped.push(t);
         }
       } catch (_) { total = -1; }
+
       return {
         ok: true,
         warn: unknown > 0 || total === 0,
@@ -22577,7 +22366,6 @@ const STORE = {
     }));
     return out;
   }
-
   let preflightLast = null;
   function preflightRunAndRender() {
     preflightLast = { at: Date.now(), rows: preflightRun() };
@@ -22587,7 +22375,6 @@ const STORE = {
     renderStats();
     flash(bad ? `preflight: ${bad} failing` : 'preflight: all pass');
   }
-
   function renderStats() {
     const sec = panel && panel.querySelector('section[data-tab=stats]');
     if (!sec || sec.hidden) return;
@@ -22951,7 +22738,6 @@ const STORE = {
   let ctxMenuEl = null;
   let ctxMenuTown = null;
   let ctxTimer = 0;
-
   function ctxReadTownId(popup) {
     for (const a of CTX_ID_ATTRS) {
       const holder = popup.matches && popup.matches('[' + a + ']') ? popup : popup.querySelector('[' + a + ']');
@@ -23096,7 +22882,6 @@ const STORE = {
   const HUD_ETA_CAP_H = 24;
   let hudProdWidget = null;
   let hudEtaWidget = null;
-
   function hudCurrentTownId() {
     try { const id = gameUw().Game && gameUw().Game.townId; if (id != null) return String(id); } catch (_) {}
     const t = (state.towns || [])[0];
@@ -23282,7 +23067,6 @@ const STORE = {
     @media(max-width:760px){#grepbot-queue-center{left:2vw!important;top:4vh!important;width:96vw!important;height:80vh!important}#grepbot-queue-center .gb-qc-body{grid-template-columns:1fr}}
     `);
   }
-
   function queueCenterTownIds() {
     let ids = [];
     try { ids = Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}); } catch (_) {}
@@ -23410,7 +23194,6 @@ const STORE = {
     }
     return nativeQueueRemove(townId, lane, job.id, { force: true });
   }
-
   function renderQueueCenterBuild(body, townId) {
     const q = abQueueInfo(townId);
     const live = queueCenterCard('Cola real de construcci\u00f3n', q.known ? `${q.len}/${q.max}` : 'estado no legible', 'Numero de ordenes reales en la cola del juego');
@@ -23779,7 +23562,6 @@ const STORE = {
     if (!gbQcTickTimer) return;
     gbClearInterval(gbQcTickTimer); gbQcTickTimer = 0;
   }
-
   function openQueueCenter(tab, townId) {
     if (tab) gbQueueCenterTab = tab;
     if (townId != null) gbQueueCenterTown = String(townId);
@@ -23830,7 +23612,6 @@ const STORE = {
     else f[key] = val;
     save(STORE.TAB_FILTERS, f);
   }
-
   const _gbSortFn = new WeakMap();
   function sortRows(table, col, asc) {
     const rowDataFn = _gbSortFn.get(table);
@@ -23876,7 +23657,6 @@ const STORE = {
       });
     });
   }
-
   function renderSleepStatus() {
     const el = panel && panel.querySelector('#gb-sleep-status');
     if (!el) return;
@@ -23886,7 +23666,6 @@ const STORE = {
       ` | auto ${state.farmSleepAuto ? 'ON' : 'OFF'}${state.farmSleepDay ? ' | last ' + state.farmSleepDay : ''}`;
     el.style.color = known ? '#888' : '#fc6';
   }
-
   function tableShell(list, headers, key) {
     let table = list.querySelector('table');
     if (!table) {
@@ -24115,7 +23894,6 @@ const STORE = {
     if (n >= 1000) return Math.round(n/1000) + 'k';
     return String(n);
   }
-
   const PANEL_MIN_W = 360, PANEL_MIN_H = 200, PANEL_SQ = 40;
   const TAB_GROUPS = [
     { id: 'home', label: 'Inicio', tabs: [
@@ -24138,14 +23916,12 @@ const STORE = {
   const _lastTabInGroup = {};
   let configBound = false;
   let findingsFilterEl = null;
-
   function tabGroupOf(tabId) {
     for (const g of TAB_GROUPS) {
       if (g.tabs.some(t => t.id === tabId)) return g;
     }
     return TAB_GROUPS[0];
   }
-
   function savePanelGeom() {
     if (!panel) return;
     const g = {
@@ -24159,7 +23935,6 @@ const STORE = {
     state.panelGeom = g;
     save(STORE.PANEL_GEOM, g);
   }
-
   function applyPanelGeom(g) {
     if (!panel || !g) return;
     if (g.left != null) { panel.style.left = g.left; panel.style.right = 'auto'; }
@@ -24173,7 +23948,6 @@ const STORE = {
       if (btn) btn.textContent = '[]';
     }
   }
-
   function resetPanelGeom() {
     panel.classList.remove('collapsed');
     panel.style.left = '';
@@ -24188,7 +23962,6 @@ const STORE = {
     save(STORE.PANEL_GEOM, null);
     flash('panel restablecido');
   }
-
   function paintNav(activeTab) {
     if (!panel) return;
     const group = tabGroupOf(activeTab);
@@ -25705,7 +25478,6 @@ const STORE = {
     save(STORE.NEXT_TOWNS, 0);
     farmTick();
   });
-
   function syncFarmTimingCfg(sec) {
     if (!sec) return;
     const lc = sec.querySelector('[data-cfg=farm-long-claims]'); if (lc) lc.checked = !!state.farmLongClaims;
@@ -26638,7 +26410,6 @@ const STORE = {
   panel.querySelector('footer button[data-act=preset-afk]')?.addEventListener('click', presetHandler('afk'));
   panel.querySelector('footer button[data-act=preset-farming]')?.addEventListener('click', presetHandler('farming'));
   panel.querySelector('footer button[data-act=preset-war]')?.addEventListener('click', presetHandler('war'));
-
   function gbDebounce(fn, ms) {
     let t = null;
     return function () {
@@ -26865,7 +26636,6 @@ const STORE = {
     f.textContent = msg; f.style.cssText = 'position:fixed;top:60px;right:8px;background:#f5a623;color:#000;padding:6px 10px;border-radius:4px;z-index:100000';
     document.body.appendChild(f); gbTimeout(() => f.remove(), 1500);
   }
-
   function redactFindingsExport(dump) {
     if (state.exportRedact === false) {
       gbLogT('export-raw', 60000, 'export: redaction OFF - dump contains player names/ids');
@@ -26918,7 +26688,6 @@ const STORE = {
     const txt = lines.length ? head + '\n' + lines.join('\n') : '';
     if (box.textContent !== txt) box.textContent = txt;
   }
-
   function pendingCollect() {
     const out = [];
     for (const intent of Object.keys(state.txState || {})) {
@@ -26929,7 +26698,6 @@ const STORE = {
     out.sort((a, b) => (+a.unknownAt || +a.updatedAt || 0) - (+b.unknownAt || +b.updatedAt || 0));
     return out;
   }
-
   function renderPending() {
     const pane = panel && panel.querySelector('.pending-pane');
     if (!pane || pane.hidden) return;
@@ -27005,7 +26773,6 @@ const STORE = {
       }
     });
   });
-
   let _statusLast = '';
   let _statusCsLast = '';
   let _statusPanicLast = null;
@@ -27416,7 +27183,6 @@ const STORE = {
   gbTimeout(() => { try { hudRestore(); } catch (e) { gbLogT('boot-hud-restore', 60000, 'hud restore: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.HUD_RESTORE_MS);
 
   gbInterval(() => { gbLockSweep(); try { diagnosticsTick(); } catch (e) { gbLogT('boot-diag-tick', 60000, 'diag tick: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.LOCK_SWEEP_MS);
-
   let releaseLocksAt = 0;
   const RELEASE_DEDUP_MS = 3000;
   const releaseLocks = () => {

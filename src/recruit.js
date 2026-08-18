@@ -18,6 +18,10 @@
     // behind `building_temple`, not barracks. Without this branch the bot routes
     // every mythical recruit to barracks every cadence and the server rejects
     // the post — burning a request budget slot and a decision-memory strike.
+    // Mythical/god units (ares spartans, athena centaurs, hera amazons, ...) live
+    // behind `building_temple`, not barracks. Without this branch the bot routes
+    // every mythical recruit to barracks every cadence and the server rejects
+    // the post — burning a request budget slot and a decision-memory strike.
     if (def.is_mythical || def.mythical || def.god) return { controller: 'building_temple', feature: 'recruit' };
     return { controller: 'building_barracks', feature: 'recruit' };
   }
@@ -58,12 +62,24 @@
     // Unreadable god = unknown = blind verdict, let the server be the authority.
     // Use the scan-tick memo when present so we don't re-hit unsafeWindow for
     // every candidate in the inner loop.
+    // Unreadable god = unknown = blind verdict, let the server be the authority.
+    // Use the scan-tick memo when present so we don't re-hit unsafeWindow for
+    // every candidate in the inner loop.
     const god = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
     if (god == null) return { ok: true, blind: true, why: null };
+    // A READ god is authoritative: only the spell's own god may cast it.
     // A READ god is authoritative: only the spell's own god may cast it.
     const need = RECRUIT_SPELL_GODS[powerId];
     if (need && god !== need) return { ok: false, why: `god-mismatch:${god}!=${need}` };
     return { ok: true, blind: false, why: null };
+  }
+  function spellCastPost(townId, powerId, onDone) {
+    return bridgePost('spell', {
+      model_url: 'CastedPowers',
+      action_name: 'cast',
+      arguments: { power_id: powerId, target_id: +townId },
+      town_id: +townId,
+    }, onDone);
   }
   function recruitCastSpell(townId, powerId, onDone) {
     if (!powerId || !RECRUIT_SPELLS.includes(powerId)) return onDone && onDone('bad-power');
@@ -72,10 +88,7 @@
     if (pre.blind) gbLogT('spell-precond-blind-' + townId, 300000, 'spell: god unreadable; blind precheck, server is the authority');
     const left = recruitSpellCooldown(townId, powerId);
     if (left > 0) { gbLogT('spell-cooldown-' + townId, 60000, `spell: cooldown ${Math.ceil(left/1000)}s left`); return onDone && onDone('skip:cooldown'); }
-    gameAjaxPost('spell', 'town_overviews', 'cast_power', {
-      power_id: powerId,
-      town_id: +townId,
-    }, onDone);
+    spellCastPost(townId, powerId, onDone);
   }
   function recruitBuild(townId, unitId, amount, onDone) {
     const ctrl = recruitControllerFor(unitId);
@@ -144,6 +157,9 @@
           // Unreadable techs = unknown, not "missing". Blind precheck: let the
           // server be the authority. Log once per (townId,unitId) so the player
           // sees which gate silently went blind instead of a hard block.
+          // Unreadable techs = unknown, not "missing". Blind precheck: let the
+          // server be the authority. Log once per (townId,unitId) so the player
+          // sees which gate silently went blind instead of a hard block.
           const k = townId + '|' + unitId + '|tech';
           if (!_recruitBlindLog.has(k)) { _recruitBlindLog.add(k); gbLogT('recruit-blind-' + townId + '-' + unitId, 300000, 'recruit: ' + unitId + ' techs unreadable in town ' + townId + ' - blind precheck, server judges'); }
           return true;
@@ -153,6 +169,8 @@
       let buildings = null;
       try { const b = t.getBuildings ? t.getBuildings() : (t.buildings && t.buildings()); buildings = b && (b.attributes || b); } catch (_) {}
       if (!buildings) {
+        // Same blind-on-unknown contract as above: a renamed getter must not
+        // strand a feature. Log once and return true so the server judges.
         // Same blind-on-unknown contract as above: a renamed getter must not
         // strand a feature. Log once and return true so the server judges.
         const k = townId + '|' + unitId + '|bld';
@@ -171,6 +189,9 @@
       if (def.god || def.mythical || def.is_mythical) {
         const requiredGod = def.god ? String(def.god).toLowerCase() : null;
         const townGod = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
+        // Unreadable god is UNKNOWN, not "wrong god": client builds rename
+        // getGod()/god attributes, and blocking on the miss silently killed
+        // every mythical unit in every town. A read god still decides.
         // Unreadable god is UNKNOWN, not "wrong god": client builds rename
         // getGod()/god attributes, and blocking on the miss silently killed
         // every mythical unit in every town. A read god still decides.
@@ -223,6 +244,7 @@
     if (!q.known) return false;
     if (q.max != null) return q.len < q.max;
     // If max cannot be read, fail conservatively: only start when queue is empty.
+    // If max cannot be read, fail conservatively: only start when queue is empty.
     return q.len === 0;
   }
   function recruitAffordableAmount(townId, unit, want) {
@@ -256,7 +278,6 @@
     if (!(amount > 0)) return { ok: false, why: 'resources/pop/favor' };
     return { ok: true, amount: Math.min(amount, job.amount) };
   }
-
   let recruitNativeCursor=0,recruitLegacyCursor=0;
   function recruitRotate(ids,cursor){if(!ids.length)return ids;const at=Math.max(0,cursor%ids.length);return ids.slice(at).concat(ids.slice(0,at))}
   // Per-scan tick memo on the back-model + god read. gbTownModel is not
@@ -280,11 +301,13 @@
     if (automationPaused({})) return;
     if (gbLocked('recruit')) return;
     // Farm precedence: no unit post while a village claim is still possible.
+    // Farm precedence: no unit post while a village claim is still possible.
     // Enforced here as well as in orchTick so a wake/toggle path cannot route
     // around it. See farmClaimPending() in farms.js.
     if (farmFirstHold('recruit')) return;
     recruitScanResetMemo();
     const targets = goalEffectiveRecruitTargets();
+
     // Barracks and harbour are separate lanes, so a town can be FIFO for one
     // hull type and still run the goal planner for the other. Both id lists can
     // therefore name the same town — dedupe, the per-lane checks below decide
@@ -307,10 +330,15 @@
         if (!recruitCanBuild(tid, explicit.unit) || !recruitControllerFor(explicit.unit)) {
           nativeQueueSetJobState(explicit, 'blocked', 'requisitos/controlador'); continue;
         }
-        const affordable = recruitAffordableAmount(tid, explicit.unit, explicit.amount);
-        if (affordable < +explicit.amount) { nativeQueueSetJobState(explicit, 'waiting-resources', 'recursos/población/favor'); continue; }
+        const totalAmt = +explicit.amount || 0;
+
+        const cs = +explicit.chunkSize || 0;
+        const postAmt = cs > 0 && cs < totalAmt ? cs : totalAmt;
+
+        const affordable = recruitAffordableAmount(tid, explicit.unit, postAmt);
+        if (affordable < postAmt) { nativeQueueSetJobState(explicit, 'waiting-resources', 'recursos/población/favor'); continue; }
         nativeQueueSetJobState(explicit, 'ready', 'listo');
-        job = { kind:'build', townId:tid, unit:explicit.unit, amount:+explicit.amount, nativeJobId:explicit.id, nativeLane:lane };
+        job = { kind:'build', townId:tid, unit:explicit.unit, amount:postAmt, nativeJobId:explicit.id, nativeLane:lane, nativeChunkSize: cs };
         break;
       }
       if (job) break;
@@ -323,6 +351,7 @@
       for (const unit of Object.keys(want)) {
         const tgt = +want[unit] || 0;
         if (!(tgt > 0)) continue;
+
         // A lane the player drives by hand (FIFO) is never topped up by the
         // goal planner, even when the other hull type still is.
         if (nativeQueueIsFifo(tid, nativeRecruitLane(unit))) continue;
@@ -335,10 +364,12 @@
         if (need <= 0) continue;
         let amount = recruitAffordableAmount(tid, unit, need);
         if (!(amount > 0)) continue;
+
         // A spell is an optional accelerator, never a reason to spend favor when
         // no affordable recruitment can immediately follow it, or to block
         // normal recruiting in SAFE MODE.
         if (state.recruitSpells && !state.safeMode) {
+
           // Power ids are compared case-sensitively against RECRUIT_SPELLS, and
           // an imported config can carry mixed case - without the normalise the
           // spell scan idles forever with no trace.
@@ -389,6 +420,7 @@
       const head = nativeQueueList(job.townId, job.nativeLane, false)[0];
       if (!head || head.id !== job.nativeJobId) { gbUnlock('recruit', lockToken); return; }
       head.manualReview=false;
+
       // queuedBefore is the baseline nativeQueueReconcileRecruit compares the
       // live unit queue against; token makes the apply idempotent across the
       // callback and the reconciler.
@@ -414,7 +446,6 @@
       }
     });
   }
-
   // ---------- village recruit (HIGH-RISK, default OFF) ----------
   // The "Aceptar unidades de los aldeanos" button on each farming village's
   // info panel converts idle villagers into military when the village cannot
@@ -428,9 +459,11 @@
   const VILLAGE_RECRUIT_UNITS = ['sword', 'archer', 'hoplite', 'slinger'];
   const VILLAGE_PAIR_LOW = ['sword', 'archer'];
   const VILLAGE_PAIR_HIGH = ['hoplite', 'slinger'];
-  const VILLAGE_RECRUIT_STREAK_TRIP = 2; // consecutive saturated scrapes to trigger
-
+  const VILLAGE_RECRUIT_STREAK_TRIP = 2;
   function villagePairPick(unitCounts) {
+    // unitCounts shape: {sword:N, archer:N, hoplite:N, slinger:N} — any missing
+    // entry is treated as 0, which can NEVER mis-route to a wrong unit because
+    // the lower-of-pair comparator needs a finite number on both sides.
     // unitCounts shape: {sword:N, archer:N, hoplite:N, slinger:N} — any missing
     // entry is treated as 0, which can NEVER mis-route to a wrong unit because
     // the lower-of-pair comparator needs a finite number on both sides.
@@ -441,12 +474,13 @@
             + (Number.isFinite(+unitCounts.slinger) ? +unitCounts.slinger : 0);
     // Tie-break to the cheaper pair (sword/archer) — overspending on hoplites
     // is the irreversible mistake we want to make least often.
+    // Tie-break to the cheaper pair (sword/archer) — overspending on hoplites
+    // is the irreversible mistake we want to make least often.
     const pair = a >= b ? VILLAGE_PAIR_LOW : VILLAGE_PAIR_HIGH;
     const lo = Number.isFinite(+unitCounts[pair[0]]) ? +unitCounts[pair[0]] : 0;
     const hi = Number.isFinite(+unitCounts[pair[1]]) ? +unitCounts[pair[1]] : 0;
     return lo <= hi ? pair[0] : pair[1];
   }
-
   // Read village unit counts defensively. Farm villages DO carry a small
   // garrison (the screenshot shows 12-16 of each unit at farm lvl 5), but the
   // attribute name is not in the captures — probe a few likely names and a
@@ -470,12 +504,14 @@
           const bag = a.units || a.unit_count || a.garrison || a.unitCount;
           if (bag && typeof bag === 'object') {
             // Direct object map: {sword:N, archer:N, hoplite:N, slinger:N}
+            // Direct object map: {sword:N, archer:N, hoplite:N, slinger:N}
             const units = {};
             for (const u of VILLAGE_RECRUIT_UNITS) units[u] = +bag[u];
             const known = VILLAGE_RECRUIT_UNITS.some(u => Number.isFinite(units[u]) && units[u] >= 0);
             if (known) return { known: true, units, relId: (m && m.id) != null ? m.id : (a && a.id) };
           }
           if (typeof bag === 'number' || Array.isArray(bag)) {
+            // Array form (positional, 4 slots) — order is the VILLAGE_RECRUIT_UNITS order
             // Array form (positional, 4 slots) — order is the VILLAGE_RECRUIT_UNITS order
             const arr = Array.isArray(bag) ? bag : [bag];
             const units = {};
@@ -495,7 +531,6 @@
       return { known: false };
     } catch (_) { return { known: false }; }
   }
-
   // Track consecutive saturated scrapes per village. Trigger fires when
   // streak >= VILLAGE_RECRUIT_STREAK_TRIP — one stale reading can't trigger
   // a post. Reset on any reading below threshold.
@@ -515,7 +550,6 @@
     streaks[villId] = next;
     return next;
   }
-
   // Post a single accept-units bridge call. Payload reuses the learned
   // template's action_name + base arguments; we overlay farm_town_id, unit_id
   // and amount at post time so the same template serves every village and
@@ -537,12 +571,13 @@
       town_id: +farm.owning_town_id || 0,
     }, onDone);
   }
-
   function villageRecruitScan(reason) {
     if (!hostEnabled() || !state.autoVillageRecruit) return;
     if (automationPaused({})) return;
     if (captchaPaused('villrecruit')) return;
     if (gbLocked('village-recruit')) return;
+    // Same hard rule: accepting units from a village never outranks claiming
+    // its resources, even though this loop only fires on a saturated village.
     // Same hard rule: accepting units from a village never outranks claiming
     // its resources, even though this loop only fires on a saturated village.
     if (farmFirstHold('villrecruit')) return;
@@ -559,6 +594,7 @@
 
     for (const farm of list) {
       if (!farm || !farm.vill_id) continue;
+
       // Skip if this village belongs to a farm relation the player doesn't own
       // (manual textarea entries can sneak in relations of other players).
       if (farm._rel && typeof farmBelongsToPlayer === 'function') {
@@ -577,7 +613,7 @@
 
       const owning = typeof townIdForFarm === 'function' ? townIdForFarm(farm) : null;
       if (!owning) continue;
-      farm.owning_town_id = owning; // cache for the post payload
+      farm.owning_town_id = owning;
 
       const amount = Math.max(1, Math.min(20, +state.villageRecruitAmount || 1));
       const lockToken = gbLock('village-recruit', 60000);
@@ -593,7 +629,922 @@
           gbLogT('villrecruit-err-' + farm.vill_id, 60000, `village recruit err ${farm.vill_id}: ${err}`);
         }
       });
+
       // one village per tick; the orch will pick this up again next due window
       return;
     }
+  }
+  function batchRecruitNormLists() {
+    let root = state.batchRecruitLists;
+    if (!root || typeof root !== 'object' || Array.isArray(root)) root = state.batchRecruitLists = { towns: {} };
+    if (!root.towns || typeof root.towns !== 'object' || Array.isArray(root.towns)) root.towns = {};
+
+    try {
+      const known = new Set();
+      try { Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}).forEach(id => known.add(String(id))); } catch (_) {}
+      try { (state.towns || []).forEach(t => t && t.id != null && known.add(String(t.id))); } catch (_) {}
+      let pruned = 0;
+      for (const id of Object.keys(root.towns)) {
+        if (!known.has(String(id))) { delete root.towns[id]; pruned++; }
+      }
+      if (pruned) gbLog(`batch recruit: ${pruned} lista(s) huérfana(s) eliminada(s)`);
+    } catch (_) {}
+    return root;
+  }
+  function batchRecruitTownList(townId) {
+    const id = String(townId == null ? '' : townId);
+    if (!id) return [];
+    const root = batchRecruitNormLists();
+    let arr = root.towns[id];
+    if (!Array.isArray(arr)) arr = root.towns[id] = [];
+
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const r = arr[i];
+      const u = r && r.unit;
+      const a = r && Number(r.amount);
+      if (!u || typeof u !== 'string' || !gbGameDataLookup('units', u) || !(a > 0)) arr.splice(i, 1);
+    }
+    return arr;
+  }
+  function batchRecruitListSave() {
+
+    try { saveSoon(STORE.BATCH_RECRUIT_LISTS, state.batchRecruitLists); } catch (_) {}
+  }
+  function batchRecruitAddRow(townId, unit, amount) {
+    const id = String(townId == null ? '' : townId);
+    if (!id || !unit || !gbGameDataLookup('units', unit)) return false;
+    const a = Math.max(1, Math.floor(+amount || 0));
+    if (!(a > 0)) return false;
+    const list = batchRecruitTownList(id);
+    list.push({ unit: String(unit), amount: a });
+    batchRecruitListSave();
+    return true;
+  }
+  function batchRecruitRemoveRow(townId, idx) {
+    const id = String(townId == null ? '' : townId);
+    if (!id) return false;
+    const list = batchRecruitTownList(id);
+    if (idx < 0 || idx >= list.length) return false;
+    list.splice(idx, 1);
+    batchRecruitListSave();
+    return true;
+  }
+  function batchRecruitClearTown(townId) {
+    const id = String(townId == null ? '' : townId);
+    if (!id) return;
+    const root = batchRecruitNormLists();
+    if (root.towns[id] && root.towns[id].length) {
+      delete root.towns[id];
+      batchRecruitListSave();
+    }
+  }
+  function batchRecruitCostPreview(townId, rows) {
+    const t = (typeof gbTownModel === 'function') ? gbTownModel(townId) : null;
+    const list = Array.isArray(rows) ? rows : batchRecruitTownList(townId);
+    let wood = 0, stone = 0, iron = 0, pop = 0, favor = 0;
+    const missing = [];
+    for (const r of list) {
+      const def = gbGameDataLookup('units', r.unit);
+      if (!def) { missing.push(r.unit); continue; }
+      const a = +r.amount || 0;
+      const res = def.resources || {};
+      wood += (+res.wood || 0) * a;
+      stone += (+res.stone || 0) * a;
+      iron += (+res.iron || 0) * a;
+      pop += (+def.population || 0) * a;
+      const fv = +(def.favor ?? res.favor) || 0;
+      if (fv > 0) favor += fv * a;
+    }
+    const rs = t && t.resources && t.resources();
+    const haveWood = rs ? +rs.wood : null;
+    const haveStone = rs ? +rs.stone : null;
+    const haveIron = rs ? +rs.iron : null;
+    const havePop = (t && typeof t.getAvailablePopulation === 'function') ? +t.getAvailablePopulation() : null;
+    const fits = !(missing.length) && wood <= (haveWood == null ? Infinity : haveWood)
+      && stone <= (haveStone == null ? Infinity : haveStone)
+      && iron <= (haveIron == null ? Infinity : haveIron)
+      && pop <= (havePop == null ? Infinity : havePop);
+    return { wood, stone, iron, pop, favor, haveWood, haveStone, haveIron, havePop, fits, missing };
+  }
+  const _batchRecruitBlind = new Set();
+  function batchRecruitAtomicAfford(townId) {
+    const list = batchRecruitTownList(townId);
+    if (!list.length) return { ok: false, why: 'empty' };
+    const t = gbTownModel(townId);
+    if (!t) {
+      const k = String(townId) + '|town';
+      if (!_batchRecruitBlind.has(k)) { _batchRecruitBlind.add(k); gbLogT('batch-recruit-blind-' + townId, 300000, `batch recruit: town ${townId} model unreadable - blind precheck, server judges`); }
+      return { ok: false, why: 'blind-town' };
+    }
+    for (let i = 0; i < list.length; i++) {
+      const r = list[i];
+      const unit = r && r.unit;
+      const amount = +r.amount || 0;
+      if (!unit || !(amount > 0)) continue;
+      if (!recruitControllerFor(unit)) return { ok: false, why: 'no-controller', rowIdx: i, unit };
+      if (!recruitCanBuild(townId, unit)) return { ok: false, why: 'requirements', rowIdx: i, unit };
+      if (!recruitQueueHasSpace(townId, unit)) return { ok: false, why: 'queue', rowIdx: i, unit };
+      const afford = recruitAffordableAmount(townId, unit, amount);
+      if (afford < amount) return { ok: false, why: 'resources/pop/favor', rowIdx: i, unit };
+    }
+    return { ok: true };
+  }
+  function batchRecruitFire(townId) {
+    const list = batchRecruitTownList(townId);
+    if (!list.length) return;
+    const lockToken = gbLock('recruit', 120000);
+    if (!lockToken) return;
+    let idx = 0;
+    let stopped = false;
+    const fireOne = () => {
+      if (stopped || idx >= list.length) {
+        gbUnlock('recruit', lockToken);
+        return;
+      }
+
+      const r = list[idx++];
+      const unit = r.unit, amount = +r.amount || 0;
+
+      const validated = recruitValidateJob({ townId, unit, amount });
+      if (!validated.ok) {
+        stopped = true;
+        gbLogT(`batch-recruit-pre-${townId}`, 60000, `batch recruit: ${validated.why} @ ${unit} (row ${idx}/${list.length})`);
+        gbUnlock('recruit', lockToken);
+        return;
+      }
+      recruitBuild(townId, unit, validated.amount, (err) => {
+        if (err) {
+          stopped = true;
+          gbLogT(`batch-recruit-partial-${townId}`, 60000, `batch recruit: stopped at row ${idx}/${list.length} (${err})`);
+          gbUnlock('recruit', lockToken);
+          return;
+        }
+        gbLog(`batch recruit: town ${townId} ${validated.amount}× ${unit} (row ${idx}/${list.length})`);
+
+        gbTimeout(fireOne, 450);
+      });
+    };
+    fireOne();
+  }
+  function batchRecruitHasAnyTown() {
+    try {
+      const root = batchRecruitNormLists();
+      for (const townId of Object.keys(root.towns || {})) {
+        if (batchRecruitTownList(townId).length) return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+  function batchRecruitUiAllUnits() {
+    const out = [];
+    try {
+      const uw = gameUw();
+      const gd = (uw && (uw.GameData || {}).units) || null;
+      if (gd && typeof gd === 'object') {
+        for (const k of Object.keys(gd)) {
+          const d = gd[k];
+          if (!d) continue;
+
+          if (d.is_research || d.not_unit) continue;
+
+          const r = d.resources || {};
+          if (!(+r.wood || +r.stone || +r.iron)) continue;
+          out.push(String(k));
+        }
+      }
+    } catch (_) {}
+    out.sort();
+    return out;
+  }
+  function batchRecruitUiTownIds() {
+    const out = [];
+    try {
+      const uw = gameUw();
+      const ts = (uw && uw.ITowns && uw.ITowns.towns) || {};
+      Object.keys(ts).forEach(id => out.push(String(id)));
+    } catch (_) {}
+    if (!out.length) {
+      try { (state.towns || []).forEach(t => t && t.id != null && out.push(String(t.id))); } catch (_) {}
+    }
+
+    try {
+      const root = batchRecruitNormLists();
+      for (const id of Object.keys(root.towns || {})) {
+        if (!out.includes(String(id))) { delete root.towns[id]; batchRecruitListSave(); }
+      }
+    } catch (_) {}
+    return out;
+  }
+  function batchRecruitUiTownName(id) {
+    const sid = String(id);
+    try {
+      const t = gbTownModel(sid);
+      const a = t && (t.attributes || t);
+      if (a && a.name) return String(a.name);
+    } catch (_) {}
+    try {
+      const t = (state.towns || []).find(x => String(x.id) === sid);
+      if (t && t.name) return String(t.name);
+    } catch (_) {}
+    return sid;
+  }
+  function batchRecruitUiGetSelectedTown() {
+    try {
+      const sec = trainSection();
+      const sel = sec && sec.querySelector('[data-cfg=batch-recruit-town]');
+      if (sel && sel.value) return String(sel.value);
+    } catch (_) {}
+    const ids = batchRecruitUiTownIds();
+    if (!ids.length) return '';
+
+    const withLists = ids.filter(id => batchRecruitTownList(id).length);
+    return withLists[0] || ids[0] || '';
+  }
+  function batchRecruitUiPaint() {
+    const sec = trainSection();
+    if (!sec) return;
+    const townSel = sec.querySelector('[data-cfg=batch-recruit-town]');
+    const rowsHost = sec.querySelector('#gb-batch-recruit-rows');
+    const sumHost = sec.querySelector('#gb-batch-recruit-summary');
+    if (!townSel || !rowsHost || !sumHost) return;
+    const ids = batchRecruitUiTownIds();
+
+    townSel.replaceChildren();
+    if (!ids.length) {
+      const opt = document.createElement('option');
+      opt.value = ''; opt.textContent = '— sin ciudades —';
+      townSel.appendChild(opt); townSel.disabled = true;
+    } else {
+      townSel.disabled = false;
+      ids.forEach(id => {
+        const opt = document.createElement('option');
+        opt.value = id;
+        const count = batchRecruitTownList(id).length;
+        opt.textContent = `${batchRecruitUiTownName(id)}${count ? `  (${count})` : ''}`;
+        townSel.appendChild(opt);
+      });
+      const cur = String(townSel.value || '') || batchRecruitUiGetSelectedTown();
+      townSel.value = ids.includes(cur) ? cur : ids[0];
+    }
+
+    const townId = townSel.value;
+    const list = townId ? batchRecruitTownList(townId) : [];
+    rowsHost.replaceChildren();
+    if (!townId) { sumHost.textContent = ''; return; }
+    if (!list.length) {
+      const e = document.createElement('div');
+      e.style.cssText = 'color:#888;font-size:10px;padding:4px 0';
+      e.textContent = 'lista vacía — añade una línea y elige unidad + cantidad';
+      rowsHost.appendChild(e);
+    } else {
+      const units = batchRecruitUiAllUnits();
+      list.forEach((row, idx) => {
+        const line = document.createElement('div');
+        line.style.cssText = 'display:flex;gap:4px;align-items:center;padding:2px 0;font-size:11px';
+        const uSel = document.createElement('select');
+        uSel.style.cssText = 'background:#11141a;color:var(--gb-fg);border:1px solid #4b5260;border-radius:4px;padding:2px 4px;min-width:120px';
+        units.forEach(u => {
+          const opt = document.createElement('option');
+          opt.value = u; opt.textContent = u;
+          if (u === row.unit) opt.selected = true;
+          uSel.appendChild(opt);
+        });
+        const qty = document.createElement('input');
+        qty.type = 'number'; qty.min = '1'; qty.max = '10000'; qty.step = '1';
+        qty.value = String(row.amount);
+        qty.style.cssText = 'width:62px;background:#11141a;color:var(--gb-fg);border:1px solid #4b5260;border-radius:4px;padding:2px 4px';
+        const cost = batchRecruitUiRowCost(row);
+        const costSpan = document.createElement('span');
+        costSpan.style.cssText = 'color:#aab2bd;flex:1;font-size:10px';
+        costSpan.textContent = cost;
+        const trash = document.createElement('button');
+        trash.textContent = '🗑'; trash.title = 'quitar línea';
+        trash.className = 'gb-cfg-btn danger';
+        trash.style.cssText = 'padding:2px 6px';
+        trash.addEventListener('click', () => {
+          batchRecruitRemoveRow(townId, idx);
+          batchRecruitUiPaint();
+        });
+        uSel.addEventListener('change', () => {
+          row.unit = uSel.value;
+          batchRecruitListSave();
+          batchRecruitUiPaint();
+        });
+        qty.addEventListener('input', () => {
+          const v = Math.max(1, Math.floor(+qty.value || 1));
+          row.amount = v;
+          batchRecruitListSave();
+          batchRecruitUiPaint();
+        });
+        line.appendChild(uSel); line.appendChild(qty);
+        line.appendChild(costSpan); line.appendChild(trash);
+        rowsHost.appendChild(line);
+      });
+    }
+
+    const preview = batchRecruitCostPreview(townId, list);
+    if (!list.length) {
+      sumHost.textContent = '';
+    } else {
+      const parts = [];
+      if (preview.wood) parts.push(`mad ${preview.wood}`);
+      if (preview.stone) parts.push(`pie ${preview.stone}`);
+      if (preview.iron) parts.push(`pla ${preview.iron}`);
+      if (preview.pop) parts.push(`pop ${preview.pop}`);
+      if (preview.favor) parts.push(`favor ${preview.favor}`);
+      const totals = parts.join(' / ');
+      const have = [];
+      if (preview.haveWood != null) have.push(`mad ${preview.haveWood}`);
+      if (preview.haveStone != null) have.push(`pie ${preview.haveStone}`);
+      if (preview.haveIron != null) have.push(`pla ${preview.haveIron}`);
+      if (preview.havePop != null) have.push(`pop libre ${preview.havePop}`);
+      const tag = preview.missing && preview.missing.length
+        ? ` (falta información de: ${preview.missing.join(', ')})`
+        : (preview.fits ? ' → cabe ✓' : ' → falta');
+      const color = preview.fits ? '#7ddd96' : '#e5bf70';
+      sumHost.innerHTML = '';
+      const a = document.createElement('div');
+      a.style.cssText = `color:${color};font-size:10px`;
+      a.textContent = `total: ${totals || '0'} · ciudad ahora: ${have.join(' / ') || '—'}${tag}`;
+      sumHost.appendChild(a);
+    }
+  }
+  function batchRecruitUiRowCost(row) {
+    const def = gbGameDataLookup('units', row && row.unit);
+    if (!def) return '— desconocida —';
+    const r = def.resources || {};
+    const parts = [];
+    const a = +row.amount || 0;
+    if (+r.wood) parts.push(`mad ${(+r.wood) * a}`);
+    if (+r.stone) parts.push(`pie ${(+r.stone) * a}`);
+    if (+r.iron) parts.push(`pla ${(+r.iron) * a}`);
+    if (+def.population) parts.push(`pop ${(+def.population) * a}`);
+    const fav = +(def.favor || (r && r.favor) || 0);
+    if (fav) parts.push(`favor ${fav * a}`);
+    return parts.join(' / ') || 'gratis';
+  }
+  function batchRecruitUiAdd() {
+    const sec = trainSection();
+    if (!sec) return;
+    const townSel = sec.querySelector('[data-cfg=batch-recruit-town]');
+    const townId = townSel && townSel.value;
+    if (!townId) { flash('elige una ciudad antes de añadir línea'); return; }
+    const units = batchRecruitUiAllUnits();
+    const pick = units.includes('sword') ? 'sword' : (units[0] || 'sword');
+    batchRecruitAddRow(townId, pick, 10);
+    batchRecruitUiPaint();
+  }
+  function batchRecruitUiClear() {
+    const sec = trainSection();
+    if (!sec) return;
+    const townId = batchRecruitUiGetSelectedTown();
+    if (!townId) return;
+    if (!(batchRecruitTownList(townId).length)) return;
+    batchRecruitClearTown(townId);
+    batchRecruitUiPaint();
+    flash(`lote de la ciudad ${townId} vaciado`);
+  }
+  function batchRecruitUiArm() {
+    if (captchaPaused('recruit')) { flash('captcha activa — espera'); return; }
+    if (!batchRecruitHasAnyTown()) { flash('no hay listas armadas'); return; }
+    batchRecruitScan('manual');
+  }
+  const RECRUIT_PACK_NAME_MAX = 40;
+  function recruitPacksRoot() {
+    if (!state.recruitPacks || typeof state.recruitPacks !== 'object' || Array.isArray(state.recruitPacks)) {
+      state.recruitPacks = {};
+    }
+    return state.recruitPacks;
+  }
+  function recruitPacksSave() {
+    try { save(STORE.RECRUIT_PACKS, recruitPacksRoot()); } catch (_) {}
+  }
+  function recruitPackNames() {
+    return Object.keys(recruitPacksRoot()).sort((a, b) => a.localeCompare(b));
+  }
+  function recruitPackRows(name) {
+    const key = String(name == null ? '' : name);
+    if (!key) return [];
+    const root = recruitPacksRoot();
+    let arr = root[key];
+    if (!Array.isArray(arr)) arr = root[key] = [];
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const r = arr[i];
+      const u = r && r.unit;
+      const a = r && Number(r.amount);
+      if (!u || typeof u !== 'string' || !gbGameDataLookup('units', u) || !(a > 0)) arr.splice(i, 1);
+    }
+    return arr;
+  }
+  function recruitPackCreate(name) {
+    const key = String(name == null ? '' : name).trim().slice(0, RECRUIT_PACK_NAME_MAX);
+    if (!key) return '';
+    const root = recruitPacksRoot();
+    if (!Array.isArray(root[key])) root[key] = [];
+    recruitPacksSave();
+    return key;
+  }
+  function recruitPackDelete(name) {
+    const key = String(name == null ? '' : name);
+    const root = recruitPacksRoot();
+    if (!key || !root[key]) return false;
+    delete root[key];
+    recruitPacksSave();
+    return true;
+  }
+  function recruitPackAddRow(name, unit, amount) {
+    const key = String(name == null ? '' : name);
+    if (!key || !unit || !gbGameDataLookup('units', unit)) return false;
+    const a = Math.max(1, Math.floor(+amount || 0));
+    if (!(a > 0)) return false;
+    const rows = recruitPackRows(key);
+    const hit = rows.find(r => r.unit === String(unit));
+    if (hit) hit.amount = a; else rows.push({ unit: String(unit), amount: a });
+    recruitPacksSave();
+    return true;
+  }
+  function recruitPackRemoveRow(name, idx) {
+    const rows = recruitPackRows(name);
+    if (idx < 0 || idx >= rows.length) return false;
+    rows.splice(idx, 1);
+    recruitPacksSave();
+    return true;
+  }
+  function recruitPackFromTown(name, townId) {
+    const key = recruitPackCreate(name);
+    if (!key) return false;
+    const src = batchRecruitTownList(townId);
+    if (!src.length) return false;
+    recruitPacksRoot()[key] = src.map(r => ({ unit: r.unit, amount: +r.amount || 0 }));
+    recruitPacksSave();
+    return true;
+  }
+  function recruitPackApply(name, townId, mode) {
+    const rows = recruitPackRows(name);
+    const id = String(townId == null ? '' : townId);
+    if (!id || !rows.length) return -1;
+    if (mode === 'replace') batchRecruitClearTown(id);
+    const list = batchRecruitTownList(id);
+    for (const r of rows) {
+      const amt = Math.max(1, Math.floor(+r.amount || 0));
+      const hit = list.find(x => x.unit === r.unit);
+      if (!hit) { list.push({ unit: r.unit, amount: amt }); continue; }
+      hit.amount = mode === 'replace' ? amt : Math.max(1, Math.floor((+hit.amount || 0) + amt));
+    }
+    batchRecruitListSave();
+    return list.length;
+  }
+  function recruitPackApplyAll(name, mode) {
+    const ids = batchRecruitUiTownIds();
+    let towns = 0;
+    for (const id of ids) { if (recruitPackApply(name, id, mode) > 0) towns++; }
+    return towns;
+  }
+  function trainSection() {
+    return panel && panel.querySelector('section[data-tab=train]');
+  }
+  function recruitTargetsRoot() {
+    if (!state.recruitTargets || typeof state.recruitTargets !== 'object' || Array.isArray(state.recruitTargets)) {
+      state.recruitTargets = {};
+    }
+    return state.recruitTargets;
+  }
+  function recruitTargetsSave() {
+    try { save(STORE.RECRUIT_TARGETS, recruitTargetsRoot()); } catch (_) {}
+  }
+  function recruitTargetTownMap(townId, create) {
+    const root = recruitTargetsRoot();
+    const id = String(townId == null ? '' : townId);
+    if (!id) return {};
+    const cur = root[id];
+    const ok = cur && typeof cur === 'object' && !Array.isArray(cur);
+    if (ok) return cur;
+    if (!create) return {};
+    root[id] = {};
+    return root[id];
+  }
+  function recruitTargetTownCount() {
+    const root = recruitTargetsRoot();
+    return Object.keys(root).filter(id => {
+      const m = root[id];
+      return m && typeof m === 'object' && !Array.isArray(m) && Object.keys(m).length;
+    }).length;
+  }
+  function recruitTargetSet(townId, unit, amount) {
+    const id = String(townId == null ? '' : townId);
+    if (!id || !unit || !gbGameDataLookup('units', unit)) return false;
+    const n = Math.max(0, Math.floor(+amount || 0));
+    const map = recruitTargetTownMap(id, n > 0);
+    if (n > 0) map[String(unit)] = n; else delete map[String(unit)];
+    if (!Object.keys(map).length) delete recruitTargetsRoot()[id];
+    recruitTargetsSave();
+    return true;
+  }
+  function recruitTargetClearTown(townId) {
+    const id = String(townId == null ? '' : townId);
+    const root = recruitTargetsRoot();
+    if (!id || !root[id]) return false;
+    delete root[id];
+    recruitTargetsSave();
+    return true;
+  }
+  function trainSelectedTown() {
+    const sec = trainSection();
+    const sel = sec && sec.querySelector('[data-tr=tgt-town]');
+    if (sel && sel.value) return String(sel.value);
+    const ids = batchRecruitUiTownIds();
+    const withTargets = ids.filter(id => Object.keys(recruitTargetTownMap(id)).length);
+    return withTargets[0] || ids[0] || '';
+  }
+  function trainToggleButtons(sec) {
+    const auto = sec.querySelector('[data-tr=auto]');
+    if (auto) {
+      auto.textContent = `Reposicion automatica: ${state.autoRecruit ? 'ON' : 'OFF'}`;
+      auto.classList.toggle('on', !!state.autoRecruit);
+    }
+    const batch = sec.querySelector('[data-tr=batch]');
+    if (batch) {
+      batch.textContent = `Lote recurrente: ${state.batchRecruit ? 'ON' : 'OFF'}`;
+      batch.classList.toggle('on', !!state.batchRecruit);
+    }
+    const st = sec.querySelector('#gb-tr-state');
+    if (st) {
+      const towns = recruitTargetTownCount();
+      st.textContent = towns
+        ? `${towns} ciudad(es) con objetivos`
+        : 'sin objetivos — el reclutamiento automatico no tiene nada que reponer';
+    }
+  }
+  function trainTargetRowText(townId, unit, tgt) {
+    let have = null, queued = null;
+    try { const counts = goalUnitCounts(townId); have = counts && Object.prototype.hasOwnProperty.call(counts, unit) ? +counts[unit] || 0 : (counts ? 0 : null); } catch (_) {}
+    try { const q = recruitQueuedAmount(townId, unit); queued = Number.isFinite(+q) ? +q : null; } catch (_) {}
+    const haveTxt = have == null ? '—' : String(have);
+    const qTxt = queued == null ? '—' : String(queued);
+    const missing = (have == null || queued == null) ? null : Math.max(0, tgt - have - queued);
+    const missTxt = missing == null ? 'falta —' : (missing > 0 ? `faltan ${missing}` : 'completo ✓');
+    return { text: `tiene ${haveTxt} · en cola ${qTxt} · ${missTxt}`, done: missing === 0 };
+  }
+  function renderTrain() {
+    const sec = trainSection();
+    if (!sec) return;
+    trainToggleButtons(sec);
+    const townSel = sec.querySelector('[data-tr=tgt-town]');
+    const unitSel = sec.querySelector('[data-tr=tgt-unit]');
+    const rowsHost = sec.querySelector('#gb-tr-targets');
+    const note = sec.querySelector('#gb-tr-note');
+    if (!townSel || !unitSel || !rowsHost) return;
+    const ids = batchRecruitUiTownIds();
+    const keepTown = String(townSel.value || '') || trainSelectedTown();
+    townSel.replaceChildren();
+    if (!ids.length) {
+      const opt = document.createElement('option');
+      opt.value = ''; opt.textContent = '— sin ciudades —';
+      townSel.appendChild(opt); townSel.disabled = true;
+    } else {
+      townSel.disabled = false;
+      ids.forEach(id => {
+        const opt = document.createElement('option');
+        opt.value = id;
+        const n = Object.keys(recruitTargetTownMap(id)).length;
+        opt.textContent = `${batchRecruitUiTownName(id)}${n ? `  (${n})` : ''}`;
+        townSel.appendChild(opt);
+      });
+      townSel.value = ids.includes(keepTown) ? keepTown : ids[0];
+    }
+    const units = batchRecruitUiAllUnits();
+    const keepUnit = String(unitSel.value || '');
+    unitSel.replaceChildren();
+    if (!units.length) {
+      const opt = document.createElement('option');
+      opt.value = ''; opt.textContent = '— GameData no legible —';
+      unitSel.appendChild(opt); unitSel.disabled = true;
+    } else {
+      unitSel.disabled = false;
+      units.forEach(u => {
+        const opt = document.createElement('option');
+        opt.value = u; opt.textContent = u;
+        unitSel.appendChild(opt);
+      });
+      unitSel.value = units.includes(keepUnit) ? keepUnit : (units.includes('sword') ? 'sword' : units[0]);
+    }
+    const townId = townSel.value;
+    const map = townId ? recruitTargetTownMap(townId) : {};
+    const keys = Object.keys(map);
+    rowsHost.replaceChildren();
+    if (!townId || !keys.length) {
+      const e = document.createElement('div');
+      e.style.cssText = 'color:#888;font-size:10px;padding:4px 0';
+      e.textContent = 'sin objetivos en esta ciudad — elige unidad, cantidad y pulsa Fijar';
+      rowsHost.appendChild(e);
+    } else {
+      keys.sort().forEach(unit => {
+        const tgt = +map[unit] || 0;
+        const line = document.createElement('div');
+        line.style.cssText = 'display:flex;gap:6px;align-items:center;padding:2px 0;font-size:11px;border-bottom:1px solid var(--gb-rule)';
+        const name = document.createElement('span');
+        name.style.cssText = 'min-width:110px';
+        name.textContent = unit;
+        const qty = document.createElement('input');
+        qty.type = 'number'; qty.min = '0'; qty.max = '100000'; qty.step = '1';
+        qty.value = String(tgt);
+        qty.style.cssText = 'width:70px';
+
+        qty.addEventListener('change', () => {
+          recruitTargetSet(townId, unit, qty.value);
+          renderTrain();
+        });
+        const info = trainTargetRowText(townId, unit, tgt);
+        const st = document.createElement('span');
+        st.style.cssText = `flex:1;font-size:10px;color:${info.done ? '#7ddd96' : 'var(--gb-fg-soft2)'}`;
+        st.textContent = info.text;
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.textContent = '🗑'; del.title = 'quitar objetivo';
+        del.addEventListener('click', () => { recruitTargetSet(townId, unit, 0); renderTrain(); });
+        line.appendChild(name); line.appendChild(qty); line.appendChild(st); line.appendChild(del);
+        rowsHost.appendChild(line);
+      });
+    }
+    renderTrainPacks(sec);
+    if (note) {
+      note.textContent = state.autoRecruit
+        ? 'La reposicion corre en el ciclo del orquestador; una ciudad cuya cola manual (FIFO) este activa no se repone en ese muelle.'
+        : 'Reposicion automatica OFF: los objetivos quedan guardados pero no se recluta nada.';
+    }
+    try { batchRecruitUiPaint(); } catch (_) {}
+  }
+  function trainSelectedPack(sec) {
+    const sel = sec && sec.querySelector('[data-tr=pack]');
+    const cur = sel && sel.value ? String(sel.value) : '';
+    if (cur && recruitPacksRoot()[cur]) return cur;
+    return recruitPackNames()[0] || '';
+  }
+  function renderTrainPacks(sec) {
+    const packSel = sec.querySelector('[data-tr=pack]');
+    const unitSel = sec.querySelector('[data-tr=pack-unit]');
+    const townSel = sec.querySelector('[data-tr=pack-town]');
+    const rowsHost = sec.querySelector('#gb-tr-pack-rows');
+    const note = sec.querySelector('#gb-tr-pack-note');
+    if (!packSel || !unitSel || !townSel || !rowsHost) return;
+    const names = recruitPackNames();
+    const keep = trainSelectedPack(sec);
+    packSel.replaceChildren();
+    if (!names.length) {
+      const opt = document.createElement('option');
+      opt.value = ''; opt.textContent = '— sin packs —';
+      packSel.appendChild(opt); packSel.disabled = true;
+    } else {
+      packSel.disabled = false;
+      names.forEach(n => {
+        const opt = document.createElement('option');
+        opt.value = n;
+        opt.textContent = `${n}  (${recruitPackRows(n).length})`;
+        packSel.appendChild(opt);
+      });
+      packSel.value = names.includes(keep) ? keep : names[0];
+    }
+    const units = batchRecruitUiAllUnits();
+    const keepUnit = String(unitSel.value || '');
+    unitSel.replaceChildren();
+    if (!units.length) {
+      const opt = document.createElement('option');
+      opt.value = ''; opt.textContent = '— GameData no legible —';
+      unitSel.appendChild(opt); unitSel.disabled = true;
+    } else {
+      unitSel.disabled = false;
+      units.forEach(u => {
+        const opt = document.createElement('option');
+        opt.value = u; opt.textContent = u;
+        unitSel.appendChild(opt);
+      });
+      unitSel.value = units.includes(keepUnit) ? keepUnit : (units.includes('sword') ? 'sword' : units[0]);
+    }
+    const ids = batchRecruitUiTownIds();
+    const keepTown = String(townSel.value || '');
+    townSel.replaceChildren();
+    {
+      const all = document.createElement('option');
+      all.value = '__all__'; all.textContent = 'todas las ciudades';
+      townSel.appendChild(all);
+      ids.forEach(id => {
+        const opt = document.createElement('option');
+        opt.value = id; opt.textContent = batchRecruitUiTownName(id);
+        townSel.appendChild(opt);
+      });
+      const valid = ['__all__'].concat(ids);
+      townSel.value = valid.includes(keepTown) ? keepTown : (ids[0] || '__all__');
+    }
+    const name = packSel.value;
+    const rows = name ? recruitPackRows(name) : [];
+    rowsHost.replaceChildren();
+    if (!name) {
+      const e = document.createElement('div');
+      e.style.cssText = 'color:#888;font-size:10px;padding:4px 0';
+      e.textContent = 'escribe un nombre y pulsa Nuevo — luego añade espada, arquero, birreme… al pack';
+      rowsHost.appendChild(e);
+    } else if (!rows.length) {
+      const e = document.createElement('div');
+      e.style.cssText = 'color:#888;font-size:10px;padding:4px 0';
+      e.textContent = 'pack vacío — elige unidad + cantidad y pulsa "+ unidad"';
+      rowsHost.appendChild(e);
+    } else {
+      rows.forEach((row, idx) => {
+        const line = document.createElement('div');
+        line.style.cssText = 'display:flex;gap:6px;align-items:center;padding:2px 0;font-size:11px;border-bottom:1px solid var(--gb-rule)';
+        const nm = document.createElement('span');
+        nm.style.cssText = 'min-width:110px';
+        nm.textContent = row.unit;
+        const qty = document.createElement('input');
+        qty.type = 'number'; qty.min = '1'; qty.max = '10000'; qty.step = '1';
+        qty.value = String(row.amount);
+        qty.style.cssText = 'width:70px';
+
+        qty.addEventListener('change', () => {
+          recruitPackAddRow(name, row.unit, qty.value);
+          renderTrain();
+        });
+        const cost = document.createElement('span');
+        cost.style.cssText = 'flex:1;font-size:10px;color:var(--gb-fg-soft2)';
+        cost.textContent = batchRecruitUiRowCost(row);
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.textContent = '🗑'; del.title = 'quitar del pack';
+        del.addEventListener('click', () => { recruitPackRemoveRow(name, idx); renderTrain(); });
+        line.appendChild(nm); line.appendChild(qty); line.appendChild(cost); line.appendChild(del);
+        rowsHost.appendChild(line);
+      });
+    }
+    if (note) {
+      if (!name || !rows.length) { note.textContent = ''; return; }
+      const target = townSel.value;
+
+      const preview = batchRecruitCostPreview(target === '__all__' ? null : target, rows);
+      const parts = [];
+      if (preview.wood) parts.push(`mad ${preview.wood}`);
+      if (preview.stone) parts.push(`pie ${preview.stone}`);
+      if (preview.iron) parts.push(`pla ${preview.iron}`);
+      if (preview.pop) parts.push(`pop ${preview.pop}`);
+      if (preview.favor) parts.push(`favor ${preview.favor}`);
+      let txt = `pack "${name}": ${rows.length} unidad(es) · ${parts.join(' / ') || 'gratis'}`;
+      if (preview.missing && preview.missing.length) txt += ` (falta información de: ${preview.missing.join(', ')})`;
+      else if (target !== '__all__') txt += preview.fits ? ' → cabe ahora ✓' : ' → no cabe todavía';
+      note.textContent = txt;
+      note.style.color = (target !== '__all__' && !(preview.missing || []).length)
+        ? (preview.fits ? '#7ddd96' : '#e5bf70') : '#888';
+    }
+  }
+  let trainBound = false;
+  function bindTrainTab() {
+    const sec = trainSection();
+    if (!sec || trainBound) return;
+    trainBound = true;
+    const on = (sel, type, fn) => { const el = sec.querySelector(sel); if (el) el.addEventListener(type, fn); };
+    on('[data-tr=auto]', 'click', e => {
+      e.preventDefault();
+      state.autoRecruit = !state.autoRecruit;
+      save(STORE.AUTO_RECRUIT, state.autoRecruit);
+      gbLog('auto-recruit', state.autoRecruit ? 'ON' : 'OFF');
+      try { updateStatus(); } catch (_) {}
+      renderTrain();
+      if (state.autoRecruit) recruitScan('toggle');
+    });
+    on('[data-tr=batch]', 'click', e => {
+      e.preventDefault();
+      state.batchRecruit = !state.batchRecruit;
+      save(STORE.BATCH_RECRUIT, state.batchRecruit);
+      gbLog('batch-recruit', state.batchRecruit ? 'ON' : 'OFF');
+      try { updateStatus(); } catch (_) {}
+      renderTrain();
+    });
+    on('[data-tr=tgt-town]', 'change', () => renderTrain());
+    on('[data-tr=tgt-add]', 'click', e => {
+      e.preventDefault();
+      const townId = sec.querySelector('[data-tr=tgt-town]')?.value || '';
+      const unit = sec.querySelector('[data-tr=tgt-unit]')?.value || '';
+      const amtEl = sec.querySelector('[data-tr=tgt-amount]');
+      const amount = Math.max(0, Math.floor(+(amtEl && amtEl.value) || 0));
+      if (!townId) { flash('elige una ciudad'); return; }
+      if (!unit) { flash('elige una unidad'); return; }
+      if (!recruitTargetSet(townId, unit, amount)) { flash('unidad desconocida'); return; }
+      flash(amount > 0 ? `objetivo ${unit} = ${amount}` : `objetivo ${unit} quitado`);
+      renderTrain();
+    });
+    on('[data-tr=tgt-clear]', 'click', e => {
+      e.preventDefault();
+      const townId = sec.querySelector('[data-tr=tgt-town]')?.value || '';
+      if (!townId) return;
+      if (!recruitTargetClearTown(townId)) return;
+      flash(`objetivos de la ciudad ${townId} borrados`);
+      renderTrain();
+    });
+    const packVal = sel => (sec.querySelector(sel)?.value || '').trim();
+    on('[data-tr=pack]', 'change', () => renderTrain());
+    on('[data-tr=pack-town]', 'change', () => renderTrain());
+    on('[data-tr=pack-new]', 'click', e => {
+      e.preventDefault();
+      const raw = packVal('[data-tr=pack-name]');
+      if (!raw) { flash('escribe un nombre para el pack'); return; }
+      const name = recruitPackCreate(raw);
+      if (!name) { flash('nombre no válido'); return; }
+      const nameEl = sec.querySelector('[data-tr=pack-name]');
+      if (nameEl) nameEl.value = '';
+      renderTrain();
+      const sel = sec.querySelector('[data-tr=pack]');
+      if (sel) { sel.value = name; renderTrain(); }
+      flash(`pack "${name}" creado`);
+    });
+    on('[data-tr=pack-from-town]', 'click', e => {
+      e.preventDefault();
+      const raw = packVal('[data-tr=pack-name]') || trainSelectedPack(sec);
+      if (!raw) { flash('escribe un nombre para el pack'); return; }
+      const townId = sec.querySelector('[data-cfg=batch-recruit-town]')?.value || '';
+      if (!townId) { flash('elige una ciudad en el lote'); return; }
+      if (!recruitPackFromTown(raw, townId)) { flash('el lote de esa ciudad está vacío'); return; }
+      const nameEl = sec.querySelector('[data-tr=pack-name]');
+      if (nameEl) nameEl.value = '';
+      renderTrain();
+      const sel = sec.querySelector('[data-tr=pack]');
+      if (sel) { sel.value = String(raw).trim().slice(0, RECRUIT_PACK_NAME_MAX); renderTrain(); }
+      flash(`pack "${raw}" guardado desde el lote`);
+    });
+    on('[data-tr=pack-del]', 'click', e => {
+      e.preventDefault();
+      const name = trainSelectedPack(sec);
+      if (!name) return;
+      if (!confirm(`¿Borrar el pack "${name}"? Los lotes ya aplicados a las ciudades no se tocan.`)) return;
+      recruitPackDelete(name);
+      renderTrain();
+      flash(`pack "${name}" borrado`);
+    });
+    on('[data-tr=pack-add]', 'click', e => {
+      e.preventDefault();
+      const name = trainSelectedPack(sec);
+      if (!name) { flash('crea un pack primero'); return; }
+      const unit = packVal('[data-tr=pack-unit]');
+      const amount = Math.max(1, Math.floor(+packVal('[data-tr=pack-amount]') || 0));
+      if (!unit) { flash('elige una unidad'); return; }
+      if (!recruitPackAddRow(name, unit, amount)) { flash('unidad desconocida'); return; }
+      renderTrain();
+    });
+    on('[data-tr=pack-apply]', 'click', e => {
+      e.preventDefault();
+      const name = trainSelectedPack(sec);
+      if (!name) { flash('no hay pack seleccionado'); return; }
+      if (!recruitPackRows(name).length) { flash('el pack está vacío'); return; }
+      const mode = packVal('[data-tr=pack-mode]') === 'append' ? 'append' : 'replace';
+      const target = sec.querySelector('[data-tr=pack-town]')?.value || '';
+      if (target === '__all__') {
+        const towns = recruitPackApplyAll(name, mode);
+        if (!towns) { flash('no hay ciudades legibles'); return; }
+        gbLog(`recruit pack: "${name}" -> ${towns} town(s) (${mode})`);
+        flash(`pack "${name}" aplicado a ${towns} ciudad(es)`);
+      } else {
+        const n = recruitPackApply(name, target, mode);
+        if (n < 0) { flash('elige una ciudad'); return; }
+        gbLog(`recruit pack: "${name}" -> town ${target} (${mode}, ${n} row(s))`);
+        flash(`pack "${name}" aplicado (${n} línea(s))`);
+      }
+      renderTrain();
+      if (!state.batchRecruit) flash('activa "Lote recurrente" para que se entrene solo');
+    });
+    on('[data-cfg=batch-recruit-town]', 'change', () => { try { batchRecruitUiPaint(); } catch (_) {} });
+    on('[data-cfg=batch-recruit-add]', 'click', e => { e.preventDefault(); try { batchRecruitUiAdd(); } catch (err) { gbLog(`batch-recruit add err: ${err}`); } });
+    on('[data-cfg=batch-recruit-arm]', 'click', e => { e.preventDefault(); try { batchRecruitUiArm(); } catch (err) { gbLog(`batch-recruit arm err: ${err}`); } });
+    on('[data-cfg=batch-recruit-clear]', 'click', e => { e.preventDefault(); try { batchRecruitUiClear(); } catch (err) { gbLog(`batch-recruit clear err: ${err}`); } });
+  }
+  function batchRecruitScan(reason) {
+    if (!hostEnabled() || !state.batchRecruit) return;
+    if (automationPaused({})) return;
+    if (captchaPaused('recruit')) return;
+    if (gbLocked('recruit')) return;
+    let anyTown = false;
+    try {
+      const tlists = batchRecruitNormLists().towns || {};
+      for (const townId of Object.keys(tlists)) {
+        if (batchRecruitTownList(townId).length) { anyTown = true; break; }
+      }
+    } catch (_) {}
+    if (!anyTown) {
+      gbLogT('batch-recruit-empty', 180000, `batch recruit: idle (${scanReason(reason)})`);
+      return;
+    }
+    let count = 0;
+    try {
+      const tlists = batchRecruitNormLists().towns || {};
+      for (const townId of Object.keys(tlists)) {
+        if (!batchRecruitTownList(townId).length) continue;
+        const verdict = batchRecruitAtomicAfford(townId);
+        if (!verdict.ok) {
+          if (verdict.why === 'resources/pop/favor') {
+
+            gbLogT(`batch-recruit-wait-${townId}`, 60000, `batch recruit: ${townId} waiting (row ${verdict.rowIdx + 1} ${verdict.unit})`);
+          }
+          continue;
+        }
+        batchRecruitFire(townId);
+        count++;
+      }
+    } catch (_) {}
+    if (!count) gbLogT('batch-recruit-idle', 180000, `batch recruit: idle (${scanReason(reason)})`);
   }

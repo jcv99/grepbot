@@ -6,7 +6,7 @@
   ];
   const COLLECT_BTN_SEL = '.btn_claim_resources, button[data-action*="claim"], a[data-action*="claim"]';
   function parseTimerMinutes(txt) {
-    const t = String(txt || '').replace(/\u00a0/g, ' ').trim().toLowerCase();
+    const t = String(txt || '').replace(/ /g, ' ').trim().toLowerCase();
     if (!t) return null;
     let m = t.match(/^(\d{1,2})\s*min$/);
     if (m) return parseInt(m[1], 10);
@@ -49,7 +49,7 @@
       if (!state.collectAll && min > collectMaxMin()) { skipped.push(`too-long:${min}min`); continue; }
       const collectTxt = i18n('collect');
       const label = btn.querySelector('span') || btn;
-      const labelTxt = (label.textContent || '').replace(/\u00a0/g, ' ');
+      const labelTxt = (label.textContent || '').replace(/ /g, ' ');
       if (collectTxt && labelTxt && !labelTxt.includes(collectTxt) &&
           !/Recoger|Collect|Sammeln|Collecter|Raccogli|Recolher/i.test(labelTxt)) {
         skipped.push('i18n:' + labelTxt.trim().slice(0, 12));
@@ -57,6 +57,10 @@
       }
       const beforeTime = (timeEl.textContent || '').trim();
       attempted++;
+      // Stamp dataset on every successful bail (including dry-run) so the
+      // MutationObserver stops re-trying the same button. In dry-run no click
+      // ever lands — without this stamp the next MO tick finds the button
+      // "fresh" and re-arms auto-collect every ~1s.
       // Stamp dataset on every successful bail (including dry-run) so the
       // MutationObserver stops re-trying the same button. In dry-run no click
       // ever lands — without this stamp the next MO tick finds the button
@@ -84,7 +88,6 @@
     if (attempted) { gbLog(`auto-collect: attempted ${attempted}/${scanned} Recoger buttons`); flash(`auto-collect x${attempted}`); }
     else if (scanned > 0) gbLogT('collect-skip', 120000, `auto-collect: 0/${scanned} eligible`, skipped.slice(0, 4).join(', '));
   }
-
   function updateCollectStateBadge(scanned, clicked) {
     const e = panel?.querySelector('#gb-collect-state');
     if (!e) return;
@@ -100,7 +103,6 @@
       e.style.color = '#888';
     }
   }
-
   let collectBgBackoff = 90_000;
   let collectBgTimer = null;
   function scheduleCollectBg(ms) {
@@ -127,6 +129,7 @@
       const parts = u.pathname.split('/').filter(Boolean);
 
       collectCtrl = parts.length >= 2 && parts[0] === 'game' ? parts[1] : parts[parts.length - 1];
+
       // gpAjax builds /game/<controller>, so a script-file path segment would
       // POST to /game/index.php and be rejected. Unknown beats blind.
       if (collectCtrl && /\.php$/i.test(collectCtrl)) collectCtrl = null;
@@ -157,6 +160,7 @@
           return;
         }
         gameAjaxPost('collect', collectCtrl, collectAction, { town_id: +t.id }, (err, res) => {
+
           // JRN_SKIP_ERRS = local gates; nothing was posted, so none of them is
           // evidence about the endpoint. `captcha` is excluded for the same
           // reason the journal excludes it: the captcha breaker owns that
@@ -181,6 +185,9 @@
     // rAF when the tab is visible paints inside the next frame so a burst of
     // MO records collapses to one auto-collect; the 800ms timer stays for
     // hidden tabs (rAF is paused) and for engines without rAF.
+    // rAF when the tab is visible paints inside the next frame so a burst of
+    // MO records collapses to one auto-collect; the 800ms timer stays for
+    // hidden tabs (rAF is paused) and for engines without rAF.
     if (!document.hidden && typeof requestAnimationFrame === 'function') {
       collectRafPending = true;
       requestAnimationFrame(() => { collectRafPending = false; autoCollectResources(); });
@@ -188,12 +195,18 @@
       collectTimer = gbTimeout(() => { collectTimer = null; autoCollectResources(); }, 800);
     }
   }
-
   let gbDomObserverSig = '';
   function ensureDomObserver() {
     if (!gbDomObserver) {
       gbDomObserver = new MutationObserver((records) => {
         if (document.hidden) return;
+        // Observing <body> puts GrepBot's own DOM in scope, and the Log tab
+        // repaints constantly — without this it would re-arm a collect/bandit/
+        // native scan on every line, which can then flash again and re-arm it.
+        // A body-level append reports `target === body`, so the added/removed
+        // nodes have to be inspected too, not just the target's ancestors.
+        // Text-only records are deliberately NOT filtered: autoCollect keys off
+        // the game's own "N min" leaf text.
         // Observing <body> puts GrepBot's own DOM in scope, and the Log tab
         // repaints constantly — without this it would re-arm a collect/bandit/
         // native scan on every line, which can then flash again and re-arm it.
@@ -216,6 +229,14 @@
         scheduleNativeUiScan();
       });
     }
+    // Grepolis windows are NOT inside #ui_box: WindowsView is `el:"body"` and
+    // renderWindow mounts with `$parent:this.$el`, so an open window is a
+    // SIBLING of #ui_box under <body>. A subtree observer on #ui_box therefore
+    // never sees a window open, and nothing scheduled a native-UI scan for it.
+    // Observing body costs one extra filter pass and is the only target that
+    // covers both. No #ui_box/.window_content fallback: those nodes cannot exist
+    // before <body> either, so the old fallback branch was unreachable — wait
+    // for the document instead.
     // Grepolis windows are NOT inside #ui_box: WindowsView is `el:"body"` and
     // renderWindow mounts with `$parent:this.$el`, so an open window is a
     // SIBLING of #ui_box under <body>. A subtree observer on #ui_box therefore

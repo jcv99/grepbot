@@ -10,11 +10,9 @@
   // routine one and vice versa.
   //
   // It adds NO scheduler: the auto path rides the existing 5s dodgeScan loop.
-
-  const EMERGENCY_MIN_RISK = 35;      // mirrors defenseShouldDodge's own literal
+  const EMERGENCY_MIN_RISK = 35;
   const EMERGENCY_LEDGER_GRACE_MS = 600000;
   const EMERGENCY_LEDGER_PRUNE_MS = 3600000;
-
   function emergencyMinIron() {
     const n = +state.emergencyCaveMinIron;
     return Number.isFinite(n) ? Math.max(1, Math.min(100000, n)) : 50;
@@ -39,7 +37,6 @@
     }
     if (changed) emergencyLedgerSave();
   }
-
   // How much iron this town could stash RIGHT NOW, ignoring caveThreshPct.
   // NOTE: this deliberately offers ALL readable iron, not just the excess -
   // denying the raider is the whole point. There is no auto-unstash path, so a
@@ -52,12 +49,16 @@
     if (!(info.hideLvl > 0)) return 0;
     let amount = Math.floor(info.iron);
     // Never ship iron the planner has already committed elsewhere.
+    // Never ship iron the planner has already committed elsewhere.
     try {
       const tid = info.town && (info.town.id || (info.town.attributes && info.town.attributes.id));
       const av = tid != null ? plannerAvailable(tid) : null;
       if (av && Number.isFinite(av.iron)) amount = Math.min(amount, Math.floor(av.iron));
     } catch (_) {}
     if (!info.unlimited) {
+      // A finite hide whose capacity or fill cannot be read is UNKNOWN, and
+      // posting into an unknown container is how the routine path used to
+      // over-stash. Refuse rather than guess.
       // A finite hide whose capacity or fill cannot be read is UNKNOWN, and
       // posting into an unknown container is how the routine path used to
       // over-stash. Refuse rather than guess.
@@ -99,7 +100,6 @@
       done(err, data);
     }, 'cave-emergency');
   }
-
   // Auto path: one stash per incoming movement, only while it is imminent and
   // the threat engine agrees it is serious.
   function emergencyScan(reason) {
@@ -121,6 +121,7 @@
       const key = String(mov.id);
       if (L[key] && +(L[key].expires || 0) > now) continue;
       const eta = dodgeEtaSec(mov);
+
       // A null ETA is UNREADABLE, not "landing now": an emergency stash fired
       // on an unknown clock would break the cave lock for nothing.
       if (eta == null) continue;
@@ -130,13 +131,14 @@
       if (!assess || !(assess.risk >= EMERGENCY_MIN_RISK)) continue;
       const plan = emergencyPlan(mov.dest);
       if (!plan.ok) continue;
+
       // Stamp BEFORE the post: a callback that never fires must not leave the
       // same movement free to re-stash on the next 5s pass.
       L[key] = { townId: String(mov.dest), ts: now, expires: now + eta * 1000 + EMERGENCY_LEDGER_GRACE_MS };
       emergencyLedgerSave();
       gbLog(`cave-emergency: ${mov.dest} incoming ${mov.type || 'atk'} in ${fmtSec(eta)} (risk ${assess.risk}) - stashing ${plan.amount}`);
       emergencyStoreNow(mov.dest, { confirmed: true }, () => {});
-      return; // one stash per pass; the next 5s tick handles the next movement
+      return;
     }
   }
   // Manual one-shot across every cave-enabled town.

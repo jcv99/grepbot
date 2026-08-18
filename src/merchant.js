@@ -1,131 +1,124 @@
+  // Exact item id only. `a.type` is an offer CATEGORY on several clients
+  // ("resource", "unit"), so matching a wish against it bought whatever the
+  // salesman happened to be selling in that category - and the final precheck
+  // below compares item ids, so the two disagreed.
   function merchantExactMatch(wishName, offerId) {
     const w = String(wishName || '').toLowerCase().trim();
     const id = String(offerId || '').toLowerCase().trim();
     if (!w || !id) return false;
     return w === id;
   }
+  function merchantRowPrice(w) {
+    if (!w || typeof w !== 'object') return null;
+    if (String(w.pricedIn || '') !== 'exchange') return null;
+    const n = +w.maxPrice;
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
   function merchantScan(reason) {
     if (!hostEnabled() || !state.autoMerchant || captchaPaused('merchant')) return;
     if (automationPaused({})) return;
     if (gbLocked('merchant')) return;
+    if (gbLocked('pt-trade')) return;
     const wish = state.merchantWish || [];
     if (!wish.length) {
       gbLogT('merchant-empty', 300000, 'merchant: wishlist empty');
       return;
     }
-    const uw = gameUw();
-    let offers = [];
-    try {
-      const col = uw.MM && (uw.MM.getOnlyCollectionByName && (
-        uw.MM.getOnlyCollectionByName('PhoenicianSalesmanOffer') ||
-        uw.MM.getOnlyCollectionByName('MerchantOffer') ||
-        uw.MM.getOnlyCollectionByName('PremiumExchangeOffer')
-      ));
-      if (col && col.models) offers = col.models;
-    } catch (_) {}
-    if (!offers.length) {
-      gbLogT('merchant-none', 180000, `merchant: no offers (${scanReason(reason)})`);
+    const stale = wish.filter(w => w && merchantRowPrice(w) == null).length;
+    if (stale) {
+      gbLogT('merchant-priced-in', 600000,
+        `merchant: ${stale} linea(s) sin precio en el recurso de cambio - reescribe el maximo en plata (antes era oro) para activarlas`);
+    }
+    const townId = ptSalesmanTown();
+    if (townId == null) {
+      gbLogT('merchant-noship', 600000, `merchant: no merchant ship readable (${scanReason(reason)})`);
       return;
     }
-
-    const gold = gbPlayerGold();
-    let job = null;
-    for (const w of wish) {
-      const name = (w.item || w.id || '').toLowerCase().trim();
-      const maxPrice = +w.maxPrice;
-      if (!name || !(maxPrice > 0)) continue;
-      for (const o of offers) {
-        const a = o.attributes || {};
-
-        const id = String(a.item_id || a.offer_id || '').toLowerCase().trim();
-        if (!id) continue;
-        // Exact item id only. `a.type` is an offer CATEGORY on several clients
-        // ("resource", "unit"), so matching a wish against it bought whatever
-        // the salesman happened to be selling in that category — and the final
-        // precheck below compares item ids, so the two disagreed.
-        if (!merchantExactMatch(name, id)) continue;
-
-        const priceRaw = a.price != null ? a.price : (a.gold != null ? a.gold : null);
-        if (priceRaw == null || priceRaw === '') continue;
-        const price = +priceRaw;
-        if (!Number.isFinite(price) || price < 0) continue;
-        if (price > maxPrice) continue;
-        if (gold != null && gold < price) {
-          gbLogT('merchant-gold', 300000, `merchant: ${id} costs ${price}, gold ${gold} — skip`);
-          continue;
-        }
-        const townId = a.town_id || (uw.Game && uw.Game.townId);
-        if (!townId) continue;
-        job = { offer: o, wish: w, price, townId, itemId: id };
-        break;
+    ptOffers(townId, (offers) => {
+      if (!offers || !offers.length) {
+        gbLogT('merchant-none', 180000, `merchant: no offers (${scanReason(reason)})`);
+        return;
       }
-      if (job) break;
-    }
-    if (!job) return;
-
-    const oid = (job.offer.attributes && (job.offer.attributes.id || job.offer.id)) || job.offer.id;
-    if (oid == null || oid === '') {
-      gbLogT('merchant-noid', 60000, 'merchant: offer has no id — skip');
+      const units = offers.filter(o => o.kind === 'unit');
+      if (!units.length) {
+        gbLogT('merchant-nounits', 300000, 'merchant: el barco no trae unidades esta visita');
+        return;
+      }
+      let job = null;
+      for (const w of wish) {
+        const name = String(w.item || w.id || '').toLowerCase().trim();
+        const maxPrice = merchantRowPrice(w);
+        if (!name || maxPrice == null) continue;
+        for (const o of units) {
+          if (!merchantExactMatch(name, o.name)) continue;
+          if (!(o.costPer > 0)) continue;
+          if (o.costPer > maxPrice) continue;
+          if (o.stock != null && o.stock <= 0) continue;
+          job = { offer: o, wish: w, maxPrice, townId, itemId: o.name };
+          break;
+        }
+        if (job) break;
+      }
+      if (!job) return;
+      merchantBuy(job);
+    });
+  }
+  function merchantBuy(job) {
+    const offer = job.offer;
+    const exchange = offer.exchange;
+    if (PT_RES.indexOf(exchange) === -1) {
+      gbLogT('merchant-noexchange', 600000,
+        'merchant: no se puede leer con que recurso paga el barco - no se compra nada');
       return;
     }
+
+    const room = ptRoom(job.townId, exchange, exchange);
+    if (room.out == null) {
+      gbLogT('merchant-blind', 300000,
+        `merchant: town ${job.townId} ${exchange} ilegible - no se compra a ciegas`);
+      return;
+    }
+    const affordable = Math.floor(room.out / offer.costPer);
+    const bounds = [affordable];
+    if (offer.stock != null) bounds.push(offer.stock);
+    const want = Math.floor(+job.wish.amount);
+    if (Number.isFinite(want) && want > 0) bounds.push(want);
+    const amount = Math.floor(Math.min.apply(null, bounds));
+    if (!(amount > 0)) {
+      gbLogT('merchant-poor', 300000,
+        `merchant: ${offer.name} cuesta ${offer.costPer} ${exchange} y no alcanza tras la reserva - skip`);
+      return;
+    }
+    const cost = Math.ceil(amount * offer.costPer);
     const merchantLock = gbLock('merchant', 180000);
     if (!merchantLock) return;
+
     // Final offer/gold precheck immediately before any purchase request.
-    const liveAttrs = job.offer && (job.offer.attributes || job.offer);
-    const livePrice = liveAttrs && Number(liveAttrs.price != null ? liveAttrs.price : liveAttrs.gold);
-    const liveId = liveAttrs && String(liveAttrs.item_id || liveAttrs.offer_id || '').toLowerCase().trim();
-    const freshGold = gbPlayerGold();
-    if (!liveAttrs || !merchantExactMatch(job.itemId, liveId) || !Number.isFinite(livePrice)
-        || livePrice > +job.wish.maxPrice || (freshGold != null && freshGold < livePrice)) {
+    const fresh = ptRoom(job.townId, exchange, exchange);
+    if (fresh.out == null || fresh.out < cost || offer.costPer > job.maxPrice) {
       gbUnlock('merchant', merchantLock);
-      gbLogT('merchant-stale', 60000, 'merchant: final precheck failed; offer changed');
+      gbLogT('merchant-stale', 60000, 'merchant: final precheck failed; balance or price moved');
       return;
     }
-    bridgePost('merchant', {
-      model_url: `PhoenicianSalesmanOffer/${oid}`,
-      action_name: 'buy',
-      arguments: {},
-      town_id: +job.townId,
-    }, (err) => {
-      if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {
-        gbLogT('merchant-timeout', 60000, `merchant: timeout_unknown for ${job.itemId} — no fallback`);
-        gbUnlock('merchant', merchantLock);
-        return;
-      }
-      if (!err) {
-        gbLog(`merchant: bought ${job.wish.item || job.wish.id} @ ${job.price}`);
-        gbUnlock('merchant', merchantLock);
+    ptTradePost(job.townId, offer, amount, (err) => {
+      gbUnlock('merchant', merchantLock);
+      if (err === 'dryrun') {
+        gbLog(`merchant: DRY-RUN compraria ${amount} ${offer.name} por ${cost} ${exchange}`);
         return;
       }
 
-      if (!/unknown.?action|invalid.?action|not.?found|does.?not.?exist/i.test(String(err))) {
+      // A buy is irreversible, and an error STRING is not proof the post did
+      // not land. Reconcile against the balance before spending a second time;
+      // unreadable balance means unknown, so no fallback.
+      if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {
+        gbLogT('merchant-timeout', 60000, `merchant: timeout_unknown ${offer.name} — sin reintento`);
+        return;
+      }
+      if (err) {
         gbLogT('merchant-err', 60000, `merchant err ${err}`);
-        gbUnlock('merchant', merchantLock);
         return;
       }
-      // A buy is irreversible, and an error STRING is not proof the post did not
-      // land — the same reasoning the timeout branch above follows. Reconcile
-      // against the gold balance before spending a second time; unreadable gold
-      // means unknown, so no fallback.
-      const goldNow = gbPlayerGold();
-      const spent = (freshGold != null && goldNow != null) ? freshGold - goldNow : null;
-      if (spent == null) {
-        gbLogT('merchant-noreconcile', 60000, `merchant: ${err} but gold unreadable - no ajax fallback`);
-        gbUnlock('merchant', merchantLock);
-        return;
-      }
-      if (spent >= livePrice) {
-        gbLog(`merchant: ${err} but gold fell ${spent} (price ${livePrice}) - purchase landed, no fallback`);
-        gbUnlock('merchant', merchantLock);
-        return;
-      }
-      gameAjaxPost('merchant', 'phoenician_salesman', 'buy', {
-        offer_id: oid,
-        town_id: +job.townId,
-      }, (e2) => {
-        gbUnlock('merchant', merchantLock);
-        if (!e2) gbLog(`merchant: bought via ajax ${job.wish.item || job.wish.id}`);
-        else gbLogT('merchant-err', 60000, `merchant err ${err}/${e2}`);
-      });
-    });
+      ptViewCache = null;
+      gbLog(`merchant: ${amount} ${offer.name} por ${cost} ${exchange} en la ciudad ${job.townId}`);
+    }, 'merchant');
   }

@@ -81,6 +81,8 @@
       onerror(e) {
         // Budget / host-disabled rejections happen before the wire: walking the
         // rest of the ladder there just burns the remaining guesses.
+        // Budget / host-disabled rejections happen before the wire: walking the
+        // rest of the ladder there just burns the remaining guesses.
         const why = e && e.error ? String(e.error) : '';
         if (why === 'budget' || why === 'disabled' || why === 'disposed') return;
         fetchOwnedTowns(i + 1, 0);
@@ -177,7 +179,6 @@
       });
     }
   }
-
   function scrapeAllTowns() {
     if (!hostEnabled() || automationPaused({})) return;
     if (gbLocked('town-scrape')) { gbLogT('town-scrape-inflight', 30000, 'town scrape: skipped (in flight)'); return; }
@@ -189,6 +190,8 @@
       gbUnlock('town-scrape', townScrapeLock);
       const ids = state.towns.map(t => t.id);
       pruneMapsToIds(state.townResources, ids); save(STORE.TOWN_RES, state.townResources);
+      // v4 plan 6.12: sample off the EXISTING 6-7min town scrape cadence rather
+      // than adding a scheduler for a read-only chart.
       // v4 plan 6.12: sample off the EXISTING 6-7min town scrape cadence rather
       // than adding a scheduler for a read-only chart.
       try { townGrowthSample(ids); } catch (_) {}

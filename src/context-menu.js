@@ -12,20 +12,21 @@
   // README hard rule reserves interval registration for the existing cadences,
   // and a chain that only re-arms after the previous scan settled cannot pile
   // up behind a slow elementFromPoint.
-
   const CTX_SCAN_MS = 750;
   const CTX_POPUP_SEL = '.ui-dialog-content, .gpwindow_content, .town_info, .context_menu';
   const CTX_ID_ATTRS = ['data-townid', 'data-town-id', 'data-id'];
   let ctxMenuEl = null;
   let ctxMenuTown = null;
   let ctxTimer = 0;
-
   function ctxReadTownId(popup) {
     for (const a of CTX_ID_ATTRS) {
       const holder = popup.matches && popup.matches('[' + a + ']') ? popup : popup.querySelector('[' + a + ']');
       const v = holder && holder.getAttribute(a);
       if (v && /^\d+$/.test(String(v).trim())) return String(v).trim();
     }
+    // Fall back to a link that names the town id explicitly. A bare number
+    // scraped from popup TEXT is deliberately not accepted: it would happily
+    // match a resource count and mount a menu for a town that does not exist.
     // Fall back to a link that names the town id explicitly. A bare number
     // scraped from popup TEXT is deliberately not accepted: it would happily
     // match a resource count and mount a menu for a town that does not exist.
@@ -40,6 +41,7 @@
     let nodes = [];
     try { nodes = Array.from(document.querySelectorAll(CTX_POPUP_SEL)); } catch (_) { return null; }
     for (const n of nodes) {
+      // Never mount on our own UI - the same ownership test nativeUiScan uses.
       // Never mount on our own UI - the same ownership test nativeUiScan uses.
       if (n.closest('#grepbot-panel, #grepbot-queue-center, .gb-widget, .gb-ctx-menu')) continue;
       const r = n.getBoundingClientRect();
@@ -141,10 +143,18 @@
       // click), so there is nothing to find. Keep the existing menu mounted
       // rather than disposing: a hidden tab is not a closed popup, and the
       // re-arm in `finally` keeps the poll alive for the return to visible.
+      // Each pass costs a querySelectorAll plus getBoundingClientRect and
+      // elementFromPoint - three forced layout flushes, 80x/min. The game popup
+      // this menu anchors to cannot appear while the tab is hidden (it needs a
+      // click), so there is nothing to find. Keep the existing menu mounted
+      // rather than disposing: a hidden tab is not a closed popup, and the
+      // re-arm in `finally` keeps the poll alive for the return to visible.
       if (document.hidden) return;
       const found = ctxFindPopup();
       if (!found) { ctxDispose(); return; }
       if (ctxMenuEl && ctxMenuTown === found.id && ctxMenuEl.isConnected) {
+        // The game popup is draggable, so follow it rather than leaving the
+        // menu stranded where the popup used to be.
         // The game popup is draggable, so follow it rather than leaving the
         // menu stranded where the popup used to be.
         const left = Math.round(found.rect.right + 12) + 'px';
@@ -161,6 +171,8 @@
     } catch (e) {
       gbLogT('ctx-scan-err', 300000, 'context menu: ' + String(e).slice(0, 60));
     } finally {
+      // Re-arm only after this scan settled, so a slow elementFromPoint cannot
+      // stack scans on top of each other.
       // Re-arm only after this scan settled, so a slow elementFromPoint cannot
       // stack scans on top of each other.
       if (!ctxTimer && gbInstanceAlive()) ctxTimer = gbTimeout(contextMenuScan, CTX_SCAN_MS);

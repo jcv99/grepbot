@@ -7,7 +7,6 @@
   function cultureGoldSpentSave(spent) {
     save(wkey(STORE.CULTURE_GOLD_SPENT), { day: spent.day, amount: spent.amount });
   }
-
   function culturePlayerGold() { return gbPlayerGold(); }
   function cultureBusyTowns(type) {
     const uw = gameUw();
@@ -54,6 +53,8 @@
       const budget = +state.cultureGoldBudget || 0;
       // Local ledger, always readable — this is the real bound on gold spend,
       // so a blind balance below still cannot overrun the daily budget.
+      // Local ledger, always readable — this is the real bound on gold spend,
+      // so a blind balance below still cannot overrun the daily budget.
       if (!(budget >= OLYMPIC_GOLD) || spent + OLYMPIC_GOLD > budget) return false;
       const gold = ledger && ledger.playerGold != null ? ledger.playerGold : culturePlayerGold();
       if (gold == null) return cultureBlind('gold', townId, type);
@@ -85,6 +86,8 @@
         if (need <= 0) continue;
         // null/undefined coerced through `<` reads as 0 — i.e. as a shortage.
         // Unreadable stock must not masquerade as an empty warehouse.
+        // null/undefined coerced through `<` reads as 0 — i.e. as a shortage.
+        // Unreadable stock must not masquerade as an empty warehouse.
         if (r[k] == null || !isFinite(+r[k])) return cultureBlind(k, townId, type);
         if (+r[k] < need) return false;
       }
@@ -98,9 +101,20 @@
     if (ctype === 'olympic' && !state.allowPremiumCulture) {
       return onDone && onDone('premium-blocked');
     }
-    gameAjaxPost('culture', 'building_place', 'start_celebration', {
-      celebration_type: ctype,
+
+    let curTown = null;
+    try { const g = gameUw().Game; curTown = g && g.townId != null ? String(g.townId) : null; } catch (_) {}
+    if (curTown != null && String(townId) === curTown) {
+      gameAjaxPost('culture', 'building_place', 'start_celebration', {
+        celebration_type: ctype,
+        town_id: +townId,
+      }, onDone);
+      return;
+    }
+    gameAjaxPost('culture', 'town_overviews', 'start_celebration', {
       town_id: +townId,
+      celebration_type: ctype,
+      no_bar: 1,
     }, onDone);
   }
   function cultureScan(reason) {
@@ -157,6 +171,7 @@
 
         const cost = CULTURE_COSTS[ctype];
         if (cost) {
+
           // null means "unreadable"; decrementing it would produce a negative
           // number that then reads as a hard shortage for every later town.
           if (cost.killpoints && ledger.killpoints != null) ledger.killpoints -= cost.killpoints;
@@ -216,6 +231,7 @@
           gbLogT('culture-err-' + job.id, 60000, `culture: ${job.type} ${job.id} err ${err}`);
 
           gbUnlock('culture', cultureLock);
+
           // The err branch must also advance the batch: skipping next() on a
           // non-captcha/non-timeout rejection strands every queued job behind
           // this one for a full cadence. Captcha/timeout take their own
@@ -225,8 +241,6 @@
       });
     })();
   }
-
-
   // ===== Predictive Economy (v1.9) ===========================================
   function economyProductionRate(townId) {
     const t=gbTownModel(townId); if(!t)return null; let p=null;
@@ -234,6 +248,7 @@
     try { if(!p && typeof t.getResourceProduction==='function') p=t.getResourceProduction(); } catch(_){}
     try { if(!p){const r=t.resources&&t.resources(); if(r) p={wood:r.wood_production??r.production_wood,stone:r.stone_production??r.production_stone,iron:r.iron_production??r.production_iron};} } catch(_){}
     if(!p||[p.wood,p.stone,p.iron].some(v=>v==null||!Number.isFinite(+v))) return null;
+    // Client models normally expose per-hour production. Do not invent a rate if unreadable.
     // Client models normally expose per-hour production. Do not invent a rate if unreadable.
     return {wood:+p.wood,stone:+p.stone,iron:+p.iron};
   }
@@ -248,6 +263,7 @@
     const projected={}; for(const k of ['wood','stone','iron']) projected[k]=Math.max(0,s.live[k]-s.committed[k]+s.incoming[k]+(prod?prod[k]*sec/3600:0)-demand[k]);
     const overflow={}; for(const k of ['wood','stone','iron']) overflow[k]=s.live.cap>0?projected[k]>=s.live.cap:false;
     const deficit={}; for(const k of ['wood','stone','iron']) deficit[k]=Math.max(0,demand[k]-(s.availableSoft[k]+s.incoming[k]+(prod?prod[k]*sec/3600:0)));
+
     // etaMinutes (v4 plan 2.8): wall-clock minutes until this resource reaches
     // cap at the CURRENT production rate, clamped to the horizon. null unless
     // the projection actually crosses the cap AND production was readable -
@@ -264,15 +280,14 @@
       const nowLevel=Math.max(0,s.live[k]-s.committed[k]+s.incoming[k]-demand[k]);
       const room=s.live.cap-nowLevel;
       if(room<=0){etaMinutes[k]=0;continue}
-      etaMinutes[k]=(room/(rate/3600))/60; // rate is per hour
+      etaMinutes[k]=(room/(rate/3600))/60;
     }
     return {townId:String(townId),horizonSec:sec,snapshot:s,production:prod,demand,projected,overflow,deficit,etaMinutes,productionKnown:!!prod};
   }
-
   // ===== Resource capping pre-warn (v4 plan 2.8) =============================
   const PREWARN_MIN_MIN = 10;
   const PREWARN_HORIZON_HOURS = 2;
-  const PREWARN_TTL_MS = 30 * 60 * 1000; // matches the tplHealthOk window
+  const PREWARN_TTL_MS = 30 * 60 * 1000;
   const _cappingAlerted = Object.create(null);
   // Spanish client wording: iron renders as plata.
   const CAPPING_RES_ES = { wood: 'madera', stone: 'piedra', iron: 'plata' };
@@ -284,6 +299,8 @@
   let _cappingMemo = { at: 0, v: [] };
   const CAPPING_MEMO_MS = 5000;
   function cappingPending() {
+    // Memoised: renderWorld calls this on every 15s repaint and the watcher on
+    // every orch tick; economyForecast per town is not free.
     // Memoised: renderWorld calls this on every 15s repaint and the watcher on
     // every orch tick; economyForecast per town is not free.
     if (Date.now() - _cappingMemo.at < CAPPING_MEMO_MS) return _cappingMemo.v;
@@ -318,6 +335,8 @@
     const now = Date.now();
     // Sweep FIRST: if the forecast walk throws, orchTick swallows it and an
     // unswept map would grow for the life of the page.
+    // Sweep FIRST: if the forecast walk throws, orchTick swallows it and an
+    // unswept map would grow for the life of the page.
     for (const k of Object.keys(_cappingAlerted)) if (_cappingAlerted[k] <= now) delete _cappingAlerted[k];
     const rows = cappingPending();
     for (const r of rows) {
@@ -325,6 +344,7 @@
       if (_cappingAlerted[key]) continue;
       _cappingAlerted[key] = now + PREWARN_TTL_MS;
       const res = CAPPING_RES_ES[r.resource] || r.resource;
+      // The in-panel flash is unconditional; only the webhook is opt-in.
       // The in-panel flash is unconditional; only the webhook is opt-in.
       try { flash(`AVISO: ${r.name} ${res} en ~${r.etaMin}min (almacen al limite)`); } catch (_) {}
       gbLog(`capping: ${r.name} ${r.resource} ~${r.etaMin}min to cap (${r.fillPct == null ? '?' : r.fillPct}%)`);

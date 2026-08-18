@@ -1,5 +1,4 @@
   function wkey(base) { return base + '@' + location.hostname; }
-
   const GB_ROOT = (typeof unsafeWindow !== 'undefined' && unsafeWindow) ? unsafeWindow : window;
   if (typeof GB_ROOT.__grepbotDispose === 'function') {
     try { GB_ROOT.__grepbotDispose(); } catch (_) {}
@@ -12,7 +11,6 @@
   function gbInstanceAlive() {
     return !gbDisposed && GB_ROOT.__grepbotInstanceId === GB_INSTANCE_ID;
   }
-
   const gbTimerBag = [];
   const gbListenerBag = [];
   const gbXhrBag = [];
@@ -29,7 +27,6 @@
   gbListenerAbort = new AbortController();
   gbListenerSignal = gbListenerAbort.signal;
   let gbDomObserver = null;
-
   function gbInterval(fn, ms) {
     if (!gbInstanceAlive()) return 0;
     const entry = { kind: 'i', id: 0 };
@@ -99,7 +96,6 @@
     el.setAttribute('aria-label', String(text));
     return el;
   }
-
   // Walk a subtree and materialize every `data-gb-tip="..."` attribute into a
   // real `title` + `aria-label`. Use this after assigning innerHTML strings
   // that carry `data-gb-tip` instead of `title` (the panel chrome ships ~120
@@ -119,7 +115,6 @@
     }
     return n;
   }
-
   // gbPaint builds into a DETACHED node, then reconciles: identical structure is
   // patched in place (text + attributes only), so live nodes and their listeners
   // survive and only what actually changed is written to the document.
@@ -135,6 +130,12 @@
     if (!host || typeof build !== 'function') return 'skip';
     const o = opts || {};
     const stage = document.createElement('div');
+    // A structural replace detaches every descendant, including the focused
+    // control. Snapshot activeElement + selection so the caret survives the
+    // swap. Number/email inputs have no selection (setSelectionRange throws);
+    // guard the call. We can only restore by ID/name because the original DOM
+    // node is gone; if the new tree has nothing matching, we simply lose focus
+    // (the same outcome as the previous behavior).
     // A structural replace detaches every descendant, including the focused
     // control. Snapshot activeElement + selection so the caret survives the
     // swap. Number/email inputs have no selection (setSelectionRange throws);
@@ -199,6 +200,11 @@
       const r = gbPaintPatch(a, b);
       if (r === false) return false;
       if (r) wrote = 1;
+      // Form controls hold their state in the PROPERTY, not the attribute, so
+      // an attribute-only patch would freeze every input at its first render.
+      // The focused control is exempt: whatever the user is typing or has open
+      // outranks a background repaint — that is the whole point of patching
+      // instead of rebuilding.
       // Form controls hold their state in the PROPERTY, not the attribute, so
       // an attribute-only patch would freeze every input at its first render.
       // The focused control is exempt: whatever the user is typing or has open
@@ -274,6 +280,10 @@
     // not in any GM spec and an engine is free to return nothing (the smoke stub
     // does). Snapshot the document's <style> nodes and diff, so the tag lands on
     // every engine instead of only the two that happen to return the element.
+    // Tampermonkey and Violentmonkey return the <style> node, but that return is
+    // not in any GM spec and an engine is free to return nothing (the smoke stub
+    // does). Snapshot the document's <style> nodes and diff, so the tag lands on
+    // every engine instead of only the two that happen to return the element.
     let before = null;
     try { before = new Set(document.querySelectorAll('style')); } catch (_) {}
     let el = null;
@@ -299,6 +309,7 @@
       try { el.remove(); } catch (_) {}
     }
     gbStyleBag.length = 0;
+
     // Belt and braces: an engine whose GM_addStyle returns nothing never made it
     // into the bag, so sweep by attribute too.
     try { document.querySelectorAll('style[data-grepbot-style]').forEach(el => el.remove()); } catch (_) {}
@@ -310,9 +321,11 @@
     if(gbTabLockRelease){try{gbTabLockRelease()}catch(_){}gbTabLockRelease=null}gbTabLeader=false;
     try { if (typeof txDispose === 'function') txDispose(); } catch (_) {}
     try { if (typeof jrnFlush === 'function') jrnFlush(); } catch (_) {}
+
     // Debounced writes must land before the timers are cleared below, or the
     // last save of a sweep dies with the instance.
     try { saveFlush(); } catch (_) {}
+
     // Pending gpAjax watchers outlive the instance otherwise: the XHR spy is
     // restored below, but an entry already in the list keeps its settle closure
     // (and its 8s TTL slot) alive against a dead instance.
@@ -321,6 +334,7 @@
     gbAbortXhrs();
     gbRestoreHooks();
     gbUnregisterMenus();
+
     // AbortController removes every listener this instance registered with the
     // shared signal in one call. The bag survives as a debug mirror only; the
     // entries still reference the now-detached signal and are cleared below.
@@ -337,19 +351,23 @@
     if (p) try { p.remove(); } catch (_) {}
     const qc = document.getElementById('grepbot-queue-center');
     if (qc) try { qc.remove(); } catch (_) {}
+
     // Widgets (v4 plan 6.2) own their own interval, so disposing the handles is
     // not the same as removing the elements - do both, and sweep any host a
     // previous instance left behind.
     try { gbWidgetDisposeAll(); } catch (_) {}
     try { contextMenuStop(); } catch (_) {}
     try { document.querySelectorAll('.gb-widget').forEach(el => el.remove()); } catch (_) {}
-    try { document.querySelectorAll('.gb-native-qctl,.gb-native-panel').forEach(el=>el.remove()); } catch (_) {}
+    try { document.querySelectorAll('.gb-native-qctl,.gb-native-panel,.gb-native-qpop').forEach(el=>el.remove()); } catch (_) {}
     gbRemoveStyles();
+
+    if (GB_ROOT.__grepbotTest && GB_ROOT.__grepbotTest.instanceId === GB_INSTANCE_ID) {
+      try { delete GB_ROOT.__grepbotTest; } catch (_) { GB_ROOT.__grepbotTest = null; }
+    }
     if (GB_ROOT.__grepbotInstanceId === GB_INSTANCE_ID) {
       try { delete GB_ROOT.__grepbotInstanceId; } catch (_) { GB_ROOT.__grepbotInstanceId = null; }
     }
   };
-
   const GB_LOCK_TTL = {
     claim: 180000,
     'farm-scrape': 300000,
@@ -385,10 +403,15 @@
     // Raw passthrough posts (feature `airaw`). relay.js is gone; the entry
     // stays so any future raw-payload caller inherits a real TTL instead of
     // the 180s default.
+    // Raw passthrough posts (feature `airaw`). relay.js is gone; the entry
+    // stays so any future raw-payload caller inherits a real TTL instead of
+    // the 180s default.
     airaw: 120000,
   };
   const GB_LOCK_DEFAULT_TTL = 180000;
   const gbLocks = Object.create(null);
+  const gbLockExpired = Object.create(null);
+  const GB_LOCK_EXPIRED_MEMORY_MS = 600000;
   let gbLockSeq = 0;
   function gbLockTtl(name) { return GB_LOCK_TTL[name] || GB_LOCK_DEFAULT_TTL; }
   function gbLockLease(name) {
@@ -396,6 +419,7 @@
     if (!L) return null;
     if (Date.now() - L.at >= (L.ttl || gbLockTtl(name))) {
       delete gbLocks[name];
+      gbLockExpired[name] = { token: L.token, at: Date.now() };
       gbLog(`lock: ${name} lease ${L.token} expired after ${Math.round((Date.now() - L.at) / 1000)}s`);
       return null;
     }
@@ -427,22 +451,37 @@
   }
   function gbUnlock(name, token) {
     const L = gbLocks[name];
+
+    if (token && gbLockExpired[name] && gbLockExpired[name].token === token) {
+      if (Date.now() - gbLockExpired[name].at > GB_LOCK_EXPIRED_MEMORY_MS) delete gbLockExpired[name];
+      else {
+        delete gbLockExpired[name];
+        gbLogT('lock-expired-' + name, 30000, `lock: unlock after lease expiry ${name} - raise GB_LOCK_TTL if this repeats`);
+        return false;
+      }
+    }
     if (!L) return false;
     if (!token || L.token !== token) {
       gbLogT('lock-owner-' + name, 30000, `lock: refused foreign unlock ${name}`);
       return false;
     }
     delete gbLocks[name];
+    delete gbLockExpired[name];
     return true;
   }
   function gbLockAge(name) { const L = gbLockHeld(name); return L ? Date.now() - L.at : 0; }
-  function gbUnlockAll() { for (const k of Object.keys(gbLocks)) delete gbLocks[k]; }
+  function gbUnlockAll() {
+    for (const k of Object.keys(gbLocks)) delete gbLocks[k];
+    for (const k of Object.keys(gbLockExpired)) delete gbLockExpired[k];
+  }
   function gbLockList() { return Object.keys(gbLocks).filter(k => !!gbLockHeld(k)); }
-  function gbLockSweep() { for (const k of Object.keys(gbLocks)) gbLockLease(k); }
-
+  function gbLockSweep() {
+    for (const k of Object.keys(gbLocks)) gbLockLease(k);
+    const cut = Date.now() - GB_LOCK_EXPIRED_MEMORY_MS;
+    for (const k of Object.keys(gbLockExpired)) if (gbLockExpired[k].at < cut) delete gbLockExpired[k];
+  }
   const SEEN_MAX = 2000;
   const LOG_THROTTLE_MAX = 200;
-
   const state = {
     findings: load(STORE.FINDINGS, []),
     farms:    load(STORE.FARMS, ''),
@@ -457,11 +496,13 @@
     nextFarmScrape: load(STORE.NEXT_FARM, 0),
     nextTownsScrape: load(STORE.NEXT_TOWNS, 0),
     farmAction: load(STORE.FARM_ACTION, null),
+
     // The HTTP village-resource scrape only exists on worlds whose client still
     // answers a farm_town_* action. It defaults OFF: on a world where it does
     // not, every sweep burned N villages x 3 guesses of the shared request
     // budget and starved the bridge posts that actually matter.
     farmScrape: load(STORE.FARM_SCRAPE, false),
+
     // Winning HTTP action per ladder, so a sweep stops re-guessing what already
     // worked (6-deep and 5-deep ladders x N towns, every sweep, out of budget).
     townAction: load(STORE.TOWN_ACTION, null),
@@ -471,6 +512,7 @@
     autoCollect: load(STORE.AUTO_COLLECT, false),
     collectTpl: load(STORE.COLLECT_TPL, null),
     autoBandit: load(STORE.AUTO_BANDIT, false),
+
     // v4 plan 5.8: empty = ship everything, exactly as before.
     banditCfg: load(STORE.BANDIT_CFG, {}) || {},
     banditLog:  load(STORE.BANDIT_LOG, []),
@@ -481,13 +523,6 @@
     ibAction:   load(STORE.IB_ACTION, null) || 'buyInstant',
     ibResearch: load(STORE.IB_RESEARCH, false),
     farmOptionMap: load(STORE.FARM_OPTION_MAP, null) || { 300: 1 },
-    // Village halves: resources (always preferred) and units. 'off' never asks
-    // for units; 'fallback' only once the resource half is provably spent.
-    farmUnitsMode: load(STORE.FARM_UNITS_MODE, 'off') || 'off',
-    farmUnitsPref: load(STORE.FARM_UNITS_PREF, 'auto') || 'auto',
-    farmUnitsOption: load(STORE.FARM_UNITS_OPTION, null),
-    farmResDry: load(STORE.FARM_RES_DRY, {}) || {},
-    farmResDryDay: load(STORE.FARM_RES_DRY_DAY, '') || '',
     farmLongClaims: load(STORE.FARM_LONG_CLAIMS, true),
     farmLoyaltyTech: load(STORE.FARM_LOYALTY_TECH, '') || '',
     farmSleepDur: load(STORE.FARM_SLEEP_DUR, 'auto'),
@@ -495,11 +530,18 @@
     farmSleepFillPct: load(STORE.FARM_SLEEP_FILL, 60),
     farmSleepDay: load(STORE.FARM_SLEEP_DAY, '') || '',
     farmProfit: load(STORE.FARM_PROFIT, {}),
+
     // v4 plan 5.2: target-rotation policy, default OFF.
     adaptiveFarm: load(STORE.ADAPTIVE_FARM, false),
     farmDropPressurePct: load(STORE.FARM_DROP_PCT, 25),
     farmClaimsToday: load(STORE.FARM_CLAIMS_TODAY, {}) || {},
     farmClaimsDay: load(STORE.FARM_CLAIMS_DAY, '') || '',
+
+    farmUnitsMode: load(STORE.FARM_UNITS_MODE, 'off') || 'off',
+    farmUnitsPref: load(STORE.FARM_UNITS_PREF, 'auto') || 'auto',
+    farmUnitsOption: load(STORE.FARM_UNITS_OPTION, null),
+    farmResDry: load(STORE.FARM_RES_DRY, {}) || {},
+    farmResDryDay: load(STORE.FARM_RES_DRY_DAY, '') || '',
     farmTravelSecPerUnit: load(STORE.FARM_TRAVEL, 0),
     ibActionR:  load(STORE.IB_ACTION_R, null) || 'buyInstant',
     questRewards: load(STORE.QUEST_REWARDS, {}),
@@ -518,6 +560,10 @@
     attackPlan: load(STORE.ATTACK_PLAN, null),
     attackHistory: load(STORE.ATTACK_HISTORY, []),
     attackRecent: load(STORE.ATTACK_RECENT, []),
+    reinforcePlan: load(STORE.REINFORCE_PLAN, null),
+    reinforceHistory: load(STORE.REINFORCE_HISTORY, []),
+    spySendCfg: load(STORE.SPY_SEND_CFG, null),
+    spySendHistory: load(STORE.SPY_SEND_HISTORY, []),
     captchaBreakers: load(STORE.CAPTCHA, null) || {},
     findingsFilter: load(STORE.FINDINGS_FILTER, { type: '', attacker: '' }),
     theme: load(STORE.THEME, 'dark'),
@@ -538,6 +584,7 @@
     abTargets: load(STORE.AB_TARGETS, null),
     autoCave: load(STORE.AUTO_CAVE, false),
     caveThreshPct: load(STORE.CAVE_THRESH, 90),
+
     // v4 plan 3.5: HIGH-RISK auto path, default OFF.
     emergencyCaveAuto: load(STORE.EMERGENCY_CAVE_AUTO, false),
     emergencyCaveConfirm: load(STORE.EMERGENCY_CAVE_CONFIRM, 1000),
@@ -552,11 +599,14 @@
     tradePreset: load(STORE.TRADE_PRESET, 'storage'),
     tradeReservePct: load(STORE.TRADE_RESERVE, 20),
     tradeMinBatch: load(STORE.TRADE_MIN, 1000),
+
     // HIGH-RISK: tradeSend has no rollback path, so this defaults OFF.
     tradeRoutes: load(STORE.TRADE_ROUTES, {}) || {},
+
     // HIGH-RISK: a recurring irreversible POST loop, so default OFF.
     autoTradeRoutes: load(STORE.AUTO_TRADE_ROUTES, false),
     autoTransport: load(STORE.AUTO_TRANSPORT, false),
+
     // v4 plan 3.4: HIGH-RISK. A trade post is irreversible, so default OFF.
     autoDump: load(STORE.AUTO_DUMP, false),
     dumpThreshold: load(STORE.DUMP_THRESHOLD, { wood: 95, stone: 95, iron: 90 }),
@@ -590,14 +640,19 @@
     favorCfg: load(STORE.FAVOR_CFG, { god: 'athena', unit: 'harpy', thresh: 200, maxConcurrent: 2 }),
     spellCooldown: load(STORE.SPELL_COOLDOWN, {}),
     autoWonder: load(STORE.AUTO_WONDER, false),
-    wonderCfg: load(STORE.WONDER_CFG, { wonderId: null, wood: 0, stone: 0, iron: 0, reserve: 5000, budget: 50000 }),
+
+    wonderCfg: load(STORE.WONDER_CFG, { wonderId: null, islandX: null, islandY: null, wood: 0, stone: 0, iron: 0, reserve: 5000, budget: 50000 }),
     autoDodge: load(STORE.AUTO_DODGE, false),
+
     // migration source only: the live control writes DEFENSE_CFG (ui.js)
     dodgeMode: load(STORE.DODGE_MODE, 'notify'),
     dodgeFloor: load(STORE.DODGE_FLOOR, 0),
     autoRecruit: load(STORE.AUTO_RECRUIT, false),
     recruitTargets: load(STORE.RECRUIT_TARGETS, {}),
     recruitSpells: load(STORE.RECRUIT_SPELLS, false),
+    batchRecruit: load(STORE.BATCH_RECRUIT, false),
+    batchRecruitLists: load(STORE.BATCH_RECRUIT_LISTS, { towns: {} }),
+    recruitPacks: load(STORE.RECRUIT_PACKS, {}),
     autoVillageRecruit: load(STORE.AUTO_VILLAGE_RECRUIT, false),
     villageRecruitFillPct: load(STORE.VILLAGE_RECRUIT_FILL, 90),
     villageRecruitAmount: load(STORE.VILLAGE_RECRUIT_AMOUNT, 1),
@@ -608,6 +663,7 @@
     csAlert: load(STORE.CS_ALERT, true),
     playerNotes: load(STORE.PLAYER_NOTES, {}),
     watchlist: load(STORE.WATCHLIST, []),
+
     // v4 plan 4.1: scout-class. Default OFF, and its own dryRun defaults ON.
     spyEnabled: load(STORE.AUTO_SPY, false),
     spyCfg: load(STORE.SPY_CFG, { targets: [], autoWatchlist: true, autoTopReported: 5, perCycle: 1, minGapMs: 1200000, dryRun: true, confirmOncePerCycle: true, maxConcurrent: 3 }),
@@ -616,6 +672,7 @@
     grepodataIndex: load(STORE.GREPODATA_INDEX, false),
     captchaGlobalKill: load(STORE.CAPTCHA_GLOBAL, true),
     reqBudgetPerMin: load(STORE.REQ_BUDGET, 40),
+
     // v4 plan 7.4: publishes intel about other players to a third party.
     intelDigest: load(STORE.INTEL_DIGEST, false),
     napStatus: load(STORE.NAP_STATUS, { players: {}, alliances: {} }),
@@ -636,6 +693,7 @@
     circuitAutoClear: load(STORE.CIRCUIT_AUTO_CLEAR, true),
     circuits: load(STORE.CIRCUITS, {}),
     abOrder: load(STORE.AB_ORDER, null),
+
     // v4 plan 4.5: repairs cost resources without user action, so default OFF.
     autoWallRepair: load(STORE.AUTO_WALL_REPAIR, false),
     popRescueFarm: load(STORE.POP_RESCUE_FARM, true),
@@ -651,6 +709,7 @@
     nativeQueue: load(STORE.NATIVE_QUEUE, { version: 1, seq: 0, towns: {} }),
     predictCfg: load(STORE.PREDICT_CFG, { horizonHours: 6 }),
     defenseCfg: load(STORE.DEFENSE_CFG, { mode: 'notify', returnMarginSec: 120, smartAuto: false }),
+
     // v4 plan 3.2: HIGH-RISK. auto defaults OFF in code AND in shipped config -
     // no user may get a send-support-without-clicking path on first install.
     defenseHistory: load(STORE.DEFENSE_HISTORY, []) || [],
@@ -682,19 +741,20 @@
     wonderFavorTpl: load(STORE.WONDER_FAVOR_TPL, null),
     autoWonderFavor: load(STORE.AUTO_WONDER_FAVOR, false),
     autoPtTrade: load(STORE.AUTO_PT_TRADE, false),
+
     ptCfg: load(STORE.PT_CFG, null) || {
-      targetRatio: 1.0, pumpAmount: 1, maxPumps: 6, reservePct: 10,
+      targetRatio: 1.0, pumpAmount: 1, reservePct: 10,
       wantRes: { wood: true, stone: true, iron: false },
     },
     ptTradeTpl: load(STORE.PT_TRADE_TPL, null),
     ptViewUrl: load(STORE.PT_VIEW_URL, null),
+
     // Webhook dedup state. Module-level maps were wiped on reload, so the
     // 5-minute rolling window reset and the next captcha/attack/culture event
     // re-posted immediately after every SPA nav, devtools refresh, or bfcache.
     webhookRatelimit: load(STORE.WEBHOOK_RATELIMIT, {}) || {},
     webhookPending: load(STORE.WEBHOOK_PENDING, {}) || {},
   };
-
   let panel = null;
   let userPausedUntil = 0;
   // Panic latch (v4 plan 1.1). Deliberately transient: a reload disposes the
@@ -702,8 +762,8 @@
   // need a world-scoped migration while risking a stale reload that strands
   // automation. `dryRun` is the only piece that persists, through STORE.DRY_RUN.
   const GB_PANIC_GRACE_MS = 30000;
-  let panicUntil = 0;          // hard-stop deadline; automationPaused -> 'panic'
-  let panicNeedsClear = false; // survives the deadline -> 'panic-grace' until recovery
+  let panicUntil = 0;
+  let panicNeedsClear = false;
   let captchaGlobalUntil = +load(STORE.CAPTCHA_GLOBAL_UNTIL, 0) || 0;
   const moduleHealth = (state.health && typeof state.health === 'object') ? state.health : {};
   const reqBudgetWindow = [];
@@ -726,18 +786,22 @@
       ver = 2;
     }
     if (ver < 3) {
+
       // v3 makes world migration explicit and introduces transactional safety state.
       if (!state.txState || typeof state.txState !== 'object' || Array.isArray(state.txState)) state.txState = {};
       if (!state.circuits || typeof state.circuits !== 'object' || Array.isArray(state.circuits)) state.circuits = {};
       if (!Array.isArray(state.abOrder)) state.abOrder = null;
+
       // 1.5.x used [] to mean "all towns" in the attack planner. 1.6.0 reserves []
       // for an explicit "no sources" selection, so migrate the legacy ambiguous value.
       if (state.attackPlan && Array.isArray(state.attackPlan.sourceTownIds) && state.attackPlan.sourceTownIds.length === 0) {
         state.attackPlan.sourceTownIds = null;
         save(STORE.ATTACK_PLAN, state.attackPlan);
       }
+
       // Auto collect is a write-capable automation in 1.6.0 and is opt-in independently.
       if (typeof state.autoCollect !== 'boolean') { state.autoCollect = false; save(STORE.AUTO_COLLECT, false); }
+
       // 1.5.x favor automation used a farm-town id through Town/sendUnits. Disable persisted
       // enablement until a canonical city-target implementation exists.
       if (state.autoFavor) { state.autoFavor = false; save(STORE.AUTO_FAVOR, false); }
@@ -747,6 +811,7 @@
       ver = 3;
     }
     if (ver < 4) {
+
       // v4 keeps military UX state world-scoped and extends the transactional write layer
       // to movement cancellation and hero assignment operations.
       if (!Array.isArray(state.attackRecent)) state.attackRecent = [];
@@ -762,6 +827,7 @@
       ver = 4;
     }
     if (ver < 5) {
+
       // v5 introduces the shared Resource Planner. Strategic reserves are opt-in and
       // transaction reservations are stored inside TX_STATE so ambiguous writes keep
       // their resources reserved across reloads.
@@ -806,6 +872,7 @@
       state.nativeQueue.version = 1;
       state.nativeQueue.seq = Math.max(0, +state.nativeQueue.seq || 0);
       save(STORE.NATIVE_QUEUE, state.nativeQueue);
+
       // v2.1 rejected Grepolis' real free-completion action and could open the
       // shared build circuit with its two invalid aliases. Reset only that
       // legacy state; all other circuit breakers remain untouched.
@@ -824,6 +891,7 @@
       ver = 10;
     }
     if (ver < 11) {
+
       // v4 plan 3.1: guarantee the route table is an object and the loop flag
       // a boolean, so a hand-edited storage value cannot reach the planner.
       if (!state.tradeRoutes || typeof state.tradeRoutes !== 'object' || Array.isArray(state.tradeRoutes)) {
@@ -832,6 +900,7 @@
       if (typeof state.autoTradeRoutes !== 'boolean') {
         state.autoTradeRoutes = false; save(STORE.AUTO_TRADE_ROUTES, state.autoTradeRoutes);
       }
+
       // v4 plan 3.2: force the HIGH-RISK auto flag to a real boolean and the
       // ledger to an object, so a hand-edited storage value cannot arm a send.
       if (!state.supportCfg || typeof state.supportCfg !== 'object' || Array.isArray(state.supportCfg)) state.supportCfg = {};
@@ -840,6 +909,7 @@
       if (!state.supportLastSend || typeof state.supportLastSend !== 'object' || Array.isArray(state.supportLastSend)) {
         state.supportLastSend = {}; save(STORE.SUPPORT_LAST_SEND, state.supportLastSend);
       }
+
       // v4 plan 2.7: population state is derived, not stored. The only thing to
       // drop is the memo of a render that predates townPopState, and there is
       // none - so this step exists purely to stamp the version siblings 2.11
@@ -847,6 +917,7 @@
       ver = 11;
     }
     if (ver < 12) {
+
       // v4 plan 3.4: seed the dump policy so an upgrade reads real defaults
       // rather than undefined, and force the HIGH-RISK flag to a boolean.
       if (typeof state.autoDump !== 'boolean') { state.autoDump = false; save(STORE.AUTO_DUMP, state.autoDump); }
@@ -857,6 +928,7 @@
       seedMap('dumpThreshold', STORE.DUMP_THRESHOLD, { wood: 95, stone: 95, iron: 90 });
       seedMap('dumpKeep', STORE.DUMP_KEEP, { wood: 50, stone: 50, iron: 50 });
       if (!Array.isArray(state.dumpSinks)) { state.dumpSinks = []; save(STORE.DUMP_SINKS, state.dumpSinks); }
+
       // v4 plan 3.7: clamp the snipe-detector tunables inside the existing
       // defenseCfg object so a hand-edited value cannot produce a nonsense
       // cluster window.
@@ -869,13 +941,24 @@
       save(STORE.DEFENSE_CFG, state.defenseCfg);
       ver = 12;
     }
+    if (ver < 13) {
+
+      try {
+        const legacy = GM_getValue(STORE.BATCH_RECRUIT_LISTS, null);
+        const scoped = GM_getValue(wkey(STORE.BATCH_RECRUIT_LISTS), null);
+        if (scoped == null && legacy != null) {
+          save(STORE.BATCH_RECRUIT_LISTS, legacy);
+          if (legacy && typeof legacy === 'object') state.batchRecruitLists = legacy;
+        }
+      } catch (_) {}
+      ver = 13;
+    }
     if (ver !== state.configVer) {
       state.configVer = ver;
       save(STORE.CONFIG_VER, ver);
       gbLog('config migrated → v' + ver);
     }
   }
-
   let healthSaveTimer = 0;
   function healthSaveSoon() {
     state.health = moduleHealth;
@@ -901,10 +984,11 @@
     // Coalesced: every decision note used to re-serialize the whole 200-row ring
     // through GM_setValue, and a single orch tick can emit several. saveFlush()
     // on pagehide/dispose is what keeps the tail durable.
+    // Coalesced: every decision note used to re-serialize the whole 200-row ring
+    // through GM_setValue, and a single orch tick can emit several. saveFlush()
+    // on pagehide/dispose is what keeps the tail durable.
     if(state.whyLog.length>200)state.whyLog.length=200; saveSoon(STORE.WHY_LOG,state.whyLog);
   }
-
-
   let serverCooldownUntil = 0;
   const SERVER_COOLDOWN_MAX = 300000;
   const SERVER_PRESSURE_RE = /too many|rate limit|429|503|502|504|temporarily unavailable|maintenance|slow down/i;
@@ -931,7 +1015,6 @@
   }
   function gbServerPaused() { return serverCooldownUntil > Date.now(); }
   function gbServerCooldownLeftMs() { return Math.max(0, serverCooldownUntil - Date.now()); }
-
   function noteServerPressure(msg) {
     if (!msg || !SERVER_PRESSURE_RE.test(String(msg))) return false;
     gbServerCooldown(10000 + Math.floor(Math.random() * 10000), String(msg).slice(0, 40));
@@ -957,6 +1040,8 @@
   function gbPanicRecover() {
     if (!panicNeedsClear) return { ok: false, why: 'inactive' };
     if (gbPanicActive()) return { ok: false, why: 'grace' };
+    // Clearing skips IS the recovery contract. If it throws, keep the latch:
+    // resuming with the skip windows still persisted would be a false recovery.
     // Clearing skips IS the recovery contract. If it throws, keep the latch:
     // resuming with the skip windows still persisted would be a false recovery.
     try { jrnClearSkips(); } catch (e) {
@@ -1010,7 +1095,6 @@
     if (!state.pauseOnActivity) return;
     userPausedUntil = Date.now() + (state.pauseActivityMs || 180000);
   }
-
   let reqBudgetHead = 0;
   // One pool, three admission caps. A background scraper and a timed bridge post
   // are not worth the same slot: before this, a farm sweep could eat the whole
@@ -1036,7 +1120,7 @@
   // Tab wake / bfcache resume fires every clamped timer at once. Serialize that
   // catch-up burst instead of letting it stampede the server.
   const WAKE_SPACING_MS = 800;
-  const gbWakeQueue = []; // {key, fn, priority, enqueuedAt}
+  const gbWakeQueue = [];
   let gbWakeDraining = false;
   let gbWakeLastTickAt = Date.now();
   let gbWakeBurstUntil = 0;
@@ -1068,6 +1152,9 @@
       // Scope-neutral on purpose: wake entries are heterogeneous (ibScan,
       // orchTick, farmTick, report catch-up) and carry no scope, so the real
       // admission decision belongs to the gbXhr / txRun call inside item.fn.
+      // Scope-neutral on purpose: wake entries are heterogeneous (ibScan,
+      // orchTick, farmTick, report catch-up) and carry no scope, so the real
+      // admission decision belongs to the gbXhr / txRun call inside item.fn.
       if (!reqBudgetOk()) {
         gbTimeout(step, 1500 + Math.floor(Math.random() * 500));
         return;
@@ -1093,7 +1180,7 @@
   }
   // ---------- cave iron reserve (culture must not drain the cave stash) ----------
   const CAVE_SOON_MS = 15 * 60 * 1000;
-  const cultureCaveDeferCount = Object.create(null); // townId -> consecutive defers
+  const cultureCaveDeferCount = Object.create(null);
   function ironReservedForCave(townId) {
     if (!state.autoCave) return { reserved: false, etaMs: null, blind: false };
     const st = townResState(townId);
@@ -1122,10 +1209,11 @@
       const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
       if (t) {
         const p = t.getProduction ? t.getProduction() : (t.production && t.production());
-        if (p && p.iron != null && p.iron > 100) ironPerSec = +p.iron / 3600; // per-hour
-        else if (p && p.iron != null) ironPerSec = +p.iron; // already per-sec
+        if (p && p.iron != null && p.iron > 100) ironPerSec = +p.iron / 3600;
+        else if (p && p.iron != null) ironPerSec = +p.iron;
       }
     } catch (_) {}
+
     // Unreadable production is "unknown", not "no": let culture proceed.
     if (!(ironPerSec > 0)) return { reserved: false, etaMs: null, blind: true };
     const short = need - st.iron;
@@ -1174,23 +1262,28 @@
     // Delay the write path when its own scope (action) approaches the hard pool.
     // Using un-scoped reqBudgetUsed would let scrape / read noise trigger a write
     // throttle even while the action scope still has room.
+    // Delay the write path when its own scope (action) approaches the hard pool.
+    // Using un-scoped reqBudgetUsed would let scrape / read noise trigger a write
+    // throttle even while the action scope still has room.
     const soft = Math.max(5, Math.floor((state.reqBudgetPerMin || 40) *
       ((state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60) / 100)));
     const used = reqBudgetUsed('action');
     if (used < soft) return 0;
     return Math.min(8000, 400 * (used - soft + 1) + Math.floor(Math.random() * 300));
   }
-
   // ---------- learned-payload health ----------
   // An invalidated template is a hard block, so it may only ever be charged to
   // the post that actually USES that learned payload. Feature keys are buckets
   // (captcha breaker, config), not payload identities.
   const TPL_HEALTH_FAILS = 5;
-  const TPL_HEALTH_STALE_MS = 1800000; // retry a stale template after 30min
+  const TPL_HEALTH_STALE_MS = 1800000;
   const TPL_FEATURE_MAP = {
     farm: 'claimTpl',
     build: 'ibAction', 'instant-build': 'ibAction', 'instant-research': 'ibActionR',
     attack: 'attackTpl', cancel: 'cancelTpl', hero: 'heroTpl',
+    // Separate from attackTpl on purpose: identical payload signature, but a
+    // support rejection must never invalidate the attack template (v2.5.7
+    // favor precedent, see the comment below).
     // Separate from attackTpl on purpose: identical payload signature, but a
     // support rejection must never invalidate the attack template (v2.5.7
     // favor precedent, see the comment below).
@@ -1204,6 +1297,11 @@
     // disabled in src/favor.js; leave it unmapped so re-enable does not
     // poison attackTpl health. When favor gets its own learned payload, add
     // a dedicated `favorTpl` here.
+  // favor used attackTpl here, but that meant a favor rejection would
+  // invalidate the attack template (identical payload). Favor is currently
+  // disabled in src/favor.js; leave it unmapped so re-enable does not
+  // poison attackTpl health. When favor gets its own learned payload, add
+  // a dedicated `favorTpl` here.
   };
   // Feature `build` carries two different posts: auto-queue `buildUp` (payload is
   // hardcoded - no learned template can be stale) and instant complete (which is
@@ -1262,7 +1360,7 @@
       tplHealthSave();
       return;
     }
-    if (!jrnHard(result)) return; // captcha/timeout/skip never invalidate
+    if (!jrnHard(result)) return;
     h.lastErrAt = Date.now();
     h.hardFails = (h.hardFails || 0) + 1;
     if (h.hardFails >= TPL_HEALTH_FAILS && !h.invalidated) {
@@ -1278,6 +1376,8 @@
     if (!h || !h.invalidated) return true;
     // Nothing learned means there is no stale payload - the caller falls back to
     // its own constant, so a permanent block here is a dead feature for no gain.
+    // Nothing learned means there is no stale payload - the caller falls back to
+    // its own constant, so a permanent block here is a dead feature for no gain.
     if (!tplLearned(name)) {
       h.invalidated = false;
       h.hardFails = 0;
@@ -1285,6 +1385,14 @@
       tplHealthSave();
       return true;
     }
+    // Self-heal: without this, the gate blocks the only post that could ever
+    // record an 'ok', so a single bad streak killed the feature until a
+    // hand-click. Expiry lets it spend one more strike proving it is really dead.
+    //
+    // Zeroing hardFails here made a chronically dead endpoint cycle
+    // open/expire/open forever at the same 30min period, burning 5 rejections
+    // each time and never escalating. Decay ONE strike instead: the next hard
+    // fail re-invalidates immediately and the retry window doubles, to 8x.
     // Self-heal: without this, the gate blocks the only post that could ever
     // record an 'ok', so a single bad streak killed the feature until a
     // hand-click. Expiry lets it spend one more strike proving it is really dead.
@@ -1352,7 +1460,6 @@
     }
     return [5, 15, 60];
   }
-
   const logBuf = [];
   let logHead = 0;
   const logThrottle = new Map();
@@ -1368,7 +1475,6 @@
     }
     renderLog();
   }
-
   // Read-only view of the ring for the copy-everything bundle. Returns the live
   // entries only (never the pre-head slots), newest last, capped to n.
   function gbLogDump(n) {
@@ -1378,7 +1484,6 @@
   function gbLogDumpText(n) {
     return gbLogDump(n).map(l => new Date(l.ts).toISOString() + ' ' + l.msg).join('\n');
   }
-
   function gbLogT(key, ms, ...args) {
     const now = Date.now();
     if ((logThrottle.get(key) || 0) + ms > now) return;
@@ -1399,7 +1504,6 @@
     }
     gbLog(...args);
   }
-
   // Dry-run aware DOM click. Any feature that clicks the game's own UI must go
   // through this, or state.dryRun silently stops covering that path.
   function gbDomClick(el, feature) {
@@ -1413,9 +1517,12 @@
     el.click();
     return true;
   }
-
   let seenCount = 0;
   try { seenCount = Object.keys(state.seen || {}).length; } catch (_) { seenCount = 0; }
+  // STORE.SEEN is world-scoped in storage already (wkey appends '@<hostname>'),
+  // so the `<hostname>:<id>` in-memory key scoped the map a second time - and
+  // that is why every `state.seen[id]` fallback read in spy.js was dead. Strip
+  // the legacy prefix once on load; the key is the bare report id from here on.
   // STORE.SEEN is world-scoped in storage already (wkey appends '@<hostname>'),
   // so the `<hostname>:<id>` in-memory key scoped the map a second time - and
   // that is why every `state.seen[id]` fallback read in spy.js was dead. Strip
@@ -1457,7 +1564,6 @@
     }
     return n;
   }
-
   let logRenderQueued = false;
   function renderLog() {
     const sec = panel && panel.querySelector('section[data-tab=log]');
@@ -1465,6 +1571,9 @@
 
     if (!list || sec.hidden || list.hidden || logRenderQueued) return;
     logRenderQueued = true;
+    // Visible tab: coalesce per-frame via rAF so a burst of log lines paints
+    // once, not once-per-line. Hidden tab: keep a 250ms timer so the next
+    // visible paint sees the whole batch (rAF is paused in hidden tabs).
     // Visible tab: coalesce per-frame via rAF so a burst of log lines paints
     // once, not once-per-line. Hidden tab: keep a 250ms timer so the next
     // visible paint sees the whole batch (rAF is paused in hidden tabs).
@@ -1480,7 +1589,6 @@
     else if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
     else gbTimeout(flush, 250);
   }
-
   function gameUw() {
 
     try {
@@ -1510,7 +1618,6 @@
       return DOMPurify.sanitize(String(html == null ? '' : html), { USE_PROFILES: { html: true } });
     } catch (_) { return ''; }
   }
-
   let _uwCache = null, _uwCacheAt = 0;
   const UW_CACHE_MS = 400;
   function uwCached() {
@@ -1522,6 +1629,9 @@
   }
   const _mmColCache = Object.create(null);
   let _mmColCacheAt = 0;
+  const MM_MODELS_CACHE_MS = 250;
+  const _mmModelsAllCache = Object.create(null);
+  let _mmModelsAllCacheAt = 0;
   function mmCol(name) {
     const now = Date.now();
     if (now - _mmColCacheAt >= UW_CACHE_MS) {
@@ -1540,6 +1650,58 @@
     }
     _mmColCache[name] = (col && col.models) ? col : null;
     return _mmColCache[name];
+  }
+  function gbMovementType(a) {
+    if (!a) return '';
+    for (const v of [a.type, a.movement_type, a.command_type]) {
+      const t = String(v == null ? '' : v).toLowerCase().trim();
+      if (t) return t;
+    }
+    return '';
+  }
+  function mmModelsAll(name) {
+    const now = Date.now();
+    if (now - _mmModelsAllCacheAt >= MM_MODELS_CACHE_MS) {
+      for (const k of Object.keys(_mmModelsAllCache)) delete _mmModelsAllCache[k];
+      _mmModelsAllCacheAt = now;
+    }
+    if (name in _mmModelsAllCache) return _mmModelsAllCache[name].slice();
+    const uw = uwCached();
+    const out = [], seen = new Set(), refs = new Set();
+    const push = (m) => {
+      if (!m || typeof m !== 'object') return;
+      if (refs.has(m)) return;
+      refs.add(m);
+      const a = m.attributes || {};
+      const id = (typeof m.getCommandId === 'function' && m.getCommandId()) || a.command_id || a.id || m.id;
+      const k = id == null ? '' : String(id);
+      if (k) { if (seen.has(k)) return; seen.add(k); }
+      out.push(m);
+    };
+    const eat = (c) => {
+      try {
+        if (!c) return;
+        if (Array.isArray(c)) { c.forEach(push); return; }
+        if (Array.isArray(c.models)) c.models.forEach(push);
+      } catch (_) {}
+    };
+    try { eat(uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName(name)); } catch (_) {}
+    try { eat(uw.MM && uw.MM.getCollections && uw.MM.getCollections()[name]); } catch (_) {}
+    try {
+      const ag = uw.MM && uw.MM.getFirstTownAgnosticCollectionByName && uw.MM.getFirstTownAgnosticCollectionByName(name);
+      if (ag) {
+        eat(ag);
+        if (typeof ag.getFragment === 'function') {
+          for (const id of Object.keys((uw.ITowns && uw.ITowns.towns) || {})) {
+
+            try { eat(ag.getFragment(id)); } catch (_) {}
+            try { eat(ag.getFragment(+id)); } catch (_) {}
+          }
+        }
+      }
+    } catch (_) {}
+    _mmModelsAllCache[name] = out;
+    return out.slice();
   }
   function gameBridgeStatus() {
     const uw = gameUw();
@@ -1563,7 +1725,6 @@
     const s = gameBridgeStatus();
     return s.MM && s.gpAjax && s.ITowns;
   }
-
   function gameNow() {
     const uw = gameUw();
     try {
@@ -1580,7 +1741,6 @@
     } catch (_) {}
     return Math.floor(Date.now() / 1000);
   }
-
   const SYNC = {
 
     get FARM_MIN_MS() { return state.farmMinMs; },
@@ -1588,7 +1748,6 @@
     get TOWN_MIN_MS() { return state.townMinMs; },
     get TOWN_MAX_MS() { return state.townMaxMs; },
   };
-
   function load(key, fallback) {
     try {
       const scopedCall = String(key).indexOf('@') !== -1;
@@ -1596,6 +1755,8 @@
         const wk = wkey(key);
         const v = GM_getValue(wk, null);
         if (v !== null && v !== undefined) return loadValueOk(v, key) ? v : fallback;
+        // Legacy global fallback is migration-only. Once this world reaches config v3,
+        // never inherit world-specific IDs/plans from another world.
         // Legacy global fallback is migration-only. Once this world reaches config v3,
         // never inherit world-specific IDs/plans from another world.
         const migrated = +GM_getValue(wkey(STORE.CONFIG_VER), 0) >= 3;
@@ -1610,7 +1771,7 @@
       return loadValueOk(v, key) ? v : fallback;
     } catch (e) { return fallback; }
   }
-  const LOAD_MAX_CHARS = 2 * 1024 * 1024; // refuse corrupt/huge values (~2MB)
+  const LOAD_MAX_CHARS = 2 * 1024 * 1024;
   let storageWarnUntil = 0;
   let storageWarnMsg = '';
   let storagePruneBusy = false;
@@ -1666,6 +1827,8 @@
       let n = 0;
       // checkThresholds stores {key, ts} objects, so a bare `entry < cut` compared
       // an object against a number and was always false - this prune did nothing.
+      // checkThresholds stores {key, ts} objects, so a bare `entry < cut` compared
+      // an object against a number and was always false - this prune did nothing.
       Object.keys(state.alerted || {}).forEach(k => {
         const e = state.alerted[k];
         const ts = (e && typeof e === 'object') ? +e.ts || 0 : +e || 0;
@@ -1695,9 +1858,16 @@
     // "enough" bytes on paper and still lose the retried write. Keep the newest
     // one - a snapshot only exists to diff against, and diagnostics is the first
     // thing that should yield when the store is full.
+    // Snapshots are the single biggest thing this script writes: SNAPSHOT_SLOTS
+    // (6) x up to SNAPSHOT_BUDGET_BYTES (200KB) each. Pruning five small rings
+    // and leaving 1.2MB of pure diagnostics untouched is why a prune could free
+    // "enough" bytes on paper and still lose the retried write. Keep the newest
+    // one - a snapshot only exists to diff against, and diagnostics is the first
+    // thing that should yield when the store is full.
     try {
       const ring = state.snapshots;
       if (Array.isArray(ring) && ring.length > 1) {
+        // splice, not reassign: snapshotRing() hands this array out to callers.
         // splice, not reassign: snapshotRing() hands this array out to callers.
         for (const s of ring.splice(0, ring.length - 1)) bytes += (s && +s.sizeBytes) || 0;
         storageRawSet(wkey(STORE.SNAPSHOTS), ring);
@@ -1711,6 +1881,8 @@
         storageRawSet(wkey(STORE.WHY_LOG), list);
       }
     } catch (_) {}
+    // A dodge return that already landed (or whose due time is long past) is
+    // history, not a pending intent - dodgeReturnTick only acts on the live ones.
     // A dodge return that already landed (or whose due time is long past) is
     // history, not a pending intent - dodgeReturnTick only acts on the live ones.
     try {
@@ -1727,6 +1899,10 @@
       });
       if (dropped.length) { bytes += pruneBytesOf(dropped); storageRawSet(wkey(STORE.DODGE_RETURNS), map); }
     } catch (_) {}
+    // tplHealth is keyed by learned payload name and never expires on its own;
+    // an entry nothing has touched in a week is a template the world no longer
+    // uses. tplHealthOk treats a missing entry as healthy, so dropping one costs
+    // at most one re-learn.
     // tplHealth is keyed by learned payload name and never expires on its own;
     // an entry nothing has touched in a week is a template the world no longer
     // uses. tplHealthOk treats a missing entry as healthy, so dropping one costs
@@ -1774,7 +1950,6 @@
       try { gbLog('storage: save fail', key, String(e).slice(0, 80)); } catch (_) {}
     }
   }
-
   // Coalesced write. `state` stays live in memory; only the GM_setValue is
   // debounced, so a sweep that touches 40 villages serializes the whole map once
   // instead of 40 times. Last value per key wins - callers pass the whole
@@ -1790,6 +1965,8 @@
     if (!saveSoonPending.size) return;
     // Snapshot first: save() can throw into the quota path, which prunes and may
     // itself call back in here.
+    // Snapshot first: save() can throw into the quota path, which prunes and may
+    // itself call back in here.
     const entries = Array.from(saveSoonPending.entries());
     saveSoonPending.clear();
     for (const [k, v] of entries) {
@@ -1801,10 +1978,10 @@
     if (saveSoonTimer) return;
     saveSoonTimer = gbTimeout(() => { saveSoonTimer = 0; saveFlush(); }, SAVE_SOON_MS);
   }
-
   const GM_XHR_DEFAULT_TIMEOUT = 30000;
   function gbXhr(opts) {
     const scope = opts.scope === 'external' ? 'external' : 'game';
+
     // `scope` decides host gating; `budget` decides which admission cap applies.
     // Default `read`, not `scrape`: report catch-up is time-sensitive intel and
     // must not be throttled alongside a background village sweep.
@@ -1823,7 +2000,7 @@
     if (scope === 'game') {
       if (!hostEnabled()) return failEarly('disabled');
       if (!reqBudgetOk(budgetScope)) return failEarly('budget');
-      reqBudgetMark(budgetScope); // exactly once per real game request
+      reqBudgetMark(budgetScope);
     }
     const drop = () => {
       if (done) return false;
@@ -1885,7 +2062,6 @@
       return null;
     }
   }
-
   function runningVersion() {
     try { return (GM_info && GM_info.script && GM_info.script.version) || '0.0.0'; }
     catch (_) { return '0.0.0'; }
@@ -1904,13 +2080,12 @@
     const m = Math.floor(s / 60), r = s % 60;
     return r ? `${m}m${r}s` : `${m}m`;
   }
-
   const I18N = {
     es: { collect: 'Recoger', selectAll: 'Seleccionar todas las unidades', cooldown: 'tiempo de espera' },
     en: { collect: 'Collect', selectAll: 'Select all units', cooldown: 'cooldown' },
-    de: { collect: 'Sammeln', selectAll: 'Alle Einheiten ausw\u00e4hlen', cooldown: 'Abklingzeit' },
-    fr: { collect: 'Collecter', selectAll: 'S\u00e9lectionner toutes les unit\u00e9s', cooldown: 'temps d\'attente' },
-    it: { collect: 'Raccogli', selectAll: 'Seleziona tutte le unit\u00e0', cooldown: 'tempo di attesa' },
+    de: { collect: 'Sammeln', selectAll: 'Alle Einheiten auswählen', cooldown: 'Abklingzeit' },
+    fr: { collect: 'Collecter', selectAll: 'Sélectionner toutes les unités', cooldown: 'temps d\'attente' },
+    it: { collect: 'Raccogli', selectAll: 'Seleziona tutte le unità', cooldown: 'tempo di attesa' },
     pt: { collect: 'Recolher', selectAll: 'Selecionar todas as unidades', cooldown: 'tempo de espera' },
   };
   function marketLocale() {
@@ -1920,7 +2095,6 @@
     return I18N[lang] || I18N.en;
   }
   function i18n(key) { return (marketLocale()[key] || I18N.en[key] || key); }
-
   const BRIDGE_TIMEOUT_MS = 15000;
   function saveCaptcha() { save(wkey(STORE.CAPTCHA), state.captchaBreakers); }
   function captchaPaused(feature) {
@@ -1931,13 +2105,12 @@
       if ((b.trips || 0) > 0) {
         b.trips = Math.max(0, (b.trips || 1) - 1);
         delete b.until;
-        saveCaptcha();
+        saveSoon(wkey(STORE.CAPTCHA), state.captchaBreakers);
       }
       return false;
     }
     return true;
   }
-
   function captchaPausedAny(...features) {
     for (let i = 0; i < features.length; i++) {
       const f = features[i];
@@ -1991,6 +2164,9 @@
       // A bare substring match fired on any body that merely mentions the word
       // ("no captcha required here"), pausing a healthy feature for 5/15/60min.
       // Require the flag SHAPE the game itself sets.
+      // A bare substring match fired on any body that merely mentions the word
+      // ("no captcha required here"), pausing a healthy feature for 5/15/60min.
+      // Require the flag SHAPE the game itself sets.
       try { d = JSON.parse(d); } catch (_) { return CAPTCHA_TEXT_RE.test(d); }
     }
     if (!d || typeof d !== 'object') return false;
@@ -2001,6 +2177,11 @@
     }
     if (d.captcha === true || d.captcha === 1) return true;
     if (typeof d.captcha === 'string' && d.captcha.length) return true;
+    // The game itself keys on this exact boolean - GPAjax getWrappedCallback:
+    //   success:function(e,i){if(!0===i.captcha_required)CaptchaWindowFactory.openCaptchaWindow(...)
+    // A captcha envelope carries no `error`, so responseServerError() sees none
+    // either: without this test the post is classified as SUCCESS, the tx commits
+    // and the breaker never trips while the bot posts into the captcha wall.
     // The game itself keys on this exact boolean - GPAjax getWrappedCallback:
     //   success:function(e,i){if(!0===i.captcha_required)CaptchaWindowFactory.openCaptchaWindow(...)
     // A captcha envelope carries no `error`, so responseServerError() sees none
@@ -2020,8 +2201,6 @@
     }
     return false;
   }
-
-
   // ===== Resource Planner (v1.7) ==============================================
   // One economic truth for all write-capable modules. Reservations are persisted
   // on transactions, therefore a timeout/reload cannot make the same resources look

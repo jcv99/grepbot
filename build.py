@@ -71,6 +71,8 @@ MODULES = [
     'shared-plan.js',
     'military.js',
     'support.js',
+    'reinforce.js',
+    'spy-send.js',
     'diagnostics.js',
     'stats.js',
     'context-menu.js',

@@ -26,12 +26,16 @@
     // Wrapped like every other read in this file: abCurrentLevels feeds the
     // planner, the renderer and tx state, and a throwing model proxy must not
     // take all three down.
+    // Wrapped like every other read in this file: abCurrentLevels feeds the
+    // planner, the renderer and tx state, and a throwing model proxy must not
+    // take all three down.
     try {
       const t = gbTownModel(townId);
       if (!t) return null;
       let v = gbProbeNum(t, WALL_DAMAGE_FNS, ['wall']);
       if (v == null) v = gbProbeNum(t, WALL_DAMAGE_FNS);
       if (v == null) v = gbProbeAttr(t, WALL_DAMAGE_ATTRS);
+      // Only a percentage in range is believable. Anything else is unreadable.
       // Only a percentage in range is believable. Anything else is unreadable.
       return (Number.isFinite(v) && v >= 0 && v <= 100) ? v : null;
     } catch (_) { return null; }
@@ -89,7 +93,7 @@
         if (Number.isFinite(n) && n > 0) return n;
       }
     } catch (_) {}
-    return 2; // conservative base-game queue only
+    return 2;
   }
   function abQueueInfo(townId) {
     const t = abGetTown(townId);
@@ -112,6 +116,9 @@
       // Use != null not || : an MM collection is a model dict, but a `0` or
       // `''` town key (renamed client, corrupt snapshot) would otherwise
       // silently fall through to a stale entry indexed by the string form.
+      // Use != null not || : an MM collection is a model dict, but a `0` or
+      // `''` town key (renamed client, corrupt snapshot) would otherwise
+      // silently fall through to a stale entry indexed by the string form.
       const data = bbd && (bbd[townId] != null ? bbd[townId] : (bbd[String(townId)] != null ? bbd[String(townId)] : null));
       return data && data.attributes && data.attributes.building_data && data.attributes.building_data[building] || null;
     } catch (_) { return null; }
@@ -121,8 +128,11 @@
     if (!bd) return null;
     const need = bd.resources_for || bd.resources || bd.costs;
     if (!need || need.wood == null || need.stone == null || need.iron == null) return null;
-    const pop = bd.population_for != null ? +bd.population_for : (bd.population != null ? +bd.population : 0);
-    return { wood: +need.wood || 0, stone: +need.stone || 0, iron: +need.iron || 0, pop: Number.isFinite(pop) ? pop : 0, population: Number.isFinite(pop) ? pop : 0 };
+    const popRaw = bd.population_for != null ? +bd.population_for : (bd.population != null ? +bd.population : NaN);
+
+    const popBlind = !Number.isFinite(popRaw);
+    const pop = popBlind ? 0 : popRaw;
+    return { wood: +need.wood || 0, stone: +need.stone || 0, iron: +need.iron || 0, pop, population: pop, popBlind };
   }
   function abRequirementMap(townId, building) {
     const def = abBuildingDef(building);
@@ -165,6 +175,10 @@
     if (!res || res.wood == null || res.stone == null || res.iron == null || pop == null) return { ok: false, why: 'resources/pop unreadable' };
     const margin = 10;
     const have = { wood:+res.wood, stone:+res.stone, iron:+res.iron, population:pop };
+
+    if (need.popBlind) {
+      gbLogT('ab-pop-blind-' + building, 900000, `build: population cost for ${building} unreadable - population check is blind, server decides`);
+    }
     // Population is compared against THIS building's own population cost, not
     // against zero: a level that needs 22 free population is blocked at 21 just
     // as hard as at 0. `popShort` rides along on EVERY negative verdict because
@@ -242,6 +256,7 @@
       const max = abMaxLevel(target);
       if (max == null) { gbLogT('ab-max-' + target, 300000, `auto-queue: max level unreadable for ${target} — fail closed`); continue; }
       const want = Math.min(+targets[target] || 0, max);
+
       // Wall only: a damaged wall keeps its level, so compare the effective one
       // or the gap is invisible. Every other building compares raw.
       const have = target === 'wall' ? abWallEffectiveLevel(townId, +(levels.wall || 0)) : +(levels[target] || 0);
@@ -257,6 +272,7 @@
       }
       const aff = abCanAfford(townId, resolved.building);
       if (!aff.ok) {
+
         // Resources: try the next priority target so a free slot is not wasted.
         // Population: there is no useful next target — free population is town
         // wide, so a cost the town cannot cover here will not be covered by the
@@ -289,6 +305,10 @@
     for (const [dep, need] of Object.entries(req)) if (+(levels[dep] || 0) < +need) return { ok: false, why: `missing:${dep}:${levels[dep] || 0}/${need}` };
     const aff = abCanAfford(townId, fresh.building);
     if (!aff.ok) {
+      // Last gate before the post, so this catches the population that a
+      // recruit order ate between the pick and here. Idempotent: the rescue
+      // re-counts what is already queued and adds nothing when the farm levels
+      // are already in front. Nothing is posted on this path either way.
       // Last gate before the post, so this catches the population that a
       // recruit order ate between the pick and here. Idempotent: the rescue
       // re-counts what is already queued and adds nothing when the farm levels
@@ -353,6 +373,7 @@
       const head = nativeQueueList(townId, 'build', false)[0];
       if (!head || blocked.some(x => x.townId === String(townId))) return;
       const detail = String(why || head.reason || head.status || 'sin acción ejecutable');
+
       // Live resource totals change constantly; keep them in the visible text but
       // remove the digits from the deduplication key.
       const stableDetail = /^waiting-(?:resources|population)$/.test(head.status || '')
@@ -390,6 +411,7 @@
       if (!gbInstanceAlive() || captcha || operations >= maxOps || townIndex >= ids.length) return finish();
       gbLockTouch('ab', lockToken);
       const id = ids[townIndex];
+
       // Reconcile accepted/unknown work against the real model before deciding
       // that the head must remain frozen for manual review.
       nativeQueueReconcileBuild(id);
@@ -428,12 +450,14 @@
         if (res === 'ok') {
           done++;
           nativeQueueBuildApplied(id,plan);
+
           // Re-read the real queue before every next order; no multi-level cost projection.
           gbTimeout(step, AB_SEND_SPACING_MS + Math.random() * 350);
           return;
         }
         if(res==='accepted'){done++;return nextTown()}
         if (res === 'captcha') { noteBlocked(id,'pausado por captcha'); captcha = true; return finish(); }
+
         // unknown/pending/replan/error: do not hammer the same town; move on and let next scan reconcile.
         noteBlocked(id, nativeQueueList(id,'build',false)[0]?.reason || res);
         nextTown();
@@ -458,6 +482,7 @@
     abEnsureTargets();
     const townId = abCurrentTownId() || (abTownIds()[0]);
     const levels = townId ? abCurrentLevels(townId) : null;
+
     // Painted, not rebuilt: nativeQueueSave() calls this on every queue
     // mutation, and a wholesale rebuild threw away whatever target the player
     // was typing into one of these number inputs. gbPaint leaves the focused
@@ -529,7 +554,6 @@
         + (state.abAuto ? ' · AUTO' : ' · off');
     }
   }
-
   function checkThresholds() {
     let changed = false;
     for (const f of state.farmsParsed) {
@@ -559,5 +583,4 @@
     if (_checkThreshT) return;
     _checkThreshT = gbTimeout(() => { _checkThreshT = 0; try { checkThresholds(); } catch (_) {} }, CHECK_THRESHOLDS_SOON_MS);
   }
-
   const CAVE_MIN_STORE = 100;

@@ -34,10 +34,8 @@
     gbLog('quest: claim backoff', id, 'fail #' + f.n, Math.round(wait / 60000) + 'min', String(err || ''));
   }
   function questClaimOk(id) { delete questClaimFail[id]; questClaimFailSave(); }
-
   const QUEST_SAFE_BUILD = /build_cost_reduction|construction_cost_reduction|buildcostreduction|building_cost_reduction/;
   const QUEST_SAFE_RES = /^(resources|favor)$/i;
-
   function questRows() {
     return Array.from(document.querySelectorAll('.quests .quest, #questlog .quest, .questlog .quest'))
       .filter(el => el && el.dataset && el.dataset.questId);
@@ -377,6 +375,7 @@
       if (ok) flash('reclamo de mision: ' + kinds);
       gbTimeout(() => { gbUnlock('quest-auto', autoToken); questScanTick('post-claim'); renderQuests(); }, 2500);
     };
+
     // liveOnly: the persisted questRewards entry is OUR OWN last snapshot, so
     // using it to reconcile a timeout lets a stale cache confirm a claim that
     // never landed. Only the live collection may settle an ambiguous outcome.
@@ -394,6 +393,7 @@
         setClaimState(true,err);return finish('bridge-review', false, err||'timeout_unknown');
       }
       if (err) return finish('bridge', false, err);
+
       // A successful server callback is authoritative even if the local model
       // has not refreshed yet. Persist a tombstone so stale cache cannot retry.
       setClaimState(false);return finish('bridge', true);
@@ -421,6 +421,10 @@
     entry.autoBuildReward = entry.rewards.some(r => r.kind === 'build-cost-reduction');
     entry.autoResReward = entry.rewards.some(r => r.kind === 'resources' || r.kind === 'favor');
     entry.safeAuto = entry.rewards.length > 0 && entry.rewards.every(isSafeQuestReward);
+    // Prefer the row's own island coords: the DOM may show the quest while the
+    // player is currently viewing a different town, so `abCurrentTownId()` is
+    // a stale-id footgun (claimQuestViaBridge would route to the wrong town).
+    // Fall back to town-unknown rather than borrowing the current town's id.
     // Prefer the row's own island coords: the DOM may show the quest while the
     // player is currently viewing a different town, so `abCurrentTownId()` is
     // a stale-id footgun (claimQuestViaBridge would route to the wrong town).
@@ -468,6 +472,9 @@
     // Single atomic guard: take the lock once, run the whole tick, release in
     // finally. The previous read-then-acquire pattern left a window where
     // bindQuestObserver/ingestGameQuests ran with no lock held.
+    // Single atomic guard: take the lock once, run the whole tick, release in
+    // finally. The previous read-then-acquire pattern left a window where
+    // bindQuestObserver/ingestGameQuests ran with no lock held.
     const scanToken = gbLock('quest-scan');
     if (!scanToken) return;
     try {
@@ -482,6 +489,9 @@
       }
       const rows = questRows();
       if (!rows.length) return;
+      // Never change the player's selected quest during a background scan. Game
+      // models are ingested for every row; DOM-only reward details are learned
+      // from whichever quest the player is already viewing.
       // Never change the player's selected quest during a background scan. Game
       // models are ingested for every row; DOM-only reward details are learned
       // from whichever quest the player is already viewing.
@@ -522,6 +532,9 @@
     bindQuestObserver._t = null;
   }
   try {
+    // GB_ROOT, not a private unsafeWindow copy: __grepbotDispose reads the hook
+    // off GB_ROOT, so a second resolution of the same expression is one more
+    // place for the two to disagree (Firefox's wrappedJSObject fallback).
     // GB_ROOT, not a private unsafeWindow copy: __grepbotDispose reads the hook
     // off GB_ROOT, so a second resolution of the same expression is one more
     // place for the two to disagree (Firefox's wrappedJSObject fallback).
@@ -582,7 +595,6 @@
       hist.textContent = lines.join('\n') || '(empty)';
     }
   }
-
   const ATTACK_HISTORY_MAX = 50;
   const ATTACK_ROLE_OFFENSE = '__attack_offense';
   const ATTACK_ROLE_DEFENSE = '__attack_defense';

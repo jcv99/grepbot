@@ -8,17 +8,15 @@
   // Absent or malformed data is reported as `blind`, never as "no
   // prerequisites" - the difference between "this tech needs nothing" and "we
   // could not read what it needs" is exactly what makes a planner post garbage.
-
   const RG_MAX_DEPTH = 60;
-
   // Normalise one definition's dependency list. Returns null (NOT []) when the
   // shape is unreadable, so the caller can tell "none" from "unknown".
   function researchGraphDeps(def) {
     if (!def || typeof def !== 'object') return null;
     const raw = def.research_dependencies !== undefined ? def.research_dependencies
       : (def.dependencies !== undefined ? def.dependencies : undefined);
-    if (raw === undefined) return [];              // definition read, no dep key = genuinely none
-    if (raw === null) return null;                 // key present but null = unreadable
+    if (raw === undefined) return [];
+    if (raw === null) return null;
     let list;
     if (Array.isArray(raw)) list = raw;
     else if (typeof raw === 'object') list = Object.keys(raw).filter(k => raw[k]);
@@ -26,12 +24,11 @@
     const out = [];
     for (const d of list) {
       const id = typeof d === 'string' ? d : (d && (d.id || d.research_id || d.research_type));
-      if (!id) return null;                        // an entry we cannot name = unreadable list
+      if (!id) return null;
       out.push(String(id));
     }
     return out;
   }
-
   // {known, blind, ids, edges, why}
   // Memoised: the walk touches every definition and researchScan calls it once
   // per town, on a 5s native-watch cadence. GameData is static for a session.
@@ -40,6 +37,8 @@
   function researchGraphBuild() {
     if (_rgMemo.v && Date.now() - _rgMemo.at < RG_MEMO_MS) return _rgMemo.v;
     const built = researchGraphBuildRaw();
+    // Only cache a graph we actually read; a blind one may be a transient
+    // "GameData not loaded yet" and must be retried on the next call.
     // Only cache a graph we actually read; a blind one may be a transient
     // "GameData not loaded yet" and must be retried on the next call.
     if (built.known) _rgMemo = { at: Date.now(), v: built };
@@ -62,6 +61,10 @@
       // not absent. Dropping it would make "we cannot resolve this prerequisite"
       // read as "this tech has no prerequisites" - the exact failure this
       // module exists to prevent. Keep it; the closure reports blind on it.
+      // An edge pointing at an id this client does not define is UNRESOLVABLE,
+      // not absent. Dropping it would make "we cannot resolve this prerequisite"
+      // read as "this tech has no prerequisites" - the exact failure this
+      // module exists to prevent. Keep it; the closure reports blind on it.
       edges[id] = deps;
       if (deps.some(d => !Object.prototype.hasOwnProperty.call(defs, d))) partial++;
     }
@@ -73,7 +76,6 @@
       why: partial ? `${partial} definition(s) with unreadable dependencies` : '',
     };
   }
-
   // Missing prerequisite closure for `target`, topologically ordered so every
   // entry appears after everything it needs. `have` is the set of already
   // researched or already queued ids.
@@ -106,10 +108,10 @@
     };
     const ok = visit(String(target), 0);
     // `order` ends with the target itself; `missing` is everything before it.
+    // `order` ends with the target itself; `missing` is everything before it.
     const missing = order.slice(0, Math.max(0, order.length - 1));
     return { ok: ok && !blind, blind, order, missing, why };
   }
-
   // Deterministic rank for a set of candidate targets: fewer missing
   // prerequisites first, then the caller's own order index. A blind target
   // sorts LAST - never first - because acting on an unreadable path is the one

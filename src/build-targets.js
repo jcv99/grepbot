@@ -32,7 +32,7 @@
   function abMaxLevel(building) {
     const d = abBuildingDef(building);
     const n = d && d.max_level != null ? +d.max_level : null;
-    return Number.isFinite(n) && n >= 0 ? n : null; // fail closed: no generic 40 fallback
+    return Number.isFinite(n) && n >= 0 ? n : null;
   }
   function abMinLevel(building) {
     const d = abBuildingDef(building);
@@ -50,7 +50,6 @@
     state.abTargets[building] = abClampTarget(building, lvl);
     save(STORE.AB_TARGETS, state.abTargets);
   }
-
   // ===== Native, explicit queues (v2.2) =====================================
   // These queues are user-authored from the game's own windows. Unlike the
   // legacy target planner, every click creates one stable FIFO job.

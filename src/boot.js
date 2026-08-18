@@ -5,8 +5,10 @@
   // as the in-memory intervals that drive them.
   const BOOT_TIMING = Object.freeze({
     // persistence deadlines — first fire of the persistent loops after install
+    // persistence deadlines — first fire of the persistent loops after install
     FIRST_FARM_DEADLINE_MS: 20000,
     FIRST_TOWNS_DEADLINE_MS: 30000,
+    // scrape / poll cadences
     // scrape / poll cadences
     INBOX_SCRAPE_MS: 30000,
     FARM_TICK_MS: 15000,
@@ -20,6 +22,8 @@
     NATIVE_QUEUE_LOOP_MS: 60000,
     QUEUE_CENTER_PAINT_MS: 5000,
     OVERVIEW_RENDER_MS: 15000,
+    // one-shot boot delays — staggered so the panel + scan + reconcile each
+    // find a settled UI by the time they paint
     // one-shot boot delays — staggered so the panel + scan + reconcile each
     // find a settled UI by the time they paint
     HUD_RESTORE_MS: 1500,
@@ -42,6 +46,7 @@
   }
   function hookSpaNav() {
     const wrap = (name, origKey) => {
+
       // Never bind over another instance's wrapper: after a hot reload gbHookOrig
       // is a fresh object, so the guard passes and the old wrapper becomes the
       // "original" - N reloads then schedule N ensurePanelMounted per nav.
@@ -78,6 +83,7 @@
   if (!state.nextTownsScrape) { state.nextTownsScrape = Date.now() + BOOT_TIMING.FIRST_TOWNS_DEADLINE_MS; save(STORE.NEXT_TOWNS, state.nextTownsScrape); }
   gbInterval(farmTick, BOOT_TIMING.FARM_TICK_MS);
   gbTimeout(() => { if (state.autoFarm) farmScheduleClaimWake(null, 'boot', true); }, BOOT_TIMING.FARM_WAKE_MS);
+
   // Hidden tabs clamp timers, so every clamped loop fires at once on wake and
   // the armed instant-build timer can be minutes late. Mark the burst so the
   // catch-up is serialized, then re-read orders.
@@ -89,6 +95,7 @@
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (e) { gbLogT('boot-wake-ib', 60000, 'wake ibScan: ' + String(e?.message || e).slice(0, 80)); }
     try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (e) { gbLogT('boot-wake-orch', 60000, 'wake orchTick: ' + String(e?.message || e).slice(0, 80)); }
     try { nativeQueueSweep('visible'); } catch (e) { gbLogT('boot-nqs-visible', 60000, 'nqs visible: ' + String(e?.message || e).slice(0, 80)); }
+
     // renderTimers / renderFarms / renderWorld all bail while document.hidden,
     // so the panel is up to a full cadence stale on the way back in. Repaint
     // immediately instead of showing a frozen countdown for a second.
@@ -96,6 +103,8 @@
   });
   gbListen(window, 'pageshow', (e) => {
     if (!(e && e.persisted)) return;
+
+    releaseLocksAt = 0;
     try { gbWakeMarkResume('bfcache'); } catch (e) { gbLogT('boot-wake-bfcache', 60000, 'wake bfcache: ' + String(e?.message || e).slice(0, 80)); }
     farmTick();
     try { reportCatchUpEnqueue(); } catch (e) { gbLogT('boot-catchup', 60000, 'catchup: ' + String(e?.message || e).slice(0, 80)); }
@@ -133,6 +142,7 @@
   gbTimeout(() => { abEnsureTargets(); }, BOOT_TIMING.AB_TARGETS_MS);
   gbTimeout(scheduleNativeUiScan, BOOT_TIMING.NATIVE_UI_SCAN_MS);
   gbInterval(() => {
+
     // The native-queue lane state must be observed frequently so a hand-edit
     // or a foreign + tap reflects in the panel within seconds. But the POSTS
     // themselves are orchestrator-owned (orchTick drives ab/recruit/research
@@ -144,12 +154,14 @@
     if (queueCenterVisible() || nativeQueueHasPending('build') || nativeRecruitPending() || nativeQueueHasPending('research')) {
       try { renderQueueCenter(); } catch (e) { gbLogT('boot-qc-paint', 60000, 'queue center paint: ' + String(e?.message || e).slice(0, 80)); }
     }
+
     // Ungated: this used to fire only while a lane already had work, which is a
     // chicken-and-egg lock on a fresh install — no scan means no [+] control,
     // no [+] means the lane stays empty, and the empty lane suppresses the scan.
     // nativeUiScan is a no-op when no game window is open.
     scheduleNativeUiScan();
   }, BOOT_TIMING.QUEUE_CENTER_PAINT_MS);
+
   // Whole-account reconcile of the virtual queues against the real ones. The
   // per-town pass in renderQueueCenter only covers the town on screen and only
   // while the window is open; this is what drops a hand-made upgrade from a
@@ -178,8 +190,14 @@
   gbTimeout(() => { try { hudRestore(); } catch (e) { gbLogT('boot-hud-restore', 60000, 'hud restore: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.HUD_RESTORE_MS);
 
   gbInterval(() => { gbLockSweep(); try { diagnosticsTick(); } catch (e) { gbLogT('boot-diag-tick', 60000, 'diag tick: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.LOCK_SWEEP_MS);
+  let releaseLocksAt = 0;
+  const RELEASE_DEDUP_MS = 3000;
   const releaseLocks = () => {
+    const now = Date.now();
+    if (now - releaseLocksAt < RELEASE_DEDUP_MS) return;
+    releaseLocksAt = now;
     try { cancelArmedAttack(); } catch (e) { gbLogT('boot-release-armed', 60000, 'cancel armed: ' + String(e?.message || e).slice(0, 80)); }
+
     // An armed instant-complete timer that survives the page exit fires against
     // a disposed instance on bfcache restore and posts from a stale order list.
     try { ibClearArmed(); } catch (e) { gbLogT('boot-release-ib', 60000, 'ib clear armed: ' + String(e?.message || e).slice(0, 80)); }
@@ -190,6 +208,7 @@
     try { if (typeof persistServerCooldown === 'function') persistServerCooldown(); } catch (e) { gbLogT('boot-release-cooldown', 60000, 'cooldown save: ' + String(e?.message || e).slice(0, 80)); }
     try { if (typeof nativeQueueSaveFlush === 'function') nativeQueueSaveFlush(); } catch (e) { gbLogT('boot-release-nqs', 60000, 'nqs flush: ' + String(e?.message || e).slice(0, 80)); }
     try { snapshotBuild('exit'); } catch (e) { gbLogT('boot-release-snap', 60000, 'snapshot: ' + String(e?.message || e).slice(0, 80)); }
+
     // LAST: every handler above may have queued a coalesced write. Flushing
     // before them would leave those writes stranded on the page exit.
     try { if (typeof saveFlush === 'function') saveFlush(); } catch (e) { gbLogT('boot-release-save', 60000, 'save flush: ' + String(e?.message || e).slice(0, 80)); }
@@ -227,9 +246,11 @@
       plannerCommit,
       goalProfiles,
       goalEffective,
+
       // Canonical name promised to downstream plans 1.3/5.1/5.5/5.6; the
       // implementation stays goalEffective so existing callers are untouched.
       gbCityProfile: goalEffective,
+
       // Capacity/ETA contract consumed by plans 3.2, 3.4 and 5.1.
       townPopState,
       transportTownRes,
@@ -289,6 +310,8 @@
       nativeQueueAddBuild,
       nativeQueueRemoveLastBuild,
       nativeQueueAddRecruit,
+      nativeQueueAddRecruitBatch,
+      nativeQueueCompactRecruit,
       nativeQueueRemoveLastRecruit,
       nativeQueueAddResearch,
       nativeQueueRemoveResearch,
@@ -298,6 +321,9 @@
       nativeQueueBuildApplied,
       nativeQueueRecruitApplied,
       nativeUiScan,
+
+      nativeWindowTownId,
+      nativeUnitId,
       ibSafeFreeThresh,
       ibIsFreeOrder,
       ibOrders,
@@ -322,6 +348,13 @@
       txCommandStatus,
       txHeroStatus,
       renderAttack,
+      rfBuildSchedule,
+      rfSend,
+      renderReinforce,
+      spsPlan,
+      spsRun,
+      spsStop,
+      renderSpySend,
       openQueueCenter,
       renderQueueCenter,
       dispose: GB_ROOT.__grepbotDispose,

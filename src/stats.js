@@ -6,7 +6,6 @@
   const statsYieldToMain = () => (globalThis.scheduler && typeof globalThis.scheduler.yield === 'function')
     ? globalThis.scheduler.yield()
     : new Promise(r => setTimeout(r, 0));
-
   // ===== Favor regen HUD (v4 plan 4.6) =======================================
   // Read-only. No post surface, no lock, no scheduler entry.
   //
@@ -19,6 +18,8 @@
   const FAVOR_HUD_GODS = ['zeus', 'poseidon', 'hera', 'athena', 'hades', 'ares', 'artemis', 'aphrodite'];
   const favorRateSamples = Object.create(null);
   function favorHudGods(fav) {
+    // Prefer the gods the model actually names; fall back to the known roster
+    // only to look them up, never to invent a pool that is not there.
     // Prefer the gods the model actually names; fall back to the known roster
     // only to look them up, never to invent a pool that is not there.
     const seen = new Set();
@@ -50,6 +51,8 @@
     const rate = (cur - first.p) / dt;
     // A negative rate means favor was just SPENT, not that regen reversed.
     // Reporting it as a rate would produce a nonsense ETA.
+    // A negative rate means favor was just SPENT, not that regen reversed.
+    // Reporting it as a rate would produce a nonsense ETA.
     return rate > 0 ? rate : 0;
   }
   function favorHudBlock() {
@@ -66,13 +69,13 @@
       const r = favorHudRead(fav, god);
       if (r.cur == null && r.max == null) continue;
       const rate = r.cur == null ? null : favorHudRate(god, r.cur);
-      let eta = '\u2014';
+      let eta = '—';
       if (r.cur != null && r.cur >= thresh) eta = 'ya';
-      else if (rate == null) eta = '\u2026';
+      else if (rate == null) eta = '…';
       else if (rate > 0 && r.cur != null) eta = fmtSec(Math.round((thresh - r.cur) / rate));
       rows.push(`  ${god.padEnd(11)}${String(r.cur == null ? '?' : Math.round(r.cur)).padStart(6)}` +
         `${String(r.max == null ? '?' : Math.round(r.max)).padStart(7)}` +
-        `${(rate == null ? '\u2026' : (rate * 60).toFixed(1) + '/m').padStart(9)}` +
+        `${(rate == null ? '…' : (rate * 60).toFixed(1) + '/m').padStart(9)}` +
         `  ${eta}`);
     }
     if (!rows.length) {
@@ -83,18 +86,20 @@
     lines.push(...rows);
     return lines;
   }
-
   // ===== Growth timeline (v4 plan 6.12) ======================================
   // Read-only. The sampler rides the existing town-scrape cadence; there is no
   // new scheduler, no post surface and nothing persisted beyond a bounded ring.
   const GROWTH_MAX_SAMPLES = 96;
   const GROWTH_TTL_MS = 7 * 86400000;
-  const GROWTH_SPARK = '\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588';
+  const GROWTH_SPARK = '▁▂▃▄▅▆▇█';
   function townGrowthHist() {
     if (!state.townGrowthHist || typeof state.townGrowthHist !== 'object' || Array.isArray(state.townGrowthHist)) state.townGrowthHist = {};
     return state.townGrowthHist;
   }
   function townGrowthSample(ids) {
+    // An empty id list means the town read FAILED, not that the account has no
+    // towns. Pruning against it would delete every town's history on one bad
+    // scrape.
     // An empty id list means the town read FAILED, not that the account has no
     // towns. Pruning against it would delete every town's history on one bad
     // scrape.
@@ -109,6 +114,9 @@
       // Only record values that were actually READ. A missing field is left
       // out of the sample rather than stored as 0, or the chart would show a
       // cliff where the scrape simply failed.
+      // Only record values that were actually READ. A missing field is left
+      // out of the sample rather than stored as 0, or the chart would show a
+      // cliff where the scrape simply failed.
       const row = { t: now };
       for (const k of GB_RES_KEYS) if (Number.isFinite(+r[k])) row[k] = +r[k];
       if (Number.isFinite(+r.pop)) row.pop = +r.pop;
@@ -119,6 +127,7 @@
       changed = true;
     }
     // Drop towns that are no longer ours.
+    // Drop towns that are no longer ours.
     const live = new Set((ids || []).map(String));
     for (const k of Object.keys(H)) if (!live.has(k)) { delete H[k]; changed = true; }
     if (changed) save(STORE.TOWN_GROWTH_HIST, H);
@@ -127,6 +136,8 @@
     const v = values.filter(x => Number.isFinite(x));
     if (v.length < 2) return '';
     const min = Math.min(...v), max = Math.max(...v), span = max - min;
+    // A flat series is flat, not noise: without this guard the divide by zero
+    // would render a random-looking bar pattern for a town that never changed.
     // A flat series is flat, not noise: without this guard the divide by zero
     // would render a random-looking bar pattern for a town that never changed.
     if (!(span > 0)) return GROWTH_SPARK[0].repeat(Math.min(24, v.length));
@@ -149,7 +160,6 @@
     }
     return lines.length > 1 ? lines : [];
   }
-
   function preflightProbe(name, fn) {
     try {
       const r = fn();
@@ -183,6 +193,30 @@
         ok: farms.length > 0,
         warn: !state.claimTpl,
         detail: `${farms.length} villages, ${ready} claimable, ${tpl}, options ${farmOptionMapText()}`,
+      };
+    }));
+    out.push(preflightProbe('farm unit claims', () => {
+      const mode = String(state.farmUnitsMode || 'off');
+      if (mode === 'off') return { ok: true, warn: true, detail: 'disabled in Config (resources only)' };
+
+      const villages = farmsFromGame() || [];
+      const sample = villages[0] || null;
+      const opt = farmUnitOption(sample);
+      const unit = opt != null ? farmUnitIdFor(opt) : null;
+      const table = (typeof farmClaimUnitsTable === 'function') ? farmClaimUnitsTable(sample) : null;
+      const amount = table && unit && table[unit] != null ? +table[unit] : null;
+      const dryMap = (state.farmResDry && typeof state.farmResDry === 'object') ? state.farmResDry : {};
+      const dry = Object.keys(dryMap).filter(k => farmResDryMarked(k)).length;
+      const capped = villages.filter(f => {
+        const left = farmDailyLeft(f);
+        return left != null && left <= 0;
+      }).length;
+      return {
+        ok: opt != null,
+        warn: opt == null || amount == null,
+        detail: opt == null
+          ? `mode ${mode}, pick ${state.farmUnitsPref || 'auto'} - no unit card readable (claim units once by hand or pin a unit in Ajustes)`
+          : `mode ${mode}, pick ${state.farmUnitsPref || 'auto'} -> option ${opt} (${unit}), amount ${amount == null ? '—' : amount}, ${capped} village(s) at the daily cap, ${dry} marked dry`,
       };
     }));
     out.push(preflightProbe('farm resource scrape', () => {
@@ -245,6 +279,7 @@
       const n = info && info.techs ? Object.keys(info.techs).length : 0;
       return { ok: !!info && info.academy != null && info.academy >= 0 && n >= 0, warn: !n, detail: info ? `${n} researched-tech flags, academy ${info.academy == null ? 'UNREADABLE' : info.academy}` : 'academy techs unreadable' };
     }));
+
     // The academy read path is the one that silently produced "nothing ever
     // posts": every gate was blocked on a value that could not be read. Name the
     // unreadable one instead of making the next person diff the client again.
@@ -298,6 +333,7 @@
 
     out.push(preflightProbe('tx registry', () => {
       const tx = state.txState || {};
+
       // Match tx.js lifecycle states (planned/precheck/sending/confirming/reconciling/
       // committed/dryrun) and the terminal flags (failed/aborted/unknown/manual-review).
       // Dodge queue states (pending/sent) belong to dodge.js and are not in txState.
@@ -334,6 +370,7 @@
       const withVerdict = (state.findings || []).filter(f => f && f.outcome).length;
       return {
         ok: true,
+
         // A small sample is not a failure, it is just not meaningful yet.
         warn: n < 5,
         detail: state.intelBattleStats === false
@@ -358,12 +395,44 @@
       const paused = captchaPaused('support');
       const ledger = Object.keys(state.supportLastSend || {}).length;
       return {
+
         // Auto ON with no learned template is the one state worth flagging:
         // the feature will refuse every post until a hand-sent support is seen.
         ok: true,
         warn: (cfg.auto && !tpl) || (cfg.auto && paused),
         detail: `auto ${cfg.auto ? 'ON' : 'OFF'}, tpl ${tpl ? state.supportTpl.action_name : 'SIN aprender (envia un apoyo a mano)'}` +
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
+      };
+    }));
+    out.push(preflightProbe('refuerzos: pestana manual', () => {
+      const plan = rfPlan();
+      const tpl = !!(state.supportTpl && state.supportTpl.action_name);
+      const target = plan.targetId ? rfResolveTarget(plan) : null;
+      const sources = Array.isArray(plan.sourceTownIds) ? plan.sourceTownIds.length : (state.towns || []).length;
+      let ready = 0;
+      if (target) {
+        try {
+          ready = rfBuildSchedule(plan).rows.filter(r => r.unitCount && r.boats.ok).length;
+        } catch (_) { ready = 0; }
+      }
+      return {
+        ok: true,
+        warn: !!plan.targetId && !target,
+        detail: `ayuda ${RF_MODE_ES[plan.helpMode] || plan.helpMode}, destino ${plan.targetId ? (target ? '#' + target.town_id : 'NO resuelto') : 'sin fijar'}`
+          + `, ${sources} origen(es), ${ready} listo(s), ruta ${tpl ? 'plantilla ' + state.supportTpl.action_name : 'canonica town_info/send_units'}`,
+      };
+    }));
+    out.push(preflightProbe('espionaje: envio manual', () => {
+      const cfg = spsCfg();
+      const src = spsSourceTownId(cfg);
+      const cave = src ? spsCaveSilver(src) : { stored: null, hideLvl: null };
+      const plan = spsPlan();
+      return {
+        ok: true,
+
+        warn: cave.stored == null,
+        detail: `modo ${cfg.mode === 'bulk' ? 'masivo' : 'rapido'}, origen ${src ? '#' + src : '-'}, cueva ${cave.stored == null ? 'ILEGIBLE' : cave.stored + ' plata'}`
+          + `, ${plan.error ? 'plan: ' + plan.error : 'plan listo (~' + plan.total + ' plata)'}`,
       };
     }));
     out.push(preflightProbe('adaptive farm', () => {
@@ -373,6 +442,7 @@
       const total = (state.farmsParsed || []).length;
       return {
         ok: true,
+
         // With nothing ranked the pressure trim has no ordering to work from
         // and degrades to "drop the unranked", which would drop everything.
         warn: total > 0 && ranked === 0,
@@ -399,6 +469,7 @@
       const s0 = memSample();
       return {
         ok: true,
+
         // A blind heap API is EXPECTED off Chromium; the map tally still works.
         warn: s0.blind,
         detail: (s0.blind ? 'heap no legible (solo Chromium), ' : `heap ${(s0.used / 1048576).toFixed(1)} Mb, `) +
@@ -426,6 +497,7 @@
       const damaged = ids.filter(id => (abWallDamage(id) || 0) > 0).length;
       return {
         ok: true,
+
         // Unreadable damage is the EXPECTED result until someone captures the
         // attribute name; the feature then simply applies no offset.
         warn: readable === 0,
@@ -453,6 +525,7 @@
       const withEquip = hs.filter(h => h.equipment).length;
       return {
         ok: true,
+
         // Unreadable is the EXPECTED result: the attribute names for this
         // client have never been captured, so nothing is guessed.
         warn: withStam === 0,
@@ -468,6 +541,7 @@
       try { ranked = spyRankTargets().length; } catch (_) {}
       return {
         ok: true,
+
         // ON without a learned route is the state worth naming: the cycle
         // refuses every post until a hand-sent spy is observed.
         warn: !!state.spyEnabled && !tpl,
@@ -488,6 +562,7 @@
       const ledger = Object.keys(state.emergencyLastStash || {}).length;
       return {
         ok: true,
+
         // Auto ON with no town that could actually stash is worth flagging:
         // the loop would run every 5s and never have anything to do.
         warn: !!state.emergencyCaveAuto && ready === 0,
@@ -499,6 +574,7 @@
       const degenerate = [];
       for (const r of ['wood', 'stone', 'iron']) {
         const th = dumpThresholdFor(r), keep = dumpKeepPctFor(r);
+
         // keep >= threshold means the surplus is always zero: the toggle is ON
         // but nothing can ever fire, which is worth saying out loud.
         if (keep >= th) degenerate.push(`${r} conservar ${keep}% >= umbral ${th}%`);
@@ -519,6 +595,7 @@
       const all = Object.values(state.tradeRoutes || {});
       const enabled = all.filter(r => r && r.enabled !== false).length;
       const towns = new Set((townsFromGame() || []).map(t => String(t.id)));
+
       // A route pointing at a town this world does not have is dead weight and
       // the planner will skip it forever - surface it instead of hiding it.
       const orphan = all.filter(r => r && (!towns.has(String(r.from)) || !towns.has(String(r.to)))).length;
@@ -532,6 +609,7 @@
     out.push(preflightProbe('intel: threat engine weights', () => {
       const raw = (state.predictCfg && state.predictCfg.threatWeights) || null;
       const w = defenseThreatWeights();
+
       // A hand-edited out-of-range value is clamped, not honoured - say so
       // rather than silently scoring with a number the user did not set.
       const drift = raw ? Object.keys(w).filter(k => raw[k] != null && +raw[k] !== w[k]) : [];
@@ -558,11 +636,12 @@
       const carry = gbLootEstimate({ kind: 'attack-loot', units: { sword: 1 } });
       return {
         ok: true,
+
         // farm-claim is non-blind by design; attack-loot blind is EXPECTED
         // until a client is found that names the per-unit carry field.
         warn: !!e.blind,
         detail: `farm-claim ${e.total}/h` + (e.blind ? ` BLIND (${e.blindReason})` : '') +
-          ` \u00b7 attack-loot ${carry.blind ? 'ciego (' + carry.blindReason + ')' : carry.total}`,
+          ` · attack-loot ${carry.blind ? 'ciego (' + carry.blindReason + ')' : carry.total}`,
       };
     }));
     out.push(preflightProbe('composition advisor', () => {
@@ -592,7 +671,7 @@
       return {
         ok: true,
         warn: ledgerBlind,
-        detail: `${(opt.actions || []).length} entradas \u00b7 ${blocked} bloqueadas` + (ledgerBlind ? ' - contable del planificador no legible' : ''),
+        detail: `${(opt.actions || []).length} entradas · ${blocked} bloqueadas` + (ledgerBlind ? ' - contable del planificador no legible' : ''),
       };
     }));
     out.push(preflightProbe('goal profile', () => {
@@ -637,6 +716,7 @@
       return { ok: blind < 5, warn: blind > 0, detail: parts.join(', ') };
     }));
     out.push(preflightProbe('attack', () => {
+
       // No template is the NORMAL state: the client posts town_info/send_units,
       // not a frontend_bridge execute, so attackTpl only ever exists as an
       // explicit override. Flagging its absence as a warning told users to
@@ -663,12 +743,30 @@
       const mv = (typeof dodgeIncomingMovements === 'function' ? (dodgeIncomingMovements() || []) : []);
       const trains = (typeof csWaveClusters === 'function' ? (csWaveClusters(mv) || []) : []);
       const unknown = trains.reduce((n, t) => n + (t.unknownArrival || 0), 0);
+
+      let total = 0, dropped = [];
+      try {
+        const models = mmModelsAll('MovementsUnits');
+        total = models.length;
+        const mine = new Set(Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}).map(String));
+        const kept = new Set(mv.map(x => String(x.id)));
+        for (const m of models) {
+          const a = m.attributes || {};
+          const dest = String(a.destination_town_id || a.target_town_id || '');
+          if (!mine.has(dest)) continue;
+          if (kept.has(String(a.id || m.id))) continue;
+          const t = gbMovementType(a) || '?';
+          if (!dropped.includes(t)) dropped.push(t);
+        }
+      } catch (_) { total = -1; }
       // This is the probe that proves the arrival field is readable on this
       // client build - without it no snipe window can be computed at all.
       return {
         ok: true,
-        warn: unknown > 0,
-        detail: `${mv.length} incoming movements visible, ${trains.length} tren(es), ${unknown} sin hora de llegada legible`,
+        warn: unknown > 0 || total === 0,
+        detail: `${mv.length} incoming movements visible de ${total < 0 ? '—' : total} MovementsUnits`
+          + `, ${trains.length} tren(es), ${unknown} sin hora de llegada legible`
+          + (dropped.length ? `; descartados en mis ciudades: ${dropped.join(',')}` : ''),
       };
     }));
     out.push(preflightProbe('quests', () => {
@@ -711,7 +809,6 @@
     }));
     return out;
   }
-
   let preflightLast = null;
   function preflightRunAndRender() {
     preflightLast = { at: Date.now(), rows: preflightRun() };
@@ -721,7 +818,6 @@
     renderStats();
     flash(bad ? `preflight: ${bad} failing` : 'preflight: all pass');
   }
-
   function renderStats() {
     const sec = panel && panel.querySelector('section[data-tab=stats]');
     if (!sec || sec.hidden) return;
@@ -788,6 +884,7 @@
     lines.push('planificador (cadencia con adaptativa por inactividad)');
     orchStatus().filter(s => s.on).forEach(s => {
       lines.push(`  ${s.key.padEnd(11)} cada ${fmtSec(Math.round(s.cadenceMs / 1000)).padEnd(6)} proxima ${fmtSec(Math.round(s.dueInMs / 1000)).padEnd(6)}${s.idle ? ' inact. x' + s.idle : ''}${s.captcha ? ' CAPTCHA' : ''}`);
+
       // Transport has no orch key of its own - it is a tradeScan sub-planner,
       // so its counter hangs off the trade row it actually runs on.
       if (s.key === 'trade' && state.autoTransport) {
@@ -819,7 +916,6 @@
     }
     box.textContent = lines.join('\n');
   }
-
   // ---------- evidence snapshot (diagnostics export) ----------
   function evidenceTplShape(v) {
     if (v == null) return { present: false };
@@ -995,7 +1091,6 @@
     } catch (_) {}
     fail();
   }
-
   // ---------- copy-everything bundle (one paste for a bug report) ------------
   // Assembles every read-only dump the panel already exposes one button at a
   // time - evidence, config, decision journal, log ring, findings, bridge -

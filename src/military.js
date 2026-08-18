@@ -10,6 +10,8 @@
       if (k) seen.add(k);
       models.push(m);
     };
+
+    try { mmModelsAll('MovementsUnits').forEach(push); } catch (_) {}
     try { const c = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits'); if (c && c.models) c.models.forEach(push); } catch (_) {}
     try { const cs = uw.MM && uw.MM.getCollections && uw.MM.getCollections().MovementsUnits; (Array.isArray(cs) ? cs : (cs ? [cs] : [])).forEach(c => { if (c && c.models) c.models.forEach(push); }); } catch (_) {}
     return models;
@@ -32,7 +34,7 @@
         if (cancelable == null && a.cancelable != null) cancelable = a.cancelable === true || a.cancelable === 1;
         const until = +(typeof m.getCancelableUntil === 'function' ? m.getCancelableUntil() : a.cancelable_until) || 0;
         if (until > 0 && until <= now) cancelable = false;
-        if (cancelable !== true) return; // fail closed: only explicit cancelable movements
+        if (cancelable !== true) return;
         const commandId = (typeof m.getCommandId === 'function' && m.getCommandId()) || a.command_id || a.id || m.id;
         if (commandId == null) return;
         const type = String((typeof m.getType === 'function' && m.getType()) || a.type || a.command_name || a.movement_type || '').toLowerCase();
@@ -134,6 +136,8 @@
       if (v && typeof v === 'object') {
         // Slot map vs flat bag: keep whichever shape the client actually uses,
         // verbatim. Nothing here interprets item ids.
+        // Slot map vs flat bag: keep whichever shape the client actually uses,
+        // verbatim. Nothing here interprets item ids.
         if (Array.isArray(v)) return { slots: null, items: v.slice(0, 40) };
         return { slots: Object.assign({}, v), items: null };
       }
@@ -174,6 +178,9 @@
     // null must NOT count as 0 (which would be a tight throttle). Treat only
     // null/undefined as "unset" and fall through to the default 20, matching
     // every other knob's `== null` semantics.
+    // null must NOT count as 0 (which would be a tight throttle). Treat only
+    // null/undefined as "unset" and fall through to the default 20, matching
+    // every other knob's `== null` semantics.
     const raw = state.heroLowStaminaPct;
     if (raw == null) return 20;
     const n = +raw;
@@ -196,6 +203,8 @@
       for (const [slot, val] of Object.entries(h.equipment.slots)) {
         // Only compare values that are both readable NUMBERS. An item id that
         // is a string tells us nothing about tier and must not be ranked.
+        // Only compare values that are both readable NUMBERS. An item id that
+        // is a string tells us nothing about tier and must not be ranked.
         const mine = +val;
         if (!Number.isFinite(mine)) continue;
         for (const o of free) {
@@ -206,6 +215,8 @@
         }
       }
     }
+    // Persist: the panel would otherwise show nothing after a reload until the
+    // next 5-minute scan. Signature-compared so a steady state costs no write.
     // Persist: the panel would otherwise show nothing after a reload until the
     // next 5-minute scan. Signature-compared so a steady state costs no write.
     const sig = JSON.stringify(out);
@@ -223,6 +234,8 @@
       const pct = heroPct(h.stamina);
       // null means the attribute was not readable on this client - that is
       // not "stamina is zero" and must never fire an alert.
+      // null means the attribute was not readable on this client - that is
+      // not "stamina is zero" and must never fire an alert.
       if (pct != null && pct <= lowPct) heroNotify('low-stamina', h, { staminaPct: pct });
       if (h.injured) heroNotify('injured', h, null);
     }
@@ -236,6 +249,8 @@
     }
     const idle = heroes.filter(h => h.status === 'free');
     if (!idle.length) return;
+    // Propose only. The post itself still needs {confirmed:true}, which only
+    // the panel button supplies - auto-assign never fires unattended.
     // Propose only. The post itself still needs {confirmed:true}, which only
     // the panel button supplies - auto-assign never fires unattended.
     const towns = (state.towns || []).map(t => String(t.id)).filter(id => !heroTownOccupied(id, null));
@@ -272,6 +287,8 @@
     const payload = { model_url: tpl.model_url, action_name: tpl.action_name, arguments: args, town_id: targetTownId != null ? +targetTownId : tpl.town_id };
     bridgePost('hero', payload, (err, data) => {
       gbUnlock('hero', lockToken);
+      // Any hero post changes assignment/status; the 60s list memo must not
+      // outlive it or the panel reports the old state for up to a minute.
       // Any hero post changes assignment/status; the 60s list memo must not
       // outlive it or the panel reports the old state for up to a minute.
       try { heroListInvalidate(); } catch (_) {}
@@ -335,6 +352,7 @@
       const row = document.createElement('div'); row.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:10px;border-bottom:1px solid #2a2a2a;padding:3px 0';
       const lab = document.createElement('span'); lab.style.flex = '1';
       const st = heroPct(h.stamina), mn = heroPct(h.mana);
+
       // '?' means the attribute is not readable on this client build, which is
       // the expected result until someone captures the real names.
       lab.textContent = `${h.name} Lv${h.level} | ${h.status}${h.home ? ' @' + townNameById(h.home) : ''}` +
@@ -348,6 +366,7 @@
       if (!h.injured && !h.attacking && !h.traveling) addBtn('Assign','assignToTown','#6cf',()=>{ const tid=townSel.value; if(tid&&confirm(`Asignar ${h.name} -> ${townNameById(tid)}?`)) heroAssignToTown(h.type,tid,{confirmed:true},err=>{flash(err?'hero assign failed: '+err:'hero transfer started');renderAttack();}); }, 'Asignar el heroe a la ciudad seleccionada');
       hbox.appendChild(row);
     });
+
     // Equipment proposals: read-only. There is no known equip endpoint in this
     // tree, so this names a better item another free hero is holding and stops
     // there - it never moves anything.
@@ -402,6 +421,10 @@
     // Whether the server exposes the attacker's units on an INCOMING movement
     // is not verifiable from this tree, so this is a bonus path, never the
     // primary one: an unfamiliar type simply does not classify.
+    // Fallback to the unit breakdown, the same signal dodge derives hasCs from.
+    // Whether the server exposes the attacker's units on an INCOMING movement
+    // is not verifiable from this tree, so this is a bonus path, never the
+    // primary one: an unfamiliar type simply does not classify.
     const u = (mov && mov.units) || {};
     if (u.colonize_ship || u.colony_ship) return 'cs-sighted';
     return null;
@@ -417,6 +440,11 @@
       const kind = militaryColonyKind(mov);
       if (!kind) continue;
       const eta = (typeof dodgeEtaSec === 'function') ? dodgeEtaSec(mov) : null;
+      // Only REINFORCEMENT is recallable here. Matching every outgoing command
+      // to that town would offer to cancel an attack the player launched
+      // against it, which is a different decision entirely. A command this bot
+      // sent (present in state.dodgeReturns) also qualifies even if its type
+      // string is unfamiliar on this world.
       // Only REINFORCEMENT is recallable here. Matching every outgoing command
       // to that town would offer to cancel an attack the player launched
       // against it, which is a different decision entirely. A command this bot
@@ -457,6 +485,8 @@
       const c3 = document.createElement('span');
       // ETA unknown renders '?', never 0 - a movement whose arrival could not
       // be read is not an imminent one.
+      // ETA unknown renders '?', never 0 - a movement whose arrival could not
+      // be read is not an imminent one.
       c3.textContent = r.etaKnown ? fmtSec(r.eta) : '?';
       c3.style.color = r.etaKnown ? '#fc6' : '#888';
       gbTip(c3, 'ETA hasta la llegada (? = no legible)');
@@ -489,7 +519,6 @@
       box.appendChild(row);
     }
   }
-
   // ===== Unit composition advisor (v4 plan 2.11) =============================
   // Pure read. Never changes recruitScan and never posts: auto-recruit stays
   // HIGH-RISK default OFF. Every verdict below is the one the recruit scan's
@@ -527,6 +556,9 @@
       // `mythical` is an OVERLAY, not a sibling bucket: a mythical hoplite-class
       // unit still belongs to its offense/defense split. The renderer labels it
       // as a subset so the four splits still add up.
+      // `mythical` is an OVERLAY, not a sibling bucket: a mythical hoplite-class
+      // unit still belongs to its offense/defense split. The renderer labels it
+      // as a subset so the four splits still add up.
       if (m.god || m.mythical || m.is_mythical) byFunction.mythical += pop;
       const fn = (typeof classifyUnitFn === 'function') ? classifyUnitFn(u) : 'unknown';
       if (byFunction[fn] == null) byFunction.unknown += pop; else byFunction[fn] += pop;
@@ -542,6 +574,7 @@
       if (!unitMeta(u)) { gbLogT('comp-meta-unknown-' + u, 600000, `composition: unit ${u} has no GameData entry - excluded`); continue; }
       const h = +have[u] || 0;
       // One queue read for the whole town, not two per unit.
+      // One queue read for the whole town, not two per unit.
       let queued = 0;
       for (const m of (qinfo.models || [])) {
         const a = m.attributes || {};
@@ -552,6 +585,8 @@
       const gap = want - h - queued;
       if (gap <= 0) continue;
       let status, why;
+      // An unreadable garrison is BLIND, not "you have zero" - the whole gap
+      // number is untrustworthy in that case and must say so.
       // An unreadable garrison is BLIND, not "you have zero" - the whole gap
       // number is untrustworthy in that case and must say so.
       if (!haveKnown || !queueKnown) { status = 'blind'; why = !haveKnown ? 'guarnicion no legible' : 'cola no legible'; blind++; }
@@ -578,6 +613,8 @@
     };
   }
   function militaryCompositionAll() {
+    // Hoisted: goalEffectiveRecruitTargets() walks every town, so calling it
+    // once per town made the advisor O(towns^2).
     // Hoisted: goalEffectiveRecruitTargets() walks every town, so calling it
     // once per town made the advisor O(towns^2).
     let all = {};
@@ -707,7 +744,5 @@
     sec.querySelector('#gb-atk-cmds-refresh')?.addEventListener('click', () => renderAttack());
     sec.querySelector('#gb-atk-heroes-refresh')?.addEventListener('click', () => renderAttack());
   }
-
-
   const STATS_WINDOWS = { '1h': 3600000, '24h': 86400000, '7d': 604800000 };
   let statsWindow = '24h';

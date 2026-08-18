@@ -2,7 +2,7 @@
     try {
       if (!body || typeof body !== 'string' || !/frontend_bridge/.test(String(u))) return;
       const parsedSelfCheck = parseBodyLoose(body);
-      if (parsedSelfCheck && isSelfBridge(parsedSelfCheck)) return; // never learn/reinforce templates from our own traffic
+      if (parsedSelfCheck && isSelfBridge(parsedSelfCheck)) return;
       if (/FarmTownPlayerRelation/.test(body)) {
         gbLog('sniffed farm bridge call:', body.slice(0, 300));
         const j = parseBodyLoose(body);
@@ -19,6 +19,7 @@
           if (!isSelfBridge(j)) farmLearnFromClaim(j);
         } else if (j && j.model_url && !/claim|trade|unlock|upgrade/i.test(j.action_name || '')
                    && /sword|archer|hoplite|slinger/i.test(body)) {
+
           // Anything on FarmTownPlayerRelation that isn't claim/trade/unlock/upgrade
           // and carries one of the 4 unit ids is treated as the village
           // accept-units template. The action_name (and any extra arguments the
@@ -61,6 +62,7 @@
           }
         }
       } else if (/Town/.test(body) && /"type"\s*:\s*"support"/.test(body)) {
+
         // v4 plan 3.2. This branch MUST come before the attack branch below: a
         // support payload is also Town/<id> + sendUnits, so the attack branch
         // would otherwise learn it as attackTpl - exactly the cross-feature
@@ -69,6 +71,7 @@
         if (j) supportLearnTemplate(j);
       } else if (/model_url.*Town\//i.test(body) || (/Town/.test(body) && /attack|sendUnits/i.test(body))) {
         const j = parseBodyLoose(body);
+
         // Belt and braces: never store a support payload as the attack template.
         if (j && j.arguments && String(j.arguments.type || '') === 'support') { supportLearnTemplate(j); return; }
         if (j && j.model_url && /attack|sendUnits/i.test(j.action_name || '')) {
@@ -86,6 +89,7 @@
           }
         }
       } else if (/spy|espionage|espia/i.test(body) && /model_url/.test(body)) {
+
         // v4 plan 4.1: the spy route is unknown to this tree, so it is learned
         // from the player's own hand-sent spy and never guessed.
         const j = parseBodyLoose(body);
@@ -132,7 +136,6 @@
       }
     } catch (_) {}
   }
-
   let farmRelLogSig = '';
   function farmRelationCol() {
     return mmCol('FarmTownPlayerRelation');
@@ -144,7 +147,6 @@
     const s = attrs.relation_status;
     return s != null && s > 0;
   }
-
   function farmIsLootable(r, attrs) {
     try {
       if (typeof r.isLootable === 'function') return !!r.isLootable();
@@ -153,8 +155,6 @@
     if (at == null) return true;
     return gameNow() >= at;
   }
-
-
   // Farm claims are deadline-driven: adaptive orchestrator backoff must never sleep
   // past a known lootable_at. The dedicated wake timer only triggers the existing
   // transactional claim path; it does not bypass any claim/captcha/warehouse guard.
@@ -190,6 +190,9 @@
     // v2.2.4: if villages are already claimable (for example after reload, tab focus,
     // or while the adaptive scheduler is backed off), do not wait for the next
     // orchestrator cadence. Wake the existing transactional claim path immediately.
+    // v2.2.4: if villages are already claimable (for example after reload, tab focus,
+    // or while the adaptive scheduler is backed off), do not wait for the next
+    // orchestrator cadence. Wake the existing transactional claim path immediately.
     if (allowExpiredRetry && t.ready > 0) {
       const delay = gbLocked('claim') || reason === 'post-claim' ? FARM_CLAIM_READY_RETRY_MS : FARM_CLAIM_READY_WAKE_MS;
       targetMs = Date.now() + delay;
@@ -199,6 +202,7 @@
       targetMs = Date.now() + FARM_CLAIM_READY_RETRY_MS;
     }
     if (!targetMs) return null;
+    // Keep an already scheduled wake if it is at least as early as the new target.
     // Keep an already scheduled wake if it is at least as early as the new target.
     if (farmClaimWakeTimer && farmClaimWakeAt && farmClaimWakeAt <= targetMs + 1000) return farmClaimWakeAt;
     farmCancelClaimWake();
@@ -281,7 +285,6 @@
     if (pruneMapsToIds(state.thresholds, ids)) save(STORE.THRESH, state.thresholds);
     if (pruneMapsToIds(state.farmProfit, ids)) save(STORE.FARM_PROFIT, state.farmProfit);
   }
-
   function islandTownMap() {
     const map = Object.create(null);
     const uw = uwCached();
@@ -312,7 +315,6 @@
     ids.sort((a,b)=>{const A=townWarehouseState(a),B=townWarehouseState(b);const af=A&&A.cap>0?A.cap-Math.max(+A.wood||0,+A.stone||0,+A.iron||0):-1;const bf=B&&B.cap>0?B.cap-Math.max(+B.wood||0,+B.stone||0,+B.iron||0):-1;return bf-af});
     return ids.find(id=>!townWarehouseBlocks(id))||ids[0];
   }
-
   function townWarehouseState(townId) { return townResState(townId); }
   function townWarehouseBlocks(townId) {
     if (!state.farmSkipFull) return false;
@@ -331,7 +333,6 @@
       return tid != null && townWarehouseBlocks(tid);
     } catch (_) { return false; }
   }
-
   const FARM_DURATIONS = [300, 600, 1200, 2400, 5400, 10800, 14400, 28800];
   function farmDurLabel(sec) {
     if (sec >= 3600) return (sec / 3600) + 'h';
@@ -347,6 +348,17 @@
     const parts = FARM_DURATIONS.filter(s => m[String(s)] != null).map(s => `${farmDurLabel(s)}=${m[String(s)]}`);
     return parts.length ? parts.join(' ') : 'none';
   }
+  function farmOptionMapConflicts() {
+    const m = state.farmOptionMap || {};
+    const byOpt = Object.create(null);
+    Object.keys(m).forEach(sec => {
+      const o = String(m[sec]);
+      (byOpt[o] = byOpt[o] || []).push(+sec);
+    });
+    const bad = Object.keys(byOpt).filter(o => byOpt[o].length > 1)
+      .map(o => byOpt[o].sort((a, b) => a - b).map(s => farmDurLabel(s)).join('/') + '=' + o);
+    return bad.length ? bad.join(' ') : '';
+  }
   function farmSnapDuration(sec) {
     let best = null, bestDiff = Infinity;
     FARM_DURATIONS.forEach(d => {
@@ -356,7 +368,6 @@
 
     return best != null && bestDiff <= best * 0.2 ? best : null;
   }
-
   // A hand claim teaches one of two maps: the duration->option map (resource
   // half) or the unit card index (unit half). They are separate learned keys on
   // purpose - sharing one would map a unit index onto a claim duration.
@@ -381,11 +392,13 @@
       const a = (j && j.arguments) || {};
       const opt = +a.option;
       const vid = a.farm_town_id;
-      if (!(opt > 0) || vid == null) return;
+
+      if (!(opt >= 1 && opt <= 4) || vid == null) return;
       gbTimeout(() => {
         const farms = farmsFromGame() || [];
         const f = farms.find(x => String(x.vill_id) === String(vid));
         if (!f || f.lootable_at == null) return;
+
         // The 4s re-read races the server: on a slow update the lootable_at is
         // still the OLD value, and snapping the new option to the OLD duration
         // mis-maps every future claim for that duration. Require a finite,
@@ -401,6 +414,8 @@
         if (sec == null) return;
         const map = Object.assign({}, state.farmOptionMap || {});
         if (+map[String(sec)] === opt) return;
+
+        Object.keys(map).forEach(k => { if (k !== String(sec) && +map[k] === opt) delete map[k]; });
         map[String(sec)] = opt;
         state.farmOptionMap = map;
         save(wkey(STORE.FARM_OPTION_MAP), map);
@@ -408,14 +423,12 @@
       }, 4000);
     } catch (_) {}
   }
-
   const FARM_LOYALTY_IDS = ['rural_loyalty', 'loyalty', 'villagers_loyalty', 'villager_loyalty'];
   const FARM_LOYALTY_RE = /loyal(?:ty)?|lealtad|treue|fidel(?:ity|idad)|villager.{0,12}loyal|aldean.{0,12}leal/i;
   const farmLoyaltyCache = Object.create(null);
   function farmLoyaltyReset() {
     Object.keys(farmLoyaltyCache).forEach(k => { delete farmLoyaltyCache[k]; });
   }
-
   function farmLoyaltyPinHit(techs, pin) {
     const want = pin.toLowerCase();
     const keys = Object.keys(techs).filter(k => techs[k]);
@@ -457,7 +470,6 @@
     if (!want || want === 'auto') return farmOptionFor(28800) != null ? 28800 : 14400;
     return +want;
   }
-
   // Adaptive claim duration: among the durations that are actually learnable
   // here (state.farmOptionMap), pick the longest one whose expected haul still
   // fits the town warehouse headroom. The 20min / 40min / 90min / 3h options
@@ -474,8 +486,17 @@
     if (!learned.length) return 300;
     // If loyalty isn't researched, the longer options are not necessarily free
     // of the loyalty multiplier, so prefer them only when headroom allows.
+    // If loyalty isn't researched, the longer options are not necessarily free
+    // of the loyalty multiplier, so prefer them only when headroom allows.
     const rs = (typeof townResState === 'function') ? townResState(townId) : null;
     const headroom = rs && rs.cap > 0 ? Math.max(0, rs.cap - Math.max(rs.wood, rs.stone, rs.iron)) : null;
+    // loyalty is deliberately 1.0, NOT farmLoyaltyResearched(townId) ? 1 : 0.5.
+    // Plan 2.12 suggested the 0.5 factor but cites no evidence for it, and
+    // getting it wrong in that direction is asymmetric: a halved estimate lets
+    // the picker choose a claim roughly twice as long as the warehouse can
+    // absorb, and the overflow is loot thrown away. 1.0 reproduces the numerics
+    // this picker has always used. The parameter stays in the API so a verified
+    // multiplier can be dropped in later.
     // loyalty is deliberately 1.0, NOT farmLoyaltyResearched(townId) ? 1 : 0.5.
     // Plan 2.12 suggested the 0.5 factor but cites no evidence for it, and
     // getting it wrong in that direction is asymmetric: a halved estimate lets
@@ -489,6 +510,10 @@
       // rate constant has one home. Skip a duration only when fits === false;
       // fits === null means headroom was unreadable and must not block the
       // longer claim.
+      // The haul estimate now lives in gbLootEstimate (v4 plan 2.12) so the
+      // rate constant has one home. Skip a duration only when fits === false;
+      // fits === null means headroom was unreadable and must not block the
+      // longer claim.
       const est = gbLootEstimate({ kind: 'farm-claim', durationSec: sec, loyalty: 1.0, headroom });
       if (est.meta.fits === false) continue;
       if (sec > best) best = sec;
@@ -496,7 +521,6 @@
     return best;
   }
   function farmDesiredDuration(townId) { return farmDurationPick(townId); }
-
   // ===== Farm profitability ranking (v4 plan 2.6) ============================
   // An ESTIMATE, and deliberately so: per-village stock is not in the bridge
   // model (plan 26 A1 proved the HTTP scrape dead) and the claim callback
@@ -518,6 +542,8 @@
     const hit = farmProfitCache[id];
     // A blind verdict gets a much shorter TTL: a town whose capacity becomes
     // readable a second later must not stay unranked for five minutes.
+    // A blind verdict gets a much shorter TTL: a town whose capacity becomes
+    // readable a second later must not stay unranked for five minutes.
     if (hit && Date.now() - hit.at < (hit.v.score == null ? FARM_PROFIT_BLIND_TTL_MS : FARM_PROFIT_TTL_MS)) return hit.v;
     const out = (v) => { farmProfitCache[id] = { at: Date.now(), v }; return v; };
     const tid = townIdForFarm(farm, islandMap);
@@ -534,6 +560,9 @@
     const duration = farmDurationPick(tid);
     const loyalty = farmLoyaltyResearched(tid) ? 1.0 : 0.5;
     const est = gbLootEstimate({ kind: 'farm-claim', durationSec: duration, loyalty, headroom });
+    // Distance is in island-coordinate units. The in-game march formula is not
+    // in the bridge model, so seconds-per-unit is a user-pinned number and
+    // defaults to 0 - the rank is distance-agnostic until the player pins one.
     // Distance is in island-coordinate units. The in-game march formula is not
     // in the bridge model, so seconds-per-unit is a user-pinned number and
     // defaults to 0 - the rank is distance-agnostic until the player pins one.
@@ -581,7 +610,6 @@
     if (changed) save(STORE.FARM_PROFIT, state.farmProfit);
   }
   function farmProfitInvalidate() { for (const k of Object.keys(farmProfitCache)) delete farmProfitCache[k]; farmProfitRefreshAt = 0; }
-
   // ===== Village unit half ==================================================
   // Resources are ALWAYS the better claim: they cost no population and feed
   // every other feature. Units are only ever asked for when the resource half
@@ -590,7 +618,6 @@
   // unit claim is skipped, never posted on a guessed option index.
   const FARM_UNIT_ORDER = ['sword', 'slinger', 'archer', 'hoplite'];
   function farmUnitIdFor(option) { return FARM_UNIT_ORDER[(+option || 0) - 1] || null; }
-
   function farmVillageLevel(farm) {
     const rel = farm && farm._rel;
     const a = (farm && farm._attrs) || {};
@@ -601,7 +628,6 @@
     if (status === 0) return 0;
     return Number.isFinite(+a.expansion_stage) ? +a.expansion_stage : null;
   }
-
   function farmClaimUnitsTable(farm) {
     const t = gbGameDataLookup('farm_town', 'claim_units');
     if (!t || typeof t !== 'object') return null;
@@ -613,7 +639,6 @@
     if (FARM_UNIT_ORDER.some(u => t[u] != null)) return t;
     return null;
   }
-
   function farmUnitOption(farm, townId) {
     const pref = String(state.farmUnitsPref || 'auto');
     if (pref !== 'auto' && pref !== 'learned') {
@@ -641,13 +666,13 @@
       const def = gbGameDataLookup('units', unit);
       const res = (def && def.resources) || null;
       // Resource value of the card, not unit count: 3 swords are not 3 biremes.
+      // Resource value of the card, not unit count: 3 swords are not 3 biremes.
       const cost = res ? (+res.wood || 0) + (+res.stone || 0) + (+res.iron || 0) : 0;
       const score = amount * (cost > 0 ? cost : 1);
       if (!best || score > best.score) best = { opt, score };
     }
     return best ? best.opt : null;
   }
-
   // Remaining resource allowance for today, or null when any input is blind.
   function farmDailyLeft(farm) {
     const rel = farm && farm._rel;
@@ -666,7 +691,6 @@
     if (!Number.isFinite(loot)) return null;
     return Math.max(0, perDay * speed - loot);
   }
-
   function farmUnitsClaimBlocked(farm, townId, option) {
     const unit = farmUnitIdFor(option);
     if (!unit) return 'unit-unknown';
@@ -695,7 +719,6 @@
     } catch (_) {}
     return null;
   }
-
   // true only when the village itself reports every resource card at zero.
   // Unreadable values are null (UNKNOWN) - never treated as "empty".
   function farmResExhausted(farm) {
@@ -710,7 +733,6 @@
     if (!nums.length) return null;
     return nums.every(n => n <= 0);
   }
-
   function farmResDryMap() {
     const day = farmDayKey();
     if (state.farmResDryDay !== day) {
@@ -722,7 +744,6 @@
     if (!state.farmResDry || typeof state.farmResDry !== 'object') state.farmResDry = {};
     return state.farmResDry;
   }
-
   // A hard error on a resource claim is NOT proof the village is out of
   // resources - a stale template, a warehouse race or one server hiccup all
   // land here, and the resource half is the strictly better claim. So the bot
@@ -740,6 +761,7 @@
     const m = farmResDryMap();
     const key = String(villId);
     const row = m[key] && typeof m[key] === 'object' ? m[key] : { n: 0 };
+    // Strikes must be consecutive in time, not merely counted across a day.
     if (row.at && Date.now() - (+row.at || 0) > FARM_RES_DRY_TTL_MS) row.n = 0;
     if (row.n >= FARM_RES_DRY_STRIKES) { row.at = Date.now(); m[key] = row; saveSoon(wkey(STORE.FARM_RES_DRY), m); return; }
     row.n = (+row.n || 0) + 1;
@@ -748,7 +770,7 @@
     m[key] = row;
     saveSoon(wkey(STORE.FARM_RES_DRY), m);
     if (row.n >= FARM_RES_DRY_STRIKES) {
-      gbLog(`farm: village ${villId} resource claim dry (${row.why}) - claiming units until it recovers`);
+      gbLog(`farm: village ${villId} resource claim dry today (${row.why}) - claiming units instead`);
     } else {
       gbLogT('farm-dry-strike-' + villId, 60000, `farm: village ${villId} resource claim error ${row.n}/${FARM_RES_DRY_STRIKES} (${row.why})`);
     }
@@ -759,7 +781,6 @@
     delete m[String(villId)];
     saveSoon(wkey(STORE.FARM_RES_DRY), m);
   }
-
   // The one place that decides which half of a village is claimed.
   function farmClaimTypeFor(farm) {
     const mode = String(state.farmUnitsMode || 'off');
@@ -774,32 +795,37 @@
     if (farmResExhausted(farm) === true) return 'units';
     return farmResDryMarked(farm.vill_id) ? 'units' : 'resources';
   }
-
-  function claimFarmUnits(farm, tid, tplArgs, done) {
-    const option = farmUnitOption(farm, tid);
-    if (option == null) {
-      gbLogT('farm-units-opt', 120000,
-        'farm claim: no unit card available (pick=' + (state.farmUnitsPref || 'auto') +
-        ', claim_units=' + (farmClaimUnitsTable(farm) ? 'readable' : 'UNREADABLE for village level ' + farmVillageLevel(farm)) +
-        ', learned=' + (state.farmUnitsOption == null ? 'none' : state.farmUnitsOption) +
-        ') - pin a unit in Ajustes or claim units once by hand');
-      return done('skip');
+  function farmClaimDiag(limit) {
+    const farms = farmsFromGame();
+    if (!farms) { gbLog('farm diag: game collections not ready'); return; }
+    const islandMap = islandTownMap();
+    const speed = (() => { try { return +(gameUw().Game && gameUw().Game.game_speed); } catch (_) { return null; } })();
+    const perDayTable = gbGameDataLookup('farm_town', 'max_resources_per_day');
+    const unitTable = farmClaimUnitsTable(farms[0]);
+    gbLog(`farm diag: mode=${state.farmUnitsMode || 'off'} pick=${state.farmUnitsPref || 'auto'} learnedUnitOpt=${state.farmUnitsOption == null ? '-' : state.farmUnitsOption}` +
+      ` game_speed=${Number.isFinite(speed) ? speed : 'UNREADABLE'}` +
+      ` max_resources_per_day=${perDayTable ? 'ok' : 'UNREADABLE'}` +
+      ` claim_units=${unitTable ? JSON.stringify(unitTable).slice(0, 120) : 'UNREADABLE'}` +
+      ` optionMap=${farmOptionMapText()}`);
+    const n = Math.max(1, Math.min(+limit || 8, farms.length));
+    for (const f of farms.slice(0, n)) {
+      const tid = townIdForFarm(f, islandMap);
+      const left = farmDailyLeft(f);
+      const type = farmClaimTypeFor(f);
+      const opt = type === 'units' ? farmUnitOption(f, tid) : null;
+      const blocked = (type === 'units' && opt != null && tid != null) ? farmUnitsClaimBlocked(f, tid, opt) : null;
+      const dry = farmResDryMap()[String(f.vill_id)];
+      gbLog(`  vill ${f.vill_id} town=${tid == null ? '-' : tid}` +
+        ` lootable=${f.lootable_at == null ? '-' : Math.max(0, f.lootable_at - gameNow()) + 's'}` +
+        ` loot=${(f._attrs && f._attrs.loot) != null ? f._attrs.loot : '-'}` +
+        ` level=${(f._attrs && f._attrs.expansion_stage) != null ? f._attrs.expansion_stage : '-'}` +
+        ` dailyLeft=${left == null ? 'BLIND' : left}` +
+        ` resValues=${farmResExhausted(f) === null ? 'blind' : (farmResExhausted(f) ? 'all-zero' : 'has-value')}` +
+        ` dry=${dry ? dry.n + 'x ' + (dry.why || '') : '-'}` +
+        ` -> type=${type}${type === 'units' ? ' opt=' + (opt == null ? 'NONE' : opt + '(' + (farmUnitIdFor(opt) || '?') + ')') + (blocked ? ' BLOCKED:' + blocked : '') : ''}`);
     }
-    const why = farmUnitsClaimBlocked(farm, tid, option);
-    if (why) {
-      gbLogT('farm-units-block-' + tid, 300000,
-        `farm units claim skip town ${tid} vill ${farm.vill_id}: ${why}`);
-      return done('skip');
-    }
-    const args = Object.assign({}, tplArgs, { type: 'units', option, farm_town_id: +farm.vill_id });
-    bridgePost('farm', {
-      model_url: `FarmTownPlayerRelation/${farm.relation_id}`,
-      action_name: (state.claimTpl && state.claimTpl.action_name) || 'claim',
-      arguments: args,
-      town_id: tid,
-    }, (err) => done(err || null));
+    if (farms.length > n) gbLog(`  … ${farms.length - n} more village(s) not shown`);
   }
-
   function claimFarm(farm, islandMap, whCache, durOverride, onDone) {
     const done = (err) => { if (onDone) onDone(err); };
     if (captchaPaused('farm')) return done('captcha');
@@ -809,6 +835,7 @@
       return done('skip');
     }
     const claimType = farmClaimTypeFor(farm);
+
     // Warehouse capacity only gates the resource half - a unit card stores no
     // loot, so a full warehouse must not block it.
     if (claimType === 'resources') {
@@ -829,9 +856,16 @@
     const wantSec = durOverride || farmDesiredDuration(tid);
     let option = farmOptionFor(wantSec);
     if (option == null) {
+
+      const fallback = farmOptionFor(300);
+      if (fallback == null) {
+        gbLogT('farm-opt-' + wantSec, 900000,
+          `farm claim: option index for ${farmDurLabel(wantSec)} unknown and no learned 5min index - claim once by hand in game to teach it`);
+        return done('skip');
+      }
       gbLogT('farm-opt-' + wantSec, 900000,
-        `farm claim: option index for ${farmDurLabel(wantSec)} unknown - claim that timer once by hand in game to teach it (using 5min)`);
-      option = farmOptionFor(300) != null ? farmOptionFor(300) : 1;
+        `farm claim: option index for ${farmDurLabel(wantSec)} unknown - claim that timer once by hand in game to teach it (using learned 5min)`);
+      option = fallback;
     }
 
     const args = Object.assign({}, tplArgs, { type: 'resources', option, farm_town_id: +farm.vill_id });
@@ -841,7 +875,10 @@
       arguments: args,
       town_id: tid,
     }, (err) => {
-      if (!err && whCache) delete whCache[tid]; // force fresh capacity check before the next claim in this town
+      if (!err && whCache) delete whCache[tid];
+
+      // 'remembered' is the bot's own skip window, not the server saying the
+      // village is empty - it must never flip a village to unit claims.
       // 'remembered' is the bot's own skip window, not the server saying the
       // village is empty - it must never flip a village to unit claims.
       const hard = err && err !== 'remembered' && !JRN_SKIP_ERRS[String(err).split(':')[0]] && err !== 'captcha' && !jrnPendingResult(err);
@@ -853,6 +890,37 @@
       done(err || null);
     });
   }
+  function claimFarmUnits(farm, tid, tplArgs, done) {
+    const option = farmUnitOption(farm, tid);
+    if (option == null) {
+      gbLogT('farm-units-opt', 120000,
+        'farm claim: no unit card available (pick=' + (state.farmUnitsPref || 'auto') +
+        ', claim_units=' + (farmClaimUnitsTable(farm) ? 'readable' : 'UNREADABLE for village level ' + farmVillageLevel(farm)) +
+        ', learned=' + (state.farmUnitsOption == null ? 'none' : state.farmUnitsOption) +
+        ') - pin a unit in Ajustes or claim units once by hand; Acciones > Diagnostico de aldeas dumps the reads');
+      return done('skip');
+    }
+    const why = farmUnitsClaimBlocked(farm, tid, option);
+    if (why) {
+      gbLogT('farm-units-block-' + tid, 300000,
+        `farm units claim skip town ${tid} vill ${farm.vill_id}: ${why}`);
+      return done('skip');
+    }
+    const args = Object.assign({}, tplArgs, { type: 'units', option, farm_town_id: +farm.vill_id });
+    bridgePost('farm', {
+      model_url: `FarmTownPlayerRelation/${farm.relation_id}`,
+      action_name: (state.claimTpl && state.claimTpl.action_name) || 'claim',
+      arguments: args,
+      town_id: tid,
+    }, (err) => done(err || null));
+  }
+  // Farm-first (hard rule): unit production never takes a dispatch slot while a
+  // farming-village claim is still possible. Mirrors the eligibility filter in
+  // autoClaimFarms exactly - lootable AND an owning town whose warehouse can
+  // still store the loot - so a warehouse-full town reports NO pending work,
+  // which is the one case where spending resources unblocks farming again.
+  // Unreadable collections are UNKNOWN, never "pending", so a blind read cannot
+  // deadlock recruitment; a farm captcha pause is likewise not pending.
   // ===== Farm precedence (hard rule) ========================================
   // Unit production never posts while a farming-village claim is still
   // possible. A claim is free income on a village timer; spending a
@@ -871,6 +939,8 @@
   function farmClaimPending() {
     if (!state.autoFarm || !hostEnabled()) return false;
     if (captchaPaused('farm')) return false;
+    // A claim batch in flight IS farm work - hold units without re-walking the
+    // collections (the lock is cheap, the walk is not).
     // A claim batch in flight IS farm work - hold units without re-walking the
     // collections (the lock is cheap, the walk is not).
     if (gbLocked('claim')) return true;
@@ -908,7 +978,6 @@
     gbLogT('farm-first-' + who, 300000, `${who}: held - farming village claim pending (farm-first)`);
     return true;
   }
-
   function autoClaimFarms(reason, durOverride, onBatchDone) {
     if (!hostEnabled() || !state.autoFarm || captchaPaused('farm') || automationPaused({})) {
       if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
@@ -931,6 +1000,8 @@
       }
       const tid = townIdForFarm(f, islandMap);
       if (!tid) return false;
+
+      if (farmClaimTypeFor(f) === 'units') return true;
       if (!(tid in whCache)) whCache[tid] = townWarehouseBlocks(tid);
       if (whCache[tid]) { skippedFull++; return false; }
       return true;
@@ -941,18 +1012,21 @@
     if (!ready.length) {
       const next = Math.min(...farms.map(f => f.lootable_at || Infinity));
       gbLogT('claim-none', 60000, `farm claim: 0/${farms.length} ready${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}, next in ${next === Infinity ? '?' : Math.max(0, next - now) + 's'}`);
+
       // The adaptive scheduler may be at x8, but a known village deadline takes priority.
       // If lootable_at has expired while isLootable() is briefly stale, retry after 5s.
       farmScheduleClaimWake(farms, 'next-lootable', skippedFull === 0);
       if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
       return;
     }
+
     // v4 plan 5.2: trim the SET under pressure rather than widening the cadence,
     // and claim the highest-yield villages first. `before` below still keys off
     // every farm, so a partial drop does not affect reconciliation.
     const work = farmApplyDropPolicies(ready);
     if (!work.length) {
       gbLogT('claim-adaptive-empty', 300000, 'farm claim: adaptive policy dropped every candidate this pass');
+
       // Arm the precise next-lootable wake exactly like the no-candidates path
       // above: without it the retry falls back to the 15s farmTick sweep.
       farmScheduleClaimWake(farms, 'adaptive-empty', true);
@@ -961,18 +1035,24 @@
     }
     const claimLockToken = gbLock('claim', Math.max(180000, work.length * 20000));
     if (!claimLockToken) return;
-    gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${work.length}/${farms.length} ready${work.length !== ready.length ? ` (${ready.length - work.length} adaptivo)` : ''}${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}`);
+    const unitCount = work.filter(f => farmClaimTypeFor(f) === 'units').length;
+    gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${work.length}/${farms.length} ready${work.length !== ready.length ? ` (${ready.length - work.length} adaptivo)` : ''}${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}${unitCount ? ` (${unitCount} as units)` : ''}`);
     const before = {};
     farms.forEach(f => { before[f.vill_id] = f.lootable_at; });
     flash(`farm claim x${work.length}`);
+
+    const outcome = Object.create(null);
     let i = 0, done = 0, captcha = false;
     const claimSpacingMs=Math.max(700,Math.ceil(60000/Math.max(5,(+state.reqBudgetPerMin||40)-4)));
     (function next() {
       gbLockTouch('claim', claimLockToken);
       if (i >= work.length || captcha || captchaPaused('farm')) {
+        const tally = Object.keys(outcome).map(k => `${k}x${outcome[k]}`).join(' ');
+        if (tally) gbLog(`  claim outcomes: ${tally}`);
         gbTimeout(() => {
           try {
             const flipped = verifyClaims(before, work);
+
             // Re-read model deadlines after the batch and arm the next exact claim wake.
             farmScheduleClaimWake(null, 'post-claim', true);
 
@@ -989,9 +1069,12 @@
       const f = work[i++];
       try {
         claimFarm(f, islandMap, whCache, durOverride, (err) => {
+          const key = String(err || 'ok').slice(0, 24);
+          outcome[key] = (outcome[key] || 0) + 1;
           if (err === 'captcha' || err === 'captcha-pause') { captcha = true; farmPressureNote('captcha'); }
           else if (!err) {
             done++;
+
             // Counted only on a confirmed bridge ok, so a failed post cannot
             // consume the village's daily allowance.
             try { farmClaimCount(f.vill_id); } catch (_) {}
@@ -1006,7 +1089,6 @@
       }
     })();
   }
-
   // ===== Adaptive farming (v4 plan 5.2) ======================================
   // Under pressure - captcha, server cooldown, or a soft request-budget delay -
   // the claim set is TRIMMED rather than the cadence widened. These are drop
@@ -1018,6 +1100,7 @@
   const farmPressure = [];
   function farmPressureNote(kind) {
     const now = Date.now();
+    // Coalesce: one burst of the same kind is one signal, not eight.
     // Coalesce: one burst of the same kind is one signal, not eight.
     const last = farmPressure[farmPressure.length - 1];
     if (last && last.kind === kind && now - last.at < 60000) { last.at = now; return; }
@@ -1054,7 +1137,8 @@
   function farmClaimCount(villId) {
     const c = farmClaimsToday();
     c[String(villId)] = (+c[String(villId)] || 0) + 1;
-    save(STORE.FARM_CLAIMS_TODAY, c);
+
+    saveSoon(STORE.FARM_CLAIMS_TODAY, c);
   }
   function farmProfitScoreOf(villId) {
     const p = (state.farmProfit || {})[String(villId)];
@@ -1067,6 +1151,9 @@
     const pressure = farmPressureOn();
     let work = ready.slice();
     if (pressure) {
+      // An unranked village is UNKNOWN, not worthless - it is only dropped
+      // while under pressure, and the log says how many so the operator can
+      // tell "trimmed" from "broken".
       // An unranked village is UNKNOWN, not worthless - it is only dropped
       // while under pressure, and the log says how many so the operator can
       // tell "trimmed" from "broken".
@@ -1094,6 +1181,7 @@
         gbLogT('farm-adaptive-daily', 300000, `adaptive farm: captcha hot - skipped ${before - work.length} village(s) already claimed today`);
       }
     }
+    // Highest yield first even without pressure: same set, better order.
     // Highest yield first even without pressure: same set, better order.
     work.sort((a, b) => (farmProfitScoreOf(b.vill_id) ?? -Infinity) - (farmProfitScoreOf(a.vill_id) ?? -Infinity));
     return work;
@@ -1171,6 +1259,9 @@
       // A village absent from the baseline was never observed before the batch,
       // so its deadline appearing now is the model filling in lazily, not proof
       // a claim landed. Same for a village we never posted a claim for.
+      // A village absent from the baseline was never observed before the batch,
+      // so its deadline appearing now is the model filling in lazily, not proof
+      // a claim landed. Same for a village we never posted a claim for.
       if (!Object.prototype.hasOwnProperty.call(before, f.vill_id)) return;
       if (only && !only.has(String(f.vill_id))) return;
       if (f.lootable_at != null && f.lootable_at > now && before[f.vill_id] !== f.lootable_at) updated++;
@@ -1178,7 +1269,6 @@
     gbLog(`farm claim verify: ${updated} village(s) now gathering${updated ? '' : ' - claims did NOT land (open Senado once, click Recoger manually, then paste me the Log tab)'}`);
     return updated;
   }
-
   // ---------- village resource scrape: circuit breaker ----------
   // The ladder below only resolves on worlds whose client still answers a
   // farm_town_* action. Where it does not, it is a pure budget sink: N villages
@@ -1227,7 +1317,6 @@
     gbLog('farm scrape: breaker cleared (' + (why || 'manual') + ')');
     return true;
   }
-
   const ACTION_GUESSES = ['farm_town_info', 'get_farm_towns', 'farm_town_overview'];
   const FARM_ACTION_OK = /^(farm_town_|get_farm|farm_info|island_farm)/;
   const FARM_ACTION_BAD = /farm_remove|village_attack|attack_log|farm_town_lock/;
@@ -1241,7 +1330,6 @@
     }
     return g;
   }
-
   function learnFarmAction(u) {
     const m = String(u || '').match(/[?&]action=([a-z0-9_]+)/i);
     if (!m) return;
@@ -1252,6 +1340,8 @@
     state.farmAction = a;
     save(wkey(STORE.FARM_ACTION), a);
     gbLog('learned farm action', a);
+    // A real action from the player's own traffic is the only evidence that the
+    // endpoint exists on this world - it is what the breaker was waiting for.
     // A real action from the player's own traffic is the only evidence that the
     // endpoint exists on this world - it is what the breaker was waiting for.
     farmScrapeRevive('learned action ' + a);
@@ -1334,6 +1424,9 @@
           // gbXhr rejects before the wire on budget / host-disabled / disposed.
           // Walking the rest of the ladder there would burn the remaining
           // guesses instantly, with no spacing, against an exhausted budget.
+          // gbXhr rejects before the wire on budget / host-disabled / disposed.
+          // Walking the rest of the ladder there would burn the remaining
+          // guesses instantly, with no spacing, against an exhausted budget.
           const why = e && e.error ? String(e.error) : '';
           if (why === 'budget' || why === 'disabled' || why === 'disposed') {
             state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: why };
@@ -1357,7 +1450,6 @@
     }
     return null;
   }
-
   // `force` = a manual button. The Diag test fetch calls fetchFarmResources
   // directly and stays outside the breaker on purpose: it is the probe that can
   // prove the endpoint is alive again.
@@ -1367,6 +1459,9 @@
     if (!force && !farmScrapeEnabled()) {
       gbLogT('farm-scrape-off', 600000, 'farm scrape: off (' +
         (farmScrapeState().dead ? 'endpoint dead' : 'disabled in Config') + ')');
+      // Keep the cadence stamped so farmTick does not re-enter every 15s — but
+      // never SHORTEN a deadline a real sweep already set (min < the 5-6min
+      // window a live sweep stamps, so this used to pull the next one forward).
       // Keep the cadence stamped so farmTick does not re-enter every 15s — but
       // never SHORTEN a deadline a real sweep already set (min < the 5-6min
       // window a live sweep stamps, so this used to pull the next one forward).
@@ -1400,6 +1495,11 @@
     // sweep that always ran out of budget on its last village never reached
     // farmScrapeNoteSweep, so the breaker could never trip and the dead ladder
     // burned the scrape budget forever.
+    // A village that walked the whole ladder and matched nothing is endpoint
+    // evidence; a budget/network stop is not. Counting only whole sweeps meant a
+    // sweep that always ran out of budget on its last village never reached
+    // farmScrapeNoteSweep, so the breaker could never trip and the dead ladder
+    // burned the scrape budget forever.
     const FARM_SCRAPE_HARD_ABORT = 3;
 
     (function step() {
@@ -1424,12 +1524,16 @@
         if (!good && err === 'no endpoint matched') hard++;
         // Out of budget mid-sweep: stop the sweep, but still charge the breaker
         // with whatever endpoint evidence this sweep already produced.
+        // Out of budget mid-sweep: stop the sweep, but still charge the breaker
+        // with whatever endpoint evidence this sweep already produced.
         if (why === 'budget' || why === 'disabled' || why === 'disposed') {
           gbUnlock('farm-scrape', farmScrapeLock);
           gbLog(`farm scrape stopped (${why}): ${ok}/${done} ok`);
           if (ok || hard) farmScrapeNoteSweep(ok);
           return;
         }
+        // Nothing on this world answers the ladder: stop burning the rest of the
+        // budget on the remaining villages, the verdict is already in.
         // Nothing on this world answers the ladder: stop burning the rest of the
         // budget on the remaining villages, the verdict is already in.
         if (!ok && hard >= FARM_SCRAPE_HARD_ABORT && list.length) {
@@ -1442,7 +1546,6 @@
       });
     })();
   }
-
   // Path A: derive the 600s option index from GameData when readable.
   // Never invent an index - a wrong index silently halves farm income.
   function farmTryDeriveOptionMap() {
@@ -1461,6 +1564,9 @@
         list.forEach((opt, i) => {
           if (opt == null) return;
           const idx = opt.option != null ? +opt.option : (opt.id != null ? +opt.id : i + 1);
+          // pickNum, not `||`: a present-but-0 duration short-circuits to the
+          // next candidate, and a 0 here should fail the `sec > 0` gate below
+          // rather than silently borrow another field's value.
           // pickNum, not `||`: a present-but-0 duration short-circuits to the
           // next candidate, and a 0 here should fail the `sec > 0` gate below
           // rather than silently borrow another field's value.
@@ -1519,11 +1625,12 @@
       return;
     }
     const flip = !seen;
-    if (!flip && state.farmTeachBanner) return; // already prompting
+    if (!flip && state.farmTeachBanner) return;
     state.farmLoyaltySeen = true;
     save(STORE.FARM_LOYALTY_SEEN, true);
     const derived = farmTryDeriveOptionMap();
     if (derived && derived['600'] != null) {
+
       // Tentative write - the next hand/bot claim confirms via farmLearnOptionFromClaim.
       const map = Object.assign({}, state.farmOptionMap || {}, derived);
       state.farmOptionMap = map;

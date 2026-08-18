@@ -11,6 +11,9 @@
     // `defensive` is intentionally NOT seeded to a number: an always-present
     // 0.5 would shadow the named profile's own weight in goalEffective. Absent
     // means "inherit from the profile"; only garbage is dropped.
+    // `defensive` is intentionally NOT seeded to a number: an always-present
+    // 0.5 would shadow the named profile's own weight in goalEffective. Absent
+    // means "inherit from the profile"; only garbage is dropped.
     if (g.defensive != null && !Number.isFinite(+g.defensive)) delete g.defensive;
     return g;
   }
@@ -52,7 +55,7 @@
     return base;
   }
   function goalEffectiveRecruitTargets() {
-    const raw=JSON.parse(JSON.stringify(state.recruitTargets||{})),out={};
+    const raw=structuredClone(state.recruitTargets||{}),out={};
     let ids=[]; try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){}
     for(const tid of ids){ const e=goalEffective(tid),cfg=goalTownCfg(tid),m=Object.assign({},raw[tid]||{}); for(const [u,n] of Object.entries(e.units||{})) if(+n>0)m[u]=Math.max(+m[u]||0,+n);for(const[u,n]of Object.entries(cfg.units||{})){if(+n>0)m[u]=+n;else delete m[u]} const ordered=goalOrderIds(tid,'recruit',Object.keys(m));out[tid]={};for(const u of ordered)if(!goalQueueSuppressed(tid,'recruit',u))out[tid][u]=m[u]; }
     return out;
@@ -80,6 +83,8 @@
     const sim=Object.assign({},levels), actions=[], maxActions=40; const av=plannerAvailable(townId,{allowSoft:false});
     const ledger=av?Object.assign({},av):null;
     const buildTargets=e.build||{};
+    // abEnsureOrder() writes STORE.AB_ORDER on every call - hoist it out of the
+    // filter predicate or a wide target set costs one GM_setValue per key.
     // abEnsureOrder() writes STORE.AB_ORDER on every call - hoist it out of the
     // filter predicate or a wide target set costs one GM_setValue per key.
     const base=abEnsureOrder();
@@ -115,7 +120,10 @@
     state.virtualQueue[String(townId)]=plan; if(sig!==prevSig) save(STORE.VIRTUAL_QUEUE,state.virtualQueue);
     // One render path keeps both lists current; the advisory sequence is never
     // read by the auto-queue, so a failure here must not break the plan.
+    // One render path keeps both lists current; the advisory sequence is never
+    // read by the auto-queue, so a failure here must not break the plan.
     if (state.abOptimalOrderOn !== false) { try { abOptimalOrderSave(townId, abOptimalOrderFor(townId)); } catch (_) {} }
+    // The composition advisor reads the same targets this plan just recomputed.
     // The composition advisor reads the same targets this plan just recomputed.
     try { militaryCompositionInvalidate(); } catch (_) {}
     return plan;
@@ -127,6 +135,8 @@
   const AB_OPT_MAX = 40;
   const AB_OPT_TTL_MS = 7 * 86400000;
   function abOptDepth(townId, building, levels, depth) {
+    // How many prerequisite hops before this target can start. Mirrors
+    // abResolvePrerequisite's walk rather than duplicating its logic.
     // How many prerequisite hops before this target can start. Mirrors
     // abResolvePrerequisite's walk rather than duplicating its logic.
     const d = +depth || 0;
@@ -147,6 +157,8 @@
     if (!levels) return { townId: id, error: 'levels-unreadable', actions: [] };
     const targets = goalEffectiveBuildTargets(townId);
     const avail = plannerAvailable(townId, { allowSoft: true });
+    // A null ledger is UNKNOWN, not zero: the walk still runs and every entry
+    // reports waiting-resources rather than silently claiming affordability.
     // A null ledger is UNKNOWN, not zero: the walk still runs and every entry
     // reports waiting-resources rather than silently claiming affordability.
     const ledger = avail ? Object.assign({}, avail) : null;
@@ -262,12 +274,18 @@
     // Absent key → inserting a new entry; land it at the end of the queue so
     // delta's "+1 / -1" semantics are consistent with a present-key move (delta
     // is for re-ordering an existing entry, not for choosing an insert slot).
+    // Absent key → inserting a new entry; land it at the end of the queue so
+    // delta's "+1 / -1" semantics are consistent with a present-key move (delta
+    // is for re-ordering an existing entry, not for choosing an insert slot).
     if (q.order.indexOf(key) < 0) {
       q.order = q.order.concat([key]);
       goalQueueSave();
       goalPlanTown(townId);
       return true;
     }
+    // Capture the index BEFORE removing the key: clean.indexOf(key) is always
+    // -1 (the filter just took it out), so every ↓ jumped the entry to the end
+    // of the queue and ↑ on the first entry pushed it one slot later.
     // Capture the index BEFORE removing the key: clean.indexOf(key) is always
     // -1 (the filter just took it out), so every ↓ jumped the entry to the end
     // of the queue and ↑ on the first entry pushed it one slot later.
@@ -287,7 +305,12 @@
   function goalSetTownOverrides(townId,obj){if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;const g=goalTownCfg(townId),cleanMap=v=>{const o={};if(v&&typeof v==='object'&&!Array.isArray(v))for(const[k,n]of Object.entries(v))if(Number.isFinite(+n)&&+n>=0)o[k]=+n;return o;};if(obj.build!=null)g.build=cleanMap(obj.build);if(obj.research!=null)g.research=cleanMap(obj.research);if(obj.units!=null)g.units=cleanMap(obj.units);if(obj.reserve&&typeof obj.reserve==='object'){g.reserve={hard:cleanMap(obj.reserve.hard),soft:cleanMap(obj.reserve.soft)}}
     // defensive: clamp 0..1; an explicit null/'' clears the override so the
     // named profile's own weight applies again.
+    // defensive: clamp 0..1; an explicit null/'' clears the override so the
+    // named profile's own weight applies again.
     if(obj.defensive!==undefined){if(obj.defensive===null||obj.defensive==='')delete g.defensive;else if(Number.isFinite(+obj.defensive))g.defensive=Math.max(0,Math.min(1,+obj.defensive));}
+    // resource: clamp -1..+1 per resource, drop non-finite and unknown keys.
+    // Symmetric with defensive: undefined = leave alone, null/'' or a bad shape
+    // = clear the override back to "inherit from the profile".
     // resource: clamp -1..+1 per resource, drop non-finite and unknown keys.
     // Symmetric with defensive: undefined = leave alone, null/'' or a bad shape
     // = clear the override back to "inherit from the profile".
@@ -295,7 +318,6 @@
     save(STORE.TOWN_GOALS,state.townGoals);goalPlanTown(townId);return true;}
   function goalProgress(townId){const e=goalEffective(townId),parts=[];const levels=abCurrentLevels(townId)||{};for(const[id,t]of Object.entries(e.build||{})){const tgt=+t||0;if(tgt>0)parts.push(Math.min(1,(+(levels[id]||0))/tgt))}let info=null;try{info=researchTownTechs(townId)}catch(_){};for(const[id,on]of Object.entries(e.research||{}))if(+on)parts.push(info&&info.techs&&info.techs[id]?1:0);const units=goalUnitCounts(townId);for(const[id,t]of Object.entries(e.units||{})){const tgt=+t||0;if(tgt>0)parts.push(Math.min(1,(+(units[id]||0))/tgt))}return parts.length?Math.round(parts.reduce((a,b)=>a+b,0)/parts.length*100):100;}
   function goalMandatoryModules(){const out=[];for(const [tid,q] of Object.entries(state.virtualQueueOverrides||{})){if(!q||!q.mandatory)continue;for(const key of Object.keys(q.mandatory)){if(!q.mandatory[key]||q.blocked&&q.blocked[key]||q.hidden&&q.hidden[key])continue;const kind=String(key).split(':')[0],mod=kind==='build'?'build':kind==='research'?'research':kind==='recruit'?'recruit':null;if(mod&&!out.includes(mod))out.push(mod)}}return out;}
-
   const AB_BUILDINGS = ['main', 'storage', 'farm', 'academy', 'temple', 'barracks', 'docks', 'market', 'hide', 'lumber', 'stoner', 'ironer', 'wall',
     'theater', 'thermal', 'library', 'lighthouse', 'tower', 'statue', 'oracle', 'trade_office'];
   const AB_LABELS = {
@@ -310,5 +332,4 @@
     barracks: 10, temple: 5, market: 10, hide: 10,
     lumber: 15, stoner: 15, ironer: 15, wall: 10,
   };
-
   const AB_SEND_SPACING_MS = 1100;

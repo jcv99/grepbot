@@ -11,11 +11,9 @@
   // signature is the same Town/<id>|sendUnits. Sharing it would recreate the
   // v2.5.7 favor-vs-attack poisoning: one server rejection on type:'support'
   // would invalidate attackTpl and block live attacks too.
-
-  const SUPPORT_LEDGER_GRACE_MS = 600000; // arrival + 10min, mirrors dodgeLastStash
+  const SUPPORT_LEDGER_GRACE_MS = 600000;
   const SUPPORT_LEDGER_PRUNE_MS = 3600000;
   const SUPPORT_BANDS = ['high', 'cs'];
-
   function supportCfg() {
     const c = (state.supportCfg && typeof state.supportCfg === 'object') ? state.supportCfg : {};
     return {
@@ -44,7 +42,6 @@
     }
     if (changed) supportLedgerSave();
   }
-
   // The learned Town/<id>|sendUnits payload for type:'support'. Learned from
   // the player's own hand-sent support, never guessed.
   function supportLearnTemplate(j) {
@@ -76,7 +73,6 @@
     };
     bridgePost('support', payload, onDone);
   }
-
   // Defense-class units this donor can spare, after the home floor.
   function supportSelectUnits(fromTownId) {
     const cfg = supportCfg();
@@ -126,6 +122,8 @@
           `support: donor ${d.from} rejected (${valid.why})`);
         continue;
       }
+      // Re-probe travel with the ACTUAL composition: defenseSupportOptions
+      // measured a different unit mix, and a slower unit changes the answer.
       // Re-probe travel with the ACTUAL composition: defenseSupportOptions
       // measured a different unit mix, and a slower unit changes the answer.
       let travel = null;
@@ -191,7 +189,6 @@
       });
     }
   }
-
   function supportTryBurst(mov) {
     const cfg = supportCfg();
     if (!cfg.auto) return;
@@ -214,6 +211,8 @@
     if (!assess) return;
     // The ONE threshold this module reads. A 'med' band is advisory only; the
     // score itself is plan 5.3's, never re-derived here.
+    // The ONE threshold this module reads. A 'med' band is advisory only; the
+    // score itself is plan 5.3's, never re-derived here.
     if (!SUPPORT_BANDS.includes(assess.band)) {
       if (assess.band === 'med') gbLogT('support-advice-' + movId, 600000, `support: ${mov.dest} band med - advisory only, no arm`);
       return;
@@ -232,15 +231,22 @@
       if (!ok) {
         gbLog(`support: confirm declined for window ${mov.dest}`);
         // No post means no flap risk, so the anti-flap ledger is NOT stamped.
+        // No post means no flap risk, so the anti-flap ledger is NOT stamped.
         return;
       }
     }
     const lockToken = gbLock('support');
     // No self-retry timer: the 5s dodgeScan loop is already the retry driver,
     // and adding one here would double-drive the same movement.
+    // No self-retry timer: the 5s dodgeScan loop is already the retry driver,
+    // and adding one here would double-drive the same movement.
     if (!lockToken) { gbLogT('support-busy', 60000, 'support: another burst in flight - will retry on the next pass'); return; }
     let i = 0, sent = 0;
     const slowest = donors.reduce((m, d) => Math.max(m, d.travel), 0);
+    // Function declaration, NOT a named IIFE — the IIFE form bound `next` only
+    // inside the function body, so supportStep's `gbTimeout(next, ...)` calls
+    // threw ReferenceError on every stale donor / callback and the outer
+    // try/catch then aborted the whole burst.
     // Function declaration, NOT a named IIFE — the IIFE form bound `next` only
     // inside the function body, so supportStep's `gbTimeout(next, ...)` calls
     // threw ReferenceError on every stale donor / callback and the outer
@@ -265,6 +271,8 @@
       const d = donors[i++];
       // Re-validate immediately before the post: the garrison may have moved
       // while an earlier donor in this same burst was in flight.
+      // Re-validate immediately before the post: the garrison may have moved
+      // while an earlier donor in this same burst was in flight.
       const valid = dodgeSupportValidate(d.from, mov.dest, d.units);
       if (!valid.ok) {
         gbLogT('support-stale-' + d.from, 60000, `support: donor ${d.from} stale (${valid.why})`);
@@ -279,11 +287,12 @@
       });
     }
   }
-
   function supportScan(reason) {
     supportLedgerPrune();
     if (!supportCfg().auto) return;
     if (!hostEnabled() || automationPaused({})) return;
+    // Recall pass: a burst whose target movement is gone (attack cancelled or
+    // already landed) should not keep troops walking into an empty window.
     // Recall pass: a burst whose target movement is gone (attack cancelled or
     // already landed) should not keep troops walking into an empty window.
     let live = new Set();

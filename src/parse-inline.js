@@ -19,7 +19,6 @@
       vacation: p.vacation ?? p.on_vacation ?? null,
     };
   }
-
   function cleanUnitBag(src) {
     if (!src || typeof src !== 'object' || Array.isArray(src)) return null;
     const u = {};
@@ -39,6 +38,8 @@
   function extractUnits(r) {
     // Split keys win when present: they are strictly more informative, and the
     // union they produce is what the legacy readers already expect.
+    // Split keys win when present: they are strictly more informative, and the
+    // union they produce is what the legacy readers already expect.
     const split = extractSplitUnits(r);
     if (!split.attacker && !split.defender) return cleanUnitBag(r.units);
     const u = {};
@@ -47,7 +48,6 @@
     }
     return Object.keys(u).length ? u : null;
   }
-
   function extractResources(r) {
     const src = r.resources || r.loot || r.resource_pillage || r.haul || {};
     return {
@@ -55,7 +55,6 @@
       gold: src.gold ?? null, supply: src.supply ?? null,
     };
   }
-
   // {} when nothing survives, never a partial bag with fabricated levels.
   function parseBuildings(r) {
     const src = r.buildings || r.building_levels || r.buildings_levels;
@@ -68,7 +67,6 @@
     }
     return out;
   }
-
   // 'win' | 'lose' | 'draw' | null. Anything unrecognised stays null so the
   // win-rate math in plan 2.5 never counts a guess.
   function parseOutcome(r) {
@@ -90,7 +88,6 @@
     if (r.win === 0) return 'lose';
     return null;
   }
-
   // null unless at least one field is populated. Never invents level 0 or a
   // placeholder name.
   function parseHero(r) {
@@ -107,7 +104,6 @@
     };
     return (out.id != null || out.name || out.level != null || out.cls) ? out : null;
   }
-
   function parseReport(id, data) {
     if (data == null) return null;
     let root = data;
@@ -173,13 +169,16 @@
       // the original fallback chain unchanged.
       // `r.wall` may be capitalised (`Wall`) on some clients; lowercase the lookup
       // so the chain stays a chain regardless of server-side keying.
+      // buildings.wall first so the new deep parse feeds the old readers, then
+      // the original fallback chain unchanged.
+      // `r.wall` may be capitalised (`Wall`) on some clients; lowercase the lookup
+      // so the chain stays a chain regardless of server-side keying.
       wall: buildings.wall ?? ((r.wall != null ? r.wall : (r.Wall != null ? r.Wall : undefined))) ?? r.wall_level ?? r.defender_wall ?? (r.defender && (r.defender.wall ?? r.defender.wall_level)) ?? null,
       alliance: r.alliance ?? r.attacker_alliance ?? (r.attacker && (r.attacker.alliance_name || r.attacker.alliance)) ?? null,
       vill_id: r.vill_id ?? r.farm_town_id ?? null,
       vacation: r.vacation ?? r.on_vacation ?? null,
     };
   }
-
   function parseFarms(text) {
     return text.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
       const parts = line.split('|').map(s => s.trim());
@@ -201,6 +200,9 @@
       // Only seed the skip set with real values; `${out.x},${out.y}` evaluates
       // to the literal string "null,null" when coords are missing, which then
       // silently masks any real note that happens to contain that token.
+      // Only seed the skip set with real values; `${out.x},${out.y}` evaluates
+      // to the literal string "null,null" when coords are missing, which then
+      // silently masks any real note that happens to contain that token.
       const coordSpace = out.x != null && out.y != null ? `${out.x} ${out.y}` : null;
       const coordComma = out.x != null && out.y != null ? `${out.x},${out.y}` : null;
       const skip = new Set([out.eta, coordSpace, coordComma, id].filter(Boolean));
@@ -208,7 +210,6 @@
       return out;
     }).filter(Boolean);
   }
-
   function parseBodyLoose(s) {
     let j = null;
     try { j = JSON.parse(s); } catch (_) {}
@@ -232,7 +233,6 @@
     }
     return j;
   }
-
   function parseResourceJson(data) {
     const json = (data && data.json) ? (typeof data.json === 'string' ? (() => { try { return JSON.parse(data.json); } catch (_) { return data; } })() : data.json) : data;
 
@@ -242,6 +242,8 @@
       res_ = res_.resources;
     }
     const popRaw = r.population ?? r.pop;
+    // A client that reports population as a bare number would otherwise read as
+    // "unknown" and drop the value whole.
     // A client that reports population as a bare number would otherwise read as
     // "unknown" and drop the value whole.
     const popNum = typeof popRaw === 'number' || (typeof popRaw === 'string' && /^\d+$/.test(popRaw)) ? +popRaw : null;

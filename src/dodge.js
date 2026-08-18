@@ -33,44 +33,58 @@
       save(STORE.DODGE_QUEUE, out);
     } catch (_) {}
   }
-
   const dodgeQueue = dodgeQueueLoad();
-
-  const DODGE_HOSTILE_TYPES = /^(attack|attack_sea|raid|siege|revolt|colonize|take_over|conquer|portal_attack)$/;
-  const DODGE_FRIENDLY_TYPES = /^(support|support_sea|trade|return|spy|farm|reward)$/;
+  const DODGE_HOSTILE_TYPES = /^(attack|attack_land|attack_sea|attack_takeover|raid|siege|revolt|colonize|take_over|conquer|portal_attack|portal_attack_olympus|portal_revolt_olympus)$/;
+  const DODGE_HOSTILE_PREFIX = /^(attack|portal_attack|portal_revolt)(_|$)/;
+  const DODGE_FRIENDLY_TYPES = /^(support|support_sea|portal_support_olympus|trade|return|spy|farm|reward|abort)$/;
   function dodgeIsHostileMovement(a) {
-    const type = String(a.command_name || a.type || a.movement_type || '').toLowerCase().trim();
+    const type = gbMovementType(a);
     if (DODGE_FRIENDLY_TYPES.test(type)) return false;
     if (a.is_attack === true || a.is_attack === 1) return true;
     if (DODGE_HOSTILE_TYPES.test(type)) return true;
+    if (DODGE_HOSTILE_PREFIX.test(type)) return true;
+
     // command_type/movement_type carry their own vocabulary; matching only the
     // literal 'attack' missed raid/siege/revolt on clients that fill these
     // fields instead of command_name.
     const alt = [a.command_type, a.movement_type];
-    for (const v of alt) if (DODGE_HOSTILE_TYPES.test(String(v || '').toLowerCase().trim())) return true;
+    for (const v of alt) {
+      const t = String(v || '').toLowerCase().trim();
+      if (DODGE_HOSTILE_TYPES.test(t) || DODGE_HOSTILE_PREFIX.test(t)) return true;
+    }
     return false;
   }
   function dodgeIncomingMovements() {
     const uw = gameUw();
     const out = [];
     try {
-      const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits');
-      if (!col || !col.models) return out;
+
+      const models = mmModelsAll('MovementsUnits');
       const myTowns = new Set(Object.keys((uw.ITowns && uw.ITowns.towns) || {}).map(String));
-      col.models.forEach(m => {
+      if (!myTowns.size) {
+        gbLogT('dodge-notowns-read', 120000, 'dodge: ITowns unreadable — incoming scan is blind, not empty');
+        return out;
+      }
+      models.forEach(m => {
         const a = m.attributes || {};
         const dest = String(a.destination_town_id || a.target_town_id || '');
         if (!myTowns.has(dest)) return;
-        if (!dodgeIsHostileMovement(a)) return;
+
+        let hostile = false;
+        try { hostile = typeof m.isIncomingAttack === 'function' && m.isIncomingAttack() === true; } catch (_) {}
+        if (!hostile && !dodgeIsHostileMovement(a)) return;
 
         const origin = String(a.origin_town_id || a.home_town_id || '');
+
+        try { if (typeof m.isReturning === 'function' && m.isReturning() === true) return; } catch (_) {}
+
         // Own-town origin is only kept when the movement is canonically hostile.
         // The old second test fell back to `a.incoming`, which the v1.5.3 audit
         // rule forbids as a hostility signal (it is set on friendly returns too).
         if (myTowns.has(origin) && a.is_attack !== true && a.is_attack !== 1) return;
-        const type = String(a.command_name || a.type || a.movement_type || '').toLowerCase();
+        const type = gbMovementType(a);
         const units = a.units || {};
-        const hasCs = !!(units.colonize_ship || units.colony_ship || /^(revolt|colonize|take_over|conquer)$/.test(type));
+        const hasCs = !!(units.colonize_ship || units.colony_ship || /^(revolt|colonize|take_over|conquer|attack_takeover)$/.test(type));
         out.push({
           id: a.id || m.id,
           dest, origin, type, hasCs,
@@ -82,7 +96,6 @@
     } catch (_) {}
     return out;
   }
-
   function dodgeSafeTown(excludeId, incoming) {
     try {
       const uw = gameUw();
@@ -103,7 +116,6 @@
     } catch (_) {}
     return null;
   }
-
   function dodgeCanRaiseMilitia(townId) {
     const farm = gbBuildingLevel(townId, 'farm');
     if (farm != null && farm < 1) return { ok: false, why: 'no farm building' };
@@ -112,6 +124,8 @@
       const t = uw.ITowns && uw.ITowns.towns && uw.ITowns.towns[townId];
       const u = (t && t.units && t.units()) || null;
       if (u && +u.militia > 0) return { ok: false, why: 'militia already standing' };
+      // Militia consumes population; only post when at least one slot is free.
+      // Unreadable = unknown = do not block (the server is the authority).
       // Militia consumes population; only post when at least one slot is free.
       // Unreadable = unknown = do not block (the server is the authority).
       const avail = t && t.getAvailablePopulation && +t.getAvailablePopulation();
@@ -182,7 +196,6 @@
     const a = dodgeArrivalSec(mov);
     return a == null ? null : Math.max(0, a - gameNow());
   }
-
   // ===== Counter-snipe detector (v4 plan 3.7 / 5.7) ==========================
   // Groups the incoming on one town into "trains" and reports whether the CS
   // has a snipe window: how long after the previous landing it arrives, and how
@@ -220,6 +233,8 @@
         const at = dodgeArrivalSec(m);
         // An unreadable arrival is counted, never guessed into the ordering:
         // a fabricated stamp would produce a fabricated snipe window.
+        // An unreadable arrival is counted, never guessed into the ordering:
+        // a fabricated stamp would produce a fabricated snipe window.
         if (at == null) { unknownArrival++; continue; }
         timed.push({ at, hasCs: !!m.hasCs, id: m.id });
       }
@@ -228,6 +243,8 @@
         out.push({ dest, n: list.length, unknownArrival, firstAt: null, lastAt: null, csAt: null, gapSec: null, cover: 0, tightestGapSec: null, verdict: 'unknown' });
         continue;
       }
+      // Only the leading cluster matters: a landing more than clusterGapSec
+      // after the previous one is a separate wave, not part of this train.
       // Only the leading cluster matters: a landing more than clusterGapSec
       // after the previous one is a separate wave, not part of this train.
       const cluster = [timed[0]];
@@ -250,10 +267,13 @@
       if (csIdx === 0) {
         // Nothing lands before the CS, so the snipe window cannot be derived
         // from the incoming list alone.
+        // Nothing lands before the CS, so the snipe window cannot be derived
+        // from the incoming list alone.
         out.push({ dest, n: cluster.length, unknownArrival, firstAt, lastAt, csAt, gapSec: null, cover: 0, tightestGapSec, verdict: 'cs-solo' });
         continue;
       }
       const gapSec = csAt - cluster[csIdx - 1].at;
+      // How many other landings fall inside the coverSec window before the CS.
       // How many other landings fall inside the coverSec window before the CS.
       let cover = 0;
       for (const x of cluster) if (x.at < csAt && csAt - x.at <= cfg.coverSec) cover++;
@@ -273,7 +293,7 @@
     else if (train.tightestGapSec != null) parts.push(`hueco min ${train.tightestGapSec}s`);
     if (train.cover) parts.push(`cubierta ${train.cover}`);
     if (train.unknownArrival) parts.push(`${train.unknownArrival} sin hora`);
-    return parts.join(' \u00b7 ');
+    return parts.join(' · ');
   }
   const DODGE_MILITIA_WINDOW_SEC = 15 * 60;
   function dodgeNotify(mov, entry, train) {
@@ -319,6 +339,8 @@
     const last = state.defenseHistory[state.defenseHistory.length - 1];
     // One row per (movement, decision): the 5s loop re-evaluates constantly and
     // an unfiltered append would bury the actual transitions.
+    // One row per (movement, decision): the 5s loop re-evaluates constantly and
+    // an unfiltered append would bury the actual transitions.
     if (last && last.movId === row.movId && last.decision === row.decision && last.band === row.band) return;
     state.defenseHistory.push(row);
     const cut = Date.now() - DEFENSE_HISTORY_TTL_MS;
@@ -340,6 +362,7 @@
       entry.nextAt = Date.now() + 2000;
       return;
     }
+
     // Reuse the list read at :416 instead of re-walking MovementsUnits: two reads
     // one tick apart can also disagree about which towns are threatened.
     const safe = dodgeSafeTown(mov.dest, incomingNow);
@@ -392,6 +415,7 @@
     if (!dodgeOk && !militiaOk && !wantCs) return;
     const incoming = dodgeIncomingMovements();
     // Computed ONCE per pass and shared by every movement in it.
+    // Computed ONCE per pass and shared by every movement in it.
     const trains = (wantCs && csCfg().on) ? csWaveClusters(incoming) : [];
     const trainFor = dest => trains.find(t => String(t.dest) === String(dest)) || null;
     const live = new Set();
@@ -419,8 +443,14 @@
       }
       // v4 plan 3.2: support only arms for movements dodge did NOT act on, and
       // rides this same 5s loop rather than adding a second timer.
+      // v4 plan 3.2: support only arms for movements dodge did NOT act on, and
+      // rides this same 5s loop rather than adding a second timer.
       if (!entry || entry.state !== 'sent') { try { supportTryBurst(mov); } catch (_) {} }
     }
+    // dodgeNotify fires once per movement, so a wave added AFTER the first
+    // notification would otherwise be invisible. The throttle key carries the
+    // verdict and cover count, so a changed picture defeats it while a stable
+    // one stays quiet - no extra state needed.
     // dodgeNotify fires once per movement, so a wave added AFTER the first
     // notification would otherwise be invisible. The throttle key carries the
     // verdict and cover count, so a changed picture defeats it while a stable

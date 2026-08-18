@@ -14,9 +14,7 @@
   // The cooldown registry is SHARED with recruit.js (same STORE.SPELL_COOLDOWN,
   // same 30-minute window), so a recruit cast and a god cast on the same town
   // cannot double-charge the same favor pool.
-
   const GODSPELL_DEFAULT_COOLDOWN_MS = 30 * 60 * 1000;
-
   function godSpellCooldown(townId, powerId) {
     return recruitSpellCooldown(townId, powerId);
   }
@@ -41,10 +39,9 @@
   }
   function godSpellCast(townId, powerId, onDone) {
     if (!powerId) return onDone && onDone('bad-power');
-    gameAjaxPost('spell', 'town_overviews', 'cast_power', {
-      power_id: powerId,
-      town_id: +townId,
-    }, (err, data) => {
+
+    spellCastPost(townId, powerId, (err, data) => {
+
       // An unknown outcome stamps the cooldown anyway: favor may already be
       // gone, and re-casting on an unresolved post is the irreversible
       // double-spend the persisted window exists to prevent.
@@ -74,6 +71,7 @@
     return Number.isFinite(v) ? v : null;
   }
   function godSpellScan(reason) {
+
     // autoFavor is the user's mental model for "let the bot spend favor".
     if (!state.autoFavor) return;
     if (!hostEnabled() || automationPaused({})) return;
@@ -89,6 +87,7 @@
       gbLogT('godspell-badpower', 600000, `godspell: power id "${power.slice(0, 24)}" is not a plausible id - refusing`);
       return;
     }
+
     // THE TARGETED-CAST PAYLOAD IS UNKNOWN. The only cast shape proven in this
     // tree is the recruit self-buff, {power_id, town_id}, which addresses the
     // CASTING town and carries no target field. Sending that for a spell that
@@ -119,6 +118,7 @@
       const need = RECRUIT_SPELL_GODS[power];
       if (need) {
         const have = godSpellFavorFor(need);
+
         // Unreadable favor is UNKNOWN, not zero, and not "plenty": refuse
         // rather than spend a pool we could not measure.
         if (have == null) {
@@ -127,6 +127,7 @@
         }
         const cost = +cfg.spellCost;
         if (Number.isFinite(cost) && cost > 0) {
+
           // The reserve is a percentage of the READ maximum, never of a guessed
           // pool size. The temple cap varies with level and research, so a
           // hardcoded 500 would either block safe casts or permit an overspend.
@@ -151,7 +152,7 @@
         if (!err) gbLog(`godspell: cast ${power} from town ${townId}`);
         else gbLogT('godspell-err', 60000, `godspell: ${power} town ${townId} err ${err}`);
       });
-      return; // one cast per scan
+      return;
     }
     gbLogT('godspell-idle', 600000, `godspell: nothing to cast (${scanReason(reason)})`);
   }

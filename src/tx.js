@@ -12,6 +12,9 @@
       // plannerRelease: plannerReservationActive() reports manual-review as
       // inactive, so a held reservation left behind here made the planner ledger
       // and the reservation state disagree for the life of the tombstone.
+      // plannerRelease: plannerReservationActive() reports manual-review as
+      // inactive, so a held reservation left behind here made the planner ledger
+      // and the reservation state disagree for the life of the tombstone.
       if(t.state==='unknown'&&now-(+t.unknownAt||+t.updatedAt||0)>TX_UNKNOWN_MAX_MS){t.state='manual-review';t.detail='unknown outcome expired; manual review required';t.updatedAt=now;plannerRelease(t,'manual-review');changed=true;continue}
       const terminalTtl=t.state==='committed'&&t.snapshot&&t.snapshot.kind==='instant'?TX_INSTANT_TOMBSTONE_TTL:TX_TERMINAL_TTL;
       if (/^(committed|failed|aborted|dryrun)$/.test(t.state || '') && now - (+t.updatedAt || +t.createdAt || 0) > terminalTtl) { delete state.txState[key]; changed = true; }
@@ -105,6 +108,9 @@
       // An unreadable real queue makes `queued` a guess, and the reconcile below
       // reads a false `queued` as "the post did not land" -> retry -> duplicate.
       // Null keeps it at `unknown`, which is what an unread value means.
+      // An unreadable real queue makes `queued` a guess, and the reconcile below
+      // reads a false `queued` as "the post did not land" -> retry -> duplicate.
+      // Null keeps it at `unknown`, which is what an unread value means.
       if (!info.ordersKnown) return null;
       let queued = false;
       for (const o of info.orders || []) {
@@ -130,15 +136,17 @@
   }
   function txMovementCount(origin, dest, mission) {
     try {
-      const uw = gameUw();
-      const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits');
-      if (!col || !col.models) return null;
+
+      const models = mmModelsAll('MovementsUnits');
+
+      if (!models.length && !mmCol('MovementsUnits')) return null;
       let n = 0;
-      for (const m of col.models) {
+      for (const m of models) {
         const a = m.attributes || {};
         const o = String(a.origin_town_id || a.home_town_id || a.town_id || '');
         const d = String(a.destination_town_id || a.target_town_id || a.target_id || '');
-        const typ = String(a.command_name || a.type || a.movement_type || '').toLowerCase();
+
+        const typ = gbMovementType(a);
         if (origin != null && o !== String(origin)) continue;
         if (dest != null && d !== String(dest)) continue;
         if (mission && typ && !typ.includes(String(mission).toLowerCase())) continue;
@@ -162,6 +170,7 @@
         if (!key || seen.has(key)) return;
         seen.add(key); models.push(m);
       };
+      try { mmModelsAll('MovementsUnits').forEach(push); } catch (_) {}
       try {
         const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits');
         if (col && col.models) col.models.forEach(push);
@@ -303,7 +312,9 @@
       if (feature === 'militia') return { kind: 'militia', before: txMilitiaCount(townId) };
       if (feature === 'spell') return { kind: 'spell', powerId: a.power_id, before: txSpellPresent(townId, a.power_id) };
       if (feature === 'quest') return { kind: 'quest', qid: a.progressable_id || String(d.model_url || '').split('/').pop(), before: txQuestClaimable(a.progressable_id || String(d.model_url || '').split('/').pop()) };
-      if (feature === 'attack' || feature === 'dodge' || feature === 'favor') return { kind: 'movement', before: txMovementCount(townId, a.id, a.type), dest: a.id, mission: a.type };
+      if (feature === 'attack' || feature === 'dodge' || feature === 'favor' || feature === 'support') return { kind: 'movement', before: txMovementCount(townId, a.id, a.type), dest: a.id, mission: a.type };
+
+      if (feature === 'spy') return { kind: 'spy', before: txCaveStatus(townId), amount: +a.espionage_iron || 0, dest: a.id };
       if (feature === 'cancel') {
         const commandId = a.id != null ? a.id : a.command_id;
         return { kind: 'cancel', commandId: String(commandId == null ? '' : commandId), before: txCommandStatus(commandId) };
@@ -367,13 +378,16 @@
       return `recruit:${townId}:${u}:${before}+${+a.amount || 0}`;
     }
     if (feature === 'trade') return `trade:${townId}:${a.id}:${+a.wood || 0}:${+a.stone || 0}:${+a.iron || 0}`;
-    if (feature === 'farm') return `farm:${townId}:${a.farm_town_id}:${a.option}`;
+
+    if (feature === 'farm') return `farm:${townId}:${a.farm_town_id}:${a.type || 'resources'}:${a.option}`;
     if (feature === 'collect') return `collect:${townId}:${endpoint}`;
     if (feature === 'cave') return `cave:${townId}:${+a.iron_to_store || 0}`;
     if (feature === 'militia') return `militia:${townId}`;
     if (feature === 'spell') return `spell:${townId}:${a.power_id || '?'}`;
     if (feature === 'quest') return `quest:${a.progressable_id || String(d.model_url || '').split('/').pop() || '?'}`;
-    if (feature === 'attack' || feature === 'dodge' || feature === 'favor') return `${feature}:${townId}:${a.id || '?'}:${a.type || '?'}:${txUnitSignature(a)}`;
+    if (feature === 'attack' || feature === 'dodge' || feature === 'favor' || feature === 'support') return `${feature}:${townId}:${a.id || '?'}:${a.type || '?'}:${txUnitSignature(a)}`;
+
+    if (feature === 'spy') return `spy:${townId}:${a.id || '?'}:${+a.espionage_iron || 0}:${snap && snap.before && snap.before.stored != null ? snap.before.stored : '?'}`;
     if (feature === 'cancel') return `cancel:${a.id != null ? a.id : (a.command_id != null ? a.command_id : '?')}`;
     if (feature === 'hero') return `hero:${String(endpoint || '?').split('/').pop()}:${a.type || a.hero_type || a.hero || '?'}:${a.target_town_id != null ? a.target_town_id : (a.town_id != null ? a.town_id : '-')}`;
     if (feature === 'wonder') return `wonder:${townId}:${a.id || a.wonder_id || '?'}:${+a.wood || 0}:${+a.stone || 0}:${+a.iron || 0}`;
@@ -383,6 +397,13 @@
     if (feature === 'merchant') return `merchant:${townId}:${a.offer_id || a.offer || a.id || endpoint}`;
     if (feature === 'pttrade') return `pttrade:${townId || '-'}:${a.offer_id || a.offer || (d.model_url ? String(d.model_url).split('/').pop() : '') || endpoint}`;
     return `${feature}:${townId || '-'}:${endpoint}:${JSON.stringify(txStableObj(a)).slice(0, 100)}`;
+  }
+  function txNum(v) { return Number.isFinite(+v) ? +v : null; }
+  function txLt(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x < y; }
+  function txGt(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x > y; }
+  function txNe(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x !== y; }
+  function txResTriadReadable(o) {
+    return !!o && txNum(o.wood) != null && txNum(o.stone) != null && txNum(o.iron) != null;
   }
   function txReconcileNow(tx) {
     const s = tx.snapshot || {};
@@ -404,6 +425,8 @@
       if (s.kind === 'recruit') {
         const cur = txUnitStatus(meta.townId, s.unit);
         if (!cur || !s.status) return 'unknown';
+
+        if (txNum(cur.total) == null || txNum(s.status.total) == null) return 'unknown';
         if (cur.total >= s.status.total + Math.max(1, s.amount || 0)) return 'applied';
         return 'unchanged';
       }
@@ -416,16 +439,23 @@
         const before = s.kind === 'trade' ? s.source : s.before;
         const cur = txTownResourceSnap(meta.townId);
         if (!before || !cur) return 'unknown';
+        if (!txResTriadReadable(before) || !txResTriadReadable(cur)) return 'unknown';
         if (s.kind === 'collect') {
-          if (cur.wood > before.wood || cur.stone > before.stone || cur.iron > before.iron) return 'applied';
-        } else if (cur.wood < before.wood || cur.stone < before.stone || cur.iron < before.iron || (cur.tradeCap != null && before.tradeCap != null && cur.tradeCap < before.tradeCap)) return 'applied';
+          if (txGt(cur.wood, before.wood) || txGt(cur.stone, before.stone) || txGt(cur.iron, before.iron)) return 'applied';
+        } else if (txLt(cur.wood, before.wood) || txLt(cur.stone, before.stone) || txLt(cur.iron, before.iron) || txLt(cur.tradeCap, before.tradeCap)) return 'applied';
         return 'unchanged';
       }
       if (s.kind === 'cave') {
         const cur = txCaveStatus(meta.townId);
         if (!cur || !s.before) return 'unknown';
-        if ((cur.stored != null && s.before.stored != null && cur.stored > s.before.stored) || (cur.iron != null && s.before.iron != null && cur.iron < s.before.iron)) return 'applied';
+        if (txGt(cur.stored, s.before.stored) || txLt(cur.iron, s.before.iron)) return 'applied';
         return 'unchanged';
+      }
+      if (s.kind === 'spy') {
+        const cur = txCaveStatus(meta.townId);
+        if (!cur || !s.before || txNum(cur.stored) == null || txNum(s.before.stored) == null) return 'unknown';
+
+        return txLt(cur.stored, s.before.stored) ? 'applied' : 'unchanged';
       }
       if (s.kind === 'militia') {
         const cur = txMilitiaCount(meta.townId);
@@ -478,16 +508,16 @@
         const cur = txMerchantStatus(s.offerId);
         if (!cur || !s.before) return 'unknown';
         if (s.before.exists && !cur.exists) return 'applied';
-        if (cur.gold != null && s.before.gold != null && cur.gold < s.before.gold) return 'applied';
+        if (txLt(cur.gold, s.before.gold)) return 'applied';
         return cur.exists === s.before.exists ? 'unchanged' : 'unknown';
       }
       if (s.kind === 'pttrade') {
         const cur = txPtTradeStatus(meta.townId, s.offerId);
         if (!cur || !s.before) return 'unknown';
         if (s.before.exists && !cur.exists) return 'applied';
-        if (cur.tradeCap != null && s.before.tradeCap != null && cur.tradeCap < s.before.tradeCap) return 'applied';
-        if (cur.res && s.before.res && (cur.res.wood != null && s.before.res.wood != null && cur.res.wood !== s.before.res.wood || cur.res.stone != null && s.before.res.stone != null && cur.res.stone !== s.before.res.stone || cur.res.iron != null && s.before.res.iron != null && cur.res.iron !== s.before.res.iron)) return 'applied';
-        if (cur.amount != null && s.before.amount != null && cur.amount < s.before.amount) return 'applied';
+        if (txLt(cur.tradeCap, s.before.tradeCap)) return 'applied';
+        if (cur.res && s.before.res && (txNe(cur.res.wood, s.before.res.wood) || txNe(cur.res.stone, s.before.res.stone) || txNe(cur.res.iron, s.before.res.iron))) return 'applied';
+        if (txLt(cur.amount, s.before.amount)) return 'applied';
         return cur.exists === s.before.exists ? 'unchanged' : 'unknown';
       }
       if (s.kind === 'bandit-attack' || (s.kind === 'bandit' && /\/attack$/i.test(String(tx.endpoint || '')))) {
@@ -520,6 +550,9 @@
     // The attack-spot movement model can arrive after the transport callback
     // times out. Give it a longer observation window instead of leaving a
     // successful attack marked unknown.
+    // The attack-spot movement model can arrive after the transport callback
+    // times out. Give it a longer observation window instead of leaving a
+    // successful attack marked unknown.
     const checks = (s.kind === 'bandit-attack' || (s.kind === 'bandit' && /\/attack$/i.test(String(tx.endpoint || ''))))
       ? [700, 1800, 3500, 5000, 8000]
       : [700, 1800, 3500];
@@ -546,6 +579,9 @@
     // Scope must match what the caller will MARK below. Charging a read against
     // the action scope pinned actions at the hard cap while the soft throttle -
     // which counts scope-specific - never saw the pressure and never delayed.
+    // Scope must match what the caller will MARK below. Charging a read against
+    // the action scope pinned actions at the hard cap while the soft throttle -
+    // which counts scope-specific - never saw the pressure and never delayed.
     if (!reqBudgetOk(write ? 'action' : 'read')) return 'budget';
     return null;
   }
@@ -560,6 +596,8 @@
     let journalTxId = null;
     const bail = (err, why) => {
       const journalResult = jrnResult(why || err);
+      // A duplicate blocked behind an in-flight/unknown transaction is not a
+      // new attempt or a failure. TX_STATE remains the source of truth.
       // A duplicate blocked behind an in-flight/unknown transaction is not a
       // new attempt or a failure. TX_STATE remains the source of truth.
       if (!jrnPendingResult(journalResult)) jrnPush(jtag, journalResult, why || err, journalTxId);
@@ -583,12 +621,14 @@
     }
     if (write) {
       // Learned-payload health: charged per template, never per feature key.
+      // Learned-payload health: charged per template, never per feature key.
       const tplName = tplNameFor(feature, transport === 'bridge' ? data : null);
       if (tplName && !tplHealthOk(tplName)) {
         gbLogT('tpl-stale-' + tplName, 120000, `${feature}: template ${tplName} invalidated - re-learn by hand`);
         whyNote(feature, endpoint, 'blocked', 'tpl-stale');
         return bail('tpl-stale');
       }
+      // Soft ceiling under the hard request budget: delay rather than drop.
       // Soft ceiling under the hard request budget: delay rather than drop.
       const softMs = reqBudgetSoftDelayMs();
       if (softMs > 0) {
@@ -616,11 +656,20 @@
     // `duplicate blocked ... state=dryrun`. Drop it here rather than only in the
     // Config toggle handler: dry run also flips via panic, via storage reload,
     // and via another tab, and none of those paths run that handler.
+    // A 'dryrun' stamp only exists to suppress repeat DRY-RUN logging while dry
+    // run is ON. Once it is OFF the stamp has no meaning, and leaving it in the
+    // slot blocks the first real post for TX_TERMINAL_TTL (30min) as
+    // `duplicate blocked ... state=dryrun`. Drop it here rather than only in the
+    // Config toggle handler: dry run also flips via panic, via storage reload,
+    // and via another tab, and none of those paths run that handler.
     if (state.txState[intent] && state.txState[intent].state === 'dryrun' && !state.dryRun) {
       delete state.txState[intent];
       txSave();
     }
     const existing = state.txState[intent];
+    // 'dryrun' is a txState stamp set by the dry-run bail above; a second
+    // pass on the same intent (cadence tick, MO replay) must short-circuit
+    // instead of re-logging DRY-RUN every interval.
     // 'dryrun' is a txState stamp set by the dry-run bail above; a second
     // pass on the same intent (cadence tick, MO replay) must short-circuit
     // instead of re-logging DRY-RUN every interval.
@@ -643,6 +692,10 @@
         }
         if (r === 'unchanged') {
           existing.state = 'failed'; existing.updatedAt = Date.now(); existing.detail = 'reconciled not applied; retry allowed'; plannerRelease(existing, 'reconciled-unchanged'); txSave();
+          // Deferred, not a synchronous re-entry: the immediate retry ran inside
+          // the same tick and re-charged a tx record, a journal row and a budget
+          // slot before any gate could see the pressure. Same shape as the soft
+          // ceiling delay above.
           // Deferred, not a synchronous re-entry: the immediate retry ran inside
           // the same tick and re-charged a tx record, a journal row and a budget
           // slot before any gate could see the pressure. Same shape as the soft
@@ -677,11 +730,13 @@
       }
     }
     // A write gets budget only when it is actually going to SEND.
+    // A write gets budget only when it is actually going to SEND.
     if (!reqBudgetOk('action')) { tx.state = 'aborted'; tx.detail = 'budget'; tx.updatedAt = Date.now(); plannerRelease(tx, 'budget'); txSave(); return bail('budget'); }
     reqBudgetMark('action');
     tx.state = 'sending'; tx.sentAt = Date.now(); tx.updatedAt = Date.now(); txSave();
     rawSend((err, result) => {
       if (!gbInstanceAlive() || tx.owner !== GB_INSTANCE_ID) return;
+      // A callback for a transaction that has already been superseded must never mutate it.
       // A callback for a transaction that has already been superseded must never mutate it.
       if (state.txState[intent] !== tx || !/^(sending|confirming)$/.test(tx.state)) return;
       if (err === 'timeout') {
@@ -712,6 +767,8 @@
         return;
       }
       tx.state = 'confirming'; tx.updatedAt = Date.now(); txSave();
+      // A successful server callback is confirmation. For transactions with an observable
+      // model delta we additionally reconcile, but do not create a second SEND.
       // A successful server callback is confirmation. For transactions with an observable
       // model delta we additionally reconcile, but do not create a second SEND.
       const r = txReconcileNow(tx);
@@ -748,5 +805,6 @@
       }
     });
   }
-
-  const lastSelfBridge = { sig: '', fingerprint: '', at: 0, owner: '' };
+  const SELF_BRIDGE_MAX = 12;
+  const SELF_BRIDGE_TTL_MS = 10000;
+  const selfBridgeLog = [];

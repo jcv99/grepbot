@@ -11,7 +11,6 @@
     else f[key] = val;
     save(STORE.TAB_FILTERS, f);
   }
-
   const _gbSortFn = new WeakMap();
   function sortRows(table, col, asc) {
     const rowDataFn = _gbSortFn.get(table);
@@ -58,7 +57,6 @@
       });
     });
   }
-
   function renderSleepStatus() {
     const el = panel && panel.querySelector('#gb-sleep-status');
     if (!el) return;
@@ -68,7 +66,6 @@
       ` | auto ${state.farmSleepAuto ? 'ON' : 'OFF'}${state.farmSleepDay ? ' | last ' + state.farmSleepDay : ''}`;
     el.style.color = known ? '#888' : '#fc6';
   }
-
   function tableShell(list, headers, key) {
     let table = list.querySelector('table');
     if (!table) {
@@ -154,6 +151,13 @@
     // Resolved via closest() rather than a fixed data-tab value: the farms list
     // is a block inside a section, not a tab of its own (TAB_GROUPS has no
     // 'farms' id), so a hardcoded selector would silently never match.
+    // Nothing below is observable while the browser tab is hidden or the hosting
+    // panel section is not the visible one; a village sweep otherwise rebuilds
+    // the table once per village for nobody. showTab() re-renders on the way in,
+    // so there is no stale-paint window.
+    // Resolved via closest() rather than a fixed data-tab value: the farms list
+    // is a block inside a section, not a tab of its own (TAB_GROUPS has no
+    // 'farms' id), so a hardcoded selector would silently never match.
     if (document.hidden) return;
     const sec = list.closest('section[data-tab]');
     if (sec && sec.hidden) return;
@@ -182,6 +186,8 @@
         const actions = document.createElement('td');
         // Farm-town attacks use a different game path than Town/sendUnits. The old ATK button
         // prepared an objective that the sender intentionally refuses, so it is removed fail-closed.
+        // Farm-town attacks use a different game path than Town/sendUnits. The old ATK button
+        // prepared an objective that the sender intentionally refuses, so it is removed fail-closed.
         const thrBtn = document.createElement('button');
         thrBtn.textContent = 'THR'; thrBtn.title = 'Set threshold';
         thrBtn.style.cssText = 'background:none;border:1px solid #555;color:#fc6;padding:1px 5px;cursor:pointer;font-size:11px';
@@ -200,6 +206,8 @@
       const prof = (state.farmProfit || {})[String(f.vill_id)];
       // Unranked sorts as '' (string compare), never 0 - a blind village is
       // unknown, not worthless.
+      // Unranked sorts as '' (string compare), never 0 - a blind village is
+      // unknown, not worthless.
       const sort = [f.vill_id, r?.name || '', r?.wood ?? '', r?.stone ?? '', r?.iron ?? '', r?.pop ?? '',
         prof && prof.score != null ? Math.round(prof.score * 60) : '', r?.ts ?? ''].join('\t');
       if (tr.dataset.sort !== sort) tr.dataset.sort = sort;
@@ -212,6 +220,8 @@
     const totals = panel.querySelector('.world-totals');
     const list = panel.querySelector('.world-list');
     if (!totals || !list) return;
+    // Same rationale as renderFarms: towns.js calls this once per scraped town,
+    // and townPopState() runs per town inside. Hidden = no observer, no work.
     // Same rationale as renderFarms: towns.js calls this once per scraped town,
     // and townPopState() runs per town inside. Hidden = no observer, no work.
     if (document.hidden) return;
@@ -228,6 +238,8 @@
     }
     // Population subtotal from the same walk: how many towns are at/near the
     // pop cap, so a warehouse-focused user still sees the recruit ceiling.
+    // Population subtotal from the same walk: how many towns are at/near the
+    // pop cap, so a warehouse-focused user still sees the recruit ceiling.
     let popNear = 0, popWarn = 0, popRead = 0;
     for (const t of state.towns) {
       const ps = townPopState(t.id);
@@ -239,6 +251,7 @@
     const popTxt = popRead
       ? ` | poblacion ${popWarn} al limite / ${popNear} cerca / ${popRead} leidas`
       : ' | poblacion no legible';
+    // Same computation the pre-warn watcher uses - one source of truth.
     // Same computation the pre-warn watcher uses - one source of truth.
     let preTxt = '';
     try {
@@ -304,8 +317,8 @@
     const cap = (ps && ps.cap) ?? (r && r.cap);
     const used = (ps && ps.used != null) ? ps.used : (r && r.ok ? r.pop : null);
     if (used == null && !(cap > 0)) return { cls: '', text: '-' };
-    const pctTxt = (ps && ps.usedPct != null) ? ` \u00b7 ${ps.usedPct}%` : ' \u00b7 -';
-    const eta = (ps && ps.etaMs != null) ? ' \u00b7 ' + fmtSec(Math.round(ps.etaMs / 1000)) : ' \u00b7 \u2014';
+    const pctTxt = (ps && ps.usedPct != null) ? ` · ${ps.usedPct}%` : ' · -';
+    const eta = (ps && ps.etaMs != null) ? ' · ' + fmtSec(Math.round(ps.etaMs / 1000)) : ' · —';
     const cls = ps && ps.warn ? 'pop-warn' : (ps && ps.near ? 'pop-near' : '');
     return { cls, text: `${fmt(used)}/${fmt(cap)}${pctTxt}${eta}` };
   }
@@ -315,7 +328,6 @@
     if (n >= 1000) return Math.round(n/1000) + 'k';
     return String(n);
   }
-
   const PANEL_MIN_W = 360, PANEL_MIN_H = 200, PANEL_SQ = 40;
   const TAB_GROUPS = [
     { id: 'home', label: 'Inicio', tabs: [
@@ -323,6 +335,9 @@
     ]},
     { id: 'military', label: 'Militar', tabs: [
       { id: 'attack', label: 'Ataques' },
+      { id: 'reinforce', label: 'Refuerzos' },
+      { id: 'train', label: 'Entrenamiento' },
+      { id: 'spy', label: 'Espionaje' },
       { id: 'intel', label: 'Inteligencia' },
     ]},
     { id: 'system', label: 'Sistema', tabs: [
@@ -335,14 +350,12 @@
   const _lastTabInGroup = {};
   let configBound = false;
   let findingsFilterEl = null;
-
   function tabGroupOf(tabId) {
     for (const g of TAB_GROUPS) {
       if (g.tabs.some(t => t.id === tabId)) return g;
     }
     return TAB_GROUPS[0];
   }
-
   function savePanelGeom() {
     if (!panel) return;
     const g = {
@@ -356,7 +369,6 @@
     state.panelGeom = g;
     save(STORE.PANEL_GEOM, g);
   }
-
   function applyPanelGeom(g) {
     if (!panel || !g) return;
     if (g.left != null) { panel.style.left = g.left; panel.style.right = 'auto'; }
@@ -370,7 +382,6 @@
       if (btn) btn.textContent = '[]';
     }
   }
-
   function resetPanelGeom() {
     panel.classList.remove('collapsed');
     panel.style.left = '';
@@ -385,7 +396,6 @@
     save(STORE.PANEL_GEOM, null);
     flash('panel restablecido');
   }
-
   function paintNav(activeTab) {
     if (!panel) return;
     const group = tabGroupOf(activeTab);
@@ -417,7 +427,6 @@
       sub.appendChild(b);
     });
   }
-
   // ===== Theme (v4 plan 6.1) =================================================
   // 'system' resolves ONCE at apply time. This is a two-value toggle, not a
   // sync engine: adding a matchMedia listener would mean repainting the panel
@@ -433,6 +442,9 @@
   function applyTheme() {
     const cls = 'gb-theme-' + gbThemeResolved();
     const targets = [panel, (gbQueueCenter || null)];
+    // Widget hosts (v4 plan 6.2) live on document.body, not inside the panel,
+    // so they need the theme class themselves or their var() lookups resolve
+    // to nothing and they render unstyled.
     // Widget hosts (v4 plan 6.2) live on document.body, not inside the panel,
     // so they need the theme class themselves or their var() lookups resolve
     // to nothing and they render unstyled.
@@ -458,14 +470,20 @@
     });
     if (same) {
       if (tabId === 'attack') renderAttack();
+      else if (tabId === 'reinforce') renderReinforce();
+      else if (tabId === 'spy') renderSpySend();
       else if (tabId === 'log') { renderLog(); renderJournal(); }
       else if (tabId === 'stats') renderStats();
       else if (tabId === 'overview') renderOverview();
       else if (tabId === 'intel') renderIntel();
+      else if (tabId === 'train') renderTrain();
       else if (tabId === 'config') { bindConfig(); renderCaveTowns(); }
       return;
     }
     if (tabId === 'attack') { bindAttackTab(); renderAttack(); }
+    if (tabId === 'reinforce') { bindReinforceTab(); renderReinforce(); }
+    if (tabId === 'spy') { bindSpyTab(); renderSpySend(); }
+    if (tabId === 'train') { bindTrainTab(); renderTrain(); }
     if (tabId === 'config') { bindConfig(); renderCaveTowns(); }
     if (tabId === 'overview') renderOverview();
     if (tabId === 'intel') renderIntel();
@@ -708,10 +726,19 @@
     #grepbot-panel .atk-sched{max-height:160px;overflow:auto;margin-top:6px}
     #grepbot-panel .atk-sources{max-height:80px;overflow:auto;display:flex;flex-wrap:wrap;gap:4px 8px;margin:4px 0}
     #grepbot-panel .atk-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
+    /* display:flex beats the UA sheet rule for [hidden], so a row the renderer
+       hides with .hidden = true stayed on screen. */
+    #grepbot-panel .atk-row[hidden]{display:none}
     #grepbot-panel .atk-row input,#grepbot-panel .atk-row select{background:var(--gb-input-bg);color:var(--gb-input-fg);border:1px solid var(--gb-chrome);padding:2px 4px;font:11px monospace}
     #grepbot-panel .atk-btns button{background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);padding:3px 8px;border-radius:3px;cursor:pointer;font-size:11px;margin-right:4px}
     #grepbot-panel .atk-btns #gb-atk-now{color:var(--gb-warn-3)}
     #grepbot-panel .atk-btns #gb-atk-arm{color:var(--gb-link)}
+    #grepbot-panel .atk-btns #gb-rf-now,#grepbot-panel .atk-btns #gb-sp-run{color:var(--gb-warn-3)}
+    #grepbot-panel .atk-btns #gb-rf-arm{color:var(--gb-link)}
+    #grepbot-panel .atk-btns button:disabled{opacity:.45;cursor:not-allowed}
+    #grepbot-panel #gb-rf-src-all,#grepbot-panel #gb-rf-src-none,#grepbot-panel #gb-rf-src-off,#grepbot-panel #gb-rf-src-def{background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);padding:1px 6px;cursor:pointer;font-size:10px}
+    #grepbot-panel .rf-sched{max-height:180px;overflow:auto;margin-top:6px}
+    #grepbot-panel .sp-hist{font-size:10px}
     #grepbot-panel .atk-harass button,#grepbot-panel .atk-roles button,#grepbot-panel #gb-atk-src-all,#grepbot-panel #gb-atk-src-none,#grepbot-panel #gb-atk-src-off,#grepbot-panel #gb-atk-src-def,#grepbot-panel #gb-atk-cmds-refresh,#grepbot-panel #gb-atk-heroes-refresh,#grepbot-panel #gb-atk-comp-refresh,#grepbot-panel #gb-atk-colony-refresh,#grepbot-panel #gb-plan-import,#grepbot-panel #gb-plan-export,#grepbot-panel #gb-plan-clear,#grepbot-panel .atk-colony button,#grepbot-panel .atk-comp button,#grepbot-panel .atk-cmds button,#grepbot-panel .atk-heroes button{background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);padding:1px 6px;cursor:pointer;font-size:10px}
     #grepbot-panel .atk-cmds button:disabled,#grepbot-panel .atk-heroes button:disabled{opacity:.45;cursor:not-allowed}
     #grepbot-panel .quest-list{max-height:200px;overflow:auto;font-size:10px}
@@ -837,6 +864,7 @@
   function gbCfgGroup(title, body, open, tone) {
     return `<details class="gb-section gb-cfg-group${tone ? ' ' + tone : ''}"${open ? ' open' : ''}><summary>${title}</summary><div class="gb-section-body">${body}</div></details>`;
   }
+
   // LITERAL ONLY - no interpolation. The only `${}` allowed in this template are
   // build-time constants (runningVersion()) and gbSection() calls whose bodies
   // are themselves literal. Never interpolate a player name, town name, alliance
@@ -945,6 +973,149 @@
       </div>
       <div class="atk-comp" style="max-height:200px;overflow:auto"></div>
     </section>
+    <section data-tab="reinforce" hidden>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        <b style="font-size:11px;color:#5be">Refuerzos</b>
+        <span id="gb-rf-skew" style="font-size:9px;color:#888"></span>
+        <span id="gb-rf-armed" style="font-size:10px;color:#f96;font-weight:bold;margin-left:auto"></span>
+      </div>
+      <div class="atk-row">
+        <label data-gb-tip="ID de la ciudad que recibe el refuerzo (propia o aliada)">destino <input data-rf="target" style="width:70px" placeholder="town id"/></label>
+        <select data-rf="pick" title="Ciudades propias y objetivos conocidos" style="max-width:170px"></select>
+        <label data-gb-tip="Coordenada X (isla) del destino">x <input data-rf="x" style="width:40px"/></label>
+        <label data-gb-tip="Coordenada Y (isla) del destino">y <input data-rf="y" style="width:40px"/></label>
+      </div>
+      <div id="gb-rf-target-hint" style="font-size:9px;color:#888;margin:-2px 0 4px"></div>
+      <div class="atk-row">
+        <select data-rf="help" data-gb-tip="Que ayuda enviar: solo tropas de tierra, solo barcos de guerra, ambas, un tipo concreto, o editar por ciudad">
+          <option value="both">ayuda: ambas</option>
+          <option value="land">ayuda: terrestre</option>
+          <option value="naval">ayuda: naval</option>
+          <option value="all_of_type">ayuda: todo el tipo</option>
+          <option value="per_town">ayuda: editar por ciudad</option>
+        </select>
+        <label style="display:flex;align-items:center;gap:3px">unidad
+          <select data-rf="unit-type" title="solo se usa con el modo 'todo el tipo'"></select>
+        </label>
+        <label data-gb-tip="Unidades de cada tipo que se quedan en casa (reserva minima por ciudad de origen)">reserva <input data-rf="floor" type="number" min="0" style="width:50px" value="0"/></label>
+      </div>
+      <div class="atk-row">
+        <select data-rf="timing" data-gb-tip="Cuando enviar: ahora o para llegar a una hora concreta"><option value="send_now">enviar ya</option><option value="arrive_at">llegar a las</option></select>
+        <input data-rf="arrival" type="datetime-local" step="1" title="llegada (hora local)"/>
+        <label data-gb-tip="Retraso en ms aplicado al envio">pad ms <input data-rf="pad" type="number" style="width:50px" value="200"/></label>
+      </div>
+      <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:4px">
+        <span style="font-size:9px;color:#888">enviar desde</span>
+        <button type="button" id="gb-rf-src-all" data-gb-tip="Marcar todas las ciudades propias como origen">Todo</button>
+        <button type="button" id="gb-rf-src-none" data-gb-tip="Desmarcar todas las ciudades">Ninguno</button>
+        <button type="button" id="gb-rf-src-def" data-gb-tip="Solo ciudades con rol defensivo (roles de la pestana Ataques)">Defensa</button>
+        <button type="button" id="gb-rf-src-off" data-gb-tip="Solo ciudades con rol ofensivo">Ofensiva</button>
+      </div>
+      <div class="rf-sources atk-sources"></div>
+      <div class="rf-pertown" hidden></div>
+      <div class="atk-btns" style="margin-top:6px">
+        <button id="gb-rf-preview" data-gb-tip="Calcular marcha, transporte y hora de envio; no envia nada">Previsualizar</button>
+        <button id="gb-rf-arm" data-gb-tip="Armar el refuerzo para que salga a la hora calculada">Armar</button>
+        <button id="gb-rf-cancel" data-gb-tip="Cancelar el refuerzo armado">Cancelar</button>
+        <button id="gb-rf-now" data-gb-tip="Enviar el refuerzo de inmediato">Enviar ya</button>
+      </div>
+      <div id="gb-rf-tpl" style="font-size:9px;color:#888;margin-top:4px"></div>
+      <div class="rf-sched atk-sched"></div>
+    </section>
+    <section data-tab="train" hidden>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        <b style="font-size:11px;color:#5be">Entrenamiento</b>
+        <span id="gb-tr-state" style="font-size:9px;color:#888"></span>
+      </div>
+      <div class="atk-row">
+        <button type="button" data-tr="auto" data-gb-tip="Mismo ajuste que 'Reclutamiento automatico' en Ajustes. Repone los objetivos permanentes de abajo en cada ciclo del orquestador">Reposicion automatica: —</button>
+        <button type="button" data-tr="batch" data-gb-tip="Mismo ajuste que 'Lote de reclutamiento' en Ajustes. Dispara la lista entera de una vez, todo-o-nada, y se re-arma tras cada disparo">Lote recurrente: —</button>
+      </div>
+      <div style="font-size:10px;color:var(--gb-fg-soft2);margin:6px 0 2px">
+        <b style="color:#5be">Objetivos permanentes</b> — el bot mantiene cada unidad en la cantidad fijada y vuelve a reclutar en cuanto baja (tropas en casa + fuera + cola).
+      </div>
+      <div class="atk-row">
+        <label data-gb-tip="Ciudad a la que se le fija el objetivo">ciudad <select data-tr="tgt-town" style="max-width:170px"></select></label>
+        <label data-gb-tip="Unidad a mantener (cuartel, puerto o templo segun la unidad)">unidad <select data-tr="tgt-unit" style="max-width:150px"></select></label>
+        <label data-gb-tip="Cantidad a mantener. 0 quita el objetivo">objetivo <input data-tr="tgt-amount" type="number" min="0" max="100000" step="1" style="width:70px" value="50"/></label>
+        <button type="button" data-tr="tgt-add" data-gb-tip="Fija o actualiza el objetivo de esa unidad en esa ciudad">Fijar</button>
+        <button type="button" data-tr="tgt-clear" data-gb-tip="Borra todos los objetivos de la ciudad seleccionada">Borrar ciudad</button>
+      </div>
+      <div id="gb-tr-targets" style="max-height:200px;overflow:auto"></div>
+      <div id="gb-tr-note" style="font-size:9px;color:#888;margin-top:4px"></div>
+      <div style="font-size:10px;color:var(--gb-fg-soft2);margin:8px 0 2px">
+        <b style="color:#5be">Packs de entrenamiento</b> — varias unidades a la vez (espada + arquero + birreme). Al aplicarlo, el pack se escribe en el lote de la ciudad y se entrena entero de una tacada.
+      </div>
+      <div class="atk-row">
+        <select data-tr="pack" style="max-width:170px" data-gb-tip="Pack seleccionado"></select>
+        <input data-tr="pack-name" placeholder="nombre del pack" style="width:130px" data-gb-tip="Nombre para Nuevo o para Desde el lote"/>
+        <button type="button" data-tr="pack-new" data-gb-tip="Crea un pack vacio con ese nombre">Nuevo</button>
+        <button type="button" data-tr="pack-from-town" data-gb-tip="Guarda como pack el lote de la ciudad elegida abajo">Desde el lote</button>
+        <button type="button" data-tr="pack-del" data-gb-tip="Borra el pack seleccionado (no toca los lotes ya aplicados)">Borrar</button>
+      </div>
+      <div class="atk-row">
+        <label data-gb-tip="Unidad a anadir al pack">unidad <select data-tr="pack-unit" style="max-width:150px"></select></label>
+        <label data-gb-tip="Cantidad por disparo del lote">cantidad <input data-tr="pack-amount" type="number" min="1" max="10000" step="1" style="width:70px" value="10"/></label>
+        <button type="button" data-tr="pack-add" data-gb-tip="Anade la unidad al pack (si ya estaba, actualiza la cantidad)">+ unidad</button>
+      </div>
+      <div id="gb-tr-pack-rows"></div>
+      <div class="atk-row">
+        <label data-gb-tip="Ciudad destino del pack">aplicar a <select data-tr="pack-town" style="max-width:170px"></select></label>
+        <select data-tr="pack-mode" data-gb-tip="Reemplazar deja en el lote solo el pack; sumar conserva lo que ya hubiera">
+          <option value="replace">reemplazar el lote</option>
+          <option value="append">sumar al lote</option>
+        </select>
+        <button type="button" data-tr="pack-apply" data-gb-tip="Escribe el pack en el lote de la ciudad (o de todas)">Aplicar</button>
+      </div>
+      <div id="gb-tr-pack-note" style="font-size:9px;color:#888;margin-top:4px"></div>
+      <div style="font-size:10px;color:var(--gb-fg-soft2);margin:8px 0 2px">
+        <b style="color:#5be">Lote recurrente</b> — lista fija por ciudad que se dispara entera solo cuando recursos Y poblacion cubren el lote completo. No se consume: se re-arma tras cada disparo.
+      </div>
+      <div class="atk-row">
+        Ciudad <select data-cfg="batch-recruit-town" style="min-width:160px"></select>
+        <button type="button" data-cfg="batch-recruit-add" data-gb-tip="Anade una linea nueva a la lista de la ciudad seleccionada">+ linea</button>
+        <button type="button" data-cfg="batch-recruit-arm" data-gb-tip="Lanza el chequeo ahora (sin esperar al proximo ciclo del orch)">armar todo</button>
+        <button type="button" data-cfg="batch-recruit-clear" data-gb-tip="Borra la lista de la ciudad seleccionada">desarmar</button>
+      </div>
+      <div id="gb-batch-recruit-rows"></div>
+      <div id="gb-batch-recruit-summary" style="font-size:10px;color:#888;margin-top:2px"></div>
+    </section>
+    <section data-tab="spy" hidden>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        <b style="font-size:11px;color:#5be">Espionaje</b>
+        <span id="gb-sp-cave" style="font-size:9px;color:#888"></span>
+      </div>
+      <div class="atk-row">
+        <label data-gb-tip="Ciudad de origen: la plata sale de SU cueva">origen <select data-sp="src" style="max-width:150px"></select></label>
+        <label data-gb-tip="ID de la ciudad a espiar (no puede ser propia)">objetivo <input data-sp="target" style="width:70px" placeholder="town id"/></label>
+        <select data-sp="pick" title="Objetivos conocidos de informes e historial" style="max-width:150px"></select>
+      </div>
+      <div class="atk-row">
+        <select data-sp="mode" data-gb-tip="Rapido: varias rafagas pequenas. Masivo: un unico envio grande">
+          <option value="rapid">modo rapido (rafagas)</option>
+          <option value="bulk">modo masivo (un envio)</option>
+        </select>
+        <label data-gb-tip="Espera entre rafagas en ms (se le suma un jitter aleatorio)">pausa ms <input data-sp="gap" type="number" min="300" style="width:60px" value="1200"/></label>
+      </div>
+      <div class="sp-rapid atk-row">
+        <label data-gb-tip="Plata por rafaga">plata/rafaga <input data-sp="chunk" type="number" min="1" style="width:70px" value="1000"/></label>
+        <label data-gb-tip="Numero de rafagas. 0 = hasta vaciar la cueva (necesita leer la plata)">rafagas <input data-sp="waves" type="number" min="0" style="width:50px" value="5"/></label>
+        <label style="display:flex;align-items:center;gap:3px" data-gb-tip="Parar en cuanto la cueva se quede sin plata"><input data-sp="until" type="checkbox"/> hasta vaciar</label>
+      </div>
+      <div class="sp-bulk atk-row" hidden>
+        <label style="display:flex;align-items:center;gap:3px" data-gb-tip="Enviar toda la plata de la cueva en un solo espionaje"><input data-sp="bulk-all" type="checkbox"/> toda la plata</label>
+        <label data-gb-tip="Cantidad exacta de plata a enviar">cantidad <input data-sp="bulk-amount" type="number" min="0" style="width:80px"/></label>
+      </div>
+      <div id="gb-sp-plan" style="font-size:10px;color:#ccc;margin:2px 0"></div>
+      <div class="atk-btns" style="margin-top:4px">
+        <button id="gb-sp-run" data-gb-tip="Confirmar y enviar el espionaje">Espiar</button>
+        <button id="gb-sp-stop" data-gb-tip="Parar tras la rafaga en curso">Detener</button>
+        <button id="gb-sp-clear" data-gb-tip="Vaciar el historial de espionajes">Vaciar historial</button>
+      </div>
+      <div id="gb-sp-progress" style="font-size:10px;color:#8ac;margin-top:4px"></div>
+      <div style="font-size:9px;color:#888;margin-top:6px">historial</div>
+      <div class="sp-hist" style="max-height:140px;overflow:auto"></div>
+    </section>
     <section data-tab="overview" hidden>
       <div style="font-size:15px;font-weight:750;margin-bottom:2px">Resumen de la cuenta</div>
       <div style="font-size:10px;color:#939ba7;margin-bottom:4px">Estado, próximas acciones y bloqueos importantes sin entrar en configuración avanzada.</div>
@@ -1022,7 +1193,7 @@
             </select>
           </label>
           <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Pedir cobros de 10 min en aldeas donde la lealtad esta investigada"><input type="checkbox" data-cfg="farm-long-claims"/> Cobros de 10 min donde la lealtad de aldeanos esta investigada</label>
-          <label class="gb-cfg-num gb-cfg-sub" title="La aldea tiene dos mitades: recursos y unidades. Con 'al agotarse los recursos' la aldea solo pasa a pedir unidades cuando el cupo diario esta gastado o la aldea no ofrece recursos. Las unidades ocupan poblacion.">Cobrar unidades en aldeas
+          <label class="gb-cfg-num gb-cfg-sub" title="La aldea tiene dos mitades: recursos y unidades. Con 'al agotarse los recursos' la aldea pasa a pedir unidades el resto del dia en cuanto el servidor rechaza el cobro de recursos (tope diario alcanzado). Las unidades ocupan poblacion.">Cobrar unidades en aldeas
             <select class="gb-cfg-input" data-cfg="farm-units-mode" data-gb-tip="Cuando pedir unidades en vez de recursos">
               <option value="off">nunca (solo recursos)</option>
               <option value="fallback">al agotarse los recursos del dia</option>
@@ -1057,6 +1228,7 @@
           </label>
           <label class="gb-cfg-num gb-cfg-sub" title="Segundos de marcha por unidad de coordenada de isla. El juego no expone la formula de marcha, asi que 0 (por defecto) deja el ranking res/min independiente de la distancia.">Segundos de marcha por unidad de isla <input class="gb-cfg-input" type="number" data-cfg="farm-travel" min="0" max="600" step="0.5" style="width:60px"/></label>
           <div id="gb-farm-optmap" class="gb-cfg-note" data-gb-tip="Mapa aprendido: que opcion de cobro usa cada duracion (5min, 10min, ...) en este mundo"></div>
+          <button data-cfg="farm-forget-options" class="gb-cfg-btn gb-cfg-sub" title="Borra el mapa de opciones aprendido (recursos y unidades) y reactiva la plantilla de cobro. Usalo si los cobros fallan seguido: vuelve a pulsar cada duracion una vez a mano para reaprenderlas.">Olvidar opciones de cobro aprendidas</button>
           <label class="gb-cfg-row" title="Lee los recursos de cada aldea por HTTP. Solo funciona en mundos cuyo cliente responde a una accion farm_town_*. Si no, cada barrido gasta el presupuesto de peticiones sin devolver nada y se apaga solo."><input type="checkbox" data-cfg="farm-scrape"/> Escanear recursos de aldeas (HTTP)</label>
           <label class="gb-cfg-num" data-gb-tip="Cadencia del escaneo de aldeas: minimo y maximo en minutos">Cadencia de aldeas min-max (min) <input class="gb-cfg-input" type="number" data-cfg="farm-min" min="1" max="60" style="width:50px"/> - <input class="gb-cfg-input" type="number" data-cfg="farm-max" min="1" max="60" style="width:50px"/></label>
           <label class="gb-cfg-num" data-gb-tip="Cadencia del escaneo de ciudades: minimo y maximo en minutos">Cadencia de ciudades min-max (min) <input class="gb-cfg-input" type="number" data-cfg="town-min" min="1" max="60" style="width:50px"/> - <input class="gb-cfg-input" type="number" data-cfg="town-max" min="1" max="60" style="width:50px"/></label>
@@ -1237,14 +1409,15 @@
             cantidad por tick
             <input class="gb-cfg-input" type="number" data-cfg="village-recruit-amount" min="1" max="20" style="width:50px" data-gb-tip="Cantidad de aldeanos a reclutar por tick"/>
           </label>
+          <label class="gb-cfg-row gb-cfg-risk" data-gb-tip="Recluta todas las unidades de la lista de una sola vez. Solo se dispara cuando los recursos Y la poblacion cubren el lote entero a la vez (todo-o-nada). Si falta aunque sea una unidad, no se envia nada. Lista persistente por ciudad: el ciclo re-arms tras cada disparo."><input type="checkbox" data-cfg="batch-recruit"/> Lote de reclutamiento (todo-o-nada)</label>
+          <div class="gb-cfg-note gb-cfg-sub">El editor por ciudad (objetivos permanentes y lineas del lote) vive en Militar &rarr; Entrenamiento.</div>
         `, false, 'risk')}
         ${gbCfgGroup('Premium y favor (ALTO RIESGO)', `
-          <label class="gb-cfg-row" data-gb-tip="Comprar el item exacto que sale en el mercader (precio exacto)"><input type="checkbox" data-cfg="auto-merchant"/> Francotirador del mercader</label>
-          <label class="gb-cfg-row" title="Las ofertas de recursos del barco mercante empiezan en 0.5:1 y suben +0.1 por trato. Bombea con tratos de 1 unidad y luego envia el trato grande a 1:1."><input type="checkbox" data-cfg="auto-pt-trade"/> Bombeo del ratio del barco mercante</label>
-          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Parametros del bombeo del ratio">ratio objetivo <input class="gb-cfg-input" type="number" step="0.1" min="0.5" max="2" data-cfg="pt-ratio" style="width:52px" data-gb-tip="Ratio al que se desea llegar antes del trato grande"/>
-            cantidad de bombeo <input class="gb-cfg-input" type="number" min="1" max="100" data-cfg="pt-pump" style="width:52px" data-gb-tip="Unidades por cada trato de bombeo"/>
-            bombeos max. <input class="gb-cfg-input" type="number" min="0" max="20" data-cfg="pt-maxpumps" style="width:52px" data-gb-tip="Numero maximo de bombeos antes de parar"/>
-            reserva % <input class="gb-cfg-input" type="number" min="0" max="90" data-cfg="pt-reserve" style="width:52px" data-gb-tip="Reserva % sobre el stock que no se bombea"/>
+          <label class="gb-cfg-row" data-gb-tip="Compra las UNIDADES del barco mercante que estan en la lista de deseos, al precio exacto o menor. Se paga con el recurso de cambio del barco (plata), no con oro."><input type="checkbox" data-cfg="auto-merchant"/> Francotirador del mercader (unidades)</label>
+          <label class="gb-cfg-row" title="Cambia plata por madera/piedra en el barco mercante cuando el ratio de la visita llega al minimo pedido. El ratio de la visita es fijo: no hay bombeo."><input type="checkbox" data-cfg="auto-pt-trade"/> Cambio de recursos del barco mercante</label>
+          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Parametros del cambio de recursos">ratio minimo <input class="gb-cfg-input" type="number" step="0.1" min="0.5" max="5" data-cfg="pt-ratio" style="width:52px" data-gb-tip="Recurso recibido por cada unidad de plata gastada. Por debajo de esto no se cambia nada."/>
+            cantidad minima <input class="gb-cfg-input" type="number" min="1" max="10000" data-cfg="pt-pump" style="width:52px" data-gb-tip="Cambio mas pequeno que merece la pena enviar"/>
+            reserva % <input class="gb-cfg-input" type="number" min="0" max="90" data-cfg="pt-reserve" style="width:52px" data-gb-tip="Reserva % sobre el stock que no se gasta"/>
           </label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Recursos que el bot acepta recibir en el barco mercante">recibir
             <label data-gb-tip="Aceptar madera"><input type="checkbox" data-cfg="pt-want-wood"/> madera</label>
@@ -1322,6 +1495,7 @@
           <button type="button" data-act="scrape-farms" data-gb-tip="Forzar el escaneo de aldeas ahora (ignora la cadencia)">Granjas ahora</button>
           <button type="button" data-act="scrape-towns" data-gb-tip="Forzar el escaneo de ciudades ahora (ignora la cadencia)">Ciudades ahora</button>
           <button type="button" data-act="diag" data-gb-tip="Volcar diagnostico de bridge y estado de partidas">Diagnostico</button>
+          <button type="button" data-act="diag-farms" title="Vuelca en el Registro, por aldea: cupo diario restante, marca de agotado, tipo de cobro elegido y la carta de unidad. Solo lectura, no envia nada.">Diagnostico de aldeas</button>
           <button type="button" data-act="preflight" data-gb-tip="Probar todos los modulos sin enviar nada (solo lectura)">Comprobar sistema</button>
           <button type="button" data-act="evidence" title="Instantanea de solo lectura y anonimizada para las validaciones de TASKS. Copia JSON. No envia nada.">Evidencia</button>
           <button type="button" data-act="bundle" title="Copia TODO en un solo texto: evidencia, configuracion, bitacora de decisiones, log, hallazgos, puente y preflight. Respeta la opcion de anonimizado. No envia nada.">Copiar todo</button>
@@ -1336,6 +1510,7 @@
     </footer>
   `;
   document.body.appendChild(panel);
+
   // Materialize every data-gb-tip in the panel chrome into a real title + aria-label.
   gbTipWalk(panel);
   ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].forEach(dir => {
@@ -1369,6 +1544,7 @@
   panel.querySelectorAll('.gb-logsub button').forEach(btn => {
     btn.addEventListener('click', () => {
       const sub = btn.dataset.logsub;
+
       // The journal pane hosts BOTH non-live sub-views, so it must be visible
       // for replay too - keying its visibility off 'mem' alone left the replay
       // rendering into a hidden pane.
@@ -1489,6 +1665,10 @@
   // handler runs, compare after it returns. Scoped to [data-cfg] controls only,
   // so panel navigation, the Stats simulation, journal clears and scrape
   // buttons - which have non-config side effects - never checkpoint.
+  // One capture-phase listener on the Config section: snapshot BEFORE the real
+  // handler runs, compare after it returns. Scoped to [data-cfg] controls only,
+  // so panel navigation, the Stats simulation, journal clears and scrape
+  // buttons - which have non-config side effects - never checkpoint.
   {
     const cfgSec = panel.querySelector('section[data-tab=config]');
     if (cfgSec && !cfgSec.dataset.histBound) {
@@ -1497,6 +1677,8 @@
         const t = e.target;
         if (!t || !t.closest || !t.closest('[data-cfg]')) return;
         const before = qolConfigSnapshot();
+        // Deferred to a microtask so the element's own change handler has
+        // already mutated state by the time we compare.
         // Deferred to a microtask so the element's own change handler has
         // already mutated state by the time we compare.
         gbTimeout(() => {
@@ -1517,6 +1699,7 @@
   panel.querySelector('#gb-anote-save')?.addEventListener('click', () => {
     const a = panel.querySelector('#gb-anote-ally')?.value?.trim();
     const n = panel.querySelector('#gb-anote-text')?.value?.trim();
+    // Empty note deletes the entry, same contract as the player note.
     // Empty note deletes the entry, same contract as the player note.
     if (a && intelSetAllianceNote(a, n)) { renderIntel(); flash(n ? 'nota de alianza guardada' : 'nota de alianza borrada'); }
   });
@@ -1540,6 +1723,10 @@
     fetchOwnedTowns();
     state.towns.forEach((t, i) => gbTimeout(() => fetchTownResources(t), i * 600));
   });
+  // ===== Quick-action toolbar (v4 plan 6.5) ==================================
+  // Every button delegates to the same function the Actions menu already calls,
+  // so no new post route, no new lock and no new template - each target takes
+  // its own lock internally.
   // ===== Quick-action toolbar (v4 plan 6.5) ==================================
   // Every button delegates to the same function the Actions menu already calls,
   // so no new post route, no new lock and no new template - each target takes
@@ -1644,6 +1831,7 @@
     const v = e.target.value;
     e.target.value = '';
     if (!v) return;
+
     // Alliance-wide when the filter box names one, otherwise ask for the
     // player. Never inferred from whatever row happens to be on screen.
     const status = v === 'clear' ? null : v;
@@ -1704,6 +1892,7 @@
   });
   panel.querySelector('#gb-ab-csfast')?.addEventListener('click', () => { abLoadCsFast(); flash('CS-fast targets'); });
   panel.querySelector('#gb-ab-now')?.addEventListener('click', () => {
+
     // One-shot manual fill must never persistently enable automation.
     abScan('manual');
   });
@@ -1750,6 +1939,10 @@
   panel.querySelector('footer button[data-act=diag]').addEventListener('click', () => {
     diagRun();
   });
+  panel.querySelector('footer button[data-act=diag-farms]')?.addEventListener('click', () => {
+    showTab('log');
+    farmClaimDiag(12);
+  });
   panel.querySelector('footer button[data-act=preflight]')?.addEventListener('click', () => {
     showTab('stats');
     preflightRunAndRender();
@@ -1760,6 +1953,7 @@
     state.nextFarmScrape = 0;
     save(STORE.NEXT_FARM, 0);
     autoClaimFarms('manual');
+
     // Manual sweep overrides both the Config toggle and the dead-endpoint
     // breaker - it is how the user re-probes after teaching the action.
     scrapeAllFarms(true);
@@ -1775,7 +1969,6 @@
     save(STORE.NEXT_TOWNS, 0);
     farmTick();
   });
-
   function syncFarmTimingCfg(sec) {
     if (!sec) return;
     const lc = sec.querySelector('[data-cfg=farm-long-claims]'); if (lc) lc.checked = !!state.farmLongClaims;
@@ -1788,14 +1981,20 @@
     const up = sec.querySelector('[data-cfg=farm-units-pref]'); if (up) up.value = String(state.farmUnitsPref || 'auto');
     const om = sec.querySelector('#gb-farm-optmap');
     if (om) {
+      const sample = (farmsFromGame() || [])[0] || null;
+      const uOpt = farmUnitOption(sample);
+      const dup = farmOptionMapConflicts();
       om.textContent = 'learned claim options: ' + farmOptionMapText() +
-        ' (claim a timer by hand in game to teach the rest)';
+        (dup ? ' | CONFLICTO: ' + dup + ' comparten opcion - pulsa Olvidar y reaprende' : '') +
+        ' (claim a timer by hand in game to teach the rest)' +
+        ' | units: ' + (uOpt == null ? 'not learned' : uOpt + ' (' + (farmUnitIdFor(uOpt) || '?') + ')');
     }
   }
   function bindConfig() {
     const sec = panel.querySelector('section[data-tab=config]');
     if (!sec) return;
     const setNum = (sel, val) => { const el = sec.querySelector(sel); if (el) el.value = val; };
+
     // Split (audit 2026-08-13, plan Tier 1 item 1). This function used to have
     // two modes: a full bind path, and a short "already bound" repaint branch
     // that returned early. The repaint branch synced 30 of the 142 controls the
@@ -1816,6 +2015,7 @@
     const onCfg = (sel, type, fn) => { if (bindNow) sec.querySelector(sel)?.addEventListener(type, fn); };
     const hostEl = sec.querySelector('.cfg-host');
     if (hostEl) hostEl.textContent = location.host;
+
     // Group filter (bindNow only - it installs listeners and stamps the
     // remembered open state, it never writes a control value). The filter hides
     // rows and whole groups; it must NEVER remove or move a control, because
@@ -1829,6 +2029,7 @@
       const q = () => (filt ? filt.value : '').trim().toLowerCase();
       groups.forEach(g => {
         g.dataset.open = g.open ? '1' : '0';
+
         // Remember the user's own expand state only while no filter is active;
         // the toggles the filter itself performs must not overwrite it.
         g.addEventListener('toggle', () => { if (!q()) g.dataset.open = g.open ? '1' : '0'; });
@@ -1848,6 +2049,7 @@
           const rows = rowsOf(g);
           const match = rows.map(r => (r.textContent || '').toLowerCase().includes(needle)
             || Array.from(r.querySelectorAll('[data-cfg]')).some(c => (c.getAttribute('data-cfg') || '').includes(needle)));
+
           // A toggle and the settings it governs are one unit: a matched parent
           // row drags its indented followers along, or the filter would show a
           // checkbox with its own thresholds cut off.
@@ -1870,6 +2072,7 @@
       }));
     }
     const setChk = (sel, val) => { const el = sec.querySelector(sel); if (el) el.checked = !!val; };
+
     // saveNum is hoisted above its callsites further down for the same reason
     // setNum is hoisted to the top of bindConfig.
     const saveNum = (sel, fn) => onCfg(sel, 'change', e => { fn(+e.target.value); });
@@ -1947,6 +2150,10 @@
       gbLog('instant-build', state.ibAuto ? 'ON' : 'OFF');
       if (state.ibAuto) ibScan();
     });
+    onCfg('[data-cfg=farm-long-claims]', 'change', e => {
+      state.farmLongClaims = e.target.checked; save(STORE.FARM_LONG_CLAIMS, state.farmLongClaims);
+      gbLog('farm 10min claims', state.farmLongClaims ? 'ON' : 'OFF');
+    });
     onCfg('[data-cfg=farm-units-mode]', 'change', e => {
       const v = String(e.target.value || 'off');
       state.farmUnitsMode = /^(off|fallback|always)$/.test(v) ? v : 'off';
@@ -1959,10 +2166,6 @@
       save(STORE.FARM_UNITS_PREF, state.farmUnitsPref);
       gbLog('farm unit claim card:', state.farmUnitsPref);
       syncFarmTimingCfg(sec);
-    });
-    onCfg('[data-cfg=farm-long-claims]', 'change', e => {
-      state.farmLongClaims = e.target.checked; save(STORE.FARM_LONG_CLAIMS, state.farmLongClaims);
-      gbLog('farm 10min claims', state.farmLongClaims ? 'ON' : 'OFF');
     });
     onCfg('[data-cfg=farm-scrape]', 'change', e => {
       state.farmScrape = e.target.checked; save(STORE.FARM_SCRAPE, state.farmScrape);
@@ -2059,6 +2262,7 @@
     setChk('[data-cfg=captcha-global]', state.captchaGlobalKill !== false);
     setChk('[data-cfg=decision-memory]', state.decisionMemory !== false);
     setChk('[data-cfg=dry-run]', !!state.dryRun);
+
     // safe-mode had a change listener but no value-set, so the box always
     // rendered UNCHECKED while state.safeMode was true - the panel and
     // safeModeBlock() disagreed, and unticking an already-unticked box fired
@@ -2074,7 +2278,6 @@
       const want = c.wantRes || {};
       setNum('[data-cfg=pt-ratio]', c.targetRatio != null ? c.targetRatio : 1);
       setNum('[data-cfg=pt-pump]', c.pumpAmount != null ? c.pumpAmount : 1);
-      setNum('[data-cfg=pt-maxpumps]', c.maxPumps != null ? c.maxPumps : 6);
       setNum('[data-cfg=pt-reserve]', c.reservePct != null ? c.reservePct : 10);
       setChk('[data-cfg=pt-want-wood]', want.wood !== false);
       setChk('[data-cfg=pt-want-stone]', want.stone !== false);
@@ -2101,6 +2304,7 @@
       setNum('[data-cfg=cs-cluster-gap]', cs.clusterGapSec);
       setNum('[data-cfg=cs-cover]', cs.coverSec);
       setNum('[data-cfg=cs-tight]', cs.tightSec); }
+
     // militia smart gate removed (AI); militia raises unconditionally within window
     { const sc = spyCfg();
       setChk('[data-cfg=auto-spy]', !!state.spyEnabled);
@@ -2154,6 +2358,7 @@
         try { perm = (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported'; } catch (_) {}
         const ES = { granted: 'concedido', denied: 'denegado', default: 'sin pedir', unsupported: 'no soportado' };
         pb.textContent = 'Permiso: ' + (ES[perm] || perm);
+
         // Only 'default' can be acted on: the API ignores requestPermission
         // once the user has decided either way, so an enabled button would lie.
         pb.disabled = perm !== 'default';
@@ -2203,6 +2408,7 @@
       saveNum('[data-cfg=dump-keep-' + r + ']', v => saveDumpMap('dumpKeep', STORE.DUMP_KEEP, r, v, 0, 95));
     }
     onCfg('[data-cfg=dump-sinks]', 'change', e => {
+
       // Only own-town ids survive: a typo must not become a destination.
       const own = new Set((townsFromGame() || []).map(t => String(t.id)));
       const raw = String(e.target.value || '').split(/[,\s]+/).map(x => x.trim()).filter(Boolean);
@@ -2229,6 +2435,7 @@
       gbLog('DRY RUN ' + (state.dryRun ? 'ON - payloads logged, nothing sent' : 'OFF - posts go to the server'));
       flash(state.dryRun ? 'dry run ON' : 'dry run OFF');
       updateStatus();
+
       // A dryrun entry that was logged earlier still occupies its txState slot
       // for TX_TERMINAL_TTL (30 min) — so the first real post after toggle-off
       // gets blocked as `duplicate blocked ... state=dryrun`. Sweep on transition.
@@ -2252,7 +2459,6 @@
     };
     saveNum('[data-cfg=pt-ratio]', v => savePt('targetRatio', Math.min(2, Math.max(0.5, v || 1))));
     saveNum('[data-cfg=pt-pump]', v => savePt('pumpAmount', Math.max(1, Math.floor(v || 1))));
-    saveNum('[data-cfg=pt-maxpumps]', v => savePt('maxPumps', Math.min(20, Math.max(0, Math.floor(v || 0)))));
     saveNum('[data-cfg=pt-reserve]', v => savePt('reservePct', Math.min(90, Math.max(0, Math.floor(v || 0)))));
     const savePtWant = () => {
       savePt('wantRes', {
@@ -2283,7 +2489,7 @@
     bindToggle('[data-cfg=cs-alert]', 'csAlert', STORE.CS_ALERT);
     bindToggle('[data-cfg=auto-militia]', 'autoMilitia', STORE.AUTO_MILITIA);
     bindToggle('[data-cfg=auto-dodge]', 'autoDodge', STORE.AUTO_DODGE);
-    bindToggle('[data-cfg=auto-recruit]', 'autoRecruit', STORE.AUTO_RECRUIT, () => recruitScan('toggle'));
+    bindToggle('[data-cfg=auto-recruit]', 'autoRecruit', STORE.AUTO_RECRUIT, () => { try { renderTrain(); } catch (_) {} recruitScan('toggle'); });
     bindToggle('[data-cfg=village-recruit]', 'autoVillageRecruit', STORE.AUTO_VILLAGE_RECRUIT, () => villageRecruitScan('toggle'));
     saveNum('[data-cfg=village-recruit-fill]', v => {
       state.villageRecruitFillPct = gbCfgClamp(v, 50, 99, 90);
@@ -2323,6 +2529,7 @@
       state.ruralTradeRes = e.target.value; save(STORE.RURAL_TRADE_RES, state.ruralTradeRes);
     });
     onCfg('[data-cfg=defense-mode]', 'change',e=>{state.defenseCfg=Object.assign({},state.defenseCfg,{mode:['notify','safe'].includes(e.target.value)?e.target.value:'notify'});save(STORE.DEFENSE_CFG,state.defenseCfg)});
+
     // Weights live under the existing PREDICT_CFG key, already world-scoped.
     const saveThreat = (key, v, lo, hi) => {
       if (!state.predictCfg || typeof state.predictCfg !== 'object') state.predictCfg = { horizonHours: 6 };
@@ -2350,6 +2557,7 @@
     };
     onCfg('[data-cfg=godspell-power]', 'change', e => {
       const raw = String(e.target.value || '').trim();
+
       // Stored verbatim, validated at cast time. An empty box means "cast
       // nothing", which is the default and the safe state.
       saveFavorCfg('spellPower', raw);
@@ -2383,6 +2591,7 @@
     };
     onCfg('[data-cfg=defense-risk-threshold]', 'change', e => {
       const raw = String(e.target.value || '').trim();
+
       // Empty means "no override": the 5.3 weight applies again.
       saveDefense('riskThresholdDodge', raw === '' ? null : Math.max(10, Math.min(200, +raw || 35)));
     });
@@ -2443,6 +2652,7 @@
       save(STORE.NOTIFY_VOLUME, state.notifyVolume);
     });
     onCfg('[data-cfg=notify-permission]', 'click', () => {
+
       // Must be called from the click handler itself: browsers only honour
       // requestPermission inside a real user gesture.
       try {
@@ -2501,6 +2711,7 @@
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('shape');
         const clean = {};
         for (const [fp, act] of Object.entries(parsed)) {
+
           // Only bindings this build can actually run, and only in the locked
           // Ctrl(+Shift)+key shape - anything else is dropped, not coerced.
           if (!GB_KEY_ACTIONS[act]) continue;
@@ -2574,6 +2785,7 @@
     saveNum('[data-cfg=farm-travel]', v => {
       state.farmTravelSecPerUnit = Math.min(600, Math.max(0, Number.isFinite(+v) ? +v : 0));
       save(STORE.FARM_TRAVEL, state.farmTravelSecPerUnit);
+
       // Force-recompute: the 5min memo would otherwise hide the change.
       try { farmProfitInvalidate(); farmProfitRefresh(true); renderFarms(); } catch (_) {}
     });
@@ -2586,6 +2798,7 @@
     onCfg('[data-cfg=captcha-ladder]', 'change', e => {
       const raw = String(e.target.value || '').split(/[,\s]+/).map(x => parseInt(x, 10))
         .filter(n => Number.isFinite(n) && n >= 1 && n <= 24 * 60);
+
       // Empty / unparseable input means "back to the default ladder", never an
       // empty array - captchaLadder() would then fall back silently every trip.
       state.captchaLadder = raw.length ? raw : [5, 15, 60];
@@ -2598,11 +2811,24 @@
       save(STORE.POSTS_SOFT_PCT, state.postsPerMinSoftPct);
       gbLog('posts soft ceiling =', state.postsPerMinSoftPct + '% of ' + (state.reqBudgetPerMin || 40) + '/min');
     });
+    onCfg('[data-cfg=farm-forget-options]', 'click', () => {
+      if (!confirm('Olvidar las opciones de cobro aprendidas (recursos y unidades)?')) return;
+      state.farmOptionMap = {};
+      save(wkey(STORE.FARM_OPTION_MAP), state.farmOptionMap);
+      state.farmUnitsOption = null;
+      save(wkey(STORE.FARM_UNITS_OPTION), null);
+
+      try { tplHealthMarkLearned('claimTpl'); } catch (_) {}
+      gbLog('farm: learned claim options cleared by user (resources + units)');
+      flash('opciones de cobro olvidadas');
+      syncFarmTimingCfg(sec);
+    });
     onCfg('[data-cfg=clear-captcha]', 'click', () => {
       captchaClear();
       gbLog('captcha breakers cleared by user');
       flash('cortacircuitos de captcha limpiados');
     });
+
     // Controls whose value-set only ever existed in the deleted repaint branch,
     // so the bind path had never initialised them: on a first render the theme
     // select, the diagnostics toggles and the emergency-cave numbers showed
@@ -2623,6 +2849,14 @@
       } }
     renderResearchPath(sec);
     renderCaveTowns();
+
+    setChk('[data-cfg=batch-recruit]', !!state.batchRecruit);
+    onCfg('[data-cfg=batch-recruit]', 'change', e => {
+      state.batchRecruit = e.target.checked; save(STORE.BATCH_RECRUIT, state.batchRecruit);
+      gbLog('batch-recruit', state.batchRecruit ? 'ON' : 'OFF');
+      try { updateStatus(); } catch (_) {}
+      try { renderTrain(); } catch (_) {}
+    });
   }
   bindConfig();
   {
@@ -2633,7 +2867,6 @@
   // The manual `vill_id | x y | ETA | notes` textarea lived in the removed Aldeas
   // tab. `state.farms` is still parsed from storage on boot and merged with the
   // auto-discovered relations; it just has no editor in the panel any more.
-
   // Drag is bound on DOCUMENT in the CAPTURE phase, not on the header itself.
   // The game owns the page: any handler of its own that calls stopPropagation()
   // on a mousedown before it reaches the panel would silently kill a
@@ -2731,7 +2964,6 @@
   panel.querySelector('footer button[data-act=preset-afk]')?.addEventListener('click', presetHandler('afk'));
   panel.querySelector('footer button[data-act=preset-farming]')?.addEventListener('click', presetHandler('farming'));
   panel.querySelector('footer button[data-act=preset-war]')?.addEventListener('click', presetHandler('war'));
-
   function gbDebounce(fn, ms) {
     let t = null;
     return function () {
@@ -2749,6 +2981,8 @@
     const filt = document.createElement('div');
     filt.className = 'findings-filter';
     filt.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap';
+    // LITERAL ONLY - no interpolation (the filter VALUES are read back off these
+    // inputs; they are never written into this string).
     // LITERAL ONLY - no interpolation (the filter VALUES are read back off these
     // inputs; they are never written into this string).
     filt.innerHTML = '<input class="gb-cfg-input" data-f="type" placeholder="type filter" style="flex:1;min-width:60px;;padding:2px 4px;font:11px monospace"/><input class="gb-cfg-input" data-f="attacker" placeholder="attacker filter" style="flex:1;min-width:60px;;padding:2px 4px;font:11px monospace"/>';
@@ -2842,7 +3076,6 @@
       list.appendChild(row);
     }
   }
-
   // v4 plan 8.5: walk the decision ring forward, one row at a time, with the
   // open skip window for that row beside it. Read-only - the replay never
   // writes a decision.
@@ -2900,6 +3133,7 @@
       (row.d ? `detalle : ${row.d}\n` : '') +
       (win ? `ventana de salto: ${win.r}, ${Math.max(0, Math.round((win.until - Date.now()) / 1000))}s restantes, ${win.trips} disparo(s)` : 'sin ventana de salto abierta');
     list.appendChild(box);
+    // Neighbouring rows for context, in chronological order.
     // Neighbouring rows for context, in chronological order.
     const ctx = document.createElement('div');
     ctx.style.cssText = 'margin-top:6px;font-size:10px;color:var(--gb-fg-mute);white-space:pre-wrap';
@@ -2961,11 +3195,14 @@
     // observer moved to document.body, an unmarked toast would feed itself:
     // append + remove are two body mutations that re-arm the collect/native
     // scans, which can flash again.
+    // gb-flash is one of the classes the DOM observer ignores. Since that
+    // observer moved to document.body, an unmarked toast would feed itself:
+    // append + remove are two body mutations that re-arm the collect/native
+    // scans, which can flash again.
     f.className = 'gb-flash';
     f.textContent = msg; f.style.cssText = 'position:fixed;top:60px;right:8px;background:#f5a623;color:#000;padding:6px 10px;border-radius:4px;z-index:100000';
     document.body.appendChild(f); gbTimeout(() => f.remove(), 1500);
   }
-
   function redactFindingsExport(dump) {
     if (state.exportRedact === false) {
       gbLogT('export-raw', 60000, 'export: redaction OFF - dump contains player names/ids');
@@ -2983,6 +3220,7 @@
       if (out.town && typeof out.town === 'object') {
         out.town = { id: out.town.id, name: out.town.name ? String(out.town.name).slice(0, 1) + '…' : null, x: out.town.x, y: out.town.y };
       }
+
       // hero.name is player-authored text (plan 2.1), so it is redacted like
       // any other player name. Level/class are game data and ship raw.
       if (out.hero && typeof out.hero === 'object') {
@@ -2995,7 +3233,6 @@
     });
     return { findings, farms: dump.farms };
   }
-
   // v4 plan 2.10: read-only "camino de investigacion". No button, no post - it
   // only reports what the graph could and could not read.
   function renderResearchPath(sec) {
@@ -3012,6 +3249,8 @@
       if (!p.known) { lines.push(`${tid}: ${label} - camino no legible (${p.why})`); continue; }
       // A partial graph or an unread real queue means the path shown is a lower
       // bound, not a complete answer - say so rather than implying it is done.
+      // A partial graph or an unread real queue means the path shown is a lower
+      // bound, not a complete answer - say so rather than implying it is done.
       const caveat = p.ordersKnown === false ? ' [cola real no leida]' : '';
       lines.push(`${tid}: ${label}` + (p.missing.length
         ? ' <- ' + p.missing.map(m => m.label).join(' <- ')
@@ -3022,7 +3261,6 @@
     const txt = lines.length ? head + '\n' + lines.join('\n') : '';
     if (box.textContent !== txt) box.textContent = txt;
   }
-
   function pendingCollect() {
     const out = [];
     for (const intent of Object.keys(state.txState || {})) {
@@ -3033,7 +3271,6 @@
     out.sort((a, b) => (+a.unknownAt || +a.updatedAt || 0) - (+b.unknownAt || +b.updatedAt || 0));
     return out;
   }
-
   function renderPending() {
     const pane = panel && panel.querySelector('.pending-pane');
     if (!pane || pane.hidden) return;
@@ -3109,7 +3346,6 @@
       }
     });
   });
-
   let _statusLast = '';
   let _statusCsLast = '';
   let _statusPanicLast = null;
@@ -3128,6 +3364,7 @@
     automationPaused(pauseInfo);
     let pauseTxt = paused.length ? ` ||${paused.join(',')}` : '';
     if (pauseInfo.reason) pauseTxt += ` ||${pauseInfo.reason}`;
+
     // The global captcha kill said only 'ALL' with no idea how long it lasts,
     // so the operator's only options were reload-and-hope or wait blind.
     if (captchaGlobalUntil > Date.now()) pauseTxt += ` ||ALL:${fmtSec(Math.ceil((captchaGlobalUntil - Date.now()) / 1000))}`;
@@ -3145,6 +3382,7 @@
     try { tplBanner = tplHealthBannerText() || ''; } catch (_) {}
     if (tplBanner) pauseTxt += ' tpl!';
     const dryTxt = state.dryRun ? ' [DRY]' : ''; const safeTxt=state.safeMode?' SAFE':'';
+
     // Panic owns the head of the status line and its colour; the 5s updateStatus
     // interval (boot.js) is what flips grace -> recovery, no extra scheduler.
     const panicOn = gbPanicActive();
@@ -3160,6 +3398,7 @@
       el.style.color = panicOn ? '#f44' : (panicPend ? '#fa3' : '#888');
       el.style.fontWeight = panicPhase ? 'bold' : '';
     }
+
     // Request budget by scope. This was already computed and journalled but was
     // only reachable through the Stats tab, so `skip:budget` in the Decisions
     // view was the first the operator heard of a starved pool. Rendered only
@@ -3193,6 +3432,7 @@
   let _timerFarmLast = '', _timerTownLast = '';
   function renderTimers() {
     if (!panel) return;
+
     // 1s cadence. The farm branch calls farmClaimTiming(), which walks the whole
     // FarmTownPlayerRelation collection - pointless against a hidden tab, where
     // nobody can read the countdown. boot.js re-renders on visibilitychange /

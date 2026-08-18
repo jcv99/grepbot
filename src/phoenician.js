@@ -12,14 +12,14 @@
   //     claimTpl / attackTpl. No template -> this feature posts nothing.
   const PT_VIEW_TTL_MS = 30000;
   const PT_RES = ['wood', 'stone', 'iron'];
-  let ptViewCache = null; // { townId, at, offers }
-
+  let ptViewCache = null;
   function ptCfg() {
     const c = state.ptCfg || {};
     return {
+
       targetRatio: +c.targetRatio > 0 ? +c.targetRatio : 1.0,
-      pumpAmount: Math.max(1, Math.floor(+c.pumpAmount || 1)),
-      maxPumps: Math.max(0, Math.floor(+c.maxPumps != null ? +c.maxPumps : 6)),
+
+      minAmount: Math.max(1, Math.floor(+c.pumpAmount || 1)),
       reservePct: Math.min(90, Math.max(0, gbCfgNum(c.reservePct, 10))),
       wantRes: c.wantRes && typeof c.wantRes === 'object' ? c.wantRes : { wood: true, stone: true, iron: false },
     };
@@ -41,6 +41,7 @@
     const tid = gbProbeAttr(a, ['town_id', 'current_town_id', 'in_town_id']);
     if (tid != null && +tid > 0) return +tid;
     // Some builds only expose "is it here" - fall back to the current town.
+    // Some builds only expose "is it here" - fall back to the current town.
     try {
       if (typeof m.isInCurrentTown === 'function' && m.isInCurrentTown()) {
         return +(uw.Game && uw.Game.townId) || null;
@@ -48,95 +49,136 @@
     } catch (_) {}
     return null;
   }
-
-  // ---------- offers ----------
-  // Ratio text is locale-free digits ("0.5", "1:0.8", "1 : 1"). Resources are
-  // identified by the icon/class names the client uses everywhere else.
-  function ptResFromText(s) {
-    const t = String(s || '').toLowerCase();
-    for (const r of PT_RES) {
-      if (t.indexOf(r) !== -1) return r;
+  function ptInitBlob(text) {
+    const s = String(text || '');
+    const m = s.match(/PhoenicianSalesman\s*\.\s*initialize\s*\(\s*\{/);
+    if (!m) return null;
+    const start = s.indexOf('{', m.index);
+    if (start < 0) return null;
+    let depth = 0, inStr = false, esc = false;
+    for (let i = start; i < s.length; i++) {
+      const ch = s[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === '\\') esc = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') { inStr = true; continue; }
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          try { return JSON.parse(s.slice(start, i + 1)); } catch (_) { return null; }
+        }
+      }
     }
-    if (/silver|plata|argent/.test(t)) return 'iron';
-    if (/wood|madera|holz|bois/.test(t)) return 'wood';
-    if (/stone|piedra|stein|pierre/.test(t)) return 'stone';
     return null;
   }
-  function ptRatioFromText(s) {
-    const t = String(s || '').replace(',', '.');
-    let m = t.match(/(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)/);
-    if (m) {
-      const give = +m[1], get = +m[2];
-      if (give > 0 && get >= 0) return get / give;
+  function ptOffersFromInit(init) {
+    if (!init || typeof init !== 'object') return null;
+    const goods = init.goods;
+    if (!goods || typeof goods !== 'object') return null;
+    const exchange = String(goods.exchange_resource || '').toLowerCase();
+    if (PT_RES.indexOf(exchange) === -1) return null;
+    const offers = [];
+    const push = (kind, entry, idx) => {
+      if (!entry || typeof entry !== 'object') return;
+      const name = String(entry.name || '').toLowerCase();
+      if (!name) return;
+      const costPer = +((entry.cost || {})[exchange]);
+      if (!Number.isFinite(costPer) || costPer <= 0) return;
+      const stock = Number.isFinite(+entry.amount) ? +entry.amount : null;
+      offers.push({
+        id: `${kind}:${name}`,
+        kind, name, exchange, costPer,
+
+        ratio: 1 / costPer,
+        give: exchange,
+        get: kind === 'resource' ? name : null,
+        stock,
+        idx,
+      });
+    };
+    (Array.isArray(goods.resources) ? goods.resources : []).forEach((e, i) => push('resource', e, i));
+    (Array.isArray(goods.units) ? goods.units : []).forEach((e, i) => push('unit', e, i));
+    return offers.length ? offers : null;
+  }
+  function ptExchangeFromRow(el) {
+    let hay = '';
+    try {
+      const price = el.querySelector('.ph_offer_price');
+      hay = price ? (price.innerHTML || '') : '';
+    } catch (_) { hay = ''; }
+    const hits = new Set();
+    for (const r of PT_RES) {
+      if (new RegExp(`\\b${r}_(?:img|\\d+x\\d+)`).test(hay)) hits.add(r);
     }
-    m = t.match(/(\d+\.\d+)/);
-    if (m) return +m[1];
-    return null;
+    return hits.size === 1 ? [...hits][0] : null;
+  }
+  function ptOffersFromDomRows(root) {
+    if (!root || !root.querySelectorAll) return null;
+    let rows = [];
+    try { rows = Array.from(root.querySelectorAll('.ph_order_info,[id^="ph_res_order_info_"],[id^="ph_unit_order_info_"]')); } catch (_) { return null; }
+    const offers = [];
+    const seen = new Set();
+    rows.forEach((el) => {
+      let hidden = null;
+      try { hidden = el.querySelector('input.ph_unit_order_unit_hidden,input[name="resource"],input[name="unit"]'); } catch (_) {}
+      if (!hidden) return;
+      const kind = String(hidden.getAttribute('name') || '').toLowerCase() === 'unit' ? 'unit' : 'resource';
+      const name = String(hidden.value || '').toLowerCase().trim();
+      if (!name) return;
+      let ratioTxt = '';
+      try { ratioTxt = (el.querySelector('.ph_ratio_count') || {}).textContent || ''; } catch (_) {}
+
+      const m = String(ratioTxt).replace(',', '.').match(/(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)/);
+      if (!m) return;
+      const recv = +m[1], costPer = +m[2] / (recv > 0 ? recv : 1);
+      if (!Number.isFinite(costPer) || costPer <= 0) return;
+      const id = `${kind}:${name}`;
+      if (seen.has(id)) return;
+      seen.add(id);
+      const exchange = ptExchangeFromRow(el);
+      offers.push({
+        id, kind, name, exchange, costPer,
+        ratio: 1 / costPer,
+        give: exchange,
+        get: kind === 'resource' ? name : null,
+
+        stock: null,
+        idx: offers.length,
+      });
+    });
+    return offers.length ? offers : null;
   }
   // Parse offer rows out of the salesman markup. Class names differ per client
   // build, so match loosely and REFUSE on a miss - an invented ratio would send
   // the bulk trade at 0.5:1.
   function ptParseOffers(root) {
     if (!root) return null;
-    let nodes = [];
+    let blob = null;
     try {
-      nodes = Array.from(root.querySelectorAll('[class*="offer"],[class*="trade_row"],[class*="exchange"]'));
-    } catch (_) { return null; }
-    const offers = [];
-    nodes.forEach((el, i) => {
-      const txt = (el.textContent || '').trim();
-      if (!txt) return;
-      const ratio = ptRatioFromText(txt);
-      if (ratio == null) return;
-      const html = el.innerHTML || '';
-      // give = resource the player hands over, get = resource received
-      const resHits = [];
-      try {
-        Array.from(el.querySelectorAll('[class*="wood"],[class*="stone"],[class*="iron"],[class*="resource"]')).forEach(r => {
-          const hit = ptResFromText(r.className) || ptResFromText(r.getAttribute('data-resource') || '');
-          if (hit) resHits.push(hit);
-        });
-      } catch (_) {}
-      // DOM order is not guaranteed give-then-get: some clients render the
-      // received resource first. Tie-break by the offer's ratio: the lower-
-      // ratio side is the resource the player GIVES UP (cheap side of the
-      // trade), and the higher-ratio side is what the player RECEIVES.
-      let give = null, get = null;
-      if (resHits.length >= 2) {
-        if (ratio != null && ratio > 0 && ratio <= 1) {
-          // ratio <= 1 means the second unit is worth more (upgrade offer).
-          // Convention: give = first slot (what you trade away), get = second.
-          give = resHits[0]; get = resHits[1];
-        } else {
-          // Either ratio > 1 (downgrade — unusual) or ratio missing: keep the
-          // raw DOM order. The trade guard (ptRoom on the give side) still
-          // blocks a post that the warehouse cannot afford.
-          give = resHits[0]; get = resHits[1];
-        }
+      const scripts = root.querySelectorAll ? Array.from(root.querySelectorAll('script')) : [];
+      for (const sc of scripts) {
+        blob = ptInitBlob(sc.textContent || '');
+        if (blob) break;
       }
-      // Strip only European-style thousand separators ("5.000" → "5000") and
-      // leave decimal points alone so a ratio like "0.5:1" doesn't merge with
-      // a neighbour digit into a wrong stock read.
-      const stockM = txt.replace(/(\d)\.(\d{3})(?!\d)/g, '$1$2').match(/(\d{2,7})/);
-      const id = el.getAttribute('data-offer-id') || el.getAttribute('data-id')
-        || el.getAttribute('data-offer_id') || String(i);
-      offers.push({
-        id: String(id),
-        give, get, ratio,
-        stock: stockM ? +stockM[1] : null,
-        raw: html.slice(0, 200),
-      });
-    });
-    if (!offers.length) return null;
-    return offers;
+      if (!blob) blob = ptInitBlob(root.innerHTML || root.textContent || '');
+    } catch (_) { blob = null; }
+    const fromInit = ptOffersFromInit(blob);
+    if (fromInit) return fromInit;
+    return ptOffersFromDomRows(root);
   }
   function ptWindowRoot() {
+
     // The open salesman window, if the player has it up.
     try {
-      const sel = '[class*="phoenician"],[class*="salesman"]';
+      const sel = '[class*="phoenician"],[class*="salesman"],#ph_offers,#ph_trader';
       const nodes = Array.from(document.querySelectorAll(sel));
       for (const n of nodes) {
-        if (n.querySelector && n.querySelector('[class*="offer"],[class*="exchange"]')) return n;
+        if (!n.querySelector) continue;
+        if (n.querySelector('.ph_order_info,[id^="ph_res_order_info_"],[id^="ph_unit_order_info_"]')) return n;
       }
     } catch (_) {}
     return null;
@@ -168,11 +210,16 @@
         let html = res.responseText || '';
         try {
           const j = JSON.parse(html);
-          html = (j && (j.html || (j.json && j.json.html))) || html;
+
+          html = (j && ((j.plain && j.plain.html) || j.html || (j.json && j.json.html))) || html;
         } catch (_) {}
-        let doc = null;
-        try { doc = new DOMParser().parseFromString(String(html), 'text/html'); } catch (_) {}
-        const offers = ptParseOffers(doc && doc.body);
+
+        let offers = ptOffersFromInit(ptInitBlob(html));
+        if (!offers) {
+          let doc = null;
+          try { doc = new DOMParser().parseFromString(String(html), 'text/html'); } catch (_) {}
+          offers = ptParseOffers(doc && doc.body);
+        }
         if (!offers) {
           gbLogT('pt-parse', 600000,
             'phoenician: offer markup not understood - Log > Diag and paste the window HTML');
@@ -193,7 +240,6 @@
       cb(offers, src);
     });
   }
-
   // ---------- learned view URL + trade payload ----------
   // Both come from the player's own client traffic. Nothing here is guessed: a
   // renamed controller degrades to "window only" / "posts nothing", never to a
@@ -243,6 +289,8 @@
     if (!/trade|exchange|swap/i.test(action)) return;
     // Our own posts run under the pt-trade lock - never re-learn from those, or
     // a pump amount of 1 would overwrite the player's real template.
+    // Our own posts run under the pt-trade lock - never re-learn from those, or
+    // a pump amount of 1 would overwrite the player's real template.
     if (gbLocked('pt-trade')) return;
     const args = ptParseParams(url, body);
     const townId = args.town_id != null ? +args.town_id : null;
@@ -274,32 +322,42 @@
     });
     return best;
   }
-  function ptTradePost(townId, offer, amount, onDone) {
-    const tpl = state.ptTradeTpl;
-    if (!tpl || !tpl.action) {
-      gbLogT('pt-notpl', 600000,
-        'phoenician: no learned trade payload - do ONE trade by hand to teach it');
-      onDone('no-template');
-      return;
-    }
-    const key = ptAmountKey(tpl);
-    if (!key) {
-      gbLogT('pt-noamount', 600000, 'phoenician: learned payload has no amount field - refusing to post');
-      onDone('no-amount');
-      return;
-    }
-    const data = Object.assign({}, tpl.arguments || {});
-    data[key] = Math.max(1, Math.floor(amount));
-    if (townId != null) data.town_id = +townId;
-    // Only re-target the offer when the learned payload actually names one.
-    if (offer && offer.id != null) {
-      Object.keys(data).forEach(k => {
-        if (/offer(_id)?$/i.test(k)) data[k] = offer.id;
-      });
-    }
-    gameAjaxPost('pttrade', tpl.controller || 'phoenician_salesman', tpl.action, data, onDone);
+  function ptCanonicalTrade(offer, amount) {
+    if (!offer || !offer.name) return null;
+    const kind = offer.kind === 'unit' ? 'unit' : 'resource';
+    const data = {};
+    data[kind + '_name'] = offer.name;
+    data[kind + '_amount'] = Math.max(1, Math.floor(amount));
+    return { action: 'trade_' + kind + 's', data };
   }
+  function ptTradePost(townId, offer, amount, onDone, feature) {
+    const feat = feature || 'pttrade';
+    const tpl = state.ptTradeTpl;
+    if (tpl && tpl.action && ptAmountKey(tpl)) {
+      const key = ptAmountKey(tpl);
+      const data = Object.assign({}, tpl.arguments || {});
+      data[key] = Math.max(1, Math.floor(amount));
+      if (townId != null) data.town_id = +townId;
 
+      if (offer && offer.name) {
+        Object.keys(data).forEach(k => {
+          if (/^(resource|unit)_name$/i.test(k)) data[k] = offer.name;
+          else if (/offer(_id)?$/i.test(k) && offer.id != null) data[k] = offer.id;
+        });
+      }
+      gameAjaxPost(feat, tpl.controller || 'phoenician_salesman', tpl.action, data, onDone);
+      return;
+    }
+    const canon = ptCanonicalTrade(offer, amount);
+    if (!canon) {
+      gbLogT('pt-nocanon', 600000, 'phoenician: oferta sin nombre de mercancia - no se envia nada');
+      onDone('no-good');
+      return;
+    }
+    const data = Object.assign({}, canon.data);
+    if (townId != null) data.town_id = +townId;
+    gameAjaxPost(feat, 'phoenician_salesman', canon.action, data, onDone);
+  }
   // ---------- preconditions ----------
   function ptTownCaps(townId) {
     const uw = gameUw();
@@ -326,7 +384,6 @@
     }
     return { out, room, tradeCap: caps.tradeCap };
   }
-
   // ---------- scan ----------
   // Pump the ratio with minimum-amount trades, then send one bulk trade. A ratio
   // that does not move after a pump means the +0.1 assumption is wrong on this
@@ -340,123 +397,73 @@
       gbLogT('pt-noship', 600000, `phoenician: no merchant ship readable (${scanReason(reason)})`);
       return;
     }
-    if (!state.ptTradeTpl) {
-      gbLogT('pt-notpl-scan', 600000,
-        'phoenician: ship is here but no trade payload learned - trade once by hand');
-      return;
-    }
     const cfg = ptCfg();
     ptOffers(townId, (offers) => {
       if (!offers || !offers.length) return;
-      const pick = offers.find(o => {
-        if (!(o.ratio > 0)) return false;              // ratio unreadable OR 0 -> never touch
-        if (o.get && !cfg.wantRes[o.get]) return false; // not a resource we asked for
+
+      const wanted = offers.filter((o) => {
+        if (o.kind !== 'resource') return false;
+        if (!(o.ratio > 0) || !(o.costPer > 0)) return false;
+        if (!o.get || !cfg.wantRes[o.get]) return false;
         if (o.stock != null && o.stock <= 0) return false;
-        return true;
-      });
+        return o.ratio >= cfg.targetRatio;
+      }).sort((a, b) => b.ratio - a.ratio);
+      const pick = wanted[0];
       if (!pick) {
-        gbLogT('pt-nooffer', 300000, 'phoenician: no offer matches the wanted resources');
+        gbLogT('pt-nooffer', 300000,
+          `phoenician: ninguna oferta llega al ratio minimo ${cfg.targetRatio} para los recursos pedidos`);
         return;
       }
-      const give = pick.give || 'iron';
-      const get = pick.get || 'wood';
+      const give = pick.exchange || pick.give;
+      const get = pick.get;
+      if (PT_RES.indexOf(give) === -1) {
+        gbLogT('pt-noexchange', 600000,
+          'phoenician: no se puede leer con que recurso paga el barco - no se envia nada');
+        return;
+      }
       const room = ptRoom(townId, give, get);
-      if (room.tradeCap != null && room.tradeCap < cfg.pumpAmount) {
-        gbLogT('pt-nocap', 300000, `phoenician: no free trade capacity in town ${townId}`);
-        return;
-      }
       if (room.room != null && room.room <= 0) {
         gbLogT('pt-full', 300000, `phoenician: town ${townId} ${get} already at capacity - skip`);
         return;
       }
-      if (room.out != null && room.out < cfg.pumpAmount) {
-        gbLogT('pt-nostock', 300000, `phoenician: town ${townId} ${give} below reserve - skip`);
+
+      const bounds = [];
+      if (pick.stock != null) bounds.push(pick.stock);
+      if (room.room != null) bounds.push(room.room);
+      if (room.tradeCap != null) bounds.push(room.tradeCap);
+      if (room.out != null) bounds.push(Math.floor(room.out / pick.costPer));
+      if (!bounds.length) {
+        gbLogT('pt-noread', 300000,
+          `phoenician: town ${townId} sin lectura de capacidad ni de stock - no se envia nada`);
+        return;
+      }
+      const amount = Math.floor(Math.min.apply(null, bounds));
+      if (!(amount >= cfg.minAmount)) {
+        gbLogT('pt-small', 300000,
+          `phoenician: town ${townId} solo daria para ${amount} ${get} (minimo ${cfg.minAmount}) - skip`);
         return;
       }
       const ptLock = gbLock('pt-trade');
       if (!ptLock) return;
-      ptRunPump(townId, pick, give, get, cfg, ptLock);
-    });
-  }
-  function ptRunPump(townId, offer, give, get, cfg, ptLock) {
-    let pumps = 0;
-    let lastRatio = offer.ratio;
-    const finish = (why) => {
-      gbUnlock('pt-trade', ptLock);
-      if (why) gbLog(`phoenician: ${why}`);
-    };
-    const bulk = () => {
-      const room = ptRoom(townId, give, get);
-      // The offer stock is scraped text, so it may never be the only bound on a
-      // bulk trade: require a real capacity read before sending one.
-      if (room.tradeCap == null && room.room == null && room.out == null) {
-        finish('bulk skipped - trade capacity and warehouse unreadable');
-        return;
-      }
-      const parts = [offer.stock, room.room, room.tradeCap, room.out].filter(v => v != null && Number.isFinite(v));
-      if (!parts.length) {
-        finish('bulk skipped - capacity/stock unreadable');
-        return;
-      }
-      const amount = Math.floor(Math.min.apply(null, parts));
-      if (!(amount > 0)) { finish('bulk skipped - nothing tradeable'); return; }
-      ptTradePost(townId, offer, amount, (err) => {
+      const cost = Math.ceil(amount * pick.costPer);
+      ptTradePost(townId, pick, amount, (err) => {
+        gbUnlock('pt-trade', ptLock);
         if (err === 'dryrun') {
-          finish(`DRY-RUN bulk trade would send ${amount} ${give} -> ${get} at ratio ${lastRatio}`);
+          gbLog(`phoenician: DRY-RUN cambiaria ${cost} ${give} por ${amount} ${get} (ratio ${pick.ratio.toFixed(2)})`);
           return;
         }
         if (err) {
-          gbLogT('pt-bulk-err', 60000, `phoenician: bulk trade ${err}`);
-          finish(null);
+          gbLogT('pt-trade-err', 60000, `phoenician: trade ${err}`);
           return;
         }
         ptViewCache = null;
-        finish(`bulk trade ${amount} ${give} -> ${get} at ratio ${lastRatio}`);
+        gbLog(`phoenician: ${cost} ${give} -> ${amount} ${get} (ratio ${pick.ratio.toFixed(2)})`);
       });
-    };
-    const step = () => {
-      if (lastRatio >= cfg.targetRatio) { bulk(); return; }
-      if (pumps >= cfg.maxPumps) {
-        finish(`ratio stuck at ${lastRatio} after ${pumps} pumps - no bulk trade`);
-        return;
-      }
-      pumps++;
-      ptTradePost(townId, offer, cfg.pumpAmount, (err) => {
-        // Dry run sends nothing, so the ratio cannot move - walk the plan on the
-        // documented +0.1 step instead of reading a ratio that never changes.
-        if (err === 'dryrun' || (!err && state.dryRun)) {
-          lastRatio = Math.round((lastRatio + 0.1) * 100) / 100;
-          gbLog(`phoenician: DRY-RUN pump ${pumps}/${cfg.maxPumps}, assumed ratio ${lastRatio}`);
-          gbTimeout(step, 900);
-          return;
-        }
-        if (err) {
-          gbLogT('pt-pump-err', 60000, `phoenician: pump ${pumps} ${err}`);
-          finish(null);
-          return;
-        }
-        gbTimeout(() => {
-          ptOffers(townId, (offers) => {
-            const again = (offers || []).find(o => String(o.id) === String(offer.id));
-            const now = again && again.ratio != null ? again.ratio : null;
-            if (now == null) { finish(`ratio unreadable after pump ${pumps}`); return; }
-            if (now <= lastRatio) {
-              finish(`ratio did not move (${lastRatio} -> ${now}) after pump ${pumps} - aborting`);
-              return;
-            }
-            gbLog(`phoenician: pump ${pumps}/${cfg.maxPumps} ratio ${lastRatio} -> ${now}`);
-            lastRatio = now;
-            if (again.stock != null) offer.stock = again.stock;
-            step();
-          }, true);
-        }, 900 + Math.floor(Math.random() * 600));
-      });
-    };
-    step();
+    });
   }
   function ptStatusText() {
     const townId = ptSalesmanTown();
-    const tpl = state.ptTradeTpl ? 'payload aprendido' : 'payload SIN aprender';
-    const view = state.ptViewUrl ? 'vista aprendida' : 'vista SIN aprender';
+    const tpl = state.ptTradeTpl ? 'payload aprendido' : 'ruta canonica trade_resources';
+    const view = state.ptViewUrl ? 'vista aprendida' : 'solo ventana abierta';
     return (townId == null ? 'sin barco' : `barco en la ciudad ${townId}`) + `  |  ${tpl}  |  ${view}`;
   }

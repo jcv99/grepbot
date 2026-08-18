@@ -66,6 +66,8 @@
       if (f.wall != null) d.walls.push(f.wall);
       // Latest-wins by report timestamp, so a stale spy cannot overwrite a
       // fresher one just by arriving later in the ring buffer.
+      // Latest-wins by report timestamp, so a stale spy cannot overwrite a
+      // fresher one just by arriving later in the ring buffer.
       if (f.buildings && Object.keys(f.buildings).length && (+f.ts || 0) >= (d.buildingsAt || 0)) {
         d.buildings = f.buildings; d.buildingsAt = +f.ts || 0;
       }
@@ -78,6 +80,8 @@
         d.allianceNote = state.allianceNotes[f.alliance];
       }
     }
+    // Plan 2.5 work item 2: the battle profile rides on the dossier entry so
+    // any dossier consumer gets it without recomputing the aggregate.
     // Plan 2.5 work item 2: the battle profile rides on the dossier entry so
     // any dossier consumer gets it without recomputing the aggregate.
     try {
@@ -124,8 +128,9 @@
       return r;
     };
     for (const f of (findings || [])) {
-      if (!f || !f.outcome) continue; // no verdict read == no battle counted
+      if (!f || !f.outcome) continue;
       const atk = f.attacker, def = f.defender;
+
       // The subject is the OTHER player: a report about my own attack is scored
       // against the defender, and vice versa.
       let subject = null, subjectIsAttacker = false;
@@ -138,6 +143,7 @@
       const r = row(key, intelPlayerLabel(subject, key));
       r.battles++;
       r.asAttacker += subjectIsAttacker ? 1 : 0;
+
       // Counted exactly as the report recorded it. The client never states
       // whose point of view `outcome` belongs to, so flipping it per side would
       // be a guess - the column is labelled as the report's own verdict.
@@ -166,6 +172,10 @@
       // everything", never to a silent empty table. But once identity IS known,
       // a raid with no attacker on record is not provably yours either, so it
       // must not be attributed to your haul.
+      // When identity is unreadable every raid counts - degrade to "show
+      // everything", never to a silent empty table. But once identity IS known,
+      // a raid with no attacker on record is not provably yours either, so it
+      // must not be attributed to your haul.
       if (mineKnown && !intelActorIsMe(f.attacker, own)) continue;
       const key = String(f.vill_id);
       let r = byVill.get(key);
@@ -182,6 +192,8 @@
       }
       // A raid whose loot was never reported is not a zero-loot raid; it is
       // excluded from the success denominator rather than counted as a failure.
+      // A raid whose loot was never reported is not a zero-loot raid; it is
+      // excluded from the success denominator rather than counted as a failure.
       if (!any) continue;
       r.hauledKnown++;
       r.haul += sum;
@@ -192,24 +204,25 @@
         // Divide by the raids whose loot was actually reported: raids with no
         // loot data are excluded from the numerator, so counting them in the
         // denominator would understate a farm that simply reports sparsely.
+        // Divide by the raids whose loot was actually reported: raids with no
+        // loot data are excluded from the numerator, so counting them in the
+        // denominator would understate a farm that simply reports sparsely.
         perRaid: r.hauledKnown ? r.haul / r.hauledKnown : 0,
         successRate: r.hauledKnown ? r.hauls / r.hauledKnown : null,
       }))
       .sort((a, b) => b.perRaid - a.perRaid)
       .slice(0, INTEL_FARM_TOP);
   }
-
   function intelThreatBoard() {
     return (typeof dodgeIncomingMovements === 'function') ? dodgeIncomingMovements() : [];
   }
-
   // ===== Enemy city timeline (v4 plan 2.2) ===================================
   // One retention policy shared by the read trio 2.2 / 2.3 / 2.4. Findings
   // themselves are bounded by the 500-row ring in spy.js; this is the read-time
   // soft cap, matching the journal's own 7d window.
   const INTEL_HISTORY_TTL_MS = 7 * 86400000;
-  const INTEL_TIMELINE_PER_TOWN = 8;   // rows kept per town, oldest trimmed
-  const INTEL_TIMELINE_MAX_TOWNS = 30; // matches the dossier .slice(0, 30)
+  const INTEL_TIMELINE_PER_TOWN = 8;
+  const INTEL_TIMELINE_MAX_TOWNS = 30;
   // 3d per the Grepolis vacation-cap norm: a player who takes time off is
   // usually gone 3-7 days, so anything quieter than that is the actionable
   // signal rather than ordinary silence.
@@ -226,7 +239,6 @@
   const PLAYER_DISAPPEARED_MS = 14 * 86400000;
   const PLAYER_HISTORY_MS = PLAYER_DISAPPEARED_MS;
   const PLAYER_MAX_ROWS = 30;
-
   function intelTownKey(f) {
     if (!f) return null;
     if (f.town && f.town.id != null && f.town.id !== '') return 'town:' + f.town.id;
@@ -243,6 +255,7 @@
   // Unknown is rendered '?', never 0. A finding that never carried a wall level
   // must not read as "the wall was torn down".
   function intelDiffNum(prev, cur, unit) {
+
     // `== null` on purpose: Number(null) is 0, so a `prev && prev.wall` that
     // collapsed to null would fabricate a 0 baseline and print "+18 muro
     // (0->18)" on the very first row of every town.
@@ -292,12 +305,14 @@
     const pv = boolLabel(p && p.vacation), cv = boolLabel(cur && cur.vacation);
     const pName = p && p.town && p.town.name, cName = cur && cur.town && cur.town.name;
     const pAlly = p && p.alliance, cAlly = cur && cur.alliance;
+
     // buildings/hero come from plan 2.1. When a report predates it the fields
     // are absent and the column stays '—' rather than claiming a change.
     const pB = (p && p.buildings) || null, cB = (cur && cur.buildings) || null;
     let deep = '—';
     if (cB && Object.keys(cB).length) {
       const keys = Object.keys(cB).sort();
+
       // A key missing from the previous bag is UNKNOWN (parseBuildings drops
       // unreadable entries), so it renders "?→12", never "0→12".
       const changed = pB ? keys.filter(k => pB[k] == null || +cB[k] !== +pB[k]) : keys;
@@ -335,7 +350,7 @@
     }
     const out = [];
     for (const [key, list] of byTown) {
-      if (list.length < 2) continue; // a single report is not a timeline
+      if (list.length < 2) continue;
       list.sort((a, b) => (+a.ts || 0) - (+b.ts || 0));
       const kept = list.slice(-INTEL_TIMELINE_PER_TOWN);
       const rows = kept.map((cur, i) => ({
@@ -370,6 +385,9 @@
     // Index-suffixed: two reports on the same town can share a timestamp, and a
     // duplicate data-key made the set comparison never match (full rebuild + a
     // lost sort on every 15s render).
+    // Index-suffixed: two reports on the same town can share a timestamp, and a
+    // duplicate data-key made the set comparison never match (full rebuild + a
+    // lost sort on every 15s render).
     for (const g of groups) g.rows.forEach((r, i) => wanted.push(g.townKey + '@' + r.ts + '#' + i));
     const have = new Set(Array.from(tbody.children).map(tr => tr.dataset.key));
     const sameSet = have.size === wanted.length && wanted.every(k => have.has(k));
@@ -399,13 +417,14 @@
         patchCells(tr, cells);
         // Unknown wall sorts as '' (string compare), not 0 - ranking an
         // unspied town as the weakest one is exactly the wrong answer.
+        // Unknown wall sorts as '' (string compare), not 0 - ranking an
+        // unspied town as the weakest one is exactly the wrong answer.
         const wallRaw = (r.cur && r.cur.wall != null && Number.isFinite(+r.cur.wall)) ? String(+r.cur.wall) : '';
         tr.dataset.sort = [g.label, String(r.ts), wallRaw, d.units, d.res, d.name, d.alliance, d.vacation, d.deep].join('\t');
       });
     }
     sortApplySaved(table);
   }
-
   // ===== Ghost town detector (v4 plan 2.3) ===================================
   // Own ladder, not fmtSec: fmtSec tops out at minutes, so a 4-day-quiet town
   // would read "5760m".
@@ -430,6 +449,8 @@
     for (const [key, last] of latest) {
       const ageMs = now - (+last.ts || 0);
       const vacation = (last.defender && last.defender.vacation === true) || last.vacation === true;
+      // Defenderless is only claimed when a defender block exists but carries no
+      // name. A finding with no defender at all is an unknown, not an abandon.
       // Defenderless is only claimed when a defender block exists but carries no
       // name. A finding with no defender at all is an unknown, not an abandon.
       const abandoned = !!(last.defender && !last.defender.name);
@@ -485,13 +506,13 @@
         tbody.appendChild(tr);
       }
       patchCells(tr, cells);
+
       // Age sorts on the raw ms, not the humanised label ("2d" vs "20h").
       // Unknown wall sorts as '' so it is not ranked as level 0.
       tr.dataset.sort = [r.label, String(r.lastTs), String(r.ageMs), r.wall == null ? '' : String(r.wall), r.alliance || '', ghostReasonText(r)].join('\t');
     }
     sortApplySaved(table);
   }
-
   // ===== Player inactivity tracker (v4 plan 2.4) =============================
   const inactiveAgeLabel = ghostAgeLabel;
   function inactiveStatusLabel(row) {
@@ -506,6 +527,8 @@
     const fresh = (state.findings || []).filter(f => f && +f.ts >= now - PLAYER_HISTORY_MS);
     const maps = { attackers: new Map(), defenders: new Map() };
     const bump = (which, actor) => {
+      // A blind identity makes intelActorIsMe false for everything, so the rule
+      // degrades to "show everything" rather than silently dropping rows.
       // A blind identity makes intelActorIsMe false for everything, so the rule
       // degrades to "show everything" rather than silently dropping rows.
       if (!actor || intelActorIsMe(actor, me)) return;
@@ -523,6 +546,8 @@
         if ((+f.ts || 0) > hit.cur.lastTs) {
           hit.cur.lastTs = +f.ts || 0;
           const noteKey = (actor && typeof actor === 'object' && actor.name) ? actor.name : hit.cur.player;
+          // Guard, do not assign: a newer finding whose name misses the note map
+          // must not erase a note an earlier finding already resolved.
           // Guard, do not assign: a newer finding whose name misses the note map
           // must not erase a note an earlier finding already resolved.
           if (state.playerNotes && state.playerNotes[noteKey]) hit.cur.note = state.playerNotes[noteKey];
@@ -577,6 +602,7 @@
         tbody.appendChild(tr);
       }
       patchCells(tr, cells);
+
       // Age sorts on raw ms, not the humanised label ("2d" vs "20h").
       tr.dataset.sort = [r.player, String(r.lastTs), String(r.ageMs), String(r.n), status, r.note || ''].join('\t');
     }
@@ -601,12 +627,14 @@
       let out = [];
       try { out = VIEWS[intelView](); } catch (e) { out = ['vista no disponible: ' + String(e).slice(0, 60)]; }
       box.textContent = out.join('\n');
+
       // Orthogonal to the view: the pattern scan still runs in either branch.
       try { intelPatternScan(); } catch (_) {}
       try { renderIntelTimeline(); } catch (_) {}
       return;
     }
     const threats = intelThreatBoard();
+
     // v4 plan 3.3: same label in both tabs, computed once for the whole loop.
     const colonyKind = {};
     try { for (const c of militaryColonyThreats()) colonyKind[String(c.mov.id)] = c.kind; } catch (_) {}
@@ -688,6 +716,7 @@
     if (state.intelBattleStats !== false) {
       const findings = state.findings || [];
       const loss = Array.from(intelLossRatio(findings).values())
+
         // Loss RATE first: 1 loss in 1 battle should not outrank 1 loss in 100.
         .sort((a, b) => ((b.lossRate || 0) - (a.lossRate || 0)) || (b.losses - a.losses) || (b.battles - a.battles))
         .slice(0, INTEL_LOSS_TOP);
@@ -764,6 +793,9 @@
         // Token-compare on whitespace-split coords: indexOf would match "100 50"
         // against x=10 (substring) and x=100 against x=10 (prefix), making every
         // town whose x starts with "1" trip a watch at (x=100, y=50).
+        // Token-compare on whitespace-split coords: indexOf would match "100 50"
+        // against x=10 (substring) and x=100 against x=10 (prefix), making every
+        // town whose x starts with "1" trip a watch at (x=100, y=50).
         if (fx != null && fy != null) {
           const cTokens = String(c).split(/\s+/).filter(Boolean).map(String);
           if (cTokens.indexOf(String(fx)) >= 0 && cTokens.indexOf(String(fy)) >= 0) {
@@ -778,6 +810,7 @@
       if (entry.alliance && finding.alliance && String(finding.alliance).toLowerCase() === String(entry.alliance).toLowerCase()) {
         hits.push({ kind: 'alliance', rule: String(entry.alliance), specificity: 1 });
       }
+      // bare id string fallback (legacy)
       // bare id string fallback (legacy)
       if (typeof w !== 'object') {
         const id = String(w);
@@ -807,7 +840,7 @@
       save(STORE.WATCH_HITS, state.watchHits);
       gbLog(`watchlist: ${id} matched (${m.kind}: ${m.rule}${m.extra ? ' +' + m.extra + ' more' : ''})`);
       try { alertWebhook('attack', { watchlist: id, why: m, finding: { type: f.type, ts: f.ts } }); } catch (_) {}
-      break; // one webhook per scan pass
+      break;
     }
   }
   // ===== Counter-intel detection (v4 plan 4.2) ===============================
@@ -834,7 +867,13 @@
       // Raw type read, no regex classification: a client that renames spy to
       // something else should break THIS filter loudly, not silently
       // reclassify attacks as spying.
+      // Raw type read, no regex classification: a client that renames spy to
+      // something else should break THIS filter loudly, not silently
+      // reclassify attacks as spying.
       if (String(f.type || '').toLowerCase() !== 'spy') continue;
+      // Never infer identity from a missing field. The defender block is the
+      // primary signal; when it is absent entirely, a town id that is provably
+      // one of mine is an equally hard fact, so the report still counts.
       // Never infer identity from a missing field. The defender block is the
       // primary signal; when it is absent entirely, a town id that is provably
       // one of mine is an equally hard fact, so the report still counts.
@@ -850,6 +889,9 @@
       b.first = Math.min(b.first, +f.ts);
       const tid = f.town && (f.town.id != null ? f.town.id : f.town.name);
       if (tid != null) {
+        // The DISPLAY list is capped at 8; the distinct count is not. Deriving
+        // the count from the capped array made a watcher hitting 12 towns
+        // report 8, which is a number that is simply wrong.
         // The DISPLAY list is capped at 8; the distinct count is not. Deriving
         // the count from the capped array made a watcher hitting 12 towns
         // report 8, which is a number that is simply wrong.
@@ -893,6 +935,8 @@
     const n = v.trim();
     // Drop the client's placeholders and anything too long to be a real tag -
     // an unlabelled row is noise, not intel.
+    // Drop the client's placeholders and anything too long to be a real tag -
+    // an unlabelled row is noise, not intel.
     if (!n || n === '?' || n === '-' || n.length > 40) return null;
     return n;
   }
@@ -911,7 +955,11 @@
       const tid = f.town && f.town.id != null ? String(f.town.id) : null;
       // Column must be a town of MINE. Anything else is somebody else's
       // business and does not belong in my own exposure matrix.
+      // Column must be a town of MINE. Anything else is somebody else's
+      // business and does not belong in my own exposure matrix.
       if (!tid || !own.has(tid)) continue;
+      // And the alliance must be on the OTHER side: an attack by my own
+      // alliance-mate on my town is not incoming pressure from them.
       // And the alliance must be on the OTHER side: an attack by my own
       // alliance-mate on my town is not incoming pressure from them.
       if (intelActorIsMe(f.attacker, me)) continue;
@@ -925,7 +973,7 @@
     out.towns = Object.keys(out.totalForTown).sort((a, b) => String(a).localeCompare(String(b)));
     return out;
   }
-  const INTEL_HEAT = [' ', '\u00b7', '\u2591', '\u2592', '\u2593', '\u2588'];
+  const INTEL_HEAT = [' ', '·', '░', '▒', '▓', '█'];
   function intelHeatChar(n, max) {
     if (!n) return INTEL_HEAT[0];
     if (!(max > 0)) return INTEL_HEAT[1];
@@ -996,7 +1044,6 @@
     if (a) return { status: a, source: 'alliance' };
     return { status: null, source: null };
   }
-
   // ===== Defense coordination board (v4 plan 7.2) ============================
   function intelDefenseBoard(threats) {
     const byDest = new Map();
@@ -1039,7 +1086,6 @@
     }
     return lines;
   }
-
   // ===== Alliance resource pool (v4 plan 7.3) ================================
   // Alliance-wide resources for OTHER members are NOT readable - there is no
   // Alliance collection in this client. This reports what genuinely can be
@@ -1057,6 +1103,7 @@
     }
     const byAlly = new Map();
     const seenTown = new Set();
+    // Newest report per town wins; older ones are strictly worse information.
     // Newest report per town wins; older ones are strictly worse information.
     const sorted = (state.findings || []).slice().sort((a, b) => (+b.ts || 0) - (+a.ts || 0));
     for (const f of sorted) {
@@ -1094,7 +1141,6 @@
     }
     return lines;
   }
-
   // ===== Alliance member activity (v4 plan 7.6) ==============================
   function intelMemberActivity(opts) {
     const o = opts || {};
@@ -1177,7 +1223,6 @@
     });
     return hits;
   }
-
   const QUEST_SCAN_MS = 12000;
   const QUEST_HISTORY_MAX = 100;
   let questMo = null;

@@ -87,7 +87,7 @@
         }
       }
     } catch (_) {}
-    if (requireCanonical) return null; // heuristic runtime is preview-only; never arm arrive-at from it
+    if (requireCanonical) return null;
     const src = townCoords(srcTownId);
     const dist = islandDistance(src.x, src.y, target.x, target.y);
     if (dist == null) return null;
@@ -141,6 +141,8 @@
   function classifyUnitFn(id) {
     const m = unitMeta(id);
     if (!m) return 'unknown';
+    // A hoplite remains available to defensive plans, but it must not disappear
+    // from an offensive composition merely because a world labels it defensive.
     // A hoplite remains available to defensive plans, but it must not disappear
     // from an offensive composition merely because a world labels it defensive.
     if (id === 'hoplite') return 'both';
@@ -204,6 +206,7 @@
   function defaultAttackPlan() {
     // v4 plan 7.1: staged shared-plan candidates. Never auto-armed.
 
+    // v4 plan 7.1: staged shared-plan candidates. Never auto-armed.
     return {
       targetId: '',
       targetType: 'town',
@@ -521,6 +524,7 @@
       gbLog('attack: refuse Town/sendUnits for kind=' + (target && target.kind));
       return onDone && onDone('bad-target');
     }
+
     // resolveTarget() resolves OWN towns to kind 'town' (that is how a support
     // run addresses them), so nothing downstream stopped an attack/revolt on a
     // town we already hold: a guaranteed server rejection that still costs a
@@ -556,6 +560,7 @@
       else gbLog('attack response: ok');
       if (onDone) onDone(null, data);
     };
+
     // Canonical transport. The game client does NOT send a town attack through
     // frontend_bridge: TownAttack.prototype.sendUnits builds
     //   u = {<unit>:n, …, id:<target town>, type:'attack'|'support'|'revolt'}
@@ -582,6 +587,7 @@
     const args = {};
     for (const k of Object.keys(tplArgs)) {
       if (k === 'id' || k === 'town_id') continue;
+
       // A learned request may contain old unit counts as strings. Never carry
       // those into a new composition; only send the freshly selected units.
       if (k === 'militia' || unitMeta(k)) continue;
@@ -600,6 +606,7 @@
       arguments: args,
       town_id: +srcTownId,
     };
+
     // Summary by default. The full payload carries the learned template verbatim
     // (target ids, unit composition) and the Log tab is what users copy into
     // issues; the raw dump is available with the same redaction switch that
@@ -622,7 +629,6 @@
     attackArmed = null;
     renderAttack();
   }
-
   function patchAttackFireStatus() {
     const sec = panel && panel.querySelector('section[data-tab=attack]');
     if (!sec || sec.hidden) return;
@@ -639,7 +645,6 @@
     const armed = sec.querySelector('#gb-atk-armed');
     if (armed) armed.textContent = attackArmed ? `ARMED (${attackArmed.rows.length})` : '';
   }
-
   const ATTACK_ARM_MAX_MS = 90000;
   function armAttackWave(plan, rows) {
     cancelArmedAttack();
@@ -823,6 +828,9 @@
       // Membership, not order — the v1.4.0 keyed-row rule. Comparing positions
       // means the first column-sort handler added to this table would wipe the
       // rows (and the user's sort) on every repaint.
+      // Membership, not order — the v1.4.0 keyed-row rule. Comparing positions
+      // means the first column-sort handler added to this table would wipe the
+      // rows (and the user's sort) on every repaint.
       const wantedSet = new Set(wanted);
       const sameSet = !table.dataset.empty && have.length === wanted.length && have.every(k => wantedSet.has(k));
       if (!sameSet) {
@@ -830,6 +838,8 @@
         delete table.dataset.empty;
         const hdr = document.createElement('div');
         hdr.style.cssText = 'display:grid;grid-template-columns:1.2fr .7fr .9fr .7fr .8fr;gap:4px;color:#888;font-size:9px;margin-bottom:2px';
+        // LITERAL ONLY - no interpolation. Town names reach this table through
+        // textContent on the row cells, never through the header string.
         // LITERAL ONLY - no interpolation. Town names reach this table through
         // textContent on the row cells, never through the header string.
         hdr.innerHTML = '<span>town</span><span>travel</span><span>sendAt</span><span>boats</span><span>status</span>';

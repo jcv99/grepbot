@@ -10,13 +10,34 @@ into `grepbot.user.js`. **ToS-breaking** — runs against any `*.grepolis.com`
 world; ban risk is user-accepted. HIGH-RISK toggles (recruit, dodge auto, favor,
 god spells, support send, resource dump, emergency cave) default OFF.
 
-Current: **v5.2.2**, 50 modules, ~1.1 MB artifact. Everything is coded; the
+Current: **v5.8.2**, 52 modules, ~1.3 MB artifact. `src/` reproduces the
+artifact exactly again: the externally built v5.8.0 drop-in has been reconciled
+back into `src/`, and `build.py` now refuses to overwrite an artifact whose
+`@version` is newer than `src/` (`--force` overrides). Everything is coded; the
 outstanding work is **manual in-game validation** on `es146`.
 
 **NO SERVER.** No `server.py`, no `127.0.0.1:*`, no `/api/*`, no XPI
 self-update, no log relay, no AI command channel. Paste-only: build → install
 `grepbot.user.js` in Tampermonkey → Export/Copy from the panel. Never ship an
 anticaptcha solver and never reintroduce a phone-home server.
+
+## Session start (60 seconds)
+
+Run these in order. Skip output unless something looks wrong.
+
+```sh
+rtk git log --oneline -10                       # recent state
+rtk git status                                  # dirty tree?
+rtk git diff src/header.js | rtk grep @version  # current version
+mcp__codebase-memory-mcp__index_status          # graph fresh?
+```
+
+Read `AGENTS.md` first if this is your first turn in the repo. Read
+`docs/REGRESSIONS.md` § entries that name any module you plan to touch.
+
+If graph is missing → `mcp__codebase-memory-mcp__index_repository`.
+If `src/` changed since the last build → `python3 build.py`.
+If `grepbot.user.js` is older than `src/header.js` → rebuild before editing.
 
 ## Repo layout
 
@@ -249,6 +270,8 @@ contract, risk class and why a tempting shortcut is forbidden.
 | `merchant.js` / `favor.js` / `god-spells.js` / `wonder.js` | `merchantScan`, `favorScan`, `godSpellScan`, `wonderScan` | all OFF (favor + spells HIGH-RISK) | merchant needs exact item id + explicit price; favor needs `temple_plunder` + farm_town target; spells need an operator-typed power id; wonder day from `gameNow()` |
 | `dodge.js` | `dodgeScan` (5s) | `dodgeMode` `'notify'` (`'auto'` HIGH-RISK), `autoMilitia` OFF | hostile-only canonical types (`is_attack` / attack command names), never `incoming`/`started_at` alone; militia is its own toggle + captcha feature; never dodge into a town that itself has incoming |
 | `support.js` | `supportScan` | `supportCfg.auto` OFF (HIGH-RISK) | own `supportTpl`, confirm gate per destination, own lock + captcha key; rides `dodgeScan`, only arms for movements dodge didn't act on |
+| `reinforce.js` | `renderReinforce`, `rfArmWave`, `rfFireNow` | manual arm only (Militar > Refuerzos) | mission is fixed to `support`, so own towns are legal targets; its own plan + storage key so an armed attack wave is never rewritten; arm window capped by `RF_ARM_MAX_MS` |
+| `spy-send.js` | `renderSpySend`, `spsRun`, `spsStop` | manual only (Militar > Espionaje) | rapido (chunked waves) or masivo (one send); silver read from the cave, route is the client's own `town_info`/`spy` post, never guessed; `spsStop` is the kill switch |
 | `recruit.js` | `recruitScan` | `autoRecruit` OFF (HIGH-RISK) | controller resolved from unit metadata (barracks/docks/temple); unknown unit cost blocks |
 | `attack.js` / `military.js` / `shared-plan.js` | planner dialog, `sharedPlanImport` | manual confirm only | `attackTpl` learned by `sniffBridgeBody`; town targets only + overdue refuse + 90s arm window; shared plans are **paste-import only**, never fetched, never auto-sent |
 | `quests.js` | `questScanTick`, `questAutoClaim` | `questAutoRes`, `questAutoBuild` | auto-claim only when **every** reward is safe; no DOM fallback after a bridge timeout; success after model reconcile |
@@ -308,6 +331,129 @@ In-app SPA navigation (Reports / World / Farms) keeps the tab visible → no
 unavoidable without a service worker, which is why armed timers always keep an
 interval as the safety net and `boot.js` re-scans on
 `visibilitychange`/`pageshow`.
+
+## Agents
+
+This project is maintained by AI agents (Claude Code + the cavecrew
+subagents). The rules below apply project-wide — every agent, every turn,
+every file.
+
+**Codebase memory first.** Use `codebase-memory-mcp` tools before plain
+Grep/Glob/Read for any code question: `search_graph` / `search_code` to
+find symbols and text; `trace_path` for call chains and impact;
+`get_code_snippet` for exact source ranges; `query_graph` for multi-hop
+Cypher patterns; `get_architecture` for package/structure overview. Plain
+Grep/Glob/Read stays for text, configs, and always before editing a file.
+Unindexed repo → run `index_repository` first.
+
+**Cavecrew delegation.** Match scope to subagent — never spawn a vanilla
+`Explore` for what a cavecrew agent handles cheaper:
+
+- `cavecrew-investigator` (read-only locate) — "where is X", "list callers
+  of Y", "map this directory". Returns a `file:line` table. No fixes.
+- `cavecrew-builder` (1–2 file edit) — typo, single-function rewrite,
+  mechanical rename, comment removal. Refuses 3+ file scope.
+- `cavecrew-reviewer` (diff/branch/file) — one line per finding,
+  severity-tagged. Use for PR review, audit, last-look.
+
+Default: spawn the cheapest subagent that fits the scope. Inline work only
+when trivially bounded or already in context.
+
+**Caveman style.** Chat output: terse, drop articles, filler, pleasantries
+and hedging; fragments OK. Code, commits, and PRs: normal style. Security
+warnings, destructive actions, and multi-step ambiguity drop caveman and
+write full sentences. Level persists until changed ("stop caveman" or
+"normal mode"). Default `full`.
+
+**RTK prefix.** Every shell command — `rtk`. Dedicated filter when RTK has
+one; passthrough otherwise. Chains count (`rtk git add && rtk git commit`).
+No exceptions.
+
+**Version commit rule.** Every `@version` bump in `src/header.js` lands as
+one new git commit in the same turn. Flow: edit `src/` → bump `@version`
+→ `python3 build.py` → commit (build gates 1/2/4 already failed the turn
+if the artifact is not written; commit the artifact plus src delta
+together).
+
+Commit footer: `Co-Authored-By: Claude <noreply@anthropic.com>`. Tag
+pattern: `v<version>` on the commit that lands the bump (optional, manual).
+Never combine a version bump with an unrelated feature — one version = one
+logical change. Skip the rule only when (a) the `src/` edit is
+version-neutral (comment, docs, refactor with no behavior change), or (b)
+the build failed and the bump is being reverted.
+
+## Module change protocol
+
+Editing a `src/*.js` module? Run this list top-to-bottom.
+
+1. Read the module's top-of-file header comment — it states the contract
+2. Skim `docs/REGRESSIONS.md` for entries that name the module
+3. Identify which **Hard rules** your edit touches; re-read those rules
+4. New write feature → register in `TX_WRITE_FEATURES` (`planner.js`)
+5. New config control → `gbCfgGroup` + explicit `data-cfg` + pinned `<option value>`
+6. New user-facing string → Spanish per **UI language**; em dash for unreadable
+7. Behavior change → bump `@version` in `src/header.js`
+8. `python3 build.py` (gates 1/2/4 must pass; exit 1 = no artifact)
+9. Optional smoke: `node .claude/skills/run-grepbot/driver.mjs`
+10. **Same turn** commit per the Version commit rule above
+
+## Don't break this
+
+Invariants whose violation ships as a silent regression, not a build error.
+
+| Invariant | Where | Consequence if broken |
+|---|---|---|
+| `build.py` MODULES order | `build.py` | One IIFE = one scope; reorder = TDZ at boot |
+| `TX_WRITE_FEATURES` list complete | `planner.js` | New write takes READ path, skips every guard |
+| Guard order in `txRun` | `tx.js` | dry → breaker → safe → health → dedup → planner → budget → captcha |
+| `BOOT_TIMING` constants | `boot.js` | Naked ms literal in boot.js is a regression |
+| Lock registry only via `gbLock`/`gbUnlock` | `core.js` | Module-local `*InFlight` boolean bypasses TTL sweep |
+| `data-cfg` values stable | `ui.js` | `bindConfig` resolves by attribute, not label text |
+| `<option value>` pinned | every `<select>` | Server reads value, not visible text |
+| `innerHTML` via `gbLit`/`gbSafe` | `core.js` | Raw `innerHTML` + wire value = XSS |
+| Repaint via `gbPaint(host, build, {key})` | `core.js` | Bare `replaceChildren` wipes focus mid-type |
+| Learned templates per feature, not shared | `farms.js` etc. | `supportTpl ≠ attackTpl` on purpose |
+| `state.dryRun` honored end-to-end | `tx.js` | Bypassing bridge = no dry-run coverage |
+| `*Soon` coalescers inside sweeps | `core.js` | Bare `save`/`render*` in sweeps loses tail on tab exit |
+| `txSave` deliberately NOT debounced | `tx.js` | Committed tx must be durable before next tick |
+| `state.decisions` ring 400, 7-day TTL | `core.js` | Bloat = decision memory misses |
+| `ORCH_MAX_PER_TICK = 3`, jitter ±20% | `core.js` | Naked numbers in `orchTick` is a regression |
+| `data-cfg` rows inside 11 `gbCfgGroup` blocks | `ui.js` | Control in wrong group = filter can't find it |
+
+## Diagnostic commands
+
+When something looks broken, run the matching grep first. Logs live under
+`data/grepbot-smoke.log` (smoke driver) and the in-game panel Log tab
+(ring 200, copied via Export).
+
+| Symptom | Grep / command |
+|---|---|
+| Build fails gate 1 (dup decl) | `rtk grep -nE "^(function\|const\|let\|var) [A-Za-z_]" src/*.js \| sort \| uniq -d` |
+| Build fails gate 2 (node --check) | `node --check grepbot.user.js` |
+| Build fails gate 4 (ASCII) | `rtk grep -nP '[^\x00-\x7F]' src/*.js` |
+| Panel won't open | log grep `hudEnsure` + DOM `#gb-panel` exists |
+| Feature posts nothing | log grep `<feature>\|skip:` |
+| Lock stuck | log grep `gbLock\|gbUnlock\|gbUnlockAll` |
+| Captcha ladder tripping | log grep `captcha\|gbServerCooldown` |
+| Decision memory blocking | log grep `remembered\|jrnFailStreak` |
+| Journal ring full | log grep `journal\|saveFlush\|decisions` |
+| Storage quota near limit | log grep `quota\|storage\|prune` |
+| HIGH-RISK toggle off but acted | log grep `safeMode\|HIGH-RISK` |
+| `state.*` weird | Export → Diagnóstico dump, then `rtk json data/<dump>.json` |
+| Version drift | `rtk git diff src/header.js \| rtk grep @version` |
+| Build not run after `src/` edit | `stat -c %Y grepbot.user.js src/header.js` → compare mtimes |
+| Decision strikes climbing | log grep `skip:planner-\|skip:tradeCap` |
+
+## Session end checklist
+
+Before signing off a turn:
+
+- [ ] `src/` behavior change → `@version` bumped + built + committed (same turn)
+- [ ] `src/` comment/doc-only → no version bump, no extra commit
+- [ ] New `src/*.js` module → added to `build.py` MODULES, build passes
+- [ ] `docs/REGRESSIONS.md` only edited when a new bug was actually fixed
+- [ ] No dirty `git status` unless intentional
+- [ ] No pending background tasks (`CronList` empty unless recurring is wanted)
 
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands

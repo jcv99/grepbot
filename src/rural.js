@@ -44,11 +44,10 @@
       town_id: +townId,
     }, onDone);
   }
-
   // Normalize to SECONDS: gameNow() is a second epoch, so a client that reports
   // one of these fields in MILLIS made `readyAt > gameNow()` permanently true
   // and the relation self-skipped every cadence, forever.
-  const RURAL_MS_EPOCH_FLOOR = 1e12; // ~2001 read as ms; year 33658 read as s
+  const RURAL_MS_EPOCH_FLOOR = 1e12;
   function ruralTradeReadyAt(a) {
     let v = gbProbeAttr(a, ['trade_at', 'tradeable_at', 'next_trade_at', 'lootable_at']);
     if (v == null || !(v > 0)) return null;
@@ -140,7 +139,7 @@
       return a ? (+a.att || 0) + (+a.def || 0) - (+a.used || 0) : 0;
     } catch (_) { return 0; }
   }
-  const KP_UNLOCK_MIN = 100; // stop unlocking when KP ≤ this; upgrades resume only when no locked villages remain
+  const KP_UNLOCK_MIN = 100;
   function ruralLevelScan(reason) {
     if (!hostEnabled() || !state.autoRuralLevel || captchaPaused('rurallevel')) return;
     if (automationPaused({})) return;
@@ -174,10 +173,12 @@
     // Upgrades resume once locked.length === 0 (user policy: unlock everything first).
     const jobQueue = [];
     if (locked.length > 0) {
+
       // KP gate: hold off unlocks when KP has dropped to ≤ KP_UNLOCK_MIN.
       // 6th+ unlock costs 100 KP, so this is the natural threshold below which no new unlock fires.
       if (available > KP_UNLOCK_MIN) {
         const startUnlocked = relations.length - locked.length;
+
         // Queue every locked village across every own-town island. Per-fire KP re-check
         // (below) stops the batch if KP drains mid-queue or another post fails.
         for (const tid of townIds) {
@@ -194,6 +195,7 @@
           gbLogT('rurallevel-no-island-match', 180000, 'rural-level: locked villages exist but none match own-town islands');
           return;
         }
+
         // Locked-attached metadata: cost steps up per successful unlock in this pass.
         jobQueue._startUnlocked = startUnlocked;
       } else {
@@ -201,6 +203,7 @@
         return;
       }
     } else {
+
       // UPGRADE PHASE: world-wide locked.length === 0, so upgrades are safe to fire.
       // Walk every own-island relation once per upgrade step (level - 1 → level);
       // each relation advances at most one step per pass, so maxLvl-1 logical
@@ -216,6 +219,7 @@
             if (+a.relation_status !== 1) continue;
             if (a.expansion_at) continue;
             const stage = +a.expansion_stage || 0;
+
             // Relation is exactly one step behind `level`; not "stage <= level"
             // (which re-pushed the same relation up to maxLvl-1 times while
             // debiting `available` on every push).
@@ -234,6 +238,7 @@
       gbLogT('rurallevel-idle', 180000, `rural-level: idle (${scanReason(reason)})`);
       return;
     }
+
     // Batch dispatch: a single lock guards the whole queue so the orch tick can't
     // double-fire. Lock TTL scales with queue length (≈1s/job, cap 10min).
     const lockTtl = Math.min(600000, Math.max(180000, jobQueue.length * 1500));
@@ -248,11 +253,12 @@
         return;
       }
       const j = jobQueue[i++];
+
       // Pre-fire KP gate: only matters for unlock; stops the batch mid-queue.
       if (j.kind === 'unlock') {
         const cur = ruralKillpoints();
         if (cur <= KP_UNLOCK_MIN) { stopped = 'kp-low'; return next(); }
-        const idx = startUnlocked + done; // how many unlock slots already taken this pass
+        const idx = startUnlocked + done;
         const need = idx < unlockCosts.length ? unlockCosts[idx] : 100;
         if (cur < need) { stopped = 'kp-short(need ' + need + ')'; return next(); }
       }
@@ -268,6 +274,7 @@
         if (!err) {
           done++;
         } else if (j.kind === 'unlock') {
+
           // One bad unlock stops the batch — server already charged KP; firing the next one
           // would compound the loss. Upgrades resume next pass.
           stopped = 'unlock-err:' + err;
@@ -276,5 +283,4 @@
       });
     })();
   }
-
   const RESEARCH_CS_FAST = ['booty', 'ceramics', 'architecture', 'crane', 'shipwright', 'colonize_ship', 'mathematics'];

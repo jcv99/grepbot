@@ -64,6 +64,7 @@
     const maxC = Math.min(8, Math.max(1, +cfg.maxConcurrent || 2));
     const fav = favorCurrent();
     const god = cfg.god || 'athena';
+
     // `fav.favor` is whichever god the client happens to expose as "current" —
     // reading it as this god's pool compared the wrong number against the
     // threshold and either farmed favor that was already full or refused to.

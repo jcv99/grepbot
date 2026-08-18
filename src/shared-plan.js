@@ -12,10 +12,8 @@
   //
   // A target is only STAGED. Firing still goes through the existing attack
   // planner, its confirm gate and its arm window - this module adds no post.
-
   const SHARED_PLAN_MAX_TARGETS = 40;
   const SHARED_PLAN_VERSION = 1;
-
   // {ok, targets, rejected, errors}. Rejects rather than repairs: a malformed
   // target in a plan from a stranger is exactly the thing not to coerce.
   function sharedPlanValidate(plan) {
@@ -23,6 +21,7 @@
     if (!plan || typeof plan !== 'object' || Array.isArray(plan)) return { ok: false, targets, rejected, errors: ['no es un plan'] };
     if (+plan.v !== SHARED_PLAN_VERSION) errors.push(`version ${plan.v} no soportada (esperada ${SHARED_PLAN_VERSION})`);
     const host = plan.author && plan.author.host;
+    // A plan for another world names town ids that mean nothing here.
     // A plan for another world names town ids that mean nothing here.
     if (host && String(host) !== String(location.host)) errors.push(`mundo distinto: ${host} != ${location.host}`);
     const list = Array.isArray(plan.targets) ? plan.targets : [];
@@ -34,6 +33,7 @@
       const intent = (t.intent === 'support') ? 'support' : 'attack';
       const num = v => (Number.isFinite(+v) ? +v : null);
       const arriveAt = t.window && Number.isFinite(+t.window.arriveAt) ? +t.window.arriveAt : null;
+      // An arrival already in the past is not a plan, it is a stale file.
       // An arrival already in the past is not a plan, it is a stale file.
       if (arriveAt != null && arriveAt * (arriveAt > 1e12 ? 0.001 : 1) < gameNow()) {
         rejected.push(`${id}: ventana ya pasada`);
@@ -104,7 +104,6 @@
     const plan = ensureAttackPlan();
     return (Array.isArray(plan.targets) ? plan.targets : []).map(t => String(t.id));
   }
-
   function renderSharedPlan(sec) {
     const box = sec && sec.querySelector('.atk-shared');
     if (!box || sec.hidden) return;

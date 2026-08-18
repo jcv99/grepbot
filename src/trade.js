@@ -44,7 +44,6 @@
       nl_init: true,
     }, onDone);
   }
-
   let tradeIncomingCache={at:0,known:false,value:Object.create(null)};
   function tradeIncomingByTown() {
     if(Date.now()-tradeIncomingCache.at<1000)return {known:tradeIncomingCache.known,byTown:tradeIncomingCache.value};
@@ -67,12 +66,13 @@
     }catch(_){}}
     tradeIncomingCache={at:Date.now(),known,value:out};return {known,byTown:out};
   }
-
   function tradeLedger(towns) {
     const incomingState=tradeIncomingByTown();if(!incomingState.known)return null;const L = Object.create(null),incoming=incomingState.byTown;
     for (const t of towns) {
       const mov=incoming[String(t.id)]||{},pending=plannerSnapshot(t.id)?.incoming||{};
       L[t.id] = {
+        // Counting both visible movements and short-lived transaction holds can
+        // temporarily double count, which is intentionally safer than overfill.
         // Counting both visible movements and short-lived transaction holds can
         // temporarily double count, which is intentionally safer than overfill.
         wood: t.wood+(+mov.wood||0)+(+pending.wood||0), stone: t.stone+(+mov.stone||0)+(+pending.stone||0), iron: t.iron+(+mov.iron||0)+(+pending.iron||0),
@@ -105,6 +105,9 @@
       if (!src || !(src.cap > 0) || src.tradeCap < minBatch) continue;
       for (const res of RES) {
         if (src[res] / src.cap < 0.97) continue;
+        // Pick the target with the most headroom in this resource, instead of
+        // the first pushable one — the inner `break` after `jobs.push` was
+        // capping per (src, res) at 1 anyway, but it was the wrong 1.
         // Pick the target with the most headroom in this resource, instead of
         // the first pushable one — the inner `break` after `jobs.push` was
         // capping per (src, res) at 1 anyway, but it was the wrong 1.
@@ -220,6 +223,7 @@
     return Math.max(0, tgt.cap - (+tgt[res] || 0));
   }
   function tradeGoalDeficit(townId, preset) {
+
     // → {wood,stone,iron} | null (blind / nothing)
     if (preset === 'party') {
       if (typeof ironReservedForCave === 'function') {
@@ -230,14 +234,15 @@
         }
       }
       const types = state.cultureTypes || {};
-      const order = ['festival', 'theater', 'procession']; // olympic excluded (gold)
+      const order = ['festival', 'theater', 'procession'];
       let ctype = null;
       for (const ui of order) {
         if (!types[ui]) continue;
         ctype = ({ festival: 'party', procession: 'triumph', theater: 'theater' })[ui] || ui;
-        if (ctype === 'triumph') continue; // killpoints, not resources
+        if (ctype === 'triumph') continue;
         break;
       }
+
       // No resource-priced celebration enabled = the preset has no goal at all.
       // Returning a zero deficit made that look like "already satisfied", which
       // is indistinguishable from a healthy town in the Log. Log + skip.
@@ -254,6 +259,7 @@
     }
     if (preset === 'unit') {
       const want = (state.recruitTargets || {})[townId] || (state.recruitTargets || {})[String(townId)];
+
       // No recruit target for this town = no goal, not a satisfied one.
       if (!want || typeof want !== 'object') {
         gbLogT('trade-unit-notarget-' + townId, 300000, `trade unit: town ${townId} has no recruit target - skipping preset`);
@@ -286,7 +292,7 @@
     const jobs = [];
     for (const tgt of towns) {
       const goal = tradeGoalDeficit(tgt.id, preset);
-      if (goal == null) continue; // blind
+      if (goal == null) continue;
       const cur = ledger[tgt.id];
       if (!cur) continue;
       const deficit = {
@@ -296,6 +302,7 @@
       };
       const needTotal = deficit.wood + deficit.stone + deficit.iron;
       if (needTotal < minBatch) continue;
+
       // Prefer donor with largest surplus of the scarcest needed resource
       const needKey = ['wood', 'stone', 'iron'].sort((a, b) => deficit[b] - deficit[a])[0];
       const donors = towns.filter(s => s.id !== tgt.id).map(s => {
@@ -310,6 +317,7 @@
       for (const d of donors) {
         if (jobs.length >= 6) return jobs;
         const src = d.src;
+
         // Goal presets are deficit-driven, so the half-gap rule does not apply, but the
         // free-space cap does: a haul over the target warehouse is lost on arrival.
         const room = {
@@ -381,6 +389,9 @@
     // The fallback id must be STABLE: a timestamp would mint a fresh id on
     // every scan, miss the runtime throttle map, and let the route fire every
     // tick while leaking one stale entry per scan.
+    // The fallback id must be STABLE: a timestamp would mint a fresh id on
+    // every scan, miss the runtime throttle map, and let the route fire every
+    // tick while leaking one stale entry per scan.
     const id = /^[A-Za-z0-9_:-]{1,32}$/.test(String(raw.id || '')) ? String(raw.id)
       : ('r_' + from + '_' + to + (idx == null ? '' : '_' + idx));
     return {
@@ -424,10 +435,14 @@
     const liveIds = new Set(Object.keys(stored));
     // Drop runtime rows for routes the user deleted, or the map grows for the
     // life of the page across route edits.
+    // Drop runtime rows for routes the user deleted, or the map grows for the
+    // life of the page across route edits.
     for (const k of Object.keys(tradeRouteRuntime)) if (!liveIds.has(k)) delete tradeRouteRuntime[k];
     for (const [key, raw] of Object.entries(stored)) {
       const route = tradeRouteClean(raw, null);
       if (!route || !route.enabled) continue;
+      // The STORAGE key is the identity, not whatever id the payload carries:
+      // that is what keeps the throttle attached to the route the user edited.
       // The STORAGE key is the identity, not whatever id the payload carries:
       // that is what keeps the throttle attached to the route the user edited.
       route.id = key;
@@ -438,6 +453,10 @@
         gbLogT('trade-route-blind-' + route.id, 600000, `trade route ${route.id}: ${route.from}->${route.to} town state unreadable - idling`);
         continue;
       }
+      // The trigger reads the LEDGER, which already carries in-flight arrivals.
+      // Reading the live warehouse instead would let a 'below 60%' route re-fire
+      // on every scan until the first haul physically lands, stacking several
+      // shipments for a target that is already on its way to being full.
       // The trigger reads the LEDGER, which already carries in-flight arrivals.
       // Reading the live warehouse instead would let a 'below 60%' route re-fire
       // on every scan until the first haul physically lands, stacking several
@@ -488,7 +507,6 @@
     }
     return jobs;
   }
-
   function tradeValidateJob(job) {
     const src = tradeTownRes(job.from), tgt = tradeTownRes(job.to);
     if (!src || !tgt || !(src.cap > 0) || !(tgt.cap > 0)) return { ok: false, why: 'town-state-unreadable' };
@@ -499,15 +517,19 @@
     const pav = plannerAvailable(job.from, {allowSoft:false});
     const incomingState=tradeIncomingByTown();if(!incomingState.known)return {ok:false,why:'incoming-trades-unreadable'};const mov=incomingState.byTown[String(job.to)]||{},pending=plannerSnapshot(job.to)?.incoming||{};
     if (!pav) return { ok:false, why:'planner-unreadable' };
-    if (!(total > 0) || src.tradeCap < total || pav.tradeCap == null || pav.tradeCap < total) return { ok: false, why: 'merchant-capacity' };
+
+    const num = (v) => (Number.isFinite(+v) ? +v : null);
+    const srcCap = num(src.tradeCap), pavCap = num(pav.tradeCap);
+    if (!(total > 0) || srcCap == null || srcCap < total || pav.tradeCap == null || pavCap == null || pavCap < total) return { ok: false, why: 'merchant-capacity' };
     for (const k of ['wood','stone','iron']) {
       const n = +job[k] || 0;
-      if (n < 0 || src[k] - n < keep || pav[k] < n) return { ok: false, why: `source-${k}` };
-      if (tgt[k] + (+mov[k]||0) + (+pending[k]||0) + n > tgt.cap) return { ok: false, why: `target-${k}-capacity` };
+      const have = num(src[k]), avail = num(pav[k]), dest = num(tgt[k]), destCap = num(tgt.cap);
+      if (have == null || avail == null || dest == null || destCap == null) return { ok: false, why: `unreadable-${k}` };
+      if (n < 0 || have - n < keep || avail < n) return { ok: false, why: `source-${k}` };
+      if (dest + (+mov[k]||0) + (+pending[k]||0) + n > destCap) return { ok: false, why: `target-${k}-capacity` };
     }
     return { ok: true };
   }
-
   // Towns with at least one hostile incoming movement. Returns null when the
   // MovementsUnits model is unreadable — a blind set is not "no one is
   // attacked", and a trade scan that ships to a town we cannot read is the
@@ -534,7 +556,6 @@
     if (!u.known || !u.value) return false;
     return u.value.has(String(townId));
   }
-
   function tradeScan(reason) {
     if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes && !state.autoDump) || captchaPaused('trade')) return;
     if (automationPaused({})) return;
@@ -551,12 +572,14 @@
     // sub-planner cannot over-plan a target these already filled.
     if (state.autoTradeRoutes) jobs = jobs.concat(tradeRouteJobs(towns, ledger));
     if (state.autoTransport) jobs = jobs.concat(transportBalanceJobs(towns, ledger));
+
     // Dump is explicit user policy, so it outranks the heuristic cascade below
     // but yields to the routes above it.
     if (state.autoDump) jobs = jobs.concat(dumpJobs(towns, ledger));
 
     if (state.autoTrade && preset === 'storage') {
       jobs = jobs.concat(tradeFillStorageJobs(towns, ledger));
+
       // Only when the normal rule found nothing and a deadlock is open: the
       // default 25%-empty target rule exists to stop pointless shuffling and
       // must stay as-is for every other tick.
@@ -569,6 +592,7 @@
       jobs = jobs.concat(tradeGoalJobs(towns, ledger, preset));
     }
     if (state.islandShip) jobs = jobs.concat(tradeIslandShipJobs(towns, ledger));
+
     // Block every shipment to a town with an incoming hostile movement.
     // Routes, fill-storage, deadlock, island, dump and goal presets all flow
     // through this single gate so the user-visible rule — "do not feed a city
@@ -617,4 +641,3 @@
       });
     })();
   }
-

@@ -33,6 +33,9 @@
     // Expire before evicting: a burst of 25 posts inside 8s used to drop the
     // OLDEST live watchers silently, and those posts then had no raw-response
     // settle left and hung the full BRIDGE_TIMEOUT_MS on any rejection.
+    // Expire before evicting: a burst of 25 posts inside 8s used to drop the
+    // OLDEST live watchers silently, and those posts then had no raw-response
+    // settle left and hung the full BRIDGE_TIMEOUT_MS on any rejection.
     const now = Date.now();
     for (let i = gbAjaxPending.length - 2; i >= 0; i--) {
       if (now - gbAjaxPending[i].at > GB_AJAX_WATCH_MS) gbAjaxPending.splice(i, 1);
@@ -78,6 +81,8 @@
     const act = (u.match(/[?&]action=([a-z_0-9]+)/i) || [])[1] || '';
     if (ctrl && act) {
       out.sigs.push('ajax:' + ctrl + '/' + act);
+      // parseBodyLoose only unwraps `json` for bridge-shaped payloads, so peel
+      // it here to line the body up with the `data` object the watcher holds.
       // parseBodyLoose only unwraps `json` for bridge-shaped payloads, so peel
       // it here to line the body up with the `data` object the watcher holds.
       let payload = j;
@@ -128,6 +133,9 @@
       // Cap the parse input. The noteCaptchaBody substring sniff (4 KB) is
       // upstream of this; this guard is the second line against an oversized
       // hostile body.
+      // Cap the parse input. The noteCaptchaBody substring sniff (4 KB) is
+      // upstream of this; this guard is the second line against an oversized
+      // hostile body.
       const src = d.length > GB_AJSON_PARSE_MAX ? d.slice(0, GB_AJSON_PARSE_MAX) : d;
       try { d = JSON.parse(src); } catch (_) {}
     }
@@ -135,6 +143,10 @@
     else if (typeof d !== 'object') d = { data: d };
     if (raw.plain && typeof raw.plain === 'object') {
       const merged = Object.assign({}, d, raw.plain);
+      // Last-wins merge could overwrite a true captcha flag from `json` with a
+      // falsy/absent one from `plain`, and the post would then be classified as
+      // success while the bot keeps posting into the captcha wall. A captcha
+      // flag set on EITHER side wins.
       // Last-wins merge could overwrite a true captcha flag from `json` with a
       // falsy/absent one from `plain`, and the post would then be classified as
       // success while the bot keeps posting into the captcha wall. A captcha
@@ -147,15 +159,40 @@
     }
     return d;
   }
-  function isSelfBridge(j) {
-    if (!j || !lastSelfBridge.sig || lastSelfBridge.owner !== GB_INSTANCE_ID) return false;
-    if (Date.now() - lastSelfBridge.at > 10000) return false;
-    const sig = String(j.model_url || '') + '|' + String(j.action_name || '');
-    if (sig !== lastSelfBridge.sig) return false;
+  function selfBridgeFingerprint(j) {
     try {
-      const fp = JSON.stringify({ model_url: j.model_url || '', action_name: j.action_name || '', arguments: j.arguments || {}, town_id: j.town_id ?? null });
-      return fp === lastSelfBridge.fingerprint;
-    } catch (_) { return false; }
+      return JSON.stringify({ model_url: j.model_url || '', action_name: j.action_name || '', arguments: j.arguments || {}, town_id: j.town_id ?? null });
+    } catch (_) { return ''; }
+  }
+  function selfBridgeNote(payload) {
+    const p = payload || {};
+    const now = Date.now();
+
+    for (let i = selfBridgeLog.length - 1; i >= 0; i--) {
+      if (now - selfBridgeLog[i].at > SELF_BRIDGE_TTL_MS) selfBridgeLog.splice(i, 1);
+    }
+    selfBridgeLog.push({
+      sig: String(p.model_url || '') + '|' + String(p.action_name || ''),
+      fingerprint: selfBridgeFingerprint(p),
+      at: now,
+      owner: GB_INSTANCE_ID,
+    });
+    while (selfBridgeLog.length > SELF_BRIDGE_MAX) selfBridgeLog.shift();
+  }
+  function isSelfBridge(j) {
+    if (!j || !selfBridgeLog.length) return false;
+    const now = Date.now();
+    const sig = String(j.model_url || '') + '|' + String(j.action_name || '');
+    const fp = selfBridgeFingerprint(j);
+    if (!fp) return false;
+    for (let i = 0; i < selfBridgeLog.length; i++) {
+      const e = selfBridgeLog[i];
+      if (e.owner !== GB_INSTANCE_ID) continue;
+      if (now - e.at > SELF_BRIDGE_TTL_MS) continue;
+      if (e.sig !== sig) continue;
+      if (e.fingerprint === fp) return true;
+    }
+    return false;
   }
   function responseServerError(data) {
     const queue=[data],seen=new Set();let steps=0;
@@ -180,11 +217,7 @@
       gbLogT('bridge-timeout-' + feature, 30000, feature + ': bridge timeout ' + BRIDGE_TIMEOUT_MS + 'ms');
       finish('timeout');
     }, BRIDGE_TIMEOUT_MS);
-    lastSelfBridge.sig = String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || '');
-    try { lastSelfBridge.fingerprint = JSON.stringify({ model_url: payload.model_url || '', action_name: payload.action_name || '', arguments: payload.arguments || {}, town_id: payload.town_id ?? null }); }
-    catch (_) { lastSelfBridge.fingerprint = ''; }
-    lastSelfBridge.at = Date.now();
-    lastSelfBridge.owner = GB_INSTANCE_ID;
+    selfBridgeNote(payload);
     const classify = (data) => {
       if (!gbInstanceAlive()) return;
       try {
@@ -203,6 +236,7 @@
         finish(null, data);
       } catch (e) { finish(String(e)); }
     };
+
     // gpAjax only calls back on a non-empty success envelope, so a server-side
     // rejection would otherwise hang until BRIDGE_TIMEOUT_MS. The XHR spy
     // settles this post from the raw response; whichever fires first wins.
@@ -220,6 +254,7 @@
       }
     );
     try {
+
       // gpAjax hands a bare-function callback (data, t_token) - NOT (wnd, data);
       // the window handle is only passed to the {success,error} object form.
       uw.gpAjax.ajaxPost('frontend_bridge', 'execute', payload, false, (data) => classify(data));
@@ -237,6 +272,8 @@
       gbAjaxDrop(watchEntry);
       done(err, res);
     };
+    // Same log as bridgeRaw: an ajax timeout used to be completely silent, so a
+    // dead controller/action looked like "nothing happened" in the Log tab.
     // Same log as bridgeRaw: an ajax timeout used to be completely silent, so a
     // dead controller/action looked like "nothing happened" in the Log tab.
     const timer = gbTimeout(() => {
@@ -266,6 +303,13 @@
       // nothing). Impossible-early (status 0 before 250ms) is a neterr not a
       // timeout - it is almost always a proxy or extension tamper, not a
       // slow server.
+      // Status-first classification per RFC 6585 + MDN HTTP 429/503 guidance:
+      // 429 and 503 mean back off with Retry-After (the server-pressure bus
+      // parses it). A 200 with an empty body is a soft-empty (skip, not
+      // failure, so three in a row do not open a JRN_BACKOFF skip window for
+      // nothing). Impossible-early (status 0 before 250ms) is a neterr not a
+      // timeout - it is almost always a proxy or extension tamper, not a
+      // slow server.
       if (!status) return finish('neterr');
       if (status === 429 || status === 503) {
         try {
@@ -282,6 +326,9 @@
       // Soft-empty 200: empty / whitespace body, JSON-shaped. Short-circuits
       // to 'soft-empty' (a skip class) so the journal doesn't open a hard-error
       // skip window for what is actually a benign transient.
+      // Soft-empty 200: empty / whitespace body, JSON-shaped. Short-circuits
+      // to 'soft-empty' (a skip class) so the journal doesn't open a hard-error
+      // skip window for what is actually a benign transient.
       try {
         const txt = raw && (raw.responseText != null ? raw.responseText : (raw.json != null ? (typeof raw.json === 'string' ? raw.json : '') : ''));
         if (!txt || !String(txt).trim()) return finish('soft-empty');
@@ -289,6 +336,7 @@
       classify(gbAjaxUnwrap(raw));
     });
     try {
+      // Bare-function callback signature is (data, t_token) - see bridgeRaw.
       // Bare-function callback signature is (data, t_token) - see bridgeRaw.
       uw.gpAjax.ajaxPost(controller, action, data, false, (res) => classify(res));
     } catch (e) { finish(String(e)); }
@@ -317,14 +365,12 @@
       gbTimeout(verify, 500);
     }, onDone);
   }
-
   function dryRunFmt(payload) {
     try {
       const s = JSON.stringify(payload);
       return s.length > 220 ? s.slice(0, 220) + '…' : s;
     } catch (_) { return String(payload); }
   }
-
   function httpRetryAfterMs(res) {
     const st = res && res.status;
     if (!(st === 429 || st === 503 || st === 502 || st === 504)) return 0;
@@ -335,7 +381,6 @@
     gbServerCooldown(ms, 'http ' + st);
     return ms;
   }
-
   const _townResCache = Object.create(null);
   const TOWN_RES_CACHE_MS = 3000;
   function townResState(townId) {
@@ -371,6 +416,9 @@
           // `n` stays a RESOURCE count: a town is not blocked from looting just
           // because its population is capped, and every existing caller of `n`
           // (cave stash, deadlock resolver, trade) means "warehouses full".
+          // `n` stays a RESOURCE count: a town is not blocked from looting just
+          // because its population is capped, and every existing caller of `n`
+          // (cave stash, deadlock resolver, trade) means "warehouses full".
           const n = (full.wood ? 1 : 0) + (full.stone ? 1 : 0) + (full.iron ? 1 : 0);
           try { const ps = townPopState(townId); full.pop = !!(ps && ps.warn); } catch (_) { full.pop = false; }
           const fillPct = Math.round(Math.max(wood, stone, iron) / cap * 100);
@@ -391,7 +439,7 @@
   //   {wood, stone, iron, total, blind, blindReason, meta}
   // `blind:true` means UNKNOWN, and a renderer must print "desconocido", never
   // "0" - that distinction is the whole point of the helper.
-  const LOOT_RATE_PER_HOUR = 8000; // vague: grepolis haul rates at ~7k-9k/h at max
+  const LOOT_RATE_PER_HOUR = 8000;
   const LOOT_SAFE_FILL_PCT = 0.6;
   // Per-unit loot carry is NOT named anywhere in src/ and this repo has never
   // seen a client that exposes it. These names are UNVERIFIED probe candidates,
@@ -426,6 +474,8 @@
       const total = Math.round((dur / 3600) * LOOT_RATE_PER_HOUR * (Number.isFinite(loyalty) ? loyalty : 1));
       // fits === null means "headroom unreadable", not "does not fit": the
       // caller must not skip the duration on an unread value.
+      // fits === null means "headroom unreadable", not "does not fit": the
+      // caller must not skip the duration on an unread value.
       const fits = (headroom != null && Number.isFinite(headroom)) ? total <= headroom * LOOT_SAFE_FILL_PCT : null;
       const split = gbLootSplit(total);
       return {
@@ -438,6 +488,8 @@
       let boats = null;
       try { boats = boatCapacityCheck(ctx.units, ctx.sameIsland); } catch (_) {}
       if (!boats) return gbLootBlind('boat-capacity-unreadable', { units: ctx.units });
+      // Transport capacity is not loot; it rides in meta so callers that want
+      // the discriminator get it without a second call.
       // Transport capacity is not loot; it rides in meta so callers that want
       // the discriminator get it without a second call.
       return { wood: 0, stone: 0, iron: 0, total: 0, blind: false, blindReason: null, meta: { boats } };
@@ -454,6 +506,8 @@
       }
       // Any unreadable unit poisons the whole number: a partial sum would read
       // as a full answer and understate the haul.
+      // Any unreadable unit poisons the whole number: a partial sum would read
+      // as a full answer and understate the haul.
       if (unknown > 0 || total <= 0) return gbLootBlind('unit-carry-unknown', { units, unknownUnits: unknown });
       const split = gbLootSplit(total);
       return { wood: split.wood, stone: split.stone, iron: split.iron, total, blind: false, blindReason: null, meta: { units } };
@@ -461,7 +515,6 @@
     gbLogT('loot-calc-bad-kind', 300000, 'loot estimate: unknown kind ' + String(kind));
     return gbLootBlind('unknown-kind', { kind });
   }
-
   // ===== Population state (v4 plan 2.7) ======================================
   // Own cache keyspace so a pop invalidation never trashes the resource memo.
   const _townPopCache = Object.create(null);
@@ -500,6 +553,9 @@
       freePct: (free != null && cap > 0) ? Math.round(free / cap * 100) : null,
       near: usedPct != null && usedPct >= POP_NEAR_PCT,
       warn: usedPct != null && usedPct >= POP_WARN_PCT,
+      // Population growth is not exposed as a rate on stock client builds; a
+      // guard may only block on a value it actually read, so ETA stays null
+      // and the cell renders a dash rather than a fabricated number.
       // Population growth is not exposed as a rate on stock client builds; a
       // guard may only block on a value it actually read, so ETA stays null
       // and the cell renders a dash rather than a fabricated number.
@@ -558,7 +614,6 @@
     return null;
   }
   const GB_RES_KEYS = ['wood', 'stone', 'iron'];
-
   function gbAfford(townId, cost, opts) {
     const o = opts || {};
     const margin = o.margin != null ? +o.margin : 0;
@@ -584,7 +639,6 @@
     }
     return { ok: !blind && short.length === 0, blind, short, detail: short.join(', ') };
   }
-
   function gbBuildingLevel(townId, building) {
     const t = gbTownModel(townId);
     if (!t) return null;
@@ -596,11 +650,14 @@
     } catch (_) {}
     try {
       const a = (t.buildings && t.buildings().attributes) || {};
-      if (a[building] != null) return +a[building] || 0;
+
+      if (a[building] != null) {
+        const v = +a[building];
+        if (Number.isFinite(v)) return v;
+      }
     } catch (_) {}
     return null;
   }
-
   function hostEnabled() {
 
     return state.enabledHosts[location.host] === true && gbTabLeader;
@@ -613,7 +670,6 @@
       gbLog('host ' + h + ' disabled by default — enable in Config');
     }
   }
-
   const CSRF_TOK16 = /^[a-f0-9]{16,64}$/i;
   const CSRF_TOK32 = /^[a-f0-9]{32,64}$/i;
   const CSRF_COOKIE_H = /(?:^|;\s*)h=([a-f0-9]{32,64})(?:;|$)/i;
@@ -622,7 +678,6 @@
     if (!v) return false;
     return (min >= 32 ? CSRF_TOK32 : CSRF_TOK16).test(String(v));
   }
-
   const CSRF_PROBES = [
     [w => w.csrfToken, 16],
     [w => w.csrf_token, 16],
@@ -657,7 +712,6 @@
     }
     return null;
   }
-
   function csrfForceHunt() {
     const fresh = huntCsrf();
     if (fresh && fresh !== state.csrf) {
@@ -679,14 +733,12 @@
 
     gbTimeout(csrfLoop, state.csrf ? 120000 : 5000);
   })();
-
   const JRN_MAX = 400;
   const JRN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
   const JRN_DEDUP_MS = 10 * 60 * 1000;
   const JRN_SAVE_MS = 5000;
   const JRN_FAIL_TRIP = 3;
   const JRN_BACKOFF = [5, 15, 60];
-
   // Local gates only: nothing was ever posted, so none of these is evidence
   // about the endpoint. Anything missing here is charged as a hard error and
   // three of them in a row open a 5/15/60min skip window — a permanent lockout

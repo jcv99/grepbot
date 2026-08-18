@@ -10,6 +10,8 @@
   function banditIsOffenseUnit(uw, id) {
     // Hoplites are balanced troops but are valid attackers. Keep this exception
     // narrow instead of sending every unit marked function_both by the game.
+    // Hoplites are balanced troops but are valid attackers. Keep this exception
+    // narrow instead of sending every unit marked function_both by the game.
     if (BANDIT_ILLEGAL_IDS.test(id)) return false;
     if (/^(godsent|hoplite)$/i.test(id)) return true;
     try {
@@ -104,6 +106,8 @@
       if (Array.isArray(col)) { known = true; col.forEach(push); return; }
       if (Array.isArray(col.models)) { known = true; col.models.forEach(push); }
     };
+
+    try { const all = mmModelsAll('MovementsUnits'); if (all.length) addCollection(all); } catch (_) {}
     try { addCollection(uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits')); } catch (_) {}
     try {
       const cols = uw.MM && uw.MM.getCollections && uw.MM.getCollections().MovementsUnits;
@@ -153,8 +157,13 @@
     const current = useTown ? +evidence.townCount || 0 : +evidence.count || 0;
     let before = useTown ? s.beforeTownMovementCount : s.beforeMovementCount;
     // A globally empty readable collection also proves the per-town baseline was zero.
+    // A globally empty readable collection also proves the per-town baseline was zero.
     if (before == null && useTown && +s.beforeMovementCount === 0) before = 0;
     if (before != null && Number.isFinite(+before)) return current > +before ? 'applied' : 'unchanged';
+    // No persisted baseline (transaction created by an older version): `current
+    // > 0` is not evidence about OUR post — any pre-existing movement, from any
+    // town, committed the transaction as applied. Without a baseline the outcome
+    // is genuinely unknown, and the unknown path already re-checks later.
     // No persisted baseline (transaction created by an older version): `current
     // > 0` is not evidence about OUR post — any pre-existing movement, from any
     // town, committed the transaction as applied. Without a baseline the outcome
@@ -220,6 +229,7 @@
       if (typeof m.getLevel === 'function' && m.getLevel() == null) { gbLogT('bandit-none', 300000, 'bandit: no camp on this world'); banditIdle(300000, 300000); return true; }
       const townId = uw.Game && uw.Game.townId;
       const movement = banditMovementEvidence(uw, townId);
+
       // Reconcile before reward/cooldown branches so a reloaded UNKNOWN write is
       // finalized while its outbound or return movement is still observable.
       const earlyReconciled = movement.known && movement.count > 0 ? banditCommitUnknownFromMovement(townId, movement) : 0;
@@ -235,6 +245,7 @@
         const rewardLock = gbLock('bandit-reward');
         if (!rewardLock) return true;
         gbLog('bandit: reward claim posted via', action, pid || '(no power_id)');
+
         // hasReward() stays true until the model refreshes, and the scan wakes
         // again 1.5s after the lock drops — without an idle window the next tick
         // posted a SECOND claim for a reward that was already taken.
@@ -242,6 +253,7 @@
         post(action, {}, (err) => {
           gbUnlock('bandit-reward', rewardLock);
           if (err) {
+
             // A hard rejection means the reward is not claimable right now;
             // re-posting every 1.5s only burns budget.
             if (err === 'timeout_unknown' || err === 'pending') banditIdle(60000, 60000);
@@ -256,7 +268,14 @@
         });
         return true;
       }
-      const cd = m.getCooldownDuration ? m.getCooldownDuration() : 0;
+
+      let cd = 0;
+      const cdRaw = (typeof m.getCooldownDuration === 'function') ? +m.getCooldownDuration() : NaN;
+      if (Number.isFinite(cdRaw)) cd = cdRaw;
+      else {
+        gbLogT('bandit-cd-blind', 300000, 'bandit: cooldown unreadable (getCooldownDuration) - blind, server decides');
+        banditIdle(60000);
+      }
       if (cd > 0) {
         gbLogT('bandit-cd', 60000, `bandit: cooldown ${Math.floor(cd / 60)}m${cd % 60}s left`);
         banditIdle(cd * 1000);
@@ -335,8 +354,7 @@
     }
     try {
       if (banditViaGame()) return;
-      // Safety: automatic DOM mutation is not a reliable transaction boundary. If the canonical
-      // model/bridge path is unavailable, fail closed instead of filling inputs/clicking buttons.
+
       gbLogT('bandit-dom-disabled', 120000, 'bandit: game bridge unavailable — DOM write fallback disabled (read-only fail closed)');
       banditIdle(30000);
       return;
@@ -378,7 +396,6 @@
   banditScheduleNext();
   gbInterval(autoCollectResources, 5000);
   if (state.autoCollect && state.collectAll) collectAllBackground();
-
   const IB_CHECK_MS = 10000;
   const IB_FREE_ACTIONS = new Set(['buyInstant']);
   const IB_FREE_SERVER_MARGIN_SEC = 10;

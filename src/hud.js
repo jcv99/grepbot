@@ -7,12 +7,10 @@
   // Every unreadable value renders an em dash, never 0. "The rate could not be
   // read" and "this town produces nothing" are different facts, and a
   // fabricated ETA is worse than no ETA.
-
   const HUD_TICK_MS = 1000;
   const HUD_ETA_CAP_H = 24;
   let hudProdWidget = null;
   let hudEtaWidget = null;
-
   function hudCurrentTownId() {
     try { const id = gameUw().Game && gameUw().Game.townId; if (id != null) return String(id); } catch (_) {}
     const t = (state.towns || [])[0];
@@ -23,6 +21,7 @@
     try { ids = Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}).map(String); } catch (_) {}
     if (!ids.length) ids = (state.towns || []).map(t => String(t.id));
     const cur = hudCurrentTownId();
+    // Selected town first, everything else in its natural order.
     // Selected town first, everything else in its natural order.
     return cur && ids.includes(cur) ? [cur].concat(ids.filter(x => x !== cur)) : ids;
   }
@@ -80,6 +79,7 @@
     if (!incoming.length) { body.appendChild(hudCell('sin ataques entrantes', 'var(--gb-fg-mute)')); return; }
     const rows = incoming
       .map(m => ({ m, eta: dodgeEtaSec(m) }))
+
       // Unreadable ETA sorts LAST, not first: an unknown clock is not an
       // imminent one.
       .sort((a, b) => (a.eta == null ? Infinity : a.eta) - (b.eta == null ? Infinity : b.eta));
@@ -94,6 +94,7 @@
       row.appendChild(hudCell(String(m.type || 'atk')));
       row.appendChild(hudCell('→ ' + townNameById(m.dest)));
       row.appendChild(hudCell('de ' + (m.origin || '?'), 'var(--gb-fg-mute)'));
+
       // CS is its own alarm regardless of ETA.
       if (m.hasCs) row.appendChild(hudCell('[CS]', 'var(--gb-err-3)'));
       let n = 0;

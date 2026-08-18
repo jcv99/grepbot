@@ -7,7 +7,6 @@
   // it a second time — and made every `state.seen[id]` fallback dead code. The
   // key is the bare report id; core.js strips legacy prefixes once on load.
   function seenKey(id) { return String(id); }
-
   // Gate for the XHR `load` reader (see patchedSend). A URL that matches none of
   // these cannot carry a report id or a quest reward, so there is nothing to
   // read out of its body. Deliberately generous - a false positive costs one
@@ -22,7 +21,6 @@
   // longer runs on an unnamed /index.php response; the named report URLs are
   // still caught on the send path by queueReport / queueReportList above.
   const SPY_LOAD_GATE_RE = /report|tombstone|attack_planner|quest|progressable|frontend_bridge/i;
-
   function hookFetch() {
     const uw = gameUw();
     if (!uw.fetch) return;
@@ -51,7 +49,6 @@
     patched.__grepbotOwner = GB_INSTANCE_ID;
     uw.fetch = patched;
   }
-
   function hookXhr() {
     const uw = gameUw();
     if (!uw.XMLHttpRequest) return;
@@ -88,6 +85,9 @@
       // Our own gpAjax posts: gpAjax only calls back on a non-empty success
       // envelope, so settle bridgeRaw/gameAjaxRaw from the raw response here.
       // `loadend` covers success, HTTP error, network failure and abort alike.
+      // Our own gpAjax posts: gpAjax only calls back on a non-empty success
+      // envelope, so settle bridgeRaw/gameAjaxRaw from the raw response here.
+      // `loadend` covers success, HTTP error, network failure and abort alike.
       try {
         const settle = gbAjaxClaim(u, body);
         if (settle) {
@@ -99,6 +99,14 @@
         }
       } catch (_) {}
       try {
+        // Pre-filter on the URL BEFORE attaching. Attaching unconditionally made
+        // every single game XHR materialize responseText and run a full
+        // JSON.parse plus a recursive report walk - the SPA issues these
+        // constantly. Only a URL that could plausibly carry a report or a quest
+        // reward is worth reading.
+        // The `>100KB` branch below is the fallback for a report id buried in a
+        // response whose URL says nothing, so the gate must let big-payload
+        // *bundle* URLs through too; `frontend_bridge` is where those arrive.
         // Pre-filter on the URL BEFORE attaching. Attaching unconditionally made
         // every single game XHR materialize responseText and run a full
         // JSON.parse plus a recursive report walk - the SPA issues these
@@ -137,7 +145,6 @@
     P.send = patchedSend;
     P._grepbot_open = GB_INSTANCE_ID;
   }
-
   // Offline report catch-up - bounded, serial, via the wake queue. The shared
   // lock registry is the single in-flight signal; gbLocked()/gbUnlock() already
   // handle foreign-token rejection, so a local token is redundant.
@@ -166,6 +173,10 @@
         ids.push(id);
       });
     } catch (_) {}
+    // Inbox links carry no timestamp, so the only age signal is lastSeenTs. On a
+    // fresh install it is 0 and nothing bounded the batch: the first run spent 25
+    // requests on reports that could be weeks old. Sample a few instead — the
+    // first one that parses sets lastSeenTs and the full cap applies from then on.
     // Inbox links carry no timestamp, so the only age signal is lastSeenTs. On a
     // fresh install it is 0 and nothing bounded the batch: the first run spent 25
     // requests on reports that could be weeks old. Sample a few instead — the
@@ -231,6 +242,9 @@
             // walk(r) already queues r.report_id; queueing it here too meant
             // every nested report was enqueued twice and only seenThisRun kept
             // the second one from becoming a second request.
+            // walk(r) already queues r.report_id; queueing it here too meant
+            // every nested report was enqueued twice and only seenThisRun kept
+            // the second one from becoming a second request.
             if (r.report_id == null && numericId(r.id) && looksReport(r)) queueReport(String(r.id), srcUrl);
             walk(r);
           }
@@ -241,12 +255,12 @@
     };
     walk(data);
   }
-
-
   const reportRetry = Object.create(null);
   const REPORT_RETRY_MAX = 3;
   function scrapeInboxDom() {
     document.querySelectorAll('a[href*="action=report"][href*="id="]').forEach(a => {
+      // Anchored like reportCatchUpRun's matcher: a bare /id=(\d+)/ also matches
+      // town_id= / view_id= / player_id= and queued those as report ids.
       // Anchored like reportCatchUpRun's matcher: a bare /id=(\d+)/ also matches
       // town_id= / view_id= / player_id= and queued those as report ids.
       const m = a.href.match(/[?&]id=(\d+)/);
@@ -266,7 +280,6 @@
 
     gbTimeout(scrapeInboxDom, 1500);
   }
-
   function ingestReport(id, data) {
     const parsed = parseReport(id, data);
     if (!parsed) {
@@ -297,7 +310,6 @@
     if (n < REPORT_RETRY_MAX) seenThisRun.delete(seenKey(id));
     else gbLogT('report-retry-cap', 60000, 'report retry capped for', id);
   }
-
   function fetchReport(id, hintUrl) {
     if (state.seen[seenKey(id)]) return;
     if (!hostEnabled() || automationPaused({}) || captchaPaused('report')) {
@@ -378,7 +390,6 @@
       },
     });
   }
-
   function buildReportUrl(id, hintUrl) {
 
     const params = new URLSearchParams();
@@ -401,7 +412,6 @@
     if (csrf) params.set('h', csrf);
     return '/game/report?' + params.toString();
   }
-
   // ===== Auto-spy scheduler (v4 plan 4.1) ====================================
   // Scout-class: it spends silver and can return a captcha, so it is default
   // OFF, dry-run ON out of the box, and confirm-gated once per session.
@@ -422,6 +432,9 @@
       autoTopReported: gbCfgClamp(c.autoTopReported, 0, 50, 5),
       perCycle: gbCfgClamp(c.perCycle, 1, 5, 1),
       minGapMs: gbCfgClamp(c.minGapMs, 60000, 86400000, 1200000),
+      // Dry-run defaults ON for this feature specifically: the route is
+      // unlearned on a fresh install and the operator should see the payload
+      // before any silver is spent.
       // Dry-run defaults ON for this feature specifically: the route is
       // unlearned on a fresh install and the operator should see the payload
       // before any silver is spent.
@@ -458,7 +471,6 @@
     if (spyInFlightAt[k] && spyInFlightAt[k].length) spyInFlightAt[k].shift();
     if (spyInFlightAt[k] && !spyInFlightAt[k].length) delete spyInFlightAt[k];
   }
-
   function spyReports24h() {
     const since = Date.now() - 86400000;
     const byTown = Object.create(null);
@@ -497,6 +509,9 @@
     }
     const out = [];
     for (const id of pool) {
+      // An unreadable / absent lastSpyAt means "never spied", which is the
+      // STALEST case, not the freshest - a missing stamp must not park a
+      // target at the bottom of the queue forever.
       // An unreadable / absent lastSpyAt means "never spied", which is the
       // STALEST case, not the freshest - a missing stamp must not park a
       // target at the bottom of the queue forever.
@@ -553,6 +568,8 @@
       };
       // Feature-local dry run, on top of the global one: this feature ships
       // with it ON so the operator sees a real payload before spending silver.
+      // Feature-local dry run, on top of the global one: this feature ships
+      // with it ON so the operator sees a real payload before spending silver.
       if (cfg.dryRun) {
         gbLog(`DRY-RUN spy: ${JSON.stringify(payload).slice(0, 200)}`);
         spyLastSpy()[t.id] = Date.now();
@@ -578,7 +595,7 @@
     if (!j || !j.model_url || !j.action_name) return;
     if (typeof isSelfBridge === 'function' && isSelfBridge(j)) return;
     const args = Object.assign({}, j.arguments || {});
-    delete args.id; // the target is per-send, not part of the template
+    delete args.id;
     state.spyTpl = { model_url: j.model_url, action_name: j.action_name, arguments: args, town_id: j.town_id, version: 1, learned_at: Date.now() };
     save(wkey(STORE.SPY_TPL), state.spyTpl);
     gbLog('learned spy template: ' + j.action_name);

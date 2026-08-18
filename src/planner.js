@@ -154,8 +154,6 @@
     setReserve(townId, mode, values){ const cfg=plannerCfgRoot(); const root=townId==null?cfg.global:(cfg.towns[String(townId)]||(cfg.towns[String(townId)]={})); root[mode==='soft'?'soft':'hard']=Object.assign({},root[mode==='soft'?'soft':'hard']||{},values||{}); plannerSaveCfg(); },
   };
   try { GB_ROOT.__grepbotPlanner = planner; } catch (_) {}
-
-
   // ===== Client fingerprint + Safe Mode (v2.0) ================================
   function clientFingerprintNow() {
     const uw=gameUw(), bs=gameBridgeStatus(); let cols=[];
@@ -165,8 +163,7 @@
   }
   function clientFingerprintCompatible(prev,cur){if(!cur)return{ok:false,why:'fingerprint-unreadable'};for(const k of ['MM','gpAjax','ITowns','GameData'])if(!cur.required[k])return{ok:false,why:`missing-${k}`};if(!prev)return{ok:true,first:true};for(const k of ['MM','gpAjax','ITowns','GameData'])if(prev.required&&prev.required[k]&&!cur.required[k])return{ok:false,why:`lost-${k}`};for(const k of ['units','buildings']){const a=+(prev.counts&&prev.counts[k]||0),b=+(cur.counts&&cur.counts[k]||0);if(a>0&&b>0&&Math.abs(b-a)/a>0.45)return{ok:false,why:`${k}-shape-changed:${a}->${b}`}}return{ok:true}}
   function clientFingerprintCheck() {const cur=clientFingerprintNow(),cmp=clientFingerprintCompatible(state.clientFingerprint,cur);if(!cmp.ok){state.safeMode=true;save(STORE.SAFE_MODE,true);gbLog(`SAFE MODE: Grepolis client compatibility check failed (${cmp.why})`);whyNote('system','client fingerprint','blocked',cmp.why);}else if(!state.clientFingerprint){state.clientFingerprint=cur;save(STORE.CLIENT_FP,cur);}else{state.clientFingerprint=cur;save(STORE.CLIENT_FP,cur);}return{current:cur,check:cmp}}
-  function safeModeBlock(feature,transport,endpoint,data){if(!state.safeMode)return null;const f=String(feature||'');if(['attack','favor','wonder','rurallevel','merchant','spell','airaw'].includes(f))return 'safe-mode-high-impact';if(f==='culture'){const a=transport==='bridge'?(data&&data.arguments||{}):(data||{});if(/olympic/i.test(String(a.celebration_type||endpoint||'')))return 'safe-mode-premium';}return null}
-
+  function safeModeBlock(feature,transport,endpoint,data){if(!state.safeMode)return null;const f=String(feature||'');if(['attack','support','spy','favor','wonder','rurallevel','merchant','spell','airaw'].includes(f))return 'safe-mode-high-impact';if(f==='culture'){const a=transport==='bridge'?(data&&data.arguments||{}):(data||{});if(/olympic/i.test(String(a.celebration_type||endpoint||'')))return 'safe-mode-premium';}return null}
   const CIRCUIT_TRIP = 3;
   const CIRCUIT_STRUCTURAL_RE = /unknown.?action|invalid.?action|unknown.?model|model.?not.?found|unknown.?controller|controller.?not.?found|no.?such.?action|does.?not.?exist|unsupported.?action|invalid.?model|endpoint.?not.?found/i;
   function circuitSave() { save(STORE.CIRCUITS, state.circuits || {}); }
@@ -193,6 +190,9 @@
     // Elapsed cooldown does not CLOSE the breaker - it lets exactly one probe
     // through. Closing on a timer alone would forget that the endpoint was
     // broken without ever testing it.
+    // Elapsed cooldown does not CLOSE the breaker - it lets exactly one probe
+    // through. Closing on a timer alone would forget that the endpoint was
+    // broken without ever testing it.
     if (c.halfOpen) return false;
     if (+c.openedAt && Date.now() - +c.openedAt >= circuitCooldownMs(c)) {
       c.halfOpen = true;
@@ -211,6 +211,8 @@
     c.lastError = msg.slice(0, 160);
     c.lastAt = Date.now();
     if (c.halfOpen) {
+      // The probe failed: re-open and back off, so a genuinely dead endpoint is
+      // retried ever less often instead of every cooldown.
       // The probe failed: re-open and back off, so a genuinely dead endpoint is
       // retried ever less often instead of every cooldown.
       c.halfOpen = false;
@@ -238,6 +240,9 @@
     // A HALF-OPEN breaker whose probe succeeded must close. The old guard bailed
     // on `c.open`, so once tripped the breaker could only ever be cleared by
     // hand - the recovery half of the state machine never ran.
+    // A HALF-OPEN breaker whose probe succeeded must close. The old guard bailed
+    // on `c.open`, so once tripped the breaker could only ever be cleared by
+    // hand - the recovery half of the state machine never ran.
     if (c.halfOpen || c.open) {
       delete state.circuits[feature];
       circuitSave();
@@ -255,11 +260,13 @@
     else state.circuits = {};
     circuitSave();
   }
-
   const TX_WRITE_FEATURES = new Set([
     'farm', 'collect', 'bandit', 'build', 'instant-build', 'instant-research', 'cave', 'culture', 'trade', 'ruraltrade', 'rurallevel',
     'research', 'merchant', 'favor', 'wonder', 'militia', 'dodge', 'spell', 'recruit', 'villrecruit', 'quest', 'attack',
     'cancel', 'hero', 'pttrade',
+
+    'support', 'spy',
+
     // Raw passthrough. Its producer (relay.js) was removed; the entry stays
     // because it MUST be in the write set: txRun only applies dry-run, the
     // circuit breaker, safe mode, template health, tx dedup and the planner to
@@ -276,6 +283,10 @@
   if (!state.txState || typeof state.txState !== 'object' || Array.isArray(state.txState)) state.txState = {};
   (function txLoadNormalize() {
     const now = Date.now();
+    // Two passes on purpose. One pass could take an entry sending -> unknown ->
+    // manual-review in a single go (an entry carrying an old unknownAt from an
+    // earlier episode skips the whole 6h ambiguity window), which turns a plain
+    // reload into a tombstone nobody can clear except by hand.
     // Two passes on purpose. One pass could take an entry sending -> unknown ->
     // manual-review in a single go (an entry carrying an old unknownAt from an
     // earlier episode skips the whole 6h ambiguity window), which turns a plain
@@ -299,6 +310,12 @@
       if (terminal && now - (+t.updatedAt || +t.createdAt || 0) > terminalTtl) { delete state.txState[key]; continue; }
       if (justUnknown.has(key)) continue;
       if (t.state === 'unknown' && now - (+t.unknownAt || +t.updatedAt || 0) > TX_UNKNOWN_MAX_MS) {
+        // Never silently retry an ancient ambiguous write. Keep a blocking
+        // tombstone until the user explicitly clears it — but DO drop the
+        // planner reservation: plannerReservationActive() already reports
+        // manual-review as inactive, so leaving reservation.state held made the
+        // budget and the reservation ledger disagree for as long as the
+        // tombstone lived.
         // Never silently retry an ancient ambiguous write. Keep a blocking
         // tombstone until the user explicitly clears it — but DO drop the
         // planner reservation: plannerReservationActive() already reports

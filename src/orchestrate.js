@@ -10,14 +10,18 @@
       rurallevel: state.autoRuralLevel,
       recruit: state.autoRecruit || nativeRecruitPending(),
       villrecruit: state.autoVillageRecruit,
+
+      batchrecruit: state.batchRecruit && batchRecruitHasAnyTown(),
       merchant: state.autoMerchant,
       pttrade: state.autoPtTrade,
       favor: state.autoFavor,
+
       // Same toggle as favor: the user's mental model is one 'spend my favor'
       // switch. The spell loop still refuses without an explicit power id.
       godspell: state.autoFavor,
       wonder: state.autoWonder,
       spy: state.spyEnabled,
+
       // Dispatch only where the world actually has heroes. The pass itself is
       // read-only (stamina alerts + equipment proposals); auto-assign is gated
       // separately inside heroScan and still needs a confirmed post to fire.
@@ -27,7 +31,6 @@
   function orchDefaultOrder() {
     return PRIORITY_ORDER_DEFAULT.slice();
   }
-
   // "Did this feature act since we dispatched it" must be answered from a TIME
   // window, not from a running total. state.decisions is a pruned ring (400
   // rows / 7 days), so an absolute count can shrink between two samples: a
@@ -46,7 +49,6 @@
     }
     return n;
   }
-
   // ---------- warehouse deadlock ----------
   // A pinned warehouse looks exactly like "nothing to do" from the journal:
   // farm claims land nowhere, cave only drains iron, trade finds no target below
@@ -56,7 +58,16 @@
   // a scheduler, a post class, or budget.
   const ORCH_PIN_RATIO = 0.97;
   const ORCH_DRAIN_KEYS = ['cave', 'trade', 'ruraltrade'];
-  const ORCH_DEADLOCK_FARM_IDLE = 2; // farm cadences with nothing journaled
+  // Farm-first (hard rule): unit production never takes a dispatch slot while a
+  // farming-village claim is still possible. Order override + eligibility gate
+  // only - no new scheduler, no new post class. recruitScan and
+  // villageRecruitScan enforce the same rule at the post site.
+  const ORCH_UNIT_KEYS = ['recruit', 'villrecruit'];
+  function orchFarmFirst() {
+    try { return typeof farmClaimPending === 'function' && farmClaimPending(); }
+    catch (_) { return false; }
+  }
+  const ORCH_DEADLOCK_FARM_IDLE = 2;
   let orchDeadlock = { open: false, towns: [], at: 0, stuckLoggedAt: 0 };
   function orchTownIds() {
     const ids = [];
@@ -74,6 +85,8 @@
     let blind = 0;
     for (const id of orchTownIds()) {
       const rs = (typeof townResState === 'function') ? townResState(id) : null;
+      // Unreadable capacity is unknown, never "full" - a blind read may not
+      // fabricate a deadlock and reorder the whole economy behind it.
       // Unreadable capacity is unknown, never "full" - a blind read may not
       // fabricate a deadlock and reorder the whole economy behind it.
       if (!rs || !(rs.cap > 0)) { blind++; continue; }
@@ -111,21 +124,13 @@
     orchDeadlock.stuckLoggedAt = now;
     gbLog(`orch: deadlock cannot drain (${why}) - spend resources by hand (build/recruit/culture)`);
   }
-
-  // Farm-first (hard rule): unit production never takes a dispatch slot while a
-  // farming-village claim is still possible. Order override + eligibility gate
-  // only - no new scheduler, no new post class. recruitScan and
-  // villageRecruitScan enforce the same rule at the post site.
-  const ORCH_UNIT_KEYS = ['recruit', 'villrecruit'];
-  function orchFarmFirst() {
-    try { return typeof farmClaimPending === 'function' && farmClaimPending(); }
-    catch (_) { return false; }
-  }
-
   function orchIdleFactor(key) {
     if (state.orchAdaptive === false) return 1;
     // The drain path must not be slowed by the very idleness the deadlock causes.
+    // The drain path must not be slowed by the very idleness the deadlock causes.
     if (orchDeadlock.open && ORCH_DRAIN_KEYS.includes(key)) return 1;
+    // A ready village is known work, not idleness. Widening farm's cadence to
+    // 8x while units are held behind it would stall both.
     // A ready village is known work, not idleness. Widening farm's cadence to
     // 8x while units are held behind it would stall both.
     if (key === 'farm' && orchFarmFirst()) return 1;
@@ -153,7 +158,6 @@
       gbLog(`orch: ${key} idle ${ORCH_IDLE_TRIP}x - widening cadence (adaptive)`);
     }
   }
-
   function orchStatus() {
     const now = Date.now();
     return orchDefaultOrder().map(key => ({
@@ -168,7 +172,13 @@
   function orchTick() {
     if (!hostEnabled()) return;
     // v4 plan 7.4: cadence flush rides this tick; no scheduler of its own.
+    // v4 plan 7.4: cadence flush rides this tick; no scheduler of its own.
     try { intelDigestTick(); } catch (_) {}
+    // Read-only pre-warn pass, ABOVE the pause gate on purpose: a warehouse
+    // still fills during night pause, and silencing the warning is exactly when
+    // the user most needs it. It posts nothing to the game.
+    // It lives here rather than in cultureScan (plan 2.8 work item 2) because
+    // cultureScan returns early unless autoCulture is ON, and that defaults OFF.
     // Read-only pre-warn pass, ABOVE the pause gate on purpose: a warehouse
     // still fills during night pause, and silencing the warning is exactly when
     // the user most needs it. It posts nothing to the game.
@@ -181,6 +191,9 @@
 
     const mandatory = goalMandatoryModules();
     let order = mandatory.concat(configured.filter(k => !mandatory.includes(k))).concat(orchDefaultOrder().filter(k => !mandatory.includes(k) && configured.indexOf(k) === -1));
+    // Sort override, not a second scheduler: while a warehouse is pinned the
+    // drain features jump the user's priorityOrder (visibly - see the log line
+    // and the footer badge) so farm is not fed a town that cannot store loot.
     // Sort override, not a second scheduler: while a warehouse is pinned the
     // drain features jump the user's priorityOrder (visibly - see the log line
     // and the footer badge) so farm is not fed a town that cannot store loot.
@@ -213,6 +226,10 @@
       // (capped at 2x base) so a 300s feature and a 20s feature can never
       // tie-break off a single overdue tick, but a 20s vs 60s run still
       // breaks cleanly within one base band.
+      // Tie-break band scales with the slower of the two features' cadences
+      // (capped at 2x base) so a 300s feature and a 20s feature can never
+      // tie-break off a single overdue tick, but a 20s vs 60s run still
+      // breaks cleanly within one base band.
       const band = Math.max(a.cadence, b.cadence, ORCH_MS) * 2;
       if (Math.abs(gap) > band) return gap;
       return a.rank - b.rank;
@@ -223,6 +240,9 @@
 
         if (automationPaused({})) return;
         if (ORCH_CAPTCHA[item.key] && captchaPaused(ORCH_CAPTCHA[item.key])) return;
+        // Judge the previous run only when this feature is about to run again. That gives
+        // the entire cadence window to asynchronous/batched transactions instead of sampling
+        // a few seconds after dispatch and misclassifying slow success as idle.
         // Judge the previous run only when this feature is about to run again. That gives
         // the entire cadence window to asynchronous/batched transactions instead of sampling
         // a few seconds after dispatch and misclassifying slow success as idle.

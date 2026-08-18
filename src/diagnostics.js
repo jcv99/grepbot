@@ -6,12 +6,10 @@
   // Nothing here ever serialises `state` wholesale. A snapshot is a WHITELIST of
   // slices, so its size is bounded by what it deliberately carries rather than
   // by whatever unrelated state the bot happens to accumulate.
-
   const SNAPSHOT_SLOTS = 6;
   const SNAPSHOT_INTERVAL_MS = 300000;
   const SNAPSHOT_BUDGET_BYTES = 200000;
   let snapshotLastAt = 0;
-
   function snapshotRing() {
     if (!Array.isArray(state.snapshots)) state.snapshots = [];
     return state.snapshots;
@@ -40,6 +38,8 @@
       lastSeenTs: state.lastSeenTs,
       // The journal ring is SUMMARISED, never copied: it is the single heaviest
       // slice and a snapshot only needs its shape, not its rows.
+      // The journal ring is SUMMARISED, never copied: it is the single heaviest
+      // slice and a snapshot only needs its shape, not its rows.
       decisions: jrn ? { ok: jrn.ok, err: jrn.err, total: jrn.total } : null,
     };
   }
@@ -47,6 +47,8 @@
     if (state.snapshotsOn === false) return false;
     let text = '';
     try { text = JSON.stringify(snapshotPayload()); } catch (_) { return false; }
+    // Dropped, never truncated and never allowed to grow the ring: a snapshot
+    // that does not fit the budget is not a smaller snapshot, it is a bad one.
     // Dropped, never truncated and never allowed to grow the ring: a snapshot
     // that does not fit the budget is not a smaller snapshot, it is a bad one.
     if (text.length > SNAPSHOT_BUDGET_BYTES) {
@@ -63,6 +65,7 @@
   function snapshotTick() {
     if (state.snapshotsOn === false) return;
     if (Date.now() - snapshotLastAt < SNAPSHOT_INTERVAL_MS) return;
+    // A paused bot has nothing new worth saving.
     // A paused bot has nothing new worth saving.
     if (automationPaused({})) return;
     snapshotBuild('tick');
@@ -91,7 +94,6 @@
     gbLog(`snapshot: restored slot ${slot} from ${new Date(s.at).toLocaleString()}`);
     return true;
   }
-
   // ===== Call profiler (v4 plan 8.3) =========================================
   // Fixed accumulator per key: no per-call allocation, no stack capture, no
   // serialisation in the hot path. Default OFF so the rings stay cold.
@@ -105,6 +107,8 @@
     try {
       return fn();
     } finally {
+      // In `finally` so a throwing scan is still measured; orchSafe still sees
+      // the exception.
       // In `finally` so a throwing scan is still measured; orchSafe still sees
       // the exception.
       const dt = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - t0;
@@ -125,7 +129,6 @@
     return ['perfilador (ms por llamada)'].concat(
       rows.map(x => `  ${x.k.padEnd(22)} ${x.avg.toFixed(1).padStart(7)} med  ${x.max.toFixed(1).padStart(7)} max  ${String(x.count).padStart(5)} llam.`));
   }
-
   // ===== Memory / map probe (v4 plan 8.4) ====================================
   const MEM_SAMPLE_MS = 300000;
   const MEM_RING = 24;
@@ -146,6 +149,8 @@
       const v = state[k];
       maps[k] = (v && typeof v === 'object') ? Object.keys(v).length : null;
     }
+    // blind:true when the heap API is absent (Firefox, Safari, hardened
+    // Chromium). The map tally still works, so the probe is not useless there.
     // blind:true when the heap API is absent (Firefox, Safari, hardened
     // Chromium). The map tally still works, so the probe is not useless there.
     return { ts: Date.now(), used, total, maps, blind: used == null };
