@@ -446,9 +446,194 @@
       }
     });
   }
-  // Village unit collection ("Aceptar unidades de los aldeanos") was removed in
-  // v5.8.3 by operator decision: villages are farmed for RESOURCES only. Do not
-  // reintroduce an accept-units path here or a units claim in farms.js.
+  // ---------- village recruit (HIGH-RISK, default OFF) ----------
+  // The "Aceptar unidades de los aldeanos" button on each farming village's
+  // info panel converts idle villagers into military when the village cannot
+  // accept more resources (warehouse saturated). The bot learns the bridge
+  // payload once via sniffBridgeBody() when the player hand-clicks Aceptar;
+  // until then this scan stays a no-op (state.acceptUnitsTpl is null).
+  //
+  // Pair heuristic (villagePairPick below): sword+archer vs hoplite+slinger,
+  // pick the higher-sum pair, then the lower-count unit inside it. Cheap,
+  // deterministic, no per-village config required.
+  const VILLAGE_RECRUIT_UNITS = ['sword', 'archer', 'hoplite', 'slinger'];
+  const VILLAGE_PAIR_LOW = ['sword', 'archer'];
+  const VILLAGE_PAIR_HIGH = ['hoplite', 'slinger'];
+  const VILLAGE_RECRUIT_STREAK_TRIP = 2;
+  function villagePairPick(unitCounts) {
+    // unitCounts shape: {sword:N, archer:N, hoplite:N, slinger:N} — any missing
+    // entry is treated as 0, which can NEVER mis-route to a wrong unit because
+    // the lower-of-pair comparator needs a finite number on both sides.
+    // unitCounts shape: {sword:N, archer:N, hoplite:N, slinger:N} — any missing
+    // entry is treated as 0, which can NEVER mis-route to a wrong unit because
+    // the lower-of-pair comparator needs a finite number on both sides.
+    if (!unitCounts || typeof unitCounts !== 'object') return null;
+    const a = (Number.isFinite(+unitCounts.sword) ? +unitCounts.sword : 0)
+            + (Number.isFinite(+unitCounts.archer) ? +unitCounts.archer : 0);
+    const b = (Number.isFinite(+unitCounts.hoplite) ? +unitCounts.hoplite : 0)
+            + (Number.isFinite(+unitCounts.slinger) ? +unitCounts.slinger : 0);
+    // Tie-break to the cheaper pair (sword/archer) — overspending on hoplites
+    // is the irreversible mistake we want to make least often.
+    // Tie-break to the cheaper pair (sword/archer) — overspending on hoplites
+    // is the irreversible mistake we want to make least often.
+    const pair = a >= b ? VILLAGE_PAIR_LOW : VILLAGE_PAIR_HIGH;
+    const lo = Number.isFinite(+unitCounts[pair[0]]) ? +unitCounts[pair[0]] : 0;
+    const hi = Number.isFinite(+unitCounts[pair[1]]) ? +unitCounts[pair[1]] : 0;
+    return lo <= hi ? pair[0] : pair[1];
+  }
+  // Read village unit counts defensively. Farm villages DO carry a small
+  // garrison (the screenshot shows 12-16 of each unit at farm lvl 5), but the
+  // attribute name is not in the captures — probe a few likely names and a
+  // method-style fallback, then return {known:false} if nothing reads.
+  function villageUnitCounts(villId) {
+    if (villId == null || villId === '') return { known: false };
+    try {
+      const uw = gameUw();
+      if (!uw || !uw.MM || typeof uw.MM.getCollections !== 'function') return { known: false };
+      const cols = uw.MM.getCollections();
+      const candidates = [];
+      for (const col of cols || []) {
+        if (!col || !Array.isArray(col.models)) continue;
+        const relModels = [];
+        for (const m of col.models) {
+          const a = (m && m.attributes) || {};
+          if (String(a.farm_town_id) === String(villId)) relModels.push({ m, a, attrs: a });
+        }
+        if (!relModels.length) continue;
+        for (const { m, a } of relModels) {
+          const bag = a.units || a.unit_count || a.garrison || a.unitCount;
+          if (bag && typeof bag === 'object') {
+            // Direct object map: {sword:N, archer:N, hoplite:N, slinger:N}
+            // Direct object map: {sword:N, archer:N, hoplite:N, slinger:N}
+            const units = {};
+            for (const u of VILLAGE_RECRUIT_UNITS) units[u] = +bag[u];
+            const known = VILLAGE_RECRUIT_UNITS.some(u => Number.isFinite(units[u]) && units[u] >= 0);
+            if (known) return { known: true, units, relId: (m && m.id) != null ? m.id : (a && a.id) };
+          }
+          if (typeof bag === 'number' || Array.isArray(bag)) {
+            // Array form (positional, 4 slots) — order is the VILLAGE_RECRUIT_UNITS order
+            // Array form (positional, 4 slots) — order is the VILLAGE_RECRUIT_UNITS order
+            const arr = Array.isArray(bag) ? bag : [bag];
+            const units = {};
+            VILLAGE_RECRUIT_UNITS.forEach((u, i) => { units[u] = +arr[i] || 0; });
+            return { known: true, units, relId: (m && m.id) != null ? m.id : (a && a.id) };
+          }
+          if (typeof m.getUnitCount === 'function') {
+            const units = {};
+            for (const u of VILLAGE_RECRUIT_UNITS) {
+              const n = +m.getUnitCount(u);
+              if (Number.isFinite(n) && n >= 0) units[u] = n;
+            }
+            if (Object.keys(units).length) return { known: true, units, relId: m.id };
+          }
+        }
+      }
+      return { known: false };
+    } catch (_) { return { known: false }; }
+  }
+  // Track consecutive saturated scrapes per village. Trigger fires when
+  // streak >= VILLAGE_RECRUIT_STREAK_TRIP — one stale reading can't trigger
+  // a post. Reset on any reading below threshold.
+  function villageSaturationStreak(villId) {
+    if (!state.farmResources || !state.farmResources[villId]) return 0;
+    const r = state.farmResources[villId];
+    if (!r.ok || !(r.cap > 0)) return 0;
+    const sum = (Number.isFinite(+r.wood) ? +r.wood : 0)
+               + (Number.isFinite(+r.stone) ? +r.stone : 0)
+               + (Number.isFinite(+r.iron) ? +r.iron : 0)
+               + (Number.isFinite(+r.pop) ? +r.pop : 0);
+    const fill = sum / r.cap;
+    const thresh = Math.max(0.5, Math.min(1, (+state.villageRecruitFillPct || 90) / 100));
+    const streaks = state.villageRecruitStreaks || (state.villageRecruitStreaks = {});
+    const prev = +streaks[villId] || 0;
+    const next = fill >= thresh ? prev + 1 : 0;
+    streaks[villId] = next;
+    return next;
+  }
+  // Post a single accept-units bridge call. Payload reuses the learned
+  // template's action_name + base arguments; we overlay farm_town_id, unit_id
+  // and amount at post time so the same template serves every village and
+  // every unit.
+  function villageAcceptUnits(farm, unitId, amount, onDone) {
+    const tpl = state.acceptUnitsTpl || null;
+    const actionName = (tpl && tpl.action_name) || 'accept_units';
+    const baseArgs = (tpl && tpl.arguments) || {};
+    const args = Object.assign({}, baseArgs, {
+      farm_town_id: +farm.vill_id,
+      unit_id: String(unitId),
+      amount: +amount,
+    });
+    const modelUrl = (tpl && tpl.model_url) || ('FarmTownPlayerRelation/' + (farm.relation_id || ''));
+    bridgePost('villrecruit', {
+      model_url: modelUrl,
+      action_name: actionName,
+      arguments: args,
+      town_id: +farm.owning_town_id || 0,
+    }, onDone);
+  }
+  function villageRecruitScan(reason) {
+    if (!hostEnabled() || !state.autoVillageRecruit) return;
+    if (automationPaused({})) return;
+    if (captchaPaused('villrecruit')) return;
+    if (gbLocked('village-recruit')) return;
+    // Same hard rule: accepting units from a village never outranks claiming
+    // its resources, even though this loop only fires on a saturated village.
+    // Same hard rule: accepting units from a village never outranks claiming
+    // its resources, even though this loop only fires on a saturated village.
+    if (farmFirstHold('villrecruit')) return;
+
+    // Template must be learned from a hand-click before any post. Log once
+    // per world per 10min so the player knows what to do.
+    if (!state.acceptUnitsTpl || !state.acceptUnitsTpl.action_name) {
+      gbLogT('villrecruit-tpl', 600000, 'village recruit: abre una aldea, pulsa Aceptar una vez a mano para ensenar al bot el payload del puente');
+      return;
+    }
+
+    const list = state.farmsParsed || [];
+    if (!list.length) return;
+
+    for (const farm of list) {
+      if (!farm || !farm.vill_id) continue;
+
+      // Skip if this village belongs to a farm relation the player doesn't own
+      // (manual textarea entries can sneak in relations of other players).
+      if (farm._rel && typeof farmBelongsToPlayer === 'function') {
+        const a = farm._attrs || {};
+        if (!farmBelongsToPlayer(farm._rel, a)) continue;
+      }
+
+      const streak = villageSaturationStreak(farm.vill_id);
+      if (streak < VILLAGE_RECRUIT_STREAK_TRIP) continue;
+
+      const counts = villageUnitCounts(farm.vill_id);
+      if (!counts || !counts.known) continue;
+
+      const unit = villagePairPick(counts.units);
+      if (!unit) continue;
+
+      const owning = typeof townIdForFarm === 'function' ? townIdForFarm(farm) : null;
+      if (!owning) continue;
+      farm.owning_town_id = owning;
+
+      const amount = Math.max(1, Math.min(20, +state.villageRecruitAmount || 1));
+      const lockToken = gbLock('village-recruit', 60000);
+      if (!lockToken) return;
+
+      gbLog(`village recruit: vill ${farm.vill_id} -> ${amount}x ${unit} (streak ${streak}, town ${owning})`);
+      villageAcceptUnits(farm, unit, amount, (err) => {
+        gbUnlock('village-recruit', lockToken);
+        if (!err) {
+          gbLog(`village recruit: vill ${farm.vill_id} +${amount} ${unit}`);
+          flash(`aldea ${farm.name || farm.vill_id}: +${amount} ${unit}`);
+        } else {
+          gbLogT('villrecruit-err-' + farm.vill_id, 60000, `village recruit err ${farm.vill_id}: ${err}`);
+        }
+      });
+
+      // one village per tick; the orch will pick this up again next due window
+      return;
+    }
+  }
   function batchRecruitNormLists() {
     let root = state.batchRecruitLists;
     if (!root || typeof root !== 'object' || Array.isArray(root)) root = state.batchRecruitLists = { towns: {} };

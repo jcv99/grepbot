@@ -262,7 +262,7 @@
   }
   const TX_WRITE_FEATURES = new Set([
     'farm', 'collect', 'bandit', 'build', 'instant-build', 'instant-research', 'cave', 'culture', 'trade', 'ruraltrade', 'rurallevel',
-    'research', 'merchant', 'favor', 'wonder', 'militia', 'dodge', 'spell', 'recruit', 'quest', 'attack',
+    'research', 'merchant', 'favor', 'wonder', 'militia', 'dodge', 'spell', 'recruit', 'villrecruit', 'quest', 'attack',
     'cancel', 'hero', 'pttrade',
 
     'support', 'spy',

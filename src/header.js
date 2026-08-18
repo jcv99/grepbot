@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.8.3
+// @version      5.8.4
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -103,6 +103,11 @@ const STORE = {
     FARM_DROP_PCT: 'grepbot:farm-drop-pressure-pct',
     FARM_CLAIMS_TODAY: 'grepbot:farm-claims-today',
     FARM_CLAIMS_DAY: 'grepbot:farm-claims-day',
+    FARM_UNITS_MODE: 'grepbot:farm-units-mode',
+    FARM_UNITS_PREF: 'grepbot:farm-units-pref',
+    FARM_UNITS_OPTION: 'grepbot:farm-units-option',
+    FARM_RES_DRY: 'grepbot:farm-res-dry',
+    FARM_RES_DRY_DAY: 'grepbot:farm-res-dry-day',
     FARM_TRAVEL: 'grepbot:farm-travel-sec-per-unit',
     IB_ACTION_R: 'grepbot:ib-action-r',
 
@@ -249,18 +254,24 @@ const STORE = {
     TOWN_ACTION: 'grepbot:town-action',
     TOWN_LIST_ACTION: 'grepbot:town-list-action',
     FARM_SCRAPE_STATE: 'grepbot:farm-scrape-state',
+    AUTO_VILLAGE_RECRUIT: 'grepbot:auto-village-recruit',
+    VILLAGE_RECRUIT_FILL: 'grepbot:village-recruit-fill',
+    VILLAGE_RECRUIT_AMOUNT: 'grepbot:village-recruit-amount',
+    ACCEPT_UNITS_TPL: 'grepbot:accept-units-tpl',
+    VILLAGE_RECRUIT_STREAKS: 'grepbot:village-recruit-streaks',
     WEBHOOK_RATELIMIT: 'grepbot:webhook-ratelimit',
     WEBHOOK_PENDING: 'grepbot:webhook-pending',
   };
   const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
-    'ruraltrade', 'rurallevel', 'recruit', 'merchant', 'pttrade', 'favor', 'wonder', 'hero', 'godspell', 'spy'];
+    'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'merchant', 'pttrade', 'favor', 'wonder', 'hero', 'godspell', 'spy'];
   const CONFIG_VER_CURRENT = 13;
   const WORLD_SCOPED_BASES = new Set([
     STORE.FINDINGS, STORE.FARMS, STORE.FARMS_PARSED, STORE.FARM_RES, STORE.SEEN,
     STORE.TOWNS, STORE.TOWN_RES, STORE.TOWN_GROWTH_HIST, STORE.THRESH, STORE.ALERTED,
     STORE.NEXT_FARM, STORE.NEXT_TOWNS, STORE.BANDIT_LOG,
-    STORE.CSRF, STORE.FARM_ACTION, STORE.COLLECT_TPL, STORE.CLAIM_TPL,
+    STORE.CSRF, STORE.FARM_ACTION, STORE.COLLECT_TPL, STORE.CLAIM_TPL, STORE.ACCEPT_UNITS_TPL,
     STORE.IB_ACTION, STORE.IB_ACTION_R, STORE.FARM_OPTION_MAP, STORE.FARM_LOYALTY_TECH, STORE.FARM_SLEEP_DAY, STORE.FARM_PROFIT, STORE.FARM_TRAVEL, STORE.FARM_CLAIMS_TODAY, STORE.FARM_CLAIMS_DAY,
+    STORE.FARM_UNITS_OPTION, STORE.FARM_RES_DRY, STORE.FARM_RES_DRY_DAY,
     STORE.QUEST_REWARDS, STORE.QUEST_HISTORY,
     STORE.ATTACK_TPL, STORE.CANCEL_TPL, STORE.HERO_TPL, STORE.HERO_EQUIP_SUGGEST, STORE.ATTACK_PLAN, STORE.ATTACK_HISTORY, STORE.ATTACK_RECENT, STORE.CAPTCHA,
     STORE.AB_TARGETS, STORE.CAVE_TOWNS, STORE.EMERGENCY_LAST,

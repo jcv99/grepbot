@@ -708,6 +708,7 @@
     autoWonder: [STORE.AUTO_WONDER, false],
     autoWonderFavor: [STORE.AUTO_WONDER_FAVOR, false],
     autoPtTrade: [STORE.AUTO_PT_TRADE, false],
+    autoVillageRecruit: [STORE.AUTO_VILLAGE_RECRUIT, false],
     batchRecruit: [STORE.BATCH_RECRUIT, false],
   };
   const CONFIG_PRESETS = {
@@ -820,6 +821,7 @@
     ruraltrade: 90000,
     rurallevel: 120000,
     recruit: 30000,
+    villrecruit: 300000,
 
     batchrecruit: 30000,
     merchant: 45000,
@@ -833,12 +835,12 @@
   const ORCH_CAPTCHA = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
+    recruit: 'recruit', villrecruit: 'villageRecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
   };
   const ORCH_JRN = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
+    recruit: 'recruit', villrecruit: 'villageRecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
   };
   const ORCH_IDLE_TRIP = 4;
   const ORCH_IDLE_MAX = 8;
@@ -856,6 +858,7 @@
     ruraltrade:()=>orchSafe('ruraltrade',()=>profTime('orch:ruraltrade',()=>ruralTradeScan('orch'))),
     rurallevel:()=>orchSafe('rurallevel',()=>profTime('orch:rurallevel',()=>ruralLevelScan('orch'))),
     recruit:()=>orchSafe('recruit',()=>profTime('orch:recruit',()=>recruitScan('orch'))),
+    villrecruit:()=>orchSafe('villrecruit',()=>profTime('orch:villrecruit',()=>villageRecruitScan('orch'))),
     batchrecruit:()=>orchSafe('batchrecruit',()=>profTime('orch:batchrecruit',()=>batchRecruitScan('orch'))),
     merchant:()=>orchSafe('merchant',()=>profTime('orch:merchant',()=>merchantScan('orch'))),
     pttrade:()=>orchSafe('pttrade',()=>profTime('orch:pttrade',()=>ptTradeScan('orch'))),
