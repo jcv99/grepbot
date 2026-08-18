@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.8.4
+// @version      5.8.6
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -5563,14 +5563,14 @@ const STORE = {
     const unit = farmUnitIdFor(option);
     if (!unit) return 'unit-unknown';
     const table = farmClaimUnitsTable(farm);
+
+    if (!table) return 'unit-table-unreadable';
+    if (table[unit] == null) return 'unit-not-offered';
     let amount = null;
-    if (table) {
-      if (table[unit] == null) return 'unit-not-offered';
-      const n = +table[unit];
-      if (Number.isFinite(n)) {
-        if (!(n > 0)) return 'unit-amount-0';
-        amount = n;
-      }
+    const n = +table[unit];
+    if (Number.isFinite(n)) {
+      if (!(n > 0)) return 'unit-amount-0';
+      amount = n;
     }
     const def = gbGameDataLookup('units', unit);
     const popEach = def && def.population != null ? +def.population : null;
@@ -5590,14 +5590,21 @@ const STORE = {
 
   function farmResExhausted(farm) {
     const rel = farm && farm._rel;
-    let vals = null;
-    try {
-      if (rel && typeof rel.getClaimResourceValues === 'function') vals = rel.getClaimResourceValues();
-    } catch (_) {}
-    if (vals == null) vals = (farm && farm._attrs && farm._attrs.claim_resource_values) || null;
+    let vals = (farm && farm._attrs && farm._attrs.claim_resource_values) || null;
+    if (vals == null) {
+      try {
+        if (rel && typeof rel.getClaimResourceValues === 'function') vals = rel.getClaimResourceValues();
+      } catch (_) { vals = null; }
+    }
     if (vals == null || typeof vals !== 'object') return null;
-    const nums = Object.keys(vals).map(k => +vals[k]).filter(n => Number.isFinite(n));
-    if (!nums.length) return null;
+    const len = +vals.length;
+    if (!Number.isFinite(len) || len <= 0) return null;
+    const nums = [];
+    for (let i = 0; i < len; i++) {
+      const n = +vals[i];
+      if (!Number.isFinite(n)) return null;
+      nums.push(n);
+    }
     return nums.every(n => n <= 0);
   }
   function farmResDryMap() {
@@ -5654,7 +5661,10 @@ const STORE = {
         `farm: village ${farm.vill_id} daily resource allowance spent - claiming units`);
       return 'units';
     }
-    if (farmResExhausted(farm) === true) return 'units';
+    const exhausted = farmResExhausted(farm);
+    if (exhausted === true) return 'units';
+
+    if (exhausted === false) return 'resources';
     return farmResDryMarked(farm.vill_id) ? 'units' : 'resources';
   }
   function farmClaimDiag(limit) {
@@ -27315,6 +27325,15 @@ const STORE = {
       ibComplete,
       researchScan,
       recruitScan,
+      villageRecruitScan,
+      farmClaimTypeFor,
+      farmResExhausted,
+      farmDailyLeft,
+      farmUnitOption,
+      farmUnitsClaimBlocked,
+      farmClaimUnitsTable,
+      farmVillageLevel,
+      farmClaimDiag,
       tradeScan,
       dodgeScan,
       orchTick,

@@ -695,14 +695,16 @@
     const unit = farmUnitIdFor(option);
     if (!unit) return 'unit-unknown';
     const table = farmClaimUnitsTable(farm);
+    // GameData.farm_town.claim_units[level] is the only proof the card exists
+    // and how many units it hands over. Unreadable = post nothing: a pinned
+    // unit is an operator preference, never evidence the village offers it.
+    if (!table) return 'unit-table-unreadable';
+    if (table[unit] == null) return 'unit-not-offered';
     let amount = null;
-    if (table) {
-      if (table[unit] == null) return 'unit-not-offered';
-      const n = +table[unit];
-      if (Number.isFinite(n)) {
-        if (!(n > 0)) return 'unit-amount-0';
-        amount = n;
-      }
+    const n = +table[unit];
+    if (Number.isFinite(n)) {
+      if (!(n > 0)) return 'unit-amount-0';
+      amount = n;
     }
     const def = gbGameDataLookup('units', unit);
     const popEach = def && def.population != null ? +def.population : null;
@@ -721,16 +723,34 @@
   }
   // true only when the village itself reports every resource card at zero.
   // Unreadable values are null (UNKNOWN) - never treated as "empty".
+  //
+  // The client getter may NOT be trusted blind. Its own source is:
+  //   getClaimResourceValues: function(){ var e = this.get('claim_resource_values');
+  //     if (e && e.length) return e; else return {0:0,1:0,2:0,3:0,4:0}; }
+  // With the attribute not yet loaded it hands back a zero-filled SENTINEL,
+  // which read as data says "every card is empty" for a village nobody has
+  // touched - that is what flipped villages onto the unit half while the
+  // resource half was untouched. The sentinel is a plain object with no
+  // .length; the real value is the array the cards index as [option-1]. So the
+  // raw attribute is preferred, the getter is accepted only when it comes back
+  // array-shaped, and anything else is UNKNOWN.
   function farmResExhausted(farm) {
     const rel = farm && farm._rel;
-    let vals = null;
-    try {
-      if (rel && typeof rel.getClaimResourceValues === 'function') vals = rel.getClaimResourceValues();
-    } catch (_) {}
-    if (vals == null) vals = (farm && farm._attrs && farm._attrs.claim_resource_values) || null;
+    let vals = (farm && farm._attrs && farm._attrs.claim_resource_values) || null;
+    if (vals == null) {
+      try {
+        if (rel && typeof rel.getClaimResourceValues === 'function') vals = rel.getClaimResourceValues();
+      } catch (_) { vals = null; }
+    }
     if (vals == null || typeof vals !== 'object') return null;
-    const nums = Object.keys(vals).map(k => +vals[k]).filter(n => Number.isFinite(n));
-    if (!nums.length) return null;
+    const len = +vals.length;
+    if (!Number.isFinite(len) || len <= 0) return null;
+    const nums = [];
+    for (let i = 0; i < len; i++) {
+      const n = +vals[i];
+      if (!Number.isFinite(n)) return null;
+      nums.push(n);
+    }
     return nums.every(n => n <= 0);
   }
   function farmResDryMap() {
@@ -792,7 +812,14 @@
         `farm: village ${farm.vill_id} daily resource allowance spent - claiming units`);
       return 'units';
     }
-    if (farmResExhausted(farm) === true) return 'units';
+    const exhausted = farmResExhausted(farm);
+    if (exhausted === true) return 'units';
+
+    // Readable, non-empty cards outrank the error ledger. A strike streak only
+    // proves the POST failed - a stale claimTpl, a warehouse race or a server
+    // hiccup all land there - and the village itself is saying the resource
+    // half still has something to give, so keep re-probing resources.
+    if (exhausted === false) return 'resources';
     return farmResDryMarked(farm.vill_id) ? 'units' : 'resources';
   }
   function farmClaimDiag(limit) {
