@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.8.0
+// @version      5.3.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -103,11 +103,6 @@ const STORE = {
     FARM_DROP_PCT: 'grepbot:farm-drop-pressure-pct',
     FARM_CLAIMS_TODAY: 'grepbot:farm-claims-today',
     FARM_CLAIMS_DAY: 'grepbot:farm-claims-day',
-    FARM_UNITS_MODE: 'grepbot:farm-units-mode',
-    FARM_UNITS_PREF: 'grepbot:farm-units-pref',
-    FARM_UNITS_OPTION: 'grepbot:farm-units-option',
-    FARM_RES_DRY: 'grepbot:farm-res-dry',
-    FARM_RES_DRY_DAY: 'grepbot:farm-res-dry-day',
     FARM_TRAVEL: 'grepbot:farm-travel-sec-per-unit',
     IB_ACTION_R: 'grepbot:ib-action-r',
 
@@ -161,10 +156,6 @@ const STORE = {
     AUTO_RECRUIT: 'grepbot:auto-recruit',
     RECRUIT_TARGETS: 'grepbot:recruit-targets',
     RECRUIT_SPELLS: 'grepbot:recruit-spells',
-    BATCH_RECRUIT: 'grepbot:batch-recruit',
-    BATCH_RECRUIT_LISTS: 'grepbot:batch-recruit-lists',
-
-    RECRUIT_PACKS: 'grepbot:recruit-packs',
     PRIORITY_ORDER: 'grepbot:priority-order',
     ISLAND_SHIP: 'grepbot:island-ship',
     AUTO_MILITIA: 'grepbot:auto-militia',
@@ -176,8 +167,6 @@ const STORE = {
     SPY_CFG: 'grepbot:spy-cfg',
     SPY_HISTORY: 'grepbot:spy-history',
     SPY_TPL: 'grepbot:spy-tpl',
-    SPY_SEND_CFG: 'grepbot:spy-send-cfg',
-    SPY_SEND_HISTORY: 'grepbot:spy-send-history',
     GREPODATA_INDEX: 'grepbot:grepodata-index',
     CAPTCHA_GLOBAL: 'grepbot:captcha-global',
     CAPTCHA_GLOBAL_UNTIL: 'grepbot:captcha-global-until',
@@ -222,8 +211,6 @@ const STORE = {
     SUPPORT_CFG: 'grepbot:support-cfg',
     SUPPORT_LAST_SEND: 'grepbot:support-last-send',
     SUPPORT_TEMPLATE: 'grepbot:support-tpl',
-    REINFORCE_PLAN: 'grepbot:reinforce-plan',
-    REINFORCE_HISTORY: 'grepbot:reinforce-history',
     DODGE_RETURNS: 'grepbot:dodge-returns',
     HEALTH: 'grepbot:health',
     SNAPSHOTS: 'grepbot:snapshots',
@@ -265,7 +252,7 @@ const STORE = {
 
   const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
     'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'merchant', 'pttrade', 'favor', 'wonder', 'hero', 'godspell', 'spy'];
-  const CONFIG_VER_CURRENT = 13;
+  const CONFIG_VER_CURRENT = 12;
 
   const WORLD_SCOPED_BASES = new Set([
     STORE.FINDINGS, STORE.FARMS, STORE.FARMS_PARSED, STORE.FARM_RES, STORE.SEEN,
@@ -273,19 +260,17 @@ const STORE = {
     STORE.NEXT_FARM, STORE.NEXT_TOWNS, STORE.BANDIT_LOG,
     STORE.CSRF, STORE.FARM_ACTION, STORE.COLLECT_TPL, STORE.CLAIM_TPL, STORE.ACCEPT_UNITS_TPL,
     STORE.IB_ACTION, STORE.IB_ACTION_R, STORE.FARM_OPTION_MAP, STORE.FARM_LOYALTY_TECH, STORE.FARM_SLEEP_DAY, STORE.FARM_PROFIT, STORE.FARM_TRAVEL, STORE.FARM_CLAIMS_TODAY, STORE.FARM_CLAIMS_DAY,
-    STORE.FARM_UNITS_OPTION, STORE.FARM_RES_DRY, STORE.FARM_RES_DRY_DAY,
     STORE.QUEST_REWARDS, STORE.QUEST_HISTORY,
     STORE.ATTACK_TPL, STORE.CANCEL_TPL, STORE.HERO_TPL, STORE.HERO_EQUIP_SUGGEST, STORE.ATTACK_PLAN, STORE.ATTACK_HISTORY, STORE.ATTACK_RECENT, STORE.CAPTCHA,
     STORE.AB_TARGETS, STORE.CAVE_TOWNS, STORE.EMERGENCY_LAST,
     STORE.RESEARCH_TARGETS, STORE.CITY_TEMPLATES, STORE.TOWN_GROUPS, STORE.DUMP_SINKS,
     STORE.MERCHANT_WISH, STORE.FAVOR_CFG, STORE.WONDER_CFG, STORE.WONDER_SPENT,
     STORE.CULTURE_GOLD_SPENT,
-
-    STORE.RECRUIT_TARGETS, STORE.BATCH_RECRUIT_LISTS, STORE.PRIORITY_ORDER,
-    STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES, STORE.NAP_STATUS, STORE.SPY_CFG, STORE.SPY_HISTORY, STORE.SPY_TPL, STORE.SPY_SEND_CFG, STORE.SPY_SEND_HISTORY,
+    STORE.RECRUIT_TARGETS, STORE.PRIORITY_ORDER,
+    STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES, STORE.NAP_STATUS, STORE.SPY_CFG, STORE.SPY_HISTORY, STORE.SPY_TPL,
     STORE.CAPTCHA_GLOBAL_UNTIL,
     STORE.SERVER_COOLDOWN, STORE.QUEST_CLAIM_FAIL, STORE.DODGE_QUEUE,
-    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.REINFORCE_PLAN, STORE.REINFORCE_HISTORY, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.SNAPSHOTS, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER, STORE.CONFIG_UNDO, STORE.CONFIG_REDO,
+    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.SNAPSHOTS, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER, STORE.CONFIG_UNDO, STORE.CONFIG_REDO,
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
     STORE.SPELL_COOLDOWN,
@@ -578,12 +563,8 @@ const STORE = {
     try { gbWidgetDisposeAll(); } catch (_) {}
     try { contextMenuStop(); } catch (_) {}
     try { document.querySelectorAll('.gb-widget').forEach(el => el.remove()); } catch (_) {}
-    try { document.querySelectorAll('.gb-native-qctl,.gb-native-panel,.gb-native-qpop').forEach(el=>el.remove()); } catch (_) {}
+    try { document.querySelectorAll('.gb-native-qctl,.gb-native-panel').forEach(el=>el.remove()); } catch (_) {}
     gbRemoveStyles();
-
-    if (GB_ROOT.__grepbotTest && GB_ROOT.__grepbotTest.instanceId === GB_INSTANCE_ID) {
-      try { delete GB_ROOT.__grepbotTest; } catch (_) { GB_ROOT.__grepbotTest = null; }
-    }
     if (GB_ROOT.__grepbotInstanceId === GB_INSTANCE_ID) {
       try { delete GB_ROOT.__grepbotInstanceId; } catch (_) { GB_ROOT.__grepbotInstanceId = null; }
     }
@@ -626,9 +607,6 @@ const STORE = {
   };
   const GB_LOCK_DEFAULT_TTL = 180000;
   const gbLocks = Object.create(null);
-
-  const gbLockExpired = Object.create(null);
-  const GB_LOCK_EXPIRED_MEMORY_MS = 600000;
   let gbLockSeq = 0;
   function gbLockTtl(name) { return GB_LOCK_TTL[name] || GB_LOCK_DEFAULT_TTL; }
   function gbLockLease(name) {
@@ -636,7 +614,6 @@ const STORE = {
     if (!L) return null;
     if (Date.now() - L.at >= (L.ttl || gbLockTtl(name))) {
       delete gbLocks[name];
-      gbLockExpired[name] = { token: L.token, at: Date.now() };
       gbLog(`lock: ${name} lease ${L.token} expired after ${Math.round((Date.now() - L.at) / 1000)}s`);
       return null;
     }
@@ -664,35 +641,18 @@ const STORE = {
   }
   function gbUnlock(name, token) {
     const L = gbLocks[name];
-
-    if (token && gbLockExpired[name] && gbLockExpired[name].token === token) {
-      if (Date.now() - gbLockExpired[name].at > GB_LOCK_EXPIRED_MEMORY_MS) delete gbLockExpired[name];
-      else {
-        delete gbLockExpired[name];
-        gbLogT('lock-expired-' + name, 30000, `lock: unlock after lease expiry ${name} - raise GB_LOCK_TTL if this repeats`);
-        return false;
-      }
-    }
     if (!L) return false;
     if (!token || L.token !== token) {
       gbLogT('lock-owner-' + name, 30000, `lock: refused foreign unlock ${name}`);
       return false;
     }
     delete gbLocks[name];
-    delete gbLockExpired[name];
     return true;
   }
   function gbLockAge(name) { const L = gbLockHeld(name); return L ? Date.now() - L.at : 0; }
-  function gbUnlockAll() {
-    for (const k of Object.keys(gbLocks)) delete gbLocks[k];
-    for (const k of Object.keys(gbLockExpired)) delete gbLockExpired[k];
-  }
+  function gbUnlockAll() { for (const k of Object.keys(gbLocks)) delete gbLocks[k]; }
   function gbLockList() { return Object.keys(gbLocks).filter(k => !!gbLockHeld(k)); }
-  function gbLockSweep() {
-    for (const k of Object.keys(gbLocks)) gbLockLease(k);
-    const cut = Date.now() - GB_LOCK_EXPIRED_MEMORY_MS;
-    for (const k of Object.keys(gbLockExpired)) if (gbLockExpired[k].at < cut) delete gbLockExpired[k];
-  }
+  function gbLockSweep() { for (const k of Object.keys(gbLocks)) gbLockLease(k); }
 
   const SEEN_MAX = 2000;
   const LOG_THROTTLE_MAX = 200;
@@ -743,12 +703,6 @@ const STORE = {
     farmDropPressurePct: load(STORE.FARM_DROP_PCT, 25),
     farmClaimsToday: load(STORE.FARM_CLAIMS_TODAY, {}) || {},
     farmClaimsDay: load(STORE.FARM_CLAIMS_DAY, '') || '',
-
-    farmUnitsMode: load(STORE.FARM_UNITS_MODE, 'off') || 'off',
-    farmUnitsPref: load(STORE.FARM_UNITS_PREF, 'auto') || 'auto',
-    farmUnitsOption: load(STORE.FARM_UNITS_OPTION, null),
-    farmResDry: load(STORE.FARM_RES_DRY, {}) || {},
-    farmResDryDay: load(STORE.FARM_RES_DRY_DAY, '') || '',
     farmTravelSecPerUnit: load(STORE.FARM_TRAVEL, 0),
     ibActionR:  load(STORE.IB_ACTION_R, null) || 'buyInstant',
     questRewards: load(STORE.QUEST_REWARDS, {}),
@@ -767,10 +721,6 @@ const STORE = {
     attackPlan: load(STORE.ATTACK_PLAN, null),
     attackHistory: load(STORE.ATTACK_HISTORY, []),
     attackRecent: load(STORE.ATTACK_RECENT, []),
-    reinforcePlan: load(STORE.REINFORCE_PLAN, null),
-    reinforceHistory: load(STORE.REINFORCE_HISTORY, []),
-    spySendCfg: load(STORE.SPY_SEND_CFG, null),
-    spySendHistory: load(STORE.SPY_SEND_HISTORY, []),
     captchaBreakers: load(STORE.CAPTCHA, null) || {},
     findingsFilter: load(STORE.FINDINGS_FILTER, { type: '', attacker: '' }),
     theme: load(STORE.THEME, 'dark'),
@@ -843,8 +793,7 @@ const STORE = {
     favorCfg: load(STORE.FAVOR_CFG, { god: 'athena', unit: 'harpy', thresh: 200, maxConcurrent: 2 }),
     spellCooldown: load(STORE.SPELL_COOLDOWN, {}),
     autoWonder: load(STORE.AUTO_WONDER, false),
-
-    wonderCfg: load(STORE.WONDER_CFG, { wonderId: null, islandX: null, islandY: null, wood: 0, stone: 0, iron: 0, reserve: 5000, budget: 50000 }),
+    wonderCfg: load(STORE.WONDER_CFG, { wonderId: null, wood: 0, stone: 0, iron: 0, reserve: 5000, budget: 50000 }),
     autoDodge: load(STORE.AUTO_DODGE, false),
 
     dodgeMode: load(STORE.DODGE_MODE, 'notify'),
@@ -852,9 +801,6 @@ const STORE = {
     autoRecruit: load(STORE.AUTO_RECRUIT, false),
     recruitTargets: load(STORE.RECRUIT_TARGETS, {}),
     recruitSpells: load(STORE.RECRUIT_SPELLS, false),
-    batchRecruit: load(STORE.BATCH_RECRUIT, false),
-    batchRecruitLists: load(STORE.BATCH_RECRUIT_LISTS, { towns: {} }),
-    recruitPacks: load(STORE.RECRUIT_PACKS, {}),
     autoVillageRecruit: load(STORE.AUTO_VILLAGE_RECRUIT, false),
     villageRecruitFillPct: load(STORE.VILLAGE_RECRUIT_FILL, 90),
     villageRecruitAmount: load(STORE.VILLAGE_RECRUIT_AMOUNT, 1),
@@ -938,9 +884,8 @@ const STORE = {
     wonderFavorTpl: load(STORE.WONDER_FAVOR_TPL, null),
     autoWonderFavor: load(STORE.AUTO_WONDER_FAVOR, false),
     autoPtTrade: load(STORE.AUTO_PT_TRADE, false),
-
     ptCfg: load(STORE.PT_CFG, null) || {
-      targetRatio: 1.0, pumpAmount: 1, reservePct: 10,
+      targetRatio: 1.0, pumpAmount: 1, maxPumps: 6, reservePct: 10,
       wantRes: { wood: true, stone: true, iron: false },
     },
     ptTradeTpl: load(STORE.PT_TRADE_TPL, null),
@@ -1105,18 +1050,6 @@ const STORE = {
       clampD('csTightSec', 5, 0, 120);
       save(STORE.DEFENSE_CFG, state.defenseCfg);
       ver = 12;
-    }
-    if (ver < 13) {
-
-      try {
-        const legacy = GM_getValue(STORE.BATCH_RECRUIT_LISTS, null);
-        const scoped = GM_getValue(wkey(STORE.BATCH_RECRUIT_LISTS), null);
-        if (scoped == null && legacy != null) {
-          save(STORE.BATCH_RECRUIT_LISTS, legacy);
-          if (legacy && typeof legacy === 'object') state.batchRecruitLists = legacy;
-        }
-      } catch (_) {}
-      ver = 13;
     }
     if (ver !== state.configVer) {
       state.configVer = ver;
@@ -1706,10 +1639,6 @@ const STORE = {
   }
   const _mmColCache = Object.create(null);
   let _mmColCacheAt = 0;
-
-  const MM_MODELS_CACHE_MS = 250;
-  const _mmModelsAllCache = Object.create(null);
-  let _mmModelsAllCacheAt = 0;
   function mmCol(name) {
     const now = Date.now();
     if (now - _mmColCacheAt >= UW_CACHE_MS) {
@@ -1728,60 +1657,6 @@ const STORE = {
     }
     _mmColCache[name] = (col && col.models) ? col : null;
     return _mmColCache[name];
-  }
-
-  function gbMovementType(a) {
-    if (!a) return '';
-    for (const v of [a.type, a.movement_type, a.command_type]) {
-      const t = String(v == null ? '' : v).toLowerCase().trim();
-      if (t) return t;
-    }
-    return '';
-  }
-
-  function mmModelsAll(name) {
-    const now = Date.now();
-    if (now - _mmModelsAllCacheAt >= MM_MODELS_CACHE_MS) {
-      for (const k of Object.keys(_mmModelsAllCache)) delete _mmModelsAllCache[k];
-      _mmModelsAllCacheAt = now;
-    }
-    if (name in _mmModelsAllCache) return _mmModelsAllCache[name].slice();
-    const uw = uwCached();
-    const out = [], seen = new Set(), refs = new Set();
-    const push = (m) => {
-      if (!m || typeof m !== 'object') return;
-      if (refs.has(m)) return;
-      refs.add(m);
-      const a = m.attributes || {};
-      const id = (typeof m.getCommandId === 'function' && m.getCommandId()) || a.command_id || a.id || m.id;
-      const k = id == null ? '' : String(id);
-      if (k) { if (seen.has(k)) return; seen.add(k); }
-      out.push(m);
-    };
-    const eat = (c) => {
-      try {
-        if (!c) return;
-        if (Array.isArray(c)) { c.forEach(push); return; }
-        if (Array.isArray(c.models)) c.models.forEach(push);
-      } catch (_) {}
-    };
-    try { eat(uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName(name)); } catch (_) {}
-    try { eat(uw.MM && uw.MM.getCollections && uw.MM.getCollections()[name]); } catch (_) {}
-    try {
-      const ag = uw.MM && uw.MM.getFirstTownAgnosticCollectionByName && uw.MM.getFirstTownAgnosticCollectionByName(name);
-      if (ag) {
-        eat(ag);
-        if (typeof ag.getFragment === 'function') {
-          for (const id of Object.keys((uw.ITowns && uw.ITowns.towns) || {})) {
-
-            try { eat(ag.getFragment(id)); } catch (_) {}
-            try { eat(ag.getFragment(+id)); } catch (_) {}
-          }
-        }
-      }
-    } catch (_) {}
-    _mmModelsAllCache[name] = out;
-    return out.slice();
   }
   function gameBridgeStatus() {
     const uw = gameUw();
@@ -2140,7 +2015,6 @@ const STORE = {
 
   const BRIDGE_TIMEOUT_MS = 15000;
   function saveCaptcha() { save(wkey(STORE.CAPTCHA), state.captchaBreakers); }
-
   function captchaPaused(feature) {
     const b = state.captchaBreakers[feature];
     if (!b || !b.until) return false;
@@ -2149,7 +2023,7 @@ const STORE = {
       if ((b.trips || 0) > 0) {
         b.trips = Math.max(0, (b.trips || 1) - 1);
         delete b.until;
-        saveSoon(wkey(STORE.CAPTCHA), state.captchaBreakers);
+        saveCaptcha();
       }
       return false;
     }
@@ -2399,7 +2273,7 @@ const STORE = {
   }
   function clientFingerprintCompatible(prev,cur){if(!cur)return{ok:false,why:'fingerprint-unreadable'};for(const k of ['MM','gpAjax','ITowns','GameData'])if(!cur.required[k])return{ok:false,why:`missing-${k}`};if(!prev)return{ok:true,first:true};for(const k of ['MM','gpAjax','ITowns','GameData'])if(prev.required&&prev.required[k]&&!cur.required[k])return{ok:false,why:`lost-${k}`};for(const k of ['units','buildings']){const a=+(prev.counts&&prev.counts[k]||0),b=+(cur.counts&&cur.counts[k]||0);if(a>0&&b>0&&Math.abs(b-a)/a>0.45)return{ok:false,why:`${k}-shape-changed:${a}->${b}`}}return{ok:true}}
   function clientFingerprintCheck() {const cur=clientFingerprintNow(),cmp=clientFingerprintCompatible(state.clientFingerprint,cur);if(!cmp.ok){state.safeMode=true;save(STORE.SAFE_MODE,true);gbLog(`SAFE MODE: Grepolis client compatibility check failed (${cmp.why})`);whyNote('system','client fingerprint','blocked',cmp.why);}else if(!state.clientFingerprint){state.clientFingerprint=cur;save(STORE.CLIENT_FP,cur);}else{state.clientFingerprint=cur;save(STORE.CLIENT_FP,cur);}return{current:cur,check:cmp}}
-  function safeModeBlock(feature,transport,endpoint,data){if(!state.safeMode)return null;const f=String(feature||'');if(['attack','support','spy','favor','wonder','rurallevel','merchant','spell','airaw'].includes(f))return 'safe-mode-high-impact';if(f==='culture'){const a=transport==='bridge'?(data&&data.arguments||{}):(data||{});if(/olympic/i.test(String(a.celebration_type||endpoint||'')))return 'safe-mode-premium';}return null}
+  function safeModeBlock(feature,transport,endpoint,data){if(!state.safeMode)return null;const f=String(feature||'');if(['attack','favor','wonder','rurallevel','merchant','spell','airaw'].includes(f))return 'safe-mode-high-impact';if(f==='culture'){const a=transport==='bridge'?(data&&data.arguments||{}):(data||{});if(/olympic/i.test(String(a.celebration_type||endpoint||'')))return 'safe-mode-premium';}return null}
 
   const CIRCUIT_TRIP = 3;
   const CIRCUIT_STRUCTURAL_RE = /unknown.?action|invalid.?action|unknown.?model|model.?not.?found|unknown.?controller|controller.?not.?found|no.?such.?action|does.?not.?exist|unsupported.?action|invalid.?model|endpoint.?not.?found/i;
@@ -2484,8 +2358,6 @@ const STORE = {
     'farm', 'collect', 'bandit', 'build', 'instant-build', 'instant-research', 'cave', 'culture', 'trade', 'ruraltrade', 'rurallevel',
     'research', 'merchant', 'favor', 'wonder', 'militia', 'dodge', 'spell', 'recruit', 'villrecruit', 'quest', 'attack',
     'cancel', 'hero', 'pttrade',
-
-    'support', 'spy',
 
     'airaw'
   ]);
@@ -2654,17 +2526,15 @@ const STORE = {
   }
   function txMovementCount(origin, dest, mission) {
     try {
-
-      const models = mmModelsAll('MovementsUnits');
-
-      if (!models.length && !mmCol('MovementsUnits')) return null;
+      const uw = gameUw();
+      const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits');
+      if (!col || !col.models) return null;
       let n = 0;
-      for (const m of models) {
+      for (const m of col.models) {
         const a = m.attributes || {};
         const o = String(a.origin_town_id || a.home_town_id || a.town_id || '');
         const d = String(a.destination_town_id || a.target_town_id || a.target_id || '');
-
-        const typ = gbMovementType(a);
+        const typ = String(a.command_name || a.type || a.movement_type || '').toLowerCase();
         if (origin != null && o !== String(origin)) continue;
         if (dest != null && d !== String(dest)) continue;
         if (mission && typ && !typ.includes(String(mission).toLowerCase())) continue;
@@ -2688,7 +2558,6 @@ const STORE = {
         if (!key || seen.has(key)) return;
         seen.add(key); models.push(m);
       };
-      try { mmModelsAll('MovementsUnits').forEach(push); } catch (_) {}
       try {
         const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits');
         if (col && col.models) col.models.forEach(push);
@@ -2830,9 +2699,7 @@ const STORE = {
       if (feature === 'militia') return { kind: 'militia', before: txMilitiaCount(townId) };
       if (feature === 'spell') return { kind: 'spell', powerId: a.power_id, before: txSpellPresent(townId, a.power_id) };
       if (feature === 'quest') return { kind: 'quest', qid: a.progressable_id || String(d.model_url || '').split('/').pop(), before: txQuestClaimable(a.progressable_id || String(d.model_url || '').split('/').pop()) };
-      if (feature === 'attack' || feature === 'dodge' || feature === 'favor' || feature === 'support') return { kind: 'movement', before: txMovementCount(townId, a.id, a.type), dest: a.id, mission: a.type };
-
-      if (feature === 'spy') return { kind: 'spy', before: txCaveStatus(townId), amount: +a.espionage_iron || 0, dest: a.id };
+      if (feature === 'attack' || feature === 'dodge' || feature === 'favor') return { kind: 'movement', before: txMovementCount(townId, a.id, a.type), dest: a.id, mission: a.type };
       if (feature === 'cancel') {
         const commandId = a.id != null ? a.id : a.command_id;
         return { kind: 'cancel', commandId: String(commandId == null ? '' : commandId), before: txCommandStatus(commandId) };
@@ -2896,16 +2763,13 @@ const STORE = {
       return `recruit:${townId}:${u}:${before}+${+a.amount || 0}`;
     }
     if (feature === 'trade') return `trade:${townId}:${a.id}:${+a.wood || 0}:${+a.stone || 0}:${+a.iron || 0}`;
-
-    if (feature === 'farm') return `farm:${townId}:${a.farm_town_id}:${a.type || 'resources'}:${a.option}`;
+    if (feature === 'farm') return `farm:${townId}:${a.farm_town_id}:${a.option}`;
     if (feature === 'collect') return `collect:${townId}:${endpoint}`;
     if (feature === 'cave') return `cave:${townId}:${+a.iron_to_store || 0}`;
     if (feature === 'militia') return `militia:${townId}`;
     if (feature === 'spell') return `spell:${townId}:${a.power_id || '?'}`;
     if (feature === 'quest') return `quest:${a.progressable_id || String(d.model_url || '').split('/').pop() || '?'}`;
-    if (feature === 'attack' || feature === 'dodge' || feature === 'favor' || feature === 'support') return `${feature}:${townId}:${a.id || '?'}:${a.type || '?'}:${txUnitSignature(a)}`;
-
-    if (feature === 'spy') return `spy:${townId}:${a.id || '?'}:${+a.espionage_iron || 0}:${snap && snap.before && snap.before.stored != null ? snap.before.stored : '?'}`;
+    if (feature === 'attack' || feature === 'dodge' || feature === 'favor') return `${feature}:${townId}:${a.id || '?'}:${a.type || '?'}:${txUnitSignature(a)}`;
     if (feature === 'cancel') return `cancel:${a.id != null ? a.id : (a.command_id != null ? a.command_id : '?')}`;
     if (feature === 'hero') return `hero:${String(endpoint || '?').split('/').pop()}:${a.type || a.hero_type || a.hero || '?'}:${a.target_town_id != null ? a.target_town_id : (a.town_id != null ? a.town_id : '-')}`;
     if (feature === 'wonder') return `wonder:${townId}:${a.id || a.wonder_id || '?'}:${+a.wood || 0}:${+a.stone || 0}:${+a.iron || 0}`;
@@ -2915,14 +2779,6 @@ const STORE = {
     if (feature === 'merchant') return `merchant:${townId}:${a.offer_id || a.offer || a.id || endpoint}`;
     if (feature === 'pttrade') return `pttrade:${townId || '-'}:${a.offer_id || a.offer || (d.model_url ? String(d.model_url).split('/').pop() : '') || endpoint}`;
     return `${feature}:${townId || '-'}:${endpoint}:${JSON.stringify(txStableObj(a)).slice(0, 100)}`;
-  }
-
-  function txNum(v) { return Number.isFinite(+v) ? +v : null; }
-  function txLt(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x < y; }
-  function txGt(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x > y; }
-  function txNe(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x !== y; }
-  function txResTriadReadable(o) {
-    return !!o && txNum(o.wood) != null && txNum(o.stone) != null && txNum(o.iron) != null;
   }
   function txReconcileNow(tx) {
     const s = tx.snapshot || {};
@@ -2944,8 +2800,6 @@ const STORE = {
       if (s.kind === 'recruit') {
         const cur = txUnitStatus(meta.townId, s.unit);
         if (!cur || !s.status) return 'unknown';
-
-        if (txNum(cur.total) == null || txNum(s.status.total) == null) return 'unknown';
         if (cur.total >= s.status.total + Math.max(1, s.amount || 0)) return 'applied';
         return 'unchanged';
       }
@@ -2958,23 +2812,16 @@ const STORE = {
         const before = s.kind === 'trade' ? s.source : s.before;
         const cur = txTownResourceSnap(meta.townId);
         if (!before || !cur) return 'unknown';
-        if (!txResTriadReadable(before) || !txResTriadReadable(cur)) return 'unknown';
         if (s.kind === 'collect') {
-          if (txGt(cur.wood, before.wood) || txGt(cur.stone, before.stone) || txGt(cur.iron, before.iron)) return 'applied';
-        } else if (txLt(cur.wood, before.wood) || txLt(cur.stone, before.stone) || txLt(cur.iron, before.iron) || txLt(cur.tradeCap, before.tradeCap)) return 'applied';
+          if (cur.wood > before.wood || cur.stone > before.stone || cur.iron > before.iron) return 'applied';
+        } else if (cur.wood < before.wood || cur.stone < before.stone || cur.iron < before.iron || (cur.tradeCap != null && before.tradeCap != null && cur.tradeCap < before.tradeCap)) return 'applied';
         return 'unchanged';
       }
       if (s.kind === 'cave') {
         const cur = txCaveStatus(meta.townId);
         if (!cur || !s.before) return 'unknown';
-        if (txGt(cur.stored, s.before.stored) || txLt(cur.iron, s.before.iron)) return 'applied';
+        if ((cur.stored != null && s.before.stored != null && cur.stored > s.before.stored) || (cur.iron != null && s.before.iron != null && cur.iron < s.before.iron)) return 'applied';
         return 'unchanged';
-      }
-      if (s.kind === 'spy') {
-        const cur = txCaveStatus(meta.townId);
-        if (!cur || !s.before || txNum(cur.stored) == null || txNum(s.before.stored) == null) return 'unknown';
-
-        return txLt(cur.stored, s.before.stored) ? 'applied' : 'unchanged';
       }
       if (s.kind === 'militia') {
         const cur = txMilitiaCount(meta.townId);
@@ -3027,16 +2874,16 @@ const STORE = {
         const cur = txMerchantStatus(s.offerId);
         if (!cur || !s.before) return 'unknown';
         if (s.before.exists && !cur.exists) return 'applied';
-        if (txLt(cur.gold, s.before.gold)) return 'applied';
+        if (cur.gold != null && s.before.gold != null && cur.gold < s.before.gold) return 'applied';
         return cur.exists === s.before.exists ? 'unchanged' : 'unknown';
       }
       if (s.kind === 'pttrade') {
         const cur = txPtTradeStatus(meta.townId, s.offerId);
         if (!cur || !s.before) return 'unknown';
         if (s.before.exists && !cur.exists) return 'applied';
-        if (txLt(cur.tradeCap, s.before.tradeCap)) return 'applied';
-        if (cur.res && s.before.res && (txNe(cur.res.wood, s.before.res.wood) || txNe(cur.res.stone, s.before.res.stone) || txNe(cur.res.iron, s.before.res.iron))) return 'applied';
-        if (txLt(cur.amount, s.before.amount)) return 'applied';
+        if (cur.tradeCap != null && s.before.tradeCap != null && cur.tradeCap < s.before.tradeCap) return 'applied';
+        if (cur.res && s.before.res && (cur.res.wood != null && s.before.res.wood != null && cur.res.wood !== s.before.res.wood || cur.res.stone != null && s.before.res.stone != null && cur.res.stone !== s.before.res.stone || cur.res.iron != null && s.before.res.iron != null && cur.res.iron !== s.before.res.iron)) return 'applied';
+        if (cur.amount != null && s.before.amount != null && cur.amount < s.before.amount) return 'applied';
         return cur.exists === s.before.exists ? 'unchanged' : 'unknown';
       }
       if (s.kind === 'bandit-attack' || (s.kind === 'bandit' && /\/attack$/i.test(String(tx.endpoint || '')))) {
@@ -3277,9 +3124,7 @@ const STORE = {
     });
   }
 
-  const SELF_BRIDGE_MAX = 12;
-  const SELF_BRIDGE_TTL_MS = 10000;
-  const selfBridgeLog = [];
+  const lastSelfBridge = { sig: '', fingerprint: '', at: 0, owner: '' };
 
   const GB_AJAX_WATCH_MS = 8000;
   const GB_AJAX_PENDING_MAX = 24;
@@ -3400,40 +3245,15 @@ const STORE = {
     }
     return d;
   }
-  function selfBridgeFingerprint(j) {
-    try {
-      return JSON.stringify({ model_url: j.model_url || '', action_name: j.action_name || '', arguments: j.arguments || {}, town_id: j.town_id ?? null });
-    } catch (_) { return ''; }
-  }
-  function selfBridgeNote(payload) {
-    const p = payload || {};
-    const now = Date.now();
-
-    for (let i = selfBridgeLog.length - 1; i >= 0; i--) {
-      if (now - selfBridgeLog[i].at > SELF_BRIDGE_TTL_MS) selfBridgeLog.splice(i, 1);
-    }
-    selfBridgeLog.push({
-      sig: String(p.model_url || '') + '|' + String(p.action_name || ''),
-      fingerprint: selfBridgeFingerprint(p),
-      at: now,
-      owner: GB_INSTANCE_ID,
-    });
-    while (selfBridgeLog.length > SELF_BRIDGE_MAX) selfBridgeLog.shift();
-  }
   function isSelfBridge(j) {
-    if (!j || !selfBridgeLog.length) return false;
-    const now = Date.now();
+    if (!j || !lastSelfBridge.sig || lastSelfBridge.owner !== GB_INSTANCE_ID) return false;
+    if (Date.now() - lastSelfBridge.at > 10000) return false;
     const sig = String(j.model_url || '') + '|' + String(j.action_name || '');
-    const fp = selfBridgeFingerprint(j);
-    if (!fp) return false;
-    for (let i = 0; i < selfBridgeLog.length; i++) {
-      const e = selfBridgeLog[i];
-      if (e.owner !== GB_INSTANCE_ID) continue;
-      if (now - e.at > SELF_BRIDGE_TTL_MS) continue;
-      if (e.sig !== sig) continue;
-      if (e.fingerprint === fp) return true;
-    }
-    return false;
+    if (sig !== lastSelfBridge.sig) return false;
+    try {
+      const fp = JSON.stringify({ model_url: j.model_url || '', action_name: j.action_name || '', arguments: j.arguments || {}, town_id: j.town_id ?? null });
+      return fp === lastSelfBridge.fingerprint;
+    } catch (_) { return false; }
   }
   function responseServerError(data) {
     const queue=[data],seen=new Set();let steps=0;
@@ -3458,7 +3278,11 @@ const STORE = {
       gbLogT('bridge-timeout-' + feature, 30000, feature + ': bridge timeout ' + BRIDGE_TIMEOUT_MS + 'ms');
       finish('timeout');
     }, BRIDGE_TIMEOUT_MS);
-    selfBridgeNote(payload);
+    lastSelfBridge.sig = String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || '');
+    try { lastSelfBridge.fingerprint = JSON.stringify({ model_url: payload.model_url || '', action_name: payload.action_name || '', arguments: payload.arguments || {}, town_id: payload.town_id ?? null }); }
+    catch (_) { lastSelfBridge.fingerprint = ''; }
+    lastSelfBridge.at = Date.now();
+    lastSelfBridge.owner = GB_INSTANCE_ID;
     const classify = (data) => {
       if (!gbInstanceAlive()) return;
       try {
@@ -3830,11 +3654,7 @@ const STORE = {
     } catch (_) {}
     try {
       const a = (t.buildings && t.buildings().attributes) || {};
-
-      if (a[building] != null) {
-        const v = +a[building];
-        if (Number.isFinite(v)) return v;
-      }
+      if (a[building] != null) return +a[building] || 0;
     } catch (_) {}
     return null;
   }
@@ -5033,7 +4853,7 @@ const STORE = {
           gbLog('learned claim template:', JSON.stringify(state.claimTpl).slice(0, 200));
           try { tplHealthMarkLearned('claimTpl'); } catch (_) {}
 
-          if (!isSelfBridge(j)) farmLearnFromClaim(j);
+          if (!isSelfBridge(j)) farmLearnOptionFromClaim(j);
         } else if (j && j.model_url && !/claim|trade|unlock|upgrade/i.test(j.action_name || '')
                    && /sword|archer|hoplite|slinger/i.test(body)) {
 
@@ -5350,18 +5170,6 @@ const STORE = {
     const parts = FARM_DURATIONS.filter(s => m[String(s)] != null).map(s => `${farmDurLabel(s)}=${m[String(s)]}`);
     return parts.length ? parts.join(' ') : 'none';
   }
-
-  function farmOptionMapConflicts() {
-    const m = state.farmOptionMap || {};
-    const byOpt = Object.create(null);
-    Object.keys(m).forEach(sec => {
-      const o = String(m[sec]);
-      (byOpt[o] = byOpt[o] || []).push(+sec);
-    });
-    const bad = Object.keys(byOpt).filter(o => byOpt[o].length > 1)
-      .map(o => byOpt[o].sort((a, b) => a - b).map(s => farmDurLabel(s)).join('/') + '=' + o);
-    return bad.length ? bad.join(' ') : '';
-  }
   function farmSnapDuration(sec) {
     let best = null, bestDiff = Infinity;
     FARM_DURATIONS.forEach(d => {
@@ -5372,29 +5180,12 @@ const STORE = {
     return best != null && bestDiff <= best * 0.2 ? best : null;
   }
 
-  function farmLearnFromClaim(j) {
-    const type = String(((j && j.arguments) || {}).type || '');
-    if (type === 'units') return farmLearnUnitsOptionFromClaim(j);
-    if (type && type !== 'resources') return;
-    farmLearnOptionFromClaim(j);
-  }
-  function farmLearnUnitsOptionFromClaim(j) {
-    try {
-      const opt = +((j && j.arguments) || {}).option;
-      if (!(opt >= 1 && opt <= FARM_UNIT_ORDER.length)) return;
-      if (+state.farmUnitsOption === opt) return;
-      state.farmUnitsOption = opt;
-      save(wkey(STORE.FARM_UNITS_OPTION), opt);
-      gbLog(`farm: learned units claim option ${opt} (${farmUnitIdFor(opt) || '?'})`);
-    } catch (_) {}
-  }
   function farmLearnOptionFromClaim(j) {
     try {
       const a = (j && j.arguments) || {};
       const opt = +a.option;
       const vid = a.farm_town_id;
-
-      if (!(opt >= 1 && opt <= 4) || vid == null) return;
+      if (!(opt > 0) || vid == null) return;
       gbTimeout(() => {
         const farms = farmsFromGame() || [];
         const f = farms.find(x => String(x.vill_id) === String(vid));
@@ -5410,8 +5201,6 @@ const STORE = {
         if (sec == null) return;
         const map = Object.assign({}, state.farmOptionMap || {});
         if (+map[String(sec)] === opt) return;
-
-        Object.keys(map).forEach(k => { if (k !== String(sec) && +map[k] === opt) delete map[k]; });
         map[String(sec)] = opt;
         state.farmOptionMap = map;
         save(wkey(STORE.FARM_OPTION_MAP), map);
@@ -5562,211 +5351,6 @@ const STORE = {
   }
   function farmProfitInvalidate() { for (const k of Object.keys(farmProfitCache)) delete farmProfitCache[k]; farmProfitRefreshAt = 0; }
 
-  const FARM_UNIT_ORDER = ['sword', 'slinger', 'archer', 'hoplite'];
-  function farmUnitIdFor(option) { return FARM_UNIT_ORDER[(+option || 0) - 1] || null; }
-
-  function farmVillageLevel(farm) {
-    const rel = farm && farm._rel;
-    const a = (farm && farm._attrs) || {};
-    let level = null;
-    try { if (rel && typeof rel.getLevel === 'function') level = +rel.getLevel(); } catch (_) {}
-    if (Number.isFinite(level)) return level;
-    const status = +a.relation_status;
-    if (status === 0) return 0;
-    return Number.isFinite(+a.expansion_stage) ? +a.expansion_stage : null;
-  }
-
-  function farmClaimUnitsTable(farm) {
-    const t = gbGameDataLookup('farm_town', 'claim_units');
-    if (!t || typeof t !== 'object') return null;
-    const lvl = farmVillageLevel(farm);
-    if (lvl != null) {
-      const byLevel = t[lvl] != null ? t[lvl] : t[String(lvl)];
-      if (byLevel && typeof byLevel === 'object') return byLevel;
-    }
-    if (FARM_UNIT_ORDER.some(u => t[u] != null)) return t;
-    return null;
-  }
-
-  function farmUnitOption(farm, townId) {
-    const pref = String(state.farmUnitsPref || 'auto');
-    if (pref !== 'auto' && pref !== 'learned') {
-      const i = FARM_UNIT_ORDER.indexOf(pref);
-      return i >= 0 ? i + 1 : null;
-    }
-    if (pref === 'auto') {
-      let tid = townId;
-      if (tid == null) { try { tid = gameUw().Game && gameUw().Game.townId; } catch (_) { tid = null; } }
-      const auto = farmUnitAutoOption(farm, tid);
-      if (auto != null) return auto;
-    }
-    const o = +state.farmUnitsOption;
-    return o >= 1 && o <= FARM_UNIT_ORDER.length ? o : null;
-  }
-  function farmUnitAutoOption(farm, townId) {
-    const table = farmClaimUnitsTable(farm);
-    if (!table) return null;
-    let best = null;
-    for (let opt = 1; opt <= FARM_UNIT_ORDER.length; opt++) {
-      const unit = FARM_UNIT_ORDER[opt - 1];
-      const amount = +table[unit];
-      if (!Number.isFinite(amount) || amount <= 0) continue;
-      if (townId != null && farmUnitsClaimBlocked(farm, townId, opt)) continue;
-      const def = gbGameDataLookup('units', unit);
-      const res = (def && def.resources) || null;
-
-      const cost = res ? (+res.wood || 0) + (+res.stone || 0) + (+res.iron || 0) : 0;
-      const score = amount * (cost > 0 ? cost : 1);
-      if (!best || score > best.score) best = { opt, score };
-    }
-    return best ? best.opt : null;
-  }
-
-  function farmDailyLeft(farm) {
-    const rel = farm && farm._rel;
-    const a = (farm && farm._attrs) || {};
-    const level = farmVillageLevel(farm);
-    if (!Number.isFinite(level)) return null;
-    const table = gbGameDataLookup('farm_town', 'max_resources_per_day');
-    const perDay = table ? +table[level] : NaN;
-    if (!Number.isFinite(perDay) || perDay <= 0) return null;
-    let speed = null;
-    try { speed = +(gameUw().Game && gameUw().Game.game_speed); } catch (_) {}
-    if (!Number.isFinite(speed) || speed <= 0) return null;
-    let loot = null;
-    try { if (rel && typeof rel.getLoot === 'function') loot = +rel.getLoot(); } catch (_) {}
-    if (!Number.isFinite(loot)) loot = +a.loot;
-    if (!Number.isFinite(loot)) return null;
-    return Math.max(0, perDay * speed - loot);
-  }
-
-  function farmUnitsClaimBlocked(farm, townId, option) {
-    const unit = farmUnitIdFor(option);
-    if (!unit) return 'unit-unknown';
-    const table = farmClaimUnitsTable(farm);
-    let amount = null;
-    if (table) {
-      if (table[unit] == null) return 'unit-not-offered';
-      const n = +table[unit];
-      if (Number.isFinite(n)) {
-        if (!(n > 0)) return 'unit-amount-0';
-        amount = n;
-      }
-    }
-    const def = gbGameDataLookup('units', unit);
-    const popEach = def && def.population != null ? +def.population : null;
-    const free = gbTownPop(townId);
-    if (amount != null && Number.isFinite(popEach) && popEach > 0 && free != null && free < amount * popEach) {
-      return `pop ${free}/${amount * popEach}`;
-    }
-    try {
-      const req = ((gbGameDataLookup('farm_town', 'building_requirements') || {}).units || {})[option];
-      if (req && req.building) {
-        const lvl = gbBuildingLevel(townId, req.building);
-        if (lvl != null && lvl < +req.level) return `${req.building} ${lvl}/${req.level}`;
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  function farmResExhausted(farm) {
-    const rel = farm && farm._rel;
-    let vals = null;
-    try {
-      if (rel && typeof rel.getClaimResourceValues === 'function') vals = rel.getClaimResourceValues();
-    } catch (_) {}
-    if (vals == null) vals = (farm && farm._attrs && farm._attrs.claim_resource_values) || null;
-    if (vals == null || typeof vals !== 'object') return null;
-    const nums = Object.keys(vals).map(k => +vals[k]).filter(n => Number.isFinite(n));
-    if (!nums.length) return null;
-    return nums.every(n => n <= 0);
-  }
-  function farmResDryMap() {
-    const day = farmDayKey();
-    if (state.farmResDryDay !== day) {
-      state.farmResDryDay = day;
-      state.farmResDry = {};
-      save(wkey(STORE.FARM_RES_DRY_DAY), day);
-      save(wkey(STORE.FARM_RES_DRY), state.farmResDry);
-    }
-    if (!state.farmResDry || typeof state.farmResDry !== 'object') state.farmResDry = {};
-    return state.farmResDry;
-  }
-
-  const FARM_RES_DRY_STRIKES = 1;
-  function farmResDryMarked(villId) {
-    const r = farmResDryMap()[String(villId)];
-    return !!r && (+r.n || 0) >= FARM_RES_DRY_STRIKES;
-  }
-  function farmMarkResDry(villId, why) {
-    const m = farmResDryMap();
-    const key = String(villId);
-    const row = m[key] && typeof m[key] === 'object' ? m[key] : { n: 0 };
-    if (row.n >= FARM_RES_DRY_STRIKES) return;
-    row.n = (+row.n || 0) + 1;
-    row.why = why || 'hard error';
-    row.at = Date.now();
-    m[key] = row;
-    saveSoon(wkey(STORE.FARM_RES_DRY), m);
-    if (row.n >= FARM_RES_DRY_STRIKES) {
-      gbLog(`farm: village ${villId} resource claim dry today (${row.why}) - claiming units instead`);
-    } else {
-      gbLogT('farm-dry-strike-' + villId, 60000, `farm: village ${villId} resource claim error ${row.n}/${FARM_RES_DRY_STRIKES} (${row.why})`);
-    }
-  }
-  function farmResDryClear(villId) {
-    const m = farmResDryMap();
-    if (!m[String(villId)]) return;
-    delete m[String(villId)];
-    saveSoon(wkey(STORE.FARM_RES_DRY), m);
-  }
-
-  function farmClaimTypeFor(farm) {
-    const mode = String(state.farmUnitsMode || 'off');
-    if (mode === 'always') return 'units';
-    if (mode !== 'fallback') return 'resources';
-    const left = farmDailyLeft(farm);
-    if (left != null && left <= 0) {
-      gbLogT('farm-daily-cap-' + farm.vill_id, 600000,
-        `farm: village ${farm.vill_id} daily resource allowance spent - claiming units`);
-      return 'units';
-    }
-    if (farmResExhausted(farm) === true) return 'units';
-    return farmResDryMarked(farm.vill_id) ? 'units' : 'resources';
-  }
-
-  function farmClaimDiag(limit) {
-    const farms = farmsFromGame();
-    if (!farms) { gbLog('farm diag: game collections not ready'); return; }
-    const islandMap = islandTownMap();
-    const speed = (() => { try { return +(gameUw().Game && gameUw().Game.game_speed); } catch (_) { return null; } })();
-    const perDayTable = gbGameDataLookup('farm_town', 'max_resources_per_day');
-    const unitTable = farmClaimUnitsTable(farms[0]);
-    gbLog(`farm diag: mode=${state.farmUnitsMode || 'off'} pick=${state.farmUnitsPref || 'auto'} learnedUnitOpt=${state.farmUnitsOption == null ? '-' : state.farmUnitsOption}` +
-      ` game_speed=${Number.isFinite(speed) ? speed : 'UNREADABLE'}` +
-      ` max_resources_per_day=${perDayTable ? 'ok' : 'UNREADABLE'}` +
-      ` claim_units=${unitTable ? JSON.stringify(unitTable).slice(0, 120) : 'UNREADABLE'}` +
-      ` optionMap=${farmOptionMapText()}`);
-    const n = Math.max(1, Math.min(+limit || 8, farms.length));
-    for (const f of farms.slice(0, n)) {
-      const tid = townIdForFarm(f, islandMap);
-      const left = farmDailyLeft(f);
-      const type = farmClaimTypeFor(f);
-      const opt = type === 'units' ? farmUnitOption(f, tid) : null;
-      const blocked = (type === 'units' && opt != null && tid != null) ? farmUnitsClaimBlocked(f, tid, opt) : null;
-      const dry = farmResDryMap()[String(f.vill_id)];
-      gbLog(`  vill ${f.vill_id} town=${tid == null ? '-' : tid}` +
-        ` lootable=${f.lootable_at == null ? '-' : Math.max(0, f.lootable_at - gameNow()) + 's'}` +
-        ` loot=${(f._attrs && f._attrs.loot) != null ? f._attrs.loot : '-'}` +
-        ` level=${(f._attrs && f._attrs.expansion_stage) != null ? f._attrs.expansion_stage : '-'}` +
-        ` dailyLeft=${left == null ? 'BLIND' : left}` +
-        ` resValues=${farmResExhausted(f) === null ? 'blind' : (farmResExhausted(f) ? 'all-zero' : 'has-value')}` +
-        ` dry=${dry ? dry.n + 'x ' + (dry.why || '') : '-'}` +
-        ` -> type=${type}${type === 'units' ? ' opt=' + (opt == null ? 'NONE' : opt + '(' + (farmUnitIdFor(opt) || '?') + ')') + (blocked ? ' BLOCKED:' + blocked : '') : ''}`);
-    }
-    if (farms.length > n) gbLog(`  \u2026 ${farms.length - n} more village(s) not shown`);
-  }
-
   function claimFarm(farm, islandMap, whCache, durOverride, onDone) {
     const done = (err) => { if (onDone) onDone(err); };
     if (captchaPaused('farm')) return done('captcha');
@@ -5775,36 +5359,24 @@ const STORE = {
       gbLogT('claim-no-town', 60000, `farm claim skip ${farm.vill_id}: no same-island town`);
       return done('skip');
     }
-    const claimType = farmClaimTypeFor(farm);
-
-    if (claimType === 'resources') {
-      let blocked = false;
-      if (whCache) {
-        if (!(tid in whCache)) whCache[tid] = townWarehouseBlocks(tid);
-        blocked = whCache[tid];
-      } else {
-        blocked = townWarehouseBlocks(tid);
-      }
-      if (blocked) {
-        gbLogT('claim-wh-block', 30000, `farm claim blocked (warehouse full) town ${tid} vill ${farm.vill_id}`);
-        return done('skip');
-      }
+    let blocked = false;
+    if (whCache) {
+      if (!(tid in whCache)) whCache[tid] = townWarehouseBlocks(tid);
+      blocked = whCache[tid];
+    } else {
+      blocked = townWarehouseBlocks(tid);
+    }
+    if (blocked) {
+      gbLogT('claim-wh-block', 30000, `farm claim blocked (warehouse full) town ${tid} vill ${farm.vill_id}`);
+      return done('skip');
     }
     const tplArgs = (state.claimTpl && state.claimTpl.arguments) || {};
-    if (claimType === 'units') return claimFarmUnits(farm, tid, tplArgs, done);
     const wantSec = durOverride || farmDesiredDuration(tid);
     let option = farmOptionFor(wantSec);
     if (option == null) {
-
-      const fallback = farmOptionFor(300);
-      if (fallback == null) {
-        gbLogT('farm-opt-' + wantSec, 900000,
-          `farm claim: option index for ${farmDurLabel(wantSec)} unknown and no learned 5min index - claim once by hand in game to teach it`);
-        return done('skip');
-      }
       gbLogT('farm-opt-' + wantSec, 900000,
-        `farm claim: option index for ${farmDurLabel(wantSec)} unknown - claim that timer once by hand in game to teach it (using learned 5min)`);
-      option = fallback;
+        `farm claim: option index for ${farmDurLabel(wantSec)} unknown - claim that timer once by hand in game to teach it (using 5min)`);
+      option = farmOptionFor(300) != null ? farmOptionFor(300) : 1;
     }
 
     const args = Object.assign({}, tplArgs, { type: 'resources', option, farm_town_id: +farm.vill_id });
@@ -5815,40 +5387,52 @@ const STORE = {
       town_id: tid,
     }, (err) => {
       if (!err && whCache) delete whCache[tid];
-
-      const hard = err && !JRN_SKIP_ERRS[String(err).split(':')[0]] && err !== 'captcha' && !jrnPendingResult(err);
-      if (hard || err === 'remembered') {
-        if (String(state.farmUnitsMode || 'off') === 'fallback') farmMarkResDry(farm.vill_id, String(err).slice(0, 40));
-      } else if (!err) {
-        farmResDryClear(farm.vill_id);
-      }
       done(err || null);
     });
   }
-  function claimFarmUnits(farm, tid, tplArgs, done) {
-    const option = farmUnitOption(farm, tid);
-    if (option == null) {
-      gbLogT('farm-units-opt', 120000,
-        'farm claim: no unit card available (pick=' + (state.farmUnitsPref || 'auto') +
-        ', claim_units=' + (farmClaimUnitsTable(farm) ? 'readable' : 'UNREADABLE for village level ' + farmVillageLevel(farm)) +
-        ', learned=' + (state.farmUnitsOption == null ? 'none' : state.farmUnitsOption) +
-        ') - pin a unit in Ajustes or claim units once by hand; Acciones > Diagnostico de aldeas dumps the reads');
-      return done('skip');
-    }
-    const why = farmUnitsClaimBlocked(farm, tid, option);
-    if (why) {
-      gbLogT('farm-units-block-' + tid, 300000,
-        `farm units claim skip town ${tid} vill ${farm.vill_id}: ${why}`);
-      return done('skip');
-    }
-    const args = Object.assign({}, tplArgs, { type: 'units', option, farm_town_id: +farm.vill_id });
-    bridgePost('farm', {
-      model_url: `FarmTownPlayerRelation/${farm.relation_id}`,
-      action_name: (state.claimTpl && state.claimTpl.action_name) || 'claim',
-      arguments: args,
-      town_id: tid,
-    }, (err) => done(err || null));
+
+  const FARM_PENDING_MEMO_MS = 3000;
+  let farmPendingMemo = { at: 0, val: false };
+  function farmClaimPending() {
+    if (!state.autoFarm || !hostEnabled()) return false;
+    if (captchaPaused('farm')) return false;
+
+    if (gbLocked('claim')) return true;
+    const stamp = Date.now();
+    if (stamp - farmPendingMemo.at < FARM_PENDING_MEMO_MS) return farmPendingMemo.val;
+    let val = false;
+    try {
+      const farms = farmsFromGame();
+      if (farms && farms.length) {
+        const now = gameNow();
+        const islandMap = islandTownMap();
+        const whCache = Object.create(null);
+        for (const f of farms) {
+          if (!f) continue;
+          if (f._rel) {
+            if (!farmIsLootable(f._rel, f._attrs || {})) continue;
+          } else if (f.lootable_at != null && f.lootable_at > now) {
+            continue;
+          }
+          const tid = townIdForFarm(f, islandMap);
+          if (!tid) continue;
+          if (!(tid in whCache)) whCache[tid] = townWarehouseBlocks(tid);
+          if (whCache[tid]) continue;
+          val = true;
+          break;
+        }
+      }
+    } catch (_) { val = false; }
+    farmPendingMemo = { at: stamp, val };
+    return val;
   }
+
+  function farmFirstHold(who) {
+    if (!farmClaimPending()) return false;
+    gbLogT('farm-first-' + who, 300000, `${who}: held - farming village claim pending (farm-first)`);
+    return true;
+  }
+
   function autoClaimFarms(reason, durOverride, onBatchDone) {
     if (!hostEnabled() || !state.autoFarm || captchaPaused('farm') || automationPaused({})) {
       if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
@@ -5871,8 +5455,6 @@ const STORE = {
       }
       const tid = townIdForFarm(f, islandMap);
       if (!tid) return false;
-
-      if (farmClaimTypeFor(f) === 'units') return true;
       if (!(tid in whCache)) whCache[tid] = townWarehouseBlocks(tid);
       if (whCache[tid]) { skippedFull++; return false; }
       return true;
@@ -5899,20 +5481,15 @@ const STORE = {
     }
     const claimLockToken = gbLock('claim', Math.max(180000, work.length * 20000));
     if (!claimLockToken) return;
-    const unitCount = work.filter(f => farmClaimTypeFor(f) === 'units').length;
-    gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${work.length}/${farms.length} ready${work.length !== ready.length ? ` (${ready.length - work.length} adaptivo)` : ''}${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}${unitCount ? ` (${unitCount} as units)` : ''}`);
+    gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${work.length}/${farms.length} ready${work.length !== ready.length ? ` (${ready.length - work.length} adaptivo)` : ''}${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}`);
     const before = {};
     farms.forEach(f => { before[f.vill_id] = f.lootable_at; });
     flash(`farm claim x${work.length}`);
-
-    const outcome = Object.create(null);
     let i = 0, done = 0, captcha = false;
     const claimSpacingMs=Math.max(700,Math.ceil(60000/Math.max(5,(+state.reqBudgetPerMin||40)-4)));
     (function next() {
       gbLockTouch('claim', claimLockToken);
       if (i >= work.length || captcha || captchaPaused('farm')) {
-        const tally = Object.keys(outcome).map(k => `${k}x${outcome[k]}`).join(' ');
-        if (tally) gbLog(`  claim outcomes: ${tally}`);
         gbTimeout(() => {
           try {
             const flipped = verifyClaims(before, work);
@@ -5932,8 +5509,6 @@ const STORE = {
       const f = work[i++];
       try {
         claimFarm(f, islandMap, whCache, durOverride, (err) => {
-          const key = String(err || 'ok').slice(0, 24);
-          outcome[key] = (outcome[key] || 0) + 1;
           if (err === 'captcha' || err === 'captcha-pause') { captcha = true; farmPressureNote('captcha'); }
           else if (!err) {
             done++;
@@ -5993,8 +5568,7 @@ const STORE = {
   function farmClaimCount(villId) {
     const c = farmClaimsToday();
     c[String(villId)] = (+c[String(villId)] || 0) + 1;
-
-    saveSoon(STORE.FARM_CLAIMS_TODAY, c);
+    save(STORE.FARM_CLAIMS_TODAY, c);
   }
   function farmProfitScoreOf(villId) {
     const p = (state.farmProfit || {})[String(villId)];
@@ -7011,8 +6585,6 @@ const STORE = {
       if (Array.isArray(col)) { known = true; col.forEach(push); return; }
       if (Array.isArray(col.models)) { known = true; col.models.forEach(push); }
     };
-
-    try { const all = mmModelsAll('MovementsUnits'); if (all.length) addCollection(all); } catch (_) {}
     try { addCollection(uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits')); } catch (_) {}
     try {
       const cols = uw.MM && uw.MM.getCollections && uw.MM.getCollections().MovementsUnits;
@@ -7158,14 +6730,7 @@ const STORE = {
         });
         return true;
       }
-
-      let cd = 0;
-      const cdRaw = (typeof m.getCooldownDuration === 'function') ? +m.getCooldownDuration() : NaN;
-      if (Number.isFinite(cdRaw)) cd = cdRaw;
-      else {
-        gbLogT('bandit-cd-blind', 300000, 'bandit: cooldown unreadable (getCooldownDuration) - blind, server decides');
-        banditIdle(60000);
-      }
+      const cd = m.getCooldownDuration ? m.getCooldownDuration() : 0;
       if (cd > 0) {
         gbLogT('bandit-cd', 60000, `bandit: cooldown ${Math.floor(cd / 60)}m${cd % 60}s left`);
         banditIdle(cd * 1000);
@@ -7785,7 +7350,7 @@ const STORE = {
     return base;
   }
   function goalEffectiveRecruitTargets() {
-    const raw=structuredClone(state.recruitTargets||{}),out={};
+    const raw=JSON.parse(JSON.stringify(state.recruitTargets||{})),out={};
     let ids=[]; try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){}
     for(const tid of ids){ const e=goalEffective(tid),cfg=goalTownCfg(tid),m=Object.assign({},raw[tid]||{}); for(const [u,n] of Object.entries(e.units||{})) if(+n>0)m[u]=Math.max(+m[u]||0,+n);for(const[u,n]of Object.entries(cfg.units||{})){if(+n>0)m[u]=+n;else delete m[u]} const ordered=goalOrderIds(tid,'recruit',Object.keys(m));out[tid]={};for(const u of ordered)if(!goalQueueSuppressed(tid,'recruit',u))out[tid][u]=m[u]; }
     return out;
@@ -8459,63 +8024,15 @@ const STORE = {
   }
 
   function nativeQueueRecruitAmount(townId,unit){return NATIVE_RECRUIT_LANES.reduce((n,lane)=>n+nativeQueueList(townId,lane,false).reduce((m,j)=>m+(j&&j.unit===unit?(+j.amount||0):0),0),0);}
-  function nativeQueueAddRecruit(townId,unit,amount,chunkSize) {
+  function nativeQueueAddRecruit(townId,unit,amount) {
     const n=Math.max(1,Math.floor(+amount||0));if(!unit||!gbGameDataLookup("units", unit)||!(n>0))return false;
 
     const lane=nativeRecruitLane(unit);
     const town=nativeQueueTown(townId,true);
 
     town.mode[lane] = 'fifo';
-    const job={id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:n,status:'pending',reason:'',createdAt:Date.now()};
-
-    const cs=Math.max(0,Math.floor(+chunkSize||0));
-    if(cs>0&&cs<n)job.chunkSize=cs;
-    town[lane].push(job);
-    nativeQueueSave();
-    const label=`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): ${n}\u00d7 ${nativeUnitLabel(unit)} @${townId}`;
-    gbLog(job.chunkSize?`${label} en lotes de ${job.chunkSize}`:label);
-    gbTimeout(()=>recruitScan('native'),80);return true;
-  }
-
-  function nativeQueueCompactRecruit(townId,lane) {
-    lane=lane||'recruit';
-    const list=nativeQueueList(townId,lane,false);
-    if(list.length<2)return 0;
-    let merged=0;
-    for(let i=list.length-1;i>=1;i--){
-      const cur=list[i-1],next=list[i];
-      if(!cur||!next)continue;
-      if(cur.unit!==next.unit)continue;
-      if(cur.status!==next.status)continue;
-      if(cur.inflight||next.inflight||cur.manualReview||next.manualReview)continue;
-      cur.amount=Math.max(0,(+cur.amount||0))+(+next.amount||0);
-      cur.updatedAt=Date.now();
-      list.splice(i,1);merged++;
-    }
-    if(merged){
-      nativeQueueSave();
-      try{scheduleNativeUiScan()}catch(_){}
-      try{renderQueueCenter()}catch(_){}
-      gbLog(`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): compactadas ${merged} entrada(s) adyacente(s) en @${townId}`);
-    }
-    return merged;
-  }
-
-  function nativeQueueAddRecruitBatch(townId,unit,total,chunk) {
-    const T=Math.floor(+total||0),C=Math.floor(+chunk||0);
-    if(!unit||!gbGameDataLookup("units", unit))return {ok:false,why:'unidad desconocida'};
-    if(!(T>0))return {ok:false,why:'total debe ser > 0'};
-    if(!(C>0))return {ok:false,why:'lote debe ser > 0'};
-    if(C>T)return {ok:false,why:'lote no puede ser mayor que el total'};
-    const lane=nativeRecruitLane(unit);
-    const town=nativeQueueTown(townId,true);
-    town.mode[lane]='fifo';
-    const job={id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:T,chunkSize:C,status:'pending',reason:`${Math.ceil(T/C)} \u00d7 ${C}`,createdAt:Date.now()};
-    town[lane].push(job);
-    nativeQueueSave();
-    gbLog(`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): lote ${T}\u00d7 ${nativeUnitLabel(unit)} en ${Math.ceil(T/C)} env\u00edo(s) de ${C} @${townId}`);
-    gbTimeout(()=>recruitScan('native'),80);
-    return {ok:true,lane,jobId:job.id,total:T,lotes:Math.ceil(T/C),chunk:C};
+    town[lane].push({id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:n,status:'pending',reason:'',createdAt:Date.now()});
+    nativeQueueSave();gbLog(`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): ${n}\u00d7 ${nativeUnitLabel(unit)} @${townId}`);gbTimeout(()=>recruitScan('native'),80);return true;
   }
   function nativeQueueRemoveLastRecruit(townId,unit,amount) {
     const lane=nativeRecruitLaneOf(townId,unit);
@@ -8680,13 +8197,9 @@ const STORE = {
     const list=nativeQueueList(townId,lane||'recruit',false),job=list[0];if(!job||job.id!==jobId)return;
 
     if(token&&!(job.inflight&&job.inflight.token===token))return;
-    const drained=Math.max(0,+amount||0);
-    job.inflight=null;job.amount=Math.max(0,(+job.amount||0)-drained);
-    const removed=job.amount<=0;
-    if(removed)list.shift();else{job.status='pending';job.reason='resto del lote';job.updatedAt=Date.now()}
+    job.inflight=null;job.amount=Math.max(0,(+job.amount||0)-Math.max(0,+amount||0));
+    if(job.amount<=0)list.shift();else{job.status='pending';job.reason='resto del lote';job.updatedAt=Date.now()}
     nativeQueueSave();
-
-    try { jrnPush({ f:'recruit', a:'chunk-drain', k:String(townId)+'|'+String(job.unit||'')+'|'+jobId }, removed ? 'ok' : 'ok', removed ? 'drained' : ('rest '+job.amount)); } catch (_) {}
   }
 
   function nativeResearchLabel(tech) {
@@ -8837,51 +8350,16 @@ const STORE = {
        even though the button looked reachable. position+z-index puts it on top
        of its stacking context and makes hit-testing land on the button. */
     .gb-native-qctl{position:relative;z-index:2147482000;pointer-events:auto;display:inline-flex;align-items:center;gap:2px;margin:0 0 0 2px;padding:1px 3px;border:1px solid #8a6725;border-radius:4px;background:rgba(31,25,16,.94);color:#f6e3b0;font:10px/1.2 Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";box-shadow:0 1px 3px rgba(0,0,0,.45);vertical-align:middle}
-    /* Shared style for the batched-input fields used by both the Queue Center
-       +Lote row and the in-window native recruit tile (native-ui.js +
-       queue-center.js used to keep the literal inline and out of sync). */
-    .gb-native-qinp{width:55px;background:#111;color:#cfc;border:1px solid #444;border-radius:3px;padding:1px 3px}
     .gb-native-qbtn{position:relative;z-index:1;pointer-events:auto;min-width:22px;height:20px;padding:0 4px;border:1px solid #9b7938;border-radius:4px;background:linear-gradient(#5b4828,#342814);color:#fff3c7;font:bold 11px Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";cursor:pointer}
     .gb-native-qbtn:hover{border-color:#e5b94f;color:#fff}.gb-native-qbtn:disabled{opacity:.42;cursor:default}
     .gb-native-qcount{min-width:58px;text-align:center;white-space:nowrap}.gb-native-qcount.ready{color:#91e5a8}.gb-native-qcount.blocked{color:#ffb0a8}.gb-native-qcount.waiting{color:#ffd27a}
-    /* Recruit tile overlay. The game hard-codes #unit_order #units height:95px
-       and every .unit_tab is a 58x95 float inside it, so ANY node appended
-       into the tile grows the float, wraps the row and pushes the rest of the
-       unit list plus the window's own navigation strip out of the clipped box.
-       The in-tile control is therefore absolutely positioned (zero layout
-       footprint) and only carries [+step], the pending count and the [...]
-       opener; everything that cannot fit in 58px lives in the popover. */
-    .gb-native-qctl[data-unit]{position:absolute;left:1px;right:1px;bottom:1px;flex-direction:column;align-items:stretch;gap:1px;margin:0;padding:1px;font-size:9px}
-    .gb-native-qctl[data-unit] .gb-native-qrow{display:flex;gap:1px;justify-content:center}
-    .gb-native-qctl[data-unit] .gb-native-qbtn{min-width:0;flex:1 1 auto;height:14px;padding:0 1px;font:bold 9px/12px Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans"}
-    .gb-native-qctl[data-unit] .gb-native-qcount{min-width:0;font-size:9px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    /* Popover for the recruit tile extras: mounted on document.body so it is not
-       clipped by the 95px unit box and cannot shift the game's layout. */
-    .gb-native-qpop{position:fixed;z-index:2147483100;width:250px;max-width:92vw;padding:6px;border:1px solid #8a6725;border-radius:6px;background:rgba(34,27,17,.98);color:#f2dfb2;font:11px/1.3 Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";box-shadow:0 4px 14px rgba(0,0,0,.55);display:flex;flex-direction:column;gap:4px}
-    .gb-native-qpop-head{display:flex;align-items:center;gap:4px;font-weight:bold}.gb-native-qpop-head span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .gb-native-qpop-row{display:flex;align-items:center;gap:3px;flex-wrap:wrap}
-    .gb-native-qpop-row .gb-native-qcount{min-width:58px}
-    /* The panel is a column: head (never scrolls) + two independently scrolling
-       sections. A single overflow:auto on the box made the unit grid push the
-       job list out of the 48vh clip, which is exactly the "I cannot see it all"
-       complaint. right/bottom are set by nativeLayoutPanels - the old
-       hard-coded recruitNaval offset only de-collided two of the four lanes. */
-    .gb-native-panel{position:fixed;bottom:10px;right:10px;z-index:2147483000;width:300px;max-width:44vw;max-height:64vh;padding:5px;border:1px solid #8a6725;border-radius:6px;background:rgba(34,27,17,.97);color:#f2dfb2;font:11px/1.25 Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";box-shadow:0 4px 14px rgba(0,0,0,.55);display:flex;flex-direction:column;overflow:hidden}
-    .gb-native-panel-head{display:flex;align-items:center;gap:4px;margin-bottom:3px;font-weight:bold;flex:0 0 auto}.gb-native-panel-head span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .gb-native-panel-sum{color:#c7ad78;padding:1px 2px}
-    /* Every recruitable unit of this lane, whether or not its 58x95 tile is
-       inside the game's clipped 95px strip. */
-    .gb-native-units{flex:1 1 auto;min-height:0;overflow:auto;margin-bottom:3px;border-bottom:1px solid rgba(190,150,75,.3);padding-bottom:2px}
-    .gb-native-unit{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:3px;align-items:center;padding:1px 1px;border-top:1px solid rgba(190,150,75,.14)}
-    .gb-native-unit:first-child{border-top:0}
-    .gb-native-unit>b{font-weight:normal;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .gb-native-unit .gb-native-qbtn{min-width:18px;height:16px;padding:0 3px;font:bold 9px/14px Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans"}
-    .gb-native-unit .gb-native-qcount{min-width:46px;font-size:10px}
-    .gb-native-unit-actions{display:flex;gap:2px}
-    .gb-native-jobs{flex:1 1 auto;min-height:0;overflow:auto}
-    .gb-native-job{display:grid;grid-template-columns:20px minmax(100px,1fr) auto;gap:4px;align-items:center;padding:2px 1px;border-top:1px solid rgba(190,150,75,.22)}
-    .gb-native-job:first-child{border-top:0}.gb-native-job small{display:block;color:#c7ad78;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gb-native-job-actions{display:flex;gap:2px}
-    .gb-native-job .gb-native-qbtn{min-width:18px;height:17px;padding:0 3px}
+    .gb-native-panel{position:fixed;bottom:10px;right:10px;z-index:2147483000;width:320px;max-width:40vw;max-height:48vh;padding:6px;border:1px solid #8a6725;border-radius:6px;background:rgba(34,27,17,.97);color:#f2dfb2;font:11px/1.3 Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";box-shadow:0 4px 14px rgba(0,0,0,.55);overflow:auto}
+    /* Barracks and harbour can be open at the same time; without the offset the
+       second panel would sit exactly on top of the first. */
+    .gb-native-panel[data-lane="recruitNaval"]{right:340px}
+    .gb-native-panel-head{display:flex;align-items:center;gap:5px;margin-bottom:4px;font-weight:bold}.gb-native-panel-head span{flex:1}
+    .gb-native-job{display:grid;grid-template-columns:24px minmax(120px,1fr) auto;gap:5px;align-items:center;padding:3px 1px;border-top:1px solid rgba(190,150,75,.22)}
+    .gb-native-job:first-of-type{border-top:0}.gb-native-job small{display:block;color:#c7ad78;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gb-native-job-actions{display:flex;gap:2px}
     .gb-native-empty{color:#b9a983;font-style:italic;padding:2px}
   `);
   let nativeUiTimer=0;
@@ -9087,91 +8565,22 @@ const STORE = {
     const lane=nativeRecruitLaneOf(townId,unit);
     const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit);
     const pos=nativeQueuePosition(townId,lane,j=>j&&j.unit===unit),head=pos===1&&list[0];
-
-    const sig=JSON.stringify([townId,unit,lane,step,pending,pos,frozen,head&&head.status,head&&head.reason,list.length]);
+    const sig=JSON.stringify([townId,unit,lane,step,pending,pos,frozen,head&&head.status,head&&head.reason]);
 
     const existing=[...tile.querySelectorAll(':scope > .gb-native-qctl[data-unit]')];
     const keep=existing.find(c=>c.dataset.unit===unit&&c.dataset.sig===sig);
     for(const c of existing)if(c!==keep)c.remove();
     if(keep)return;
-    const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.unit=unit;ctl.dataset.sig=sig;
+    const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.unit=unit;ctl.dataset.sig=sig;tile.appendChild(ctl);
+    if(!(pending>0)){
 
-    try{if(getComputedStyle(tile).position==='static')tile.style.position='relative'}catch(_){}
-    tile.appendChild(ctl);
-    if(pending>0){
-      const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=`+${pending}${pos?' \u00b7 #'+pos:''}`;count.title=head&&head.reason?head.reason:`${pending} pendiente(s)`;
-      if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
-      ctl.append(count);
+      const plus=nativeQButton(`+${step}`,`A\u00f1adir ${step} ${nativeUnitLabel(unit)} a la cola virtual`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));
+      ctl.append(plus);nativeQctlHitCheck(ctl,unit);return;
     }
-    const row=document.createElement('div');row.className='gb-native-qrow';
-    const plus=nativeQButton(`+${step}`,`A\u00f1adir ${step} ${nativeUnitLabel(unit)} a la cola virtual (Ctrl: \u00d75)`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));
-
-    const more=nativeQButton('...',`M\u00e1s opciones de cola para ${nativeUnitLabel(unit)}: restar, cantidad libre, lote y compactar`,nativeTileAction(root,townId,tile,'unit',unit,()=>nativeRecruitPopover(root,tile,townId,unit)));
-    row.append(plus,more);ctl.append(row);
-    nativeQctlHitCheck(ctl,unit);
-  }
-
-  let nativeQPopCleanup=null;
-  function nativeQPopClose() {
-    try{if(nativeQPopCleanup)nativeQPopCleanup()}catch(_){}
-    nativeQPopCleanup=null;
-    try{document.querySelectorAll('.gb-native-qpop').forEach(n=>n.remove())}catch(_){}
-  }
-
-  function nativeRecruitPopover(root,tile,townId,unit,anchor) {
-    nativeQPopClose();
-    const at=anchor||tile;
-    if(!at||!at.isConnected)return;
-    const lane=nativeRecruitLaneOf(townId,unit);
-    const list=nativeQueueList(townId,lane,false),step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit);
-    const pos=nativeQueuePosition(townId,lane,j=>j&&j.unit===unit),head=pos===1&&list[0];
-    const pop=document.createElement('div');pop.className='gb-native-qpop';pop.dataset.unit=unit;pop.dataset.town=String(townId);
-    pop.addEventListener('mousedown',e=>e.stopPropagation());pop.addEventListener('click',e=>e.stopPropagation());
-
-    const act=fn=>{
-      const run=e=>{const r=fn(e);gbTimeout(()=>{if(at.isConnected)nativeRecruitPopover(root,tile,townId,unit,anchor)},90);return r};
-      return tile?nativeTileAction(root,townId,tile,'unit',unit,run):nativePanelAction(townId,run);
-    };
-    const head1=document.createElement('div');head1.className='gb-native-qpop-head';
-    const title=document.createElement('span');title.textContent=`${nativeUnitLabel(unit)} \u00b7 ${lane==='recruitNaval'?'Puerto':'Cuartel'}`;
-    head1.append(title,nativeQButton('x','Cerrar',()=>nativeQPopClose()));pop.appendChild(head1);
-    const rowA=document.createElement('div');rowA.className='gb-native-qpop-row';
-    const minus=nativeQButton(`-${step}`,`Restar ${step} de la cola virtual de esta unidad`,act(()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));
-    minus.disabled=!list.some(j=>j&&j.unit===unit&&!j.inflight&&!j.manualReview);
-    const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=pending>0?`+${pending}${pos?' \u00b7 #'+pos:''}`:'sin cola';
-    count.title=head&&head.reason?head.reason:`${pending||0} pendiente(s)`;
+    const minus=nativeQButton(`-${step}`,`Restar ${step} de la cola virtual de esta unidad`,nativeTileAction(root,townId,tile,'unit',unit,()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));minus.disabled=!list.some(j=>j&&j.unit===unit&&!j.inflight&&!j.manualReview);
+    const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=`+${pending}${pos?' \u00b7 #'+pos:''}`;count.title=head&&head.reason?head.reason:`${pending} pendiente(s)`;
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
-    const plus=nativeQButton(`+${step}`,`A\u00f1adir ${step} ${nativeUnitLabel(unit)} a la cola virtual`,act(e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));
-    rowA.append(minus,count,plus);pop.appendChild(rowA);
-    const rowB=document.createElement('div');rowB.className='gb-native-qpop-row';
-    const qtyInp=document.createElement('input');qtyInp.type='number';qtyInp.min='1';qtyInp.step=String(step);qtyInp.value=String(step);qtyInp.title=`Cantidad a a\u00f1adir (paso ${step})`;qtyInp.className='gb-native-qinp';
-    const qtyBtn=nativeQButton('+N',`A\u00f1adir N ${nativeUnitLabel(unit)} a la cola virtual (paso ${step})`,act(()=>{const n=Math.max(1,Math.floor(+qtyInp.value||step));nativeQueueAddRecruit(townId,unit,n)}));
-    rowB.append(qtyInp,qtyBtn);pop.appendChild(rowB);
-    const rowC=document.createElement('div');rowC.className='gb-native-qpop-row';
-    const totalInp=document.createElement('input');totalInp.type='number';totalInp.min='1';totalInp.step=String(step);totalInp.value=String(step*10);totalInp.title='Total de unidades a encolar';totalInp.className='gb-native-qinp';
-    const sep2=document.createElement('span');sep2.textContent='/';sep2.style.color='#666';
-    const chunkInp=document.createElement('input');chunkInp.type='number';chunkInp.min='1';chunkInp.step=String(step);chunkInp.value=String(step);chunkInp.title='Tama\u00f1o de cada lote al servidor';chunkInp.className='gb-native-qinp';
-    const lotBtn=nativeQButton('+Lote','Encolar el total en lotes del tama\u00f1o indicado; cada env\u00edo se confirma antes de pasar al siguiente, y la fila se quita al agotarse',act(()=>{const r=nativeQueueAddRecruitBatch(townId,unit,+totalInp.value||0,+chunkInp.value||0);if(r&&r.ok)flash(`Lote encolado: ${r.total} en ${r.lotes} env\u00edo(s) de ${r.chunk}`);else flash((r&&r.why)||'no se pudo encolar el lote')}));
-    rowC.append(totalInp,sep2,chunkInp,lotBtn);pop.appendChild(rowC);
-    if(list.length>=2){
-      const rowD=document.createElement('div');rowD.className='gb-native-qpop-row';
-      rowD.appendChild(nativeQButton('Compactar','Fusionar entradas adyacentes del mismo tipo en la cola virtual',act(()=>{const n=nativeQueueCompactRecruit(townId,lane);flash(n?`Compactadas ${n} entradas en la cola`:'No hay entradas adyacentes iguales para fusionar')})));
-      pop.appendChild(rowD);
-    }
-    document.body.appendChild(pop);
-
-    try{
-      const r=at.getBoundingClientRect(),pr=pop.getBoundingClientRect();
-      const vw=gameUw().innerWidth||document.documentElement.clientWidth||1024;
-      const vh=gameUw().innerHeight||document.documentElement.clientHeight||768;
-      let left=Math.max(4,Math.min(r.left,vw-pr.width-6));
-      let top=r.bottom+4;if(top+pr.height>vh-4)top=Math.max(4,r.top-pr.height-4);
-      pop.style.left=left+'px';pop.style.top=top+'px';
-    }catch(_){pop.style.left='40px';pop.style.top='40px'}
-    const ac=new AbortController();
-    document.addEventListener('pointerdown',e=>{if(!pop.isConnected||!pop.contains(e.target))nativeQPopClose()},{capture:true,signal:ac.signal});
-    document.addEventListener('keydown',e=>{if(e.key==='Escape')nativeQPopClose()},{signal:ac.signal});
-    nativeQPopCleanup=()=>ac.abort();
+    const plus=nativeQButton(`+${step}`,`A\u00f1adir ${step} ${nativeUnitLabel(unit)} a la cola`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));ctl.append(minus,count,plus);nativeQctlHitCheck(ctl,unit);
   }
   function nativeMountResearchControl(root,tile,townId,tech) {
     const list=nativeQueueList(townId,'research',false);
@@ -9202,83 +8611,19 @@ const STORE = {
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
     ctl.append(minus,count);nativeQctlHitCheck(ctl,tech);
   }
-
-  const nativeQPanelCollapsed=Object.create(null);
-
-  function nativeLayoutPanels() {
-    try{
-      const order={build:0,research:1,recruit:2,recruitNaval:3};
-      const panels=[...document.querySelectorAll('.gb-native-panel')]
-        .sort((a,b)=>(order[a.dataset.lane]==null?9:order[a.dataset.lane])-(order[b.dataset.lane]==null?9:order[b.dataset.lane]));
-      if(!panels.length)return;
-      const vw=gameUw().innerWidth||document.documentElement.clientWidth||1024;
-      const vh=gameUw().innerHeight||document.documentElement.clientHeight||768;
-      const gap=8,w=panels[0].offsetWidth||300;
-
-      let base=10;
-      const main=document.getElementById('grepbot-panel');
-      if(main&&main.getClientRects().length){
-        const r=main.getBoundingClientRect();
-        if(r.bottom>vh-140&&r.right>vw-(w+20))base=Math.max(10,vw-r.left+8);
-      }
-      const fit=Math.max(1,Math.floor((vw-base-10+gap)/(w+gap)));
-      panels.forEach((p,i)=>{
-        if(i<fit){p.style.right=(base+i*(w+gap))+'px';p.style.bottom='10px'}
-        else{const k=i-fit+1;p.style.right=(base+k*18)+'px';p.style.bottom=(10+k*18)+'px'}
-      });
-    }catch(_){}
-  }
-
-  function nativeRenderQueuePanel(root,townId,lane,units) {
+  function nativeRenderQueuePanel(root,townId,lane) {
 
     let box=document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`);
     if(!box){box=document.createElement('div');box.className='gb-native-panel';box.dataset.lane=lane;box.dataset.town=String(townId);document.body.appendChild(box);box.addEventListener('mousedown',e=>e.stopPropagation());box.addEventListener('click',e=>e.stopPropagation())}
 
     const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&(j.inflight||j.manualReview));
-    const roster=NATIVE_RECRUIT_LANES.includes(lane)?[...new Set((units||[]).filter(Boolean))]:[];
-    const ckey=`${lane}|${townId}`,collapsed=!!nativeQPanelCollapsed[ckey];
-
-    const key=`${lane}|${townId}|${frozen?'F':'-'}|${collapsed?'C':'-'}|`
-      +list.map(j=>`${j.id}:${j.inflight?1:0}${j.manualReview?'m':''}`).join(',')
-      +'|'+roster.map(u=>`${u}:${nativeQueueRecruitAmount(townId,u)}:${nativeQueuePosition(townId,lane,j=>j&&j.unit===u)||0}`).join(',');
+    const key=`${lane}|${townId}|${frozen?'F':'-'}|`+list.map(j=>`${j.id}:${j.inflight?1:0}${j.manualReview?'m':''}`).join(',');
     gbPaint(box,stage=>{
       const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot \u00b7 Construcci\u00f3n':(lane==='research'?'Cola GrepBot \u00b7 Investigaci\u00f3n':(lane==='recruitNaval'?'Cola GrepBot \u00b7 Puerto':'Cola GrepBot \u00b7 Cuartel'));gbTip(title, 'Cola virtual de GrepBot para esta ciudad y tipo de edificio/unidad');head.appendChild(title);
       const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'>':'||',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
-      if(!list.length&&nativeQueueIsFifo(townId,lane)){const legacy=nativeQButton('Objetivos','Volver al planificador de objetivos',nativeTownAction(root,townId,()=>nativeQueueUseLegacy(townId,lane)));head.appendChild(legacy)}
-      head.appendChild(nativeQButton(collapsed?'\u25b8':'\u25be',collapsed?'Desplegar este panel':'Plegar este panel',nativePanelAction(townId,()=>{nativeQPanelCollapsed[ckey]=!collapsed;scheduleNativeUiScan()})));
-      stage.appendChild(head);
-      if(collapsed){
-        const sum=document.createElement('div');sum.className='gb-native-panel-sum';
-        const pend=list.reduce((n,j)=>n+(+j.amount||0),0);
-        sum.textContent=list.length?`${list.length} en cola${pend?` \u00b7 ${pend} unidad(es)`:''}`:'Cola vac\u00eda';
-        stage.appendChild(sum);return;
-      }
-
-      if(roster.length){
-        const grid=document.createElement('div');grid.className='gb-native-units';
-        for(const unit of roster){
-          const step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit);
-          const pos=nativeQueuePosition(townId,lane,j=>j&&j.unit===unit),uhead=pos===1&&list[0];
-          const row=document.createElement('div');row.className='gb-native-unit';row.dataset.unit=unit;
-          const name=document.createElement('b');name.textContent=nativeUnitLabel(unit);name.title=nativeUnitLabel(unit);
-          const count=document.createElement('span');count.className='gb-native-qcount';
-          count.textContent=pending>0?`+${pending}${pos?' \u00b7 #'+pos:''}`:'\u2014';
-          count.title=uhead&&uhead.reason?uhead.reason:`${pending||0} pendiente(s) en la cola virtual`;
-          if(pending>0&&uhead){if(uhead.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(uhead.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
-          const acts=document.createElement('div');acts.className='gb-native-unit-actions';
-          const minus=nativeQButton(`-${step}`,`Restar ${step} ${nativeUnitLabel(unit)} de la cola virtual`,nativePanelAction(townId,()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));
-          minus.disabled=!list.some(j=>j&&j.unit===unit&&!j.inflight&&!j.manualReview);
-          const plus=nativeQButton(`+${step}`,`A\u00f1adir ${step} ${nativeUnitLabel(unit)} a la cola virtual (Ctrl: \u00d75)`,nativePanelAction(townId,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));
-
-          const more=nativeQButton('\u2026',`M\u00e1s opciones para ${nativeUnitLabel(unit)}: cantidad libre, lote y compactar`,nativePanelAction(townId,()=>nativeRecruitPopover(root,null,townId,unit,row)));
-          acts.append(minus,plus,more);
-          row.append(name,count,acts);grid.appendChild(row);
-        }
-        stage.appendChild(grid);
-      }
+      if(!list.length&&nativeQueueIsFifo(townId,lane)){const legacy=nativeQButton('Objetivos','Volver al planificador de objetivos',nativeTownAction(root,townId,()=>nativeQueueUseLegacy(townId,lane)));head.appendChild(legacy)}stage.appendChild(head);
       if(!list.length){const empty=document.createElement('div');empty.className='gb-native-empty';empty.textContent=nativeQueueIsFifo(townId,lane)?'Cola vac\u00eda. Usa los botones + de arriba.':'Usa + para crear una cola FIFO en esta ciudad.';stage.appendChild(empty);return}
-      const jobs=document.createElement('div');jobs.className='gb-native-jobs';stage.appendChild(jobs);
-      list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}\u2192${j.toLevel}`:(lane==='research'?nativeResearchLabel(j.tech):`${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`);const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' \u00b7 '+j.reason:''}`;gbTip(sub, 'Estado de la orden virtual + motivo si esta bloqueada');desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const up=nativeQButton('\u2191','Mover antes',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('\u2193','Mover despu\u00e9s',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const del=nativeQButton('\u00d7','Quitar de la cola virtual',nativePanelAction(townId,()=>{if(j.inflight){flash('Esta orden se est\u00e1 enviando; espera a que termine');return false}if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acci\u00f3n se envi\u00f3 o no.')}catch(_){ok=false}if(!ok)return false}else if(frozen){let ok=false;try{ok=gameUw().confirm('Hay otra acci\u00f3n pendiente en esta cola. \u00bfBorrar este elemento de todos modos?')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id,{force:true})}));del.disabled=!!j.inflight;acts.append(up,down,del);row.append(num,desc,acts);jobs.appendChild(row)});
+      list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}\u2192${j.toLevel}`:(lane==='research'?nativeResearchLabel(j.tech):`${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`);const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' \u00b7 '+j.reason:''}`;gbTip(sub, 'Estado de la orden virtual + motivo si esta bloqueada');desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const up=nativeQButton('\u2191','Mover antes',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('\u2193','Mover despu\u00e9s',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const del=nativeQButton('\u00d7','Quitar de la cola virtual',nativePanelAction(townId,()=>{if(j.inflight){flash('Esta orden se est\u00e1 enviando; espera a que termine');return false}if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acci\u00f3n se envi\u00f3 o no.')}catch(_){ok=false}if(!ok)return false}else if(frozen){let ok=false;try{ok=gameUw().confirm('Hay otra acci\u00f3n pendiente en esta cola. \u00bfBorrar este elemento de todos modos?')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id,{force:true})}));del.disabled=!!j.inflight;acts.append(up,down,del);row.append(num,desc,acts);stage.appendChild(row)});
     },{key});
   }
   function nativeUiScan() {
@@ -9295,9 +8640,7 @@ const STORE = {
       const buildTiles=senateContext?[...root.querySelectorAll('[id^="building_main_"],[id^="special_building_"]')]:[];
       for(const tile of buildTiles){if(tile.classList.contains('gb-native-qctl')||tile.closest('.gb-native-qctl,.gb-native-panel'))continue;const id=nativeBuildingId(tile);if(!id||mountedBuildIds.has(id))continue;mountedBuildIds.add(id);nativeMountBuildControl(root,tile,townId,id);buildN++}
       const unitContext=root.matches('#unit_order')?root:root.querySelector('#unit_order');const unitTiles=unitContext?[...unitContext.querySelectorAll('#units .unit_tab,.unit_tab')]:[];
-
-      const unitsByLane={recruit:[],recruitNaval:[]};
-      for(const tile of unitTiles){const id=nativeUnitId(tile);if(!id||mountedUnitIds.has(id))continue;mountedUnitIds.add(id);const ulane=nativeRecruitLaneOf(townId,id);mountedUnitLanes.add(ulane);(unitsByLane[ulane]||(unitsByLane[ulane]=[])).push(id);nativeMountRecruitControl(root,tile,townId,id)}
+      for(const tile of unitTiles){const id=nativeUnitId(tile);if(!id||mountedUnitIds.has(id))continue;mountedUnitIds.add(id);mountedUnitLanes.add(nativeRecruitLaneOf(townId,id));nativeMountRecruitControl(root,tile,townId,id)}
 
       const researchTiles=[...root.querySelectorAll(nativeResearchTileSel(root))].filter(n=>!n.closest('.gb-native-qctl,.gb-native-panel'));
       const researchOuter=researchTiles.filter(n=>{const id=nativeResearchId(n);return id&&!researchTiles.some(o=>o!==n&&o.contains(n)&&nativeResearchId(o)===id)});
@@ -9313,14 +8656,10 @@ const STORE = {
           +`tech_tree_box ${root.querySelectorAll('.tech_tree_box').length})`);
       }
       root.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>{if(!mountedBuildIds.has(c.dataset.building))c.remove()});root.querySelectorAll('.gb-native-qctl[data-unit]').forEach(c=>{if(!mountedUnitIds.has(c.dataset.unit))c.remove()});root.querySelectorAll('.gb-native-qctl[data-research]').forEach(c=>{if(!mountedResearchIds.has(c.dataset.research))c.remove()});
-      if(buildN)nativeRenderQueuePanel(root,townId,'build');else document.querySelector(`.gb-native-panel[data-lane="build"][data-town="${townId}"]`)?.remove();for(const lane of NATIVE_RECRUIT_LANES){if(mountedUnitLanes.has(lane))nativeRenderQueuePanel(root,townId,lane,unitsByLane[lane]);else document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`)?.remove()}if(researchN)nativeRenderQueuePanel(root,townId,'research');else document.querySelector(`.gb-native-panel[data-lane="research"][data-town="${townId}"]`)?.remove();
+      if(buildN)nativeRenderQueuePanel(root,townId,'build');else document.querySelector(`.gb-native-panel[data-lane="build"][data-town="${townId}"]`)?.remove();for(const lane of NATIVE_RECRUIT_LANES){if(mountedUnitLanes.has(lane))nativeRenderQueuePanel(root,townId,lane);else document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`)?.remove()}if(researchN)nativeRenderQueuePanel(root,townId,'research');else document.querySelector(`.gb-native-panel[data-lane="research"][data-town="${townId}"]`)?.remove();
     }
 
     document.querySelectorAll('.gb-native-panel[data-town]').forEach(p => { if (!mountedTowns.has(p.dataset.town)) p.remove(); });
-
-    document.querySelectorAll('.gb-native-qpop[data-town]').forEach(p => { if (!mountedTowns.has(p.dataset.town)) nativeQPopClose(); });
-
-    nativeLayoutPanels();
   }
   function abLoadCsFast() {
     state.abTargets = abDefaultTargets();
@@ -9425,11 +8764,8 @@ const STORE = {
     if (!bd) return null;
     const need = bd.resources_for || bd.resources || bd.costs;
     if (!need || need.wood == null || need.stone == null || need.iron == null) return null;
-    const popRaw = bd.population_for != null ? +bd.population_for : (bd.population != null ? +bd.population : NaN);
-
-    const popBlind = !Number.isFinite(popRaw);
-    const pop = popBlind ? 0 : popRaw;
-    return { wood: +need.wood || 0, stone: +need.stone || 0, iron: +need.iron || 0, pop, population: pop, popBlind };
+    const pop = bd.population_for != null ? +bd.population_for : (bd.population != null ? +bd.population : 0);
+    return { wood: +need.wood || 0, stone: +need.stone || 0, iron: +need.iron || 0, pop: Number.isFinite(pop) ? pop : 0, population: Number.isFinite(pop) ? pop : 0 };
   }
   function abRequirementMap(townId, building) {
     const def = abBuildingDef(building);
@@ -9473,9 +8809,6 @@ const STORE = {
     const margin = 10;
     const have = { wood:+res.wood, stone:+res.stone, iron:+res.iron, population:pop };
 
-    if (need.popBlind) {
-      gbLogT('ab-pop-blind-' + building, 900000, `build: population cost for ${building} unreadable - population check is blind, server decides`);
-    }
     const popShort = need.pop > 0 && pop < need.pop;
     if (have.wood < need.wood + margin || have.stone < need.stone + margin || have.iron < need.iron + margin) return { ok: false, why: 'resources', need, have, margin, popShort };
     if (popShort) return { ok: false, why: 'population', need, have, margin, popShort };
@@ -10281,20 +9614,9 @@ const STORE = {
     if (ctype === 'olympic' && !state.allowPremiumCulture) {
       return onDone && onDone('premium-blocked');
     }
-
-    let curTown = null;
-    try { const g = gameUw().Game; curTown = g && g.townId != null ? String(g.townId) : null; } catch (_) {}
-    if (curTown != null && String(townId) === curTown) {
-      gameAjaxPost('culture', 'building_place', 'start_celebration', {
-        celebration_type: ctype,
-        town_id: +townId,
-      }, onDone);
-      return;
-    }
-    gameAjaxPost('culture', 'town_overviews', 'start_celebration', {
-      town_id: +townId,
+    gameAjaxPost('culture', 'building_place', 'start_celebration', {
       celebration_type: ctype,
-      no_bar: 1,
+      town_id: +townId,
     }, onDone);
   }
   function cultureScan(reason) {
@@ -11107,16 +10429,11 @@ const STORE = {
     const pav = plannerAvailable(job.from, {allowSoft:false});
     const incomingState=tradeIncomingByTown();if(!incomingState.known)return {ok:false,why:'incoming-trades-unreadable'};const mov=incomingState.byTown[String(job.to)]||{},pending=plannerSnapshot(job.to)?.incoming||{};
     if (!pav) return { ok:false, why:'planner-unreadable' };
-
-    const num = (v) => (Number.isFinite(+v) ? +v : null);
-    const srcCap = num(src.tradeCap), pavCap = num(pav.tradeCap);
-    if (!(total > 0) || srcCap == null || srcCap < total || pav.tradeCap == null || pavCap == null || pavCap < total) return { ok: false, why: 'merchant-capacity' };
+    if (!(total > 0) || src.tradeCap < total || pav.tradeCap == null || pav.tradeCap < total) return { ok: false, why: 'merchant-capacity' };
     for (const k of ['wood','stone','iron']) {
       const n = +job[k] || 0;
-      const have = num(src[k]), avail = num(pav[k]), dest = num(tgt[k]), destCap = num(tgt.cap);
-      if (have == null || avail == null || dest == null || destCap == null) return { ok: false, why: `unreadable-${k}` };
-      if (n < 0 || have - n < keep || avail < n) return { ok: false, why: `source-${k}` };
-      if (dest + (+mov[k]||0) + (+pending[k]||0) + n > destCap) return { ok: false, why: `target-${k}-capacity` };
+      if (n < 0 || src[k] - n < keep || pav[k] < n) return { ok: false, why: `source-${k}` };
+      if (tgt[k] + (+mov[k]||0) + (+pending[k]||0) + n > tgt.cap) return { ok: false, why: `target-${k}-capacity` };
     }
     return { ok: true };
   }
@@ -12748,123 +12065,130 @@ const STORE = {
     try { alertWebhook('intel-digest', payload); } catch (e) { gbLogT('intel-digest-post', 60000, 'digest post: ' + String(e?.message || e).slice(0, 80)); }
     gbLog(`intel digest: posted ${items.length} report(s) across ${payload.players.length} player(s) (${reason})`);
   }
-
   function merchantExactMatch(wishName, offerId) {
     const w = String(wishName || '').toLowerCase().trim();
     const id = String(offerId || '').toLowerCase().trim();
     if (!w || !id) return false;
     return w === id;
   }
-
-  function merchantRowPrice(w) {
-    if (!w || typeof w !== 'object') return null;
-    if (String(w.pricedIn || '') !== 'exchange') return null;
-    const n = +w.maxPrice;
-    return Number.isFinite(n) && n > 0 ? n : null;
-  }
   function merchantScan(reason) {
     if (!hostEnabled() || !state.autoMerchant || captchaPaused('merchant')) return;
     if (automationPaused({})) return;
     if (gbLocked('merchant')) return;
-    if (gbLocked('pt-trade')) return;
     const wish = state.merchantWish || [];
     if (!wish.length) {
       gbLogT('merchant-empty', 300000, 'merchant: wishlist empty');
       return;
     }
-    const stale = wish.filter(w => w && merchantRowPrice(w) == null).length;
-    if (stale) {
-      gbLogT('merchant-priced-in', 600000,
-        `merchant: ${stale} linea(s) sin precio en el recurso de cambio - reescribe el maximo en plata (antes era oro) para activarlas`);
-    }
-    const townId = ptSalesmanTown();
-    if (townId == null) {
-      gbLogT('merchant-noship', 600000, `merchant: no merchant ship readable (${scanReason(reason)})`);
-      return;
-    }
-    ptOffers(townId, (offers) => {
-      if (!offers || !offers.length) {
-        gbLogT('merchant-none', 180000, `merchant: no offers (${scanReason(reason)})`);
-        return;
-      }
-      const units = offers.filter(o => o.kind === 'unit');
-      if (!units.length) {
-        gbLogT('merchant-nounits', 300000, 'merchant: el barco no trae unidades esta visita');
-        return;
-      }
-      let job = null;
-      for (const w of wish) {
-        const name = String(w.item || w.id || '').toLowerCase().trim();
-        const maxPrice = merchantRowPrice(w);
-        if (!name || maxPrice == null) continue;
-        for (const o of units) {
-          if (!merchantExactMatch(name, o.name)) continue;
-          if (!(o.costPer > 0)) continue;
-          if (o.costPer > maxPrice) continue;
-          if (o.stock != null && o.stock <= 0) continue;
-          job = { offer: o, wish: w, maxPrice, townId, itemId: o.name };
-          break;
-        }
-        if (job) break;
-      }
-      if (!job) return;
-      merchantBuy(job);
-    });
-  }
-  function merchantBuy(job) {
-    const offer = job.offer;
-    const exchange = offer.exchange;
-    if (PT_RES.indexOf(exchange) === -1) {
-      gbLogT('merchant-noexchange', 600000,
-        'merchant: no se puede leer con que recurso paga el barco - no se compra nada');
+    const uw = gameUw();
+    let offers = [];
+    try {
+      const col = uw.MM && (uw.MM.getOnlyCollectionByName && (
+        uw.MM.getOnlyCollectionByName('PhoenicianSalesmanOffer') ||
+        uw.MM.getOnlyCollectionByName('MerchantOffer') ||
+        uw.MM.getOnlyCollectionByName('PremiumExchangeOffer')
+      ));
+      if (col && col.models) offers = col.models;
+    } catch (_) {}
+    if (!offers.length) {
+      gbLogT('merchant-none', 180000, `merchant: no offers (${scanReason(reason)})`);
       return;
     }
 
-    const room = ptRoom(job.townId, exchange, exchange);
-    if (room.out == null) {
-      gbLogT('merchant-blind', 300000,
-        `merchant: town ${job.townId} ${exchange} ilegible - no se compra a ciegas`);
+    const gold = gbPlayerGold();
+    let job = null;
+    for (const w of wish) {
+      const name = (w.item || w.id || '').toLowerCase().trim();
+      const maxPrice = +w.maxPrice;
+      if (!name || !(maxPrice > 0)) continue;
+      for (const o of offers) {
+        const a = o.attributes || {};
+
+        const id = String(a.item_id || a.offer_id || '').toLowerCase().trim();
+        if (!id) continue;
+
+        if (!merchantExactMatch(name, id)) continue;
+
+        const priceRaw = a.price != null ? a.price : (a.gold != null ? a.gold : null);
+        if (priceRaw == null || priceRaw === '') continue;
+        const price = +priceRaw;
+        if (!Number.isFinite(price) || price < 0) continue;
+        if (price > maxPrice) continue;
+        if (gold != null && gold < price) {
+          gbLogT('merchant-gold', 300000, `merchant: ${id} costs ${price}, gold ${gold} \u2014 skip`);
+          continue;
+        }
+        const townId = a.town_id || (uw.Game && uw.Game.townId);
+        if (!townId) continue;
+        job = { offer: o, wish: w, price, townId, itemId: id };
+        break;
+      }
+      if (job) break;
+    }
+    if (!job) return;
+
+    const oid = (job.offer.attributes && (job.offer.attributes.id || job.offer.id)) || job.offer.id;
+    if (oid == null || oid === '') {
+      gbLogT('merchant-noid', 60000, 'merchant: offer has no id \u2014 skip');
       return;
     }
-    const affordable = Math.floor(room.out / offer.costPer);
-    const bounds = [affordable];
-    if (offer.stock != null) bounds.push(offer.stock);
-    const want = Math.floor(+job.wish.amount);
-    if (Number.isFinite(want) && want > 0) bounds.push(want);
-    const amount = Math.floor(Math.min.apply(null, bounds));
-    if (!(amount > 0)) {
-      gbLogT('merchant-poor', 300000,
-        `merchant: ${offer.name} cuesta ${offer.costPer} ${exchange} y no alcanza tras la reserva - skip`);
-      return;
-    }
-    const cost = Math.ceil(amount * offer.costPer);
     const merchantLock = gbLock('merchant', 180000);
     if (!merchantLock) return;
 
-    const fresh = ptRoom(job.townId, exchange, exchange);
-    if (fresh.out == null || fresh.out < cost || offer.costPer > job.maxPrice) {
+    const liveAttrs = job.offer && (job.offer.attributes || job.offer);
+    const livePrice = liveAttrs && Number(liveAttrs.price != null ? liveAttrs.price : liveAttrs.gold);
+    const liveId = liveAttrs && String(liveAttrs.item_id || liveAttrs.offer_id || '').toLowerCase().trim();
+    const freshGold = gbPlayerGold();
+    if (!liveAttrs || !merchantExactMatch(job.itemId, liveId) || !Number.isFinite(livePrice)
+        || livePrice > +job.wish.maxPrice || (freshGold != null && freshGold < livePrice)) {
       gbUnlock('merchant', merchantLock);
-      gbLogT('merchant-stale', 60000, 'merchant: final precheck failed; balance or price moved');
+      gbLogT('merchant-stale', 60000, 'merchant: final precheck failed; offer changed');
       return;
     }
-    ptTradePost(job.townId, offer, amount, (err) => {
-      gbUnlock('merchant', merchantLock);
-      if (err === 'dryrun') {
-        gbLog(`merchant: DRY-RUN compraria ${amount} ${offer.name} por ${cost} ${exchange}`);
+    bridgePost('merchant', {
+      model_url: `PhoenicianSalesmanOffer/${oid}`,
+      action_name: 'buy',
+      arguments: {},
+      town_id: +job.townId,
+    }, (err) => {
+      if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {
+        gbLogT('merchant-timeout', 60000, `merchant: timeout_unknown for ${job.itemId} \u2014 no fallback`);
+        gbUnlock('merchant', merchantLock);
+        return;
+      }
+      if (!err) {
+        gbLog(`merchant: bought ${job.wish.item || job.wish.id} @ ${job.price}`);
+        gbUnlock('merchant', merchantLock);
         return;
       }
 
-      if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {
-        gbLogT('merchant-timeout', 60000, `merchant: timeout_unknown ${offer.name} \u2014 sin reintento`);
-        return;
-      }
-      if (err) {
+      if (!/unknown.?action|invalid.?action|not.?found|does.?not.?exist/i.test(String(err))) {
         gbLogT('merchant-err', 60000, `merchant err ${err}`);
+        gbUnlock('merchant', merchantLock);
         return;
       }
-      ptViewCache = null;
-      gbLog(`merchant: ${amount} ${offer.name} por ${cost} ${exchange} en la ciudad ${job.townId}`);
-    }, 'merchant');
+
+      const goldNow = gbPlayerGold();
+      const spent = (freshGold != null && goldNow != null) ? freshGold - goldNow : null;
+      if (spent == null) {
+        gbLogT('merchant-noreconcile', 60000, `merchant: ${err} but gold unreadable - no ajax fallback`);
+        gbUnlock('merchant', merchantLock);
+        return;
+      }
+      if (spent >= livePrice) {
+        gbLog(`merchant: ${err} but gold fell ${spent} (price ${livePrice}) - purchase landed, no fallback`);
+        gbUnlock('merchant', merchantLock);
+        return;
+      }
+      gameAjaxPost('merchant', 'phoenician_salesman', 'buy', {
+        offer_id: oid,
+        town_id: +job.townId,
+      }, (e2) => {
+        gbUnlock('merchant', merchantLock);
+        if (!e2) gbLog(`merchant: bought via ajax ${job.wish.item || job.wish.id}`);
+        else gbLogT('merchant-err', 60000, `merchant err ${err}/${e2}`);
+      });
+    });
   }
 
   const PT_VIEW_TTL_MS = 30000;
@@ -12874,10 +12198,9 @@ const STORE = {
   function ptCfg() {
     const c = state.ptCfg || {};
     return {
-
       targetRatio: +c.targetRatio > 0 ? +c.targetRatio : 1.0,
-
-      minAmount: Math.max(1, Math.floor(+c.pumpAmount || 1)),
+      pumpAmount: Math.max(1, Math.floor(+c.pumpAmount || 1)),
+      maxPumps: Math.max(0, Math.floor(+c.maxPumps != null ? +c.maxPumps : 6)),
       reservePct: Math.min(90, Math.max(0, gbCfgNum(c.reservePct, 10))),
       wantRes: c.wantRes && typeof c.wantRes === 'object' ? c.wantRes : { wood: true, stone: true, iron: false },
     };
@@ -12905,135 +12228,81 @@ const STORE = {
     return null;
   }
 
-  function ptInitBlob(text) {
-    const s = String(text || '');
-    const m = s.match(/PhoenicianSalesman\s*\.\s*initialize\s*\(\s*\{/);
-    if (!m) return null;
-    const start = s.indexOf('{', m.index);
-    if (start < 0) return null;
-    let depth = 0, inStr = false, esc = false;
-    for (let i = start; i < s.length; i++) {
-      const ch = s[i];
-      if (inStr) {
-        if (esc) esc = false;
-        else if (ch === '\\') esc = true;
-        else if (ch === '"') inStr = false;
-        continue;
-      }
-      if (ch === '"') { inStr = true; continue; }
-      if (ch === '{') depth++;
-      else if (ch === '}') {
-        depth--;
-        if (depth === 0) {
-          try { return JSON.parse(s.slice(start, i + 1)); } catch (_) { return null; }
-        }
-      }
+  function ptResFromText(s) {
+    const t = String(s || '').toLowerCase();
+    for (const r of PT_RES) {
+      if (t.indexOf(r) !== -1) return r;
     }
+    if (/silver|plata|argent/.test(t)) return 'iron';
+    if (/wood|madera|holz|bois/.test(t)) return 'wood';
+    if (/stone|piedra|stein|pierre/.test(t)) return 'stone';
+    return null;
+  }
+  function ptRatioFromText(s) {
+    const t = String(s || '').replace(',', '.');
+    let m = t.match(/(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)/);
+    if (m) {
+      const give = +m[1], get = +m[2];
+      if (give > 0 && get >= 0) return get / give;
+    }
+    m = t.match(/(\d+\.\d+)/);
+    if (m) return +m[1];
     return null;
   }
 
-  function ptOffersFromInit(init) {
-    if (!init || typeof init !== 'object') return null;
-    const goods = init.goods;
-    if (!goods || typeof goods !== 'object') return null;
-    const exchange = String(goods.exchange_resource || '').toLowerCase();
-    if (PT_RES.indexOf(exchange) === -1) return null;
-    const offers = [];
-    const push = (kind, entry, idx) => {
-      if (!entry || typeof entry !== 'object') return;
-      const name = String(entry.name || '').toLowerCase();
-      if (!name) return;
-      const costPer = +((entry.cost || {})[exchange]);
-      if (!Number.isFinite(costPer) || costPer <= 0) return;
-      const stock = Number.isFinite(+entry.amount) ? +entry.amount : null;
-      offers.push({
-        id: `${kind}:${name}`,
-        kind, name, exchange, costPer,
-
-        ratio: 1 / costPer,
-        give: exchange,
-        get: kind === 'resource' ? name : null,
-        stock,
-        idx,
-      });
-    };
-    (Array.isArray(goods.resources) ? goods.resources : []).forEach((e, i) => push('resource', e, i));
-    (Array.isArray(goods.units) ? goods.units : []).forEach((e, i) => push('unit', e, i));
-    return offers.length ? offers : null;
-  }
-
-  function ptExchangeFromRow(el) {
-    let hay = '';
-    try {
-      const price = el.querySelector('.ph_offer_price');
-      hay = price ? (price.innerHTML || '') : '';
-    } catch (_) { hay = ''; }
-    const hits = new Set();
-    for (const r of PT_RES) {
-      if (new RegExp(`\\b${r}_(?:img|\\d+x\\d+)`).test(hay)) hits.add(r);
-    }
-    return hits.size === 1 ? [...hits][0] : null;
-  }
-
-  function ptOffersFromDomRows(root) {
-    if (!root || !root.querySelectorAll) return null;
-    let rows = [];
-    try { rows = Array.from(root.querySelectorAll('.ph_order_info,[id^="ph_res_order_info_"],[id^="ph_unit_order_info_"]')); } catch (_) { return null; }
-    const offers = [];
-    const seen = new Set();
-    rows.forEach((el) => {
-      let hidden = null;
-      try { hidden = el.querySelector('input.ph_unit_order_unit_hidden,input[name="resource"],input[name="unit"]'); } catch (_) {}
-      if (!hidden) return;
-      const kind = String(hidden.getAttribute('name') || '').toLowerCase() === 'unit' ? 'unit' : 'resource';
-      const name = String(hidden.value || '').toLowerCase().trim();
-      if (!name) return;
-      let ratioTxt = '';
-      try { ratioTxt = (el.querySelector('.ph_ratio_count') || {}).textContent || ''; } catch (_) {}
-
-      const m = String(ratioTxt).replace(',', '.').match(/(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)/);
-      if (!m) return;
-      const recv = +m[1], costPer = +m[2] / (recv > 0 ? recv : 1);
-      if (!Number.isFinite(costPer) || costPer <= 0) return;
-      const id = `${kind}:${name}`;
-      if (seen.has(id)) return;
-      seen.add(id);
-      const exchange = ptExchangeFromRow(el);
-      offers.push({
-        id, kind, name, exchange, costPer,
-        ratio: 1 / costPer,
-        give: exchange,
-        get: kind === 'resource' ? name : null,
-
-        stock: null,
-        idx: offers.length,
-      });
-    });
-    return offers.length ? offers : null;
-  }
   function ptParseOffers(root) {
     if (!root) return null;
-    let blob = null;
+    let nodes = [];
     try {
-      const scripts = root.querySelectorAll ? Array.from(root.querySelectorAll('script')) : [];
-      for (const sc of scripts) {
-        blob = ptInitBlob(sc.textContent || '');
-        if (blob) break;
+      nodes = Array.from(root.querySelectorAll('[class*="offer"],[class*="trade_row"],[class*="exchange"]'));
+    } catch (_) { return null; }
+    const offers = [];
+    nodes.forEach((el, i) => {
+      const txt = (el.textContent || '').trim();
+      if (!txt) return;
+      const ratio = ptRatioFromText(txt);
+      if (ratio == null) return;
+      const html = el.innerHTML || '';
+
+      const resHits = [];
+      try {
+        Array.from(el.querySelectorAll('[class*="wood"],[class*="stone"],[class*="iron"],[class*="resource"]')).forEach(r => {
+          const hit = ptResFromText(r.className) || ptResFromText(r.getAttribute('data-resource') || '');
+          if (hit) resHits.push(hit);
+        });
+      } catch (_) {}
+
+      let give = null, get = null;
+      if (resHits.length >= 2) {
+        if (ratio != null && ratio > 0 && ratio <= 1) {
+
+          give = resHits[0]; get = resHits[1];
+        } else {
+
+          give = resHits[0]; get = resHits[1];
+        }
       }
-      if (!blob) blob = ptInitBlob(root.innerHTML || root.textContent || '');
-    } catch (_) { blob = null; }
-    const fromInit = ptOffersFromInit(blob);
-    if (fromInit) return fromInit;
-    return ptOffersFromDomRows(root);
+
+      const stockM = txt.replace(/(\d)\.(\d{3})(?!\d)/g, '$1$2').match(/(\d{2,7})/);
+      const id = el.getAttribute('data-offer-id') || el.getAttribute('data-id')
+        || el.getAttribute('data-offer_id') || String(i);
+      offers.push({
+        id: String(id),
+        give, get, ratio,
+        stock: stockM ? +stockM[1] : null,
+        raw: html.slice(0, 200),
+      });
+    });
+    if (!offers.length) return null;
+    return offers;
   }
   function ptWindowRoot() {
 
     try {
-      const sel = '[class*="phoenician"],[class*="salesman"],#ph_offers,#ph_trader';
+      const sel = '[class*="phoenician"],[class*="salesman"]';
       const nodes = Array.from(document.querySelectorAll(sel));
       for (const n of nodes) {
-        if (!n.querySelector) continue;
-        if (n.querySelector('.ph_order_info,[id^="ph_res_order_info_"],[id^="ph_unit_order_info_"]')) return n;
+        if (n.querySelector && n.querySelector('[class*="offer"],[class*="exchange"]')) return n;
       }
     } catch (_) {}
     return null;
@@ -13064,16 +12333,11 @@ const STORE = {
         let html = res.responseText || '';
         try {
           const j = JSON.parse(html);
-
-          html = (j && ((j.plain && j.plain.html) || j.html || (j.json && j.json.html))) || html;
+          html = (j && (j.html || (j.json && j.json.html))) || html;
         } catch (_) {}
-
-        let offers = ptOffersFromInit(ptInitBlob(html));
-        if (!offers) {
-          let doc = null;
-          try { doc = new DOMParser().parseFromString(String(html), 'text/html'); } catch (_) {}
-          offers = ptParseOffers(doc && doc.body);
-        }
+        let doc = null;
+        try { doc = new DOMParser().parseFromString(String(html), 'text/html'); } catch (_) {}
+        const offers = ptParseOffers(doc && doc.body);
         if (!offers) {
           gbLogT('pt-parse', 600000,
             'phoenician: offer markup not understood - Log > Diag and paste the window HTML');
@@ -13170,43 +12434,30 @@ const STORE = {
     });
     return best;
   }
-
-  function ptCanonicalTrade(offer, amount) {
-    if (!offer || !offer.name) return null;
-    const kind = offer.kind === 'unit' ? 'unit' : 'resource';
-    const data = {};
-    data[kind + '_name'] = offer.name;
-    data[kind + '_amount'] = Math.max(1, Math.floor(amount));
-    return { action: 'trade_' + kind + 's', data };
-  }
-
-  function ptTradePost(townId, offer, amount, onDone, feature) {
-    const feat = feature || 'pttrade';
+  function ptTradePost(townId, offer, amount, onDone) {
     const tpl = state.ptTradeTpl;
-    if (tpl && tpl.action && ptAmountKey(tpl)) {
-      const key = ptAmountKey(tpl);
-      const data = Object.assign({}, tpl.arguments || {});
-      data[key] = Math.max(1, Math.floor(amount));
-      if (townId != null) data.town_id = +townId;
-
-      if (offer && offer.name) {
-        Object.keys(data).forEach(k => {
-          if (/^(resource|unit)_name$/i.test(k)) data[k] = offer.name;
-          else if (/offer(_id)?$/i.test(k) && offer.id != null) data[k] = offer.id;
-        });
-      }
-      gameAjaxPost(feat, tpl.controller || 'phoenician_salesman', tpl.action, data, onDone);
+    if (!tpl || !tpl.action) {
+      gbLogT('pt-notpl', 600000,
+        'phoenician: no learned trade payload - do ONE trade by hand to teach it');
+      onDone('no-template');
       return;
     }
-    const canon = ptCanonicalTrade(offer, amount);
-    if (!canon) {
-      gbLogT('pt-nocanon', 600000, 'phoenician: oferta sin nombre de mercancia - no se envia nada');
-      onDone('no-good');
+    const key = ptAmountKey(tpl);
+    if (!key) {
+      gbLogT('pt-noamount', 600000, 'phoenician: learned payload has no amount field - refusing to post');
+      onDone('no-amount');
       return;
     }
-    const data = Object.assign({}, canon.data);
+    const data = Object.assign({}, tpl.arguments || {});
+    data[key] = Math.max(1, Math.floor(amount));
     if (townId != null) data.town_id = +townId;
-    gameAjaxPost(feat, 'phoenician_salesman', canon.action, data, onDone);
+
+    if (offer && offer.id != null) {
+      Object.keys(data).forEach(k => {
+        if (/offer(_id)?$/i.test(k)) data[k] = offer.id;
+      });
+    }
+    gameAjaxPost('pttrade', tpl.controller || 'phoenician_salesman', tpl.action, data, onDone);
   }
 
   function ptTownCaps(townId) {
@@ -13244,74 +12495,122 @@ const STORE = {
       gbLogT('pt-noship', 600000, `phoenician: no merchant ship readable (${scanReason(reason)})`);
       return;
     }
+    if (!state.ptTradeTpl) {
+      gbLogT('pt-notpl-scan', 600000,
+        'phoenician: ship is here but no trade payload learned - trade once by hand');
+      return;
+    }
     const cfg = ptCfg();
     ptOffers(townId, (offers) => {
       if (!offers || !offers.length) return;
-
-      const wanted = offers.filter((o) => {
-        if (o.kind !== 'resource') return false;
-        if (!(o.ratio > 0) || !(o.costPer > 0)) return false;
-        if (!o.get || !cfg.wantRes[o.get]) return false;
+      const pick = offers.find(o => {
+        if (!(o.ratio > 0)) return false;
+        if (o.get && !cfg.wantRes[o.get]) return false;
         if (o.stock != null && o.stock <= 0) return false;
-        return o.ratio >= cfg.targetRatio;
-      }).sort((a, b) => b.ratio - a.ratio);
-      const pick = wanted[0];
+        return true;
+      });
       if (!pick) {
-        gbLogT('pt-nooffer', 300000,
-          `phoenician: ninguna oferta llega al ratio minimo ${cfg.targetRatio} para los recursos pedidos`);
+        gbLogT('pt-nooffer', 300000, 'phoenician: no offer matches the wanted resources');
         return;
       }
-      const give = pick.exchange || pick.give;
-      const get = pick.get;
-      if (PT_RES.indexOf(give) === -1) {
-        gbLogT('pt-noexchange', 600000,
-          'phoenician: no se puede leer con que recurso paga el barco - no se envia nada');
-        return;
-      }
+      const give = pick.give || 'iron';
+      const get = pick.get || 'wood';
       const room = ptRoom(townId, give, get);
+      if (room.tradeCap != null && room.tradeCap < cfg.pumpAmount) {
+        gbLogT('pt-nocap', 300000, `phoenician: no free trade capacity in town ${townId}`);
+        return;
+      }
       if (room.room != null && room.room <= 0) {
         gbLogT('pt-full', 300000, `phoenician: town ${townId} ${get} already at capacity - skip`);
         return;
       }
-
-      const bounds = [];
-      if (pick.stock != null) bounds.push(pick.stock);
-      if (room.room != null) bounds.push(room.room);
-      if (room.tradeCap != null) bounds.push(room.tradeCap);
-      if (room.out != null) bounds.push(Math.floor(room.out / pick.costPer));
-      if (!bounds.length) {
-        gbLogT('pt-noread', 300000,
-          `phoenician: town ${townId} sin lectura de capacidad ni de stock - no se envia nada`);
-        return;
-      }
-      const amount = Math.floor(Math.min.apply(null, bounds));
-      if (!(amount >= cfg.minAmount)) {
-        gbLogT('pt-small', 300000,
-          `phoenician: town ${townId} solo daria para ${amount} ${get} (minimo ${cfg.minAmount}) - skip`);
+      if (room.out != null && room.out < cfg.pumpAmount) {
+        gbLogT('pt-nostock', 300000, `phoenician: town ${townId} ${give} below reserve - skip`);
         return;
       }
       const ptLock = gbLock('pt-trade');
       if (!ptLock) return;
-      const cost = Math.ceil(amount * pick.costPer);
-      ptTradePost(townId, pick, amount, (err) => {
-        gbUnlock('pt-trade', ptLock);
+      ptRunPump(townId, pick, give, get, cfg, ptLock);
+    });
+  }
+  function ptRunPump(townId, offer, give, get, cfg, ptLock) {
+    let pumps = 0;
+    let lastRatio = offer.ratio;
+    const finish = (why) => {
+      gbUnlock('pt-trade', ptLock);
+      if (why) gbLog(`phoenician: ${why}`);
+    };
+    const bulk = () => {
+      const room = ptRoom(townId, give, get);
+
+      if (room.tradeCap == null && room.room == null && room.out == null) {
+        finish('bulk skipped - trade capacity and warehouse unreadable');
+        return;
+      }
+      const parts = [offer.stock, room.room, room.tradeCap, room.out].filter(v => v != null && Number.isFinite(v));
+      if (!parts.length) {
+        finish('bulk skipped - capacity/stock unreadable');
+        return;
+      }
+      const amount = Math.floor(Math.min.apply(null, parts));
+      if (!(amount > 0)) { finish('bulk skipped - nothing tradeable'); return; }
+      ptTradePost(townId, offer, amount, (err) => {
         if (err === 'dryrun') {
-          gbLog(`phoenician: DRY-RUN cambiaria ${cost} ${give} por ${amount} ${get} (ratio ${pick.ratio.toFixed(2)})`);
+          finish(`DRY-RUN bulk trade would send ${amount} ${give} -> ${get} at ratio ${lastRatio}`);
           return;
         }
         if (err) {
-          gbLogT('pt-trade-err', 60000, `phoenician: trade ${err}`);
+          gbLogT('pt-bulk-err', 60000, `phoenician: bulk trade ${err}`);
+          finish(null);
           return;
         }
         ptViewCache = null;
-        gbLog(`phoenician: ${cost} ${give} -> ${amount} ${get} (ratio ${pick.ratio.toFixed(2)})`);
+        finish(`bulk trade ${amount} ${give} -> ${get} at ratio ${lastRatio}`);
       });
-    });
+    };
+    const step = () => {
+      if (lastRatio >= cfg.targetRatio) { bulk(); return; }
+      if (pumps >= cfg.maxPumps) {
+        finish(`ratio stuck at ${lastRatio} after ${pumps} pumps - no bulk trade`);
+        return;
+      }
+      pumps++;
+      ptTradePost(townId, offer, cfg.pumpAmount, (err) => {
+
+        if (err === 'dryrun' || (!err && state.dryRun)) {
+          lastRatio = Math.round((lastRatio + 0.1) * 100) / 100;
+          gbLog(`phoenician: DRY-RUN pump ${pumps}/${cfg.maxPumps}, assumed ratio ${lastRatio}`);
+          gbTimeout(step, 900);
+          return;
+        }
+        if (err) {
+          gbLogT('pt-pump-err', 60000, `phoenician: pump ${pumps} ${err}`);
+          finish(null);
+          return;
+        }
+        gbTimeout(() => {
+          ptOffers(townId, (offers) => {
+            const again = (offers || []).find(o => String(o.id) === String(offer.id));
+            const now = again && again.ratio != null ? again.ratio : null;
+            if (now == null) { finish(`ratio unreadable after pump ${pumps}`); return; }
+            if (now <= lastRatio) {
+              finish(`ratio did not move (${lastRatio} -> ${now}) after pump ${pumps} - aborting`);
+              return;
+            }
+            gbLog(`phoenician: pump ${pumps}/${cfg.maxPumps} ratio ${lastRatio} -> ${now}`);
+            lastRatio = now;
+            if (again.stock != null) offer.stock = again.stock;
+            step();
+          }, true);
+        }, 900 + Math.floor(Math.random() * 600));
+      });
+    };
+    step();
   }
   function ptStatusText() {
     const townId = ptSalesmanTown();
-    const tpl = state.ptTradeTpl ? 'payload aprendido' : 'ruta canonica trade_resources';
-    const view = state.ptViewUrl ? 'vista aprendida' : 'solo ventana abierta';
+    const tpl = state.ptTradeTpl ? 'payload aprendido' : 'payload SIN aprender';
+    const view = state.ptViewUrl ? 'vista aprendida' : 'vista SIN aprender';
     return (townId == null ? 'sin barco' : `barco en la ciudad ${townId}`) + `  |  ${tpl}  |  ${view}`;
   }
 
@@ -13487,8 +12786,10 @@ const STORE = {
   }
   function godSpellCast(townId, powerId, onDone) {
     if (!powerId) return onDone && onDone('bad-power');
-
-    spellCastPost(townId, powerId, (err, data) => {
+    gameAjaxPost('spell', 'town_overviews', 'cast_power', {
+      power_id: powerId,
+      town_id: +townId,
+    }, (err, data) => {
 
       if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {
         godSpellCooldownStamp(townId, powerId);
@@ -13594,24 +12895,14 @@ const STORE = {
   }
   let wonderSpentToday = wonderLoadSpent();
 
-  function wonderCoords() {
-    const cfg = state.wonderCfg || {};
-    const x = Number(cfg.islandX != null ? cfg.islandX : cfg.island_x);
-    const y = Number(cfg.islandY != null ? cfg.islandY : cfg.island_y);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-    return { x: Math.trunc(x), y: Math.trunc(y) };
-  }
-  function wonderCoordLabel(c) { return c ? `${c.x}/${c.y}` : '\u2014'; }
-
   function wonderScan(reason) {
     if (!hostEnabled() || !state.autoWonder || captchaPaused('wonder')) return;
     if (automationPaused({})) return;
     if (gbLocked('wonder')) return;
     const cfg = state.wonderCfg || {};
-    const coords = wonderCoords();
-    if (!coords) {
-      gbLogT('wonder-noid', 300000,
-        'wonder: set wonderCfg.islandX / wonderCfg.islandY (island coords of the wonder \u2014 wonderId is not what the server reads)');
+    const wonderId = cfg.wonderId;
+    if (!wonderId) {
+      gbLogT('wonder-noid', 300000, 'wonder: set wonderCfg.wonderId');
       return;
     }
     const day = gbServerDay();
@@ -13676,41 +12967,49 @@ const STORE = {
     const fresh = tradeTownRes(job.townId);
     const tot = job.send.wood + job.send.stone + job.send.iron;
     const pav = plannerAvailable(job.townId, {allowSoft:false});
-
-    const wonderNum = (v) => (Number.isFinite(+v) ? +v : null);
-    const pvW = wonderNum(pav && pav.wood), pvS = wonderNum(pav && pav.stone), pvI = wonderNum(pav && pav.iron);
-    const frW = wonderNum(fresh && fresh.wood), frS = wonderNum(fresh && fresh.stone), frI = wonderNum(fresh && fresh.iron);
-    if (!fresh || !pav || pvW == null || pvS == null || pvI == null || frW == null || frS == null || frI == null
-      || !(wonderNum(fresh.tradeCap) >= tot) || pav.tradeCap == null || !(wonderNum(pav.tradeCap) >= tot)
-      || pvW < job.send.wood || pvS < job.send.stone || pvI < job.send.iron
-      || frW - job.send.wood < reserve || frS - job.send.stone < reserve || frI - job.send.iron < reserve
-      || wonderSpentToday.amount + tot > budget) {
+    if (!fresh || !pav || fresh.tradeCap < tot || pav.tradeCap == null || pav.tradeCap < tot || pav.wood < job.send.wood || pav.stone < job.send.stone || pav.iron < job.send.iron || fresh.wood - job.send.wood < reserve || fresh.stone - job.send.stone < reserve || fresh.iron - job.send.iron < reserve || wonderSpentToday.amount + tot > budget) {
       gbLogT('wonder-stale-' + job.townId, 60000, 'wonder: final stock/capacity/budget precheck failed');
       return;
     }
     const lockToken = gbLock('wonder');
     if (!lockToken) return;
     gameAjaxPost('wonder', 'wonders', 'send_resources', {
+      id: +wonderId,
       wood: job.send.wood,
       stone: job.send.stone,
       iron: job.send.iron,
-      island_x: coords.x,
-      island_y: coords.y,
       town_id: +job.townId,
     }, (err) => {
-      gbUnlock('wonder', lockToken);
       if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {
         gbLogT('wonder-timeout', 60000, `wonder: timeout_unknown town ${job.townId} \u2014 no fallback/duplicate`);
+        gbUnlock('wonder', lockToken);
         return;
       }
       if (!err) {
         wonderSpentToday.amount += tot;
         wonderSaveSpent(wonderSpentToday);
-        gbLog(`wonder: town ${job.townId} sent ${tot} to WW ${wonderCoordLabel(coords)}`);
+        gbLog(`wonder: town ${job.townId} sent ${tot} to WW ${wonderId}`);
+        gbUnlock('wonder', lockToken);
         return;
       }
 
-      gbLogT('wonder-err', 60000, `wonder err ${err}`);
+      if (!/unknown|not.?found|does.?not.?exist|invalid.?controller|invalid.?action/i.test(String(err))) {
+        gbLogT('wonder-err', 60000, `wonder err ${err}`);
+        gbUnlock('wonder', lockToken);
+        return;
+      }
+      gameAjaxPost('wonder', 'factions', 'send_resources', {
+        wonder_id: +wonderId,
+        wood: job.send.wood, stone: job.send.stone, iron: job.send.iron,
+        town_id: +job.townId,
+      }, (e2) => {
+        gbUnlock('wonder', lockToken);
+        if (!e2) {
+          wonderSpentToday.amount += tot;
+          wonderSaveSpent(wonderSpentToday);
+          gbLog(`wonder: sent via factions from ${job.townId}`);
+        } else gbLogT('wonder-err', 60000, `wonder err ${err}/${e2}`);
+      });
     });
   }
 
@@ -13836,24 +13135,17 @@ const STORE = {
       gbLogT('wonder-favor-tpl', 300000, 'wonder favor: hand-cast once to teach wonderFavorTpl');
       return;
     }
-    const wfCoords = wonderCoords();
-    if (!wfCoords) {
-      gbLogT('wonder-favor-id', 300000, 'wonder favor: set wonderCfg.islandX / wonderCfg.islandY');
+    const cfg = state.wonderCfg || {};
+    if (!cfg.wonderId) {
+      gbLogT('wonder-favor-id', 300000, 'wonder favor: set wonderCfg.wonderId');
       return;
     }
     const wfLock = gbLock('wonder-favor');
     if (!wfLock) return;
-
-    const wfArgs = Object.assign({}, tpl.arguments || {});
-    if ('island_x' in wfArgs || 'island_y' in wfArgs) {
-      wfArgs.island_x = wfCoords.x;
-      wfArgs.island_y = wfCoords.y;
-    } else {
-      gbLogT('wonder-favor-tpl-coords', 300000,
-        'wonder favor: la plantilla aprendida no lleva island_x/island_y - se envia tal cual (revisa el objetivo)');
-    }
     const payload = Object.assign({}, tpl, {
-      arguments: wfArgs,
+      arguments: Object.assign({}, tpl.arguments || {}, {
+        wonder_id: +cfg.wonderId,
+      }),
       town_id: tpl.town_id,
     });
     bridgePost('wonder', payload, (err) => {
@@ -13902,52 +13194,37 @@ const STORE = {
 
   const dodgeQueue = dodgeQueueLoad();
 
-  const DODGE_HOSTILE_TYPES = /^(attack|attack_land|attack_sea|attack_takeover|raid|siege|revolt|colonize|take_over|conquer|portal_attack|portal_attack_olympus|portal_revolt_olympus)$/;
-  const DODGE_HOSTILE_PREFIX = /^(attack|portal_attack|portal_revolt)(_|$)/;
-  const DODGE_FRIENDLY_TYPES = /^(support|support_sea|portal_support_olympus|trade|return|spy|farm|reward|abort)$/;
-
+  const DODGE_HOSTILE_TYPES = /^(attack|attack_sea|raid|siege|revolt|colonize|take_over|conquer|portal_attack)$/;
+  const DODGE_FRIENDLY_TYPES = /^(support|support_sea|trade|return|spy|farm|reward)$/;
   function dodgeIsHostileMovement(a) {
-    const type = gbMovementType(a);
+    const type = String(a.command_name || a.type || a.movement_type || '').toLowerCase().trim();
     if (DODGE_FRIENDLY_TYPES.test(type)) return false;
     if (a.is_attack === true || a.is_attack === 1) return true;
     if (DODGE_HOSTILE_TYPES.test(type)) return true;
-    if (DODGE_HOSTILE_PREFIX.test(type)) return true;
 
     const alt = [a.command_type, a.movement_type];
-    for (const v of alt) {
-      const t = String(v || '').toLowerCase().trim();
-      if (DODGE_HOSTILE_TYPES.test(t) || DODGE_HOSTILE_PREFIX.test(t)) return true;
-    }
+    for (const v of alt) if (DODGE_HOSTILE_TYPES.test(String(v || '').toLowerCase().trim())) return true;
     return false;
   }
   function dodgeIncomingMovements() {
     const uw = gameUw();
     const out = [];
     try {
-
-      const models = mmModelsAll('MovementsUnits');
+      const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits');
+      if (!col || !col.models) return out;
       const myTowns = new Set(Object.keys((uw.ITowns && uw.ITowns.towns) || {}).map(String));
-      if (!myTowns.size) {
-        gbLogT('dodge-notowns-read', 120000, 'dodge: ITowns unreadable \u2014 incoming scan is blind, not empty');
-        return out;
-      }
-      models.forEach(m => {
+      col.models.forEach(m => {
         const a = m.attributes || {};
         const dest = String(a.destination_town_id || a.target_town_id || '');
         if (!myTowns.has(dest)) return;
-
-        let hostile = false;
-        try { hostile = typeof m.isIncomingAttack === 'function' && m.isIncomingAttack() === true; } catch (_) {}
-        if (!hostile && !dodgeIsHostileMovement(a)) return;
+        if (!dodgeIsHostileMovement(a)) return;
 
         const origin = String(a.origin_town_id || a.home_town_id || '');
 
-        try { if (typeof m.isReturning === 'function' && m.isReturning() === true) return; } catch (_) {}
-
         if (myTowns.has(origin) && a.is_attack !== true && a.is_attack !== 1) return;
-        const type = gbMovementType(a);
+        const type = String(a.command_name || a.type || a.movement_type || '').toLowerCase();
         const units = a.units || {};
-        const hasCs = !!(units.colonize_ship || units.colony_ship || /^(revolt|colonize|take_over|conquer|attack_takeover)$/.test(type));
+        const hasCs = !!(units.colonize_ship || units.colony_ship || /^(revolt|colonize|take_over|conquer)$/.test(type));
         out.push({
           id: a.id || m.id,
           dest, origin, type, hasCs,
@@ -14355,15 +13632,6 @@ const STORE = {
     if (need && god !== need) return { ok: false, why: `god-mismatch:${god}!=${need}` };
     return { ok: true, blind: false, why: null };
   }
-
-  function spellCastPost(townId, powerId, onDone) {
-    return bridgePost('spell', {
-      model_url: 'CastedPowers',
-      action_name: 'cast',
-      arguments: { power_id: powerId, target_id: +townId },
-      town_id: +townId,
-    }, onDone);
-  }
   function recruitCastSpell(townId, powerId, onDone) {
     if (!powerId || !RECRUIT_SPELLS.includes(powerId)) return onDone && onDone('bad-power');
     const pre = recruitSpellGateOk(townId, powerId);
@@ -14371,7 +13639,10 @@ const STORE = {
     if (pre.blind) gbLogT('spell-precond-blind-' + townId, 300000, 'spell: god unreadable; blind precheck, server is the authority');
     const left = recruitSpellCooldown(townId, powerId);
     if (left > 0) { gbLogT('spell-cooldown-' + townId, 60000, `spell: cooldown ${Math.ceil(left/1000)}s left`); return onDone && onDone('skip:cooldown'); }
-    spellCastPost(townId, powerId, onDone);
+    gameAjaxPost('spell', 'town_overviews', 'cast_power', {
+      power_id: powerId,
+      town_id: +townId,
+    }, onDone);
   }
   function recruitBuild(townId, unitId, amount, onDone) {
     const ctrl = recruitControllerFor(unitId);
@@ -14567,6 +13838,8 @@ const STORE = {
     if (!hostEnabled() || (!state.autoRecruit && !nativePending) || captchaPaused('recruit')) return;
     if (automationPaused({})) return;
     if (gbLocked('recruit')) return;
+
+    if (farmFirstHold('recruit')) return;
     recruitScanResetMemo();
     const targets = goalEffectiveRecruitTargets();
 
@@ -14588,15 +13861,10 @@ const STORE = {
         if (!recruitCanBuild(tid, explicit.unit) || !recruitControllerFor(explicit.unit)) {
           nativeQueueSetJobState(explicit, 'blocked', 'requisitos/controlador'); continue;
         }
-        const totalAmt = +explicit.amount || 0;
-
-        const cs = +explicit.chunkSize || 0;
-        const postAmt = cs > 0 && cs < totalAmt ? cs : totalAmt;
-
-        const affordable = recruitAffordableAmount(tid, explicit.unit, postAmt);
-        if (affordable < postAmt) { nativeQueueSetJobState(explicit, 'waiting-resources', 'recursos/poblaci\u00f3n/favor'); continue; }
+        const affordable = recruitAffordableAmount(tid, explicit.unit, explicit.amount);
+        if (affordable < +explicit.amount) { nativeQueueSetJobState(explicit, 'waiting-resources', 'recursos/poblaci\u00f3n/favor'); continue; }
         nativeQueueSetJobState(explicit, 'ready', 'listo');
-        job = { kind:'build', townId:tid, unit:explicit.unit, amount:postAmt, nativeJobId:explicit.id, nativeLane:lane, nativeChunkSize: cs };
+        job = { kind:'build', townId:tid, unit:explicit.unit, amount:+explicit.amount, nativeJobId:explicit.id, nativeLane:lane };
         break;
       }
       if (job) break;
@@ -14799,6 +14067,8 @@ const STORE = {
     if (captchaPaused('villrecruit')) return;
     if (gbLocked('village-recruit')) return;
 
+    if (farmFirstHold('villrecruit')) return;
+
     if (!state.acceptUnitsTpl || !state.acceptUnitsTpl.action_name) {
       gbLogT('villrecruit-tpl', 600000, 'village recruit: abre una aldea, pulsa Aceptar una vez a mano para ensenar al bot el payload del puente');
       return;
@@ -14845,936 +14115,6 @@ const STORE = {
 
       return;
     }
-  }
-
-  function batchRecruitNormLists() {
-    let root = state.batchRecruitLists;
-    if (!root || typeof root !== 'object' || Array.isArray(root)) root = state.batchRecruitLists = { towns: {} };
-    if (!root.towns || typeof root.towns !== 'object' || Array.isArray(root.towns)) root.towns = {};
-
-    try {
-      const known = new Set();
-      try { Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}).forEach(id => known.add(String(id))); } catch (_) {}
-      try { (state.towns || []).forEach(t => t && t.id != null && known.add(String(t.id))); } catch (_) {}
-      let pruned = 0;
-      for (const id of Object.keys(root.towns)) {
-        if (!known.has(String(id))) { delete root.towns[id]; pruned++; }
-      }
-      if (pruned) gbLog(`batch recruit: ${pruned} lista(s) hu\u00e9rfana(s) eliminada(s)`);
-    } catch (_) {}
-    return root;
-  }
-  function batchRecruitTownList(townId) {
-    const id = String(townId == null ? '' : townId);
-    if (!id) return [];
-    const root = batchRecruitNormLists();
-    let arr = root.towns[id];
-    if (!Array.isArray(arr)) arr = root.towns[id] = [];
-
-    for (let i = arr.length - 1; i >= 0; i--) {
-      const r = arr[i];
-      const u = r && r.unit;
-      const a = r && Number(r.amount);
-      if (!u || typeof u !== 'string' || !gbGameDataLookup('units', u) || !(a > 0)) arr.splice(i, 1);
-    }
-    return arr;
-  }
-  function batchRecruitListSave() {
-
-    try { saveSoon(STORE.BATCH_RECRUIT_LISTS, state.batchRecruitLists); } catch (_) {}
-  }
-  function batchRecruitAddRow(townId, unit, amount) {
-    const id = String(townId == null ? '' : townId);
-    if (!id || !unit || !gbGameDataLookup('units', unit)) return false;
-    const a = Math.max(1, Math.floor(+amount || 0));
-    if (!(a > 0)) return false;
-    const list = batchRecruitTownList(id);
-    list.push({ unit: String(unit), amount: a });
-    batchRecruitListSave();
-    return true;
-  }
-  function batchRecruitRemoveRow(townId, idx) {
-    const id = String(townId == null ? '' : townId);
-    if (!id) return false;
-    const list = batchRecruitTownList(id);
-    if (idx < 0 || idx >= list.length) return false;
-    list.splice(idx, 1);
-    batchRecruitListSave();
-    return true;
-  }
-  function batchRecruitClearTown(townId) {
-    const id = String(townId == null ? '' : townId);
-    if (!id) return;
-    const root = batchRecruitNormLists();
-    if (root.towns[id] && root.towns[id].length) {
-      delete root.towns[id];
-      batchRecruitListSave();
-    }
-  }
-
-  function batchRecruitCostPreview(townId, rows) {
-    const t = (typeof gbTownModel === 'function') ? gbTownModel(townId) : null;
-    const list = Array.isArray(rows) ? rows : batchRecruitTownList(townId);
-    let wood = 0, stone = 0, iron = 0, pop = 0, favor = 0;
-    const missing = [];
-    for (const r of list) {
-      const def = gbGameDataLookup('units', r.unit);
-      if (!def) { missing.push(r.unit); continue; }
-      const a = +r.amount || 0;
-      const res = def.resources || {};
-      wood += (+res.wood || 0) * a;
-      stone += (+res.stone || 0) * a;
-      iron += (+res.iron || 0) * a;
-      pop += (+def.population || 0) * a;
-      const fv = +(def.favor ?? res.favor) || 0;
-      if (fv > 0) favor += fv * a;
-    }
-    const rs = t && t.resources && t.resources();
-    const haveWood = rs ? +rs.wood : null;
-    const haveStone = rs ? +rs.stone : null;
-    const haveIron = rs ? +rs.iron : null;
-    const havePop = (t && typeof t.getAvailablePopulation === 'function') ? +t.getAvailablePopulation() : null;
-    const fits = !(missing.length) && wood <= (haveWood == null ? Infinity : haveWood)
-      && stone <= (haveStone == null ? Infinity : haveStone)
-      && iron <= (haveIron == null ? Infinity : haveIron)
-      && pop <= (havePop == null ? Infinity : havePop);
-    return { wood, stone, iron, pop, favor, haveWood, haveStone, haveIron, havePop, fits, missing };
-  }
-
-  const _batchRecruitBlind = new Set();
-  function batchRecruitAtomicAfford(townId) {
-    const list = batchRecruitTownList(townId);
-    if (!list.length) return { ok: false, why: 'empty' };
-    const t = gbTownModel(townId);
-    if (!t) {
-      const k = String(townId) + '|town';
-      if (!_batchRecruitBlind.has(k)) { _batchRecruitBlind.add(k); gbLogT('batch-recruit-blind-' + townId, 300000, `batch recruit: town ${townId} model unreadable - blind precheck, server judges`); }
-      return { ok: false, why: 'blind-town' };
-    }
-    for (let i = 0; i < list.length; i++) {
-      const r = list[i];
-      const unit = r && r.unit;
-      const amount = +r.amount || 0;
-      if (!unit || !(amount > 0)) continue;
-      if (!recruitControllerFor(unit)) return { ok: false, why: 'no-controller', rowIdx: i, unit };
-      if (!recruitCanBuild(townId, unit)) return { ok: false, why: 'requirements', rowIdx: i, unit };
-      if (!recruitQueueHasSpace(townId, unit)) return { ok: false, why: 'queue', rowIdx: i, unit };
-      const afford = recruitAffordableAmount(townId, unit, amount);
-      if (afford < amount) return { ok: false, why: 'resources/pop/favor', rowIdx: i, unit };
-    }
-    return { ok: true };
-  }
-
-  function batchRecruitFire(townId) {
-    const list = batchRecruitTownList(townId);
-    if (!list.length) return;
-    const lockToken = gbLock('recruit', 120000);
-    if (!lockToken) return;
-    let idx = 0;
-    let stopped = false;
-    const fireOne = () => {
-      if (stopped || idx >= list.length) {
-        gbUnlock('recruit', lockToken);
-        return;
-      }
-
-      const r = list[idx++];
-      const unit = r.unit, amount = +r.amount || 0;
-
-      const validated = recruitValidateJob({ townId, unit, amount });
-      if (!validated.ok) {
-        stopped = true;
-        gbLogT(`batch-recruit-pre-${townId}`, 60000, `batch recruit: ${validated.why} @ ${unit} (row ${idx}/${list.length})`);
-        gbUnlock('recruit', lockToken);
-        return;
-      }
-      recruitBuild(townId, unit, validated.amount, (err) => {
-        if (err) {
-          stopped = true;
-          gbLogT(`batch-recruit-partial-${townId}`, 60000, `batch recruit: stopped at row ${idx}/${list.length} (${err})`);
-          gbUnlock('recruit', lockToken);
-          return;
-        }
-        gbLog(`batch recruit: town ${townId} ${validated.amount}\u00d7 ${unit} (row ${idx}/${list.length})`);
-
-        gbTimeout(fireOne, 450);
-      });
-    };
-    fireOne();
-  }
-  function batchRecruitHasAnyTown() {
-    try {
-      const root = batchRecruitNormLists();
-      for (const townId of Object.keys(root.towns || {})) {
-        if (batchRecruitTownList(townId).length) return true;
-      }
-    } catch (_) {}
-    return false;
-  }
-
-  function batchRecruitUiAllUnits() {
-    const out = [];
-    try {
-      const uw = gameUw();
-      const gd = (uw && (uw.GameData || {}).units) || null;
-      if (gd && typeof gd === 'object') {
-        for (const k of Object.keys(gd)) {
-          const d = gd[k];
-          if (!d) continue;
-
-          if (d.is_research || d.not_unit) continue;
-
-          const r = d.resources || {};
-          if (!(+r.wood || +r.stone || +r.iron)) continue;
-          out.push(String(k));
-        }
-      }
-    } catch (_) {}
-    out.sort();
-    return out;
-  }
-  function batchRecruitUiTownIds() {
-    const out = [];
-    try {
-      const uw = gameUw();
-      const ts = (uw && uw.ITowns && uw.ITowns.towns) || {};
-      Object.keys(ts).forEach(id => out.push(String(id)));
-    } catch (_) {}
-    if (!out.length) {
-      try { (state.towns || []).forEach(t => t && t.id != null && out.push(String(t.id))); } catch (_) {}
-    }
-
-    try {
-      const root = batchRecruitNormLists();
-      for (const id of Object.keys(root.towns || {})) {
-        if (!out.includes(String(id))) { delete root.towns[id]; batchRecruitListSave(); }
-      }
-    } catch (_) {}
-    return out;
-  }
-  function batchRecruitUiTownName(id) {
-    const sid = String(id);
-    try {
-      const t = gbTownModel(sid);
-      const a = t && (t.attributes || t);
-      if (a && a.name) return String(a.name);
-    } catch (_) {}
-    try {
-      const t = (state.towns || []).find(x => String(x.id) === sid);
-      if (t && t.name) return String(t.name);
-    } catch (_) {}
-    return sid;
-  }
-  function batchRecruitUiGetSelectedTown() {
-    try {
-      const sec = trainSection();
-      const sel = sec && sec.querySelector('[data-cfg=batch-recruit-town]');
-      if (sel && sel.value) return String(sel.value);
-    } catch (_) {}
-    const ids = batchRecruitUiTownIds();
-    if (!ids.length) return '';
-
-    const withLists = ids.filter(id => batchRecruitTownList(id).length);
-    return withLists[0] || ids[0] || '';
-  }
-
-  function batchRecruitUiPaint() {
-    const sec = trainSection();
-    if (!sec) return;
-    const townSel = sec.querySelector('[data-cfg=batch-recruit-town]');
-    const rowsHost = sec.querySelector('#gb-batch-recruit-rows');
-    const sumHost = sec.querySelector('#gb-batch-recruit-summary');
-    if (!townSel || !rowsHost || !sumHost) return;
-    const ids = batchRecruitUiTownIds();
-
-    townSel.replaceChildren();
-    if (!ids.length) {
-      const opt = document.createElement('option');
-      opt.value = ''; opt.textContent = '\u2014 sin ciudades \u2014';
-      townSel.appendChild(opt); townSel.disabled = true;
-    } else {
-      townSel.disabled = false;
-      ids.forEach(id => {
-        const opt = document.createElement('option');
-        opt.value = id;
-        const count = batchRecruitTownList(id).length;
-        opt.textContent = `${batchRecruitUiTownName(id)}${count ? `  (${count})` : ''}`;
-        townSel.appendChild(opt);
-      });
-      const cur = String(townSel.value || '') || batchRecruitUiGetSelectedTown();
-      townSel.value = ids.includes(cur) ? cur : ids[0];
-    }
-
-    const townId = townSel.value;
-    const list = townId ? batchRecruitTownList(townId) : [];
-    rowsHost.replaceChildren();
-    if (!townId) { sumHost.textContent = ''; return; }
-    if (!list.length) {
-      const e = document.createElement('div');
-      e.style.cssText = 'color:#888;font-size:10px;padding:4px 0';
-      e.textContent = 'lista vac\u00eda \u2014 a\u00f1ade una l\u00ednea y elige unidad + cantidad';
-      rowsHost.appendChild(e);
-    } else {
-      const units = batchRecruitUiAllUnits();
-      list.forEach((row, idx) => {
-        const line = document.createElement('div');
-        line.style.cssText = 'display:flex;gap:4px;align-items:center;padding:2px 0;font-size:11px';
-        const uSel = document.createElement('select');
-        uSel.style.cssText = 'background:#11141a;color:var(--gb-fg);border:1px solid #4b5260;border-radius:4px;padding:2px 4px;min-width:120px';
-        units.forEach(u => {
-          const opt = document.createElement('option');
-          opt.value = u; opt.textContent = u;
-          if (u === row.unit) opt.selected = true;
-          uSel.appendChild(opt);
-        });
-        const qty = document.createElement('input');
-        qty.type = 'number'; qty.min = '1'; qty.max = '10000'; qty.step = '1';
-        qty.value = String(row.amount);
-        qty.style.cssText = 'width:62px;background:#11141a;color:var(--gb-fg);border:1px solid #4b5260;border-radius:4px;padding:2px 4px';
-        const cost = batchRecruitUiRowCost(row);
-        const costSpan = document.createElement('span');
-        costSpan.style.cssText = 'color:#aab2bd;flex:1;font-size:10px';
-        costSpan.textContent = cost;
-        const trash = document.createElement('button');
-        trash.textContent = '\ud83d\uddd1'; trash.title = 'quitar l\u00ednea';
-        trash.className = 'gb-cfg-btn danger';
-        trash.style.cssText = 'padding:2px 6px';
-        trash.addEventListener('click', () => {
-          batchRecruitRemoveRow(townId, idx);
-          batchRecruitUiPaint();
-        });
-        uSel.addEventListener('change', () => {
-          row.unit = uSel.value;
-          batchRecruitListSave();
-          batchRecruitUiPaint();
-        });
-        qty.addEventListener('input', () => {
-          const v = Math.max(1, Math.floor(+qty.value || 1));
-          row.amount = v;
-          batchRecruitListSave();
-          batchRecruitUiPaint();
-        });
-        line.appendChild(uSel); line.appendChild(qty);
-        line.appendChild(costSpan); line.appendChild(trash);
-        rowsHost.appendChild(line);
-      });
-    }
-
-    const preview = batchRecruitCostPreview(townId, list);
-    if (!list.length) {
-      sumHost.textContent = '';
-    } else {
-      const parts = [];
-      if (preview.wood) parts.push(`mad ${preview.wood}`);
-      if (preview.stone) parts.push(`pie ${preview.stone}`);
-      if (preview.iron) parts.push(`pla ${preview.iron}`);
-      if (preview.pop) parts.push(`pop ${preview.pop}`);
-      if (preview.favor) parts.push(`favor ${preview.favor}`);
-      const totals = parts.join(' / ');
-      const have = [];
-      if (preview.haveWood != null) have.push(`mad ${preview.haveWood}`);
-      if (preview.haveStone != null) have.push(`pie ${preview.haveStone}`);
-      if (preview.haveIron != null) have.push(`pla ${preview.haveIron}`);
-      if (preview.havePop != null) have.push(`pop libre ${preview.havePop}`);
-      const tag = preview.missing && preview.missing.length
-        ? ` (falta informaci\u00f3n de: ${preview.missing.join(', ')})`
-        : (preview.fits ? ' \u2192 cabe \u2713' : ' \u2192 falta');
-      const color = preview.fits ? '#7ddd96' : '#e5bf70';
-      sumHost.innerHTML = '';
-      const a = document.createElement('div');
-      a.style.cssText = `color:${color};font-size:10px`;
-      a.textContent = `total: ${totals || '0'} \u00b7 ciudad ahora: ${have.join(' / ') || '\u2014'}${tag}`;
-      sumHost.appendChild(a);
-    }
-  }
-  function batchRecruitUiRowCost(row) {
-    const def = gbGameDataLookup('units', row && row.unit);
-    if (!def) return '\u2014 desconocida \u2014';
-    const r = def.resources || {};
-    const parts = [];
-    const a = +row.amount || 0;
-    if (+r.wood) parts.push(`mad ${(+r.wood) * a}`);
-    if (+r.stone) parts.push(`pie ${(+r.stone) * a}`);
-    if (+r.iron) parts.push(`pla ${(+r.iron) * a}`);
-    if (+def.population) parts.push(`pop ${(+def.population) * a}`);
-    const fav = +(def.favor || (r && r.favor) || 0);
-    if (fav) parts.push(`favor ${fav * a}`);
-    return parts.join(' / ') || 'gratis';
-  }
-  function batchRecruitUiAdd() {
-    const sec = trainSection();
-    if (!sec) return;
-    const townSel = sec.querySelector('[data-cfg=batch-recruit-town]');
-    const townId = townSel && townSel.value;
-    if (!townId) { flash('elige una ciudad antes de a\u00f1adir l\u00ednea'); return; }
-    const units = batchRecruitUiAllUnits();
-    const pick = units.includes('sword') ? 'sword' : (units[0] || 'sword');
-    batchRecruitAddRow(townId, pick, 10);
-    batchRecruitUiPaint();
-  }
-  function batchRecruitUiClear() {
-    const sec = trainSection();
-    if (!sec) return;
-    const townId = batchRecruitUiGetSelectedTown();
-    if (!townId) return;
-    if (!(batchRecruitTownList(townId).length)) return;
-    batchRecruitClearTown(townId);
-    batchRecruitUiPaint();
-    flash(`lote de la ciudad ${townId} vaciado`);
-  }
-  function batchRecruitUiArm() {
-    if (captchaPaused('recruit')) { flash('captcha activa \u2014 espera'); return; }
-    if (!batchRecruitHasAnyTown()) { flash('no hay listas armadas'); return; }
-    batchRecruitScan('manual');
-  }
-
-  const RECRUIT_PACK_NAME_MAX = 40;
-  function recruitPacksRoot() {
-    if (!state.recruitPacks || typeof state.recruitPacks !== 'object' || Array.isArray(state.recruitPacks)) {
-      state.recruitPacks = {};
-    }
-    return state.recruitPacks;
-  }
-
-  function recruitPacksSave() {
-    try { save(STORE.RECRUIT_PACKS, recruitPacksRoot()); } catch (_) {}
-  }
-  function recruitPackNames() {
-    return Object.keys(recruitPacksRoot()).sort((a, b) => a.localeCompare(b));
-  }
-
-  function recruitPackRows(name) {
-    const key = String(name == null ? '' : name);
-    if (!key) return [];
-    const root = recruitPacksRoot();
-    let arr = root[key];
-    if (!Array.isArray(arr)) arr = root[key] = [];
-    for (let i = arr.length - 1; i >= 0; i--) {
-      const r = arr[i];
-      const u = r && r.unit;
-      const a = r && Number(r.amount);
-      if (!u || typeof u !== 'string' || !gbGameDataLookup('units', u) || !(a > 0)) arr.splice(i, 1);
-    }
-    return arr;
-  }
-  function recruitPackCreate(name) {
-    const key = String(name == null ? '' : name).trim().slice(0, RECRUIT_PACK_NAME_MAX);
-    if (!key) return '';
-    const root = recruitPacksRoot();
-    if (!Array.isArray(root[key])) root[key] = [];
-    recruitPacksSave();
-    return key;
-  }
-  function recruitPackDelete(name) {
-    const key = String(name == null ? '' : name);
-    const root = recruitPacksRoot();
-    if (!key || !root[key]) return false;
-    delete root[key];
-    recruitPacksSave();
-    return true;
-  }
-
-  function recruitPackAddRow(name, unit, amount) {
-    const key = String(name == null ? '' : name);
-    if (!key || !unit || !gbGameDataLookup('units', unit)) return false;
-    const a = Math.max(1, Math.floor(+amount || 0));
-    if (!(a > 0)) return false;
-    const rows = recruitPackRows(key);
-    const hit = rows.find(r => r.unit === String(unit));
-    if (hit) hit.amount = a; else rows.push({ unit: String(unit), amount: a });
-    recruitPacksSave();
-    return true;
-  }
-  function recruitPackRemoveRow(name, idx) {
-    const rows = recruitPackRows(name);
-    if (idx < 0 || idx >= rows.length) return false;
-    rows.splice(idx, 1);
-    recruitPacksSave();
-    return true;
-  }
-  function recruitPackFromTown(name, townId) {
-    const key = recruitPackCreate(name);
-    if (!key) return false;
-    const src = batchRecruitTownList(townId);
-    if (!src.length) return false;
-    recruitPacksRoot()[key] = src.map(r => ({ unit: r.unit, amount: +r.amount || 0 }));
-    recruitPacksSave();
-    return true;
-  }
-
-  function recruitPackApply(name, townId, mode) {
-    const rows = recruitPackRows(name);
-    const id = String(townId == null ? '' : townId);
-    if (!id || !rows.length) return -1;
-    if (mode === 'replace') batchRecruitClearTown(id);
-    const list = batchRecruitTownList(id);
-    for (const r of rows) {
-      const amt = Math.max(1, Math.floor(+r.amount || 0));
-      const hit = list.find(x => x.unit === r.unit);
-      if (!hit) { list.push({ unit: r.unit, amount: amt }); continue; }
-      hit.amount = mode === 'replace' ? amt : Math.max(1, Math.floor((+hit.amount || 0) + amt));
-    }
-    batchRecruitListSave();
-    return list.length;
-  }
-  function recruitPackApplyAll(name, mode) {
-    const ids = batchRecruitUiTownIds();
-    let towns = 0;
-    for (const id of ids) { if (recruitPackApply(name, id, mode) > 0) towns++; }
-    return towns;
-  }
-
-  function trainSection() {
-    return panel && panel.querySelector('section[data-tab=train]');
-  }
-  function recruitTargetsRoot() {
-    if (!state.recruitTargets || typeof state.recruitTargets !== 'object' || Array.isArray(state.recruitTargets)) {
-      state.recruitTargets = {};
-    }
-    return state.recruitTargets;
-  }
-  function recruitTargetsSave() {
-    try { save(STORE.RECRUIT_TARGETS, recruitTargetsRoot()); } catch (_) {}
-  }
-
-  function recruitTargetTownMap(townId, create) {
-    const root = recruitTargetsRoot();
-    const id = String(townId == null ? '' : townId);
-    if (!id) return {};
-    const cur = root[id];
-    const ok = cur && typeof cur === 'object' && !Array.isArray(cur);
-    if (ok) return cur;
-    if (!create) return {};
-    root[id] = {};
-    return root[id];
-  }
-  function recruitTargetTownCount() {
-    const root = recruitTargetsRoot();
-    return Object.keys(root).filter(id => {
-      const m = root[id];
-      return m && typeof m === 'object' && !Array.isArray(m) && Object.keys(m).length;
-    }).length;
-  }
-
-  function recruitTargetSet(townId, unit, amount) {
-    const id = String(townId == null ? '' : townId);
-    if (!id || !unit || !gbGameDataLookup('units', unit)) return false;
-    const n = Math.max(0, Math.floor(+amount || 0));
-    const map = recruitTargetTownMap(id, n > 0);
-    if (n > 0) map[String(unit)] = n; else delete map[String(unit)];
-    if (!Object.keys(map).length) delete recruitTargetsRoot()[id];
-    recruitTargetsSave();
-    return true;
-  }
-  function recruitTargetClearTown(townId) {
-    const id = String(townId == null ? '' : townId);
-    const root = recruitTargetsRoot();
-    if (!id || !root[id]) return false;
-    delete root[id];
-    recruitTargetsSave();
-    return true;
-  }
-  function trainSelectedTown() {
-    const sec = trainSection();
-    const sel = sec && sec.querySelector('[data-tr=tgt-town]');
-    if (sel && sel.value) return String(sel.value);
-    const ids = batchRecruitUiTownIds();
-    const withTargets = ids.filter(id => Object.keys(recruitTargetTownMap(id)).length);
-    return withTargets[0] || ids[0] || '';
-  }
-  function trainToggleButtons(sec) {
-    const auto = sec.querySelector('[data-tr=auto]');
-    if (auto) {
-      auto.textContent = `Reposicion automatica: ${state.autoRecruit ? 'ON' : 'OFF'}`;
-      auto.classList.toggle('on', !!state.autoRecruit);
-    }
-    const batch = sec.querySelector('[data-tr=batch]');
-    if (batch) {
-      batch.textContent = `Lote recurrente: ${state.batchRecruit ? 'ON' : 'OFF'}`;
-      batch.classList.toggle('on', !!state.batchRecruit);
-    }
-    const st = sec.querySelector('#gb-tr-state');
-    if (st) {
-      const towns = recruitTargetTownCount();
-      st.textContent = towns
-        ? `${towns} ciudad(es) con objetivos`
-        : 'sin objetivos \u2014 el reclutamiento automatico no tiene nada que reponer';
-    }
-  }
-
-  function trainTargetRowText(townId, unit, tgt) {
-    let have = null, queued = null;
-    try { const counts = goalUnitCounts(townId); have = counts && Object.prototype.hasOwnProperty.call(counts, unit) ? +counts[unit] || 0 : (counts ? 0 : null); } catch (_) {}
-    try { const q = recruitQueuedAmount(townId, unit); queued = Number.isFinite(+q) ? +q : null; } catch (_) {}
-    const haveTxt = have == null ? '\u2014' : String(have);
-    const qTxt = queued == null ? '\u2014' : String(queued);
-    const missing = (have == null || queued == null) ? null : Math.max(0, tgt - have - queued);
-    const missTxt = missing == null ? 'falta \u2014' : (missing > 0 ? `faltan ${missing}` : 'completo \u2713');
-    return { text: `tiene ${haveTxt} \u00b7 en cola ${qTxt} \u00b7 ${missTxt}`, done: missing === 0 };
-  }
-  function renderTrain() {
-    const sec = trainSection();
-    if (!sec) return;
-    trainToggleButtons(sec);
-    const townSel = sec.querySelector('[data-tr=tgt-town]');
-    const unitSel = sec.querySelector('[data-tr=tgt-unit]');
-    const rowsHost = sec.querySelector('#gb-tr-targets');
-    const note = sec.querySelector('#gb-tr-note');
-    if (!townSel || !unitSel || !rowsHost) return;
-    const ids = batchRecruitUiTownIds();
-    const keepTown = String(townSel.value || '') || trainSelectedTown();
-    townSel.replaceChildren();
-    if (!ids.length) {
-      const opt = document.createElement('option');
-      opt.value = ''; opt.textContent = '\u2014 sin ciudades \u2014';
-      townSel.appendChild(opt); townSel.disabled = true;
-    } else {
-      townSel.disabled = false;
-      ids.forEach(id => {
-        const opt = document.createElement('option');
-        opt.value = id;
-        const n = Object.keys(recruitTargetTownMap(id)).length;
-        opt.textContent = `${batchRecruitUiTownName(id)}${n ? `  (${n})` : ''}`;
-        townSel.appendChild(opt);
-      });
-      townSel.value = ids.includes(keepTown) ? keepTown : ids[0];
-    }
-    const units = batchRecruitUiAllUnits();
-    const keepUnit = String(unitSel.value || '');
-    unitSel.replaceChildren();
-    if (!units.length) {
-      const opt = document.createElement('option');
-      opt.value = ''; opt.textContent = '\u2014 GameData no legible \u2014';
-      unitSel.appendChild(opt); unitSel.disabled = true;
-    } else {
-      unitSel.disabled = false;
-      units.forEach(u => {
-        const opt = document.createElement('option');
-        opt.value = u; opt.textContent = u;
-        unitSel.appendChild(opt);
-      });
-      unitSel.value = units.includes(keepUnit) ? keepUnit : (units.includes('sword') ? 'sword' : units[0]);
-    }
-    const townId = townSel.value;
-    const map = townId ? recruitTargetTownMap(townId) : {};
-    const keys = Object.keys(map);
-    rowsHost.replaceChildren();
-    if (!townId || !keys.length) {
-      const e = document.createElement('div');
-      e.style.cssText = 'color:#888;font-size:10px;padding:4px 0';
-      e.textContent = 'sin objetivos en esta ciudad \u2014 elige unidad, cantidad y pulsa Fijar';
-      rowsHost.appendChild(e);
-    } else {
-      keys.sort().forEach(unit => {
-        const tgt = +map[unit] || 0;
-        const line = document.createElement('div');
-        line.style.cssText = 'display:flex;gap:6px;align-items:center;padding:2px 0;font-size:11px;border-bottom:1px solid var(--gb-rule)';
-        const name = document.createElement('span');
-        name.style.cssText = 'min-width:110px';
-        name.textContent = unit;
-        const qty = document.createElement('input');
-        qty.type = 'number'; qty.min = '0'; qty.max = '100000'; qty.step = '1';
-        qty.value = String(tgt);
-        qty.style.cssText = 'width:70px';
-
-        qty.addEventListener('change', () => {
-          recruitTargetSet(townId, unit, qty.value);
-          renderTrain();
-        });
-        const info = trainTargetRowText(townId, unit, tgt);
-        const st = document.createElement('span');
-        st.style.cssText = `flex:1;font-size:10px;color:${info.done ? '#7ddd96' : 'var(--gb-fg-soft2)'}`;
-        st.textContent = info.text;
-        const del = document.createElement('button');
-        del.type = 'button';
-        del.textContent = '\ud83d\uddd1'; del.title = 'quitar objetivo';
-        del.addEventListener('click', () => { recruitTargetSet(townId, unit, 0); renderTrain(); });
-        line.appendChild(name); line.appendChild(qty); line.appendChild(st); line.appendChild(del);
-        rowsHost.appendChild(line);
-      });
-    }
-    renderTrainPacks(sec);
-    if (note) {
-      note.textContent = state.autoRecruit
-        ? 'La reposicion corre en el ciclo del orquestador; una ciudad cuya cola manual (FIFO) este activa no se repone en ese muelle.'
-        : 'Reposicion automatica OFF: los objetivos quedan guardados pero no se recluta nada.';
-    }
-    try { batchRecruitUiPaint(); } catch (_) {}
-  }
-  function trainSelectedPack(sec) {
-    const sel = sec && sec.querySelector('[data-tr=pack]');
-    const cur = sel && sel.value ? String(sel.value) : '';
-    if (cur && recruitPacksRoot()[cur]) return cur;
-    return recruitPackNames()[0] || '';
-  }
-  function renderTrainPacks(sec) {
-    const packSel = sec.querySelector('[data-tr=pack]');
-    const unitSel = sec.querySelector('[data-tr=pack-unit]');
-    const townSel = sec.querySelector('[data-tr=pack-town]');
-    const rowsHost = sec.querySelector('#gb-tr-pack-rows');
-    const note = sec.querySelector('#gb-tr-pack-note');
-    if (!packSel || !unitSel || !townSel || !rowsHost) return;
-    const names = recruitPackNames();
-    const keep = trainSelectedPack(sec);
-    packSel.replaceChildren();
-    if (!names.length) {
-      const opt = document.createElement('option');
-      opt.value = ''; opt.textContent = '\u2014 sin packs \u2014';
-      packSel.appendChild(opt); packSel.disabled = true;
-    } else {
-      packSel.disabled = false;
-      names.forEach(n => {
-        const opt = document.createElement('option');
-        opt.value = n;
-        opt.textContent = `${n}  (${recruitPackRows(n).length})`;
-        packSel.appendChild(opt);
-      });
-      packSel.value = names.includes(keep) ? keep : names[0];
-    }
-    const units = batchRecruitUiAllUnits();
-    const keepUnit = String(unitSel.value || '');
-    unitSel.replaceChildren();
-    if (!units.length) {
-      const opt = document.createElement('option');
-      opt.value = ''; opt.textContent = '\u2014 GameData no legible \u2014';
-      unitSel.appendChild(opt); unitSel.disabled = true;
-    } else {
-      unitSel.disabled = false;
-      units.forEach(u => {
-        const opt = document.createElement('option');
-        opt.value = u; opt.textContent = u;
-        unitSel.appendChild(opt);
-      });
-      unitSel.value = units.includes(keepUnit) ? keepUnit : (units.includes('sword') ? 'sword' : units[0]);
-    }
-    const ids = batchRecruitUiTownIds();
-    const keepTown = String(townSel.value || '');
-    townSel.replaceChildren();
-    {
-      const all = document.createElement('option');
-      all.value = '__all__'; all.textContent = 'todas las ciudades';
-      townSel.appendChild(all);
-      ids.forEach(id => {
-        const opt = document.createElement('option');
-        opt.value = id; opt.textContent = batchRecruitUiTownName(id);
-        townSel.appendChild(opt);
-      });
-      const valid = ['__all__'].concat(ids);
-      townSel.value = valid.includes(keepTown) ? keepTown : (ids[0] || '__all__');
-    }
-    const name = packSel.value;
-    const rows = name ? recruitPackRows(name) : [];
-    rowsHost.replaceChildren();
-    if (!name) {
-      const e = document.createElement('div');
-      e.style.cssText = 'color:#888;font-size:10px;padding:4px 0';
-      e.textContent = 'escribe un nombre y pulsa Nuevo \u2014 luego a\u00f1ade espada, arquero, birreme\u2026 al pack';
-      rowsHost.appendChild(e);
-    } else if (!rows.length) {
-      const e = document.createElement('div');
-      e.style.cssText = 'color:#888;font-size:10px;padding:4px 0';
-      e.textContent = 'pack vac\u00edo \u2014 elige unidad + cantidad y pulsa "+ unidad"';
-      rowsHost.appendChild(e);
-    } else {
-      rows.forEach((row, idx) => {
-        const line = document.createElement('div');
-        line.style.cssText = 'display:flex;gap:6px;align-items:center;padding:2px 0;font-size:11px;border-bottom:1px solid var(--gb-rule)';
-        const nm = document.createElement('span');
-        nm.style.cssText = 'min-width:110px';
-        nm.textContent = row.unit;
-        const qty = document.createElement('input');
-        qty.type = 'number'; qty.min = '1'; qty.max = '10000'; qty.step = '1';
-        qty.value = String(row.amount);
-        qty.style.cssText = 'width:70px';
-
-        qty.addEventListener('change', () => {
-          recruitPackAddRow(name, row.unit, qty.value);
-          renderTrain();
-        });
-        const cost = document.createElement('span');
-        cost.style.cssText = 'flex:1;font-size:10px;color:var(--gb-fg-soft2)';
-        cost.textContent = batchRecruitUiRowCost(row);
-        const del = document.createElement('button');
-        del.type = 'button';
-        del.textContent = '\ud83d\uddd1'; del.title = 'quitar del pack';
-        del.addEventListener('click', () => { recruitPackRemoveRow(name, idx); renderTrain(); });
-        line.appendChild(nm); line.appendChild(qty); line.appendChild(cost); line.appendChild(del);
-        rowsHost.appendChild(line);
-      });
-    }
-    if (note) {
-      if (!name || !rows.length) { note.textContent = ''; return; }
-      const target = townSel.value;
-
-      const preview = batchRecruitCostPreview(target === '__all__' ? null : target, rows);
-      const parts = [];
-      if (preview.wood) parts.push(`mad ${preview.wood}`);
-      if (preview.stone) parts.push(`pie ${preview.stone}`);
-      if (preview.iron) parts.push(`pla ${preview.iron}`);
-      if (preview.pop) parts.push(`pop ${preview.pop}`);
-      if (preview.favor) parts.push(`favor ${preview.favor}`);
-      let txt = `pack "${name}": ${rows.length} unidad(es) \u00b7 ${parts.join(' / ') || 'gratis'}`;
-      if (preview.missing && preview.missing.length) txt += ` (falta informaci\u00f3n de: ${preview.missing.join(', ')})`;
-      else if (target !== '__all__') txt += preview.fits ? ' \u2192 cabe ahora \u2713' : ' \u2192 no cabe todav\u00eda';
-      note.textContent = txt;
-      note.style.color = (target !== '__all__' && !(preview.missing || []).length)
-        ? (preview.fits ? '#7ddd96' : '#e5bf70') : '#888';
-    }
-  }
-  let trainBound = false;
-  function bindTrainTab() {
-    const sec = trainSection();
-    if (!sec || trainBound) return;
-    trainBound = true;
-    const on = (sel, type, fn) => { const el = sec.querySelector(sel); if (el) el.addEventListener(type, fn); };
-    on('[data-tr=auto]', 'click', e => {
-      e.preventDefault();
-      state.autoRecruit = !state.autoRecruit;
-      save(STORE.AUTO_RECRUIT, state.autoRecruit);
-      gbLog('auto-recruit', state.autoRecruit ? 'ON' : 'OFF');
-      try { updateStatus(); } catch (_) {}
-      renderTrain();
-      if (state.autoRecruit) recruitScan('toggle');
-    });
-    on('[data-tr=batch]', 'click', e => {
-      e.preventDefault();
-      state.batchRecruit = !state.batchRecruit;
-      save(STORE.BATCH_RECRUIT, state.batchRecruit);
-      gbLog('batch-recruit', state.batchRecruit ? 'ON' : 'OFF');
-      try { updateStatus(); } catch (_) {}
-      renderTrain();
-    });
-    on('[data-tr=tgt-town]', 'change', () => renderTrain());
-    on('[data-tr=tgt-add]', 'click', e => {
-      e.preventDefault();
-      const townId = sec.querySelector('[data-tr=tgt-town]')?.value || '';
-      const unit = sec.querySelector('[data-tr=tgt-unit]')?.value || '';
-      const amtEl = sec.querySelector('[data-tr=tgt-amount]');
-      const amount = Math.max(0, Math.floor(+(amtEl && amtEl.value) || 0));
-      if (!townId) { flash('elige una ciudad'); return; }
-      if (!unit) { flash('elige una unidad'); return; }
-      if (!recruitTargetSet(townId, unit, amount)) { flash('unidad desconocida'); return; }
-      flash(amount > 0 ? `objetivo ${unit} = ${amount}` : `objetivo ${unit} quitado`);
-      renderTrain();
-    });
-    on('[data-tr=tgt-clear]', 'click', e => {
-      e.preventDefault();
-      const townId = sec.querySelector('[data-tr=tgt-town]')?.value || '';
-      if (!townId) return;
-      if (!recruitTargetClearTown(townId)) return;
-      flash(`objetivos de la ciudad ${townId} borrados`);
-      renderTrain();
-    });
-    const packVal = sel => (sec.querySelector(sel)?.value || '').trim();
-    on('[data-tr=pack]', 'change', () => renderTrain());
-    on('[data-tr=pack-town]', 'change', () => renderTrain());
-    on('[data-tr=pack-new]', 'click', e => {
-      e.preventDefault();
-      const raw = packVal('[data-tr=pack-name]');
-      if (!raw) { flash('escribe un nombre para el pack'); return; }
-      const name = recruitPackCreate(raw);
-      if (!name) { flash('nombre no v\u00e1lido'); return; }
-      const nameEl = sec.querySelector('[data-tr=pack-name]');
-      if (nameEl) nameEl.value = '';
-      renderTrain();
-      const sel = sec.querySelector('[data-tr=pack]');
-      if (sel) { sel.value = name; renderTrain(); }
-      flash(`pack "${name}" creado`);
-    });
-    on('[data-tr=pack-from-town]', 'click', e => {
-      e.preventDefault();
-      const raw = packVal('[data-tr=pack-name]') || trainSelectedPack(sec);
-      if (!raw) { flash('escribe un nombre para el pack'); return; }
-      const townId = sec.querySelector('[data-cfg=batch-recruit-town]')?.value || '';
-      if (!townId) { flash('elige una ciudad en el lote'); return; }
-      if (!recruitPackFromTown(raw, townId)) { flash('el lote de esa ciudad est\u00e1 vac\u00edo'); return; }
-      const nameEl = sec.querySelector('[data-tr=pack-name]');
-      if (nameEl) nameEl.value = '';
-      renderTrain();
-      const sel = sec.querySelector('[data-tr=pack]');
-      if (sel) { sel.value = String(raw).trim().slice(0, RECRUIT_PACK_NAME_MAX); renderTrain(); }
-      flash(`pack "${raw}" guardado desde el lote`);
-    });
-    on('[data-tr=pack-del]', 'click', e => {
-      e.preventDefault();
-      const name = trainSelectedPack(sec);
-      if (!name) return;
-      if (!confirm(`\u00bfBorrar el pack "${name}"? Los lotes ya aplicados a las ciudades no se tocan.`)) return;
-      recruitPackDelete(name);
-      renderTrain();
-      flash(`pack "${name}" borrado`);
-    });
-    on('[data-tr=pack-add]', 'click', e => {
-      e.preventDefault();
-      const name = trainSelectedPack(sec);
-      if (!name) { flash('crea un pack primero'); return; }
-      const unit = packVal('[data-tr=pack-unit]');
-      const amount = Math.max(1, Math.floor(+packVal('[data-tr=pack-amount]') || 0));
-      if (!unit) { flash('elige una unidad'); return; }
-      if (!recruitPackAddRow(name, unit, amount)) { flash('unidad desconocida'); return; }
-      renderTrain();
-    });
-    on('[data-tr=pack-apply]', 'click', e => {
-      e.preventDefault();
-      const name = trainSelectedPack(sec);
-      if (!name) { flash('no hay pack seleccionado'); return; }
-      if (!recruitPackRows(name).length) { flash('el pack est\u00e1 vac\u00edo'); return; }
-      const mode = packVal('[data-tr=pack-mode]') === 'append' ? 'append' : 'replace';
-      const target = sec.querySelector('[data-tr=pack-town]')?.value || '';
-      if (target === '__all__') {
-        const towns = recruitPackApplyAll(name, mode);
-        if (!towns) { flash('no hay ciudades legibles'); return; }
-        gbLog(`recruit pack: "${name}" -> ${towns} town(s) (${mode})`);
-        flash(`pack "${name}" aplicado a ${towns} ciudad(es)`);
-      } else {
-        const n = recruitPackApply(name, target, mode);
-        if (n < 0) { flash('elige una ciudad'); return; }
-        gbLog(`recruit pack: "${name}" -> town ${target} (${mode}, ${n} row(s))`);
-        flash(`pack "${name}" aplicado (${n} l\u00ednea(s))`);
-      }
-      renderTrain();
-      if (!state.batchRecruit) flash('activa "Lote recurrente" para que se entrene solo');
-    });
-    on('[data-cfg=batch-recruit-town]', 'change', () => { try { batchRecruitUiPaint(); } catch (_) {} });
-    on('[data-cfg=batch-recruit-add]', 'click', e => { e.preventDefault(); try { batchRecruitUiAdd(); } catch (err) { gbLog(`batch-recruit add err: ${err}`); } });
-    on('[data-cfg=batch-recruit-arm]', 'click', e => { e.preventDefault(); try { batchRecruitUiArm(); } catch (err) { gbLog(`batch-recruit arm err: ${err}`); } });
-    on('[data-cfg=batch-recruit-clear]', 'click', e => { e.preventDefault(); try { batchRecruitUiClear(); } catch (err) { gbLog(`batch-recruit clear err: ${err}`); } });
-  }
-
-  function batchRecruitScan(reason) {
-    if (!hostEnabled() || !state.batchRecruit) return;
-    if (automationPaused({})) return;
-    if (captchaPaused('recruit')) return;
-    if (gbLocked('recruit')) return;
-    let anyTown = false;
-    try {
-      const tlists = batchRecruitNormLists().towns || {};
-      for (const townId of Object.keys(tlists)) {
-        if (batchRecruitTownList(townId).length) { anyTown = true; break; }
-      }
-    } catch (_) {}
-    if (!anyTown) {
-      gbLogT('batch-recruit-empty', 180000, `batch recruit: idle (${scanReason(reason)})`);
-      return;
-    }
-    let count = 0;
-    try {
-      const tlists = batchRecruitNormLists().towns || {};
-      for (const townId of Object.keys(tlists)) {
-        if (!batchRecruitTownList(townId).length) continue;
-        const verdict = batchRecruitAtomicAfford(townId);
-        if (!verdict.ok) {
-          if (verdict.why === 'resources/pop/favor') {
-
-            gbLogT(`batch-recruit-wait-${townId}`, 60000, `batch recruit: ${townId} waiting (row ${verdict.rowIdx + 1} ${verdict.unit})`);
-          }
-          continue;
-        }
-        batchRecruitFire(townId);
-        count++;
-      }
-    } catch (_) {}
-    if (!count) gbLogT('batch-recruit-idle', 180000, `batch recruit: idle (${scanReason(reason)})`);
   }
   function qolBindActivityPause() {
     if (qolBindActivityPause._bound) return;
@@ -16033,15 +14373,8 @@ const STORE = {
   }
 
   function renderGoals() {
-    const sec=panel&&panel.querySelector('section[data-tab=overview]');if(!sec||sec.hidden)return;const box=sec.querySelector('.goals-panel');if(!box)return;
+    const sec=panel&&panel.querySelector('section[data-tab=overview]');if(!sec||sec.hidden)return;const box=sec.querySelector('.goals-panel');if(!box)return;box.replaceChildren();
     let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){};const profiles=goalProfiles();
-
-    const sig=[ids.join(','),Object.keys(profiles).join(','),state.abOptimalOrderOn!==false?'1':'0'];
-    for(const tid of ids){const p=goalPlanTown(tid);sig.push(tid+':'+p.progress+':'+p.profile+':'+(p.actions||[]).length)}
-    const sigStr=sig.join('|');
-    if(box.dataset.gbGoalsSig===sigStr)return;
-    box.dataset.gbGoalsSig=sigStr;
-    box.replaceChildren();
     const rerender=()=>{renderGoals();renderPlanner();renderDashboard();};
     for(const tid of ids){let name=tid;try{const t=gbTownModel(tid);name=(t&&t.getName&&t.getName())||name}catch(_){} const plan=goalPlanTown(tid);
       const head=document.createElement('div');head.style.cssText='display:flex;gap:4px;align-items:center;padding:4px;border-bottom:1px solid #333';const b=document.createElement('b');b.textContent=`${name} \u00b7 ${plan.progress}%`;head.appendChild(b);
@@ -16087,16 +14420,10 @@ const STORE = {
         if(document.activeElement!==inp) inp.value=(g[m]&&g[m][k])||0;
       });
     }
-
-    const ids=[]; try{ Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{}).forEach(x=>ids.push(x)); }catch(_){}
-    const snapSig=[ids.join(','),(g.hard.wood|0)+'/'+(g.hard.stone|0)+'/'+(g.hard.iron|0)+'|'+(g.soft.wood|0)+'/'+(g.soft.stone|0)+'/'+(g.soft.iron|0)];
-    for(const tid of ids){const s=plannerSnapshot(tid);snapSig.push(tid+':'+(s?(+s.live.wood|0)+','+(+s.live.stone|0)+','+(+s.live.iron|0)+','+(+s.committed.wood|0)+','+(+s.committed.stone|0)+','+(+s.committed.iron|0)+','+(+s.availableSoft.wood|0)+','+(+s.availableSoft.stone|0)+','+(+s.availableSoft.iron|0)+','+(+s.availableSoft.population|0)+','+(+s.availableSoft.tradeCap|0):'none'))}
-    const plannerSig=snapSig.join('|');
-    if(box.dataset.gbPlannerSig===plannerSig)return;
-    box.dataset.gbPlannerSig=plannerSig;
     box.replaceChildren();
     const hdr=document.createElement('div'); hdr.style.cssText='display:grid;grid-template-columns:1.3fr repeat(3,.8fr) .7fr .7fr;gap:3px;padding:3px;color:#888;border-bottom:1px solid #333';
     hdr.textContent=''; ['town','real W/S/I','reserved W/S/I','available W/S/I','pop','merchants'].forEach(x=>{const s=document.createElement('span');s.textContent=x;gbTip(s, ['Nombre de la ciudad','Stock real en el almacen (madera/piedra/plata)','Reservado por la cola virtual','Disponible tras restar la reserva','Poblacion libre para reclutar','Capacidad de mercantes libres'][ ['town','real W/S/I','reserved W/S/I','available W/S/I','pop','merchants'].indexOf(x) ]||'');hdr.appendChild(s)}); gbTip(hdr, 'Cabecera de la tabla de recursos y reservas por ciudad'); box.appendChild(hdr);
+    const ids=[]; try{ Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{}).forEach(x=>ids.push(x)); }catch(_){}
     for(const tid of ids){ const s=plannerSnapshot(tid); if(!s) continue; let name=tid; try{const t=gbTownModel(tid); name=(t&&t.getName&&t.getName())||name}catch(_){}
       const row=document.createElement('div'); row.style.cssText='display:grid;grid-template-columns:1.3fr repeat(3,.8fr) .7fr .7fr;gap:3px;padding:3px;border-bottom:1px solid #222';
       const vals=[name,`${plannerFmt(s.live.wood)}/${plannerFmt(s.live.stone)}/${plannerFmt(s.live.iron)}`,`${plannerFmt(s.committed.wood)}/${plannerFmt(s.committed.stone)}/${plannerFmt(s.committed.iron)}`,`${plannerFmt(s.availableSoft.wood)}/${plannerFmt(s.availableSoft.stone)}/${plannerFmt(s.availableSoft.iron)}`,`${plannerFmt(s.availableSoft.population)}`,`${plannerFmt(s.availableSoft.tradeCap)}`];
@@ -16152,15 +14479,8 @@ const STORE = {
   }
 
   function renderHealth() {
-    const sec=panel&&panel.querySelector('section[data-tab=overview]');if(!sec||sec.hidden)return;const box=sec.querySelector('.health-panel');if(!box)return;
+    const sec=panel&&panel.querySelector('section[data-tab=overview]');if(!sec||sec.hidden)return;const box=sec.querySelector('.health-panel');if(!box)return;box.replaceChildren();
     const names=new Set([...Object.keys(moduleHealth||{}),...Object.keys(state.circuits||{})]);
-
-    const sigParts=[];
-    for(const name of names){const h=moduleHealth[name]||{},c=state.circuits&&state.circuits[name];sigParts.push(name+':'+(h.ok||0)+'/'+(h.err||0)+':'+(h.timeout||0)+':'+(h.avgLatency==null?'-':Math.round(h.avgLatency))+':'+(h.last||'-')+':'+(c&&c.open?'O':(c&&c.strikes?'S'+c.strikes:'K')))}
-    const sig=sigParts.join('|');
-    if(box.dataset.gbHealthSig===sig)return;
-    box.dataset.gbHealthSig=sig;
-    box.replaceChildren();
     if(!names.size){box.textContent='(no module activity yet)';return}
     const hdr=document.createElement('div');hdr.style.cssText='display:grid;grid-template-columns:1fr repeat(5,.7fr);gap:3px;color:#888;border-bottom:1px solid #333;padding:2px';['module','ok/err','timeout','lat ms','last','circuit'].forEach(v=>{const x=document.createElement('span');x.textContent=v;gbTip(x, ['Nombre del modulo','OK / errores acumulados','Timeouts acumulados','Latencia media (ms)','Segundos desde la ultima actividad','Estado del cortacircuito'][ ['module','ok/err','timeout','lat ms','last','circuit'].indexOf(v) ]||'');hdr.appendChild(x)});gbTip(hdr,'Cabecera de la tabla de salud de cada modulo');box.appendChild(hdr);
     [...names].sort().forEach(name=>{const h=moduleHealth[name]||{},c=state.circuits&&state.circuits[name];const row=document.createElement('div');row.style.cssText='display:grid;grid-template-columns:1fr repeat(5,.7fr);gap:3px;border-bottom:1px solid #222;padding:2px';gbTip(row, `Salud del modulo ${name}`);const age=h.last?fmtSec((Date.now()-h.last)/1000):'-';const vals=[name,`${h.ok||0}/${h.err||0}`,String(h.timeout||0),h.avgLatency==null?'-':String(Math.round(h.avgLatency)),age,c&&c.open?'OPEN':(c&&c.strikes?`strike ${c.strikes}`:'ok')];vals.forEach(v=>{const x=document.createElement('span');x.textContent=v;row.appendChild(x)});box.appendChild(row)})
@@ -16270,7 +14590,7 @@ const STORE = {
     'predictCfg', 'defenseCfg', 'safeMode', 'autoTransport', 'transportReserve',
     'transportMin', 'cityTemplates', 'townGroups', 'cultureTypes', 'favorCfg',
     'spyCfg', 'wonderCfg', 'merchantWish', 'priorityOrder',
-    'playerNotes', 'watchlist', 'recruitPacks', 'batchRecruitLists',
+    'playerNotes', 'watchlist',
   ];
   function qolConfigSnapshot() {
     const out = { schema: CONFIG_EXPORT_SCHEMA, ver: state.configVer || 1, host: location.host };
@@ -16371,11 +14691,11 @@ const STORE = {
       abTargets:state.abTargets,abOrder:state.abOrder,researchTargets:state.researchTargets,recruitTargets:state.recruitTargets,
       plannerCfg:state.plannerCfg,goalProfiles:state.goalProfiles,townGoals:state.townGoals,virtualQueueOverrides:state.virtualQueueOverrides,nativeQueue:state.nativeQueue,predictCfg:state.predictCfg,defenseCfg:state.defenseCfg,safeMode:!!state.safeMode,
       autoTransport:!!state.autoTransport,transportReserve:+state.transportReserve||20,transportMin:+state.transportMin||1000,
-      cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,spyCfg:state.spyCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,playerNotes:state.playerNotes,watchlist:state.watchlist,recruitPacks:state.recruitPacks,batchRecruitLists:state.batchRecruitLists };
+      cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,spyCfg:state.spyCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,playerNotes:state.playerNotes,watchlist:state.watchlist };
   }
   function qolImportConfig(obj, opts) {
     if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;if(obj.host&&String(obj.host)!==String(location.host)){gbLog(`config import refused: file host ${obj.host} != ${location.host}`);return false}if(obj.schema!=null&&+obj.schema>CONFIG_EXPORT_SCHEMA){gbLog(`config import refused: schema ${obj.schema} newer than supported ${CONFIG_EXPORT_SCHEMA}`);return false}
-    const clone=v=>structuredClone(v),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray,batchRecruit:v=>typeof v==='boolean',batchRecruitLists:isObj,recruitPacks:isObj};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,batchRecruit:STORE.BATCH_RECRUIT,batchRecruitLists:STORE.BATCH_RECRUIT_LISTS,recruitPacks:STORE.RECRUIT_PACKS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
+    const clone=v=>structuredClone(v),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
     for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='priorityOrder'){const allowed=new Set(PRIORITY_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(PRIORITY_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
       const clean={version:1,seq:Math.max(0,+v.seq||0),towns:{}},seen=new Set();
       const jobId=(raw,prefix)=>{let id=/^[A-Za-z0-9:._-]{1,160}$/.test(String(raw||''))?String(raw):'';if(!id||seen.has(id)){clean.seq++;id=`${prefix}:import:${clean.seq.toString(36)}`}seen.add(id);return id};
@@ -16404,7 +14724,6 @@ const STORE = {
     autoWonderFavor: [STORE.AUTO_WONDER_FAVOR, false],
     autoPtTrade: [STORE.AUTO_PT_TRADE, false],
     autoVillageRecruit: [STORE.AUTO_VILLAGE_RECRUIT, false],
-    batchRecruit: [STORE.BATCH_RECRUIT, false],
   };
   const CONFIG_PRESETS = {
     afk: {
@@ -16517,8 +14836,6 @@ const STORE = {
     rurallevel: 120000,
     recruit: 30000,
     villrecruit: 300000,
-
-    batchrecruit: 30000,
     merchant: 45000,
     pttrade: 120000,
     favor: 60000,
@@ -16530,13 +14847,13 @@ const STORE = {
   const ORCH_CAPTCHA = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villageRecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
+    recruit: 'recruit', villrecruit: 'villageRecruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
   };
 
   const ORCH_JRN = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villageRecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
+    recruit: 'recruit', villrecruit: 'villageRecruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
   };
   const ORCH_IDLE_TRIP = 4;
   const ORCH_IDLE_MAX = 8;
@@ -16555,7 +14872,6 @@ const STORE = {
     rurallevel:()=>orchSafe('rurallevel',()=>profTime('orch:rurallevel',()=>ruralLevelScan('orch'))),
     recruit:()=>orchSafe('recruit',()=>profTime('orch:recruit',()=>recruitScan('orch'))),
     villrecruit:()=>orchSafe('villrecruit',()=>profTime('orch:villrecruit',()=>villageRecruitScan('orch'))),
-    batchrecruit:()=>orchSafe('batchrecruit',()=>profTime('orch:batchrecruit',()=>batchRecruitScan('orch'))),
     merchant:()=>orchSafe('merchant',()=>profTime('orch:merchant',()=>merchantScan('orch'))),
     pttrade:()=>orchSafe('pttrade',()=>profTime('orch:pttrade',()=>ptTradeScan('orch'))),
     favor:()=>orchSafe('favor',()=>profTime('orch:favor',()=>favorScan('orch'))),
@@ -16576,8 +14892,6 @@ const STORE = {
       rurallevel: state.autoRuralLevel,
       recruit: state.autoRecruit || nativeRecruitPending(),
       villrecruit: state.autoVillageRecruit,
-
-      batchrecruit: state.batchRecruit && batchRecruitHasAnyTown(),
       merchant: state.autoMerchant,
       pttrade: state.autoPtTrade,
       favor: state.autoFavor,
@@ -16662,10 +14976,18 @@ const STORE = {
     gbLog(`orch: deadlock cannot drain (${why}) - spend resources by hand (build/recruit/culture)`);
   }
 
+  const ORCH_UNIT_KEYS = ['recruit', 'villrecruit'];
+  function orchFarmFirst() {
+    try { return typeof farmClaimPending === 'function' && farmClaimPending(); }
+    catch (_) { return false; }
+  }
+
   function orchIdleFactor(key) {
     if (state.orchAdaptive === false) return 1;
 
     if (orchDeadlock.open && ORCH_DRAIN_KEYS.includes(key)) return 1;
+
+    if (key === 'farm' && orchFarmFirst()) return 1;
     const streak = orchIdle[key] || 0;
     if (streak < ORCH_IDLE_TRIP) return 1;
     return Math.min(ORCH_IDLE_MAX, 1 << Math.min(3, streak - ORCH_IDLE_TRIP + 1));
@@ -16719,12 +15041,15 @@ const STORE = {
       const drain = ORCH_DRAIN_KEYS.filter(k => order.includes(k));
       order = drain.concat(order.filter(k => !drain.includes(k)));
     }
+    const farmFirst = orchFarmFirst();
+    if (farmFirst && order.includes('farm')) order = ['farm'].concat(order.filter(k => k !== 'farm'));
     const now = Date.now();
     const due = [];
     for (let i = 0; i < order.length; i++) {
       const key = order[i];
       if (!ORCH_HANDLERS[key]) continue;
       if (!orchFeatureEnabled(key)) continue;
+      if (farmFirst && ORCH_UNIT_KEYS.includes(key)) continue;
       const cap = ORCH_CAPTCHA[key];
       if (cap && captchaPaused(cap)) continue;
       const cadence = orchCadence(key);
@@ -19573,8 +17898,6 @@ const STORE = {
       if (k) seen.add(k);
       models.push(m);
     };
-
-    try { mmModelsAll('MovementsUnits').forEach(push); } catch (_) {}
     try { const c = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits'); if (c && c.models) c.models.forEach(push); } catch (_) {}
     try { const cs = uw.MM && uw.MM.getCollections && uw.MM.getCollections().MovementsUnits; (Array.isArray(cs) ? cs : (cs ? [cs] : [])).forEach(c => { if (c && c.models) c.models.forEach(push); }); } catch (_) {}
     return models;
@@ -20508,1089 +18831,6 @@ const STORE = {
     }
   }
 
-  const RF_ARM_MAX_MS = 90000;
-  const RF_HISTORY_MAX = 50;
-  const RF_HELP_MODES = new Set(['land', 'naval', 'both', 'all_of_type', 'per_town']);
-  const RF_MODE_ES = { land: 'terrestre', naval: 'naval', both: 'ambas', all_of_type: 'todo el tipo', per_town: 'por ciudad' };
-  let rfArmed = null;
-  let rfPreviewRows = [];
-
-  function rfDefaultPlan() {
-    return {
-      targetId: '',
-      targetX: null,
-      targetY: null,
-      helpMode: 'both',
-      unitType: 'hoplite',
-      timingMode: 'send_now',
-      arrivalUnix: null,
-      latencyPadMs: 200,
-      staggerMs: 25,
-      homeFloor: 0,
-      sourceTownIds: null,
-      perTownUnits: {},
-    };
-  }
-  function rfPlan() {
-    const d = rfDefaultPlan();
-    if (!state.reinforcePlan || typeof state.reinforcePlan !== 'object' || Array.isArray(state.reinforcePlan)) state.reinforcePlan = d;
-    else {
-      for (const [k, v] of Object.entries(d)) {
-        if (state.reinforcePlan[k] === undefined) {
-          state.reinforcePlan[k] = Array.isArray(v) ? v.slice() : (v && typeof v === 'object' ? Object.assign({}, v) : v);
-        }
-      }
-    }
-    if (!RF_HELP_MODES.has(String(state.reinforcePlan.helpMode))) state.reinforcePlan.helpMode = 'both';
-    return state.reinforcePlan;
-  }
-  function rfSavePlan() { save(STORE.REINFORCE_PLAN, state.reinforcePlan); }
-
-  function rfIsWarship(id) {
-    const m = unitMeta(id);
-    if (!m || !m.is_naval) return false;
-    return !(+m.capacity > 0);
-  }
-  function rfIsLandDefender(id) {
-    if (id === 'militia') return false;
-    const m = unitMeta(id);
-    if (!m || m.is_naval) return false;
-    const fn = classifyUnitFn(id);
-    return fn === 'defense' || fn === 'both';
-  }
-
-  function rfTake(live, id, floor, want) {
-    const have = +live[id] || 0;
-    const spare = Math.max(0, have - Math.max(0, floor));
-    const n = want == null ? spare : Math.min(spare, Math.max(0, want));
-    return n > 0 ? n : 0;
-  }
-  function rfSelectUnits(townId, plan) {
-    const live = townLiveUnits(townId);
-    const floor = Math.max(0, Math.floor(+plan.homeFloor || 0));
-    const out = {};
-    if (plan.helpMode === 'per_town') {
-      const custom = (plan.perTownUnits && plan.perTownUnits[townId]) || {};
-      for (const [k, v] of Object.entries(custom)) {
-        if (k === 'militia') continue;
-        const n = rfTake(live, k, floor, +v || 0);
-        if (n > 0) out[k] = n;
-      }
-      return out;
-    }
-    if (plan.helpMode === 'all_of_type') {
-      const id = plan.unitType;
-      const n = id ? rfTake(live, id, floor) : 0;
-      if (n > 0) out[id] = n;
-      return out;
-    }
-    const wantLand = plan.helpMode === 'land' || plan.helpMode === 'both';
-    const wantNaval = plan.helpMode === 'naval' || plan.helpMode === 'both';
-    for (const id of Object.keys(live)) {
-      if (wantLand && rfIsLandDefender(id)) {
-        const n = rfTake(live, id, floor);
-        if (n > 0) out[id] = n;
-      } else if (wantNaval && rfIsWarship(id)) {
-        const n = rfTake(live, id, floor);
-        if (n > 0) out[id] = n;
-      }
-    }
-    return out;
-  }
-
-  function rfUnitsForTarget(townId, target, plan) {
-    const units = rfSelectUnits(townId, plan);
-    const hasLand = Object.keys(units).some(id => {
-      const m = unitMeta(id);
-      return m && !m.is_naval && id !== 'militia';
-    });
-    if (!hasLand) return units;
-    if (isSameIsland(townId, target)) return units;
-    return attackAddMinimumTransports(townId, units);
-  }
-
-  function rfResolveTarget(plan) {
-    const id = String(plan.targetId || '').trim();
-    if (!id) return null;
-    if (!/^\d+$/.test(id)) {
-      gbLogT('rf-target-id', 30000, `refuerzo: town target id must be numeric (${id.slice(0, 40)}) - blocked`);
-      return null;
-    }
-    let x = plan.targetX, y = plan.targetY, island = null;
-    const ownTown = (state.towns || []).find(t => String(t.id) === id);
-    if (ownTown) {
-      x = x ?? ownTown.x; y = y ?? ownTown.y; island = ownTown.island;
-    } else {
-
-      const farm = (state.farmsParsed || []).find(f => String(f.vill_id) === id || String(f.id) === id);
-      if (farm) {
-        gbLogT('rf-target-farm', 30000, `refuerzo: ${id} is a village - support unsupported`);
-        return null;
-      }
-    }
-    return { id, vill_id: null, town_id: id, kind: 'town', x: x != null ? +x : null, y: y != null ? +y : null, island };
-  }
-
-  function rfKnownTargets() {
-    const map = new Map();
-    for (const t of (state.towns || [])) {
-      if (t && t.id != null) map.set(String(t.id), { id: String(t.id), name: t.name || null, x: t.x ?? null, y: t.y ?? null, own: true, ts: Number.MAX_SAFE_INTEGER });
-    }
-    let known = [];
-    try { known = attackKnownTargets() || []; } catch (_) { known = []; }
-    for (const t of known) {
-      if (!map.has(String(t.id))) map.set(String(t.id), Object.assign({ own: false }, t));
-    }
-    return Array.from(map.values()).sort((a, b) => (b.own ? 1 : 0) - (a.own ? 1 : 0) || (b.ts || 0) - (a.ts || 0));
-  }
-  function rfApplyTarget(t) {
-    if (!t || t.id == null || !/^\d+$/.test(String(t.id))) return false;
-    const plan = rfPlan();
-    plan.targetId = String(t.id);
-    if (t.x != null && Number.isFinite(+t.x)) plan.targetX = +t.x;
-    if (t.y != null && Number.isFinite(+t.y)) plan.targetY = +t.y;
-    rfSavePlan();
-    renderReinforce();
-    flash('destino -> ' + (t.name ? `${t.name} (#${t.id})` : String(t.id)));
-    return true;
-  }
-
-  function rfBuildSchedule(planArg) {
-    const plan = planArg || rfPlan();
-    const target = rfResolveTarget(plan);
-    if (!target) return { error: 'destino no resuelto (id de ciudad numerico)', rows: [] };
-    let sources = Array.isArray(plan.sourceTownIds)
-      ? plan.sourceTownIds.map(String)
-      : (state.towns || []).map(t => String(t.id));
-    sources = sources.filter(id => String(id) !== String(target.town_id));
-    if (!sources.length) return { error: 'sin ciudades de origen', rows: [] };
-    const now = serverNow();
-    const skew = clientServerSkewMs();
-    const rows = sources.map((townId, idx) => {
-      const town = (state.towns || []).find(t => String(t.id) === townId) || { id: townId, name: townId };
-      const units = rfUnitsForTarget(townId, target, plan);
-      const travel = computeTravelSeconds(townId, target, units, plan.timingMode === 'arrive_at');
-      const same = isSameIsland(townId, target);
-      const boats = boatCapacityCheck(units, same);
-      let sendAt = null;
-      if (plan.timingMode === 'arrive_at' && plan.arrivalUnix && travel != null) {
-        sendAt = plan.arrivalUnix - travel - (plan.latencyPadMs || 0) / 1000;
-      } else if (plan.timingMode === 'send_now') {
-        sendAt = now + (idx * (plan.staggerMs || 0)) / 1000;
-      }
-      const unitCount = Object.values(units).reduce((a, b) => a + (+b || 0), 0);
-      let status = 'ok';
-      if (!unitCount) status = 'no-units';
-      else if (!boats.ok) status = boats.reason;
-      else if (travel == null && plan.timingMode === 'arrive_at') status = 'no-travel';
-      else if (sendAt != null && sendAt < now - 1) status = 'past';
-      return { townId, townName: town.name || townId, units, travel, sendAt, boats, status, unitCount, sameIsland: same };
-    });
-    return { target, rows, now, skew };
-  }
-
-  function rfSend(target, srcTownId, units, onDone) {
-    if (!hostEnabled()) { flash('bot desactivado en este servidor'); return onDone && onDone('disabled'); }
-    if (captchaPaused('support')) { flash('refuerzos pausados (captcha)'); return onDone && onDone('captcha'); }
-    if (!target || target.kind !== 'town' || !target.town_id) {
-      flash('refuerzo bloqueado: destino no es una ciudad');
-      return onDone && onDone('bad-target');
-    }
-    if (String(target.town_id) === String(srcTownId)) {
-      gbLog('refuerzo: refuse self-target town ' + srcTownId);
-      return onDone && onDone('bad-target');
-    }
-    const live = townLiveUnits(srcTownId);
-    const sendUnits = {};
-    for (const k of Object.keys(units || {})) {
-      const want = +units[k] || 0;
-      const have = +live[k] || 0;
-      if (want > 0 && have > 0) sendUnits[k] = Math.min(want, have);
-    }
-    delete sendUnits.militia;
-    if (!Object.keys(sendUnits).length) return onDone && onDone('no-units');
-    const destId = +target.town_id;
-    const count = Object.values(sendUnits).reduce((a, b) => a + (+b || 0), 0);
-    const settle = (err, data) => {
-      if (err) { flash('refuerzo fallido: ' + err); return onDone && onDone(err); }
-      flash('refuerzo enviado #' + srcTownId);
-      if (state.exportRedact === false) gbLog('support response:', JSON.stringify(data).slice(0, 200));
-      else gbLog('support response: ok');
-      if (onDone) onDone(null, data);
-    };
-    const tpl = state.supportTpl;
-
-    if (tpl && tpl.arguments && tpl.arguments.type && String(tpl.arguments.type) !== 'support') {
-      gbLogT('rf-tpl-type', 120000, `refuerzo: supportTpl type=${tpl.arguments.type} (se envia support) - revisa la plantilla`);
-    }
-
-    const tplModelUrl = (tpl && /Town\/\d+/.test(String(tpl.model_url || '')))
-      ? String(tpl.model_url).replace(/Town\/\d+/, 'Town/' + srcTownId)
-      : null;
-    if (tpl && tpl.model_url && tpl.action_name && !tplModelUrl) {
-      gbLogT('rf-tpl-model-url', 120000, `refuerzo: supportTpl model_url sin segmento Town/<id> (${String(tpl.model_url).slice(0, 40)}) - ruta canonica`);
-    }
-    if (tpl && tplModelUrl && tpl.action_name) {
-      const payload = {
-        model_url: tplModelUrl,
-        action_name: tpl.action_name,
-        arguments: Object.assign({ id: destId, type: 'support' }, sendUnits),
-        town_id: +srcTownId,
-      };
-      if (state.exportRedact === false) gbLog('support bridge:', JSON.stringify(payload));
-      else gbLog(`support bridge: ${payload.action_name} town ${srcTownId} -> ${destId} (support, ${Object.keys(sendUnits).length} tipos / ${count} unidades)`);
-      return bridgePost('support', payload, settle);
-    }
-    const params = Object.assign({}, sendUnits, { id: destId, type: 'support', town_id: +srcTownId });
-    if (state.exportRedact === false) gbLog('support ajax:', JSON.stringify(params));
-    else gbLog(`support ajax: town_info/send_units town ${srcTownId} -> ${destId} (support, ${Object.keys(sendUnits).length} tipos / ${count} unidades)`);
-    gameAjaxPost('support', 'town_info', 'send_units', params, settle);
-  }
-
-  function rfPushHistory(entry) {
-    if (!Array.isArray(state.reinforceHistory)) state.reinforceHistory = [];
-    state.reinforceHistory.unshift(entry);
-    if (state.reinforceHistory.length > RF_HISTORY_MAX) state.reinforceHistory.length = RF_HISTORY_MAX;
-    save(STORE.REINFORCE_HISTORY, state.reinforceHistory);
-  }
-
-  function rfReleaseLock(tok) {
-    if (!tok) return;
-    const held = gbLockHeld('support');
-    if (held && held.token === tok) gbUnlock('support', tok);
-  }
-  function rfCancelArmed() {
-    if (!rfArmed) return;
-    (rfArmed.timers || []).forEach(id => gbClearTimeout(id));
-    rfReleaseLock(rfArmed.token);
-    rfArmed.token = null;
-    gbLog('refuerzo: cancelled armed wave');
-    flash('refuerzo cancelado');
-    rfArmed = null;
-    renderReinforce();
-  }
-  function rfPatchFireStatus() {
-    const sec = panel && panel.querySelector('section[data-tab=reinforce]');
-    if (!sec || sec.hidden) return;
-    const table = sec.querySelector('.rf-sched');
-    if (!table || !table.querySelector('[data-town]')) { renderReinforce(); return; }
-    for (const r of rfPreviewRows) {
-      const cell = table.querySelector('[data-town="' + r.townId + '"] .rf-st');
-      if (cell) cell.textContent = r.fireStatus || r.status || '';
-    }
-    const armed = sec.querySelector('#gb-rf-armed');
-    if (armed) armed.textContent = rfArmed ? `ARMADO (${rfArmed.rows.length})` : '';
-  }
-  function rfArmWave(plan, rows) {
-    rfCancelArmed();
-    const target = rfResolveTarget(plan);
-    if (!target) { flash('no se puede armar: destino no resuelto'); return; }
-    const token = gbLock('support');
-    if (!token) {
-      gbLogT('rf-arm-busy', 60000, 'refuerzo: support lock held (apoyo automatico) - not arming');
-      flash('refuerzos ocupados: hay un apoyo en curso');
-      return;
-    }
-    const timers = [];
-    const delays = [];
-    const armedAt = Date.now();
-    rfArmed = { timers, rows, plan, cancel: rfCancelArmed, armedAt, token };
-    gbLog(`refuerzo: armed ${rows.length} towns mode=${plan.timingMode} skew=${Math.round(clientServerSkewMs())}ms (max window ${RF_ARM_MAX_MS}ms)`);
-    flash('Los timers del navegador no son precisos para uso militar - esperas largas no se dispararan solas');
-    rows.forEach((row, idx) => {
-      if (!row.unitCount || !row.boats.ok || row.status === 'past' || row.status === 'no-travel') {
-        gbLog(`refuerzo: skip ${row.townId} status=${row.status}`);
-        return;
-      }
-      let delayMs;
-      if (plan.timingMode === 'arrive_at' && row.sendAt != null) {
-        delayMs = row.sendAt * 1000 + clientServerSkewMs() - Date.now();
-      } else {
-        delayMs = idx * (plan.staggerMs || 0);
-      }
-      if (delayMs < 0) { row.fireStatus = 'past'; gbLog(`refuerzo: past send window for ${row.townId}`); return; }
-      if (delayMs > RF_ARM_MAX_MS) {
-        gbLog(`refuerzo: ${row.townId} delay ${Math.round(delayMs)}ms > ${RF_ARM_MAX_MS}ms - not arming (re-arm closer to send)`);
-        row.fireStatus = 'too-far';
-        return;
-      }
-      delays.push(delayMs);
-      const expectedFire = Date.now() + delayMs;
-      const tid = gbTimeout(() => {
-        gbLockTouch('support', token);
-        const late = Date.now() - expectedFire;
-        if (late > 5000) {
-          gbLog(`refuerzo: refuse overdue fire for ${row.townId} (late ${Math.round(late)}ms)`);
-          row.fireStatus = 'overdue';
-          rfPatchFireStatus();
-          return;
-        }
-        const liveTarget = rfResolveTarget(plan);
-        if (!liveTarget) { row.fireStatus = 'bad-target'; rfPatchFireStatus(); return; }
-        const freshUnits = rfUnitsForTarget(row.townId, liveTarget, plan);
-        const freshCount = Object.values(freshUnits).reduce((a, b) => a + (+b || 0), 0);
-        const freshBoats = boatCapacityCheck(freshUnits, isSameIsland(row.townId, liveTarget));
-        if (!freshCount || !freshBoats.ok) {
-          row.fireStatus = !freshCount ? 'no-units' : 'boats-changed';
-          rfPatchFireStatus();
-          return;
-        }
-        if (plan.timingMode === 'arrive_at') {
-          const freshTravel = computeTravelSeconds(row.townId, liveTarget, freshUnits, true);
-          if (freshTravel == null || row.travel == null || Math.abs(freshTravel - row.travel) > 1) {
-            row.fireStatus = 'travel-changed';
-            gbLog(`refuerzo: abort ${row.townId}; canonical travel changed ${row.travel} -> ${freshTravel}`);
-            rfPatchFireStatus();
-            return;
-          }
-        }
-        row.fireStatus = 'firing';
-        rfPatchFireStatus();
-        rfSend(liveTarget, row.townId, freshUnits, (err) => {
-          row.fireStatus = err ? 'err:' + err : 'sent';
-          rfPatchFireStatus();
-        });
-      }, delayMs);
-      timers.push(tid);
-      row.fireStatus = 'armed+' + Math.round(delayMs) + 'ms';
-    });
-    rfPushHistory({
-      ts: armedAt, mode: plan.timingMode, helpMode: plan.helpMode, targetId: plan.targetId,
-      towns: rows.map(r => ({ id: r.townId, sendAt: r.sendAt, travel: r.travel, status: r.status })),
-    });
-    const maxDelay = delays.length ? Math.max(0, ...delays) : 0;
-    timers.push(gbTimeout(() => {
-      rfReleaseLock(token);
-      if (rfArmed && rfArmed.timers === timers) rfArmed = null;
-      rfPatchFireStatus();
-    }, maxDelay + 5000));
-    renderReinforce();
-  }
-  function rfFireNow(plan, rows) {
-    const target = rfResolveTarget(plan);
-    if (!target) { flash('no se puede enviar: destino no resuelto'); return; }
-    const okRows = rows.filter(r => r.boats.ok && r.unitCount);
-    if (!okRows.length) { flash('sin ciudades listas'); return; }
-    const total = okRows.reduce((a, r) => a + r.unitCount, 0);
-    const label = RF_MODE_ES[plan.helpMode] || plan.helpMode;
-    if (!confirm(`${state.dryRun ? '[SIMULACION] ' : ''}Enviar refuerzo (${label}) a #${plan.targetId}?\n${okRows.length} ciudad(es) / ${total} unidades`)) return;
-
-    const token = gbLock('support');
-    if (!token) {
-      gbLogT('rf-now-busy', 60000, 'refuerzo: support lock held (apoyo automatico) - manual send refused');
-      flash('refuerzos ocupados: hay un apoyo en curso');
-      return;
-    }
-    let i = 0;
-    (function rfNext() {
-      gbLockTouch('support', token);
-      if (i >= okRows.length) {
-        rfReleaseLock(token);
-        rfPushHistory({ ts: Date.now(), mode: 'send_now_immediate', helpMode: plan.helpMode, targetId: plan.targetId, towns: okRows.map(r => r.townId) });
-        flash(`refuerzos x${okRows.length}`);
-        return;
-      }
-      const row = okRows[i++];
-      const freshUnits = rfUnitsForTarget(row.townId, target, plan);
-      const freshCount = Object.values(freshUnits).reduce((a, b) => a + (+b || 0), 0);
-      const freshBoats = boatCapacityCheck(freshUnits, isSameIsland(row.townId, target));
-      if (!freshCount || !freshBoats.ok) {
-        gbLog(`refuerzo: skip ${row.townId} at fire time (${!freshCount ? 'no-units' : freshBoats.reason})`);
-        row.fireStatus = !freshCount ? 'no-units' : freshBoats.reason;
-        rfPatchFireStatus();
-        gbTimeout(rfNext, (plan.staggerMs || 25) + Math.random() * 20);
-        return;
-      }
-      row.fireStatus = 'firing';
-      rfPatchFireStatus();
-      rfSend(target, row.townId, freshUnits, (err) => {
-        row.fireStatus = err ? 'err:' + err : 'sent';
-        rfPatchFireStatus();
-        gbTimeout(rfNext, (plan.staggerMs || 25) + Math.random() * 20);
-      });
-    })();
-  }
-
-  function rfReadForm() {
-    const sec = panel && panel.querySelector('section[data-tab=reinforce]');
-    const plan = rfPlan();
-    if (!sec) return plan;
-    plan.targetId = sec.querySelector('[data-rf=target]')?.value?.trim() || '';
-    const xv = sec.querySelector('[data-rf=x]')?.value;
-    const yv = sec.querySelector('[data-rf=y]')?.value;
-    plan.targetX = xv === '' || xv == null ? null : +xv;
-    plan.targetY = yv === '' || yv == null ? null : +yv;
-    const mode = sec.querySelector('[data-rf=help]')?.value || 'both';
-    plan.helpMode = RF_HELP_MODES.has(mode) ? mode : 'both';
-    plan.timingMode = sec.querySelector('[data-rf=timing]')?.value || 'send_now';
-    plan.latencyPadMs = +(sec.querySelector('[data-rf=pad]')?.value || 200);
-    plan.homeFloor = gbCfgClamp(sec.querySelector('[data-rf=floor]')?.value, 0, 100000, 0);
-    plan.unitType = sec.querySelector('[data-rf=unit-type]')?.value || 'hoplite';
-    const arr = sec.querySelector('[data-rf=arrival]')?.value;
-    if (arr) {
-      const ms = Date.parse(arr);
-      if (!isNaN(ms)) plan.arrivalUnix = Math.floor((ms - clientServerSkewMs()) / 1000);
-    }
-    const srcBox = sec.querySelector('.rf-sources');
-    if (srcBox) plan.sourceTownIds = Array.from(srcBox.querySelectorAll('input:checked')).map(c => c.dataset.id);
-    rfSavePlan();
-    return plan;
-  }
-  function rfSelectSources(ids) {
-    const plan = rfPlan();
-    plan.sourceTownIds = (ids || []).map(String);
-    rfSavePlan();
-    renderReinforce();
-  }
-  function rfSetAllSources(checked) {
-    rfSelectSources(checked ? (state.towns || []).map(t => String(t.id)) : []);
-    flash(checked ? 'todas las ciudades seleccionadas' : 'origenes vaciados');
-  }
-  function rfSelectRoleSources(role) {
-    const ids = attackTownGroup(role);
-    if (!ids.length) { flash('sin ciudades con este rol'); return; }
-    rfSelectSources(ids);
-    flash(`${role === ATTACK_ROLE_DEFENSE ? 'defensa' : 'ofensiva'} ciudades seleccionadas (${ids.length})`);
-  }
-
-  function rfRenderSources(sec, plan) {
-    const srcBox = sec.querySelector('.rf-sources');
-    if (!srcBox) return;
-    const selected = new Set(Array.isArray(plan.sourceTownIds) ? plan.sourceTownIds.map(String) : (state.towns || []).map(t => String(t.id)));
-    const sig = (state.towns || []).map(t => t.id + ':' + (t.name || '')).join('|');
-    if (srcBox.dataset.sig === sig) {
-      srcBox.querySelectorAll('input[data-id]').forEach(cb => {
-        const want = selected.has(String(cb.dataset.id));
-        if (cb.checked !== want) cb.checked = want;
-      });
-      return;
-    }
-    srcBox.dataset.sig = sig;
-    srcBox.replaceChildren();
-    for (const t of (state.towns || [])) {
-      const lab = document.createElement('label');
-      lab.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:10px;cursor:pointer';
-      gbTip(lab, 'Incluye/excluye esta ciudad como origen del refuerzo');
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = selected.has(String(t.id));
-      cb.dataset.id = String(t.id);
-      cb.addEventListener('change', () => {
-        plan.sourceTownIds = Array.from(srcBox.querySelectorAll('input:checked')).map(c => c.dataset.id);
-        rfSavePlan();
-      });
-      lab.appendChild(cb);
-      lab.appendChild(document.createTextNode(`${t.name || t.id}`));
-      srcBox.appendChild(lab);
-    }
-  }
-  function rfRenderPerTown(sec, plan) {
-    const per = sec.querySelector('.rf-pertown');
-    if (!per) return;
-    per.hidden = plan.helpMode !== 'per_town';
-    if (plan.helpMode !== 'per_town') return;
-    per.replaceChildren();
-    const ids = Array.isArray(plan.sourceTownIds) ? plan.sourceTownIds : (state.towns || []).map(t => String(t.id));
-    for (const tid of ids) {
-      const town = (state.towns || []).find(t => String(t.id) === String(tid)) || { id: tid, name: tid };
-      const wrap = document.createElement('div');
-      wrap.style.cssText = 'margin-bottom:4px';
-      const lab = document.createElement('div');
-      lab.style.cssText = 'color:#888;font-size:9px';
-      lab.textContent = town.name || tid;
-      const ta = document.createElement('textarea');
-      ta.style.cssText = 'width:100%;height:40px;background:#111;color:#cfc;border:1px solid #333;font:10px monospace';
-      gbTip(ta, 'Unidades exactas que envia esta ciudad. Formato: unidad:cantidad por linea');
-      ta.value = unitsToArea(plan.perTownUnits[tid] || rfSelectUnits(tid, Object.assign({}, plan, { helpMode: 'both' })));
-      ta.addEventListener('change', () => {
-        plan.perTownUnits[tid] = parseUnitsArea(ta.value);
-        rfSavePlan();
-      });
-      wrap.appendChild(lab);
-      wrap.appendChild(ta);
-      per.appendChild(wrap);
-    }
-  }
-  function rfRenderSchedule(sec) {
-    const table = sec.querySelector('.rf-sched');
-    if (!table) return;
-    const rows = rfPreviewRows.length ? rfPreviewRows : [];
-    if (!rows.length) {
-      if (!table.dataset.empty) {
-        table.replaceChildren();
-        table.dataset.empty = '1';
-        const e = document.createElement('div');
-        e.style.cssText = 'color:#888;padding:6px 0;font-size:11px';
-        e.textContent = 'Previsualiza para calcular marcha / hora de envio / transporte';
-        table.appendChild(e);
-      }
-      return;
-    }
-    const wanted = rows.map(r => String(r.townId));
-    const have = Array.from(table.querySelectorAll('div[data-town]')).map(d => d.dataset.town);
-    const wantedSet = new Set(wanted);
-    const sameSet = !table.dataset.empty && have.length === wanted.length && have.every(k => wantedSet.has(k));
-    if (!sameSet) {
-      table.replaceChildren();
-      delete table.dataset.empty;
-      const hdr = document.createElement('div');
-      hdr.style.cssText = 'display:grid;grid-template-columns:1.1fr .8fr .7fr .9fr .7fr .8fr;gap:4px;color:#888;font-size:9px;margin-bottom:2px';
-
-      hdr.innerHTML = gbLit('<span>ciudad</span><span>tropas</span><span>marcha</span><span>envio</span><span>barcos</span><span>estado</span>');
-      table.appendChild(hdr);
-    }
-    for (const r of rows) {
-      let row = sameSet ? table.querySelector(`div[data-town="${r.townId}"]`) : null;
-      if (!row) {
-        row = document.createElement('div');
-        row.dataset.town = String(r.townId);
-        row.style.cssText = 'display:grid;grid-template-columns:1.1fr .8fr .7fr .9fr .7fr .8fr;gap:4px;font-size:10px;border-bottom:1px solid #2a2a2a;padding:2px 0';
-        for (let i = 0; i < 6; i++) row.appendChild(document.createElement('span'));
-        row.children[5].className = 'rf-st';
-        row.children[0].title = String(r.townId);
-        gbTip(row.children[1], 'Unidades que salen de esta ciudad');
-        gbTip(row.children[2], 'Tiempo de marcha hasta el destino');
-        gbTip(row.children[3], 'Hora local a la que sale el refuerzo');
-        gbTip(row.children[4], 'Capacidad de transporte disponible vs necesaria');
-        gbTip(row.children[5], 'Estado del envio');
-        table.appendChild(row);
-      }
-      const mix = Object.entries(r.units).map(([u, n]) => `${u}:${n}`).join(' ');
-      row.children[1].title = mix || '-';
-      const vals = [
-        (r.townName || '').slice(0, 14),
-        String(r.unitCount || 0),
-        r.travel != null ? fmtHMS(r.travel) : '-',
-        fmtUnixLocal(r.sendAt),
-        r.boats.ok ? `OK ${r.boats.cap}/${r.boats.need}` : `NO ${r.boats.cap}/${r.boats.need}`,
-        String(r.fireStatus || r.status),
-      ];
-      for (let i = 0; i < 6; i++) {
-        if (row.children[i].textContent !== vals[i]) row.children[i].textContent = vals[i];
-      }
-      const boatColor = r.boats.ok ? '#6dda7e' : '#f55';
-      if (row.children[4].style.color !== boatColor) row.children[4].style.color = boatColor;
-    }
-  }
-  function renderReinforce() {
-    const sec = panel && panel.querySelector('section[data-tab=reinforce]');
-    if (!sec || sec.hidden) return;
-    const plan = rfPlan();
-    const skewEl = sec.querySelector('#gb-rf-skew');
-    if (skewEl) skewEl.textContent = `skew ${Math.round(clientServerSkewMs())}ms | srv ${serverNow()}`;
-    const armed = sec.querySelector('#gb-rf-armed');
-    if (armed) armed.textContent = rfArmed ? `ARMADO (${rfArmed.rows.length})` : '';
-
-    const tid = sec.querySelector('[data-rf=target]');
-    if (tid && document.activeElement !== tid) tid.value = plan.targetId || '';
-    const pick = sec.querySelector('[data-rf=pick]');
-    if (pick && document.activeElement !== pick) {
-      const targets = rfKnownTargets();
-      const sig = targets.map(t => t.id + ':' + (t.name || '') + ':' + (t.own ? 'o' : '')).join('|');
-      if (pick.dataset.sig !== sig) {
-        pick.dataset.sig = sig;
-        pick.replaceChildren();
-        const first = document.createElement('option');
-        first.value = '';
-        first.textContent = targets.length ? `destinos conocidos (${targets.length})...` : 'sin destinos conocidos';
-        pick.appendChild(first);
-        for (const t of targets) {
-          const o = document.createElement('option');
-          o.value = t.id;
-          const coord = t.x != null && t.y != null ? ` ${t.x}|${t.y}` : '';
-          o.textContent = `${t.own ? '[propia] ' : ''}${(t.name || '?').slice(0, 16)} #${t.id}${coord}`;
-          pick.appendChild(o);
-        }
-      }
-      pick.value = targets.some(t => String(t.id) === String(plan.targetId)) ? String(plan.targetId) : '';
-    }
-    const hint = sec.querySelector('#gb-rf-target-hint');
-    if (hint) {
-      const resolved = plan.targetId ? rfResolveTarget(plan) : null;
-      if (resolved) {
-        const own = (state.towns || []).some(t => String(t.id) === String(resolved.town_id));
-        const coord = resolved.x != null && resolved.y != null ? ` (${resolved.x}|${resolved.y})` : '';
-        hint.textContent = `ciudad #${resolved.town_id}${own ? ' | propia' : ' | aliada / externa'}${coord}`;
-        hint.style.color = '#6dda7e';
-      } else if (plan.targetId) { hint.textContent = 'destino no resuelto (solo ciudades, id numerico)'; hint.style.color = '#f96'; }
-      else { hint.textContent = 'id de ciudad propia o aliada; las aldeas no admiten refuerzo'; hint.style.color = '#888'; }
-    }
-    const rx = sec.querySelector('[data-rf=x]');
-    if (rx && document.activeElement !== rx) rx.value = plan.targetX ?? '';
-    const ry = sec.querySelector('[data-rf=y]');
-    if (ry && document.activeElement !== ry) ry.value = plan.targetY ?? '';
-    const help = sec.querySelector('[data-rf=help]');
-    if (help) help.value = plan.helpMode;
-    const tm = sec.querySelector('[data-rf=timing]');
-    if (tm) tm.value = plan.timingMode || 'send_now';
-    const pad = sec.querySelector('[data-rf=pad]');
-    if (pad && document.activeElement !== pad) pad.value = plan.latencyPadMs ?? 200;
-    const floor = sec.querySelector('[data-rf=floor]');
-    if (floor && document.activeElement !== floor) floor.value = plan.homeFloor ?? 0;
-    const ut = sec.querySelector('[data-rf=unit-type]');
-    if (ut) {
-      if (!ut.options.length) {
-        for (const id of knownUnitIds()) {
-          const o = document.createElement('option');
-          o.value = id;
-          o.textContent = id;
-          ut.appendChild(o);
-        }
-      }
-      ut.value = plan.unitType || 'hoplite';
-      ut.disabled = plan.helpMode !== 'all_of_type';
-      ut.style.opacity = ut.disabled ? '0.4' : '1';
-      ut.title = ut.disabled ? "solo se usa con el modo 'todo el tipo'" : 'unidad enviada desde cada ciudad de origen';
-    }
-    const arr = sec.querySelector('[data-rf=arrival]');
-    if (arr && document.activeElement !== arr && plan.arrivalUnix) {
-      try {
-        const d = new Date(plan.arrivalUnix * 1000 + clientServerSkewMs());
-        const p2 = n => String(n).padStart(2, '0');
-        arr.value = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
-      } catch (_) {}
-    }
-    const tplNote = sec.querySelector('#gb-rf-tpl');
-    if (tplNote) {
-      const learned = !!(state.supportTpl && state.supportTpl.action_name);
-      tplNote.textContent = learned ? `plantilla de apoyo aprendida (${state.supportTpl.action_name})` : 'sin plantilla aprendida - se usa la ruta canonica town_info/send_units';
-      tplNote.style.color = learned ? '#6dda7e' : '#888';
-    }
-    rfRenderSources(sec, plan);
-    rfRenderPerTown(sec, plan);
-    rfRenderSchedule(sec);
-  }
-
-  function bindReinforceTab() {
-    const sec = panel && panel.querySelector('section[data-tab=reinforce]');
-    if (!sec || sec.dataset.bound) return;
-    sec.dataset.bound = '1';
-    sec.querySelector('#gb-rf-preview')?.addEventListener('click', () => {
-      const plan = rfReadForm();
-      const sched = rfBuildSchedule(plan);
-      if (sched.error) { flash(sched.error); return; }
-      rfPreviewRows = sched.rows;
-      gbLog(`support preview: ${sched.rows.length} towns, mode=${plan.helpMode}, skew=${Math.round(sched.skew)}ms`);
-      renderReinforce();
-    });
-    sec.querySelector('#gb-rf-arm')?.addEventListener('click', () => {
-      const plan = rfReadForm();
-      const sched = rfBuildSchedule(plan);
-      if (sched.error) { flash(sched.error); return; }
-      rfPreviewRows = sched.rows;
-      const ok = sched.rows.filter(r => r.boats.ok && r.unitCount && r.status !== 'past' && r.status !== 'no-travel');
-      if (!ok.length) { flash('sin ciudades listas'); renderReinforce(); return; }
-      if (!confirm(`Armar ${ok.length} refuerzo(s) (${plan.timingMode})?`)) return;
-      rfArmWave(plan, ok);
-    });
-    sec.querySelector('#gb-rf-cancel')?.addEventListener('click', () => rfCancelArmed());
-    sec.querySelector('#gb-rf-now')?.addEventListener('click', () => {
-      const plan = rfReadForm();
-      const sched = rfBuildSchedule(plan);
-      if (sched.error) { flash(sched.error); return; }
-      rfPreviewRows = sched.rows;
-      renderReinforce();
-      rfFireNow(plan, sched.rows);
-    });
-
-    sec.querySelectorAll('[data-rf]:not([data-rf=pick])').forEach(el => {
-      el.addEventListener('change', () => { rfReadForm(); renderReinforce(); });
-    });
-    sec.querySelector('[data-rf=pick]')?.addEventListener('change', e => {
-      const id = e.target.value;
-      if (!id) return;
-      const t = rfKnownTargets().find(x => String(x.id) === String(id));
-      if (t) rfApplyTarget(t);
-    });
-    sec.querySelector('#gb-rf-src-all')?.addEventListener('click', () => rfSetAllSources(true));
-    sec.querySelector('#gb-rf-src-none')?.addEventListener('click', () => rfSetAllSources(false));
-    sec.querySelector('#gb-rf-src-def')?.addEventListener('click', () => rfSelectRoleSources(ATTACK_ROLE_DEFENSE));
-    sec.querySelector('#gb-rf-src-off')?.addEventListener('click', () => rfSelectRoleSources(ATTACK_ROLE_OFFENSE));
-  }
-
-  const SPS_MAX_WAVES = 100;
-  const SPS_HISTORY_MAX = 40;
-  const SPS_DEFAULT_CHUNK = 1000;
-  let spsStopFlag = false;
-
-  function spsCfg() {
-    const c = (state.spySendCfg && typeof state.spySendCfg === 'object' && !Array.isArray(state.spySendCfg)) ? state.spySendCfg : {};
-    return {
-      targetId: String(c.targetId || '').trim(),
-      sourceTownId: String(c.sourceTownId || '').trim(),
-      mode: c.mode === 'bulk' ? 'bulk' : 'rapid',
-      chunk: gbCfgClamp(c.chunk, 1, 1000000, SPS_DEFAULT_CHUNK),
-      waves: gbCfgClamp(c.waves, 0, SPS_MAX_WAVES, 5),
-      untilEmpty: c.untilEmpty !== false,
-      bulkAll: c.bulkAll !== false,
-      bulkAmount: gbCfgClamp(c.bulkAmount, 0, 100000000, 0),
-      gapMs: gbCfgClamp(c.gapMs, 300, 60000, 1200),
-    };
-  }
-  function spsCfgSave(patch) {
-    state.spySendCfg = Object.assign({}, spsCfg(), patch || {});
-    save(STORE.SPY_SEND_CFG, state.spySendCfg);
-  }
-  function spsHistory() {
-    if (!Array.isArray(state.spySendHistory)) state.spySendHistory = [];
-    return state.spySendHistory;
-  }
-  function spsPushHistory(entry) {
-    const h = spsHistory();
-    h.unshift(entry);
-    if (h.length > SPS_HISTORY_MAX) h.length = SPS_HISTORY_MAX;
-    save(STORE.SPY_SEND_HISTORY, h);
-  }
-
-  function spsCaveSilver(townId) {
-    let info = null;
-    try { info = caveTownInfo(townId); } catch (_) { info = null; }
-    if (!info) return { stored: null, hideLvl: null, unlimited: false };
-    const stored = Number.isFinite(+info.stored) && +info.stored >= 0 ? +info.stored : null;
-    return { stored, hideLvl: Number.isFinite(+info.hideLvl) ? +info.hideLvl : null, unlimited: !!info.unlimited };
-  }
-
-  function spsStoredFromResponse(res) {
-    if (!res || typeof res !== 'object') return null;
-    const probe = [res, res.json, res.data, res.response];
-    for (const o of probe) {
-      if (!o || typeof o !== 'object') continue;
-      const v = o.stored_iron != null ? o.stored_iron : (o.espionage_storage != null ? o.espionage_storage : null);
-      if (v != null && Number.isFinite(+v) && +v >= 0) return +v;
-    }
-    return null;
-  }
-  function spsIsOwnTown(id) {
-    const s = String(id == null ? '' : id);
-    if (!s) return false;
-    if ((state.towns || []).some(t => String(t.id) === s)) return true;
-    try {
-      const uw = gameUw();
-      if (uw.ITowns && uw.ITowns.towns && uw.ITowns.towns[s]) return true;
-    } catch (_) { return false; }
-    return false;
-  }
-  function spsSourceTownId(cfg) {
-    const towns = state.towns || [];
-    const want = String(cfg.sourceTownId || '');
-    if (want && towns.some(t => String(t.id) === want)) return want;
-    try {
-      const uw = gameUw();
-      const cur = uw.Game && uw.Game.townId;
-      if (cur != null) return String(cur);
-    } catch (_) {}
-    return towns.length ? String(towns[0].id) : '';
-  }
-
-  function spsPost(srcTownId, targetId, amount, onDone) {
-    const params = { id: +targetId, espionage_iron: Math.floor(+amount), town_id: +srcTownId };
-    if (state.exportRedact === false) gbLog('spy ajax:', JSON.stringify(params));
-    else gbLog(`spy ajax: town_info/spy town ${srcTownId} -> ${targetId} (${Math.floor(+amount)} plata)`);
-    gameAjaxPost('spy', 'town_info', 'spy', params, onDone);
-  }
-
-  function spsPlan() {
-    const cfg = spsCfg();
-    const src = spsSourceTownId(cfg);
-    if (!src) return { error: 'sin ciudad de origen' };
-    const target = String(cfg.targetId || '').trim();
-    if (!/^\d+$/.test(target)) return { error: 'objetivo invalido (id de ciudad numerico)' };
-    if (String(target) === String(src)) return { error: 'origen y objetivo son la misma ciudad' };
-    if (spsIsOwnTown(target)) return { error: 'el objetivo es una ciudad propia' };
-    const cave = spsCaveSilver(src);
-    const out = { cfg, src, target, cave };
-    if (cfg.mode === 'bulk') {
-      if (cfg.bulkAll) {
-        if (cave.stored == null) return Object.assign(out, { error: 'plata de la cueva ilegible: escribe una cantidad exacta en vez de "toda"' });
-        if (!(cave.stored > 0)) return Object.assign(out, { error: 'la cueva no tiene plata' });
-        out.amount = cave.stored;
-      } else {
-        if (!(cfg.bulkAmount > 0)) return Object.assign(out, { error: 'cantidad invalida' });
-        out.amount = cave.stored != null ? Math.min(cfg.bulkAmount, cave.stored) : cfg.bulkAmount;
-        if (!(out.amount > 0)) return Object.assign(out, { error: 'la cueva no tiene plata' });
-      }
-      out.waves = 1;
-      out.total = out.amount;
-      return out;
-    }
-
-    const chunk = cfg.chunk;
-    if (cave.stored != null && !(cave.stored > 0)) return Object.assign(out, { error: 'la cueva no tiene plata' });
-    let waves = cfg.waves;
-    if (!waves) {
-      if (cave.stored == null) return Object.assign(out, { error: 'plata ilegible: "hasta vaciar" necesita un numero de rafagas' });
-      waves = Math.min(SPS_MAX_WAVES, Math.ceil(cave.stored / chunk));
-    } else if (cfg.untilEmpty && cave.stored != null) {
-      waves = Math.min(waves, Math.max(1, Math.ceil(cave.stored / chunk)));
-    }
-    out.chunk = chunk;
-    out.waves = Math.max(1, Math.min(SPS_MAX_WAVES, waves));
-    out.total = cave.stored != null ? Math.min(cave.stored, out.waves * chunk) : out.waves * chunk;
-    return out;
-  }
-  function spsPlanText(plan) {
-    const lines = [];
-    const name = townNameById(plan.src);
-    lines.push((state.dryRun ? '[SIMULACION] ' : '') + `Espiar #${plan.target}`);
-    lines.push(`Origen: ${name} (#${plan.src})`);
-    lines.push(`Cueva: ${plan.cave.stored == null ? 'ilegible' : plan.cave.stored + ' plata'}${plan.cave.hideLvl != null ? ` (nivel ${plan.cave.hideLvl})` : ''}`);
-    if (plan.cfg.mode === 'bulk') lines.push(`Modo masivo: 1 envio de ${plan.amount} plata`);
-    else lines.push(`Modo rapido: hasta ${plan.waves} rafaga(s) de ${plan.chunk} plata${plan.cfg.untilEmpty ? ' (para al vaciar la cueva)' : ''}`);
-    lines.push(`Plata comprometida: ~${plan.total}`);
-    lines.push('Enviar?');
-    return lines.join('\n');
-  }
-
-  function spsStop() {
-    if (!gbLocked('spy')) { flash('espionaje: no hay rafaga en curso'); return; }
-    spsStopFlag = true;
-    gbLog('spy: stop requested');
-    flash('espionaje: parando tras la rafaga actual');
-  }
-  function spsProgress(txt) {
-    const sec = panel && panel.querySelector('section[data-tab=spy]');
-    const el = sec && sec.querySelector('#gb-sp-progress');
-    if (el) el.textContent = txt;
-  }
-  function spsRun() {
-    if (gbLocked('spy')) { flash('espionaje ya en curso'); return; }
-    if (!hostEnabled()) { flash('bot desactivado en este servidor'); return; }
-    if (automationPaused({})) { flash('automatizacion en pausa'); return; }
-    if (captchaPaused('spy')) { flash('espionaje pausado (captcha)'); return; }
-    const plan = spsPlan();
-    if (plan.error) { flash(plan.error); gbLog('spy: ' + plan.error); return; }
-    let ok = false;
-    try { ok = gameUw().confirm(spsPlanText(plan)); } catch (_) { ok = false; }
-    if (!ok) { gbLog('spy: confirm declined'); return; }
-
-    const token = gbLock('spy');
-    if (!token) { flash('espionaje ocupado (otro envio en curso)'); return; }
-    spsStopFlag = false;
-    const startedAt = Date.now();
-    let wave = 0, sentWaves = 0, spent = 0, stopWhy = 'done', anyDry = false, anyReal = false;
-    let remaining = plan.cave.stored;
-    const finish = () => {
-      gbUnlock('spy', token);
-
-      if (anyReal) { try { spyLastSpy()[plan.target] = Date.now(); spyHistorySave(); } catch (_) {} }
-      const msg = `espionaje: ${sentWaves} envio(s), ${spent} plata (${stopWhy})${anyDry ? ' [simulacion]' : ''}`;
-      gbLog('spy: ' + msg);
-      flash(msg);
-      spsProgress(msg);
-      spsPushHistory({
-        ts: startedAt, src: plan.src, target: plan.target, mode: plan.cfg.mode,
-        waves: sentWaves, silver: spent, why: stopWhy,
-        left: remaining == null ? null : remaining,
-      });
-      renderSpySend();
-    };
-    const step = () => {
-      gbLockTouch('spy', token);
-      if (spsStopFlag) { stopWhy = 'parado'; return finish(); }
-      if (wave >= plan.waves) { stopWhy = 'rafagas completadas'; return finish(); }
-      if (remaining != null && remaining <= 0) { stopWhy = 'cueva vacia'; return finish(); }
-      if (captchaPaused('spy')) { stopWhy = 'captcha'; return finish(); }
-      if (automationPaused({})) { stopWhy = 'pausa'; return finish(); }
-      const want = plan.cfg.mode === 'bulk' ? plan.amount : plan.chunk;
-      const amount = remaining != null ? Math.min(want, remaining) : want;
-      if (!(amount > 0)) { stopWhy = 'cueva vacia'; return finish(); }
-      wave++;
-      spsProgress(`enviando rafaga ${wave}/${plan.waves} (${amount} plata)...`);
-      spsPost(plan.src, plan.target, amount, (err, res) => {
-        if (err) {
-
-          if (err === 'dryrun') {
-
-            anyDry = true;
-            sentWaves++;
-            if (remaining != null) remaining = Math.max(0, remaining - amount);
-            spent += amount;
-            gbTimeout(step, 200);
-            return;
-          }
-
-          if (err === 'pending') {
-            stopWhy = state.dryRun
-              ? 'simulacion: intento duplicado (la plata no baja en simulacion)'
-              : 'intento duplicado (la cueva no se ha actualizado aun)';
-            return finish();
-          }
-          stopWhy = 'error: ' + err;
-          gbLogT('spy-send-err', 60000, `spy err ${err}`);
-          return finish();
-        }
-        sentWaves++;
-        anyReal = true;
-        spent += amount;
-        const srv = spsStoredFromResponse(res);
-        if (srv != null) remaining = srv;
-        else if (remaining != null) remaining = Math.max(0, remaining - amount);
-        else {
-          const re = spsCaveSilver(plan.src);
-          remaining = re.stored;
-        }
-        spsProgress(`rafaga ${wave}/${plan.waves} enviada; cueva ${remaining == null ? '-' : remaining}`);
-        renderSpySend();
-        gbTimeout(step, plan.cfg.gapMs + Math.random() * 400);
-      });
-    };
-    step();
-  }
-
-  function spsReadForm() {
-    const sec = panel && panel.querySelector('section[data-tab=spy]');
-    if (!sec) return spsCfg();
-    spsCfgSave({
-      targetId: sec.querySelector('[data-sp=target]')?.value?.trim() || '',
-      sourceTownId: sec.querySelector('[data-sp=src]')?.value || '',
-      mode: sec.querySelector('[data-sp=mode]')?.value === 'bulk' ? 'bulk' : 'rapid',
-      chunk: gbCfgClamp(sec.querySelector('[data-sp=chunk]')?.value, 1, 1000000, SPS_DEFAULT_CHUNK),
-      waves: gbCfgClamp(sec.querySelector('[data-sp=waves]')?.value, 0, SPS_MAX_WAVES, 5),
-      untilEmpty: !!sec.querySelector('[data-sp=until]')?.checked,
-      bulkAll: !!sec.querySelector('[data-sp=bulk-all]')?.checked,
-      bulkAmount: gbCfgClamp(sec.querySelector('[data-sp=bulk-amount]')?.value, 0, 100000000, 0),
-      gapMs: gbCfgClamp(sec.querySelector('[data-sp=gap]')?.value, 300, 60000, 1200),
-    });
-    return spsCfg();
-  }
-  function spsRenderHistory(sec) {
-    const box = sec.querySelector('.sp-hist');
-    if (!box) return;
-    const h = spsHistory();
-    box.replaceChildren();
-    if (!h.length) {
-      const e = document.createElement('div');
-      e.style.cssText = 'color:#888;font-size:10px;padding:4px 0';
-      e.textContent = 'sin envios registrados';
-      box.appendChild(e);
-      return;
-    }
-    for (const r of h.slice(0, 12)) {
-      const d = document.createElement('div');
-      d.style.cssText = 'display:grid;grid-template-columns:.8fr .7fr .6fr .7fr 1fr;gap:4px;font-size:10px;border-bottom:1px solid #2a2a2a;padding:2px 0';
-      const when = (() => { try { return new Date(r.ts).toLocaleTimeString(); } catch (_) { return '-'; } })();
-      const vals = [when, '#' + r.target, r.mode === 'bulk' ? 'masivo' : 'rapido', `${r.waves}x`, `${r.silver} plata - ${r.why || ''}`];
-      for (const v of vals) {
-        const s = document.createElement('span');
-        s.textContent = String(v);
-        d.appendChild(s);
-      }
-      box.appendChild(d);
-    }
-  }
-  function renderSpySend() {
-    const sec = panel && panel.querySelector('section[data-tab=spy]');
-    if (!sec || sec.hidden) return;
-    const cfg = spsCfg();
-    const srcSel = sec.querySelector('[data-sp=src]');
-    if (srcSel) {
-      const sig = (state.towns || []).map(t => t.id + ':' + (t.name || '')).join('|');
-      if (srcSel.dataset.sig !== sig) {
-        srcSel.dataset.sig = sig;
-        srcSel.replaceChildren();
-        for (const t of (state.towns || [])) {
-          const o = document.createElement('option');
-          o.value = String(t.id);
-          o.textContent = `${(t.name || t.id)} #${t.id}`;
-          srcSel.appendChild(o);
-        }
-      }
-      const want = spsSourceTownId(cfg);
-      if (srcSel.value !== want) srcSel.value = want;
-    }
-    const tgt = sec.querySelector('[data-sp=target]');
-    if (tgt && document.activeElement !== tgt) tgt.value = cfg.targetId || '';
-    const pick = sec.querySelector('[data-sp=pick]');
-    if (pick && document.activeElement !== pick) {
-      let targets = [];
-      try { targets = (attackKnownTargets() || []).filter(t => !spsIsOwnTown(t.id)); } catch (_) { targets = []; }
-      const sig = targets.map(t => t.id + ':' + (t.name || '')).join('|');
-      if (pick.dataset.sig !== sig) {
-        pick.dataset.sig = sig;
-        pick.replaceChildren();
-        const first = document.createElement('option');
-        first.value = '';
-        first.textContent = targets.length ? `objetivos conocidos (${targets.length})...` : 'sin objetivos conocidos';
-        pick.appendChild(first);
-        for (const t of targets) {
-          const o = document.createElement('option');
-          o.value = String(t.id);
-          const coord = t.x != null && t.y != null ? ` ${t.x}|${t.y}` : '';
-          o.textContent = `${(t.name || '?').slice(0, 16)} #${t.id}${coord}`;
-          pick.appendChild(o);
-        }
-      }
-      pick.value = targets.some(t => String(t.id) === String(cfg.targetId)) ? String(cfg.targetId) : '';
-    }
-    const modeSel = sec.querySelector('[data-sp=mode]');
-    if (modeSel) modeSel.value = cfg.mode;
-    const chunk = sec.querySelector('[data-sp=chunk]');
-    if (chunk && document.activeElement !== chunk) chunk.value = cfg.chunk;
-    const waves = sec.querySelector('[data-sp=waves]');
-    if (waves && document.activeElement !== waves) waves.value = cfg.waves;
-    const until = sec.querySelector('[data-sp=until]');
-    if (until) until.checked = cfg.untilEmpty;
-    const bulkAll = sec.querySelector('[data-sp=bulk-all]');
-    if (bulkAll) bulkAll.checked = cfg.bulkAll;
-    const bulkAmount = sec.querySelector('[data-sp=bulk-amount]');
-    if (bulkAmount) {
-      if (document.activeElement !== bulkAmount) bulkAmount.value = cfg.bulkAmount || '';
-      bulkAmount.disabled = cfg.bulkAll;
-      bulkAmount.style.opacity = cfg.bulkAll ? '0.4' : '1';
-    }
-    const gap = sec.querySelector('[data-sp=gap]');
-    if (gap && document.activeElement !== gap) gap.value = cfg.gapMs;
-    const rapidRow = sec.querySelector('.sp-rapid');
-    if (rapidRow) rapidRow.hidden = cfg.mode !== 'rapid';
-    const bulkRow = sec.querySelector('.sp-bulk');
-    if (bulkRow) bulkRow.hidden = cfg.mode !== 'bulk';
-
-    const caveEl = sec.querySelector('#gb-sp-cave');
-    if (caveEl) {
-      const src = spsSourceTownId(cfg);
-      const cave = src ? spsCaveSilver(src) : { stored: null, hideLvl: null };
-
-      caveEl.textContent = `cueva: ${cave.stored == null ? '\u2014' : cave.stored + ' plata'}${cave.hideLvl != null ? ` | nivel ${cave.hideLvl}` : ''}${cave.unlimited ? ' | ilimitada' : ''}`;
-      caveEl.style.color = cave.stored == null ? '#f96' : '#6dda7e';
-    }
-    const preview = sec.querySelector('#gb-sp-plan');
-    if (preview) {
-      const p = spsPlan();
-      preview.textContent = p.error ? p.error : (p.cfg.mode === 'bulk'
-        ? `1 envio de ${p.amount} plata a #${p.target}`
-        : `hasta ${p.waves} rafaga(s) de ${p.chunk} plata (~${p.total}) a #${p.target}`);
-      preview.style.color = p.error ? '#f96' : '#ccc';
-    }
-    const runBtn = sec.querySelector('#gb-sp-run');
-    if (runBtn) runBtn.disabled = gbLocked('spy');
-    const stopBtn = sec.querySelector('#gb-sp-stop');
-    if (stopBtn) stopBtn.disabled = !gbLocked('spy');
-    spsRenderHistory(sec);
-  }
-  function bindSpyTab() {
-    const sec = panel && panel.querySelector('section[data-tab=spy]');
-    if (!sec || sec.dataset.bound) return;
-    sec.dataset.bound = '1';
-    const sync = () => { spsReadForm(); renderSpySend(); };
-
-    sec.querySelectorAll('[data-sp]:not([data-sp=pick])').forEach(el => {
-      el.addEventListener('change', sync);
-    });
-    sec.querySelector('[data-sp=pick]')?.addEventListener('change', e => {
-      const id = e.target.value;
-      if (!id) return;
-      spsCfgSave({ targetId: String(id) });
-      renderSpySend();
-    });
-    sec.querySelector('#gb-sp-run')?.addEventListener('click', () => { spsReadForm(); spsRun(); renderSpySend(); });
-    sec.querySelector('#gb-sp-stop')?.addEventListener('click', () => spsStop());
-    sec.querySelector('#gb-sp-clear')?.addEventListener('click', () => {
-      state.spySendHistory = [];
-      save(STORE.SPY_SEND_HISTORY, state.spySendHistory);
-      renderSpySend();
-    });
-  }
-
   const SNAPSHOT_SLOTS = 6;
   const SNAPSHOT_INTERVAL_MS = 300000;
   const SNAPSHOT_BUDGET_BYTES = 200000;
@@ -21619,7 +18859,6 @@ const STORE = {
       circuits: state.circuits,
       decisionSkips: state.decisionSkips,
       farmOptionMap: state.farmOptionMap,
-      farmUnitsOption: state.farmUnitsOption,
       farmSleepDay: state.farmSleepDay,
       lastSeenTs: state.lastSeenTs,
 
@@ -21668,7 +18907,6 @@ const STORE = {
     put('circuits', STORE.CIRCUITS, p.circuits);
     put('decisionSkips', STORE.DECISION_SKIPS, p.decisionSkips);
     put('farmOptionMap', STORE.FARM_OPTION_MAP, p.farmOptionMap);
-    put('farmUnitsOption', STORE.FARM_UNITS_OPTION, p.farmUnitsOption);
     gbLog(`snapshot: restored slot ${slot} from ${new Date(s.at).toLocaleString()}`);
     return true;
   }
@@ -21922,30 +19160,6 @@ const STORE = {
         detail: `${farms.length} villages, ${ready} claimable, ${tpl}, options ${farmOptionMapText()}`,
       };
     }));
-    out.push(preflightProbe('farm unit claims', () => {
-      const mode = String(state.farmUnitsMode || 'off');
-      if (mode === 'off') return { ok: true, warn: true, detail: 'disabled in Config (resources only)' };
-
-      const villages = farmsFromGame() || [];
-      const sample = villages[0] || null;
-      const opt = farmUnitOption(sample);
-      const unit = opt != null ? farmUnitIdFor(opt) : null;
-      const table = (typeof farmClaimUnitsTable === 'function') ? farmClaimUnitsTable(sample) : null;
-      const amount = table && unit && table[unit] != null ? +table[unit] : null;
-      const dryMap = (state.farmResDry && typeof state.farmResDry === 'object') ? state.farmResDry : {};
-      const dry = Object.keys(dryMap).filter(k => farmResDryMarked(k)).length;
-      const capped = villages.filter(f => {
-        const left = farmDailyLeft(f);
-        return left != null && left <= 0;
-      }).length;
-      return {
-        ok: opt != null,
-        warn: opt == null || amount == null,
-        detail: opt == null
-          ? `mode ${mode}, pick ${state.farmUnitsPref || 'auto'} - no unit card readable (claim units once by hand or pin a unit in Ajustes)`
-          : `mode ${mode}, pick ${state.farmUnitsPref || 'auto'} -> option ${opt} (${unit}), amount ${amount == null ? '\u2014' : amount}, ${capped} village(s) at the daily cap, ${dry} marked dry`,
-      };
-    }));
     out.push(preflightProbe('farm resource scrape', () => {
       const st = (typeof farmScrapeState === 'function') ? farmScrapeState() : { dead: false, misses: 0 };
       const on = !!state.farmScrape;
@@ -22116,37 +19330,6 @@ const STORE = {
         warn: (cfg.auto && !tpl) || (cfg.auto && paused),
         detail: `auto ${cfg.auto ? 'ON' : 'OFF'}, tpl ${tpl ? state.supportTpl.action_name : 'SIN aprender (envia un apoyo a mano)'}` +
           `, confirmar>${cfg.confirmThreshold}, ${ledger} ventana(s) en registro` + (paused ? ', CAPTCHA' : ''),
-      };
-    }));
-    out.push(preflightProbe('refuerzos: pestana manual', () => {
-      const plan = rfPlan();
-      const tpl = !!(state.supportTpl && state.supportTpl.action_name);
-      const target = plan.targetId ? rfResolveTarget(plan) : null;
-      const sources = Array.isArray(plan.sourceTownIds) ? plan.sourceTownIds.length : (state.towns || []).length;
-      let ready = 0;
-      if (target) {
-        try {
-          ready = rfBuildSchedule(plan).rows.filter(r => r.unitCount && r.boats.ok).length;
-        } catch (_) { ready = 0; }
-      }
-      return {
-        ok: true,
-        warn: !!plan.targetId && !target,
-        detail: `ayuda ${RF_MODE_ES[plan.helpMode] || plan.helpMode}, destino ${plan.targetId ? (target ? '#' + target.town_id : 'NO resuelto') : 'sin fijar'}`
-          + `, ${sources} origen(es), ${ready} listo(s), ruta ${tpl ? 'plantilla ' + state.supportTpl.action_name : 'canonica town_info/send_units'}`,
-      };
-    }));
-    out.push(preflightProbe('espionaje: envio manual', () => {
-      const cfg = spsCfg();
-      const src = spsSourceTownId(cfg);
-      const cave = src ? spsCaveSilver(src) : { stored: null, hideLvl: null };
-      const plan = spsPlan();
-      return {
-        ok: true,
-
-        warn: cave.stored == null,
-        detail: `modo ${cfg.mode === 'bulk' ? 'masivo' : 'rapido'}, origen ${src ? '#' + src : '-'}, cueva ${cave.stored == null ? 'ILEGIBLE' : cave.stored + ' plata'}`
-          + `, ${plan.error ? 'plan: ' + plan.error : 'plan listo (~' + plan.total + ' plata)'}`,
       };
     }));
     out.push(preflightProbe('adaptive farm', () => {
@@ -22435,27 +19618,10 @@ const STORE = {
       const trains = (typeof csWaveClusters === 'function' ? (csWaveClusters(mv) || []) : []);
       const unknown = trains.reduce((n, t) => n + (t.unknownArrival || 0), 0);
 
-      let total = 0, dropped = [];
-      try {
-        const models = mmModelsAll('MovementsUnits');
-        total = models.length;
-        const mine = new Set(Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}).map(String));
-        const kept = new Set(mv.map(x => String(x.id)));
-        for (const m of models) {
-          const a = m.attributes || {};
-          const dest = String(a.destination_town_id || a.target_town_id || '');
-          if (!mine.has(dest)) continue;
-          if (kept.has(String(a.id || m.id))) continue;
-          const t = gbMovementType(a) || '?';
-          if (!dropped.includes(t)) dropped.push(t);
-        }
-      } catch (_) { total = -1; }
       return {
         ok: true,
-        warn: unknown > 0 || total === 0,
-        detail: `${mv.length} incoming movements visible de ${total < 0 ? '\u2014' : total} MovementsUnits`
-          + `, ${trains.length} tren(es), ${unknown} sin hora de llegada legible`
-          + (dropped.length ? `; descartados en mis ciudades: ${dropped.join(',')}` : ''),
+        warn: unknown > 0,
+        detail: `${mv.length} incoming movements visible, ${trains.length} tren(es), ${unknown} sin hora de llegada legible`,
       };
     }));
     out.push(preflightProbe('quests', () => {
@@ -23559,24 +20725,6 @@ const STORE = {
     body.appendChild(plan.box);
     plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? `Reanudar ${label.toLowerCase()}` : `Pausar ${label.toLowerCase()}`, () => nativeQueueTogglePaused(townId, lane)));
     if (!list.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador autom\u00e1tico', () => nativeQueueUseLegacy(townId, lane)));
-    if (list.length >= 2) plan.head.appendChild(queueCenterButton('Compactar', 'Fusionar entradas adyacentes del mismo tipo en la cola virtual', () => {
-      const n = nativeQueueCompactRecruit(townId, lane);
-      flash(n ? `Compactadas ${n} entradas en ${label.toLowerCase()}` : 'No hay entradas adyacentes iguales para fusionar');
-    }));
-
-    if (list[0] && list[0].unit) {
-      const headUnit = list[0].unit;
-      const totalInp = document.createElement('input'); totalInp.type = 'number'; totalInp.min = '1'; totalInp.value = '200'; totalInp.title = `Total de unidades a encolar (${nativeUnitLabel(headUnit)})`; totalInp.className = 'gb-native-qinp';
-      const sep = document.createElement('span'); sep.textContent = '/'; sep.style.color = '#666';
-      const chunkInp = document.createElement('input'); chunkInp.type = 'number'; chunkInp.min = '1'; chunkInp.value = '50'; chunkInp.title = 'Tama\u00f1o de cada lote al servidor'; chunkInp.className = 'gb-native-qinp';
-      const lotBtn = queueCenterButton('+Lote', `Encolar el total en lotes del tama\u00f1o indicado; la fila se quita sola al agotarse`, () => {
-        const r = nativeQueueAddRecruitBatch(townId, headUnit, +totalInp.value || 0, +chunkInp.value || 0);
-        if (r && r.ok) flash(`Lote encolado en ${label.toLowerCase()}: ${r.total} en ${r.lotes} env\u00edo(s) de ${r.chunk}`);
-        else flash((r && r.why) || 'no se pudo encolar el lote');
-      });
-      const wrap = document.createElement('span'); wrap.className = 'gb-qc-batch'; wrap.append(totalInp, sep, chunkInp, lotBtn);
-      plan.head.appendChild(wrap);
-    }
     if (!list.length) { plan.box.appendChild(queueCenterEmpty(fifo ? `No hay \u00f3rdenes ${wantNaval ? 'navales' : 'terrestres'} pendientes. A\u00f1\u00e1delas con + desde ${label}.` : 'Esta ciudad usa objetivos autom\u00e1ticos.')); return; }
     plan.box.appendChild(queueCenterSequence(`Orden FIFO \u00b7 ${label}`, list.map((j, i) => ({
       text: `#${i + 1} ${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`,
@@ -23617,8 +20765,7 @@ const STORE = {
 
   function queueCenterUserBusy() {
     const w = gbQueueCenter, a = document.activeElement;
-    if (!w || !a || a === document.body || !w.contains(a)) return false;
-    return a.tagName === 'SELECT' || a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable === true;
+    return !!(w && a && a !== document.body && a.tagName === 'SELECT' && w.contains(a));
   }
 
   function renderQueueCenter() {
@@ -24044,9 +21191,6 @@ const STORE = {
     ]},
     { id: 'military', label: 'Militar', tabs: [
       { id: 'attack', label: 'Ataques' },
-      { id: 'reinforce', label: 'Refuerzos' },
-      { id: 'train', label: 'Entrenamiento' },
-      { id: 'spy', label: 'Espionaje' },
       { id: 'intel', label: 'Inteligencia' },
     ]},
     { id: 'system', label: 'Sistema', tabs: [
@@ -24176,20 +21320,14 @@ const STORE = {
     });
     if (same) {
       if (tabId === 'attack') renderAttack();
-      else if (tabId === 'reinforce') renderReinforce();
-      else if (tabId === 'spy') renderSpySend();
       else if (tabId === 'log') { renderLog(); renderJournal(); }
       else if (tabId === 'stats') renderStats();
       else if (tabId === 'overview') renderOverview();
       else if (tabId === 'intel') renderIntel();
-      else if (tabId === 'train') renderTrain();
       else if (tabId === 'config') { bindConfig(); renderCaveTowns(); }
       return;
     }
     if (tabId === 'attack') { bindAttackTab(); renderAttack(); }
-    if (tabId === 'reinforce') { bindReinforceTab(); renderReinforce(); }
-    if (tabId === 'spy') { bindSpyTab(); renderSpySend(); }
-    if (tabId === 'train') { bindTrainTab(); renderTrain(); }
     if (tabId === 'config') { bindConfig(); renderCaveTowns(); }
     if (tabId === 'overview') renderOverview();
     if (tabId === 'intel') renderIntel();
@@ -24432,19 +21570,10 @@ const STORE = {
     #grepbot-panel .atk-sched{max-height:160px;overflow:auto;margin-top:6px}
     #grepbot-panel .atk-sources{max-height:80px;overflow:auto;display:flex;flex-wrap:wrap;gap:4px 8px;margin:4px 0}
     #grepbot-panel .atk-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
-    /* display:flex beats the UA sheet rule for [hidden], so a row the renderer
-       hides with .hidden = true stayed on screen. */
-    #grepbot-panel .atk-row[hidden]{display:none}
     #grepbot-panel .atk-row input,#grepbot-panel .atk-row select{background:var(--gb-input-bg);color:var(--gb-input-fg);border:1px solid var(--gb-chrome);padding:2px 4px;font:11px monospace}
     #grepbot-panel .atk-btns button{background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);padding:3px 8px;border-radius:3px;cursor:pointer;font-size:11px;margin-right:4px}
     #grepbot-panel .atk-btns #gb-atk-now{color:var(--gb-warn-3)}
     #grepbot-panel .atk-btns #gb-atk-arm{color:var(--gb-link)}
-    #grepbot-panel .atk-btns #gb-rf-now,#grepbot-panel .atk-btns #gb-sp-run{color:var(--gb-warn-3)}
-    #grepbot-panel .atk-btns #gb-rf-arm{color:var(--gb-link)}
-    #grepbot-panel .atk-btns button:disabled{opacity:.45;cursor:not-allowed}
-    #grepbot-panel #gb-rf-src-all,#grepbot-panel #gb-rf-src-none,#grepbot-panel #gb-rf-src-off,#grepbot-panel #gb-rf-src-def{background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);padding:1px 6px;cursor:pointer;font-size:10px}
-    #grepbot-panel .rf-sched{max-height:180px;overflow:auto;margin-top:6px}
-    #grepbot-panel .sp-hist{font-size:10px}
     #grepbot-panel .atk-harass button,#grepbot-panel .atk-roles button,#grepbot-panel #gb-atk-src-all,#grepbot-panel #gb-atk-src-none,#grepbot-panel #gb-atk-src-off,#grepbot-panel #gb-atk-src-def,#grepbot-panel #gb-atk-cmds-refresh,#grepbot-panel #gb-atk-heroes-refresh,#grepbot-panel #gb-atk-comp-refresh,#grepbot-panel #gb-atk-colony-refresh,#grepbot-panel #gb-plan-import,#grepbot-panel #gb-plan-export,#grepbot-panel #gb-plan-clear,#grepbot-panel .atk-colony button,#grepbot-panel .atk-comp button,#grepbot-panel .atk-cmds button,#grepbot-panel .atk-heroes button{background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);padding:1px 6px;cursor:pointer;font-size:10px}
     #grepbot-panel .atk-cmds button:disabled,#grepbot-panel .atk-heroes button:disabled{opacity:.45;cursor:not-allowed}
     #grepbot-panel .quest-list{max-height:200px;overflow:auto;font-size:10px}
@@ -24666,149 +21795,6 @@ const STORE = {
       </div>
       <div class="atk-comp" style="max-height:200px;overflow:auto"></div>
     </section>
-    <section data-tab="reinforce" hidden>
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-        <b style="font-size:11px;color:#5be">Refuerzos</b>
-        <span id="gb-rf-skew" style="font-size:9px;color:#888"></span>
-        <span id="gb-rf-armed" style="font-size:10px;color:#f96;font-weight:bold;margin-left:auto"></span>
-      </div>
-      <div class="atk-row">
-        <label data-gb-tip="ID de la ciudad que recibe el refuerzo (propia o aliada)">destino <input data-rf="target" style="width:70px" placeholder="town id"/></label>
-        <select data-rf="pick" title="Ciudades propias y objetivos conocidos" style="max-width:170px"></select>
-        <label data-gb-tip="Coordenada X (isla) del destino">x <input data-rf="x" style="width:40px"/></label>
-        <label data-gb-tip="Coordenada Y (isla) del destino">y <input data-rf="y" style="width:40px"/></label>
-      </div>
-      <div id="gb-rf-target-hint" style="font-size:9px;color:#888;margin:-2px 0 4px"></div>
-      <div class="atk-row">
-        <select data-rf="help" data-gb-tip="Que ayuda enviar: solo tropas de tierra, solo barcos de guerra, ambas, un tipo concreto, o editar por ciudad">
-          <option value="both">ayuda: ambas</option>
-          <option value="land">ayuda: terrestre</option>
-          <option value="naval">ayuda: naval</option>
-          <option value="all_of_type">ayuda: todo el tipo</option>
-          <option value="per_town">ayuda: editar por ciudad</option>
-        </select>
-        <label style="display:flex;align-items:center;gap:3px">unidad
-          <select data-rf="unit-type" title="solo se usa con el modo 'todo el tipo'"></select>
-        </label>
-        <label data-gb-tip="Unidades de cada tipo que se quedan en casa (reserva minima por ciudad de origen)">reserva <input data-rf="floor" type="number" min="0" style="width:50px" value="0"/></label>
-      </div>
-      <div class="atk-row">
-        <select data-rf="timing" data-gb-tip="Cuando enviar: ahora o para llegar a una hora concreta"><option value="send_now">enviar ya</option><option value="arrive_at">llegar a las</option></select>
-        <input data-rf="arrival" type="datetime-local" step="1" title="llegada (hora local)"/>
-        <label data-gb-tip="Retraso en ms aplicado al envio">pad ms <input data-rf="pad" type="number" style="width:50px" value="200"/></label>
-      </div>
-      <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:4px">
-        <span style="font-size:9px;color:#888">enviar desde</span>
-        <button type="button" id="gb-rf-src-all" data-gb-tip="Marcar todas las ciudades propias como origen">Todo</button>
-        <button type="button" id="gb-rf-src-none" data-gb-tip="Desmarcar todas las ciudades">Ninguno</button>
-        <button type="button" id="gb-rf-src-def" data-gb-tip="Solo ciudades con rol defensivo (roles de la pestana Ataques)">Defensa</button>
-        <button type="button" id="gb-rf-src-off" data-gb-tip="Solo ciudades con rol ofensivo">Ofensiva</button>
-      </div>
-      <div class="rf-sources atk-sources"></div>
-      <div class="rf-pertown" hidden></div>
-      <div class="atk-btns" style="margin-top:6px">
-        <button id="gb-rf-preview" data-gb-tip="Calcular marcha, transporte y hora de envio; no envia nada">Previsualizar</button>
-        <button id="gb-rf-arm" data-gb-tip="Armar el refuerzo para que salga a la hora calculada">Armar</button>
-        <button id="gb-rf-cancel" data-gb-tip="Cancelar el refuerzo armado">Cancelar</button>
-        <button id="gb-rf-now" data-gb-tip="Enviar el refuerzo de inmediato">Enviar ya</button>
-      </div>
-      <div id="gb-rf-tpl" style="font-size:9px;color:#888;margin-top:4px"></div>
-      <div class="rf-sched atk-sched"></div>
-    </section>
-    <section data-tab="train" hidden>
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-        <b style="font-size:11px;color:#5be">Entrenamiento</b>
-        <span id="gb-tr-state" style="font-size:9px;color:#888"></span>
-      </div>
-      <div class="atk-row">
-        <button type="button" data-tr="auto" data-gb-tip="Mismo ajuste que 'Reclutamiento automatico' en Ajustes. Repone los objetivos permanentes de abajo en cada ciclo del orquestador">Reposicion automatica: \u2014</button>
-        <button type="button" data-tr="batch" data-gb-tip="Mismo ajuste que 'Lote de reclutamiento' en Ajustes. Dispara la lista entera de una vez, todo-o-nada, y se re-arma tras cada disparo">Lote recurrente: \u2014</button>
-      </div>
-      <div style="font-size:10px;color:var(--gb-fg-soft2);margin:6px 0 2px">
-        <b style="color:#5be">Objetivos permanentes</b> \u2014 el bot mantiene cada unidad en la cantidad fijada y vuelve a reclutar en cuanto baja (tropas en casa + fuera + cola).
-      </div>
-      <div class="atk-row">
-        <label data-gb-tip="Ciudad a la que se le fija el objetivo">ciudad <select data-tr="tgt-town" style="max-width:170px"></select></label>
-        <label data-gb-tip="Unidad a mantener (cuartel, puerto o templo segun la unidad)">unidad <select data-tr="tgt-unit" style="max-width:150px"></select></label>
-        <label data-gb-tip="Cantidad a mantener. 0 quita el objetivo">objetivo <input data-tr="tgt-amount" type="number" min="0" max="100000" step="1" style="width:70px" value="50"/></label>
-        <button type="button" data-tr="tgt-add" data-gb-tip="Fija o actualiza el objetivo de esa unidad en esa ciudad">Fijar</button>
-        <button type="button" data-tr="tgt-clear" data-gb-tip="Borra todos los objetivos de la ciudad seleccionada">Borrar ciudad</button>
-      </div>
-      <div id="gb-tr-targets" style="max-height:200px;overflow:auto"></div>
-      <div id="gb-tr-note" style="font-size:9px;color:#888;margin-top:4px"></div>
-      <div style="font-size:10px;color:var(--gb-fg-soft2);margin:8px 0 2px">
-        <b style="color:#5be">Packs de entrenamiento</b> \u2014 varias unidades a la vez (espada + arquero + birreme). Al aplicarlo, el pack se escribe en el lote de la ciudad y se entrena entero de una tacada.
-      </div>
-      <div class="atk-row">
-        <select data-tr="pack" style="max-width:170px" data-gb-tip="Pack seleccionado"></select>
-        <input data-tr="pack-name" placeholder="nombre del pack" style="width:130px" data-gb-tip="Nombre para Nuevo o para Desde el lote"/>
-        <button type="button" data-tr="pack-new" data-gb-tip="Crea un pack vacio con ese nombre">Nuevo</button>
-        <button type="button" data-tr="pack-from-town" data-gb-tip="Guarda como pack el lote de la ciudad elegida abajo">Desde el lote</button>
-        <button type="button" data-tr="pack-del" data-gb-tip="Borra el pack seleccionado (no toca los lotes ya aplicados)">Borrar</button>
-      </div>
-      <div class="atk-row">
-        <label data-gb-tip="Unidad a anadir al pack">unidad <select data-tr="pack-unit" style="max-width:150px"></select></label>
-        <label data-gb-tip="Cantidad por disparo del lote">cantidad <input data-tr="pack-amount" type="number" min="1" max="10000" step="1" style="width:70px" value="10"/></label>
-        <button type="button" data-tr="pack-add" data-gb-tip="Anade la unidad al pack (si ya estaba, actualiza la cantidad)">+ unidad</button>
-      </div>
-      <div id="gb-tr-pack-rows"></div>
-      <div class="atk-row">
-        <label data-gb-tip="Ciudad destino del pack">aplicar a <select data-tr="pack-town" style="max-width:170px"></select></label>
-        <select data-tr="pack-mode" data-gb-tip="Reemplazar deja en el lote solo el pack; sumar conserva lo que ya hubiera">
-          <option value="replace">reemplazar el lote</option>
-          <option value="append">sumar al lote</option>
-        </select>
-        <button type="button" data-tr="pack-apply" data-gb-tip="Escribe el pack en el lote de la ciudad (o de todas)">Aplicar</button>
-      </div>
-      <div id="gb-tr-pack-note" style="font-size:9px;color:#888;margin-top:4px"></div>
-      <div style="font-size:10px;color:var(--gb-fg-soft2);margin:8px 0 2px">
-        <b style="color:#5be">Lote recurrente</b> \u2014 lista fija por ciudad que se dispara entera solo cuando recursos Y poblacion cubren el lote completo. No se consume: se re-arma tras cada disparo.
-      </div>
-      <div class="atk-row">
-        Ciudad <select data-cfg="batch-recruit-town" style="min-width:160px"></select>
-        <button type="button" data-cfg="batch-recruit-add" data-gb-tip="Anade una linea nueva a la lista de la ciudad seleccionada">+ linea</button>
-        <button type="button" data-cfg="batch-recruit-arm" data-gb-tip="Lanza el chequeo ahora (sin esperar al proximo ciclo del orch)">armar todo</button>
-        <button type="button" data-cfg="batch-recruit-clear" data-gb-tip="Borra la lista de la ciudad seleccionada">desarmar</button>
-      </div>
-      <div id="gb-batch-recruit-rows"></div>
-      <div id="gb-batch-recruit-summary" style="font-size:10px;color:#888;margin-top:2px"></div>
-    </section>
-    <section data-tab="spy" hidden>
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-        <b style="font-size:11px;color:#5be">Espionaje</b>
-        <span id="gb-sp-cave" style="font-size:9px;color:#888"></span>
-      </div>
-      <div class="atk-row">
-        <label data-gb-tip="Ciudad de origen: la plata sale de SU cueva">origen <select data-sp="src" style="max-width:150px"></select></label>
-        <label data-gb-tip="ID de la ciudad a espiar (no puede ser propia)">objetivo <input data-sp="target" style="width:70px" placeholder="town id"/></label>
-        <select data-sp="pick" title="Objetivos conocidos de informes e historial" style="max-width:150px"></select>
-      </div>
-      <div class="atk-row">
-        <select data-sp="mode" data-gb-tip="Rapido: varias rafagas pequenas. Masivo: un unico envio grande">
-          <option value="rapid">modo rapido (rafagas)</option>
-          <option value="bulk">modo masivo (un envio)</option>
-        </select>
-        <label data-gb-tip="Espera entre rafagas en ms (se le suma un jitter aleatorio)">pausa ms <input data-sp="gap" type="number" min="300" style="width:60px" value="1200"/></label>
-      </div>
-      <div class="sp-rapid atk-row">
-        <label data-gb-tip="Plata por rafaga">plata/rafaga <input data-sp="chunk" type="number" min="1" style="width:70px" value="1000"/></label>
-        <label data-gb-tip="Numero de rafagas. 0 = hasta vaciar la cueva (necesita leer la plata)">rafagas <input data-sp="waves" type="number" min="0" style="width:50px" value="5"/></label>
-        <label style="display:flex;align-items:center;gap:3px" data-gb-tip="Parar en cuanto la cueva se quede sin plata"><input data-sp="until" type="checkbox"/> hasta vaciar</label>
-      </div>
-      <div class="sp-bulk atk-row" hidden>
-        <label style="display:flex;align-items:center;gap:3px" data-gb-tip="Enviar toda la plata de la cueva en un solo espionaje"><input data-sp="bulk-all" type="checkbox"/> toda la plata</label>
-        <label data-gb-tip="Cantidad exacta de plata a enviar">cantidad <input data-sp="bulk-amount" type="number" min="0" style="width:80px"/></label>
-      </div>
-      <div id="gb-sp-plan" style="font-size:10px;color:#ccc;margin:2px 0"></div>
-      <div class="atk-btns" style="margin-top:4px">
-        <button id="gb-sp-run" data-gb-tip="Confirmar y enviar el espionaje">Espiar</button>
-        <button id="gb-sp-stop" data-gb-tip="Parar tras la rafaga en curso">Detener</button>
-        <button id="gb-sp-clear" data-gb-tip="Vaciar el historial de espionajes">Vaciar historial</button>
-      </div>
-      <div id="gb-sp-progress" style="font-size:10px;color:#8ac;margin-top:4px"></div>
-      <div style="font-size:9px;color:#888;margin-top:6px">historial</div>
-      <div class="sp-hist" style="max-height:140px;overflow:auto"></div>
-    </section>
     <section data-tab="overview" hidden>
       <div style="font-size:15px;font-weight:750;margin-bottom:2px">Resumen de la cuenta</div>
       <div style="font-size:10px;color:#939ba7;margin-bottom:4px">Estado, pr\u00f3ximas acciones y bloqueos importantes sin entrar en configuraci\u00f3n avanzada.</div>
@@ -24886,23 +21872,6 @@ const STORE = {
             </select>
           </label>
           <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Pedir cobros de 10 min en aldeas donde la lealtad esta investigada"><input type="checkbox" data-cfg="farm-long-claims"/> Cobros de 10 min donde la lealtad de aldeanos esta investigada</label>
-          <label class="gb-cfg-num gb-cfg-sub" title="La aldea tiene dos mitades: recursos y unidades. Con 'al agotarse los recursos' la aldea pasa a pedir unidades el resto del dia en cuanto el servidor rechaza el cobro de recursos (tope diario alcanzado). Las unidades ocupan poblacion.">Cobrar unidades en aldeas
-            <select class="gb-cfg-input" data-cfg="farm-units-mode" data-gb-tip="Cuando pedir unidades en vez de recursos">
-              <option value="off">nunca (solo recursos)</option>
-              <option value="fallback">al agotarse los recursos del dia</option>
-              <option value="always">siempre (solo unidades)</option>
-            </select>
-          </label>
-          <label class="gb-cfg-num gb-cfg-sub" title="Que carta de unidad pedir. 'automatica' elige la carta de mas valor que la ciudad puede aceptar (poblacion libre y edificio requerido); 'aprendida' repite la que pulsaste a mano.">Unidad a pedir
-            <select class="gb-cfg-input" data-cfg="farm-units-pref" data-gb-tip="Unidad que se pide en la mitad de unidades de la aldea">
-              <option value="auto">automatica (mejor valor)</option>
-              <option value="learned">aprendida (pulsa una vez a mano)</option>
-              <option value="sword">Espadachin</option>
-              <option value="slinger">Hondero</option>
-              <option value="archer">Arquero</option>
-              <option value="hoplite">Hoplita</option>
-            </select>
-          </label>
           <label class="gb-cfg-row gb-cfg-sub" title="Bajo presion (captcha, enfriamiento del servidor o presupuesto justo) recorta la lista de aldeas en vez de ampliar la cadencia, y reclama primero las mas rentables."><input type="checkbox" data-cfg="adaptive-farm"/> Recoleccion adaptativa bajo presion</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Porcentaje de aldeas a descartar bajo presion (de menos rentable a mas)">Descartar bajo presion <input class="gb-cfg-input" type="number" data-cfg="farm-drop-pct" min="0" max="90" style="width:45px"/> %</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="ID o nombre exacto de la investigacion de lealtad (la pestana Registro lo vuelca si la deteccion automatica falla)">Clave de la investigacion de lealtad
@@ -24921,7 +21890,6 @@ const STORE = {
           </label>
           <label class="gb-cfg-num gb-cfg-sub" title="Segundos de marcha por unidad de coordenada de isla. El juego no expone la formula de marcha, asi que 0 (por defecto) deja el ranking res/min independiente de la distancia.">Segundos de marcha por unidad de isla <input class="gb-cfg-input" type="number" data-cfg="farm-travel" min="0" max="600" step="0.5" style="width:60px"/></label>
           <div id="gb-farm-optmap" class="gb-cfg-note" data-gb-tip="Mapa aprendido: que opcion de cobro usa cada duracion (5min, 10min, ...) en este mundo"></div>
-          <button data-cfg="farm-forget-options" class="gb-cfg-btn gb-cfg-sub" title="Borra el mapa de opciones aprendido (recursos y unidades) y reactiva la plantilla de cobro. Usalo si los cobros fallan seguido: vuelve a pulsar cada duracion una vez a mano para reaprenderlas.">Olvidar opciones de cobro aprendidas</button>
           <label class="gb-cfg-row" title="Lee los recursos de cada aldea por HTTP. Solo funciona en mundos cuyo cliente responde a una accion farm_town_*. Si no, cada barrido gasta el presupuesto de peticiones sin devolver nada y se apaga solo."><input type="checkbox" data-cfg="farm-scrape"/> Escanear recursos de aldeas (HTTP)</label>
           <label class="gb-cfg-num" data-gb-tip="Cadencia del escaneo de aldeas: minimo y maximo en minutos">Cadencia de aldeas min-max (min) <input class="gb-cfg-input" type="number" data-cfg="farm-min" min="1" max="60" style="width:50px"/> - <input class="gb-cfg-input" type="number" data-cfg="farm-max" min="1" max="60" style="width:50px"/></label>
           <label class="gb-cfg-num" data-gb-tip="Cadencia del escaneo de ciudades: minimo y maximo en minutos">Cadencia de ciudades min-max (min) <input class="gb-cfg-input" type="number" data-cfg="town-min" min="1" max="60" style="width:50px"/> - <input class="gb-cfg-input" type="number" data-cfg="town-max" min="1" max="60" style="width:50px"/></label>
@@ -25102,15 +22070,14 @@ const STORE = {
             cantidad por tick
             <input class="gb-cfg-input" type="number" data-cfg="village-recruit-amount" min="1" max="20" style="width:50px" data-gb-tip="Cantidad de aldeanos a reclutar por tick"/>
           </label>
-          <label class="gb-cfg-row gb-cfg-risk" data-gb-tip="Recluta todas las unidades de la lista de una sola vez. Solo se dispara cuando los recursos Y la poblacion cubren el lote entero a la vez (todo-o-nada). Si falta aunque sea una unidad, no se envia nada. Lista persistente por ciudad: el ciclo re-arms tras cada disparo."><input type="checkbox" data-cfg="batch-recruit"/> Lote de reclutamiento (todo-o-nada)</label>
-          <div class="gb-cfg-note gb-cfg-sub">El editor por ciudad (objetivos permanentes y lineas del lote) vive en Militar &rarr; Entrenamiento.</div>
         `, false, 'risk')}
         ${gbCfgGroup('Premium y favor (ALTO RIESGO)', `
-          <label class="gb-cfg-row" data-gb-tip="Compra las UNIDADES del barco mercante que estan en la lista de deseos, al precio exacto o menor. Se paga con el recurso de cambio del barco (plata), no con oro."><input type="checkbox" data-cfg="auto-merchant"/> Francotirador del mercader (unidades)</label>
-          <label class="gb-cfg-row" title="Cambia plata por madera/piedra en el barco mercante cuando el ratio de la visita llega al minimo pedido. El ratio de la visita es fijo: no hay bombeo."><input type="checkbox" data-cfg="auto-pt-trade"/> Cambio de recursos del barco mercante</label>
-          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Parametros del cambio de recursos">ratio minimo <input class="gb-cfg-input" type="number" step="0.1" min="0.5" max="5" data-cfg="pt-ratio" style="width:52px" data-gb-tip="Recurso recibido por cada unidad de plata gastada. Por debajo de esto no se cambia nada."/>
-            cantidad minima <input class="gb-cfg-input" type="number" min="1" max="10000" data-cfg="pt-pump" style="width:52px" data-gb-tip="Cambio mas pequeno que merece la pena enviar"/>
-            reserva % <input class="gb-cfg-input" type="number" min="0" max="90" data-cfg="pt-reserve" style="width:52px" data-gb-tip="Reserva % sobre el stock que no se gasta"/>
+          <label class="gb-cfg-row" data-gb-tip="Comprar el item exacto que sale en el mercader (precio exacto)"><input type="checkbox" data-cfg="auto-merchant"/> Francotirador del mercader</label>
+          <label class="gb-cfg-row" title="Las ofertas de recursos del barco mercante empiezan en 0.5:1 y suben +0.1 por trato. Bombea con tratos de 1 unidad y luego envia el trato grande a 1:1."><input type="checkbox" data-cfg="auto-pt-trade"/> Bombeo del ratio del barco mercante</label>
+          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Parametros del bombeo del ratio">ratio objetivo <input class="gb-cfg-input" type="number" step="0.1" min="0.5" max="2" data-cfg="pt-ratio" style="width:52px" data-gb-tip="Ratio al que se desea llegar antes del trato grande"/>
+            cantidad de bombeo <input class="gb-cfg-input" type="number" min="1" max="100" data-cfg="pt-pump" style="width:52px" data-gb-tip="Unidades por cada trato de bombeo"/>
+            bombeos max. <input class="gb-cfg-input" type="number" min="0" max="20" data-cfg="pt-maxpumps" style="width:52px" data-gb-tip="Numero maximo de bombeos antes de parar"/>
+            reserva % <input class="gb-cfg-input" type="number" min="0" max="90" data-cfg="pt-reserve" style="width:52px" data-gb-tip="Reserva % sobre el stock que no se bombea"/>
           </label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Recursos que el bot acepta recibir en el barco mercante">recibir
             <label data-gb-tip="Aceptar madera"><input type="checkbox" data-cfg="pt-want-wood"/> madera</label>
@@ -25188,7 +22155,6 @@ const STORE = {
           <button type="button" data-act="scrape-farms" data-gb-tip="Forzar el escaneo de aldeas ahora (ignora la cadencia)">Granjas ahora</button>
           <button type="button" data-act="scrape-towns" data-gb-tip="Forzar el escaneo de ciudades ahora (ignora la cadencia)">Ciudades ahora</button>
           <button type="button" data-act="diag" data-gb-tip="Volcar diagnostico de bridge y estado de partidas">Diagnostico</button>
-          <button type="button" data-act="diag-farms" title="Vuelca en el Registro, por aldea: cupo diario restante, marca de agotado, tipo de cobro elegido y la carta de unidad. Solo lectura, no envia nada.">Diagnostico de aldeas</button>
           <button type="button" data-act="preflight" data-gb-tip="Probar todos los modulos sin enviar nada (solo lectura)">Comprobar sistema</button>
           <button type="button" data-act="evidence" title="Instantanea de solo lectura y anonimizada para las validaciones de TASKS. Copia JSON. No envia nada.">Evidencia</button>
           <button type="button" data-act="bundle" title="Copia TODO en un solo texto: evidencia, configuracion, bitacora de decisiones, log, hallazgos, puente y preflight. Respeta la opcion de anonimizado. No envia nada.">Copiar todo</button>
@@ -25598,10 +22564,6 @@ const STORE = {
   panel.querySelector('footer button[data-act=diag]').addEventListener('click', () => {
     diagRun();
   });
-  panel.querySelector('footer button[data-act=diag-farms]')?.addEventListener('click', () => {
-    showTab('log');
-    farmClaimDiag(12);
-  });
   panel.querySelector('footer button[data-act=preflight]')?.addEventListener('click', () => {
     showTab('stats');
     preflightRunAndRender();
@@ -25635,17 +22597,10 @@ const STORE = {
     const sd = sec.querySelector('[data-cfg=farm-sleep-dur]'); if (sd) sd.value = String(state.farmSleepDur || 'auto');
     const sa = sec.querySelector('[data-cfg=farm-sleep-auto]'); if (sa) sa.checked = !!state.farmSleepAuto;
     const sf = sec.querySelector('[data-cfg=farm-sleep-fill]'); if (sf) sf.value = state.farmSleepFillPct;
-    const um = sec.querySelector('[data-cfg=farm-units-mode]'); if (um) um.value = String(state.farmUnitsMode || 'off');
-    const up = sec.querySelector('[data-cfg=farm-units-pref]'); if (up) up.value = String(state.farmUnitsPref || 'auto');
     const om = sec.querySelector('#gb-farm-optmap');
     if (om) {
-      const sample = (farmsFromGame() || [])[0] || null;
-      const uOpt = farmUnitOption(sample);
-      const dup = farmOptionMapConflicts();
       om.textContent = 'learned claim options: ' + farmOptionMapText() +
-        (dup ? ' | CONFLICTO: ' + dup + ' comparten opcion - pulsa Olvidar y reaprende' : '') +
-        ' (claim a timer by hand in game to teach the rest)' +
-        ' | units: ' + (uOpt == null ? 'not learned' : uOpt + ' (' + (farmUnitIdFor(uOpt) || '?') + ')');
+        ' (claim a timer by hand in game to teach the rest)';
     }
   }
   function bindConfig() {
@@ -25785,19 +22740,6 @@ const STORE = {
       state.farmLongClaims = e.target.checked; save(STORE.FARM_LONG_CLAIMS, state.farmLongClaims);
       gbLog('farm 10min claims', state.farmLongClaims ? 'ON' : 'OFF');
     });
-    onCfg('[data-cfg=farm-units-mode]', 'change', e => {
-      const v = String(e.target.value || 'off');
-      state.farmUnitsMode = /^(off|fallback|always)$/.test(v) ? v : 'off';
-      save(STORE.FARM_UNITS_MODE, state.farmUnitsMode);
-      gbLog('farm unit claims:', state.farmUnitsMode);
-      syncFarmTimingCfg(sec);
-    });
-    onCfg('[data-cfg=farm-units-pref]', 'change', e => {
-      state.farmUnitsPref = String(e.target.value || 'auto');
-      save(STORE.FARM_UNITS_PREF, state.farmUnitsPref);
-      gbLog('farm unit claim card:', state.farmUnitsPref);
-      syncFarmTimingCfg(sec);
-    });
     onCfg('[data-cfg=farm-scrape]', 'change', e => {
       state.farmScrape = e.target.checked; save(STORE.FARM_SCRAPE, state.farmScrape);
       if (state.farmScrape) farmScrapeRevive('config ON');
@@ -25905,6 +22847,7 @@ const STORE = {
       const want = c.wantRes || {};
       setNum('[data-cfg=pt-ratio]', c.targetRatio != null ? c.targetRatio : 1);
       setNum('[data-cfg=pt-pump]', c.pumpAmount != null ? c.pumpAmount : 1);
+      setNum('[data-cfg=pt-maxpumps]', c.maxPumps != null ? c.maxPumps : 6);
       setNum('[data-cfg=pt-reserve]', c.reservePct != null ? c.reservePct : 10);
       setChk('[data-cfg=pt-want-wood]', want.wood !== false);
       setChk('[data-cfg=pt-want-stone]', want.stone !== false);
@@ -26079,6 +23022,7 @@ const STORE = {
     };
     saveNum('[data-cfg=pt-ratio]', v => savePt('targetRatio', Math.min(2, Math.max(0.5, v || 1))));
     saveNum('[data-cfg=pt-pump]', v => savePt('pumpAmount', Math.max(1, Math.floor(v || 1))));
+    saveNum('[data-cfg=pt-maxpumps]', v => savePt('maxPumps', Math.min(20, Math.max(0, Math.floor(v || 0)))));
     saveNum('[data-cfg=pt-reserve]', v => savePt('reservePct', Math.min(90, Math.max(0, Math.floor(v || 0)))));
     const savePtWant = () => {
       savePt('wantRes', {
@@ -26109,7 +23053,7 @@ const STORE = {
     bindToggle('[data-cfg=cs-alert]', 'csAlert', STORE.CS_ALERT);
     bindToggle('[data-cfg=auto-militia]', 'autoMilitia', STORE.AUTO_MILITIA);
     bindToggle('[data-cfg=auto-dodge]', 'autoDodge', STORE.AUTO_DODGE);
-    bindToggle('[data-cfg=auto-recruit]', 'autoRecruit', STORE.AUTO_RECRUIT, () => { try { renderTrain(); } catch (_) {} recruitScan('toggle'); });
+    bindToggle('[data-cfg=auto-recruit]', 'autoRecruit', STORE.AUTO_RECRUIT, () => recruitScan('toggle'));
     bindToggle('[data-cfg=village-recruit]', 'autoVillageRecruit', STORE.AUTO_VILLAGE_RECRUIT, () => villageRecruitScan('toggle'));
     saveNum('[data-cfg=village-recruit-fill]', v => {
       state.villageRecruitFillPct = gbCfgClamp(v, 50, 99, 90);
@@ -26420,18 +23364,6 @@ const STORE = {
       save(STORE.POSTS_SOFT_PCT, state.postsPerMinSoftPct);
       gbLog('posts soft ceiling =', state.postsPerMinSoftPct + '% of ' + (state.reqBudgetPerMin || 40) + '/min');
     });
-    onCfg('[data-cfg=farm-forget-options]', 'click', () => {
-      if (!confirm('Olvidar las opciones de cobro aprendidas (recursos y unidades)?')) return;
-      state.farmOptionMap = {};
-      save(wkey(STORE.FARM_OPTION_MAP), state.farmOptionMap);
-      state.farmUnitsOption = null;
-      save(wkey(STORE.FARM_UNITS_OPTION), null);
-
-      try { tplHealthMarkLearned('claimTpl'); } catch (_) {}
-      gbLog('farm: learned claim options cleared by user (resources + units)');
-      flash('opciones de cobro olvidadas');
-      syncFarmTimingCfg(sec);
-    });
     onCfg('[data-cfg=clear-captcha]', 'click', () => {
       captchaClear();
       gbLog('captcha breakers cleared by user');
@@ -26454,14 +23386,6 @@ const STORE = {
       } }
     renderResearchPath(sec);
     renderCaveTowns();
-
-    setChk('[data-cfg=batch-recruit]', !!state.batchRecruit);
-    onCfg('[data-cfg=batch-recruit]', 'change', e => {
-      state.batchRecruit = e.target.checked; save(STORE.BATCH_RECRUIT, state.batchRecruit);
-      gbLog('batch-recruit', state.batchRecruit ? 'ON' : 'OFF');
-      try { updateStatus(); } catch (_) {}
-      try { renderTrain(); } catch (_) {}
-    });
   }
   bindConfig();
   {
@@ -27266,8 +24190,6 @@ const STORE = {
   });
   gbListen(window, 'pageshow', (e) => {
     if (!(e && e.persisted)) return;
-
-    releaseLocksAt = 0;
     try { gbWakeMarkResume('bfcache'); } catch (e) { gbLogT('boot-wake-bfcache', 60000, 'wake bfcache: ' + String(e?.message || e).slice(0, 80)); }
     farmTick();
     try { reportCatchUpEnqueue(); } catch (e) { gbLogT('boot-catchup', 60000, 'catchup: ' + String(e?.message || e).slice(0, 80)); }
@@ -27337,13 +24259,7 @@ const STORE = {
   gbTimeout(() => { try { hudRestore(); } catch (e) { gbLogT('boot-hud-restore', 60000, 'hud restore: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.HUD_RESTORE_MS);
 
   gbInterval(() => { gbLockSweep(); try { diagnosticsTick(); } catch (e) { gbLogT('boot-diag-tick', 60000, 'diag tick: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.LOCK_SWEEP_MS);
-
-  let releaseLocksAt = 0;
-  const RELEASE_DEDUP_MS = 3000;
   const releaseLocks = () => {
-    const now = Date.now();
-    if (now - releaseLocksAt < RELEASE_DEDUP_MS) return;
-    releaseLocksAt = now;
     try { cancelArmedAttack(); } catch (e) { gbLogT('boot-release-armed', 60000, 'cancel armed: ' + String(e?.message || e).slice(0, 80)); }
 
     try { ibClearArmed(); } catch (e) { gbLogT('boot-release-ib', 60000, 'ib clear armed: ' + String(e?.message || e).slice(0, 80)); }
@@ -27450,8 +24366,6 @@ const STORE = {
       nativeQueueAddBuild,
       nativeQueueRemoveLastBuild,
       nativeQueueAddRecruit,
-      nativeQueueAddRecruitBatch,
-      nativeQueueCompactRecruit,
       nativeQueueRemoveLastRecruit,
       nativeQueueAddResearch,
       nativeQueueRemoveResearch,
@@ -27461,9 +24375,6 @@ const STORE = {
       nativeQueueBuildApplied,
       nativeQueueRecruitApplied,
       nativeUiScan,
-
-      nativeWindowTownId,
-      nativeUnitId,
       ibSafeFreeThresh,
       ibIsFreeOrder,
       ibOrders,
@@ -27488,13 +24399,6 @@ const STORE = {
       txCommandStatus,
       txHeroStatus,
       renderAttack,
-      rfBuildSchedule,
-      rfSend,
-      renderReinforce,
-      spsPlan,
-      spsRun,
-      spsStop,
-      renderSpySend,
       openQueueCenter,
       renderQueueCenter,
       dispose: GB_ROOT.__grepbotDispose,

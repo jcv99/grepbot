@@ -602,6 +602,62 @@
       done(err || null);
     });
   }
+  // ===== Farm precedence (hard rule) ========================================
+  // Unit production never posts while a farming-village claim is still
+  // possible. A claim is free income on a village timer; spending a
+  // request-budget slot (and a captcha risk) on recruitment while a village
+  // sits ready is always the worse trade. The predicate is read-only and
+  // mirrors the eligibility filter in autoClaimFarms exactly - lootable AND an
+  // owning town whose warehouse can still store the loot - so a warehouse-full
+  // town reports NO pending work: that is precisely the case where recruiting
+  // is what unblocks farming again.
+  //
+  // Unreadable collections are UNKNOWN, never "pending": a blind read may not
+  // deadlock recruitment forever. A farm captcha pause is likewise "not
+  // pending" - farm cannot post, so holding units behind it buys nothing.
+  const FARM_PENDING_MEMO_MS = 3000;
+  let farmPendingMemo = { at: 0, val: false };
+  function farmClaimPending() {
+    if (!state.autoFarm || !hostEnabled()) return false;
+    if (captchaPaused('farm')) return false;
+    // A claim batch in flight IS farm work - hold units without re-walking the
+    // collections (the lock is cheap, the walk is not).
+    if (gbLocked('claim')) return true;
+    const stamp = Date.now();
+    if (stamp - farmPendingMemo.at < FARM_PENDING_MEMO_MS) return farmPendingMemo.val;
+    let val = false;
+    try {
+      const farms = farmsFromGame();
+      if (farms && farms.length) {
+        const now = gameNow();
+        const islandMap = islandTownMap();
+        const whCache = Object.create(null);
+        for (const f of farms) {
+          if (!f) continue;
+          if (f._rel) {
+            if (!farmIsLootable(f._rel, f._attrs || {})) continue;
+          } else if (f.lootable_at != null && f.lootable_at > now) {
+            continue;
+          }
+          const tid = townIdForFarm(f, islandMap);
+          if (!tid) continue;
+          if (!(tid in whCache)) whCache[tid] = townWarehouseBlocks(tid);
+          if (whCache[tid]) continue;
+          val = true;
+          break;
+        }
+      }
+    } catch (_) { val = false; }
+    farmPendingMemo = { at: stamp, val };
+    return val;
+  }
+  // One log line per 5min per holder, not per skipped scan.
+  function farmFirstHold(who) {
+    if (!farmClaimPending()) return false;
+    gbLogT('farm-first-' + who, 300000, `${who}: held - farming village claim pending (farm-first)`);
+    return true;
+  }
+
   function autoClaimFarms(reason, durOverride, onBatchDone) {
     if (!hostEnabled() || !state.autoFarm || captchaPaused('farm') || automationPaused({})) {
       if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });

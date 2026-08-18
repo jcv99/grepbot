@@ -279,6 +279,10 @@
     if (!hostEnabled() || (!state.autoRecruit && !nativePending) || captchaPaused('recruit')) return;
     if (automationPaused({})) return;
     if (gbLocked('recruit')) return;
+    // Farm precedence: no unit post while a village claim is still possible.
+    // Enforced here as well as in orchTick so a wake/toggle path cannot route
+    // around it. See farmClaimPending() in farms.js.
+    if (farmFirstHold('recruit')) return;
     recruitScanResetMemo();
     const targets = goalEffectiveRecruitTargets();
     // Barracks and harbour are separate lanes, so a town can be FIFO for one
@@ -539,6 +543,9 @@
     if (automationPaused({})) return;
     if (captchaPaused('villrecruit')) return;
     if (gbLocked('village-recruit')) return;
+    // Same hard rule: accepting units from a village never outranks claiming
+    // its resources, even though this loop only fires on a saturated village.
+    if (farmFirstHold('villrecruit')) return;
 
     // Template must be learned from a hand-click before any post. Log once
     // per world per 10min so the player knows what to do.

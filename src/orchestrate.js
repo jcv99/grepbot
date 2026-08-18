@@ -112,10 +112,23 @@
     gbLog(`orch: deadlock cannot drain (${why}) - spend resources by hand (build/recruit/culture)`);
   }
 
+  // Farm-first (hard rule): unit production never takes a dispatch slot while a
+  // farming-village claim is still possible. Order override + eligibility gate
+  // only - no new scheduler, no new post class. recruitScan and
+  // villageRecruitScan enforce the same rule at the post site.
+  const ORCH_UNIT_KEYS = ['recruit', 'villrecruit'];
+  function orchFarmFirst() {
+    try { return typeof farmClaimPending === 'function' && farmClaimPending(); }
+    catch (_) { return false; }
+  }
+
   function orchIdleFactor(key) {
     if (state.orchAdaptive === false) return 1;
     // The drain path must not be slowed by the very idleness the deadlock causes.
     if (orchDeadlock.open && ORCH_DRAIN_KEYS.includes(key)) return 1;
+    // A ready village is known work, not idleness. Widening farm's cadence to
+    // 8x while units are held behind it would stall both.
+    if (key === 'farm' && orchFarmFirst()) return 1;
     const streak = orchIdle[key] || 0;
     if (streak < ORCH_IDLE_TRIP) return 1;
     return Math.min(ORCH_IDLE_MAX, 1 << Math.min(3, streak - ORCH_IDLE_TRIP + 1));
@@ -175,12 +188,15 @@
       const drain = ORCH_DRAIN_KEYS.filter(k => order.includes(k));
       order = drain.concat(order.filter(k => !drain.includes(k)));
     }
+    const farmFirst = orchFarmFirst();
+    if (farmFirst && order.includes('farm')) order = ['farm'].concat(order.filter(k => k !== 'farm'));
     const now = Date.now();
     const due = [];
     for (let i = 0; i < order.length; i++) {
       const key = order[i];
       if (!ORCH_HANDLERS[key]) continue;
       if (!orchFeatureEnabled(key)) continue;
+      if (farmFirst && ORCH_UNIT_KEYS.includes(key)) continue;
       const cap = ORCH_CAPTCHA[key];
       if (cap && captchaPaused(cap)) continue;
       const cadence = orchCadence(key);
