@@ -495,6 +495,42 @@ def version_gate(parts, version):
     return True
 
 
+def artifact_version(path):
+    """@version of an already-written artifact, or None when unreadable."""
+    try:
+        with open(path, encoding='utf-8') as f:
+            head = f.read(4096)
+    except OSError:
+        return None
+    m = re.search(r'^// @version\s+(\S+)', head, re.M)
+    return m.group(1) if m else None
+
+
+def _vtuple(v):
+    return tuple(int(p) for p in re.findall(r'\d+', v or ''))
+
+
+def newer_artifact_gate(dest, version):
+    """Refuse to overwrite an artifact that is NEWER than src/.
+
+    v5.8.0 was built outside this repo and dropped in; a later plain
+    `python3 build.py` rebuilt v5.3.1 from a stale src/ and silently erased
+    every 5.8.x feature. The build is not allowed to lose work that src cannot
+    reproduce. Override with --force once src/ has actually caught up.
+    """
+    if '--force' in sys.argv:
+        return True
+    have = artifact_version(dest)
+    if not have or not version:
+        return True
+    if _vtuple(have) <= _vtuple(version):
+        return True
+    print(f'error: {os.path.basename(dest)} on disk is v{have}, newer than src/ v{version}.')
+    print('  Building would overwrite features src/ cannot rebuild.')
+    print('  Reconcile src/ with the artifact first, or re-run with --force.')
+    return False
+
+
 def build():
     parts = read_modules()
     dupes = check_duplicate_decls(parts)
@@ -528,6 +564,9 @@ def build():
     # --prod writes a SIBLING file. Never in place: a broken prod build must not
     # be able to take out the dev paste path the whole workflow depends on.
     dest = OUT + '.prod' if prod else OUT
+    if not newer_artifact_gate(dest, version):
+        os.remove(tmp)
+        raise SystemExit(1)
     os.replace(tmp, dest)
     size = os.path.getsize(dest)
     print(f'built {dest} ({len(parts)} modules, v{version}, {size // 1024} KB)')
