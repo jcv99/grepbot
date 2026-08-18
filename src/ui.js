@@ -1193,23 +1193,6 @@
             </select>
           </label>
           <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Pedir cobros de 10 min en aldeas donde la lealtad esta investigada"><input type="checkbox" data-cfg="farm-long-claims"/> Cobros de 10 min donde la lealtad de aldeanos esta investigada</label>
-          <label class="gb-cfg-num gb-cfg-sub" title="La aldea tiene dos mitades: recursos y unidades. Con 'al agotarse los recursos' la aldea pasa a pedir unidades el resto del dia en cuanto el servidor rechaza el cobro de recursos (tope diario alcanzado). Las unidades ocupan poblacion.">Cobrar unidades en aldeas
-            <select class="gb-cfg-input" data-cfg="farm-units-mode" data-gb-tip="Cuando pedir unidades en vez de recursos">
-              <option value="off">nunca (solo recursos)</option>
-              <option value="fallback">al agotarse los recursos del dia</option>
-              <option value="always">siempre (solo unidades)</option>
-            </select>
-          </label>
-          <label class="gb-cfg-num gb-cfg-sub" title="Que carta de unidad pedir. 'automatica' elige la carta de mas valor que la ciudad puede aceptar (poblacion libre y edificio requerido); 'aprendida' repite la que pulsaste a mano.">Unidad a pedir
-            <select class="gb-cfg-input" data-cfg="farm-units-pref" data-gb-tip="Unidad que se pide en la mitad de unidades de la aldea">
-              <option value="auto">automatica (mejor valor)</option>
-              <option value="learned">aprendida (pulsa una vez a mano)</option>
-              <option value="sword">Espadachin</option>
-              <option value="slinger">Hondero</option>
-              <option value="archer">Arquero</option>
-              <option value="hoplite">Hoplita</option>
-            </select>
-          </label>
           <label class="gb-cfg-row gb-cfg-sub" title="Bajo presion (captcha, enfriamiento del servidor o presupuesto justo) recorta la lista de aldeas en vez de ampliar la cadencia, y reclama primero las mas rentables."><input type="checkbox" data-cfg="adaptive-farm"/> Recoleccion adaptativa bajo presion</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Porcentaje de aldeas a descartar bajo presion (de menos rentable a mas)">Descartar bajo presion <input class="gb-cfg-input" type="number" data-cfg="farm-drop-pct" min="0" max="90" style="width:45px"/> %</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="ID o nombre exacto de la investigacion de lealtad (la pestana Registro lo vuelca si la deteccion automatica falla)">Clave de la investigacion de lealtad
@@ -1403,12 +1386,6 @@
           </label>
           <label class="gb-cfg-row" data-gb-tip="Reclutar tropas automaticamente en cuarteles/puerto"><input type="checkbox" data-cfg="auto-recruit"/> Reclutamiento automatico</label>
           <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Lanzar hechizos de reclutamiento antes de reclutar"><input type="checkbox" data-cfg="recruit-spells"/> Lanzar antes los hechizos de reclutamiento</label>
-          <label class="gb-cfg-row gb-cfg-sub gb-cfg-risk" title="Convierte aldeanos en unidades cuando la aldea no admite mas recursos. Recompute: compara espada+arquero vs hoplita+hondero, elige la pareja con mas tropas y dentro de ella la unidad con menos. Requiere abrir la aldea y pulsar Aceptar una vez a mano la primera vez."><input type="checkbox" data-cfg="village-recruit"/> Reclutar en aldeas saturadas</label>
-          <label class="gb-cfg-num gb-cfg-sub" style="margin-left:28px" data-gb-tip="% de llenado y cantidad a reclutar por tick">% llenado aldea
-            <input class="gb-cfg-input" type="number" data-cfg="village-recruit-fill" min="50" max="99" style="width:50px" data-gb-tip="% minimo de llenado de la aldea para reclutar"/>
-            cantidad por tick
-            <input class="gb-cfg-input" type="number" data-cfg="village-recruit-amount" min="1" max="20" style="width:50px" data-gb-tip="Cantidad de aldeanos a reclutar por tick"/>
-          </label>
           <label class="gb-cfg-row gb-cfg-risk" data-gb-tip="Recluta todas las unidades de la lista de una sola vez. Solo se dispara cuando los recursos Y la poblacion cubren el lote entero a la vez (todo-o-nada). Si falta aunque sea una unidad, no se envia nada. Lista persistente por ciudad: el ciclo re-arms tras cada disparo."><input type="checkbox" data-cfg="batch-recruit"/> Lote de reclutamiento (todo-o-nada)</label>
           <div class="gb-cfg-note gb-cfg-sub">El editor por ciudad (objetivos permanentes y lineas del lote) vive en Militar &rarr; Entrenamiento.</div>
         `, false, 'risk')}
@@ -1977,17 +1954,12 @@
     const sd = sec.querySelector('[data-cfg=farm-sleep-dur]'); if (sd) sd.value = String(state.farmSleepDur || 'auto');
     const sa = sec.querySelector('[data-cfg=farm-sleep-auto]'); if (sa) sa.checked = !!state.farmSleepAuto;
     const sf = sec.querySelector('[data-cfg=farm-sleep-fill]'); if (sf) sf.value = state.farmSleepFillPct;
-    const um = sec.querySelector('[data-cfg=farm-units-mode]'); if (um) um.value = String(state.farmUnitsMode || 'off');
-    const up = sec.querySelector('[data-cfg=farm-units-pref]'); if (up) up.value = String(state.farmUnitsPref || 'auto');
     const om = sec.querySelector('#gb-farm-optmap');
     if (om) {
-      const sample = (farmsFromGame() || [])[0] || null;
-      const uOpt = farmUnitOption(sample);
       const dup = farmOptionMapConflicts();
       om.textContent = 'learned claim options: ' + farmOptionMapText() +
         (dup ? ' | CONFLICTO: ' + dup + ' comparten opcion - pulsa Olvidar y reaprende' : '') +
-        ' (claim a timer by hand in game to teach the rest)' +
-        ' | units: ' + (uOpt == null ? 'not learned' : uOpt + ' (' + (farmUnitIdFor(uOpt) || '?') + ')');
+        ' (claim a timer by hand in game to teach the rest)';
     }
   }
   function bindConfig() {
@@ -2154,19 +2126,6 @@
       state.farmLongClaims = e.target.checked; save(STORE.FARM_LONG_CLAIMS, state.farmLongClaims);
       gbLog('farm 10min claims', state.farmLongClaims ? 'ON' : 'OFF');
     });
-    onCfg('[data-cfg=farm-units-mode]', 'change', e => {
-      const v = String(e.target.value || 'off');
-      state.farmUnitsMode = /^(off|fallback|always)$/.test(v) ? v : 'off';
-      save(STORE.FARM_UNITS_MODE, state.farmUnitsMode);
-      gbLog('farm unit claims:', state.farmUnitsMode);
-      syncFarmTimingCfg(sec);
-    });
-    onCfg('[data-cfg=farm-units-pref]', 'change', e => {
-      state.farmUnitsPref = String(e.target.value || 'auto');
-      save(STORE.FARM_UNITS_PREF, state.farmUnitsPref);
-      gbLog('farm unit claim card:', state.farmUnitsPref);
-      syncFarmTimingCfg(sec);
-    });
     onCfg('[data-cfg=farm-scrape]', 'change', e => {
       state.farmScrape = e.target.checked; save(STORE.FARM_SCRAPE, state.farmScrape);
       if (state.farmScrape) farmScrapeRevive('config ON');
@@ -2316,9 +2275,6 @@
     setChk('[data-cfg=auto-dodge]', state.autoDodge);
     setChk('[data-cfg=auto-recruit]', state.autoRecruit);
     setChk('[data-cfg=recruit-spells]', state.recruitSpells);
-    setChk('[data-cfg=village-recruit]', state.autoVillageRecruit);
-    setNum('[data-cfg=village-recruit-fill]', state.villageRecruitFillPct);
-    setNum('[data-cfg=village-recruit-amount]', state.villageRecruitAmount);
     setChk('[data-cfg=grepodata]', state.grepodataIndex);
     setNum('[data-cfg=rural-ratio]', state.ruralTradeRatio);
     setNum('[data-cfg=rural-level-max]', state.ruralLevelMax);
@@ -2490,15 +2446,6 @@
     bindToggle('[data-cfg=auto-militia]', 'autoMilitia', STORE.AUTO_MILITIA);
     bindToggle('[data-cfg=auto-dodge]', 'autoDodge', STORE.AUTO_DODGE);
     bindToggle('[data-cfg=auto-recruit]', 'autoRecruit', STORE.AUTO_RECRUIT, () => { try { renderTrain(); } catch (_) {} recruitScan('toggle'); });
-    bindToggle('[data-cfg=village-recruit]', 'autoVillageRecruit', STORE.AUTO_VILLAGE_RECRUIT, () => villageRecruitScan('toggle'));
-    saveNum('[data-cfg=village-recruit-fill]', v => {
-      state.villageRecruitFillPct = gbCfgClamp(v, 50, 99, 90);
-      save(STORE.VILLAGE_RECRUIT_FILL, state.villageRecruitFillPct);
-    });
-    saveNum('[data-cfg=village-recruit-amount]', v => {
-      state.villageRecruitAmount = Math.min(20, Math.max(1, v || 1));
-      save(STORE.VILLAGE_RECRUIT_AMOUNT, state.villageRecruitAmount);
-    });
     bindToggle('[data-cfg=recruit-spells]', 'recruitSpells', STORE.RECRUIT_SPELLS);
     bindToggle('[data-cfg=grepodata]', 'grepodataIndex', STORE.GREPODATA_INDEX);
     const saveCult = () => {
@@ -2812,14 +2759,12 @@
       gbLog('posts soft ceiling =', state.postsPerMinSoftPct + '% of ' + (state.reqBudgetPerMin || 40) + '/min');
     });
     onCfg('[data-cfg=farm-forget-options]', 'click', () => {
-      if (!confirm('Olvidar las opciones de cobro aprendidas (recursos y unidades)?')) return;
+      if (!confirm('Olvidar las opciones de cobro aprendidas?')) return;
       state.farmOptionMap = {};
       save(wkey(STORE.FARM_OPTION_MAP), state.farmOptionMap);
-      state.farmUnitsOption = null;
-      save(wkey(STORE.FARM_UNITS_OPTION), null);
 
       try { tplHealthMarkLearned('claimTpl'); } catch (_) {}
-      gbLog('farm: learned claim options cleared by user (resources + units)');
+      gbLog('farm: learned claim options cleared by user');
       flash('opciones de cobro olvidadas');
       syncFarmTimingCfg(sec);
     });

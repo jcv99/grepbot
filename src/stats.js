@@ -195,30 +195,6 @@
         detail: `${farms.length} villages, ${ready} claimable, ${tpl}, options ${farmOptionMapText()}`,
       };
     }));
-    out.push(preflightProbe('farm unit claims', () => {
-      const mode = String(state.farmUnitsMode || 'off');
-      if (mode === 'off') return { ok: true, warn: true, detail: 'disabled in Config (resources only)' };
-
-      const villages = farmsFromGame() || [];
-      const sample = villages[0] || null;
-      const opt = farmUnitOption(sample);
-      const unit = opt != null ? farmUnitIdFor(opt) : null;
-      const table = (typeof farmClaimUnitsTable === 'function') ? farmClaimUnitsTable(sample) : null;
-      const amount = table && unit && table[unit] != null ? +table[unit] : null;
-      const dryMap = (state.farmResDry && typeof state.farmResDry === 'object') ? state.farmResDry : {};
-      const dry = Object.keys(dryMap).filter(k => farmResDryMarked(k)).length;
-      const capped = villages.filter(f => {
-        const left = farmDailyLeft(f);
-        return left != null && left <= 0;
-      }).length;
-      return {
-        ok: opt != null,
-        warn: opt == null || amount == null,
-        detail: opt == null
-          ? `mode ${mode}, pick ${state.farmUnitsPref || 'auto'} - no unit card readable (claim units once by hand or pin a unit in Ajustes)`
-          : `mode ${mode}, pick ${state.farmUnitsPref || 'auto'} -> option ${opt} (${unit}), amount ${amount == null ? '—' : amount}, ${capped} village(s) at the daily cap, ${dry} marked dry`,
-      };
-    }));
     out.push(preflightProbe('farm resource scrape', () => {
       const st = (typeof farmScrapeState === 'function') ? farmScrapeState() : { dead: false, misses: 0 };
       const on = !!state.farmScrape;
@@ -305,30 +281,6 @@
       else parts.push(`research points ${pts}`);
       parts.push(info.smallIsland == null ? 'small-island flag unreadable' : `small island ${info.smallIsland}`);
       return { ok: bad === 0, warn: bad > 0, detail: parts.join(', ') };
-    }));
-
-    // Village recruit: HIGH-RISK, default OFF. Probes that the four preconditions
-    // are reachable without forcing a post: learned bridge template, unit-count
-    // read path, and farm-resources fill read. Anything unreadable becomes a
-    // warn, not a fail - the feature is opt-in, so "nothing to do" is fine.
-    out.push(preflightProbe('village recruit', () => {
-      const parts = [];
-      let bad = 0, warn = 0;
-      const tpl = state.acceptUnitsTpl;
-      if (tpl && tpl.action_name) parts.push(`tpl ${tpl.action_name}`);
-      else { parts.push('tpl UNLEARNED (open a village, click Aceptar once)'); warn++; }
-      const farms = (state.farmsParsed || []);
-      const sample = farms.find(f => f && f.vill_id);
-      if (!sample) { parts.push('no farms known'); warn++; return { ok: true, warn: true, detail: parts.join(', ') }; }
-      const counts = villageUnitCounts(sample.vill_id);
-      if (counts && counts.known) {
-        const u = counts.units;
-        parts.push(`units ${u.sword}/${u.archer}/${u.hoplite}/${u.slinger}`);
-      } else { parts.push('unit counts UNREADABLE (attribute shape unknown)'); bad++; }
-      const fr = state.farmResources && state.farmResources[sample.vill_id];
-      if (fr && fr.ok && fr.cap > 0) parts.push(`fill read OK (cap ${fr.cap})`);
-      else { parts.push('fill read pending (next farm scrape)'); warn++; }
-      return { ok: bad === 0, warn: warn > 0 || bad > 0, detail: parts.join(', ') };
     }));
 
     out.push(preflightProbe('tx registry', () => {

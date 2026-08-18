@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.8.2
+// @version      5.8.3
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -103,11 +103,6 @@ const STORE = {
     FARM_DROP_PCT: 'grepbot:farm-drop-pressure-pct',
     FARM_CLAIMS_TODAY: 'grepbot:farm-claims-today',
     FARM_CLAIMS_DAY: 'grepbot:farm-claims-day',
-    FARM_UNITS_MODE: 'grepbot:farm-units-mode',
-    FARM_UNITS_PREF: 'grepbot:farm-units-pref',
-    FARM_UNITS_OPTION: 'grepbot:farm-units-option',
-    FARM_RES_DRY: 'grepbot:farm-res-dry',
-    FARM_RES_DRY_DAY: 'grepbot:farm-res-dry-day',
     FARM_TRAVEL: 'grepbot:farm-travel-sec-per-unit',
     IB_ACTION_R: 'grepbot:ib-action-r',
 
@@ -254,24 +249,18 @@ const STORE = {
     TOWN_ACTION: 'grepbot:town-action',
     TOWN_LIST_ACTION: 'grepbot:town-list-action',
     FARM_SCRAPE_STATE: 'grepbot:farm-scrape-state',
-    AUTO_VILLAGE_RECRUIT: 'grepbot:auto-village-recruit',
-    VILLAGE_RECRUIT_FILL: 'grepbot:village-recruit-fill',
-    VILLAGE_RECRUIT_AMOUNT: 'grepbot:village-recruit-amount',
-    ACCEPT_UNITS_TPL: 'grepbot:accept-units-tpl',
-    VILLAGE_RECRUIT_STREAKS: 'grepbot:village-recruit-streaks',
     WEBHOOK_RATELIMIT: 'grepbot:webhook-ratelimit',
     WEBHOOK_PENDING: 'grepbot:webhook-pending',
   };
   const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
-    'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'merchant', 'pttrade', 'favor', 'wonder', 'hero', 'godspell', 'spy'];
+    'ruraltrade', 'rurallevel', 'recruit', 'merchant', 'pttrade', 'favor', 'wonder', 'hero', 'godspell', 'spy'];
   const CONFIG_VER_CURRENT = 13;
   const WORLD_SCOPED_BASES = new Set([
     STORE.FINDINGS, STORE.FARMS, STORE.FARMS_PARSED, STORE.FARM_RES, STORE.SEEN,
     STORE.TOWNS, STORE.TOWN_RES, STORE.TOWN_GROWTH_HIST, STORE.THRESH, STORE.ALERTED,
     STORE.NEXT_FARM, STORE.NEXT_TOWNS, STORE.BANDIT_LOG,
-    STORE.CSRF, STORE.FARM_ACTION, STORE.COLLECT_TPL, STORE.CLAIM_TPL, STORE.ACCEPT_UNITS_TPL,
+    STORE.CSRF, STORE.FARM_ACTION, STORE.COLLECT_TPL, STORE.CLAIM_TPL,
     STORE.IB_ACTION, STORE.IB_ACTION_R, STORE.FARM_OPTION_MAP, STORE.FARM_LOYALTY_TECH, STORE.FARM_SLEEP_DAY, STORE.FARM_PROFIT, STORE.FARM_TRAVEL, STORE.FARM_CLAIMS_TODAY, STORE.FARM_CLAIMS_DAY,
-    STORE.FARM_UNITS_OPTION, STORE.FARM_RES_DRY, STORE.FARM_RES_DRY_DAY,
     STORE.QUEST_REWARDS, STORE.QUEST_HISTORY,
     STORE.ATTACK_TPL, STORE.CANCEL_TPL, STORE.HERO_TPL, STORE.HERO_EQUIP_SUGGEST, STORE.ATTACK_PLAN, STORE.ATTACK_HISTORY, STORE.ATTACK_RECENT, STORE.CAPTCHA,
     STORE.AB_TARGETS, STORE.CAVE_TOWNS, STORE.EMERGENCY_LAST,
@@ -735,11 +724,6 @@ const STORE = {
     farmClaimsToday: load(STORE.FARM_CLAIMS_TODAY, {}) || {},
     farmClaimsDay: load(STORE.FARM_CLAIMS_DAY, '') || '',
 
-    farmUnitsMode: load(STORE.FARM_UNITS_MODE, 'off') || 'off',
-    farmUnitsPref: load(STORE.FARM_UNITS_PREF, 'auto') || 'auto',
-    farmUnitsOption: load(STORE.FARM_UNITS_OPTION, null),
-    farmResDry: load(STORE.FARM_RES_DRY, {}) || {},
-    farmResDryDay: load(STORE.FARM_RES_DRY_DAY, '') || '',
     farmTravelSecPerUnit: load(STORE.FARM_TRAVEL, 0),
     ibActionR:  load(STORE.IB_ACTION_R, null) || 'buyInstant',
     questRewards: load(STORE.QUEST_REWARDS, {}),
@@ -846,10 +830,6 @@ const STORE = {
     batchRecruit: load(STORE.BATCH_RECRUIT, false),
     batchRecruitLists: load(STORE.BATCH_RECRUIT_LISTS, { towns: {} }),
     recruitPacks: load(STORE.RECRUIT_PACKS, {}),
-    autoVillageRecruit: load(STORE.AUTO_VILLAGE_RECRUIT, false),
-    villageRecruitFillPct: load(STORE.VILLAGE_RECRUIT_FILL, 90),
-    villageRecruitAmount: load(STORE.VILLAGE_RECRUIT_AMOUNT, 1),
-    villageRecruitStreaks: load(STORE.VILLAGE_RECRUIT_STREAKS, {}),
     priorityOrder: load(STORE.PRIORITY_ORDER, PRIORITY_ORDER_DEFAULT.slice()),
     islandShip: load(STORE.ISLAND_SHIP, false),
     autoMilitia: load(STORE.AUTO_MILITIA, false),
@@ -2448,7 +2428,7 @@ const STORE = {
   }
   const TX_WRITE_FEATURES = new Set([
     'farm', 'collect', 'bandit', 'build', 'instant-build', 'instant-research', 'cave', 'culture', 'trade', 'ruraltrade', 'rurallevel',
-    'research', 'merchant', 'favor', 'wonder', 'militia', 'dodge', 'spell', 'recruit', 'villrecruit', 'quest', 'attack',
+    'research', 'merchant', 'favor', 'wonder', 'militia', 'dodge', 'spell', 'recruit', 'quest', 'attack',
     'cancel', 'hero', 'pttrade',
 
     'support', 'spy',
@@ -4965,18 +4945,6 @@ const STORE = {
           try { tplHealthMarkLearned('claimTpl'); } catch (_) {}
 
           if (!isSelfBridge(j)) farmLearnFromClaim(j);
-        } else if (j && j.model_url && !/claim|trade|unlock|upgrade/i.test(j.action_name || '')
-                   && /sword|archer|hoplite|slinger/i.test(body)) {
-
-          if (isSelfBridge(j)) return;
-          state.acceptUnitsTpl = {
-            model_url: j.model_url, action_name: j.action_name,
-            arguments: j.arguments || {}, town_id: j.town_id,
-            version: 1, learned_at: Date.now(),
-          };
-          save(wkey(STORE.ACCEPT_UNITS_TPL), state.acceptUnitsTpl);
-          gbLog('learned accept-units template:', JSON.stringify(state.acceptUnitsTpl).slice(0, 220));
-          try { tplHealthMarkLearned('acceptUnitsTpl'); } catch (_) {}
         }
       } else if (/PlayerAttackSpot/.test(body)) {
         gbLog('sniffed bandit bridge call:', body.slice(0, 300));
@@ -5299,19 +5267,8 @@ const STORE = {
 
   function farmLearnFromClaim(j) {
     const type = String(((j && j.arguments) || {}).type || '');
-    if (type === 'units') return farmLearnUnitsOptionFromClaim(j);
     if (type && type !== 'resources') return;
     farmLearnOptionFromClaim(j);
-  }
-  function farmLearnUnitsOptionFromClaim(j) {
-    try {
-      const opt = +((j && j.arguments) || {}).option;
-      if (!(opt >= 1 && opt <= FARM_UNIT_ORDER.length)) return;
-      if (+state.farmUnitsOption === opt) return;
-      state.farmUnitsOption = opt;
-      save(wkey(STORE.FARM_UNITS_OPTION), opt);
-      gbLog(`farm: learned units claim option ${opt} (${farmUnitIdFor(opt) || '?'})`);
-    } catch (_) {}
   }
   function farmLearnOptionFromClaim(j) {
     try {
@@ -5485,8 +5442,6 @@ const STORE = {
   }
   function farmProfitInvalidate() { for (const k of Object.keys(farmProfitCache)) delete farmProfitCache[k]; farmProfitRefreshAt = 0; }
 
-  const FARM_UNIT_ORDER = ['sword', 'slinger', 'archer', 'hoplite'];
-  function farmUnitIdFor(option) { return FARM_UNIT_ORDER[(+option || 0) - 1] || null; }
   function farmVillageLevel(farm) {
     const rel = farm && farm._rel;
     const a = (farm && farm._attrs) || {};
@@ -5496,50 +5451,6 @@ const STORE = {
     const status = +a.relation_status;
     if (status === 0) return 0;
     return Number.isFinite(+a.expansion_stage) ? +a.expansion_stage : null;
-  }
-  function farmClaimUnitsTable(farm) {
-    const t = gbGameDataLookup('farm_town', 'claim_units');
-    if (!t || typeof t !== 'object') return null;
-    const lvl = farmVillageLevel(farm);
-    if (lvl != null) {
-      const byLevel = t[lvl] != null ? t[lvl] : t[String(lvl)];
-      if (byLevel && typeof byLevel === 'object') return byLevel;
-    }
-    if (FARM_UNIT_ORDER.some(u => t[u] != null)) return t;
-    return null;
-  }
-  function farmUnitOption(farm, townId) {
-    const pref = String(state.farmUnitsPref || 'auto');
-    if (pref !== 'auto' && pref !== 'learned') {
-      const i = FARM_UNIT_ORDER.indexOf(pref);
-      return i >= 0 ? i + 1 : null;
-    }
-    if (pref === 'auto') {
-      let tid = townId;
-      if (tid == null) { try { tid = gameUw().Game && gameUw().Game.townId; } catch (_) { tid = null; } }
-      const auto = farmUnitAutoOption(farm, tid);
-      if (auto != null) return auto;
-    }
-    const o = +state.farmUnitsOption;
-    return o >= 1 && o <= FARM_UNIT_ORDER.length ? o : null;
-  }
-  function farmUnitAutoOption(farm, townId) {
-    const table = farmClaimUnitsTable(farm);
-    if (!table) return null;
-    let best = null;
-    for (let opt = 1; opt <= FARM_UNIT_ORDER.length; opt++) {
-      const unit = FARM_UNIT_ORDER[opt - 1];
-      const amount = +table[unit];
-      if (!Number.isFinite(amount) || amount <= 0) continue;
-      if (townId != null && farmUnitsClaimBlocked(farm, townId, opt)) continue;
-      const def = gbGameDataLookup('units', unit);
-      const res = (def && def.resources) || null;
-
-      const cost = res ? (+res.wood || 0) + (+res.stone || 0) + (+res.iron || 0) : 0;
-      const score = amount * (cost > 0 ? cost : 1);
-      if (!best || score > best.score) best = { opt, score };
-    }
-    return best ? best.opt : null;
   }
 
   function farmDailyLeft(farm) {
@@ -5559,132 +5470,25 @@ const STORE = {
     if (!Number.isFinite(loot)) return null;
     return Math.max(0, perDay * speed - loot);
   }
-  function farmUnitsClaimBlocked(farm, townId, option) {
-    const unit = farmUnitIdFor(option);
-    if (!unit) return 'unit-unknown';
-    const table = farmClaimUnitsTable(farm);
-    let amount = null;
-    if (table) {
-      if (table[unit] == null) return 'unit-not-offered';
-      const n = +table[unit];
-      if (Number.isFinite(n)) {
-        if (!(n > 0)) return 'unit-amount-0';
-        amount = n;
-      }
-    }
-    const def = gbGameDataLookup('units', unit);
-    const popEach = def && def.population != null ? +def.population : null;
-    const free = gbTownPop(townId);
-    if (amount != null && Number.isFinite(popEach) && popEach > 0 && free != null && free < amount * popEach) {
-      return `pop ${free}/${amount * popEach}`;
-    }
-    try {
-      const req = ((gbGameDataLookup('farm_town', 'building_requirements') || {}).units || {})[option];
-      if (req && req.building) {
-        const lvl = gbBuildingLevel(townId, req.building);
-        if (lvl != null && lvl < +req.level) return `${req.building} ${lvl}/${req.level}`;
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  function farmResExhausted(farm) {
-    const rel = farm && farm._rel;
-    let vals = null;
-    try {
-      if (rel && typeof rel.getClaimResourceValues === 'function') vals = rel.getClaimResourceValues();
-    } catch (_) {}
-    if (vals == null) vals = (farm && farm._attrs && farm._attrs.claim_resource_values) || null;
-    if (vals == null || typeof vals !== 'object') return null;
-    const nums = Object.keys(vals).map(k => +vals[k]).filter(n => Number.isFinite(n));
-    if (!nums.length) return null;
-    return nums.every(n => n <= 0);
-  }
-  function farmResDryMap() {
-    const day = farmDayKey();
-    if (state.farmResDryDay !== day) {
-      state.farmResDryDay = day;
-      state.farmResDry = {};
-      save(wkey(STORE.FARM_RES_DRY_DAY), day);
-      save(wkey(STORE.FARM_RES_DRY), state.farmResDry);
-    }
-    if (!state.farmResDry || typeof state.farmResDry !== 'object') state.farmResDry = {};
-    return state.farmResDry;
-  }
-
-  const FARM_RES_DRY_STRIKES = 3;
-  const FARM_RES_DRY_TTL_MS = 5400000;
-  function farmResDryMarked(villId) {
-    const r = farmResDryMap()[String(villId)];
-    if (!r || (+r.n || 0) < FARM_RES_DRY_STRIKES) return false;
-    return Date.now() - (+r.at || 0) < FARM_RES_DRY_TTL_MS;
-  }
-  function farmMarkResDry(villId, why) {
-    const m = farmResDryMap();
-    const key = String(villId);
-    const row = m[key] && typeof m[key] === 'object' ? m[key] : { n: 0 };
-
-    if (row.at && Date.now() - (+row.at || 0) > FARM_RES_DRY_TTL_MS) row.n = 0;
-    if (row.n >= FARM_RES_DRY_STRIKES) { row.at = Date.now(); m[key] = row; saveSoon(wkey(STORE.FARM_RES_DRY), m); return; }
-    row.n = (+row.n || 0) + 1;
-    row.why = why || 'hard error';
-    row.at = Date.now();
-    m[key] = row;
-    saveSoon(wkey(STORE.FARM_RES_DRY), m);
-    if (row.n >= FARM_RES_DRY_STRIKES) {
-      gbLog(`farm: village ${villId} resource claim dry today (${row.why}) - claiming units instead`);
-    } else {
-      gbLogT('farm-dry-strike-' + villId, 60000, `farm: village ${villId} resource claim error ${row.n}/${FARM_RES_DRY_STRIKES} (${row.why})`);
-    }
-  }
-  function farmResDryClear(villId) {
-    const m = farmResDryMap();
-    if (!m[String(villId)]) return;
-    delete m[String(villId)];
-    saveSoon(wkey(STORE.FARM_RES_DRY), m);
-  }
-
-  function farmClaimTypeFor(farm) {
-    const mode = String(state.farmUnitsMode || 'off');
-    if (mode === 'always') return 'units';
-    if (mode !== 'fallback') return 'resources';
-    const left = farmDailyLeft(farm);
-    if (left != null && left <= 0) {
-      gbLogT('farm-daily-cap-' + farm.vill_id, 600000,
-        `farm: village ${farm.vill_id} daily resource allowance spent - claiming units`);
-      return 'units';
-    }
-    if (farmResExhausted(farm) === true) return 'units';
-    return farmResDryMarked(farm.vill_id) ? 'units' : 'resources';
-  }
   function farmClaimDiag(limit) {
     const farms = farmsFromGame();
     if (!farms) { gbLog('farm diag: game collections not ready'); return; }
     const islandMap = islandTownMap();
     const speed = (() => { try { return +(gameUw().Game && gameUw().Game.game_speed); } catch (_) { return null; } })();
     const perDayTable = gbGameDataLookup('farm_town', 'max_resources_per_day');
-    const unitTable = farmClaimUnitsTable(farms[0]);
-    gbLog(`farm diag: mode=${state.farmUnitsMode || 'off'} pick=${state.farmUnitsPref || 'auto'} learnedUnitOpt=${state.farmUnitsOption == null ? '-' : state.farmUnitsOption}` +
+    gbLog(`farm diag: claim=resources-only` +
       ` game_speed=${Number.isFinite(speed) ? speed : 'UNREADABLE'}` +
       ` max_resources_per_day=${perDayTable ? 'ok' : 'UNREADABLE'}` +
-      ` claim_units=${unitTable ? JSON.stringify(unitTable).slice(0, 120) : 'UNREADABLE'}` +
       ` optionMap=${farmOptionMapText()}`);
     const n = Math.max(1, Math.min(+limit || 8, farms.length));
     for (const f of farms.slice(0, n)) {
       const tid = townIdForFarm(f, islandMap);
       const left = farmDailyLeft(f);
-      const type = farmClaimTypeFor(f);
-      const opt = type === 'units' ? farmUnitOption(f, tid) : null;
-      const blocked = (type === 'units' && opt != null && tid != null) ? farmUnitsClaimBlocked(f, tid, opt) : null;
-      const dry = farmResDryMap()[String(f.vill_id)];
       gbLog(`  vill ${f.vill_id} town=${tid == null ? '-' : tid}` +
         ` lootable=${f.lootable_at == null ? '-' : Math.max(0, f.lootable_at - gameNow()) + 's'}` +
         ` loot=${(f._attrs && f._attrs.loot) != null ? f._attrs.loot : '-'}` +
         ` level=${(f._attrs && f._attrs.expansion_stage) != null ? f._attrs.expansion_stage : '-'}` +
-        ` dailyLeft=${left == null ? 'BLIND' : left}` +
-        ` resValues=${farmResExhausted(f) === null ? 'blind' : (farmResExhausted(f) ? 'all-zero' : 'has-value')}` +
-        ` dry=${dry ? dry.n + 'x ' + (dry.why || '') : '-'}` +
-        ` -> type=${type}${type === 'units' ? ' opt=' + (opt == null ? 'NONE' : opt + '(' + (farmUnitIdFor(opt) || '?') + ')') + (blocked ? ' BLOCKED:' + blocked : '') : ''}`);
+        ` dailyLeft=${left == null ? 'BLIND' : left}`);
     }
     if (farms.length > n) gbLog(`  \u2026 ${farms.length - n} more village(s) not shown`);
   }
@@ -5696,23 +5500,19 @@ const STORE = {
       gbLogT('claim-no-town', 60000, `farm claim skip ${farm.vill_id}: no same-island town`);
       return done('skip');
     }
-    const claimType = farmClaimTypeFor(farm);
 
-    if (claimType === 'resources') {
-      let blocked = false;
-      if (whCache) {
-        if (!(tid in whCache)) whCache[tid] = townWarehouseBlocks(tid);
-        blocked = whCache[tid];
-      } else {
-        blocked = townWarehouseBlocks(tid);
-      }
-      if (blocked) {
-        gbLogT('claim-wh-block', 30000, `farm claim blocked (warehouse full) town ${tid} vill ${farm.vill_id}`);
-        return done('skip');
-      }
+    let blocked = false;
+    if (whCache) {
+      if (!(tid in whCache)) whCache[tid] = townWarehouseBlocks(tid);
+      blocked = whCache[tid];
+    } else {
+      blocked = townWarehouseBlocks(tid);
+    }
+    if (blocked) {
+      gbLogT('claim-wh-block', 30000, `farm claim blocked (warehouse full) town ${tid} vill ${farm.vill_id}`);
+      return done('skip');
     }
     const tplArgs = (state.claimTpl && state.claimTpl.arguments) || {};
-    if (claimType === 'units') return claimFarmUnits(farm, tid, tplArgs, done);
     const wantSec = durOverride || farmDesiredDuration(tid);
     let option = farmOptionFor(wantSec);
     if (option == null) {
@@ -5736,39 +5536,8 @@ const STORE = {
       town_id: tid,
     }, (err) => {
       if (!err && whCache) delete whCache[tid];
-
-      const hard = err && err !== 'remembered' && !JRN_SKIP_ERRS[String(err).split(':')[0]] && err !== 'captcha' && !jrnPendingResult(err);
-      if (hard) {
-        if (String(state.farmUnitsMode || 'off') === 'fallback') farmMarkResDry(farm.vill_id, String(err).slice(0, 40));
-      } else if (!err) {
-        farmResDryClear(farm.vill_id);
-      }
       done(err || null);
     });
-  }
-  function claimFarmUnits(farm, tid, tplArgs, done) {
-    const option = farmUnitOption(farm, tid);
-    if (option == null) {
-      gbLogT('farm-units-opt', 120000,
-        'farm claim: no unit card available (pick=' + (state.farmUnitsPref || 'auto') +
-        ', claim_units=' + (farmClaimUnitsTable(farm) ? 'readable' : 'UNREADABLE for village level ' + farmVillageLevel(farm)) +
-        ', learned=' + (state.farmUnitsOption == null ? 'none' : state.farmUnitsOption) +
-        ') - pin a unit in Ajustes or claim units once by hand; Acciones > Diagnostico de aldeas dumps the reads');
-      return done('skip');
-    }
-    const why = farmUnitsClaimBlocked(farm, tid, option);
-    if (why) {
-      gbLogT('farm-units-block-' + tid, 300000,
-        `farm units claim skip town ${tid} vill ${farm.vill_id}: ${why}`);
-      return done('skip');
-    }
-    const args = Object.assign({}, tplArgs, { type: 'units', option, farm_town_id: +farm.vill_id });
-    bridgePost('farm', {
-      model_url: `FarmTownPlayerRelation/${farm.relation_id}`,
-      action_name: (state.claimTpl && state.claimTpl.action_name) || 'claim',
-      arguments: args,
-      town_id: tid,
-    }, (err) => done(err || null));
   }
 
   const FARM_PENDING_MEMO_MS = 3000;
@@ -5835,7 +5604,6 @@ const STORE = {
       const tid = townIdForFarm(f, islandMap);
       if (!tid) return false;
 
-      if (farmClaimTypeFor(f) === 'units') return true;
       if (!(tid in whCache)) whCache[tid] = townWarehouseBlocks(tid);
       if (whCache[tid]) { skippedFull++; return false; }
       return true;
@@ -5862,8 +5630,7 @@ const STORE = {
     }
     const claimLockToken = gbLock('claim', Math.max(180000, work.length * 20000));
     if (!claimLockToken) return;
-    const unitCount = work.filter(f => farmClaimTypeFor(f) === 'units').length;
-    gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${work.length}/${farms.length} ready${work.length !== ready.length ? ` (${ready.length - work.length} adaptivo)` : ''}${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}${unitCount ? ` (${unitCount} as units)` : ''}`);
+    gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${work.length}/${farms.length} ready${work.length !== ready.length ? ` (${ready.length - work.length} adaptivo)` : ''}${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}`);
     const before = {};
     farms.forEach(f => { before[f.vill_id] = f.lootable_at; });
     flash(`farm claim x${work.length}`);
@@ -14601,158 +14368,6 @@ const STORE = {
     });
   }
 
-  const VILLAGE_RECRUIT_UNITS = ['sword', 'archer', 'hoplite', 'slinger'];
-  const VILLAGE_PAIR_LOW = ['sword', 'archer'];
-  const VILLAGE_PAIR_HIGH = ['hoplite', 'slinger'];
-  const VILLAGE_RECRUIT_STREAK_TRIP = 2;
-  function villagePairPick(unitCounts) {
-
-    if (!unitCounts || typeof unitCounts !== 'object') return null;
-    const a = (Number.isFinite(+unitCounts.sword) ? +unitCounts.sword : 0)
-            + (Number.isFinite(+unitCounts.archer) ? +unitCounts.archer : 0);
-    const b = (Number.isFinite(+unitCounts.hoplite) ? +unitCounts.hoplite : 0)
-            + (Number.isFinite(+unitCounts.slinger) ? +unitCounts.slinger : 0);
-
-    const pair = a >= b ? VILLAGE_PAIR_LOW : VILLAGE_PAIR_HIGH;
-    const lo = Number.isFinite(+unitCounts[pair[0]]) ? +unitCounts[pair[0]] : 0;
-    const hi = Number.isFinite(+unitCounts[pair[1]]) ? +unitCounts[pair[1]] : 0;
-    return lo <= hi ? pair[0] : pair[1];
-  }
-
-  function villageUnitCounts(villId) {
-    if (villId == null || villId === '') return { known: false };
-    try {
-      const uw = gameUw();
-      if (!uw || !uw.MM || typeof uw.MM.getCollections !== 'function') return { known: false };
-      const cols = uw.MM.getCollections();
-      const candidates = [];
-      for (const col of cols || []) {
-        if (!col || !Array.isArray(col.models)) continue;
-        const relModels = [];
-        for (const m of col.models) {
-          const a = (m && m.attributes) || {};
-          if (String(a.farm_town_id) === String(villId)) relModels.push({ m, a, attrs: a });
-        }
-        if (!relModels.length) continue;
-        for (const { m, a } of relModels) {
-          const bag = a.units || a.unit_count || a.garrison || a.unitCount;
-          if (bag && typeof bag === 'object') {
-
-            const units = {};
-            for (const u of VILLAGE_RECRUIT_UNITS) units[u] = +bag[u];
-            const known = VILLAGE_RECRUIT_UNITS.some(u => Number.isFinite(units[u]) && units[u] >= 0);
-            if (known) return { known: true, units, relId: (m && m.id) != null ? m.id : (a && a.id) };
-          }
-          if (typeof bag === 'number' || Array.isArray(bag)) {
-
-            const arr = Array.isArray(bag) ? bag : [bag];
-            const units = {};
-            VILLAGE_RECRUIT_UNITS.forEach((u, i) => { units[u] = +arr[i] || 0; });
-            return { known: true, units, relId: (m && m.id) != null ? m.id : (a && a.id) };
-          }
-          if (typeof m.getUnitCount === 'function') {
-            const units = {};
-            for (const u of VILLAGE_RECRUIT_UNITS) {
-              const n = +m.getUnitCount(u);
-              if (Number.isFinite(n) && n >= 0) units[u] = n;
-            }
-            if (Object.keys(units).length) return { known: true, units, relId: m.id };
-          }
-        }
-      }
-      return { known: false };
-    } catch (_) { return { known: false }; }
-  }
-
-  function villageSaturationStreak(villId) {
-    if (!state.farmResources || !state.farmResources[villId]) return 0;
-    const r = state.farmResources[villId];
-    if (!r.ok || !(r.cap > 0)) return 0;
-    const sum = (Number.isFinite(+r.wood) ? +r.wood : 0)
-               + (Number.isFinite(+r.stone) ? +r.stone : 0)
-               + (Number.isFinite(+r.iron) ? +r.iron : 0)
-               + (Number.isFinite(+r.pop) ? +r.pop : 0);
-    const fill = sum / r.cap;
-    const thresh = Math.max(0.5, Math.min(1, (+state.villageRecruitFillPct || 90) / 100));
-    const streaks = state.villageRecruitStreaks || (state.villageRecruitStreaks = {});
-    const prev = +streaks[villId] || 0;
-    const next = fill >= thresh ? prev + 1 : 0;
-    streaks[villId] = next;
-    return next;
-  }
-
-  function villageAcceptUnits(farm, unitId, amount, onDone) {
-    const tpl = state.acceptUnitsTpl || null;
-    const actionName = (tpl && tpl.action_name) || 'accept_units';
-    const baseArgs = (tpl && tpl.arguments) || {};
-    const args = Object.assign({}, baseArgs, {
-      farm_town_id: +farm.vill_id,
-      unit_id: String(unitId),
-      amount: +amount,
-    });
-    const modelUrl = (tpl && tpl.model_url) || ('FarmTownPlayerRelation/' + (farm.relation_id || ''));
-    bridgePost('villrecruit', {
-      model_url: modelUrl,
-      action_name: actionName,
-      arguments: args,
-      town_id: +farm.owning_town_id || 0,
-    }, onDone);
-  }
-  function villageRecruitScan(reason) {
-    if (!hostEnabled() || !state.autoVillageRecruit) return;
-    if (automationPaused({})) return;
-    if (captchaPaused('villrecruit')) return;
-    if (gbLocked('village-recruit')) return;
-
-    if (farmFirstHold('villrecruit')) return;
-
-    if (!state.acceptUnitsTpl || !state.acceptUnitsTpl.action_name) {
-      gbLogT('villrecruit-tpl', 600000, 'village recruit: abre una aldea, pulsa Aceptar una vez a mano para ensenar al bot el payload del puente');
-      return;
-    }
-
-    const list = state.farmsParsed || [];
-    if (!list.length) return;
-
-    for (const farm of list) {
-      if (!farm || !farm.vill_id) continue;
-
-      if (farm._rel && typeof farmBelongsToPlayer === 'function') {
-        const a = farm._attrs || {};
-        if (!farmBelongsToPlayer(farm._rel, a)) continue;
-      }
-
-      const streak = villageSaturationStreak(farm.vill_id);
-      if (streak < VILLAGE_RECRUIT_STREAK_TRIP) continue;
-
-      const counts = villageUnitCounts(farm.vill_id);
-      if (!counts || !counts.known) continue;
-
-      const unit = villagePairPick(counts.units);
-      if (!unit) continue;
-
-      const owning = typeof townIdForFarm === 'function' ? townIdForFarm(farm) : null;
-      if (!owning) continue;
-      farm.owning_town_id = owning;
-
-      const amount = Math.max(1, Math.min(20, +state.villageRecruitAmount || 1));
-      const lockToken = gbLock('village-recruit', 60000);
-      if (!lockToken) return;
-
-      gbLog(`village recruit: vill ${farm.vill_id} -> ${amount}x ${unit} (streak ${streak}, town ${owning})`);
-      villageAcceptUnits(farm, unit, amount, (err) => {
-        gbUnlock('village-recruit', lockToken);
-        if (!err) {
-          gbLog(`village recruit: vill ${farm.vill_id} +${amount} ${unit}`);
-          flash(`aldea ${farm.name || farm.vill_id}: +${amount} ${unit}`);
-        } else {
-          gbLogT('villrecruit-err-' + farm.vill_id, 60000, `village recruit err ${farm.vill_id}: ${err}`);
-        }
-      });
-
-      return;
-    }
-  }
   function batchRecruitNormLists() {
     let root = state.batchRecruitLists;
     if (!root || typeof root !== 'object' || Array.isArray(root)) root = state.batchRecruitLists = { towns: {} };
@@ -16289,7 +15904,6 @@ const STORE = {
     autoWonder: [STORE.AUTO_WONDER, false],
     autoWonderFavor: [STORE.AUTO_WONDER_FAVOR, false],
     autoPtTrade: [STORE.AUTO_PT_TRADE, false],
-    autoVillageRecruit: [STORE.AUTO_VILLAGE_RECRUIT, false],
     batchRecruit: [STORE.BATCH_RECRUIT, false],
   };
   const CONFIG_PRESETS = {
@@ -16401,7 +16015,6 @@ const STORE = {
     ruraltrade: 90000,
     rurallevel: 120000,
     recruit: 30000,
-    villrecruit: 300000,
 
     batchrecruit: 30000,
     merchant: 45000,
@@ -16415,12 +16028,12 @@ const STORE = {
   const ORCH_CAPTCHA = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villageRecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
+    recruit: 'recruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
   };
   const ORCH_JRN = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villageRecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
+    recruit: 'recruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
   };
   const ORCH_IDLE_TRIP = 4;
   const ORCH_IDLE_MAX = 8;
@@ -16438,7 +16051,6 @@ const STORE = {
     ruraltrade:()=>orchSafe('ruraltrade',()=>profTime('orch:ruraltrade',()=>ruralTradeScan('orch'))),
     rurallevel:()=>orchSafe('rurallevel',()=>profTime('orch:rurallevel',()=>ruralLevelScan('orch'))),
     recruit:()=>orchSafe('recruit',()=>profTime('orch:recruit',()=>recruitScan('orch'))),
-    villrecruit:()=>orchSafe('villrecruit',()=>profTime('orch:villrecruit',()=>villageRecruitScan('orch'))),
     batchrecruit:()=>orchSafe('batchrecruit',()=>profTime('orch:batchrecruit',()=>batchRecruitScan('orch'))),
     merchant:()=>orchSafe('merchant',()=>profTime('orch:merchant',()=>merchantScan('orch'))),
     pttrade:()=>orchSafe('pttrade',()=>profTime('orch:pttrade',()=>ptTradeScan('orch'))),
@@ -16459,7 +16071,6 @@ const STORE = {
       ruraltrade: state.autoRuralTrade,
       rurallevel: state.autoRuralLevel,
       recruit: state.autoRecruit || nativeRecruitPending(),
-      villrecruit: state.autoVillageRecruit,
 
       batchrecruit: state.batchRecruit && batchRecruitHasAnyTown(),
       merchant: state.autoMerchant,
@@ -16493,7 +16104,7 @@ const STORE = {
   const ORCH_PIN_RATIO = 0.97;
   const ORCH_DRAIN_KEYS = ['cave', 'trade', 'ruraltrade'];
 
-  const ORCH_UNIT_KEYS = ['recruit', 'villrecruit'];
+  const ORCH_UNIT_KEYS = ['recruit'];
   function orchFarmFirst() {
     try { return typeof farmClaimPending === 'function' && farmClaimPending(); }
     catch (_) { return false; }
@@ -21487,7 +21098,6 @@ const STORE = {
       circuits: state.circuits,
       decisionSkips: state.decisionSkips,
       farmOptionMap: state.farmOptionMap,
-      farmUnitsOption: state.farmUnitsOption,
       farmSleepDay: state.farmSleepDay,
       lastSeenTs: state.lastSeenTs,
 
@@ -21536,7 +21146,6 @@ const STORE = {
     put('circuits', STORE.CIRCUITS, p.circuits);
     put('decisionSkips', STORE.DECISION_SKIPS, p.decisionSkips);
     put('farmOptionMap', STORE.FARM_OPTION_MAP, p.farmOptionMap);
-    put('farmUnitsOption', STORE.FARM_UNITS_OPTION, p.farmUnitsOption);
     gbLog(`snapshot: restored slot ${slot} from ${new Date(s.at).toLocaleString()}`);
     return true;
   }
@@ -21789,30 +21398,6 @@ const STORE = {
         detail: `${farms.length} villages, ${ready} claimable, ${tpl}, options ${farmOptionMapText()}`,
       };
     }));
-    out.push(preflightProbe('farm unit claims', () => {
-      const mode = String(state.farmUnitsMode || 'off');
-      if (mode === 'off') return { ok: true, warn: true, detail: 'disabled in Config (resources only)' };
-
-      const villages = farmsFromGame() || [];
-      const sample = villages[0] || null;
-      const opt = farmUnitOption(sample);
-      const unit = opt != null ? farmUnitIdFor(opt) : null;
-      const table = (typeof farmClaimUnitsTable === 'function') ? farmClaimUnitsTable(sample) : null;
-      const amount = table && unit && table[unit] != null ? +table[unit] : null;
-      const dryMap = (state.farmResDry && typeof state.farmResDry === 'object') ? state.farmResDry : {};
-      const dry = Object.keys(dryMap).filter(k => farmResDryMarked(k)).length;
-      const capped = villages.filter(f => {
-        const left = farmDailyLeft(f);
-        return left != null && left <= 0;
-      }).length;
-      return {
-        ok: opt != null,
-        warn: opt == null || amount == null,
-        detail: opt == null
-          ? `mode ${mode}, pick ${state.farmUnitsPref || 'auto'} - no unit card readable (claim units once by hand or pin a unit in Ajustes)`
-          : `mode ${mode}, pick ${state.farmUnitsPref || 'auto'} -> option ${opt} (${unit}), amount ${amount == null ? '\u2014' : amount}, ${capped} village(s) at the daily cap, ${dry} marked dry`,
-      };
-    }));
     out.push(preflightProbe('farm resource scrape', () => {
       const st = (typeof farmScrapeState === 'function') ? farmScrapeState() : { dead: false, misses: 0 };
       const on = !!state.farmScrape;
@@ -21896,26 +21481,6 @@ const STORE = {
       else parts.push(`research points ${pts}`);
       parts.push(info.smallIsland == null ? 'small-island flag unreadable' : `small island ${info.smallIsland}`);
       return { ok: bad === 0, warn: bad > 0, detail: parts.join(', ') };
-    }));
-
-    out.push(preflightProbe('village recruit', () => {
-      const parts = [];
-      let bad = 0, warn = 0;
-      const tpl = state.acceptUnitsTpl;
-      if (tpl && tpl.action_name) parts.push(`tpl ${tpl.action_name}`);
-      else { parts.push('tpl UNLEARNED (open a village, click Aceptar once)'); warn++; }
-      const farms = (state.farmsParsed || []);
-      const sample = farms.find(f => f && f.vill_id);
-      if (!sample) { parts.push('no farms known'); warn++; return { ok: true, warn: true, detail: parts.join(', ') }; }
-      const counts = villageUnitCounts(sample.vill_id);
-      if (counts && counts.known) {
-        const u = counts.units;
-        parts.push(`units ${u.sword}/${u.archer}/${u.hoplite}/${u.slinger}`);
-      } else { parts.push('unit counts UNREADABLE (attribute shape unknown)'); bad++; }
-      const fr = state.farmResources && state.farmResources[sample.vill_id];
-      if (fr && fr.ok && fr.cap > 0) parts.push(`fill read OK (cap ${fr.cap})`);
-      else { parts.push('fill read pending (next farm scrape)'); warn++; }
-      return { ok: bad === 0, warn: warn > 0 || bad > 0, detail: parts.join(', ') };
     }));
 
     out.push(preflightProbe('tx registry', () => {
@@ -24738,23 +24303,6 @@ const STORE = {
             </select>
           </label>
           <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Pedir cobros de 10 min en aldeas donde la lealtad esta investigada"><input type="checkbox" data-cfg="farm-long-claims"/> Cobros de 10 min donde la lealtad de aldeanos esta investigada</label>
-          <label class="gb-cfg-num gb-cfg-sub" title="La aldea tiene dos mitades: recursos y unidades. Con 'al agotarse los recursos' la aldea pasa a pedir unidades el resto del dia en cuanto el servidor rechaza el cobro de recursos (tope diario alcanzado). Las unidades ocupan poblacion.">Cobrar unidades en aldeas
-            <select class="gb-cfg-input" data-cfg="farm-units-mode" data-gb-tip="Cuando pedir unidades en vez de recursos">
-              <option value="off">nunca (solo recursos)</option>
-              <option value="fallback">al agotarse los recursos del dia</option>
-              <option value="always">siempre (solo unidades)</option>
-            </select>
-          </label>
-          <label class="gb-cfg-num gb-cfg-sub" title="Que carta de unidad pedir. 'automatica' elige la carta de mas valor que la ciudad puede aceptar (poblacion libre y edificio requerido); 'aprendida' repite la que pulsaste a mano.">Unidad a pedir
-            <select class="gb-cfg-input" data-cfg="farm-units-pref" data-gb-tip="Unidad que se pide en la mitad de unidades de la aldea">
-              <option value="auto">automatica (mejor valor)</option>
-              <option value="learned">aprendida (pulsa una vez a mano)</option>
-              <option value="sword">Espadachin</option>
-              <option value="slinger">Hondero</option>
-              <option value="archer">Arquero</option>
-              <option value="hoplite">Hoplita</option>
-            </select>
-          </label>
           <label class="gb-cfg-row gb-cfg-sub" title="Bajo presion (captcha, enfriamiento del servidor o presupuesto justo) recorta la lista de aldeas en vez de ampliar la cadencia, y reclama primero las mas rentables."><input type="checkbox" data-cfg="adaptive-farm"/> Recoleccion adaptativa bajo presion</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Porcentaje de aldeas a descartar bajo presion (de menos rentable a mas)">Descartar bajo presion <input class="gb-cfg-input" type="number" data-cfg="farm-drop-pct" min="0" max="90" style="width:45px"/> %</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="ID o nombre exacto de la investigacion de lealtad (la pestana Registro lo vuelca si la deteccion automatica falla)">Clave de la investigacion de lealtad
@@ -24948,12 +24496,6 @@ const STORE = {
           </label>
           <label class="gb-cfg-row" data-gb-tip="Reclutar tropas automaticamente en cuarteles/puerto"><input type="checkbox" data-cfg="auto-recruit"/> Reclutamiento automatico</label>
           <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Lanzar hechizos de reclutamiento antes de reclutar"><input type="checkbox" data-cfg="recruit-spells"/> Lanzar antes los hechizos de reclutamiento</label>
-          <label class="gb-cfg-row gb-cfg-sub gb-cfg-risk" title="Convierte aldeanos en unidades cuando la aldea no admite mas recursos. Recompute: compara espada+arquero vs hoplita+hondero, elige la pareja con mas tropas y dentro de ella la unidad con menos. Requiere abrir la aldea y pulsar Aceptar una vez a mano la primera vez."><input type="checkbox" data-cfg="village-recruit"/> Reclutar en aldeas saturadas</label>
-          <label class="gb-cfg-num gb-cfg-sub" style="margin-left:28px" data-gb-tip="% de llenado y cantidad a reclutar por tick">% llenado aldea
-            <input class="gb-cfg-input" type="number" data-cfg="village-recruit-fill" min="50" max="99" style="width:50px" data-gb-tip="% minimo de llenado de la aldea para reclutar"/>
-            cantidad por tick
-            <input class="gb-cfg-input" type="number" data-cfg="village-recruit-amount" min="1" max="20" style="width:50px" data-gb-tip="Cantidad de aldeanos a reclutar por tick"/>
-          </label>
           <label class="gb-cfg-row gb-cfg-risk" data-gb-tip="Recluta todas las unidades de la lista de una sola vez. Solo se dispara cuando los recursos Y la poblacion cubren el lote entero a la vez (todo-o-nada). Si falta aunque sea una unidad, no se envia nada. Lista persistente por ciudad: el ciclo re-arms tras cada disparo."><input type="checkbox" data-cfg="batch-recruit"/> Lote de reclutamiento (todo-o-nada)</label>
           <div class="gb-cfg-note gb-cfg-sub">El editor por ciudad (objetivos permanentes y lineas del lote) vive en Militar &rarr; Entrenamiento.</div>
         `, false, 'risk')}
@@ -25486,17 +25028,12 @@ const STORE = {
     const sd = sec.querySelector('[data-cfg=farm-sleep-dur]'); if (sd) sd.value = String(state.farmSleepDur || 'auto');
     const sa = sec.querySelector('[data-cfg=farm-sleep-auto]'); if (sa) sa.checked = !!state.farmSleepAuto;
     const sf = sec.querySelector('[data-cfg=farm-sleep-fill]'); if (sf) sf.value = state.farmSleepFillPct;
-    const um = sec.querySelector('[data-cfg=farm-units-mode]'); if (um) um.value = String(state.farmUnitsMode || 'off');
-    const up = sec.querySelector('[data-cfg=farm-units-pref]'); if (up) up.value = String(state.farmUnitsPref || 'auto');
     const om = sec.querySelector('#gb-farm-optmap');
     if (om) {
-      const sample = (farmsFromGame() || [])[0] || null;
-      const uOpt = farmUnitOption(sample);
       const dup = farmOptionMapConflicts();
       om.textContent = 'learned claim options: ' + farmOptionMapText() +
         (dup ? ' | CONFLICTO: ' + dup + ' comparten opcion - pulsa Olvidar y reaprende' : '') +
-        ' (claim a timer by hand in game to teach the rest)' +
-        ' | units: ' + (uOpt == null ? 'not learned' : uOpt + ' (' + (farmUnitIdFor(uOpt) || '?') + ')');
+        ' (claim a timer by hand in game to teach the rest)';
     }
   }
   function bindConfig() {
@@ -25635,19 +25172,6 @@ const STORE = {
     onCfg('[data-cfg=farm-long-claims]', 'change', e => {
       state.farmLongClaims = e.target.checked; save(STORE.FARM_LONG_CLAIMS, state.farmLongClaims);
       gbLog('farm 10min claims', state.farmLongClaims ? 'ON' : 'OFF');
-    });
-    onCfg('[data-cfg=farm-units-mode]', 'change', e => {
-      const v = String(e.target.value || 'off');
-      state.farmUnitsMode = /^(off|fallback|always)$/.test(v) ? v : 'off';
-      save(STORE.FARM_UNITS_MODE, state.farmUnitsMode);
-      gbLog('farm unit claims:', state.farmUnitsMode);
-      syncFarmTimingCfg(sec);
-    });
-    onCfg('[data-cfg=farm-units-pref]', 'change', e => {
-      state.farmUnitsPref = String(e.target.value || 'auto');
-      save(STORE.FARM_UNITS_PREF, state.farmUnitsPref);
-      gbLog('farm unit claim card:', state.farmUnitsPref);
-      syncFarmTimingCfg(sec);
     });
     onCfg('[data-cfg=farm-scrape]', 'change', e => {
       state.farmScrape = e.target.checked; save(STORE.FARM_SCRAPE, state.farmScrape);
@@ -25793,9 +25317,6 @@ const STORE = {
     setChk('[data-cfg=auto-dodge]', state.autoDodge);
     setChk('[data-cfg=auto-recruit]', state.autoRecruit);
     setChk('[data-cfg=recruit-spells]', state.recruitSpells);
-    setChk('[data-cfg=village-recruit]', state.autoVillageRecruit);
-    setNum('[data-cfg=village-recruit-fill]', state.villageRecruitFillPct);
-    setNum('[data-cfg=village-recruit-amount]', state.villageRecruitAmount);
     setChk('[data-cfg=grepodata]', state.grepodataIndex);
     setNum('[data-cfg=rural-ratio]', state.ruralTradeRatio);
     setNum('[data-cfg=rural-level-max]', state.ruralLevelMax);
@@ -25961,15 +25482,6 @@ const STORE = {
     bindToggle('[data-cfg=auto-militia]', 'autoMilitia', STORE.AUTO_MILITIA);
     bindToggle('[data-cfg=auto-dodge]', 'autoDodge', STORE.AUTO_DODGE);
     bindToggle('[data-cfg=auto-recruit]', 'autoRecruit', STORE.AUTO_RECRUIT, () => { try { renderTrain(); } catch (_) {} recruitScan('toggle'); });
-    bindToggle('[data-cfg=village-recruit]', 'autoVillageRecruit', STORE.AUTO_VILLAGE_RECRUIT, () => villageRecruitScan('toggle'));
-    saveNum('[data-cfg=village-recruit-fill]', v => {
-      state.villageRecruitFillPct = gbCfgClamp(v, 50, 99, 90);
-      save(STORE.VILLAGE_RECRUIT_FILL, state.villageRecruitFillPct);
-    });
-    saveNum('[data-cfg=village-recruit-amount]', v => {
-      state.villageRecruitAmount = Math.min(20, Math.max(1, v || 1));
-      save(STORE.VILLAGE_RECRUIT_AMOUNT, state.villageRecruitAmount);
-    });
     bindToggle('[data-cfg=recruit-spells]', 'recruitSpells', STORE.RECRUIT_SPELLS);
     bindToggle('[data-cfg=grepodata]', 'grepodataIndex', STORE.GREPODATA_INDEX);
     const saveCult = () => {
@@ -26272,14 +25784,12 @@ const STORE = {
       gbLog('posts soft ceiling =', state.postsPerMinSoftPct + '% of ' + (state.reqBudgetPerMin || 40) + '/min');
     });
     onCfg('[data-cfg=farm-forget-options]', 'click', () => {
-      if (!confirm('Olvidar las opciones de cobro aprendidas (recursos y unidades)?')) return;
+      if (!confirm('Olvidar las opciones de cobro aprendidas?')) return;
       state.farmOptionMap = {};
       save(wkey(STORE.FARM_OPTION_MAP), state.farmOptionMap);
-      state.farmUnitsOption = null;
-      save(wkey(STORE.FARM_UNITS_OPTION), null);
 
       try { tplHealthMarkLearned('claimTpl'); } catch (_) {}
-      gbLog('farm: learned claim options cleared by user (resources + units)');
+      gbLog('farm: learned claim options cleared by user');
       flash('opciones de cobro olvidadas');
       syncFarmTimingCfg(sec);
     });
