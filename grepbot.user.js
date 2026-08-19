@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.8.6
+// @version      5.8.7
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -10686,7 +10686,7 @@ const STORE = {
           const amount = Math.floor(Math.min(headroom, src.tradeCap, src[res] * 0.5));
           if (amount < minBatch) continue;
           if (!best || headroom > best.headroom) {
-            best = { tgtId, amount };
+            best = { tgtId, amount, headroom };
           }
         }
         if (best) {
@@ -11100,10 +11100,17 @@ const STORE = {
     if (state.autoTrade && preset === 'storage') {
       jobs = jobs.concat(tradeFillStorageJobs(towns, ledger));
 
-      if (!jobs.length && typeof orchDeadlockOpen === 'function' && orchDeadlockOpen()) {
-        const dl = tradeDeadlockJobs(towns, ledger);
-        if (dl.length) gbLog(`trade: deadlock drain - ${dl.length} job(s) on the pinned resource`);
-        jobs = jobs.concat(dl);
+      if (typeof orchDeadlockOpen === 'function' && orchDeadlockOpen()) {
+        const dead = jobs.length > 0 && !jobs.some(j => tradeValidateJob(j).ok);
+        if (!jobs.length || dead) {
+
+          const dl = tradeDeadlockJobs(towns, dead ? tradeLedger(towns) : ledger);
+          if (dl.length) {
+            gbLog(`trade: deadlock drain - ${dl.length} job(s) on the pinned resource${dead ? ` (replaced ${jobs.length} job(s) the validator rejects)` : ''}`);
+            if (dead) jobs = [];
+            jobs = jobs.concat(dl);
+          }
+        }
       }
     } else if (state.autoTrade && (preset === 'party' || preset === 'unit')) {
       jobs = jobs.concat(tradeGoalJobs(towns, ledger, preset));
