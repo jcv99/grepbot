@@ -447,42 +447,276 @@
   function simulateTown(townId,horizonHours){const h=Math.max(1,+horizonHours||24),snap=plannerSnapshot(townId),forecast=economyForecast(townId,h*3600),plan=goalPlanTown(townId);if(!snap)return{townId:String(townId),error:'state-unreadable',actions:[]};const stock={wood:snap.availableSoft.wood,stone:snap.availableSoft.stone,iron:snap.availableSoft.iron,population:snap.availableSoft.population};if(forecast&&forecast.production){for(const k of ['wood','stone','iron'])stock[k]+=forecast.production[k]*h}const actions=[];let bottleneck='';for(const a of(plan.actions||[])){if(a.kind==='build'&&a.costExact===false){const why='future build cost requires live recalculation after previous level';actions.push({...a,sim:'waiting',simWhy:why});if(!bottleneck)bottleneck=why;break}const c=plannerNormCost(a.cost);if(!c){actions.push({...a,sim:'blocked:cost'});continue}let ok=true,why='';for(const k of PLANNER_KEYS){if((+c[k]||0)>+(stock[k]||0)){ok=false;why=`${k} ${Math.floor(stock[k]||0)}/${Math.ceil(c[k]||0)}`;break}}if(!ok){actions.push({...a,sim:'waiting',simWhy:why});if(!bottleneck)bottleneck=why;break}for(const k of PLANNER_KEYS)stock[k]-=+c[k]||0;actions.push({...a,sim:'would-run'})}return{townId:String(townId),horizonHours:h,actions,final:stock,bottleneck,productionKnown:!!(forecast&&forecast.productionKnown)}}
   function simulateAccount(horizonHours){let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){};const towns=ids.map(id=>simulateTown(id,horizonHours));return{at:Date.now(),horizonHours:+horizonHours||24,towns,totalActions:towns.reduce((n,t)=>n+t.actions.filter(a=>a.sim==='would-run').length,0),blocked:towns.filter(t=>t.bottleneck).length}}
   let dashboardSimulation=null;
+
+  // ===== Resumen (v5.9.0 rework) =============================================
+  // The tab used to open with four abstract cards and two <pre> blocks of
+  // English machine text ("Towns: 4 / Farms ready: 11/26 / Health: farms
+  // ok142/err3"). Everything a human had to act on was buried inside them.
+  // It now opens with one sentence, then ONLY the things waiting on a person,
+  // then what the bot will do next. The machine dump moved to Diagnostico
+  // untouched - it is still what gets pasted into an issue.
+  //
+  // Nothing here reads a new source: every number comes from the same call the
+  // old renderer used, and anything unreadable renders as an em dash instead of
+  // a reassuring zero.
+  const GB_KIND_ES = { build: 'Construir', research: 'Investigar', recruit: 'Reclutar' };
+  const GB_RES_ES = { wood: 'madera', stone: 'piedra', iron: 'plata', population: 'población', pop: 'población' };
+
+  // A planner 'why' is a machine short-string ('wood 1180/1400'). Known shapes
+  // get a Spanish reading; anything else is shown RAW. A guessed translation of
+  // a string the planner may rename silently is worse than the string itself.
+  function gbWhyEs(why) {
+    const w = String(why == null ? '' : why).trim();
+    if (!w) return '';
+    const m = w.match(/^(wood|stone|iron|population|pop)\s+(\d+)\/(\d+)$/);
+    if (m) return `faltan ${Math.max(0, +m[3] - +m[2])} de ${GB_RES_ES[m[1]]}`;
+    if (w === 'cost-unreadable') return 'no se puede leer el coste';
+    if (w === 'dependency') return 'falta un requisito';
+    if (w === 'blocked by user') return 'bloqueado por ti';
+    if (/^research:/.test(w)) return 'falta una investigación previa';
+    return w;
+  }
+  function gbAttentionEl(item) {
+    const box = document.createElement('div');
+    box.className = 'gb-att' + (item.tone === 'bad' ? ' bad' : '');
+    const ico = gbIcon(item.tone === 'bad' ? 'alert' : 'info', 15, item.tone === 'bad' ? '#ff9aa3' : '#ffd27a');
+    if (ico) { ico.style.flex = '0 0 auto'; ico.style.marginTop = '1px'; box.appendChild(ico); }
+    const mid = document.createElement('div');
+    mid.style.cssText = 'flex:1;min-width:0';
+    const t = document.createElement('div');
+    t.className = 'gb-att-t';
+    t.textContent = item.title;
+    mid.appendChild(t);
+    if (item.sub) {
+      const sb = document.createElement('div');
+      sb.className = 'gb-att-s';
+      sb.textContent = item.sub;
+      mid.appendChild(sb);
+    }
+    box.appendChild(mid);
+    if (item.action) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'gb-action';
+      b.textContent = item.action;
+      b.addEventListener('click', item.onClick);
+      box.appendChild(b);
+    }
+    return box;
+  }
+  function gbAttentionItems(ctx) {
+    const items = [];
+    (ctx.threats || []).slice(0, 3).forEach(m => {
+      const eta = (typeof dodgeEtaSec === 'function') ? dodgeEtaSec(m) : null;
+      const when = eta == null ? 'no se puede leer la llegada' : 'llega en ' + fmtSec(eta);
+      let name = String(m.dest);
+      try { name = gbTownModel(m.dest).getName() || name; } catch (_) {}
+      const mode = state.dodgeMode === 'auto' ? 'El esquive automático está activo.' : 'El esquive esta en "solo avisar": el bot no moverá tropas.';
+      items.push({
+        tone: 'bad',
+        title: `Ataque a ${name}, ${when}`,
+        sub: mode + (m.hasCs ? ' Lleva barco de conquista.' : ''),
+        action: 'Ver',
+        onClick: () => showTab('intel'),
+      });
+    });
+    if (ctx.unknown) {
+      items.push({
+        tone: 'bad',
+        title: ctx.unknown === 1 ? 'Un envío quedó sin confirmar' : `${ctx.unknown} envíos quedaron sin confirmar`,
+        sub: 'Se acabó el tiempo antes de saber si llegaron al servidor. Compruébalos antes de repetirlos.',
+        action: 'Revisar',
+        onClick: () => { showTab('log'); const b = panel.querySelector('[data-logsub=pending]'); if (b) b.click(); },
+      });
+    }
+    if (ctx.circuits.length) {
+      items.push({
+        tone: 'warn',
+        title: ctx.circuits.length === 1 ? 'Un módulo está parado por errores repetidos' : `${ctx.circuits.length} módulos están parados por errores repetidos`,
+        sub: 'Sin enviar nada más hasta que se revise: ' + ctx.circuits.slice(0, 4).join(', '),
+        action: 'Ver',
+        onClick: () => showTab('stats'),
+      });
+    }
+    if (ctx.captchaKeys.length) {
+      items.push({
+        tone: 'warn',
+        title: 'El juego pidió un captcha',
+        sub: 'En pausa hasta que lo resuelvas: ' + ctx.captchaKeys.slice(0, 4).join(', '),
+        action: 'Ver',
+        onClick: () => showTab('stats'),
+      });
+    }
+    if (!ctx.compatible) {
+      const miss = Object.entries(ctx.fps.required || {}).filter(([, v]) => !v).map(([k]) => k);
+      items.push({
+        tone: 'bad',
+        title: 'El bot no reconoce esta versión del juego',
+        sub: 'No puede leer: ' + (miss.length ? miss.join(', ') : 'la huella del cliente') + '. Recarga la página antes de fiarte de nada.',
+        action: 'Comprobar',
+        onClick: () => { preflightRunAndRender(); showTab('stats'); },
+      });
+    }
+    if (ctx.overflow.length) {
+      items.push({
+        tone: 'warn',
+        title: ctx.overflow.length === 1 ? 'Un almacén se va a llenar' : `${ctx.overflow.length} almacenes se van a llenar`,
+        sub: ctx.overflow.slice(0, 3).join(' · ') + '. Lo que sobre se pierde.',
+        action: 'Ver',
+        onClick: () => showTab('overview'),
+      });
+    }
+    return items;
+  }
   function renderDashboard() {
     const sec=panel&&panel.querySelector('section[data-tab=overview]');
     if(!sec||sec.hidden)return;
-    const sum=sec.querySelector('.dashboard-summary'),time=sec.querySelector('.timeline-panel'),sim=sec.querySelector('.sim-panel'),cards=sec.querySelector('.gb-dashboard-cards');
-    if(!sum||!time||!sim)return;
+    const sim=sec.querySelector('.sim-panel');
+    const cards=sec.querySelector('.gb-dashboard-cards');
+    const hero=sec.querySelector('.gb-hero');
+    const chips=sec.querySelector('.gb-chips');
+    const attBox=sec.querySelector('.gb-attention');
+    const nextBox=sec.querySelector('.gb-next');
     let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){}
-    const threats=dodgeIncomingMovements();
+    const threats=(typeof dodgeIncomingMovements==='function')?(dodgeIncomingMovements()||[]):[];
     const unknown=Object.values(state.txState||{}).filter(t=>t&&/^(unknown|manual-review)$/.test(t.state||'')).length;
     const circuits=Object.keys(state.circuits||{}).filter(k=>state.circuits[k]&&state.circuits[k].open);
+    const captchaKeys=Object.keys(state.captchaBreakers||{}).filter(k=>captchaPaused(k));
     const fps=clientFingerprintNow();
     const compatible=Object.values(fps.required).every(Boolean);
     const activeGoals=ids.filter(id=>(goalPlanTown(id).actions||[]).length).length;
-    const avgProgress=ids.length?Math.round(ids.reduce((n,id)=>n+goalProgress(id),0)/ids.length):100;
+
+    // No towns readable is BLIND, not "0% done" - the old renderer printed 100%.
+    const avgProgress=ids.length?Math.round(ids.reduce((n,id)=>n+goalProgress(id),0)/ids.length):null;
     const pauseInfo={}; const paused=automationPaused(pauseInfo);
-    sum.textContent=`towns ${ids.length} · progress ${avgProgress}% · ${activeGoals} objetivo(s) activos · ${unknown} transacción(es) pendientes de revisar · ${circuits.length} circuit breaker abierto(s)`;
-    if(cards){
-      cards.replaceChildren();
-      const data=[
-        ['Ciudades',ids.length,activeGoals?`${activeGoals} con trabajo pendiente`:'sin objetivos pendientes'],
-        ['Progreso',`${avgProgress}%`,avgProgress>=100?'objetivos completados':'media de objetivos'],
-        ['Amenazas',threats.length,threats.length?'requieren revisión':'sin entradas hostiles detectadas'],
-        ['Sistema',compatible&&!unknown&&!circuits.length?'OK':'Revisar',paused?`pausado: ${pauseInfo.reason}`:(state.safeMode?'SAFE MODE':'automatización disponible')],
-      ];
-      for(const [k,v,sub] of data){const c=document.createElement('div');c.className='gb-card';gbTip(c, sub);const a=document.createElement('div');a.className='k';a.textContent=k;const b=document.createElement('div');b.className='v';b.textContent=String(v);const d=document.createElement('div');d.className='s';d.textContent=sub;c.append(a,b,d);cards.appendChild(c)}
+
+    const overflow=[];
+    for(const id of ids){
+      let name=id;try{name=gbTownModel(id).getName()||id}catch(_){}
+      let f=null;try{f=economyForecast(id)}catch(_){}
+      if(f&&f.overflow&&Object.values(f.overflow).some(Boolean)){
+        const which=Object.entries(f.overflow).filter(([,v])=>v).map(([k])=>GB_RES_ES[k]||k);
+        overflow.push(`${name}: ${which.join(', ')}`);
+      }
     }
-    const mode=panel.querySelector('#gb-head-mode');if(mode){mode.textContent=state.safeMode?'SAFE':'NORMAL';mode.className='gb-pill '+(state.safeMode?'warn':'ok')}
+    const items=gbAttentionItems({threats,unknown,circuits,captchaKeys,compatible,fps,overflow});
+
+    if(hero){
+      const dot=hero.querySelector('.gb-hero-dot');
+      const t=hero.querySelector('.gb-hero-t');
+      const sb=hero.querySelector('.gb-hero-s');
+      const bad=items.some(x=>x.tone==='bad');
+      if(dot){dot.classList.remove('warn','bad');if(items.length)dot.classList.add(bad?'bad':'warn')}
+      if(t)t.textContent=!items.length?'Todo en marcha'
+        :(items.length===1?'1 cosa necesita tu atención':`${items.length} cosas necesitan tu atención`);
+      if(sb)sb.textContent=paused?`Automatización en pausa: ${pauseInfo.reason}`
+        :(items.length?'Lo demás va solo.':'No hay nada esperando por ti.');
+    }
+    if(chips){
+      const list=[];
+      list.push({t:state.safeMode?'MODO SEGURO':'Modo normal',c:state.safeMode?'warn':''});
+      if(state.dryRun)list.push({t:'Simulación: no envía nada',c:'warn'});
+      list.push({t:captchaKeys.length?`Captcha en ${captchaKeys.length} modulo(s)`:'Sin captcha',c:captchaKeys.length?'bad':''});
+      let used=null;try{used=reqBudgetUsed()}catch(_){}
+      list.push({t:used==null?'Peticiones: —':`${used} de ${state.reqBudgetPerMin||40} peticiones/min`,c:''});
+      if(paused)list.push({t:`En pausa: ${pauseInfo.reason}`,c:'warn'});
+      gbPaint(chips,stage=>{
+        for(const c of list){
+          const e=document.createElement('span');
+          e.className='gb-chip'+(c.c?' '+c.c:'');
+          e.textContent=c.t;
+          stage.appendChild(e);
+        }
+      },{key:list.map(c=>c.t+c.c).join('|')});
+    }
+    if(attBox){
+      gbPaint(attBox,stage=>{
+        if(!items.length){
+          const e=document.createElement('div');
+          e.className='gb-att-ok';
+          e.textContent='Nada que revisar ahora mismo.';
+          stage.appendChild(e);
+          return;
+        }
+        items.forEach(it=>stage.appendChild(gbAttentionEl(it)));
+      },{key:items.map(i=>i.tone+i.title).join('|')});
+    }
+    if(nextBox){
+      const rows=[];
+      for(const id of ids){
+        let name=id;try{name=gbTownModel(id).getName()||id}catch(_){}
+        const a=(goalPlanTown(id).actions||[])[0];
+        if(!a)continue;
+        const what=`${GB_KIND_ES[a.kind]||a.kind} ${a.id}${a.level?' al nivel '+a.level:''}`;
+        const waiting=/^(waiting|blocked|user-blocked)/.test(String(a.status||''));
+        rows.push({town:String(name),what,when:waiting?(gbWhyEs(a.why)||'en espera'):'en cola',wait:waiting});
+      }
+      gbPaint(nextBox,stage=>{
+        if(!ids.length){
+          const e=document.createElement('div');
+          e.className='gb-att-ok';
+          e.textContent='No se pueden leer las ciudades todavía.';
+          stage.appendChild(e);
+          return;
+        }
+        if(!rows.length){
+          const e=document.createElement('div');
+          e.className='gb-att-ok';
+          e.textContent='No hay nada planificado. Marca objetivos en "Objetivos y cola por ciudad".';
+          stage.appendChild(e);
+          return;
+        }
+        rows.slice(0,6).forEach(r=>{
+          const row=document.createElement('div');
+          row.className='gb-next-row';
+          const a=document.createElement('span');a.className='gb-next-town';a.textContent=r.town;
+          const b=document.createElement('span');b.className='gb-next-what';b.textContent=r.what;
+          const c=document.createElement('span');c.className='gb-next-when'+(r.wait?' wait':'');c.textContent=r.when;
+          row.append(a,b,c);
+          stage.appendChild(row);
+        });
+      },{key:rows.slice(0,6).map(r=>r.town+r.what+r.when).join('|')});
+    }
+    if(cards){
+      let farmReady='—',farmTotal=null;
+      try{const d=qolOverviewData();farmReady=String(d.farmReady);farmTotal=d.farmTotal}catch(_){}
+      const data=[
+        ['Ciudades',ids.length?String(ids.length):'—',activeGoals?`${activeGoals} con trabajo pendiente`:'sin objetivos pendientes'],
+        ['Objetivos',avgProgress==null?'—':`${avgProgress}%`,avgProgress==null?'no se pueden leer las ciudades':(avgProgress>=100?'objetivos completados':'media de objetivos')],
+        ['Aldeas listas',farmTotal==null?'—':`${farmReady}/${farmTotal}`,state.autoFarm?'cobro automático activo':'cobro automático apagado'],
+        ['Amenazas',String(threats.length),threats.length?'requieren revisión':'sin entradas hostiles'],
+      ];
+      gbPaint(cards,stage=>{
+        for(const [k,v,sub] of data){
+          const c=document.createElement('div');c.className='gb-card';gbTip(c,sub);
+          const a=document.createElement('div');a.className='k';a.textContent=k;
+          const b=document.createElement('div');b.className='v';b.textContent=String(v);
+          const d=document.createElement('div');d.className='s';d.textContent=sub;
+          c.append(a,b,d);stage.appendChild(c);
+        }
+      },{key:data.map(d=>d.join('|')).join('~')});
+    }
+    const mode=panel.querySelector('#gb-head-mode');if(mode){mode.textContent=state.safeMode?'MODO SEGURO':'Automatización activa';mode.className='gb-pill '+(state.safeMode?'warn':'ok')}
     const health=panel.querySelector('#gb-head-health');if(health){const bad=!compatible||unknown||circuits.length;health.textContent=bad?'REVISAR':'SISTEMA OK';health.className='gb-pill '+(bad?'bad':'ok');const tipParts=[];if(!compatible){const miss=Object.entries(fps.required||{}).filter(([,v])=>!v).map(([k])=>k);tipParts.push('fp falta: '+(miss.length?miss.join(','):'fingerprint roto'))}if(unknown){const stuck=Object.entries(state.txState||{}).filter(([,t])=>t&&/^(unknown|manual-review)$/.test(t.state||'')).map(([k])=>k);tipParts.push('tx '+unknown+': '+(stuck.slice(0,4).join(',')+(stuck.length>4?' +'+(stuck.length-4):'')))}if(circuits.length){tipParts.push('cb '+circuits.length+': '+circuits.slice(0,4).join(',')+(circuits.length>4?' +'+(circuits.length-4):''))}gbTip(health, tipParts.length?tipParts.join(' · '):'Salud agregada OK')}
-    const quickSafe=sec.querySelector('#gb-quick-safe');if(quickSafe)quickSafe.textContent=state.safeMode?'SAFE MODE: ON':'SAFE MODE: OFF';
-    const rows=[];
-    for(const id of ids){let name=id;try{name=gbTownModel(id).getName()||id}catch(_){}const p=goalPlanTown(id),f=economyForecast(id);const a=(p.actions||[])[0];if(a)rows.push(`${name}: ${a.kind} ${a.id}${a.level?' → '+a.level:''} · ${a.status}${a.why?' · '+a.why:''}`);if(f&&Object.values(f.overflow).some(Boolean))rows.push(`${name}: AVISO · almacén previsto al límite en ${Object.entries(f.overflow).filter(([,v])=>v).map(([k])=>k).join(', ')}`)}
-    time.textContent=rows.slice(0,30).join('\n')||'No hay acciones planificadas.';
-    if(dashboardSimulation){const lines=[`Simulación ${dashboardSimulation.horizonHours} h · ${dashboardSimulation.totalActions} acciones · ${dashboardSimulation.blocked} ciudad(es) con cuello de botella`];for(const t of dashboardSimulation.towns)lines.push(`Ciudad ${t.townId}: ${t.actions.filter(a=>a.sim==='would-run').length} acciones · final ${Math.floor(t.final.wood)}/${Math.floor(t.final.stone)}/${Math.floor(t.final.iron)} · ${t.bottleneck||'sin bloqueo'}${t.productionKnown?'':' · producción desconocida'}`);sim.textContent=lines.join('\n')}else sim.textContent='Todavía no se ha ejecutado una simulación.';
+    const quickSafe=sec.querySelector('#gb-quick-safe');if(quickSafe)quickSafe.textContent=state.safeMode?'MODO SEGURO: ON':'MODO SEGURO: OFF';
+    if(sim){
+      if(dashboardSimulation){const lines=[`Simulación ${dashboardSimulation.horizonHours} h · ${dashboardSimulation.totalActions} acciones · ${dashboardSimulation.blocked} ciudad(es) con cuello de botella`];for(const t of dashboardSimulation.towns)lines.push(`Ciudad ${t.townId}: ${t.actions.filter(a=>a.sim==='would-run').length} acciones · final ${Math.floor(t.final.wood)}/${Math.floor(t.final.stone)}/${Math.floor(t.final.iron)} · ${t.bottleneck||'sin bloqueo'}${t.productionKnown?'':' · producción desconocida'}`);sim.textContent=lines.join('\n')}else sim.textContent='Todavía no se ha ejecutado una simulación.';
+    }
     const why=sec.querySelector('.why-panel');if(why)why.textContent=(state.whyLog||[]).slice(0,12).map(x=>`${new Date(x.ts).toLocaleTimeString()} · ${x.feature} · ${x.status}${x.why?' · '+x.why:''}`).join('\n')||'Todavía no hay decisiones registradas.';
     renderHealth();
   }
+  // v5.9.0: the machine-text block this writes now lives in the Diagnostico
+  // tab, so the two halves are guarded separately - the Resumen renderers must
+  // still run when the Diagnostico section is the hidden one, and vice versa.
   function renderOverview() {
+    const ov = panel && panel.querySelector('section[data-tab=overview]');
+    if (ov && !ov.dataset.uxBound) {
+      ov.dataset.uxBound = '1';
+      ov.querySelector('#gb-quick-safe')?.addEventListener('click', () => { state.safeMode = !state.safeMode; save(STORE.SAFE_MODE, state.safeMode); renderOverview(); flash(state.safeMode ? 'MODO SEGURO activado' : 'MODO SEGURO desactivado'); });
+      ov.querySelector('#gb-quick-sim')?.addEventListener('click', () => { dashboardSimulation = simulateAccount(24); const h = ov.querySelector('#gb-sim-hours'); if (h) h.value = '24'; renderDashboard(); });
+      ov.querySelector('#gb-quick-config')?.addEventListener('click', () => showTab('config'));
+    }
+    try { renderGoals(); renderPlanner(); renderDashboard(); } catch (_) {}
     const box = panel && panel.querySelector('.overview-panel');
     if (!box) return;
     const sec = box.closest('section[data-tab]');
@@ -504,14 +738,6 @@
       })(),
     ];
     box.textContent = lines.join('\n');
-    if (sec && !sec.dataset.uxBound) {
-      sec.dataset.uxBound = '1';
-      sec.querySelector('#gb-quick-safe')?.addEventListener('click', () => { state.safeMode = !state.safeMode; save(STORE.SAFE_MODE, state.safeMode); renderOverview(); flash(state.safeMode ? 'SAFE MODE activado' : 'SAFE MODE desactivado'); });
-      sec.querySelector('#gb-quick-preflight')?.addEventListener('click', () => { preflightRunAndRender(); showTab('stats'); });
-      sec.querySelector('#gb-quick-sim')?.addEventListener('click', () => { dashboardSimulation = simulateAccount(24); const h=sec.querySelector('#gb-sim-hours'); if(h)h.value='24'; renderDashboard(); });
-      sec.querySelector('#gb-quick-config')?.addEventListener('click', () => showTab('config'));
-    }
-    try { renderGoals(); renderPlanner(); renderDashboard(); } catch (_) {}
   }
   const CONFIG_EXPORT_SCHEMA = 3;
   // Config export carries player notes / watchlist - redact by default.

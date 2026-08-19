@@ -92,14 +92,13 @@
     const e = panel?.querySelector('#gb-collect-state');
     if (!e) return;
     if (state.collectAll) {
-      e.textContent = `* ALL ON (${scanned}/${clicked})`;
+      e.textContent = `Recogida: todo (${clicked}/${scanned})`;
       e.style.color = '#f96';
     } else if (scanned > 0) {
-      e.textContent = `auto: ${clicked}/${scanned}`;
+      e.textContent = `Recogida: ${clicked}/${scanned}`;
       e.style.color = clicked ? '#6c6' : '#888';
     } else {
-      const a = state.collectTpl && state.collectTpl.match(/action=([^&]+)/);
-      e.textContent = state.collectTpl ? '* learn:' + (a ? a[1] : '?') : 'no btn';
+      e.textContent = state.collectTpl ? 'Recogida: botón aprendido' : 'Recogida: sin botón a la vista';
       e.style.color = '#888';
     }
   }

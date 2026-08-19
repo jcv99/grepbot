@@ -915,6 +915,83 @@
       });
     }
     box.textContent = lines.join('\n');
+    renderPreflightBoard(sec);
+  }
+
+  // ===== Preflight board (v5.9.0) ===========================================
+  // The preflight result used to exist only as machine lines at the bottom of
+  // the big <pre>. It is the one thing in this tab a player is meant to ACT on,
+  // so the failures are lifted out as sentences above it. The <pre> keeps every
+  // line untouched - it is what gets pasted into an issue.
+  const PF_ES = {
+    'bridge': 'Puente con el juego',
+    'csrf': 'Token de sesión',
+    'towns': 'Ciudades',
+    'farm claims': 'Cobro de aldeas',
+    'farm unit claims': 'Cobro de unidades en aldeas',
+    'farm resource scrape': 'Lectura de recursos de aldeas',
+    'sleep claim': 'Cobro nocturno de aldeas',
+    'instant build': 'Terminar construcción gratis',
+    'instant research': 'Terminar investigación gratis',
+    'cave': 'Cueva',
+    'trade': 'Comercio',
+    'research': 'Investigación',
+    'academy read path': 'Academia',
+    'village recruit': 'Reclutar en aldeas',
+    'tx registry': 'Registro de transacciones',
+    'phoenician': 'Comercio fenicio',
+    'native queue': 'Colas del juego',
+    'snapshots': 'Instantáneas',
+    'profiler': 'Perfilador',
+    'memory probe': 'Memoria',
+  };
+  function renderPreflightBoard(sec) {
+    const when = sec.querySelector('#gb-pf-when');
+    const list = sec.querySelector('.gb-pf-list');
+    if (!list) return;
+    if (!preflightLast) {
+      if (when) when.textContent = 'Lee todos los módulos sin enviar nada al juego. Todavía no se ha ejecutado.';
+      list.replaceChildren();
+      return;
+    }
+    const rows = preflightLast.rows || [];
+    const bad = rows.filter(r => !r.ok);
+    const warn = rows.filter(r => r.ok && r.warn);
+    const okN = rows.length - bad.length - warn.length;
+    if (when) {
+      when.textContent = `${new Date(preflightLast.at).toLocaleTimeString()} · ${okN} bien`
+        + (warn.length ? ` · ${warn.length} aviso(s)` : '')
+        + (bad.length ? ` · ${bad.length} fallo(s)` : '');
+    }
+    const show = bad.concat(warn);
+    gbPaint(list, stage => {
+      show.forEach(r => {
+        const row = document.createElement('div');
+        row.className = 'gb-pf-row';
+        const ico = gbIcon(r.ok ? 'info' : 'alert', 14, r.ok ? '#ffd27a' : '#ff9aa3');
+        if (ico) { ico.style.flex = '0 0 auto'; ico.style.marginTop = '1px'; row.appendChild(ico); }
+        const mid = document.createElement('div');
+        mid.style.cssText = 'flex:1;min-width:0';
+        const t = document.createElement('div');
+        t.className = 'gb-pf-t ' + (r.ok ? 'warn' : 'bad');
+        t.textContent = PF_ES[r.name] || r.name;
+        const d = document.createElement('div');
+        d.className = 'gb-pf-s';
+        d.textContent = r.detail;
+        mid.append(t, d);
+        row.appendChild(mid);
+        stage.appendChild(row);
+      });
+      const sum = document.createElement('div');
+      sum.className = 'gb-pf-row';
+      const ico = gbIcon('check', 14, '#6dda7e');
+      if (ico) { ico.style.flex = '0 0 auto'; ico.style.marginTop = '1px'; sum.appendChild(ico); }
+      const st = document.createElement('div');
+      st.className = 'gb-pf-t';
+      st.textContent = okN === 1 ? 'Otro módulo lee bien' : `Otros ${okN} módulos leen bien`;
+      sum.appendChild(st);
+      stage.appendChild(sum);
+    }, { key: show.map(r => r.name + (r.ok ? 'w' : 'x')).join('|') + '#' + okN });
   }
   // ---------- evidence snapshot (diagnostics export) ----------
   function evidenceTplShape(v) {
