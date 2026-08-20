@@ -13,19 +13,12 @@
   function recruitControllerFor(unitId) {
     const def = gbGameDataLookup("units", unitId);
     if (!def) return null;
-    // Naval mythicals (Poseidon: hydra, sea monsters) go to the harbor, not the
-    // temple. recruitIsNaval folds both the GameData flag and the explicit
-    // fallback set so world data variants still route correctly.
+    // Two valid recruit controllers only: barracks (land) and docks (naval).
+    // Mythical/god gating belongs in recruitCanBuild (temple_level + god +
+    // favor preconditions), never in the controller — there is no recruit
+    // endpoint at building_temple, and posting there costs a request-budget
+    // slot and a decision-memory strike every cadence.
     if (recruitIsNaval(unitId)) return { controller: 'building_docks', feature: 'recruit' };
-    // Mythical/god units (ares spartans, athena centaurs, hera amazons, ...) live
-    // behind `building_temple`, not barracks. Without this branch the bot routes
-    // every mythical recruit to barracks every cadence and the server rejects
-    // the post — burning a request budget slot and a decision-memory strike.
-    // Mythical/god units (ares spartans, athena centaurs, hera amazons, ...) live
-    // behind `building_temple`, not barracks. Without this branch the bot routes
-    // every mythical recruit to barracks every cadence and the server rejects
-    // the post — burning a request budget slot and a decision-memory strike.
-    if (def.is_mythical || def.mythical || def.god) return { controller: 'building_temple', feature: 'recruit' };
     return { controller: 'building_barracks', feature: 'recruit' };
   }
   function recruitHasSpell(townId, powerId) {
