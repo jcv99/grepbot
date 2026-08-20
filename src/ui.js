@@ -1608,8 +1608,10 @@
         <div class="jrn-list"></div>
         <div class="jrn-btns">
           <button data-jrn="copy" data-gb-tip="Copiar la bitacora visible al portapapeles">Copiar JSON</button>
+          <button data-jrn="copy-log" data-gb-tip="Copiar el registro en vivo (anillo completo) al portapapeles">Copiar log</button>
           <button data-jrn="clear-skips" data-gb-tip="Borrar las ventanas de salto por decision">Limpiar saltos</button>
-          <button data-jrn="clear" data-gb-tip="Borrar toda la bitacora de decisiones">Limpiar bitacora</button>
+          <button data-jrn="clear" data-gb-tip="Borrar la bitacora de decisiones (historial)">Limpiar bitacora</button>
+          <button data-jrn="clear-all" data-gb-tip="Borrar bitacora, saltos, cortacircuitos, captchas y transacciones desconocidas">Limpiar registros</button>
         </div>
       </div>
       <div class="pending-pane" hidden>
@@ -1743,6 +1745,21 @@
     const text = JSON.stringify({ decisions: state.decisions, skips: state.decisionSkips }, null, 2);
     navigator.clipboard.writeText(text).then(() => flash('bitacora copiada')).catch(() => flash('fallo al copiar'));
   });
+  // Clipboard copy of the live log ring (the same text "Copiar todo" embeds,
+  // but exposed here so the user does not have to round-trip through the
+  // bundle). No explicit cap: gbLogDumpText defaults to LOG_MAX.
+  panel.querySelector('[data-jrn=copy-log]')?.addEventListener('click', () => {
+    const text = gbLogDumpText();
+    const ok = () => flash('log copiado (' + text.split('\n').length + ' lineas)');
+    const fail = () => flash('fallo al copiar');
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(ok, fail);
+        return;
+      }
+    } catch (_) {}
+    fail();
+  });
   panel.querySelector('[data-jrn=clear-skips]')?.addEventListener('click', () => {
     jrnClearSkips();
     renderJournal();
@@ -1750,6 +1767,32 @@
   panel.querySelector('[data-jrn=clear]')?.addEventListener('click', () => {
     if (!confirm('Clear the decision journal for ' + location.host + '?')) return;
     jrnClear();
+    renderJournal();
+  });
+  // "Limpiar registros" - the union button. The previous "Limpiar bitacora"
+  // only cleared the journal history and skip windows, leaving circuit
+  // breakers, captcha cooldowns and txState unknown entries intact. Those
+  // are the registries that actually gate writes; clearing only the journal
+  // left the bot silently blocked, which is what the user reported as
+  // "unable to remove all registry problems". Every clear runs through its
+  // existing helper so storage, journal ring, circuit save and tx save all
+  // get the durability they expect.
+  panel.querySelector('[data-jrn=clear-all]')?.addEventListener('click', () => {
+    if (!confirm('Limpiar TODOS los registros de GrepBot en ' + location.host + '?\n\n' +
+      '- Bitacora de decisiones (historial)\n' +
+      '- Ventanas de salto por decision\n' +
+      '- Cortacircuitos por feature\n' +
+      '- Cooldowns de captcha (incluido el global)\n' +
+      '- Transacciones unknown / manual-review (marcadas como aborted)\n\n' +
+      'No envia nada al servidor. Solo desbloquea el bot.')) return;
+    jrnClear();
+    circuitClear();
+    captchaClear();
+    try { txClearUnknown(); } catch (_) {}
+    try { gbUnlockAll(); } catch (_) {}
+    gbLog('memory: all registries cleared (journal, skips, circuits, captcha, tx)');
+    flash('registros limpiados');
+    updateStatus();
     renderJournal();
   });
 

@@ -537,7 +537,7 @@
     farmClaimsToday: load(STORE.FARM_CLAIMS_TODAY, {}) || {},
     farmClaimsDay: load(STORE.FARM_CLAIMS_DAY, '') || '',
 
-    farmUnitsMode: load(STORE.FARM_UNITS_MODE, 'fallback') || 'fallback',
+    farmUnitsMode: load(STORE.FARM_UNITS_MODE, 'off') || 'off',
     farmUnitsPref: load(STORE.FARM_UNITS_PREF, 'auto') || 'auto',
     farmUnitsOption: load(STORE.FARM_UNITS_OPTION, null),
     farmResDry: load(STORE.FARM_RES_DRY, {}) || {},
@@ -1580,7 +1580,10 @@
     const flush = () => {
       logRenderQueued = false;
       if (sec.hidden || list.hidden) return;
-      const start = Math.max(logHead, logBuf.length - 80);
+      // Show the whole ring, not just the tail - the previous 80-line cap
+      // made older entries invisible to the user (they were still in logBuf
+      // and still in any bundle, but the pane scrolled them off).
+      const start = Math.max(logHead, logBuf.length - LOG_MAX);
       const lines = logBuf.slice(start);
       list.textContent = lines.map(l => new Date(l.ts).toLocaleTimeString() + ' ' + l.msg).join('\n');
       list.scrollTop = list.scrollHeight;

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.9.0
+// @version      5.9.2
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -735,7 +735,7 @@ const STORE = {
     farmClaimsToday: load(STORE.FARM_CLAIMS_TODAY, {}) || {},
     farmClaimsDay: load(STORE.FARM_CLAIMS_DAY, '') || '',
 
-    farmUnitsMode: load(STORE.FARM_UNITS_MODE, 'fallback') || 'fallback',
+    farmUnitsMode: load(STORE.FARM_UNITS_MODE, 'off') || 'off',
     farmUnitsPref: load(STORE.FARM_UNITS_PREF, 'auto') || 'auto',
     farmUnitsOption: load(STORE.FARM_UNITS_OPTION, null),
     farmResDry: load(STORE.FARM_RES_DRY, {}) || {},
@@ -1648,7 +1648,8 @@ const STORE = {
     const flush = () => {
       logRenderQueued = false;
       if (sec.hidden || list.hidden) return;
-      const start = Math.max(logHead, logBuf.length - 80);
+
+      const start = Math.max(logHead, logBuf.length - LOG_MAX);
       const lines = logBuf.slice(start);
       list.textContent = lines.map(l => new Date(l.ts).toLocaleTimeString() + ' ' + l.msg).join('\n');
       list.scrollTop = list.scrollHeight;
@@ -6757,7 +6758,11 @@ const STORE = {
       e.textContent = `Recogida: ${clicked}/${scanned}`;
       e.style.color = clicked ? '#6c6' : '#888';
     } else {
-      e.textContent = state.collectTpl ? 'Recogida: bot\u00f3n aprendido' : 'Recogida: sin bot\u00f3n a la vista';
+
+      const a = state.collectTpl && state.collectTpl.match(/action=([^&]+)/);
+      e.textContent = state.collectTpl
+        ? 'Recogida: bot\u00f3n aprendido (' + (a ? a[1] : '?') + ')'
+        : 'Recogida: sin bot\u00f3n a la vista';
       e.style.color = '#888';
     }
   }
@@ -11106,7 +11111,12 @@ const STORE = {
           const dl = tradeDeadlockJobs(towns, dead ? tradeLedger(towns) : ledger);
           if (dl.length) {
             gbLog(`trade: deadlock drain - ${dl.length} job(s) on the pinned resource${dead ? ` (replaced ${jobs.length} job(s) the validator rejects)` : ''}`);
-            if (dead) jobs = [];
+
+            if (dead) {
+              jrnPush({ f: 'trade', a: 'deadlock-replace', k: 't-:-' }, 'skip:deadlock-replace',
+                `${jobs.length} planned job(s) unsendable, drained the pinned resource instead`);
+              jobs = [];
+            }
             jobs = jobs.concat(dl);
           }
         }
@@ -16320,9 +16330,9 @@ const STORE = {
     const ov = panel && panel.querySelector('section[data-tab=overview]');
     if (ov && !ov.dataset.uxBound) {
       ov.dataset.uxBound = '1';
-      ov.querySelector('#gb-quick-safe')?.addEventListener('click', () => { state.safeMode = !state.safeMode; save(STORE.SAFE_MODE, state.safeMode); renderOverview(); flash(state.safeMode ? 'MODO SEGURO activado' : 'MODO SEGURO desactivado'); });
-      ov.querySelector('#gb-quick-sim')?.addEventListener('click', () => { dashboardSimulation = simulateAccount(24); const h = ov.querySelector('#gb-sim-hours'); if (h) h.value = '24'; renderDashboard(); });
-      ov.querySelector('#gb-quick-config')?.addEventListener('click', () => showTab('config'));
+      gbListen(ov.querySelector('#gb-quick-safe'), 'click', () => { state.safeMode = !state.safeMode; save(STORE.SAFE_MODE, state.safeMode); renderOverview(); flash(state.safeMode ? 'MODO SEGURO activado' : 'MODO SEGURO desactivado'); });
+      gbListen(ov.querySelector('#gb-quick-sim'), 'click', () => { dashboardSimulation = simulateAccount(24); const h = ov.querySelector('#gb-sim-hours'); if (h) h.value = '24'; renderDashboard(); });
+      gbListen(ov.querySelector('#gb-quick-config'), 'click', () => showTab('config'));
     }
     try { renderGoals(); renderPlanner(); renderDashboard(); } catch (_) {}
     const box = panel && panel.querySelector('.overview-panel');
@@ -22757,13 +22767,16 @@ const STORE = {
         row.appendChild(mid);
         stage.appendChild(row);
       });
+      if (!okN) return;
       const sum = document.createElement('div');
       sum.className = 'gb-pf-row';
       const ico = gbIcon('check', 14, '#6dda7e');
       if (ico) { ico.style.flex = '0 0 auto'; ico.style.marginTop = '1px'; sum.appendChild(ico); }
       const st = document.createElement('div');
       st.className = 'gb-pf-t';
-      st.textContent = okN === 1 ? 'Otro m\u00f3dulo lee bien' : `Otros ${okN} m\u00f3dulos leen bien`;
+      st.textContent = !show.length
+        ? (okN === 1 ? 'El \u00fanico m\u00f3dulo probado lee bien' : `Los ${okN} m\u00f3dulos leen bien`)
+        : (okN === 1 ? 'Otro m\u00f3dulo lee bien' : `Otros ${okN} m\u00f3dulos leen bien`);
       sum.appendChild(st);
       stage.appendChild(sum);
     }, { key: show.map(r => r.name + (r.ok ? 'w' : 'x')).join('|') + '#' + okN });
@@ -22980,7 +22993,8 @@ const STORE = {
       bundleSection('evidence', () => gbEvidence()),
       bundleSection('config', () => (typeof qolExportConfigForUi === 'function' ? qolExportConfigForUi() : '(no export path)')),
       bundleSection('decisions', () => ({ decisions: state.decisions || [], skips: state.decisionSkips || {} })),
-      bundleSection('log', () => gbLogDumpText(200)),
+
+      bundleSection('log', () => gbLogDumpText()),
       bundleSection('findings', () => (typeof redactFindingsExport === 'function'
         ? redactFindingsExport({ findings: state.findings, farms: state.farms })
         : '(no redaction path - refusing raw findings)')),
@@ -25457,8 +25471,10 @@ const STORE = {
         <div class="jrn-list"></div>
         <div class="jrn-btns">
           <button data-jrn="copy" data-gb-tip="Copiar la bitacora visible al portapapeles">Copiar JSON</button>
+          <button data-jrn="copy-log" data-gb-tip="Copiar el registro en vivo (anillo completo) al portapapeles">Copiar log</button>
           <button data-jrn="clear-skips" data-gb-tip="Borrar las ventanas de salto por decision">Limpiar saltos</button>
-          <button data-jrn="clear" data-gb-tip="Borrar toda la bitacora de decisiones">Limpiar bitacora</button>
+          <button data-jrn="clear" data-gb-tip="Borrar la bitacora de decisiones (historial)">Limpiar bitacora</button>
+          <button data-jrn="clear-all" data-gb-tip="Borrar bitacora, saltos, cortacircuitos, captchas y transacciones desconocidas">Limpiar registros</button>
         </div>
       </div>
       <div class="pending-pane" hidden>
@@ -25588,6 +25604,19 @@ const STORE = {
     const text = JSON.stringify({ decisions: state.decisions, skips: state.decisionSkips }, null, 2);
     navigator.clipboard.writeText(text).then(() => flash('bitacora copiada')).catch(() => flash('fallo al copiar'));
   });
+
+  panel.querySelector('[data-jrn=copy-log]')?.addEventListener('click', () => {
+    const text = gbLogDumpText();
+    const ok = () => flash('log copiado (' + text.split('\n').length + ' lineas)');
+    const fail = () => flash('fallo al copiar');
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(ok, fail);
+        return;
+      }
+    } catch (_) {}
+    fail();
+  });
   panel.querySelector('[data-jrn=clear-skips]')?.addEventListener('click', () => {
     jrnClearSkips();
     renderJournal();
@@ -25595,6 +25624,25 @@ const STORE = {
   panel.querySelector('[data-jrn=clear]')?.addEventListener('click', () => {
     if (!confirm('Clear the decision journal for ' + location.host + '?')) return;
     jrnClear();
+    renderJournal();
+  });
+
+  panel.querySelector('[data-jrn=clear-all]')?.addEventListener('click', () => {
+    if (!confirm('Limpiar TODOS los registros de GrepBot en ' + location.host + '?\n\n' +
+      '- Bitacora de decisiones (historial)\n' +
+      '- Ventanas de salto por decision\n' +
+      '- Cortacircuitos por feature\n' +
+      '- Cooldowns de captcha (incluido el global)\n' +
+      '- Transacciones unknown / manual-review (marcadas como aborted)\n\n' +
+      'No envia nada al servidor. Solo desbloquea el bot.')) return;
+    jrnClear();
+    circuitClear();
+    captchaClear();
+    try { txClearUnknown(); } catch (_) {}
+    try { gbUnlockAll(); } catch (_) {}
+    gbLog('memory: all registries cleared (journal, skips, circuits, captcha, tx)');
+    flash('registros limpiados');
+    updateStatus();
     renderJournal();
   });
 
@@ -26067,7 +26115,7 @@ const STORE = {
           let hits = 0;
           const rows = rowsOf(g);
           const match = rows.map(r => fold(r.textContent).includes(needle)
-            || Array.from(r.querySelectorAll('[data-cfg]')).some(c => (c.getAttribute('data-cfg') || '').includes(needle)));
+            || Array.from(r.querySelectorAll('[data-cfg]')).some(c => fold(c.getAttribute('data-cfg') || '').includes(needle)));
 
           const isChild = r => r.classList.contains('gb-cfg-sub') || r.classList.contains('gb-cfg-note') || r.classList.contains('cave-towns');
           rows.forEach((r, i) => {

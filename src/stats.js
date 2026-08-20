@@ -982,13 +982,16 @@
         row.appendChild(mid);
         stage.appendChild(row);
       });
+      if (!okN) return;
       const sum = document.createElement('div');
       sum.className = 'gb-pf-row';
       const ico = gbIcon('check', 14, '#6dda7e');
       if (ico) { ico.style.flex = '0 0 auto'; ico.style.marginTop = '1px'; sum.appendChild(ico); }
       const st = document.createElement('div');
       st.className = 'gb-pf-t';
-      st.textContent = okN === 1 ? 'Otro módulo lee bien' : `Otros ${okN} módulos leen bien`;
+      st.textContent = !show.length
+        ? (okN === 1 ? 'El único módulo probado lee bien' : `Los ${okN} módulos leen bien`)
+        : (okN === 1 ? 'Otro módulo lee bien' : `Otros ${okN} módulos leen bien`);
       sum.appendChild(st);
       stage.appendChild(sum);
     }, { key: show.map(r => r.name + (r.ok ? 'w' : 'x')).join('|') + '#' + okN });
@@ -1213,7 +1216,11 @@
       bundleSection('evidence', () => gbEvidence()),
       bundleSection('config', () => (typeof qolExportConfigForUi === 'function' ? qolExportConfigForUi() : '(no export path)')),
       bundleSection('decisions', () => ({ decisions: state.decisions || [], skips: state.decisionSkips || {} })),
-      bundleSection('log', () => gbLogDumpText(200)),
+      // No explicit cap: gbLogDumpText defaults to LOG_MAX inside the ring.
+      // A hardcoded 200 used to ship an arbitrary slice; the ring is the
+      // source of truth and "Copiar todo" should match what the live pane
+      // can show.
+      bundleSection('log', () => gbLogDumpText()),
       bundleSection('findings', () => (typeof redactFindingsExport === 'function'
         ? redactFindingsExport({ findings: state.findings, farms: state.farms })
         : '(no redaction path - refusing raw findings)')),
