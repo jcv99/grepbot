@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.9.5
+// @version      5.9.6
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -24949,6 +24949,30 @@ const STORE = {
   panel.id = 'grepbot-panel';
   panel.style.zIndex = '2147483647';
 
+  function gbClipWrite(text, okMsg) {
+    const done = ok => flash(ok ? okMsg : 'fallo al copiar');
+    const fallback = () => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        ta.remove();
+        done(ok);
+      } catch (_) { done(false); }
+    };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => done(true), fallback);
+        return;
+      }
+    } catch (_) {}
+    fallback();
+  }
+
   function gbSection(title, body, open) {
     return `<details class="gb-section"${open ? ' open' : ''}><summary>${title}</summary><div class="gb-section-body">${body}</div></details>`;
   }
@@ -25561,6 +25585,10 @@ const STORE = {
         <input class="jrn-filter" placeholder="filter feature/action/target" data-gb-tip="Filtrar por feature, action o target"/>
       </div>
       <div class="log-list"></div>
+      <div class="jrn-btns log-btns">
+        <button data-log="copy" data-gb-tip="Copiar el registro en vivo entero (anillo completo) al portapapeles">Copiar todo</button>
+        <button data-log="download" data-gb-tip="Descargar el registro en vivo entero como .txt">Descargar .txt</button>
+      </div>
       <div class="jrn-pane" hidden>
         <div class="jrn-head"></div>
         <div class="jrn-list"></div>
@@ -25659,9 +25687,12 @@ const STORE = {
       const usesPending = sub === 'pending';
       panel.querySelectorAll('.gb-logsub button').forEach(b => b.classList.toggle('on', b === btn));
       const live = panel.querySelector('.log-list');
+      const liveBtns = panel.querySelector('.log-btns');
       const pane = panel.querySelector('.jrn-pane');
       const pend = panel.querySelector('.pending-pane');
       if (live) live.hidden = usesPane || usesPending;
+
+      if (liveBtns) liveBtns.hidden = usesPane || usesPending;
       if (pane) pane.hidden = !(usesPane);
       if (pend) pend.hidden = !usesPending;
       if (sub === 'mem') renderJournal();
@@ -25695,6 +25726,24 @@ const STORE = {
       });
     }
   }
+
+  panel.querySelector('[data-log=copy]')?.addEventListener('click', () => {
+    const text = gbLogDumpText();
+    if (!text) { flash('registro vacio'); return; }
+    gbClipWrite(text, 'log copiado (' + text.split('\n').length + ' lineas)');
+  });
+  panel.querySelector('[data-log=download]')?.addEventListener('click', () => {
+    const text = gbLogDumpText();
+    if (!text) { flash('registro vacio'); return; }
+    const blob = new Blob([text], { type: 'text/plain' });
+    const a = document.createElement('a');
+    const objectUrl = URL.createObjectURL(blob);
+    a.href = objectUrl;
+    a.download = `grepbot-log-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
+    a.click();
+    gbTimeout(() => { try { URL.revokeObjectURL(objectUrl); } catch (_) {} }, 0);
+    flash('log descargado');
+  });
   panel.querySelector('[data-jrn=copy]')?.addEventListener('click', () => {
     const text = JSON.stringify({ decisions: state.decisions, skips: state.decisionSkips }, null, 2);
     navigator.clipboard.writeText(text).then(() => flash('bitacora copiada')).catch(() => flash('fallo al copiar'));
@@ -25702,15 +25751,8 @@ const STORE = {
 
   panel.querySelector('[data-jrn=copy-log]')?.addEventListener('click', () => {
     const text = gbLogDumpText();
-    const ok = () => flash('log copiado (' + text.split('\n').length + ' lineas)');
-    const fail = () => flash('fallo al copiar');
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(ok, fail);
-        return;
-      }
-    } catch (_) {}
-    fail();
+    if (!text) { flash('registro vacio'); return; }
+    gbClipWrite(text, 'log copiado (' + text.split('\n').length + ' lineas)');
   });
   panel.querySelector('[data-jrn=clear-skips]')?.addEventListener('click', () => {
     jrnClearSkips();
