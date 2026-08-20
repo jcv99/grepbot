@@ -1449,6 +1449,23 @@
       return (uw.GameData && uw.GameData[table] && uw.GameData[table][key]) || null;
     } catch (_) { return null; }
   }
+  // Poseidon mythicals (hydra, sea monsters) are NAVAL mythicals — recruited
+  // at the harbor (building_docks), not the temple. GameData.is_naval is
+  // unreliable for this set in some worlds, so the heuristic needs an explicit
+  // fallback. Single shared helper so recruiters, lane classifiers and the
+  // queue-center renderer all agree on what is naval.
+  const NAVAL_MYTHICAL_UNITS = new Set(['hydra']);
+  function recruitIsNaval(unitId) {
+    const fid = unitId == null ? '' : String(unitId);
+    try {
+      const d = gbGameDataLookup("units", fid);
+      if (!d) return NAVAL_MYTHICAL_UNITS.has(fid);
+      if (d.is_naval || d.naval) return true;
+      if (NAVAL_MYTHICAL_UNITS.has(fid)) return true;
+      if (d.controller === 'building_docks') return true;
+      return false;
+    } catch (_) { return NAVAL_MYTHICAL_UNITS.has(fid); }
+  }
   // Idle-log scan suffix. Replaces the `${reason || 'scan'}` idiom in 13 sites
   // so future style changes touch one place.
   function scanReason(reason) { return reason || 'scan'; }

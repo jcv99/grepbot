@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.9.2
+// @version      5.9.3
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1531,6 +1531,19 @@ const STORE = {
       const uw = gameUw();
       return (uw.GameData && uw.GameData[table] && uw.GameData[table][key]) || null;
     } catch (_) { return null; }
+  }
+
+  const NAVAL_MYTHICAL_UNITS = new Set(['hydra']);
+  function recruitIsNaval(unitId) {
+    const fid = unitId == null ? '' : String(unitId);
+    try {
+      const d = gbGameDataLookup("units", fid);
+      if (!d) return NAVAL_MYTHICAL_UNITS.has(fid);
+      if (d.is_naval || d.naval) return true;
+      if (NAVAL_MYTHICAL_UNITS.has(fid)) return true;
+      if (d.controller === 'building_docks') return true;
+      return false;
+    } catch (_) { return NAVAL_MYTHICAL_UNITS.has(fid); }
   }
 
   function scanReason(reason) { return reason || 'scan'; }
@@ -8056,7 +8069,7 @@ const STORE = {
 
   const NATIVE_QUEUE_LANES=['build','recruit','recruitNaval','research'];
   const NATIVE_RECRUIT_LANES=['recruit','recruitNaval'];
-  function nativeUnitIsNaval(unit){try{const d=gbGameDataLookup("units", unit)||{};return !!(d.is_naval||d.naval)}catch(_){return false}}
+  function nativeUnitIsNaval(unit){return recruitIsNaval(unit)}
   function nativeRecruitLane(unit){return nativeUnitIsNaval(unit)?'recruitNaval':'recruit'}
 
   function nativeRecruitLaneOf(townId,unit) {
@@ -14244,7 +14257,8 @@ const STORE = {
   function recruitControllerFor(unitId) {
     const def = gbGameDataLookup("units", unitId);
     if (!def) return null;
-    if (def.is_naval || def.naval) return { controller: 'building_docks', feature: 'recruit' };
+
+    if (recruitIsNaval(unitId)) return { controller: 'building_docks', feature: 'recruit' };
 
     if (def.is_mythical || def.mythical || def.god) return { controller: 'building_temple', feature: 'recruit' };
     return { controller: 'building_barracks', feature: 'recruit' };
@@ -14386,7 +14400,7 @@ const STORE = {
       }
       const bdeps = recruitRequiredBuildings(def);
       for (const [bid, lvl] of Object.entries(bdeps)) if (+(buildings[bid] || 0) < +lvl) return false;
-      if (def.is_naval || def.naval) {
+      if (recruitIsNaval(unitId)) {
         const docksNeed = +(def.docks_level ?? def.harbor_level ?? def.required_docks_level ?? 1);
         if (+(buildings.docks || 0) < (Number.isFinite(docksNeed) ? docksNeed : 1)) return false;
       } else {
@@ -14420,7 +14434,7 @@ const STORE = {
     if (!t) return { known: false, len: 0, max: null, models: [] };
     let col = null, models = [];
     try { col = t.getUnitOrdersCollection && t.getUnitOrdersCollection();if(!col||!Array.isArray(col.models))return {known:false,len:0,max:null,models:[]};models=col.models.slice(); } catch (_) {return {known:false,len:0,max:null,models:[]}}
-    if(unitId){const want=gbGameDataLookup("units", unitId),wantNaval=!!(want&&(want.is_naval||want.naval));models=models.filter(m=>{const a=m.attributes||m,id=a.unit_type||a.unit_id||a.type,d=gbGameDataLookup("units", id);return !d||!!(d.is_naval||d.naval)===wantNaval})}
+    if(unitId){const wantNaval=recruitIsNaval(unitId);models=models.filter(m=>{const a=m.attributes||m,id=a.unit_type||a.unit_id||a.type;return id?recruitIsNaval(id)===wantNaval:true})}
     let max = null;
     try { if (col && typeof col.getMaxQueueLength === 'function') max = +col.getMaxQueueLength(); } catch (_) {}
     try { if (!(max > 0) && col && col.max_queue_length != null) max = +col.max_queue_length; } catch (_) {}
@@ -23397,9 +23411,8 @@ const STORE = {
 
   function queueCenterUnitIsNaval(unit) {
     try {
-      const d = gbGameDataLookup("units", unit);
-      if (!d) return null;
-      return !!(d.is_naval || d.naval);
+      if (!unit) return null;
+      return recruitIsNaval(unit);
     } catch (_) { return null; }
   }
   function queueCenterUnitId(model) {

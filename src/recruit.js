@@ -13,7 +13,10 @@
   function recruitControllerFor(unitId) {
     const def = gbGameDataLookup("units", unitId);
     if (!def) return null;
-    if (def.is_naval || def.naval) return { controller: 'building_docks', feature: 'recruit' };
+    // Naval mythicals (Poseidon: hydra, sea monsters) go to the harbor, not the
+    // temple. recruitIsNaval folds both the GameData flag and the explicit
+    // fallback set so world data variants still route correctly.
+    if (recruitIsNaval(unitId)) return { controller: 'building_docks', feature: 'recruit' };
     // Mythical/god units (ares spartans, athena centaurs, hera amazons, ...) live
     // behind `building_temple`, not barracks. Without this branch the bot routes
     // every mythical recruit to barracks every cadence and the server rejects
@@ -179,7 +182,7 @@
       }
       const bdeps = recruitRequiredBuildings(def);
       for (const [bid, lvl] of Object.entries(bdeps)) if (+(buildings[bid] || 0) < +lvl) return false;
-      if (def.is_naval || def.naval) {
+      if (recruitIsNaval(unitId)) {
         const docksNeed = +(def.docks_level ?? def.harbor_level ?? def.required_docks_level ?? 1);
         if (+(buildings.docks || 0) < (Number.isFinite(docksNeed) ? docksNeed : 1)) return false;
       } else {
@@ -218,7 +221,7 @@
     if (!t) return { known: false, len: 0, max: null, models: [] };
     let col = null, models = [];
     try { col = t.getUnitOrdersCollection && t.getUnitOrdersCollection();if(!col||!Array.isArray(col.models))return {known:false,len:0,max:null,models:[]};models=col.models.slice(); } catch (_) {return {known:false,len:0,max:null,models:[]}}
-    if(unitId){const want=gbGameDataLookup("units", unitId),wantNaval=!!(want&&(want.is_naval||want.naval));models=models.filter(m=>{const a=m.attributes||m,id=a.unit_type||a.unit_id||a.type,d=gbGameDataLookup("units", id);return !d||!!(d.is_naval||d.naval)===wantNaval})}
+    if(unitId){const wantNaval=recruitIsNaval(unitId);models=models.filter(m=>{const a=m.attributes||m,id=a.unit_type||a.unit_id||a.type;return id?recruitIsNaval(id)===wantNaval:true})}
     let max = null;
     try { if (col && typeof col.getMaxQueueLength === 'function') max = +col.getMaxQueueLength(); } catch (_) {}
     try { if (!(max > 0) && col && col.max_queue_length != null) max = +col.max_queue_length; } catch (_) {}
