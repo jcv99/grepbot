@@ -34,8 +34,6 @@
     if (!id) return null;
     // Re-registering the same id disposes the old one first: a hot reload must
     // not leave two hosts fighting over the same geometry key.
-    // Re-registering the same id disposes the old one first: a hot reload must
-    // not leave two hosts fighting over the same geometry key.
     if (gbWidgets[id]) { try { gbWidgets[id].dispose(); } catch (_) {} }
     const host = document.createElement('div');
     host.className = 'gb-widget';
@@ -70,11 +68,6 @@
     // clocks move, and patching those text nodes leaves the window's scroll,
     // hover and selection alone. o.key(), when the widget renders anything
     // clickable, is what forces a real rebuild instead of a patch.
-    // Widgets tick as fast as 1s (the incoming-attack countdown), so they paint
-    // through gbPaint: the row structure is stable between ticks, only the
-    // clocks move, and patching those text nodes leaves the window's scroll,
-    // hover and selection alone. o.key(), when the widget renders anything
-    // clickable, is what forces a real rebuild instead of a patch.
     const render = () => {
       try {
         if (typeof o.render !== 'function') return;
@@ -98,8 +91,6 @@
       drag = null;
       // A click on the header that never moved is not a reposition; writing
       // storage for it would burn a GM_setValue on every open/close.
-      // A click on the header that never moved is not a reposition; writing
-      // storage for it would burn a GM_setValue on every open/close.
       if (moved) gbWidgetSaveGeom(id, { left: host.style.left, top: host.style.top });
     });
     const api = {
@@ -109,8 +100,6 @@
       open() {
         host.style.display = 'block';
         render();
-        // The tick belongs to the widget and only runs while it is OPEN, so a
-        // closed countdown widget costs nothing.
         // The tick belongs to the widget and only runs while it is OPEN, so a
         // closed countdown widget costs nothing.
         if (o.tickMs && !timer) timer = gbInterval(() => { if (api.isOpen() && !document.hidden) render(); }, o.tickMs);
@@ -154,15 +143,10 @@
         state.pauseOnActivity = !state.pauseOnActivity;
         save(STORE.PAUSE_ON_ACTIVITY, state.pauseOnActivity);
         // Writes state directly; the Config checkbox re-reads it on next open.
-        // Writes state directly; the Config checkbox re-reads it on next open.
         flash('pausa por actividad ' + (state.pauseOnActivity ? 'ON' : 'OFF'));
       },
     },
     'diag': { label: 'Diagnostico', run: () => diagRun() },
-    // Kill switch. No confirm on the way IN on purpose: the whole point is that
-    // one keystroke stops every post from anywhere in the game, and gbPanicActivate
-    // is itself reversible (gbPanicRecover). Confirming would cost the seconds
-    // the operator pressed it to save.
     // Kill switch. No confirm on the way IN on purpose: the whole point is that
     // one keystroke stops every post from anywhere in the game, and gbPanicActivate
     // is itself reversible (gbPanicRecover). Confirming would cost the seconds
@@ -223,8 +207,6 @@
     const k = String(e.key || '');
     // Single printable character only: a bare modifier press has key 'Shift'
     // and must not resolve to a binding.
-    // Single printable character only: a bare modifier press has key 'Shift'
-    // and must not resolve to a binding.
     if (k.length === 1) { const u = k.toUpperCase(); if (!out.includes(u)) out.push(u); }
     else if (GB_KEY_NAMED.has(k) && !out.includes(k)) out.push(k);
     return out;
@@ -245,8 +227,6 @@
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
       if (ae.isContentEditable) return true;
     }
-    // The focused node may not be the contenteditable ROOT - a chat widget can
-    // put the attribute on an ancestor - so test the event target's chain too.
     // The focused node may not be the contenteditable ROOT - a chat widget can
     // put the attribute on an ancestor - so test the event target's chain too.
     try {
@@ -712,9 +692,9 @@
     const ov = panel && panel.querySelector('section[data-tab=overview]');
     if (ov && !ov.dataset.uxBound) {
       ov.dataset.uxBound = '1';
-      ov.querySelector('#gb-quick-safe')?.addEventListener('click', () => { state.safeMode = !state.safeMode; save(STORE.SAFE_MODE, state.safeMode); renderOverview(); flash(state.safeMode ? 'MODO SEGURO activado' : 'MODO SEGURO desactivado'); });
-      ov.querySelector('#gb-quick-sim')?.addEventListener('click', () => { dashboardSimulation = simulateAccount(24); const h = ov.querySelector('#gb-sim-hours'); if (h) h.value = '24'; renderDashboard(); });
-      ov.querySelector('#gb-quick-config')?.addEventListener('click', () => showTab('config'));
+      gbListen(ov.querySelector('#gb-quick-safe'), 'click', () => { state.safeMode = !state.safeMode; save(STORE.SAFE_MODE, state.safeMode); renderOverview(); flash(state.safeMode ? 'MODO SEGURO activado' : 'MODO SEGURO desactivado'); });
+      gbListen(ov.querySelector('#gb-quick-sim'), 'click', () => { dashboardSimulation = simulateAccount(24); const h = ov.querySelector('#gb-sim-hours'); if (h) h.value = '24'; renderDashboard(); });
+      gbListen(ov.querySelector('#gb-quick-config'), 'click', () => showTab('config'));
     }
     try { renderGoals(); renderPlanner(); renderDashboard(); } catch (_) {}
     const box = panel && panel.querySelector('.overview-panel');
@@ -790,9 +770,6 @@
       // structuredClone preserves Date/Map/Set/RegExp that JSON would silently
       // mangle, and throws DataCloneError on unsupported types so a regression
       // is logged instead of masquerading as a clean snapshot.
-      // structuredClone preserves Date/Map/Set/RegExp that JSON would silently
-      // mangle, and throws DataCloneError on unsupported types so a regression
-      // is logged instead of masquerading as a clean snapshot.
       try { out[k] = structuredClone(state[k]); } catch (e) { gbLogT('cfg-snap-' + k, 60000, 'config snapshot: ' + k + ' ' + String(e && e.message || e).slice(0, 80)); }
     }
     return out;
@@ -831,15 +808,12 @@
     const entry = src.pop();
     // A snapshot from a NEWER schema is refused and put back: applying it would
     // mean interpreting fields this build does not understand.
-    // A snapshot from a NEWER schema is refused and put back: applying it would
-    // mean interpreting fields this build does not understand.
     if (+entry.schema > CONFIG_EXPORT_SCHEMA) {
       src.push(entry);
       gbLog(`config ${label}: refused - snapshot schema ${entry.schema} newer than ${CONFIG_EXPORT_SCHEMA}`);
       return false;
     }
     const current = qolConfigSnapshot();
-    // history:false so the apply below cannot recurse into the ring.
     // history:false so the apply below cannot recurse into the ring.
     const ok = qolImportConfig(entry.data, { history: false, source: label });
     if (!ok) { src.push(entry); gbLog(`config ${label}: nothing applied`); return false; }
@@ -1021,7 +995,6 @@
     Object.keys(preset.values).forEach(k => put(k, preset.values[k]));
     Object.keys(CONFIG_PRESET_HIGH_RISK).forEach(k => put(k, CONFIG_PRESET_HIGH_RISK[k]));
     if (name === 'war') {
-      // Notify, never auto: dodging on its own is the highest-risk loop there is.
       // Notify, never auto: dodging on its own is the highest-risk loop there is.
       if (!state.defenseCfg || typeof state.defenseCfg !== 'object') state.defenseCfg = { mode: 'notify', returnMarginSec: 120 };
       state.defenseCfg.mode = 'notify';

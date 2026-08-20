@@ -151,13 +151,6 @@
     // Resolved via closest() rather than a fixed data-tab value: the farms list
     // is a block inside a section, not a tab of its own (TAB_GROUPS has no
     // 'farms' id), so a hardcoded selector would silently never match.
-    // Nothing below is observable while the browser tab is hidden or the hosting
-    // panel section is not the visible one; a village sweep otherwise rebuilds
-    // the table once per village for nobody. showTab() re-renders on the way in,
-    // so there is no stale-paint window.
-    // Resolved via closest() rather than a fixed data-tab value: the farms list
-    // is a block inside a section, not a tab of its own (TAB_GROUPS has no
-    // 'farms' id), so a hardcoded selector would silently never match.
     if (document.hidden) return;
     const sec = list.closest('section[data-tab]');
     if (sec && sec.hidden) return;
@@ -186,8 +179,6 @@
         const actions = document.createElement('td');
         // Farm-town attacks use a different game path than Town/sendUnits. The old ATK button
         // prepared an objective that the sender intentionally refuses, so it is removed fail-closed.
-        // Farm-town attacks use a different game path than Town/sendUnits. The old ATK button
-        // prepared an objective that the sender intentionally refuses, so it is removed fail-closed.
         const thrBtn = document.createElement('button');
         thrBtn.textContent = 'THR'; thrBtn.title = 'Set threshold';
         thrBtn.style.cssText = 'background:none;border:1px solid #555;color:#fc6;padding:1px 5px;cursor:pointer;font-size:11px';
@@ -206,8 +197,6 @@
       const prof = (state.farmProfit || {})[String(f.vill_id)];
       // Unranked sorts as '' (string compare), never 0 - a blind village is
       // unknown, not worthless.
-      // Unranked sorts as '' (string compare), never 0 - a blind village is
-      // unknown, not worthless.
       const sort = [f.vill_id, r?.name || '', r?.wood ?? '', r?.stone ?? '', r?.iron ?? '', r?.pop ?? '',
         prof && prof.score != null ? Math.round(prof.score * 60) : '', r?.ts ?? ''].join('\t');
       if (tr.dataset.sort !== sort) tr.dataset.sort = sort;
@@ -220,8 +209,6 @@
     const totals = panel.querySelector('.world-totals');
     const list = panel.querySelector('.world-list');
     if (!totals || !list) return;
-    // Same rationale as renderFarms: towns.js calls this once per scraped town,
-    // and townPopState() runs per town inside. Hidden = no observer, no work.
     // Same rationale as renderFarms: towns.js calls this once per scraped town,
     // and townPopState() runs per town inside. Hidden = no observer, no work.
     if (document.hidden) return;
@@ -238,8 +225,6 @@
     }
     // Population subtotal from the same walk: how many towns are at/near the
     // pop cap, so a warehouse-focused user still sees the recruit ceiling.
-    // Population subtotal from the same walk: how many towns are at/near the
-    // pop cap, so a warehouse-focused user still sees the recruit ceiling.
     let popNear = 0, popWarn = 0, popRead = 0;
     for (const t of state.towns) {
       const ps = townPopState(t.id);
@@ -251,7 +236,6 @@
     const popTxt = popRead
       ? ` | poblacion ${popWarn} al limite / ${popNear} cerca / ${popRead} leidas`
       : ' | poblacion no legible';
-    // Same computation the pre-warn watcher uses - one source of truth.
     // Same computation the pre-warn watcher uses - one source of truth.
     let preTxt = '';
     try {
@@ -518,9 +502,6 @@
   function applyTheme() {
     const cls = 'gb-theme-' + gbThemeResolved();
     const targets = [panel, (gbQueueCenter || null)];
-    // Widget hosts (v4 plan 6.2) live on document.body, not inside the panel,
-    // so they need the theme class themselves or their var() lookups resolve
-    // to nothing and they render unstyled.
     // Widget hosts (v4 plan 6.2) live on document.body, not inside the panel,
     // so they need the theme class themselves or their var() lookups resolve
     // to nothing and they render unstyled.
@@ -1835,10 +1816,6 @@
   // handler runs, compare after it returns. Scoped to [data-cfg] controls only,
   // so panel navigation, the Stats simulation, journal clears and scrape
   // buttons - which have non-config side effects - never checkpoint.
-  // One capture-phase listener on the Config section: snapshot BEFORE the real
-  // handler runs, compare after it returns. Scoped to [data-cfg] controls only,
-  // so panel navigation, the Stats simulation, journal clears and scrape
-  // buttons - which have non-config side effects - never checkpoint.
   {
     const cfgSec = panel.querySelector('section[data-tab=config]');
     if (cfgSec && !cfgSec.dataset.histBound) {
@@ -1847,8 +1824,6 @@
         const t = e.target;
         if (!t || !t.closest || !t.closest('[data-cfg]')) return;
         const before = qolConfigSnapshot();
-        // Deferred to a microtask so the element's own change handler has
-        // already mutated state by the time we compare.
         // Deferred to a microtask so the element's own change handler has
         // already mutated state by the time we compare.
         gbTimeout(() => {
@@ -1869,7 +1844,6 @@
   panel.querySelector('#gb-anote-save')?.addEventListener('click', () => {
     const a = panel.querySelector('#gb-anote-ally')?.value?.trim();
     const n = panel.querySelector('#gb-anote-text')?.value?.trim();
-    // Empty note deletes the entry, same contract as the player note.
     // Empty note deletes the entry, same contract as the player note.
     if (a && intelSetAllianceNote(a, n)) { renderIntel(); flash(n ? 'nota de alianza guardada' : 'nota de alianza borrada'); }
   });
@@ -1893,10 +1867,6 @@
     fetchOwnedTowns();
     state.towns.forEach((t, i) => gbTimeout(() => fetchTownResources(t), i * 600));
   });
-  // ===== Quick-action toolbar (v4 plan 6.5) ==================================
-  // Every button delegates to the same function the Actions menu already calls,
-  // so no new post route, no new lock and no new template - each target takes
-  // its own lock internally.
   // ===== Quick-action toolbar (v4 plan 6.5) ==================================
   // Every button delegates to the same function the Actions menu already calls,
   // so no new post route, no new lock and no new template - each target takes
@@ -2316,7 +2286,7 @@
           let hits = 0;
           const rows = rowsOf(g);
           const match = rows.map(r => fold(r.textContent).includes(needle)
-            || Array.from(r.querySelectorAll('[data-cfg]')).some(c => (c.getAttribute('data-cfg') || '').includes(needle)));
+            || Array.from(r.querySelectorAll('[data-cfg]')).some(c => fold(c.getAttribute('data-cfg') || '').includes(needle)));
 
           // A toggle and the settings it governs are one unit: a matched parent
           // row drags its indented followers along, or the filter would show a
@@ -3248,8 +3218,6 @@
     filt.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap';
     // LITERAL ONLY - no interpolation (the filter VALUES are read back off these
     // inputs; they are never written into this string).
-    // LITERAL ONLY - no interpolation (the filter VALUES are read back off these
-    // inputs; they are never written into this string).
     filt.innerHTML = '<input class="gb-cfg-input" data-f="type" placeholder="type filter" style="flex:1;min-width:60px;;padding:2px 4px;font:11px monospace"/><input class="gb-cfg-input" data-f="attacker" placeholder="attacker filter" style="flex:1;min-width:60px;;padding:2px 4px;font:11px monospace"/>';
     filt.querySelectorAll('input').forEach(inp => {
       inp.value = state.findingsFilter[inp.dataset.f] || '';
@@ -3399,7 +3367,6 @@
       (win ? `ventana de salto: ${win.r}, ${Math.max(0, Math.round((win.until - Date.now()) / 1000))}s restantes, ${win.trips} disparo(s)` : 'sin ventana de salto abierta');
     list.appendChild(box);
     // Neighbouring rows for context, in chronological order.
-    // Neighbouring rows for context, in chronological order.
     const ctx = document.createElement('div');
     ctx.style.cssText = 'margin-top:6px;font-size:10px;color:var(--gb-fg-mute);white-space:pre-wrap';
     ctx.textContent = rows.slice(Math.max(0, cur - 3), cur + 4)
@@ -3460,10 +3427,6 @@
     // observer moved to document.body, an unmarked toast would feed itself:
     // append + remove are two body mutations that re-arm the collect/native
     // scans, which can flash again.
-    // gb-flash is one of the classes the DOM observer ignores. Since that
-    // observer moved to document.body, an unmarked toast would feed itself:
-    // append + remove are two body mutations that re-arm the collect/native
-    // scans, which can flash again.
     f.className = 'gb-flash';
     f.textContent = msg; f.style.cssText = 'position:fixed;top:60px;right:8px;background:#f5a623;color:#000;padding:6px 10px;border-radius:4px;z-index:100000';
     document.body.appendChild(f); gbTimeout(() => f.remove(), 1500);
@@ -3512,8 +3475,6 @@
       const p = researchPathFor(tid, target);
       const label = researchLabel(target) || target;
       if (!p.known) { lines.push(`${tid}: ${label} - camino no legible (${p.why})`); continue; }
-      // A partial graph or an unread real queue means the path shown is a lower
-      // bound, not a complete answer - say so rather than implying it is done.
       // A partial graph or an unread real queue means the path shown is a lower
       // bound, not a complete answer - say so rather than implying it is done.
       const caveat = p.ordersKnown === false ? ' [cola real no leida]' : '';
