@@ -20,6 +20,12 @@
   // candidates, not assumptions: every one missing is the expected outcome,
   // the reader returns null, and no offset is applied. A fabricated damage
   // number would queue wall levels the town does not owe.
+  //
+  // Checked against the captured client bundle (archive/captures/grepo-dump):
+  // the only `*damage*` identifiers in it are battle-report unit counts
+  // (amount_damaged, units_damaged, world_wonder_damaged) - no wall damage
+  // attribute exists there at all, which is why Preflight now says so instead
+  // of implying a capture is pending.
   const WALL_DAMAGE_FNS = ['getWallDamage', 'getDamagePercentForBuilding', 'getDamagePercentage', 'getWallDamagePercent'];
   const WALL_DAMAGE_ATTRS = ['wall_damage', 'wallDamage', 'damage_percent', 'wall_damage_percent'];
   function abWallDamage(townId) {

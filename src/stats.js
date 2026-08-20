@@ -9,35 +9,22 @@
   // ===== Favor regen HUD (v4 plan 4.6) =======================================
   // Read-only. No post surface, no lock, no scheduler entry.
   //
-  // The regen RATE is not exposed by the client, so it is MEASURED from paired
-  // samples rather than assumed. Deliberately not persisted: a rate carried
-  // across a reload would be computed from a gap the bot did not observe, and
-  // a stale rate produces a confident ETA that is simply wrong. Two samples are
-  // required before any rate is shown.
+  // The regen RATE comes from the client when it is readable
+  // (`production_overview[god].production`, favor/hour) and is MEASURED from
+  // paired samples only as a fallback. The measurement is deliberately not
+  // persisted: a rate carried across a reload would be computed from a gap the
+  // bot did not observe, and a stale rate produces a confident ETA that is
+  // simply wrong. Two samples are required before a measured rate is shown.
   const FAVOR_HUD_WINDOW_MS = 600000;
-  const FAVOR_HUD_GODS = ['zeus', 'poseidon', 'hera', 'athena', 'hades', 'ares', 'artemis', 'aphrodite'];
   const favorRateSamples = Object.create(null);
-  function favorHudGods(fav) {
-    // Prefer the gods the model actually names; fall back to the known roster
-    // only to look them up, never to invent a pool that is not there.
-    // Prefer the gods the model actually names; fall back to the known roster
-    // only to look them up, never to invent a pool that is not there.
-    const seen = new Set();
-    for (const k of Object.keys(fav || {})) {
-      const m = String(k).match(/^(?:favor_)?([a-z]+)(?:_max)?$/i);
-      if (m && FAVOR_HUD_GODS.includes(m[1].toLowerCase())) seen.add(m[1].toLowerCase());
-    }
-    return seen.size ? Array.from(seen) : FAVOR_HUD_GODS;
-  }
+  // Both readers delegate to favor.js, which holds the ONE definition of the
+  // PlayerGods attribute names (`<god>_favor`, `max_favor`,
+  // `production_overview`). The per-god `max_favor_<god>` / `favor_<god>_max`
+  // names probed here before exist on no client build: the cap is global, so
+  // the HUD printed `?` for every max and Preflight warned forever.
+  function favorHudGods(fav) { return favorGodsList(fav); }
   function favorHudRead(fav, god) {
-    const cur = +(fav[god] != null ? fav[god] : fav['favor_' + god]);
-    const maxRaw = fav['max_favor_' + god] != null ? fav['max_favor_' + god]
-      : (fav['favor_' + god + '_max'] != null ? fav['favor_' + god + '_max'] : fav['max_' + god]);
-    const max = +maxRaw;
-    return {
-      cur: Number.isFinite(cur) ? cur : null,
-      max: Number.isFinite(max) && max > 0 ? max : null,
-    };
+    return { cur: favorForGod(fav, god), max: favorMaxPool(fav) };
   }
   function favorHudRate(god, cur) {
     const now = Date.now();
@@ -68,7 +55,11 @@
     for (const god of favorHudGods(fav)) {
       const r = favorHudRead(fav, god);
       if (r.cur == null && r.max == null) continue;
-      const rate = r.cur == null ? null : favorHudRate(god, r.cur);
+      // Client rate first (exact, available on the first paint), measured rate
+      // only where the model does not carry a production row.
+      const perHour = favorProdPerHour(fav, god);
+      const measured = r.cur == null ? null : favorHudRate(god, r.cur);
+      const rate = perHour != null ? perHour / 3600 : measured;
       let eta = '—';
       if (r.cur != null && r.cur >= thresh) eta = 'ya';
       else if (rate == null) eta = '…';
@@ -200,7 +191,11 @@
       const on = !!state.farmScrape;
       const learned = !!state.farmAction;
       if (!on) return { ok: true, warn: true, detail: 'disabled in Config (reads no village stock)' };
-      if (st.dead) return { ok: false, detail: `endpoint dead after ${st.misses} empty sweeps - teach it by opening a village, then re-enable` };
+      // The breaker now clears itself the next time the player's own traffic
+      // carries the farm action (learnFarmAction), whether or not the action
+      // string is new - so "open a village" is the whole instruction, and the
+      // Config toggle / manual sweep are only the fallbacks.
+      if (st.dead) return { ok: false, detail: `endpoint dead after ${st.misses} empty sweeps - abre una aldea a mano (el breaker se reactiva solo al ver la peticion) o fuerza un barrido en Aldeas` };
       const okRows = Object.values(state.farmResources || {}).filter(r => r && r.ok).length;
       return {
         ok: okRows > 0 || !learned,
@@ -261,10 +256,17 @@
     // unreadable one instead of making the next person diff the client again.
     out.push(preflightProbe('academy read path', () => {
       const ids = (townsFromGame() || []).map(t => t.id);
-      const tid = ids[0];
+      // Probe the OPEN town. The research queue is a per-town fragment the
+      // client only fills for the town currently on screen, so probing ids[0]
+      // reported `real queue UNREADABLE` (and, through researchPointsSpent,
+      // `research points UNREADABLE`) on every account whose first town is not
+      // the open one - a permanent warning about a read path that works.
+      let cur = null;
+      try { const v = gameUw().Game && gameUw().Game.townId; if (v != null) cur = v; } catch (_) {}
+      const tid = (cur != null && ids.some(id => String(id) === String(cur))) ? cur : ids[0];
       const info = tid != null ? researchTownTechs(tid) : null;
       if (!info) return { ok: false, detail: 'no readable town' };
-      const parts = [];
+      const parts = [`town ${tid}${cur != null && String(tid) === String(cur) ? ' (abierta)' : ' (no abierta)'}`];
       let bad = 0;
       let defs = 0;
       try { defs = Object.keys((gameUw().GameData && gameUw().GameData.researches) || {}).length; } catch (_) {}
@@ -286,16 +288,25 @@
     out.push(preflightProbe('tx registry', () => {
       const tx = state.txState || {};
 
-      // Match tx.js lifecycle states (planned/precheck/sending/confirming/reconciling/
-      // committed/dryrun) and the terminal flags (failed/aborted/unknown/manual-review).
+      // "live" means still moving through tx.js: planned/precheck/sending/
+      // confirming/reconciling. The old regex also matched dryrun and every
+      // TERMINAL flag (aborted/failed/unknown/manual-review), so a registry
+      // full of tombstones reported "213 live, 213 unknown" - the same entries
+      // counted twice, under a label that said posts were in flight.
       // Dodge queue states (pending/sent) belong to dodge.js and are not in txState.
-      const inflight = Object.values(tx).filter(t => t && /^(planned|precheck|sending|confirming|reconciling|sent|dryrun|aborted|failed|unknown|manual-review)$/.test(t.state || '')).length;
-      const unknown = Object.values(tx).filter(t => t && /^(unknown|manual-review)$/.test(t.state || '')).length;
-      const stale = Object.values(tx).filter(t => t && t.state === 'aborted' && (Date.now() - (+t.updatedAt || 0)) > 600000).length;
+      const vals = Object.values(tx).filter(Boolean);
+      const st = t => String(t.state || '');
+      const inflight = vals.filter(t => /^(planned|precheck|sending|confirming|reconciling)$/.test(st(t))).length;
+      const unknown = vals.filter(t => st(t) === 'unknown').length;
+      const review = vals.filter(t => st(t) === 'manual-review').length;
+      const done = vals.filter(t => /^(committed|dryrun)$/.test(st(t))).length;
+      const stale = vals.filter(t => st(t) === 'aborted' && (Date.now() - (+t.updatedAt || 0)) > 600000).length;
       return {
         ok: true,
-        warn: unknown > 0 || stale > 0,
-        detail: `${Object.keys(tx).length} transactions, ${inflight} live, ${unknown} unknown, ${stale} stale-aborted`,
+        warn: unknown > 0 || review > 0 || stale > 0,
+        detail: `${vals.length} transactions, ${inflight} live, ${done} terminadas, ${unknown} unknown, `
+          + `${review} manual-review, ${stale} stale-aborted`
+          + (unknown + review > 0 ? ' - Diagnostico > pendientes para revisar o limpiar' : ''),
       };
     }));
     out.push(preflightProbe('phoenician', () => {
@@ -433,12 +444,15 @@
       try { fav = favorCurrent(); } catch (_) {}
       if (!fav || typeof fav !== 'object') return { ok: false, detail: 'PlayerGods no legible' };
       const gods = favorHudGods(fav);
-      const readable = gods.filter(g => favorHudRead(fav, g).cur != null);
-      const withMax = gods.filter(g => favorHudRead(fav, g).max != null);
+      const readable = gods.filter(g => favorForGod(fav, g) != null);
+      // One cap for every god (`max_favor`), not one per god.
+      const max = favorMaxPool(fav);
+      const withRate = gods.filter(g => favorProdPerHour(fav, g) != null);
       return {
         ok: readable.length > 0,
-        warn: withMax.length === 0,
-        detail: `${readable.length}/${gods.length} pozo(s) legibles, ${withMax.length} con maximo legible` +
+        warn: readable.length === 0 || max == null,
+        detail: `${readable.length}/${gods.length} pozo(s) legibles, maximo ${max == null ? 'no legible' : max}` +
+          `, ${withRate.length} con produccion legible` +
           (readable.length ? ` (${readable.join(',')})` : ''),
       };
     }));
@@ -450,11 +464,15 @@
       return {
         ok: true,
 
-        // Unreadable damage is the EXPECTED result until someone captures the
-        // attribute name; the feature then simply applies no offset.
+        // No client bundle in archive/captures carries a wall-damage attribute
+        // at all (the grepo-dump of game.min.js has zero `*damage*` identifiers
+        // outside battle reports), so "unreadable everywhere" is not a probe
+        // that has not been taught yet - it is the feature having nothing to
+        // read. Say that instead of implying a capture is pending, and keep the
+        // warn: the toggle is ON and can never apply an offset.
         warn: readable === 0,
         detail: `${readable}/${ids.length} ciudad(es) con dano legible, ${damaged} danada(s)` +
-          (readable === 0 ? ' - nombre de atributo no capturado en este cliente' : ''),
+          (readable === 0 ? ' - este cliente no expone dano de muralla: no se aplica ningun ajuste, puedes desactivarla' : ''),
       };
     }));
     out.push(preflightProbe('godspell', () => {
@@ -478,11 +496,15 @@
       return {
         ok: true,
 
-        // Unreadable is the EXPECTED result: the attribute names for this
-        // client have never been captured, so nothing is guessed.
-        warn: withStam === 0,
+        // GameModels.PlayerHero in the captured bundle declares level /
+        // experience_points / cured_at / assignment_type and nothing else -
+        // there is no stamina, mana or equipment attribute on this client, so
+        // an unreadable pair is the FINAL answer, not a pending capture. Only
+        // warn when autoHero is ON, where the missing read is what stops the
+        // manager from proposing anything.
+        warn: withStam === 0 && !!state.autoHero,
         detail: `${hs.length} heroe(s), ${withStam} con vigor legible, ${withEquip} con equipo legible` +
-          (withStam === 0 ? ' - nombres de atributo no capturados en este cliente' : '') +
+          (withStam === 0 ? ' - este cliente no expone vigor/equipo de heroe (solo nivel, experiencia y curacion)' : '') +
           `, auto ${state.autoHero ? 'ON (propone)' : 'OFF'}`,
       };
     }));
@@ -754,10 +776,20 @@
       const skips = jrnActiveSkips();
       if (skips.length) parts.push(skips.length + ' memory skip windows');
       const openCircuits = Object.keys(state.circuits || {}).filter(k => state.circuits[k] && state.circuits[k].open);
-      const unknownTx = Object.values(state.txState || {}).filter(t => t && /^(unknown|manual-review)$/.test(t.state || '')).length;
+      const txVals = Object.values(state.txState || {}).filter(Boolean);
+      const unknownTx = txVals.filter(t => String(t.state || '') === 'unknown').length;
+      const reviewTx = txVals.filter(t => String(t.state || '') === 'manual-review').length;
       if (openCircuits.length) parts.push('OPEN circuits: ' + openCircuits.join(','));
-      if (unknownTx) parts.push(unknownTx + ' UNKNOWN transaction(s) require reconciliation/review');
-      return { ok: openCircuits.length === 0 && unknownTx === 0, warn: parts.length > 0, detail: parts.length ? parts.join(' | ') : 'clear' };
+      // Two different states with two different answers: `unknown` still
+      // reconciles itself for TX_UNKNOWN_MAX_MS, `manual-review` never will and
+      // is waiting on a human in Diagnostico > pendientes.
+      if (unknownTx) parts.push(unknownTx + ' UNKNOWN transaction(s) awaiting reconciliation');
+      if (reviewTx) parts.push(reviewTx + ' manual-review tombstone(s) - clear them in Diagnostico > pendientes');
+      return {
+        ok: openCircuits.length === 0 && unknownTx === 0 && reviewTx === 0,
+        warn: parts.length > 0,
+        detail: parts.length ? parts.join(' | ') : 'clear',
+      };
     }));
     return out;
   }

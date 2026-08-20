@@ -112,6 +112,14 @@
           () => ((t.attributes || {}).on_small_island),
           () => (t.getTownModelReference && t.getTownModelReference().get('on_small_island')),
           () => (t.isOnSmallIsland && t.isOnSmallIsland()),
+          // The academy controller reads the flag off the TOWN MODEL, which is
+          // not always the same object ITowns hands out - reach the model in the
+          // Town collection by id as a last probe.
+          () => {
+            const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('Town');
+            const m = col && ((col.get && col.get(townId)) || (col.models || []).find(x => String(((x && x.attributes) || {}).id) === String(townId)));
+            return m && m.get ? m.get('on_small_island') : undefined;
+          },
         ];
         for (const p of probes) {
           let raw;

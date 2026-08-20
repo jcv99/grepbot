@@ -112,6 +112,13 @@
   // These are probe candidates, not assumptions: every one missing is the
   // expected outcome and the reader returns null, which renders '?' and makes
   // the equipment heuristic propose nothing. Never substitute a guess.
+  //
+  // Checked against the captured client bundle (archive/captures/grepo-dump):
+  // GameModels.PlayerHero declares level / experience_points / home_town_id /
+  // origin_town_* / target_town_* / cured_at / assignment_type /
+  // is_attacking_attack_spot / type - no stamina, no mana, no equipment. So on
+  // THIS client every probe below is expected to miss; the names stay in case a
+  // world ships a build that has them.
   const HERO_STAMINA_FNS = ['getStamina', 'getCurrentStamina', 'getEnergy'];
   const HERO_STAMINA_ATTRS = ['stamina', 'current_stamina', 'energy'];
   const HERO_STAMINA_MAX_FNS = ['getMaxStamina', 'getStaminaMax', 'getMaxEnergy'];

@@ -3,6 +3,47 @@
     const t = state.txState && state.txState[intent];
     return !!(t && t.state === 'committed' && Date.now() - (+t.updatedAt || +t.createdAt || 0) < Math.max(1000, +maxAgeMs || 60000));
   }
+  // Reconciliation is over once an entry reaches manual-review, so the
+  // before/after snapshot is dead weight that never gets read again - except
+  // `kind`, which txPrune uses for the instant tombstone TTL, and `qid`, which
+  // questClearReviewForTx needs to release the quest when the user clears the
+  // row. Keep exactly those two.
+  function txCompactReview(t) {
+    if (!t || !t.snapshot) return false;
+    const s = t.snapshot;
+    const keys = Object.keys(s);
+    if (keys.length <= 2 && !keys.some(k => k !== 'kind' && k !== 'qid')) return false;
+    const lean = {};
+    if (s.kind != null) lean.kind = s.kind;
+    if (s.qid != null) lean.qid = s.qid;
+    t.snapshot = lean;
+    return true;
+  }
+  // Oldest-first, age-gated cap on the manual-review pile. Dropping a tombstone
+  // does re-open its intent to a future post, which is why nothing younger than
+  // TX_REVIEW_MIN_AGE_MS is ever eligible and why the drop is logged: a week-old
+  // ambiguous write is not something the next cadence tick will repeat blindly -
+  // every feature re-checks its own preconditions before it posts.
+  function txCapReview() {
+    const rows = [];
+    for (const key of Object.keys(state.txState || {})) {
+      const t = state.txState[key];
+      if (t && t.state === 'manual-review') rows.push({ key, at: +t.updatedAt || +t.unknownAt || +t.createdAt || 0 });
+    }
+    if (rows.length <= TX_REVIEW_MAX) return false;
+    rows.sort((a, b) => a.at - b.at);
+    const cut = Date.now() - TX_REVIEW_MIN_AGE_MS;
+    let drop = rows.length - TX_REVIEW_MAX;
+    let dropped = 0;
+    for (const r of rows) {
+      if (drop <= 0) break;
+      if (r.at > cut) break;
+      delete state.txState[r.key];
+      dropped++; drop--;
+    }
+    if (dropped) gbLog(`tx: dropped ${dropped} manual-review tombstone(s) older than 7d (cap ${TX_REVIEW_MAX}, ${rows.length} held)`);
+    return dropped > 0;
+  }
   function txPrune() {
     const now = Date.now();
     let changed = false;
@@ -15,10 +56,12 @@
       // plannerRelease: plannerReservationActive() reports manual-review as
       // inactive, so a held reservation left behind here made the planner ledger
       // and the reservation state disagree for the life of the tombstone.
-      if(t.state==='unknown'&&now-(+t.unknownAt||+t.updatedAt||0)>TX_UNKNOWN_MAX_MS){t.state='manual-review';t.detail='unknown outcome expired; manual review required';t.updatedAt=now;plannerRelease(t,'manual-review');changed=true;continue}
+      if(t.state==='unknown'&&now-(+t.unknownAt||+t.updatedAt||0)>TX_UNKNOWN_MAX_MS){t.state='manual-review';t.detail='unknown outcome expired; manual review required';t.updatedAt=now;plannerRelease(t,'manual-review');txCompactReview(t);changed=true;continue}
+      if (t.state === 'manual-review' && txCompactReview(t)) changed = true;
       const terminalTtl=t.state==='committed'&&t.snapshot&&t.snapshot.kind==='instant'?TX_INSTANT_TOMBSTONE_TTL:TX_TERMINAL_TTL;
       if (/^(committed|failed|aborted|dryrun)$/.test(t.state || '') && now - (+t.updatedAt || +t.createdAt || 0) > terminalTtl) { delete state.txState[key]; changed = true; }
     }
+    if (txCapReview()) changed = true;
     return changed;
   }
   function txDispose() {

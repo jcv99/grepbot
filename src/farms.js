@@ -1105,15 +1105,20 @@
     const a = m[1].toLowerCase();
     if (FARM_ACTION_BAD.test(a)) return;
     if (!FARM_ACTION_OK.test(a) && !(/^farm/.test(a) && /town|info|overview/.test(a))) return;
-    if (state.farmAction === a) return;
-    state.farmAction = a;
-    save(wkey(STORE.FARM_ACTION), a);
-    gbLog('learned farm action', a);
     // A real action from the player's own traffic is the only evidence that the
     // endpoint exists on this world - it is what the breaker was waiting for.
-    // A real action from the player's own traffic is the only evidence that the
-    // endpoint exists on this world - it is what the breaker was waiting for.
-    farmScrapeRevive('learned action ' + a);
+    // The revive used to sit behind the `already learned` early return, so a
+    // world whose action was learned in an earlier session could never come
+    // back: the breaker tripped, Preflight said "teach it by opening a
+    // village", the player opened one, the same action came back over the
+    // wire, and this function returned before touching the breaker. Evidence
+    // is evidence whether or not the string changed.
+    if (state.farmAction !== a) {
+      state.farmAction = a;
+      save(wkey(STORE.FARM_ACTION), a);
+      gbLog('learned farm action', a);
+    }
+    farmScrapeRevive('observed action ' + a);
   }
   function fetchFarmResources(entry, onDone) {
     const guesses = farmGuesses();

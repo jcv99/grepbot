@@ -327,3 +327,61 @@ detail is here.
   `visibilitychange` / `pageshow` handlers, releaseLocks sequence) route to
   `gbLogT('silent-err:tag', 60_000, 'name: ' + String(e?.message || e).slice(0, 80))`.
   The surrounding tick keeps running; the cause lands on the Log tab.
+- **Favor pool attribute names** (`src/favor.js`, `src/stats.js`, `src/recruit.js`,
+  v5.8.4) — every favor read probed `fav[god]` / `fav['favor_' + god]` and, for
+  the cap, `max_favor_<god>` / `favor_<god>_max` / `max_<god>`. `PlayerGods`
+  carries **none** of those names. From the captured client bundle
+  (`archive/captures/grepo-dump/js/game.min.js`, `GameModels.PlayerGods`): the
+  pool is `<god>_favor` (the model fires `change:<god>_favor`), the cap is a
+  single global `max_favor`, and `production_overview` is
+  `{ <god>: { current, production } }` with production in favor/hour. Symptoms:
+  the HUD block printed `favor (dioses) no legible`, Preflight reported
+  `0/8 pozo(s) legibles, 0 con maximo legible`, and `recruitCanBuild` /
+  `recruitAffordableAmount` refused every mythical unit because the pool read
+  came back `NaN`. Now there is ONE reader (`favorForGod` / `favorMaxPool` /
+  `favorProdPerHour` / `favorGodsList` in `favor.js`) that every consumer calls;
+  the legacy flat shapes stay as trailing probes, never as the primary. The HUD
+  also prefers the client's own production number over its measured rate, so the
+  ETA column is exact on the first paint instead of after two samples.
+- **Farm scrape breaker could never revive from traffic** (`src/farms.js`,
+  v5.8.4) — `learnFarmAction` returned early when the observed action equalled
+  the stored one, and the `farmScrapeRevive` call sat *after* that return. On a
+  world whose action had been learned in an earlier session the advertised
+  recovery was impossible: the breaker tripped, Preflight said "teach it by
+  opening a village", the player opened one, the identical action came back over
+  the wire, and the breaker stayed dead until the Config toggle was cycled.
+  Evidence is evidence whether or not the string changed — the revive now runs on
+  every observation.
+- **`tx registry` counted tombstones as live posts** (`src/stats.js`, v5.8.4) —
+  the `inflight` regex matched `dryrun` and every terminal state
+  (`aborted|failed|unknown|manual-review`) as well as the moving ones, so a
+  registry full of tombstones reported `384 transactions, 213 live, 213 unknown`:
+  the same entries counted twice, under a label claiming posts were in flight.
+  `live` is now planned/precheck/sending/confirming/reconciling only, and
+  `unknown` (still self-reconciling) is reported apart from `manual-review`
+  (waiting on a human), in both the `tx registry` and `guards` probes.
+- **manual-review tombstones grew without bound** (`src/tx.js`, `src/planner.js`,
+  v5.8.4) — nothing has ever pruned `manual-review`, by design: it is a blocking
+  tombstone. But it also kept its full reconciliation snapshot forever, and a
+  live account reached 213 of them. `txPrune` now strips the snapshot down to
+  `{kind, qid}` (all `txPrune` and `questClearReviewForTx` ever read back) when an
+  entry becomes a tombstone, and `txCapReview` caps the pile at
+  `TX_REVIEW_MAX = 100`, dropping oldest-first and **only** entries older than
+  `TX_REVIEW_MIN_AGE_MS` (7 days), with a `gbLog` line. Nothing younger can be
+  dropped and nothing is dropped silently.
+- **`academy read path` probed the wrong town** (`src/stats.js`, v5.8.4) — the
+  probe read `towns[0]`, but the research queue is a per-town fragment the client
+  only fills for the town on screen. On any account whose first town is not the
+  open one the probe reported `real queue UNREADABLE` and, through
+  `researchPointsSpent`, `research points UNREADABLE` — a permanent warning about
+  a read path that works. It now probes the open town (`Game.townId`) when that
+  town is in the list, and names which town it read.
+- **Wall damage / hero stamina are not in this client at all** (`src/build-auto.js`,
+  `src/military.js`, `src/stats.js`, v5.8.4) — both readers were written as "the
+  attribute name has not been captured yet". The captured bundle settles it:
+  `GameModels.PlayerHero` declares level / experience_points / home_town_id /
+  origin_town_* / target_town_* / cured_at / assignment_type / type and nothing
+  else, and the only `*damage*` identifiers in the whole file are battle-report
+  unit counts. The probes stay (a different world may ship a different build) but
+  Preflight now says the client does not expose the value instead of implying a
+  capture is pending, and the hero row only warns when `autoHero` is ON.

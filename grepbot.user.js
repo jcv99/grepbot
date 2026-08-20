@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.8.3
+// @version      5.8.4
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -2439,6 +2439,9 @@ const STORE = {
   const TX_INSTANT_TOMBSTONE_TTL = 24 * 60 * 60 * 1000;
   const TX_UNKNOWN_RECHECK_MS = 60 * 1000;
   const TX_UNKNOWN_MAX_MS = 6 * 60 * 60 * 1000;
+
+  const TX_REVIEW_MAX = 100;
+  const TX_REVIEW_MIN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
   let txSeq = 0;
   if (!state.txState || typeof state.txState !== 'object' || Array.isArray(state.txState)) state.txState = {};
   (function txLoadNormalize() {
@@ -2477,6 +2480,39 @@ const STORE = {
     const t = state.txState && state.txState[intent];
     return !!(t && t.state === 'committed' && Date.now() - (+t.updatedAt || +t.createdAt || 0) < Math.max(1000, +maxAgeMs || 60000));
   }
+
+  function txCompactReview(t) {
+    if (!t || !t.snapshot) return false;
+    const s = t.snapshot;
+    const keys = Object.keys(s);
+    if (keys.length <= 2 && !keys.some(k => k !== 'kind' && k !== 'qid')) return false;
+    const lean = {};
+    if (s.kind != null) lean.kind = s.kind;
+    if (s.qid != null) lean.qid = s.qid;
+    t.snapshot = lean;
+    return true;
+  }
+
+  function txCapReview() {
+    const rows = [];
+    for (const key of Object.keys(state.txState || {})) {
+      const t = state.txState[key];
+      if (t && t.state === 'manual-review') rows.push({ key, at: +t.updatedAt || +t.unknownAt || +t.createdAt || 0 });
+    }
+    if (rows.length <= TX_REVIEW_MAX) return false;
+    rows.sort((a, b) => a.at - b.at);
+    const cut = Date.now() - TX_REVIEW_MIN_AGE_MS;
+    let drop = rows.length - TX_REVIEW_MAX;
+    let dropped = 0;
+    for (const r of rows) {
+      if (drop <= 0) break;
+      if (r.at > cut) break;
+      delete state.txState[r.key];
+      dropped++; drop--;
+    }
+    if (dropped) gbLog(`tx: dropped ${dropped} manual-review tombstone(s) older than 7d (cap ${TX_REVIEW_MAX}, ${rows.length} held)`);
+    return dropped > 0;
+  }
   function txPrune() {
     const now = Date.now();
     let changed = false;
@@ -2484,10 +2520,12 @@ const STORE = {
       const t = state.txState[key];
       if (!t) { delete state.txState[key]; changed = true; continue; }
 
-      if(t.state==='unknown'&&now-(+t.unknownAt||+t.updatedAt||0)>TX_UNKNOWN_MAX_MS){t.state='manual-review';t.detail='unknown outcome expired; manual review required';t.updatedAt=now;plannerRelease(t,'manual-review');changed=true;continue}
+      if(t.state==='unknown'&&now-(+t.unknownAt||+t.updatedAt||0)>TX_UNKNOWN_MAX_MS){t.state='manual-review';t.detail='unknown outcome expired; manual review required';t.updatedAt=now;plannerRelease(t,'manual-review');txCompactReview(t);changed=true;continue}
+      if (t.state === 'manual-review' && txCompactReview(t)) changed = true;
       const terminalTtl=t.state==='committed'&&t.snapshot&&t.snapshot.kind==='instant'?TX_INSTANT_TOMBSTONE_TTL:TX_TERMINAL_TTL;
       if (/^(committed|failed|aborted|dryrun)$/.test(t.state || '') && now - (+t.updatedAt || +t.createdAt || 0) > terminalTtl) { delete state.txState[key]; changed = true; }
     }
+    if (txCapReview()) changed = true;
     return changed;
   }
   function txDispose() {
@@ -5905,12 +5943,13 @@ const STORE = {
     const a = m[1].toLowerCase();
     if (FARM_ACTION_BAD.test(a)) return;
     if (!FARM_ACTION_OK.test(a) && !(/^farm/.test(a) && /town|info|overview/.test(a))) return;
-    if (state.farmAction === a) return;
-    state.farmAction = a;
-    save(wkey(STORE.FARM_ACTION), a);
-    gbLog('learned farm action', a);
 
-    farmScrapeRevive('learned action ' + a);
+    if (state.farmAction !== a) {
+      state.farmAction = a;
+      save(wkey(STORE.FARM_ACTION), a);
+      gbLog('learned farm action', a);
+    }
+    farmScrapeRevive('observed action ' + a);
   }
   function fetchFarmResources(entry, onDone) {
     const guesses = farmGuesses();
@@ -11664,6 +11703,12 @@ const STORE = {
           () => ((t.attributes || {}).on_small_island),
           () => (t.getTownModelReference && t.getTownModelReference().get('on_small_island')),
           () => (t.isOnSmallIsland && t.isOnSmallIsland()),
+
+          () => {
+            const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('Town');
+            const m = col && ((col.get && col.get(townId)) || (col.models || []).find(x => String(((x && x.attributes) || {}).id) === String(townId)));
+            return m && m.get ? m.get('on_small_island') : undefined;
+          },
         ];
         for (const p of probes) {
           let raw;
@@ -13011,6 +13056,46 @@ const STORE = {
       return a;
     } catch (_) { return {}; }
   }
+
+  const FAVOR_GODS = ['zeus', 'poseidon', 'hera', 'athena', 'hades', 'ares', 'artemis', 'aphrodite'];
+  function favorNum(v) { const n = +v; return Number.isFinite(n) ? n : null; }
+  function favorForGod(fav, god) {
+    if (!fav || !god) return null;
+    const g = String(god).toLowerCase();
+    let v = favorNum(fav[g + '_favor']);
+    if (v != null) return v;
+    const ov = fav.production_overview;
+    if (ov && ov[g]) { v = favorNum(ov[g].current); if (v != null) return v; }
+
+    v = favorNum(fav[g]);
+    if (v != null) return v;
+    return favorNum(fav['favor_' + g]);
+  }
+  function favorMaxPool(fav) {
+    if (!fav) return null;
+    const v = favorNum(fav.max_favor);
+    return v != null && v > 0 ? v : null;
+  }
+
+  function favorProdPerHour(fav, god) {
+    if (!fav || !god) return null;
+    const ov = fav.production_overview;
+    const row = ov && ov[String(god).toLowerCase()];
+    return row ? favorNum(row.production) : null;
+  }
+
+  function favorGodsList(fav) {
+    const seen = new Set();
+    const ov = fav && fav.production_overview;
+    if (ov && typeof ov === 'object') {
+      Object.keys(ov).forEach(k => { const g = String(k).toLowerCase(); if (FAVOR_GODS.includes(g)) seen.add(g); });
+    }
+    for (const k of Object.keys(fav || {})) {
+      const m = String(k).match(/^([a-z]+)_favor$/i);
+      if (m && FAVOR_GODS.includes(m[1].toLowerCase())) seen.add(m[1].toLowerCase());
+    }
+    return seen.size ? Array.from(seen) : FAVOR_GODS.slice();
+  }
   function favorHasTemplePlunder(townId) {
     try {
       const info = typeof researchTownTechs === 'function' ? researchTownTechs(townId) : null;
@@ -13061,9 +13146,8 @@ const STORE = {
     const fav = favorCurrent();
     const god = cfg.god || 'athena';
 
-    const raw = fav[god] != null ? fav[god] : fav['favor_' + god];
-    const cur = Number(raw);
-    if (!Number.isFinite(cur)) {
+    const cur = favorForGod(fav, god);
+    if (cur == null) {
       gbLogT('favor-unreadable', 300000, `favor: ${god} pool unreadable \u2014 no send`);
       return;
     }
@@ -14149,8 +14233,8 @@ const STORE = {
         if (favorCost > 0) {
           if (!requiredGod) return false;
           const fav = favorCurrent();
-          const haveFavor = +(fav[requiredGod] ?? fav['favor_' + requiredGod]);
-          if (!Number.isFinite(haveFavor) || haveFavor < favorCost) return false;
+          const haveFavor = favorForGod(fav, requiredGod);
+          if (haveFavor == null || haveFavor < favorCost) return false;
         }
       }
       return true;
@@ -14206,8 +14290,8 @@ const STORE = {
       if (favorCost > 0) {
         const god = def.god && String(def.god).toLowerCase();
         const fav = favorCurrent();
-        const have = god ? +(fav[god] ?? fav['favor_' + god]) : NaN;
-        if (!Number.isFinite(have)) return 0;
+        const have = god ? favorForGod(fav, god) : null;
+        if (have == null) return 0;
         amount = Math.min(amount, Math.floor(have / favorCost));
       }
       return Math.max(0, Math.floor(amount));
@@ -21240,26 +21324,11 @@ const STORE = {
     : new Promise(r => setTimeout(r, 0));
 
   const FAVOR_HUD_WINDOW_MS = 600000;
-  const FAVOR_HUD_GODS = ['zeus', 'poseidon', 'hera', 'athena', 'hades', 'ares', 'artemis', 'aphrodite'];
   const favorRateSamples = Object.create(null);
-  function favorHudGods(fav) {
 
-    const seen = new Set();
-    for (const k of Object.keys(fav || {})) {
-      const m = String(k).match(/^(?:favor_)?([a-z]+)(?:_max)?$/i);
-      if (m && FAVOR_HUD_GODS.includes(m[1].toLowerCase())) seen.add(m[1].toLowerCase());
-    }
-    return seen.size ? Array.from(seen) : FAVOR_HUD_GODS;
-  }
+  function favorHudGods(fav) { return favorGodsList(fav); }
   function favorHudRead(fav, god) {
-    const cur = +(fav[god] != null ? fav[god] : fav['favor_' + god]);
-    const maxRaw = fav['max_favor_' + god] != null ? fav['max_favor_' + god]
-      : (fav['favor_' + god + '_max'] != null ? fav['favor_' + god + '_max'] : fav['max_' + god]);
-    const max = +maxRaw;
-    return {
-      cur: Number.isFinite(cur) ? cur : null,
-      max: Number.isFinite(max) && max > 0 ? max : null,
-    };
+    return { cur: favorForGod(fav, god), max: favorMaxPool(fav) };
   }
   function favorHudRate(god, cur) {
     const now = Date.now();
@@ -21287,7 +21356,10 @@ const STORE = {
     for (const god of favorHudGods(fav)) {
       const r = favorHudRead(fav, god);
       if (r.cur == null && r.max == null) continue;
-      const rate = r.cur == null ? null : favorHudRate(god, r.cur);
+
+      const perHour = favorProdPerHour(fav, god);
+      const measured = r.cur == null ? null : favorHudRate(god, r.cur);
+      const rate = perHour != null ? perHour / 3600 : measured;
       let eta = '\u2014';
       if (r.cur != null && r.cur >= thresh) eta = 'ya';
       else if (rate == null) eta = '\u2026';
@@ -21403,7 +21475,8 @@ const STORE = {
       const on = !!state.farmScrape;
       const learned = !!state.farmAction;
       if (!on) return { ok: true, warn: true, detail: 'disabled in Config (reads no village stock)' };
-      if (st.dead) return { ok: false, detail: `endpoint dead after ${st.misses} empty sweeps - teach it by opening a village, then re-enable` };
+
+      if (st.dead) return { ok: false, detail: `endpoint dead after ${st.misses} empty sweeps - abre una aldea a mano (el breaker se reactiva solo al ver la peticion) o fuerza un barrido en Aldeas` };
       const okRows = Object.values(state.farmResources || {}).filter(r => r && r.ok).length;
       return {
         ok: okRows > 0 || !learned,
@@ -21461,10 +21534,13 @@ const STORE = {
 
     out.push(preflightProbe('academy read path', () => {
       const ids = (townsFromGame() || []).map(t => t.id);
-      const tid = ids[0];
+
+      let cur = null;
+      try { const v = gameUw().Game && gameUw().Game.townId; if (v != null) cur = v; } catch (_) {}
+      const tid = (cur != null && ids.some(id => String(id) === String(cur))) ? cur : ids[0];
       const info = tid != null ? researchTownTechs(tid) : null;
       if (!info) return { ok: false, detail: 'no readable town' };
-      const parts = [];
+      const parts = [`town ${tid}${cur != null && String(tid) === String(cur) ? ' (abierta)' : ' (no abierta)'}`];
       let bad = 0;
       let defs = 0;
       try { defs = Object.keys((gameUw().GameData && gameUw().GameData.researches) || {}).length; } catch (_) {}
@@ -21486,13 +21562,19 @@ const STORE = {
     out.push(preflightProbe('tx registry', () => {
       const tx = state.txState || {};
 
-      const inflight = Object.values(tx).filter(t => t && /^(planned|precheck|sending|confirming|reconciling|sent|dryrun|aborted|failed|unknown|manual-review)$/.test(t.state || '')).length;
-      const unknown = Object.values(tx).filter(t => t && /^(unknown|manual-review)$/.test(t.state || '')).length;
-      const stale = Object.values(tx).filter(t => t && t.state === 'aborted' && (Date.now() - (+t.updatedAt || 0)) > 600000).length;
+      const vals = Object.values(tx).filter(Boolean);
+      const st = t => String(t.state || '');
+      const inflight = vals.filter(t => /^(planned|precheck|sending|confirming|reconciling)$/.test(st(t))).length;
+      const unknown = vals.filter(t => st(t) === 'unknown').length;
+      const review = vals.filter(t => st(t) === 'manual-review').length;
+      const done = vals.filter(t => /^(committed|dryrun)$/.test(st(t))).length;
+      const stale = vals.filter(t => st(t) === 'aborted' && (Date.now() - (+t.updatedAt || 0)) > 600000).length;
       return {
         ok: true,
-        warn: unknown > 0 || stale > 0,
-        detail: `${Object.keys(tx).length} transactions, ${inflight} live, ${unknown} unknown, ${stale} stale-aborted`,
+        warn: unknown > 0 || review > 0 || stale > 0,
+        detail: `${vals.length} transactions, ${inflight} live, ${done} terminadas, ${unknown} unknown, `
+          + `${review} manual-review, ${stale} stale-aborted`
+          + (unknown + review > 0 ? ' - Diagnostico > pendientes para revisar o limpiar' : ''),
       };
     }));
     out.push(preflightProbe('phoenician', () => {
@@ -21624,12 +21706,15 @@ const STORE = {
       try { fav = favorCurrent(); } catch (_) {}
       if (!fav || typeof fav !== 'object') return { ok: false, detail: 'PlayerGods no legible' };
       const gods = favorHudGods(fav);
-      const readable = gods.filter(g => favorHudRead(fav, g).cur != null);
-      const withMax = gods.filter(g => favorHudRead(fav, g).max != null);
+      const readable = gods.filter(g => favorForGod(fav, g) != null);
+
+      const max = favorMaxPool(fav);
+      const withRate = gods.filter(g => favorProdPerHour(fav, g) != null);
       return {
         ok: readable.length > 0,
-        warn: withMax.length === 0,
-        detail: `${readable.length}/${gods.length} pozo(s) legibles, ${withMax.length} con maximo legible` +
+        warn: readable.length === 0 || max == null,
+        detail: `${readable.length}/${gods.length} pozo(s) legibles, maximo ${max == null ? 'no legible' : max}` +
+          `, ${withRate.length} con produccion legible` +
           (readable.length ? ` (${readable.join(',')})` : ''),
       };
     }));
@@ -21643,7 +21728,7 @@ const STORE = {
 
         warn: readable === 0,
         detail: `${readable}/${ids.length} ciudad(es) con dano legible, ${damaged} danada(s)` +
-          (readable === 0 ? ' - nombre de atributo no capturado en este cliente' : ''),
+          (readable === 0 ? ' - este cliente no expone dano de muralla: no se aplica ningun ajuste, puedes desactivarla' : ''),
       };
     }));
     out.push(preflightProbe('godspell', () => {
@@ -21667,9 +21752,9 @@ const STORE = {
       return {
         ok: true,
 
-        warn: withStam === 0,
+        warn: withStam === 0 && !!state.autoHero,
         detail: `${hs.length} heroe(s), ${withStam} con vigor legible, ${withEquip} con equipo legible` +
-          (withStam === 0 ? ' - nombres de atributo no capturados en este cliente' : '') +
+          (withStam === 0 ? ' - este cliente no expone vigor/equipo de heroe (solo nivel, experiencia y curacion)' : '') +
           `, auto ${state.autoHero ? 'ON (propone)' : 'OFF'}`,
       };
     }));
@@ -21924,10 +22009,18 @@ const STORE = {
       const skips = jrnActiveSkips();
       if (skips.length) parts.push(skips.length + ' memory skip windows');
       const openCircuits = Object.keys(state.circuits || {}).filter(k => state.circuits[k] && state.circuits[k].open);
-      const unknownTx = Object.values(state.txState || {}).filter(t => t && /^(unknown|manual-review)$/.test(t.state || '')).length;
+      const txVals = Object.values(state.txState || {}).filter(Boolean);
+      const unknownTx = txVals.filter(t => String(t.state || '') === 'unknown').length;
+      const reviewTx = txVals.filter(t => String(t.state || '') === 'manual-review').length;
       if (openCircuits.length) parts.push('OPEN circuits: ' + openCircuits.join(','));
-      if (unknownTx) parts.push(unknownTx + ' UNKNOWN transaction(s) require reconciliation/review');
-      return { ok: openCircuits.length === 0 && unknownTx === 0, warn: parts.length > 0, detail: parts.length ? parts.join(' | ') : 'clear' };
+
+      if (unknownTx) parts.push(unknownTx + ' UNKNOWN transaction(s) awaiting reconciliation');
+      if (reviewTx) parts.push(reviewTx + ' manual-review tombstone(s) - clear them in Diagnostico > pendientes');
+      return {
+        ok: openCircuits.length === 0 && unknownTx === 0 && reviewTx === 0,
+        warn: parts.length > 0,
+        detail: parts.length ? parts.join(' | ') : 'clear',
+      };
     }));
     return out;
   }

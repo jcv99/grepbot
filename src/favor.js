@@ -15,6 +15,59 @@
       return a;
     } catch (_) { return {}; }
   }
+  // PlayerGods attribute names, read out of the live client bundle
+  // (GameModels.PlayerGods): the per-god pool is `<god>_favor` (the model fires
+  // `change:<god>_favor`), the cap is a single `max_favor` shared by every god,
+  // and `production_overview` is `{ <god>: { current, production } }` with
+  // production in favor/hour. The old `fav[god]` / `fav['favor_' + god]` pair
+  // matched NONE of them, so every pool read came back unreadable: the HUD
+  // printed `favor (dioses) no legible`, Preflight reported `0/8 pozos
+  // legibles`, and recruit refused every mythical unit it was asked to build.
+  // Unreadable still returns null - a fabricated pool would spend favor the
+  // player never asked to spend.
+  const FAVOR_GODS = ['zeus', 'poseidon', 'hera', 'athena', 'hades', 'ares', 'artemis', 'aphrodite'];
+  function favorNum(v) { const n = +v; return Number.isFinite(n) ? n : null; }
+  function favorForGod(fav, god) {
+    if (!fav || !god) return null;
+    const g = String(god).toLowerCase();
+    let v = favorNum(fav[g + '_favor']);
+    if (v != null) return v;
+    const ov = fav.production_overview;
+    if (ov && ov[g]) { v = favorNum(ov[g].current); if (v != null) return v; }
+    // Legacy shapes kept as probes, never as the primary: some older builds
+    // exposed the pool flat. A miss here is UNKNOWN, not zero.
+    v = favorNum(fav[g]);
+    if (v != null) return v;
+    return favorNum(fav['favor_' + g]);
+  }
+  function favorMaxPool(fav) {
+    if (!fav) return null;
+    const v = favorNum(fav.max_favor);
+    return v != null && v > 0 ? v : null;
+  }
+  // favor/hour straight off the model. The HUD only ever MEASURED a rate from
+  // paired samples, which needs two observations and 10 minutes; this is the
+  // client's own number and is exact the first time it is read.
+  function favorProdPerHour(fav, god) {
+    if (!fav || !god) return null;
+    const ov = fav.production_overview;
+    const row = ov && ov[String(god).toLowerCase()];
+    return row ? favorNum(row.production) : null;
+  }
+  // Gods the model actually names. Falls back to the known roster only to look
+  // them up - never to invent a pool the account does not have.
+  function favorGodsList(fav) {
+    const seen = new Set();
+    const ov = fav && fav.production_overview;
+    if (ov && typeof ov === 'object') {
+      Object.keys(ov).forEach(k => { const g = String(k).toLowerCase(); if (FAVOR_GODS.includes(g)) seen.add(g); });
+    }
+    for (const k of Object.keys(fav || {})) {
+      const m = String(k).match(/^([a-z]+)_favor$/i);
+      if (m && FAVOR_GODS.includes(m[1].toLowerCase())) seen.add(m[1].toLowerCase());
+    }
+    return seen.size ? Array.from(seen) : FAVOR_GODS.slice();
+  }
   function favorHasTemplePlunder(townId) {
     try {
       const info = typeof researchTownTechs === 'function' ? researchTownTechs(townId) : null;
@@ -69,9 +122,8 @@
     // reading it as this god's pool compared the wrong number against the
     // threshold and either farmed favor that was already full or refused to.
     // Unreadable pool is UNKNOWN: do not spend units on a guess.
-    const raw = fav[god] != null ? fav[god] : fav['favor_' + god];
-    const cur = Number(raw);
-    if (!Number.isFinite(cur)) {
+    const cur = favorForGod(fav, god);
+    if (cur == null) {
       gbLogT('favor-unreadable', 300000, `favor: ${god} pool unreadable — no send`);
       return;
     }

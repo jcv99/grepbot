@@ -279,6 +279,16 @@
   const TX_INSTANT_TOMBSTONE_TTL = 24 * 60 * 60 * 1000;
   const TX_UNKNOWN_RECHECK_MS = 60 * 1000;
   const TX_UNKNOWN_MAX_MS = 6 * 60 * 60 * 1000;
+  // manual-review is the only state nothing ever prunes - by design, it is a
+  // blocking tombstone waiting on a human. Left completely unbounded it also
+  // grew without limit (a live account reached 213 of them, each still carrying
+  // its full reconciliation snapshot, and every Preflight shouted about all of
+  // them). So: strip the payload the moment reconciliation is abandoned, and
+  // cap how many whole tombstones are kept - dropping only ones older than
+  // TX_REVIEW_MIN_AGE_MS, oldest first, with a log line. Nothing here is
+  // silent, and nothing younger than a week can be dropped.
+  const TX_REVIEW_MAX = 100;
+  const TX_REVIEW_MIN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
   let txSeq = 0;
   if (!state.txState || typeof state.txState !== 'object' || Array.isArray(state.txState)) state.txState = {};
   (function txLoadNormalize() {

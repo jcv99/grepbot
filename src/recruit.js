@@ -206,8 +206,8 @@
         if (favorCost > 0) {
           if (!requiredGod) return false;
           const fav = favorCurrent();
-          const haveFavor = +(fav[requiredGod] ?? fav['favor_' + requiredGod]);
-          if (!Number.isFinite(haveFavor) || haveFavor < favorCost) return false;
+          const haveFavor = favorForGod(fav, requiredGod);
+          if (haveFavor == null || haveFavor < favorCost) return false;
         }
       }
       return true;
@@ -264,8 +264,8 @@
       if (favorCost > 0) {
         const god = def.god && String(def.god).toLowerCase();
         const fav = favorCurrent();
-        const have = god ? +(fav[god] ?? fav['favor_' + god]) : NaN;
-        if (!Number.isFinite(have)) return 0;
+        const have = god ? favorForGod(fav, god) : null;
+        if (have == null) return 0;
         amount = Math.min(amount, Math.floor(have / favorCost));
       }
       return Math.max(0, Math.floor(amount));
