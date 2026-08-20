@@ -21,3 +21,11 @@ data/smoke/
 .DS_Store
 Thumbs.db
 grepbot.user.js.prod
+
+# Wiki dump scratch (browser-only, see commit preceding v2.0.0 of
+# wiki_dump.user.js). The python receiver was the original local sink and
+# is forbidden by project rules (no server); keep the names ignored so they
+# can't sneak back in.
+wiki_receiver.py
+wiki_dump.user.js
+wiki_corpus/
