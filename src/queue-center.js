@@ -107,9 +107,8 @@
   // the renderer instead of being quietly filed under the wrong lane.
   function queueCenterUnitIsNaval(unit) {
     try {
-      const d = gbGameDataLookup("units", unit);
-      if (!d) return null;
-      return !!(d.is_naval || d.naval);
+      if (!unit) return null;
+      return recruitIsNaval(unit);
     } catch (_) { return null; }
   }
   function queueCenterUnitId(model) {

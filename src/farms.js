@@ -17,6 +17,23 @@
           try { tplHealthMarkLearned('claimTpl'); } catch (_) {}
 
           if (!isSelfBridge(j)) farmLearnFromClaim(j);
+        } else if (j && j.model_url && !/claim|trade|unlock|upgrade/i.test(j.action_name || '')
+                   && /sword|archer|hoplite|slinger/i.test(body)) {
+
+          // Anything on FarmTownPlayerRelation that isn't claim/trade/unlock/upgrade
+          // and carries one of the 4 unit ids is treated as the village
+          // accept-units template. The action_name (and any extra arguments the
+          // server demands) is captured verbatim; villageAcceptUnits() replays it
+          // with the village id / amount overlaid at post time.
+          if (isSelfBridge(j)) return;
+          state.acceptUnitsTpl = {
+            model_url: j.model_url, action_name: j.action_name,
+            arguments: j.arguments || {}, town_id: j.town_id,
+            version: 1, learned_at: Date.now(),
+          };
+          save(wkey(STORE.ACCEPT_UNITS_TPL), state.acceptUnitsTpl);
+          gbLog('learned accept-units template:', JSON.stringify(state.acceptUnitsTpl).slice(0, 220));
+          try { tplHealthMarkLearned('acceptUnitsTpl'); } catch (_) {}
         }
       } else if (/PlayerAttackSpot/.test(body)) {
         gbLog('sniffed bandit bridge call:', body.slice(0, 300));
@@ -351,13 +368,24 @@
 
     return best != null && bestDiff <= best * 0.2 ? best : null;
   }
-  // A hand claim teaches the duration->option map of the resource half. The
-  // unit half of a village is not automated at all (operator decision), so a
-  // unit claim teaches nothing and is ignored here.
+  // A hand claim teaches one of two maps: the duration->option map (resource
+  // half) or the unit card index (unit half). They are separate learned keys on
+  // purpose - sharing one would map a unit index onto a claim duration.
   function farmLearnFromClaim(j) {
     const type = String(((j && j.arguments) || {}).type || '');
+    if (type === 'units') return farmLearnUnitsOptionFromClaim(j);
     if (type && type !== 'resources') return;
     farmLearnOptionFromClaim(j);
+  }
+  function farmLearnUnitsOptionFromClaim(j) {
+    try {
+      const opt = +((j && j.arguments) || {}).option;
+      if (!(opt >= 1 && opt <= FARM_UNIT_ORDER.length)) return;
+      if (+state.farmUnitsOption === opt) return;
+      state.farmUnitsOption = opt;
+      save(wkey(STORE.FARM_UNITS_OPTION), opt);
+      gbLog(`farm: learned units claim option ${opt} (${farmUnitIdFor(opt) || '?'})`);
+    } catch (_) {}
   }
   function farmLearnOptionFromClaim(j) {
     try {
@@ -582,11 +610,14 @@
     if (changed) save(STORE.FARM_PROFIT, state.farmProfit);
   }
   function farmProfitInvalidate() { for (const k of Object.keys(farmProfitCache)) delete farmProfitCache[k]; farmProfitRefreshAt = 0; }
-  // ===== Village level / daily allowance ====================================
-  // Villages have a unit half in game (claim units instead of resources). The
-  // bot NEVER touches it: units cost population, spend the village's daily
-  // allowance on the worse half, and the operator asked for resources only.
-  // Removed in v5.8.3 - do not reintroduce a units claim path here.
+  // ===== Village unit half ==================================================
+  // Resources are ALWAYS the better claim: they cost no population and feed
+  // every other feature. Units are only ever asked for when the resource half
+  // is provably unavailable (mode 'fallback'), or when the operator pins
+  // 'always'. Nothing here may guess: an unreadable table is UNKNOWN and the
+  // unit claim is skipped, never posted on a guessed option index.
+  const FARM_UNIT_ORDER = ['sword', 'slinger', 'archer', 'hoplite'];
+  function farmUnitIdFor(option) { return FARM_UNIT_ORDER[(+option || 0) - 1] || null; }
   function farmVillageLevel(farm) {
     const rel = farm && farm._rel;
     const a = (farm && farm._attrs) || {};
@@ -596,6 +627,51 @@
     const status = +a.relation_status;
     if (status === 0) return 0;
     return Number.isFinite(+a.expansion_stage) ? +a.expansion_stage : null;
+  }
+  function farmClaimUnitsTable(farm) {
+    const t = gbGameDataLookup('farm_town', 'claim_units');
+    if (!t || typeof t !== 'object') return null;
+    const lvl = farmVillageLevel(farm);
+    if (lvl != null) {
+      const byLevel = t[lvl] != null ? t[lvl] : t[String(lvl)];
+      if (byLevel && typeof byLevel === 'object') return byLevel;
+    }
+    if (FARM_UNIT_ORDER.some(u => t[u] != null)) return t;
+    return null;
+  }
+  function farmUnitOption(farm, townId) {
+    const pref = String(state.farmUnitsPref || 'auto');
+    if (pref !== 'auto' && pref !== 'learned') {
+      const i = FARM_UNIT_ORDER.indexOf(pref);
+      return i >= 0 ? i + 1 : null;
+    }
+    if (pref === 'auto') {
+      let tid = townId;
+      if (tid == null) { try { tid = gameUw().Game && gameUw().Game.townId; } catch (_) { tid = null; } }
+      const auto = farmUnitAutoOption(farm, tid);
+      if (auto != null) return auto;
+    }
+    const o = +state.farmUnitsOption;
+    return o >= 1 && o <= FARM_UNIT_ORDER.length ? o : null;
+  }
+  function farmUnitAutoOption(farm, townId) {
+    const table = farmClaimUnitsTable(farm);
+    if (!table) return null;
+    let best = null;
+    for (let opt = 1; opt <= FARM_UNIT_ORDER.length; opt++) {
+      const unit = FARM_UNIT_ORDER[opt - 1];
+      const amount = +table[unit];
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+      if (townId != null && farmUnitsClaimBlocked(farm, townId, opt)) continue;
+      const def = gbGameDataLookup('units', unit);
+      const res = (def && def.resources) || null;
+      // Resource value of the card, not unit count: 3 swords are not 3 biremes.
+      // Resource value of the card, not unit count: 3 swords are not 3 biremes.
+      const cost = res ? (+res.wood || 0) + (+res.stone || 0) + (+res.iron || 0) : 0;
+      const score = amount * (cost > 0 ? cost : 1);
+      if (!best || score > best.score) best = { opt, score };
+    }
+    return best ? best.opt : null;
   }
   // Remaining resource allowance for today, or null when any input is blind.
   function farmDailyLeft(farm) {
@@ -615,25 +691,165 @@
     if (!Number.isFinite(loot)) return null;
     return Math.max(0, perDay * speed - loot);
   }
+  function farmUnitsClaimBlocked(farm, townId, option) {
+    const unit = farmUnitIdFor(option);
+    if (!unit) return 'unit-unknown';
+    const table = farmClaimUnitsTable(farm);
+    // GameData.farm_town.claim_units[level] is the only proof the card exists
+    // and how many units it hands over. Unreadable = post nothing: a pinned
+    // unit is an operator preference, never evidence the village offers it.
+    if (!table) return 'unit-table-unreadable';
+    if (table[unit] == null) return 'unit-not-offered';
+    let amount = null;
+    const n = +table[unit];
+    if (Number.isFinite(n)) {
+      if (!(n > 0)) return 'unit-amount-0';
+      amount = n;
+    }
+    const def = gbGameDataLookup('units', unit);
+    const popEach = def && def.population != null ? +def.population : null;
+    const free = gbTownPop(townId);
+    if (amount != null && Number.isFinite(popEach) && popEach > 0 && free != null && free < amount * popEach) {
+      return `pop ${free}/${amount * popEach}`;
+    }
+    try {
+      const req = ((gbGameDataLookup('farm_town', 'building_requirements') || {}).units || {})[option];
+      if (req && req.building) {
+        const lvl = gbBuildingLevel(townId, req.building);
+        if (lvl != null && lvl < +req.level) return `${req.building} ${lvl}/${req.level}`;
+      }
+    } catch (_) {}
+    return null;
+  }
+  // true only when the village itself reports every resource card at zero.
+  // Unreadable values are null (UNKNOWN) - never treated as "empty".
+  //
+  // The client getter may NOT be trusted blind. Its own source is:
+  //   getClaimResourceValues: function(){ var e = this.get('claim_resource_values');
+  //     if (e && e.length) return e; else return {0:0,1:0,2:0,3:0,4:0}; }
+  // With the attribute not yet loaded it hands back a zero-filled SENTINEL,
+  // which read as data says "every card is empty" for a village nobody has
+  // touched - that is what flipped villages onto the unit half while the
+  // resource half was untouched. The sentinel is a plain object with no
+  // .length; the real value is the array the cards index as [option-1]. So the
+  // raw attribute is preferred, the getter is accepted only when it comes back
+  // array-shaped, and anything else is UNKNOWN.
+  function farmResExhausted(farm) {
+    const rel = farm && farm._rel;
+    let vals = (farm && farm._attrs && farm._attrs.claim_resource_values) || null;
+    if (vals == null) {
+      try {
+        if (rel && typeof rel.getClaimResourceValues === 'function') vals = rel.getClaimResourceValues();
+      } catch (_) { vals = null; }
+    }
+    if (vals == null || typeof vals !== 'object') return null;
+    const len = +vals.length;
+    if (!Number.isFinite(len) || len <= 0) return null;
+    const nums = [];
+    for (let i = 0; i < len; i++) {
+      const n = +vals[i];
+      if (!Number.isFinite(n)) return null;
+      nums.push(n);
+    }
+    return nums.every(n => n <= 0);
+  }
+  function farmResDryMap() {
+    const day = farmDayKey();
+    if (state.farmResDryDay !== day) {
+      state.farmResDryDay = day;
+      state.farmResDry = {};
+      save(wkey(STORE.FARM_RES_DRY_DAY), day);
+      save(wkey(STORE.FARM_RES_DRY), state.farmResDry);
+    }
+    if (!state.farmResDry || typeof state.farmResDry !== 'object') state.farmResDry = {};
+    return state.farmResDry;
+  }
+  // A hard error on a resource claim is NOT proof the village is out of
+  // resources - a stale template, a warehouse race or one server hiccup all
+  // land here, and the resource half is the strictly better claim. So the bot
+  // keeps re-probing resources: three CONSECUTIVE hard errors inside the
+  // window mark the village, and the mark itself expires, so no village is
+  // ever stuck on units for the rest of the day.
+  const FARM_RES_DRY_STRIKES = 3;
+  const FARM_RES_DRY_TTL_MS = 5400000;
+  function farmResDryMarked(villId) {
+    const r = farmResDryMap()[String(villId)];
+    if (!r || (+r.n || 0) < FARM_RES_DRY_STRIKES) return false;
+    return Date.now() - (+r.at || 0) < FARM_RES_DRY_TTL_MS;
+  }
+  function farmMarkResDry(villId, why) {
+    const m = farmResDryMap();
+    const key = String(villId);
+    const row = m[key] && typeof m[key] === 'object' ? m[key] : { n: 0 };
+    // Strikes must be consecutive in time, not merely counted across a day.
+    if (row.at && Date.now() - (+row.at || 0) > FARM_RES_DRY_TTL_MS) row.n = 0;
+    if (row.n >= FARM_RES_DRY_STRIKES) { row.at = Date.now(); m[key] = row; saveSoon(wkey(STORE.FARM_RES_DRY), m); return; }
+    row.n = (+row.n || 0) + 1;
+    row.why = why || 'hard error';
+    row.at = Date.now();
+    m[key] = row;
+    saveSoon(wkey(STORE.FARM_RES_DRY), m);
+    if (row.n >= FARM_RES_DRY_STRIKES) {
+      gbLog(`farm: village ${villId} resource claim dry today (${row.why}) - claiming units instead`);
+    } else {
+      gbLogT('farm-dry-strike-' + villId, 60000, `farm: village ${villId} resource claim error ${row.n}/${FARM_RES_DRY_STRIKES} (${row.why})`);
+    }
+  }
+  function farmResDryClear(villId) {
+    const m = farmResDryMap();
+    if (!m[String(villId)]) return;
+    delete m[String(villId)];
+    saveSoon(wkey(STORE.FARM_RES_DRY), m);
+  }
+  // The one place that decides which half of a village is claimed.
+  function farmClaimTypeFor(farm) {
+    const mode = String(state.farmUnitsMode || 'off');
+    if (mode === 'always') return 'units';
+    if (mode !== 'fallback') return 'resources';
+    const left = farmDailyLeft(farm);
+    if (left != null && left <= 0) {
+      gbLogT('farm-daily-cap-' + farm.vill_id, 600000,
+        `farm: village ${farm.vill_id} daily resource allowance spent - claiming units`);
+      return 'units';
+    }
+    const exhausted = farmResExhausted(farm);
+    if (exhausted === true) return 'units';
+
+    // Readable, non-empty cards outrank the error ledger. A strike streak only
+    // proves the POST failed - a stale claimTpl, a warehouse race or a server
+    // hiccup all land there - and the village itself is saying the resource
+    // half still has something to give, so keep re-probing resources.
+    if (exhausted === false) return 'resources';
+    return farmResDryMarked(farm.vill_id) ? 'units' : 'resources';
+  }
   function farmClaimDiag(limit) {
     const farms = farmsFromGame();
     if (!farms) { gbLog('farm diag: game collections not ready'); return; }
     const islandMap = islandTownMap();
     const speed = (() => { try { return +(gameUw().Game && gameUw().Game.game_speed); } catch (_) { return null; } })();
     const perDayTable = gbGameDataLookup('farm_town', 'max_resources_per_day');
-    gbLog(`farm diag: claim=resources-only` +
+    const unitTable = farmClaimUnitsTable(farms[0]);
+    gbLog(`farm diag: mode=${state.farmUnitsMode || 'off'} pick=${state.farmUnitsPref || 'auto'} learnedUnitOpt=${state.farmUnitsOption == null ? '-' : state.farmUnitsOption}` +
       ` game_speed=${Number.isFinite(speed) ? speed : 'UNREADABLE'}` +
       ` max_resources_per_day=${perDayTable ? 'ok' : 'UNREADABLE'}` +
+      ` claim_units=${unitTable ? JSON.stringify(unitTable).slice(0, 120) : 'UNREADABLE'}` +
       ` optionMap=${farmOptionMapText()}`);
     const n = Math.max(1, Math.min(+limit || 8, farms.length));
     for (const f of farms.slice(0, n)) {
       const tid = townIdForFarm(f, islandMap);
       const left = farmDailyLeft(f);
+      const type = farmClaimTypeFor(f);
+      const opt = type === 'units' ? farmUnitOption(f, tid) : null;
+      const blocked = (type === 'units' && opt != null && tid != null) ? farmUnitsClaimBlocked(f, tid, opt) : null;
+      const dry = farmResDryMap()[String(f.vill_id)];
       gbLog(`  vill ${f.vill_id} town=${tid == null ? '-' : tid}` +
         ` lootable=${f.lootable_at == null ? '-' : Math.max(0, f.lootable_at - gameNow()) + 's'}` +
         ` loot=${(f._attrs && f._attrs.loot) != null ? f._attrs.loot : '-'}` +
         ` level=${(f._attrs && f._attrs.expansion_stage) != null ? f._attrs.expansion_stage : '-'}` +
-        ` dailyLeft=${left == null ? 'BLIND' : left}`);
+        ` dailyLeft=${left == null ? 'BLIND' : left}` +
+        ` resValues=${farmResExhausted(f) === null ? 'blind' : (farmResExhausted(f) ? 'all-zero' : 'has-value')}` +
+        ` dry=${dry ? dry.n + 'x ' + (dry.why || '') : '-'}` +
+        ` -> type=${type}${type === 'units' ? ' opt=' + (opt == null ? 'NONE' : opt + '(' + (farmUnitIdFor(opt) || '?') + ')') + (blocked ? ' BLOCKED:' + blocked : '') : ''}`);
     }
     if (farms.length > n) gbLog(`  … ${farms.length - n} more village(s) not shown`);
   }
@@ -645,20 +861,25 @@
       gbLogT('claim-no-town', 60000, `farm claim skip ${farm.vill_id}: no same-island town`);
       return done('skip');
     }
-    // Resources are the ONLY half this bot claims, so a full warehouse always
-    // blocks the claim - there is no unit card to fall back to.
-    let blocked = false;
-    if (whCache) {
-      if (!(tid in whCache)) whCache[tid] = townWarehouseBlocks(tid);
-      blocked = whCache[tid];
-    } else {
-      blocked = townWarehouseBlocks(tid);
-    }
-    if (blocked) {
-      gbLogT('claim-wh-block', 30000, `farm claim blocked (warehouse full) town ${tid} vill ${farm.vill_id}`);
-      return done('skip');
+    const claimType = farmClaimTypeFor(farm);
+
+    // Warehouse capacity only gates the resource half - a unit card stores no
+    // loot, so a full warehouse must not block it.
+    if (claimType === 'resources') {
+      let blocked = false;
+      if (whCache) {
+        if (!(tid in whCache)) whCache[tid] = townWarehouseBlocks(tid);
+        blocked = whCache[tid];
+      } else {
+        blocked = townWarehouseBlocks(tid);
+      }
+      if (blocked) {
+        gbLogT('claim-wh-block', 30000, `farm claim blocked (warehouse full) town ${tid} vill ${farm.vill_id}`);
+        return done('skip');
+      }
     }
     const tplArgs = (state.claimTpl && state.claimTpl.arguments) || {};
+    if (claimType === 'units') return claimFarmUnits(farm, tid, tplArgs, done);
     const wantSec = durOverride || farmDesiredDuration(tid);
     let option = farmOptionFor(wantSec);
     if (option == null) {
@@ -682,8 +903,43 @@
       town_id: tid,
     }, (err) => {
       if (!err && whCache) delete whCache[tid];
+
+      // 'remembered' is the bot's own skip window, not the server saying the
+      // village is empty - it must never flip a village to unit claims.
+      // 'remembered' is the bot's own skip window, not the server saying the
+      // village is empty - it must never flip a village to unit claims.
+      const hard = err && err !== 'remembered' && !JRN_SKIP_ERRS[String(err).split(':')[0]] && err !== 'captcha' && !jrnPendingResult(err);
+      if (hard) {
+        if (String(state.farmUnitsMode || 'off') === 'fallback') farmMarkResDry(farm.vill_id, String(err).slice(0, 40));
+      } else if (!err) {
+        farmResDryClear(farm.vill_id);
+      }
       done(err || null);
     });
+  }
+  function claimFarmUnits(farm, tid, tplArgs, done) {
+    const option = farmUnitOption(farm, tid);
+    if (option == null) {
+      gbLogT('farm-units-opt', 120000,
+        'farm claim: no unit card available (pick=' + (state.farmUnitsPref || 'auto') +
+        ', claim_units=' + (farmClaimUnitsTable(farm) ? 'readable' : 'UNREADABLE for village level ' + farmVillageLevel(farm)) +
+        ', learned=' + (state.farmUnitsOption == null ? 'none' : state.farmUnitsOption) +
+        ') - pin a unit in Ajustes or claim units once by hand; Acciones > Diagnostico de aldeas dumps the reads');
+      return done('skip');
+    }
+    const why = farmUnitsClaimBlocked(farm, tid, option);
+    if (why) {
+      gbLogT('farm-units-block-' + tid, 300000,
+        `farm units claim skip town ${tid} vill ${farm.vill_id}: ${why}`);
+      return done('skip');
+    }
+    const args = Object.assign({}, tplArgs, { type: 'units', option, farm_town_id: +farm.vill_id });
+    bridgePost('farm', {
+      model_url: `FarmTownPlayerRelation/${farm.relation_id}`,
+      action_name: (state.claimTpl && state.claimTpl.action_name) || 'claim',
+      arguments: args,
+      town_id: tid,
+    }, (err) => done(err || null));
   }
   // Farm-first (hard rule): unit production never takes a dispatch slot while a
   // farming-village claim is still possible. Mirrors the eligibility filter in
@@ -772,6 +1028,7 @@
       const tid = townIdForFarm(f, islandMap);
       if (!tid) return false;
 
+      if (farmClaimTypeFor(f) === 'units') return true;
       if (!(tid in whCache)) whCache[tid] = townWarehouseBlocks(tid);
       if (whCache[tid]) { skippedFull++; return false; }
       return true;
@@ -805,7 +1062,8 @@
     }
     const claimLockToken = gbLock('claim', Math.max(180000, work.length * 20000));
     if (!claimLockToken) return;
-    gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${work.length}/${farms.length} ready${work.length !== ready.length ? ` (${ready.length - work.length} adaptivo)` : ''}${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}`);
+    const unitCount = work.filter(f => farmClaimTypeFor(f) === 'units').length;
+    gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${work.length}/${farms.length} ready${work.length !== ready.length ? ` (${ready.length - work.length} adaptivo)` : ''}${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}${unitCount ? ` (${unitCount} as units)` : ''}`);
     const before = {};
     farms.forEach(f => { before[f.vill_id] = f.lootable_at; });
     flash(`farm claim x${work.length}`);

@@ -186,6 +186,30 @@
         detail: `${farms.length} villages, ${ready} claimable, ${tpl}, options ${farmOptionMapText()}`,
       };
     }));
+    out.push(preflightProbe('farm unit claims', () => {
+      const mode = String(state.farmUnitsMode || 'off');
+      if (mode === 'off') return { ok: true, warn: true, detail: 'disabled in Config (resources only)' };
+
+      const villages = farmsFromGame() || [];
+      const sample = villages[0] || null;
+      const opt = farmUnitOption(sample);
+      const unit = opt != null ? farmUnitIdFor(opt) : null;
+      const table = (typeof farmClaimUnitsTable === 'function') ? farmClaimUnitsTable(sample) : null;
+      const amount = table && unit && table[unit] != null ? +table[unit] : null;
+      const dryMap = (state.farmResDry && typeof state.farmResDry === 'object') ? state.farmResDry : {};
+      const dry = Object.keys(dryMap).filter(k => farmResDryMarked(k)).length;
+      const capped = villages.filter(f => {
+        const left = farmDailyLeft(f);
+        return left != null && left <= 0;
+      }).length;
+      return {
+        ok: opt != null,
+        warn: opt == null || amount == null,
+        detail: opt == null
+          ? `mode ${mode}, pick ${state.farmUnitsPref || 'auto'} - no unit card readable (claim units once by hand or pin a unit in Ajustes)`
+          : `mode ${mode}, pick ${state.farmUnitsPref || 'auto'} -> option ${opt} (${unit}), amount ${amount == null ? '—' : amount}, ${capped} village(s) at the daily cap, ${dry} marked dry`,
+      };
+    }));
     out.push(preflightProbe('farm resource scrape', () => {
       const st = (typeof farmScrapeState === 'function') ? farmScrapeState() : { dead: false, misses: 0 };
       const on = !!state.farmScrape;
@@ -283,6 +307,30 @@
       else parts.push(`research points ${pts}`);
       parts.push(info.smallIsland == null ? 'small-island flag unreadable' : `small island ${info.smallIsland}`);
       return { ok: bad === 0, warn: bad > 0, detail: parts.join(', ') };
+    }));
+
+    // Village recruit: HIGH-RISK, default OFF. Probes that the four preconditions
+    // are reachable without forcing a post: learned bridge template, unit-count
+    // read path, and farm-resources fill read. Anything unreadable becomes a
+    // warn, not a fail - the feature is opt-in, so "nothing to do" is fine.
+    out.push(preflightProbe('village recruit', () => {
+      const parts = [];
+      let bad = 0, warn = 0;
+      const tpl = state.acceptUnitsTpl;
+      if (tpl && tpl.action_name) parts.push(`tpl ${tpl.action_name}`);
+      else { parts.push('tpl UNLEARNED (open a village, click Aceptar once)'); warn++; }
+      const farms = (state.farmsParsed || []);
+      const sample = farms.find(f => f && f.vill_id);
+      if (!sample) { parts.push('no farms known'); warn++; return { ok: true, warn: true, detail: parts.join(', ') }; }
+      const counts = villageUnitCounts(sample.vill_id);
+      if (counts && counts.known) {
+        const u = counts.units;
+        parts.push(`units ${u.sword}/${u.archer}/${u.hoplite}/${u.slinger}`);
+      } else { parts.push('unit counts UNREADABLE (attribute shape unknown)'); bad++; }
+      const fr = state.farmResources && state.farmResources[sample.vill_id];
+      if (fr && fr.ok && fr.cap > 0) parts.push(`fill read OK (cap ${fr.cap})`);
+      else { parts.push('fill read pending (next farm scrape)'); warn++; }
+      return { ok: bad === 0, warn: warn > 0 || bad > 0, detail: parts.join(', ') };
     }));
 
     out.push(preflightProbe('tx registry', () => {
@@ -899,6 +947,86 @@
       });
     }
     box.textContent = lines.join('\n');
+    renderPreflightBoard(sec);
+  }
+
+  // ===== Preflight board (v5.9.0) ===========================================
+  // The preflight result used to exist only as machine lines at the bottom of
+  // the big <pre>. It is the one thing in this tab a player is meant to ACT on,
+  // so the failures are lifted out as sentences above it. The <pre> keeps every
+  // line untouched - it is what gets pasted into an issue.
+  const PF_ES = {
+    'bridge': 'Puente con el juego',
+    'csrf': 'Token de sesión',
+    'towns': 'Ciudades',
+    'farm claims': 'Cobro de aldeas',
+    'farm unit claims': 'Cobro de unidades en aldeas',
+    'farm resource scrape': 'Lectura de recursos de aldeas',
+    'sleep claim': 'Cobro nocturno de aldeas',
+    'instant build': 'Terminar construcción gratis',
+    'instant research': 'Terminar investigación gratis',
+    'cave': 'Cueva',
+    'trade': 'Comercio',
+    'research': 'Investigación',
+    'academy read path': 'Academia',
+    'village recruit': 'Reclutar en aldeas',
+    'tx registry': 'Registro de transacciones',
+    'phoenician': 'Comercio fenicio',
+    'native queue': 'Colas del juego',
+    'snapshots': 'Instantáneas',
+    'profiler': 'Perfilador',
+    'memory probe': 'Memoria',
+  };
+  function renderPreflightBoard(sec) {
+    const when = sec.querySelector('#gb-pf-when');
+    const list = sec.querySelector('.gb-pf-list');
+    if (!list) return;
+    if (!preflightLast) {
+      if (when) when.textContent = 'Lee todos los módulos sin enviar nada al juego. Todavía no se ha ejecutado.';
+      list.replaceChildren();
+      return;
+    }
+    const rows = preflightLast.rows || [];
+    const bad = rows.filter(r => !r.ok);
+    const warn = rows.filter(r => r.ok && r.warn);
+    const okN = rows.length - bad.length - warn.length;
+    if (when) {
+      when.textContent = `${new Date(preflightLast.at).toLocaleTimeString()} · ${okN} bien`
+        + (warn.length ? ` · ${warn.length} aviso(s)` : '')
+        + (bad.length ? ` · ${bad.length} fallo(s)` : '');
+    }
+    const show = bad.concat(warn);
+    gbPaint(list, stage => {
+      show.forEach(r => {
+        const row = document.createElement('div');
+        row.className = 'gb-pf-row';
+        const ico = gbIcon(r.ok ? 'info' : 'alert', 14, r.ok ? '#ffd27a' : '#ff9aa3');
+        if (ico) { ico.style.flex = '0 0 auto'; ico.style.marginTop = '1px'; row.appendChild(ico); }
+        const mid = document.createElement('div');
+        mid.style.cssText = 'flex:1;min-width:0';
+        const t = document.createElement('div');
+        t.className = 'gb-pf-t ' + (r.ok ? 'warn' : 'bad');
+        t.textContent = PF_ES[r.name] || r.name;
+        const d = document.createElement('div');
+        d.className = 'gb-pf-s';
+        d.textContent = r.detail;
+        mid.append(t, d);
+        row.appendChild(mid);
+        stage.appendChild(row);
+      });
+      if (!okN) return;
+      const sum = document.createElement('div');
+      sum.className = 'gb-pf-row';
+      const ico = gbIcon('check', 14, '#6dda7e');
+      if (ico) { ico.style.flex = '0 0 auto'; ico.style.marginTop = '1px'; sum.appendChild(ico); }
+      const st = document.createElement('div');
+      st.className = 'gb-pf-t';
+      st.textContent = !show.length
+        ? (okN === 1 ? 'El único módulo probado lee bien' : `Los ${okN} módulos leen bien`)
+        : (okN === 1 ? 'Otro módulo lee bien' : `Otros ${okN} módulos leen bien`);
+      sum.appendChild(st);
+      stage.appendChild(sum);
+    }, { key: show.map(r => r.name + (r.ok ? 'w' : 'x')).join('|') + '#' + okN });
   }
   // ---------- evidence snapshot (diagnostics export) ----------
   function evidenceTplShape(v) {
@@ -1120,7 +1248,11 @@
       bundleSection('evidence', () => gbEvidence()),
       bundleSection('config', () => (typeof qolExportConfigForUi === 'function' ? qolExportConfigForUi() : '(no export path)')),
       bundleSection('decisions', () => ({ decisions: state.decisions || [], skips: state.decisionSkips || {} })),
-      bundleSection('log', () => gbLogDumpText(200)),
+      // No explicit cap: gbLogDumpText defaults to LOG_MAX inside the ring.
+      // A hardcoded 200 used to ship an arbitrary slice; the ring is the
+      // source of truth and "Copiar todo" should match what the live pane
+      // can show.
+      bundleSection('log', () => gbLogDumpText()),
       bundleSection('findings', () => (typeof redactFindingsExport === 'function'
         ? redactFindingsExport({ findings: state.findings, farms: state.farms })
         : '(no redaction path - refusing raw findings)')),

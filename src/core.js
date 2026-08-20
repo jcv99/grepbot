@@ -537,6 +537,11 @@
     farmClaimsToday: load(STORE.FARM_CLAIMS_TODAY, {}) || {},
     farmClaimsDay: load(STORE.FARM_CLAIMS_DAY, '') || '',
 
+    farmUnitsMode: load(STORE.FARM_UNITS_MODE, 'off') || 'off',
+    farmUnitsPref: load(STORE.FARM_UNITS_PREF, 'auto') || 'auto',
+    farmUnitsOption: load(STORE.FARM_UNITS_OPTION, null),
+    farmResDry: load(STORE.FARM_RES_DRY, {}) || {},
+    farmResDryDay: load(STORE.FARM_RES_DRY_DAY, '') || '',
     farmTravelSecPerUnit: load(STORE.FARM_TRAVEL, 0),
     ibActionR:  load(STORE.IB_ACTION_R, null) || 'buyInstant',
     questRewards: load(STORE.QUEST_REWARDS, {}),
@@ -648,6 +653,10 @@
     batchRecruit: load(STORE.BATCH_RECRUIT, false),
     batchRecruitLists: load(STORE.BATCH_RECRUIT_LISTS, { towns: {} }),
     recruitPacks: load(STORE.RECRUIT_PACKS, {}),
+    autoVillageRecruit: load(STORE.AUTO_VILLAGE_RECRUIT, false),
+    villageRecruitFillPct: load(STORE.VILLAGE_RECRUIT_FILL, 90),
+    villageRecruitAmount: load(STORE.VILLAGE_RECRUIT_AMOUNT, 1),
+    villageRecruitStreaks: load(STORE.VILLAGE_RECRUIT_STREAKS, {}),
     priorityOrder: load(STORE.PRIORITY_ORDER, PRIORITY_ORDER_DEFAULT.slice()),
     islandShip: load(STORE.ISLAND_SHIP, false),
     autoMilitia: load(STORE.AUTO_MILITIA, false),
@@ -1440,6 +1449,23 @@
       return (uw.GameData && uw.GameData[table] && uw.GameData[table][key]) || null;
     } catch (_) { return null; }
   }
+  // Poseidon mythicals (hydra, sea monsters) are NAVAL mythicals — recruited
+  // at the harbor (building_docks), not the temple. GameData.is_naval is
+  // unreliable for this set in some worlds, so the heuristic needs an explicit
+  // fallback. Single shared helper so recruiters, lane classifiers and the
+  // queue-center renderer all agree on what is naval.
+  const NAVAL_MYTHICAL_UNITS = new Set(['hydra']);
+  function recruitIsNaval(unitId) {
+    const fid = unitId == null ? '' : String(unitId);
+    try {
+      const d = gbGameDataLookup("units", fid);
+      if (!d) return NAVAL_MYTHICAL_UNITS.has(fid);
+      if (d.is_naval || d.naval) return true;
+      if (NAVAL_MYTHICAL_UNITS.has(fid)) return true;
+      if (d.controller === 'building_docks') return true;
+      return false;
+    } catch (_) { return NAVAL_MYTHICAL_UNITS.has(fid); }
+  }
   // Idle-log scan suffix. Replaces the `${reason || 'scan'}` idiom in 13 sites
   // so future style changes touch one place.
   function scanReason(reason) { return reason || 'scan'; }
@@ -1571,7 +1597,10 @@
     const flush = () => {
       logRenderQueued = false;
       if (sec.hidden || list.hidden) return;
-      const start = Math.max(logHead, logBuf.length - 80);
+      // Show the whole ring, not just the tail - the previous 80-line cap
+      // made older entries invisible to the user (they were still in logBuf
+      // and still in any bundle, but the pane scrolled them off).
+      const start = Math.max(logHead, logBuf.length - LOG_MAX);
       const lines = logBuf.slice(start);
       list.textContent = lines.map(l => new Date(l.ts).toLocaleTimeString() + ' ' + l.msg).join('\n');
       list.scrollTop = list.scrollHeight;

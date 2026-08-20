@@ -9,6 +9,7 @@
       ruraltrade: state.autoRuralTrade,
       rurallevel: state.autoRuralLevel,
       recruit: state.autoRecruit || nativeRecruitPending(),
+      villrecruit: state.autoVillageRecruit,
 
       batchrecruit: state.batchRecruit && batchRecruitHasAnyTown(),
       merchant: state.autoMerchant,
@@ -59,9 +60,9 @@
   const ORCH_DRAIN_KEYS = ['cave', 'trade', 'ruraltrade'];
   // Farm-first (hard rule): unit production never takes a dispatch slot while a
   // farming-village claim is still possible. Order override + eligibility gate
-  // only - no new scheduler, no new post class. recruitScan enforces the same
-  // rule at the post site.
-  const ORCH_UNIT_KEYS = ['recruit'];
+  // only - no new scheduler, no new post class. recruitScan and
+  // villageRecruitScan enforce the same rule at the post site.
+  const ORCH_UNIT_KEYS = ['recruit', 'villrecruit'];
   function orchFarmFirst() {
     try { return typeof farmClaimPending === 'function' && farmClaimPending(); }
     catch (_) { return false; }

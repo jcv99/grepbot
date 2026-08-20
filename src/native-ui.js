@@ -5,7 +5,7 @@
   // the harbour. Each keeps its own order, its own pause flag and its own mode.
   const NATIVE_QUEUE_LANES=['build','recruit','recruitNaval','research'];
   const NATIVE_RECRUIT_LANES=['recruit','recruitNaval'];
-  function nativeUnitIsNaval(unit){try{const d=gbGameDataLookup("units", unit)||{};return !!(d.is_naval||d.naval)}catch(_){return false}}
+  function nativeUnitIsNaval(unit){return recruitIsNaval(unit)}
   function nativeRecruitLane(unit){return nativeUnitIsNaval(unit)?'recruitNaval':'recruit'}
   // Lane of an ALREADY QUEUED unit. The array a job actually sits in wins over
   // GameData: the unit metadata can be unreadable at render time, and falling
