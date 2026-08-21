@@ -812,7 +812,8 @@
     out.push(preflightProbe('client fingerprint',()=>{const r=clientFingerprintCompatible(state.clientFingerprint,clientFingerprintNow());return{ok:r.ok,detail:r.ok?'compatible':r.why}}));
     out.push(preflightProbe('resource planner',()=>{let ids=[];try{ids=Object.keys((uw.ITowns&&uw.ITowns.towns)||{})}catch(_){};const bad=ids.filter(id=>!plannerSnapshot(id));return{ok:bad.length===0,detail:bad.length?`unreadable towns: ${bad.join(',')}`:`${ids.length} town snapshots`}}));
     out.push(preflightProbe('goal planner',()=>{const plans=goalPlanAll();const bad=plans.filter(p=>p.error);return{ok:bad.length===0,warn:bad.length>0,detail:`${plans.length} plans, ${bad.length} unreadable`}}));
-    out.push(preflightProbe('safe mode',()=>({ok:true,warn:!!state.safeMode,detail:state.safeMode?'ON: high-impact writes blocked':'off'})));
+    out.push(preflightProbe('never stop',()=>({ok:true,warn:gbNeverStop(),detail:gbNeverStop()?'ON: panic/circuit/decision-memory/safe-mode/tpl-health/night/activity/orch-backoff all bypassed; captcha + server cooldown still live':'off'})));
+    out.push(preflightProbe('safe mode',()=>({ok:true,warn:gbSafeModeOn(),detail:gbSafeModeOn()?'ON: high-impact writes blocked':(state.safeMode?'overridden by never stop':'off')})));
     out.push(preflightProbe('guards', () => {
       const locks = gbLockList();
       const paused = Object.keys(state.captchaBreakers || {}).filter(k => captchaPaused(k));

@@ -125,6 +125,7 @@
     gbLog(`orch: deadlock cannot drain (${why}) - spend resources by hand (build/recruit/culture)`);
   }
   function orchIdleFactor(key) {
+    if (gbNeverStop()) return 1;
     if (state.orchAdaptive === false) return 1;
     // The drain path must not be slowed by the very idleness the deadlock causes.
     // The drain path must not be slowed by the very idleness the deadlock causes.

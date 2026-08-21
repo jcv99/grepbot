@@ -1333,6 +1333,7 @@
         <div class="gb-cfg-panes">
         ${gbCfgGroup('General y seguridad', `
           <label class="gb-cfg-row" data-gb-tip="Activar el bot solo en este dominio (marcado por mundo)"><input type="checkbox" data-cfg="enabled-host"/> Activar en <span class="cfg-host"></span></label>
+          <label class="gb-cfg-row" title="El unico freno pasa a ser el interruptor de arriba. Desactiva panico, cortacircuitos, memoria de decisiones, modo seguro, salud de plantillas, pausa nocturna, pausa por actividad y el frenado adaptativo del orquestador. El cortacircuitos de captcha y el enfriamiento por presion del servidor siguen activos: ahi el servidor ya esta rechazando el envio."><input type="checkbox" data-cfg="never-stop"/> <b class="gb-cfg-accent">No parar nunca (solo para con el interruptor de arriba)</b></label>
           <label class="gb-cfg-row gb-cfg-warn" data-gb-tip="Bloquea premium, ataques, favor, puntos y donaciones"><input type="checkbox" data-cfg="safe-mode"/> MODO SEGURO (bloquea premium/ataques/favor/puntos/donaciones)</label>
           <label class="gb-cfg-row" title="Registra cada payload que el bot enviaria y no envia nada. Sirve para comparar el payload del bot con una accion pulsada a mano antes de activar algo arriesgado."><input type="checkbox" data-cfg="dry-run"/> <b class="gb-cfg-accent">Simulacion (registra payloads, no envia nada)</b></label>
           <label class="gb-cfg-row" data-gb-tip="Apagado global de captcha: cualquier captcha detiene todo el bot"><input type="checkbox" data-cfg="captcha-global"/> Interruptor global de captcha</label>
@@ -2432,6 +2433,7 @@
     setNum('[data-cfg=posts-soft-pct]', state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60);
     const cl = sec.querySelector('[data-cfg=captcha-ladder]');
     if (cl) cl.value = (Array.isArray(state.captchaLadder) && state.captchaLadder.length ? state.captchaLadder : [5, 15, 60]).join(',');
+    onCfg('[data-cfg=never-stop]', 'change',e=>{state.neverStop=!!e.target.checked;save(STORE.NEVER_STOP,state.neverStop);gbLog('neverStop',state.neverStop);updateStatus();});
     onCfg('[data-cfg=safe-mode]', 'change',e=>{state.safeMode=!!e.target.checked;save(STORE.SAFE_MODE,state.safeMode);gbLog('safeMode',state.safeMode);updateStatus();});
     onCfg('[data-cfg=enabled-host]', 'change', e => {
       state.enabledHosts[location.host] = e.target.checked;
@@ -2595,6 +2597,7 @@
     // safeModeBlock() disagreed, and unticking an already-unticked box fired
     // no change event, so the gate could not be cleared from the UI at all.
     setChk('[data-cfg=safe-mode]', !!state.safeMode);
+    setChk('[data-cfg=never-stop]', state.neverStop !== false);
     setChk('[data-cfg=orch-adaptive]', state.orchAdaptive !== false);
     setChk('[data-cfg=orch-deadlock]', state.orchDeadlockResolve !== false);
     setChk('[data-cfg=export-redact]', state.exportRedact !== false);
@@ -3699,7 +3702,7 @@
     let tplBanner = '';
     try { tplBanner = tplHealthBannerText() || ''; } catch (_) {}
     if (tplBanner) pauseTxt += ' tpl!';
-    const dryTxt = state.dryRun ? ' [DRY]' : ''; const safeTxt=state.safeMode?' SAFE':'';
+    const dryTxt = state.dryRun ? ' [DRY]' : ''; const safeTxt=(state.safeMode&&!gbNeverStop())?' SAFE':(gbNeverStop()?' NOSTOP':'');
 
     // Panic owns the head of the status line and its colour; the 5s updateStatus
     // interval (boot.js) is what flips grace -> recovery, no extra scheduler.

@@ -200,6 +200,8 @@
   }
   function jrnSkipped(tag) {
     jrnCheckHost();
+    // Recording always runs; only the SKIPPING stands down.
+    if (gbNeverStop()) return false;
     if (state.decisionMemory === false) return false;
     const key = jrnId(tag);
     const s = state.decisionSkips[key];

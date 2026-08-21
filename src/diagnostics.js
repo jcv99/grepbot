@@ -23,7 +23,7 @@
         autoFarm: !!state.autoFarm, autoCave: !!state.autoCave, autoTrade: !!state.autoTrade,
         abAuto: !!state.abAuto, ibAuto: !!state.ibAuto, autoResearch: !!state.autoResearch,
         autoRecruit: !!state.autoRecruit, autoCulture: !!state.autoCulture,
-        dryRun: !!state.dryRun, safeMode: !!state.safeMode,
+        dryRun: !!state.dryRun, safeMode: !!state.safeMode, neverStop: state.neverStop !== false,
       },
       plans: {
         abTargets: state.abTargets, researchTargets: state.researchTargets,

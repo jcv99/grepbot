@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.9.6
+// @version      5.9.7
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -232,6 +232,7 @@ const STORE = {
     MEM_PROBE_ON: 'grepbot:mem-probe-on',
     CLIENT_FP: 'grepbot:client-fingerprint',
     SAFE_MODE: 'grepbot:safe-mode',
+    NEVER_STOP: 'grepbot:never-stop',
     SIM_CFG: 'grepbot:sim-cfg',
     WHY_LOG: 'grepbot:why-log',
     TPL_HEALTH: 'grepbot:tpl-health',
@@ -915,6 +916,7 @@ const STORE = {
     health: load(STORE.HEALTH, {}),
     clientFingerprint: load(STORE.CLIENT_FP, null),
     safeMode: load(STORE.SAFE_MODE, true),
+    neverStop: load(STORE.NEVER_STOP, true),
     simCfg: load(STORE.SIM_CFG, { horizonHours: 24 }),
     whyLog: load(STORE.WHY_LOG, []),
     tplHealth: load(STORE.TPL_HEALTH, {}) || {},
@@ -1175,6 +1177,12 @@ const STORE = {
   function gbPanicLeftMs() { return Math.max(0, panicUntil - Date.now()); }
 
   function gbPanicActivate() {
+
+    if (gbNeverStop()) {
+      gbLog('panic: ignored - "no parar nunca" is ON');
+      try { flash('No parar nunca activo: usa el interruptor principal'); } catch (_) {}
+      return false;
+    }
     if (gbPanicActive()) { gbLogT('panic-dup', 5000, 'panic: already active'); return false; }
     panicUntil = Date.now() + GB_PANIC_GRACE_MS;
     panicNeedsClear = true;
@@ -1203,12 +1211,17 @@ const STORE = {
     try { updateStatus(); } catch (_) {}
     return { ok: true, reason: stillPaused ? (info.reason || '?') : '' };
   }
+
+  function gbNeverStop() { return state.neverStop !== false; }
+
+  function gbSafeModeOn() { return !!state.safeMode && !gbNeverStop(); }
   function automationPaused(reasonOut) {
-    if (panicUntil && Date.now() < panicUntil) {
+    const never = gbNeverStop();
+    if (!never && panicUntil && Date.now() < panicUntil) {
       if (reasonOut) reasonOut.reason = 'panic';
       return true;
     }
-    if (panicNeedsClear) {
+    if (!never && panicNeedsClear) {
       if (reasonOut) reasonOut.reason = 'panic-grace';
       return true;
     }
@@ -1220,11 +1233,11 @@ const STORE = {
       if (reasonOut) reasonOut.reason = 'server';
       return true;
     }
-    if (state.pauseOnActivity && Date.now() < userPausedUntil) {
+    if (!never && state.pauseOnActivity && Date.now() < userPausedUntil) {
       if (reasonOut) reasonOut.reason = 'user';
       return true;
     }
-    if (state.nightPause) {
+    if (!never && state.nightPause) {
       const h = new Date().getHours();
       const a = Number.isFinite(+state.nightStart) ? +state.nightStart : 0;
       const b = Number.isFinite(+state.nightEnd) ? +state.nightEnd : 7;
@@ -1476,6 +1489,7 @@ const STORE = {
   }
   function tplHealthOk(name) {
     if (!name) return true;
+    if (gbNeverStop()) return true;
     const h = state.tplHealth && state.tplHealth[name];
     if (!h || !h.invalidated) return true;
 
@@ -2381,7 +2395,7 @@ const STORE = {
   }
   function clientFingerprintCompatible(prev,cur){if(!cur)return{ok:false,why:'fingerprint-unreadable'};for(const k of ['MM','gpAjax','ITowns','GameData'])if(!cur.required[k])return{ok:false,why:`missing-${k}`};if(!prev)return{ok:true,first:true};for(const k of ['MM','gpAjax','ITowns','GameData'])if(prev.required&&prev.required[k]&&!cur.required[k])return{ok:false,why:`lost-${k}`};for(const k of ['units','buildings']){const a=+(prev.counts&&prev.counts[k]||0),b=+(cur.counts&&cur.counts[k]||0);if(a>0&&b>0&&Math.abs(b-a)/a>0.45)return{ok:false,why:`${k}-shape-changed:${a}->${b}`}}return{ok:true}}
   function clientFingerprintCheck() {const cur=clientFingerprintNow(),cmp=clientFingerprintCompatible(state.clientFingerprint,cur);if(!cmp.ok){state.safeMode=true;save(STORE.SAFE_MODE,true);gbLog(`SAFE MODE: Grepolis client compatibility check failed (${cmp.why})`);whyNote('system','client fingerprint','blocked',cmp.why);}else if(!state.clientFingerprint){state.clientFingerprint=cur;save(STORE.CLIENT_FP,cur);}else{state.clientFingerprint=cur;save(STORE.CLIENT_FP,cur);}return{current:cur,check:cmp}}
-  function safeModeBlock(feature,transport,endpoint,data){if(!state.safeMode)return null;const f=String(feature||'');if(['attack','support','spy','favor','wonder','rurallevel','merchant','spell','airaw'].includes(f))return 'safe-mode-high-impact';if(f==='culture'){const a=transport==='bridge'?(data&&data.arguments||{}):(data||{});if(/olympic/i.test(String(a.celebration_type||endpoint||'')))return 'safe-mode-premium';}return null}
+  function safeModeBlock(feature,transport,endpoint,data){if(gbNeverStop())return null;if(!state.safeMode)return null;const f=String(feature||'');if(['attack','support','spy','favor','wonder','rurallevel','merchant','spell','airaw'].includes(f))return 'safe-mode-high-impact';if(f==='culture'){const a=transport==='bridge'?(data&&data.arguments||{}):(data||{});if(/olympic/i.test(String(a.celebration_type||endpoint||'')))return 'safe-mode-premium';}return null}
   const CIRCUIT_TRIP = 3;
   const CIRCUIT_STRUCTURAL_RE = /unknown.?action|invalid.?action|unknown.?model|model.?not.?found|unknown.?controller|controller.?not.?found|no.?such.?action|does.?not.?exist|unsupported.?action|invalid.?model|endpoint.?not.?found/i;
   function circuitSave() { save(STORE.CIRCUITS, state.circuits || {}); }
@@ -2397,6 +2411,7 @@ const STORE = {
     return Math.max(60000, Math.min(CIRCUIT_COOLDOWN_MAX_MS, n));
   }
   function circuitOpen(feature) {
+    if (gbNeverStop()) return false;
     const c = circuitState(feature);
     if (!c || !c.open) return false;
     if (state.circuitAutoClear === false) return true;
@@ -4116,6 +4131,8 @@ const STORE = {
   }
   function jrnSkipped(tag) {
     jrnCheckHost();
+
+    if (gbNeverStop()) return false;
     if (state.decisionMemory === false) return false;
     const key = jrnId(tag);
     const s = state.decisionSkips[key];
@@ -16321,7 +16338,7 @@ const STORE = {
     }
     if(chips){
       const list=[];
-      list.push({t:state.safeMode?'MODO SEGURO':'Modo normal',c:state.safeMode?'warn':''});
+      list.push({t:gbNeverStop()?'No parar nunca':(state.safeMode?'MODO SEGURO':'Modo normal'),c:gbSafeModeOn()?'warn':''});
       if(state.dryRun)list.push({t:'Simulaci\u00f3n: no env\u00eda nada',c:'warn'});
       list.push({t:captchaKeys.length?`Captcha en ${captchaKeys.length} modulo(s)`:'Sin captcha',c:captchaKeys.length?'bad':''});
       let used=null;try{used=reqBudgetUsed()}catch(_){}
@@ -16403,9 +16420,9 @@ const STORE = {
         }
       },{key:data.map(d=>d.join('|')).join('~')});
     }
-    const mode=panel.querySelector('#gb-head-mode');if(mode){mode.textContent=state.safeMode?'MODO SEGURO':'Automatizaci\u00f3n activa';mode.className='gb-pill '+(state.safeMode?'warn':'ok')}
+    const mode=panel.querySelector('#gb-head-mode');if(mode){mode.textContent=gbNeverStop()?'Sin paradas':(state.safeMode?'MODO SEGURO':'Automatizaci\u00f3n activa');mode.className='gb-pill '+(gbSafeModeOn()?'warn':'ok')}
     const health=panel.querySelector('#gb-head-health');if(health){const bad=!compatible||unknown||circuits.length;health.textContent=bad?'REVISAR':'SISTEMA OK';health.className='gb-pill '+(bad?'bad':'ok');const tipParts=[];if(!compatible){const miss=Object.entries(fps.required||{}).filter(([,v])=>!v).map(([k])=>k);tipParts.push('fp falta: '+(miss.length?miss.join(','):'fingerprint roto'))}if(unknown){const stuck=Object.entries(state.txState||{}).filter(([,t])=>t&&/^(unknown|manual-review)$/.test(t.state||'')).map(([k])=>k);tipParts.push('tx '+unknown+': '+(stuck.slice(0,4).join(',')+(stuck.length>4?' +'+(stuck.length-4):'')))}if(circuits.length){tipParts.push('cb '+circuits.length+': '+circuits.slice(0,4).join(',')+(circuits.length>4?' +'+(circuits.length-4):''))}gbTip(health, tipParts.length?tipParts.join(' \u00b7 '):'Salud agregada OK')}
-    const quickSafe=sec.querySelector('#gb-quick-safe');if(quickSafe)quickSafe.textContent=state.safeMode?'MODO SEGURO: ON':'MODO SEGURO: OFF';
+    const quickSafe=sec.querySelector('#gb-quick-safe');if(quickSafe)quickSafe.textContent=gbNeverStop()?'MODO SEGURO: anulado':(state.safeMode?'MODO SEGURO: ON':'MODO SEGURO: OFF');
     if(sim){
       if(dashboardSimulation){const lines=[`Simulaci\u00f3n ${dashboardSimulation.horizonHours} h \u00b7 ${dashboardSimulation.totalActions} acciones \u00b7 ${dashboardSimulation.blocked} ciudad(es) con cuello de botella`];for(const t of dashboardSimulation.towns)lines.push(`Ciudad ${t.townId}: ${t.actions.filter(a=>a.sim==='would-run').length} acciones \u00b7 final ${Math.floor(t.final.wood)}/${Math.floor(t.final.stone)}/${Math.floor(t.final.iron)} \u00b7 ${t.bottleneck||'sin bloqueo'}${t.productionKnown?'':' \u00b7 producci\u00f3n desconocida'}`);sim.textContent=lines.join('\n')}else sim.textContent='Todav\u00eda no se ha ejecutado una simulaci\u00f3n.';
     }
@@ -16475,7 +16492,7 @@ const STORE = {
   const CONFIG_SNAPSHOT_KEYS = [
     'abTargets', 'abOrder', 'researchTargets', 'recruitTargets', 'plannerCfg',
     'goalProfiles', 'townGoals', 'virtualQueueOverrides', 'nativeQueue',
-    'predictCfg', 'defenseCfg', 'safeMode', 'autoTransport', 'transportReserve',
+    'predictCfg', 'defenseCfg', 'safeMode', 'neverStop', 'autoTransport', 'transportReserve',
     'transportMin', 'cityTemplates', 'townGroups', 'cultureTypes', 'favorCfg',
     'spyCfg', 'wonderCfg', 'merchantWish', 'priorityOrder',
     'playerNotes', 'watchlist', 'recruitPacks', 'batchRecruitLists',
@@ -16577,13 +16594,13 @@ const STORE = {
   function qolExportConfig() {
     return { schema:CONFIG_EXPORT_SCHEMA, ver:state.configVer||1, host:location.host,
       abTargets:state.abTargets,abOrder:state.abOrder,researchTargets:state.researchTargets,recruitTargets:state.recruitTargets,
-      plannerCfg:state.plannerCfg,goalProfiles:state.goalProfiles,townGoals:state.townGoals,virtualQueueOverrides:state.virtualQueueOverrides,nativeQueue:state.nativeQueue,predictCfg:state.predictCfg,defenseCfg:state.defenseCfg,safeMode:!!state.safeMode,
+      plannerCfg:state.plannerCfg,goalProfiles:state.goalProfiles,townGoals:state.townGoals,virtualQueueOverrides:state.virtualQueueOverrides,nativeQueue:state.nativeQueue,predictCfg:state.predictCfg,defenseCfg:state.defenseCfg,safeMode:!!state.safeMode,neverStop:state.neverStop!==false,
       autoTransport:!!state.autoTransport,transportReserve:+state.transportReserve||20,transportMin:+state.transportMin||1000,
       cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,spyCfg:state.spyCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,playerNotes:state.playerNotes,watchlist:state.watchlist,recruitPacks:state.recruitPacks,batchRecruitLists:state.batchRecruitLists };
   }
   function qolImportConfig(obj, opts) {
     if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;if(obj.host&&String(obj.host)!==String(location.host)){gbLog(`config import refused: file host ${obj.host} != ${location.host}`);return false}if(obj.schema!=null&&+obj.schema>CONFIG_EXPORT_SCHEMA){gbLog(`config import refused: schema ${obj.schema} newer than supported ${CONFIG_EXPORT_SCHEMA}`);return false}
-    const clone=v=>structuredClone(v),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray,batchRecruit:v=>typeof v==='boolean',batchRecruitLists:isObj,recruitPacks:isObj};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,batchRecruit:STORE.BATCH_RECRUIT,batchRecruitLists:STORE.BATCH_RECRUIT_LISTS,recruitPacks:STORE.RECRUIT_PACKS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
+    const clone=v=>structuredClone(v),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',neverStop:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray,batchRecruit:v=>typeof v==='boolean',batchRecruitLists:isObj,recruitPacks:isObj};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,neverStop:STORE.NEVER_STOP,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,batchRecruit:STORE.BATCH_RECRUIT,batchRecruitLists:STORE.BATCH_RECRUIT_LISTS,recruitPacks:STORE.RECRUIT_PACKS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
     for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='priorityOrder'){const allowed=new Set(PRIORITY_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(PRIORITY_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
       const clean={version:1,seq:Math.max(0,+v.seq||0),towns:{}},seen=new Set();
       const jobId=(raw,prefix)=>{let id=/^[A-Za-z0-9:._-]{1,160}$/.test(String(raw||''))?String(raw):'';if(!id||seen.has(id)){clean.seq++;id=`${prefix}:import:${clean.seq.toString(36)}`}seen.add(id);return id};
@@ -16874,6 +16891,7 @@ const STORE = {
     gbLog(`orch: deadlock cannot drain (${why}) - spend resources by hand (build/recruit/culture)`);
   }
   function orchIdleFactor(key) {
+    if (gbNeverStop()) return 1;
     if (state.orchAdaptive === false) return 1;
 
     if (orchDeadlock.open && ORCH_DRAIN_KEYS.includes(key)) return 1;
@@ -21799,7 +21817,7 @@ const STORE = {
         autoFarm: !!state.autoFarm, autoCave: !!state.autoCave, autoTrade: !!state.autoTrade,
         abAuto: !!state.abAuto, ibAuto: !!state.ibAuto, autoResearch: !!state.autoResearch,
         autoRecruit: !!state.autoRecruit, autoCulture: !!state.autoCulture,
-        dryRun: !!state.dryRun, safeMode: !!state.safeMode,
+        dryRun: !!state.dryRun, safeMode: !!state.safeMode, neverStop: state.neverStop !== false,
       },
       plans: {
         abTargets: state.abTargets, researchTargets: state.researchTargets,
@@ -22670,7 +22688,8 @@ const STORE = {
     out.push(preflightProbe('client fingerprint',()=>{const r=clientFingerprintCompatible(state.clientFingerprint,clientFingerprintNow());return{ok:r.ok,detail:r.ok?'compatible':r.why}}));
     out.push(preflightProbe('resource planner',()=>{let ids=[];try{ids=Object.keys((uw.ITowns&&uw.ITowns.towns)||{})}catch(_){};const bad=ids.filter(id=>!plannerSnapshot(id));return{ok:bad.length===0,detail:bad.length?`unreadable towns: ${bad.join(',')}`:`${ids.length} town snapshots`}}));
     out.push(preflightProbe('goal planner',()=>{const plans=goalPlanAll();const bad=plans.filter(p=>p.error);return{ok:bad.length===0,warn:bad.length>0,detail:`${plans.length} plans, ${bad.length} unreadable`}}));
-    out.push(preflightProbe('safe mode',()=>({ok:true,warn:!!state.safeMode,detail:state.safeMode?'ON: high-impact writes blocked':'off'})));
+    out.push(preflightProbe('never stop',()=>({ok:true,warn:gbNeverStop(),detail:gbNeverStop()?'ON: panic/circuit/decision-memory/safe-mode/tpl-health/night/activity/orch-backoff all bypassed; captcha + server cooldown still live':'off'})));
+    out.push(preflightProbe('safe mode',()=>({ok:true,warn:gbSafeModeOn(),detail:gbSafeModeOn()?'ON: high-impact writes blocked':(state.safeMode?'overridden by never stop':'off')})));
     out.push(preflightProbe('guards', () => {
       const locks = gbLockList();
       const paused = Object.keys(state.captchaBreakers || {}).filter(k => captchaPaused(k));
@@ -25288,6 +25307,7 @@ const STORE = {
         <div class="gb-cfg-panes">
         ${gbCfgGroup('General y seguridad', `
           <label class="gb-cfg-row" data-gb-tip="Activar el bot solo en este dominio (marcado por mundo)"><input type="checkbox" data-cfg="enabled-host"/> Activar en <span class="cfg-host"></span></label>
+          <label class="gb-cfg-row" title="El unico freno pasa a ser el interruptor de arriba. Desactiva panico, cortacircuitos, memoria de decisiones, modo seguro, salud de plantillas, pausa nocturna, pausa por actividad y el frenado adaptativo del orquestador. El cortacircuitos de captcha y el enfriamiento por presion del servidor siguen activos: ahi el servidor ya esta rechazando el envio."><input type="checkbox" data-cfg="never-stop"/> <b class="gb-cfg-accent">No parar nunca (solo para con el interruptor de arriba)</b></label>
           <label class="gb-cfg-row gb-cfg-warn" data-gb-tip="Bloquea premium, ataques, favor, puntos y donaciones"><input type="checkbox" data-cfg="safe-mode"/> MODO SEGURO (bloquea premium/ataques/favor/puntos/donaciones)</label>
           <label class="gb-cfg-row" title="Registra cada payload que el bot enviaria y no envia nada. Sirve para comparar el payload del bot con una accion pulsada a mano antes de activar algo arriesgado."><input type="checkbox" data-cfg="dry-run"/> <b class="gb-cfg-accent">Simulacion (registra payloads, no envia nada)</b></label>
           <label class="gb-cfg-row" data-gb-tip="Apagado global de captcha: cualquier captcha detiene todo el bot"><input type="checkbox" data-cfg="captcha-global"/> Interruptor global de captcha</label>
@@ -26301,6 +26321,7 @@ const STORE = {
     setNum('[data-cfg=posts-soft-pct]', state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60);
     const cl = sec.querySelector('[data-cfg=captcha-ladder]');
     if (cl) cl.value = (Array.isArray(state.captchaLadder) && state.captchaLadder.length ? state.captchaLadder : [5, 15, 60]).join(',');
+    onCfg('[data-cfg=never-stop]', 'change',e=>{state.neverStop=!!e.target.checked;save(STORE.NEVER_STOP,state.neverStop);gbLog('neverStop',state.neverStop);updateStatus();});
     onCfg('[data-cfg=safe-mode]', 'change',e=>{state.safeMode=!!e.target.checked;save(STORE.SAFE_MODE,state.safeMode);gbLog('safeMode',state.safeMode);updateStatus();});
     onCfg('[data-cfg=enabled-host]', 'change', e => {
       state.enabledHosts[location.host] = e.target.checked;
@@ -26460,6 +26481,7 @@ const STORE = {
     setChk('[data-cfg=dry-run]', !!state.dryRun);
 
     setChk('[data-cfg=safe-mode]', !!state.safeMode);
+    setChk('[data-cfg=never-stop]', state.neverStop !== false);
     setChk('[data-cfg=orch-adaptive]', state.orchAdaptive !== false);
     setChk('[data-cfg=orch-deadlock]', state.orchDeadlockResolve !== false);
     setChk('[data-cfg=export-redact]', state.exportRedact !== false);
@@ -27520,7 +27542,7 @@ const STORE = {
     let tplBanner = '';
     try { tplBanner = tplHealthBannerText() || ''; } catch (_) {}
     if (tplBanner) pauseTxt += ' tpl!';
-    const dryTxt = state.dryRun ? ' [DRY]' : ''; const safeTxt=state.safeMode?' SAFE':'';
+    const dryTxt = state.dryRun ? ' [DRY]' : ''; const safeTxt=(state.safeMode&&!gbNeverStop())?' SAFE':(gbNeverStop()?' NOSTOP':'');
 
     const panicOn = gbPanicActive();
     const panicPend = gbPanicPending();

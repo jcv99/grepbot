@@ -727,6 +727,7 @@
     health: load(STORE.HEALTH, {}),
     clientFingerprint: load(STORE.CLIENT_FP, null),
     safeMode: load(STORE.SAFE_MODE, true),
+    neverStop: load(STORE.NEVER_STOP, true),
     simCfg: load(STORE.SIM_CFG, { horizonHours: 24 }),
     whyLog: load(STORE.WHY_LOG, []),
     tplHealth: load(STORE.TPL_HEALTH, {}) || {},
@@ -1026,6 +1027,13 @@
   // Emergency stop. No post surface, no lock, no new scheduler: it only sets a
   // latch the shared automationPaused() predicate already gates every loop on.
   function gbPanicActivate() {
+    // The latch would be ignored by automationPaused() anyway - refuse loudly
+    // instead of flipping dry run ON and leaving the bot silently write-dead.
+    if (gbNeverStop()) {
+      gbLog('panic: ignored - "no parar nunca" is ON');
+      try { flash('No parar nunca activo: usa el interruptor principal'); } catch (_) {}
+      return false;
+    }
     if (gbPanicActive()) { gbLogT('panic-dup', 5000, 'panic: already active'); return false; }
     panicUntil = Date.now() + GB_PANIC_GRACE_MS;
     panicNeedsClear = true;
@@ -1058,12 +1066,28 @@
     try { updateStatus(); } catch (_) {}
     return { ok: true, reason: stillPaused ? (info.reason || '?') : '' };
   }
+  // "No parar nunca" (state.neverStop, default ON). The operator asked for a
+  // single stop: the enable toggle. Everything that idles the bot on its own
+  // judgement - panic latch, circuit breaker, decision-memory skip windows,
+  // safe mode, template health, night/activity pause, orch idle backoff - reads
+  // this predicate and stands down.
+  //
+  // Two layers deliberately stay live even here: the captcha breaker and the
+  // server-pressure cooldown. Both react to the server ACTUALLY refusing the
+  // request, so ignoring them buys zero extra posts and only raises the
+  // detection signal. Turning this toggle OFF restores every original guard.
+  function gbNeverStop() { return state.neverStop !== false; }
+  // What the panel must render: safe mode is only really ON when nothing is
+  // overriding it. Reporting 'MODO SEGURO' while safeModeBlock() returns null
+  // is the exact class of lie the hard rules forbid.
+  function gbSafeModeOn() { return !!state.safeMode && !gbNeverStop(); }
   function automationPaused(reasonOut) {
-    if (panicUntil && Date.now() < panicUntil) {
+    const never = gbNeverStop();
+    if (!never && panicUntil && Date.now() < panicUntil) {
       if (reasonOut) reasonOut.reason = 'panic';
       return true;
     }
-    if (panicNeedsClear) {
+    if (!never && panicNeedsClear) {
       if (reasonOut) reasonOut.reason = 'panic-grace';
       return true;
     }
@@ -1075,11 +1099,11 @@
       if (reasonOut) reasonOut.reason = 'server';
       return true;
     }
-    if (state.pauseOnActivity && Date.now() < userPausedUntil) {
+    if (!never && state.pauseOnActivity && Date.now() < userPausedUntil) {
       if (reasonOut) reasonOut.reason = 'user';
       return true;
     }
-    if (state.nightPause) {
+    if (!never && state.nightPause) {
       const h = new Date().getHours();
       const a = Number.isFinite(+state.nightStart) ? +state.nightStart : 0;
       const b = Number.isFinite(+state.nightEnd) ? +state.nightEnd : 7;
@@ -1372,6 +1396,7 @@
   }
   function tplHealthOk(name) {
     if (!name) return true;
+    if (gbNeverStop()) return true;
     const h = state.tplHealth && state.tplHealth[name];
     if (!h || !h.invalidated) return true;
     // Nothing learned means there is no stale payload - the caller falls back to
