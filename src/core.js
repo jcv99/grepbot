@@ -11,6 +11,20 @@
   function gbInstanceAlive() {
     return !gbDisposed && GB_ROOT.__grepbotInstanceId === GB_INSTANCE_ID;
   }
+  // Strict numeric read. `+x` turns null, undefined-ish '', ' ', [], [n] and
+  // false into a perfectly finite number, so the `isFinite(+raw)` idiom accepts
+  // every one of them as a real reading -- which is how an unreadable client
+  // getter became "level 0" / "pop 0" / "capacity 0" instead of blind, and a
+  // guard blocked on a value it never actually read. Only a number or a
+  // non-blank numeric string is a reading here; anything else is null, and the
+  // caller's existing unreadable branch takes over.
+  function gbNum(raw) {
+    if (raw == null || typeof raw === 'boolean') return null;
+    if (typeof raw === 'string') { if (!raw.trim()) return null; }
+    else if (typeof raw !== 'number') return null;
+    const v = Number(raw);
+    return Number.isFinite(v) ? v : null;
+  }
   const gbTimerBag = [];
   const gbListenerBag = [];
   const gbXhrBag = [];
@@ -375,6 +389,9 @@
     spy: 180000,
     support: 180000,
     recruit: 180000,
+    // recruit.js takes this one with an explicit 60s lease; the entry keeps it
+    // off the 180s default if that call ever drops the argument.
+    'village-recruit': 60000,
     'defense-pull': 180000,
     cancel: 120000,
     hero: 180000,
@@ -496,7 +513,6 @@
     autoBandit: load(STORE.AUTO_BANDIT, false),
 
     // v4 plan 5.8: empty = ship everything, exactly as before.
-    banditCfg: load(STORE.BANDIT_CFG, {}) || {},
     banditLog:  load(STORE.BANDIT_LOG, []),
     autoFarm:   load(STORE.AUTO_FARM, false),
     claimTpl:   load(STORE.CLAIM_TPL, null),
@@ -551,8 +567,6 @@
     theme: load(STORE.THEME, 'dark'),
     contextMenu: load(STORE.CONTEXT_MENU, true),
     queueFollow: load(STORE.QUEUE_FOLLOW, true),
-    profileAutoCfg: load(STORE.PROFILE_AUTO_CFG, { enabled: false, minHoldMin: 15, rules: [] }),
-    profileAutoLast: load(STORE.PROFILE_AUTO_LAST, { profile: null, ruleId: null, switchedAt: 0 }),
     keyboardShortcuts: load(STORE.KEYBOARD_SHORTCUTS, true),
     keybindings: load(STORE.KEYBINDINGS, {}) || {},
     widgetGeom: load(STORE.WIDGET_GEOM, {}) || {},
@@ -700,7 +714,6 @@
     // v4 plan 3.2: HIGH-RISK. auto defaults OFF in code AND in shipped config -
     // no user may get a send-support-without-clicking path on first install.
     defenseHistory: load(STORE.DEFENSE_HISTORY, []) || [],
-    militiaCfg: load(STORE.MILITIA_CFG, { forceRisk: 50, skipRisk: 10, localOk: 400, graceMs: 180000 }),
     supportCfg: load(STORE.SUPPORT_CFG, { auto: false, confirmThreshold: 100, homeFloor: 0, shareDodgeFloor: true, minEtaSec: 120, noArmSec: 60, overlapSec: 30 }),
     supportLastSend: load(STORE.SUPPORT_LAST_SEND, {}) || {},
     supportTpl: load(STORE.SUPPORT_TEMPLATE, null),
@@ -1611,25 +1624,22 @@
     } catch (_) {}
     return Object.create(null);
   }
-  // ===== HTML sink helpers (better-practice sweep, v5) ========================
-  // Two named buckets for innerHTML so reviewers have a noun to grep for:
-  //   gbLit(html)  - LITERAL HTML ONLY. The caller passes a static string with
-  //                  no ${...} interpolation; an audit pass can grep for
-  //                  innerHTML = gbLit(...) and confirm no wire value slipped
-  //                  in. Pass-through today; the helper exists so the check is
-  //                  mechanical, not by convention.
-  //   gbSafe(html) - HTML that includes a wire value (server-controlled text,
-  //                  player names, journal lines). Routed through DOMPurify
-  //                  with the html profile (default allowlist strips
-  //                  <script>, event handlers, javascript: URLs). Requires the
-  //                  @require DOMPurify line in src/header.js.
+  // ===== HTML sink helper (better-practice sweep, v5) =========================
+  //   gbLit(html) - LITERAL HTML ONLY. The caller passes a static string with
+  //                 no ${...} interpolation; an audit pass can grep for
+  //                 innerHTML = gbLit(...) and confirm no wire value slipped
+  //                 in. Pass-through today; the helper exists so the check is
+  //                 mechanical, not by convention.
+  //
+  // There is deliberately no sanitizing sibling. The old gbSafe() routed a wire
+  // value through DOMPurify, pulled in from a CDN via @require, and fell back
+  // to raw pass-through whenever that load failed -- a helper named "safe" that
+  // is an unescaped innerHTML sink on a bad network. Nothing ever called it, so
+  // both it and the @require are gone. Wire values (player names, journal
+  // lines, server text) go into the DOM as textContent; a future feature that
+  // genuinely needs markup from the wire adds its own sanitizer deliberately
+  // rather than inheriting a dead one.
   function gbLit(html) { return html == null ? '' : String(html); }
-  function gbSafe(html) {
-    try {
-      if (typeof DOMPurify === 'undefined') return gbLit(html);
-      return DOMPurify.sanitize(String(html == null ? '' : html), { USE_PROFILES: { html: true } });
-    } catch (_) { return ''; }
-  }
   let _uwCache = null, _uwCacheAt = 0;
   const UW_CACHE_MS = 400;
   function uwCached() {

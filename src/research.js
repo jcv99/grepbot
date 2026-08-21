@@ -71,15 +71,15 @@
       // never read.
       let acad = null;
       try {
-        if (t.getBuildings) { const v = +t.getBuildings().get('academy'); if (isFinite(v)) acad = v; }
-        if (acad == null && buildings && buildings.academy != null) { const v = +buildings.academy; if (isFinite(v)) acad = v; }
+        if (t.getBuildings) { const v = gbNum(t.getBuildings().get('academy')); if (v != null) acad = v; }
+        if (acad == null && buildings) { const v = gbNum(buildings.academy); if (v != null) acad = v; }
       } catch (_) {}
       // getAdditionalResearchPoints() keys off hasLibrary() === (level === 1),
       // so the level itself has to be readable, not just its truthiness.
       let library = null;
       try {
-        if (t.getBuildings) { const v = +t.getBuildings().get('library'); if (isFinite(v)) library = v; }
-        if (library == null && buildings && buildings.library != null) library = +buildings.library || 0;
+        if (t.getBuildings) { const v = gbNum(t.getBuildings().get('library')); if (v != null) library = v; }
+        if (library == null && buildings) { const v = gbNum(buildings.library); if (v != null) library = v; }
       } catch (_) {}
       // `requires_farming_villages` techs are rejected outright on a small
       // island — the game's own can_be_bought includes `!(requires && small)`.
@@ -287,8 +287,8 @@
       const uw = gameUw();
       const g = uw.GeneralModifications;
       if (!(g && g.getResearchResourcesModification)) return null;
-      const v = +g.getResearchResourcesModification(townId != null ? townId : (uw.Game && uw.Game.townId));
-      return isFinite(v) && v > 0 ? v : null;
+      const v = gbNum(g.getResearchResourcesModification(townId != null ? townId : (uw.Game && uw.Game.townId)));
+      return v != null && v > 0 ? v : null;
     } catch (_) { return null; }
   }
   function researchCost(tech, townId) {
@@ -319,8 +319,7 @@
   function researchConstant(name) {
     try {
       const c = gameUw().Game && gameUw().Game.constants && gameUw().Game.constants.academy;
-      const v = c ? +c[name] : NaN;
-      return isFinite(v) ? v : null;
+      return c ? gbNum(c[name]) : null;
     } catch (_) { return null; }
   }
   // getCurrentResearchPoints() drops one academy level while the academy is
@@ -379,9 +378,8 @@
     if (!info) return null;
     const perAcademy = researchConstant('points_per_academy_level');
     if (perAcademy == null) return null;
-    if (info.academy == null) return null;
-    const acad = +info.academy;
-    if (!isFinite(acad) || acad < 0) return null;
+    const acad = gbNum(info.academy);
+    if (acad == null || acad < 0) return null;
     const level = researchAcademyTearingDown(townId) === true ? Math.max(0, acad - 1) : acad;
     let current = level * perAcademy;
     if (info.library == null) return null;

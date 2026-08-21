@@ -84,8 +84,9 @@
         if (need <= 0) continue;
         // null/undefined coerced through `<` reads as 0 — i.e. as a shortage.
         // Unreadable stock must not masquerade as an empty warehouse.
-        if (r[k] == null || !isFinite(+r[k])) return cultureBlind(k, townId, type);
-        if (+r[k] < need) return false;
+        const have = gbNum(r[k]);
+        if (have == null) return cultureBlind(k, townId, type);
+        if (have < need) return false;
       }
       return true;
     } catch (_) { return cultureBlind('read-error', townId, type); }

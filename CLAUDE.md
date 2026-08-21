@@ -10,7 +10,7 @@ into `grepbot.user.js`. **ToS-breaking** — runs against any `*.grepolis.com`
 world; ban risk is user-accepted. HIGH-RISK toggles (recruit, dodge auto, favor,
 god spells, support send, resource dump, emergency cave) default OFF.
 
-Current: **v5.9.9**, 52 modules, ~1.3 MB artifact. `src/` reproduces the
+Current: **v5.10.2**, 52 modules, ~1.3 MB artifact. `src/` reproduces the
 artifact exactly again: the externally built v5.8.0 drop-in has been reconciled
 back into `src/`, and `build.py` now refuses to overwrite an artifact whose
 `@version` is newer than `src/` (`--force` overrides). Everything is coded; the
@@ -42,7 +42,7 @@ If `grepbot.user.js` is older than `src/header.js` → rebuild before editing.
 ## Repo layout
 
 ```
-src/                  # 50 feature modules — concat order matters
+src/                  # 52 modules (header/core/footer + 49 feature) — concat order matters
 build.py              # python3 build.py → grepbot.user.js (concat + 4 gates)
 .build-stamp.json     # build gate bookkeeping (src hash + last built version)
 grepbot.user.js       # built output — paste this into Tampermonkey
@@ -128,6 +128,10 @@ Every one of these is a bug that shipped. `docs/REGRESSIONS.md` has the story.
   → log once (`gbLogT`) and let the server be the authority. A guard that goes
   silently dead when a client getter is renamed is worse than no guard.
 - Never render an unreadable number as `0` or a fabricated ETA — em dash it.
+- Coerce a client value with `gbNum(raw)`, never `+raw` + `isFinite`. `+` maps
+  `null`, `''`, `' '`, `[]` and `false` onto a finite `0`, which is how an
+  unreadable getter became "level 0" and a guard blocked on a value it never
+  read.
 - Every feature checks preconditions **before** it posts (resources, free queue
   slot, timer elapsed, container not already full). A server rejection costs a
   request-budget slot and a decision-memory strike every cadence.
@@ -160,8 +164,12 @@ Every one of these is a bug that shipped. `docs/REGRESSIONS.md` has the story.
   `replaceChildren()` on a timer — that wipes what the user is typing.
 - Keyed rows rebuild only when the id **set** changes (membership, not order),
   or a user column-sort is wiped every repaint.
-- `innerHTML` goes through `gbLit` (literal only, no `${}`) or `gbSafe`
-  (DOMPurify) — never raw with a wire value in it.
+- `innerHTML` goes through `gbLit` (literal only, no `${}`) — never raw with a
+  wire value in it. Wire values (player names, journal lines, server text) go in
+  as `textContent`. There is no sanitizing helper: `gbSafe`/DOMPurify was
+  removed in v5.10.2 (zero call sites, CDN `@require`, and it fell back to raw
+  pass-through whenever that load failed). A feature that genuinely needs markup
+  from the wire adds its own sanitizer deliberately.
 
 **Config / UI**
 - A control may move between Config groups but must keep its `data-cfg` value;
@@ -179,7 +187,7 @@ circuit breaker, safe mode, template health, tx dedup, the planner
 (`planner.js`, affordability + cost ledger), request budget, captcha breaker.
 Posts land as `gpAjax.ajaxPost('frontend_bridge', 'execute', …)`. Both the
 gpAjax callback and `gbAjaxWatch` (settled by the XHR spy on `loadend`) race to
-settle a post; `settled` dedupes. `txRunAsync` is the Promise wrapper.
+settle a post; `settled` dedupes. Every post path is callback-based.
 
 **Guards.** Captcha breaker (per-feature 5/15/60min backoff, global
 kill-switch, `captcha_required === true` is the real flag); server-pressure bus
@@ -211,7 +219,8 @@ sweep, `diagnosticsTick`.
 
 **Reads.** `townResState(townId)` (3s memo) is the one warehouse
 capacity/fill definition. `gbProbeNum` / `gbProbeAttr` probe a list of
-build-specific getter names and keep the first finite number; `gbTownModel`,
+build-specific getter names and keep the first `gbNum`-readable number (a
+getter answering `null` / `''` / `false` is UNREADABLE, not `0`); `gbTownModel`,
 `gbTownPop`, `gbPlayerGold`, `gbBuildingLevel`, `gbAfford`
 (`{ok, blind, short, detail}`). `gameNow()` for server time.
 
@@ -223,7 +232,7 @@ Inteligencia; Ajustes → Ajustes; Diagnóstico → Diagnóstico, Registro. Sepa
 instead of spawning a floating per-lane panel; the game window keeps only the
 in-place `[+]`/`[-]` tile controls and the recruit popover — and
 `gbWidget`-registered HUD widgets (drag + geometry persistence + teardown are
-solved there — reuse it, don't hand-roll a window). Ajustes = ~300 `data-cfg`
+solved there — reuse it, don't hand-roll a window). Ajustes = ~170 `data-cfg`
 controls in 11 `gbCfgGroup()` `<details>` blocks (General y seguridad /
 Recoleccion y aldeas / Construccion e investigacion / Almacen, cueva y comercio
 / Cultura / Ritmo y pausas / Interfaz / Avisos y notificaciones / Diagnostico y
@@ -307,9 +316,10 @@ Deliberately **not** translated — machine surface, not UI:
 
 Detail in `docs/REGRESSIONS.md` § 8. `structuredClone` (state/config
 snapshots, not `JSON.parse(JSON.stringify)`); `BOOT_TIMING` (every boot cadence,
-frozen — a naked `30000` in `boot.js` is a regression); `txRunAsync`;
-`gbLit` / `gbSafe`; `statsYieldToMain`; `gbPaint`; the `gbListen` +
-`AbortController` listener bag; `gbWidgetRegister`.
+frozen — a naked `30000` in `boot.js` is a regression); `gbNum` (the ONLY
+numeric read — `+x`/`isFinite` turns null, `''`, `[]` and `false` into a real
+`0`); `gbLit`; `gbPaint`; the `gbListen` + `AbortController` listener bag;
+`gbWidgetRegister`.
 
 **Coalescers (v5.3.0).** Anything inside a per-item sweep uses the `*Soon` form,
 never the bare one: `saveSoon(key, val)` (400ms, flushed by `saveFlush()` from
@@ -410,7 +420,7 @@ Invariants whose violation ships as a silent regression, not a build error.
 | Lock registry only via `gbLock`/`gbUnlock` | `core.js` | Module-local `*InFlight` boolean bypasses TTL sweep |
 | `data-cfg` values stable | `ui.js` | `bindConfig` resolves by attribute, not label text |
 | `<option value>` pinned | every `<select>` | Server reads value, not visible text |
-| `innerHTML` via `gbLit`/`gbSafe` | `core.js` | Raw `innerHTML` + wire value = XSS |
+| `innerHTML` via `gbLit`, wire values via `textContent` | `core.js` | Raw `innerHTML` + wire value = XSS |
 | Repaint via `gbPaint(host, build, {key})` | `core.js` | Bare `replaceChildren` wipes focus mid-type |
 | Learned templates per feature, not shared | `farms.js` etc. | `supportTpl ≠ attackTpl` on purpose |
 | `state.dryRun` honored end-to-end | `tx.js` | Bypassing bridge = no dry-run coverage |

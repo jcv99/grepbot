@@ -70,8 +70,8 @@
       const gd = uw.GameData && uw.GameData.buildings && uw.GameData.buildings.hide;
       if (hideCap == null && gd && gd.storage != null) {
         const s = gd.storage;
-        const v = +(Array.isArray(s) || typeof s === 'object' ? s[hideLvl] : s);
-        if (isFinite(v) && v > 0) hideCap = v;
+        const v = gbNum(Array.isArray(s) || typeof s === 'object' ? s[hideLvl] : s);
+        if (v != null && v > 0) hideCap = v;
       }
       const maxHide = gd && gd.max_level;
       if (maxHide != null && +maxHide > 0 && hideLvl === +maxHide) unlimited = true;

@@ -527,13 +527,15 @@
     _townPopCache[key] = { at: now, v: out };
     return out;
   }
+  // Both probes go through gbNum: a getter that answers null / '' / false is
+  // UNREADABLE, and `+` would have handed back 0 as if it were the real value.
   function gbProbeNum(obj, names, args) {
     if (!obj) return null;
     for (const n of names) {
       try {
         if (typeof obj[n] !== 'function') continue;
-        const v = +obj[n].apply(obj, args || []);
-        if (isFinite(v)) return v;
+        const v = gbNum(obj[n].apply(obj, args || []));
+        if (v != null) return v;
       } catch (_) {}
     }
     return null;
@@ -543,8 +545,8 @@
     const a = obj.attributes || obj;
     for (const n of names) {
       try {
-        const v = +a[n];
-        if (a[n] != null && isFinite(v)) return v;
+        const v = gbNum(a[n]);
+        if (v != null) return v;
       } catch (_) {}
     }
     return null;
@@ -607,17 +609,15 @@
     if (!t) return null;
     try {
       if (t.getBuildings) {
-        const v = +t.getBuildings().get(building);
-        if (isFinite(v)) return v;
+        const v = gbNum(t.getBuildings().get(building));
+        if (v != null) return v;
       }
     } catch (_) {}
     try {
       const a = (t.buildings && t.buildings().attributes) || {};
 
-      if (a[building] != null) {
-        const v = +a[building];
-        if (Number.isFinite(v)) return v;
-      }
+      const v = gbNum(a[building]);
+      if (v != null) return v;
     } catch (_) {}
     return null;
   }

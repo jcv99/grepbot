@@ -75,7 +75,11 @@
     // autoFavor is the user's mental model for "let the bot spend favor".
     if (!state.autoFavor) return;
     if (!hostEnabled() || automationPaused({})) return;
-    if (captchaPaused('godspell')) return;
+    // The captcha breaker is keyed by the feature bridgePost was called with,
+    // and every cast goes out through spellCastPost as 'spell' (recruit.js).
+    // 'godspell' is this module's LOCK name, not a breaker key -- gating on it
+    // meant a captcha on a cast never backed this scan off at all.
+    if (captchaPaused('spell')) return;
     if (gbLocked('godspell')) return;
     const cfg = state.favorCfg || {};
     const power = cfg.spellPower ? String(cfg.spellPower) : '';

@@ -1,11 +1,4 @@
   function statsPct(n, d) { return d ? Math.round(n / d * 100) + '%' : '-'; }
-  // Yield to the main thread between heavy rollup passes so a 7d window with
-  // >1000 decisions stays under the 50ms long-task threshold (web.dev
-  // optimize-long-tasks guidance). Falls back to setTimeout(0) on engines that
-  // lack scheduler.yield — Chrome/Edge 129+ ship it, Firefox 142+, Safari TP.
-  const statsYieldToMain = () => (globalThis.scheduler && typeof globalThis.scheduler.yield === 'function')
-    ? globalThis.scheduler.yield()
-    : new Promise(r => setTimeout(r, 0));
   // ===== Favor regen HUD (v4 plan 4.6) =======================================
   // Read-only. No post surface, no lock, no scheduler entry.
   //

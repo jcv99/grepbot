@@ -98,10 +98,6 @@
       })),
     };
   }
-  function sharedPlanTargetIds() {
-    const plan = ensureAttackPlan();
-    return (Array.isArray(plan.targets) ? plan.targets : []).map(t => String(t.id));
-  }
   function renderSharedPlan(sec) {
     const box = sec && sec.querySelector('.atk-shared');
     if (!box || sec.hidden) return;

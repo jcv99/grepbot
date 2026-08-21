@@ -539,11 +539,6 @@
     tradeUnderAttackCache = { at: Date.now(), known, value };
     return { known, value };
   }
-  function tradeTownUnderAttack(townId) {
-    const u = tradeTownsUnderAttack();
-    if (!u.known || !u.value) return false;
-    return u.value.has(String(townId));
-  }
   function tradeScan(reason) {
     if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes && !state.autoDump) || captchaPaused('trade')) return;
     if (automationPaused({})) return;

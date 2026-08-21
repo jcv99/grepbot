@@ -37,7 +37,7 @@
             || (reportCtrl && u.match(/[?&]action=(view|index|delete)(?:&|$)/));
           const idMatch = u.match(/[?&](?:id|report_id)=(\d+)/);
           if ((m || reportCtrl) && idMatch) queueReport(idMatch[1], u);
-          else if (m || reportCtrl) queueReportList(u);
+          else if (m || reportCtrl) queueReportList();
           learnCollectAction(u);
           learnFarmAction(u);
           try { ptLearnFromXhr(u, args[1] && args[1].body); } catch (_) {}
@@ -75,7 +75,7 @@
           const idMatch = u.match(/[?&](?:id|report_id)=(\d+)/);
           const actionReport = /[?&]action=(report|reports|combat_reports|tombstone|attack_planner)(?:&|$)/.test(u);
           if ((actionReport || reportCtrl) && idMatch) queueReport(idMatch[1], u);
-          else if (actionReport || /[?&]action=(reports|combat_reports|tombstone)(?:&|$)/.test(u) || reportCtrl) queueReportList(u);
+          else if (actionReport || /[?&]action=(reports|combat_reports|tombstone)(?:&|$)/.test(u) || reportCtrl) queueReportList();
           learnCollectAction(u);
           learnFarmAction(u);
           try { ptLearnFromXhr(u, body); } catch (_) {}
@@ -256,8 +256,10 @@
     seenThisRun.add(k);
     gbTimeout(() => fetchReport(id, hintUrl), 200 + Math.random() * 800);
   }
+  // No parameter on purpose: a report LIST url identifies no single report, so
+  // there is no hint to carry. Both call sites used to pass the url and it was
+  // silently dropped, which read like a lost argument.
   function queueReportList() {
-
     gbTimeout(scrapeInboxDom, 1500);
   }
   function ingestReport(id, data) {

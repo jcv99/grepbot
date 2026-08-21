@@ -1031,15 +1031,23 @@
     hero: 300000,
     godspell: 180000,
   };
+  // Both maps translate an ORCH key into the key the POST layer actually uses:
+  // ORCH_CAPTCHA into a captcha-breaker key, ORCH_JRN into a journal `f` value.
+  // Both of those are the `feature` argument bridgePost/gameAjaxPost was called
+  // with, never the orchestrator's own key, so an invented value here is dead
+  // silently: the captcha pre-skip never fires and orchJrnOkSince counts zero
+  // ok rows forever, which backs a busy feature off to 8x cadence. Two entries
+  // were invented -- villrecruit posts as 'villrecruit' (recruit.js) and
+  // godspell posts through spellCastPost as 'spell' (recruit.js).
   const ORCH_CAPTCHA = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villageRecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
+    recruit: 'recruit', villrecruit: 'villrecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'spell',
   };
   const ORCH_JRN = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villageRecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
+    recruit: 'recruit', villrecruit: 'villrecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'spell',
   };
   const ORCH_IDLE_TRIP = 4;
   const ORCH_IDLE_MAX = 8;

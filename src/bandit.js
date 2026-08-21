@@ -42,16 +42,7 @@
   // working without the smart-cap branch.
   const BANDIT_HISTORY_MAX = 20;
   const banditAttackHistory = [];
-  function banditUnitCost(uw, unit) {
-    try {
-      const d = uw.GameData && uw.GameData.units && uw.GameData.units[unit];
-      const r = d && (d.resources || d.costs || d.cost);
-      if (!r) return null;
-      const n = (+r.wood || 0) + (+r.stone || 0) + (+r.iron || 0);
-      return n > 0 ? n : null;
-    } catch (_) { return null; }
-  }
-  function banditRankUnits(uw, rawUnits, cfg) {
+  function banditRankUnits(uw, rawUnits) {
     return banditAttackUnits(uw, rawUnits);
   }
   function banditNoteAttack(units) {

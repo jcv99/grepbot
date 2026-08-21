@@ -1312,13 +1312,13 @@
         <div class="intel-inactive-def"></div>
       </div>
       <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <input class="gb-cfg-input" id="gb-note-player" placeholder="player" style="width:80px;;font-size:11px" data-gb-tip="Nombre del jugador al que apuntar la nota"/>
-        <input class="gb-cfg-input" id="gb-note-text" placeholder="note" style="flex:1;;font-size:11px" data-gb-tip="Texto de la nota del jugador"/>
+        <input class="gb-cfg-input" id="gb-note-player" placeholder="player" style="width:80px;font-size:11px" data-gb-tip="Nombre del jugador al que apuntar la nota"/>
+        <input class="gb-cfg-input" id="gb-note-text" placeholder="note" style="flex:1;font-size:11px" data-gb-tip="Texto de la nota del jugador"/>
         <button id="gb-note-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px" data-gb-tip="Guardar la nota del jugador">Guardar nota</button>
       </div>
       <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <input class="gb-cfg-input" id="gb-anote-ally" placeholder="alianza" style="width:80px;;font-size:11px" data-gb-tip="Nombre de la alianza a la que apuntar la nota"/>
-        <input class="gb-cfg-input" id="gb-anote-text" placeholder="nota de alianza" style="flex:1;;font-size:11px" data-gb-tip="Texto de la nota de alianza"/>
+        <input class="gb-cfg-input" id="gb-anote-ally" placeholder="alianza" style="width:80px;font-size:11px" data-gb-tip="Nombre de la alianza a la que apuntar la nota"/>
+        <input class="gb-cfg-input" id="gb-anote-text" placeholder="nota de alianza" style="flex:1;font-size:11px" data-gb-tip="Texto de la nota de alianza"/>
         <button id="gb-anote-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px" data-gb-tip="Guardar la nota de la alianza">Guardar nota de alianza</button>
       </div>
     </section>
@@ -1482,7 +1482,6 @@
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Rango horario (formato 24h) en que se aplica la pausa nocturna">Horas <input class="gb-cfg-input" type="number" data-cfg="night-start" min="0" max="23" style="width:40px"/>-<input class="gb-cfg-input" type="number" data-cfg="night-end" min="0" max="23" style="width:40px"/></label>
           <label class="gb-cfg-row" title="Un modulo que nunca encuentra nada que hacer duplica su propio intervalo (hasta 8x) hasta que vuelve a actuar."><input type="checkbox" data-cfg="orch-adaptive"/> Cadencia adaptativa (frena modulos inactivos)</label>
           <label class="gb-cfg-row" title="Si un almacen se llena y la recoleccion deja de rendir, cueva/comercio/aldeas pasan por delante de la recoleccion y no se les aplica el frenado por inactividad. Solo cambia el ORDEN, nunca el presupuesto."><input type="checkbox" data-cfg="orch-deadlock"/> Resolver atasco de almacen (prioriza vaciado)</label>
-          <label class="gb-cfg-row" title="Aplica un perfil (AFK / recoleccion / guerra) segun dia, hora y condiciones. Lista de reglas acotada: no acepta codigo ni texto libre."><input type="checkbox" data-cfg="profile-auto"/> Cambio automatico de perfiles</label>
         `)}
         ${gbCfgGroup('Interfaz', `
           <label class="gb-cfg-num" data-gb-tip="Tema visual del panel">Tema
@@ -3334,7 +3333,7 @@
     filt.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap';
     // LITERAL ONLY - no interpolation (the filter VALUES are read back off these
     // inputs; they are never written into this string).
-    filt.innerHTML = '<input class="gb-cfg-input" data-f="type" placeholder="type filter" style="flex:1;min-width:60px;;padding:2px 4px;font:11px monospace"/><input class="gb-cfg-input" data-f="attacker" placeholder="attacker filter" style="flex:1;min-width:60px;;padding:2px 4px;font:11px monospace"/>';
+    filt.innerHTML = '<input class="gb-cfg-input" data-f="type" placeholder="type filter" style="flex:1;min-width:60px;padding:2px 4px;font:11px monospace"/><input class="gb-cfg-input" data-f="attacker" placeholder="attacker filter" style="flex:1;min-width:60px;padding:2px 4px;font:11px monospace"/>';
     filt.querySelectorAll('input').forEach(inp => {
       inp.value = state.findingsFilter[inp.dataset.f] || '';
       inp.addEventListener('input', () => {
@@ -3822,7 +3821,8 @@
       const loot = f.lootable_at != null ? f.lootable_at : src.lootable_at;
       const last = src.last_looted_at;
       let delta = '?';
-      if (loot != null && last != null && isFinite(+loot) && isFinite(+last)) delta = (+loot - +last) + 's';
+      const lootN = gbNum(loot), lastN = gbNum(last);
+      if (lootN != null && lastN != null) delta = (lootN - lastN) + 's';
       lines.push('  id=' + f.vill_id +
         ' name=' + (f.name || src.name || '?') +
         ' rel=' + (f.relation_id != null ? f.relation_id : (src.id != null ? src.id : '?')) +

@@ -56,7 +56,7 @@
       });
       // Free the context once the blip is done; leaking one per alert would
       // eventually hit the browser's context limit.
-      setTimeout(() => { try { ctx.close(); } catch (e) { gbLogT('chime-close', 60000, 'audio ctx close: ' + String(e?.message || e).slice(0, 80)); } }, 800);
+      gbTimeout(() => { try { ctx.close(); } catch (e) { gbLogT('chime-close', 60000, 'audio ctx close: ' + String(e?.message || e).slice(0, 80)); } }, 800);
     } catch (e) { gbLogT('chime-' + event, 60000, 'chime: ' + String(e).slice(0, 60)); }
   }
   function alertNotifyText(event, payload) {

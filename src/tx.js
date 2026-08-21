@@ -827,30 +827,6 @@
       }
     });
   }
-  // Promise-friendly wrapper around txRun. Feature modules that already use
-  // async can adopt this and drop their bespoke `(r) => { if (!cancelled) ... }`
-  // guards. The callback surface stays intact — txRun is unchanged — and the
-  // AbortSignal only cancels the OUTER promise; the in-flight tx keeps going
-  // through its own state machine (sent → confirming → committed/unknown)
-  // because the server post and its reconciler are already race-safe.
-  function txRunAsync(feature, transport, endpoint, data, rawSend, opts) {
-    const sig = opts && opts.signal;
-    return new Promise((resolve, reject) => {
-      if (sig && sig.aborted) return reject(new DOMException('aborted', 'AbortError'));
-      const onAbort = () => reject(new DOMException('aborted', 'AbortError'));
-      if (sig) sig.addEventListener('abort', onAbort, { once: true });
-      try {
-        txRun(feature, transport, endpoint, data, rawSend, (err, result) => {
-          if (sig) sig.removeEventListener('abort', onAbort);
-          if (err) reject(err instanceof Error ? err : new Error(String(err)));
-          else resolve(result);
-        });
-      } catch (e) {
-        if (sig) sig.removeEventListener('abort', onAbort);
-        reject(e);
-      }
-    });
-  }
   const SELF_BRIDGE_MAX = 12;
   const SELF_BRIDGE_TTL_MS = 10000;
   const selfBridgeLog = [];

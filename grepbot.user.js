@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.1
+// @version      5.10.2
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -17,7 +17,6 @@
 // @connect      discord.com
 // @connect      discordapp.com
 // @connect      api.telegram.org
-// @require      https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.7/purify.min.js#sha256-7FlsGMDQrl5mJhh8ZR4OaGwRJa1KDpZ2OIW9nrdqduY=
 // ==/UserScript==
 
 (function () {
@@ -35,7 +34,6 @@ const STORE = {
     COLLECT_ALL: 'grepbot:collect-all',
     COLLECT_TPL: 'grepbot:collect-tpl',
     AUTO_BANDIT: 'grepbot:auto-bandit',
-    BANDIT_CFG: 'grepbot:bandit-cfg',
     BANDIT_LOG:  'grepbot:bandit-log',
     NEXT_FARM:  'grepbot:next-farm',
     NEXT_TOWNS: 'grepbot:next-towns',
@@ -170,7 +168,6 @@ const STORE = {
     PRIORITY_ORDER: 'grepbot:priority-order',
     ISLAND_SHIP: 'grepbot:island-ship',
     AUTO_MILITIA: 'grepbot:auto-militia',
-    MILITIA_CFG: 'grepbot:militia-cfg',
     CS_ALERT: 'grepbot:cs-alert',
     PLAYER_NOTES: 'grepbot:player-notes',
     WATCHLIST: 'grepbot:watchlist',
@@ -286,7 +283,7 @@ const STORE = {
     STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES, STORE.NAP_STATUS, STORE.SPY_CFG, STORE.SPY_HISTORY, STORE.SPY_TPL, STORE.SPY_SEND_CFG, STORE.SPY_SEND_HISTORY,
     STORE.CAPTCHA_GLOBAL_UNTIL,
     STORE.SERVER_COOLDOWN, STORE.QUEST_CLAIM_FAIL, STORE.DODGE_QUEUE,
-    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.REINFORCE_PLAN, STORE.REINFORCE_HISTORY, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.SNAPSHOTS, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER, STORE.CONFIG_UNDO, STORE.CONFIG_REDO,
+    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.REINFORCE_PLAN, STORE.REINFORCE_HISTORY, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.SNAPSHOTS, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER, STORE.CONFIG_UNDO, STORE.CONFIG_REDO,
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
     STORE.SPELL_COOLDOWN,
@@ -307,6 +304,14 @@ const STORE = {
   const gbTabLockName='grepbot-leader:'+location.hostname;let gbTabLeader=!gbTabCoordSupported,gbTabLockPending=false,gbTabLockRelease=null;
   function gbInstanceAlive() {
     return !gbDisposed && GB_ROOT.__grepbotInstanceId === GB_INSTANCE_ID;
+  }
+
+  function gbNum(raw) {
+    if (raw == null || typeof raw === 'boolean') return null;
+    if (typeof raw === 'string') { if (!raw.trim()) return null; }
+    else if (typeof raw !== 'number') return null;
+    const v = Number(raw);
+    return Number.isFinite(v) ? v : null;
   }
   const gbTimerBag = [];
   const gbListenerBag = [];
@@ -608,6 +613,8 @@ const STORE = {
     spy: 180000,
     support: 180000,
     recruit: 180000,
+
+    'village-recruit': 60000,
     'defense-pull': 180000,
     cancel: 120000,
     hero: 180000,
@@ -716,7 +723,6 @@ const STORE = {
     collectTpl: load(STORE.COLLECT_TPL, null),
     autoBandit: load(STORE.AUTO_BANDIT, false),
 
-    banditCfg: load(STORE.BANDIT_CFG, {}) || {},
     banditLog:  load(STORE.BANDIT_LOG, []),
     autoFarm:   load(STORE.AUTO_FARM, false),
     claimTpl:   load(STORE.CLAIM_TPL, null),
@@ -770,8 +776,6 @@ const STORE = {
     theme: load(STORE.THEME, 'dark'),
     contextMenu: load(STORE.CONTEXT_MENU, true),
     queueFollow: load(STORE.QUEUE_FOLLOW, true),
-    profileAutoCfg: load(STORE.PROFILE_AUTO_CFG, { enabled: false, minHoldMin: 15, rules: [] }),
-    profileAutoLast: load(STORE.PROFILE_AUTO_LAST, { profile: null, ruleId: null, switchedAt: 0 }),
     keyboardShortcuts: load(STORE.KEYBOARD_SHORTCUTS, true),
     keybindings: load(STORE.KEYBINDINGS, {}) || {},
     widgetGeom: load(STORE.WIDGET_GEOM, {}) || {},
@@ -907,7 +911,6 @@ const STORE = {
     defenseCfg: load(STORE.DEFENSE_CFG, { mode: 'notify', returnMarginSec: 120, smartAuto: false }),
 
     defenseHistory: load(STORE.DEFENSE_HISTORY, []) || [],
-    militiaCfg: load(STORE.MILITIA_CFG, { forceRisk: 50, skipRisk: 10, localOk: 400, graceMs: 180000 }),
     supportCfg: load(STORE.SUPPORT_CFG, { auto: false, confirmThreshold: 100, homeFloor: 0, shareDodgeFloor: true, minEtaSec: 120, noArmSec: 60, overlapSec: 30 }),
     supportLastSend: load(STORE.SUPPORT_LAST_SEND, {}) || {},
     supportTpl: load(STORE.SUPPORT_TEMPLATE, null),
@@ -1712,12 +1715,6 @@ const STORE = {
   }
 
   function gbLit(html) { return html == null ? '' : String(html); }
-  function gbSafe(html) {
-    try {
-      if (typeof DOMPurify === 'undefined') return gbLit(html);
-      return DOMPurify.sanitize(String(html == null ? '' : html), { USE_PROFILES: { html: true } });
-    } catch (_) { return ''; }
-  }
   let _uwCache = null, _uwCacheAt = 0;
   const UW_CACHE_MS = 400;
   function uwCached() {
@@ -3323,25 +3320,6 @@ const STORE = {
       }
     });
   }
-
-  function txRunAsync(feature, transport, endpoint, data, rawSend, opts) {
-    const sig = opts && opts.signal;
-    return new Promise((resolve, reject) => {
-      if (sig && sig.aborted) return reject(new DOMException('aborted', 'AbortError'));
-      const onAbort = () => reject(new DOMException('aborted', 'AbortError'));
-      if (sig) sig.addEventListener('abort', onAbort, { once: true });
-      try {
-        txRun(feature, transport, endpoint, data, rawSend, (err, result) => {
-          if (sig) sig.removeEventListener('abort', onAbort);
-          if (err) reject(err instanceof Error ? err : new Error(String(err)));
-          else resolve(result);
-        });
-      } catch (e) {
-        if (sig) sig.removeEventListener('abort', onAbort);
-        reject(e);
-      }
-    });
-  }
   const SELF_BRIDGE_MAX = 12;
   const SELF_BRIDGE_TTL_MS = 10000;
   const selfBridgeLog = [];
@@ -3804,13 +3782,14 @@ const STORE = {
     _townPopCache[key] = { at: now, v: out };
     return out;
   }
+
   function gbProbeNum(obj, names, args) {
     if (!obj) return null;
     for (const n of names) {
       try {
         if (typeof obj[n] !== 'function') continue;
-        const v = +obj[n].apply(obj, args || []);
-        if (isFinite(v)) return v;
+        const v = gbNum(obj[n].apply(obj, args || []));
+        if (v != null) return v;
       } catch (_) {}
     }
     return null;
@@ -3820,8 +3799,8 @@ const STORE = {
     const a = obj.attributes || obj;
     for (const n of names) {
       try {
-        const v = +a[n];
-        if (a[n] != null && isFinite(v)) return v;
+        const v = gbNum(a[n]);
+        if (v != null) return v;
       } catch (_) {}
     }
     return null;
@@ -3884,17 +3863,15 @@ const STORE = {
     if (!t) return null;
     try {
       if (t.getBuildings) {
-        const v = +t.getBuildings().get(building);
-        if (isFinite(v)) return v;
+        const v = gbNum(t.getBuildings().get(building));
+        if (v != null) return v;
       }
     } catch (_) {}
     try {
       const a = (t.buildings && t.buildings().attributes) || {};
 
-      if (a[building] != null) {
-        const v = +a[building];
-        if (Number.isFinite(v)) return v;
-      }
+      const v = gbNum(a[building]);
+      if (v != null) return v;
     } catch (_) {}
     return null;
   }
@@ -4311,7 +4288,7 @@ const STORE = {
             || (reportCtrl && u.match(/[?&]action=(view|index|delete)(?:&|$)/));
           const idMatch = u.match(/[?&](?:id|report_id)=(\d+)/);
           if ((m || reportCtrl) && idMatch) queueReport(idMatch[1], u);
-          else if (m || reportCtrl) queueReportList(u);
+          else if (m || reportCtrl) queueReportList();
           learnCollectAction(u);
           learnFarmAction(u);
           try { ptLearnFromXhr(u, args[1] && args[1].body); } catch (_) {}
@@ -4349,7 +4326,7 @@ const STORE = {
           const idMatch = u.match(/[?&](?:id|report_id)=(\d+)/);
           const actionReport = /[?&]action=(report|reports|combat_reports|tombstone|attack_planner)(?:&|$)/.test(u);
           if ((actionReport || reportCtrl) && idMatch) queueReport(idMatch[1], u);
-          else if (actionReport || /[?&]action=(reports|combat_reports|tombstone)(?:&|$)/.test(u) || reportCtrl) queueReportList(u);
+          else if (actionReport || /[?&]action=(reports|combat_reports|tombstone)(?:&|$)/.test(u) || reportCtrl) queueReportList();
           learnCollectAction(u);
           learnFarmAction(u);
           try { ptLearnFromXhr(u, body); } catch (_) {}
@@ -4513,8 +4490,8 @@ const STORE = {
     seenThisRun.add(k);
     gbTimeout(() => fetchReport(id, hintUrl), 200 + Math.random() * 800);
   }
-  function queueReportList() {
 
+  function queueReportList() {
     gbTimeout(scrapeInboxDom, 1500);
   }
   function ingestReport(id, data) {
@@ -7021,16 +6998,7 @@ const STORE = {
 
   const BANDIT_HISTORY_MAX = 20;
   const banditAttackHistory = [];
-  function banditUnitCost(uw, unit) {
-    try {
-      const d = uw.GameData && uw.GameData.units && uw.GameData.units[unit];
-      const r = d && (d.resources || d.costs || d.cost);
-      if (!r) return null;
-      const n = (+r.wood || 0) + (+r.stone || 0) + (+r.iron || 0);
-      return n > 0 ? n : null;
-    } catch (_) { return null; }
-  }
-  function banditRankUnits(uw, rawUnits, cfg) {
+  function banditRankUnits(uw, rawUnits) {
     return banditAttackUnits(uw, rawUnits);
   }
   function banditNoteAttack(units) {
@@ -9979,8 +9947,8 @@ const STORE = {
       const gd = uw.GameData && uw.GameData.buildings && uw.GameData.buildings.hide;
       if (hideCap == null && gd && gd.storage != null) {
         const s = gd.storage;
-        const v = +(Array.isArray(s) || typeof s === 'object' ? s[hideLvl] : s);
-        if (isFinite(v) && v > 0) hideCap = v;
+        const v = gbNum(Array.isArray(s) || typeof s === 'object' ? s[hideLvl] : s);
+        if (v != null && v > 0) hideCap = v;
       }
       const maxHide = gd && gd.max_level;
       if (maxHide != null && +maxHide > 0 && hideLvl === +maxHide) unlimited = true;
@@ -10314,8 +10282,9 @@ const STORE = {
         const need = +cost[k] || 0;
         if (need <= 0) continue;
 
-        if (r[k] == null || !isFinite(+r[k])) return cultureBlind(k, townId, type);
-        if (+r[k] < need) return false;
+        const have = gbNum(r[k]);
+        if (have == null) return cultureBlind(k, townId, type);
+        if (have < need) return false;
       }
       return true;
     } catch (_) { return cultureBlind('read-error', townId, type); }
@@ -11182,11 +11151,6 @@ const STORE = {
     tradeUnderAttackCache = { at: Date.now(), known, value };
     return { known, value };
   }
-  function tradeTownUnderAttack(townId) {
-    const u = tradeTownsUnderAttack();
-    if (!u.known || !u.value) return false;
-    return u.value.has(String(townId));
-  }
   function tradeScan(reason) {
     if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes && !state.autoDump) || captchaPaused('trade')) return;
     if (automationPaused({})) return;
@@ -12003,14 +11967,14 @@ const STORE = {
 
       let acad = null;
       try {
-        if (t.getBuildings) { const v = +t.getBuildings().get('academy'); if (isFinite(v)) acad = v; }
-        if (acad == null && buildings && buildings.academy != null) { const v = +buildings.academy; if (isFinite(v)) acad = v; }
+        if (t.getBuildings) { const v = gbNum(t.getBuildings().get('academy')); if (v != null) acad = v; }
+        if (acad == null && buildings) { const v = gbNum(buildings.academy); if (v != null) acad = v; }
       } catch (_) {}
 
       let library = null;
       try {
-        if (t.getBuildings) { const v = +t.getBuildings().get('library'); if (isFinite(v)) library = v; }
-        if (library == null && buildings && buildings.library != null) library = +buildings.library || 0;
+        if (t.getBuildings) { const v = gbNum(t.getBuildings().get('library')); if (v != null) library = v; }
+        if (library == null && buildings) { const v = gbNum(buildings.library); if (v != null) library = v; }
       } catch (_) {}
 
       let smallIsland = null;
@@ -12191,8 +12155,8 @@ const STORE = {
       const uw = gameUw();
       const g = uw.GeneralModifications;
       if (!(g && g.getResearchResourcesModification)) return null;
-      const v = +g.getResearchResourcesModification(townId != null ? townId : (uw.Game && uw.Game.townId));
-      return isFinite(v) && v > 0 ? v : null;
+      const v = gbNum(g.getResearchResourcesModification(townId != null ? townId : (uw.Game && uw.Game.townId)));
+      return v != null && v > 0 ? v : null;
     } catch (_) { return null; }
   }
   function researchCost(tech, townId) {
@@ -12223,8 +12187,7 @@ const STORE = {
   function researchConstant(name) {
     try {
       const c = gameUw().Game && gameUw().Game.constants && gameUw().Game.constants.academy;
-      const v = c ? +c[name] : NaN;
-      return isFinite(v) ? v : null;
+      return c ? gbNum(c[name]) : null;
     } catch (_) { return null; }
   }
 
@@ -12274,9 +12237,8 @@ const STORE = {
     if (!info) return null;
     const perAcademy = researchConstant('points_per_academy_level');
     if (perAcademy == null) return null;
-    if (info.academy == null) return null;
-    const acad = +info.academy;
-    if (!isFinite(acad) || acad < 0) return null;
+    const acad = gbNum(info.academy);
+    if (acad == null || acad < 0) return null;
     const level = researchAcademyTearingDown(townId) === true ? Math.max(0, acad - 1) : acad;
     let current = level * perAcademy;
     if (info.library == null) return null;
@@ -12623,7 +12585,7 @@ const STORE = {
         o.start(t0); o.stop(t0 + 0.12);
       });
 
-      setTimeout(() => { try { ctx.close(); } catch (e) { gbLogT('chime-close', 60000, 'audio ctx close: ' + String(e?.message || e).slice(0, 80)); } }, 800);
+      gbTimeout(() => { try { ctx.close(); } catch (e) { gbLogT('chime-close', 60000, 'audio ctx close: ' + String(e?.message || e).slice(0, 80)); } }, 800);
     } catch (e) { gbLogT('chime-' + event, 60000, 'chime: ' + String(e).slice(0, 60)); }
   }
   function alertNotifyText(event, payload) {
@@ -19801,10 +19763,6 @@ const STORE = {
       })),
     };
   }
-  function sharedPlanTargetIds() {
-    const plan = ensureAttackPlan();
-    return (Array.isArray(plan.targets) ? plan.targets : []).map(t => String(t.id));
-  }
   function renderSharedPlan(sec) {
     const box = sec && sec.querySelector('.atk-shared');
     if (!box || sec.hidden) return;
@@ -22012,10 +21970,6 @@ const STORE = {
     try { memTick(); } catch (_) {}
   }
   function statsPct(n, d) { return d ? Math.round(n / d * 100) + '%' : '-'; }
-
-  const statsYieldToMain = () => (globalThis.scheduler && typeof globalThis.scheduler.yield === 'function')
-    ? globalThis.scheduler.yield()
-    : new Promise(r => setTimeout(r, 0));
 
   const FAVOR_HUD_WINDOW_MS = 600000;
   const favorRateSamples = Object.create(null);
@@ -25396,13 +25350,13 @@ const STORE = {
         <div class="intel-inactive-def"></div>
       </div>
       <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <input class="gb-cfg-input" id="gb-note-player" placeholder="player" style="width:80px;;font-size:11px" data-gb-tip="Nombre del jugador al que apuntar la nota"/>
-        <input class="gb-cfg-input" id="gb-note-text" placeholder="note" style="flex:1;;font-size:11px" data-gb-tip="Texto de la nota del jugador"/>
+        <input class="gb-cfg-input" id="gb-note-player" placeholder="player" style="width:80px;font-size:11px" data-gb-tip="Nombre del jugador al que apuntar la nota"/>
+        <input class="gb-cfg-input" id="gb-note-text" placeholder="note" style="flex:1;font-size:11px" data-gb-tip="Texto de la nota del jugador"/>
         <button id="gb-note-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px" data-gb-tip="Guardar la nota del jugador">Guardar nota</button>
       </div>
       <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <input class="gb-cfg-input" id="gb-anote-ally" placeholder="alianza" style="width:80px;;font-size:11px" data-gb-tip="Nombre de la alianza a la que apuntar la nota"/>
-        <input class="gb-cfg-input" id="gb-anote-text" placeholder="nota de alianza" style="flex:1;;font-size:11px" data-gb-tip="Texto de la nota de alianza"/>
+        <input class="gb-cfg-input" id="gb-anote-ally" placeholder="alianza" style="width:80px;font-size:11px" data-gb-tip="Nombre de la alianza a la que apuntar la nota"/>
+        <input class="gb-cfg-input" id="gb-anote-text" placeholder="nota de alianza" style="flex:1;font-size:11px" data-gb-tip="Texto de la nota de alianza"/>
         <button id="gb-anote-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px" data-gb-tip="Guardar la nota de la alianza">Guardar nota de alianza</button>
       </div>
     </section>
@@ -25566,7 +25520,6 @@ const STORE = {
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Rango horario (formato 24h) en que se aplica la pausa nocturna">Horas <input class="gb-cfg-input" type="number" data-cfg="night-start" min="0" max="23" style="width:40px"/>-<input class="gb-cfg-input" type="number" data-cfg="night-end" min="0" max="23" style="width:40px"/></label>
           <label class="gb-cfg-row" title="Un modulo que nunca encuentra nada que hacer duplica su propio intervalo (hasta 8x) hasta que vuelve a actuar."><input type="checkbox" data-cfg="orch-adaptive"/> Cadencia adaptativa (frena modulos inactivos)</label>
           <label class="gb-cfg-row" title="Si un almacen se llena y la recoleccion deja de rendir, cueva/comercio/aldeas pasan por delante de la recoleccion y no se les aplica el frenado por inactividad. Solo cambia el ORDEN, nunca el presupuesto."><input type="checkbox" data-cfg="orch-deadlock"/> Resolver atasco de almacen (prioriza vaciado)</label>
-          <label class="gb-cfg-row" title="Aplica un perfil (AFK / recoleccion / guerra) segun dia, hora y condiciones. Lista de reglas acotada: no acepta codigo ni texto libre."><input type="checkbox" data-cfg="profile-auto"/> Cambio automatico de perfiles</label>
         `)}
         ${gbCfgGroup('Interfaz', `
           <label class="gb-cfg-num" data-gb-tip="Tema visual del panel">Tema
@@ -27291,7 +27244,7 @@ const STORE = {
     filt.className = 'findings-filter';
     filt.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap';
 
-    filt.innerHTML = '<input class="gb-cfg-input" data-f="type" placeholder="type filter" style="flex:1;min-width:60px;;padding:2px 4px;font:11px monospace"/><input class="gb-cfg-input" data-f="attacker" placeholder="attacker filter" style="flex:1;min-width:60px;;padding:2px 4px;font:11px monospace"/>';
+    filt.innerHTML = '<input class="gb-cfg-input" data-f="type" placeholder="type filter" style="flex:1;min-width:60px;padding:2px 4px;font:11px monospace"/><input class="gb-cfg-input" data-f="attacker" placeholder="attacker filter" style="flex:1;min-width:60px;padding:2px 4px;font:11px monospace"/>';
     filt.querySelectorAll('input').forEach(inp => {
       inp.value = state.findingsFilter[inp.dataset.f] || '';
       inp.addEventListener('input', () => {
@@ -27758,7 +27711,8 @@ const STORE = {
       const loot = f.lootable_at != null ? f.lootable_at : src.lootable_at;
       const last = src.last_looted_at;
       let delta = '?';
-      if (loot != null && last != null && isFinite(+loot) && isFinite(+last)) delta = (+loot - +last) + 's';
+      const lootN = gbNum(loot), lastN = gbNum(last);
+      if (lootN != null && lastN != null) delta = (lootN - lastN) + 's';
       lines.push('  id=' + f.vill_id +
         ' name=' + (f.name || src.name || '?') +
         ' rel=' + (f.relation_id != null ? f.relation_id : (src.id != null ? src.id : '?')) +
