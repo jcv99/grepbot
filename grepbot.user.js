@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.9.9
+// @version      5.10.0
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -72,6 +72,7 @@ const STORE = {
     TOWN_GROWTH_HIST: 'grepbot:town-growth-hist',
     THEME: 'grepbot:theme',
     CONTEXT_MENU: 'grepbot:context-menu',
+    QUEUE_FOLLOW: 'grepbot:queue-follow',
     KEYBINDINGS: 'grepbot:keybindings',
     KEYBOARD_SHORTCUTS: 'grepbot:keyboard-shortcuts',
     ACTIVE_TAB: 'grepbot:active-tab',
@@ -575,7 +576,7 @@ const STORE = {
     try { gbWidgetDisposeAll(); } catch (_) {}
     try { contextMenuStop(); } catch (_) {}
     try { document.querySelectorAll('.gb-widget').forEach(el => el.remove()); } catch (_) {}
-    try { document.querySelectorAll('.gb-native-qctl,.gb-native-panel,.gb-native-qpop').forEach(el=>el.remove()); } catch (_) {}
+    try { document.querySelectorAll('.gb-native-qctl,.gb-native-qpop').forEach(el=>el.remove()); } catch (_) {}
     gbRemoveStyles();
 
     if (GB_ROOT.__grepbotTest && GB_ROOT.__grepbotTest.instanceId === GB_INSTANCE_ID) {
@@ -768,6 +769,7 @@ const STORE = {
     findingsFilter: load(STORE.FINDINGS_FILTER, { type: '', attacker: '' }),
     theme: load(STORE.THEME, 'dark'),
     contextMenu: load(STORE.CONTEXT_MENU, true),
+    queueFollow: load(STORE.QUEUE_FOLLOW, true),
     profileAutoCfg: load(STORE.PROFILE_AUTO_CFG, { enabled: false, minHoldMin: 15, rules: [] }),
     profileAutoLast: load(STORE.PROFILE_AUTO_LAST, { profile: null, ruleId: null, switchedAt: 0 }),
     keyboardShortcuts: load(STORE.KEYBOARD_SHORTCUTS, true),
@@ -6942,7 +6944,7 @@ const STORE = {
       gbDomObserver = new MutationObserver((records) => {
         if (document.hidden) return;
 
-        const GB_OWN_SEL = '.gb-native-qctl,.gb-native-panel,.gb-flash,#grepbot-panel,#grepbot-queue-center';
+        const GB_OWN_SEL = '.gb-native-qctl,.gb-native-qpop,.gb-flash,#grepbot-panel,#grepbot-queue-center';
         const ownEl = n => !!(n && n.nodeType === 1 && n.closest && n.closest(GB_OWN_SEL));
         const ownRecord = (r) => {
           const t = r.target && r.target.nodeType === 1 ? r.target : r.target && r.target.parentElement;
@@ -8916,27 +8918,9 @@ const STORE = {
     .gb-native-qpop-head{display:flex;align-items:center;gap:4px;font-weight:bold}.gb-native-qpop-head span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .gb-native-qpop-row{display:flex;align-items:center;gap:3px;flex-wrap:wrap}
     .gb-native-qpop-row .gb-native-qcount{min-width:58px}
-    /* The panel is a column: head (never scrolls) + two independently scrolling
-       sections. A single overflow:auto on the box made the unit grid push the
-       job list out of the 48vh clip, which is exactly the "I cannot see it all"
-       complaint. right/bottom are set by nativeLayoutPanels - the old
-       hard-coded recruitNaval offset only de-collided two of the four lanes. */
-    .gb-native-panel{position:fixed;bottom:10px;right:10px;z-index:2147483000;width:300px;max-width:44vw;max-height:64vh;padding:5px;border:1px solid #8a6725;border-radius:6px;background:rgba(34,27,17,.97);color:#f2dfb2;font:11px/1.25 Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";box-shadow:0 4px 14px rgba(0,0,0,.55);display:flex;flex-direction:column;overflow:hidden}
-    .gb-native-panel-head{display:flex;align-items:center;gap:4px;margin-bottom:3px;font-weight:bold;flex:0 0 auto}.gb-native-panel-head span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .gb-native-panel-sum{color:#c7ad78;padding:1px 2px}
-    /* Every recruitable unit of this lane, whether or not its 58x95 tile is
-       inside the game's clipped 95px strip. */
-    .gb-native-units{flex:1 1 auto;min-height:0;overflow:auto;margin-bottom:3px;border-bottom:1px solid rgba(190,150,75,.3);padding-bottom:2px}
-    .gb-native-unit{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:3px;align-items:center;padding:1px 1px;border-top:1px solid rgba(190,150,75,.14)}
-    .gb-native-unit:first-child{border-top:0}
-    .gb-native-unit>b{font-weight:normal;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .gb-native-unit .gb-native-qbtn{min-width:18px;height:16px;padding:0 3px;font:bold 9px/14px Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans"}
-    .gb-native-unit .gb-native-qcount{min-width:46px;font-size:10px}
-    .gb-native-unit-actions{display:flex;gap:2px}
-    .gb-native-jobs{flex:1 1 auto;min-height:0;overflow:auto}
-    .gb-native-job{display:grid;grid-template-columns:20px minmax(100px,1fr) auto;gap:4px;align-items:center;padding:2px 1px;border-top:1px solid rgba(190,150,75,.22)}
-    .gb-native-job:first-child{border-top:0}.gb-native-job small{display:block;color:#c7ad78;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gb-native-job-actions{display:flex;gap:2px}
-    .gb-native-job .gb-native-qbtn{min-width:18px;height:17px;padding:0 3px}
+    /* Leftovers from the floating per-lane panel (removed in v5.10.0: the
+       Queue Center window is now the single queue surface). The popover still
+       uses .gb-native-empty for its own empty state. */
     .gb-native-empty{color:#b9a983;font-style:italic;padding:2px}
   `);
   let nativeUiTimer=0;
@@ -9179,6 +9163,8 @@ const STORE = {
     const list=nativeQueueList(townId,lane,false),step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit);
     const pos=nativeQueuePosition(townId,lane,j=>j&&j.unit===unit),head=pos===1&&list[0];
     const pop=document.createElement('div');pop.className='gb-native-qpop';pop.dataset.unit=unit;pop.dataset.town=String(townId);
+
+    if(!tile)pop.dataset.src='qc';
     pop.addEventListener('mousedown',e=>e.stopPropagation());pop.addEventListener('click',e=>e.stopPropagation());
 
     const act=fn=>{
@@ -9255,105 +9241,53 @@ const STORE = {
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
     ctl.append(minus,count);nativeQctlHitCheck(ctl,tech);
   }
-  const nativeQPanelCollapsed=Object.create(null);
-  function nativeLayoutPanels() {
-    try{
-      const order={build:0,research:1,recruit:2,recruitNaval:3};
-      const panels=[...document.querySelectorAll('.gb-native-panel')]
-        .sort((a,b)=>(order[a.dataset.lane]==null?9:order[a.dataset.lane])-(order[b.dataset.lane]==null?9:order[b.dataset.lane]));
-      if(!panels.length)return;
-      const vw=gameUw().innerWidth||document.documentElement.clientWidth||1024;
-      const vh=gameUw().innerHeight||document.documentElement.clientHeight||768;
-      const gap=8,w=panels[0].offsetWidth||300;
 
-      let base=10;
-      const main=document.getElementById('grepbot-panel');
-      if(main&&main.getClientRects().length){
-        const r=main.getBoundingClientRect();
-        if(r.bottom>vh-140&&r.right>vw-(w+20))base=Math.max(10,vw-r.left+8);
-      }
-      const fit=Math.max(1,Math.floor((vw-base-10+gap)/(w+gap)));
-      panels.forEach((p,i)=>{
-        if(i<fit){p.style.right=(base+i*(w+gap))+'px';p.style.bottom='10px'}
-        else{const k=i-fit+1;p.style.right=(base+k*18)+'px';p.style.bottom=(10+k*18)+'px'}
-      });
-    }catch(_){}
+  const NATIVE_LANE_TAB={build:'build',research:'research',recruit:'barracks',recruitNaval:'docks'};
+
+  const nativeLaneRosters=new Map();
+  function nativeLaneRosterKey(townId,lane){return String(townId)+'|'+lane}
+  function nativeLaneRoster(townId,lane){const r=nativeLaneRosters.get(nativeLaneRosterKey(townId,lane));return r?r.slice():[]}
+  function nativeLaneRosterSet(townId,lane,units) {
+    const list=[...new Set((units||[]).filter(Boolean))];
+    if(!list.length)return;
+    nativeLaneRosters.set(nativeLaneRosterKey(townId,lane),list);
   }
-  function nativeRenderQueuePanel(root,townId,lane,units) {
-
-    let box=document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`);
-    if(!box){box=document.createElement('div');box.className='gb-native-panel';box.dataset.lane=lane;box.dataset.town=String(townId);document.body.appendChild(box);box.addEventListener('mousedown',e=>e.stopPropagation());box.addEventListener('click',e=>e.stopPropagation())}
-
-    const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&(j.inflight||j.manualReview));
-    const roster=NATIVE_RECRUIT_LANES.includes(lane)?[...new Set((units||[]).filter(Boolean))]:[];
-    const ckey=`${lane}|${townId}`,collapsed=!!nativeQPanelCollapsed[ckey];
-
-    const key=`${lane}|${townId}|${frozen?'F':'-'}|${collapsed?'C':'-'}|`
-      +list.map(j=>`${j.id}:${j.inflight?1:0}${j.manualReview?'m':''}`).join(',')
-      +'|'+roster.map(u=>`${u}:${nativeQueueRecruitAmount(townId,u)}:${nativeQueuePosition(townId,lane,j=>j&&j.unit===u)||0}`).join(',');
-    gbPaint(box,stage=>{
-      const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot \u00b7 Construcci\u00f3n':(lane==='research'?'Cola GrepBot \u00b7 Investigaci\u00f3n':(lane==='recruitNaval'?'Cola GrepBot \u00b7 Puerto':'Cola GrepBot \u00b7 Cuartel'));gbTip(title, 'Cola virtual de GrepBot para esta ciudad y tipo de edificio/unidad');head.appendChild(title);
-      const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'>':'||',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
-      if(!list.length&&nativeQueueIsFifo(townId,lane)){const legacy=nativeQButton('Objetivos','Volver al planificador de objetivos',nativeTownAction(root,townId,()=>nativeQueueUseLegacy(townId,lane)));head.appendChild(legacy)}
-      head.appendChild(nativeQButton(collapsed?'\u25b8':'\u25be',collapsed?'Desplegar este panel':'Plegar este panel',nativePanelAction(townId,()=>{nativeQPanelCollapsed[ckey]=!collapsed;scheduleNativeUiScan()})));
-      stage.appendChild(head);
-      if(collapsed){
-        const sum=document.createElement('div');sum.className='gb-native-panel-sum';
-        const pend=list.reduce((n,j)=>n+(+j.amount||0),0);
-        sum.textContent=list.length?`${list.length} en cola${pend?` \u00b7 ${pend} unidad(es)`:''}`:'Cola vac\u00eda';
-        stage.appendChild(sum);return;
-      }
-
-      if(roster.length){
-        const grid=document.createElement('div');grid.className='gb-native-units';
-        for(const unit of roster){
-          const step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit);
-          const pos=nativeQueuePosition(townId,lane,j=>j&&j.unit===unit),uhead=pos===1&&list[0];
-          const row=document.createElement('div');row.className='gb-native-unit';row.dataset.unit=unit;
-          const name=document.createElement('b');name.textContent=nativeUnitLabel(unit);name.title=nativeUnitLabel(unit);
-          const count=document.createElement('span');count.className='gb-native-qcount';
-          count.textContent=pending>0?`+${pending}${pos?' \u00b7 #'+pos:''}`:'\u2014';
-          count.title=uhead&&uhead.reason?uhead.reason:`${pending||0} pendiente(s) en la cola virtual`;
-          if(pending>0&&uhead){if(uhead.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(uhead.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
-          const acts=document.createElement('div');acts.className='gb-native-unit-actions';
-          const minus=nativeQButton(`-${step}`,`Restar ${step} ${nativeUnitLabel(unit)} de la cola virtual`,nativePanelAction(townId,()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));
-          minus.disabled=!list.some(j=>j&&j.unit===unit&&!j.inflight&&!j.manualReview);
-          const plus=nativeQButton(`+${step}`,`A\u00f1adir ${step} ${nativeUnitLabel(unit)} a la cola virtual (Ctrl: \u00d75)`,nativePanelAction(townId,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));
-
-          const more=nativeQButton('\u2026',`M\u00e1s opciones para ${nativeUnitLabel(unit)}: cantidad libre, lote y compactar`,nativePanelAction(townId,()=>nativeRecruitPopover(root,null,townId,unit,row)));
-          acts.append(minus,plus,more);
-          row.append(name,count,acts);grid.appendChild(row);
-        }
-        stage.appendChild(grid);
-      }
-      if(!list.length){const empty=document.createElement('div');empty.className='gb-native-empty';empty.textContent=nativeQueueIsFifo(townId,lane)?'Cola vac\u00eda. Usa los botones + de arriba.':'Usa + para crear una cola FIFO en esta ciudad.';stage.appendChild(empty);return}
-      const jobs=document.createElement('div');jobs.className='gb-native-jobs';stage.appendChild(jobs);
-      list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}\u2192${j.toLevel}`:(lane==='research'?nativeResearchLabel(j.tech):`${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`);const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' \u00b7 '+j.reason:''}`;gbTip(sub, 'Estado de la orden virtual + motivo si esta bloqueada');desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const up=nativeQButton('\u2191','Mover antes',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('\u2193','Mover despu\u00e9s',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const del=nativeQButton('\u00d7','Quitar de la cola virtual',nativePanelAction(townId,()=>{if(j.inflight){flash('Esta orden se est\u00e1 enviando; espera a que termine');return false}if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acci\u00f3n se envi\u00f3 o no.')}catch(_){ok=false}if(!ok)return false}else if(frozen){let ok=false;try{ok=gameUw().confirm('Hay otra acci\u00f3n pendiente en esta cola. \u00bfBorrar este elemento de todos modos?')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id,{force:true})}));del.disabled=!!j.inflight;acts.append(up,down,del);row.append(num,desc,acts);jobs.appendChild(row)});
-    },{key});
+  let nativeQcFollowKey='';
+  function nativeQueueFollowCenter(townId,lanes) {
+    const key=String(townId)+'|'+lanes.join(',');
+    if(key===nativeQcFollowKey)return;
+    nativeQcFollowKey=key;
+    if(state.queueFollow===false)return;
+    const tab=NATIVE_LANE_TAB[lanes[0]];
+    if(!tab)return;
+    try{openQueueCenter(tab,townId)}
+    catch(e){gbLogT('native-qc-follow',60000,'queue center follow: '+String(e?.message||e).slice(0,80))}
   }
   function nativeUiScan() {
     if(!gbInstanceAlive()||!document.body)return;nativeEnsureBuildingIds();
     const candidates=[...document.querySelectorAll('.window_content,.gpwindow_content,#unit_order')].filter((x,i,a)=>a.indexOf(x)===i&&!x.closest('#grepbot-panel'));
     const roots=candidates.filter(x=>!candidates.some(y=>y!==x&&y.contains(x)));
     const mountedTowns=new Set();
+
+    const lanesByTown=new Map();
     for(const root of roots){const townId=nativeWindowTownId(root);if(!townId){
         if(nativeAcademyRoot(root)||root.querySelector(NATIVE_RESEARCH_SEL))gbLogT('native-research-notown',300000,'native ui: academy window open but its town id is unreadable - controls skipped');
-        root.querySelectorAll(':scope > .gb-native-panel,.gb-native-qctl').forEach(n=>n.remove());continue}let buildN=0,researchN=0;const mountedBuildIds=new Set(),mountedUnitIds=new Set(),mountedResearchIds=new Set(),mountedUnitLanes=new Set();
+        root.querySelectorAll(':scope > .gb-native-qctl').forEach(n=>n.remove());continue}let buildN=0,researchN=0;const mountedBuildIds=new Set(),mountedUnitIds=new Set(),mountedResearchIds=new Set(),mountedUnitLanes=new Set();
       mountedTowns.add(String(townId));
       const senateContext=!!(root.matches('#building_main,.building_main,.senate')||root.querySelector('#building_main,.building_main,[id^="building_main_"],[id^="special_building_"]'));
 
       const buildTiles=senateContext?[...root.querySelectorAll('[id^="building_main_"],[id^="special_building_"]')]:[];
-      for(const tile of buildTiles){if(tile.classList.contains('gb-native-qctl')||tile.closest('.gb-native-qctl,.gb-native-panel'))continue;const id=nativeBuildingId(tile);if(!id||mountedBuildIds.has(id))continue;mountedBuildIds.add(id);nativeMountBuildControl(root,tile,townId,id);buildN++}
+      for(const tile of buildTiles){if(tile.classList.contains('gb-native-qctl')||tile.closest('.gb-native-qctl'))continue;const id=nativeBuildingId(tile);if(!id||mountedBuildIds.has(id))continue;mountedBuildIds.add(id);nativeMountBuildControl(root,tile,townId,id);buildN++}
       const unitContext=root.matches('#unit_order')?root:root.querySelector('#unit_order');const unitTiles=unitContext?[...unitContext.querySelectorAll('#units .unit_tab,.unit_tab')]:[];
 
       const unitsByLane={recruit:[],recruitNaval:[]};
       for(const tile of unitTiles){const id=nativeUnitId(tile);if(!id||mountedUnitIds.has(id))continue;mountedUnitIds.add(id);const ulane=nativeRecruitLaneOf(townId,id);mountedUnitLanes.add(ulane);(unitsByLane[ulane]||(unitsByLane[ulane]=[])).push(id);nativeMountRecruitControl(root,tile,townId,id)}
 
-      const researchTiles=[...root.querySelectorAll(nativeResearchTileSel(root))].filter(n=>!n.closest('.gb-native-qctl,.gb-native-panel'));
+      const researchTiles=[...root.querySelectorAll(nativeResearchTileSel(root))].filter(n=>!n.closest('.gb-native-qctl'));
       const researchOuter=researchTiles.filter(n=>{const id=nativeResearchId(n);return id&&!researchTiles.some(o=>o!==n&&o.contains(n)&&nativeResearchId(o)===id)});
       for(const node of researchOuter){const id=nativeResearchId(node);if(!id||mountedResearchIds.has(id))continue;
         const tile=/^(?:button|a)$/i.test(node.tagName)?(node.parentElement||node):node;
-        if(tile.closest('.gb-native-qctl,.gb-native-panel'))continue;
+        if(tile.closest('.gb-native-qctl'))continue;
         mountedResearchIds.add(id);nativeMountResearchControl(root,tile,townId,id);researchN++}
 
       if(!researchN&&nativeAcademyRoot(root)&&(root.querySelector('.tech_tree_box')||researchTiles.length)){
@@ -9363,14 +9297,18 @@ const STORE = {
           +`tech_tree_box ${root.querySelectorAll('.tech_tree_box').length})`);
       }
       root.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>{if(!mountedBuildIds.has(c.dataset.building))c.remove()});root.querySelectorAll('.gb-native-qctl[data-unit]').forEach(c=>{if(!mountedUnitIds.has(c.dataset.unit))c.remove()});root.querySelectorAll('.gb-native-qctl[data-research]').forEach(c=>{if(!mountedResearchIds.has(c.dataset.research))c.remove()});
-      if(buildN)nativeRenderQueuePanel(root,townId,'build');else document.querySelector(`.gb-native-panel[data-lane="build"][data-town="${townId}"]`)?.remove();for(const lane of NATIVE_RECRUIT_LANES){if(mountedUnitLanes.has(lane))nativeRenderQueuePanel(root,townId,lane,unitsByLane[lane]);else document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`)?.remove()}if(researchN)nativeRenderQueuePanel(root,townId,'research');else document.querySelector(`.gb-native-panel[data-lane="research"][data-town="${townId}"]`)?.remove();
+
+      for(const lane of NATIVE_RECRUIT_LANES)if(mountedUnitLanes.has(lane))nativeLaneRosterSet(townId,lane,unitsByLane[lane]);
+      const recruitLanes=NATIVE_RECRUIT_LANES.filter(l=>mountedUnitLanes.has(l))
+        .sort((a,b)=>(unitsByLane[b]||[]).length-(unitsByLane[a]||[]).length);
+      const lanes=[...(buildN?['build']:[]),...(researchN?['research']:[]),...recruitLanes];
+      if(lanes.length){const prev=lanesByTown.get(String(townId))||[];lanesByTown.set(String(townId),[...prev,...lanes.filter(l=>!prev.includes(l))])}
     }
 
-    document.querySelectorAll('.gb-native-panel[data-town]').forEach(p => { if (!mountedTowns.has(p.dataset.town)) p.remove(); });
+    document.querySelectorAll('.gb-native-qpop[data-town]:not([data-src="qc"])').forEach(p => { if (!mountedTowns.has(p.dataset.town)) nativeQPopClose(); });
 
-    document.querySelectorAll('.gb-native-qpop[data-town]').forEach(p => { if (!mountedTowns.has(p.dataset.town)) nativeQPopClose(); });
-
-    nativeLayoutPanels();
+    if(lanesByTown.size){const [townId,lanes]=[...lanesByTown.entries()][0];nativeQueueFollowCenter(townId,lanes)}
+    else nativeQcFollowKey='';
   }
   function abLoadCsFast() {
     state.abTargets = abDefaultTargets();
@@ -23591,6 +23529,12 @@ const STORE = {
     #grepbot-queue-center .gb-qc-acts{display:flex;gap:3px}.gb-qc-btn.danger{color:#ffb0a8}.gb-qc-empty{padding:16px 10px;color:#828a95;text-align:center}
     #grepbot-queue-center .gb-qc-picker{display:flex;gap:6px;align-items:center;padding:8px 9px;border-top:1px solid rgba(255,255,255,.05);background:#1b1e24}
     #grepbot-queue-center .gb-qc-pick{flex:1;min-width:0;background:#20232a;color:var(--gb-fg);border:1px solid #454c58;border-radius:5px;padding:3px 5px;font-size:11px}
+    #grepbot-queue-center .gb-qc-roster{display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;padding:7px 9px;border-top:1px solid rgba(255,255,255,.05);background:#1b1e24}
+    #grepbot-queue-center .gb-qc-roster-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px;align-items:center;min-width:0}
+    #grepbot-queue-center .gb-qc-roster-row>b{font-weight:normal;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #grepbot-queue-center .gb-qc-roster-count{min-width:52px;text-align:center;white-space:nowrap;font-size:10px;color:#89919d}
+    #grepbot-queue-center .gb-qc-roster-count.ready{color:#91e5a8}#grepbot-queue-center .gb-qc-roster-count.blocked{color:#ffb0a8}#grepbot-queue-center .gb-qc-roster-count.waiting{color:#ffd27a}
+    #grepbot-queue-center .gb-qc-roster-acts{display:flex;gap:2px}
     #grepbot-queue-center .gb-qc-sequence{padding:8px 9px 9px;border-top:1px solid rgba(255,255,255,.05);background:#1b1e24}
     #grepbot-queue-center .gb-qc-sequence-title{display:block;margin-bottom:6px;color:#f5c36a;font-size:10px;text-transform:uppercase;letter-spacing:.35px}
     #grepbot-queue-center .gb-qc-sequence-line{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
@@ -23922,6 +23866,46 @@ const STORE = {
     if (!shown) planned.box.appendChild(queueCenterEmpty('No hay investigaciones pendientes en el plan.'));
   }
 
+  function renderQueueCenterRoster(plan, townId, lane) {
+    const roster = nativeLaneRoster(townId, lane);
+    if (!roster.length) return;
+    const grid = document.createElement('div');
+    grid.className = 'gb-qc-roster';
+    const list = nativeQueueList(townId, lane, false);
+    for (const unit of roster) {
+      const step = nativeUnitStep(unit), pending = nativeQueueRecruitAmount(townId, unit);
+      const pos = nativeQueuePosition(townId, lane, j => j && j.unit === unit), head = pos === 1 && list[0];
+      const row = document.createElement('div');
+      row.className = 'gb-qc-roster-row';
+      const name = document.createElement('b');
+      name.textContent = nativeUnitLabel(unit); name.title = nativeUnitLabel(unit);
+      const count = document.createElement('span');
+      count.className = 'gb-qc-roster-count';
+      count.textContent = pending > 0 ? `+${pending}${pos ? ' \u00b7 #' + pos : ''}` : '\u2014';
+      count.title = head && head.reason ? head.reason : `${pending || 0} pendiente(s) en la cola virtual`;
+      if (pending > 0 && head) {
+        if (head.status === 'ready') count.classList.add('ready');
+        else if (/blocked|unknown/.test(head.status || '')) count.classList.add('blocked');
+        else count.classList.add('waiting');
+      }
+      const acts = document.createElement('div');
+      acts.className = 'gb-qc-roster-acts';
+      const minus = queueCenterButton(`-${step}`, `Restar ${step} ${nativeUnitLabel(unit)} de la cola virtual`, () => {
+        if (!nativeQueueRemoveLastRecruit(townId, unit, step)) flash('No hay unidades virtuales que quitar');
+      });
+      minus.disabled = !list.some(j => j && j.unit === unit && !j.inflight && !j.manualReview);
+      const plus = queueCenterButton(`+${step}`, `A\u00f1adir ${step} ${nativeUnitLabel(unit)} a la cola virtual (Ctrl: \u00d75)`, e => {
+        nativeQueueAddRecruit(townId, unit, (e && (e.ctrlKey || e.metaKey)) ? step * 5 : step);
+      });
+      const more = queueCenterButton('...', `M\u00e1s opciones para ${nativeUnitLabel(unit)}: cantidad libre, lote y compactar`, () => {
+        nativeRecruitPopover(null, null, townId, unit, row);
+      });
+      acts.append(minus, plus, more);
+      row.append(name, count, acts);
+      grid.appendChild(row);
+    }
+    plan.box.appendChild(grid);
+  }
   function renderQueueCenterRecruit(body, townId, wantNaval) {
     const label = wantNaval ? 'Puerto' : 'Cuartel';
     const lane = wantNaval ? 'recruitNaval' : 'recruit';
@@ -23971,7 +23955,8 @@ const STORE = {
       const wrap = document.createElement('span'); wrap.className = 'gb-qc-batch'; wrap.append(totalInp, sep, chunkInp, lotBtn);
       plan.head.appendChild(wrap);
     }
-    if (!list.length) { plan.box.appendChild(queueCenterEmpty(fifo ? `No hay \u00f3rdenes ${wantNaval ? 'navales' : 'terrestres'} pendientes. A\u00f1\u00e1delas con + desde ${label}.` : 'Esta ciudad usa objetivos autom\u00e1ticos.')); return; }
+    renderQueueCenterRoster(plan, townId, lane);
+    if (!list.length) { plan.box.appendChild(queueCenterEmpty(fifo ? `No hay \u00f3rdenes ${wantNaval ? 'navales' : 'terrestres'} pendientes. A\u00f1\u00e1delas con + desde ${label} o con los botones de arriba.` : 'Esta ciudad usa objetivos autom\u00e1ticos.')); return; }
     plan.box.appendChild(queueCenterSequence(`Orden FIFO \u00b7 ${label}`, list.map((j, i) => ({
       text: `#${i + 1} ${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`,
       title: j.reason || nativeUnitLabel(j.unit),
@@ -25577,6 +25562,7 @@ const STORE = {
           <div class="key-list gb-cfg-note" data-gb-tip="Lista de atajos de teclado activos"></div>
           <button data-cfg="keybindings-edit" class="gb-cfg-btn gb-cfg-sub" data-gb-tip="Editar las combinaciones de atajos de teclado">Reasignar atajos...</button>
           <label class="gb-cfg-row" title="Anade un menu GrepBot junto al popup de ciudad del juego. No intercepta ningun evento del juego: solo se monta al lado."><input type="checkbox" data-cfg="context-menu"/> Menu contextual junto al popup del juego</label>
+          <label class="gb-cfg-row" title="Al abrir senado, academia, cuartel o puerto, la ventana Colas GrepBot salta a esa ciudad y a esa cola. Es la unica ventana de colas: no hay panel flotante aparte."><input type="checkbox" data-cfg="queue-follow"/> Abrir Colas GrepBot al entrar en un edificio</label>
         `)}
         ${gbCfgGroup('Avisos y notificaciones', `
           <label class="gb-cfg-num" data-gb-tip="URL del webhook (Discord o Telegram) al que enviar avisos">URL de webhook <input class="gb-cfg-input" type="text" data-cfg="webhook-url" placeholder="webhook de Discord o https://api.telegram.org/bot.../sendMessage" style="width:100%;font-size:10px"/></label>
@@ -27009,6 +26995,10 @@ const STORE = {
       if (snapshotRestore(slot)) { flash('instantanea restaurada'); bindConfig(); updateStatus(); }
       else flash('no se pudo restaurar');
     });
+    onCfg('[data-cfg=queue-follow]', 'change', e => {
+      state.queueFollow = !!e.target.checked;
+      save(STORE.QUEUE_FOLLOW, state.queueFollow);
+    });
     onCfg('[data-cfg=context-menu]', 'change', e => {
       state.contextMenu = !!e.target.checked;
       save(STORE.CONTEXT_MENU, state.contextMenu);
@@ -27148,6 +27138,7 @@ const STORE = {
     setChk('[data-cfg=mem-probe-on]', !!state.memProbeOn);
     setChk('[data-cfg=keyboard-shortcuts]', state.keyboardShortcuts !== false);
     setChk('[data-cfg=context-menu]', state.contextMenu !== false);
+    setChk('[data-cfg=queue-follow]', state.queueFollow !== false);
     setChk('[data-cfg=emergency-cave-auto]', !!state.emergencyCaveAuto);
     setNum('[data-cfg=emergency-cave-confirm]', emergencyConfirmAt());
     setNum('[data-cfg=emergency-cave-min-iron]', emergencyMinIron());

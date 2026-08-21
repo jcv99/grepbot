@@ -76,6 +76,12 @@
     #grepbot-queue-center .gb-qc-acts{display:flex;gap:3px}.gb-qc-btn.danger{color:#ffb0a8}.gb-qc-empty{padding:16px 10px;color:#828a95;text-align:center}
     #grepbot-queue-center .gb-qc-picker{display:flex;gap:6px;align-items:center;padding:8px 9px;border-top:1px solid rgba(255,255,255,.05);background:#1b1e24}
     #grepbot-queue-center .gb-qc-pick{flex:1;min-width:0;background:#20232a;color:var(--gb-fg);border:1px solid #454c58;border-radius:5px;padding:3px 5px;font-size:11px}
+    #grepbot-queue-center .gb-qc-roster{display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;padding:7px 9px;border-top:1px solid rgba(255,255,255,.05);background:#1b1e24}
+    #grepbot-queue-center .gb-qc-roster-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px;align-items:center;min-width:0}
+    #grepbot-queue-center .gb-qc-roster-row>b{font-weight:normal;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #grepbot-queue-center .gb-qc-roster-count{min-width:52px;text-align:center;white-space:nowrap;font-size:10px;color:#89919d}
+    #grepbot-queue-center .gb-qc-roster-count.ready{color:#91e5a8}#grepbot-queue-center .gb-qc-roster-count.blocked{color:#ffb0a8}#grepbot-queue-center .gb-qc-roster-count.waiting{color:#ffd27a}
+    #grepbot-queue-center .gb-qc-roster-acts{display:flex;gap:2px}
     #grepbot-queue-center .gb-qc-sequence{padding:8px 9px 9px;border-top:1px solid rgba(255,255,255,.05);background:#1b1e24}
     #grepbot-queue-center .gb-qc-sequence-title{display:block;margin-bottom:6px;color:#f5c36a;font-size:10px;text-transform:uppercase;letter-spacing:.35px}
     #grepbot-queue-center .gb-qc-sequence-line{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
@@ -448,6 +454,52 @@
   // Barracks and docks are two independent queues, in the game and here: each
   // tab shows only its own lane and its positions are local to that lane, so
   // reordering triremes can never move a hoplite.
+  // Per-unit add/remove, the one thing the removed floating lane panel had that
+  // this window did not. The unit list is the roster the game's own recruit
+  // window last showed for this town+lane (nativeLaneRoster): the game clips
+  // its unit strip, and GrepBot must not invent a unit the town cannot build.
+  // Empty roster (that window never opened this session) = no grid, and the
+  // per-tile [+] controls in the game window stay the way to seed it.
+  function renderQueueCenterRoster(plan, townId, lane) {
+    const roster = nativeLaneRoster(townId, lane);
+    if (!roster.length) return;
+    const grid = document.createElement('div');
+    grid.className = 'gb-qc-roster';
+    const list = nativeQueueList(townId, lane, false);
+    for (const unit of roster) {
+      const step = nativeUnitStep(unit), pending = nativeQueueRecruitAmount(townId, unit);
+      const pos = nativeQueuePosition(townId, lane, j => j && j.unit === unit), head = pos === 1 && list[0];
+      const row = document.createElement('div');
+      row.className = 'gb-qc-roster-row';
+      const name = document.createElement('b');
+      name.textContent = nativeUnitLabel(unit); name.title = nativeUnitLabel(unit);
+      const count = document.createElement('span');
+      count.className = 'gb-qc-roster-count';
+      count.textContent = pending > 0 ? `+${pending}${pos ? ' · #' + pos : ''}` : '—';
+      count.title = head && head.reason ? head.reason : `${pending || 0} pendiente(s) en la cola virtual`;
+      if (pending > 0 && head) {
+        if (head.status === 'ready') count.classList.add('ready');
+        else if (/blocked|unknown/.test(head.status || '')) count.classList.add('blocked');
+        else count.classList.add('waiting');
+      }
+      const acts = document.createElement('div');
+      acts.className = 'gb-qc-roster-acts';
+      const minus = queueCenterButton(`-${step}`, `Restar ${step} ${nativeUnitLabel(unit)} de la cola virtual`, () => {
+        if (!nativeQueueRemoveLastRecruit(townId, unit, step)) flash('No hay unidades virtuales que quitar');
+      });
+      minus.disabled = !list.some(j => j && j.unit === unit && !j.inflight && !j.manualReview);
+      const plus = queueCenterButton(`+${step}`, `Añadir ${step} ${nativeUnitLabel(unit)} a la cola virtual (Ctrl: ×5)`, e => {
+        nativeQueueAddRecruit(townId, unit, (e && (e.ctrlKey || e.metaKey)) ? step * 5 : step);
+      });
+      const more = queueCenterButton('...', `Más opciones para ${nativeUnitLabel(unit)}: cantidad libre, lote y compactar`, () => {
+        nativeRecruitPopover(null, null, townId, unit, row);
+      });
+      acts.append(minus, plus, more);
+      row.append(name, count, acts);
+      grid.appendChild(row);
+    }
+    plan.box.appendChild(grid);
+  }
   function renderQueueCenterRecruit(body, townId, wantNaval) {
     const label = wantNaval ? 'Puerto' : 'Cuartel';
     const lane = wantNaval ? 'recruitNaval' : 'recruit';
@@ -499,7 +551,8 @@
       const wrap = document.createElement('span'); wrap.className = 'gb-qc-batch'; wrap.append(totalInp, sep, chunkInp, lotBtn);
       plan.head.appendChild(wrap);
     }
-    if (!list.length) { plan.box.appendChild(queueCenterEmpty(fifo ? `No hay órdenes ${wantNaval ? 'navales' : 'terrestres'} pendientes. Añádelas con + desde ${label}.` : 'Esta ciudad usa objetivos automáticos.')); return; }
+    renderQueueCenterRoster(plan, townId, lane);
+    if (!list.length) { plan.box.appendChild(queueCenterEmpty(fifo ? `No hay órdenes ${wantNaval ? 'navales' : 'terrestres'} pendientes. Añádelas con + desde ${label} o con los botones de arriba.` : 'Esta ciudad usa objetivos automáticos.')); return; }
     plan.box.appendChild(queueCenterSequence(`Orden FIFO · ${label}`, list.map((j, i) => ({
       text: `#${i + 1} ${j.amount}× ${nativeUnitLabel(j.unit)}`,
       title: j.reason || nativeUnitLabel(j.unit),

@@ -217,8 +217,11 @@ build-specific getter names and keep the first finite number; `gbTownModel`,
 
 **UI.** Draggable panel with 4 tab groups / 9 tabs (`TAB_GROUPS` in `ui.js`):
 Resumen → Resumen; Militar → Ataques, Refuerzos, Entrenamiento, Espionaje,
-Inteligencia; Ajustes → Ajustes; Diagnóstico → Diagnóstico, Registro. Separate windows: Queue Center (header `Colas`), the
-native-UI queue panels mounted into the game's own building windows, and
+Inteligencia; Ajustes → Ajustes; Diagnóstico → Diagnóstico, Registro. Separate windows: Queue Center (header `Colas`) — the
+**single** queue surface since v5.10.0: opening the senate / academy / barracks
+/ docks points it at that town + lane (toggle `queue-follow`, default ON)
+instead of spawning a floating per-lane panel; the game window keeps only the
+in-place `[+]`/`[-]` tile controls and the recruit popover — and
 `gbWidget`-registered HUD widgets (drag + geometry persistence + teardown are
 solved there — reuse it, don't hand-roll a window). Ajustes = ~300 `data-cfg`
 controls in 11 `gbCfgGroup()` `<details>` blocks (General y seguridad /
@@ -259,7 +262,7 @@ contract, risk class and why a tempting shortcut is forbidden.
 | `towns.js` / `collect.js` | scrape deadlines, `autoCollectResources` | `collectAll` | collect walks a TreeWalker for `/^\d{1,2}\s*min$/` up to a `Recoger` button, marks `dataset.grepbotClicked` |
 | `bandit.js` | `banditViaGame` | `autoBandit` | reward via `hasReward()`→`useReward`/`stashReward`, cooldown via `getCooldownDuration()`, en-route via `MovementsUnits[*].destination_is_attack_spot`; model path needs no window |
 | `build-tab.js` / `build-auto.js` / `goals.js` / `build-targets.js` | `ibScan`, `ibCompleteAll`, `abScan` | `ibAuto` OFF, `abAuto` | free instant only when remaining ≤ thresh **and** `GameDataInstantBuy` price === 0; **never** falls back to `buyInstant`; `ibArmNext` arms one timer at `remaining - ibFreeThresh()`; the 10s loop is the safety net |
-| `native-ui.js` / `queue-center.js` | `nativeUiScan`, `renderQueueCenter` | — | virtual FIFO beside the game's real queue; mutations only via `nativeQueue*` |
+| `native-ui.js` / `queue-center.js` | `nativeUiScan`, `renderQueueCenter` | `queueFollow` ON | virtual FIFO beside the game's real queue; mutations only via `nativeQueue*`; one queue window — the scan calls `nativeQueueFollowCenter` (fires on town+lane CHANGE only, so it never steals a tab the user switched by hand) and the QC recruit roster reads `nativeLaneRoster`, never a guessed unit list |
 | `cave.js` | `caveScan` | `autoCave` OFF | stash iron ≥ `caveThreshPct`% of warehouse via `BuildingHide`/`storeIron`; ∞ sentinel is `-1`; unreadable finite cap/stored → skip |
 | `emergency.js` | `emergencyScan`, `emergencyStashAllNow` | `emergencyCaveAuto` OFF (HIGH-RISK) | pre-stash before a hostile lands; same `caveStoreIron` payload, own lock + feature key; rides `dodgeScan` |
 | `culture.js` | `cultureScan` | `autoCulture` OFF | festival/procession/theater via `building_place`/`start_celebration`; olympic is 50 gold + Academy 30 → needs `allowPremiumCulture` + daily `cultureGoldBudget`, never modeled as resources |

@@ -358,7 +358,7 @@
     try { gbWidgetDisposeAll(); } catch (_) {}
     try { contextMenuStop(); } catch (_) {}
     try { document.querySelectorAll('.gb-widget').forEach(el => el.remove()); } catch (_) {}
-    try { document.querySelectorAll('.gb-native-qctl,.gb-native-panel,.gb-native-qpop').forEach(el=>el.remove()); } catch (_) {}
+    try { document.querySelectorAll('.gb-native-qctl,.gb-native-qpop').forEach(el=>el.remove()); } catch (_) {}
     gbRemoveStyles();
 
     if (GB_ROOT.__grepbotTest && GB_ROOT.__grepbotTest.instanceId === GB_INSTANCE_ID) {
@@ -568,6 +568,7 @@
     findingsFilter: load(STORE.FINDINGS_FILTER, { type: '', attacker: '' }),
     theme: load(STORE.THEME, 'dark'),
     contextMenu: load(STORE.CONTEXT_MENU, true),
+    queueFollow: load(STORE.QUEUE_FOLLOW, true),
     profileAutoCfg: load(STORE.PROFILE_AUTO_CFG, { enabled: false, minHoldMin: 15, rules: [] }),
     profileAutoLast: load(STORE.PROFILE_AUTO_LAST, { profile: null, ruleId: null, switchedAt: 0 }),
     keyboardShortcuts: load(STORE.KEYBOARD_SHORTCUTS, true),

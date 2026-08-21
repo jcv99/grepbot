@@ -1496,6 +1496,7 @@
           <div class="key-list gb-cfg-note" data-gb-tip="Lista de atajos de teclado activos"></div>
           <button data-cfg="keybindings-edit" class="gb-cfg-btn gb-cfg-sub" data-gb-tip="Editar las combinaciones de atajos de teclado">Reasignar atajos...</button>
           <label class="gb-cfg-row" title="Anade un menu GrepBot junto al popup de ciudad del juego. No intercepta ningun evento del juego: solo se monta al lado."><input type="checkbox" data-cfg="context-menu"/> Menu contextual junto al popup del juego</label>
+          <label class="gb-cfg-row" title="Al abrir senado, academia, cuartel o puerto, la ventana Colas GrepBot salta a esa ciudad y a esa cola. Es la unica ventana de colas: no hay panel flotante aparte."><input type="checkbox" data-cfg="queue-follow"/> Abrir Colas GrepBot al entrar en un edificio</label>
         `)}
         ${gbCfgGroup('Avisos y notificaciones', `
           <label class="gb-cfg-num" data-gb-tip="URL del webhook (Discord o Telegram) al que enviar avisos">URL de webhook <input class="gb-cfg-input" type="text" data-cfg="webhook-url" placeholder="webhook de Discord o https://api.telegram.org/bot.../sendMessage" style="width:100%;font-size:10px"/></label>
@@ -3035,6 +3036,10 @@
       if (snapshotRestore(slot)) { flash('instantanea restaurada'); bindConfig(); updateStatus(); }
       else flash('no se pudo restaurar');
     });
+    onCfg('[data-cfg=queue-follow]', 'change', e => {
+      state.queueFollow = !!e.target.checked;
+      save(STORE.QUEUE_FOLLOW, state.queueFollow);
+    });
     onCfg('[data-cfg=context-menu]', 'change', e => {
       state.contextMenu = !!e.target.checked;
       save(STORE.CONTEXT_MENU, state.contextMenu);
@@ -3183,6 +3188,7 @@
     setChk('[data-cfg=mem-probe-on]', !!state.memProbeOn);
     setChk('[data-cfg=keyboard-shortcuts]', state.keyboardShortcuts !== false);
     setChk('[data-cfg=context-menu]', state.contextMenu !== false);
+    setChk('[data-cfg=queue-follow]', state.queueFollow !== false);
     setChk('[data-cfg=emergency-cave-auto]', !!state.emergencyCaveAuto);
     setNum('[data-cfg=emergency-cave-confirm]', emergencyConfirmAt());
     setNum('[data-cfg=emergency-cave-min-iron]', emergencyMinIron());
