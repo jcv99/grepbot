@@ -139,8 +139,6 @@
     } else {
       // A village is farm_town, not a town: it cannot hold a garrison and the
       // server rejects support for it. Refuse before the post.
-      // A village is farm_town, not a town: it cannot hold a garrison and the
-      // server rejects support for it. Refuse before the post.
       const farm = (state.farmsParsed || []).find(f => String(f.vill_id) === id || String(f.id) === id);
       if (farm) {
         gbLogT('rf-target-farm', 30000, `refuerzo: ${id} is a village - support unsupported`);
@@ -240,16 +238,9 @@
     // The mission is pinned to 'support' by this tab's contract, so a learned
     // template that carries a different type is a template shape we do not
     // understand - say so once instead of silently overwriting it.
-    // The mission is pinned to 'support' by this tab's contract, so a learned
-    // template that carries a different type is a template shape we do not
-    // understand - say so once instead of silently overwriting it.
     if (tpl && tpl.arguments && tpl.arguments.type && String(tpl.arguments.type) !== 'support') {
       gbLogT('rf-tpl-type', 120000, `refuerzo: supportTpl type=${tpl.arguments.type} (se envia support) - revisa la plantilla`);
     }
-    // String.replace with NO match returns the original string, which would
-    // post the LEARNED town's model_url out of every other source town - a
-    // wrong-garrison send with no error. Retarget only a real /Town/<id>
-    // segment; anything else falls through to the canonical route below.
     // String.replace with NO match returns the original string, which would
     // post the LEARNED town's model_url out of every other source town - a
     // wrong-garrison send with no error. Retarget only a real /Town/<id>
@@ -412,8 +403,6 @@
     if (!confirm(`${state.dryRun ? '[SIMULACION] ' : ''}Enviar refuerzo (${label}) a #${plan.targetId}?\n${okRows.length} ciudad(es) / ${total} unidades`)) return;
     // Same feature key as the auto-support burst, same garrisons: take the lock
     // for the whole run so the two can never interleave out of one town.
-    // Same feature key as the auto-support burst, same garrisons: take the lock
-    // for the whole run so the two can never interleave out of one town.
     const token = gbLock('support');
     if (!token) {
       gbLogT('rf-now-busy', 60000, 'refuerzo: support lock held (apoyo automatico) - manual send refused');
@@ -573,7 +562,6 @@
       const hdr = document.createElement('div');
       hdr.style.cssText = 'display:grid;grid-template-columns:1.1fr .8fr .7fr .9fr .7fr .8fr;gap:4px;color:#888;font-size:9px;margin-bottom:2px';
       // LITERAL ONLY - town names reach the rows through textContent.
-      // LITERAL ONLY - town names reach the rows through textContent.
       hdr.innerHTML = gbLit('<span>ciudad</span><span>tropas</span><span>marcha</span><span>envio</span><span>barcos</span><span>estado</span>');
       table.appendChild(hdr);
     }
@@ -729,13 +717,6 @@
       renderReinforce();
       rfFireNow(plan, sched.rows);
     });
-    // Every control except the picker feeds the plan on change. Binding only
-    // help/target left timing + unit-type (which renderReinforce writes
-    // unconditionally) and x/y/pad/floor/arrival (written back on blur) to be
-    // reverted to the stored plan by the next repaint, so a value typed before
-    // pressing Previsualizar was silently lost. [data-rf=pick] is excluded: it
-    // is not a form field but a "copy this known destination into targetId"
-    // control, and rfReadForm would re-read the not-yet-written target input.
     // Every control except the picker feeds the plan on change. Binding only
     // help/target left timing + unit-type (which renderReinforce writes
     // unconditionally) and x/y/pad/floor/arrival (written back on blur) to be

@@ -22,7 +22,6 @@
     if (+plan.v !== SHARED_PLAN_VERSION) errors.push(`version ${plan.v} no soportada (esperada ${SHARED_PLAN_VERSION})`);
     const host = plan.author && plan.author.host;
     // A plan for another world names town ids that mean nothing here.
-    // A plan for another world names town ids that mean nothing here.
     if (host && String(host) !== String(location.host)) errors.push(`mundo distinto: ${host} != ${location.host}`);
     const list = Array.isArray(plan.targets) ? plan.targets : [];
     if (!list.length) errors.push('sin objetivos');
@@ -33,7 +32,6 @@
       const intent = (t.intent === 'support') ? 'support' : 'attack';
       const num = v => (Number.isFinite(+v) ? +v : null);
       const arriveAt = t.window && Number.isFinite(+t.window.arriveAt) ? +t.window.arriveAt : null;
-      // An arrival already in the past is not a plan, it is a stale file.
       // An arrival already in the past is not a plan, it is a stale file.
       if (arriveAt != null && arriveAt * (arriveAt > 1e12 ? 0.001 : 1) < gameNow()) {
         rejected.push(`${id}: ventana ya pasada`);

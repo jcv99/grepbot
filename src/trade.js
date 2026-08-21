@@ -77,8 +77,6 @@
       L[t.id] = {
         // Counting both visible movements and short-lived transaction holds can
         // temporarily double count, which is intentionally safer than overfill.
-        // Counting both visible movements and short-lived transaction holds can
-        // temporarily double count, which is intentionally safer than overfill.
         wood: t.wood+(+mov.wood||0)+(+pending.wood||0), stone: t.stone+(+mov.stone||0)+(+pending.stone||0), iron: t.iron+(+mov.iron||0)+(+pending.iron||0),
         cap: t.cap, tradeCap: t.tradeCap, small: t.small,
       };
@@ -109,9 +107,6 @@
       if (!src || !(src.cap > 0) || src.tradeCap < minBatch) continue;
       for (const res of RES) {
         if (src[res] / src.cap < 0.97) continue;
-        // Pick the target with the most headroom in this resource, instead of
-        // the first pushable one — the inner `break` after `jobs.push` was
-        // capping per (src, res) at 1 anyway, but it was the wrong 1.
         // Pick the target with the most headroom in this resource, instead of
         // the first pushable one — the inner `break` after `jobs.push` was
         // capping per (src, res) at 1 anyway, but it was the wrong 1.
@@ -393,9 +388,6 @@
     // The fallback id must be STABLE: a timestamp would mint a fresh id on
     // every scan, miss the runtime throttle map, and let the route fire every
     // tick while leaking one stale entry per scan.
-    // The fallback id must be STABLE: a timestamp would mint a fresh id on
-    // every scan, miss the runtime throttle map, and let the route fire every
-    // tick while leaking one stale entry per scan.
     const id = /^[A-Za-z0-9_:-]{1,32}$/.test(String(raw.id || '')) ? String(raw.id)
       : ('r_' + from + '_' + to + (idx == null ? '' : '_' + idx));
     return {
@@ -439,14 +431,10 @@
     const liveIds = new Set(Object.keys(stored));
     // Drop runtime rows for routes the user deleted, or the map grows for the
     // life of the page across route edits.
-    // Drop runtime rows for routes the user deleted, or the map grows for the
-    // life of the page across route edits.
     for (const k of Object.keys(tradeRouteRuntime)) if (!liveIds.has(k)) delete tradeRouteRuntime[k];
     for (const [key, raw] of Object.entries(stored)) {
       const route = tradeRouteClean(raw, null);
       if (!route || !route.enabled) continue;
-      // The STORAGE key is the identity, not whatever id the payload carries:
-      // that is what keeps the throttle attached to the route the user edited.
       // The STORAGE key is the identity, not whatever id the payload carries:
       // that is what keeps the throttle attached to the route the user edited.
       route.id = key;
@@ -457,10 +445,6 @@
         gbLogT('trade-route-blind-' + route.id, 600000, `trade route ${route.id}: ${route.from}->${route.to} town state unreadable - idling`);
         continue;
       }
-      // The trigger reads the LEDGER, which already carries in-flight arrivals.
-      // Reading the live warehouse instead would let a 'below 60%' route re-fire
-      // on every scan until the first haul physically lands, stacking several
-      // shipments for a target that is already on its way to being full.
       // The trigger reads the LEDGER, which already carries in-flight arrivals.
       // Reading the live warehouse instead would let a 'below 60%' route re-fire
       // on every scan until the first haul physically lands, stacking several

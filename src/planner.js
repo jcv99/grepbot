@@ -191,9 +191,6 @@
     // Elapsed cooldown does not CLOSE the breaker - it lets exactly one probe
     // through. Closing on a timer alone would forget that the endpoint was
     // broken without ever testing it.
-    // Elapsed cooldown does not CLOSE the breaker - it lets exactly one probe
-    // through. Closing on a timer alone would forget that the endpoint was
-    // broken without ever testing it.
     if (c.halfOpen) return false;
     if (+c.openedAt && Date.now() - +c.openedAt >= circuitCooldownMs(c)) {
       c.halfOpen = true;
@@ -212,8 +209,6 @@
     c.lastError = msg.slice(0, 160);
     c.lastAt = Date.now();
     if (c.halfOpen) {
-      // The probe failed: re-open and back off, so a genuinely dead endpoint is
-      // retried ever less often instead of every cooldown.
       // The probe failed: re-open and back off, so a genuinely dead endpoint is
       // retried ever less often instead of every cooldown.
       c.halfOpen = false;
@@ -238,9 +233,6 @@
   function circuitSuccess(feature) {
     const c = circuitState(feature);
     if (!c) return;
-    // A HALF-OPEN breaker whose probe succeeded must close. The old guard bailed
-    // on `c.open`, so once tripped the breaker could only ever be cleared by
-    // hand - the recovery half of the state machine never ran.
     // A HALF-OPEN breaker whose probe succeeded must close. The old guard bailed
     // on `c.open`, so once tripped the breaker could only ever be cleared by
     // hand - the recovery half of the state machine never ran.
@@ -304,10 +296,6 @@
     // manual-review in a single go (an entry carrying an old unknownAt from an
     // earlier episode skips the whole 6h ambiguity window), which turns a plain
     // reload into a tombstone nobody can clear except by hand.
-    // Two passes on purpose. One pass could take an entry sending -> unknown ->
-    // manual-review in a single go (an entry carrying an old unknownAt from an
-    // earlier episode skips the whole 6h ambiguity window), which turns a plain
-    // reload into a tombstone nobody can clear except by hand.
     const justUnknown = new Set();
     for (const key of Object.keys(state.txState)) {
       const t = state.txState[key];
@@ -327,12 +315,6 @@
       if (terminal && now - (+t.updatedAt || +t.createdAt || 0) > terminalTtl) { delete state.txState[key]; continue; }
       if (justUnknown.has(key)) continue;
       if (t.state === 'unknown' && now - (+t.unknownAt || +t.updatedAt || 0) > TX_UNKNOWN_MAX_MS) {
-        // Never silently retry an ancient ambiguous write. Keep a blocking
-        // tombstone until the user explicitly clears it — but DO drop the
-        // planner reservation: plannerReservationActive() already reports
-        // manual-review as inactive, so leaving reservation.state held made the
-        // budget and the reservation ledger disagree for as long as the
-        // tombstone lived.
         // Never silently retry an ancient ambiguous write. Keep a blocking
         // tombstone until the user explicitly clears it — but DO drop the
         // planner reservation: plannerReservationActive() already reports

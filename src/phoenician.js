@@ -41,7 +41,6 @@
     const tid = gbProbeAttr(a, ['town_id', 'current_town_id', 'in_town_id']);
     if (tid != null && +tid > 0) return +tid;
     // Some builds only expose "is it here" - fall back to the current town.
-    // Some builds only expose "is it here" - fall back to the current town.
     try {
       if (typeof m.isInCurrentTown === 'function' && m.isInCurrentTown()) {
         return +(uw.Game && uw.Game.townId) || null;
@@ -287,8 +286,6 @@
       return;
     }
     if (!/trade|exchange|swap/i.test(action)) return;
-    // Our own posts run under the pt-trade lock - never re-learn from those, or
-    // a pump amount of 1 would overwrite the player's real template.
     // Our own posts run under the pt-trade lock - never re-learn from those, or
     // a pump amount of 1 would overwrite the player's real template.
     if (gbLocked('pt-trade')) return;

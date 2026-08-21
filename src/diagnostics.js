@@ -38,8 +38,6 @@
       lastSeenTs: state.lastSeenTs,
       // The journal ring is SUMMARISED, never copied: it is the single heaviest
       // slice and a snapshot only needs its shape, not its rows.
-      // The journal ring is SUMMARISED, never copied: it is the single heaviest
-      // slice and a snapshot only needs its shape, not its rows.
       decisions: jrn ? { ok: jrn.ok, err: jrn.err, total: jrn.total } : null,
     };
   }
@@ -47,8 +45,6 @@
     if (state.snapshotsOn === false) return false;
     let text = '';
     try { text = JSON.stringify(snapshotPayload()); } catch (_) { return false; }
-    // Dropped, never truncated and never allowed to grow the ring: a snapshot
-    // that does not fit the budget is not a smaller snapshot, it is a bad one.
     // Dropped, never truncated and never allowed to grow the ring: a snapshot
     // that does not fit the budget is not a smaller snapshot, it is a bad one.
     if (text.length > SNAPSHOT_BUDGET_BYTES) {
@@ -65,7 +61,6 @@
   function snapshotTick() {
     if (state.snapshotsOn === false) return;
     if (Date.now() - snapshotLastAt < SNAPSHOT_INTERVAL_MS) return;
-    // A paused bot has nothing new worth saving.
     // A paused bot has nothing new worth saving.
     if (automationPaused({})) return;
     snapshotBuild('tick');
@@ -109,8 +104,6 @@
     } finally {
       // In `finally` so a throwing scan is still measured; orchSafe still sees
       // the exception.
-      // In `finally` so a throwing scan is still measured; orchSafe still sees
-      // the exception.
       const dt = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - t0;
       const r = profRings();
       const e = r[key] || (r[key] = { count: 0, sumMs: 0, maxMs: 0, lastMs: 0, lastAt: 0 });
@@ -149,8 +142,6 @@
       const v = state[k];
       maps[k] = (v && typeof v === 'object') ? Object.keys(v).length : null;
     }
-    // blind:true when the heap API is absent (Firefox, Safari, hardened
-    // Chromium). The map tally still works, so the probe is not useless there.
     // blind:true when the heap API is absent (Firefox, Safari, hardened
     // Chromium). The map tally still works, so the probe is not useless there.
     return { ts: Date.now(), used, total, maps, blind: used == null };

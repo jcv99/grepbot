@@ -143,8 +143,6 @@
     if (!m) return 'unknown';
     // A hoplite remains available to defensive plans, but it must not disappear
     // from an offensive composition merely because a world labels it defensive.
-    // A hoplite remains available to defensive plans, but it must not disappear
-    // from an offensive composition merely because a world labels it defensive.
     if (id === 'hoplite') return 'both';
     const f = m.unit_function;
     if (f === 'function_off' || f === 'off') return 'offense';
@@ -828,9 +826,6 @@
       // Membership, not order — the v1.4.0 keyed-row rule. Comparing positions
       // means the first column-sort handler added to this table would wipe the
       // rows (and the user's sort) on every repaint.
-      // Membership, not order — the v1.4.0 keyed-row rule. Comparing positions
-      // means the first column-sort handler added to this table would wipe the
-      // rows (and the user's sort) on every repaint.
       const wantedSet = new Set(wanted);
       const sameSet = !table.dataset.empty && have.length === wanted.length && have.every(k => wantedSet.has(k));
       if (!sameSet) {
@@ -838,8 +833,6 @@
         delete table.dataset.empty;
         const hdr = document.createElement('div');
         hdr.style.cssText = 'display:grid;grid-template-columns:1.2fr .7fr .9fr .7fr .8fr;gap:4px;color:#888;font-size:9px;margin-bottom:2px';
-        // LITERAL ONLY - no interpolation. Town names reach this table through
-        // textContent on the row cells, never through the header string.
         // LITERAL ONLY - no interpolation. Town names reach this table through
         // textContent on the row cells, never through the header string.
         hdr.innerHTML = '<span>town</span><span>travel</span><span>sendAt</span><span>boats</span><span>status</span>';

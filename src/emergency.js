@@ -49,16 +49,12 @@
     if (!(info.hideLvl > 0)) return 0;
     let amount = Math.floor(info.iron);
     // Never ship iron the planner has already committed elsewhere.
-    // Never ship iron the planner has already committed elsewhere.
     try {
       const tid = info.town && (info.town.id || (info.town.attributes && info.town.attributes.id));
       const av = tid != null ? plannerAvailable(tid) : null;
       if (av && Number.isFinite(av.iron)) amount = Math.min(amount, Math.floor(av.iron));
     } catch (_) {}
     if (!info.unlimited) {
-      // A finite hide whose capacity or fill cannot be read is UNKNOWN, and
-      // posting into an unknown container is how the routine path used to
-      // over-stash. Refuse rather than guess.
       // A finite hide whose capacity or fill cannot be read is UNKNOWN, and
       // posting into an unknown container is how the routine path used to
       // over-stash. Refuse rather than guess.

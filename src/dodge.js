@@ -129,8 +129,6 @@
       if (u && +u.militia > 0) return { ok: false, why: 'militia already standing' };
       // Militia consumes population; only post when at least one slot is free.
       // Unreadable = unknown = do not block (the server is the authority).
-      // Militia consumes population; only post when at least one slot is free.
-      // Unreadable = unknown = do not block (the server is the authority).
       const avail = t && t.getAvailablePopulation && +t.getAvailablePopulation();
       if (avail != null && Number.isFinite(avail) && avail <= 0) return { ok: false, why: 'no free population' };
     } catch (_) {}
@@ -240,8 +238,6 @@
         const at = dodgeArrivalSec(m);
         // An unreadable arrival is counted, never guessed into the ordering:
         // a fabricated stamp would produce a fabricated snipe window.
-        // An unreadable arrival is counted, never guessed into the ordering:
-        // a fabricated stamp would produce a fabricated snipe window.
         if (at == null) { unknownArrival++; continue; }
         timed.push({ at, hasCs: !!m.hasCs, id: m.id });
       }
@@ -250,8 +246,6 @@
         out.push({ dest, n: list.length, unknownArrival, firstAt: null, lastAt: null, csAt: null, gapSec: null, cover: 0, tightestGapSec: null, verdict: 'unknown' });
         continue;
       }
-      // Only the leading cluster matters: a landing more than clusterGapSec
-      // after the previous one is a separate wave, not part of this train.
       // Only the leading cluster matters: a landing more than clusterGapSec
       // after the previous one is a separate wave, not part of this train.
       const cluster = [timed[0]];
@@ -274,13 +268,10 @@
       if (csIdx === 0) {
         // Nothing lands before the CS, so the snipe window cannot be derived
         // from the incoming list alone.
-        // Nothing lands before the CS, so the snipe window cannot be derived
-        // from the incoming list alone.
         out.push({ dest, n: cluster.length, unknownArrival, firstAt, lastAt, csAt, gapSec: null, cover: 0, tightestGapSec, verdict: 'cs-solo' });
         continue;
       }
       const gapSec = csAt - cluster[csIdx - 1].at;
-      // How many other landings fall inside the coverSec window before the CS.
       // How many other landings fall inside the coverSec window before the CS.
       let cover = 0;
       for (const x of cluster) if (x.at < csAt && csAt - x.at <= cfg.coverSec) cover++;
@@ -344,8 +335,6 @@
       why: (decision && decision.why) || '',
     };
     const last = state.defenseHistory[state.defenseHistory.length - 1];
-    // One row per (movement, decision): the 5s loop re-evaluates constantly and
-    // an unfiltered append would bury the actual transitions.
     // One row per (movement, decision): the 5s loop re-evaluates constantly and
     // an unfiltered append would bury the actual transitions.
     if (last && last.movId === row.movId && last.decision === row.decision && last.band === row.band) return;
@@ -422,7 +411,6 @@
     if (!dodgeOk && !militiaOk && !wantCs) return;
     const incoming = dodgeIncomingMovements();
     // Computed ONCE per pass and shared by every movement in it.
-    // Computed ONCE per pass and shared by every movement in it.
     const trains = (wantCs && csCfg().on) ? csWaveClusters(incoming) : [];
     const trainFor = dest => trains.find(t => String(t.dest) === String(dest)) || null;
     const live = new Set();
@@ -450,14 +438,8 @@
       }
       // v4 plan 3.2: support only arms for movements dodge did NOT act on, and
       // rides this same 5s loop rather than adding a second timer.
-      // v4 plan 3.2: support only arms for movements dodge did NOT act on, and
-      // rides this same 5s loop rather than adding a second timer.
       if (!entry || entry.state !== 'sent') { try { supportTryBurst(mov); } catch (_) {} }
     }
-    // dodgeNotify fires once per movement, so a wave added AFTER the first
-    // notification would otherwise be invisible. The throttle key carries the
-    // verdict and cover count, so a changed picture defeats it while a stable
-    // one stays quiet - no extra state needed.
     // dodgeNotify fires once per movement, so a wave added AFTER the first
     // notification would otherwise be invisible. The throttle key carries the
     // verdict and cover count, so a changed picture defeats it while a stable

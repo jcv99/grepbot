@@ -130,8 +130,6 @@
     }
     // Rapid fire. A wave count of 0 means "until the cave is empty", which is
     // only answerable against a READABLE balance.
-    // Rapid fire. A wave count of 0 means "until the cave is empty", which is
-    // only answerable against a READABLE balance.
     const chunk = cfg.chunk;
     if (cave.stored != null && !(cave.stored > 0)) return Object.assign(out, { error: 'la cueva no tiene plata' });
     let waves = cfg.waves;
@@ -409,11 +407,6 @@
     if (!sec || sec.dataset.bound) return;
     sec.dataset.bound = '1';
     const sync = () => { spsReadForm(); renderSpySend(); };
-    // [data-sp=pick] is deliberately excluded: it is not a form field, it is a
-    // "copy this known target into targetId" control with its own handler.
-    // Wiring it here too made every pick run spsReadForm() first, which reads
-    // the target INPUT the pick has not written yet - the old value went back
-    // into the cfg and the picked one was only restored one repaint later.
     // [data-sp=pick] is deliberately excluded: it is not a form field, it is a
     // "copy this known target into targetId" control with its own handler.
     // Wiring it here too made every pick run spsReadForm() first, which reads

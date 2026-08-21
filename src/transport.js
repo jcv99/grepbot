@@ -35,8 +35,6 @@
     if (!p || typeof p !== 'object') return null;
     // Per-resource null, not a whole-object null: one unreadable rate must not
     // blind the other two. Callers test the key they actually use.
-    // Per-resource null, not a whole-object null: one unreadable rate must not
-    // blind the other two. Callers test the key they actually use.
     const out = {};
     let any = false;
     for (const k of GB_RES_KEYS) {
@@ -85,15 +83,9 @@
     const inc = tradeIncomingByTown();
     // Unknown incoming is not "none": overstating headroom is how a haul
     // evaporates on arrival. Report blind and let the caller refuse.
-    // Unknown incoming is not "none": overstating headroom is how a haul
-    // evaporates on arrival. Report blind and let the caller refuse.
     if (!inc.known) return { woodFree: null, stoneFree: null, ironFree: null, blind: true };
     const mov = inc.byTown[String(townId)] || {};
     const ms = Math.max(0, +deltaMs || 0);
-    // The only projected drain this tree can actually read is the cave iron
-    // reserve. Build/culture/recruit consumption is not exposed as a rate
-    // anywhere in src/, so it is NOT deducted - reporting it as zero would be
-    // inventing a number. Callers that need it must read their own ledger.
     // The only projected drain this tree can actually read is the cave iron
     // reserve. Build/culture/recruit consumption is not exposed as a rate
     // anywhere in src/, so it is NOT deducted - reporting it as zero would be

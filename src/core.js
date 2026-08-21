@@ -136,12 +136,6 @@
     // guard the call. We can only restore by ID/name because the original DOM
     // node is gone; if the new tree has nothing matching, we simply lose focus
     // (the same outcome as the previous behavior).
-    // A structural replace detaches every descendant, including the focused
-    // control. Snapshot activeElement + selection so the caret survives the
-    // swap. Number/email inputs have no selection (setSelectionRange throws);
-    // guard the call. We can only restore by ID/name because the original DOM
-    // node is gone; if the new tree has nothing matching, we simply lose focus
-    // (the same outcome as the previous behavior).
     const ae = document.activeElement;
     const selSnap = (ae && typeof ae.id === 'string' && ae.id && typeof ae.setSelectionRange === 'function' && ae.selectionStart != null)
       ? { id: ae.id, start: ae.selectionStart, end: ae.selectionEnd, dir: ae.selectionDirection || 'forward' }
@@ -200,11 +194,6 @@
       const r = gbPaintPatch(a, b);
       if (r === false) return false;
       if (r) wrote = 1;
-      // Form controls hold their state in the PROPERTY, not the attribute, so
-      // an attribute-only patch would freeze every input at its first render.
-      // The focused control is exempt: whatever the user is typing or has open
-      // outranks a background repaint — that is the whole point of patching
-      // instead of rebuilding.
       // Form controls hold their state in the PROPERTY, not the attribute, so
       // an attribute-only patch would freeze every input at its first render.
       // The focused control is exempt: whatever the user is typing or has open
@@ -276,10 +265,6 @@
     try {
       document.querySelectorAll('style[data-grepbot-style="' + name + '"]').forEach(el => el.remove());
     } catch (_) {}
-    // Tampermonkey and Violentmonkey return the <style> node, but that return is
-    // not in any GM spec and an engine is free to return nothing (the smoke stub
-    // does). Snapshot the document's <style> nodes and diff, so the tag lands on
-    // every engine instead of only the two that happen to return the element.
     // Tampermonkey and Violentmonkey return the <style> node, but that return is
     // not in any GM spec and an engine is free to return nothing (the smoke stub
     // does). Snapshot the document's <style> nodes and diff, so the tag lands on
@@ -400,9 +385,6 @@
     'report-catchup': 300000,
     'quest-scan': 180000,
     'quest-auto': 180000,
-    // Raw passthrough posts (feature `airaw`). relay.js is gone; the entry
-    // stays so any future raw-payload caller inherits a real TTL instead of
-    // the 180s default.
     // Raw passthrough posts (feature `airaw`). relay.js is gone; the entry
     // stays so any future raw-payload caller inherits a real TTL instead of
     // the 180s default.
@@ -990,9 +972,6 @@
     // Coalesced: every decision note used to re-serialize the whole 200-row ring
     // through GM_setValue, and a single orch tick can emit several. saveFlush()
     // on pagehide/dispose is what keeps the tail durable.
-    // Coalesced: every decision note used to re-serialize the whole 200-row ring
-    // through GM_setValue, and a single orch tick can emit several. saveFlush()
-    // on pagehide/dispose is what keeps the tail durable.
     if(state.whyLog.length>200)state.whyLog.length=200; saveSoon(STORE.WHY_LOG,state.whyLog);
   }
   let serverCooldownUntil = 0;
@@ -1053,8 +1032,6 @@
   function gbPanicRecover() {
     if (!panicNeedsClear) return { ok: false, why: 'inactive' };
     if (gbPanicActive()) return { ok: false, why: 'grace' };
-    // Clearing skips IS the recovery contract. If it throws, keep the latch:
-    // resuming with the skip windows still persisted would be a false recovery.
     // Clearing skips IS the recovery contract. If it throws, keep the latch:
     // resuming with the skip windows still persisted would be a false recovery.
     try { jrnClearSkips(); } catch (e) {
@@ -1181,9 +1158,6 @@
       // Scope-neutral on purpose: wake entries are heterogeneous (ibScan,
       // orchTick, farmTick, report catch-up) and carry no scope, so the real
       // admission decision belongs to the gbXhr / txRun call inside item.fn.
-      // Scope-neutral on purpose: wake entries are heterogeneous (ibScan,
-      // orchTick, farmTick, report catch-up) and carry no scope, so the real
-      // admission decision belongs to the gbXhr / txRun call inside item.fn.
       if (!reqBudgetOk()) {
         gbTimeout(step, 1500 + Math.floor(Math.random() * 500));
         return;
@@ -1291,9 +1265,6 @@
     // Delay the write path when its own scope (action) approaches the hard pool.
     // Using un-scoped reqBudgetUsed would let scrape / read noise trigger a write
     // throttle even while the action scope still has room.
-    // Delay the write path when its own scope (action) approaches the hard pool.
-    // Using un-scoped reqBudgetUsed would let scrape / read noise trigger a write
-    // throttle even while the action scope still has room.
     const soft = Math.max(5, Math.floor((state.reqBudgetPerMin || 40) *
       ((state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60) / 100)));
     const used = reqBudgetUsed('action');
@@ -1313,9 +1284,6 @@
     // Separate from attackTpl on purpose: identical payload signature, but a
     // support rejection must never invalidate the attack template (v2.5.7
     // favor precedent, see the comment below).
-    // Separate from attackTpl on purpose: identical payload signature, but a
-    // support rejection must never invalidate the attack template (v2.5.7
-    // favor precedent, see the comment below).
     support: 'supportTpl',
     spy: 'spyTpl',
     collect: 'collectTpl',
@@ -1326,11 +1294,6 @@
     // disabled in src/favor.js; leave it unmapped so re-enable does not
     // poison attackTpl health. When favor gets its own learned payload, add
     // a dedicated `favorTpl` here.
-  // favor used attackTpl here, but that meant a favor rejection would
-  // invalidate the attack template (identical payload). Favor is currently
-  // disabled in src/favor.js; leave it unmapped so re-enable does not
-  // poison attackTpl health. When favor gets its own learned payload, add
-  // a dedicated `favorTpl` here.
   };
   // Feature `build` carries two different posts: auto-queue `buildUp` (payload is
   // hardcoded - no learned template can be stale) and instant complete (which is
@@ -1406,8 +1369,6 @@
     if (!h || !h.invalidated) return true;
     // Nothing learned means there is no stale payload - the caller falls back to
     // its own constant, so a permanent block here is a dead feature for no gain.
-    // Nothing learned means there is no stale payload - the caller falls back to
-    // its own constant, so a permanent block here is a dead feature for no gain.
     if (!tplLearned(name)) {
       h.invalidated = false;
       h.hardFails = 0;
@@ -1415,14 +1376,6 @@
       tplHealthSave();
       return true;
     }
-    // Self-heal: without this, the gate blocks the only post that could ever
-    // record an 'ok', so a single bad streak killed the feature until a
-    // hand-click. Expiry lets it spend one more strike proving it is really dead.
-    //
-    // Zeroing hardFails here made a chronically dead endpoint cycle
-    // open/expire/open forever at the same 30min period, burning 5 rejections
-    // each time and never escalating. Decay ONE strike instead: the next hard
-    // fail re-invalidates immediately and the retry window doubles, to 8x.
     // Self-heal: without this, the gate blocks the only post that could ever
     // record an 'ok', so a single bad streak killed the feature until a
     // hand-click. Expiry lets it spend one more strike proving it is really dead.
@@ -1570,10 +1523,6 @@
   // so the `<hostname>:<id>` in-memory key scoped the map a second time - and
   // that is why every `state.seen[id]` fallback read in spy.js was dead. Strip
   // the legacy prefix once on load; the key is the bare report id from here on.
-  // STORE.SEEN is world-scoped in storage already (wkey appends '@<hostname>'),
-  // so the `<hostname>:<id>` in-memory key scoped the map a second time - and
-  // that is why every `state.seen[id]` fallback read in spy.js was dead. Strip
-  // the legacy prefix once on load; the key is the bare report id from here on.
   (function seenUnscope() {
     const pre = location.hostname + ':';
     let n = 0;
@@ -1618,9 +1567,6 @@
 
     if (!list || sec.hidden || list.hidden || logRenderQueued) return;
     logRenderQueued = true;
-    // Visible tab: coalesce per-frame via rAF so a burst of log lines paints
-    // once, not once-per-line. Hidden tab: keep a 250ms timer so the next
-    // visible paint sees the whole batch (rAF is paused in hidden tabs).
     // Visible tab: coalesce per-frame via rAF so a burst of log lines paints
     // once, not once-per-line. Hidden tab: keep a 250ms timer so the next
     // visible paint sees the whole batch (rAF is paused in hidden tabs).
@@ -1807,8 +1753,6 @@
         if (v !== null && v !== undefined) return loadValueOk(v, key) ? v : fallback;
         // Legacy global fallback is migration-only. Once this world reaches config v3,
         // never inherit world-specific IDs/plans from another world.
-        // Legacy global fallback is migration-only. Once this world reaches config v3,
-        // never inherit world-specific IDs/plans from another world.
         const migrated = +GM_getValue(wkey(STORE.CONFIG_VER), 0) >= 3;
         if (!migrated) {
           const legacy = GM_getValue(key, null);
@@ -1877,8 +1821,6 @@
       let n = 0;
       // checkThresholds stores {key, ts} objects, so a bare `entry < cut` compared
       // an object against a number and was always false - this prune did nothing.
-      // checkThresholds stores {key, ts} objects, so a bare `entry < cut` compared
-      // an object against a number and was always false - this prune did nothing.
       Object.keys(state.alerted || {}).forEach(k => {
         const e = state.alerted[k];
         const ts = (e && typeof e === 'object') ? +e.ts || 0 : +e || 0;
@@ -1908,16 +1850,9 @@
     // "enough" bytes on paper and still lose the retried write. Keep the newest
     // one - a snapshot only exists to diff against, and diagnostics is the first
     // thing that should yield when the store is full.
-    // Snapshots are the single biggest thing this script writes: SNAPSHOT_SLOTS
-    // (6) x up to SNAPSHOT_BUDGET_BYTES (200KB) each. Pruning five small rings
-    // and leaving 1.2MB of pure diagnostics untouched is why a prune could free
-    // "enough" bytes on paper and still lose the retried write. Keep the newest
-    // one - a snapshot only exists to diff against, and diagnostics is the first
-    // thing that should yield when the store is full.
     try {
       const ring = state.snapshots;
       if (Array.isArray(ring) && ring.length > 1) {
-        // splice, not reassign: snapshotRing() hands this array out to callers.
         // splice, not reassign: snapshotRing() hands this array out to callers.
         for (const s of ring.splice(0, ring.length - 1)) bytes += (s && +s.sizeBytes) || 0;
         storageRawSet(wkey(STORE.SNAPSHOTS), ring);
@@ -1931,8 +1866,6 @@
         storageRawSet(wkey(STORE.WHY_LOG), list);
       }
     } catch (_) {}
-    // A dodge return that already landed (or whose due time is long past) is
-    // history, not a pending intent - dodgeReturnTick only acts on the live ones.
     // A dodge return that already landed (or whose due time is long past) is
     // history, not a pending intent - dodgeReturnTick only acts on the live ones.
     try {
@@ -1949,10 +1882,6 @@
       });
       if (dropped.length) { bytes += pruneBytesOf(dropped); storageRawSet(wkey(STORE.DODGE_RETURNS), map); }
     } catch (_) {}
-    // tplHealth is keyed by learned payload name and never expires on its own;
-    // an entry nothing has touched in a week is a template the world no longer
-    // uses. tplHealthOk treats a missing entry as healthy, so dropping one costs
-    // at most one re-learn.
     // tplHealth is keyed by learned payload name and never expires on its own;
     // an entry nothing has touched in a week is a template the world no longer
     // uses. tplHealthOk treats a missing entry as healthy, so dropping one costs
@@ -2013,8 +1942,6 @@
   function saveFlush() {
     if (saveSoonTimer) { try { gbClearTimeout(saveSoonTimer); } catch (_) {} saveSoonTimer = 0; }
     if (!saveSoonPending.size) return;
-    // Snapshot first: save() can throw into the quota path, which prunes and may
-    // itself call back in here.
     // Snapshot first: save() can throw into the quota path, which prunes and may
     // itself call back in here.
     const entries = Array.from(saveSoonPending.entries());
@@ -2214,9 +2141,6 @@
       // A bare substring match fired on any body that merely mentions the word
       // ("no captcha required here"), pausing a healthy feature for 5/15/60min.
       // Require the flag SHAPE the game itself sets.
-      // A bare substring match fired on any body that merely mentions the word
-      // ("no captcha required here"), pausing a healthy feature for 5/15/60min.
-      // Require the flag SHAPE the game itself sets.
       try { d = JSON.parse(d); } catch (_) { return CAPTCHA_TEXT_RE.test(d); }
     }
     if (!d || typeof d !== 'object') return false;
@@ -2227,11 +2151,6 @@
     }
     if (d.captcha === true || d.captcha === 1) return true;
     if (typeof d.captcha === 'string' && d.captcha.length) return true;
-    // The game itself keys on this exact boolean - GPAjax getWrappedCallback:
-    //   success:function(e,i){if(!0===i.captcha_required)CaptchaWindowFactory.openCaptchaWindow(...)
-    // A captcha envelope carries no `error`, so responseServerError() sees none
-    // either: without this test the post is classified as SUCCESS, the tx commits
-    // and the breaker never trips while the bot posts into the captcha wall.
     // The game itself keys on this exact boolean - GPAjax getWrappedCallback:
     //   success:function(e,i){if(!0===i.captcha_required)CaptchaWindowFactory.openCaptchaWindow(...)
     // A captcha envelope carries no `error`, so responseServerError() sees none

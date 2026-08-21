@@ -10,8 +10,6 @@
   function banditIsOffenseUnit(uw, id) {
     // Hoplites are balanced troops but are valid attackers. Keep this exception
     // narrow instead of sending every unit marked function_both by the game.
-    // Hoplites are balanced troops but are valid attackers. Keep this exception
-    // narrow instead of sending every unit marked function_both by the game.
     if (BANDIT_ILLEGAL_IDS.test(id)) return false;
     if (/^(godsent|hoplite)$/i.test(id)) return true;
     try {
@@ -157,13 +155,8 @@
     const current = useTown ? +evidence.townCount || 0 : +evidence.count || 0;
     let before = useTown ? s.beforeTownMovementCount : s.beforeMovementCount;
     // A globally empty readable collection also proves the per-town baseline was zero.
-    // A globally empty readable collection also proves the per-town baseline was zero.
     if (before == null && useTown && +s.beforeMovementCount === 0) before = 0;
     if (before != null && Number.isFinite(+before)) return current > +before ? 'applied' : 'unchanged';
-    // No persisted baseline (transaction created by an older version): `current
-    // > 0` is not evidence about OUR post — any pre-existing movement, from any
-    // town, committed the transaction as applied. Without a baseline the outcome
-    // is genuinely unknown, and the unknown path already re-checks later.
     // No persisted baseline (transaction created by an older version): `current
     // > 0` is not evidence about OUR post — any pre-existing movement, from any
     // town, committed the transaction as applied. Without a baseline the outcome

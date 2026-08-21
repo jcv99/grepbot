@@ -180,8 +180,6 @@
     }
     // An UNKNOWN type gets the default, not zero: a movement whose type this
     // build cannot name is not automatically harmless.
-    // An UNKNOWN type gets the default, not zero: a movement whose type this
-    // build cannot name is not automatically harmless.
     const d = +(table._default != null ? table._default : THREAT_TYPE_RISK._default);
     return Number.isFinite(d) ? Math.max(0, Math.min(100, d)) : THREAT_TYPE_RISK._default;
   }
@@ -197,9 +195,6 @@
     const stored = (state.predictCfg && state.predictCfg.threatWeights) || null;
     if (!over && _threatMemo.src === stored && _threatMemo.v) return _threatMemo.v;
     const w = (over && typeof over === 'object') ? over : (stored || {});
-    // supportPer is stored as a MAGNITUDE and negated in the formula. The
-    // clamp to [0, 30] is what makes that safe: a hand-edited -5 becomes 0, so
-    // supports can never be turned into a risk INCREASE by a sign mistake.
     // supportPer is stored as a MAGNITUDE and negated in the formula. The
     // clamp to [0, 30] is what makes that safe: a hand-edited -5 becomes 0, so
     // supports can never be turned into a risk INCREASE by a sign mistake.
@@ -234,11 +229,8 @@
     const militia=dodgeCanRaiseMilitia(mov.dest);
     const factors={
       // Typed base: plan 5.4. A raid and a siege are not the same threat.
-      // Typed base: plan 5.4. A raid and a siege are not the same threat.
       type: riskForAttackType(mov.type),
       cs: mov.hasCs?w.cs:0,
-      // eta === null is UNREADABLE, not "far away": the branch is skipped
-      // rather than scored either way.
       // eta === null is UNREADABLE, not "far away": the branch is skipped
       // rather than scored either way.
       eta:(eta!=null&&eta<THREAT_ETA15_SEC)?w.eta15:0,
@@ -249,15 +241,10 @@
     // v4 plan 3.7: a covered snipe window is genuinely worse - the CS lands
     // behind cover. Deliberately a small, separate bump: re-weighting the
     // existing factors is plan 5.4's job, not this one's.
-    // v4 plan 3.7: a covered snipe window is genuinely worse - the CS lands
-    // behind cover. Deliberately a small, separate bump: re-weighting the
-    // existing factors is plan 5.4's job, not this one's.
     let snipe = null;
     try { snipe = (csWaveClusters(all) || []).find(t => String(t.dest) === String(mov.dest)) || null; } catch (_) {}
     factors.snipe = (snipe && snipe.verdict === 'covered') ? 10 : 0;
     const raw=factors.type+factors.cs+factors.eta+factors.simultaneous+factors.weak+factors.support+factors.snipe;
-    // Clamped so a hand-edited negative weight cannot produce a band the
-    // consumer has no branch for.
     // Clamped so a hand-edited negative weight cannot produce a band the
     // consumer has no branch for.
     const risk=Math.max(0,Math.min(100,raw));

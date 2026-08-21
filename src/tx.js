@@ -53,9 +53,6 @@
       // plannerRelease: plannerReservationActive() reports manual-review as
       // inactive, so a held reservation left behind here made the planner ledger
       // and the reservation state disagree for the life of the tombstone.
-      // plannerRelease: plannerReservationActive() reports manual-review as
-      // inactive, so a held reservation left behind here made the planner ledger
-      // and the reservation state disagree for the life of the tombstone.
       if(t.state==='unknown'&&now-(+t.unknownAt||+t.updatedAt||0)>TX_UNKNOWN_MAX_MS){t.state='manual-review';t.detail='unknown outcome expired; manual review required';t.updatedAt=now;plannerRelease(t,'manual-review');txCompactReview(t);changed=true;continue}
       if (t.state === 'manual-review' && txCompactReview(t)) changed = true;
       const terminalTtl=t.state==='committed'&&t.snapshot&&t.snapshot.kind==='instant'?TX_INSTANT_TOMBSTONE_TTL:TX_TERMINAL_TTL;
@@ -148,9 +145,6 @@
     try {
       const info = researchTownTechs(townId);
       if (!info) return null;
-      // An unreadable real queue makes `queued` a guess, and the reconcile below
-      // reads a false `queued` as "the post did not land" -> retry -> duplicate.
-      // Null keeps it at `unknown`, which is what an unread value means.
       // An unreadable real queue makes `queued` a guess, and the reconcile below
       // reads a false `queued` as "the post did not land" -> retry -> duplicate.
       // Null keeps it at `unknown`, which is what an unread value means.
@@ -593,9 +587,6 @@
     // The attack-spot movement model can arrive after the transport callback
     // times out. Give it a longer observation window instead of leaving a
     // successful attack marked unknown.
-    // The attack-spot movement model can arrive after the transport callback
-    // times out. Give it a longer observation window instead of leaving a
-    // successful attack marked unknown.
     const checks = (s.kind === 'bandit-attack' || (s.kind === 'bandit' && /\/attack$/i.test(String(tx.endpoint || ''))))
       ? [700, 1800, 3500, 5000, 8000]
       : [700, 1800, 3500];
@@ -640,9 +631,6 @@
     // Scope must match what the caller will MARK below. Charging a read against
     // the action scope pinned actions at the hard cap while the soft throttle -
     // which counts scope-specific - never saw the pressure and never delayed.
-    // Scope must match what the caller will MARK below. Charging a read against
-    // the action scope pinned actions at the hard cap while the soft throttle -
-    // which counts scope-specific - never saw the pressure and never delayed.
     if (!reqBudgetOk('read')) return 'budget';
     return null;
   }
@@ -657,8 +645,6 @@
     let journalTxId = null;
     const bail = (err, why) => {
       const journalResult = jrnResult(why || err);
-      // A duplicate blocked behind an in-flight/unknown transaction is not a
-      // new attempt or a failure. TX_STATE remains the source of truth.
       // A duplicate blocked behind an in-flight/unknown transaction is not a
       // new attempt or a failure. TX_STATE remains the source of truth.
       if (!jrnPendingResult(journalResult)) jrnPush(jtag, journalResult, why || err, journalTxId);
@@ -681,7 +667,6 @@
       return bail(gate.split(':')[0], gate);
     }
     if (write) {
-      // Learned-payload health: charged per template, never per feature key.
       // Learned-payload health: charged per template, never per feature key.
       const tplName = tplNameFor(feature, transport === 'bridge' ? data : null);
       if (tplName && !tplHealthOk(tplName)) {
@@ -726,20 +711,11 @@
     // `duplicate blocked ... state=dryrun`. Drop it here rather than only in the
     // Config toggle handler: dry run also flips via panic, via storage reload,
     // and via another tab, and none of those paths run that handler.
-    // A 'dryrun' stamp only exists to suppress repeat DRY-RUN logging while dry
-    // run is ON. Once it is OFF the stamp has no meaning, and leaving it in the
-    // slot blocks the first real post for TX_TERMINAL_TTL (30min) as
-    // `duplicate blocked ... state=dryrun`. Drop it here rather than only in the
-    // Config toggle handler: dry run also flips via panic, via storage reload,
-    // and via another tab, and none of those paths run that handler.
     if (state.txState[intent] && state.txState[intent].state === 'dryrun' && !state.dryRun) {
       delete state.txState[intent];
       txSave();
     }
     const existing = state.txState[intent];
-    // 'dryrun' is a txState stamp set by the dry-run bail above; a second
-    // pass on the same intent (cadence tick, MO replay) must short-circuit
-    // instead of re-logging DRY-RUN every interval.
     // 'dryrun' is a txState stamp set by the dry-run bail above; a second
     // pass on the same intent (cadence tick, MO replay) must short-circuit
     // instead of re-logging DRY-RUN every interval.
@@ -762,10 +738,6 @@
         }
         if (r === 'unchanged') {
           existing.state = 'failed'; existing.updatedAt = Date.now(); existing.detail = 'reconciled not applied; retry allowed'; plannerRelease(existing, 'reconciled-unchanged'); txSave();
-          // Deferred, not a synchronous re-entry: the immediate retry ran inside
-          // the same tick and re-charged a tx record, a journal row and a budget
-          // slot before any gate could see the pressure. Same shape as the soft
-          // ceiling delay above.
           // Deferred, not a synchronous re-entry: the immediate retry ran inside
           // the same tick and re-charged a tx record, a journal row and a budget
           // slot before any gate could see the pressure. Same shape as the soft
@@ -800,7 +772,6 @@
       }
     }
     // A write gets budget only when it is actually going to SEND.
-    // A write gets budget only when it is actually going to SEND.
     if (!reqBudgetOk('action')) { tx.state = 'aborted'; tx.detail = 'budget'; tx.updatedAt = Date.now(); plannerRelease(tx, 'budget'); txSave(); return bail('budget'); }
     // Last guard before the request leaves. Re-read here rather than at the top
     // so a ladder that opened during this tick still stops the send, and one
@@ -814,7 +785,6 @@
     tx.state = 'sending'; tx.sentAt = Date.now(); tx.updatedAt = Date.now(); txSave();
     rawSend((err, result) => {
       if (!gbInstanceAlive() || tx.owner !== GB_INSTANCE_ID) return;
-      // A callback for a transaction that has already been superseded must never mutate it.
       // A callback for a transaction that has already been superseded must never mutate it.
       if (state.txState[intent] !== tx || !/^(sending|confirming)$/.test(tx.state)) return;
       if (err === 'timeout') {
@@ -845,8 +815,6 @@
         return;
       }
       tx.state = 'confirming'; tx.updatedAt = Date.now(); txSave();
-      // A successful server callback is confirmation. For transactions with an observable
-      // model delta we additionally reconcile, but do not create a second SEND.
       // A successful server callback is confirmation. For transactions with an observable
       // model delta we additionally reconcile, but do not create a second SEND.
       const r = txReconcileNow(tx);

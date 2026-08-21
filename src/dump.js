@@ -58,8 +58,6 @@
     if (sinks.length) {
       // An explicit sink wins outright, but still only if it has real room -
       // a haul over the target warehouse evaporates on arrival.
-      // An explicit sink wins outright, but still only if it has real room -
-      // a haul over the target warehouse evaporates on arrival.
       const best = sinks.map(id => ({ id, room: roomOf(id) }))
         .filter(x => x.room != null && x.room > 0)
         .sort((a, b) => b.room - a.room)[0];
@@ -69,11 +67,6 @@
       .filter(x => x.bias >= 0.5 && x.room != null && x.room > 0)
       .sort((a, b) => (b.bias - a.bias) || (b.room - a.room))[0];
     if (wanted) return wanted.id;
-    // Tier 3: let the transport planner answer with its own thresholds rather
-    // than re-deriving them here - but on a CLONE. transportBalanceJobs calls
-    // tradeApplyJob internally, and running it on the shared ledger would
-    // deduct resources for jobs we are only inspecting, on top of the real
-    // transport pass tradeScan already ran this tick.
     // Tier 3: let the transport planner answer with its own thresholds rather
     // than re-deriving them here - but on a CLONE. transportBalanceJobs calls
     // tradeApplyJob internally, and running it on the shared ledger would
@@ -104,16 +97,9 @@
       // already counts in-flight arrivals and every deduction made earlier this
       // scan. Testing the threshold against live stock while sizing against the
       // ledger let the same resource keep re-firing as the ledger shrank.
-      // ONE basis for both the threshold test and the amount: the ledger, which
-      // already counts in-flight arrivals and every deduction made earlier this
-      // scan. Testing the threshold against live stock while sizing against the
-      // ledger let the same resource keep re-firing as the ledger shrank.
       let perTown = 0;
       for (const res of GB_RES_KEYS) {
         if (src.tradeCap <= 0) break;
-        // One job per town per scan: otherwise the first town with three
-        // resources over threshold eats the whole per-scan budget and every
-        // later town is starved.
         // One job per town per scan: otherwise the first town with three
         // resources over threshold eats the whole per-scan budget and every
         // later town is starved.
@@ -124,8 +110,6 @@
           gbLogT('dump-cave-' + id, 600000, `dump: town ${id} iron held - cave still has headroom`);
           continue;
         }
-        // Second, independent guard: the cave may be about to need this iron
-        // even when the hide is technically full-ish.
         // Second, independent guard: the cave may be about to need this iron
         // even when the hide is technically full-ish.
         if (res === 'iron') {
@@ -139,9 +123,6 @@
         }
         const keep = Math.floor(src.cap * dumpKeepPctFor(res) / 100);
         const surplus = Math.max(0, (+src[res] || 0) - keep);
-        // Half the surplus, never all of it: a town that zeroes a resource and
-        // then meets a build order that needs it is stranded until the next
-        // production cycle.
         // Half the surplus, never all of it: a town that zeroes a resource and
         // then meets a build order that needs it is stranded until the next
         // production cycle.

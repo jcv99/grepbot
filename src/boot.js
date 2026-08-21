@@ -5,10 +5,8 @@
   // as the in-memory intervals that drive them.
   const BOOT_TIMING = Object.freeze({
     // persistence deadlines — first fire of the persistent loops after install
-    // persistence deadlines — first fire of the persistent loops after install
     FIRST_FARM_DEADLINE_MS: 20000,
     FIRST_TOWNS_DEADLINE_MS: 30000,
-    // scrape / poll cadences
     // scrape / poll cadences
     INBOX_SCRAPE_MS: 30000,
     FARM_TICK_MS: 15000,
@@ -22,8 +20,6 @@
     NATIVE_QUEUE_LOOP_MS: 60000,
     QUEUE_CENTER_PAINT_MS: 5000,
     OVERVIEW_RENDER_MS: 15000,
-    // one-shot boot delays — staggered so the panel + scan + reconcile each
-    // find a settled UI by the time they paint
     // one-shot boot delays — staggered so the panel + scan + reconcile each
     // find a settled UI by the time they paint
     HUD_RESTORE_MS: 1500,

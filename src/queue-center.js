@@ -47,10 +47,6 @@
   // opens the window. The state flag guards re-entry inside one instance;
   // gbAddStyle guards the cross-instance case (a hot reload starts with a fresh
   // state object but the previous instance's <style> is still in <head>).
-  // QC styles live here (not in panel CSS) so they only parse once the user
-  // opens the window. The state flag guards re-entry inside one instance;
-  // gbAddStyle guards the cross-instance case (a hot reload starts with a fresh
-  // state object but the previous instance's <style> is still in <head>).
   if (!state._gbQcCssInjected) {
     state._gbQcCssInjected = true;
     gbAddStyle('queue-center', `
@@ -194,9 +190,6 @@
     const r = document.createElement('div'); r.className = 'gb-qc-live-row';
     const n = document.createElement('span'); n.textContent = `#${num}`; if (numTitle) n.title = numTitle;
     const nm = document.createElement('b'); nm.textContent = label;
-    // Class first: queueCenterSig() keys off `<span class="gb-qc-eta"` to blank
-    // these cells out of the repaint comparison, and attributes serialize in
-    // insertion order.
     // Class first: queueCenterSig() keys off `<span class="gb-qc-eta"` to blank
     // these cells out of the repaint comparison, and attributes serialize in
     // insertion order.
@@ -584,9 +577,6 @@
     // Only the lane(s) the visible tab actually renders. Keying on all four made
     // an unrelated lane's job id churn (an auto-queue sweep in another lane)
     // rebuild the whole body, throwing away scroll position and :hover.
-    // Only the lane(s) the visible tab actually renders. Keying on all four made
-    // an unrelated lane's job id churn (an auto-queue sweep in another lane)
-    // rebuild the whole body, throwing away scroll position and :hover.
     const lanes = QC_TAB_LANES[gbQueueCenterTab] || ['build', 'research', 'recruit', 'recruitNaval'];
     let k = gbQueueCenterTab + '|' + townId;
     for (const lane of lanes) {
@@ -628,7 +618,6 @@
     if (gbQcRendering) return;
     if (!userDriven && queueCenterUserBusy()) {
       // Stay dirty and come back once the picker is closed.
-      // Stay dirty and come back once the picker is closed.
       if (!gbQcPaintTimer) gbQcPaintTimer = gbTimeout(() => { gbQcPaintTimer = 0; queueCenterPaint(false); }, 400);
       return;
     }
@@ -647,18 +636,10 @@
       // completed by hand disappears on the next repaint instead of waiting
       // for an auto-queue sweep. Throttled, and skipped entirely on a click —
       // the reconcile is the expensive half of a paint.
-      // The window is a live view of the game, not of storage: re-check the
-      // shown town against the real model before painting, so a job the player
-      // completed by hand disappears on the next repaint instead of waiting
-      // for an auto-queue sweep. Throttled, and skipped entirely on a click —
-      // the reconcile is the expensive half of a paint.
       if (!userDriven && Date.now() - gbQcReconciledAt > 2000) {
         gbQcReconciledAt = Date.now();
         try { nativeQueueReconcileTown(gbQueueCenterTown); } catch (_) {}
       }
-      // Rebuild the town picker only when the option set actually changed:
-      // replaceChildren() on every paint dropped the focus ring and shut the
-      // dropdown mid-selection.
       // Rebuild the town picker only when the option set actually changed:
       // replaceChildren() on every paint dropped the focus ring and shut the
       // dropdown mid-selection.
@@ -674,11 +655,6 @@
       }
       if (sel.value !== String(gbQueueCenterTown)) sel.value = String(gbQueueCenterTown);
       w.querySelectorAll('.gb-qc-tab').forEach(b => b.classList.toggle('on', b.dataset.qtab === gbQueueCenterTab));
-      // Paint through the shared primitive: an unchanged window is patched in
-      // place (text + attributes), so the scroll offset, the :hover under the
-      // cursor and the eta baselines the ticker reads all survive a background
-      // repaint. The key is every job the row handlers close over — a reorder or
-      // a removal rebuilds instead of patching, so no button outlives its job.
       // Paint through the shared primitive: an unchanged window is patched in
       // place (text + attributes), so the scroll offset, the :hover under the
       // cursor and the eta baselines the ticker reads all survive a background

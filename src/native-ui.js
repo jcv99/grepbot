@@ -46,10 +46,6 @@
     // are always set by the time we get here — the old `== null` guards could
     // never fire and the migrated lane stayed 'legacy', which recruitScan skips.
     // "Only fills empty slots" now keys off the lane actually being empty.
-    // nativeQueueTown normalizes mode/paused BEFORE calling this, so both fields
-    // are always set by the time we get here — the old `== null` guards could
-    // never fire and the migrated lane stayed 'legacy', which recruitScan skips.
-    // "Only fills empty slots" now keys off the lane actually being empty.
     const navalWasEmpty=naval.length===0;
     for(let i=land.length-1;i>=0;i--){
       const j=land[i];if(!j)continue;
@@ -62,12 +58,7 @@
       // A lane split inherits the settings of the lane it split off from; a
       // recruitNaval lane that already held jobs is a deliberate configuration
       // and is left alone.
-      // A lane split inherits the settings of the lane it split off from; a
-      // recruitNaval lane that already held jobs is a deliberate configuration
-      // and is left alone.
       if (navalWasEmpty) { t.mode.recruitNaval = t.mode.recruit; t.paused.recruitNaval = !!t.paused.recruit; }
-      // Direct save: nativeQueueSave() re-renders, and this runs from inside
-      // nativeQueueList, which the renderers themselves call.
       // Direct save: nativeQueueSave() re-renders, and this runs from inside
       // nativeQueueList, which the renderers themselves call.
       try{save(STORE.NATIVE_QUEUE,nativeQueueRoot())}catch(_){}
@@ -130,8 +121,6 @@
   }
   let nativeQueueSweepAt=0;
   function nativeQueueSweep(reason) {
-    // Wake events and the 60s loop can land in the same second; a manual click
-    // is always honoured because it is the player asking for a re-read.
     // Wake events and the 60s loop can land in the same second; a manual click
     // is always honoured because it is the player asking for a re-read.
     if(reason!=='manual'&&nativeQueueSweepAt&&Date.now()-nativeQueueSweepAt<5000)return 0;
@@ -290,13 +279,6 @@
     // one, and continues until the target itself is buildable or an error
     // surfaces. Existing queue jobs are folded into the simulated levels so a
     // prereq already covered by the queue is skipped (no duplicates).
-    // Walk the prerequisite chain for `building`, returning an ordered list of
-    // building ids that must be queued in front (deepest dep first). The walk
-    // reuses the project's own recursive resolver: each iteration asks for the
-    // next unmet dependency of the current target, bumps simulated levels by
-    // one, and continues until the target itself is buildable or an error
-    // surfaces. Existing queue jobs are folded into the simulated levels so a
-    // prereq already covered by the queue is skipped (no duplicates).
     const levels = abCurrentLevels(townId);
     if (!levels) return { chain: [], error: 'levels-unreadable' };
     const sim = Object.assign({}, levels);
@@ -424,8 +406,6 @@
     const pending = nativeFarmPendingLevels(townId);
     if (pending == null) { gbLogT('pop-rescue-blind-' + townId, 300000, `pop rescue: real build queue unreadable @${townId} - not queueing farm blind`); return 0; }
     if (pending >= POP_RESCUE_FARM_LEVELS) return 0;
-    // abCurrentLevels already folds the real build queue in, so this is the
-    // PROJECTED farm level, not the standing one.
     // abCurrentLevels already folds the real build queue in, so this is the
     // PROJECTED farm level, not the standing one.
     const projected = +(levels.farm || 0);
@@ -601,8 +581,6 @@
     if (!since) return null;
     // `building` is carried on the result so the renderer does not have to
     // re-read list[0] and hope nothing moved in between.
-    // `building` is carried on the result so the renderer does not have to
-    // re-read list[0] and hope nothing moved in between.
     return { townId: String(townId), jobId: head.id, building: head.building, why: head.reason || head.status, forMinutes: Math.floor((Date.now() - since) / 60000) };
   }
   function buildSwapIgnored(townId, headId) {
@@ -626,8 +604,6 @@
     const list = nativeQueueList(townId, 'build', false);
     // A frozen queue is not reorderable at all - nativeQueueMove would refuse
     // anyway, so do not offer a button that cannot work.
-    // A frozen queue is not reorderable at all - nativeQueueMove would refuse
-    // anyway, so do not offer a button that cannot work.
     if (list.some(j => j && (j.inflight || j.manualReview))) return null;
     const levels = abCurrentLevels(townId);
     if (!levels) return null;
@@ -635,8 +611,6 @@
       const j = list[i];
       if (!j || !j.building) continue;
       const dep = abResolvePrerequisite(townId, j.building, levels);
-      // Only promote a job that is ITSELF the next step - promoting one whose
-      // own prerequisite is missing just moves the stall up the queue.
       // Only promote a job that is ITSELF the next step - promoting one whose
       // own prerequisite is missing just moves the stall up the queue.
       if (!dep || !dep.building || dep.building !== j.building) continue;
@@ -979,11 +953,6 @@
     // control and the panel with it — "no panel at all". When the currently
     // open town is one of the candidates and this root is the focused window,
     // that is the town the window is acting on.
-    // C3: a window that carries several distinct town ids (a town selector, a
-    // trade/support widget) used to abort the whole root, which removes every
-    // control and the panel with it — "no panel at all". When the currently
-    // open town is one of the candidates and this root is the focused window,
-    // that is the town the window is acting on.
     if(ids.size>1){
       const cur=abCurrentTownId();
       const curId=cur==null?null:String(cur);
@@ -997,7 +966,6 @@
     const isRelevant=r=>!!(r&&r.matches&&r.matches('#unit_order,.window_content,.gpwindow_content'))&&!!(r.matches('#unit_order')||nativeAcademyRoot(r)||r.querySelector(`#unit_order,#building_main,.building_main,[id^="building_main_"],[id^="special_building_"],${NATIVE_RESEARCH_SEL}`));
     const relevant=isRelevant(root);
     if(!relevant)return null;
-    // With several open windows, only the focused one may inherit Game.townId.
     // With several open windows, only the focused one may inherit Game.townId.
     let focusProven=false;
     try{const mgr=gameUw().GPWindowMgr,w=mgr&&mgr.getFocusedWindow&&mgr.getFocusedWindow(),jq=w&&w.getJQElement&&w.getJQElement(),el=jq&&(jq[0]||jq.get&&jq.get(0));if(el){focusProven=true;if(!(el===root||el.contains(root)||root.contains(el)))return null}}catch(_){}

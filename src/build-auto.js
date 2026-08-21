@@ -32,16 +32,12 @@
     // Wrapped like every other read in this file: abCurrentLevels feeds the
     // planner, the renderer and tx state, and a throwing model proxy must not
     // take all three down.
-    // Wrapped like every other read in this file: abCurrentLevels feeds the
-    // planner, the renderer and tx state, and a throwing model proxy must not
-    // take all three down.
     try {
       const t = gbTownModel(townId);
       if (!t) return null;
       let v = gbProbeNum(t, WALL_DAMAGE_FNS, ['wall']);
       if (v == null) v = gbProbeNum(t, WALL_DAMAGE_FNS);
       if (v == null) v = gbProbeAttr(t, WALL_DAMAGE_ATTRS);
-      // Only a percentage in range is believable. Anything else is unreadable.
       // Only a percentage in range is believable. Anything else is unreadable.
       return (Number.isFinite(v) && v >= 0 && v <= 100) ? v : null;
     } catch (_) { return null; }
@@ -119,9 +115,6 @@
       const uw = gameUw();
       const models = uw.MM && uw.MM.getModels && uw.MM.getModels();
       let bbd = models && (models.BuildingBuildData || models.BuildData || models.BuildingBuilder);
-      // Use != null not || : an MM collection is a model dict, but a `0` or
-      // `''` town key (renamed client, corrupt snapshot) would otherwise
-      // silently fall through to a stale entry indexed by the string form.
       // Use != null not || : an MM collection is a model dict, but a `0` or
       // `''` town key (renamed client, corrupt snapshot) would otherwise
       // silently fall through to a stale entry indexed by the string form.
@@ -316,10 +309,6 @@
     for (const [dep, need] of Object.entries(req)) if (+(levels[dep] || 0) < +need) return { ok: false, why: `missing:${dep}:${levels[dep] || 0}/${need}` };
     const aff = abCanAfford(townId, fresh.building);
     if (!aff.ok) {
-      // Last gate before the post, so this catches the population that a
-      // recruit order ate between the pick and here. Idempotent: the rescue
-      // re-counts what is already queued and adds nothing when the farm levels
-      // are already in front. Nothing is posted on this path either way.
       // Last gate before the post, so this catches the population that a
       // recruit order ate between the pick and here. Idempotent: the rescue
       // re-counts what is already queued and adds nothing when the farm levels

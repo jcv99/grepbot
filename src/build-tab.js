@@ -82,8 +82,6 @@
     (orders || []).forEach(o => {
       // Only the head order of each town is counting down; a queued order
       // reports its full build time and its clock has not started yet.
-      // Only the head order of each town is counting down; a queued order
-      // reports its full build time and its clock has not started yet.
       if (o.isFree || !o.isHead || !(o.display > 0)) return;
       const armIn = (o.display * 1000) - thresh;
       if (armIn <= 0) return;
@@ -93,7 +91,6 @@
     });
     for (const key of Object.keys(ibFreeTimers)) if (!best[key]) ibClearArmed(key);
     for (const key of Object.keys(best)) {
-      // +1.2s so the server clock is past the boundary, plus jitter.
       // +1.2s so the server clock is past the boundary, plus jitter.
       const fireAt = best[key] + 1200 + Math.floor(Math.random() * 1500);
       const cur = ibFreeTimers[key];
@@ -135,7 +132,6 @@
       const byDone=byPos||uniqueMin(rows,r=>finite(r.to_be_completed_at??r.toBeCompletedAt??r.completed_at,true));
       const byCreated=byDone||uniqueMin(rows,r=>finite(r.created_at??r.createdAt,true));
       // If no field proves a unique head, do not offer an automatic instant action.
-      // If no field proves a unique head, do not offer an automatic instant action.
       if(byCreated)heads.set(town,byCreated.id)}
     return heads;
   }
@@ -145,11 +141,6 @@
     const uw = uwCached();
     const cols = [],colRefs=new Set();
     const addCol=col=>{if(col&&Array.isArray(col.models)&&col.models.length&&!colRefs.has(col)){colRefs.add(col);cols.push(col)}};
-    // Town-owned collections FIRST. `seenIds` keeps the first model it sees for
-    // an id, and the town's own queue is the one the client keeps current — the
-    // global MM collection can still hold a completed/stale copy of the same
-    // order, and pricing an instant complete off stale remaining time is how a
-    // "free" post turns into a paid one.
     // Town-owned collections FIRST. `seenIds` keeps the first model it sees for
     // an id, and the town's own queue is the one the client keeps current — the
     // global MM collection can still hold a completed/stale copy of the same
@@ -212,11 +203,6 @@
     // the FIRST model per id — with MM in front, a stale global copy of an
     // order won over the town's live one and the instant price was computed
     // from the wrong remaining time.
-    // Town-owned queues FIRST, then the global MM collection. Some worlds only
-    // keep the active town in the global collection, and `seenIds` below keeps
-    // the FIRST model per id — with MM in front, a stale global copy of an
-    // order won over the town's live one and the instant price was computed
-    // from the wrong remaining time.
     try {
       const townModels=uw.ITowns&&uw.ITowns.towns||{};
       for(const town of Object.values(townModels)){
@@ -255,17 +241,9 @@
         // that order's own remaining/build duration, even while an earlier order
         // is still running. Keep the absolute queue ETA for display/debugging, but
         // price the instant action from the duration Grepolis exposes for this order.
-        // Grepolis can offer free completion for a later queued building based on
-        // that order's own remaining/build duration, even while an earlier order
-        // is still running. Keep the absolute queue ETA for display/debugging, but
-        // price the instant action from the duration Grepolis exposes for this order.
         const display = isFirst ? timeLeft : (r.building_time || 0);
         const instantLeft = display;
         const gold = ibGoldCost('build', instantLeft);
-        // A queued (non-head) order prices its own duration, but the server
-        // charges from when it can actually start. Requiring the queue ETA to
-        // be free as well keeps the "free" claim honest: `buyInstant` SPENDS
-        // GOLD when the server disagrees, and that is not recoverable.
         // A queued (non-head) order prices its own duration, but the server
         // charges from when it can actually start. Requiring the queue ETA to
         // be free as well keeps the "free" claim honest: `buyInstant` SPENDS
@@ -283,9 +261,6 @@
           timeLeft,
           instantLeft,
           isHead: isFirst,
-          // Unlike research, building buyInstant is allowed on any queue position
-          // when Grepolis' live price function says the individual order costs 0
-          // gold AND the queue ETA is inside the free window too.
           // Unlike research, building buyInstant is allowed on any queue position
           // when Grepolis' live price function says the individual order costs 0
           // gold AND the queue ETA is inside the free window too.
@@ -425,11 +400,6 @@
     if (!state.ibAuto || gbLocked('ib')) return;
     const free = orders.filter(o => o.isFree);
     if (!free.length) return;
-    // Drop orders already inside a decisionSkips window BEFORE announcing the
-    // batch. The scan re-fires every 1-3s (interval + armed timer +
-    // visibilitychange), and the order stays free until the countdown really
-    // ends, so without this every window produced a wall of
-    // "free order(s), auto-completing" / "completed 0/N" with zero progress.
     // Drop orders already inside a decisionSkips window BEFORE announcing the
     // batch. The scan re-fires every 1-3s (interval + armed timer +
     // visibilitychange), and the order stays free until the countdown really

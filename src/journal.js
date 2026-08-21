@@ -40,10 +40,6 @@
     // saves through wkey(), which already reads the NEW hostname — the pending
     // batch would have been written to the new world's key, importing another
     // world's skip windows and town ids wholesale.
-    // Flush what is still in memory under the world it belongs to. jrnFlush()
-    // saves through wkey(), which already reads the NEW hostname — the pending
-    // batch would have been written to the new world's key, importing another
-    // world's skip windows and town ids wholesale.
     jrnSaveQueued = false;
     try { jrnSaveForHost(jrnHost); } catch (_) {}
     jrnHost = location.hostname;
@@ -118,8 +114,6 @@
     const now = Date.now();
     // A transaction has one journal row whose provisional result can later be
     // reconciled. Replacing timeout -> ok avoids counting one SEND twice.
-    // A transaction has one journal row whose provisional result can later be
-    // reconciled. Replacing timeout -> ok avoids counting one SEND twice.
     if (txId != null && txId !== '') {
       const id = String(txId).slice(0, 120);
       const provisional = result === 'timeout' || jrnPendingResult(result);
@@ -133,8 +127,6 @@
           jrnNote(tag, result); jrnSave();
           return r;
         }
-        // Remove the provisional row; the terminal result continues through the
-        // normal compacting path so repeated successful transactions still use n.
         // Remove the provisional row; the terminal result continues through the
         // normal compacting path so repeated successful transactions still use n.
         list.splice(i, 1);
@@ -206,8 +198,6 @@
     const key = jrnId(tag);
     const s = state.decisionSkips[key];
     if (!s || !s.until) return false;
-    // Repair windows persisted before jrnTransientDynamicResult existed — a live
-    // resource shortage must be re-decided by the precheck, never remembered.
     // Repair windows persisted before jrnTransientDynamicResult existed — a live
     // resource shortage must be re-decided by the precheck, never remembered.
     if (jrnTransientDynamicResult(s.r)) {

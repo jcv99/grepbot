@@ -33,9 +33,6 @@
     // Expire before evicting: a burst of 25 posts inside 8s used to drop the
     // OLDEST live watchers silently, and those posts then had no raw-response
     // settle left and hung the full BRIDGE_TIMEOUT_MS on any rejection.
-    // Expire before evicting: a burst of 25 posts inside 8s used to drop the
-    // OLDEST live watchers silently, and those posts then had no raw-response
-    // settle left and hung the full BRIDGE_TIMEOUT_MS on any rejection.
     const now = Date.now();
     for (let i = gbAjaxPending.length - 2; i >= 0; i--) {
       if (now - gbAjaxPending[i].at > GB_AJAX_WATCH_MS) gbAjaxPending.splice(i, 1);
@@ -81,8 +78,6 @@
     const act = (u.match(/[?&]action=([a-z_0-9]+)/i) || [])[1] || '';
     if (ctrl && act) {
       out.sigs.push('ajax:' + ctrl + '/' + act);
-      // parseBodyLoose only unwraps `json` for bridge-shaped payloads, so peel
-      // it here to line the body up with the `data` object the watcher holds.
       // parseBodyLoose only unwraps `json` for bridge-shaped payloads, so peel
       // it here to line the body up with the `data` object the watcher holds.
       let payload = j;
@@ -133,9 +128,6 @@
       // Cap the parse input. The noteCaptchaBody substring sniff (4 KB) is
       // upstream of this; this guard is the second line against an oversized
       // hostile body.
-      // Cap the parse input. The noteCaptchaBody substring sniff (4 KB) is
-      // upstream of this; this guard is the second line against an oversized
-      // hostile body.
       const src = d.length > GB_AJSON_PARSE_MAX ? d.slice(0, GB_AJSON_PARSE_MAX) : d;
       try { d = JSON.parse(src); } catch (_) {}
     }
@@ -143,10 +135,6 @@
     else if (typeof d !== 'object') d = { data: d };
     if (raw.plain && typeof raw.plain === 'object') {
       const merged = Object.assign({}, d, raw.plain);
-      // Last-wins merge could overwrite a true captcha flag from `json` with a
-      // falsy/absent one from `plain`, and the post would then be classified as
-      // success while the bot keeps posting into the captcha wall. A captcha
-      // flag set on EITHER side wins.
       // Last-wins merge could overwrite a true captcha flag from `json` with a
       // falsy/absent one from `plain`, and the post would then be classified as
       // success while the bot keeps posting into the captcha wall. A captcha
@@ -274,8 +262,6 @@
     };
     // Same log as bridgeRaw: an ajax timeout used to be completely silent, so a
     // dead controller/action looked like "nothing happened" in the Log tab.
-    // Same log as bridgeRaw: an ajax timeout used to be completely silent, so a
-    // dead controller/action looked like "nothing happened" in the Log tab.
     const timer = gbTimeout(() => {
       gbLogT('ajax-timeout-' + feature, 30000, `${feature}: ajax timeout ${BRIDGE_TIMEOUT_MS}ms (${controller}/${action})`);
       finish('timeout');
@@ -303,13 +289,6 @@
       // nothing). Impossible-early (status 0 before 250ms) is a neterr not a
       // timeout - it is almost always a proxy or extension tamper, not a
       // slow server.
-      // Status-first classification per RFC 6585 + MDN HTTP 429/503 guidance:
-      // 429 and 503 mean back off with Retry-After (the server-pressure bus
-      // parses it). A 200 with an empty body is a soft-empty (skip, not
-      // failure, so three in a row do not open a JRN_BACKOFF skip window for
-      // nothing). Impossible-early (status 0 before 250ms) is a neterr not a
-      // timeout - it is almost always a proxy or extension tamper, not a
-      // slow server.
       if (!status) return finish('neterr');
       if (status === 429 || status === 503) {
         try {
@@ -326,9 +305,6 @@
       // Soft-empty 200: empty / whitespace body, JSON-shaped. Short-circuits
       // to 'soft-empty' (a skip class) so the journal doesn't open a hard-error
       // skip window for what is actually a benign transient.
-      // Soft-empty 200: empty / whitespace body, JSON-shaped. Short-circuits
-      // to 'soft-empty' (a skip class) so the journal doesn't open a hard-error
-      // skip window for what is actually a benign transient.
       try {
         const txt = raw && (raw.responseText != null ? raw.responseText : (raw.json != null ? (typeof raw.json === 'string' ? raw.json : '') : ''));
         if (!txt || !String(txt).trim()) return finish('soft-empty');
@@ -336,7 +312,6 @@
       classify(gbAjaxUnwrap(raw));
     });
     try {
-      // Bare-function callback signature is (data, t_token) - see bridgeRaw.
       // Bare-function callback signature is (data, t_token) - see bridgeRaw.
       uw.gpAjax.ajaxPost(controller, action, data, false, (res) => classify(res));
     } catch (e) { finish(String(e)); }
@@ -416,9 +391,6 @@
           // `n` stays a RESOURCE count: a town is not blocked from looting just
           // because its population is capped, and every existing caller of `n`
           // (cave stash, deadlock resolver, trade) means "warehouses full".
-          // `n` stays a RESOURCE count: a town is not blocked from looting just
-          // because its population is capped, and every existing caller of `n`
-          // (cave stash, deadlock resolver, trade) means "warehouses full".
           const n = (full.wood ? 1 : 0) + (full.stone ? 1 : 0) + (full.iron ? 1 : 0);
           try { const ps = townPopState(townId); full.pop = !!(ps && ps.warn); } catch (_) { full.pop = false; }
           const fillPct = Math.round(Math.max(wood, stone, iron) / cap * 100);
@@ -474,8 +446,6 @@
       const total = Math.round((dur / 3600) * LOOT_RATE_PER_HOUR * (Number.isFinite(loyalty) ? loyalty : 1));
       // fits === null means "headroom unreadable", not "does not fit": the
       // caller must not skip the duration on an unread value.
-      // fits === null means "headroom unreadable", not "does not fit": the
-      // caller must not skip the duration on an unread value.
       const fits = (headroom != null && Number.isFinite(headroom)) ? total <= headroom * LOOT_SAFE_FILL_PCT : null;
       const split = gbLootSplit(total);
       return {
@@ -490,8 +460,6 @@
       if (!boats) return gbLootBlind('boat-capacity-unreadable', { units: ctx.units });
       // Transport capacity is not loot; it rides in meta so callers that want
       // the discriminator get it without a second call.
-      // Transport capacity is not loot; it rides in meta so callers that want
-      // the discriminator get it without a second call.
       return { wood: 0, stone: 0, iron: 0, total: 0, blind: false, blindReason: null, meta: { boats } };
     }
     if (kind === 'attack-loot') {
@@ -504,8 +472,6 @@
         if (carry == null) { unknown += n; continue; }
         total += carry * n;
       }
-      // Any unreadable unit poisons the whole number: a partial sum would read
-      // as a full answer and understate the haul.
       // Any unreadable unit poisons the whole number: a partial sum would read
       // as a full answer and understate the haul.
       if (unknown > 0 || total <= 0) return gbLootBlind('unit-carry-unknown', { units, unknownUnits: unknown });
@@ -553,9 +519,6 @@
       freePct: (free != null && cap > 0) ? Math.round(free / cap * 100) : null,
       near: usedPct != null && usedPct >= POP_NEAR_PCT,
       warn: usedPct != null && usedPct >= POP_WARN_PCT,
-      // Population growth is not exposed as a rate on stock client builds; a
-      // guard may only block on a value it actually read, so ETA stays null
-      // and the cell renders a dash rather than a fabricated number.
       // Population growth is not exposed as a rate on stock client builds; a
       // guard may only block on a value it actually read, so ETA stays null
       // and the cell renders a dash rather than a fabricated number.

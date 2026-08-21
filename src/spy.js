@@ -85,9 +85,6 @@
       // Our own gpAjax posts: gpAjax only calls back on a non-empty success
       // envelope, so settle bridgeRaw/gameAjaxRaw from the raw response here.
       // `loadend` covers success, HTTP error, network failure and abort alike.
-      // Our own gpAjax posts: gpAjax only calls back on a non-empty success
-      // envelope, so settle bridgeRaw/gameAjaxRaw from the raw response here.
-      // `loadend` covers success, HTTP error, network failure and abort alike.
       try {
         const settle = gbAjaxClaim(u, body);
         if (settle) {
@@ -99,14 +96,6 @@
         }
       } catch (_) {}
       try {
-        // Pre-filter on the URL BEFORE attaching. Attaching unconditionally made
-        // every single game XHR materialize responseText and run a full
-        // JSON.parse plus a recursive report walk - the SPA issues these
-        // constantly. Only a URL that could plausibly carry a report or a quest
-        // reward is worth reading.
-        // The `>100KB` branch below is the fallback for a report id buried in a
-        // response whose URL says nothing, so the gate must let big-payload
-        // *bundle* URLs through too; `frontend_bridge` is where those arrive.
         // Pre-filter on the URL BEFORE attaching. Attaching unconditionally made
         // every single game XHR materialize responseText and run a full
         // JSON.parse plus a recursive report walk - the SPA issues these
@@ -177,10 +166,6 @@
     // fresh install it is 0 and nothing bounded the batch: the first run spent 25
     // requests on reports that could be weeks old. Sample a few instead — the
     // first one that parses sets lastSeenTs and the full cap applies from then on.
-    // Inbox links carry no timestamp, so the only age signal is lastSeenTs. On a
-    // fresh install it is 0 and nothing bounded the batch: the first run spent 25
-    // requests on reports that could be weeks old. Sample a few instead — the
-    // first one that parses sets lastSeenTs and the full cap applies from then on.
     const firstRun = !state.lastSeenTs;
     const staleFloor = !!(state.lastSeenTs && state.lastSeenTs < cut);
     const cap = (firstRun || staleFloor) ? 5 : maxN;
@@ -242,9 +227,6 @@
             // walk(r) already queues r.report_id; queueing it here too meant
             // every nested report was enqueued twice and only seenThisRun kept
             // the second one from becoming a second request.
-            // walk(r) already queues r.report_id; queueing it here too meant
-            // every nested report was enqueued twice and only seenThisRun kept
-            // the second one from becoming a second request.
             if (r.report_id == null && numericId(r.id) && looksReport(r)) queueReport(String(r.id), srcUrl);
             walk(r);
           }
@@ -259,8 +241,6 @@
   const REPORT_RETRY_MAX = 3;
   function scrapeInboxDom() {
     document.querySelectorAll('a[href*="action=report"][href*="id="]').forEach(a => {
-      // Anchored like reportCatchUpRun's matcher: a bare /id=(\d+)/ also matches
-      // town_id= / view_id= / player_id= and queued those as report ids.
       // Anchored like reportCatchUpRun's matcher: a bare /id=(\d+)/ also matches
       // town_id= / view_id= / player_id= and queued those as report ids.
       const m = a.href.match(/[?&]id=(\d+)/);
@@ -435,9 +415,6 @@
       // Dry-run defaults ON for this feature specifically: the route is
       // unlearned on a fresh install and the operator should see the payload
       // before any silver is spent.
-      // Dry-run defaults ON for this feature specifically: the route is
-      // unlearned on a fresh install and the operator should see the payload
-      // before any silver is spent.
       dryRun: c.dryRun !== false,
       confirmOncePerCycle: c.confirmOncePerCycle !== false,
       maxConcurrent: gbCfgClamp(c.maxConcurrent, 1, 20, 3),
@@ -518,9 +495,6 @@
       // An unreadable / absent lastSpyAt means "never spied", which is the
       // STALEST case, not the freshest - a missing stamp must not park a
       // target at the bottom of the queue forever.
-      // An unreadable / absent lastSpyAt means "never spied", which is the
-      // STALEST case, not the freshest - a missing stamp must not park a
-      // target at the bottom of the queue forever.
       const lastAt = Number.isFinite(+last[id]) ? +last[id] : now - SPY_STALE_MS;
       const age = now - lastAt;
       if (age < cfg.minGapMs) continue;
@@ -572,8 +546,6 @@
         arguments: Object.assign({}, tpl.arguments || {}, { id: /^\d+$/.test(t.id) ? +t.id : t.id }),
         town_id: tpl.town_id,
       };
-      // Feature-local dry run, on top of the global one: this feature ships
-      // with it ON so the operator sees a real payload before spending silver.
       // Feature-local dry run, on top of the global one: this feature ships
       // with it ON so the operator sees a real payload before spending silver.
       if (cfg.dryRun) {

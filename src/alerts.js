@@ -24,8 +24,6 @@
     if (!id) id = p.dest ?? p.townId ?? p.town_id ?? p.feature ?? '';
     // `resource` discriminates the capping pre-warn: two resources capping in
     // the same town are two distinct events, not one rate-limited duplicate.
-    // `resource` discriminates the capping pre-warn: two resources capping in
-    // the same town are two distinct events, not one rate-limited duplicate.
     const subtype = p.cs ? 'cs' : (p.resource ? String(p.resource) : '');
     return `${event}:${subtype}:${String(id || '-').slice(0, 96)}`;
   }
@@ -56,8 +54,6 @@
         const t0 = ctx.currentTime + i * 0.14;
         o.start(t0); o.stop(t0 + 0.12);
       });
-      // Free the context once the blip is done; leaking one per alert would
-      // eventually hit the browser's context limit.
       // Free the context once the blip is done; leaking one per alert would
       // eventually hit the browser's context limit.
       setTimeout(() => { try { ctx.close(); } catch (e) { gbLogT('chime-close', 60000, 'audio ctx close: ' + String(e?.message || e).slice(0, 80)); } }, 800);
@@ -105,13 +101,11 @@
     if (alertDesktop(event, payload, key)) {
       alertNotifiedAt[key] = now;
       // Bounded: one entry per distinct event key, swept on the same window.
-      // Bounded: one entry per distinct event key, swept on the same window.
       const cut = now - 30 * 60 * 1000;
       for (const k of Object.keys(alertNotifiedAt)) if (alertNotifiedAt[k] < cut) delete alertNotifiedAt[k];
     }
   }
   function alertWebhook(event, payload) {
-    // Desktop first, and outside the URL guard below.
     // Desktop first, and outside the URL guard below.
     try {
       const ev = state.webhookEvents || {};
@@ -208,8 +202,6 @@
       playerKey: who,
       // Only fields the parser actually produced. No coordinates are invented
       // and no unit counts are fabricated for a report that lacked them.
-      // Only fields the parser actually produced. No coordinates are invented
-      // and no unit counts are fabricated for a report that lacked them.
       summary: {
         type: f.type || null,
         town: f.town && f.town.id != null ? String(f.town.id) : null,
@@ -218,8 +210,6 @@
         buildings: f.buildings && Object.keys(f.buildings).length ? Object.keys(f.buildings).length : null,
       },
     });
-    // Bounded: an unflushed queue must not grow without limit if the webhook
-    // is misconfigured.
     // Bounded: an unflushed queue must not grow without limit if the webhook
     // is misconfigured.
     while (intelDigestState.queue.length > INTEL_DIGEST_QUEUE_CAP) intelDigestState.queue.shift();

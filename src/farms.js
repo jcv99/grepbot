@@ -190,9 +190,6 @@
     // v2.2.4: if villages are already claimable (for example after reload, tab focus,
     // or while the adaptive scheduler is backed off), do not wait for the next
     // orchestrator cadence. Wake the existing transactional claim path immediately.
-    // v2.2.4: if villages are already claimable (for example after reload, tab focus,
-    // or while the adaptive scheduler is backed off), do not wait for the next
-    // orchestrator cadence. Wake the existing transactional claim path immediately.
     if (allowExpiredRetry && t.ready > 0) {
       const delay = gbLocked('claim') || reason === 'post-claim' ? FARM_CLAIM_READY_RETRY_MS : FARM_CLAIM_READY_WAKE_MS;
       targetMs = Date.now() + delay;
@@ -202,7 +199,6 @@
       targetMs = Date.now() + FARM_CLAIM_READY_RETRY_MS;
     }
     if (!targetMs) return null;
-    // Keep an already scheduled wake if it is at least as early as the new target.
     // Keep an already scheduled wake if it is at least as early as the new target.
     if (farmClaimWakeTimer && farmClaimWakeAt && farmClaimWakeAt <= targetMs + 1000) return farmClaimWakeAt;
     farmCancelClaimWake();
@@ -486,8 +482,6 @@
     if (!learned.length) return 300;
     // If loyalty isn't researched, the longer options are not necessarily free
     // of the loyalty multiplier, so prefer them only when headroom allows.
-    // If loyalty isn't researched, the longer options are not necessarily free
-    // of the loyalty multiplier, so prefer them only when headroom allows.
     const rs = (typeof townResState === 'function') ? townResState(townId) : null;
     const headroom = rs && rs.cap > 0 ? Math.max(0, rs.cap - Math.max(rs.wood, rs.stone, rs.iron)) : null;
     // loyalty is deliberately 1.0, NOT farmLoyaltyResearched(townId) ? 1 : 0.5.
@@ -497,19 +491,8 @@
     // absorb, and the overflow is loot thrown away. 1.0 reproduces the numerics
     // this picker has always used. The parameter stays in the API so a verified
     // multiplier can be dropped in later.
-    // loyalty is deliberately 1.0, NOT farmLoyaltyResearched(townId) ? 1 : 0.5.
-    // Plan 2.12 suggested the 0.5 factor but cites no evidence for it, and
-    // getting it wrong in that direction is asymmetric: a halved estimate lets
-    // the picker choose a claim roughly twice as long as the warehouse can
-    // absorb, and the overflow is loot thrown away. 1.0 reproduces the numerics
-    // this picker has always used. The parameter stays in the API so a verified
-    // multiplier can be dropped in later.
     let best = 300;
     for (const sec of learned) {
-      // The haul estimate now lives in gbLootEstimate (v4 plan 2.12) so the
-      // rate constant has one home. Skip a duration only when fits === false;
-      // fits === null means headroom was unreadable and must not block the
-      // longer claim.
       // The haul estimate now lives in gbLootEstimate (v4 plan 2.12) so the
       // rate constant has one home. Skip a duration only when fits === false;
       // fits === null means headroom was unreadable and must not block the
@@ -542,8 +525,6 @@
     const hit = farmProfitCache[id];
     // A blind verdict gets a much shorter TTL: a town whose capacity becomes
     // readable a second later must not stay unranked for five minutes.
-    // A blind verdict gets a much shorter TTL: a town whose capacity becomes
-    // readable a second later must not stay unranked for five minutes.
     if (hit && Date.now() - hit.at < (hit.v.score == null ? FARM_PROFIT_BLIND_TTL_MS : FARM_PROFIT_TTL_MS)) return hit.v;
     const out = (v) => { farmProfitCache[id] = { at: Date.now(), v }; return v; };
     const tid = townIdForFarm(farm, islandMap);
@@ -560,9 +541,6 @@
     const duration = farmDurationPick(tid);
     const loyalty = farmLoyaltyResearched(tid) ? 1.0 : 0.5;
     const est = gbLootEstimate({ kind: 'farm-claim', durationSec: duration, loyalty, headroom });
-    // Distance is in island-coordinate units. The in-game march formula is not
-    // in the bridge model, so seconds-per-unit is a user-pinned number and
-    // defaults to 0 - the rank is distance-agnostic until the player pins one.
     // Distance is in island-coordinate units. The in-game march formula is not
     // in the bridge model, so seconds-per-unit is a user-pinned number and
     // defaults to 0 - the rank is distance-agnostic until the player pins one.
@@ -665,7 +643,6 @@
       if (townId != null && farmUnitsClaimBlocked(farm, townId, opt)) continue;
       const def = gbGameDataLookup('units', unit);
       const res = (def && def.resources) || null;
-      // Resource value of the card, not unit count: 3 swords are not 3 biremes.
       // Resource value of the card, not unit count: 3 swords are not 3 biremes.
       const cost = res ? (+res.wood || 0) + (+res.stone || 0) + (+res.iron || 0) : 0;
       const score = amount * (cost > 0 ? cost : 1);
@@ -906,8 +883,6 @@
 
       // 'remembered' is the bot's own skip window, not the server saying the
       // village is empty - it must never flip a village to unit claims.
-      // 'remembered' is the bot's own skip window, not the server saying the
-      // village is empty - it must never flip a village to unit claims.
       const hard = err && err !== 'remembered' && !JRN_SKIP_ERRS[String(err).split(':')[0]] && err !== 'captcha' && !jrnPendingResult(err);
       if (hard) {
         if (String(state.farmUnitsMode || 'off') === 'fallback') farmMarkResDry(farm.vill_id, String(err).slice(0, 40));
@@ -966,8 +941,6 @@
   function farmClaimPending() {
     if (!state.autoFarm || !hostEnabled()) return false;
     if (captchaPaused('farm')) return false;
-    // A claim batch in flight IS farm work - hold units without re-walking the
-    // collections (the lock is cheap, the walk is not).
     // A claim batch in flight IS farm work - hold units without re-walking the
     // collections (the lock is cheap, the walk is not).
     if (gbLocked('claim')) return true;
@@ -1128,7 +1101,6 @@
   function farmPressureNote(kind) {
     const now = Date.now();
     // Coalesce: one burst of the same kind is one signal, not eight.
-    // Coalesce: one burst of the same kind is one signal, not eight.
     const last = farmPressure[farmPressure.length - 1];
     if (last && last.kind === kind && now - last.at < 60000) { last.at = now; return; }
     farmPressure.push({ at: now, kind });
@@ -1181,9 +1153,6 @@
       // An unranked village is UNKNOWN, not worthless - it is only dropped
       // while under pressure, and the log says how many so the operator can
       // tell "trimmed" from "broken".
-      // An unranked village is UNKNOWN, not worthless - it is only dropped
-      // while under pressure, and the log says how many so the operator can
-      // tell "trimmed" from "broken".
       const known = work.filter(f => farmProfitScoreOf(f.vill_id) != null);
       const dropped = work.length - known.length;
       if (known.length) {
@@ -1208,7 +1177,6 @@
         gbLogT('farm-adaptive-daily', 300000, `adaptive farm: captcha hot - skipped ${before - work.length} village(s) already claimed today`);
       }
     }
-    // Highest yield first even without pressure: same set, better order.
     // Highest yield first even without pressure: same set, better order.
     work.sort((a, b) => (farmProfitScoreOf(b.vill_id) ?? -Infinity) - (farmProfitScoreOf(a.vill_id) ?? -Infinity));
     return work;
@@ -1283,9 +1251,6 @@
     const only = attempted ? new Set(attempted.map(f => String(f && f.vill_id))) : null;
     let updated = 0;
     farms.forEach(f => {
-      // A village absent from the baseline was never observed before the batch,
-      // so its deadline appearing now is the model filling in lazily, not proof
-      // a claim landed. Same for a village we never posted a claim for.
       // A village absent from the baseline was never observed before the batch,
       // so its deadline appearing now is the model filling in lazily, not proof
       // a claim landed. Same for a village we never posted a claim for.
@@ -1456,9 +1421,6 @@
           // gbXhr rejects before the wire on budget / host-disabled / disposed.
           // Walking the rest of the ladder there would burn the remaining
           // guesses instantly, with no spacing, against an exhausted budget.
-          // gbXhr rejects before the wire on budget / host-disabled / disposed.
-          // Walking the rest of the ladder there would burn the remaining
-          // guesses instantly, with no spacing, against an exhausted budget.
           const why = e && e.error ? String(e.error) : '';
           if (why === 'budget' || why === 'disabled' || why === 'disposed') {
             state.farmResources[entry.vill_id] = { ts: Date.now(), ok: false, err: why };
@@ -1494,9 +1456,6 @@
       // Keep the cadence stamped so farmTick does not re-enter every 15s — but
       // never SHORTEN a deadline a real sweep already set (min < the 5-6min
       // window a live sweep stamps, so this used to pull the next one forward).
-      // Keep the cadence stamped so farmTick does not re-enter every 15s — but
-      // never SHORTEN a deadline a real sweep already set (min < the 5-6min
-      // window a live sweep stamps, so this used to pull the next one forward).
       const off = Date.now() + SYNC.FARM_MIN_MS;
       if (!(+state.nextFarmScrape > off)) {
         state.nextFarmScrape = off;
@@ -1527,11 +1486,6 @@
     // sweep that always ran out of budget on its last village never reached
     // farmScrapeNoteSweep, so the breaker could never trip and the dead ladder
     // burned the scrape budget forever.
-    // A village that walked the whole ladder and matched nothing is endpoint
-    // evidence; a budget/network stop is not. Counting only whole sweeps meant a
-    // sweep that always ran out of budget on its last village never reached
-    // farmScrapeNoteSweep, so the breaker could never trip and the dead ladder
-    // burned the scrape budget forever.
     const FARM_SCRAPE_HARD_ABORT = 3;
 
     (function step() {
@@ -1556,16 +1510,12 @@
         if (!good && err === 'no endpoint matched') hard++;
         // Out of budget mid-sweep: stop the sweep, but still charge the breaker
         // with whatever endpoint evidence this sweep already produced.
-        // Out of budget mid-sweep: stop the sweep, but still charge the breaker
-        // with whatever endpoint evidence this sweep already produced.
         if (why === 'budget' || why === 'disabled' || why === 'disposed') {
           gbUnlock('farm-scrape', farmScrapeLock);
           gbLog(`farm scrape stopped (${why}): ${ok}/${done} ok`);
           if (ok || hard) farmScrapeNoteSweep(ok);
           return;
         }
-        // Nothing on this world answers the ladder: stop burning the rest of the
-        // budget on the remaining villages, the verdict is already in.
         // Nothing on this world answers the ladder: stop burning the rest of the
         // budget on the remaining villages, the verdict is already in.
         if (!ok && hard >= FARM_SCRAPE_HARD_ABORT && list.length) {
@@ -1596,9 +1546,6 @@
         list.forEach((opt, i) => {
           if (opt == null) return;
           const idx = opt.option != null ? +opt.option : (opt.id != null ? +opt.id : i + 1);
-          // pickNum, not `||`: a present-but-0 duration short-circuits to the
-          // next candidate, and a 0 here should fail the `sec > 0` gate below
-          // rather than silently borrow another field's value.
           // pickNum, not `||`: a present-but-0 duration short-circuits to the
           // next candidate, and a 0 here should fail the `sec > 0` gate below
           // rather than silently borrow another field's value.

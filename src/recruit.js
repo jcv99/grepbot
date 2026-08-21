@@ -58,12 +58,8 @@
     // Unreadable god = unknown = blind verdict, let the server be the authority.
     // Use the scan-tick memo when present so we don't re-hit unsafeWindow for
     // every candidate in the inner loop.
-    // Unreadable god = unknown = blind verdict, let the server be the authority.
-    // Use the scan-tick memo when present so we don't re-hit unsafeWindow for
-    // every candidate in the inner loop.
     const god = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
     if (god == null) return { ok: true, blind: true, why: null };
-    // A READ god is authoritative: only the spell's own god may cast it.
     // A READ god is authoritative: only the spell's own god may cast it.
     const need = RECRUIT_SPELL_GODS[powerId];
     if (need && god !== need) return { ok: false, why: `god-mismatch:${god}!=${need}` };
@@ -153,9 +149,6 @@
           // Unreadable techs = unknown, not "missing". Blind precheck: let the
           // server be the authority. Log once per (townId,unitId) so the player
           // sees which gate silently went blind instead of a hard block.
-          // Unreadable techs = unknown, not "missing". Blind precheck: let the
-          // server be the authority. Log once per (townId,unitId) so the player
-          // sees which gate silently went blind instead of a hard block.
           const k = townId + '|' + unitId + '|tech';
           if (!_recruitBlindLog.has(k)) { _recruitBlindLog.add(k); gbLogT('recruit-blind-' + townId + '-' + unitId, 300000, 'recruit: ' + unitId + ' techs unreadable in town ' + townId + ' - blind precheck, server judges'); }
           return true;
@@ -165,8 +158,6 @@
       let buildings = null;
       try { const b = t.getBuildings ? t.getBuildings() : (t.buildings && t.buildings()); buildings = b && (b.attributes || b); } catch (_) {}
       if (!buildings) {
-        // Same blind-on-unknown contract as above: a renamed getter must not
-        // strand a feature. Log once and return true so the server judges.
         // Same blind-on-unknown contract as above: a renamed getter must not
         // strand a feature. Log once and return true so the server judges.
         const k = townId + '|' + unitId + '|bld';
@@ -185,9 +176,6 @@
       if (def.god || def.mythical || def.is_mythical) {
         const requiredGod = def.god ? String(def.god).toLowerCase() : null;
         const townGod = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
-        // Unreadable god is UNKNOWN, not "wrong god": client builds rename
-        // getGod()/god attributes, and blocking on the miss silently killed
-        // every mythical unit in every town. A read god still decides.
         // Unreadable god is UNKNOWN, not "wrong god": client builds rename
         // getGod()/god attributes, and blocking on the miss silently killed
         // every mythical unit in every town. A read god still decides.
@@ -239,7 +227,6 @@
     const q = recruitQueueInfo(townId,unitId);
     if (!q.known) return false;
     if (q.max != null) return q.len < q.max;
-    // If max cannot be read, fail conservatively: only start when queue is empty.
     // If max cannot be read, fail conservatively: only start when queue is empty.
     return q.len === 0;
   }
@@ -460,16 +447,11 @@
     // unitCounts shape: {sword:N, archer:N, hoplite:N, slinger:N} — any missing
     // entry is treated as 0, which can NEVER mis-route to a wrong unit because
     // the lower-of-pair comparator needs a finite number on both sides.
-    // unitCounts shape: {sword:N, archer:N, hoplite:N, slinger:N} — any missing
-    // entry is treated as 0, which can NEVER mis-route to a wrong unit because
-    // the lower-of-pair comparator needs a finite number on both sides.
     if (!unitCounts || typeof unitCounts !== 'object') return null;
     const a = (Number.isFinite(+unitCounts.sword) ? +unitCounts.sword : 0)
             + (Number.isFinite(+unitCounts.archer) ? +unitCounts.archer : 0);
     const b = (Number.isFinite(+unitCounts.hoplite) ? +unitCounts.hoplite : 0)
             + (Number.isFinite(+unitCounts.slinger) ? +unitCounts.slinger : 0);
-    // Tie-break to the cheaper pair (sword/archer) — overspending on hoplites
-    // is the irreversible mistake we want to make least often.
     // Tie-break to the cheaper pair (sword/archer) — overspending on hoplites
     // is the irreversible mistake we want to make least often.
     const pair = a >= b ? VILLAGE_PAIR_LOW : VILLAGE_PAIR_HIGH;
@@ -500,14 +482,12 @@
           const bag = a.units || a.unit_count || a.garrison || a.unitCount;
           if (bag && typeof bag === 'object') {
             // Direct object map: {sword:N, archer:N, hoplite:N, slinger:N}
-            // Direct object map: {sword:N, archer:N, hoplite:N, slinger:N}
             const units = {};
             for (const u of VILLAGE_RECRUIT_UNITS) units[u] = +bag[u];
             const known = VILLAGE_RECRUIT_UNITS.some(u => Number.isFinite(units[u]) && units[u] >= 0);
             if (known) return { known: true, units, relId: (m && m.id) != null ? m.id : (a && a.id) };
           }
           if (typeof bag === 'number' || Array.isArray(bag)) {
-            // Array form (positional, 4 slots) — order is the VILLAGE_RECRUIT_UNITS order
             // Array form (positional, 4 slots) — order is the VILLAGE_RECRUIT_UNITS order
             const arr = Array.isArray(bag) ? bag : [bag];
             const units = {};
@@ -572,8 +552,6 @@
     if (automationPaused({})) return;
     if (captchaPaused('villrecruit')) return;
     if (gbLocked('village-recruit')) return;
-    // Same hard rule: accepting units from a village never outranks claiming
-    // its resources, even though this loop only fires on a saturated village.
     // Same hard rule: accepting units from a village never outranks claiming
     // its resources, even though this loop only fires on a saturated village.
     if (farmFirstHold('villrecruit')) return;

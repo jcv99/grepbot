@@ -425,10 +425,6 @@
     // player is currently viewing a different town, so `abCurrentTownId()` is
     // a stale-id footgun (claimQuestViaBridge would route to the wrong town).
     // Fall back to town-unknown rather than borrowing the current town's id.
-    // Prefer the row's own island coords: the DOM may show the quest while the
-    // player is currently viewing a different town, so `abCurrentTownId()` is
-    // a stale-id footgun (claimQuestViaBridge would route to the wrong town).
-    // Fall back to town-unknown rather than borrowing the current town's id.
     const ds = (typeof row?.dataset === 'object' && row.dataset) || {};
     const ix = +ds.islandX || +ds.island_x || null;
     const iy = +ds.islandY || +ds.island_y || null;
@@ -472,9 +468,6 @@
     // Single atomic guard: take the lock once, run the whole tick, release in
     // finally. The previous read-then-acquire pattern left a window where
     // bindQuestObserver/ingestGameQuests ran with no lock held.
-    // Single atomic guard: take the lock once, run the whole tick, release in
-    // finally. The previous read-then-acquire pattern left a window where
-    // bindQuestObserver/ingestGameQuests ran with no lock held.
     const scanToken = gbLock('quest-scan');
     if (!scanToken) return;
     try {
@@ -489,9 +482,6 @@
       }
       const rows = questRows();
       if (!rows.length) return;
-      // Never change the player's selected quest during a background scan. Game
-      // models are ingested for every row; DOM-only reward details are learned
-      // from whichever quest the player is already viewing.
       // Never change the player's selected quest during a background scan. Game
       // models are ingested for every row; DOM-only reward details are learned
       // from whichever quest the player is already viewing.
@@ -532,9 +522,6 @@
     bindQuestObserver._t = null;
   }
   try {
-    // GB_ROOT, not a private unsafeWindow copy: __grepbotDispose reads the hook
-    // off GB_ROOT, so a second resolution of the same expression is one more
-    // place for the two to disagree (Firefox's wrappedJSObject fallback).
     // GB_ROOT, not a private unsafeWindow copy: __grepbotDispose reads the hook
     // off GB_ROOT, so a second resolution of the same expression is one more
     // place for the two to disagree (Firefox's wrappedJSObject fallback).

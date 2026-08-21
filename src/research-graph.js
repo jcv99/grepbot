@@ -39,8 +39,6 @@
     const built = researchGraphBuildRaw();
     // Only cache a graph we actually read; a blind one may be a transient
     // "GameData not loaded yet" and must be retried on the next call.
-    // Only cache a graph we actually read; a blind one may be a transient
-    // "GameData not loaded yet" and must be retried on the next call.
     if (built.known) _rgMemo = { at: Date.now(), v: built };
     return built;
   }
@@ -57,10 +55,6 @@
     for (const id of ids) {
       const deps = researchGraphDeps(defs[id]);
       if (deps === null) { edges[id] = null; partial++; continue; }
-      // An edge pointing at an id this client does not define is UNRESOLVABLE,
-      // not absent. Dropping it would make "we cannot resolve this prerequisite"
-      // read as "this tech has no prerequisites" - the exact failure this
-      // module exists to prevent. Keep it; the closure reports blind on it.
       // An edge pointing at an id this client does not define is UNRESOLVABLE,
       // not absent. Dropping it would make "we cannot resolve this prerequisite"
       // read as "this tech has no prerequisites" - the exact failure this
@@ -107,7 +101,6 @@
       return true;
     };
     const ok = visit(String(target), 0);
-    // `order` ends with the target itself; `missing` is everything before it.
     // `order` ends with the target itself; `missing` is everything before it.
     const missing = order.slice(0, Math.max(0, order.length - 1));
     return { ok: ok && !blind, blind, order, missing, why };

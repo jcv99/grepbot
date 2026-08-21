@@ -87,8 +87,6 @@
       const rs = (typeof townResState === 'function') ? townResState(id) : null;
       // Unreadable capacity is unknown, never "full" - a blind read may not
       // fabricate a deadlock and reorder the whole economy behind it.
-      // Unreadable capacity is unknown, never "full" - a blind read may not
-      // fabricate a deadlock and reorder the whole economy behind it.
       if (!rs || !(rs.cap > 0)) { blind++; continue; }
       if (Math.max(rs.wood, rs.stone, rs.iron) / rs.cap >= ORCH_PIN_RATIO) pinned.push(id);
     }
@@ -128,10 +126,7 @@
     if (gbNeverStop()) return 1;
     if (state.orchAdaptive === false) return 1;
     // The drain path must not be slowed by the very idleness the deadlock causes.
-    // The drain path must not be slowed by the very idleness the deadlock causes.
     if (orchDeadlock.open && ORCH_DRAIN_KEYS.includes(key)) return 1;
-    // A ready village is known work, not idleness. Widening farm's cadence to
-    // 8x while units are held behind it would stall both.
     // A ready village is known work, not idleness. Widening farm's cadence to
     // 8x while units are held behind it would stall both.
     if (key === 'farm' && orchFarmFirst()) return 1;
@@ -173,13 +168,7 @@
   function orchTick() {
     if (!hostEnabled()) return;
     // v4 plan 7.4: cadence flush rides this tick; no scheduler of its own.
-    // v4 plan 7.4: cadence flush rides this tick; no scheduler of its own.
     try { intelDigestTick(); } catch (_) {}
-    // Read-only pre-warn pass, ABOVE the pause gate on purpose: a warehouse
-    // still fills during night pause, and silencing the warning is exactly when
-    // the user most needs it. It posts nothing to the game.
-    // It lives here rather than in cultureScan (plan 2.8 work item 2) because
-    // cultureScan returns early unless autoCulture is ON, and that defaults OFF.
     // Read-only pre-warn pass, ABOVE the pause gate on purpose: a warehouse
     // still fills during night pause, and silencing the warning is exactly when
     // the user most needs it. It posts nothing to the game.
@@ -192,9 +181,6 @@
 
     const mandatory = goalMandatoryModules();
     let order = mandatory.concat(configured.filter(k => !mandatory.includes(k))).concat(orchDefaultOrder().filter(k => !mandatory.includes(k) && configured.indexOf(k) === -1));
-    // Sort override, not a second scheduler: while a warehouse is pinned the
-    // drain features jump the user's priorityOrder (visibly - see the log line
-    // and the footer badge) so farm is not fed a town that cannot store loot.
     // Sort override, not a second scheduler: while a warehouse is pinned the
     // drain features jump the user's priorityOrder (visibly - see the log line
     // and the footer badge) so farm is not fed a town that cannot store loot.
@@ -227,10 +213,6 @@
       // (capped at 2x base) so a 300s feature and a 20s feature can never
       // tie-break off a single overdue tick, but a 20s vs 60s run still
       // breaks cleanly within one base band.
-      // Tie-break band scales with the slower of the two features' cadences
-      // (capped at 2x base) so a 300s feature and a 20s feature can never
-      // tie-break off a single overdue tick, but a 20s vs 60s run still
-      // breaks cleanly within one base band.
       const band = Math.max(a.cadence, b.cadence, ORCH_MS) * 2;
       if (Math.abs(gap) > band) return gap;
       return a.rank - b.rank;
@@ -241,9 +223,6 @@
 
         if (automationPaused({})) return;
         if (ORCH_CAPTCHA[item.key] && captchaPaused(ORCH_CAPTCHA[item.key])) return;
-        // Judge the previous run only when this feature is about to run again. That gives
-        // the entire cadence window to asynchronous/batched transactions instead of sampling
-        // a few seconds after dispatch and misclassifying slow success as idle.
         // Judge the previous run only when this feature is about to run again. That gives
         // the entire cadence window to asynchronous/batched transactions instead of sampling
         // a few seconds after dispatch and misclassifying slow success as idle.

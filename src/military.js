@@ -143,8 +143,6 @@
       if (v && typeof v === 'object') {
         // Slot map vs flat bag: keep whichever shape the client actually uses,
         // verbatim. Nothing here interprets item ids.
-        // Slot map vs flat bag: keep whichever shape the client actually uses,
-        // verbatim. Nothing here interprets item ids.
         if (Array.isArray(v)) return { slots: null, items: v.slice(0, 40) };
         return { slots: Object.assign({}, v), items: null };
       }
@@ -185,9 +183,6 @@
     // null must NOT count as 0 (which would be a tight throttle). Treat only
     // null/undefined as "unset" and fall through to the default 20, matching
     // every other knob's `== null` semantics.
-    // null must NOT count as 0 (which would be a tight throttle). Treat only
-    // null/undefined as "unset" and fall through to the default 20, matching
-    // every other knob's `== null` semantics.
     const raw = state.heroLowStaminaPct;
     if (raw == null) return 20;
     const n = +raw;
@@ -210,8 +205,6 @@
       for (const [slot, val] of Object.entries(h.equipment.slots)) {
         // Only compare values that are both readable NUMBERS. An item id that
         // is a string tells us nothing about tier and must not be ranked.
-        // Only compare values that are both readable NUMBERS. An item id that
-        // is a string tells us nothing about tier and must not be ranked.
         const mine = +val;
         if (!Number.isFinite(mine)) continue;
         for (const o of free) {
@@ -222,8 +215,6 @@
         }
       }
     }
-    // Persist: the panel would otherwise show nothing after a reload until the
-    // next 5-minute scan. Signature-compared so a steady state costs no write.
     // Persist: the panel would otherwise show nothing after a reload until the
     // next 5-minute scan. Signature-compared so a steady state costs no write.
     const sig = JSON.stringify(out);
@@ -241,8 +232,6 @@
       const pct = heroPct(h.stamina);
       // null means the attribute was not readable on this client - that is
       // not "stamina is zero" and must never fire an alert.
-      // null means the attribute was not readable on this client - that is
-      // not "stamina is zero" and must never fire an alert.
       if (pct != null && pct <= lowPct) heroNotify('low-stamina', h, { staminaPct: pct });
       if (h.injured) heroNotify('injured', h, null);
     }
@@ -256,8 +245,6 @@
     }
     const idle = heroes.filter(h => h.status === 'free');
     if (!idle.length) return;
-    // Propose only. The post itself still needs {confirmed:true}, which only
-    // the panel button supplies - auto-assign never fires unattended.
     // Propose only. The post itself still needs {confirmed:true}, which only
     // the panel button supplies - auto-assign never fires unattended.
     const towns = (state.towns || []).map(t => String(t.id)).filter(id => !heroTownOccupied(id, null));
@@ -294,8 +281,6 @@
     const payload = { model_url: tpl.model_url, action_name: tpl.action_name, arguments: args, town_id: targetTownId != null ? +targetTownId : tpl.town_id };
     bridgePost('hero', payload, (err, data) => {
       gbUnlock('hero', lockToken);
-      // Any hero post changes assignment/status; the 60s list memo must not
-      // outlive it or the panel reports the old state for up to a minute.
       // Any hero post changes assignment/status; the 60s list memo must not
       // outlive it or the panel reports the old state for up to a minute.
       try { heroListInvalidate(); } catch (_) {}
@@ -428,10 +413,6 @@
     // Whether the server exposes the attacker's units on an INCOMING movement
     // is not verifiable from this tree, so this is a bonus path, never the
     // primary one: an unfamiliar type simply does not classify.
-    // Fallback to the unit breakdown, the same signal dodge derives hasCs from.
-    // Whether the server exposes the attacker's units on an INCOMING movement
-    // is not verifiable from this tree, so this is a bonus path, never the
-    // primary one: an unfamiliar type simply does not classify.
     const u = (mov && mov.units) || {};
     if (u.colonize_ship || u.colony_ship) return 'cs-sighted';
     return null;
@@ -447,11 +428,6 @@
       const kind = militaryColonyKind(mov);
       if (!kind) continue;
       const eta = (typeof dodgeEtaSec === 'function') ? dodgeEtaSec(mov) : null;
-      // Only REINFORCEMENT is recallable here. Matching every outgoing command
-      // to that town would offer to cancel an attack the player launched
-      // against it, which is a different decision entirely. A command this bot
-      // sent (present in state.dodgeReturns) also qualifies even if its type
-      // string is unfamiliar on this world.
       // Only REINFORCEMENT is recallable here. Matching every outgoing command
       // to that town would offer to cancel an attack the player launched
       // against it, which is a different decision entirely. A command this bot
@@ -490,8 +466,6 @@
       c2.title = `desde ${r.mov.origin || '?'}`;
       gbTip(c2, 'Ciudad destino del incidente + origen');
       const c3 = document.createElement('span');
-      // ETA unknown renders '?', never 0 - a movement whose arrival could not
-      // be read is not an imminent one.
       // ETA unknown renders '?', never 0 - a movement whose arrival could not
       // be read is not an imminent one.
       c3.textContent = r.etaKnown ? fmtSec(r.eta) : '?';
@@ -563,9 +537,6 @@
       // `mythical` is an OVERLAY, not a sibling bucket: a mythical hoplite-class
       // unit still belongs to its offense/defense split. The renderer labels it
       // as a subset so the four splits still add up.
-      // `mythical` is an OVERLAY, not a sibling bucket: a mythical hoplite-class
-      // unit still belongs to its offense/defense split. The renderer labels it
-      // as a subset so the four splits still add up.
       if (m.god || m.mythical || m.is_mythical) byFunction.mythical += pop;
       const fn = (typeof classifyUnitFn === 'function') ? classifyUnitFn(u) : 'unknown';
       if (byFunction[fn] == null) byFunction.unknown += pop; else byFunction[fn] += pop;
@@ -581,7 +552,6 @@
       if (!unitMeta(u)) { gbLogT('comp-meta-unknown-' + u, 600000, `composition: unit ${u} has no GameData entry - excluded`); continue; }
       const h = +have[u] || 0;
       // One queue read for the whole town, not two per unit.
-      // One queue read for the whole town, not two per unit.
       let queued = 0;
       for (const m of (qinfo.models || [])) {
         const a = m.attributes || {};
@@ -592,8 +562,6 @@
       const gap = want - h - queued;
       if (gap <= 0) continue;
       let status, why;
-      // An unreadable garrison is BLIND, not "you have zero" - the whole gap
-      // number is untrustworthy in that case and must say so.
       // An unreadable garrison is BLIND, not "you have zero" - the whole gap
       // number is untrustworthy in that case and must say so.
       if (!haveKnown || !queueKnown) { status = 'blind'; why = !haveKnown ? 'guarnicion no legible' : 'cola no legible'; blind++; }
@@ -620,8 +588,6 @@
     };
   }
   function militaryCompositionAll() {
-    // Hoisted: goalEffectiveRecruitTargets() walks every town, so calling it
-    // once per town made the advisor O(towns^2).
     // Hoisted: goalEffectiveRecruitTargets() walks every town, so calling it
     // once per town made the advisor O(towns^2).
     let all = {};

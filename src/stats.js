@@ -38,8 +38,6 @@
     const rate = (cur - first.p) / dt;
     // A negative rate means favor was just SPENT, not that regen reversed.
     // Reporting it as a rate would produce a nonsense ETA.
-    // A negative rate means favor was just SPENT, not that regen reversed.
-    // Reporting it as a rate would produce a nonsense ETA.
     return rate > 0 ? rate : 0;
   }
   function favorHudBlock() {
@@ -91,9 +89,6 @@
     // An empty id list means the town read FAILED, not that the account has no
     // towns. Pruning against it would delete every town's history on one bad
     // scrape.
-    // An empty id list means the town read FAILED, not that the account has no
-    // towns. Pruning against it would delete every town's history on one bad
-    // scrape.
     if (!Array.isArray(ids) || !ids.length) return;
     const H = townGrowthHist();
     const now = Date.now(), cut = now - GROWTH_TTL_MS;
@@ -102,9 +97,6 @@
       const key = String(id);
       const r = (state.townResources || {})[id] || (state.townResources || {})[key];
       if (!r || !r.ok) continue;
-      // Only record values that were actually READ. A missing field is left
-      // out of the sample rather than stored as 0, or the chart would show a
-      // cliff where the scrape simply failed.
       // Only record values that were actually READ. A missing field is left
       // out of the sample rather than stored as 0, or the chart would show a
       // cliff where the scrape simply failed.
@@ -118,7 +110,6 @@
       changed = true;
     }
     // Drop towns that are no longer ours.
-    // Drop towns that are no longer ours.
     const live = new Set((ids || []).map(String));
     for (const k of Object.keys(H)) if (!live.has(k)) { delete H[k]; changed = true; }
     if (changed) save(STORE.TOWN_GROWTH_HIST, H);
@@ -127,8 +118,6 @@
     const v = values.filter(x => Number.isFinite(x));
     if (v.length < 2) return '';
     const min = Math.min(...v), max = Math.max(...v), span = max - min;
-    // A flat series is flat, not noise: without this guard the divide by zero
-    // would render a random-looking bar pattern for a town that never changed.
     // A flat series is flat, not noise: without this guard the divide by zero
     // would render a random-looking bar pattern for a town that never changed.
     if (!(span > 0)) return GROWTH_SPARK[0].repeat(Math.min(24, v.length));

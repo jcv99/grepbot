@@ -22,7 +22,6 @@
     if (!ids.length) ids = (state.towns || []).map(t => String(t.id));
     const cur = hudCurrentTownId();
     // Selected town first, everything else in its natural order.
-    // Selected town first, everything else in its natural order.
     return cur && ids.includes(cur) ? [cur].concat(ids.filter(x => x !== cur)) : ids;
   }
   function hudEtaText(sec) {

@@ -66,8 +66,6 @@
       if (f.wall != null) d.walls.push(f.wall);
       // Latest-wins by report timestamp, so a stale spy cannot overwrite a
       // fresher one just by arriving later in the ring buffer.
-      // Latest-wins by report timestamp, so a stale spy cannot overwrite a
-      // fresher one just by arriving later in the ring buffer.
       if (f.buildings && Object.keys(f.buildings).length && (+f.ts || 0) >= (d.buildingsAt || 0)) {
         d.buildings = f.buildings; d.buildingsAt = +f.ts || 0;
       }
@@ -80,8 +78,6 @@
         d.allianceNote = state.allianceNotes[f.alliance];
       }
     }
-    // Plan 2.5 work item 2: the battle profile rides on the dossier entry so
-    // any dossier consumer gets it without recomputing the aggregate.
     // Plan 2.5 work item 2: the battle profile rides on the dossier entry so
     // any dossier consumer gets it without recomputing the aggregate.
     try {
@@ -172,10 +168,6 @@
       // everything", never to a silent empty table. But once identity IS known,
       // a raid with no attacker on record is not provably yours either, so it
       // must not be attributed to your haul.
-      // When identity is unreadable every raid counts - degrade to "show
-      // everything", never to a silent empty table. But once identity IS known,
-      // a raid with no attacker on record is not provably yours either, so it
-      // must not be attributed to your haul.
       if (mineKnown && !intelActorIsMe(f.attacker, own)) continue;
       const key = String(f.vill_id);
       let r = byVill.get(key);
@@ -192,8 +184,6 @@
       }
       // A raid whose loot was never reported is not a zero-loot raid; it is
       // excluded from the success denominator rather than counted as a failure.
-      // A raid whose loot was never reported is not a zero-loot raid; it is
-      // excluded from the success denominator rather than counted as a failure.
       if (!any) continue;
       r.hauledKnown++;
       r.haul += sum;
@@ -201,9 +191,6 @@
     }
     return Array.from(byVill.values())
       .map(r => Object.assign({}, r, {
-        // Divide by the raids whose loot was actually reported: raids with no
-        // loot data are excluded from the numerator, so counting them in the
-        // denominator would understate a farm that simply reports sparsely.
         // Divide by the raids whose loot was actually reported: raids with no
         // loot data are excluded from the numerator, so counting them in the
         // denominator would understate a farm that simply reports sparsely.
@@ -385,9 +372,6 @@
     // Index-suffixed: two reports on the same town can share a timestamp, and a
     // duplicate data-key made the set comparison never match (full rebuild + a
     // lost sort on every 15s render).
-    // Index-suffixed: two reports on the same town can share a timestamp, and a
-    // duplicate data-key made the set comparison never match (full rebuild + a
-    // lost sort on every 15s render).
     for (const g of groups) g.rows.forEach((r, i) => wanted.push(g.townKey + '@' + r.ts + '#' + i));
     const have = new Set(Array.from(tbody.children).map(tr => tr.dataset.key));
     const sameSet = have.size === wanted.length && wanted.every(k => have.has(k));
@@ -415,8 +399,6 @@
           tbody.appendChild(tr);
         }
         patchCells(tr, cells);
-        // Unknown wall sorts as '' (string compare), not 0 - ranking an
-        // unspied town as the weakest one is exactly the wrong answer.
         // Unknown wall sorts as '' (string compare), not 0 - ranking an
         // unspied town as the weakest one is exactly the wrong answer.
         const wallRaw = (r.cur && r.cur.wall != null && Number.isFinite(+r.cur.wall)) ? String(+r.cur.wall) : '';
@@ -449,8 +431,6 @@
     for (const [key, last] of latest) {
       const ageMs = now - (+last.ts || 0);
       const vacation = (last.defender && last.defender.vacation === true) || last.vacation === true;
-      // Defenderless is only claimed when a defender block exists but carries no
-      // name. A finding with no defender at all is an unknown, not an abandon.
       // Defenderless is only claimed when a defender block exists but carries no
       // name. A finding with no defender at all is an unknown, not an abandon.
       const abandoned = !!(last.defender && !last.defender.name);
@@ -529,8 +509,6 @@
     const bump = (which, actor) => {
       // A blind identity makes intelActorIsMe false for everything, so the rule
       // degrades to "show everything" rather than silently dropping rows.
-      // A blind identity makes intelActorIsMe false for everything, so the rule
-      // degrades to "show everything" rather than silently dropping rows.
       if (!actor || intelActorIsMe(actor, me)) return;
       const key = intelPlayerKey(actor);
       if (!key || key === 'unknown') return;
@@ -546,8 +524,6 @@
         if ((+f.ts || 0) > hit.cur.lastTs) {
           hit.cur.lastTs = +f.ts || 0;
           const noteKey = (actor && typeof actor === 'object' && actor.name) ? actor.name : hit.cur.player;
-          // Guard, do not assign: a newer finding whose name misses the note map
-          // must not erase a note an earlier finding already resolved.
           // Guard, do not assign: a newer finding whose name misses the note map
           // must not erase a note an earlier finding already resolved.
           if (state.playerNotes && state.playerNotes[noteKey]) hit.cur.note = state.playerNotes[noteKey];
@@ -793,9 +769,6 @@
         // Token-compare on whitespace-split coords: indexOf would match "100 50"
         // against x=10 (substring) and x=100 against x=10 (prefix), making every
         // town whose x starts with "1" trip a watch at (x=100, y=50).
-        // Token-compare on whitespace-split coords: indexOf would match "100 50"
-        // against x=10 (substring) and x=100 against x=10 (prefix), making every
-        // town whose x starts with "1" trip a watch at (x=100, y=50).
         if (fx != null && fy != null) {
           const cTokens = String(c).split(/\s+/).filter(Boolean).map(String);
           if (cTokens.indexOf(String(fx)) >= 0 && cTokens.indexOf(String(fy)) >= 0) {
@@ -810,7 +783,6 @@
       if (entry.alliance && finding.alliance && String(finding.alliance).toLowerCase() === String(entry.alliance).toLowerCase()) {
         hits.push({ kind: 'alliance', rule: String(entry.alliance), specificity: 1 });
       }
-      // bare id string fallback (legacy)
       // bare id string fallback (legacy)
       if (typeof w !== 'object') {
         const id = String(w);
@@ -867,13 +839,7 @@
       // Raw type read, no regex classification: a client that renames spy to
       // something else should break THIS filter loudly, not silently
       // reclassify attacks as spying.
-      // Raw type read, no regex classification: a client that renames spy to
-      // something else should break THIS filter loudly, not silently
-      // reclassify attacks as spying.
       if (String(f.type || '').toLowerCase() !== 'spy') continue;
-      // Never infer identity from a missing field. The defender block is the
-      // primary signal; when it is absent entirely, a town id that is provably
-      // one of mine is an equally hard fact, so the report still counts.
       // Never infer identity from a missing field. The defender block is the
       // primary signal; when it is absent entirely, a town id that is provably
       // one of mine is an equally hard fact, so the report still counts.
@@ -889,9 +855,6 @@
       b.first = Math.min(b.first, +f.ts);
       const tid = f.town && (f.town.id != null ? f.town.id : f.town.name);
       if (tid != null) {
-        // The DISPLAY list is capped at 8; the distinct count is not. Deriving
-        // the count from the capped array made a watcher hitting 12 towns
-        // report 8, which is a number that is simply wrong.
         // The DISPLAY list is capped at 8; the distinct count is not. Deriving
         // the count from the capped array made a watcher hitting 12 towns
         // report 8, which is a number that is simply wrong.
@@ -935,8 +898,6 @@
     const n = v.trim();
     // Drop the client's placeholders and anything too long to be a real tag -
     // an unlabelled row is noise, not intel.
-    // Drop the client's placeholders and anything too long to be a real tag -
-    // an unlabelled row is noise, not intel.
     if (!n || n === '?' || n === '-' || n.length > 40) return null;
     return n;
   }
@@ -955,11 +916,7 @@
       const tid = f.town && f.town.id != null ? String(f.town.id) : null;
       // Column must be a town of MINE. Anything else is somebody else's
       // business and does not belong in my own exposure matrix.
-      // Column must be a town of MINE. Anything else is somebody else's
-      // business and does not belong in my own exposure matrix.
       if (!tid || !own.has(tid)) continue;
-      // And the alliance must be on the OTHER side: an attack by my own
-      // alliance-mate on my town is not incoming pressure from them.
       // And the alliance must be on the OTHER side: an attack by my own
       // alliance-mate on my town is not incoming pressure from them.
       if (intelActorIsMe(f.attacker, me)) continue;
@@ -1103,7 +1060,6 @@
     }
     const byAlly = new Map();
     const seenTown = new Set();
-    // Newest report per town wins; older ones are strictly worse information.
     // Newest report per town wins; older ones are strictly worse information.
     const sorted = (state.findings || []).slice().sort((a, b) => (+b.ts || 0) - (+a.ts || 0));
     for (const f of sorted) {

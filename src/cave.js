@@ -16,7 +16,6 @@
     'getStoredIron', 'getHideIron'];
   function caveCapacityFromLevel(level) {
     // Grepolis rule: levels 1-9 store 1,000 silver per level; level 10 is unlimited.
-    // Grepolis rule: levels 1-9 store 1,000 silver per level; level 10 is unlimited.
     const n = Math.max(0, Math.floor(+level || 0));
     if (n === 10) return { capacity: null, unlimited: true };
     return { capacity: n > 0 && n < 10 ? n * 1000 : null, unlimited: false };
@@ -86,10 +85,6 @@
     // inside the level-10 branch left every other path treating -1 as finite, so
     // `stored >= hideCap` was true for any stored value and the town was skipped
     // as "hide full".
-    // -1 is the client's UNLIMITED sentinel, not a capacity. Promoting it only
-    // inside the level-10 branch left every other path treating -1 as finite, so
-    // `stored >= hideCap` was true for any stored value and the town was skipped
-    // as "hide full".
     if (hideCap != null && hideCap < 0) { unlimited = true; hideCap = null; }
     if (stored != null && stored < 0) stored = null;
     const levelCapacity = caveCapacityFromLevel(hideLvl);
@@ -128,9 +123,6 @@
     if (excess < CAVE_MIN_STORE) return 0;
 
     if (!info.unlimited && (info.hideCap == null || info.stored == null)) {
-      // Deliberate: no blind stash. But it used to be a silent `return 0`, so a
-      // renamed capacity/stored getter switched auto-cave off with nothing in
-      // the Log to say why.
       // Deliberate: no blind stash. But it used to be a silent `return 0`, so a
       // renamed capacity/stored getter switched auto-cave off with nothing in
       // the Log to say why.
@@ -284,8 +276,6 @@
       box.appendChild(e);
       return;
     }
-    // Keyed rows (v1.4.0 convention): rebuild only when the id SET changes, so a
-    // 10s repaint cannot fight a checkbox the user is clicking.
     // Keyed rows (v1.4.0 convention): rebuild only when the id SET changes, so a
     // 10s repaint cannot fight a checkbox the user is clicking.
     const have = [...box.querySelectorAll('label[data-cave-town]')];

@@ -38,8 +38,6 @@
   function extractUnits(r) {
     // Split keys win when present: they are strictly more informative, and the
     // union they produce is what the legacy readers already expect.
-    // Split keys win when present: they are strictly more informative, and the
-    // union they produce is what the legacy readers already expect.
     const split = extractSplitUnits(r);
     if (!split.attacker && !split.defender) return cleanUnitBag(r.units);
     const u = {};
@@ -169,10 +167,6 @@
       // the original fallback chain unchanged.
       // `r.wall` may be capitalised (`Wall`) on some clients; lowercase the lookup
       // so the chain stays a chain regardless of server-side keying.
-      // buildings.wall first so the new deep parse feeds the old readers, then
-      // the original fallback chain unchanged.
-      // `r.wall` may be capitalised (`Wall`) on some clients; lowercase the lookup
-      // so the chain stays a chain regardless of server-side keying.
       wall: buildings.wall ?? ((r.wall != null ? r.wall : (r.Wall != null ? r.Wall : undefined))) ?? r.wall_level ?? r.defender_wall ?? (r.defender && (r.defender.wall ?? r.defender.wall_level)) ?? null,
       alliance: r.alliance ?? r.attacker_alliance ?? (r.attacker && (r.attacker.alliance_name || r.attacker.alliance)) ?? null,
       vill_id: r.vill_id ?? r.farm_town_id ?? null,
@@ -197,9 +191,6 @@
       for (const p of parts) {
         if (/^\d+\s*(?:min|h|m)$/i.test(p) || /^\d{1,2}:\d{2}$/.test(p)) { out.eta = p; break; }
       }
-      // Only seed the skip set with real values; `${out.x},${out.y}` evaluates
-      // to the literal string "null,null" when coords are missing, which then
-      // silently masks any real note that happens to contain that token.
       // Only seed the skip set with real values; `${out.x},${out.y}` evaluates
       // to the literal string "null,null" when coords are missing, which then
       // silently masks any real note that happens to contain that token.
@@ -242,8 +233,6 @@
       res_ = res_.resources;
     }
     const popRaw = r.population ?? r.pop;
-    // A client that reports population as a bare number would otherwise read as
-    // "unknown" and drop the value whole.
     // A client that reports population as a bare number would otherwise read as
     // "unknown" and drop the value whole.
     const popNum = typeof popRaw === 'number' || (typeof popRaw === 'string' && /^\d+$/.test(popRaw)) ? +popRaw : null;
