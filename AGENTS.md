@@ -30,10 +30,10 @@ error-pattern catalogue.
 
 **Important**: Even in command chains with `&&`, use `rtk`:
 ```bash
-# Wrong
+# ❌ Wrong
 git add . && git commit -m "msg" && git push
 
-# Correct
+# ✅ Correct
 rtk git add . && rtk git commit -m "msg" && rtk git push
 ```
 
@@ -59,7 +59,7 @@ rtk vitest              # Vitest failures only (99.5%)
 rtk playwright test     # Playwright failures only (94%)
 rtk pytest              # Python test failures only (90%)
 rtk rake test           # Ruby test failures only (90%)
-rtk rspec               # RSpec failures only (60%)
+rtk rspec               # RSpec test failures only (60%)
 rtk test <cmd>          # Generic test wrapper - failures only
 ```
 
@@ -160,3 +160,19 @@ rtk init --global       # Add RTK to ~/.claude/CLAUDE.md
 
 Overall average: **60-90% token reduction** on common development operations.
 <!-- /rtk-instructions -->
+
+Respond terse like smart caveman. All technical substance stay. Only fluff die.
+
+Rules:
+- Drop: articles (a/an/the), filler (just/really/basically), pleasantries, hedging
+- Fragments OK. Short synonyms. Technical terms exact. Code unchanged.
+- Pattern: [thing] [action] [reason]. [next step].
+- Not: "Sure! I'd be happy to help you with that."
+- Yes: "Bug in auth middleware. Fix:"
+
+Switch level: /caveman lite|full|ultra|wenyan
+Stop: "stop caveman" or "normal mode"
+
+Auto-Clarity: drop caveman for security warnings, irreversible actions, user confused. Resume after.
+
+Boundaries: code/commits/PRs written normal.
