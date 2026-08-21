@@ -1402,6 +1402,7 @@
           <label class="gb-cfg-row" data-gb-tip="Completar gratis la investigacion en la academia cuando esta dentro del umbral"><input type="checkbox" data-cfg="instant-research"/> Investigacion instantanea gratis (academia)</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Segundos antes de acabar para considerarlo gratis (max 290)">Umbral de instantanea gratis (s, tope de seguridad 290) <input class="gb-cfg-input" type="number" data-cfg="ib-free-thresh" min="60" max="300" style="width:70px"/></label>
           <label class="gb-cfg-row" data-gb-tip="Anadir automaticamente el siguiente edificio del plan a la cola"><input type="checkbox" data-cfg="auto-queue"/> Cola de construccion automatica</label>
+          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Si la cola de construccion esta vacia y no hay objetivo pendiente, el bot anade un edificio aleatorio de los disponibles (excluye especiales: Teatro, Termas, Biblioteca, Faro, Torre, Estatua, Oraculo, Oficina comercial). Solo uno por ciclo; la cola sigue vacia hasta la siguiente pasada."><input type="checkbox" data-cfg="ab-random-fallback"/> Cola aleatoria cuando este vacia</label>
           <label class="gb-cfg-row gb-cfg-sub" title="Si el coste de poblacion de la siguiente construccion supera la poblacion libre de la ciudad, mete 2 niveles de granja al principio de la cola. Antes comprueba lo que ya se esta construyendo (cola real + cola virtual); si la granja ya esta en marcha o al maximo, no hace nada."><input type="checkbox" data-cfg="pop-rescue-farm"/> Granja automatica si falta poblacion</label>
           <label class="gb-cfg-row gb-cfg-sub" title="Un muro danado conserva su nivel, asi que el planificador no lo ve. Con esto activado el nivel efectivo baja segun el dano y la cola lo reconstruye. Gasta recursos: por defecto OFF."><input type="checkbox" data-cfg="auto-wall-repair"/> Reparar muralla danada</label>
           <label class="gb-cfg-num gb-cfg-sub" title="Si la cabeza de la cola lleva bloqueada por recursos mas de estos minutos, Colas > Construccion ofrece ascender la siguiente orden que SI se puede pagar. Solo sugerencia: nunca reordena solo. 0 = desactivado.">Sugerir adelanto tras <input class="gb-cfg-input" type="number" data-cfg="build-swap-min" min="0" max="120" style="width:45px"/> min bloqueada</label>
@@ -2416,6 +2417,7 @@
     setChk('[data-cfg=auto-build]', state.ibAuto);
     setChk('[data-cfg=instant-research]', state.ibResearch);
     setChk('[data-cfg=auto-queue]', state.abAuto);
+    setChk('[data-cfg=ab-random-fallback]', state.abRandomFallback !== false);
     setChk('[data-cfg=auto-wall-repair]', !!state.autoWallRepair);
     setChk('[data-cfg=pop-rescue-farm]', !!state.popRescueFarm);
     setNum('[data-cfg=build-swap-min]', gbCfgNum(state.buildSwapThresholdMin, 5));
@@ -2544,6 +2546,12 @@
       gbLog('auto-queue', state.abAuto ? 'ON' : 'OFF');
       const el = panel.querySelector('#gb-ab-auto'); if (el) el.checked = state.abAuto;
       if (state.abAuto) abScan('toggle');
+      renderAbQueue();
+    });
+    onCfg('[data-cfg=ab-random-fallback]', 'change', e => {
+      state.abRandomFallback = e.target.checked; save(STORE.AB_RANDOM_FALLBACK, state.abRandomFallback);
+      gbLog('ab-random-fallback', state.abRandomFallback ? 'ON' : 'OFF');
+      if (state.abRandomFallback) abScan('toggle');
       renderAbQueue();
     });
     onCfg('[data-cfg=auto-quest-build]', 'change', e => {

@@ -696,6 +696,12 @@
         detail: `${(opt.actions || []).length} entradas · ${blocked} bloqueadas` + (ledgerBlind ? ' - contable del planificador no legible' : ''),
       };
     }));
+    out.push(preflightProbe('auto-queue', () => {
+      const a = !!state.abAuto;
+      const r = state.abRandomFallback !== false;
+      const detail = `auto-queue ${a ? 'ON' : 'OFF'}, aleatoria cuando vacia ${r ? 'ON' : 'OFF'}`;
+      return { ok: true, warn: false, detail };
+    }));
     out.push(preflightProbe('goal profile', () => {
       const known = goalProfiles();
       const goals = state.townGoals || {};

@@ -581,6 +581,7 @@
     farmSkipFull: load(STORE.FARM_SKIP_FULL, true),
     farmFullMode: load(STORE.FARM_FULL_MODE, 'any'),
     abAuto: load(STORE.AB_AUTO, false),
+    abRandomFallback: load(STORE.AB_RANDOM_FALLBACK, true),
     abTargets: load(STORE.AB_TARGETS, null),
     autoCave: load(STORE.AUTO_CAVE, false),
     caveThreshPct: load(STORE.CAVE_THRESH, 90),

@@ -357,6 +357,42 @@
       });
     });
   }
+  // ===== Random fallback (v5.9.8) ============================================
+  // Fires when the real build queue is empty AND the native virtual queue is
+  // empty AND the goal planner picked nothing. Picks ONE building from the
+  // pool (AB_BUILDINGS minus NATIVE_SPECIAL_GROUPS — specials stay user-driven)
+  // that is buildable now (deps met, not maxed) AND affordable now
+  // (resources + population pass). One per scan — the next orchestrator tick
+  // can re-pick so the queue stays empty until the user acts.
+  const AB_RANDOM_DENY = new Set(NATIVE_SPECIAL_GROUPS.reduce((a, g) => a.concat(g), []));
+  function abRandomPool() {
+    return AB_BUILDINGS.filter(b => !AB_RANDOM_DENY.has(b));
+  }
+  function abRandomShuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = a[i]; a[i] = a[j]; a[j] = tmp;
+    }
+    return a;
+  }
+  function abRandomPick(townId, levels) {
+    if (!levels) return null;
+    const pool = abRandomShuffle(abRandomPool());
+    for (const candidate of pool) {
+      const max = abMaxLevel(candidate);
+      if (max == null) { gbLogT('ab-rmax-' + candidate, 300000, `random-fallback: max level unreadable for ${candidate} — skip`); continue; }
+      const have = +(levels[candidate] || 0);
+      if (have >= max) continue;
+      if (goalQueueSuppressed(townId, 'build', candidate)) continue;
+      const resolved = abResolvePrerequisite(townId, candidate, levels);
+      if (!resolved || !resolved.building) continue;
+      const aff = abCanAfford(townId, resolved.building);
+      if (!aff.ok) continue;
+      return { building: resolved.building, forTarget: candidate, reason: 'random-fallback', cost: aff.need };
+    }
+    return null;
+  }
   function abTownIds() {
     const fromGame = townsFromGame();
     const ids=(fromGame&&fromGame.length?fromGame.map(t=>t.id):(state.towns||[]).map(t=>t.id)).map(String);
@@ -446,7 +482,36 @@
         noteBlocked(id,'niveles ilegibles'); return nextTown();
       }
       const plan = abPickNextFromLevels(id,levels);
-      if (!plan) { noteBlocked(id); return nextTown(); }
+      if (!plan) {
+        // Random fallback: when the planner has no goal target AND the real
+        // queue is empty AND the native virtual queue is empty, pick ONE
+        // random buildable + affordable building. Mirrors the lifecycle of
+        // a planner-driven post so the journal / lock / reconcile flow stays
+        // identical. The post itself goes through the same bridgePost('build')
+        // path as a normal upgrade.
+        const nativeEmpty = nativeQueueList(id, 'build', false).length === 0;
+        if (state.abRandomFallback && q.len === 0 && nativeEmpty) {
+          const picked = abRandomPick(id, levels);
+          if (picked) {
+            operations++;
+            let opSettled = false;
+            const markOperationUnknown = (why) => { if (!picked.nativeJobId) return; const head = nativeQueueList(id, 'build', false)[0]; if (head && head.id === picked.nativeJobId && head.inflight) nativeQueueMarkBuild(id, picked.nativeJobId, { inflight: null, reconcile: Object.assign({}, head.inflight), manualReview: true, status: 'unknown', reason: why }); };
+            const watchdog = gbTimeout(() => { if (opSettled || !gbInstanceAlive()) return; opSettled = true; const why = 'random-fallback sin respuesta; comprobar la cola real'; markOperationUnknown(why); noteBlocked(id, why); gbLogT('ab-random-watchdog-' + id, 60000, `auto-queue: random watchdog @${id}; moving on without retry`); nextTown(); }, 90000);
+            const handleResult = res => {
+              if (opSettled || !gbInstanceAlive()) return; opSettled = true; gbClearTimeout(watchdog);
+              if (res === 'ok') { done++; nativeQueueBuildApplied(id, picked); gbLog(`auto-queue: random-fallback ${AB_LABELS[picked.building] || picked.building} +1 @${townNameById(id) || id}`); gbTimeout(step, AB_SEND_SPACING_MS + Math.random() * 350); return; }
+              if (res === 'accepted') { done++; return nextTown(); }
+              if (res === 'captcha') { noteBlocked(id, 'pausado por captcha'); captcha = true; return finish(); }
+              noteBlocked(id, nativeQueueList(id, 'build', false)[0]?.reason || res || 'random-fallback sin éxito');
+              nextTown();
+            };
+            const handleError = err => { if (opSettled || !gbInstanceAlive()) return; opSettled = true; gbClearTimeout(watchdog); const why = 'random-fallback error inesperado'; markOperationUnknown(why); noteBlocked(id, why); gbLogT('ab-random-error-' + id, 60000, `auto-queue: random error @${id}: ${String(err)}`); nextTown(); };
+            try { Promise.resolve(abBuildUp(id, picked)).then(handleResult, handleError); } catch (err) { handleError(err); }
+            return;
+          }
+        }
+        noteBlocked(id); return nextTown();
+      }
       operations++;
       let opSettled=false;
       const markOperationUnknown=why=>{if(!plan.nativeJobId)return;const head=nativeQueueList(id,'build',false)[0];if(head&&head.id===plan.nativeJobId&&head.inflight)nativeQueueMarkBuild(id,plan.nativeJobId,{inflight:null,reconcile:Object.assign({},head.inflight),manualReview:true,status:'unknown',reason:why})};

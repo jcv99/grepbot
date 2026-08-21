@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.9.7
+// @version      5.9.8
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -79,6 +79,7 @@ const STORE = {
     FARM_SKIP_FULL: 'grepbot:farm-skip-full',
     FARM_FULL_MODE: 'grepbot:farm-full-mode',
     AB_AUTO: 'grepbot:ab-auto',
+    AB_RANDOM_FALLBACK: 'grepbot:ab-random-fallback',
     AUTO_WALL_REPAIR: 'grepbot:auto-wall-repair',
     POP_RESCUE_FARM: 'grepbot:pop-rescue-farm',
     AB_TARGETS: 'grepbot:ab-targets',
@@ -780,6 +781,7 @@ const STORE = {
     farmSkipFull: load(STORE.FARM_SKIP_FULL, true),
     farmFullMode: load(STORE.FARM_FULL_MODE, 'any'),
     abAuto: load(STORE.AB_AUTO, false),
+    abRandomFallback: load(STORE.AB_RANDOM_FALLBACK, true),
     abTargets: load(STORE.AB_TARGETS, null),
     autoCave: load(STORE.AUTO_CAVE, false),
     caveThreshPct: load(STORE.CAVE_THRESH, 90),
@@ -9653,6 +9655,36 @@ const STORE = {
       });
     });
   }
+
+  const AB_RANDOM_DENY = new Set(NATIVE_SPECIAL_GROUPS.reduce((a, g) => a.concat(g), []));
+  function abRandomPool() {
+    return AB_BUILDINGS.filter(b => !AB_RANDOM_DENY.has(b));
+  }
+  function abRandomShuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = a[i]; a[i] = a[j]; a[j] = tmp;
+    }
+    return a;
+  }
+  function abRandomPick(townId, levels) {
+    if (!levels) return null;
+    const pool = abRandomShuffle(abRandomPool());
+    for (const candidate of pool) {
+      const max = abMaxLevel(candidate);
+      if (max == null) { gbLogT('ab-rmax-' + candidate, 300000, `random-fallback: max level unreadable for ${candidate} \u2014 skip`); continue; }
+      const have = +(levels[candidate] || 0);
+      if (have >= max) continue;
+      if (goalQueueSuppressed(townId, 'build', candidate)) continue;
+      const resolved = abResolvePrerequisite(townId, candidate, levels);
+      if (!resolved || !resolved.building) continue;
+      const aff = abCanAfford(townId, resolved.building);
+      if (!aff.ok) continue;
+      return { building: resolved.building, forTarget: candidate, reason: 'random-fallback', cost: aff.need };
+    }
+    return null;
+  }
   function abTownIds() {
     const fromGame = townsFromGame();
     const ids=(fromGame&&fromGame.length?fromGame.map(t=>t.id):(state.towns||[]).map(t=>t.id)).map(String);
@@ -9738,7 +9770,31 @@ const STORE = {
         noteBlocked(id,'niveles ilegibles'); return nextTown();
       }
       const plan = abPickNextFromLevels(id,levels);
-      if (!plan) { noteBlocked(id); return nextTown(); }
+      if (!plan) {
+
+        const nativeEmpty = nativeQueueList(id, 'build', false).length === 0;
+        if (state.abRandomFallback && q.len === 0 && nativeEmpty) {
+          const picked = abRandomPick(id, levels);
+          if (picked) {
+            operations++;
+            let opSettled = false;
+            const markOperationUnknown = (why) => { if (!picked.nativeJobId) return; const head = nativeQueueList(id, 'build', false)[0]; if (head && head.id === picked.nativeJobId && head.inflight) nativeQueueMarkBuild(id, picked.nativeJobId, { inflight: null, reconcile: Object.assign({}, head.inflight), manualReview: true, status: 'unknown', reason: why }); };
+            const watchdog = gbTimeout(() => { if (opSettled || !gbInstanceAlive()) return; opSettled = true; const why = 'random-fallback sin respuesta; comprobar la cola real'; markOperationUnknown(why); noteBlocked(id, why); gbLogT('ab-random-watchdog-' + id, 60000, `auto-queue: random watchdog @${id}; moving on without retry`); nextTown(); }, 90000);
+            const handleResult = res => {
+              if (opSettled || !gbInstanceAlive()) return; opSettled = true; gbClearTimeout(watchdog);
+              if (res === 'ok') { done++; nativeQueueBuildApplied(id, picked); gbLog(`auto-queue: random-fallback ${AB_LABELS[picked.building] || picked.building} +1 @${townNameById(id) || id}`); gbTimeout(step, AB_SEND_SPACING_MS + Math.random() * 350); return; }
+              if (res === 'accepted') { done++; return nextTown(); }
+              if (res === 'captcha') { noteBlocked(id, 'pausado por captcha'); captcha = true; return finish(); }
+              noteBlocked(id, nativeQueueList(id, 'build', false)[0]?.reason || res || 'random-fallback sin \u00e9xito');
+              nextTown();
+            };
+            const handleError = err => { if (opSettled || !gbInstanceAlive()) return; opSettled = true; gbClearTimeout(watchdog); const why = 'random-fallback error inesperado'; markOperationUnknown(why); noteBlocked(id, why); gbLogT('ab-random-error-' + id, 60000, `auto-queue: random error @${id}: ${String(err)}`); nextTown(); };
+            try { Promise.resolve(abBuildUp(id, picked)).then(handleResult, handleError); } catch (err) { handleError(err); }
+            return;
+          }
+        }
+        noteBlocked(id); return nextTown();
+      }
       operations++;
       let opSettled=false;
       const markOperationUnknown=why=>{if(!plan.nativeJobId)return;const head=nativeQueueList(id,'build',false)[0];if(head&&head.id===plan.nativeJobId&&head.inflight)nativeQueueMarkBuild(id,plan.nativeJobId,{inflight:null,reconcile:Object.assign({},head.inflight),manualReview:true,status:'unknown',reason:why})};
@@ -22577,6 +22633,12 @@ const STORE = {
         detail: `${(opt.actions || []).length} entradas \u00b7 ${blocked} bloqueadas` + (ledgerBlind ? ' - contable del planificador no legible' : ''),
       };
     }));
+    out.push(preflightProbe('auto-queue', () => {
+      const a = !!state.abAuto;
+      const r = state.abRandomFallback !== false;
+      const detail = `auto-queue ${a ? 'ON' : 'OFF'}, aleatoria cuando vacia ${r ? 'ON' : 'OFF'}`;
+      return { ok: true, warn: false, detail };
+    }));
     out.push(preflightProbe('goal profile', () => {
       const known = goalProfiles();
       const goals = state.townGoals || {};
@@ -25376,6 +25438,7 @@ const STORE = {
           <label class="gb-cfg-row" data-gb-tip="Completar gratis la investigacion en la academia cuando esta dentro del umbral"><input type="checkbox" data-cfg="instant-research"/> Investigacion instantanea gratis (academia)</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Segundos antes de acabar para considerarlo gratis (max 290)">Umbral de instantanea gratis (s, tope de seguridad 290) <input class="gb-cfg-input" type="number" data-cfg="ib-free-thresh" min="60" max="300" style="width:70px"/></label>
           <label class="gb-cfg-row" data-gb-tip="Anadir automaticamente el siguiente edificio del plan a la cola"><input type="checkbox" data-cfg="auto-queue"/> Cola de construccion automatica</label>
+          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Si la cola de construccion esta vacia y no hay objetivo pendiente, el bot anade un edificio aleatorio de los disponibles (excluye especiales: Teatro, Termas, Biblioteca, Faro, Torre, Estatua, Oraculo, Oficina comercial). Solo uno por ciclo; la cola sigue vacia hasta la siguiente pasada."><input type="checkbox" data-cfg="ab-random-fallback"/> Cola aleatoria cuando este vacia</label>
           <label class="gb-cfg-row gb-cfg-sub" title="Si el coste de poblacion de la siguiente construccion supera la poblacion libre de la ciudad, mete 2 niveles de granja al principio de la cola. Antes comprueba lo que ya se esta construyendo (cola real + cola virtual); si la granja ya esta en marcha o al maximo, no hace nada."><input type="checkbox" data-cfg="pop-rescue-farm"/> Granja automatica si falta poblacion</label>
           <label class="gb-cfg-row gb-cfg-sub" title="Un muro danado conserva su nivel, asi que el planificador no lo ve. Con esto activado el nivel efectivo baja segun el dano y la cola lo reconstruye. Gasta recursos: por defecto OFF."><input type="checkbox" data-cfg="auto-wall-repair"/> Reparar muralla danada</label>
           <label class="gb-cfg-num gb-cfg-sub" title="Si la cabeza de la cola lleva bloqueada por recursos mas de estos minutos, Colas > Construccion ofrece ascender la siguiente orden que SI se puede pagar. Solo sugerencia: nunca reordena solo. 0 = desactivado.">Sugerir adelanto tras <input class="gb-cfg-input" type="number" data-cfg="build-swap-min" min="0" max="120" style="width:45px"/> min bloqueada</label>
@@ -26304,6 +26367,7 @@ const STORE = {
     setChk('[data-cfg=auto-build]', state.ibAuto);
     setChk('[data-cfg=instant-research]', state.ibResearch);
     setChk('[data-cfg=auto-queue]', state.abAuto);
+    setChk('[data-cfg=ab-random-fallback]', state.abRandomFallback !== false);
     setChk('[data-cfg=auto-wall-repair]', !!state.autoWallRepair);
     setChk('[data-cfg=pop-rescue-farm]', !!state.popRescueFarm);
     setNum('[data-cfg=build-swap-min]', gbCfgNum(state.buildSwapThresholdMin, 5));
@@ -26432,6 +26496,12 @@ const STORE = {
       gbLog('auto-queue', state.abAuto ? 'ON' : 'OFF');
       const el = panel.querySelector('#gb-ab-auto'); if (el) el.checked = state.abAuto;
       if (state.abAuto) abScan('toggle');
+      renderAbQueue();
+    });
+    onCfg('[data-cfg=ab-random-fallback]', 'change', e => {
+      state.abRandomFallback = e.target.checked; save(STORE.AB_RANDOM_FALLBACK, state.abRandomFallback);
+      gbLog('ab-random-fallback', state.abRandomFallback ? 'ON' : 'OFF');
+      if (state.abRandomFallback) abScan('toggle');
       renderAbQueue();
     });
     onCfg('[data-cfg=auto-quest-build]', 'change', e => {
