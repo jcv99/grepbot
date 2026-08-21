@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.0
+// @version      5.10.1
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1553,6 +1553,16 @@ const STORE = {
   }
 
   const NAVAL_MYTHICAL_UNITS = new Set(['hydra']);
+
+  const MYTHICAL_UNIT_GOD = { hydra: 'poseidon' };
+  function mythicalUnitGod(unitId) {
+    const fid = unitId == null ? '' : String(unitId).toLowerCase();
+    if (!fid) return null;
+    try {
+      const m = MYTHICAL_UNIT_GOD[fid];
+      return m ? String(m).toLowerCase() : null;
+    } catch (_) { return null; }
+  }
   function recruitIsNaval(unitId) {
     const fid = unitId == null ? '' : String(unitId);
     try {
@@ -13592,7 +13602,8 @@ const STORE = {
 
     if (!state.autoFavor) return;
     if (!hostEnabled() || automationPaused({})) return;
-    if (captchaPaused('godspell')) return;
+
+    if (captchaPaused('spell')) return;
     if (gbLocked('godspell')) return;
     const cfg = state.favorCfg || {};
     const power = cfg.spellPower ? String(cfg.spellPower) : '';
@@ -14527,7 +14538,11 @@ const STORE = {
         if (+(buildings.barracks || 0) < (Number.isFinite(barracksNeed) ? barracksNeed : 1)) return false;
       }
       if (def.god || def.mythical || def.is_mythical) {
-        const requiredGod = def.god ? String(def.god).toLowerCase() : null;
+
+        let requiredGod = def.god ? String(def.god).toLowerCase() : null;
+        if (!requiredGod && typeof mythicalUnitGod === 'function') {
+          requiredGod = mythicalUnitGod(unitId);
+        }
         const townGod = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
 
         if (requiredGod && townGod && townGod !== requiredGod) return false;
@@ -14596,7 +14611,9 @@ const STORE = {
       if (rp > 0) amount = Math.min(amount, Math.floor(pop / rp));
       const favorCost = +(def.favor ?? def.resources.favor ?? 0);
       if (favorCost > 0) {
-        const god = def.god && String(def.god).toLowerCase();
+
+        let god = def.god && String(def.god).toLowerCase();
+        if (!god && typeof mythicalUnitGod === 'function') god = mythicalUnitGod(unit);
         const fav = favorCurrent();
         const have = god ? favorForGod(fav, god) : null;
         if (have == null) return 0;
@@ -16780,15 +16797,16 @@ const STORE = {
     hero: 300000,
     godspell: 180000,
   };
+
   const ORCH_CAPTCHA = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villageRecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
+    recruit: 'recruit', villrecruit: 'villrecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'spell',
   };
   const ORCH_JRN = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villageRecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
+    recruit: 'recruit', villrecruit: 'villrecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'spell',
   };
   const ORCH_IDLE_TRIP = 4;
   const ORCH_IDLE_MAX = 8;

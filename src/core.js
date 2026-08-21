@@ -1438,6 +1438,22 @@
   // fallback. Single shared helper so recruiters, lane classifiers and the
   // queue-center renderer all agree on what is naval.
   const NAVAL_MYTHICAL_UNITS = new Set(['hydra']);
+  // Poseidon mythicals (hydra, sea monsters) often lack `def.god` in some
+  // GameData builds while still carrying a non-zero favor cost — the favor
+  // gate in recruitCanBuild/recruitAffordableAmount then hard-blocks the unit
+  // even when the player has plenty of Poseidon favor. Fill the gap from this
+  // map so the recruiters clamp the pool against the right god. Add a new
+  // naval mythical here AND to NAVAL_MYTHICAL_UNITS in the same patch.
+  // See REGRESSIONS.md §8 v5.10.1.
+  const MYTHICAL_UNIT_GOD = { hydra: 'poseidon' };
+  function mythicalUnitGod(unitId) {
+    const fid = unitId == null ? '' : String(unitId).toLowerCase();
+    if (!fid) return null;
+    try {
+      const m = MYTHICAL_UNIT_GOD[fid];
+      return m ? String(m).toLowerCase() : null;
+    } catch (_) { return null; }
+  }
   function recruitIsNaval(unitId) {
     const fid = unitId == null ? '' : String(unitId);
     try {

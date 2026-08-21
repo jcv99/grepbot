@@ -174,7 +174,15 @@
         if (+(buildings.barracks || 0) < (Number.isFinite(barracksNeed) ? barracksNeed : 1)) return false;
       }
       if (def.god || def.mythical || def.is_mythical) {
-        const requiredGod = def.god ? String(def.god).toLowerCase() : null;
+        // GameData.units.hydra often ships without `god` even though
+        // is_mythical:true and a non-zero favor cost are present; the map in
+        // core.js (MYTHICAL_UNIT_GOD) fills the gap so the favor gate can clamp
+        // against the canonical god. def.god stays primary — the map is only a
+        // fallback for naval mythicals the client build forgot to label.
+        let requiredGod = def.god ? String(def.god).toLowerCase() : null;
+        if (!requiredGod && typeof mythicalUnitGod === 'function') {
+          requiredGod = mythicalUnitGod(unitId);
+        }
         const townGod = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
         // Unreadable god is UNKNOWN, not "wrong god": client builds rename
         // getGod()/god attributes, and blocking on the miss silently killed
@@ -245,7 +253,12 @@
       if (rp > 0) amount = Math.min(amount, Math.floor(pop / rp));
       const favorCost = +(def.favor ?? def.resources.favor ?? 0);
       if (favorCost > 0) {
-        const god = def.god && String(def.god).toLowerCase();
+        // Same naval-mythical fallback as recruitCanBuild: GameData may omit
+        // `def.god` for hydra, so fall back to MYTHICAL_UNIT_GOD before the
+        // pool clamp. Favor is irreversible, so an unknown god still hard-stops
+        // the amount at 0 — never spend against a guess.
+        let god = def.god && String(def.god).toLowerCase();
+        if (!god && typeof mythicalUnitGod === 'function') god = mythicalUnitGod(unit);
         const fav = favorCurrent();
         const have = god ? favorForGod(fav, god) : null;
         if (have == null) return 0;
