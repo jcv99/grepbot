@@ -1,3 +1,9 @@
+  const IB_CHECK_MS = 10000;
+  const IB_FREE_ACTIONS = new Set(['buyInstant']);
+  const IB_FREE_SERVER_MARGIN_SEC = 10;
+  // Re-scan spacing after an instant-complete sweep: one more pass while the
+  // player is plausibly still in the window, then the 10s loop takes over.
+  const IB_RESCAN_AFTER_MS = 3000;
   function ibFreeThresh() { return Math.max(1,Math.min(300,+state.ibFreeThresh||300)); }
   function ibSafeFreeThresh(){return Math.min(300-IB_FREE_SERVER_MARGIN_SEC,ibFreeThresh());}
   function ibGoldCost(kind, seconds) {
@@ -401,7 +407,7 @@
         unlock();
         gbLog(`instant: completed ${done}/${free.length}${captcha ? ' (captcha abort)' : ''}`);
         if (done) flash(`instant x${done}`);
-        gbTimeout(ibScan, 3000);
+        gbTimeout(ibScan, IB_RESCAN_AFTER_MS);
         return;
       }
       ibComplete(free[i]).then(res => {

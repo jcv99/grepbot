@@ -298,7 +298,12 @@
     if (q.len >= q.max) return { ok: false, why: 'queue-full', detail:`cola real llena (${q.len}/${q.max})` };
     const levels = abCurrentLevels(townId);
     if (!levels) return { ok: false, why: 'levels-unreadable' };
-    const fresh = abPickNextFromLevels(townId, levels);
+    // The random fallback only ever runs when abPickNextFromLevels returned
+    // null, so re-picking here would ALWAYS answer 'no-valid-build' and the
+    // feature could never post. An explicit pick is re-validated below instead
+    // -- max level, prerequisites, affordability, dedup and the queue gates all
+    // still run against the live model; only the goal re-pick is skipped.
+    const fresh = (plan && plan.randomFallback) ? plan : abPickNextFromLevels(townId, levels);
     if (!fresh) return { ok: false, why: 'no-valid-build' };
     if(plan&&plan.nativeJobId&&fresh.nativeJobId!==plan.nativeJobId)return {ok:false,why:'native-head-changed'};
     if (plan && fresh.building !== plan.building) return { ok: false, why: `plan-changed:${plan.building}->${fresh.building}`, replan: fresh };
@@ -364,6 +369,9 @@
   // that is buildable now (deps met, not maxed) AND affordable now
   // (resources + population pass). One per scan — the next orchestrator tick
   // can re-pick so the queue stays empty until the user acts.
+  // One operation gets this long to settle before the scan gives up on the town
+  // and moves on. Never a retry: the post may have landed.
+  const AB_OP_WATCHDOG_MS = 90000;
   const AB_RANDOM_DENY = new Set(NATIVE_SPECIAL_GROUPS.reduce((a, g) => a.concat(g), []));
   function abRandomPool() {
     return AB_BUILDINGS.filter(b => !AB_RANDOM_DENY.has(b));
@@ -389,7 +397,7 @@
       if (!resolved || !resolved.building) continue;
       const aff = abCanAfford(townId, resolved.building);
       if (!aff.ok) continue;
-      return { building: resolved.building, forTarget: candidate, reason: 'random-fallback', cost: aff.need };
+      return { building: resolved.building, forTarget: candidate, reason: 'random-fallback', cost: aff.need, randomFallback: true };
     }
     return null;
   }
@@ -495,17 +503,25 @@
           if (picked) {
             operations++;
             let opSettled = false;
-            const markOperationUnknown = (why) => { if (!picked.nativeJobId) return; const head = nativeQueueList(id, 'build', false)[0]; if (head && head.id === picked.nativeJobId && head.inflight) nativeQueueMarkBuild(id, picked.nativeJobId, { inflight: null, reconcile: Object.assign({}, head.inflight), manualReview: true, status: 'unknown', reason: why }); };
-            const watchdog = gbTimeout(() => { if (opSettled || !gbInstanceAlive()) return; opSettled = true; const why = 'random-fallback sin respuesta; comprobar la cola real'; markOperationUnknown(why); noteBlocked(id, why); gbLogT('ab-random-watchdog-' + id, 60000, `auto-queue: random watchdog @${id}; moving on without retry`); nextTown(); }, 90000);
+            // No nativeJobId on a random pick, so there is no lane head to mark
+            // and nothing for the reconciler to pick up: the outcome is logged
+            // and journaled instead. noteBlocked is deliberately NOT used on
+            // this path -- it early-returns when the lane is empty, which it
+            // always is here, so every failure would have been silent.
+            const randomBlocked = why => { gbLogT('ab-random-' + id, 60000, `auto-queue: random-fallback ${picked.building} @${id}: ${why}`); };
+            const watchdog = gbTimeout(() => {
+              if (opSettled || !gbInstanceAlive()) return; opSettled = true;
+              randomBlocked('sin respuesta; comprobar la cola real'); nextTown();
+            }, AB_OP_WATCHDOG_MS);
             const handleResult = res => {
               if (opSettled || !gbInstanceAlive()) return; opSettled = true; gbClearTimeout(watchdog);
-              if (res === 'ok') { done++; nativeQueueBuildApplied(id, picked); gbLog(`auto-queue: random-fallback ${AB_LABELS[picked.building] || picked.building} +1 @${townNameById(id) || id}`); gbTimeout(step, AB_SEND_SPACING_MS + Math.random() * 350); return; }
+              if (res === 'ok') { done++; gbLog(`auto-queue: random-fallback ${AB_LABELS[picked.building] || picked.building} +1 @${townNameById(id) || id}`); return nextTown(); }
               if (res === 'accepted') { done++; return nextTown(); }
-              if (res === 'captcha') { noteBlocked(id, 'pausado por captcha'); captcha = true; return finish(); }
-              noteBlocked(id, nativeQueueList(id, 'build', false)[0]?.reason || res || 'random-fallback sin éxito');
+              if (res === 'captcha') { randomBlocked('pausado por captcha'); captcha = true; return finish(); }
+              randomBlocked(String(res || 'sin exito'));
               nextTown();
             };
-            const handleError = err => { if (opSettled || !gbInstanceAlive()) return; opSettled = true; gbClearTimeout(watchdog); const why = 'random-fallback error inesperado'; markOperationUnknown(why); noteBlocked(id, why); gbLogT('ab-random-error-' + id, 60000, `auto-queue: random error @${id}: ${String(err)}`); nextTown(); };
+            const handleError = err => { if (opSettled || !gbInstanceAlive()) return; opSettled = true; gbClearTimeout(watchdog); randomBlocked('error inesperado: ' + String(err)); nextTown(); };
             try { Promise.resolve(abBuildUp(id, picked)).then(handleResult, handleError); } catch (err) { handleError(err); }
             return;
           }
@@ -515,7 +531,7 @@
       operations++;
       let opSettled=false;
       const markOperationUnknown=why=>{if(!plan.nativeJobId)return;const head=nativeQueueList(id,'build',false)[0];if(head&&head.id===plan.nativeJobId&&head.inflight)nativeQueueMarkBuild(id,plan.nativeJobId,{inflight:null,reconcile:Object.assign({},head.inflight),manualReview:true,status:'unknown',reason:why})};
-      const watchdog=gbTimeout(()=>{if(opSettled||!gbInstanceAlive())return;opSettled=true;const why='operación sin respuesta; comprobar la cola real';markOperationUnknown(why);noteBlocked(id,why);gbLogT('ab-operation-watchdog-'+id,60000,`auto-queue: watchdog @${id}; moving on without retry`);nextTown()},90000);
+      const watchdog=gbTimeout(()=>{if(opSettled||!gbInstanceAlive())return;opSettled=true;const why='operación sin respuesta; comprobar la cola real';markOperationUnknown(why);noteBlocked(id,why);gbLogT('ab-operation-watchdog-'+id,60000,`auto-queue: watchdog @${id}; moving on without retry`);nextTown()},AB_OP_WATCHDOG_MS);
       const handleResult=res=>{
         if(opSettled||!gbInstanceAlive())return;opSettled=true;gbClearTimeout(watchdog);
         if (res === 'ok') {

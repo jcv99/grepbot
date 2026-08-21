@@ -696,11 +696,24 @@
         detail: `${(opt.actions || []).length} entradas · ${blocked} bloqueadas` + (ledgerBlind ? ' - contable del planificador no legible' : ''),
       };
     }));
-    out.push(preflightProbe('auto-queue', () => {
-      const a = !!state.abAuto;
-      const r = state.abRandomFallback !== false;
-      const detail = `auto-queue ${a ? 'ON' : 'OFF'}, aleatoria cuando vacia ${r ? 'ON' : 'OFF'}`;
-      return { ok: true, warn: false, detail };
+    out.push(preflightProbe('cola aleatoria', () => {
+      if (!state.abRandomFallback) return { ok: true, detail: 'desactivada (por defecto)' };
+      if (!state.abAuto) return { ok: true, warn: true, detail: 'activada, pero la cola automatica esta OFF: no se ejecuta' };
+
+      // Read-path probe, not a config echo: the pool is only usable while
+      // GameData carries a max level for its buildings, and a pick also needs a
+      // readable cost. Unreadable = warn, never a fabricated OK.
+      const pool = abRandomPool();
+      const noMax = pool.filter(b => abMaxLevel(b) == null);
+      const townId = (townsFromGame() || []).map(t => String(t.id))[0] || null;
+      const costReadable = townId ? pool.filter(b => abCanAfford(townId, b).why !== 'cost unreadable').length : null;
+      return {
+        ok: !!pool.length && !noMax.length,
+        warn: !!noMax.length || costReadable === 0,
+        detail: `${pool.length} edificios en el sorteo` +
+          (noMax.length ? `, ${noMax.length} sin nivel maximo legible (${noMax.slice(0, 4).join(',')})` : ', niveles maximos legibles') +
+          (costReadable == null ? ', coste sin ciudad que probar' : `, coste legible en ${costReadable}/${pool.length}`),
+      };
     }));
     out.push(preflightProbe('goal profile', () => {
       const known = goalProfiles();

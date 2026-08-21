@@ -177,6 +177,9 @@
     });
     flash(`bg-collect x${n}`);
   }
+  // Cadence of the idle safety-net interval armed in bandit.js: the observer is
+  // the primary driver, this is the floor under it.
+  const COLLECT_SAFETY_MS = 5000;
   let collectTimer = null;
   let collectRafPending = false;
   function scheduleAutoCollect() {

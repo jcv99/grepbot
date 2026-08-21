@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.9.8
+// @version      5.9.9
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -781,7 +781,8 @@ const STORE = {
     farmSkipFull: load(STORE.FARM_SKIP_FULL, true),
     farmFullMode: load(STORE.FARM_FULL_MODE, 'any'),
     abAuto: load(STORE.AB_AUTO, false),
-    abRandomFallback: load(STORE.AB_RANDOM_FALLBACK, true),
+
+    abRandomFallback: load(STORE.AB_RANDOM_FALLBACK, false),
     abTargets: load(STORE.AB_TARGETS, null),
     autoCave: load(STORE.AUTO_CAVE, false),
     caveThreshPct: load(STORE.CAVE_THRESH, 90),
@@ -2484,6 +2485,8 @@ const STORE = {
 
     'support', 'spy',
 
+    'cave-emergency',
+
     'airaw'
   ]);
   const TX_TERMINAL_TTL = 30 * 60 * 1000;
@@ -3115,17 +3118,23 @@ const STORE = {
     };
     step();
   }
+
   function txActionGate(feature, write, jtag) {
     if (!gbInstanceAlive()) return 'disposed';
     if (!hostEnabled()) return 'disabled';
     const pauseInfo = {};
     if (automationPaused(pauseInfo)) return 'paused:' + pauseInfo.reason;
-    if (captchaPaused(feature) || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return 'captcha-pause';
-    if (write && circuitOpen(feature)) return 'circuit-open';
-    if (jtag && jrnSkipped(jtag)) return 'remembered';
-    if (write && state.dryRun) return 'dryrun';
+    if (write) {
+      if (state.dryRun) return 'dryrun';
+      if (circuitOpen(feature)) return 'circuit-open';
 
-    if (!reqBudgetOk(write ? 'action' : 'read')) return 'budget';
+      return null;
+    }
+
+    if (captchaPaused(feature) || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return 'captcha-pause';
+    if (jtag && jrnSkipped(jtag)) return 'remembered';
+
+    if (!reqBudgetOk('read')) return 'budget';
     return null;
   }
   function txRun(feature, transport, endpoint, data, rawSend, onDone) {
@@ -3166,6 +3175,11 @@ const STORE = {
         gbLogT('tpl-stale-' + tplName, 120000, `${feature}: template ${tplName} invalidated - re-learn by hand`);
         whyNote(feature, endpoint, 'blocked', 'tpl-stale');
         return bail('tpl-stale');
+      }
+
+      if (jtag && jrnSkipped(jtag)) {
+        whyNote(feature, endpoint, 'blocked', 'remembered');
+        return bail('remembered', 'remembered');
       }
 
       const softMs = reqBudgetSoftDelayMs();
@@ -3246,6 +3260,12 @@ const STORE = {
     }
 
     if (!reqBudgetOk('action')) { tx.state = 'aborted'; tx.detail = 'budget'; tx.updatedAt = Date.now(); plannerRelease(tx, 'budget'); txSave(); return bail('budget'); }
+
+    if (captchaPaused(feature) || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) {
+      tx.state = 'aborted'; tx.detail = 'captcha-pause'; tx.updatedAt = Date.now(); plannerRelease(tx, 'captcha-pause'); txSave();
+      whyNote(feature, endpoint, 'blocked', 'captcha-pause');
+      return bail('captcha', 'captcha-pause');
+    }
     reqBudgetMark('action');
     tx.state = 'sending'; tx.sentAt = Date.now(); tx.updatedAt = Date.now(); txSave();
     rawSend((err, result) => {
@@ -6902,6 +6922,8 @@ const STORE = {
     });
     flash(`bg-collect x${n}`);
   }
+
+  const COLLECT_SAFETY_MS = 5000;
   let collectTimer = null;
   let collectRafPending = false;
   function scheduleAutoCollect() {
@@ -7322,11 +7344,14 @@ const STORE = {
     save(STORE.BANDIT_LOG, state.banditLog);
   }
   banditScheduleNext();
-  gbInterval(autoCollectResources, 5000);
+
+  gbInterval(autoCollectResources, COLLECT_SAFETY_MS);
   if (state.autoCollect && state.collectAll) collectAllBackground();
   const IB_CHECK_MS = 10000;
   const IB_FREE_ACTIONS = new Set(['buyInstant']);
   const IB_FREE_SERVER_MARGIN_SEC = 10;
+
+  const IB_RESCAN_AFTER_MS = 3000;
   function ibFreeThresh() { return Math.max(1,Math.min(300,+state.ibFreeThresh||300)); }
   function ibSafeFreeThresh(){return Math.min(300-IB_FREE_SERVER_MARGIN_SEC,ibFreeThresh());}
   function ibGoldCost(kind, seconds) {
@@ -7675,7 +7700,7 @@ const STORE = {
         unlock();
         gbLog(`instant: completed ${done}/${free.length}${captcha ? ' (captcha abort)' : ''}`);
         if (done) flash(`instant x${done}`);
-        gbTimeout(ibScan, 3000);
+        gbTimeout(ibScan, IB_RESCAN_AFTER_MS);
         return;
       }
       ibComplete(free[i]).then(res => {
@@ -9603,7 +9628,8 @@ const STORE = {
     if (q.len >= q.max) return { ok: false, why: 'queue-full', detail:`cola real llena (${q.len}/${q.max})` };
     const levels = abCurrentLevels(townId);
     if (!levels) return { ok: false, why: 'levels-unreadable' };
-    const fresh = abPickNextFromLevels(townId, levels);
+
+    const fresh = (plan && plan.randomFallback) ? plan : abPickNextFromLevels(townId, levels);
     if (!fresh) return { ok: false, why: 'no-valid-build' };
     if(plan&&plan.nativeJobId&&fresh.nativeJobId!==plan.nativeJobId)return {ok:false,why:'native-head-changed'};
     if (plan && fresh.building !== plan.building) return { ok: false, why: `plan-changed:${plan.building}->${fresh.building}`, replan: fresh };
@@ -9656,6 +9682,7 @@ const STORE = {
     });
   }
 
+  const AB_OP_WATCHDOG_MS = 90000;
   const AB_RANDOM_DENY = new Set(NATIVE_SPECIAL_GROUPS.reduce((a, g) => a.concat(g), []));
   function abRandomPool() {
     return AB_BUILDINGS.filter(b => !AB_RANDOM_DENY.has(b));
@@ -9681,7 +9708,7 @@ const STORE = {
       if (!resolved || !resolved.building) continue;
       const aff = abCanAfford(townId, resolved.building);
       if (!aff.ok) continue;
-      return { building: resolved.building, forTarget: candidate, reason: 'random-fallback', cost: aff.need };
+      return { building: resolved.building, forTarget: candidate, reason: 'random-fallback', cost: aff.need, randomFallback: true };
     }
     return null;
   }
@@ -9778,17 +9805,21 @@ const STORE = {
           if (picked) {
             operations++;
             let opSettled = false;
-            const markOperationUnknown = (why) => { if (!picked.nativeJobId) return; const head = nativeQueueList(id, 'build', false)[0]; if (head && head.id === picked.nativeJobId && head.inflight) nativeQueueMarkBuild(id, picked.nativeJobId, { inflight: null, reconcile: Object.assign({}, head.inflight), manualReview: true, status: 'unknown', reason: why }); };
-            const watchdog = gbTimeout(() => { if (opSettled || !gbInstanceAlive()) return; opSettled = true; const why = 'random-fallback sin respuesta; comprobar la cola real'; markOperationUnknown(why); noteBlocked(id, why); gbLogT('ab-random-watchdog-' + id, 60000, `auto-queue: random watchdog @${id}; moving on without retry`); nextTown(); }, 90000);
+
+            const randomBlocked = why => { gbLogT('ab-random-' + id, 60000, `auto-queue: random-fallback ${picked.building} @${id}: ${why}`); };
+            const watchdog = gbTimeout(() => {
+              if (opSettled || !gbInstanceAlive()) return; opSettled = true;
+              randomBlocked('sin respuesta; comprobar la cola real'); nextTown();
+            }, AB_OP_WATCHDOG_MS);
             const handleResult = res => {
               if (opSettled || !gbInstanceAlive()) return; opSettled = true; gbClearTimeout(watchdog);
-              if (res === 'ok') { done++; nativeQueueBuildApplied(id, picked); gbLog(`auto-queue: random-fallback ${AB_LABELS[picked.building] || picked.building} +1 @${townNameById(id) || id}`); gbTimeout(step, AB_SEND_SPACING_MS + Math.random() * 350); return; }
+              if (res === 'ok') { done++; gbLog(`auto-queue: random-fallback ${AB_LABELS[picked.building] || picked.building} +1 @${townNameById(id) || id}`); return nextTown(); }
               if (res === 'accepted') { done++; return nextTown(); }
-              if (res === 'captcha') { noteBlocked(id, 'pausado por captcha'); captcha = true; return finish(); }
-              noteBlocked(id, nativeQueueList(id, 'build', false)[0]?.reason || res || 'random-fallback sin \u00e9xito');
+              if (res === 'captcha') { randomBlocked('pausado por captcha'); captcha = true; return finish(); }
+              randomBlocked(String(res || 'sin exito'));
               nextTown();
             };
-            const handleError = err => { if (opSettled || !gbInstanceAlive()) return; opSettled = true; gbClearTimeout(watchdog); const why = 'random-fallback error inesperado'; markOperationUnknown(why); noteBlocked(id, why); gbLogT('ab-random-error-' + id, 60000, `auto-queue: random error @${id}: ${String(err)}`); nextTown(); };
+            const handleError = err => { if (opSettled || !gbInstanceAlive()) return; opSettled = true; gbClearTimeout(watchdog); randomBlocked('error inesperado: ' + String(err)); nextTown(); };
             try { Promise.resolve(abBuildUp(id, picked)).then(handleResult, handleError); } catch (err) { handleError(err); }
             return;
           }
@@ -9798,7 +9829,7 @@ const STORE = {
       operations++;
       let opSettled=false;
       const markOperationUnknown=why=>{if(!plan.nativeJobId)return;const head=nativeQueueList(id,'build',false)[0];if(head&&head.id===plan.nativeJobId&&head.inflight)nativeQueueMarkBuild(id,plan.nativeJobId,{inflight:null,reconcile:Object.assign({},head.inflight),manualReview:true,status:'unknown',reason:why})};
-      const watchdog=gbTimeout(()=>{if(opSettled||!gbInstanceAlive())return;opSettled=true;const why='operaci\u00f3n sin respuesta; comprobar la cola real';markOperationUnknown(why);noteBlocked(id,why);gbLogT('ab-operation-watchdog-'+id,60000,`auto-queue: watchdog @${id}; moving on without retry`);nextTown()},90000);
+      const watchdog=gbTimeout(()=>{if(opSettled||!gbInstanceAlive())return;opSettled=true;const why='operaci\u00f3n sin respuesta; comprobar la cola real';markOperationUnknown(why);noteBlocked(id,why);gbLogT('ab-operation-watchdog-'+id,60000,`auto-queue: watchdog @${id}; moving on without retry`);nextTown()},AB_OP_WATCHDOG_MS);
       const handleResult=res=>{
         if(opSettled||!gbInstanceAlive())return;opSettled=true;gbClearTimeout(watchdog);
         if (res === 'ok') {
@@ -10707,8 +10738,10 @@ const STORE = {
       if (!t) return null;
       const r = t.resources && t.resources();
       let cap = null, tradeCap = null, pop = null, small = false;
-      try { if (t.getStorageCapacity) cap = +t.getStorageCapacity(); } catch (_) {}
-      if (!(cap > 0)) { const shared = townResState(townId); if (shared) cap = shared.cap; }
+
+      const shared = townResState(townId);
+      if (shared && shared.cap > 0) cap = shared.cap;
+      if (!(cap > 0)) { try { if (t.getStorageCapacity) cap = +t.getStorageCapacity(); } catch (_) {} }
       try { if (t.getAvailableTradeCapacity) tradeCap = +t.getAvailableTradeCapacity(); } catch (_) {}
       try { if (t.getAvailablePopulation) pop = +t.getAvailablePopulation(); } catch (_) {}
       try {
@@ -13543,6 +13576,7 @@ const STORE = {
     }
     const favorLock = gbLock('favor', 180000);
     if (!favorLock) return;
+
     const tpl = state.attackTpl;
     const payload = {
       model_url: (tpl && tpl.model_url) || ('Town/' + townId),
@@ -13922,9 +13956,6 @@ const STORE = {
     if (!due) due = Date.now() + margin * 1000;
     state.dodgeReturns[id]={commandId:id,attackId:String(mov.id||''),from:String(from),dest:String(dest),attackArrival:arrival,dueAt:due,state:'waiting',createdAt:Date.now()};dodgeReturnSave()}
   function dodgeReturnTick(){if(!hostEnabled()||automationPaused({}))return;const now=Date.now();for(const[id,r]of Object.entries(state.dodgeReturns||{})){if(!r||r.state==='done'||r.state==='manual')continue;if(+r.dueAt>now)continue;const live=militaryOutgoingMovements().find(x=>String(x.commandId)===String(r.commandId));if(live&&state.cancelTpl){r.state='returning';dodgeReturnSave();militaryCancelCommand(r.commandId,{confirmed:true,automation:true},err=>{if(!err){r.state='done';r.doneAt=Date.now()}else if(err==='not-cancelable'){r.state='manual';r.why='support already arrived; withdraw manually'}else{r.state='waiting';r.lastError=String(err)}dodgeReturnSave()});}else{r.state='manual';r.why=live?'cancel template missing':'movement no longer cancelable/visible';dodgeReturnSave();gbLogT('dodge-return-'+id,60000,`dodge return ${id}: ${r.why}`)}}}
-  const DODGE_CHECK_MS = 5000;
-  const DODGE_FAIL_BACKOFF = [15000, 45000, 120000];
-  const DODGE_QUEUE_TTL = 3600000;
 
   function wonderFavorScan(reason) {
     if (!hostEnabled() || !state.autoWonderFavor || captchaPaused('wonder')) return;
@@ -13963,6 +13994,9 @@ const STORE = {
       }
     });
   }
+  const DODGE_CHECK_MS = 5000;
+  const DODGE_FAIL_BACKOFF = [15000, 45000, 120000];
+  const DODGE_QUEUE_TTL = 3600000;
   function dodgeQueueLoad() {
     const raw = load(STORE.DODGE_QUEUE, null) || {};
     const cut = Date.now() - DODGE_QUEUE_TTL;
@@ -14097,10 +14131,11 @@ const STORE = {
     }
     gameAjaxPost('militia', 'building_farm', 'request_militia', { town_id: +townId }, onDone);
   }
+
   function dodgeSendOut(townId, units, safeId, onDone) {
     const payload = {
       model_url: 'Town/' + townId,
-      action_name: (state.attackTpl && state.attackTpl.action_name) || 'sendUnits',
+      action_name: (state.supportTpl && state.supportTpl.action_name) || 'sendUnits',
       arguments: Object.assign({ id: +safeId, type: 'support' }, units),
       town_id: +townId,
     };
@@ -16121,9 +16156,9 @@ const STORE = {
     const rerender=()=>{renderGoals();renderPlanner();renderDashboard();};
     for(const tid of ids){let name=tid;try{const t=gbTownModel(tid);name=(t&&t.getName&&t.getName())||name}catch(_){} const plan=goalPlanTown(tid);
       const head=document.createElement('div');head.style.cssText='display:flex;gap:4px;align-items:center;padding:4px;border-bottom:1px solid #333';const b=document.createElement('b');b.textContent=`${name} \u00b7 ${plan.progress}%`;head.appendChild(b);
-      const edit=document.createElement('button');edit.textContent='Edit';edit.title='Edit per-town goal overrides/reserves as JSON';edit.style.cssText='font-size:8px;padding:1px 4px';edit.addEventListener('click',()=>{const cur=goalTownCfg(tid),raw=prompt('Overrides de objetivos por ciudad JSON\nClaves: build, research, units, reserve:{hard,soft}, defensive (0..1, null = hereda del perfil), resource:{wood,stone,iron} (-1..+1)',JSON.stringify({build:cur.build,research:cur.research,units:cur.units,reserve:cur.reserve,defensive:cur.defensive!=null?cur.defensive:null,resource:cur.resource||{}},null,2));if(raw==null)return;try{if(!goalSetTownOverrides(tid,JSON.parse(raw)))throw new Error('invalid object');rerender()}catch(e){flash('JSON de objetivos invalido')}});head.appendChild(edit);
-      const rec=document.createElement('button');rec.textContent='Recalc';gbTip(rec,'Recalcular el plan de objetivos de esta ciudad');rec.style.cssText='font-size:8px;padding:1px 4px';rec.addEventListener('click',()=>{goalPlanTown(tid);rerender()});head.appendChild(rec);
-      const reset=document.createElement('button');reset.textContent='Reset Q';reset.title='Clear virtual-queue order/block/mandatory overrides';reset.style.cssText='font-size:8px;padding:1px 4px';reset.addEventListener('click',()=>{goalQueueReset(tid);rerender()});head.appendChild(reset);
+      const edit=document.createElement('button');edit.textContent='Editar';edit.title='Editar en JSON los objetivos y reservas propios de esta ciudad';edit.style.cssText='font-size:8px;padding:1px 4px';edit.addEventListener('click',()=>{const cur=goalTownCfg(tid),raw=prompt('Overrides de objetivos por ciudad JSON\nClaves: build, research, units, reserve:{hard,soft}, defensive (0..1, null = hereda del perfil), resource:{wood,stone,iron} (-1..+1)',JSON.stringify({build:cur.build,research:cur.research,units:cur.units,reserve:cur.reserve,defensive:cur.defensive!=null?cur.defensive:null,resource:cur.resource||{}},null,2));if(raw==null)return;try{if(!goalSetTownOverrides(tid,JSON.parse(raw)))throw new Error('invalid object');rerender()}catch(e){flash('JSON de objetivos invalido')}});head.appendChild(edit);
+      const rec=document.createElement('button');rec.textContent='Recalcular';gbTip(rec,'Recalcular el plan de objetivos de esta ciudad');rec.style.cssText='font-size:8px;padding:1px 4px';rec.addEventListener('click',()=>{goalPlanTown(tid);rerender()});head.appendChild(rec);
+      const reset=document.createElement('button');reset.textContent='Reiniciar cola';reset.title='Borra el orden, los bloqueos y los obligatorios de la cola virtual';reset.style.cssText='font-size:8px;padding:1px 4px';reset.addEventListener('click',()=>{goalQueueReset(tid);rerender()});head.appendChild(reset);
       const sel=document.createElement('select');sel.title='Perfil de la ciudad. "Personalizado" = usa los overrides JSON de esta ciudad (boton Edit); cualquier otro perfil los sustituye.';sel.style.cssText='background:#111;color:#cfc;border:1px solid #333;font-size:9px;margin-left:auto';for(const [id,p] of Object.entries(profiles)){const o=document.createElement('option');o.value=id;o.textContent=p.label||id;sel.appendChild(o)}sel.value=plan.profile;sel.addEventListener('change',()=>{goalSetProfile(tid,sel.value);rerender()});head.appendChild(sel);box.appendChild(head);
 
       if (state.abOptimalOrderOn !== false) {
@@ -19188,7 +19223,7 @@ const STORE = {
     if (!ATTACK_GENERIC_MISSIONS.has(String(plan.mission || 'attack').toLowerCase())) plan.mission = 'attack';
     saveAttackPlan();
     gbLog('attack: harass preset ' + plan.harassPreset);
-    flash('preset de acoso: ' + plan.harassPreset + ' (manual confirmation still required)');
+    flash('preset de acoso: ' + plan.harassPreset + ' (sigue haciendo falta confirmacion manual)');
     return plan;
   }
   function buildAttackSchedule(plan) {
@@ -20145,22 +20180,22 @@ const STORE = {
       else rows.forEach(r => {
         const row = document.createElement('div'); row.style.cssText = 'display:grid;grid-template-columns:1fr .7fr .6fr auto;gap:4px;font-size:10px;border-bottom:1px solid #2a2a2a;padding:2px 0;align-items:center';
         gbTip(row, `Movimiento saliente #${r.commandId}`);
-        const c1 = document.createElement('span'); c1.textContent = `${townNameById(r.home)} -> ${r.target}`; c1.title = `command ${r.commandId}`; gbTip(c1, 'Origen -> destino del movimiento');
+        const c1 = document.createElement('span'); c1.textContent = `${townNameById(r.home)} -> ${r.target}`; c1.title = `comando ${r.commandId}`; gbTip(c1, 'Origen -> destino del movimiento');
         const c2 = document.createElement('span'); c2.textContent = r.type || 'move'; gbTip(c2, 'Tipo de movimiento (ataque / apoyo / colonizacion...)');
         const c3 = document.createElement('span'); c3.textContent = r.cancelLeft != null ? `${Math.round(r.cancelLeft)}s` : 'ok'; c3.style.color = '#888'; gbTip(c3, 'Tiempo restante en el que se puede cancelar');
-        const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Cancel'; b.disabled = !state.cancelTpl; b.title = state.cancelTpl ? 'Cancel this movement' : 'Cancel one movement manually once to learn the canonical action';
-        b.addEventListener('click', () => { if (!confirm(`Cancelar ${r.type || 'comando'} ${r.commandId}?`)) return; militaryCancelCommand(r.commandId, { confirmed: true }, err => { flash(err ? 'cancel failed: ' + err : 'command cancelled'); renderAttack(); }); });
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Cancelar'; b.disabled = !state.cancelTpl; b.title = state.cancelTpl ? 'Cancelar este movimiento' : 'Cancela un movimiento a mano una vez para aprender la accion canonica';
+        b.addEventListener('click', () => { if (!confirm(`Cancelar ${r.type || 'comando'} ${r.commandId}?`)) return; militaryCancelCommand(r.commandId, { confirmed: true }, err => { flash(err ? 'fallo al cancelar: ' + err : 'comando cancelado'); renderAttack(); }); });
         row.append(c1,c2,c3,b); box.appendChild(row);
       });
     }
     const hbox = sec && sec.querySelector('.atk-heroes');
     if (!hbox) return;
     hbox.replaceChildren();
-    if (!heroesEnabled()) { const e = document.createElement('div'); e.textContent = 'Heroes disabled on this world'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
+    if (!heroesEnabled()) { const e = document.createElement('div'); e.textContent = 'Heroes desactivados en este mundo'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
     const heroes = playerHeroesListCached();
-    if (!heroes.length) { const e = document.createElement('div'); e.textContent = 'No readable PlayerHero models'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
+    if (!heroes.length) { const e = document.createElement('div'); e.textContent = 'No hay modelos PlayerHero legibles'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
     const townSel = document.createElement('select'); townSel.style.cssText = 'background:#111;color:#cfc;border:1px solid #333;font-size:10px;margin-bottom:4px';
-    gbTip(townSel, 'Ciudad de destino al pulsar Assign');
+    gbTip(townSel, 'Ciudad de destino al pulsar Asignar');
     (state.towns || []).forEach(t => { const o = document.createElement('option'); o.value = t.id; o.textContent = t.name || t.id; townSel.appendChild(o); }); hbox.appendChild(townSel);
     heroes.forEach(h => {
       const row = document.createElement('div'); row.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:10px;border-bottom:1px solid #2a2a2a;padding:3px 0';
@@ -20172,10 +20207,10 @@ const STORE = {
       gbTip(lab, 'Estado del heroe: nombre \u00b7 nivel \u00b7 estado \u00b7 ciudad \u00b7 vigor \u00b7 mana');
       if (st != null && st <= heroLowStaminaPct()) lab.style.color = '#f66';
       row.appendChild(lab);
-      const addBtn = (text, action, color, fn, hint) => { const b=document.createElement('button'); b.type='button'; b.textContent=text; b.style.color=color; b.disabled=!(state.heroTpl && state.heroTpl[action]); b.title=b.disabled?`Perform ${action} manually once to learn template`:(hint||''); b.addEventListener('click',fn); row.appendChild(b); };
-      if (h.traveling) addBtn('Cancel travel','cancelTownTravel','#fc6',()=>{ if(confirm(`Cancelar traslado de ${h.name}?`)) heroCancelTravel(h.type,{confirmed:true},err=>{flash(err?'hero cancel failed: '+err:'hero travel cancelled');renderAttack();}); }, 'Cancelar el traslado en curso del heroe');
-      else if (h.assigned || h.attacking) addBtn('Unassign','unassignFromTown','#f96',()=>{ if(confirm(`Desasignar ${h.name}?`)) heroUnassign(h.type,{confirmed:true},err=>{flash(err?'hero unassign failed: '+err:'hero unassigned');renderAttack();}); }, 'Quitar al heroe de su ciudad actual');
-      if (!h.injured && !h.attacking && !h.traveling) addBtn('Assign','assignToTown','#6cf',()=>{ const tid=townSel.value; if(tid&&confirm(`Asignar ${h.name} -> ${townNameById(tid)}?`)) heroAssignToTown(h.type,tid,{confirmed:true},err=>{flash(err?'hero assign failed: '+err:'hero transfer started');renderAttack();}); }, 'Asignar el heroe a la ciudad seleccionada');
+      const addBtn = (text, action, color, fn, hint) => { const b=document.createElement('button'); b.type='button'; b.textContent=text; b.style.color=color; b.disabled=!(state.heroTpl && state.heroTpl[action]); b.title=b.disabled?`Haz ${action} a mano una vez para aprender la plantilla`:(hint||''); b.addEventListener('click',fn); row.appendChild(b); };
+      if (h.traveling) addBtn('Cancelar viaje','cancelTownTravel','#fc6',()=>{ if(confirm(`Cancelar traslado de ${h.name}?`)) heroCancelTravel(h.type,{confirmed:true},err=>{flash(err?'fallo al cancelar el viaje: '+err:'viaje del heroe cancelado');renderAttack();}); }, 'Cancelar el traslado en curso del heroe');
+      else if (h.assigned || h.attacking) addBtn('Desasignar','unassignFromTown','#f96',()=>{ if(confirm(`Desasignar ${h.name}?`)) heroUnassign(h.type,{confirmed:true},err=>{flash(err?'fallo al desasignar: '+err:'heroe desasignado');renderAttack();}); }, 'Quitar al heroe de su ciudad actual');
+      if (!h.injured && !h.attacking && !h.traveling) addBtn('Asignar','assignToTown','#6cf',()=>{ const tid=townSel.value; if(tid&&confirm(`Asignar ${h.name} -> ${townNameById(tid)}?`)) heroAssignToTown(h.type,tid,{confirmed:true},err=>{flash(err?'fallo al asignar: '+err:'traslado del heroe iniciado');renderAttack();}); }, 'Asignar el heroe a la ciudad seleccionada');
       hbox.appendChild(row);
     });
 
@@ -22633,11 +22668,21 @@ const STORE = {
         detail: `${(opt.actions || []).length} entradas \u00b7 ${blocked} bloqueadas` + (ledgerBlind ? ' - contable del planificador no legible' : ''),
       };
     }));
-    out.push(preflightProbe('auto-queue', () => {
-      const a = !!state.abAuto;
-      const r = state.abRandomFallback !== false;
-      const detail = `auto-queue ${a ? 'ON' : 'OFF'}, aleatoria cuando vacia ${r ? 'ON' : 'OFF'}`;
-      return { ok: true, warn: false, detail };
+    out.push(preflightProbe('cola aleatoria', () => {
+      if (!state.abRandomFallback) return { ok: true, detail: 'desactivada (por defecto)' };
+      if (!state.abAuto) return { ok: true, warn: true, detail: 'activada, pero la cola automatica esta OFF: no se ejecuta' };
+
+      const pool = abRandomPool();
+      const noMax = pool.filter(b => abMaxLevel(b) == null);
+      const townId = (townsFromGame() || []).map(t => String(t.id))[0] || null;
+      const costReadable = townId ? pool.filter(b => abCanAfford(townId, b).why !== 'cost unreadable').length : null;
+      return {
+        ok: !!pool.length && !noMax.length,
+        warn: !!noMax.length || costReadable === 0,
+        detail: `${pool.length} edificios en el sorteo` +
+          (noMax.length ? `, ${noMax.length} sin nivel maximo legible (${noMax.slice(0, 4).join(',')})` : ', niveles maximos legibles') +
+          (costReadable == null ? ', coste sin ciudad que probar' : `, coste legible en ${costReadable}/${pool.length}`),
+      };
     }));
     out.push(preflightProbe('goal profile', () => {
       const known = goalProfiles();
@@ -24136,7 +24181,7 @@ const STORE = {
     thead.querySelectorAll('th').forEach((th, col) => {
       if (th.dataset.nosort) return;
       th.style.cursor = 'pointer';
-      th.title = 'sort';
+      th.title = 'Ordenar por esta columna';
       th.addEventListener('click', () => {
         const asc = th.dataset.sort !== 'asc';
         sortRows(table, col, asc);
@@ -24255,7 +24300,7 @@ const STORE = {
         const actions = document.createElement('td');
 
         const thrBtn = document.createElement('button');
-        thrBtn.textContent = 'THR'; thrBtn.title = 'Set threshold';
+        thrBtn.textContent = 'THR'; thrBtn.title = 'Fijar umbral';
         thrBtn.style.cssText = 'background:none;border:1px solid #555;color:#fc6;padding:1px 5px;cursor:pointer;font-size:11px';
         thrBtn.addEventListener('click', () => editThreshold(f));
         actions.appendChild(thrBtn);
@@ -24314,7 +24359,7 @@ const STORE = {
       const pre = cappingPending();
       if (pre.length) preTxt = '\npreaviso: ' + pre.slice(0, 6).map(x => `${x.name}: ${x.resource} ~${x.etaMin}min`).join(' | ');
     } catch (_) {}
-    const res = `Wood ${fmt(w)} | Stone ${fmt(s)} | Iron ${fmt(i)} | Pop ${fmt(p)}${popTxt}${preTxt}`;
+    const res = `Madera ${fmt(w)} | Piedra ${fmt(s)} | Plata ${fmt(i)} | Poblacion ${fmt(p)}${popTxt}${preTxt}`;
     if (head + res !== _worldTotalsLast) {
       _worldTotalsLast = head + res;
       totals.replaceChildren();
@@ -25063,7 +25108,7 @@ const STORE = {
   }
 
   panel.innerHTML = `
-    <header><div class="gb-head-main"><b>GrepBot v${runningVersion()}</b><div class="gb-head-status"><span id="gb-head-mode" class="gb-pill" data-gb-tip="Perfil activo (AFK / recoleccion / guerra / personalizado)">...</span><span id="gb-head-health" class="gb-pill" data-gb-tip="Salud agregada del bot: OK / con errores / parado">...</span></div></div><div style="display:flex;gap:4px"><button data-act="queues" title="Abrir centro de colas">Colas</button><button data-act="toggle" title="Minimizar">_</button></div></header>
+    <header><div class="gb-head-main"><b>GrepBot v<span id="gb-head-ver"></span></b><div class="gb-head-status"><span id="gb-head-mode" class="gb-pill" data-gb-tip="Perfil activo (AFK / recoleccion / guerra / personalizado)">...</span><span id="gb-head-health" class="gb-pill" data-gb-tip="Salud agregada del bot: OK / con errores / parado">...</span></div></div><div style="display:flex;gap:4px"><button data-act="queues" title="Abrir centro de colas">Colas</button><button data-act="toggle" title="Minimizar">_</button></div></header>
     <div class="gb-qat" role="toolbar" aria-label="GrepBot acciones rapidas">
       <select data-qs="town" title="Cambiar de ciudad" style="background:var(--gb-input-bg);color:var(--gb-input-fg);border:1px solid var(--gb-chrome);font-size:10px;max-width:150px"></select>
       <button type="button" data-qat="collect" data-ico="plus" title="Recoger recursos ahora">Recoger</button>
@@ -25084,17 +25129,17 @@ const STORE = {
         <span id="gb-atk-armed" style="font-size:10px;color:#f96;font-weight:bold;margin-left:auto"></span>
       </div>
       <div class="atk-row">
-        <label data-gb-tip="ID de ciudad destino (deja vacio y elige en el desplegable)">target <input data-atk="target" style="width:70px" placeholder="town id"/></label>
-        <select data-atk="target-type" title="Generic sender only supports canonical town targets"><option value="town">ciudad</option></select>
-        <select data-atk="pick" title="Known town targets from reports/history" style="max-width:150px"></select>
+        <label data-gb-tip="ID de ciudad destino (deja vacio y elige en el desplegable)">destino <input data-atk="target" style="width:70px" placeholder="id de ciudad"/></label>
+        <select data-atk="target-type" title="El enviador generico solo admite objetivos de ciudad canonicos"><option value="town">ciudad</option></select>
+        <select data-atk="pick" title="Ciudades objetivo conocidas por informes/historial" style="max-width:150px"></select>
         <label data-gb-tip="Coordenada X (isla) del objetivo">x <input data-atk="x" style="width:40px"/></label>
         <label data-gb-tip="Coordenada Y (isla) del objetivo">y <input data-atk="y" style="width:40px"/></label>
-        <select data-atk="mission" data-gb-tip="Tipo de envio: ataque, apoyo o provocacion de revuelta"><option value="attack">ataque</option><option value="support">apoyo</option><option value="revolt">revolt</option></select>
+        <select data-atk="mission" data-gb-tip="Tipo de envio: ataque, apoyo o provocacion de revuelta"><option value="attack">ataque</option><option value="support">apoyo</option><option value="revolt">revuelta</option></select>
       </div>
       <div id="gb-atk-target-hint" style="font-size:9px;color:#888;margin:-2px 0 4px"></div>
       <div class="atk-row">
         <select data-atk="timing" data-gb-tip="Cuando enviar: ahora o para llegar a una hora concreta"><option value="send_now">enviar ya</option><option value="arrive_at">llegar a las</option></select>
-        <input data-atk="arrival" type="datetime-local" step="1" title="arrival (local)"/>
+        <input data-atk="arrival" type="datetime-local" step="1" title="Llegada (hora local)"/>
         <label data-gb-tip="Retraso aleatorio en ms aplicado al envio (anti-deteccion de patron exacto)">pad ms <input data-atk="pad" type="number" style="width:50px" value="200"/></label>
       </div>
       <div class="atk-row">
@@ -25107,7 +25152,7 @@ const STORE = {
           <option value="per_town">editar por ciudad</option>
         </select>
         <label style="display:flex;align-items:center;gap:3px">unit
-          <select data-atk="unit-type" title="only used when troop mode is 'all of type'"></select>
+          <select data-atk="unit-type" title="Solo se usa con el modo de tropas &quot;todo el tipo&quot;"></select>
         </label>
       </div>
       <div class="atk-harass" style="display:flex;gap:4px;flex-wrap:wrap;margin:4px 0">
@@ -25731,6 +25776,8 @@ const STORE = {
       </details>
     </footer>
   `;
+
+  { const verEl = panel.querySelector('#gb-head-ver'); if (verEl) verEl.textContent = runningVersion(); }
   document.body.appendChild(panel);
 
   gbTipWalk(panel);
@@ -26367,7 +26414,7 @@ const STORE = {
     setChk('[data-cfg=auto-build]', state.ibAuto);
     setChk('[data-cfg=instant-research]', state.ibResearch);
     setChk('[data-cfg=auto-queue]', state.abAuto);
-    setChk('[data-cfg=ab-random-fallback]', state.abRandomFallback !== false);
+    setChk('[data-cfg=ab-random-fallback]', !!state.abRandomFallback);
     setChk('[data-cfg=auto-wall-repair]', !!state.autoWallRepair);
     setChk('[data-cfg=pop-rescue-farm]', !!state.popRescueFarm);
     setNum('[data-cfg=build-swap-min]', gbCfgNum(state.buildSwapThresholdMin, 5));
@@ -26501,7 +26548,8 @@ const STORE = {
     onCfg('[data-cfg=ab-random-fallback]', 'change', e => {
       state.abRandomFallback = e.target.checked; save(STORE.AB_RANDOM_FALLBACK, state.abRandomFallback);
       gbLog('ab-random-fallback', state.abRandomFallback ? 'ON' : 'OFF');
-      if (state.abRandomFallback) abScan('toggle');
+
+      if (state.abRandomFallback) abScan('manual');
       renderAbQueue();
     });
     onCfg('[data-cfg=auto-quest-build]', 'change', e => {

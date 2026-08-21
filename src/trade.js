@@ -5,8 +5,12 @@
       if (!t) return null;
       const r = t.resources && t.resources();
       let cap = null, tradeCap = null, pop = null, small = false;
-      try { if (t.getStorageCapacity) cap = +t.getStorageCapacity(); } catch (_) {}
-      if (!(cap > 0)) { const shared = townResState(townId); if (shared) cap = shared.cap; }
+      // townResState is the ONE warehouse-capacity definition (3s memo); the
+      // direct getter is the fallback, not the primary, or trade sizes its
+      // sends against a capacity the rest of the bot disagrees with.
+      const shared = townResState(townId);
+      if (shared && shared.cap > 0) cap = shared.cap;
+      if (!(cap > 0)) { try { if (t.getStorageCapacity) cap = +t.getStorageCapacity(); } catch (_) {} }
       try { if (t.getAvailableTradeCapacity) tradeCap = +t.getAvailableTradeCapacity(); } catch (_) {}
       try { if (t.getAvailablePopulation) pop = +t.getAvailablePopulation(); } catch (_) {}
       try {

@@ -469,7 +469,7 @@
     if (!ATTACK_GENERIC_MISSIONS.has(String(plan.mission || 'attack').toLowerCase())) plan.mission = 'attack';
     saveAttackPlan();
     gbLog('attack: harass preset ' + plan.harassPreset);
-    flash('preset de acoso: ' + plan.harassPreset + ' (manual confirmation still required)');
+    flash('preset de acoso: ' + plan.harassPreset + ' (sigue haciendo falta confirmacion manual)');
     return plan;
   }
   function buildAttackSchedule(plan) {

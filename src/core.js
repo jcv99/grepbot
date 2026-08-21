@@ -581,7 +581,10 @@
     farmSkipFull: load(STORE.FARM_SKIP_FULL, true),
     farmFullMode: load(STORE.FARM_FULL_MODE, 'any'),
     abAuto: load(STORE.AB_AUTO, false),
-    abRandomFallback: load(STORE.AB_RANDOM_FALLBACK, true),
+    // Spends resources on a building the player never picked, so it is opt-in
+    // like every other autonomous spend. Default ON also silently changed the
+    // behaviour of every town with no goal target on upgrade.
+    abRandomFallback: load(STORE.AB_RANDOM_FALLBACK, false),
     abTargets: load(STORE.AB_TARGETS, null),
     autoCave: load(STORE.AUTO_CAVE, false),
     caveThreshPct: load(STORE.CAVE_THRESH, 90),

@@ -394,8 +394,11 @@
     save(STORE.BANDIT_LOG, state.banditLog);
   }
   banditScheduleNext();
-  gbInterval(autoCollectResources, 5000);
+  // Idle safety net, NOT a duplicate driver: collect is event-driven (the body
+  // MutationObserver plus an rAF coalescer), and a page that stops mutating --
+  // an idle town view, a background SPA route -- produces no records at all, so
+  // a ripe "N min" button would sit there until the player touched something.
+  // collect is not an orchTick feature (no ORCH_CADENCE entry), so the sole
+  // scheduler rule does not claim it.
+  gbInterval(autoCollectResources, COLLECT_SAFETY_MS);
   if (state.autoCollect && state.collectAll) collectAllBackground();
-  const IB_CHECK_MS = 10000;
-  const IB_FREE_ACTIONS = new Set(['buyInstant']);
-  const IB_FREE_SERVER_MARGIN_SEC = 10;

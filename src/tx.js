@@ -610,22 +610,40 @@
     };
     step();
   }
+  // The write guard order is the contract:
+  //   dry -> breaker -> safe -> health -> dedup -> planner -> budget -> captcha
+  // Only the lifecycle gates (disposed / disabled / player-activity pause) run
+  // ahead of it; those are kill switches, not guards. Dry run has to be FIRST or
+  // a payload cannot be validated while the feature is captcha-paused,
+  // remembered or budget-starved -- which is exactly when validating it matters,
+  // and dry run sends nothing, so no downstream guard has anything to protect.
+  // Captcha moves LAST, immediately before the send: it is the closest thing to
+  // a live server verdict, so it gets the final word. The cost is one aborted tx
+  // record per attempt while a ladder is open; txPrune drops those at
+  // TX_TERMINAL_TTL and 'aborted' never blocks the next attempt.
   function txActionGate(feature, write, jtag) {
     if (!gbInstanceAlive()) return 'disposed';
     if (!hostEnabled()) return 'disabled';
     const pauseInfo = {};
     if (automationPaused(pauseInfo)) return 'paused:' + pauseInfo.reason;
+    if (write) {
+      if (state.dryRun) return 'dryrun';
+      if (circuitOpen(feature)) return 'circuit-open';
+      // safe / health / dedup / planner / budget / captcha are applied by txRun
+      // below, in that order. Nothing else belongs here.
+      return null;
+    }
+    // READ path: no safe mode, no planner, no tx ledger. Captcha and the read
+    // budget are the whole chain.
     if (captchaPaused(feature) || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return 'captcha-pause';
-    if (write && circuitOpen(feature)) return 'circuit-open';
     if (jtag && jrnSkipped(jtag)) return 'remembered';
-    if (write && state.dryRun) return 'dryrun';
     // Scope must match what the caller will MARK below. Charging a read against
     // the action scope pinned actions at the hard cap while the soft throttle -
     // which counts scope-specific - never saw the pressure and never delayed.
     // Scope must match what the caller will MARK below. Charging a read against
     // the action scope pinned actions at the hard cap while the soft throttle -
     // which counts scope-specific - never saw the pressure and never delayed.
-    if (!reqBudgetOk(write ? 'action' : 'read')) return 'budget';
+    if (!reqBudgetOk('read')) return 'budget';
     return null;
   }
   function txRun(feature, transport, endpoint, data, rawSend, onDone) {
@@ -671,7 +689,16 @@
         whyNote(feature, endpoint, 'blocked', 'tpl-stale');
         return bail('tpl-stale');
       }
-      // Soft ceiling under the hard request budget: delay rather than drop.
+      // dedup, first half: decision memory. Three consecutive hard errors on the
+      // same feature|action|target short-circuit here instead of re-posting.
+      // (Second half is the txState in-flight check further down.)
+      if (jtag && jrnSkipped(jtag)) {
+        whyNote(feature, endpoint, 'blocked', 'remembered');
+        return bail('remembered', 'remembered');
+      }
+      // Soft ceiling under the hard request budget: delay rather than drop. It
+      // stays ahead of the tx record on purpose: the delayed re-entry must not
+      // find its own 'precheck' record and bail as a duplicate.
       // Soft ceiling under the hard request budget: delay rather than drop.
       const softMs = reqBudgetSoftDelayMs();
       if (softMs > 0) {
@@ -775,6 +802,14 @@
     // A write gets budget only when it is actually going to SEND.
     // A write gets budget only when it is actually going to SEND.
     if (!reqBudgetOk('action')) { tx.state = 'aborted'; tx.detail = 'budget'; tx.updatedAt = Date.now(); plannerRelease(tx, 'budget'); txSave(); return bail('budget'); }
+    // Last guard before the request leaves. Re-read here rather than at the top
+    // so a ladder that opened during this tick still stops the send, and one
+    // that expired mid-tick does not cost the slot the planner already holds.
+    if (captchaPaused(feature) || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) {
+      tx.state = 'aborted'; tx.detail = 'captcha-pause'; tx.updatedAt = Date.now(); plannerRelease(tx, 'captcha-pause'); txSave();
+      whyNote(feature, endpoint, 'blocked', 'captcha-pause');
+      return bail('captcha', 'captcha-pause');
+    }
     reqBudgetMark('action');
     tx.state = 'sending'; tx.sentAt = Date.now(); tx.updatedAt = Date.now(); txSave();
     rawSend((err, result) => {

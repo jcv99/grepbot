@@ -268,6 +268,12 @@
 
     'support', 'spy',
 
+    // emergency.js posts caveStoreIron under its OWN feature key so its captcha
+    // ladder and circuit are separate from routine cave stashing. Unlisted, it
+    // took the READ path and skipped dry run, the breaker, safe mode, dedup,
+    // the planner and the budget on an irreversible resource move.
+    'cave-emergency',
+
     // Raw passthrough. Its producer (relay.js) was removed; the entry stays
     // because it MUST be in the write set: txRun only applies dry-run, the
     // circuit breaker, safe mode, template health, tx dedup and the planner to

@@ -10,7 +10,7 @@ into `grepbot.user.js`. **ToS-breaking** — runs against any `*.grepolis.com`
 world; ban risk is user-accepted. HIGH-RISK toggles (recruit, dodge auto, favor,
 god spells, support send, resource dump, emergency cave) default OFF.
 
-Current: **v5.8.2**, 52 modules, ~1.3 MB artifact. `src/` reproduces the
+Current: **v5.9.9**, 52 modules, ~1.3 MB artifact. `src/` reproduces the
 artifact exactly again: the externally built v5.8.0 drop-in has been reconciled
 back into `src/`, and `build.py` now refuses to overwrite an artifact whose
 `@version` is newer than `src/` (`--force` overrides). Everything is coded; the
@@ -215,9 +215,9 @@ build-specific getter names and keep the first finite number; `gbTownModel`,
 `gbTownPop`, `gbPlayerGold`, `gbBuildingLevel`, `gbAfford`
 (`{ok, blind, short, detail}`). `gameNow()` for server time.
 
-**UI.** Draggable panel with 3 tab groups / 6 tabs (`TAB_GROUPS` in `ui.js`):
-Inicio → Resumen; Militar → Ataques, Inteligencia; Sistema → Ajustes,
-Diagnóstico, Registro. Separate windows: Queue Center (header `Colas`), the
+**UI.** Draggable panel with 4 tab groups / 9 tabs (`TAB_GROUPS` in `ui.js`):
+Resumen → Resumen; Militar → Ataques, Refuerzos, Entrenamiento, Espionaje,
+Inteligencia; Ajustes → Ajustes; Diagnóstico → Diagnóstico, Registro. Separate windows: Queue Center (header `Colas`), the
 native-UI queue panels mounted into the game's own building windows, and
 `gbWidget`-registered HUD widgets (drag + geometry persistence + teardown are
 solved there — reuse it, don't hand-roll a window). Ajustes = ~300 `data-cfg`
@@ -266,7 +266,7 @@ contract, risk class and why a tempting shortcut is forbidden.
 | `trade.js` / `transport.js` / `dump.js` | `tradeScan`, `transportBalanceJobs`, `dumpJobs` | `autoTrade`, `islandShip`, `autoTransport`, `autoDump` OFF (HIGH-RISK) | there is **no** transport endpoint — every inter-city move is `tradeSend`; `transport.js` is the read-only capacity/ETA model (returns `blind`, never a fabricated number); `dump.js` is policy on top |
 | `rural.js` | `ruralTradeScan`, `ruralLevelScan` | `autoRuralTrade`, `autoRuralLevel` | `FarmTownPlayerRelation` trade / unlock / upgrade; per-relation cooldown + destination-capacity checks required |
 | `research.js` / `research-graph.js` | `researchScan`, `researchGraph*` | `autoResearch` | graph is **read-only** over live `GameData.researches` — no static id table; absent data = `blind`, never "no prerequisites" |
-| `phoenician.js` | `ptTradeScan` | `autoPtTrade` OFF | ratio pump 0.5:1 → `targetRatio`; view URL + payload learned from the player's traffic; parse miss = post nothing; aborts if the ratio doesn't move |
+| `phoenician.js` | `ptTradeScan` | `autoPtTrade` OFF | single-shot: best offer already ≥ `targetRatio`, one trade sized by the smallest readable bound (stock / warehouse room / trade cap / resources); no pump loop; view URL + payload learned from the player's traffic; parse miss = post nothing |
 | `merchant.js` / `favor.js` / `god-spells.js` / `wonder.js` | `merchantScan`, `favorScan`, `godSpellScan`, `wonderScan` | all OFF (favor + spells HIGH-RISK) | merchant needs exact item id + explicit price; favor needs `temple_plunder` + farm_town target; spells need an operator-typed power id; wonder day from `gameNow()` |
 | `dodge.js` | `dodgeScan` (5s) | `dodgeMode` `'notify'` (`'auto'` HIGH-RISK), `autoMilitia` OFF | hostile-only canonical types (`is_attack` / attack command names), never `incoming`/`started_at` alone; militia is its own toggle + captcha feature; never dodge into a town that itself has incoming |
 | `support.js` | `supportScan` | `supportCfg.auto` OFF (HIGH-RISK) | own `supportTpl`, confirm gate per destination, own lock + captcha key; rides `dodgeScan`, only arms for movements dodge didn't act on |
@@ -297,9 +297,6 @@ Deliberately **not** translated — machine surface, not UI:
 - journal result codes (`ok`, `skip:*`, `remembered`, …), feature keys, lock
   names, `data-*` values, ids, CSS classes, storage keys.
 - `<option value>` attributes (pin an explicit `value` when translating a label).
-- `abAffordScratch` short-strings (`wood 100/200`, `pop 5/10`) — `abEtaMs`
-  regex-matches `wood|stone|iron` and `startsWith('pop ')`; only
-  `abPlanVerdictLabel` maps them through `AB_RES_ES`.
 - DOM fallback needles keyed off the game's own markup (`marketLocale()`,
   `/^\d{1,2}\s*min$/`, the `Recoger` button text).
 
@@ -405,7 +402,7 @@ Invariants whose violation ships as a silent regression, not a build error.
 |---|---|---|
 | `build.py` MODULES order | `build.py` | One IIFE = one scope; reorder = TDZ at boot |
 | `TX_WRITE_FEATURES` list complete | `planner.js` | New write takes READ path, skips every guard |
-| Guard order in `txRun` | `tx.js` | dry → breaker → safe → health → dedup → planner → budget → captcha |
+| Guard order in `txRun` | `tx.js` | dry → breaker → safe → health → dedup → planner → budget → captcha (lifecycle gates — disposed/disabled/pause — run ahead of the chain; captcha is re-read immediately before the send) |
 | `BOOT_TIMING` constants | `boot.js` | Naked ms literal in boot.js is a regression |
 | Lock registry only via `gbLock`/`gbUnlock` | `core.js` | Module-local `*InFlight` boolean bypasses TTL sweep |
 | `data-cfg` values stable | `ui.js` | `bindConfig` resolves by attribute, not label text |
@@ -417,7 +414,7 @@ Invariants whose violation ships as a silent regression, not a build error.
 | `*Soon` coalescers inside sweeps | `core.js` | Bare `save`/`render*` in sweeps loses tail on tab exit |
 | `txSave` deliberately NOT debounced | `tx.js` | Committed tx must be durable before next tick |
 | `state.decisions` ring 400, 7-day TTL | `core.js` | Bloat = decision memory misses |
-| `ORCH_MAX_PER_TICK = 3`, jitter ±20% | `core.js` | Naked numbers in `orchTick` is a regression |
+| `ORCH_MAX_PER_TICK = 3`, jitter ±20% | `qol.js` (tick in `orchestrate.js`) | Naked numbers in `orchTick` is a regression |
 | `data-cfg` rows inside 11 `gbCfgGroup` blocks | `ui.js` | Control in wrong group = filter can't find it |
 
 ## Diagnostic commands
@@ -493,7 +490,7 @@ rtk vitest              # Vitest failures only (99.5%)
 rtk playwright test     # Playwright failures only (94%)
 rtk pytest              # Python test failures only (90%)
 rtk rake test           # Ruby test failures only (90%)
-rtk rspec               # RSpec failures only (60%)
+rtk rspec               # RSpec test failures only (60%)
 rtk test <cmd>          # Generic test wrapper - failures only
 ```
 

@@ -183,6 +183,9 @@
     }
     const favorLock = gbLock('favor', 180000);
     if (!favorLock) return;
+    // attackTpl is correct HERE, unlike dodge: templates are keyed to the
+    // PAYLOAD, and temple plunder posts a real `type:'attack'` send. Reading
+    // supportTpl for this would replay a support action name into an attack.
     const tpl = state.attackTpl;
     const payload = {
       model_url: (tpl && tpl.model_url) || ('Town/' + townId),

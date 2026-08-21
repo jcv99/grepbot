@@ -1,3 +1,6 @@
+  const DODGE_CHECK_MS = 5000;
+  const DODGE_FAIL_BACKOFF = [15000, 45000, 120000];
+  const DODGE_QUEUE_TTL = 3600000;
   function dodgeQueueLoad() {
     const raw = load(STORE.DODGE_QUEUE, null) || {};
     const cut = Date.now() - DODGE_QUEUE_TTL;
@@ -141,10 +144,14 @@
     }
     gameAjaxPost('militia', 'building_farm', 'request_militia', { town_id: +townId }, onDone);
   }
+  // Templates are per PAYLOAD, not per feature: this posts `type:'support'`, so
+  // it reads supportTpl. Borrowing attackTpl here coupled dodging to whether the
+  // player had ever hand-sent an ATTACK, and would have replayed an attack-only
+  // action name into a support payload on a world where the two differ.
   function dodgeSendOut(townId, units, safeId, onDone) {
     const payload = {
       model_url: 'Town/' + townId,
-      action_name: (state.attackTpl && state.attackTpl.action_name) || 'sendUnits',
+      action_name: (state.supportTpl && state.supportTpl.action_name) || 'sendUnits',
       arguments: Object.assign({ id: +safeId, type: 'support' }, units),
       town_id: +townId,
     };

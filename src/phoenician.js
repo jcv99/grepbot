@@ -385,9 +385,13 @@
     return { out, room, tradeCap: caps.tradeCap };
   }
   // ---------- scan ----------
-  // Pump the ratio with minimum-amount trades, then send one bulk trade. A ratio
-  // that does not move after a pump means the +0.1 assumption is wrong on this
-  // world: abort instead of burning trades.
+  // Single-shot, NOT a pump: this picks the best offer already at or above
+  // targetRatio and sends exactly one trade sized by stock / warehouse room /
+  // trade capacity / resources on hand -- whichever is smallest, and only when
+  // at least one of them is readable. There is no ratio-pumping loop; an earlier
+  // comment here promised one and none was ever implemented, which made this
+  // read as if it burned minimum trades to move the ratio. It does not: an
+  // offer below targetRatio is skipped, not pumped.
   function ptTradeScan(reason) {
     if (!hostEnabled() || !state.autoPtTrade || captchaPaused('pttrade')) return;
     if (automationPaused({})) return;

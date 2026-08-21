@@ -338,22 +338,22 @@
       else rows.forEach(r => {
         const row = document.createElement('div'); row.style.cssText = 'display:grid;grid-template-columns:1fr .7fr .6fr auto;gap:4px;font-size:10px;border-bottom:1px solid #2a2a2a;padding:2px 0;align-items:center';
         gbTip(row, `Movimiento saliente #${r.commandId}`);
-        const c1 = document.createElement('span'); c1.textContent = `${townNameById(r.home)} -> ${r.target}`; c1.title = `command ${r.commandId}`; gbTip(c1, 'Origen -> destino del movimiento');
+        const c1 = document.createElement('span'); c1.textContent = `${townNameById(r.home)} -> ${r.target}`; c1.title = `comando ${r.commandId}`; gbTip(c1, 'Origen -> destino del movimiento');
         const c2 = document.createElement('span'); c2.textContent = r.type || 'move'; gbTip(c2, 'Tipo de movimiento (ataque / apoyo / colonizacion...)');
         const c3 = document.createElement('span'); c3.textContent = r.cancelLeft != null ? `${Math.round(r.cancelLeft)}s` : 'ok'; c3.style.color = '#888'; gbTip(c3, 'Tiempo restante en el que se puede cancelar');
-        const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Cancel'; b.disabled = !state.cancelTpl; b.title = state.cancelTpl ? 'Cancel this movement' : 'Cancel one movement manually once to learn the canonical action';
-        b.addEventListener('click', () => { if (!confirm(`Cancelar ${r.type || 'comando'} ${r.commandId}?`)) return; militaryCancelCommand(r.commandId, { confirmed: true }, err => { flash(err ? 'cancel failed: ' + err : 'command cancelled'); renderAttack(); }); });
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Cancelar'; b.disabled = !state.cancelTpl; b.title = state.cancelTpl ? 'Cancelar este movimiento' : 'Cancela un movimiento a mano una vez para aprender la accion canonica';
+        b.addEventListener('click', () => { if (!confirm(`Cancelar ${r.type || 'comando'} ${r.commandId}?`)) return; militaryCancelCommand(r.commandId, { confirmed: true }, err => { flash(err ? 'fallo al cancelar: ' + err : 'comando cancelado'); renderAttack(); }); });
         row.append(c1,c2,c3,b); box.appendChild(row);
       });
     }
     const hbox = sec && sec.querySelector('.atk-heroes');
     if (!hbox) return;
     hbox.replaceChildren();
-    if (!heroesEnabled()) { const e = document.createElement('div'); e.textContent = 'Heroes disabled on this world'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
+    if (!heroesEnabled()) { const e = document.createElement('div'); e.textContent = 'Heroes desactivados en este mundo'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
     const heroes = playerHeroesListCached();
-    if (!heroes.length) { const e = document.createElement('div'); e.textContent = 'No readable PlayerHero models'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
+    if (!heroes.length) { const e = document.createElement('div'); e.textContent = 'No hay modelos PlayerHero legibles'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
     const townSel = document.createElement('select'); townSel.style.cssText = 'background:#111;color:#cfc;border:1px solid #333;font-size:10px;margin-bottom:4px';
-    gbTip(townSel, 'Ciudad de destino al pulsar Assign');
+    gbTip(townSel, 'Ciudad de destino al pulsar Asignar');
     (state.towns || []).forEach(t => { const o = document.createElement('option'); o.value = t.id; o.textContent = t.name || t.id; townSel.appendChild(o); }); hbox.appendChild(townSel);
     heroes.forEach(h => {
       const row = document.createElement('div'); row.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:10px;border-bottom:1px solid #2a2a2a;padding:3px 0';
@@ -367,10 +367,10 @@
       gbTip(lab, 'Estado del heroe: nombre · nivel · estado · ciudad · vigor · mana');
       if (st != null && st <= heroLowStaminaPct()) lab.style.color = '#f66';
       row.appendChild(lab);
-      const addBtn = (text, action, color, fn, hint) => { const b=document.createElement('button'); b.type='button'; b.textContent=text; b.style.color=color; b.disabled=!(state.heroTpl && state.heroTpl[action]); b.title=b.disabled?`Perform ${action} manually once to learn template`:(hint||''); b.addEventListener('click',fn); row.appendChild(b); };
-      if (h.traveling) addBtn('Cancel travel','cancelTownTravel','#fc6',()=>{ if(confirm(`Cancelar traslado de ${h.name}?`)) heroCancelTravel(h.type,{confirmed:true},err=>{flash(err?'hero cancel failed: '+err:'hero travel cancelled');renderAttack();}); }, 'Cancelar el traslado en curso del heroe');
-      else if (h.assigned || h.attacking) addBtn('Unassign','unassignFromTown','#f96',()=>{ if(confirm(`Desasignar ${h.name}?`)) heroUnassign(h.type,{confirmed:true},err=>{flash(err?'hero unassign failed: '+err:'hero unassigned');renderAttack();}); }, 'Quitar al heroe de su ciudad actual');
-      if (!h.injured && !h.attacking && !h.traveling) addBtn('Assign','assignToTown','#6cf',()=>{ const tid=townSel.value; if(tid&&confirm(`Asignar ${h.name} -> ${townNameById(tid)}?`)) heroAssignToTown(h.type,tid,{confirmed:true},err=>{flash(err?'hero assign failed: '+err:'hero transfer started');renderAttack();}); }, 'Asignar el heroe a la ciudad seleccionada');
+      const addBtn = (text, action, color, fn, hint) => { const b=document.createElement('button'); b.type='button'; b.textContent=text; b.style.color=color; b.disabled=!(state.heroTpl && state.heroTpl[action]); b.title=b.disabled?`Haz ${action} a mano una vez para aprender la plantilla`:(hint||''); b.addEventListener('click',fn); row.appendChild(b); };
+      if (h.traveling) addBtn('Cancelar viaje','cancelTownTravel','#fc6',()=>{ if(confirm(`Cancelar traslado de ${h.name}?`)) heroCancelTravel(h.type,{confirmed:true},err=>{flash(err?'fallo al cancelar el viaje: '+err:'viaje del heroe cancelado');renderAttack();}); }, 'Cancelar el traslado en curso del heroe');
+      else if (h.assigned || h.attacking) addBtn('Desasignar','unassignFromTown','#f96',()=>{ if(confirm(`Desasignar ${h.name}?`)) heroUnassign(h.type,{confirmed:true},err=>{flash(err?'fallo al desasignar: '+err:'heroe desasignado');renderAttack();}); }, 'Quitar al heroe de su ciudad actual');
+      if (!h.injured && !h.attacking && !h.traveling) addBtn('Asignar','assignToTown','#6cf',()=>{ const tid=townSel.value; if(tid&&confirm(`Asignar ${h.name} -> ${townNameById(tid)}?`)) heroAssignToTown(h.type,tid,{confirmed:true},err=>{flash(err?'fallo al asignar: '+err:'traslado del heroe iniciado');renderAttack();}); }, 'Asignar el heroe a la ciudad seleccionada');
       hbox.appendChild(row);
     });
 

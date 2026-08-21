@@ -449,6 +449,12 @@
     return state.spyLastSpy;
   }
   function spyHistorySave() { save(STORE.SPY_HISTORY, spyLastSpy()); }
+  // NOT a module-local *InFlight boolean, and deliberately not gbLock: the lock
+  // registry is binary per lock NAME, and what this needs is a per-target
+  // CONCURRENCY COUNT (maxConcurrent spy waves against one town at once), which
+  // one lock name cannot express. The two properties the lock rule actually
+  // protects are kept: entries expire on their own (TTL below, no lease that
+  // outlives a lost callback) and nothing here can wedge another feature.
   // In-flight is a TIMESTAMP list per target, not a bare counter: a callback
   // that never fires (mobile background, bfcache) would leave a counter stuck
   // above maxConcurrent and park that target forever. Entries age out on the

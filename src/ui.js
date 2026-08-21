@@ -49,7 +49,7 @@
     thead.querySelectorAll('th').forEach((th, col) => {
       if (th.dataset.nosort) return;
       th.style.cursor = 'pointer';
-      th.title = 'sort';
+      th.title = 'Ordenar por esta columna';
       th.addEventListener('click', () => {
         const asc = th.dataset.sort !== 'asc';
         sortRows(table, col, asc);
@@ -180,7 +180,7 @@
         // Farm-town attacks use a different game path than Town/sendUnits. The old ATK button
         // prepared an objective that the sender intentionally refuses, so it is removed fail-closed.
         const thrBtn = document.createElement('button');
-        thrBtn.textContent = 'THR'; thrBtn.title = 'Set threshold';
+        thrBtn.textContent = 'THR'; thrBtn.title = 'Fijar umbral';
         thrBtn.style.cssText = 'background:none;border:1px solid #555;color:#fc6;padding:1px 5px;cursor:pointer;font-size:11px';
         thrBtn.addEventListener('click', () => editThreshold(f));
         actions.appendChild(thrBtn);
@@ -242,7 +242,7 @@
       const pre = cappingPending();
       if (pre.length) preTxt = '\npreaviso: ' + pre.slice(0, 6).map(x => `${x.name}: ${x.resource} ~${x.etaMin}min`).join(' | ');
     } catch (_) {}
-    const res = `Wood ${fmt(w)} | Stone ${fmt(s)} | Iron ${fmt(i)} | Pop ${fmt(p)}${popTxt}${preTxt}`;
+    const res = `Madera ${fmt(w)} | Piedra ${fmt(s)} | Plata ${fmt(i)} | Poblacion ${fmt(p)}${popTxt}${preTxt}`;
     if (head + res !== _worldTotalsLast) {
       _worldTotalsLast = head + res;
       totals.replaceChildren();
@@ -1027,7 +1027,7 @@
   // string in the panel big enough that an added `${x}` reads as harmless, and it
   // would be the repo's first XSS sink. Wire data goes through textContent.
   panel.innerHTML = `
-    <header><div class="gb-head-main"><b>GrepBot v${runningVersion()}</b><div class="gb-head-status"><span id="gb-head-mode" class="gb-pill" data-gb-tip="Perfil activo (AFK / recoleccion / guerra / personalizado)">...</span><span id="gb-head-health" class="gb-pill" data-gb-tip="Salud agregada del bot: OK / con errores / parado">...</span></div></div><div style="display:flex;gap:4px"><button data-act="queues" title="Abrir centro de colas">Colas</button><button data-act="toggle" title="Minimizar">_</button></div></header>
+    <header><div class="gb-head-main"><b>GrepBot v<span id="gb-head-ver"></span></b><div class="gb-head-status"><span id="gb-head-mode" class="gb-pill" data-gb-tip="Perfil activo (AFK / recoleccion / guerra / personalizado)">...</span><span id="gb-head-health" class="gb-pill" data-gb-tip="Salud agregada del bot: OK / con errores / parado">...</span></div></div><div style="display:flex;gap:4px"><button data-act="queues" title="Abrir centro de colas">Colas</button><button data-act="toggle" title="Minimizar">_</button></div></header>
     <div class="gb-qat" role="toolbar" aria-label="GrepBot acciones rapidas">
       <select data-qs="town" title="Cambiar de ciudad" style="background:var(--gb-input-bg);color:var(--gb-input-fg);border:1px solid var(--gb-chrome);font-size:10px;max-width:150px"></select>
       <button type="button" data-qat="collect" data-ico="plus" title="Recoger recursos ahora">Recoger</button>
@@ -1048,17 +1048,17 @@
         <span id="gb-atk-armed" style="font-size:10px;color:#f96;font-weight:bold;margin-left:auto"></span>
       </div>
       <div class="atk-row">
-        <label data-gb-tip="ID de ciudad destino (deja vacio y elige en el desplegable)">target <input data-atk="target" style="width:70px" placeholder="town id"/></label>
-        <select data-atk="target-type" title="Generic sender only supports canonical town targets"><option value="town">ciudad</option></select>
-        <select data-atk="pick" title="Known town targets from reports/history" style="max-width:150px"></select>
+        <label data-gb-tip="ID de ciudad destino (deja vacio y elige en el desplegable)">destino <input data-atk="target" style="width:70px" placeholder="id de ciudad"/></label>
+        <select data-atk="target-type" title="El enviador generico solo admite objetivos de ciudad canonicos"><option value="town">ciudad</option></select>
+        <select data-atk="pick" title="Ciudades objetivo conocidas por informes/historial" style="max-width:150px"></select>
         <label data-gb-tip="Coordenada X (isla) del objetivo">x <input data-atk="x" style="width:40px"/></label>
         <label data-gb-tip="Coordenada Y (isla) del objetivo">y <input data-atk="y" style="width:40px"/></label>
-        <select data-atk="mission" data-gb-tip="Tipo de envio: ataque, apoyo o provocacion de revuelta"><option value="attack">ataque</option><option value="support">apoyo</option><option value="revolt">revolt</option></select>
+        <select data-atk="mission" data-gb-tip="Tipo de envio: ataque, apoyo o provocacion de revuelta"><option value="attack">ataque</option><option value="support">apoyo</option><option value="revolt">revuelta</option></select>
       </div>
       <div id="gb-atk-target-hint" style="font-size:9px;color:#888;margin:-2px 0 4px"></div>
       <div class="atk-row">
         <select data-atk="timing" data-gb-tip="Cuando enviar: ahora o para llegar a una hora concreta"><option value="send_now">enviar ya</option><option value="arrive_at">llegar a las</option></select>
-        <input data-atk="arrival" type="datetime-local" step="1" title="arrival (local)"/>
+        <input data-atk="arrival" type="datetime-local" step="1" title="Llegada (hora local)"/>
         <label data-gb-tip="Retraso aleatorio en ms aplicado al envio (anti-deteccion de patron exacto)">pad ms <input data-atk="pad" type="number" style="width:50px" value="200"/></label>
       </div>
       <div class="atk-row">
@@ -1071,7 +1071,7 @@
           <option value="per_town">editar por ciudad</option>
         </select>
         <label style="display:flex;align-items:center;gap:3px">unit
-          <select data-atk="unit-type" title="only used when troop mode is 'all of type'"></select>
+          <select data-atk="unit-type" title="Solo se usa con el modo de tropas &quot;todo el tipo&quot;"></select>
         </label>
       </div>
       <div class="atk-harass" style="display:flex;gap:4px;flex-wrap:wrap;margin:4px 0">
@@ -1695,6 +1695,11 @@
       </details>
     </footer>
   `;
+  // The header template is literal-only on purpose (gbLit contract): the one
+  // interpolated value used to be the version, written straight into innerHTML.
+  // It is a local string, never a wire value, but the rule is "no ${} in an
+  // innerHTML template" precisely so nobody has to re-audit which is which.
+  { const verEl = panel.querySelector('#gb-head-ver'); if (verEl) verEl.textContent = runningVersion(); }
   document.body.appendChild(panel);
 
   // Materialize every data-gb-tip in the panel chrome into a real title + aria-label.
@@ -2417,7 +2422,7 @@
     setChk('[data-cfg=auto-build]', state.ibAuto);
     setChk('[data-cfg=instant-research]', state.ibResearch);
     setChk('[data-cfg=auto-queue]', state.abAuto);
-    setChk('[data-cfg=ab-random-fallback]', state.abRandomFallback !== false);
+    setChk('[data-cfg=ab-random-fallback]', !!state.abRandomFallback);
     setChk('[data-cfg=auto-wall-repair]', !!state.autoWallRepair);
     setChk('[data-cfg=pop-rescue-farm]', !!state.popRescueFarm);
     setNum('[data-cfg=build-swap-min]', gbCfgNum(state.buildSwapThresholdMin, 5));
@@ -2551,7 +2556,9 @@
     onCfg('[data-cfg=ab-random-fallback]', 'change', e => {
       state.abRandomFallback = e.target.checked; save(STORE.AB_RANDOM_FALLBACK, state.abRandomFallback);
       gbLog('ab-random-fallback', state.abRandomFallback ? 'ON' : 'OFF');
-      if (state.abRandomFallback) abScan('toggle');
+      // 'manual': abScan returns early for any other reason when abAuto is OFF
+      // and nothing is pending, so 'toggle' made the checkbox look inert.
+      if (state.abRandomFallback) abScan('manual');
       renderAbQueue();
     });
     onCfg('[data-cfg=auto-quest-build]', 'change', e => {
