@@ -501,7 +501,7 @@
   }
   function applyTheme() {
     const cls = 'gb-theme-' + gbThemeResolved();
-    const targets = [panel, (gbQueueCenter || null)];
+    const targets = [panel];
     // Widget hosts (v4 plan 6.2) live on document.body, not inside the panel,
     // so they need the theme class themselves or their var() lookups resolve
     // to nothing and they render unstyled.
@@ -558,9 +558,9 @@
        block (54 duplicated declarations parsed on every install) and applyTheme
        only ever ADDS a class, so the default already covers both the class-less
        host and the resolved-dark one. Nothing outside #grepbot-panel
-       and #grepbot-queue-center is scoped, so the game's own DOM is untouched.
+       is scoped, so the game's own DOM is untouched.
        ===================================================================== */
-    #grepbot-panel, #grepbot-queue-center, .gb-widget {
+    #grepbot-panel, .gb-widget {
       --gb-bg:#181a1f;
       --gb-bg-deep:#17191e;
       --gb-bg-alt:#22252b;
@@ -615,7 +615,7 @@
       --gb-err-bg:#381f23;
       --gb-err-border:#8a3b42;
     }
-    #grepbot-panel.gb-theme-light, #grepbot-queue-center.gb-theme-light, .gb-widget.gb-theme-light {
+    #grepbot-panel.gb-theme-light, .gb-widget.gb-theme-light {
       --gb-bg:#f4f5f7;
       --gb-bg-deep:#eceef1;
       --gb-bg-alt:#e8eaee;
@@ -933,7 +933,6 @@
        Scoped to our own roots - the game's DOM is never restyled.
        ===================================================================== */
     #grepbot-panel :focus-visible,
-    #grepbot-queue-center :focus-visible,
     .gb-widget :focus-visible {
       outline:2px solid var(--gb-link);
       outline-offset:1px;
@@ -943,7 +942,7 @@
        transitions are decorative (hover tints, toast fades); none carries
        information that is lost by removing them. */
     @media (prefers-reduced-motion: reduce){
-      #grepbot-panel *,#grepbot-queue-center *,.gb-widget *{
+      #grepbot-panel *,.gb-widget *{
         animation-duration:.001ms!important;
         animation-iteration-count:1!important;
         transition-duration:.001ms!important;
@@ -955,19 +954,18 @@
        invisible ground. Re-anchor on the system keywords and keep a visible
        border so the panel still reads as a distinct surface. */
     @media (forced-colors: active){
-      #grepbot-panel,#grepbot-queue-center,.gb-widget{
+      #grepbot-panel,.gb-widget{
         border:1px solid CanvasText;
         background:Canvas;
         color:CanvasText;
         forced-color-adjust:none;
       }
-      #grepbot-panel button,#grepbot-queue-center button,.gb-widget button{
+      #grepbot-panel button,.gb-widget button{
         border:1px solid ButtonText;
         background:ButtonFace;
         color:ButtonText;
       }
       #grepbot-panel :focus-visible,
-      #grepbot-queue-center :focus-visible,
       .gb-widget :focus-visible{outline:2px solid Highlight}
     }
   `);
@@ -1495,7 +1493,6 @@
           <div class="key-list gb-cfg-note" data-gb-tip="Lista de atajos de teclado activos"></div>
           <button data-cfg="keybindings-edit" class="gb-cfg-btn gb-cfg-sub" data-gb-tip="Editar las combinaciones de atajos de teclado">Reasignar atajos...</button>
           <label class="gb-cfg-row" title="Anade un menu GrepBot junto al popup de ciudad del juego. No intercepta ningun evento del juego: solo se monta al lado."><input type="checkbox" data-cfg="context-menu"/> Menu contextual junto al popup del juego</label>
-          <label class="gb-cfg-row" title="Al abrir senado, academia, cuartel o puerto, la ventana Colas GrepBot salta a esa ciudad y a esa cola. Es la unica ventana de colas: no hay panel flotante aparte."><input type="checkbox" data-cfg="queue-follow"/> Abrir Colas GrepBot al entrar en un edificio</label>
         `)}
         ${gbCfgGroup('Avisos y notificaciones', `
           <label class="gb-cfg-num" data-gb-tip="URL del webhook (Discord o Telegram) al que enviar avisos">URL de webhook <input class="gb-cfg-input" type="text" data-cfg="webhook-url" placeholder="webhook de Discord o https://api.telegram.org/bot.../sendMessage" style="width:100%;font-size:10px"/></label>
@@ -2096,10 +2093,6 @@
   panel.querySelector('[data-qs=town]')?.addEventListener('change', e => {
     const id = e.target.value;
     if (!jumpToTown(id)) renderTownSwitch();
-  });
-  panel.querySelector('header button[data-act=queues]')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    openQueueCenter();
   });
   panel.querySelector('header button[data-act=toggle]').addEventListener('click', (e) => {
     e.stopPropagation();
@@ -3035,10 +3028,6 @@
       if (snapshotRestore(slot)) { flash('instantanea restaurada'); bindConfig(); updateStatus(); }
       else flash('no se pudo restaurar');
     });
-    onCfg('[data-cfg=queue-follow]', 'change', e => {
-      state.queueFollow = !!e.target.checked;
-      save(STORE.QUEUE_FOLLOW, state.queueFollow);
-    });
     onCfg('[data-cfg=context-menu]', 'change', e => {
       state.contextMenu = !!e.target.checked;
       save(STORE.CONTEXT_MENU, state.contextMenu);
@@ -3187,7 +3176,6 @@
     setChk('[data-cfg=mem-probe-on]', !!state.memProbeOn);
     setChk('[data-cfg=keyboard-shortcuts]', state.keyboardShortcuts !== false);
     setChk('[data-cfg=context-menu]', state.contextMenu !== false);
-    setChk('[data-cfg=queue-follow]', state.queueFollow !== false);
     setChk('[data-cfg=emergency-cave-auto]', !!state.emergencyCaveAuto);
     setNum('[data-cfg=emergency-cave-confirm]', emergencyConfirmAt());
     setNum('[data-cfg=emergency-cave-min-iron]', emergencyMinIron());
@@ -3926,7 +3914,6 @@
   });
   gbMenu('GrepBot: copiar todo (log + datos)', () => { bundleCopy(); });
   gbMenu('GrepBot: guardar todo (.txt)', () => { bundleDownload(); });
-  gbMenu('GrepBot: colas', () => { openQueueCenter(); });
   gbMenu('GrepBot: diag', () => { diagRun(); });
   gbMenu('GrepBot: reset panel position', () => { resetPanelGeom(); });
   gbMenu('GrepBot: rescan inbox', () => {

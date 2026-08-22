@@ -202,7 +202,7 @@
         // nodes have to be inspected too, not just the target's ancestors.
         // Text-only records are deliberately NOT filtered: autoCollect keys off
         // the game's own "N min" leaf text.
-        const GB_OWN_SEL = '.gb-native-qctl,.gb-native-qpop,.gb-flash,#grepbot-panel,#grepbot-queue-center';
+        const GB_OWN_SEL = '.gb-native-qctl,.gb-native-qpop,.gb-flash,#grepbot-panel';
         const ownEl = n => !!(n && n.nodeType === 1 && n.closest && n.closest(GB_OWN_SEL));
         const ownRecord = (r) => {
           const t = r.target && r.target.nodeType === 1 ? r.target : r.target && r.target.parentElement;

@@ -77,7 +77,6 @@ MODULES = [
     'stats.js',
     'context-menu.js',
     'hud.js',
-    'queue-center.js',
     'ui.js',
     'boot.js',
     'footer.js',

@@ -11,8 +11,7 @@
   }
   // ===== Draggable widget system (v4 plan 6.2) ===============================
   // One host + drag + persistence helper so 6.11 / 6.12 / 6.14 do not each
-  // reinvent the Queue Center's chrome. The clamp math is taken verbatim from
-  // queue-center.js so a widget cannot be dragged off-screen either.
+  // reinvent the widget chrome.
   //
   // Every listener goes through gbListen, so teardown is already handled by the
   // existing gbListenerBag sweep - a widget cannot leak a document-level
@@ -135,7 +134,6 @@
     'preflight': { label: 'Comprobar sistema', run: () => { showTab('stats'); preflightRunAndRender(); } },
     'copy-findings': { label: 'Copiar hallazgos', run: () => { const b = panel && panel.querySelector('footer button[data-act=copy]'); if (b) b.click(); } },
     'copy-all': { label: 'Copiar todo (log + datos)', run: () => bundleCopy() },
-    'queue-center': { label: 'Abrir Colas', run: () => openQueueCenter() },
     'rescan-inbox': { label: 'Releer bandeja', run: () => scrapeInboxDom() },
     'toggle-pause': {
       label: 'Pausa por actividad',
@@ -171,7 +169,6 @@
     'Ctrl+Shift+,': 'panel-config',
     'Ctrl+Shift+P': 'preflight',
     'Ctrl+Shift+F': 'copy-findings',
-    'Ctrl+Shift+Q': 'queue-center',
     'Ctrl+Shift+R': 'rescan-inbox',
     'Ctrl+Shift+L': 'toggle-pause',
     'Ctrl+Shift+D': 'diag',

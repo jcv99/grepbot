@@ -85,7 +85,12 @@
     for (const { m, eta } of rows.slice(0, 12)) {
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;gap:6px;align-items:center;padding:1px 0;border-bottom:1px solid var(--gb-rule);white-space:nowrap';
-      const etaCell = hudCell(eta == null ? '—' : queueCenterFmt(eta));
+      const etaCell = hudCell(eta == null ? '—' : (() => {
+        if (eta == null || !Number.isFinite(+eta)) return '—';
+        const s = Math.max(0, Math.floor(+eta));
+        const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+        return h ? `${h}h ${String(m).padStart(2,'0')}m` : `${m}m ${String(s % 60).padStart(2,'0')}s`;
+      })());
       etaCell.style.fontWeight = 'bold';
       etaCell.style.color = eta == null ? 'var(--gb-fg-mute)'
         : (eta < 300 ? 'var(--gb-err-3)' : (eta < 900 ? 'var(--gb-warn-2)' : 'var(--gb-fg-2)'));

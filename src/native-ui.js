@@ -83,7 +83,6 @@
     nativeQueueSaveNow();
     try{scheduleNativeUiScan()}catch(_){}
     try{renderAbQueue()}catch(_){}
-    try{renderQueueCenter()}catch(_){}
   }
   function nativeQueueId(prefix){const q=nativeQueueRoot();q.seq++;return `${prefix}:${Date.now().toString(36)}:${q.seq.toString(36)}`;}
   function nativeQueueHasPending(lane,townId) {
@@ -521,7 +520,6 @@
     if(merged){
       nativeQueueSave();
       try{scheduleNativeUiScan()}catch(_){}
-      try{renderQueueCenter()}catch(_){}
       gbLog(`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): compactadas ${merged} entrada(s) adyacente(s) en @${townId}`);
     }
     return merged;
@@ -555,7 +553,7 @@
       const stable=x=>String(x||'').replace(/\d+(?:[.,]\d+)?/g,'#');
       if(stable(job.reason)===stable(r)&&now-(+job.reasonUpdatedAt||+job.updatedAt||0)<300000)return;
     }
-    job.status=status;job.reason=r;job.reasonUpdatedAt=now;job.updatedAt=now;nativeQueueSaveSoon();try{scheduleNativeUiScan()}catch(_){}try{renderQueueCenter()}catch(_){}
+    job.status=status;job.reason=r;job.reasonUpdatedAt=now;job.updatedAt=now;nativeQueueSaveSoon();try{scheduleNativeUiScan()}catch(_){}
   }
   // ===== Build queue optimizer (v4 plan 5.6) =================================
   // A FIFO head that cannot be paid for stalls every job behind it. This offers
@@ -634,8 +632,8 @@
   }
   function nativeQueueReconcileBuild(townId) {
 
-    // Log-only: the Queue Center does its own scan at render time. This just
-    // makes a long stall visible in the Log for someone who never opens it.
+    // Log-only: makes a long stall visible in the Log for someone who never
+    // opens the in-game building windows.
     try {
       const sug = nativeQueueSuggestSwap(townId);
       if (sug) gbLogT('build-swap-' + townId, 600000,
@@ -907,9 +905,8 @@
        even though the button looked reachable. position+z-index puts it on top
        of its stacking context and makes hit-testing land on the button. */
     .gb-native-qctl{position:relative;z-index:2147482000;pointer-events:auto;display:inline-flex;align-items:center;gap:2px;margin:0 0 0 2px;padding:1px 3px;border:1px solid #8a6725;border-radius:4px;background:rgba(31,25,16,.94);color:#f6e3b0;font:10px/1.2 Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";box-shadow:0 1px 3px rgba(0,0,0,.45);vertical-align:middle}
-    /* Shared style for the batched-input fields used by both the Queue Center
-       +Lote row and the in-window native recruit tile (native-ui.js +
-       queue-center.js used to keep the literal inline and out of sync). */
+    /* Shared style for the batched-input fields used by the recruit popover
+       and the in-window native recruit tile (+Lote row, +N, etc.). */
     .gb-native-qinp{width:55px;background:#111;color:#cfc;border:1px solid #444;border-radius:3px;padding:1px 3px}
     .gb-native-qbtn{position:relative;z-index:1;pointer-events:auto;min-width:22px;height:20px;padding:0 4px;border:1px solid #9b7938;border-radius:4px;background:linear-gradient(#5b4828,#342814);color:#fff3c7;font:bold 11px Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";cursor:pointer}
     .gb-native-qbtn:hover{border-color:#e5b94f;color:#fff}.gb-native-qbtn:disabled{opacity:.42;cursor:default}
@@ -931,9 +928,27 @@
     .gb-native-qpop-head{display:flex;align-items:center;gap:4px;font-weight:bold}.gb-native-qpop-head span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .gb-native-qpop-row{display:flex;align-items:center;gap:3px;flex-wrap:wrap}
     .gb-native-qpop-row .gb-native-qcount{min-width:58px}
-    /* Leftovers from the floating per-lane panel (removed in v5.10.0: the
-       Queue Center window is now the single queue surface). The popover still
-       uses .gb-native-empty for its own empty state. */
+    /* The panel is a column: head (never scrolls) + two independently scrolling
+       sections. A single overflow:auto on the box made the unit grid push the
+       job list out of the 48vh clip, which is exactly the "I cannot see it all"
+       complaint. right/bottom are set by nativeLayoutPanels - the old
+       hard-coded recruitNaval offset only de-collided two of the four lanes. */
+    .gb-native-panel{position:fixed;bottom:10px;right:10px;z-index:2147483000;width:300px;max-width:44vw;max-height:64vh;padding:5px;border:1px solid #8a6725;border-radius:6px;background:rgba(34,27,17,.97);color:#f2dfb2;font:11px/1.25 Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";box-shadow:0 4px 14px rgba(0,0,0,.55);display:flex;flex-direction:column;overflow:hidden}
+    .gb-native-panel-head{display:flex;align-items:center;gap:4px;margin-bottom:3px;font-weight:bold;flex:0 0 auto}.gb-native-panel-head span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .gb-native-panel-sum{color:#c7ad78;padding:1px 2px}
+    /* Every recruitable unit of this lane, whether or not its 58x95 tile is
+       inside the game's clipped 95px strip. */
+    .gb-native-units{flex:1 1 auto;min-height:0;overflow:auto;margin-bottom:3px;border-bottom:1px solid rgba(190,150,75,.3);padding-bottom:2px}
+    .gb-native-unit{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:3px;align-items:center;padding:1px 1px;border-top:1px solid rgba(190,150,75,.14)}
+    .gb-native-unit:first-child{border-top:0}
+    .gb-native-unit>b{font-weight:normal;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .gb-native-unit .gb-native-qbtn{min-width:18px;height:16px;padding:0 3px;font:bold 9px/14px Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans"}
+    .gb-native-unit .gb-native-qcount{min-width:46px;font-size:10px}
+    .gb-native-unit-actions{display:flex;gap:2px}
+    .gb-native-jobs{flex:1 1 auto;min-height:0;overflow:auto}
+    .gb-native-job{display:grid;grid-template-columns:20px minmax(100px,1fr) auto;gap:4px;align-items:center;padding:2px 1px;border-top:1px solid rgba(190,150,75,.22)}
+    .gb-native-job:first-child{border-top:0}.gb-native-job small{display:block;color:#c7ad78;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gb-native-job-actions{display:flex;gap:2px}
+    .gb-native-job .gb-native-qbtn{min-width:18px;height:17px;padding:0 3px}
     .gb-native-empty{color:#b9a983;font-style:italic;padding:2px}
   `);
   let nativeUiTimer=0;
@@ -1218,9 +1233,6 @@
     const list=nativeQueueList(townId,lane,false),step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit);
     const pos=nativeQueuePosition(townId,lane,j=>j&&j.unit===unit),head=pos===1&&list[0];
     const pop=document.createElement('div');pop.className='gb-native-qpop';pop.dataset.unit=unit;pop.dataset.town=String(townId);
-    // Anchored outside the game's window (Queue Center roster): the scan's
-    // "town window gone" sweep must not close it, because there is no window.
-    if(!tile)pop.dataset.src='qc';
     pop.addEventListener('mousedown',e=>e.stopPropagation());pop.addEventListener('click',e=>e.stopPropagation());
 
     const act=fn=>{
@@ -1305,55 +1317,97 @@
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
     ctl.append(minus,count);nativeQctlHitCheck(ctl,tech);
   }
-  // ONE queue surface (v5.10.0). The game's building window used to grow a
-  // floating per-lane GrepBot panel beside it, which was a second, poorer copy
-  // of the Queue Center: same `state.nativeQueue` data, different rows, no live
-  // game queue, no swap suggestion. Opening the senate / academy / barracks /
-  // docks now points the single Queue Center window at that town and lane
-  // instead. The per-tile [+]/[-] controls and the recruit popover stay where
-  // they are - they are in-place editors, not a second queue view.
-  const NATIVE_LANE_TAB={build:'build',research:'research',recruit:'barracks',recruitNaval:'docks'};
-  // Follow key = the town + lane set of the building window on screen. It only
-  // fires on a CHANGE, so a window that stays open across the 5s rescan never
-  // steals the tab back from a user who switched it by hand, and a window the
-  // user closed the Queue Center over is not re-opened under them.
-  // Roster of units the game's own recruit window last offered for a town+lane.
-  // The floating panel received this list straight from the scan; the Queue
-  // Center reads it from here instead, so a unit whose 58x95 tile is clipped
-  // out of the game's own strip still has a [+] somewhere. Memory only, never
-  // persisted: a roster restored from storage would claim units this town may
-  // no longer be able to recruit.
-  const nativeLaneRosters=new Map();
-  function nativeLaneRosterKey(townId,lane){return String(townId)+'|'+lane}
-  function nativeLaneRoster(townId,lane){const r=nativeLaneRosters.get(nativeLaneRosterKey(townId,lane));return r?r.slice():[]}
-  function nativeLaneRosterSet(townId,lane,units) {
-    const list=[...new Set((units||[]).filter(Boolean))];
-    if(!list.length)return;
-    nativeLaneRosters.set(nativeLaneRosterKey(townId,lane),list);
+  const nativeQPanelCollapsed=Object.create(null);
+  function nativeLayoutPanels() {
+    try{
+      const order={build:0,research:1,recruit:2,recruitNaval:3};
+      const panels=[...document.querySelectorAll('.gb-native-panel')]
+        .sort((a,b)=>(order[a.dataset.lane]==null?9:order[a.dataset.lane])-(order[b.dataset.lane]==null?9:order[b.dataset.lane]));
+      if(!panels.length)return;
+      const vw=gameUw().innerWidth||document.documentElement.clientWidth||1024;
+      const vh=gameUw().innerHeight||document.documentElement.clientHeight||768;
+      const gap=8,w=panels[0].offsetWidth||300;
+
+      let base=10;
+      const main=document.getElementById('grepbot-panel');
+      if(main&&main.getClientRects().length){
+        const r=main.getBoundingClientRect();
+        if(r.bottom>vh-140&&r.right>vw-(w+20))base=Math.max(10,vw-r.left+8);
+      }
+      const fit=Math.max(1,Math.floor((vw-base-10+gap)/(w+gap)));
+      panels.forEach((p,i)=>{
+        if(i<fit){p.style.right=(base+i*(w+gap))+'px';p.style.bottom='10px'}
+        else{const k=i-fit+1;p.style.right=(base+k*18)+'px';p.style.bottom=(10+k*18)+'px'}
+      });
+    }catch(_){}
   }
-  let nativeQcFollowKey='';
-  function nativeQueueFollowCenter(townId,lanes) {
-    const key=String(townId)+'|'+lanes.join(',');
-    if(key===nativeQcFollowKey)return;
-    nativeQcFollowKey=key;
-    if(state.queueFollow===false)return;
-    const tab=NATIVE_LANE_TAB[lanes[0]];
-    if(!tab)return;
-    try{openQueueCenter(tab,townId)}
-    catch(e){gbLogT('native-qc-follow',60000,'queue center follow: '+String(e?.message||e).slice(0,80))}
+  function nativeRenderQueuePanel(root,townId,lane,units) {
+
+    // The panel mounts on document.body (fixed position) so it never sits on top
+    // of the in-game queue UI inside the window. Scoped per town window by id.
+    let box=document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`);
+    if(!box){box=document.createElement('div');box.className='gb-native-panel';box.dataset.lane=lane;box.dataset.town=String(townId);document.body.appendChild(box);box.addEventListener('mousedown',e=>e.stopPropagation());box.addEventListener('click',e=>e.stopPropagation())}
+
+    // nativeUiScan re-renders this on every game-DOM mutation and every 5s tick,
+    // so it paints through gbPaint: unchanged lanes are patched, not rebuilt,
+    // and the panel stops swallowing the click you were about to make on it.
+    // The key carries the job ids AND the flags each row's handler closes over
+    // (frozen/inflight), so a kept button can never act for a different job.
+    const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&(j.inflight||j.manualReview));
+    const roster=NATIVE_RECRUIT_LANES.includes(lane)?[...new Set((units||[]).filter(Boolean))]:[];
+    const ckey=`${lane}|${townId}`,collapsed=!!nativeQPanelCollapsed[ckey];
+
+    const key=`${lane}|${townId}|${frozen?'F':'-'}|${collapsed?'C':'-'}|`
+      +list.map(j=>`${j.id}:${j.inflight?1:0}${j.manualReview?'m':''}`).join(',')
+      +'|'+roster.map(u=>`${u}:${nativeQueueRecruitAmount(townId,u)}:${nativeQueuePosition(townId,lane,j=>j&&j.unit===u)||0}`).join(',');
+    gbPaint(box,stage=>{
+      const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot · Construcción':(lane==='research'?'Cola GrepBot · Investigación':(lane==='recruitNaval'?'Cola GrepBot · Puerto':'Cola GrepBot · Cuartel'));gbTip(title, 'Cola virtual de GrepBot para esta ciudad y tipo de edificio/unidad');head.appendChild(title);
+      const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'>':'||',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
+      if(!list.length&&nativeQueueIsFifo(townId,lane)){const legacy=nativeQButton('Objetivos','Volver al planificador de objetivos',nativeTownAction(root,townId,()=>nativeQueueUseLegacy(townId,lane)));head.appendChild(legacy)}
+      head.appendChild(nativeQButton(collapsed?'▸':'▾',collapsed?'Desplegar este panel':'Plegar este panel',nativePanelAction(townId,()=>{nativeQPanelCollapsed[ckey]=!collapsed;scheduleNativeUiScan()})));
+      stage.appendChild(head);
+      if(collapsed){
+        const sum=document.createElement('div');sum.className='gb-native-panel-sum';
+        const pend=list.reduce((n,j)=>n+(+j.amount||0),0);
+        sum.textContent=list.length?`${list.length} en cola${pend?` · ${pend} unidad(es)`:''}`:'Cola vacía';
+        stage.appendChild(sum);return;
+      }
+
+      if(roster.length){
+        const grid=document.createElement('div');grid.className='gb-native-units';
+        for(const unit of roster){
+          const step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit);
+          const pos=nativeQueuePosition(townId,lane,j=>j&&j.unit===unit),uhead=pos===1&&list[0];
+          const row=document.createElement('div');row.className='gb-native-unit';row.dataset.unit=unit;
+          const name=document.createElement('b');name.textContent=nativeUnitLabel(unit);name.title=nativeUnitLabel(unit);
+          const count=document.createElement('span');count.className='gb-native-qcount';
+          count.textContent=pending>0?`+${pending}${pos?' · #'+pos:''}`:'—';
+          count.title=uhead&&uhead.reason?uhead.reason:`${pending||0} pendiente(s) en la cola virtual`;
+          if(pending>0&&uhead){if(uhead.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(uhead.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
+          const acts=document.createElement('div');acts.className='gb-native-unit-actions';
+          const minus=nativeQButton(`-${step}`,`Restar ${step} ${nativeUnitLabel(unit)} de la cola virtual`,nativePanelAction(townId,()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));
+          minus.disabled=!list.some(j=>j&&j.unit===unit&&!j.inflight&&!j.manualReview);
+          const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola virtual (Ctrl: ×5)`,nativePanelAction(townId,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));
+
+          const more=nativeQButton('…',`Más opciones para ${nativeUnitLabel(unit)}: cantidad libre, lote y compactar`,nativePanelAction(townId,()=>nativeRecruitPopover(root,null,townId,unit,row)));
+          acts.append(minus,plus,more);
+          row.append(name,count,acts);grid.appendChild(row);
+        }
+        stage.appendChild(grid);
+      }
+      if(!list.length){const empty=document.createElement('div');empty.className='gb-native-empty';empty.textContent=nativeQueueIsFifo(townId,lane)?'Cola vacía. Usa los botones + de arriba.':'Usa + para crear una cola FIFO en esta ciudad.';stage.appendChild(empty);return}
+      const jobs=document.createElement('div');jobs.className='gb-native-jobs';stage.appendChild(jobs);
+      list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}→${j.toLevel}`:(lane==='research'?nativeResearchLabel(j.tech):`${j.amount}× ${nativeUnitLabel(j.unit)}`);const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' · '+j.reason:''}`;gbTip(sub, 'Estado de la orden virtual + motivo si esta bloqueada');desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const up=nativeQButton('↑','Mover antes',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('↓','Mover después',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const del=nativeQButton('×','Quitar de la cola virtual',nativePanelAction(townId,()=>{if(j.inflight){flash('Esta orden se está enviando; espera a que termine');return false}if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acción se envió o no.')}catch(_){ok=false}if(!ok)return false}else if(frozen){let ok=false;try{ok=gameUw().confirm('Hay otra acción pendiente en esta cola. ¿Borrar este elemento de todos modos?')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id,{force:true})}));del.disabled=!!j.inflight;acts.append(up,down,del);row.append(num,desc,acts);jobs.appendChild(row)});
+    },{key});
   }
   function nativeUiScan() {
     if(!gbInstanceAlive()||!document.body)return;nativeEnsureBuildingIds();
     const candidates=[...document.querySelectorAll('.window_content,.gpwindow_content,#unit_order')].filter((x,i,a)=>a.indexOf(x)===i&&!x.closest('#grepbot-panel'));
     const roots=candidates.filter(x=>!candidates.some(y=>y!==x&&y.contains(x)));
     const mountedTowns=new Set();
-    // Lanes the building windows on screen actually offer, for the Queue Center
-    // follow below. A town can have two windows open (senate + barracks), so the
-    // lanes accumulate per town instead of one window overwriting the other.
-    const lanesByTown=new Map();
     for(const root of roots){const townId=nativeWindowTownId(root);if(!townId){
         if(nativeAcademyRoot(root)||root.querySelector(NATIVE_RESEARCH_SEL))gbLogT('native-research-notown',300000,'native ui: academy window open but its town id is unreadable - controls skipped');
-        root.querySelectorAll(':scope > .gb-native-qctl').forEach(n=>n.remove());continue}let buildN=0,researchN=0;const mountedBuildIds=new Set(),mountedUnitIds=new Set(),mountedResearchIds=new Set(),mountedUnitLanes=new Set();
+        root.querySelectorAll(':scope > .gb-native-panel,.gb-native-qctl').forEach(n=>n.remove());continue}let buildN=0,researchN=0;const mountedBuildIds=new Set(),mountedUnitIds=new Set(),mountedResearchIds=new Set(),mountedUnitLanes=new Set();
       mountedTowns.add(String(townId));
       const senateContext=!!(root.matches('#building_main,.building_main,.senate')||root.querySelector('#building_main,.building_main,[id^="building_main_"],[id^="special_building_"]'));
 
@@ -1387,22 +1441,13 @@
           +`tech_tree_box ${root.querySelectorAll('.tech_tree_box').length})`);
       }
       root.querySelectorAll('.gb-native-qctl[data-building]').forEach(c=>{if(!mountedBuildIds.has(c.dataset.building))c.remove()});root.querySelectorAll('.gb-native-qctl[data-unit]').forEach(c=>{if(!mountedUnitIds.has(c.dataset.unit))c.remove()});root.querySelectorAll('.gb-native-qctl[data-research]').forEach(c=>{if(!mountedResearchIds.has(c.dataset.research))c.remove()});
-      // Lane order = which tab the Queue Center opens on. Build and research
-      // windows are single-lane; a recruit window can resolve into both lanes
-      // when a unit's hull is unreadable, so the lane with more mounted units
-      // wins instead of a fixed land-first guess.
-      for(const lane of NATIVE_RECRUIT_LANES)if(mountedUnitLanes.has(lane))nativeLaneRosterSet(townId,lane,unitsByLane[lane]);
-      const recruitLanes=NATIVE_RECRUIT_LANES.filter(l=>mountedUnitLanes.has(l))
-        .sort((a,b)=>(unitsByLane[b]||[]).length-(unitsByLane[a]||[]).length);
-      const lanes=[...(buildN?['build']:[]),...(researchN?['research']:[]),...recruitLanes];
-      if(lanes.length){const prev=lanesByTown.get(String(townId))||[];lanesByTown.set(String(townId),[...prev,...lanes.filter(l=>!prev.includes(l))])}
+      if(buildN)nativeRenderQueuePanel(root,townId,'build');else document.querySelector(`.gb-native-panel[data-lane="build"][data-town="${townId}"]`)?.remove();for(const lane of NATIVE_RECRUIT_LANES){if(mountedUnitLanes.has(lane))nativeRenderQueuePanel(root,townId,lane,unitsByLane[lane]);else document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`)?.remove()}if(researchN)nativeRenderQueuePanel(root,townId,'research');else document.querySelector(`.gb-native-panel[data-lane="research"][data-town="${townId}"]`)?.remove();
     }
 
-    document.querySelectorAll('.gb-native-qpop[data-town]:not([data-src="qc"])').forEach(p => { if (!mountedTowns.has(p.dataset.town)) nativeQPopClose(); });
+    // Drop panels whose town window is gone.
+    document.querySelectorAll('.gb-native-panel[data-town]').forEach(p => { if (!mountedTowns.has(p.dataset.town)) p.remove(); });
 
-    // One follow per scan. With no queue-bearing window on screen the key is
-    // cleared, so closing and reopening the same building focuses the Queue
-    // Center again instead of going quiet after the first time.
-    if(lanesByTown.size){const [townId,lanes]=[...lanesByTown.entries()][0];nativeQueueFollowCenter(townId,lanes)}
-    else nativeQcFollowKey='';
+    document.querySelectorAll('.gb-native-qpop[data-town]').forEach(p => { if (!mountedTowns.has(p.dataset.town)) nativeQPopClose(); });
+
+    nativeLayoutPanels();
   }

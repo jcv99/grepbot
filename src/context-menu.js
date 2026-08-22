@@ -39,7 +39,7 @@
     try { nodes = Array.from(document.querySelectorAll(CTX_POPUP_SEL)); } catch (_) { return null; }
     for (const n of nodes) {
       // Never mount on our own UI - the same ownership test nativeUiScan uses.
-      if (n.closest('#grepbot-panel, #grepbot-queue-center, .gb-widget, .gb-ctx-menu')) continue;
+      if (n.closest('#grepbot-panel, .gb-widget, .gb-ctx-menu')) continue;
       const r = n.getBoundingClientRect();
       if (!r.width || !r.height) continue;
       const id = ctxReadTownId(n);

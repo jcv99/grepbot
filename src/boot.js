@@ -18,7 +18,7 @@
     LOCK_SWEEP_MS: 10000,
     DODGE_RETURN_MS: 15000,
     NATIVE_QUEUE_LOOP_MS: 60000,
-    QUEUE_CENTER_PAINT_MS: 5000,
+    NATIVE_UI_REPAINT_MS: 5000,
     OVERVIEW_RENDER_MS: 15000,
     // one-shot boot delays — staggered so the panel + scan + reconcile each
     // find a settled UI by the time they paint
@@ -139,29 +139,17 @@
   gbTimeout(scheduleNativeUiScan, BOOT_TIMING.NATIVE_UI_SCAN_MS);
   gbInterval(() => {
 
-    // The native-queue lane state must be observed frequently so a hand-edit
-    // or a foreign + tap reflects in the panel within seconds. But the POSTS
-    // themselves are orchestrator-owned (orchTick drives ab/recruit/research
-    // on cadence); calling them here too would double-fire every interval and
-    // invalidate the per-feature `*Scan` lock guards' serialisation. Render-only.
-    // An OPEN window repaints regardless of pending virtual jobs: it also shows
-    // the game's real queues, so a hand-queued order used to stay invisible for
-    // as long as every GrepBot lane happened to be empty.
-    if (queueCenterVisible() || nativeQueueHasPending('build') || nativeRecruitPending() || nativeQueueHasPending('research')) {
-      try { renderQueueCenter(); } catch (e) { gbLogT('boot-qc-paint', 60000, 'queue center paint: ' + String(e?.message || e).slice(0, 80)); }
-    }
-
     // Ungated: this used to fire only while a lane already had work, which is a
     // chicken-and-egg lock on a fresh install — no scan means no [+] control,
     // no [+] means the lane stays empty, and the empty lane suppresses the scan.
     // nativeUiScan is a no-op when no game window is open.
     scheduleNativeUiScan();
-  }, BOOT_TIMING.QUEUE_CENTER_PAINT_MS);
+  }, BOOT_TIMING.NATIVE_UI_REPAINT_MS);
 
   // Whole-account reconcile of the virtual queues against the real ones. The
-  // per-town pass in renderQueueCenter only covers the town on screen and only
-  // while the window is open; this is what drops a hand-made upgrade from a
-  // background town's plan without waiting for the auto-queue to sweep it.
+  // per-window pass in nativeUiScan only covers the towns on screen; this is
+  // what drops a hand-made upgrade from a background town's plan without
+  // waiting for auto-queue to sweep it.
   gbTimeout(() => { try { nativeQueueSweep('boot'); } catch (e) { gbLogT('boot-nqs-boot', 60000, 'native queue boot: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.NATIVE_QUEUE_BOOT_MS);
   gbInterval(() => { try { nativeQueueSweep('loop'); } catch (e) { gbLogT('boot-nqs-loop', 60000, 'native queue loop: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.NATIVE_QUEUE_LOOP_MS);
   gbInterval(() => dodgeScan('loop'), DODGE_CHECK_MS);
@@ -360,8 +348,6 @@
       spsRun,
       spsStop,
       renderSpySend,
-      openQueueCenter,
-      renderQueueCenter,
       dispose: GB_ROOT.__grepbotDispose,
     };
   }

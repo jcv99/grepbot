@@ -348,8 +348,6 @@
     } catch (_) {}
     const p = document.getElementById('grepbot-panel');
     if (p) try { p.remove(); } catch (_) {}
-    const qc = document.getElementById('grepbot-queue-center');
-    if (qc) try { qc.remove(); } catch (_) {}
 
     // Widgets (v4 plan 6.2) own their own interval, so disposing the handles is
     // not the same as removing the elements - do both, and sweep any host a
@@ -566,7 +564,6 @@
     findingsFilter: load(STORE.FINDINGS_FILTER, { type: '', attacker: '' }),
     theme: load(STORE.THEME, 'dark'),
     contextMenu: load(STORE.CONTEXT_MENU, true),
-    queueFollow: load(STORE.QUEUE_FOLLOW, true),
     keyboardShortcuts: load(STORE.KEYBOARD_SHORTCUTS, true),
     keybindings: load(STORE.KEYBINDINGS, {}) || {},
     widgetGeom: load(STORE.WIDGET_GEOM, {}) || {},
@@ -1448,8 +1445,8 @@
   // Poseidon mythicals (hydra, sea monsters) are NAVAL mythicals — recruited
   // at the harbor (building_docks), not the temple. GameData.is_naval is
   // unreliable for this set in some worlds, so the heuristic needs an explicit
-  // fallback. Single shared helper so recruiters, lane classifiers and the
-  // queue-center renderer all agree on what is naval.
+  // fallback. Single shared helper so recruiters and lane classifiers agree
+  // on what is naval.
   const NAVAL_MYTHICAL_UNITS = new Set(['hydra']);
   // Poseidon mythicals (hydra, sea monsters) often lack `def.god` in some
   // GameData builds while still carrying a non-zero favor cost — the favor
