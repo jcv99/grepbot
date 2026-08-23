@@ -4,7 +4,7 @@
 
 > **CLOSED (2026-08-07).** C1–C7 and I8–I15 are fixed in `src/` as of v1.5.13+.
 > Per-item OPEN/PARTIAL labels below are historical and **must not** drive new
-> work. Evidence: [`docs/plans/00-reconciliation.md`](../plans/00-reconciliation.md).
+> work. Evidence: [`docs/plans/00-reconciliation.md`](. /plans/00-reconciliation.md).
 > Archived from `docs/` so the live backlog stays truthful.
 
 Source: critical review + future backlog. **Verified against `src/` @ v1.4.0**
@@ -17,7 +17,7 @@ Status legend (historical): **OPEN** · **PARTIAL** · **FIXED** · **N/A**.
 **Coded in v1.5.0 (2026-08-06):** C1–C7, I8–I15, Incomplete table.
 Future § + Major optimizations backlog → see `docs/plans/` (not this file).
 
-Repair order (still valid):  
+Repair order (still valid): 
 1 safe defaults + no credential logs → 2 orch migrate → 3 world-isolate →
 4 dispose/hooks → 5 dodge queue → 6 parse/trade/wonder/captcha → 7 storage/render.
 
@@ -28,14 +28,14 @@ Repair order (still valid):
 ### C1 Orchestrator starves modules — PARTIAL (v1.4.0)
 
 - **Was:** `priorityOrder` default 6 keys; one feature/20s tick → rural*/recruit/
-  merchant/favor/wonder never re-ran after checkbox kick; `CAVE_CHECK_MS` etc unused.
+merchant/favor/wonder never re-ran after checkbox kick; `CAVE_CHECK_MS` etc unused.
 - **Now:** `orchDefaultOrder()` has all 12; tick appends unranked after configured;
-  overdue sort + `ORCH_MAX_PER_TICK=3` + adaptive idle cadence (`orchestrate.js`).
+overdue sort + `ORCH_MAX_PER_TICK=3` + adaptive idle cadence (`orchestrate.js`).
 - **Still open:** `state.priorityOrder` **load default still 6** (`core.js`);
-  stored old lists never migrated. Leftover `*_CHECK_MS` in `cave.js` /
-  `trade.js` / `recruit.js` / `wonder.js` unused (dead constants).
+stored old lists never migrated. Leftover `*_CHECK_MS` in `cave.js` /
+ `trade.js` / `recruit.js` / `wonder.js` unused (dead constants).
 - **Fix left:** migrate `PRIORITY_ORDER` → full 12; drop or wire dead cadence consts;
-  TASKS gate: Stats scheduler shows every ON feature getting turns.
+TASKS gate: Stats scheduler shows every ON feature getting turns.
 
 ### C2 Dispose incomplete — OPEN
 
@@ -90,9 +90,9 @@ send cb; retry failed with backoff.
 ### C6 Diag / `@connect` credentials — PARTIAL
 
 - Diag no longer dumps full csrf/`document.cookie` (footer/preflight: present /
-  6-char prefix only) — **FIXED vs review claim**.
+6-char prefix only) — **FIXED vs review claim**.
 - `@connect *` still in `header.js` — **OPEN**; tighten to grepolis + webhook
-  host pattern.
+host pattern.
 
 ### C7 Auto-on without consent — OPEN
 
@@ -180,7 +180,7 @@ deleting on findings trim).
 - XHR hook: early URL filter; `{once:true}` where safe.
 - `gbTimeout` real cancel (entries linger until dispose).
 - Module split already under `src/` — keep concat; add unit tests for
-  parseReport, trade plan, orch pick, journal dedup, dodge queue.
+parseReport, trade plan, orch pick, journal dedup, dodge queue.
 
 Security note: no eval / remote code / hidden exfil seen; traffic = Grepolis +
 optional webhook. Reliability blockers = C1–C5, C7, I8–I14.
@@ -192,13 +192,13 @@ optional webhook. Reliability blockers = C1–C5, C7, I8–I14.
 ### Reliability / ops
 
 1. Evidence dump (Log → Evidence): last-OK, last-skip, captcha windows, orch
-   queue, learned templates — shrink TASKS gate to paste Diag+Evidence.
+queue, learned templates — shrink TASKS gate to paste Diag+Evidence.
 2. Orch warehouse deadlock: full WH + farm paused + cave/trade idle → force
-   trade/cave/rural before farm.
+trade/cave/rural before farm.
 3. Resume-burst serializer: single wake queue (tab focus ≠ farm+ib+bandit+collect
-   same second) — audit P6 leftover / main captcha trip vector.
+same second) — audit P6 leftover / main captcha trip vector.
 4. Learned-payload health: age + last-success on claimTpl/ibAction/quest/attack;
-   invalidate after N hard fails.
+invalidate after N hard fails.
 
 ### Economy smarts
 
@@ -276,17 +276,16 @@ rg -n "autoFarm:.*true|enabledHosts\[h\] = true|@connect" src/
 
 # FINAL AUDIT — GrepBot 1.5.8
 
-**Audited file:** `grepbot (1).user(1).js`  
-**SHA-256:** `b2c0e820d0e1678eefa5d87aada1071fc1e9f6464fc0960ff61c0a2bd6ed904d`  
-**Size:** 9,771 lines / 413,958 bytes  
-**Syntax:** `node --check` = OK  
-**Isolated startup test:** Headless Chromium, no JS exceptions in a minimal environment.  
-**Re-injection test:** 2 injections → 1 panel; 4 old commands unregistered before registering new ones.  
+**Audited file:** `grepbot (1).user(1).js` 
+**SHA-256:** `b2c0e820d0e1678eefa5d87aada1071fc1e9f6464fc0960ff61c0a2bd6ed904d` 
+**Size:** 9,771 lines / 413,958 bytes 
+**Syntax:** `node --check` = OK 
+**Isolated startup test:** Headless Chromium, no JS exceptions in a minimal environment. 
+**Re-injection test:** 2 injections → 1 panel; 4 old commands unregistered before registering new ones. 
 **Dry-run test:** FAIL: with `dryRun=true` and host enabled, a test `Collect` button received a real click.
 
 ## Scope and limits of the word “100%”
-
-The **entire source** has been traversed and all modules and side-effect paths reviewed. This cannot equate to certifying 100% of Grepolis internal API behavior without a real account/world: model names, actions, fields, and rules that only the client/server reveal are marked as **LIVE VALIDATION** and are not accepted as correct based on appearance alone.
+**entire source** has been traversed and all modules and side-effect paths reviewed. This cannot equate to certifying 100% of Grepolis internal API behavior without a real account/world: model names, actions, fields, and rules that only the client/server reveal are marked as **LIVE VALIDATION** and are not accepted as correct based on appearance alone.
 
 ## Verdict
 
@@ -316,20 +315,20 @@ The **entire source** has been traversed and all modules and side-effect paths r
 - **Lines:** 2767-2845, 2940-2953, 3226, 8579-8585
 - **Confidence:** Confirmed
 - **Problem:** `autoCollectResources()` only requires `hostEnabled()` and is scheduled every 5 s + MutationObserver. `collectAll` only modifies the time limit; it is not an auto-collect toggle.
-- **Required fix:** Create separate `AUTO_COLLECT`, default false. The interval/observer must exit if that toggle is OFF.
+- **Required fix:** Create separate `AUTO_COLLECT`, default false. interval/observer must exit if that toggle is OFF.
 
 ### P0-03 — Unchecking all source cities means ALL cities
 - **Module:** attack
 - **Lines:** 7165-7177, 7246-7252, 7588-7590
 - **Confidence:** Confirmed
-- **Problem:** `sourceTownIds=[]` is interpreted as fallback to all cities. The UI can save [] when the user unchecks all. In a military action this inverts explicit intent.
+- **Problem:** `sourceTownIds=[]` is interpreted as fallback to all cities. UI can save [] when the user unchecks all. In a military action this inverts explicit intent.
 - **Required fix:** Distinguish `null/undefined = default` from `[] = none`. If [] block with `no source towns`.
 
 ### P0-04 — The planner cannot resolve a normal enemy target entered by ID
 - **Module:** attack
 - **Lines:** 7197-7237, 8497-8500
 - **Confidence:** Confirmed
-- **Problem:** `resolveTarget()` only recognizes own city, known village, or `plan.targetType`; the UI has no `targetType`. A normal enemy ID ends up `kind=null` and is blocked.
+- **Problem:** `resolveTarget()` only recognizes own city, known village, or `plan.targetType`; the UI has no `targetType`. normal enemy ID ends up `kind=null` and is blocked.
 - **Required fix:** Resolve enemy city from real model/map or add explicit type selector + canonical resolution. Do not allow send until a valid destination entity is obtained.
 
 ### P0-05 — Farms ATK button prepares a target that the planner itself forbids
@@ -350,8 +349,8 @@ The **entire source** has been traversed and all modules and side-effect paths r
 - **Module:** build
 - **Lines:** 3545-3915
 - **Confidence:** Confirmed / requirement regression
-- **Problem:** Uses fixed `AB_PHASES`, waits for <=1 order, and also arms `half-build+5m+jitter`. The UI only changes target levels. No generic prerequisite tree exists.
-- **Required fix:** Replace `AB_PHASES` with editable per-city priority queue; project real+bot queue; resolve dependencies from GameData; revalidate cost/population/slot just before each build.
+- **Problem:** Uses fixed `AB_PHASES`, waits for <=1 order, and also arms `half-build+5m+jitter`. UI only changes target levels. No generic prerequisite tree exists.
+- **Required fix:** Replace `AB_PHASES` with editable per-city priority queue; project real+bot queue; resolve dependencies from GameData; revalidate cost/population/slot before each build.
 
 ## P1 — Findings
 
@@ -373,7 +372,7 @@ The **entire source** has been traversed and all modules and side-effect paths r
 - **Module:** core
 - **Lines:** 164-251, 928-1047
 - **Confidence:** Confirmed by architecture
-- **Problem:** Dispose cancels registered timers/GM XHR but gpAjax is not abortable and callbacks do not verify generation/disposed. An old callback can mutate state or schedule new timers.
+- **Problem:** Dispose cancels registered timers/GM XHR but gpAjax is not abortable and callbacks do not verify generation/disposed. old callback can mutate state or schedule new timers.
 - **Required fix:** Add `instanceGeneration`/`disposed`; all callbacks and `gbTimeout` must abort if generation is no longer active.
 
 ### P1-04 — Double request budget on HTTP report and bypass in gbXhr
@@ -401,8 +400,8 @@ The **entire source** has been traversed and all modules and side-effect paths r
 - **Module:** templates
 - **Lines:** 922-926, 1933-1990
 - **Confidence:** Confirmed
-- **Problem:** On claim and attack, template is saved before/without `isSelfBridge`. An invented payload can become the new “learned template” and self-reinforce.
-- **Required fix:** Parse first; if `isSelfBridge(j)` exit BEFORE saving any template. Use signature with nonce/request id, not just model+action 5 s.
+- **Problem:** On claim and attack, template is saved before/without `isSelfBridge`. invented payload can become the new “learned template” and self-reinforce.
+- **Required fix:** Parse first; if `isSelfBridge(j)` exit BEFORE saving any template. Use signature with nonce/request id, not model+action 5 s.
 
 ### P1-08 — Report scanner interprets any nested `id` from a reportish response as report_id
 - **Module:** reports
@@ -443,14 +442,14 @@ The **entire source** has been traversed and all modules and side-effect paths r
 - **Module:** farm
 - **Lines:** 2238-2338
 - **Confidence:** Confirmed
-- **Problem:** `whCache[tid]` is calculated once; after successful claims loot is not projected nor refreshed. The batch can keep claiming even when the warehouse fills.
+- **Problem:** `whCache[tid]` is calculated once; after successful claims loot is not projected nor refreshed. batch can keep claiming even when the warehouse fills.
 - **Required fix:** Re-read/project resources after each confirmed claim; reserve capacity before sending the next.
 
 ### P1-14 — Sleep auto marks the day as used before knowing if the claim succeeded
 - **Module:** farm
 - **Lines:** 2340-2410
 - **Confidence:** Confirmed
-- **Problem:** `farmSleepDay` is persisted before calling the claim route. A block/captcha/error immediately after can cancel the action but prevent retry for the whole day.
+- **Problem:** `farmSleepDay` is persisted before calling the claim route. block/captcha/error immediately after can cancel the action but prevent retry for the whole day.
 - **Required fix:** Persist day only after confirmation/reconciliation of sufficient claims.
 
 ### P1-15 — Timeout can duplicate Bandit Camp attack
@@ -530,7 +529,7 @@ The **entire source** has been traversed and all modules and side-effect paths r
 - **Problem:** Calculates only origin surplus/capacity; `tgt.cap - tgt.resource` is not used. `tradeApplyJob` can project above cap.
 - **Required fix:** Clamp by free capacity of each destination resource and by goods in transit.
 
-### P1-26 — Jobs are not revalidated just before send
+### P1-26 — Jobs are not revalidated before send
 - **Module:** trade
 - **Lines:** 4592-4640
 - **Confidence:** Confirmed
@@ -597,7 +596,7 @@ The **entire source** has been traversed and all modules and side-effect paths r
 - **Module:** wonder
 - **Lines:** 5408-5412
 - **Confidence:** Confirmed
-- **Problem:** `const budget = +cfg.budget || 50000`. An intentional 0 does not disable spending.
+- **Problem:** `const budget = +cfg.budget || 50000`. intentional 0 does not disable spending.
 - **Required fix:** Use `cfg.budget ?? default`; 0 must block everything.
 
 ### P1-36 — Reserve=0 becomes 5000
@@ -619,7 +618,7 @@ The **entire source** has been traversed and all modules and side-effect paths r
 - **Lines:** 5425-5504
 - **Confidence:** Confirmed
 - **Problem:** Selects job from snapshot and posts later; other modules can consume resources.
-- **Required fix:** Revalidate reserve, stock, capacity and budget just before POST.
+- **Required fix:** Revalidate reserve, stock, capacity and budget before POST.
 
 ### P1-39 — Militia is incorrectly blocked if free population=0
 - **Module:** dodge
@@ -873,7 +872,7 @@ The **entire source** has been traversed and all modules and side-effect paths r
 - **Lines:** 4125-4185
 - **Confidence:** Confirmed
 - **Problem:** Jobs use snapshot; another process can change values.
-- **Required fix:** Recalculate `caveTownInfo` just before POST.
+- **Required fix:** Recalculate `caveTownInfo` before POST.
 
 ### P2-16 — Storage planner ignores existing incoming merchants
 - **Module:** trade
@@ -987,12 +986,12 @@ The **entire source** has been traversed and all modules and side-effect paths r
 - **Problem:** Due boundary moves randomly on each poll.
 - **Required fix:** At end of run, calculate and persist/stash `nextDue = now+cadence*jitter`.
 
-### P2-32 — lastRun is marked before knowing if handler actually executed
+### P2-32 — lastRun is marked before knowing if handler executed
 - **Module:** scheduler
 - **Lines:** ~6230-6265
 - **Confidence:** Confirmed
 - **Problem:** Handler can exit on lock/no data and still gets delayed one cadence.
-- **Required fix:** Handler returns status; only update lastRun/nextDue when actually attempting or define separate `lastChecked`.
+- **Required fix:** Handler returns status; only update lastRun/nextDue when attempting or define separate `lastChecked`.
 
 ### P2-33 — Up to 3 econ modules can compete for the same resources
 - **Module:** scheduler
@@ -1154,7 +1153,7 @@ The **entire source** has been traversed and all modules and side-effect paths r
 
 - **LIVE-01 · Instant free:** Confirm on a real world the action_name `completeInstant/finishInstantly`, Order model and `GameDataInstantBuy` price. Code does block gold!=0.
 - **LIVE-02 · Farming:** Capture a manual claim of each duration and verify option indices per world/feature.
-- **LIVE-03 · Farm HTTP:** Demonstrate whether guessed endpoints `/index.php?action=farm_town_*` actually return useful resource/threshold data.
+- **LIVE-03 · Farm HTTP:** Demonstrate whether guessed endpoints `/index.php?action=farm_town_*` return useful resource/threshold data.
 - **LIVE-04 · Bandit:** Validate PlayerAttackSpot actions `attack/useReward/stashReward` and movement markers.
 - **LIVE-05 · Build:** Identify BuildingBuildData schema, queue capacity API and exact dependency graph.
 - **LIVE-06 · Cave:** Verify BuildingHide/storeIron and capacity/stored fields at levels 1-10.
