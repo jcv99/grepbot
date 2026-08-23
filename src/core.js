@@ -573,7 +573,7 @@
     panelGeom: load(STORE.PANEL_GEOM, null),
     activeTab: load(STORE.ACTIVE_TAB, 'overview'),
     farmSkipFull: load(STORE.FARM_SKIP_FULL, true),
-    farmFullMode: load(STORE.FARM_FULL_MODE, 'any'),
+    farmFullMode: load(STORE.FARM_FULL_MODE, 'all'),
     abAuto: load(STORE.AB_AUTO, false),
     // Spends resources on a building the player never picked, so it is opt-in
     // like every other autonomous spend. Default ON also silently changed the
