@@ -461,19 +461,15 @@
     farmLoyaltyCache[townId] = { ts: now, val };
     return val;
   }
-  function farmSleepDuration() {
-    const want = state.farmSleepDur;
-    if (!want || want === 'auto') return farmOptionFor(28800) != null ? 28800 : 14400;
-    return +want;
-  }
+  // sleep-claim (one big overnight auto-claim of all ready villages) removed
+  // in v5.10.8. The shared `autoClaimFarms` path still claims on the adaptive
+  // cadence; the night-only toggle, fill gate and learn-once-a-day wiring are
+  // gone with it. Duration probe (28800/14400) lives in no caller now.
   // Adaptive claim duration: among the durations that are actually learnable
   // here (state.farmOptionMap), pick the longest one whose expected haul still
   // fits the town warehouse headroom. The 20min / 40min / 90min / 3h options
   // were reachable and unused - claiming less often means fewer captcha slots
   // and more loot per request.
-  // Sleep claim (4h / 8h) lives on a separate path (farmSleepClaimNow); this
-  // picker only ever considers <= 4h so a normal cadence tick never claims 4h+
-  // ahead of the player.
   const FARM_PICK_MAX = 14400;
   const FARM_PICK_LADDER = [600, 1200, 2400, 5400, 10800, FARM_PICK_MAX];
   function farmDurationPick(townId) {
@@ -1121,7 +1117,10 @@
     const cut = Date.now() - 3600000;
     return farmPressure.some(p => p.kind === 'captcha' && p.at >= cut);
   }
-  function farmDayKey() { return farmSleepDayKey(); }
+  function farmDayKey() {
+    const d = new Date();
+    return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  }
   function farmClaimsToday() {
     const day = farmDayKey();
     if (state.farmClaimsDay !== day) {
@@ -1180,69 +1179,6 @@
     // Highest yield first even without pressure: same set, better order.
     work.sort((a, b) => (farmProfitScoreOf(b.vill_id) ?? -Infinity) - (farmProfitScoreOf(a.vill_id) ?? -Infinity));
     return work;
-  }
-  function farmSleepDayKey() {
-    const d = new Date();
-    return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
-  }
-  function farmSleepClaimNow(reason, onDone) {
-    const sec = farmSleepDuration();
-    if (farmOptionFor(sec) == null) {
-      gbLog(`sleep claim: ${farmDurLabel(sec)} option not learned yet - open a farming village, click that timer once by hand, then retry`);
-      flash('recoleccion nocturna: ensenale ' + farmDurLabel(sec));
-      if (onDone) onDone(null);
-      return false;
-    }
-    if (!state.autoFarm) {
-      gbLog('sleep claim: auto-farm is OFF - enable it in Config, the claim path is shared');
-      flash('recoleccion nocturna: auto-granjas APAGADO');
-      if (onDone) onDone(null);
-      return false;
-    }
-    gbLog(`sleep claim ${farmDurLabel(sec)}${reason ? ' (' + reason + ')' : ''}`);
-    autoClaimFarms('sleep ' + farmDurLabel(sec), sec, onDone);
-    return true;
-  }
-  function farmSleepAutoTick() {
-    if (!state.farmSleepAuto || !state.autoFarm) return;
-    if (!hostEnabled() || captchaPaused('farm') || gbLocked('claim')) return;
-    const sec = farmSleepDuration();
-    if (farmOptionFor(sec) == null) return;
-    const day = farmSleepDayKey();
-    if (state.farmSleepDay === day) return;
-    const midnight = new Date();
-    midnight.setHours(24, 0, 0, 0);
-    if (Date.now() + sec * 1000 >= midnight.getTime()) return;
-    const farms = farmsFromGame();
-    if (!farms || !farms.length) return;
-    const now = gameNow();
-    const ready = farms.filter(f => (f._rel ? farmIsLootable(f._rel, f._attrs || {}) : !(f.lootable_at > now)));
-
-    if (ready.length < Math.ceil(farms.length * 0.8)) return;
-    const islandMap = islandTownMap();
-    const towns = new Set();
-    ready.forEach(f => { const tid = townIdForFarm(f, islandMap); if (tid) towns.add(tid); });
-    if (!towns.size) return;
-    const limit = state.farmSleepFillPct || 60;
-    for (const tid of towns) {
-      const st = townWarehouseState(tid);
-      if (!st || !(st.cap > 0)) return;
-      const fill = Math.max(st.wood, st.stone, st.iron) / st.cap * 100;
-      if (fill > limit) {
-        gbLogT('sleep-fill', 600000, `sleep claim held: town ${tid} at ${Math.round(fill)}% full (limit ${limit}%)`);
-        return;
-      }
-    }
-
-    farmSleepClaimNow('auto', (stats) => {
-      if (!stats) return;
-      if (!stats.captcha && stats.attempted > 0 && stats.done >= stats.attempted) {
-        state.farmSleepDay = day;
-        save(wkey(STORE.FARM_SLEEP_DAY), day);
-      } else {
-        gbLogT('sleep-day-hold', 60000, `sleep claim: day not marked (${stats.done}/${stats.attempted} ok)`);
-      }
-    });
   }
   function verifyClaims(before, attempted) {
     const farms = farmsFromGame();
@@ -1630,7 +1566,6 @@
         if (now >= state.nextTownsScrape) scrapeAllTowns();
         if (state.autoFarm) farmScheduleClaimWake(null, 'farm-tick', true);
       }
-      try { farmSleepAutoTick(); } catch (_) {}
       try { farmLoyaltyAutoTeachTick(); } catch (_) {}
       try { renderFarmTeachBanner(); } catch (_) {}
     };

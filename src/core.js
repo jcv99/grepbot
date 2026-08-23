@@ -521,10 +521,6 @@
     farmOptionMap: load(STORE.FARM_OPTION_MAP, null) || { 300: 1 },
     farmLongClaims: load(STORE.FARM_LONG_CLAIMS, true),
     farmLoyaltyTech: load(STORE.FARM_LOYALTY_TECH, '') || '',
-    farmSleepDur: load(STORE.FARM_SLEEP_DUR, 'auto'),
-    farmSleepAuto: load(STORE.FARM_SLEEP_AUTO, false),
-    farmSleepFillPct: load(STORE.FARM_SLEEP_FILL, 60),
-    farmSleepDay: load(STORE.FARM_SLEEP_DAY, '') || '',
     farmProfit: load(STORE.FARM_PROFIT, {}),
 
     // v4 plan 5.2: target-rotation policy, default OFF.

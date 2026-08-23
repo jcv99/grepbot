@@ -209,15 +209,6 @@
         detail: `${okRows} villages with data, action ${state.farmAction || 'not learned'}, misses ${st.misses || 0}`,
       };
     }));
-    out.push(preflightProbe('sleep claim', () => {
-      const sec = farmSleepDuration();
-      const opt = farmOptionFor(sec);
-      return {
-        ok: opt != null,
-        warn: opt == null,
-        detail: opt != null ? `${farmDurLabel(sec)} = option ${opt}` : `${farmDurLabel(sec)} not learned - claim that timer once by hand`,
-      };
-    }));
     out.push(preflightProbe('instant build', () => {
       const orders = ibOrders() || [];
       const free = orders.filter(o => o.isFree).length;
@@ -964,7 +955,6 @@
     'farm claims': 'Cobro de aldeas',
     'farm unit claims': 'Cobro de unidades en aldeas',
     'farm resource scrape': 'Lectura de recursos de aldeas',
-    'sleep claim': 'Cobro nocturno de aldeas',
     'instant build': 'Terminar construcción gratis',
     'instant research': 'Terminar investigación gratis',
     'cave': 'Cueva',
@@ -1091,7 +1081,7 @@
     Object.keys(state).forEach(k => {
       if (/^auto[A-Z]/.test(k) || k === 'dryRun' || k === 'ibAuto' || k === 'ibResearch' ||
           k === 'collectAll' || k === 'decisionMemory' || k === 'captchaGlobalKill' ||
-          k === 'orchAdaptive' || k === 'farmLongClaims' || k === 'farmSleepAuto') {
+          k === 'orchAdaptive' || k === 'farmLongClaims') {
         toggles[k] = !!state[k];
       }
     });

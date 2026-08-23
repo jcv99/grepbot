@@ -34,7 +34,6 @@
       decisionSkips: state.decisionSkips,
       farmOptionMap: state.farmOptionMap,
       farmUnitsOption: state.farmUnitsOption,
-      farmSleepDay: state.farmSleepDay,
       lastSeenTs: state.lastSeenTs,
       // The journal ring is SUMMARISED, never copied: it is the single heaviest
       // slice and a snapshot only needs its shape, not its rows.

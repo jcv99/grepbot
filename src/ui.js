@@ -57,15 +57,7 @@
       });
     });
   }
-  function renderSleepStatus() {
-    const el = panel && panel.querySelector('#gb-sleep-status');
-    if (!el) return;
-    const sec = farmSleepDuration();
-    const known = farmOptionFor(sec) != null;
-    el.textContent = `${farmDurLabel(sec)} | ${known ? 'option ' + farmOptionFor(sec) : 'not learned - click that timer once in game'}` +
-      ` | auto ${state.farmSleepAuto ? 'ON' : 'OFF'}${state.farmSleepDay ? ' | last ' + state.farmSleepDay : ''}`;
-    el.style.color = known ? '#888' : '#fc6';
-  }
+  // renderSleepStatus removed in v5.10.8 - sleep claim gone with it.
   function tableShell(list, headers, key) {
     let table = list.querySelector('table');
     if (!table) {
@@ -141,7 +133,6 @@
     _renderWorldSoonT = gbTimeout(() => { _renderWorldSoonT = 0; try { renderWorld(); } catch (_) {} }, RENDER_SOON_MS);
   }
   function renderFarms() {
-    renderSleepStatus();
     const list = panel && panel.querySelector('.farms-list');
     if (!list) return;
     // Nothing below is observable while the browser tab is hidden or the hosting
@@ -1377,17 +1368,6 @@
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="ID o nombre exacto de la investigacion de lealtad (la pestana Registro lo vuelca si la deteccion automatica falla)">Clave de la investigacion de lealtad
             <input class="gb-cfg-input" data-cfg="farm-loyalty-tech" placeholder="auto (id del servidor o etiqueta)" title="Id de investigacion del servidor (p.ej. rural_loyalty) o el nombre localizado de la academia. La pestana Registro vuelca los pares id(etiqueta) cuando la deteccion automatica falla." style="width:190px"/>
           </label>
-          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Duracion del cobro nocturno: auto, 4h o 8h">Duracion del cobro nocturno
-            <select class="gb-cfg-input" data-cfg="farm-sleep-dur" data-gb-tip="Duracion del cobro nocturno">
-              <option value="auto">auto (8h si se sabe, si no 4h)</option>
-              <option value="14400">4 h</option>
-              <option value="28800">8 h</option>
-            </select>
-          </label>
-          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Cobro nocturno automatico: 1 vez al dia, debe acabar antes de las 24:00"><input type="checkbox" data-cfg="farm-sleep-auto"/> Cobro nocturno automatico (1/dia, debe acabar antes de las 24:00)</label>
-          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Porcentaje maximo de llenado del almacen para activar el cobro nocturno">Llenado maximo de almacen para el cobro nocturno %
-            <input class="gb-cfg-input" type="number" data-cfg="farm-sleep-fill" min="10" max="95" style="width:60px"/>
-          </label>
           <label class="gb-cfg-num gb-cfg-sub" title="Segundos de marcha por unidad de coordenada de isla. El juego no expone la formula de marcha, asi que 0 (por defecto) deja el ranking res/min independiente de la distancia.">Segundos de marcha por unidad de isla <input class="gb-cfg-input" type="number" data-cfg="farm-travel" min="0" max="600" step="0.5" style="width:60px"/></label>
           <div id="gb-farm-optmap" class="gb-cfg-note" data-gb-tip="Mapa aprendido: que opcion de cobro usa cada duracion (5min, 10min, ...) en este mundo"></div>
           <button data-cfg="farm-forget-options" class="gb-cfg-btn gb-cfg-sub" title="Borra el mapa de opciones aprendido (recursos y unidades) y reactiva la plantilla de cobro. Usalo si los cobros fallan seguido: vuelve a pulsar cada duracion una vez a mano para reaprenderlas.">Olvidar opciones de cobro aprendidas</button>
@@ -2198,10 +2178,6 @@
     scrapeAllFarms(true);
     farmTick();
   });
-  panel.querySelector('#gb-sleep-claim')?.addEventListener('click', () => {
-    farmSleepClaimNow('manual');
-    renderSleepStatus();
-  });
   panel.querySelector('footer button[data-act=scrape-towns]').addEventListener('click', () => {
     flash('towns scrape...');
     state.nextTownsScrape = 0;
@@ -2213,9 +2189,6 @@
     const lc = sec.querySelector('[data-cfg=farm-long-claims]'); if (lc) lc.checked = !!state.farmLongClaims;
     const fsc = sec.querySelector('[data-cfg=farm-scrape]'); if (fsc) fsc.checked = !!state.farmScrape;
     const lt = sec.querySelector('[data-cfg=farm-loyalty-tech]'); if (lt) lt.value = state.farmLoyaltyTech || '';
-    const sd = sec.querySelector('[data-cfg=farm-sleep-dur]'); if (sd) sd.value = String(state.farmSleepDur || 'auto');
-    const sa = sec.querySelector('[data-cfg=farm-sleep-auto]'); if (sa) sa.checked = !!state.farmSleepAuto;
-    const sf = sec.querySelector('[data-cfg=farm-sleep-fill]'); if (sf) sf.value = state.farmSleepFillPct;
     const um = sec.querySelector('[data-cfg=farm-units-mode]'); if (um) um.value = String(state.farmUnitsMode || 'off');
     const up = sec.querySelector('[data-cfg=farm-units-pref]'); if (up) up.value = String(state.farmUnitsPref || 'auto');
     const om = sec.querySelector('#gb-farm-optmap');
@@ -2508,14 +2481,6 @@
       save(wkey(STORE.FARM_LOYALTY_TECH), state.farmLoyaltyTech);
       farmLoyaltyReset();
       gbLog('farm loyalty tech: ' + (state.farmLoyaltyTech || 'auto-detect'));
-    });
-    onCfg('[data-cfg=farm-sleep-dur]', 'change', e => {
-      state.farmSleepDur = e.target.value; save(STORE.FARM_SLEEP_DUR, state.farmSleepDur);
-      syncFarmTimingCfg(sec);
-    });
-    onCfg('[data-cfg=farm-sleep-auto]', 'change', e => {
-      state.farmSleepAuto = e.target.checked; save(STORE.FARM_SLEEP_AUTO, state.farmSleepAuto);
-      gbLog('auto sleep claim', state.farmSleepAuto ? 'ON' : 'OFF');
     });
     onCfg('[data-cfg=instant-research]', 'change', e => {
       state.ibResearch = e.target.checked; save(STORE.IB_RESEARCH, state.ibResearch);
@@ -3106,10 +3071,6 @@
       state.caveThreshPct = gbCfgClamp(v, 50, 99, 90);
       save(STORE.CAVE_THRESH, state.caveThreshPct);
       gbLog('cave-thresh', state.caveThreshPct + '%');
-    });
-    saveNum('[data-cfg=farm-sleep-fill]', v => {
-      state.farmSleepFillPct = Math.min(95, Math.max(10, v || 60));
-      save(STORE.FARM_SLEEP_FILL, state.farmSleepFillPct);
     });
     onCfg('[data-cfg=adaptive-farm]', 'change', e => {
       state.adaptiveFarm = !!e.target.checked;
