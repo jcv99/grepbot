@@ -120,7 +120,7 @@
         return;
       }
       const j = jobs[i++];
-      gbLockTouch('rural-trade', ruralTradeLock);
+      if (!gbLockTouch('rural-trade', ruralTradeLock)) return;
       ruralTradePost(j.relId, j.farmId, j.amount, j.townId, (err) => {
         if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('rural-trade', ruralTradeLock); return; }
         if (!err) {
@@ -262,7 +262,7 @@
         const need = idx < unlockCosts.length ? unlockCosts[idx] : 100;
         if (cur < need) { stopped = 'kp-short(need ' + need + ')'; return next(); }
       }
-      gbLockTouch('rural-level', ruralLevelLock);
+      if (!gbLockTouch('rural-level', ruralLevelLock)) return;
       const fire = j.kind === 'unlock' ? ruralUnlock : ruralUpgrade;
       fire(j.relId, j.farmId, j.townId, (err) => {
         if (err === 'captcha' || err === 'captcha-pause') {

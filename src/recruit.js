@@ -1511,7 +1511,7 @@
       for (const townId of Object.keys(tlists)) {
         if (batchRecruitTownList(townId).length) { anyTown = true; break; }
       }
-    } catch (_) {}
+    } catch (e) { gbLogT('batch-recruit-probe-err', 60000, 'batch recruit probe failed: ' + String(e).slice(0, 120)); }
     if (!anyTown) {
       gbLogT('batch-recruit-empty', 180000, `batch recruit: idle (${scanReason(reason)})`);
       return;
@@ -1532,6 +1532,6 @@
         batchRecruitFire(townId);
         count++;
       }
-    } catch (_) {}
+    } catch (e) { gbLogT('batch-recruit-fire-err', 60000, 'batch recruit fire loop threw: ' + String(e).slice(0, 120)); }
     if (!count) gbLogT('batch-recruit-idle', 180000, `batch recruit: idle (${scanReason(reason)})`);
   }

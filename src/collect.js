@@ -139,7 +139,7 @@
     let pending = n;
     let errors = 0;
     const finish = () => {
-      gbLockTouch('collect-bg', collectBgLock);
+      if (!gbLockTouch('collect-bg', collectBgLock)) return;
       if (--pending > 0) return;
       gbUnlock('collect-bg', collectBgLock);
       if (errors) collectBgBackoff = Math.min(collectBgBackoff * 2, 600_000);

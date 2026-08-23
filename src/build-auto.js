@@ -448,7 +448,7 @@
     const nextTown = () => { townIndex++; gbTimeout(step, 150); };
     const step = () => {
       if (!gbInstanceAlive() || captcha || operations >= maxOps || townIndex >= ids.length) return finish();
-      gbLockTouch('ab', lockToken);
+      if (!gbLockTouch('ab', lockToken)) return;
       const id = ids[townIndex];
 
       // Reconcile accepted/unknown work against the real model before deciding

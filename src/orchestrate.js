@@ -180,7 +180,11 @@
       ? state.priorityOrder : orchDefaultOrder();
 
     const mandatory = goalMandatoryModules();
-    let order = mandatory.concat(configured.filter(k => !mandatory.includes(k))).concat(orchDefaultOrder().filter(k => !mandatory.includes(k) && configured.indexOf(k) === -1));
+    // Set-dedupe the whole priority list: a configured entry the operator
+    // reordered twice, or any entry also in the mandatory/default list, would
+    // otherwise pass through every filter and add a second cadence to the
+    // due list, firing the feature twice per orchTick.
+    let order = [...new Set(mandatory.concat(configured, orchDefaultOrder()))];
     // Sort override, not a second scheduler: while a warehouse is pinned the
     // drain features jump the user's priorityOrder (visibly - see the log line
     // and the footer badge) so farm is not fed a town that cannot store loot.

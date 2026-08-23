@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.4
+// @version      5.10.6
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -2604,7 +2604,7 @@ const STORE = {
   function txClearUnknown() {
     for (const key of Object.keys(state.txState || {})) {
       if (state.txState[key] && /^(unknown|manual-review)$/.test(state.txState[key].state || '')) {
-        try{if(state.txState[key].snapshot&&state.txState[key].snapshot.kind==='quest')questClearReviewForTx(state.txState[key])}catch(_){}
+        try { if (state.txState[key].snapshot && state.txState[key].snapshot.kind === 'quest') questClearReviewForTx(state.txState[key]); } catch (e) { gbLogT('quest-clear-err-' + ((state.txState[key].snapshot && state.txState[key].snapshot.qid) || '?'), 60000, 'quest clear review failed: ' + String(e).slice(0, 80)); }
         state.txState[key].state = 'aborted';
         state.txState[key].updatedAt = Date.now();
         state.txState[key].detail = 'manually cleared';
@@ -2617,7 +2617,7 @@ const STORE = {
     const t = state.txState && state.txState[intent];
     if (!t) return false;
     if (!/^(unknown|manual-review)$/.test(t.state || '')) return false;
-    try{if(t.snapshot&&t.snapshot.kind==='quest')questClearReviewForTx(t)}catch(_){}
+    try { if (t.snapshot && t.snapshot.kind === 'quest') questClearReviewForTx(t); } catch (e) { gbLogT('quest-clear-err-' + ((t.snapshot && t.snapshot.qid) || '?'), 60000, 'quest clear review failed: ' + String(e).slice(0, 80)); }
     t.state = 'aborted';
     t.updatedAt = Date.now();
     t.detail = 'manually cleared';
@@ -3161,6 +3161,10 @@ const STORE = {
     if (!gate && write) gate = safeModeBlock(feature, transport, endpoint, data);
     if (gate) {
       if (gate === 'dryrun') {
+
+        if (write && state.txState[intent] && /^(planned|precheck|sending|confirming|reconciling|unknown|manual-review)$/.test(state.txState[intent].state || '')) {
+          return bail('pending', 'pending:' + state.txState[intent].state);
+        }
         gbLog(`DRY-RUN ${feature}: ${endpoint} ${dryRunFmt(data)}`);
         if (write) {
           state.txState[intent] = { id: `${GB_INSTANCE_ID}:${++txSeq}`, intent, feature, state: 'dryrun', createdAt: Date.now(), updatedAt: Date.now(), owner: GB_INSTANCE_ID, snapshot, meta: { townId: metaTown } };
@@ -3307,12 +3311,19 @@ const STORE = {
       tx.state = 'confirming'; tx.updatedAt = Date.now(); txSave();
 
       const r = txReconcileNow(tx);
-      if (r === 'applied' || r === 'unknown' || r === 'unchanged') {
-        tx.state = 'committed'; tx.updatedAt = Date.now(); tx.detail = r === 'applied' ? 'server+model confirmed' : 'server callback confirmed'; plannerCommit(tx); txSave();
+      if (r === 'applied') {
+        tx.state = 'committed'; tx.updatedAt = Date.now(); tx.detail = 'server+model confirmed'; plannerCommit(tx); txSave();
         markModuleHealth(feature, 'ok', {latencyMs:Date.now()-tx.sentAt}); circuitSuccess(feature);
         jrnPush(jtag, 'ok', tx.detail, tx.id);
         try { tplHealthNote(feature, 'ok', transport === 'bridge' ? data : null); } catch (_) {}
         if (onDone) onDone(null, result);
+      } else {
+
+        tx.state = 'unknown'; tx.unknownAt = tx.unknownAt || Date.now(); tx.updatedAt = Date.now();
+        tx.detail = r === 'unchanged' ? 'server callback; state unchanged (retry blocked until next reconciliation)' : 'server callback; unable to reconcile';
+        txSave();
+        jrnPush(jtag, 'timeout', tx.detail, tx.id);
+        if (onDone) onDone('timeout_unknown', result);
       }
     });
   }
@@ -3993,7 +4004,7 @@ const STORE = {
     if (location.hostname === jrnHost) return;
 
     jrnSaveQueued = false;
-    try { jrnSaveForHost(jrnHost); } catch (_) {}
+    try { jrnSaveForHost(jrnHost); } catch (e) { gbLog('journal save-for-host failed (previous world decisions may be lost): ' + String(e).slice(0, 120)); }
     jrnHost = location.hostname;
     const next = load(wkey(STORE.DECISIONS), []);
     state.decisions = Array.isArray(next) ? next : [];
@@ -4085,9 +4096,11 @@ const STORE = {
         return rec;
       }
     }
-    for (let i = list.length - 1, seen = 0; i >= 0 && seen < 40; i--, seen++) {
+    for (let i = list.length - 1; i >= 0; i--) {
       const r = list[i];
       if (r.f !== tag.f || r.a !== tag.a || r.k !== tag.k) continue;
+
+      if (r.x != null && id != null && r.x !== id) break;
       if (r.r === result && now - r.ts < JRN_DEDUP_MS) {
         r.n = (r.n || 1) + 1;
         r.ts = now;
@@ -4746,7 +4759,7 @@ const STORE = {
     if (!lockToken) return;
     let i = 0;
     (function next() {
-      gbLockTouch('spy', lockToken);
+      if (!gbLockTouch('spy', lockToken)) return;
       if (i >= picks.length) { gbUnlock('spy', lockToken); return; }
       const t = picks[i++];
       const payload = {
@@ -5958,7 +5971,7 @@ const STORE = {
     let i = 0, done = 0, captcha = false;
     const claimSpacingMs=Math.max(700,Math.ceil(60000/Math.max(5,(+state.reqBudgetPerMin||40)-4)));
     (function next() {
-      gbLockTouch('claim', claimLockToken);
+      if (!gbLockTouch('claim', claimLockToken)) return;
       if (i >= work.length || captcha || captchaPaused('farm')) {
         const tally = Object.keys(outcome).map(k => `${k}x${outcome[k]}`).join(' ');
         if (tally) gbLog(`  claim outcomes: ${tally}`);
@@ -6368,7 +6381,7 @@ const STORE = {
     const FARM_SCRAPE_HARD_ABORT = 3;
 
     (function step() {
-      gbLockTouch('farm-scrape', farmScrapeLock);
+      if (!gbLockTouch('farm-scrape', farmScrapeLock)) return;
       if (!hostEnabled() || automationPaused({})) {
         gbUnlock('farm-scrape', farmScrapeLock);
         gbLog(`farm scrape aborted (host/pause): ${ok}/${done} ok`);
@@ -6877,7 +6890,7 @@ const STORE = {
     let pending = n;
     let errors = 0;
     const finish = () => {
-      gbLockTouch('collect-bg', collectBgLock);
+      if (!gbLockTouch('collect-bg', collectBgLock)) return;
       if (--pending > 0) return;
       gbUnlock('collect-bg', collectBgLock);
       if (errors) collectBgBackoff = Math.min(collectBgBackoff * 2, 600_000);
@@ -7670,7 +7683,7 @@ const STORE = {
 
     const watchdog = gbTimeout(unlock, Math.max(30000, free.length * (BRIDGE_TIMEOUT_MS + 5000)));
     (function next() {
-      gbLockTouch('ib', ibLockToken);
+      if (!gbLockTouch('ib', ibLockToken)) return;
       if (i >= free.length || captcha) {
         try { gbClearTimeout(watchdog); } catch (_) {}
         unlock();
@@ -9741,7 +9754,7 @@ const STORE = {
     const nextTown = () => { townIndex++; gbTimeout(step, 150); };
     const step = () => {
       if (!gbInstanceAlive() || captcha || operations >= maxOps || townIndex >= ids.length) return finish();
-      gbLockTouch('ab', lockToken);
+      if (!gbLockTouch('ab', lockToken)) return;
       const id = ids[townIndex];
 
       nativeQueueReconcileBuild(id);
@@ -10130,7 +10143,7 @@ const STORE = {
     if (!lockToken) return;
     let i = 0, done = 0, captcha = false;
     (function next() {
-      gbLockTouch('cave', lockToken);
+      if (!gbLockTouch('cave', lockToken)) return;
       if (i >= jobs.length || captcha) {
         gbUnlock('cave', lockToken);
         if (done) gbLog(`cave: stashed ${done}/${jobs.length} town(s)${captcha ? ' (captcha abort)' : ''}`);
@@ -10447,7 +10460,7 @@ const STORE = {
     if (!cultureLock) return;
     let i = 0, done = 0;
     (function next() {
-      gbLockTouch('culture', cultureLock);
+      if (!gbLockTouch('culture', cultureLock)) return;
       if (i >= jobs.length) {
         gbUnlock('culture', cultureLock);
         if (done) gbLog(`culture: started ${done}/${jobs.length}`);
@@ -11263,7 +11276,7 @@ const STORE = {
     if (!lockToken) return;
     let i = 0, done = 0;
     (function next() {
-      gbLockTouch('trade', lockToken);
+      if (!gbLockTouch('trade', lockToken)) return;
       if (i >= jobs.length) {
         gbUnlock('trade', lockToken);
         if (done) gbLog(`trade: sent ${done}/${jobs.length}`);
@@ -11538,7 +11551,7 @@ const STORE = {
       const probe = Object.create(null);
       for (const [k, v] of Object.entries(ledger)) probe[k] = Object.assign({}, v);
       jobs = transportBalanceJobs(towns, probe) || [];
-    } catch (_) { jobs = []; }
+    } catch (e) { jobs = []; gbLogT('dump-balance-err', 60000, 'dump: transportBalanceJobs threw: ' + String(e).slice(0, 120)); }
     const hit = jobs.find(j => String(j.from) === from && (+j[res] || 0) > 0);
     return hit ? String(hit.to) : null;
   }
@@ -11568,13 +11581,15 @@ const STORE = {
         }
 
         if (res === 'iron') {
+          let caveSkip = false;
           try {
             const r = ironReservedForCave(id);
             if (r && r.reserved) {
               gbLogT('dump-cave-res-' + id, 600000, `dump: town ${id} iron reserved for cave`);
-              continue;
+              caveSkip = true;
             }
-          } catch (_) {}
+          } catch (e) { gbLogT('dump-cave-err-' + id, 60000, 'dump: ironReservedForCave threw: ' + String(e).slice(0, 120)); caveSkip = true; }
+          if (caveSkip) continue;
         }
         const keep = Math.floor(src.cap * dumpKeepPctFor(res) / 100);
         const surplus = Math.max(0, (+src[res] || 0) - keep);
@@ -11721,7 +11736,7 @@ const STORE = {
         return;
       }
       const j = jobs[i++];
-      gbLockTouch('rural-trade', ruralTradeLock);
+      if (!gbLockTouch('rural-trade', ruralTradeLock)) return;
       ruralTradePost(j.relId, j.farmId, j.amount, j.townId, (err) => {
         if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('rural-trade', ruralTradeLock); return; }
         if (!err) {
@@ -11846,7 +11861,7 @@ const STORE = {
         const need = idx < unlockCosts.length ? unlockCosts[idx] : 100;
         if (cur < need) { stopped = 'kp-short(need ' + need + ')'; return next(); }
       }
-      gbLockTouch('rural-level', ruralLevelLock);
+      if (!gbLockTouch('rural-level', ruralLevelLock)) return;
       const fire = j.kind === 'unlock' ? ruralUnlock : ruralUpgrade;
       fire(j.relId, j.farmId, j.townId, (err) => {
         if (err === 'captcha' || err === 'captcha-pause') {
@@ -14042,7 +14057,7 @@ const STORE = {
 
         try { if (typeof m.isReturning === 'function' && m.isReturning() === true) return; } catch (_) {}
 
-        if (myTowns.has(origin) && a.is_attack !== true && a.is_attack !== 1) return;
+        if (myTowns.has(origin) && !dodgeIsHostileMovement(a)) return;
         const type = gbMovementType(a);
         const units = a.units || {};
         const hasCs = !!(units.colonize_ship || units.colony_ship || /^(revolt|colonize|take_over|conquer|attack_takeover)$/.test(type));
@@ -15838,7 +15853,7 @@ const STORE = {
       for (const townId of Object.keys(tlists)) {
         if (batchRecruitTownList(townId).length) { anyTown = true; break; }
       }
-    } catch (_) {}
+    } catch (e) { gbLogT('batch-recruit-probe-err', 60000, 'batch recruit probe failed: ' + String(e).slice(0, 120)); }
     if (!anyTown) {
       gbLogT('batch-recruit-empty', 180000, `batch recruit: idle (${scanReason(reason)})`);
       return;
@@ -15859,7 +15874,7 @@ const STORE = {
         batchRecruitFire(townId);
         count++;
       }
-    } catch (_) {}
+    } catch (e) { gbLogT('batch-recruit-fire-err', 60000, 'batch recruit fire loop threw: ' + String(e).slice(0, 120)); }
     if (!count) gbLogT('batch-recruit-idle', 180000, `batch recruit: idle (${scanReason(reason)})`);
   }
   function qolBindActivityPause() {
@@ -17007,7 +17022,8 @@ const STORE = {
       ? state.priorityOrder : orchDefaultOrder();
 
     const mandatory = goalMandatoryModules();
-    let order = mandatory.concat(configured.filter(k => !mandatory.includes(k))).concat(orchDefaultOrder().filter(k => !mandatory.includes(k) && configured.indexOf(k) === -1));
+
+    let order = [...new Set(mandatory.concat(configured, orchDefaultOrder()))];
 
     if (orchDeadlockEval()) {
       const drain = ORCH_DRAIN_KEYS.filter(k => order.includes(k));
@@ -20749,7 +20765,7 @@ const STORE = {
     }
     next();
     function supportStep() {
-      gbLockTouch('support', lockToken);
+      if (!gbLockTouch('support', lockToken)) return;
       if (i >= donors.length) {
         gbUnlock('support', lockToken);
         if (sent) {
@@ -21092,7 +21108,7 @@ const STORE = {
       delays.push(delayMs);
       const expectedFire = Date.now() + delayMs;
       const tid = gbTimeout(() => {
-        gbLockTouch('support', token);
+        if (!gbLockTouch('support', token)) return;
         const late = Date.now() - expectedFire;
         if (late > 5000) {
           gbLog(`refuerzo: refuse overdue fire for ${row.townId} (late ${Math.round(late)}ms)`);
@@ -21158,7 +21174,7 @@ const STORE = {
     }
     let i = 0;
     (function rfNext() {
-      gbLockTouch('support', token);
+      if (!gbLockTouch('support', token)) return;
       if (i >= okRows.length) {
         rfReleaseLock(token);
         rfPushHistory({ ts: Date.now(), mode: 'send_now_immediate', helpMode: plan.helpMode, targetId: plan.targetId, towns: okRows.map(r => r.townId) });
@@ -21655,7 +21671,7 @@ const STORE = {
       renderSpySend();
     };
     const step = () => {
-      gbLockTouch('spy', token);
+      if (!gbLockTouch('spy', token)) return;
       if (spsStopFlag) { stopWhy = 'parado'; return finish(); }
       if (wave >= plan.waves) { stopWhy = 'rafagas completadas'; return finish(); }
       if (remaining != null && remaining <= 0) { stopWhy = 'cueva vacia'; return finish(); }
@@ -27319,6 +27335,8 @@ const STORE = {
   gbInterval(farmTick, BOOT_TIMING.FARM_TICK_MS);
   gbTimeout(() => { if (state.autoFarm) farmScheduleClaimWake(null, 'boot', true); }, BOOT_TIMING.FARM_WAKE_MS);
 
+  let releaseLocksAt = 0;
+  const RELEASE_DEDUP_MS = 3000;
   gbListen(document, 'visibilitychange', () => {
     if (document.hidden) return;
     try { gbWakeMarkResume('visible'); } catch (e) { gbLogT('boot-wake-visible', 60000, 'wake visible: ' + String(e?.message || e).slice(0, 80)); }
@@ -27333,7 +27351,7 @@ const STORE = {
   gbListen(window, 'pageshow', (e) => {
     if (!(e && e.persisted)) return;
 
-    releaseLocksAt = 0;
+    releaseLocksAt = Date.now() + 3000;
     try { gbWakeMarkResume('bfcache'); } catch (e) { gbLogT('boot-wake-bfcache', 60000, 'wake bfcache: ' + String(e?.message || e).slice(0, 80)); }
     farmTick();
     try { reportCatchUpEnqueue(); } catch (e) { gbLogT('boot-catchup', 60000, 'catchup: ' + String(e?.message || e).slice(0, 80)); }
@@ -27399,8 +27417,7 @@ const STORE = {
   gbTimeout(() => { try { hudRestore(); } catch (e) { gbLogT('boot-hud-restore', 60000, 'hud restore: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.HUD_RESTORE_MS);
 
   gbInterval(() => { gbLockSweep(); try { diagnosticsTick(); } catch (e) { gbLogT('boot-diag-tick', 60000, 'diag tick: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.LOCK_SWEEP_MS);
-  let releaseLocksAt = 0;
-  const RELEASE_DEDUP_MS = 3000;
+
   const releaseLocks = () => {
     const now = Date.now();
     if (now - releaseLocksAt < RELEASE_DEDUP_MS) return;

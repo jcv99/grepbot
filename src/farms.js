@@ -1045,7 +1045,7 @@
     let i = 0, done = 0, captcha = false;
     const claimSpacingMs=Math.max(700,Math.ceil(60000/Math.max(5,(+state.reqBudgetPerMin||40)-4)));
     (function next() {
-      gbLockTouch('claim', claimLockToken);
+      if (!gbLockTouch('claim', claimLockToken)) return;
       if (i >= work.length || captcha || captchaPaused('farm')) {
         const tally = Object.keys(outcome).map(k => `${k}x${outcome[k]}`).join(' ');
         if (tally) gbLog(`  claim outcomes: ${tally}`);
@@ -1489,7 +1489,7 @@
     const FARM_SCRAPE_HARD_ABORT = 3;
 
     (function step() {
-      gbLockTouch('farm-scrape', farmScrapeLock);
+      if (!gbLockTouch('farm-scrape', farmScrapeLock)) return;
       if (!hostEnabled() || automationPaused({})) {
         gbUnlock('farm-scrape', farmScrapeLock);
         gbLog(`farm scrape aborted (host/pause): ${ok}/${done} ok`);

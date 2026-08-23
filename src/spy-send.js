@@ -209,7 +209,7 @@
       renderSpySend();
     };
     const step = () => {
-      gbLockTouch('spy', token);
+      if (!gbLockTouch('spy', token)) return;
       if (spsStopFlag) { stopWhy = 'parado'; return finish(); }
       if (wave >= plan.waves) { stopWhy = 'rafagas completadas'; return finish(); }
       if (remaining != null && remaining <= 0) { stopWhy = 'cueva vacia'; return finish(); }

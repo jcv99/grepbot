@@ -41,7 +41,7 @@
     // batch would have been written to the new world's key, importing another
     // world's skip windows and town ids wholesale.
     jrnSaveQueued = false;
-    try { jrnSaveForHost(jrnHost); } catch (_) {}
+    try { jrnSaveForHost(jrnHost); } catch (e) { gbLog('journal save-for-host failed (previous world decisions may be lost): ' + String(e).slice(0, 120)); }
     jrnHost = location.hostname;
     const next = load(wkey(STORE.DECISIONS), []);
     state.decisions = Array.isArray(next) ? next : [];
@@ -139,9 +139,17 @@
         return rec;
       }
     }
-    for (let i = list.length - 1, seen = 0; i >= 0 && seen < 40; i--, seen++) {
+    for (let i = list.length - 1; i >= 0; i--) {
       const r = list[i];
       if (r.f !== tag.f || r.a !== tag.a || r.k !== tag.k) continue;
+      // Non-provisional rows are keyed by their txId (r.x): two distinct
+      // transactions for the same (f,a,k) with the same result must not
+      // coalesce, or the counter gets shared across unrelated tx ids. Also
+      // walk the full list (capped by JRN_MAX storage below) instead of an
+      // arbitrary 40-row window: a burst tick (bandit+spy+send same second)
+      // can push the same tag past 40 entries and produce a second counter
+      // that should have been one.
+      if (r.x != null && id != null && r.x !== id) break;
       if (r.r === result && now - r.ts < JRN_DEDUP_MS) {
         r.n = (r.n || 1) + 1;
         r.ts = now;

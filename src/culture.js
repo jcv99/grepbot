@@ -194,7 +194,7 @@
     if (!cultureLock) return;
     let i = 0, done = 0;
     (function next() {
-      gbLockTouch('culture', cultureLock);
+      if (!gbLockTouch('culture', cultureLock)) return;
       if (i >= jobs.length) {
         gbUnlock('culture', cultureLock);
         if (done) gbLog(`culture: started ${done}/${jobs.length}`);

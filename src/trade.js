@@ -619,7 +619,7 @@
     if (!lockToken) return;
     let i = 0, done = 0;
     (function next() {
-      gbLockTouch('trade', lockToken);
+      if (!gbLockTouch('trade', lockToken)) return;
       if (i >= jobs.length) {
         gbUnlock('trade', lockToken);
         if (done) gbLog(`trade: sent ${done}/${jobs.length}`);

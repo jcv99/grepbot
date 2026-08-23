@@ -376,7 +376,7 @@
 
     const watchdog = gbTimeout(unlock, Math.max(30000, free.length * (BRIDGE_TIMEOUT_MS + 5000)));
     (function next() {
-      gbLockTouch('ib', ibLockToken);
+      if (!gbLockTouch('ib', ibLockToken)) return;
       if (i >= free.length || captcha) {
         try { gbClearTimeout(watchdog); } catch (_) {}
         unlock();

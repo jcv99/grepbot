@@ -83,6 +83,11 @@
   // Hidden tabs clamp timers, so every clamped loop fires at once on wake and
   // the armed instant-build timer can be minutes late. Mark the burst so the
   // catch-up is serialized, then re-read orders.
+  // Dedup stamp for the pagehide/beforeunload releaseLocks handler. Declared
+  // before any listener so the pageshow reset above (and any future listener)
+  // can touch it without a temporal-dead-zone ReferenceError.
+  let releaseLocksAt = 0;
+  const RELEASE_DEDUP_MS = 3000;
   gbListen(document, 'visibilitychange', () => {
     if (document.hidden) return;
     try { gbWakeMarkResume('visible'); } catch (e) { gbLogT('boot-wake-visible', 60000, 'wake visible: ' + String(e?.message || e).slice(0, 80)); }
@@ -100,7 +105,12 @@
   gbListen(window, 'pageshow', (e) => {
     if (!(e && e.persisted)) return;
 
-    releaseLocksAt = 0;
+    // Forward the dedup window instead of breaking it: the pagehide that
+    // brought us here already fired releaseLocks. Letting the next pagehide
+    // fire again would double-clear (cancelArmedAttack, ibClearArmed,
+    // gbUnlockAll, bandit stamp, save flush). RELEASE_DEDUP_MS is declared
+    // further down; the 3000ms here must move with it.
+    releaseLocksAt = Date.now() + 3000;
     try { gbWakeMarkResume('bfcache'); } catch (e) { gbLogT('boot-wake-bfcache', 60000, 'wake bfcache: ' + String(e?.message || e).slice(0, 80)); }
     farmTick();
     try { reportCatchUpEnqueue(); } catch (e) { gbLogT('boot-catchup', 60000, 'catchup: ' + String(e?.message || e).slice(0, 80)); }
@@ -174,8 +184,9 @@
   gbTimeout(() => { try { hudRestore(); } catch (e) { gbLogT('boot-hud-restore', 60000, 'hud restore: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.HUD_RESTORE_MS);
 
   gbInterval(() => { gbLockSweep(); try { diagnosticsTick(); } catch (e) { gbLogT('boot-diag-tick', 60000, 'diag tick: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.LOCK_SWEEP_MS);
-  let releaseLocksAt = 0;
-  const RELEASE_DEDUP_MS = 3000;
+  // releaseLocksAt + RELEASE_DEDUP_MS are declared at the top of this block
+  // so the pageshow listener above (and any future listener) can read and
+  // reset the dedup stamp without a TDZ. Move the listener, move these.
   const releaseLocks = () => {
     const now = Date.now();
     if (now - releaseLocksAt < RELEASE_DEDUP_MS) return;

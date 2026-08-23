@@ -248,7 +248,7 @@
     }
     next();
     function supportStep() {
-      gbLockTouch('support', lockToken);
+      if (!gbLockTouch('support', lockToken)) return;
       if (i >= donors.length) {
         gbUnlock('support', lockToken);
         if (sent) {

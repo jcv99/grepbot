@@ -77,7 +77,7 @@
       const probe = Object.create(null);
       for (const [k, v] of Object.entries(ledger)) probe[k] = Object.assign({}, v);
       jobs = transportBalanceJobs(towns, probe) || [];
-    } catch (_) { jobs = []; }
+    } catch (e) { jobs = []; gbLogT('dump-balance-err', 60000, 'dump: transportBalanceJobs threw: ' + String(e).slice(0, 120)); }
     const hit = jobs.find(j => String(j.from) === from && (+j[res] || 0) > 0);
     return hit ? String(hit.to) : null;
   }
@@ -113,13 +113,15 @@
         // Second, independent guard: the cave may be about to need this iron
         // even when the hide is technically full-ish.
         if (res === 'iron') {
+          let caveSkip = false;
           try {
             const r = ironReservedForCave(id);
             if (r && r.reserved) {
               gbLogT('dump-cave-res-' + id, 600000, `dump: town ${id} iron reserved for cave`);
-              continue;
+              caveSkip = true;
             }
-          } catch (_) {}
+          } catch (e) { gbLogT('dump-cave-err-' + id, 60000, 'dump: ironReservedForCave threw: ' + String(e).slice(0, 120)); caveSkip = true; }
+          if (caveSkip) continue;
         }
         const keep = Math.floor(src.cap * dumpKeepPctFor(res) / 100);
         const surplus = Math.max(0, (+src[res] || 0) - keep);

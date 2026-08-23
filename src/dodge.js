@@ -82,9 +82,11 @@
         try { if (typeof m.isReturning === 'function' && m.isReturning() === true) return; } catch (_) {}
 
         // Own-town origin is only kept when the movement is canonically hostile.
-        // The old second test fell back to `a.incoming`, which the v1.5.3 audit
-        // rule forbids as a hostility signal (it is set on friendly returns too).
-        if (myTowns.has(origin) && a.is_attack !== true && a.is_attack !== 1) return;
+        // The old strict `a.is_attack === true || 1` test dropped own-origin
+        // raids/sieges/revolts the client only flagged via command_type (not
+        // is_attack). Re-use the full hostile predicate evaluated above so any
+        // own-origin row that survived the line-78 filter is kept.
+        if (myTowns.has(origin) && !dodgeIsHostileMovement(a)) return;
         const type = gbMovementType(a);
         const units = a.units || {};
         const hasCs = !!(units.colonize_ship || units.colony_ship || /^(revolt|colonize|take_over|conquer|attack_takeover)$/.test(type));

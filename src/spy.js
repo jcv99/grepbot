@@ -539,7 +539,7 @@
     if (!lockToken) return;
     let i = 0;
     (function next() {
-      gbLockTouch('spy', lockToken);
+      if (!gbLockTouch('spy', lockToken)) return;
       if (i >= picks.length) { gbUnlock('spy', lockToken); return; }
       const t = picks[i++];
       const payload = {

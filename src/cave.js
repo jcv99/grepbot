@@ -202,7 +202,7 @@
     if (!lockToken) return;
     let i = 0, done = 0, captcha = false;
     (function next() {
-      gbLockTouch('cave', lockToken);
+      if (!gbLockTouch('cave', lockToken)) return;
       if (i >= jobs.length || captcha) {
         gbUnlock('cave', lockToken);
         if (done) gbLog(`cave: stashed ${done}/${jobs.length} town(s)${captcha ? ' (captcha abort)' : ''}`);

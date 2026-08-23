@@ -78,7 +78,7 @@
   function txClearUnknown() {
     for (const key of Object.keys(state.txState || {})) {
       if (state.txState[key] && /^(unknown|manual-review)$/.test(state.txState[key].state || '')) {
-        try{if(state.txState[key].snapshot&&state.txState[key].snapshot.kind==='quest')questClearReviewForTx(state.txState[key])}catch(_){}
+        try { if (state.txState[key].snapshot && state.txState[key].snapshot.kind === 'quest') questClearReviewForTx(state.txState[key]); } catch (e) { gbLogT('quest-clear-err-' + ((state.txState[key].snapshot && state.txState[key].snapshot.qid) || '?'), 60000, 'quest clear review failed: ' + String(e).slice(0, 80)); }
         state.txState[key].state = 'aborted';
         state.txState[key].updatedAt = Date.now();
         state.txState[key].detail = 'manually cleared';
@@ -91,7 +91,7 @@
     const t = state.txState && state.txState[intent];
     if (!t) return false;
     if (!/^(unknown|manual-review)$/.test(t.state || '')) return false;
-    try{if(t.snapshot&&t.snapshot.kind==='quest')questClearReviewForTx(t)}catch(_){}
+    try { if (t.snapshot && t.snapshot.kind === 'quest') questClearReviewForTx(t); } catch (e) { gbLogT('quest-clear-err-' + ((t.snapshot && t.snapshot.qid) || '?'), 60000, 'quest clear review failed: ' + String(e).slice(0, 80)); }
     t.state = 'aborted';
     t.updatedAt = Date.now();
     t.detail = 'manually cleared';
@@ -654,6 +654,14 @@
     if (!gate && write) gate = safeModeBlock(feature, transport, endpoint, data);
     if (gate) {
       if (gate === 'dryrun') {
+        // Don't stamp 'dryrun' on top of an in-flight real tx. A dryrun tick
+        // landing on a 'sending'/'confirming'/'reconciling'/'unknown' entry
+        // would silently overwrite the real attempt's id; the server callback
+        // would then arrive against a stamp the reconciler no longer
+        // recognises and the real write is lost.
+        if (write && state.txState[intent] && /^(planned|precheck|sending|confirming|reconciling|unknown|manual-review)$/.test(state.txState[intent].state || '')) {
+          return bail('pending', 'pending:' + state.txState[intent].state);
+        }
         gbLog(`DRY-RUN ${feature}: ${endpoint} ${dryRunFmt(data)}`);
         if (write) {
           state.txState[intent] = { id: `${GB_INSTANCE_ID}:${++txSeq}`, intent, feature, state: 'dryrun', createdAt: Date.now(), updatedAt: Date.now(), owner: GB_INSTANCE_ID, snapshot, meta: { townId: metaTown } };
@@ -818,12 +826,24 @@
       // A successful server callback is confirmation. For transactions with an observable
       // model delta we additionally reconcile, but do not create a second SEND.
       const r = txReconcileNow(tx);
-      if (r === 'applied' || r === 'unknown' || r === 'unchanged') {
-        tx.state = 'committed'; tx.updatedAt = Date.now(); tx.detail = r === 'applied' ? 'server+model confirmed' : 'server callback confirmed'; plannerCommit(tx); txSave();
+      if (r === 'applied') {
+        tx.state = 'committed'; tx.updatedAt = Date.now(); tx.detail = 'server+model confirmed'; plannerCommit(tx); txSave();
         markModuleHealth(feature, 'ok', {latencyMs:Date.now()-tx.sentAt}); circuitSuccess(feature);
         jrnPush(jtag, 'ok', tx.detail, tx.id);
         try { tplHealthNote(feature, 'ok', transport === 'bridge' ? data : null); } catch (_) {}
         if (onDone) onDone(null, result);
+      } else {
+        // r === 'unknown' or r === 'unchanged': server callback came back but
+        // the model never reflected the change (captcha-walled 200-with-error,
+        // CSRF reject, or server-side silent drop). Do NOT plannerCommit: a
+        // false commit poisons the planner reservation for PLANNER_COMMIT_HOLD_MS
+        // and would double-spend the same resources on the next attempt. Fall
+        // through to the same 'unknown' outcome the timeout-reconcile path uses.
+        tx.state = 'unknown'; tx.unknownAt = tx.unknownAt || Date.now(); tx.updatedAt = Date.now();
+        tx.detail = r === 'unchanged' ? 'server callback; state unchanged (retry blocked until next reconciliation)' : 'server callback; unable to reconcile';
+        txSave();
+        jrnPush(jtag, 'timeout', tx.detail, tx.id);
+        if (onDone) onDone('timeout_unknown', result);
       }
     });
   }

@@ -344,7 +344,7 @@
       delays.push(delayMs);
       const expectedFire = Date.now() + delayMs;
       const tid = gbTimeout(() => {
-        gbLockTouch('support', token);
+        if (!gbLockTouch('support', token)) return;
         const late = Date.now() - expectedFire;
         if (late > 5000) {
           gbLog(`refuerzo: refuse overdue fire for ${row.townId} (late ${Math.round(late)}ms)`);
@@ -411,7 +411,7 @@
     }
     let i = 0;
     (function rfNext() {
-      gbLockTouch('support', token);
+      if (!gbLockTouch('support', token)) return;
       if (i >= okRows.length) {
         rfReleaseLock(token);
         rfPushHistory({ ts: Date.now(), mode: 'send_now_immediate', helpMode: plan.helpMode, targetId: plan.targetId, towns: okRows.map(r => r.townId) });
