@@ -1531,6 +1531,18 @@
     }
     gbLog(...args);
   }
+  // Run fn(); on throw, log via gbLogT(tag, 60000, msg) and return fallback.
+  // Use tag = '' (or omit) to swallow silently (escape hatch for sites that
+  // cannot afford a log entry). The fn MUST be synchronous — async/Promise
+  // throws here resolve on the microtask queue and will not be caught.
+  // OPEN-PLAN 2.11 / research fact sheet recommendation.
+  function gbTry(fn, fallback, tag) {
+    try { return fn(); }
+    catch (e) {
+      if (tag) gbLogT(tag, 60000, 'gbTry: ' + String(e && e.message || e).slice(0, 120));
+      return fallback;
+    }
+  }
   // Dry-run aware DOM click. Any feature that clicks the game's own UI must go
   // through this, or state.dryRun silently stops covering that path.
   function gbDomClick(el, feature) {
