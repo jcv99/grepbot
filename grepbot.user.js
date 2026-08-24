@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.12
+// @version      5.10.13
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -5867,14 +5867,15 @@ const STORE = {
   }
 
   const FARM_PENDING_MEMO_MS = 3000;
-  let farmPendingMemo = { at: 0, val: false };
+  let farmPendingMemo = { at: 0, val: false, locked: 0 };
   function farmClaimPending() {
     if (!state.autoFarm || !hostEnabled()) return false;
     if (captchaPaused('farm')) return false;
 
     if (gbLocked('claim')) return true;
     const stamp = Date.now();
-    if (stamp - farmPendingMemo.at < FARM_PENDING_MEMO_MS) return farmPendingMemo.val;
+
+    if (stamp - farmPendingMemo.at < FARM_PENDING_MEMO_MS && !farmPendingMemo.locked) return farmPendingMemo.val;
     let val = false;
     try {
       const farms = farmsFromGame();
@@ -5898,7 +5899,7 @@ const STORE = {
         }
       }
     } catch (_) { val = false; }
-    farmPendingMemo = { at: stamp, val };
+    farmPendingMemo = { at: stamp, val, locked: 0 };
     return val;
   }
 
