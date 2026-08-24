@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.10
+// @version      5.10.11
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -5437,11 +5437,9 @@ const STORE = {
     const keys = Object.keys(techs).filter(k => techs[k]);
     return keys.some(k => k.toLowerCase() === want || researchLabel(k).toLowerCase() === want);
   }
-  function farmLoyaltyResearched(townId) {
-    const now = Date.now();
-    const c = farmLoyaltyCache[townId];
-    if (c && now - c.ts < 60000) return c.val;
+  function farmLoyaltyProbe(townId) {
     let val = false;
+    let hit = null;
     try {
       const info = researchTownTechs(townId);
       const techs = (info && info.techs) || null;
@@ -5450,14 +5448,10 @@ const STORE = {
         if (pin) val = farmLoyaltyPinHit(techs, pin);
         else {
           const done = Object.keys(techs).filter(k => techs[k]);
-          const hit = FARM_LOYALTY_IDS.find(id => done.indexOf(id) >= 0) ||
+          hit = FARM_LOYALTY_IDS.find(id => done.indexOf(id) >= 0) ||
             done.find(k => FARM_LOYALTY_RE.test(k) || FARM_LOYALTY_RE.test(researchLabel(k)));
-          if (hit) {
-            state.farmLoyaltyTech = hit;
-            save(wkey(STORE.FARM_LOYALTY_TECH), hit);
-            gbLog(`farm: loyalty tech detected: ${hit}${researchLabel(hit) ? ' (' + researchLabel(hit) + ')' : ''}`);
-            val = true;
-          } else {
+          if (hit) val = true;
+          else {
 
             gbLogT('farm-loyalty-miss', 900000, 'farm: loyalty tech not found; researched = ' +
               done.map(k => k + (researchLabel(k) ? '(' + researchLabel(k) + ')' : '')).join(',').slice(0, 600));
@@ -5465,8 +5459,22 @@ const STORE = {
         }
       }
     } catch (_) {}
-    farmLoyaltyCache[townId] = { ts: now, val };
-    return val;
+    return { val, hit };
+  }
+  function farmLoyaltyLearnTech(hit) {
+    if (!hit) return;
+    if (state.farmLoyaltyTech === hit) return;
+    state.farmLoyaltyTech = hit;
+    save(wkey(STORE.FARM_LOYALTY_TECH), hit);
+    gbLog(`farm: loyalty tech detected: ${hit}${researchLabel(hit) ? ' (' + researchLabel(hit) + ')' : ''}`);
+  }
+  function farmLoyaltyResearched(townId) {
+    const now = Date.now();
+    const c = farmLoyaltyCache[townId];
+    if (c && now - c.ts < 60000) return c.val;
+    const r = farmLoyaltyProbe(townId);
+    farmLoyaltyCache[townId] = { ts: now, val: r.val, hit: r.hit };
+    return r.val;
   }
 
   const FARM_PICK_MAX = 14400;
@@ -6402,7 +6410,13 @@ const STORE = {
     try {
       const towns = townsFromGame() || state.towns || [];
       for (const t of towns) {
-        if (farmLoyaltyResearched(t.id)) { anyLoyalty = true; break; }
+        const r = farmLoyaltyProbe(t.id);
+        farmLoyaltyCache[t.id] = { ts: Date.now(), val: r.val, hit: r.hit };
+        if (r.val) {
+          anyLoyalty = true;
+          if (!String(state.farmLoyaltyTech || '').trim() && r.hit) farmLoyaltyLearnTech(r.hit);
+          break;
+        }
       }
     } catch (_) {}
     const seen = !!state.farmLoyaltySeen;
