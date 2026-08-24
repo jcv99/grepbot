@@ -451,6 +451,64 @@ def check_duplicate_decls(parts):
     return dupes
 
 
+# Per-module TDZ check: a `const X = ...` line that references an identifier
+# that is declared `const`/`let` LATER in the same module is a Temporal Dead
+# Zone failure at runtime (the IIFE re-orders nothing - declarations run
+# top-to-bottom). `function` declarations hoist, so they don't trip this. The
+# names of the globals from earlier modules are invisible here on purpose:
+# cross-module reads are fine because the earlier module has already run.
+# OPEN-PLAN 7.7.
+_TDZ_DECL_RE = re.compile(
+    r'^  (?:(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)'
+    r'|(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=)'
+)
+_TDZ_REF_RE = re.compile(r'\b([A-Za-z_$][\w$]*)\b')
+_TDZ_RESERVED = frozenset({
+    'true', 'false', 'null', 'undefined', 'NaN', 'Infinity',
+    'this', 'arguments', 'super',
+})
+
+
+def check_const_order(parts):
+    """Per-module forward-reference check for const/let declarations.
+
+    Only `const` / `let` initializer expressions are scanned - function
+    declarations hoist fully (body included), so forward references inside
+    a `function foo() { ... }` body are safe.
+
+    Returns a list of (module, line, decl_name, referenced_name) tuples.
+    """
+    issues = []
+    for name, text in parts:
+        decls = []  # (line_no, ident, kind, line_text) ordered by appearance
+        for i, line in enumerate(text.splitlines(), 1):
+            m = _TDZ_DECL_RE.match(line)
+            if not m:
+                continue
+            ident = m.group(1) or m.group(2)
+            kind = 'function' if m.group(1) else 'const'
+            decls.append((i, ident, kind, line))
+
+        const_decls_after = {}
+        for ln, ident, kind, _ in decls:
+            if kind == 'const':
+                const_decls_after[ln] = ident
+
+        for ln, ident, kind, line_text in decls:
+            if kind == 'function':
+                continue  # hoisted - body forward refs are safe
+            for ref in _TDZ_REF_RE.findall(line_text):
+                if ref in _TDZ_RESERVED or ref == ident:
+                    continue
+                for oln, oident in const_decls_after.items():
+                    if oln <= ln:
+                        continue
+                    if oident == ref:
+                        issues.append((name, ln, ident, ref))
+                        break
+    return issues
+
+
 def node_check(path):
     node = shutil.which('node')
     if not node:
@@ -539,6 +597,12 @@ def build():
         print('duplicate top-level declarations (one IIFE - these collide):')
         for ident, a, b in dupes:
             print(f'  {ident}: {a} and {b}')
+        raise SystemExit(1)
+    order = check_const_order(parts)
+    if order:
+        print('forward-reference in const/let declarations (TDZ at boot):')
+        for module, line, decl, ref in order:
+            print(f'  {module}:{line}: {decl} references {ref} declared later')
         raise SystemExit(1)
     body = strip_artifact_comments('\n'.join(t.rstrip() for _, t in parts).rstrip() + '\n')
     if '// ==UserScript==' not in body or '// ==/UserScript==' not in body:
