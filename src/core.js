@@ -1650,6 +1650,30 @@
   // genuinely needs markup from the wire adds its own sanitizer deliberately
   // rather than inheriting a dead one.
   function gbLit(html) { return html == null ? '' : String(html); }
+  // Factory: action button with consistent type/title/aria-label + optional
+  // tip + click handler. Use instead of inline createElement('button') blocks.
+  // OPEN-PLAN 2.2.
+  function gbButton(opts) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    if (opts.text != null) b.textContent = opts.text;
+    if (opts.title) { b.title = opts.title; b.setAttribute('aria-label', opts.title); }
+    if (opts.className) b.className = opts.className;
+    if (opts.disabled) b.disabled = true;
+    if (opts.style) b.style.cssText = opts.style;
+    if (opts.tip && typeof gbTip === 'function') gbTip(b, opts.tip);
+    if (typeof opts.onClick === 'function') b.addEventListener('click', opts.onClick);
+    return b;
+  }
+  // Factory: empty-state placeholder row. Use instead of inline dim-text divs
+  // in lists that may render zero items. OPEN-PLAN 2.2.
+  function gbEmptyState(text, tip) {
+    const e = document.createElement('div');
+    e.className = 'gb-empty-state';
+    e.textContent = text;
+    if (tip && typeof gbTip === 'function') gbTip(e, tip);
+    return e;
+  }
   let _uwCache = null, _uwCacheAt = 0;
   const UW_CACHE_MS = 400;
   function uwCached() {
