@@ -1160,12 +1160,19 @@
   function farmClaimsToday() {
     const day = farmDayKey();
     if (state.farmClaimsDay !== day) {
+      // Day rollover. The two sync save() calls in the previous shape opened
+      // an order-of-write window where a parallel caller could observe
+      // state.farmClaimsDay = new but state.farmClaimsToday still being the
+      // previous day's stale object (or vice versa). Coalesce both writes
+      // through saveSoon so the storage snapshot always lands as a pair, and
+      // let the first increment in the new day pin the day key. OPEN-PLAN
+      // 1.2 / 8/23 audit #13.
       state.farmClaimsDay = day;
       state.farmClaimsToday = {};
-      save(STORE.FARM_CLAIMS_DAY, day);
-      save(STORE.FARM_CLAIMS_TODAY, state.farmClaimsToday);
     }
     if (!state.farmClaimsToday || typeof state.farmClaimsToday !== 'object') state.farmClaimsToday = {};
+    saveSoon(STORE.FARM_CLAIMS_DAY, state.farmClaimsDay);
+    saveSoon(STORE.FARM_CLAIMS_TODAY, state.farmClaimsToday);
     return state.farmClaimsToday;
   }
   function farmClaimCount(villId) {
