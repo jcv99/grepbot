@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.28
+// @version      5.10.29
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1715,6 +1715,11 @@ const STORE = {
 
   function gbLit(html) { return html == null ? '' : String(html); }
 
+  function backoffFor(streak, ladder) {
+    if (!Array.isArray(ladder) || !ladder.length) return 0;
+    const i = Math.min(Math.max(0, (+streak || 1) - 1), ladder.length - 1);
+    return ladder[i];
+  }
   function countUnits(units) {
     if (!units || typeof units !== 'object') return 0;
     let n = 0;
@@ -4195,7 +4200,7 @@ const STORE = {
     const prev = state.decisionSkips[key] || { trips: 0 };
     if (prev.until && Date.now() < prev.until) return;
     const trips = Math.min((prev.trips || 0) + 1, JRN_BACKOFF.length);
-    const mins = JRN_BACKOFF[trips - 1];
+    const mins = backoffFor(trips, JRN_BACKOFF);
     state.decisionSkips[key] = { trips, until: Date.now() + mins * 60000, r: result };
     gbLog(`memory: ${tag.f} ${tag.a} ${tag.k} failed ${JRN_FAIL_TRIP}x (${result}) - skipping ${mins}m`);
     jrnSave(true);
@@ -14342,7 +14347,7 @@ const STORE = {
     if (!valid.ok) {
       entry.state = 'pending';
       entry.tries = (entry.tries || 0) + 1;
-      const bo = DODGE_FAIL_BACKOFF[Math.min(entry.tries - 1, DODGE_FAIL_BACKOFF.length - 1)];
+      const bo = backoffFor(entry.tries, DODGE_FAIL_BACKOFF);
       entry.nextAt = Date.now() + bo;
       gbLogT('dodge-nousable', 30000, `dodge: cannot evacuate ${mov.dest} (${valid.why}); retry later`);
       return;
@@ -14365,7 +14370,7 @@ const STORE = {
           gbLog(`dodge: outcome unknown (${err}); bounded recheck in ${Math.round(TX_UNKNOWN_RECHECK_MS/1000)}s \u2014 units may have already left`);
         } else {
           entry.state = 'failed';
-          const bo = DODGE_FAIL_BACKOFF[Math.min(entry.tries - 1, DODGE_FAIL_BACKOFF.length - 1)];
+          const bo = backoffFor(entry.tries, DODGE_FAIL_BACKOFF);
           entry.nextAt = Date.now() + bo;
           gbLog(`dodge: send failed ${err} (retry in ${Math.round(bo / 1000)}s)`);
         }
@@ -18219,7 +18224,7 @@ const STORE = {
   function questClaimFailed(id, err) {
     const f = questClaimFail[id] || (questClaimFail[id] = { n: 0, until: 0 });
     f.n++;
-    const wait = QUEST_FAIL_BACKOFF_MS[Math.min(f.n - 1, QUEST_FAIL_BACKOFF_MS.length - 1)];
+    const wait = backoffFor(f.n, QUEST_FAIL_BACKOFF_MS);
     f.until = Date.now() + wait;
     questClaimFailSave();
     gbLog('quest: claim backoff', id, 'fail #' + f.n, Math.round(wait / 60000) + 'min', String(err || ''));

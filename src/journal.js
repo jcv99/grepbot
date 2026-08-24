@@ -193,7 +193,7 @@
     const prev = state.decisionSkips[key] || { trips: 0 };
     if (prev.until && Date.now() < prev.until) return;
     const trips = Math.min((prev.trips || 0) + 1, JRN_BACKOFF.length);
-    const mins = JRN_BACKOFF[trips - 1];
+    const mins = backoffFor(trips, JRN_BACKOFF);
     state.decisionSkips[key] = { trips, until: Date.now() + mins * 60000, r: result };
     gbLog(`memory: ${tag.f} ${tag.a} ${tag.k} failed ${JRN_FAIL_TRIP}x (${result}) - skipping ${mins}m`);
     jrnSave(true);

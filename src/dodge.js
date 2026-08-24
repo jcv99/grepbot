@@ -369,7 +369,7 @@
     if (!valid.ok) {
       entry.state = 'pending';
       entry.tries = (entry.tries || 0) + 1;
-      const bo = DODGE_FAIL_BACKOFF[Math.min(entry.tries - 1, DODGE_FAIL_BACKOFF.length - 1)];
+      const bo = backoffFor(entry.tries, DODGE_FAIL_BACKOFF);
       entry.nextAt = Date.now() + bo;
       gbLogT('dodge-nousable', 30000, `dodge: cannot evacuate ${mov.dest} (${valid.why}); retry later`);
       return;
@@ -392,7 +392,7 @@
           gbLog(`dodge: outcome unknown (${err}); bounded recheck in ${Math.round(TX_UNKNOWN_RECHECK_MS/1000)}s — units may have already left`);
         } else {
           entry.state = 'failed';
-          const bo = DODGE_FAIL_BACKOFF[Math.min(entry.tries - 1, DODGE_FAIL_BACKOFF.length - 1)];
+          const bo = backoffFor(entry.tries, DODGE_FAIL_BACKOFF);
           entry.nextAt = Date.now() + bo;
           gbLog(`dodge: send failed ${err} (retry in ${Math.round(bo / 1000)}s)`);
         }

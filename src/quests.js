@@ -28,7 +28,7 @@
   function questClaimFailed(id, err) {
     const f = questClaimFail[id] || (questClaimFail[id] = { n: 0, until: 0 });
     f.n++;
-    const wait = QUEST_FAIL_BACKOFF_MS[Math.min(f.n - 1, QUEST_FAIL_BACKOFF_MS.length - 1)];
+    const wait = backoffFor(f.n, QUEST_FAIL_BACKOFF_MS);
     f.until = Date.now() + wait;
     questClaimFailSave();
     gbLog('quest: claim backoff', id, 'fail #' + f.n, Math.round(wait / 60000) + 'min', String(err || ''));

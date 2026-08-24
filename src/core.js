@@ -1653,6 +1653,15 @@
   // Sum the numeric values of an object, coercing each to a number and treating
   // NaN/null/undefined as 0. Used for unit counts in attack/reinforce/HUD
   // paths where the per-unit value is sometimes a string. OPEN-PLAN 2.13.
+  // Pick the backoff value for `streak` (1-indexed) from a ladder array,
+  // clamping to the last entry when streak > ladder.length. Streak < 1 maps
+  // to the first entry. Empty / non-array ladders return 0.
+  // OPEN-PLAN 2.14.
+  function backoffFor(streak, ladder) {
+    if (!Array.isArray(ladder) || !ladder.length) return 0;
+    const i = Math.min(Math.max(0, (+streak || 1) - 1), ladder.length - 1);
+    return ladder[i];
+  }
   function countUnits(units) {
     if (!units || typeof units !== 'object') return 0;
     let n = 0;
