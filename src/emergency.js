@@ -104,11 +104,8 @@
     if (!hostEnabled() || automationPaused({})) return;
     if (captchaPausedAny('cave', 'cave-emergency', 'dodge')) return;
     if (gbLocked('cave-emergency')) return;
-    let incoming = [];
-    try { incoming = dodgeIncomingMovements() || []; } catch (_) {
-      gbLogT('cave-emergency-nobridge', 60000, 'cave-emergency: incoming movements unreadable - no stash');
-      return;
-    }
+    const incoming = gbTry(() => dodgeIncomingMovements() || [], null, 'cave-emergency-nobridge');
+    if (!incoming) return;
     if (!incoming.length) return;
     const L = emergencyLedger();
     const now = Date.now();
