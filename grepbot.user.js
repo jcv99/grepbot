@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.26
+// @version      5.10.27
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -19875,22 +19875,8 @@ const STORE = {
     }
   }
   function militaryMovementsUnitsModels() {
-    const uw = gameUw();
-    const models = [], seen = new Set();
-    const push = (m) => {
-      if (!m) return;
-      const a = m.attributes || {};
-      const id = (typeof m.getCommandId === 'function' && m.getCommandId()) || a.command_id || a.id || m.id;
-      const k = String(id == null ? '' : id);
-      if (k && seen.has(k)) return;
-      if (k) seen.add(k);
-      models.push(m);
-    };
 
-    try { mmModelsAll('MovementsUnits').forEach(push); } catch (_) {}
-    try { const c = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits'); if (c && c.models) c.models.forEach(push); } catch (_) {}
-    try { const cs = uw.MM && uw.MM.getCollections && uw.MM.getCollections().MovementsUnits; (Array.isArray(cs) ? cs : (cs ? [cs] : [])).forEach(c => { if (c && c.models) c.models.forEach(push); }); } catch (_) {}
-    return models;
+    try { return mmModelsAll('MovementsUnits'); } catch (_) { return []; }
   }
   function militaryOutgoingMovements() {
     const uw = gameUw();

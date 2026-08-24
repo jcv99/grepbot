@@ -1,20 +1,10 @@
   function militaryMovementsUnitsModels() {
-    const uw = gameUw();
-    const models = [], seen = new Set();
-    const push = (m) => {
-      if (!m) return;
-      const a = m.attributes || {};
-      const id = (typeof m.getCommandId === 'function' && m.getCommandId()) || a.command_id || a.id || m.id;
-      const k = String(id == null ? '' : id);
-      if (k && seen.has(k)) return;
-      if (k) seen.add(k);
-      models.push(m);
-    };
-
-    try { mmModelsAll('MovementsUnits').forEach(push); } catch (_) {}
-    try { const c = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits'); if (c && c.models) c.models.forEach(push); } catch (_) {}
-    try { const cs = uw.MM && uw.MM.getCollections && uw.MM.getCollections().MovementsUnits; (Array.isArray(cs) ? cs : (cs ? [cs] : [])).forEach(c => { if (c && c.models) c.models.forEach(push); }); } catch (_) {}
-    return models;
+    // mmModelsAll('MovementsUnits') already walks every collection source the
+    // game exposes (getOnlyCollectionByName + getCollections() +
+    // getFirstTownAgnosticCollectionByName) with ref + id dedup. The previous
+    // inline version added two extra walkers that duplicated the same data.
+    // OPEN-PLAN 2.10.
+    try { return mmModelsAll('MovementsUnits'); } catch (_) { return []; }
   }
   function militaryOutgoingMovements() {
     const uw = gameUw();
