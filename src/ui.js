@@ -1345,7 +1345,7 @@
               <option value="all">los 3 recursos llenos</option>
             </select>
           </label>
-          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Pedir cobros de 10 min en aldeas donde la lealtad esta investigada"><input type="checkbox" data-cfg="farm-long-claims"/> Cobros de 10 min donde la lealtad de aldeanos esta investigada</label>
+          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="OFF = cobros de 5 min en todas las aldeas. ON = picker adaptativo: el bot elige la opcion de cobro mas larga aprendida (hasta 4h) cuya produccion estimada quepa en el almacen del pueblo. Solo compensa si tienes la investigacion de lealtad; sin ella, cada aldeas más larga gasta un slot de captcha sin garantia de loot extra. Apaga esto si ves pueblos que pasan horas sin cobrarse."><input type="checkbox" data-cfg="farm-long-claims"/> Recogidas largas adaptativas (hasta 4h, solo si lealtad investigada)</label>
           <label class="gb-cfg-num gb-cfg-sub" title="La aldea tiene dos mitades: recursos y unidades. Con 'al agotarse los recursos' la aldea pasa a pedir unidades el resto del dia en cuanto el servidor rechaza el cobro de recursos (tope diario alcanzado). Las unidades ocupan poblacion.">Cobrar unidades en aldeas
             <select class="gb-cfg-input" data-cfg="farm-units-mode" data-gb-tip="Cuando pedir unidades en vez de recursos">
               <option value="off">nunca (solo recursos)</option>
@@ -2454,7 +2454,7 @@
     });
     onCfg('[data-cfg=farm-long-claims]', 'change', e => {
       state.farmLongClaims = e.target.checked; save(STORE.FARM_LONG_CLAIMS, state.farmLongClaims);
-      gbLog('farm 10min claims', state.farmLongClaims ? 'ON' : 'OFF');
+      gbLog('recogidas largas adaptativas', state.farmLongClaims ? 'ON' : 'OFF');
     });
     onCfg('[data-cfg=farm-units-mode]', 'change', e => {
       const v = String(e.target.value || 'off');

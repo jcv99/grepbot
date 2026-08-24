@@ -519,7 +519,10 @@
     ibAction:   load(STORE.IB_ACTION, null) || 'buyInstant',
     ibResearch: load(STORE.IB_RESEARCH, false),
     farmOptionMap: load(STORE.FARM_OPTION_MAP, null) || { 300: 1 },
-    farmLongClaims: load(STORE.FARM_LONG_CLAIMS, true),
+    // Default OFF (v5.10.9): new users get predictable 5min claims; only opt in
+    // to the adaptive long picker (up to 4h, learned option by town) explicitly.
+    // Existing users keep their stored value.
+    farmLongClaims: load(STORE.FARM_LONG_CLAIMS, false),
     farmLoyaltyTech: load(STORE.FARM_LOYALTY_TECH, '') || '',
     farmProfit: load(STORE.FARM_PROFIT, {}),
 
