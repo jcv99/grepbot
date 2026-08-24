@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.25
+// @version      5.10.26
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -25643,6 +25643,19 @@ const STORE = {
     const bindNow = !configBound;
     configBound = true;
     const onCfg = (sel, type, fn) => { if (bindNow) sec.querySelector(sel)?.addEventListener(type, fn); };
+
+    const cfgBindBool = (sel, stateKey, storeKey, onChange) => onCfg(sel, 'change', e => {
+      const v = !!e.target.checked;
+      state[stateKey] = v;
+      save(storeKey, v);
+      if (typeof onChange === 'function') onChange(v, e);
+    });
+    const cfgBindNumber = (sel, stateKey, storeKey, onChange) => onCfg(sel, 'change', e => {
+      const v = +e.target.value;
+      state[stateKey] = v;
+      save(storeKey, v);
+      if (typeof onChange === 'function') onChange(v, e);
+    });
     const hostEl = sec.querySelector('.cfg-host');
     if (hostEl) hostEl.textContent = location.host;
 

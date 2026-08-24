@@ -2225,6 +2225,23 @@
     const bindNow = !configBound;
     configBound = true;
     const onCfg = (sel, type, fn) => { if (bindNow) sec.querySelector(sel)?.addEventListener(type, fn); };
+    // Helpers that bind a [data-cfg=...] input to state.X + STORE.X with an
+    // optional side-effect callback. Strict-by-default per Pact: state[key] is
+    // set, then save(), then side-effect fires. No no-op short-circuit, so a
+    // programmatic re-fire of the same value still runs the chain (matches
+    // current inline behaviour). OPEN-PLAN 2.3.
+    const cfgBindBool = (sel, stateKey, storeKey, onChange) => onCfg(sel, 'change', e => {
+      const v = !!e.target.checked;
+      state[stateKey] = v;
+      save(storeKey, v);
+      if (typeof onChange === 'function') onChange(v, e);
+    });
+    const cfgBindNumber = (sel, stateKey, storeKey, onChange) => onCfg(sel, 'change', e => {
+      const v = +e.target.value;
+      state[stateKey] = v;
+      save(storeKey, v);
+      if (typeof onChange === 'function') onChange(v, e);
+    });
     const hostEl = sec.querySelector('.cfg-host');
     if (hostEl) hostEl.textContent = location.host;
 
