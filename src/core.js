@@ -329,6 +329,8 @@
     // restored below, but an entry already in the list keeps its settle closure
     // (and its 8s TTL slot) alive against a dead instance.
     try { if (typeof gbAjaxDispose === 'function') gbAjaxDispose(); } catch (_) {}
+    try { if (typeof banditClearLoop === 'function') banditClearLoop(); } catch (_) {}
+    try { if (typeof banditClearScan === 'function') banditClearScan(); } catch (_) {}
     gbClearTimers();
     gbAbortXhrs();
     gbRestoreHooks();

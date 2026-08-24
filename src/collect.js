@@ -242,6 +242,5 @@
     }
   }
   ensureDomObserver();
-  let banditTimer = null;
   let banditAttackSentAt = 0;
   let banditIdleUntil = 0;
