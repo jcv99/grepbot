@@ -3,10 +3,15 @@
     if (!v || typeof v !== 'object') return null;
     const out = plannerZero();
     let known = false;
+    // gbNum rejects null / '' / [] / false instead of coercing to 0; a
+    // malformed cost shape can no longer satisfy the `known` flag with all
+    // zeros and slip through the dry-run gate as "affordable".
     for (const k of PLANNER_KEYS) {
-      if (v[k] != null && Number.isFinite(+v[k]) && +v[k] >= 0) { out[k] = +v[k]; known = true; }
+      const n = gbNum(v[k]);
+      if (n != null && n >= 0) { out[k] = n; known = true; }
     }
-    if (v.tradeCap != null && Number.isFinite(+v.tradeCap) && +v.tradeCap >= 0) { out.tradeCap = +v.tradeCap; known = true; }
+    const tc = gbNum(v.tradeCap);
+    if (tc != null && tc >= 0) { out.tradeCap = tc; known = true; }
     return known ? out : null;
   }
   function plannerCfgRoot() {

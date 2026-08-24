@@ -243,15 +243,20 @@
     if (!def || !t || !def.resources) return 0;
     try {
       const r = t.resources && t.resources();
-      const pop = t.getAvailablePopulation && +t.getAvailablePopulation();
+      // gbNum rejects null / '' / [] / false instead of coercing them to 0;
+      // the legacy `+t.getAvailablePopulation()` collapsed +null onto 0 and
+      // let recruitAffordableAmount return a positive amount against a town
+      // whose population read was unreadable.
+      const pop = t.getAvailablePopulation && gbNum(t.getAvailablePopulation());
       if (!r || pop == null) return 0;
-      const rw = +def.resources.wood || 0, rs = +def.resources.stone || 0, ri = +def.resources.iron || 0, rp = +def.population || 0;
-      let amount = Math.max(0, +want || 0);
-      if (rw > 0) amount = Math.min(amount, Math.floor(+r.wood / rw));
-      if (rs > 0) amount = Math.min(amount, Math.floor(+r.stone / rs));
-      if (ri > 0) amount = Math.min(amount, Math.floor(+r.iron / ri));
+      const rw = gbNum(def.resources.wood) || 0, rs = gbNum(def.resources.stone) || 0, ri = gbNum(def.resources.iron) || 0, rp = gbNum(def.population) || 0;
+      let amount = Math.max(0, gbNum(want) || 0);
+      const rWood = gbNum(r.wood), rStone = gbNum(r.stone), rIron = gbNum(r.iron);
+      if (rw > 0 && rWood != null) amount = Math.min(amount, Math.floor(rWood / rw));
+      if (rs > 0 && rStone != null) amount = Math.min(amount, Math.floor(rStone / rs));
+      if (ri > 0 && rIron != null) amount = Math.min(amount, Math.floor(rIron / ri));
       if (rp > 0) amount = Math.min(amount, Math.floor(pop / rp));
-      const favorCost = +(def.favor ?? def.resources.favor ?? 0);
+      const favorCost = gbNum(def.favor ?? def.resources.favor) || 0;
       if (favorCost > 0) {
         // Same naval-mythical fallback as recruitCanBuild: GameData may omit
         // `def.god` for hydra, so fall back to MYTHICAL_UNIT_GOD before the

@@ -211,8 +211,11 @@ Toggle `decisionMemory` disables *skipping* only; recording always runs.
 **Scheduling.** `orchTick` (20s) is the cadence-aware sole scheduler for econ
 features: up to `ORCH_MAX_PER_TICK` (3) due features per tick spaced ~450ms,
 ±20% cadence jitter, overdue-ness breaks priority ties past 2 ticks, adaptive
-backoff doubles a quiet feature's cadence up to 8× (measured by journal entry
-count 4s after the run) and resets on the first post. `orchStatus()` feeds
+backoff doubles a quiet feature's cadence up to 8× (judged at the next
+dispatch of the same feature, not 4s after the run — orchNoteResult runs
+at next-dispatch so the entire cadence window can settle asynchronous /
+batched transactions before the previous run is classified as idle) and
+resets on the first post. `orchStatus()` feeds
 Stats. Off orch: `ibScan` (10s + armed timers), `dodgeScan` (5s, also drives
 support + emergency cave), `farmTick` (15s), scrape deadlines, the 10s lock
 sweep, `diagnosticsTick`.

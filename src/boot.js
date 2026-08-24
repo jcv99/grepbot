@@ -31,6 +31,10 @@
     NATIVE_QUEUE_BOOT_MS: 14000,
     ORCH_FIRST_TICK_MS: 15000,
     IB_CLICK_HOOK_MS: 2000,
+    // SPA-nav re-mount delay used by the pushState / popstate / hashchange
+    // hand-off in ensurePanelMounted. Naked 50 literals here used to drift
+    // with this constant; keep them in sync.
+    PANEL_MOUNT_MS: 50,
   });
   function ensurePanelMounted() {
     if (!panel) return;
@@ -110,7 +114,7 @@
     // fire again would double-clear (cancelArmedAttack, ibClearArmed,
     // gbUnlockAll, bandit stamp, save flush). RELEASE_DEDUP_MS is declared
     // further down; the 3000ms here must move with it.
-    releaseLocksAt = Date.now() + 3000;
+    releaseLocksAt = Date.now() + RELEASE_DEDUP_MS;
     try { gbWakeMarkResume('bfcache'); } catch (e) { gbLogT('boot-wake-bfcache', 60000, 'wake bfcache: ' + String(e?.message || e).slice(0, 80)); }
     farmTick();
     try { reportCatchUpEnqueue(); } catch (e) { gbLogT('boot-catchup', 60000, 'catchup: ' + String(e?.message || e).slice(0, 80)); }
@@ -183,7 +187,15 @@
   contextMenuStart();
   gbTimeout(() => { try { hudRestore(); } catch (e) { gbLogT('boot-hud-restore', 60000, 'hud restore: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.HUD_RESTORE_MS);
 
-  gbInterval(() => { gbLockSweep(); try { diagnosticsTick(); } catch (e) { gbLogT('boot-diag-tick', 60000, 'diag tick: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.LOCK_SWEEP_MS);
+  gbInterval(() => {
+    gbLockSweep();
+    // captchaExpireSweep decays one ladder step for every paused feature
+    // whose `until` has passed. Splits the side effect out of captchaPaused
+    // so the BC receiver and tx.js probe the pure predicate without
+    // accidentally re-bumping trips on every cross-tab hop.
+    try { if (state && state.captchaBreakers) for (const f of Object.keys(state.captchaBreakers)) { try { if (typeof captchaExpireSweep === 'function') captchaExpireSweep(f); } catch (_) {} } } catch (_) {}
+    try { diagnosticsTick(); } catch (e) { gbLogT('boot-diag-tick', 60000, 'diag tick: ' + String(e?.message || e).slice(0, 80)); }
+  }, BOOT_TIMING.LOCK_SWEEP_MS);
   // releaseLocksAt + RELEASE_DEDUP_MS are declared at the top of this block
   // so the pageshow listener above (and any future listener) can read and
   // reset the dedup stamp without a TDZ. Move the listener, move these.
@@ -203,6 +215,15 @@
     try { if (typeof persistServerCooldown === 'function') persistServerCooldown(); } catch (e) { gbLogT('boot-release-cooldown', 60000, 'cooldown save: ' + String(e?.message || e).slice(0, 80)); }
     try { if (typeof nativeQueueSaveFlush === 'function') nativeQueueSaveFlush(); } catch (e) { gbLogT('boot-release-nqs', 60000, 'nqs flush: ' + String(e?.message || e).slice(0, 80)); }
     try { snapshotBuild('exit'); } catch (e) { gbLogT('boot-release-snap', 60000, 'snapshot: ' + String(e?.message || e).slice(0, 80)); }
+
+    // Close the cross-tab BroadcastChannel: __grepbotDispose does this on
+    // hot reload, but pagehide/beforeunload only ever fired releaseLocks
+    // before, so a real tab close leaked the BC listener (and any in-flight
+    // gm_xhr from gbXhrBag) until the browser killed the context. The
+    // pagehide→bfcache window is also where a peer captcha message could
+    // land against this dead instance; closing here makes that path a no-op.
+    try { if (_gbEvents && typeof _gbEvents.close === 'function') { _gbEvents.close(); _gbEvents = null; } } catch (e) { gbLogT('boot-release-bc', 60000, 'bc close: ' + String(e?.message || e).slice(0, 80)); }
+    try { if (typeof gbAbortXhrs === 'function') gbAbortXhrs(); } catch (e) { gbLogT('boot-release-xhrs', 60000, 'xhr abort: ' + String(e?.message || e).slice(0, 80)); }
 
     // LAST: every handler above may have queued a coalesced write. Flushing
     // before them would leave those writes stranded on the page exit.

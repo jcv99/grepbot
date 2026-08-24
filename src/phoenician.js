@@ -39,11 +39,11 @@
     if (!m) return null;
     const a = m.attributes || m;
     const tid = gbProbeAttr(a, ['town_id', 'current_town_id', 'in_town_id']);
-    if (tid != null && +tid > 0) return +tid;
+    if (tid != null && gbNum(tid) > 0) return gbNum(tid);
     // Some builds only expose "is it here" - fall back to the current town.
     try {
       if (typeof m.isInCurrentTown === 'function' && m.isInCurrentTown()) {
-        return +(uw.Game && uw.Game.townId) || null;
+        return gbNum(uw.Game && uw.Game.townId);
       }
     } catch (_) {}
     return null;

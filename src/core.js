@@ -234,9 +234,12 @@
     }
     gbXhrBag.length = 0;
   }
-  // Per-feature cancel: abort every in-flight gbXhr tagged with `feature`.
-  // Used when a feature is toggled OFF mid-flight and the loop has no time
-  // to drain naturally. Returns count aborted. OPEN-PLAN 6.2.
+  // Per-feature cancel: abort every in-flight gbXhr tagged with `feature`
+  // and settle every in-flight bridge/gameAjax watch with the same tag. Used
+  // when a feature is toggled OFF mid-flight and the loop has no time to
+  // drain naturally. Returns count aborted. Bridge cancellation lives in
+  // bridge.js (gbAjaxCancelFeature) — pulled in here so every caller only
+  // needs one helper. OPEN-PLAN 6.2.
   function gbAbortFeature(feature) {
     if (!feature) return 0;
     let n = 0;
@@ -245,6 +248,10 @@
         try { h.abort(); n++; } catch (_) {}
       }
     }
+    try {
+      const m = (typeof gbAjaxCancelFeature === 'function') ? gbAjaxCancelFeature(feature) : 0;
+      n += m;
+    } catch (_) {}
     return n;
   }
   function gbRestoreHooks() {
@@ -411,7 +418,6 @@
     // recruit.js takes this one with an explicit 60s lease; the entry keeps it
     // off the 180s default if that call ever drops the argument.
     'village-recruit': 60000,
-    'defense-pull': 180000,
     cancel: 120000,
     hero: 180000,
     'collect-bg': 300000,
@@ -1676,10 +1682,15 @@
   // OPEN-PLAN 6.1.
   let _gbEvents = null;
   function gbEventsChannel() {
-    if (_gbEvents !== null) return _gbEvents;
+    if (_gbEvents == null) return _gbEvents;
     try {
       _gbEvents = new BroadcastChannel('grepbot:events');
       _gbEvents.addEventListener('message', (e) => {
+        // A peer message arriving during the pagehide→bfcache window can
+        // otherwise call captchaTrip on a dead or pre-dispose instance and
+        // mutate state.csrf / state.captchaBreakers against an instance that
+        // will never see the breaker expire.
+        if (!gbInstanceAlive()) return;
         const d = e && e.data;
         if (!d || d.from === GB_INSTANCE_ID) return;
         if (d.kind === 'captcha' && typeof captchaTrip === 'function') {
@@ -1687,13 +1698,14 @@
           if (typeof feat !== 'string' || !feat) return;
           // Re-tripping an already-paused feature would escalate the ladder one
           // step per cross-tab hop (5→15→60m) and CSRF-thrash this tab for a
-          // captcha observed only in a peer. captchaPaused is true while until > now.
-          if (captchaPaused(feat)) return;
+          // captcha observed only in a peer. captchaPausedPure is a pure
+          // predicate; the sweep that decays trips runs on the lock cadence.
+          if (captchaPausedPure(feat)) return;
           captchaTrip(feat, d.payload && d.payload.detail);
         }
       });
-    } catch (_) { _gbEvents = false; }
-    return _gbEvents || null;
+    } catch (_) { _gbEvents = null; }
+    return _gbEvents;
   }
   function gbEventsEmit(kind, payload) {
     try {
@@ -2135,11 +2147,11 @@
       let data = null;
       try { if (snip[0] === '{' || snip[0] === '[') data = JSON.parse(txt); } catch (_) {}
       if (data && responseIsCaptcha(data)) {
-        captchaTrip('http', 'gm-xhr-json');
+        captchaTrip(opts.feature || 'http', 'gm-xhr-json');
         return true;
       }
       if (/<html/i.test(snip) || /captcha[_-]?required/i.test(snip)) {
-        captchaTrip('http', 'gm-xhr-html');
+        captchaTrip(opts.feature || 'http', 'gm-xhr-html');
         return true;
       }
       return false;
@@ -2173,7 +2185,14 @@
           if (typeof opts.onabort === 'function') opts.onabort(e);
         },
       }));
-      if (handle) { handle.feature = opts.feature || ''; gbXhrBag.push(handle); }
+      if (handle) {
+        // Type-narrow the tag so a falsy feature does NOT silently land every
+        // handle as '' and break gbAbortFeature's matcher. Caller passes the
+        // key when they have one; otherwise the bag entry is untagged and
+        // abort-by-feature skips it.
+        handle.feature = (typeof opts.feature === 'string' && opts.feature) ? opts.feature : null;
+        gbXhrBag.push(handle);
+      }
       return handle;
     } catch (e) {
       drop();
@@ -2216,19 +2235,35 @@
   function i18n(key) { return (marketLocale()[key] || I18N.en[key] || key); }
   const BRIDGE_TIMEOUT_MS = 15000;
   function saveCaptcha() { save(wkey(STORE.CAPTCHA), state.captchaBreakers); }
-  function captchaPaused(feature) {
+  // Pure predicate. Returns true while the feature is paused (until > now).
+  // No mutation; the trip-decay side effect lives in captchaExpireSweep so
+  // external callers (BC receiver, tx.js) cannot accidentally trigger it on
+  // every probe.
+  function captchaPausedPure(feature) {
     const b = state.captchaBreakers[feature];
     if (!b || !b.until) return false;
-    if (Date.now() >= b.until) {
-
-      if ((b.trips || 0) > 0) {
-        b.trips = Math.max(0, (b.trips || 1) - 1);
-        delete b.until;
-        saveSoon(wkey(STORE.CAPTCHA), state.captchaBreakers);
-      }
-      return false;
+    return Date.now() < b.until;
+  }
+  // Predicated form used by tx.js + journal: pure predicate for the read,
+  // then explicit sweep so the BC receiver cannot decrement trips twice for
+  // a single peer broadcast.
+  function captchaPaused(feature) {
+    const paused = captchaPausedPure(feature);
+    if (!paused) captchaExpireSweep(feature);
+    return paused;
+  }
+  // Decay one ladder step on a single feature whose `until` has passed.
+  // Closes the loop opened by captchaTrip: a paused feature quietly returns
+  // to "trip-1" the next time the sweep runs, instead of restarting at 0.
+  function captchaExpireSweep(feature) {
+    const b = state.captchaBreakers[feature];
+    if (!b || !b.until) return;
+    if (Date.now() < b.until) return;
+    if ((b.trips || 0) > 0) {
+      b.trips = Math.max(0, (b.trips || 1) - 1);
+      delete b.until;
+      saveSoon(wkey(STORE.CAPTCHA), state.captchaBreakers);
     }
-    return true;
   }
   function captchaPausedAny(...features) {
     for (let i = 0; i < features.length; i++) {
@@ -2238,6 +2273,11 @@
     return false;
   }
   function captchaTrip(feature, detail) {
+    // Captcha must NEVER mutate state on a dead instance (pagehide→bfcache
+    // window: a peer broadcast can land between pagehide and __grepbotDispose
+    // and would otherwise clear CSRF and re-flash the panel for a tab that's
+    // about to be torn down).
+    if (!gbInstanceAlive()) return;
     const prev = state.captchaBreakers[feature] || { trips: 0 };
     const ladder = captchaLadder();
     const trips = Math.min((prev.trips || 0) + 1, ladder.length);

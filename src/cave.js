@@ -29,14 +29,17 @@
     if (!t) return null;
     let hideLvl = 0;
     try {
-      if (t.getBuildings) hideLvl = +t.getBuildings().get('hide') || 0;
-      else if (t.buildings) hideLvl = +(t.buildings().attributes || {}).hide || 0;
+      // gbNum rejects null/''/[]/false; +getBuildings().get('hide') || 0
+      // collapsed every falsy reading onto hide level 0, which collides with
+      // the level-0 → -1 sentinel below and silently disabled the cave.
+      if (t.getBuildings) { const h = gbNum(t.getBuildings().get('hide')); if (h != null) hideLvl = h; }
+      else if (t.buildings) { const h = gbNum((t.buildings().attributes || {}).hide); if (h != null) hideLvl = h; }
     } catch (_) {}
     let iron = null, cap = null, resStorage = null;
     try {
       const r = t.resources && t.resources();
-      if (r && r.iron != null) iron = +r.iron;
-      if (r && r.storage != null) resStorage = +r.storage;
+      if (r && r.iron != null) iron = gbNum(r.iron);
+      if (r && r.storage != null) resStorage = gbNum(r.storage);
     } catch (_) {}
 
     const shared = townResState(townId);

@@ -12,12 +12,14 @@
       const gdi = uw.GameDataInstantBuy;
       if (!gdi || typeof gdi.getPriceForType !== 'function') return null;
       const type = kind === 'research' ? 'research' : 'building';
-      const price = gdi.getPriceForType(type, Math.max(0, +seconds || 0));
-      return Number.isFinite(+price) ? +price : null;
+      const price = gdi.getPriceForType(type, Math.max(0, gbNum(seconds) || 0));
+      const p = gbNum(price);
+      return p;
     } catch (_) { return null; }
   }
   function ibIsFreeOrder(timeLeft, gold) {
-    return Number.isFinite(+timeLeft) && +timeLeft > 0 && +timeLeft <= ibSafeFreeThresh() && gold === 0;
+    const t = gbNum(timeLeft);
+    return t != null && t > 0 && t <= ibSafeFreeThresh() && gold === 0;
   }
   function ibOrderStillPresent(orderId,kind) {
     return ibOrders(true).some(o => String(o.id) === String(orderId) && (kind==null||o.kind===kind));
@@ -292,7 +294,7 @@
       if (!hostEnabled() || captchaPaused(tag)) { resolve('pause'); return; }
 
       const live = ibFindLiveOrder(order.id, kind);
-      const instantLeft = live && Number.isFinite(+live.instantLeft) ? +live.instantLeft : +(live && live.timeLeft);
+      const instantLeft = live ? (gbNum(live.instantLeft) != null ? gbNum(live.instantLeft) : gbNum(live.timeLeft)) : null;
 
       // Building orders may be free in later queue positions. Research remains
       // head-only until its non-head contract is observed in the live client.

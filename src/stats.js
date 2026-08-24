@@ -94,8 +94,11 @@
       // out of the sample rather than stored as 0, or the chart would show a
       // cliff where the scrape simply failed.
       const row = { t: now };
-      for (const k of GB_RES_KEYS) if (Number.isFinite(+r[k])) row[k] = +r[k];
-      if (Number.isFinite(+r.pop)) row.pop = +r.pop;
+      // gbNum preserves null on null / '' / [] / false. Recording a 0 where
+      // the scrape failed would draw a false cliff in the chart; leaving the
+      // key out of the sample is the documented intent (comment above).
+      for (const k of GB_RES_KEYS) { const v = gbNum(r[k]); if (v != null) row[k] = v; }
+      { const p = gbNum(r.pop); if (p != null) row.pop = p; }
       if (Object.keys(row).length < 2) continue;
       const list = H[key] || (H[key] = []);
       list.push(row);

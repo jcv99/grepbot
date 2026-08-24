@@ -27,8 +27,8 @@
       town_id: (p && p.town_id) != null ? p.town_id : null,
     });
   }
-  function gbAjaxWatch(sig, fp, settle) {
-    const entry = { sig, fp: fp || '', at: Date.now(), settle };
+  function gbAjaxWatch(sig, fp, settle, feature) {
+    const entry = { sig, fp: fp || '', at: Date.now(), settle, feature: (typeof feature === 'string' && feature) ? feature : null };
     gbAjaxPending.push(entry);
     // Expire before evicting: a burst of 25 posts inside 8s used to drop the
     // OLDEST live watchers silently, and those posts then had no raw-response
@@ -43,6 +43,22 @@
         `ajax watch: pending list full (${GB_AJAX_PENDING_MAX}) - dropped watcher ${lost && lost.sig}; that post can only settle on timeout`);
     }
     return entry;
+  }
+  // Per-feature cancel for bridge writes. Mirror of gbAbortFeature in core.js,
+  // which only walks gbXhrBag and therefore never saw bridgeRaw / gameAjaxRaw
+  // posts (those ride the patched XMLHttpRequest spy, not gm_xhr). Each
+  // watched entry holds a cancel closure that mimics a timeout settle, so the
+  // post's onDone fires with 'cancelled' instead of hanging on BRIDGE_TIMEOUT_MS.
+  function gbAjaxCancelFeature(feature) {
+    if (!feature) return 0;
+    let n = 0;
+    const tag = String(feature);
+    for (const e of gbAjaxPending.slice()) {
+      if (e && e.feature === tag && typeof e.cancel === 'function') {
+        try { e.cancel(); n++; } catch (_) {}
+      }
+    }
+    return n;
   }
   // A watcher whose post already settled (gpAjax callback won the race) MUST be
   // dropped. gbAjaxClaim matches the OLDEST entry for a signature, so a dead
@@ -254,6 +270,15 @@
     // gpAjax only calls back on a non-empty success envelope, so a server-side
     // rejection would otherwise hang until BRIDGE_TIMEOUT_MS. The XHR spy
     // settles this post from the raw response; whichever fires first wins.
+    // Per-feature cancel hook: gbAjaxCancelFeature walks gbAjaxPending and
+    // calls cancel() on every watcher whose `feature` tag matches. The cancel
+    // closure settles the post as 'cancelled' so bridgeRaw / gameAjaxRaw's
+    // callback fires instead of hanging on BRIDGE_TIMEOUT_MS.
+    const cancel = () => {
+      if (settled) return;
+      gbLogT('ajax-cancel-' + feature, 30000, feature + ': bridge post cancelled (feature toggle / abort)');
+      finish('cancelled');
+    };
     watchEntry = gbAjaxWatch(
       'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
       gbAjaxBridgeFp(payload),
@@ -265,8 +290,10 @@
           return finish('http_' + status);
         }
         classify(gbAjaxUnwrap(raw));
-      }
+      },
+      feature
     );
+    watchEntry.cancel = cancel;
     try {
 
       // gpAjax hands a bare-function callback (data, t_token) - NOT (wnd, data);
@@ -292,6 +319,12 @@
       gbLogT('ajax-timeout-' + feature, 30000, `${feature}: ajax timeout ${BRIDGE_TIMEOUT_MS}ms (${controller}/${action})`);
       finish('timeout');
     }, BRIDGE_TIMEOUT_MS);
+    // Mirror bridgeRaw: the bridge sniff (farms.js sniffBridgeBody) only skips
+    // GrepBot's own posts when isSelfBridge() recognises the fingerprint. Until
+    // gameAjaxRaw selfBridgeNote()'d its posts, instant-build / research / cave
+    // sniff branches kept re-learning the action name off our own writes and
+    // emitting noisy log lines on every post.
+    try { selfBridgeNote({ model_url: controller, action_name: action, arguments: data }); } catch (_) {}
     const classify = (res) => {
       if (!gbInstanceAlive()) return;
       try {
@@ -305,6 +338,11 @@
         captchaClear(feature);
         finish(null, res);
       } catch (e) { finish(String(e)); }
+    };
+    const cancel = () => {
+      if (settled) return;
+      gbLogT('ajax-cancel-' + feature, 30000, feature + ': gameAjax post cancelled (feature toggle / abort)');
+      finish('cancelled');
     };
     watchEntry = gbAjaxWatch('ajax:' + controller + '/' + action, gbAjaxFp(data), (status, raw) => {
       if (settled) return;
@@ -336,7 +374,8 @@
         if (!txt || !String(txt).trim()) return finish('soft-empty');
       } catch (_) {}
       classify(gbAjaxUnwrap(raw));
-    });
+    }, feature);
+    watchEntry.cancel = cancel;
     try {
       // Bare-function callback signature is (data, t_token) - see bridgeRaw.
       uw.gpAjax.ajaxPost(controller, action, data, false, (res) => classify(res));
@@ -538,7 +577,7 @@
     }
     let used = null;
     if (free != null && cap > 0) used = Math.max(0, cap - free);
-    else if (scraped && Number.isFinite(+scraped.pop)) used = +scraped.pop;
+    else if (scraped) { const p = gbNum(scraped.pop); if (p != null) used = p; }
     const usedPct = (used != null && cap > 0) ? Math.round(used / cap * 100) : null;
     const out = (free == null && used == null && !(cap > 0)) ? null : {
       free, used, cap: cap > 0 ? cap : null, usedPct,

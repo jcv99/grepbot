@@ -244,9 +244,12 @@
     try { if(typeof t.getProduction==='function') p=t.getProduction(); } catch(_){}
     try { if(!p && typeof t.getResourceProduction==='function') p=t.getResourceProduction(); } catch(_){}
     try { if(!p){const r=t.resources&&t.resources(); if(r) p={wood:r.wood_production??r.production_wood,stone:r.stone_production??r.production_stone,iron:r.iron_production??r.production_iron};} } catch(_){}
-    if(!p||[p.wood,p.stone,p.iron].some(v=>v==null||!Number.isFinite(+v))) return null;
+    // Per-key null stays null: gbNum rejects ''/' '/[]/false so a partial
+    // production shape does not collapse onto all-zeros and pretend the town
+    // has no production at all.
+    if(!p||!GB_RES_KEYS.every(k=>gbNum(p[k])!=null)) return null;
     // Client models normally expose per-hour production. Do not invent a rate if unreadable.
-    return {wood:+p.wood,stone:+p.stone,iron:+p.iron};
+    return {wood:gbNum(p.wood),stone:gbNum(p.stone),iron:gbNum(p.iron)};
   }
   function economyPlannedCost(townId, maxActions) {
     let plan=state.virtualQueue&&state.virtualQueue[String(townId)]; if(!plan||Date.now()-(+plan.generatedAt||0)>60000)try{plan=goalPlanTown(townId)}catch(_){}

@@ -26,23 +26,22 @@
   // Unreadable still returns null - a fabricated pool would spend favor the
   // player never asked to spend.
   const FAVOR_GODS = ['zeus', 'poseidon', 'hera', 'athena', 'hades', 'ares', 'artemis', 'aphrodite'];
-  function favorNum(v) { const n = +v; return Number.isFinite(n) ? n : null; }
   function favorForGod(fav, god) {
     if (!fav || !god) return null;
     const g = String(god).toLowerCase();
-    let v = favorNum(fav[g + '_favor']);
+    let v = gbNum(fav[g + '_favor']);
     if (v != null) return v;
     const ov = fav.production_overview;
-    if (ov && ov[g]) { v = favorNum(ov[g].current); if (v != null) return v; }
+    if (ov && ov[g]) { v = gbNum(ov[g].current); if (v != null) return v; }
     // Legacy shapes kept as probes, never as the primary: some older builds
     // exposed the pool flat. A miss here is UNKNOWN, not zero.
-    v = favorNum(fav[g]);
+    v = gbNum(fav[g]);
     if (v != null) return v;
-    return favorNum(fav['favor_' + g]);
+    return gbNum(fav['favor_' + g]);
   }
   function favorMaxPool(fav) {
     if (!fav) return null;
-    const v = favorNum(fav.max_favor);
+    const v = gbNum(fav.max_favor);
     return v != null && v > 0 ? v : null;
   }
   // favor/hour straight off the model. The HUD only ever MEASURED a rate from
@@ -52,7 +51,7 @@
     if (!fav || !god) return null;
     const ov = fav.production_overview;
     const row = ov && ov[String(god).toLowerCase()];
-    return row ? favorNum(row.production) : null;
+    return row ? gbNum(row.production) : null;
   }
   // Gods the model actually names. Falls back to the known roster only to look
   // them up - never to invent a pool the account does not have.

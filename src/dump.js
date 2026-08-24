@@ -52,7 +52,12 @@
     const roomOf = id => {
       const l = ledger[id] || ledger[+id];
       if (!l || !(l.cap > 0)) return null;
-      return Math.max(0, l.cap - (+l[res] || 0));
+      // gbNum preserves null on null / '' / [] / false; `+l[res] || 0` would
+      // have returned full cap for an unreadable ledger entry, and the
+      // precheck below would have promoted the town to a valid dump sink.
+      const have = gbNum(l[res]);
+      if (have == null) return null;
+      return Math.max(0, l.cap - have);
     };
     const sinks = dumpSinkList().filter(id => ids.includes(id));
     if (sinks.length) {
@@ -104,7 +109,12 @@
         // resources over threshold eats the whole per-scan budget and every
         // later town is starved.
         if (perTown >= 1) break;
-        const fillPct = Math.round((+src[res] || 0) / src.cap * 100);
+        // gbNum preserves null on null/''/[]; +src[res] || 0 would have made
+        // fillPct 0 for an unreadable resource, so the threshold check below
+        // never fires and the dump silently skips the town.
+        const have = gbNum(src[res]);
+        if (have == null) continue;
+        const fillPct = Math.round(have / src.cap * 100);
         if (fillPct < dumpThresholdFor(res)) continue;
         if (res === 'iron' && caveHasHeadroom(id)) {
           gbLogT('dump-cave-' + id, 600000, `dump: town ${id} iron held - cave still has headroom`);

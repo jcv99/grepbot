@@ -102,7 +102,7 @@
   function intelUnitPop(bag) {
     let pop = 0, known = 0, unknown = 0, naval = 0;
     for (const [id, n0] of Object.entries(bag || {})) {
-      const n = +n0 || 0;
+      const n = gbNum(n0) || 0;
       if (!(n > 0)) continue;
       const m = unitMeta(id);
       if (!m) { unknown += n; continue; }
@@ -401,7 +401,8 @@
         patchCells(tr, cells);
         // Unknown wall sorts as '' (string compare), not 0 - ranking an
         // unspied town as the weakest one is exactly the wrong answer.
-        const wallRaw = (r.cur && r.cur.wall != null && Number.isFinite(+r.cur.wall)) ? String(+r.cur.wall) : '';
+        const wRaw = r.cur && gbNum(r.cur.wall);
+        const wallRaw = wRaw != null ? String(wRaw) : '';
         tr.dataset.sort = [g.label, String(r.ts), wallRaw, d.units, d.res, d.name, d.alliance, d.vacation, d.deep].join('\t');
       });
     }
@@ -411,7 +412,7 @@
   // Own ladder, not fmtSec: fmtSec tops out at minutes, so a 4-day-quiet town
   // would read "5760m".
   function ghostAgeLabel(ageMs) {
-    const s = Math.max(0, Math.round((+ageMs || 0) / 1000));
+    const s = Math.max(0, Math.round((gbNum(ageMs) || 0) / 1000));
     if (s >= 86400) return Math.floor(s / 86400) + 'd';
     if (s >= 3600) return Math.floor(s / 3600) + 'h';
     return Math.floor(s / 60) + 'm';
@@ -446,7 +447,7 @@
         ageMs,
         vacation,
         abandoned,
-        wall: (last.wall != null && Number.isFinite(+last.wall)) ? +last.wall : null,
+        wall: gbNum(last.wall),
         alliance: last.alliance || null,
         reasons,
       });
@@ -902,7 +903,7 @@
     return n;
   }
   function intelAllianceMatrix(windowMs) {
-    const win = Number.isFinite(+windowMs) ? +windowMs : INTEL_MATRIX_WINDOW_MS;
+    const win = gbNum(windowMs) != null ? gbNum(windowMs) : INTEL_MATRIX_WINDOW_MS;
     const cutoffTs = Date.now() - win;
     const out = { alliances: [], towns: [], totalForAlliance: {}, totalForTown: {}, cells: {}, windowMs: win, cutoffTs };
     const me = intelMyIdentity();
@@ -1054,7 +1055,7 @@
     for (const t of (state.towns || [])) {
       const r = (state.townResources || {})[t.id];
       if (!r || !r.ok) continue;
-      for (const k of GB_RES_KEYS) if (Number.isFinite(+r[k])) own.totals[k] += +r[k];
+      for (const k of GB_RES_KEYS) { const v = gbNum(r[k]); if (v != null) own.totals[k] += v; }
       own.towns++;
       if (+r.ts > own.lastTs) own.lastTs = +r.ts;
     }
@@ -1101,7 +1102,7 @@
   function intelMemberActivity(opts) {
     const o = opts || {};
     const filter = String(o.alliance || '').trim().toLowerCase();
-    const cut = Date.now() - ((Number.isFinite(+o.windowHours) ? +o.windowHours : 24 * 7) * 3600000);
+    const cut = Date.now() - ((gbNum(o.windowHours) != null ? gbNum(o.windowHours) : 24 * 7) * 3600000);
     const me = intelMyIdentity();
     const byPlayer = {};
     for (const f of (state.findings || [])) {

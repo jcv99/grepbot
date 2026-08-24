@@ -243,7 +243,10 @@
     return {
       wood, stone, iron,
       pop: pop.current ?? pop.pop ?? popNum ?? null,
-      cap: pop.max ?? pop.cap ?? (Number.isFinite(+r.population_max) ? +r.population_max : null) ?? null,
+      // gbNum preserves null on null/''/[]; the legacy `Number.isFinite(+...)`
+      // collapsed +null onto 0 and made every downstream `cap > 0` check
+      // treat a missing field as a zero-cap town.
+      cap: pop.max ?? pop.cap ?? gbNum(r.population_max) ?? null,
       name: r.name || r.town_name || null,
       got: wood != null || stone != null || iron != null || !!(r.name || r.town_name),
     };

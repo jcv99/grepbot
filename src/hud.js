@@ -38,74 +38,86 @@
     return s;
   }
   function hudRenderProduction(body) {
-    body.replaceChildren();
+    // Build into a detached stage and route through gbPaint: a bare
+    // replaceChildren() on the tick (5s) detaches every descendant including
+    // any focused control. gbPaint preserves focus + selection when the key
+    // is stable and patches the tree when the structural shape matches.
     const ids = hudTownOrder();
-    if (!ids.length) { body.appendChild(hudCell('sin ciudades legibles', 'var(--gb-fg-mute)')); return; }
-    const head = document.createElement('div');
-    head.style.cssText = 'display:grid;grid-template-columns:1.2fr repeat(3,1fr) .8fr;gap:4px;font-size:9px;color:var(--gb-fg-mute);border-bottom:1px solid var(--gb-border-soft);padding-bottom:2px';
-    ['ciudad', 'madera', 'piedra', 'plata', 'lleno en'].forEach(t => head.appendChild(hudCell(t)));
-    body.appendChild(head);
-    for (const id of ids.slice(0, 12)) {
-      const rs = (typeof townResState === 'function') ? townResState(id) : null;
-      const rate = (typeof economyProductionRate === 'function') ? economyProductionRate(id) : null;
-      const row = document.createElement('div');
-      row.style.cssText = 'display:grid;grid-template-columns:1.2fr repeat(3,1fr) .8fr;gap:4px;padding:1px 0;border-bottom:1px solid var(--gb-rule)';
-      row.appendChild(hudCell(townNameById(id)));
-      let soonest = null;
-      for (const k of GB_RES_KEYS) {
-        if (!rs || !(rs.cap > 0)) { row.appendChild(hudCell('—', 'var(--gb-fg-mute)')); continue; }
-        const cur = +rs[k] || 0;
-        const perH = rate ? +rate[k] : null;
-        const pct = Math.round(cur / rs.cap * 100);
-        row.appendChild(hudCell(`${fmt(cur)} ${perH == null ? '—' : '+' + Math.round(perH) + '/h'}`,
-          pct >= 97 ? 'var(--gb-err-3)' : (pct >= 85 ? 'var(--gb-warn-2)' : null)));
-        if (perH != null && perH > 0) {
-          const sec = Math.max(0, (rs.cap - cur) / perH * 3600);
-          if (soonest == null || sec < soonest) soonest = sec;
+    gbPaint(body, (stage) => {
+      if (!ids.length) { stage.appendChild(hudCell('sin ciudades legibles', 'var(--gb-fg-mute)')); return; }
+      const head = document.createElement('div');
+      head.style.cssText = 'display:grid;grid-template-columns:1.2fr repeat(3,1fr) .8fr;gap:4px;font-size:9px;color:var(--gb-fg-mute);border-bottom:1px solid var(--gb-border-soft);padding-bottom:2px';
+      ['ciudad', 'madera', 'piedra', 'plata', 'lleno en'].forEach(t => head.appendChild(hudCell(t)));
+      stage.appendChild(head);
+      for (const id of ids.slice(0, 12)) {
+        const rs = (typeof townResState === 'function') ? townResState(id) : null;
+        const rate = (typeof economyProductionRate === 'function') ? economyProductionRate(id) : null;
+        const row = document.createElement('div');
+        row.style.cssText = 'display:grid;grid-template-columns:1.2fr repeat(3,1fr) .8fr;gap:4px;padding:1px 0;border-bottom:1px solid var(--gb-rule)';
+        row.appendChild(hudCell(townNameById(id)));
+        let soonest = null;
+        for (const k of GB_RES_KEYS) {
+          if (!rs || !(rs.cap > 0)) { row.appendChild(hudCell('—', 'var(--gb-fg-mute)')); continue; }
+          // gbNum preserves null on null / '' / [] / false; `+rs[k] || 0`
+          // collapsed an unreadable resource onto 0 and drew a misleading
+          // "warehouse full" reading.
+          const cur = gbNum(rs[k]);
+          if (cur == null) { row.appendChild(hudCell('—', 'var(--gb-fg-mute)')); continue; }
+          const perH = rate ? gbNum(rate[k]) : null;
+          const pct = Math.round(cur / rs.cap * 100);
+          row.appendChild(hudCell(`${fmt(cur)} ${perH == null ? '—' : '+' + Math.round(perH) + '/h'}`,
+            pct >= 97 ? 'var(--gb-err-3)' : (pct >= 85 ? 'var(--gb-warn-2)' : null)));
+          if (perH != null && perH > 0) {
+            const sec = Math.max(0, (rs.cap - cur) / perH * 3600);
+            if (soonest == null || sec < soonest) soonest = sec;
+          }
         }
+        row.appendChild(hudCell(hudEtaText(soonest), soonest != null && soonest < 3600 ? 'var(--gb-warn-2)' : null));
+        stage.appendChild(row);
       }
-      row.appendChild(hudCell(hudEtaText(soonest), soonest != null && soonest < 3600 ? 'var(--gb-warn-2)' : null));
-      body.appendChild(row);
-    }
+    }, { key: 'prod|' + ids.join('|') });
   }
   function hudRenderCountdown(body) {
-    body.replaceChildren();
     let incoming = [];
-    try { incoming = dodgeIncomingMovements() || []; } catch (_) {
-      body.appendChild(hudCell('movimientos no legibles', 'var(--gb-fg-mute)'));
-      return;
-    }
-    if (!incoming.length) { body.appendChild(hudCell('sin ataques entrantes', 'var(--gb-fg-mute)')); return; }
-    const rows = incoming
-      .map(m => ({ m, eta: dodgeEtaSec(m) }))
+    let incomingErr = false;
+    try { incoming = dodgeIncomingMovements() || []; } catch (_) { incomingErr = true; }
+    gbPaint(body, (stage) => {
+      if (incomingErr) { stage.appendChild(hudCell('movimientos no legibles', 'var(--gb-fg-mute)')); return; }
+      if (!incoming.length) { stage.appendChild(hudCell('sin ataques entrantes', 'var(--gb-fg-mute)')); return; }
+      const rows = incoming
+        .map(m => ({ m, eta: dodgeEtaSec(m) }))
 
-      // Unreadable ETA sorts LAST, not first: an unknown clock is not an
-      // imminent one.
-      .sort((a, b) => (a.eta == null ? Infinity : a.eta) - (b.eta == null ? Infinity : b.eta));
-    for (const { m, eta } of rows.slice(0, 12)) {
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;gap:6px;align-items:center;padding:1px 0;border-bottom:1px solid var(--gb-rule);white-space:nowrap';
-      const etaCell = hudCell(eta == null ? '—' : (() => {
-        if (eta == null || !Number.isFinite(+eta)) return '—';
-        const s = Math.max(0, Math.floor(+eta));
-        const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
-        return h ? `${h}h ${String(m).padStart(2,'0')}m` : `${m}m ${String(s % 60).padStart(2,'0')}s`;
-      })());
-      etaCell.style.fontWeight = 'bold';
-      etaCell.style.color = eta == null ? 'var(--gb-fg-mute)'
-        : (eta < 300 ? 'var(--gb-err-3)' : (eta < 900 ? 'var(--gb-warn-2)' : 'var(--gb-fg-2)'));
-      row.appendChild(etaCell);
-      row.appendChild(hudCell(String(m.type || 'atk')));
-      row.appendChild(hudCell('→ ' + townNameById(m.dest)));
-      row.appendChild(hudCell('de ' + (m.origin || '?'), 'var(--gb-fg-mute)'));
+        // Unreadable ETA sorts LAST, not first: an unknown clock is not an
+        // imminent one.
+        .sort((a, b) => (a.eta == null ? Infinity : a.eta) - (b.eta == null ? Infinity : b.eta));
+      for (const { m, eta } of rows.slice(0, 12)) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:6px;align-items:center;padding:1px 0;border-bottom:1px solid var(--gb-rule);white-space:nowrap';
+        const etaCell = hudCell(eta == null ? '—' : (() => {
+          // gbNum rejects null/''/[]/false; +eta's "finite check" accepted
+          // each falsy value as 0 → an unreadable ETA rendered as "0m 00s".
+          const e = gbNum(eta);
+          if (e == null) return '—';
+          const s = Math.max(0, Math.floor(e));
+          const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+          return h ? `${h}h ${String(m).padStart(2,'0')}m` : `${m}m ${String(s % 60).padStart(2,'0')}s`;
+        })());
+        etaCell.style.fontWeight = 'bold';
+        etaCell.style.color = eta == null ? 'var(--gb-fg-mute)'
+          : (eta < 300 ? 'var(--gb-err-3)' : (eta < 900 ? 'var(--gb-warn-2)' : 'var(--gb-fg-2)'));
+        row.appendChild(etaCell);
+        row.appendChild(hudCell(String(m.type || 'atk')));
+        row.appendChild(hudCell('→ ' + townNameById(m.dest)));
+        row.appendChild(hudCell('de ' + (m.origin || '?'), 'var(--gb-fg-mute)'));
 
-      // CS is its own alarm regardless of ETA.
-      if (m.hasCs) row.appendChild(hudCell('[CS]', 'var(--gb-err-3)'));
-      let n = 0;
-      try { n = countUnits(m.units); } catch (_) {}
-      if (n > 0) row.appendChild(hudCell(n + ' u.', 'var(--gb-fg-mute)'));
-      body.appendChild(row);
-    }
+        // CS is its own alarm regardless of ETA.
+        if (m.hasCs) row.appendChild(hudCell('[CS]', 'var(--gb-err-3)'));
+        let n = 0;
+        try { n = countUnits(m.units); } catch (_) {}
+        if (n > 0) row.appendChild(hudCell(n + ' u.', 'var(--gb-fg-mute)'));
+        stage.appendChild(row);
+      }
+    }, { key: 'eta|' + incoming.map(m => (m && m.id) || '').join('|') });
   }
   function hudEnsure() {
     if (!hudProdWidget) {

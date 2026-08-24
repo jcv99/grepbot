@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.36
+// @version      5.10.37
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -483,6 +483,10 @@ const STORE = {
         try { h.abort(); n++; } catch (_) {}
       }
     }
+    try {
+      const m = (typeof gbAjaxCancelFeature === 'function') ? gbAjaxCancelFeature(feature) : 0;
+      n += m;
+    } catch (_) {}
     return n;
   }
   function gbRestoreHooks() {
@@ -624,7 +628,6 @@ const STORE = {
     recruit: 180000,
 
     'village-recruit': 60000,
-    'defense-pull': 180000,
     cancel: 120000,
     hero: 180000,
     'collect-bg': 300000,
@@ -1731,22 +1734,24 @@ const STORE = {
 
   let _gbEvents = null;
   function gbEventsChannel() {
-    if (_gbEvents !== null) return _gbEvents;
+    if (_gbEvents == null) return _gbEvents;
     try {
       _gbEvents = new BroadcastChannel('grepbot:events');
       _gbEvents.addEventListener('message', (e) => {
+
+        if (!gbInstanceAlive()) return;
         const d = e && e.data;
         if (!d || d.from === GB_INSTANCE_ID) return;
         if (d.kind === 'captcha' && typeof captchaTrip === 'function') {
           const feat = d.payload && d.payload.feature;
           if (typeof feat !== 'string' || !feat) return;
 
-          if (captchaPaused(feat)) return;
+          if (captchaPausedPure(feat)) return;
           captchaTrip(feat, d.payload && d.payload.detail);
         }
       });
-    } catch (_) { _gbEvents = false; }
-    return _gbEvents || null;
+    } catch (_) { _gbEvents = null; }
+    return _gbEvents;
   }
   function gbEventsEmit(kind, payload) {
     try {
@@ -2152,11 +2157,11 @@ const STORE = {
       let data = null;
       try { if (snip[0] === '{' || snip[0] === '[') data = JSON.parse(txt); } catch (_) {}
       if (data && responseIsCaptcha(data)) {
-        captchaTrip('http', 'gm-xhr-json');
+        captchaTrip(opts.feature || 'http', 'gm-xhr-json');
         return true;
       }
       if (/<html/i.test(snip) || /captcha[_-]?required/i.test(snip)) {
-        captchaTrip('http', 'gm-xhr-html');
+        captchaTrip(opts.feature || 'http', 'gm-xhr-html');
         return true;
       }
       return false;
@@ -2190,7 +2195,11 @@ const STORE = {
           if (typeof opts.onabort === 'function') opts.onabort(e);
         },
       }));
-      if (handle) { handle.feature = opts.feature || ''; gbXhrBag.push(handle); }
+      if (handle) {
+
+        handle.feature = (typeof opts.feature === 'string' && opts.feature) ? opts.feature : null;
+        gbXhrBag.push(handle);
+      }
       return handle;
     } catch (e) {
       drop();
@@ -2233,19 +2242,28 @@ const STORE = {
   function i18n(key) { return (marketLocale()[key] || I18N.en[key] || key); }
   const BRIDGE_TIMEOUT_MS = 15000;
   function saveCaptcha() { save(wkey(STORE.CAPTCHA), state.captchaBreakers); }
-  function captchaPaused(feature) {
+
+  function captchaPausedPure(feature) {
     const b = state.captchaBreakers[feature];
     if (!b || !b.until) return false;
-    if (Date.now() >= b.until) {
+    return Date.now() < b.until;
+  }
 
-      if ((b.trips || 0) > 0) {
-        b.trips = Math.max(0, (b.trips || 1) - 1);
-        delete b.until;
-        saveSoon(wkey(STORE.CAPTCHA), state.captchaBreakers);
-      }
-      return false;
+  function captchaPaused(feature) {
+    const paused = captchaPausedPure(feature);
+    if (!paused) captchaExpireSweep(feature);
+    return paused;
+  }
+
+  function captchaExpireSweep(feature) {
+    const b = state.captchaBreakers[feature];
+    if (!b || !b.until) return;
+    if (Date.now() < b.until) return;
+    if ((b.trips || 0) > 0) {
+      b.trips = Math.max(0, (b.trips || 1) - 1);
+      delete b.until;
+      saveSoon(wkey(STORE.CAPTCHA), state.captchaBreakers);
     }
-    return true;
   }
   function captchaPausedAny(...features) {
     for (let i = 0; i < features.length; i++) {
@@ -2255,6 +2273,8 @@ const STORE = {
     return false;
   }
   function captchaTrip(feature, detail) {
+
+    if (!gbInstanceAlive()) return;
     const prev = state.captchaBreakers[feature] || { trips: 0 };
     const ladder = captchaLadder();
     const trips = Math.min((prev.trips || 0) + 1, ladder.length);
@@ -2331,10 +2351,13 @@ const STORE = {
     if (!v || typeof v !== 'object') return null;
     const out = plannerZero();
     let known = false;
+
     for (const k of PLANNER_KEYS) {
-      if (v[k] != null && Number.isFinite(+v[k]) && +v[k] >= 0) { out[k] = +v[k]; known = true; }
+      const n = gbNum(v[k]);
+      if (n != null && n >= 0) { out[k] = n; known = true; }
     }
-    if (v.tradeCap != null && Number.isFinite(+v.tradeCap) && +v.tradeCap >= 0) { out.tradeCap = +v.tradeCap; known = true; }
+    const tc = gbNum(v.tradeCap);
+    if (tc != null && tc >= 0) { out.tradeCap = tc; known = true; }
     return known ? out : null;
   }
   function plannerCfgRoot() {
@@ -2736,7 +2759,7 @@ const STORE = {
     let tradeCap = null;
     try {
       const t = gbTownModel(townId);
-      if (t && t.getAvailableTradeCapacity) tradeCap = +t.getAvailableTradeCapacity();
+      if (t && t.getAvailableTradeCapacity) tradeCap = gbNum(t.getAvailableTradeCapacity());
     } catch (_) {}
     return st ? { wood: st.wood, stone: st.stone, iron: st.iron, cap: st.cap, tradeCap } : null;
   }
@@ -2744,13 +2767,15 @@ const STORE = {
     const t = gbTownModel(townId);
     if (!t) return null;
     let have = null, queued = 0;
-    try { const u=t.units&&t.units(),o=t.unitsOuter&&t.unitsOuter();if(u)have=(+u[unit]||0)+(o?(+o[unit]||0):0); } catch (_) {}
+
+    try { const u=t.units&&t.units(),o=t.unitsOuter&&t.unitsOuter();if(u){const a=gbNum(u[unit]),b=o?gbNum(o[unit]):null;if(a!=null||b!=null)have=(a||0)+(b||0);} } catch (_) {}
     try {
       const col = t.getUnitOrdersCollection && t.getUnitOrdersCollection();
       for (const m of ((col && col.models) || [])) {
         const a = m.attributes || {};
         const uid = a.unit_type || a.unit_id || a.type;
-        if (String(uid) === String(unit)) queued += +(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)) || 0;
+
+        if (String(uid) === String(unit)) { const q = gbNum(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)); if (q != null) queued += q; }
       }
     } catch (_) {}
     return have == null ? null : { have, queued, total: have + queued };
@@ -3047,12 +3072,12 @@ const STORE = {
     if (feature === 'pttrade') return `pttrade:${townId || '-'}:${a.offer_id || a.offer || (d.model_url ? String(d.model_url).split('/').pop() : '') || endpoint}`;
     return `${feature}:${townId || '-'}:${endpoint}:${JSON.stringify(txStableObj(a)).slice(0, 100)}`;
   }
-  function txNum(v) { return Number.isFinite(+v) ? +v : null; }
-  function txLt(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x < y; }
-  function txGt(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x > y; }
-  function txNe(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x !== y; }
+
+  function txLt(a, b) { const x = gbNum(a), y = gbNum(b); return x != null && y != null && x < y; }
+  function txGt(a, b) { const x = gbNum(a), y = gbNum(b); return x != null && y != null && x > y; }
+  function txNe(a, b) { const x = gbNum(a), y = gbNum(b); return x != null && y != null && x !== y; }
   function txResTriadReadable(o) {
-    return !!o && txNum(o.wood) != null && txNum(o.stone) != null && txNum(o.iron) != null;
+    return !!o && gbNum(o.wood) != null && gbNum(o.stone) != null && gbNum(o.iron) != null;
   }
   function txReconcileNow(tx) {
     const s = tx.snapshot || {};
@@ -3075,7 +3100,7 @@ const STORE = {
         const cur = txUnitStatus(meta.townId, s.unit);
         if (!cur || !s.status) return 'unknown';
 
-        if (txNum(cur.total) == null || txNum(s.status.total) == null) return 'unknown';
+        if (gbNum(cur.total) == null || gbNum(s.status.total) == null) return 'unknown';
         if (cur.total >= s.status.total + Math.max(1, s.amount || 0)) return 'applied';
         return 'unchanged';
       }
@@ -3102,7 +3127,7 @@ const STORE = {
       }
       if (s.kind === 'spy') {
         const cur = txCaveStatus(meta.townId);
-        if (!cur || !s.before || txNum(cur.stored) == null || txNum(s.before.stored) == null) return 'unknown';
+        if (!cur || !s.before || gbNum(cur.stored) == null || gbNum(s.before.stored) == null) return 'unknown';
 
         return txLt(cur.stored, s.before.stored) ? 'applied' : 'unchanged';
       }
@@ -3324,12 +3349,13 @@ const STORE = {
           return;
         }
         if (r === 'unchanged') {
-          existing.state = 'failed'; existing.updatedAt = Date.now(); existing.detail = 'reconciled not applied; retry allowed'; plannerRelease(existing, 'reconciled-unchanged'); txSave();
 
-          return gbTimeout(() => txRun(feature, transport, endpoint, data, rawSend, onDone), 250);
+          existing.state = 'unknown'; existing.unknownAt = Date.now(); existing.updatedAt = Date.now(); existing.detail = 'reconciled not applied; next cadence re-evaluates'; txSave();
+          jrnPush(jtag, 'unknown', 'reconciled-unchanged', existing.id);
+          markModuleHealth(feature, 'err');
+          if (onDone) onDone('unknown', null);
+          return;
         }
-        existing.state = 'unknown'; existing.unknownAt = existing.unknownAt || Date.now(); existing.updatedAt = Date.now(); txSave();
-        return bail('timeout_unknown', 'unknown outcome still unresolved');
       });
     }
 
@@ -3441,8 +3467,8 @@ const STORE = {
       town_id: (p && p.town_id) != null ? p.town_id : null,
     });
   }
-  function gbAjaxWatch(sig, fp, settle) {
-    const entry = { sig, fp: fp || '', at: Date.now(), settle };
+  function gbAjaxWatch(sig, fp, settle, feature) {
+    const entry = { sig, fp: fp || '', at: Date.now(), settle, feature: (typeof feature === 'string' && feature) ? feature : null };
     gbAjaxPending.push(entry);
 
     const now = Date.now();
@@ -3455,6 +3481,18 @@ const STORE = {
         `ajax watch: pending list full (${GB_AJAX_PENDING_MAX}) - dropped watcher ${lost && lost.sig}; that post can only settle on timeout`);
     }
     return entry;
+  }
+
+  function gbAjaxCancelFeature(feature) {
+    if (!feature) return 0;
+    let n = 0;
+    const tag = String(feature);
+    for (const e of gbAjaxPending.slice()) {
+      if (e && e.feature === tag && typeof e.cancel === 'function') {
+        try { e.cancel(); n++; } catch (_) {}
+      }
+    }
+    return n;
   }
 
   function gbAjaxDrop(entry) {
@@ -3636,6 +3674,11 @@ const STORE = {
       } catch (e) { finish(String(e)); }
     };
 
+    const cancel = () => {
+      if (settled) return;
+      gbLogT('ajax-cancel-' + feature, 30000, feature + ': bridge post cancelled (feature toggle / abort)');
+      finish('cancelled');
+    };
     watchEntry = gbAjaxWatch(
       'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
       gbAjaxBridgeFp(payload),
@@ -3647,8 +3690,10 @@ const STORE = {
           return finish('http_' + status);
         }
         classify(gbAjaxUnwrap(raw));
-      }
+      },
+      feature
     );
+    watchEntry.cancel = cancel;
     try {
 
       uw.gpAjax.ajaxPost('frontend_bridge', 'execute', payload, false, (data) => classify(data));
@@ -3671,6 +3716,8 @@ const STORE = {
       gbLogT('ajax-timeout-' + feature, 30000, `${feature}: ajax timeout ${BRIDGE_TIMEOUT_MS}ms (${controller}/${action})`);
       finish('timeout');
     }, BRIDGE_TIMEOUT_MS);
+
+    try { selfBridgeNote({ model_url: controller, action_name: action, arguments: data }); } catch (_) {}
     const classify = (res) => {
       if (!gbInstanceAlive()) return;
       try {
@@ -3684,6 +3731,11 @@ const STORE = {
         captchaClear(feature);
         finish(null, res);
       } catch (e) { finish(String(e)); }
+    };
+    const cancel = () => {
+      if (settled) return;
+      gbLogT('ajax-cancel-' + feature, 30000, feature + ': gameAjax post cancelled (feature toggle / abort)');
+      finish('cancelled');
     };
     watchEntry = gbAjaxWatch('ajax:' + controller + '/' + action, gbAjaxFp(data), (status, raw) => {
       if (settled) return;
@@ -3707,7 +3759,8 @@ const STORE = {
         if (!txt || !String(txt).trim()) return finish('soft-empty');
       } catch (_) {}
       classify(gbAjaxUnwrap(raw));
-    });
+    }, feature);
+    watchEntry.cancel = cancel;
     try {
 
       uw.gpAjax.ajaxPost(controller, action, data, false, (res) => classify(res));
@@ -3884,7 +3937,7 @@ const STORE = {
     }
     let used = null;
     if (free != null && cap > 0) used = Math.max(0, cap - free);
-    else if (scraped && Number.isFinite(+scraped.pop)) used = +scraped.pop;
+    else if (scraped) { const p = gbNum(scraped.pop); if (p != null) used = p; }
     const usedPct = (used != null && cap > 0) ? Math.round(used / cap * 100) : null;
     const out = (free == null && used == null && !(cap > 0)) ? null : {
       free, used, cap: cap > 0 ? cap : null, usedPct,
@@ -4458,7 +4511,7 @@ const STORE = {
             let raw = null;
             try { raw = tryParseJson(this.responseText || ''); } catch (_) {}
             try { settle(this.status, raw); } catch (_) {}
-          });
+          }, { once: true });
         }
       } catch (_) {}
       try {
@@ -5134,7 +5187,8 @@ const STORE = {
     return {
       wood, stone, iron,
       pop: pop.current ?? pop.pop ?? popNum ?? null,
-      cap: pop.max ?? pop.cap ?? (Number.isFinite(+r.population_max) ? +r.population_max : null) ?? null,
+
+      cap: pop.max ?? pop.cap ?? gbNum(r.population_max) ?? null,
       name: r.name || r.town_name || null,
       got: wood != null || stone != null || iron != null || !!(r.name || r.town_name),
     };
@@ -5175,6 +5229,8 @@ const STORE = {
         gbLog('sniffed bandit bridge call:', body.slice(0, 300));
       } else if (/BuildingOrder/.test(body) && /Instant|instant/i.test(body)) {
         const j = parseBodyLoose(body);
+
+        if (j && isSelfBridge(j)) return;
         if (j && j.action_name && /instant/i.test(j.action_name)) {
           if (typeof ibLearnAction === 'function') {
             ibLearnAction('build', j.action_name);
@@ -5187,6 +5243,7 @@ const STORE = {
         }
       } else if (/ResearchOrder/.test(body) && /Instant|instant/i.test(body)) {
         const j = parseBodyLoose(body);
+        if (j && isSelfBridge(j)) return;
         if (j && j.action_name && /instant/i.test(j.action_name)) {
           if (typeof ibLearnAction === 'function') {
             ibLearnAction('research', j.action_name);
@@ -5682,16 +5739,16 @@ const STORE = {
   function farmProfitInvalidate() { for (const k of Object.keys(farmProfitCache)) delete farmProfitCache[k]; farmProfitRefreshAt = 0; }
 
   const FARM_UNIT_ORDER = ['sword', 'slinger', 'archer', 'hoplite'];
-  function farmUnitIdFor(option) { return FARM_UNIT_ORDER[(+option || 0) - 1] || null; }
+  function farmUnitIdFor(option) { return FARM_UNIT_ORDER[(gbNum(option) || 0) - 1] || null; }
   function farmVillageLevel(farm) {
     const rel = farm && farm._rel;
     const a = (farm && farm._attrs) || {};
     let level = null;
-    try { if (rel && typeof rel.getLevel === 'function') level = +rel.getLevel(); } catch (_) {}
-    if (Number.isFinite(level)) return level;
-    const status = +a.relation_status;
-    if (status === 0) return 0;
-    return Number.isFinite(+a.expansion_stage) ? +a.expansion_stage : null;
+    try { if (rel && typeof rel.getLevel === 'function') level = gbNum(rel.getLevel()); } catch (_) {}
+    if (level != null) return level;
+
+    if (a.relation_status === 0) return 0;
+    return gbNum(a.expansion_stage);
   }
   function farmClaimUnitsTable(farm) {
     const t = gbGameDataLookup('farm_town', 'claim_units');
@@ -7418,12 +7475,14 @@ const STORE = {
       const gdi = uw.GameDataInstantBuy;
       if (!gdi || typeof gdi.getPriceForType !== 'function') return null;
       const type = kind === 'research' ? 'research' : 'building';
-      const price = gdi.getPriceForType(type, Math.max(0, +seconds || 0));
-      return Number.isFinite(+price) ? +price : null;
+      const price = gdi.getPriceForType(type, Math.max(0, gbNum(seconds) || 0));
+      const p = gbNum(price);
+      return p;
     } catch (_) { return null; }
   }
   function ibIsFreeOrder(timeLeft, gold) {
-    return Number.isFinite(+timeLeft) && +timeLeft > 0 && +timeLeft <= ibSafeFreeThresh() && gold === 0;
+    const t = gbNum(timeLeft);
+    return t != null && t > 0 && t <= ibSafeFreeThresh() && gold === 0;
   }
   function ibOrderStillPresent(orderId,kind) {
     return ibOrders(true).some(o => String(o.id) === String(orderId) && (kind==null||o.kind===kind));
@@ -7672,7 +7731,7 @@ const STORE = {
       if (!hostEnabled() || captchaPaused(tag)) { resolve('pause'); return; }
 
       const live = ibFindLiveOrder(order.id, kind);
-      const instantLeft = live && Number.isFinite(+live.instantLeft) ? +live.instantLeft : +(live && live.timeLeft);
+      const instantLeft = live ? (gbNum(live.instantLeft) != null ? gbNum(live.instantLeft) : gbNum(live.timeLeft)) : null;
 
       const positionAllowed = kind === 'build' || (live && live.isHead === true);
       if (!live || !positionAllowed || !live.isFree || live.gold !== 0 || !(instantLeft > 0) || instantLeft > ibSafeFreeThresh()) {
@@ -8186,7 +8245,7 @@ const STORE = {
   function abClampTarget(building, lvl) {
     const lo = abMinLevel(building);
     const hi = abMaxLevel(building);
-    const n = Math.max(lo, Math.floor(Number.isFinite(+lvl) ? +lvl : 0));
+    const n = Math.max(lo, Math.floor(gbNum(lvl) || 0));
     return hi == null ? n : Math.min(hi, n);
   }
   function abSetTarget(building, lvl) {
@@ -10045,14 +10104,15 @@ const STORE = {
     if (!t) return null;
     let hideLvl = 0;
     try {
-      if (t.getBuildings) hideLvl = +t.getBuildings().get('hide') || 0;
-      else if (t.buildings) hideLvl = +(t.buildings().attributes || {}).hide || 0;
+
+      if (t.getBuildings) { const h = gbNum(t.getBuildings().get('hide')); if (h != null) hideLvl = h; }
+      else if (t.buildings) { const h = gbNum((t.buildings().attributes || {}).hide); if (h != null) hideLvl = h; }
     } catch (_) {}
     let iron = null, cap = null, resStorage = null;
     try {
       const r = t.resources && t.resources();
-      if (r && r.iron != null) iron = +r.iron;
-      if (r && r.storage != null) resStorage = +r.storage;
+      if (r && r.iron != null) iron = gbNum(r.iron);
+      if (r && r.storage != null) resStorage = gbNum(r.storage);
     } catch (_) {}
 
     const shared = townResState(townId);
@@ -10575,9 +10635,10 @@ const STORE = {
     try { if(typeof t.getProduction==='function') p=t.getProduction(); } catch(_){}
     try { if(!p && typeof t.getResourceProduction==='function') p=t.getResourceProduction(); } catch(_){}
     try { if(!p){const r=t.resources&&t.resources(); if(r) p={wood:r.wood_production??r.production_wood,stone:r.stone_production??r.production_stone,iron:r.iron_production??r.production_iron};} } catch(_){}
-    if(!p||[p.wood,p.stone,p.iron].some(v=>v==null||!Number.isFinite(+v))) return null;
 
-    return {wood:+p.wood,stone:+p.stone,iron:+p.iron};
+    if(!p||!GB_RES_KEYS.every(k=>gbNum(p[k])!=null)) return null;
+
+    return {wood:gbNum(p.wood),stone:gbNum(p.stone),iron:gbNum(p.iron)};
   }
   function economyPlannedCost(townId, maxActions) {
     let plan=state.virtualQueue&&state.virtualQueue[String(townId)]; if(!plan||Date.now()-(+plan.generatedAt||0)>60000)try{plan=goalPlanTown(townId)}catch(_){}
@@ -11391,8 +11452,9 @@ const STORE = {
     const out = {};
     let any = false;
     for (const k of GB_RES_KEYS) {
-      const raw = +p[k];
-      if (!Number.isFinite(raw) || raw < 0) { out[k] = null; continue; }
+
+      const raw = gbNum(p[k]);
+      if (raw == null || raw < 0) { out[k] = null; continue; }
       out[k] = raw > 100 ? raw / 3600 : raw;
       any = true;
     }
@@ -11407,9 +11469,12 @@ const STORE = {
     const fillPct = {};
     const eta = {};
     for (const k of GB_RES_KEYS) {
-      fillPct[k] = base.cap > 0 ? Math.max(0, Math.min(1, (+base[k] || 0) / base.cap)) : null;
+
+      const have = gbNum(base[k]);
+      fillPct[k] = (base.cap > 0 && have != null) ? Math.max(0, Math.min(1, have / base.cap)) : null;
       if (!(base.cap > 0)) { eta[k] = null; continue; }
-      const room = base.cap - (+base[k] || 0);
+      const room = (have != null) ? base.cap - have : null;
+      if (room == null) { eta[k] = null; continue; }
       if (room <= 0) { eta[k] = 0; continue; }
       const rate = prod ? prod[k] : null;
       eta[k] = rate > 0 ? (room / rate) * 1000 : null;
@@ -11433,7 +11498,7 @@ const STORE = {
 
     if (!inc.known) return { woodFree: null, stoneFree: null, ironFree: null, blind: true };
     const mov = inc.byTown[String(townId)] || {};
-    const ms = Math.max(0, +deltaMs || 0);
+    const ms = Math.max(0, gbNum(deltaMs) || 0);
 
     let ironDrain = 0;
     try {
@@ -11456,7 +11521,7 @@ const STORE = {
     const st = transportTownRes(townId);
     if (!st || !(st.cap > 0)) return { ms: null, blind: true };
     if (!st.production || st.production[resource] == null) return { ms: null, blind: true };
-    const want = Math.max(0, Math.min(1, +targetFillPct || 0)) * st.cap;
+    const want = Math.max(0, Math.min(1, gbNum(targetFillPct) || 0)) * st.cap;
     const key = resource + 'Free';
 
     let delta = TRANSPORT_ETA_MAX_MS / 128;
@@ -11597,7 +11662,10 @@ const STORE = {
     const roomOf = id => {
       const l = ledger[id] || ledger[+id];
       if (!l || !(l.cap > 0)) return null;
-      return Math.max(0, l.cap - (+l[res] || 0));
+
+      const have = gbNum(l[res]);
+      if (have == null) return null;
+      return Math.max(0, l.cap - have);
     };
     const sinks = dumpSinkList().filter(id => ids.includes(id));
     if (sinks.length) {
@@ -11639,7 +11707,10 @@ const STORE = {
         if (src.tradeCap <= 0) break;
 
         if (perTown >= 1) break;
-        const fillPct = Math.round((+src[res] || 0) / src.cap * 100);
+
+        const have = gbNum(src[res]);
+        if (have == null) continue;
+        const fillPct = Math.round(have / src.cap * 100);
         if (fillPct < dumpThresholdFor(res)) continue;
         if (res === 'iron' && caveHasHeadroom(id)) {
           gbLogT('dump-cave-' + id, 600000, `dump: town ${id} iron held - cave still has headroom`);
@@ -13046,11 +13117,11 @@ const STORE = {
     if (!m) return null;
     const a = m.attributes || m;
     const tid = gbProbeAttr(a, ['town_id', 'current_town_id', 'in_town_id']);
-    if (tid != null && +tid > 0) return +tid;
+    if (tid != null && gbNum(tid) > 0) return gbNum(tid);
 
     try {
       if (typeof m.isInCurrentTown === 'function' && m.isInCurrentTown()) {
-        return +(uw.Game && uw.Game.townId) || null;
+        return gbNum(uw.Game && uw.Game.townId);
       }
     } catch (_) {}
     return null;
@@ -13477,22 +13548,21 @@ const STORE = {
   }
 
   const FAVOR_GODS = ['zeus', 'poseidon', 'hera', 'athena', 'hades', 'ares', 'artemis', 'aphrodite'];
-  function favorNum(v) { const n = +v; return Number.isFinite(n) ? n : null; }
   function favorForGod(fav, god) {
     if (!fav || !god) return null;
     const g = String(god).toLowerCase();
-    let v = favorNum(fav[g + '_favor']);
+    let v = gbNum(fav[g + '_favor']);
     if (v != null) return v;
     const ov = fav.production_overview;
-    if (ov && ov[g]) { v = favorNum(ov[g].current); if (v != null) return v; }
+    if (ov && ov[g]) { v = gbNum(ov[g].current); if (v != null) return v; }
 
-    v = favorNum(fav[g]);
+    v = gbNum(fav[g]);
     if (v != null) return v;
-    return favorNum(fav['favor_' + g]);
+    return gbNum(fav['favor_' + g]);
   }
   function favorMaxPool(fav) {
     if (!fav) return null;
-    const v = favorNum(fav.max_favor);
+    const v = gbNum(fav.max_favor);
     return v != null && v > 0 ? v : null;
   }
 
@@ -13500,7 +13570,7 @@ const STORE = {
     if (!fav || !god) return null;
     const ov = fav.production_overview;
     const row = ov && ov[String(god).toLowerCase()];
-    return row ? favorNum(row.production) : null;
+    return row ? gbNum(row.production) : null;
   }
 
   function favorGodsList(fav) {
@@ -13862,11 +13932,10 @@ const STORE = {
     const tot = job.send.wood + job.send.stone + job.send.iron;
     const pav = plannerAvailable(job.townId, {allowSoft:false});
 
-    const wonderNum = (v) => (Number.isFinite(+v) ? +v : null);
-    const pvW = wonderNum(pav && pav.wood), pvS = wonderNum(pav && pav.stone), pvI = wonderNum(pav && pav.iron);
-    const frW = wonderNum(fresh && fresh.wood), frS = wonderNum(fresh && fresh.stone), frI = wonderNum(fresh && fresh.iron);
+    const pvW = gbNum(pav && pav.wood), pvS = gbNum(pav && pav.stone), pvI = gbNum(pav && pav.iron);
+    const frW = gbNum(fresh && fresh.wood), frS = gbNum(fresh && fresh.stone), frI = gbNum(fresh && fresh.iron);
     if (!fresh || !pav || pvW == null || pvS == null || pvI == null || frW == null || frS == null || frI == null
-      || !(wonderNum(fresh.tradeCap) >= tot) || pav.tradeCap == null || !(wonderNum(pav.tradeCap) >= tot)
+      || !(gbNum(fresh.tradeCap) >= tot) || pav.tradeCap == null || !(gbNum(pav.tradeCap) >= tot)
       || pvW < job.send.wood || pvS < job.send.stone || pvI < job.send.iron
       || frW - job.send.wood < reserve || frS - job.send.stone < reserve || frI - job.send.iron < reserve
       || wonderSpentToday.amount + tot > budget) {
@@ -14703,15 +14772,17 @@ const STORE = {
     if (!def || !t || !def.resources) return 0;
     try {
       const r = t.resources && t.resources();
-      const pop = t.getAvailablePopulation && +t.getAvailablePopulation();
+
+      const pop = t.getAvailablePopulation && gbNum(t.getAvailablePopulation());
       if (!r || pop == null) return 0;
-      const rw = +def.resources.wood || 0, rs = +def.resources.stone || 0, ri = +def.resources.iron || 0, rp = +def.population || 0;
-      let amount = Math.max(0, +want || 0);
-      if (rw > 0) amount = Math.min(amount, Math.floor(+r.wood / rw));
-      if (rs > 0) amount = Math.min(amount, Math.floor(+r.stone / rs));
-      if (ri > 0) amount = Math.min(amount, Math.floor(+r.iron / ri));
+      const rw = gbNum(def.resources.wood) || 0, rs = gbNum(def.resources.stone) || 0, ri = gbNum(def.resources.iron) || 0, rp = gbNum(def.population) || 0;
+      let amount = Math.max(0, gbNum(want) || 0);
+      const rWood = gbNum(r.wood), rStone = gbNum(r.stone), rIron = gbNum(r.iron);
+      if (rw > 0 && rWood != null) amount = Math.min(amount, Math.floor(rWood / rw));
+      if (rs > 0 && rStone != null) amount = Math.min(amount, Math.floor(rStone / rs));
+      if (ri > 0 && rIron != null) amount = Math.min(amount, Math.floor(rIron / ri));
       if (rp > 0) amount = Math.min(amount, Math.floor(pop / rp));
-      const favorCost = +(def.favor ?? def.resources.favor ?? 0);
+      const favorCost = gbNum(def.favor ?? def.resources.favor) || 0;
       if (favorCost > 0) {
 
         let god = def.god && String(def.god).toLowerCase();
@@ -17232,7 +17303,7 @@ const STORE = {
   function intelUnitPop(bag) {
     let pop = 0, known = 0, unknown = 0, naval = 0;
     for (const [id, n0] of Object.entries(bag || {})) {
-      const n = +n0 || 0;
+      const n = gbNum(n0) || 0;
       if (!(n > 0)) continue;
       const m = unitMeta(id);
       if (!m) { unknown += n; continue; }
@@ -17496,7 +17567,8 @@ const STORE = {
         }
         patchCells(tr, cells);
 
-        const wallRaw = (r.cur && r.cur.wall != null && Number.isFinite(+r.cur.wall)) ? String(+r.cur.wall) : '';
+        const wRaw = r.cur && gbNum(r.cur.wall);
+        const wallRaw = wRaw != null ? String(wRaw) : '';
         tr.dataset.sort = [g.label, String(r.ts), wallRaw, d.units, d.res, d.name, d.alliance, d.vacation, d.deep].join('\t');
       });
     }
@@ -17504,7 +17576,7 @@ const STORE = {
   }
 
   function ghostAgeLabel(ageMs) {
-    const s = Math.max(0, Math.round((+ageMs || 0) / 1000));
+    const s = Math.max(0, Math.round((gbNum(ageMs) || 0) / 1000));
     if (s >= 86400) return Math.floor(s / 86400) + 'd';
     if (s >= 3600) return Math.floor(s / 3600) + 'h';
     return Math.floor(s / 60) + 'm';
@@ -17538,7 +17610,7 @@ const STORE = {
         ageMs,
         vacation,
         abandoned,
-        wall: (last.wall != null && Number.isFinite(+last.wall)) ? +last.wall : null,
+        wall: gbNum(last.wall),
         alliance: last.alliance || null,
         reasons,
       });
@@ -17966,7 +18038,7 @@ const STORE = {
     return n;
   }
   function intelAllianceMatrix(windowMs) {
-    const win = Number.isFinite(+windowMs) ? +windowMs : INTEL_MATRIX_WINDOW_MS;
+    const win = gbNum(windowMs) != null ? gbNum(windowMs) : INTEL_MATRIX_WINDOW_MS;
     const cutoffTs = Date.now() - win;
     const out = { alliances: [], towns: [], totalForAlliance: {}, totalForTown: {}, cells: {}, windowMs: win, cutoffTs };
     const me = intelMyIdentity();
@@ -18108,7 +18180,7 @@ const STORE = {
     for (const t of (state.towns || [])) {
       const r = (state.townResources || {})[t.id];
       if (!r || !r.ok) continue;
-      for (const k of GB_RES_KEYS) if (Number.isFinite(+r[k])) own.totals[k] += +r[k];
+      for (const k of GB_RES_KEYS) { const v = gbNum(r[k]); if (v != null) own.totals[k] += v; }
       own.towns++;
       if (+r.ts > own.lastTs) own.lastTs = +r.ts;
     }
@@ -18155,7 +18227,7 @@ const STORE = {
   function intelMemberActivity(opts) {
     const o = opts || {};
     const filter = String(o.alliance || '').trim().toLowerCase();
-    const cut = Date.now() - ((Number.isFinite(+o.windowHours) ? +o.windowHours : 24 * 7) * 3600000);
+    const cut = Date.now() - ((gbNum(o.windowHours) != null ? gbNum(o.windowHours) : 24 * 7) * 3600000);
     const me = intelMyIdentity();
     const byPlayer = {};
     for (const f of (state.findings || [])) {
@@ -21972,12 +22044,14 @@ const STORE = {
     let text = '';
     try { text = JSON.stringify(snapshotPayload()); } catch (_) { return false; }
 
-    if (text.length > SNAPSHOT_BUDGET_BYTES) {
-      gbLogT('snapshot-oversize', 60000, `snapshot: ${text.length}B over the ${SNAPSHOT_BUDGET_BYTES}B budget - dropped`);
+    let byteLen = 0;
+    try { byteLen = new TextEncoder().encode(text).length; } catch (_) { byteLen = text.length; }
+    if (byteLen > SNAPSHOT_BUDGET_BYTES) {
+      gbLogT('snapshot-oversize', 60000, `snapshot: ${byteLen}B over the ${SNAPSHOT_BUDGET_BYTES}B budget - dropped`);
       return false;
     }
     const ring = snapshotRing();
-    ring.push({ at: Date.now(), sizeBytes: text.length, reason: reason || 'tick', payload: JSON.parse(text) });
+    ring.push({ at: Date.now(), sizeBytes: byteLen, reason: reason || 'tick', payload: JSON.parse(text) });
     while (ring.length > SNAPSHOT_SLOTS) ring.shift();
     snapshotLastAt = Date.now();
     save(STORE.SNAPSHOTS, ring);
@@ -22173,8 +22247,9 @@ const STORE = {
       if (!r || !r.ok) continue;
 
       const row = { t: now };
-      for (const k of GB_RES_KEYS) if (Number.isFinite(+r[k])) row[k] = +r[k];
-      if (Number.isFinite(+r.pop)) row.pop = +r.pop;
+
+      for (const k of GB_RES_KEYS) { const v = gbNum(r[k]); if (v != null) row[k] = v; }
+      { const p = gbNum(r.pop); if (p != null) row.pop = p; }
       if (Object.keys(row).length < 2) continue;
       const list = H[key] || (H[key] = []);
       list.push(row);
@@ -23470,71 +23545,77 @@ const STORE = {
     return s;
   }
   function hudRenderProduction(body) {
-    body.replaceChildren();
+
     const ids = hudTownOrder();
-    if (!ids.length) { body.appendChild(hudCell('sin ciudades legibles', 'var(--gb-fg-mute)')); return; }
-    const head = document.createElement('div');
-    head.style.cssText = 'display:grid;grid-template-columns:1.2fr repeat(3,1fr) .8fr;gap:4px;font-size:9px;color:var(--gb-fg-mute);border-bottom:1px solid var(--gb-border-soft);padding-bottom:2px';
-    ['ciudad', 'madera', 'piedra', 'plata', 'lleno en'].forEach(t => head.appendChild(hudCell(t)));
-    body.appendChild(head);
-    for (const id of ids.slice(0, 12)) {
-      const rs = (typeof townResState === 'function') ? townResState(id) : null;
-      const rate = (typeof economyProductionRate === 'function') ? economyProductionRate(id) : null;
-      const row = document.createElement('div');
-      row.style.cssText = 'display:grid;grid-template-columns:1.2fr repeat(3,1fr) .8fr;gap:4px;padding:1px 0;border-bottom:1px solid var(--gb-rule)';
-      row.appendChild(hudCell(townNameById(id)));
-      let soonest = null;
-      for (const k of GB_RES_KEYS) {
-        if (!rs || !(rs.cap > 0)) { row.appendChild(hudCell('\u2014', 'var(--gb-fg-mute)')); continue; }
-        const cur = +rs[k] || 0;
-        const perH = rate ? +rate[k] : null;
-        const pct = Math.round(cur / rs.cap * 100);
-        row.appendChild(hudCell(`${fmt(cur)} ${perH == null ? '\u2014' : '+' + Math.round(perH) + '/h'}`,
-          pct >= 97 ? 'var(--gb-err-3)' : (pct >= 85 ? 'var(--gb-warn-2)' : null)));
-        if (perH != null && perH > 0) {
-          const sec = Math.max(0, (rs.cap - cur) / perH * 3600);
-          if (soonest == null || sec < soonest) soonest = sec;
+    gbPaint(body, (stage) => {
+      if (!ids.length) { stage.appendChild(hudCell('sin ciudades legibles', 'var(--gb-fg-mute)')); return; }
+      const head = document.createElement('div');
+      head.style.cssText = 'display:grid;grid-template-columns:1.2fr repeat(3,1fr) .8fr;gap:4px;font-size:9px;color:var(--gb-fg-mute);border-bottom:1px solid var(--gb-border-soft);padding-bottom:2px';
+      ['ciudad', 'madera', 'piedra', 'plata', 'lleno en'].forEach(t => head.appendChild(hudCell(t)));
+      stage.appendChild(head);
+      for (const id of ids.slice(0, 12)) {
+        const rs = (typeof townResState === 'function') ? townResState(id) : null;
+        const rate = (typeof economyProductionRate === 'function') ? economyProductionRate(id) : null;
+        const row = document.createElement('div');
+        row.style.cssText = 'display:grid;grid-template-columns:1.2fr repeat(3,1fr) .8fr;gap:4px;padding:1px 0;border-bottom:1px solid var(--gb-rule)';
+        row.appendChild(hudCell(townNameById(id)));
+        let soonest = null;
+        for (const k of GB_RES_KEYS) {
+          if (!rs || !(rs.cap > 0)) { row.appendChild(hudCell('\u2014', 'var(--gb-fg-mute)')); continue; }
+
+          const cur = gbNum(rs[k]);
+          if (cur == null) { row.appendChild(hudCell('\u2014', 'var(--gb-fg-mute)')); continue; }
+          const perH = rate ? gbNum(rate[k]) : null;
+          const pct = Math.round(cur / rs.cap * 100);
+          row.appendChild(hudCell(`${fmt(cur)} ${perH == null ? '\u2014' : '+' + Math.round(perH) + '/h'}`,
+            pct >= 97 ? 'var(--gb-err-3)' : (pct >= 85 ? 'var(--gb-warn-2)' : null)));
+          if (perH != null && perH > 0) {
+            const sec = Math.max(0, (rs.cap - cur) / perH * 3600);
+            if (soonest == null || sec < soonest) soonest = sec;
+          }
         }
+        row.appendChild(hudCell(hudEtaText(soonest), soonest != null && soonest < 3600 ? 'var(--gb-warn-2)' : null));
+        stage.appendChild(row);
       }
-      row.appendChild(hudCell(hudEtaText(soonest), soonest != null && soonest < 3600 ? 'var(--gb-warn-2)' : null));
-      body.appendChild(row);
-    }
+    }, { key: 'prod|' + ids.join('|') });
   }
   function hudRenderCountdown(body) {
-    body.replaceChildren();
     let incoming = [];
-    try { incoming = dodgeIncomingMovements() || []; } catch (_) {
-      body.appendChild(hudCell('movimientos no legibles', 'var(--gb-fg-mute)'));
-      return;
-    }
-    if (!incoming.length) { body.appendChild(hudCell('sin ataques entrantes', 'var(--gb-fg-mute)')); return; }
-    const rows = incoming
-      .map(m => ({ m, eta: dodgeEtaSec(m) }))
+    let incomingErr = false;
+    try { incoming = dodgeIncomingMovements() || []; } catch (_) { incomingErr = true; }
+    gbPaint(body, (stage) => {
+      if (incomingErr) { stage.appendChild(hudCell('movimientos no legibles', 'var(--gb-fg-mute)')); return; }
+      if (!incoming.length) { stage.appendChild(hudCell('sin ataques entrantes', 'var(--gb-fg-mute)')); return; }
+      const rows = incoming
+        .map(m => ({ m, eta: dodgeEtaSec(m) }))
 
-      .sort((a, b) => (a.eta == null ? Infinity : a.eta) - (b.eta == null ? Infinity : b.eta));
-    for (const { m, eta } of rows.slice(0, 12)) {
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;gap:6px;align-items:center;padding:1px 0;border-bottom:1px solid var(--gb-rule);white-space:nowrap';
-      const etaCell = hudCell(eta == null ? '\u2014' : (() => {
-        if (eta == null || !Number.isFinite(+eta)) return '\u2014';
-        const s = Math.max(0, Math.floor(+eta));
-        const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
-        return h ? `${h}h ${String(m).padStart(2,'0')}m` : `${m}m ${String(s % 60).padStart(2,'0')}s`;
-      })());
-      etaCell.style.fontWeight = 'bold';
-      etaCell.style.color = eta == null ? 'var(--gb-fg-mute)'
-        : (eta < 300 ? 'var(--gb-err-3)' : (eta < 900 ? 'var(--gb-warn-2)' : 'var(--gb-fg-2)'));
-      row.appendChild(etaCell);
-      row.appendChild(hudCell(String(m.type || 'atk')));
-      row.appendChild(hudCell('\u2192 ' + townNameById(m.dest)));
-      row.appendChild(hudCell('de ' + (m.origin || '?'), 'var(--gb-fg-mute)'));
+        .sort((a, b) => (a.eta == null ? Infinity : a.eta) - (b.eta == null ? Infinity : b.eta));
+      for (const { m, eta } of rows.slice(0, 12)) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:6px;align-items:center;padding:1px 0;border-bottom:1px solid var(--gb-rule);white-space:nowrap';
+        const etaCell = hudCell(eta == null ? '\u2014' : (() => {
 
-      if (m.hasCs) row.appendChild(hudCell('[CS]', 'var(--gb-err-3)'));
-      let n = 0;
-      try { n = countUnits(m.units); } catch (_) {}
-      if (n > 0) row.appendChild(hudCell(n + ' u.', 'var(--gb-fg-mute)'));
-      body.appendChild(row);
-    }
+          const e = gbNum(eta);
+          if (e == null) return '\u2014';
+          const s = Math.max(0, Math.floor(e));
+          const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+          return h ? `${h}h ${String(m).padStart(2,'0')}m` : `${m}m ${String(s % 60).padStart(2,'0')}s`;
+        })());
+        etaCell.style.fontWeight = 'bold';
+        etaCell.style.color = eta == null ? 'var(--gb-fg-mute)'
+          : (eta < 300 ? 'var(--gb-err-3)' : (eta < 900 ? 'var(--gb-warn-2)' : 'var(--gb-fg-2)'));
+        row.appendChild(etaCell);
+        row.appendChild(hudCell(String(m.type || 'atk')));
+        row.appendChild(hudCell('\u2192 ' + townNameById(m.dest)));
+        row.appendChild(hudCell('de ' + (m.origin || '?'), 'var(--gb-fg-mute)'));
+
+        if (m.hasCs) row.appendChild(hudCell('[CS]', 'var(--gb-err-3)'));
+        let n = 0;
+        try { n = countUnits(m.units); } catch (_) {}
+        if (n > 0) row.appendChild(hudCell(n + ' u.', 'var(--gb-fg-mute)'));
+        stage.appendChild(row);
+      }
+    }, { key: 'eta|' + incoming.map(m => (m && m.id) || '').join('|') });
   }
   function hudEnsure() {
     if (!hudProdWidget) {
@@ -23789,16 +23870,18 @@ const STORE = {
     const res = `Madera ${fmt(w)} | Piedra ${fmt(s)} | Plata ${fmt(i)} | Poblacion ${fmt(p)}${popTxt}${preTxt}`;
     if (head + res !== _worldTotalsLast) {
       _worldTotalsLast = head + res;
-      totals.replaceChildren();
-      const totalsH = document.createElement('div');
-      totalsH.style.cssText = 'font-weight:bold;color:#f5a623';
-      totalsH.textContent = head;
-      if (popWarn) totalsH.className = 'pop-warn-row';
-      totals.appendChild(totalsH);
-      const totalsR = document.createElement('div');
-      totalsR.style.cssText = 'color:#cfc;margin-top:3px;white-space:pre-wrap';
-      totalsR.textContent = res;
-      totals.appendChild(totalsR);
+
+      gbPaint(totals, (stage) => {
+        const totalsH = document.createElement('div');
+        totalsH.style.cssText = 'font-weight:bold;color:#f5a623';
+        totalsH.textContent = head;
+        if (popWarn) totalsH.className = 'pop-warn-row';
+        stage.appendChild(totalsH);
+        const totalsR = document.createElement('div');
+        totalsR.style.cssText = 'color:#cfc;margin-top:3px;white-space:pre-wrap';
+        totalsR.textContent = res;
+        stage.appendChild(totalsR);
+      }, { key: 'totals|' + head + res });
     }
     if (!state.towns.length) {
       if (!list.querySelector('div')) placeholder(list, 'no towns loaded yet - click Refresh towns');
@@ -26107,9 +26190,13 @@ const STORE = {
     setNum('[data-cfg=transport-min]', state.transportMin);
     const bindToggle = (sel, key, store, onOn) => {
       onCfg(sel, 'change', e => {
-        state[key] = e.target.checked; save(store, state[key]);
-        gbLog(key, state[key] ? 'ON' : 'OFF');
-        if (state[key] && onOn) onOn();
+        const next = e.target.checked;
+        const prev = !!state[key];
+        state[key] = next; save(store, state[key]);
+        gbLog(key, next ? 'ON' : 'OFF');
+        if (next && onOn) onOn();
+
+        else if (!next && prev) { try { gbAbortFeature(key); } catch (_) {} }
       });
     };
     bindToggle('[data-cfg=auto-culture]', 'autoCulture', STORE.AUTO_CULTURE, () => cultureScan('toggle'));
@@ -26711,7 +26798,7 @@ const STORE = {
     } else if (!filt.parentNode) {
       sec.insertBefore(filt, list);
     }
-    list.replaceChildren();
+
     const typeF = (state.findingsFilter.type || '').toLowerCase();
     const atkF = (state.findingsFilter.attacker || '').toLowerCase();
     const slice = state.findings.filter(f => {
@@ -26719,62 +26806,63 @@ const STORE = {
       if (atkF && !(f.attacker?.name || '').toLowerCase().includes(atkF)) return false;
       return true;
     }).slice(0, 80);
-    if (!slice.length) {
-      const empty = document.createElement('div');
-      empty.style.cssText = 'color:#888;padding:10px';
-      empty.textContent = state.findings.length ? 'no matches' : 'no findings yet - visit inbox';
-      list.appendChild(empty);
-      return;
-    }
-    for (const f of slice) {
-      const row = document.createElement('div');
-      row.className = 'finding';
-
-      const meta = document.createElement('div');
-      meta.className = 'meta';
-      const when = new Date(f.ts).toLocaleTimeString();
-      const target = f.town?.name || `t#${f.town?.id || '?'}`;
-      const coord = (f.town?.x != null) ? ` (${f.town.x}|${f.town.y})` : '';
-      meta.textContent = `#${f.id} | ${when} | ${f.type} | ${target}${coord}`;
-      gbTip(meta, 'ID \u00b7 hora \u00b7 tipo de informe \u00b7 ciudad objetivo');
-      row.appendChild(meta);
-
-      const units = document.createElement('div');
-      units.className = 'units';
-      units.textContent = f.units
-        ? Object.entries(f.units).map(([k,v]) => `${k}:${v}`).join(' ')
-        : '-';
-      gbTip(units, 'Unidades observadas en el informe');
-      row.appendChild(units);
-
-      if (f.resources && (f.resources.wood != null || f.resources.stone != null || f.resources.iron != null)) {
-        const res = document.createElement('div');
-        res.className = 'res';
-        res.textContent = `W${f.resources.wood ?? '?'} S${f.resources.stone ?? '?'} I${f.resources.iron ?? '?'}`;
-        gbTip(res, 'Recursos observados (madera/piedra/plata)');
-        row.appendChild(res);
+    gbPaint(list, (stage) => {
+      if (!slice.length) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'color:#888;padding:10px';
+        empty.textContent = state.findings.length ? 'no matches' : 'no findings yet - visit inbox';
+        stage.appendChild(empty);
+        return;
       }
+      for (const f of slice) {
+        const row = document.createElement('div');
+        row.className = 'finding';
+        stage.appendChild(row);
 
-      const bldgKeys = Object.keys(f.buildings || {});
-      if (bldgKeys.length) {
-        const b = document.createElement('div');
-        b.className = 'res';
-        const top = bldgKeys.sort((x, y) => f.buildings[y] - f.buildings[x]).slice(0, 3);
-        b.textContent = 'bldg: ' + top.map(k => `${k}=${f.buildings[k]}`).join(' ') + (bldgKeys.length > 3 ? ' \u2026' : '');
-        b.title = bldgKeys.sort().map(k => `${k}=${f.buildings[k]}`).join(' ');
-        gbTip(b, 'Top 3 edificios por nivel (hover para ver todos)');
-        row.appendChild(b);
-      }
-      if (f.hero) {
-        const h = document.createElement('div');
-        h.className = 'res';
-        h.textContent = 'heroe: ' + [f.hero.name, f.hero.level != null ? 'lv' + f.hero.level : null, f.hero.cls].filter(Boolean).join(' ');
-        gbTip(h, 'Heroe visto en el informe');
-        row.appendChild(h);
-      }
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const when = new Date(f.ts).toLocaleTimeString();
+        const target = f.town?.name || `t#${f.town?.id || '?'}`;
+        const coord = (f.town?.x != null) ? ` (${f.town.x}|${f.town.y})` : '';
+        meta.textContent = `#${f.id} | ${when} | ${f.type} | ${target}${coord}`;
+        gbTip(meta, 'ID \u00b7 hora \u00b7 tipo de informe \u00b7 ciudad objetivo');
+        row.appendChild(meta);
 
-      list.appendChild(row);
-    }
+        const units = document.createElement('div');
+        units.className = 'units';
+        units.textContent = f.units
+          ? Object.entries(f.units).map(([k,v]) => `${k}:${v}`).join(' ')
+          : '-';
+        gbTip(units, 'Unidades observadas en el informe');
+        row.appendChild(units);
+
+        if (f.resources && (f.resources.wood != null || f.resources.stone != null || f.resources.iron != null)) {
+          const res = document.createElement('div');
+          res.className = 'res';
+          res.textContent = `W${f.resources.wood ?? '?'} S${f.resources.stone ?? '?'} I${f.resources.iron ?? '?'}`;
+          gbTip(res, 'Recursos observados (madera/piedra/plata)');
+          row.appendChild(res);
+        }
+
+        const bldgKeys = Object.keys(f.buildings || {});
+        if (bldgKeys.length) {
+          const b = document.createElement('div');
+          b.className = 'res';
+          const top = bldgKeys.sort((x, y) => f.buildings[y] - f.buildings[x]).slice(0, 3);
+          b.textContent = 'bldg: ' + top.map(k => `${k}=${f.buildings[k]}`).join(' ') + (bldgKeys.length > 3 ? ' \u2026' : '');
+          b.title = bldgKeys.sort().map(k => `${k}=${f.buildings[k]}`).join(' ');
+          gbTip(b, 'Top 3 edificios por nivel (hover para ver todos)');
+          row.appendChild(b);
+        }
+        if (f.hero) {
+          const h = document.createElement('div');
+          h.className = 'res';
+          h.textContent = 'heroe: ' + [f.hero.name, f.hero.level != null ? 'lv' + f.hero.level : null, f.hero.cls].filter(Boolean).join(' ');
+          gbTip(h, 'Heroe visto en el informe');
+          row.appendChild(h);
+        }
+      }
+    }, { key: 'findings|' + typeF + '|' + atkF + '|' + state.findings.length + '|' + slice.length });
   }
 
   const REPLAY_WINDOWS = { '1h': 3600000, '24h': 86400000, '7d': 604800000 };
@@ -27310,6 +27398,8 @@ const STORE = {
     NATIVE_QUEUE_BOOT_MS: 14000,
     ORCH_FIRST_TICK_MS: 15000,
     IB_CLICK_HOOK_MS: 2000,
+
+    PANEL_MOUNT_MS: 50,
   });
   function ensurePanelMounted() {
     if (!panel) return;
@@ -27372,7 +27462,7 @@ const STORE = {
   gbListen(window, 'pageshow', (e) => {
     if (!(e && e.persisted)) return;
 
-    releaseLocksAt = Date.now() + 3000;
+    releaseLocksAt = Date.now() + RELEASE_DEDUP_MS;
     try { gbWakeMarkResume('bfcache'); } catch (e) { gbLogT('boot-wake-bfcache', 60000, 'wake bfcache: ' + String(e?.message || e).slice(0, 80)); }
     farmTick();
     try { reportCatchUpEnqueue(); } catch (e) { gbLogT('boot-catchup', 60000, 'catchup: ' + String(e?.message || e).slice(0, 80)); }
@@ -27437,7 +27527,12 @@ const STORE = {
   contextMenuStart();
   gbTimeout(() => { try { hudRestore(); } catch (e) { gbLogT('boot-hud-restore', 60000, 'hud restore: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.HUD_RESTORE_MS);
 
-  gbInterval(() => { gbLockSweep(); try { diagnosticsTick(); } catch (e) { gbLogT('boot-diag-tick', 60000, 'diag tick: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.LOCK_SWEEP_MS);
+  gbInterval(() => {
+    gbLockSweep();
+
+    try { if (state && state.captchaBreakers) for (const f of Object.keys(state.captchaBreakers)) { try { if (typeof captchaExpireSweep === 'function') captchaExpireSweep(f); } catch (_) {} } } catch (_) {}
+    try { diagnosticsTick(); } catch (e) { gbLogT('boot-diag-tick', 60000, 'diag tick: ' + String(e?.message || e).slice(0, 80)); }
+  }, BOOT_TIMING.LOCK_SWEEP_MS);
 
   const releaseLocks = () => {
     const now = Date.now();
@@ -27453,6 +27548,9 @@ const STORE = {
     try { if (typeof persistServerCooldown === 'function') persistServerCooldown(); } catch (e) { gbLogT('boot-release-cooldown', 60000, 'cooldown save: ' + String(e?.message || e).slice(0, 80)); }
     try { if (typeof nativeQueueSaveFlush === 'function') nativeQueueSaveFlush(); } catch (e) { gbLogT('boot-release-nqs', 60000, 'nqs flush: ' + String(e?.message || e).slice(0, 80)); }
     try { snapshotBuild('exit'); } catch (e) { gbLogT('boot-release-snap', 60000, 'snapshot: ' + String(e?.message || e).slice(0, 80)); }
+
+    try { if (_gbEvents && typeof _gbEvents.close === 'function') { _gbEvents.close(); _gbEvents = null; } } catch (e) { gbLogT('boot-release-bc', 60000, 'bc close: ' + String(e?.message || e).slice(0, 80)); }
+    try { if (typeof gbAbortXhrs === 'function') gbAbortXhrs(); } catch (e) { gbLogT('boot-release-xhrs', 60000, 'xhr abort: ' + String(e?.message || e).slice(0, 80)); }
 
     try { if (typeof saveFlush === 'function') saveFlush(); } catch (e) { gbLogT('boot-release-save', 60000, 'save flush: ' + String(e?.message || e).slice(0, 80)); }
   };

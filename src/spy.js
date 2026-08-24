@@ -92,7 +92,7 @@
             let raw = null;
             try { raw = tryParseJson(this.responseText || ''); } catch (_) {}
             try { settle(this.status, raw); } catch (_) {}
-          });
+          }, { once: true });
         }
       } catch (_) {}
       try {

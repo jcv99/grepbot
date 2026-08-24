@@ -42,7 +42,7 @@
   function abClampTarget(building, lvl) {
     const lo = abMinLevel(building);
     const hi = abMaxLevel(building);
-    const n = Math.max(lo, Math.floor(Number.isFinite(+lvl) ? +lvl : 0));
+    const n = Math.max(lo, Math.floor(gbNum(lvl) || 0));
     return hi == null ? n : Math.min(hi, n);
   }
   function abSetTarget(building, lvl) {

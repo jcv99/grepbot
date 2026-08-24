@@ -46,12 +46,18 @@
     try { text = JSON.stringify(snapshotPayload()); } catch (_) { return false; }
     // Dropped, never truncated and never allowed to grow the ring: a snapshot
     // that does not fit the budget is not a smaller snapshot, it is a bad one.
-    if (text.length > SNAPSHOT_BUDGET_BYTES) {
-      gbLogT('snapshot-oversize', 60000, `snapshot: ${text.length}B over the ${SNAPSHOT_BUDGET_BYTES}B budget - dropped`);
+    // SNAPSHOT_BUDGET_BYTES is a BYTE budget (persisted to GM_setValue); text.length
+    // counts UTF-16 code units and lets Spanish payloads (ñ/ó/í/á) and emoji
+    // sneak past as smaller than they really are. TextEncoder gives the real
+    // UTF-8 byte count.
+    let byteLen = 0;
+    try { byteLen = new TextEncoder().encode(text).length; } catch (_) { byteLen = text.length; }
+    if (byteLen > SNAPSHOT_BUDGET_BYTES) {
+      gbLogT('snapshot-oversize', 60000, `snapshot: ${byteLen}B over the ${SNAPSHOT_BUDGET_BYTES}B budget - dropped`);
       return false;
     }
     const ring = snapshotRing();
-    ring.push({ at: Date.now(), sizeBytes: text.length, reason: reason || 'tick', payload: JSON.parse(text) });
+    ring.push({ at: Date.now(), sizeBytes: byteLen, reason: reason || 'tick', payload: JSON.parse(text) });
     while (ring.length > SNAPSHOT_SLOTS) ring.shift();
     snapshotLastAt = Date.now();
     save(STORE.SNAPSHOTS, ring);

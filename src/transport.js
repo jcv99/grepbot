@@ -38,8 +38,11 @@
     const out = {};
     let any = false;
     for (const k of GB_RES_KEYS) {
-      const raw = +p[k];
-      if (!Number.isFinite(raw) || raw < 0) { out[k] = null; continue; }
+      // gbNum preserves null on null / '' / [] / false so a single unreadable
+      // per-key rate stays blind instead of collapsing to 0; transportTownRes
+      // checks prod[k] == null, not prod[k] === 0, so the blind flag survives.
+      const raw = gbNum(p[k]);
+      if (raw == null || raw < 0) { out[k] = null; continue; }
       out[k] = raw > 100 ? raw / 3600 : raw;
       any = true;
     }
@@ -57,9 +60,14 @@
     const fillPct = {};
     const eta = {};
     for (const k of GB_RES_KEYS) {
-      fillPct[k] = base.cap > 0 ? Math.max(0, Math.min(1, (+base[k] || 0) / base.cap)) : null;
+      // gbNum preserves null on null/''/[]/false; +base[k] || 0 would have
+      // collapsed an unreadable resource onto 0, making fillPct either 0% or
+      // (with cap > 0) a misleadingly-precise reading.
+      const have = gbNum(base[k]);
+      fillPct[k] = (base.cap > 0 && have != null) ? Math.max(0, Math.min(1, have / base.cap)) : null;
       if (!(base.cap > 0)) { eta[k] = null; continue; }
-      const room = base.cap - (+base[k] || 0);
+      const room = (have != null) ? base.cap - have : null;
+      if (room == null) { eta[k] = null; continue; }
       if (room <= 0) { eta[k] = 0; continue; }
       const rate = prod ? prod[k] : null;
       eta[k] = rate > 0 ? (room / rate) * 1000 : null;
@@ -85,7 +93,7 @@
     // evaporates on arrival. Report blind and let the caller refuse.
     if (!inc.known) return { woodFree: null, stoneFree: null, ironFree: null, blind: true };
     const mov = inc.byTown[String(townId)] || {};
-    const ms = Math.max(0, +deltaMs || 0);
+    const ms = Math.max(0, gbNum(deltaMs) || 0);
     // The only projected drain this tree can actually read is the cave iron
     // reserve. Build/culture/recruit consumption is not exposed as a rate
     // anywhere in src/, so it is NOT deducted - reporting it as zero would be
@@ -114,7 +122,7 @@
     const st = transportTownRes(townId);
     if (!st || !(st.cap > 0)) return { ms: null, blind: true };
     if (!st.production || st.production[resource] == null) return { ms: null, blind: true };
-    const want = Math.max(0, Math.min(1, +targetFillPct || 0)) * st.cap;
+    const want = Math.max(0, Math.min(1, gbNum(targetFillPct) || 0)) * st.cap;
     const key = resource + 'Free';
 
     let delta = TRANSPORT_ETA_MAX_MS / 128;

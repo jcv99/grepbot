@@ -236,16 +236,21 @@
     const res = `Madera ${fmt(w)} | Piedra ${fmt(s)} | Plata ${fmt(i)} | Poblacion ${fmt(p)}${popTxt}${preTxt}`;
     if (head + res !== _worldTotalsLast) {
       _worldTotalsLast = head + res;
-      totals.replaceChildren();
-      const totalsH = document.createElement('div');
-      totalsH.style.cssText = 'font-weight:bold;color:#f5a623';
-      totalsH.textContent = head;
-      if (popWarn) totalsH.className = 'pop-warn-row';
-      totals.appendChild(totalsH);
-      const totalsR = document.createElement('div');
-      totalsR.style.cssText = 'color:#cfc;margin-top:3px;white-space:pre-wrap';
-      totalsR.textContent = res;
-      totals.appendChild(totalsR);
+      // Route through gbPaint: the prior bare replaceChildren detaches every
+      // descendant of `totals`. The block is gated by a content diff so it
+      // doesn't actually fire on every tick, but routing through gbPaint keeps
+      // the focus / selection invariants honest for any future caller.
+      gbPaint(totals, (stage) => {
+        const totalsH = document.createElement('div');
+        totalsH.style.cssText = 'font-weight:bold;color:#f5a623';
+        totalsH.textContent = head;
+        if (popWarn) totalsH.className = 'pop-warn-row';
+        stage.appendChild(totalsH);
+        const totalsR = document.createElement('div');
+        totalsR.style.cssText = 'color:#cfc;margin-top:3px;white-space:pre-wrap';
+        totalsR.textContent = res;
+        stage.appendChild(totalsR);
+      }, { key: 'totals|' + head + res });
     }
     if (!state.towns.length) {
       if (!list.querySelector('div')) placeholder(list, 'no towns loaded yet - click Refresh towns');
@@ -2691,9 +2696,16 @@
     setNum('[data-cfg=transport-min]', state.transportMin);
     const bindToggle = (sel, key, store, onOn) => {
       onCfg(sel, 'change', e => {
-        state[key] = e.target.checked; save(store, state[key]);
-        gbLog(key, state[key] ? 'ON' : 'OFF');
-        if (state[key] && onOn) onOn();
+        const next = e.target.checked;
+        const prev = !!state[key];
+        state[key] = next; save(store, state[key]);
+        gbLog(key, next ? 'ON' : 'OFF');
+        if (next && onOn) onOn();
+        // Toggling a feature OFF mid-flight must cancel its in-flight bridge
+        // and gm_xhr posts so an attack/recruit/support doesn't land after
+        // the user disabled it. gbAbortFeature also settles the bridge write
+        // path through gbAjaxCancelFeature — see bridge.js.
+        else if (!next && prev) { try { gbAbortFeature(key); } catch (_) {} }
       });
     };
     bindToggle('[data-cfg=auto-culture]', 'autoCulture', STORE.AUTO_CULTURE, () => cultureScan('toggle'));
@@ -3325,7 +3337,10 @@
     } else if (!filt.parentNode) {
       sec.insertBefore(filt, list);
     }
-    list.replaceChildren();
+    // Route through gbPaint: the prior bare list.replaceChildren() ran on
+    // every render (which itself fires from a spy timer), so a focused
+    // descendants inside the list were silently lost. gbPaint keeps focus +
+    // selection across rebuilds and patches structurally-stable trees.
     const typeF = (state.findingsFilter.type || '').toLowerCase();
     const atkF = (state.findingsFilter.attacker || '').toLowerCase();
     const slice = state.findings.filter(f => {
@@ -3333,62 +3348,63 @@
       if (atkF && !(f.attacker?.name || '').toLowerCase().includes(atkF)) return false;
       return true;
     }).slice(0, 80);
-    if (!slice.length) {
-      const empty = document.createElement('div');
-      empty.style.cssText = 'color:#888;padding:10px';
-      empty.textContent = state.findings.length ? 'no matches' : 'no findings yet - visit inbox';
-      list.appendChild(empty);
-      return;
-    }
-    for (const f of slice) {
-      const row = document.createElement('div');
-      row.className = 'finding';
-
-      const meta = document.createElement('div');
-      meta.className = 'meta';
-      const when = new Date(f.ts).toLocaleTimeString();
-      const target = f.town?.name || `t#${f.town?.id || '?'}`;
-      const coord = (f.town?.x != null) ? ` (${f.town.x}|${f.town.y})` : '';
-      meta.textContent = `#${f.id} | ${when} | ${f.type} | ${target}${coord}`;
-      gbTip(meta, 'ID · hora · tipo de informe · ciudad objetivo');
-      row.appendChild(meta);
-
-      const units = document.createElement('div');
-      units.className = 'units';
-      units.textContent = f.units
-        ? Object.entries(f.units).map(([k,v]) => `${k}:${v}`).join(' ')
-        : '-';
-      gbTip(units, 'Unidades observadas en el informe');
-      row.appendChild(units);
-
-      if (f.resources && (f.resources.wood != null || f.resources.stone != null || f.resources.iron != null)) {
-        const res = document.createElement('div');
-        res.className = 'res';
-        res.textContent = `W${f.resources.wood ?? '?'} S${f.resources.stone ?? '?'} I${f.resources.iron ?? '?'}`;
-        gbTip(res, 'Recursos observados (madera/piedra/plata)');
-        row.appendChild(res);
+    gbPaint(list, (stage) => {
+      if (!slice.length) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'color:#888;padding:10px';
+        empty.textContent = state.findings.length ? 'no matches' : 'no findings yet - visit inbox';
+        stage.appendChild(empty);
+        return;
       }
+      for (const f of slice) {
+        const row = document.createElement('div');
+        row.className = 'finding';
+        stage.appendChild(row);
 
-      const bldgKeys = Object.keys(f.buildings || {});
-      if (bldgKeys.length) {
-        const b = document.createElement('div');
-        b.className = 'res';
-        const top = bldgKeys.sort((x, y) => f.buildings[y] - f.buildings[x]).slice(0, 3);
-        b.textContent = 'bldg: ' + top.map(k => `${k}=${f.buildings[k]}`).join(' ') + (bldgKeys.length > 3 ? ' …' : '');
-        b.title = bldgKeys.sort().map(k => `${k}=${f.buildings[k]}`).join(' ');
-        gbTip(b, 'Top 3 edificios por nivel (hover para ver todos)');
-        row.appendChild(b);
-      }
-      if (f.hero) {
-        const h = document.createElement('div');
-        h.className = 'res';
-        h.textContent = 'heroe: ' + [f.hero.name, f.hero.level != null ? 'lv' + f.hero.level : null, f.hero.cls].filter(Boolean).join(' ');
-        gbTip(h, 'Heroe visto en el informe');
-        row.appendChild(h);
-      }
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const when = new Date(f.ts).toLocaleTimeString();
+        const target = f.town?.name || `t#${f.town?.id || '?'}`;
+        const coord = (f.town?.x != null) ? ` (${f.town.x}|${f.town.y})` : '';
+        meta.textContent = `#${f.id} | ${when} | ${f.type} | ${target}${coord}`;
+        gbTip(meta, 'ID · hora · tipo de informe · ciudad objetivo');
+        row.appendChild(meta);
 
-      list.appendChild(row);
-    }
+        const units = document.createElement('div');
+        units.className = 'units';
+        units.textContent = f.units
+          ? Object.entries(f.units).map(([k,v]) => `${k}:${v}`).join(' ')
+          : '-';
+        gbTip(units, 'Unidades observadas en el informe');
+        row.appendChild(units);
+
+        if (f.resources && (f.resources.wood != null || f.resources.stone != null || f.resources.iron != null)) {
+          const res = document.createElement('div');
+          res.className = 'res';
+          res.textContent = `W${f.resources.wood ?? '?'} S${f.resources.stone ?? '?'} I${f.resources.iron ?? '?'}`;
+          gbTip(res, 'Recursos observados (madera/piedra/plata)');
+          row.appendChild(res);
+        }
+
+        const bldgKeys = Object.keys(f.buildings || {});
+        if (bldgKeys.length) {
+          const b = document.createElement('div');
+          b.className = 'res';
+          const top = bldgKeys.sort((x, y) => f.buildings[y] - f.buildings[x]).slice(0, 3);
+          b.textContent = 'bldg: ' + top.map(k => `${k}=${f.buildings[k]}`).join(' ') + (bldgKeys.length > 3 ? ' …' : '');
+          b.title = bldgKeys.sort().map(k => `${k}=${f.buildings[k]}`).join(' ');
+          gbTip(b, 'Top 3 edificios por nivel (hover para ver todos)');
+          row.appendChild(b);
+        }
+        if (f.hero) {
+          const h = document.createElement('div');
+          h.className = 'res';
+          h.textContent = 'heroe: ' + [f.hero.name, f.hero.level != null ? 'lv' + f.hero.level : null, f.hero.cls].filter(Boolean).join(' ');
+          gbTip(h, 'Heroe visto en el informe');
+          row.appendChild(h);
+        }
+      }
+    }, { key: 'findings|' + typeF + '|' + atkF + '|' + state.findings.length + '|' + slice.length });
   }
   // v4 plan 8.5: walk the decision ring forward, one row at a time, with the
   // open skip window for that row beside it. Read-only - the replay never

@@ -122,7 +122,7 @@
     let tradeCap = null;
     try {
       const t = gbTownModel(townId);
-      if (t && t.getAvailableTradeCapacity) tradeCap = +t.getAvailableTradeCapacity();
+      if (t && t.getAvailableTradeCapacity) tradeCap = gbNum(t.getAvailableTradeCapacity());
     } catch (_) {}
     return st ? { wood: st.wood, stone: st.stone, iron: st.iron, cap: st.cap, tradeCap } : null;
   }
@@ -130,13 +130,22 @@
     const t = gbTownModel(townId);
     if (!t) return null;
     let have = null, queued = 0;
-    try { const u=t.units&&t.units(),o=t.unitsOuter&&t.unitsOuter();if(u)have=(+u[unit]||0)+(o?(+o[unit]||0):0); } catch (_) {}
+    // Unreadable unit count stays blind: `(+u[unit]||0)` would have collapsed
+    // null/''/[] onto 0, the +queued addition below would have produced a
+    // fabricated total, and reconcile would have classified the post as
+    // 'committed' on a value it never read. gbNum keeps `have` null and
+    // txReconcileNow returns 'unknown' on the next line.
+    try { const u=t.units&&t.units(),o=t.unitsOuter&&t.unitsOuter();if(u){const a=gbNum(u[unit]),b=o?gbNum(o[unit]):null;if(a!=null||b!=null)have=(a||0)+(b||0);} } catch (_) {}
     try {
       const col = t.getUnitOrdersCollection && t.getUnitOrdersCollection();
       for (const m of ((col && col.models) || [])) {
         const a = m.attributes || {};
         const uid = a.unit_type || a.unit_id || a.type;
-        if (String(uid) === String(unit)) queued += +(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)) || 0;
+        // Queue size is bot-internal accounting: it is added to `have` and the
+        // total is compared to s.status.total + amount. A real `0` for an
+        // unqueued unit is the only legitimate reading; null means the order
+        // shape is unknown and the sweep skips it.
+        if (String(uid) === String(unit)) { const q = gbNum(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)); if (q != null) queued += q; }
       }
     } catch (_) {}
     return have == null ? null : { have, queued, total: have + queued };
@@ -435,12 +444,15 @@
     if (feature === 'pttrade') return `pttrade:${townId || '-'}:${a.offer_id || a.offer || (d.model_url ? String(d.model_url).split('/').pop() : '') || endpoint}`;
     return `${feature}:${townId || '-'}:${endpoint}:${JSON.stringify(txStableObj(a)).slice(0, 100)}`;
   }
-  function txNum(v) { return Number.isFinite(+v) ? +v : null; }
-  function txLt(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x < y; }
-  function txGt(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x > y; }
-  function txNe(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x !== y; }
+  // txNum was a duplicate of gbNum that accepted null/''/' '/[]/false as 0 -
+  // the exact failure mode CLAUDE.md hard rule #1 calls out. All reconcile
+  // paths now go through gbNum so an unreadable client value stays blind
+  // instead of fabricating a committed / unknown / applied verdict.
+  function txLt(a, b) { const x = gbNum(a), y = gbNum(b); return x != null && y != null && x < y; }
+  function txGt(a, b) { const x = gbNum(a), y = gbNum(b); return x != null && y != null && x > y; }
+  function txNe(a, b) { const x = gbNum(a), y = gbNum(b); return x != null && y != null && x !== y; }
   function txResTriadReadable(o) {
-    return !!o && txNum(o.wood) != null && txNum(o.stone) != null && txNum(o.iron) != null;
+    return !!o && gbNum(o.wood) != null && gbNum(o.stone) != null && gbNum(o.iron) != null;
   }
   function txReconcileNow(tx) {
     const s = tx.snapshot || {};
@@ -463,7 +475,7 @@
         const cur = txUnitStatus(meta.townId, s.unit);
         if (!cur || !s.status) return 'unknown';
 
-        if (txNum(cur.total) == null || txNum(s.status.total) == null) return 'unknown';
+        if (gbNum(cur.total) == null || gbNum(s.status.total) == null) return 'unknown';
         if (cur.total >= s.status.total + Math.max(1, s.amount || 0)) return 'applied';
         return 'unchanged';
       }
@@ -490,7 +502,7 @@
       }
       if (s.kind === 'spy') {
         const cur = txCaveStatus(meta.townId);
-        if (!cur || !s.before || txNum(cur.stored) == null || txNum(s.before.stored) == null) return 'unknown';
+        if (!cur || !s.before || gbNum(cur.stored) == null || gbNum(s.before.stored) == null) return 'unknown';
 
         return txLt(cur.stored, s.before.stored) ? 'applied' : 'unchanged';
       }
@@ -745,15 +757,19 @@
           return;
         }
         if (r === 'unchanged') {
-          existing.state = 'failed'; existing.updatedAt = Date.now(); existing.detail = 'reconciled not applied; retry allowed'; plannerRelease(existing, 'reconciled-unchanged'); txSave();
-          // Deferred, not a synchronous re-entry: the immediate retry ran inside
-          // the same tick and re-charged a tx record, a journal row and a budget
-          // slot before any gate could see the pressure. Same shape as the soft
-          // ceiling delay above.
-          return gbTimeout(() => txRun(feature, transport, endpoint, data, rawSend, onDone), 250);
+          // CLAUDE.md hard rule: "Timeout ≠ retry for an irreversible action.
+          // Reconcile instead." A reconcile=unchanged verdict on an irreversible
+          // write (recruit / attack / support / trade / cave / spell) is the
+          // exact case the rule covers: the previous post MAY have landed but
+          // the model read was stale, and re-entering txRun 250ms later would
+          // double-spend a unit / attack / trade slot. Set state to 'unknown'
+          // and let the next cadence tick re-evaluate.
+          existing.state = 'unknown'; existing.unknownAt = Date.now(); existing.updatedAt = Date.now(); existing.detail = 'reconciled not applied; next cadence re-evaluates'; txSave();
+          jrnPush(jtag, 'unknown', 'reconciled-unchanged', existing.id);
+          markModuleHealth(feature, 'err');
+          if (onDone) onDone('unknown', null);
+          return;
         }
-        existing.state = 'unknown'; existing.unknownAt = existing.unknownAt || Date.now(); existing.updatedAt = Date.now(); txSave();
-        return bail('timeout_unknown', 'unknown outcome still unresolved');
       });
     }
 

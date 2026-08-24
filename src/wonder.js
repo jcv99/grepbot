@@ -90,11 +90,13 @@
     const tot = job.send.wood + job.send.stone + job.send.iron;
     const pav = plannerAvailable(job.townId, {allowSoft:false});
 
-    const wonderNum = (v) => (Number.isFinite(+v) ? +v : null);
-    const pvW = wonderNum(pav && pav.wood), pvS = wonderNum(pav && pav.stone), pvI = wonderNum(pav && pav.iron);
-    const frW = wonderNum(fresh && fresh.wood), frS = wonderNum(fresh && fresh.stone), frI = wonderNum(fresh && fresh.iron);
+    // wonderNum was a local `Number.isFinite(+v) ? +v : null` closure; gbNum
+    // is the canonical reader and rejects null / '' / [] / false instead of
+    // coercing them to 0, which is what the precheck below actually wants.
+    const pvW = gbNum(pav && pav.wood), pvS = gbNum(pav && pav.stone), pvI = gbNum(pav && pav.iron);
+    const frW = gbNum(fresh && fresh.wood), frS = gbNum(fresh && fresh.stone), frI = gbNum(fresh && fresh.iron);
     if (!fresh || !pav || pvW == null || pvS == null || pvI == null || frW == null || frS == null || frI == null
-      || !(wonderNum(fresh.tradeCap) >= tot) || pav.tradeCap == null || !(wonderNum(pav.tradeCap) >= tot)
+      || !(gbNum(fresh.tradeCap) >= tot) || pav.tradeCap == null || !(gbNum(pav.tradeCap) >= tot)
       || pvW < job.send.wood || pvS < job.send.stone || pvI < job.send.iron
       || frW - job.send.wood < reserve || frS - job.send.stone < reserve || frI - job.send.iron < reserve
       || wonderSpentToday.amount + tot > budget) {

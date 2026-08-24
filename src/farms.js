@@ -39,6 +39,11 @@
         gbLog('sniffed bandit bridge call:', body.slice(0, 300));
       } else if (/BuildingOrder/.test(body) && /Instant|instant/i.test(body)) {
         const j = parseBodyLoose(body);
+        // Skip GrepBot's own instant-build posts: gameAjaxRaw now selfBridgeNote()'s
+        // its outgoing payloads (bridge.js mirror of bridgeRaw:234), so any post we
+        // can recognise as ours is a non-learning event. Without the gate every
+        // instant build re-writes state.ibAction and emits a noisy "learned" log.
+        if (j && isSelfBridge(j)) return;
         if (j && j.action_name && /instant/i.test(j.action_name)) {
           if (typeof ibLearnAction === 'function') {
             ibLearnAction('build', j.action_name);
@@ -51,6 +56,7 @@
         }
       } else if (/ResearchOrder/.test(body) && /Instant|instant/i.test(body)) {
         const j = parseBodyLoose(body);
+        if (j && isSelfBridge(j)) return;
         if (j && j.action_name && /instant/i.test(j.action_name)) {
           if (typeof ibLearnAction === 'function') {
             ibLearnAction('research', j.action_name);
@@ -602,16 +608,17 @@
   // 'always'. Nothing here may guess: an unreadable table is UNKNOWN and the
   // unit claim is skipped, never posted on a guessed option index.
   const FARM_UNIT_ORDER = ['sword', 'slinger', 'archer', 'hoplite'];
-  function farmUnitIdFor(option) { return FARM_UNIT_ORDER[(+option || 0) - 1] || null; }
+  function farmUnitIdFor(option) { return FARM_UNIT_ORDER[(gbNum(option) || 0) - 1] || null; }
   function farmVillageLevel(farm) {
     const rel = farm && farm._rel;
     const a = (farm && farm._attrs) || {};
     let level = null;
-    try { if (rel && typeof rel.getLevel === 'function') level = +rel.getLevel(); } catch (_) {}
-    if (Number.isFinite(level)) return level;
-    const status = +a.relation_status;
-    if (status === 0) return 0;
-    return Number.isFinite(+a.expansion_stage) ? +a.expansion_stage : null;
+    try { if (rel && typeof rel.getLevel === 'function') level = gbNum(rel.getLevel()); } catch (_) {}
+    if (level != null) return level;
+    // relation_status === 0 is the canonical "no relation" marker; only the
+    // exact 0 (not a coerced null/undefined via `+`) collapses to 0 here.
+    if (a.relation_status === 0) return 0;
+    return gbNum(a.expansion_stage);
   }
   function farmClaimUnitsTable(farm) {
     const t = gbGameDataLookup('farm_town', 'claim_units');
