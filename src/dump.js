@@ -75,7 +75,7 @@
     let jobs = [];
     try {
       const probe = Object.create(null);
-      for (const [k, v] of Object.entries(ledger)) probe[k] = Object.assign({}, v);
+      for (const [k, v] of Object.entries(ledger)) probe[k] = structuredClone(v);
       jobs = transportBalanceJobs(towns, probe) || [];
     } catch (e) { jobs = []; gbLogT('dump-balance-err', 60000, 'dump: transportBalanceJobs threw: ' + String(e).slice(0, 120)); }
     const hit = jobs.find(j => String(j.from) === from && (+j[res] || 0) > 0);
