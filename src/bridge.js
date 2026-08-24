@@ -115,6 +115,32 @@
     }
     return null;
   }
+  // Persist a learned bridge-body template. Strict-by-default per Pact: rejects
+  // payloads missing model_url/action_name, copies j.arguments with stripArgs
+  // removed, copies j.town_id when present. Caller owns stateKey/storeKey
+  // naming and the post-save follow-up (gbLog note, tplHealthMarkLearned). The
+  // matcher tpl that was hand-clicked would be the inverse direction - this
+  // helper only handles the "learned from a sniffed request" path used at 9
+  // inline sites (attackTpl, spyTpl, claimTpl, etc.). OPEN-PLAN 2.7.
+  function learnTemplate(stateKey, storeKey, j, opts) {
+    if (!j || typeof j !== 'object' || !j.model_url || !j.action_name) return false;
+    const stripArgs = (opts && opts.stripArgs) || [];
+    const args = Object.assign({}, j.arguments || {});
+    for (const k of stripArgs) delete args[k];
+    const tpl = {
+      model_url: j.model_url,
+      action_name: j.action_name,
+      arguments: args,
+      version: 1,
+      learned_at: Date.now(),
+    };
+    if (j.town_id != null) tpl.town_id = j.town_id;
+    state[stateKey] = tpl;
+    save(wkey(storeKey), tpl);
+    gbLog('learned ' + ((opts && opts.label) || stateKey) + ' template: ' + j.action_name);
+    try { tplHealthMarkLearned(stateKey); } catch (_) {}
+    return true;
+  }
   const GB_CAPTCHA_FLAGS = ['captcha', 'captcha_required'];
   // 256 KB cap on the unwrap path's JSON.parse. A hostile mirror can't burn
   // CPU on every probe; large real responses still pass because the bridge

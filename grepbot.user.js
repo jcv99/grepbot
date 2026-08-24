@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.21
+// @version      5.10.22
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -3428,6 +3428,26 @@ const STORE = {
       if (sigs.indexOf(gbAjaxPending[i].sig) >= 0) return gbAjaxPending.splice(i, 1)[0].settle;
     }
     return null;
+  }
+
+  function learnTemplate(stateKey, storeKey, j, opts) {
+    if (!j || typeof j !== 'object' || !j.model_url || !j.action_name) return false;
+    const stripArgs = (opts && opts.stripArgs) || [];
+    const args = Object.assign({}, j.arguments || {});
+    for (const k of stripArgs) delete args[k];
+    const tpl = {
+      model_url: j.model_url,
+      action_name: j.action_name,
+      arguments: args,
+      version: 1,
+      learned_at: Date.now(),
+    };
+    if (j.town_id != null) tpl.town_id = j.town_id;
+    state[stateKey] = tpl;
+    save(wkey(storeKey), tpl);
+    gbLog('learned ' + ((opts && opts.label) || stateKey) + ' template: ' + j.action_name);
+    try { tplHealthMarkLearned(stateKey); } catch (_) {}
+    return true;
   }
   const GB_CAPTCHA_FLAGS = ['captcha', 'captcha_required'];
 
