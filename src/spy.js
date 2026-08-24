@@ -574,10 +574,5 @@
   function spyLearnTemplate(j) {
     if (!j || !j.model_url || !j.action_name) return;
     if (typeof isSelfBridge === 'function' && isSelfBridge(j)) return;
-    const args = Object.assign({}, j.arguments || {});
-    delete args.id;
-    state.spyTpl = { model_url: j.model_url, action_name: j.action_name, arguments: args, town_id: j.town_id, version: 1, learned_at: Date.now() };
-    save(wkey(STORE.SPY_TPL), state.spyTpl);
-    gbLog('learned spy template: ' + j.action_name);
-    try { tplHealthMarkLearned('spyTpl'); } catch (_) {}
+    learnTemplate('spyTpl', STORE.SPY_TPL, j, { stripArgs: ['id'], label: 'spy' });
   }
