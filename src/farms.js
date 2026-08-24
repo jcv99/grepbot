@@ -543,8 +543,11 @@
       return out({ score: null, why: 'headroom-blind', townId: String(tid) });
     }
     const duration = farmDurationPick(tid);
-    const loyalty = farmLoyaltyResearched(tid) ? 1.0 : 0.5;
-    const est = gbLootEstimate({ kind: 'farm-claim', durationSec: duration, loyalty, headroom });
+    // loyalty is deliberately 1.0, matching farmDurationPick above. A
+    // discount here diverges from the picker: the ranker would under-rank
+    // loyalty-less villages while the picker still chose a duration sized
+    // for the full 1.0 estimate. Aligned in v5.10.12 per OPEN-PLAN 1.5.
+    const est = gbLootEstimate({ kind: 'farm-claim', durationSec: duration, loyalty: 1.0, headroom });
     // Distance is in island-coordinate units. The in-game march formula is not
     // in the bridge model, so seconds-per-unit is a user-pinned number and
     // defaults to 0 - the rank is distance-agnostic until the player pins one.
