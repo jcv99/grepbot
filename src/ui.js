@@ -2960,7 +2960,7 @@
       // requestPermission inside a real user gesture.
       try {
         const r = Notification.requestPermission();
-        if (r && typeof r.then === 'function') r.then(() => bindConfig());
+        if (r && typeof r.then === 'function') r.then(() => bindConfig(), () => bindConfig());
         else bindConfig();
       } catch (e) { flash('notificaciones no soportadas'); }
     });
