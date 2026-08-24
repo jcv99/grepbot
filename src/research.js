@@ -56,7 +56,7 @@
   function researchTownTechs(townId) {
     const uw = gameUw();
     try {
-      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      const t = gbTownModel(townId);
       if (!t) return null;
       let res = {};
       try { res = (t.researches && t.researches().attributes) || {}; } catch (_) {}

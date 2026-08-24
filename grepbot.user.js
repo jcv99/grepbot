@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.32
+// @version      5.10.33
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -6564,7 +6564,7 @@ const STORE = {
   function townResourcesFromGame(id) {
     const uw = gameUw();
     try {
-      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(id) : uw.ITowns.towns[id]);
+      const t = gbTownModel(id);
       if (!t || !t.resources) return null;
       const r = t.resources();
       if (!r || r.wood == null) return null;
@@ -9995,7 +9995,7 @@ const STORE = {
     const uw = uwCached();
     let t = null;
     try {
-      t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      t = gbTownModel(townId);
     } catch (_) {}
     if (!t) return null;
     let hideLvl = 0;
@@ -10742,7 +10742,7 @@ const STORE = {
   function tradeTownRes(townId) {
     const uw = gameUw();
     try {
-      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      const t = gbTownModel(townId);
       if (!t) return null;
       const r = t.resources && t.resources();
       let cap = null, tradeCap = null, pop = null, small = false;
@@ -11654,7 +11654,7 @@ const STORE = {
   function ruralTownIslandXY(townId) {
     const uw = gameUw();
     try {
-      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      const t = gbTownModel(townId);
       if (!t) return null;
       return { x: t.getIslandCoordinateX && t.getIslandCoordinateX(), y: t.getIslandCoordinateY && t.getIslandCoordinateY(), t };
     } catch (_) { return null; }
@@ -12048,7 +12048,7 @@ const STORE = {
   function researchTownTechs(townId) {
     const uw = gameUw();
     try {
-      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      const t = gbTownModel(townId);
       if (!t) return null;
       let res = {};
       try { res = (t.researches && t.researches().attributes) || {}; } catch (_) {}

@@ -11,7 +11,7 @@
   function townResourcesFromGame(id) {
     const uw = gameUw();
     try {
-      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(id) : uw.ITowns.towns[id]);
+      const t = gbTownModel(id);
       if (!t || !t.resources) return null;
       const r = t.resources();
       if (!r || r.wood == null) return null;

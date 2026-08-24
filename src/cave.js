@@ -24,7 +24,7 @@
     const uw = uwCached();
     let t = null;
     try {
-      t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      t = gbTownModel(townId);
     } catch (_) {}
     if (!t) return null;
     let hideLvl = 0;
