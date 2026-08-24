@@ -144,7 +144,10 @@
       gbUnlock('collect-bg', collectBgLock);
       if (errors) collectBgBackoff = Math.min(collectBgBackoff * 2, 600_000);
       else collectBgBackoff = 90_000;
-      scheduleCollectBg(collectBgBackoff + Math.random() * 30_000);
+      // Defer the reschedule until AFTER the unlock has fully settled, so the
+      // window between unlock and timer-set cannot leak a second
+      // collectAllBackground entry. OPEN-PLAN 1.9 / 8/23 audit #26.
+      gbTimeout(() => scheduleCollectBg(collectBgBackoff + Math.random() * 30_000), 0);
     };
     state.towns.forEach((t, i) => {
       gbTimeout(() => {
