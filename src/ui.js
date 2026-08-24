@@ -2423,8 +2423,8 @@
     setNum('[data-cfg=posts-soft-pct]', state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60);
     const cl = sec.querySelector('[data-cfg=captcha-ladder]');
     if (cl) cl.value = (Array.isArray(state.captchaLadder) && state.captchaLadder.length ? state.captchaLadder : [5, 15, 60]).join(',');
-    onCfg('[data-cfg=never-stop]', 'change',e=>{state.neverStop=!!e.target.checked;save(STORE.NEVER_STOP,state.neverStop);gbLog('neverStop',state.neverStop);updateStatus();});
-    onCfg('[data-cfg=safe-mode]', 'change',e=>{state.safeMode=!!e.target.checked;save(STORE.SAFE_MODE,state.safeMode);gbLog('safeMode',state.safeMode);updateStatus();});
+    cfgBindBool('[data-cfg=never-stop]', 'neverStop', STORE.NEVER_STOP, v => { gbLog('neverStop', v); updateStatus(); });
+    cfgBindBool('[data-cfg=safe-mode]', 'safeMode', STORE.SAFE_MODE, v => { gbLog('safeMode', v); updateStatus(); });
     onCfg('[data-cfg=enabled-host]', 'change', e => {
       state.enabledHosts[location.host] = e.target.checked;
       save(STORE.ENABLED_HOSTS, state.enabledHosts);
