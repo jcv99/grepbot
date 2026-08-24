@@ -1264,7 +1264,12 @@
     if (n) { save(STORE.FARM_RES, state.farmResources); renderFarms(); }
     return n;
   }
-  function farmScrapeNoteSweep(okCount) {
+  function farmScrapeNoteSweep(token, okCount) {
+    // Reject breaker updates from a callback whose lock has expired or been
+    // re-acquired by a newer sweep - otherwise a stale 5min+ callback can
+    // re-trip dead AFTER the new sweep just cleared it. OPEN-PLAN 1.3 /
+    // 8/23 audit #14.
+    if (!token || !gbLockTouch('farm-scrape', token)) return;
     const st = farmScrapeState();
     if (okCount > 0) {
       if (st.misses || st.dead) { st.misses = 0; st.dead = false; farmScrapeSaveState(); }
@@ -1479,7 +1484,7 @@
         gbUnlock('farm-scrape', farmScrapeLock);
         gbLog(`farm scrape done: ${ok}/${done} ok, next in ${fmtSec(Math.round(wait / 1000))}`);
         flash(`farms ${ok}/${done} ok`);
-        if (done) farmScrapeNoteSweep(ok);
+        if (done) farmScrapeNoteSweep(farmScrapeLock, ok);
         return;
       }
       fetchFarmResources(f, (good, why) => {
@@ -1492,7 +1497,7 @@
         if (why === 'budget' || why === 'disabled' || why === 'disposed') {
           gbUnlock('farm-scrape', farmScrapeLock);
           gbLog(`farm scrape stopped (${why}): ${ok}/${done} ok`);
-          if (ok || hard) farmScrapeNoteSweep(ok);
+          if (ok || hard) farmScrapeNoteSweep(farmScrapeLock, ok);
           return;
         }
         // Nothing on this world answers the ladder: stop burning the rest of the
@@ -1500,7 +1505,7 @@
         if (!ok && hard >= FARM_SCRAPE_HARD_ABORT && list.length) {
           gbUnlock('farm-scrape', farmScrapeLock);
           gbLog(`farm scrape stopped (no endpoint after ${hard} villages): 0/${done} ok`);
-          farmScrapeNoteSweep(0);
+          farmScrapeNoteSweep(farmScrapeLock, 0);
           return;
         }
         gbTimeout(step, 700 + Math.random() * 300);
