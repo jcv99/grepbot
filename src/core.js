@@ -234,6 +234,19 @@
     }
     gbXhrBag.length = 0;
   }
+  // Per-feature cancel: abort every in-flight gbXhr tagged with `feature`.
+  // Used when a feature is toggled OFF mid-flight and the loop has no time
+  // to drain naturally. Returns count aborted. OPEN-PLAN 6.2.
+  function gbAbortFeature(feature) {
+    if (!feature) return 0;
+    let n = 0;
+    for (const h of gbXhrBag.slice()) {
+      if (h && h.feature === feature && typeof h.abort === 'function') {
+        try { h.abort(); n++; } catch (_) {}
+      }
+    }
+    return n;
+  }
   function gbRestoreHooks() {
     try {
       const uw = (typeof unsafeWindow !== 'undefined' && unsafeWindow) ? unsafeWindow : window;
@@ -2149,7 +2162,7 @@
           if (typeof opts.onabort === 'function') opts.onabort(e);
         },
       }));
-      if (handle) gbXhrBag.push(handle);
+      if (handle) { handle.feature = opts.feature || ''; gbXhrBag.push(handle); }
       return handle;
     } catch (e) {
       drop();
