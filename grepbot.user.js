@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.27
+// @version      5.10.28
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1714,6 +1714,13 @@ const STORE = {
   }
 
   function gbLit(html) { return html == null ? '' : String(html); }
+
+  function countUnits(units) {
+    if (!units || typeof units !== 'object') return 0;
+    let n = 0;
+    for (const k of Object.keys(units)) n += +units[k] || 0;
+    return n;
+  }
 
   function gbButton(opts) {
     const b = document.createElement('button');
@@ -19249,7 +19256,7 @@ const STORE = {
       } else if (plan.timingMode === 'send_now') {
         sendAt = now + (idx * (plan.staggerMs || 0)) / 1000;
       }
-      const unitCount = Object.values(units).reduce((a, b) => a + (+b || 0), 0);
+      const unitCount = countUnits(units);
       let status = 'ok';
       if (!unitCount) status = 'no-units';
       else if (!boats.ok) status = boats.reason;
@@ -20974,7 +20981,7 @@ const STORE = {
       } else if (plan.timingMode === 'send_now') {
         sendAt = now + (idx * (plan.staggerMs || 0)) / 1000;
       }
-      const unitCount = Object.values(units).reduce((a, b) => a + (+b || 0), 0);
+      const unitCount = countUnits(units);
       let status = 'ok';
       if (!unitCount) status = 'no-units';
       else if (!boats.ok) status = boats.reason;
@@ -23476,7 +23483,7 @@ const STORE = {
 
       if (m.hasCs) row.appendChild(hudCell('[CS]', 'var(--gb-err-3)'));
       let n = 0;
-      try { n = Object.values(m.units || {}).reduce((a, b) => a + (+b || 0), 0); } catch (_) {}
+      try { n = countUnits(m.units); } catch (_) {}
       if (n > 0) row.appendChild(hudCell(n + ' u.', 'var(--gb-fg-mute)'));
       body.appendChild(row);
     }

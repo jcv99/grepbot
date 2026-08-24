@@ -1650,6 +1650,15 @@
   // genuinely needs markup from the wire adds its own sanitizer deliberately
   // rather than inheriting a dead one.
   function gbLit(html) { return html == null ? '' : String(html); }
+  // Sum the numeric values of an object, coercing each to a number and treating
+  // NaN/null/undefined as 0. Used for unit counts in attack/reinforce/HUD
+  // paths where the per-unit value is sometimes a string. OPEN-PLAN 2.13.
+  function countUnits(units) {
+    if (!units || typeof units !== 'object') return 0;
+    let n = 0;
+    for (const k of Object.keys(units)) n += +units[k] || 0;
+    return n;
+  }
   // Factory: action button with consistent type/title/aria-label + optional
   // tip + click handler. Use instead of inline createElement('button') blocks.
   // OPEN-PLAN 2.2.

@@ -102,7 +102,7 @@
       // CS is its own alarm regardless of ETA.
       if (m.hasCs) row.appendChild(hudCell('[CS]', 'var(--gb-err-3)'));
       let n = 0;
-      try { n = Object.values(m.units || {}).reduce((a, b) => a + (+b || 0), 0); } catch (_) {}
+      try { n = countUnits(m.units); } catch (_) {}
       if (n > 0) row.appendChild(hudCell(n + ' u.', 'var(--gb-fg-mute)'));
       body.appendChild(row);
     }

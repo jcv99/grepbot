@@ -195,7 +195,7 @@
       } else if (plan.timingMode === 'send_now') {
         sendAt = now + (idx * (plan.staggerMs || 0)) / 1000;
       }
-      const unitCount = Object.values(units).reduce((a, b) => a + (+b || 0), 0);
+      const unitCount = countUnits(units);
       let status = 'ok';
       if (!unitCount) status = 'no-units';
       else if (!boats.ok) status = boats.reason;
