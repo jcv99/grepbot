@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.16
+// @version      5.10.17
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -6039,6 +6039,24 @@ const STORE = {
     const cut = Date.now() - 3600000;
     return farmPressure.some(p => p.kind === 'captcha' && p.at >= cut);
   }
+
+  const FARM_CAPTCHA_CLAIMS_TTL_MS = 3600000;
+  const FARM_CAPTCHA_CLAIMS_MAX = 200;
+  const farmCaptchaClaims = [];
+  function farmCaptchaClaimsPrune() {
+    const cut = Date.now() - FARM_CAPTCHA_CLAIMS_TTL_MS;
+    while (farmCaptchaClaims.length && farmCaptchaClaims[0].at < cut) farmCaptchaClaims.shift();
+    while (farmCaptchaClaims.length > FARM_CAPTCHA_CLAIMS_MAX) farmCaptchaClaims.shift();
+  }
+  function farmCaptchaClaimNote(villId) {
+    farmCaptchaClaimsPrune();
+    farmCaptchaClaims.push({ villId: String(villId), at: Date.now() });
+  }
+  function farmCaptchaClaimsRecent(villId) {
+    farmCaptchaClaimsPrune();
+    const id = String(villId);
+    return farmCaptchaClaims.some(e => e.villId === id);
+  }
   function farmDayKey() {
     const d = new Date();
     return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
@@ -6059,6 +6077,7 @@ const STORE = {
     c[String(villId)] = (+c[String(villId)] || 0) + 1;
 
     saveSoon(STORE.FARM_CLAIMS_TODAY, c);
+    farmCaptchaClaimNote(villId);
   }
   function farmProfitScoreOf(villId) {
     const p = (state.farmProfit || {})[String(villId)];
@@ -6089,11 +6108,10 @@ const STORE = {
       }
     }
     if (farmCaptchaHot()) {
-      const counts = farmClaimsToday();
       const before = work.length;
-      work = work.filter(f => (+counts[String(f.vill_id)] || 0) < 1);
+      work = work.filter(f => !farmCaptchaClaimsRecent(f.vill_id));
       if (work.length < before) {
-        gbLogT('farm-adaptive-daily', 300000, `adaptive farm: captcha hot - skipped ${before - work.length} village(s) already claimed today`);
+        gbLogT('farm-adaptive-daily', 300000, `adaptive farm: captcha hot - skipped ${before - work.length} village(s) claimed in this captcha window`);
       }
     }
 
