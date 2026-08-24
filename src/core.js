@@ -1650,6 +1650,33 @@
   // genuinely needs markup from the wire adds its own sanitizer deliberately
   // rather than inheriting a dead one.
   function gbLit(html) { return html == null ? '' : String(html); }
+  // Cross-tab event broadcast. The channel is per-origin; tabs on the same
+  // Grepolis host receive each other's messages. Self-messages (matching
+  // GB_INSTANCE_ID) are filtered at the receiver. Falls back to a no-op if
+  // BroadcastChannel is unavailable (older browsers, sandboxed iframes).
+  // OPEN-PLAN 6.1.
+  let _gbEvents = null;
+  function gbEventsChannel() {
+    if (_gbEvents !== null) return _gbEvents;
+    try {
+      _gbEvents = new BroadcastChannel('grepbot:events');
+      _gbEvents.addEventListener('message', (e) => {
+        const d = e && e.data;
+        if (!d || d.from === GB_INSTANCE_ID) return;
+        if (d.kind === 'captcha' && typeof captchaTrip === 'function') {
+          // Idempotent: captchaTrip on an already-paused feature is a no-op.
+          captchaTrip(d.payload && d.payload.feature, d.payload && d.payload.detail);
+        }
+      });
+    } catch (_) { _gbEvents = false; }
+    return _gbEvents || null;
+  }
+  function gbEventsEmit(kind, payload) {
+    try {
+      const ch = gbEventsChannel();
+      if (ch) ch.postMessage({ kind, payload: payload || null, ts: Date.now(), from: GB_INSTANCE_ID });
+    } catch (_) {}
+  }
   // Sum the numeric values of an object, coercing each to a number and treating
   // NaN/null/undefined as 0. Used for unit counts in attack/reinforce/HUD
   // paths where the per-unit value is sometimes a string. OPEN-PLAN 2.13.
@@ -2207,6 +2234,7 @@
     gbLog(`CAPTCHA breaker: ${feature} paused ${mins}m`, detail || '');
     flash(`captcha: ${feature} paused ${mins}m`);
     try { if (typeof alertWebhook === 'function') alertWebhook('captcha', { feature, mins, detail }); } catch (_) {}
+    try { gbEventsEmit('captcha', { feature, mins, detail }); } catch (_) {}
     updateStatus();
   }
   function captchaClear(feature) {

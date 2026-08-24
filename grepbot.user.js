@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.33
+// @version      5.10.34
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1715,6 +1715,29 @@ const STORE = {
 
   function gbLit(html) { return html == null ? '' : String(html); }
 
+  let _gbEvents = null;
+  function gbEventsChannel() {
+    if (_gbEvents !== null) return _gbEvents;
+    try {
+      _gbEvents = new BroadcastChannel('grepbot:events');
+      _gbEvents.addEventListener('message', (e) => {
+        const d = e && e.data;
+        if (!d || d.from === GB_INSTANCE_ID) return;
+        if (d.kind === 'captcha' && typeof captchaTrip === 'function') {
+
+          captchaTrip(d.payload && d.payload.feature, d.payload && d.payload.detail);
+        }
+      });
+    } catch (_) { _gbEvents = false; }
+    return _gbEvents || null;
+  }
+  function gbEventsEmit(kind, payload) {
+    try {
+      const ch = gbEventsChannel();
+      if (ch) ch.postMessage({ kind, payload: payload || null, ts: Date.now(), from: GB_INSTANCE_ID });
+    } catch (_) {}
+  }
+
   function backoffFor(streak, ladder) {
     if (!Array.isArray(ladder) || !ladder.length) return 0;
     const i = Math.min(Math.max(0, (+streak || 1) - 1), ladder.length - 1);
@@ -2235,6 +2258,7 @@ const STORE = {
     gbLog(`CAPTCHA breaker: ${feature} paused ${mins}m`, detail || '');
     flash(`captcha: ${feature} paused ${mins}m`);
     try { if (typeof alertWebhook === 'function') alertWebhook('captcha', { feature, mins, detail }); } catch (_) {}
+    try { gbEventsEmit('captcha', { feature, mins, detail }); } catch (_) {}
     updateStatus();
   }
   function captchaClear(feature) {
