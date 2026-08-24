@@ -1668,6 +1668,19 @@
     for (const k of Object.keys(units)) n += +units[k] || 0;
     return n;
   }
+  // Order an action-name ladder so the most-recently-known good action (passed
+  // as opts.learned) is tried first. Saves a full ladder walk on every sweep
+  // after the first successful probe. OPEN-PLAN 2.12.
+  function xhrLadder(guesses, opts) {
+    const g = (guesses || []).slice();
+    const learned = opts && opts.learned;
+    if (learned) {
+      const i = g.indexOf(learned);
+      if (i >= 0) g.splice(i, 1);
+      g.unshift(learned);
+    }
+    return g;
+  }
   // Factory: action button with consistent type/title/aria-label + optional
   // tip + click handler. Use instead of inline createElement('button') blocks.
   // OPEN-PLAN 2.2.

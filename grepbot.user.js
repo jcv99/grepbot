@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.29
+// @version      5.10.30
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1725,6 +1725,17 @@ const STORE = {
     let n = 0;
     for (const k of Object.keys(units)) n += +units[k] || 0;
     return n;
+  }
+
+  function xhrLadder(guesses, opts) {
+    const g = (guesses || []).slice();
+    const learned = opts && opts.learned;
+    if (learned) {
+      const i = g.indexOf(learned);
+      if (i >= 0) g.splice(i, 1);
+      g.unshift(learned);
+    }
+    return g;
   }
 
   function gbButton(opts) {
@@ -6238,14 +6249,7 @@ const STORE = {
   const FARM_ACTION_OK = /^(farm_town_|get_farm|farm_info|island_farm)/;
   const FARM_ACTION_BAD = /farm_remove|village_attack|attack_log|farm_town_lock/;
   function farmGuesses() {
-    const g = ACTION_GUESSES.slice();
-    const a = state.farmAction;
-    if (a) {
-      const i = g.indexOf(a);
-      if (i >= 0) g.splice(i, 1);
-      g.unshift(a);
-    }
-    return g;
+    return xhrLadder(ACTION_GUESSES, { learned: state.farmAction });
   }
   function learnFarmAction(u) {
     const m = String(u || '').match(/[?&]action=([a-z0-9_]+)/i);
@@ -6569,15 +6573,7 @@ const STORE = {
   }
   const TOWN_LIST_GUESSES = ['get_towns', 'towns_overview', 'get_owned_towns', 'overview_towns', 'town_list'];
 
-  function townLadder(guesses, learned) {
-    const g = guesses.slice();
-    if (learned) {
-      const i = g.indexOf(learned);
-      if (i >= 0) g.splice(i, 1);
-      g.unshift(learned);
-    }
-    return g;
-  }
+  function townLadder(guesses, learned) { return xhrLadder(guesses, { learned }); }
   function townLearnAction(key, storeKey, action) {
     if (!action || state[key] === action) return;
     const had = state[key];

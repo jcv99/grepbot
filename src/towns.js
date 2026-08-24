@@ -21,15 +21,9 @@
   const TOWN_LIST_GUESSES = ['get_towns', 'towns_overview', 'get_owned_towns', 'overview_towns', 'town_list'];
   // Try the action that worked last time first. Without this every sweep walked
   // the whole ladder again and charged the request budget for each miss.
-  function townLadder(guesses, learned) {
-    const g = guesses.slice();
-    if (learned) {
-      const i = g.indexOf(learned);
-      if (i >= 0) g.splice(i, 1);
-      g.unshift(learned);
-    }
-    return g;
-  }
+  // Logic now lives in core.js as xhrLadder(guesses, {learned}); this thin
+  // wrapper keeps the per-module call-site terse.
+  function townLadder(guesses, learned) { return xhrLadder(guesses, { learned }); }
   function townLearnAction(key, storeKey, action) {
     if (!action || state[key] === action) return;
     const had = state[key];

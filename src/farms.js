@@ -1297,14 +1297,7 @@
   const FARM_ACTION_OK = /^(farm_town_|get_farm|farm_info|island_farm)/;
   const FARM_ACTION_BAD = /farm_remove|village_attack|attack_log|farm_town_lock/;
   function farmGuesses() {
-    const g = ACTION_GUESSES.slice();
-    const a = state.farmAction;
-    if (a) {
-      const i = g.indexOf(a);
-      if (i >= 0) g.splice(i, 1);
-      g.unshift(a);
-    }
-    return g;
+    return xhrLadder(ACTION_GUESSES, { learned: state.farmAction });
   }
   function learnFarmAction(u) {
     const m = String(u || '').match(/[?&]action=([a-z0-9_]+)/i);
