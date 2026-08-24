@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.24
+// @version      5.10.25
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -20181,8 +20181,12 @@ const STORE = {
         const c1 = document.createElement('span'); c1.textContent = `${townNameById(r.home)} -> ${r.target}`; c1.title = `comando ${r.commandId}`; gbTip(c1, 'Origen -> destino del movimiento');
         const c2 = document.createElement('span'); c2.textContent = r.type || 'move'; gbTip(c2, 'Tipo de movimiento (ataque / apoyo / colonizacion...)');
         const c3 = document.createElement('span'); c3.textContent = r.cancelLeft != null ? `${Math.round(r.cancelLeft)}s` : 'ok'; c3.style.color = '#888'; gbTip(c3, 'Tiempo restante en el que se puede cancelar');
-        const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Cancelar'; b.disabled = !state.cancelTpl; b.title = state.cancelTpl ? 'Cancelar este movimiento' : 'Cancela un movimiento a mano una vez para aprender la accion canonica';
-        b.addEventListener('click', () => { if (!confirm(`Cancelar ${r.type || 'comando'} ${r.commandId}?`)) return; militaryCancelCommand(r.commandId, { confirmed: true }, err => { flash(err ? 'fallo al cancelar: ' + err : 'comando cancelado'); renderAttack(); }); });
+        const b = gbButton({
+          text: 'Cancelar',
+          disabled: !state.cancelTpl,
+          title: state.cancelTpl ? 'Cancelar este movimiento' : 'Cancela un movimiento a mano una vez para aprender la accion canonica',
+          onClick: () => { if (!confirm(`Cancelar ${r.type || 'comando'} ${r.commandId}?`)) return; militaryCancelCommand(r.commandId, { confirmed: true }, err => { flash(err ? 'fallo al cancelar: ' + err : 'comando cancelado'); renderAttack(); }); },
+        });
         row.append(c1,c2,c3,b); box.appendChild(row);
       });
     }
