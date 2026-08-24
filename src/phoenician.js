@@ -202,6 +202,7 @@
       return;
     }
     gbXhr({
+      feature: 'pt-trade-view',
       method: 'GET', url,
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
       onload(res) {

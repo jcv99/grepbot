@@ -336,6 +336,7 @@
       if (hp.has('town_id')) bodyObj.town_id = +hp.get('town_id');
     } catch (_) {}
     gbXhr({
+      feature: 'spy-report',
       method: 'POST',
       url: u,
       data: 'json=' + encodeURIComponent(JSON.stringify(bodyObj)),

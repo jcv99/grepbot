@@ -1339,6 +1339,7 @@
       if (state.csrf) params.set('h', state.csrf);
       const u = '/index.php?' + params.toString();
       gbXhr({
+        feature: 'farm-scrape',
         method: 'GET', url: u,
         anonymous: false, budget: 'scrape',
         headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json, text/plain, */*' },

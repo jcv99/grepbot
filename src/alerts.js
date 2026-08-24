@@ -152,6 +152,7 @@
     try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (e) { gbLogT('webhook-save', 60000, 'webhook pending save: ' + String(e?.message || e).slice(0, 80)); }
     try {
       gbXhr({
+        feature: 'webhook',
         scope: 'external',
         method: 'POST',
         url,

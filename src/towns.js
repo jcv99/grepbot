@@ -41,6 +41,7 @@
     params.set('action', action); params.set('h', state.csrf);
     const u = '/index.php?' + params.toString();
     gbXhr({
+      feature: 'town-list-scrape',
       method: 'GET', url: u, budget: 'scrape',
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
       onload(res) {
@@ -135,6 +136,7 @@
       const params = new URLSearchParams();
       params.set('action', action); params.set('town_id', town.id); params.set('h', state.csrf || '');
       gbXhr({
+        feature: 'town-scrape',
         method: 'GET', url: '/index.php?' + params.toString(), budget: 'scrape',
         headers: { 'X-Requested-With': 'XMLHttpRequest' }, anonymous: false,
         onload(res) {

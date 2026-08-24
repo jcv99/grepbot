@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.35
+// @version      5.10.36
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -571,6 +571,9 @@ const STORE = {
     gbAbortXhrs();
     gbRestoreHooks();
     gbUnregisterMenus();
+
+    try { if (_gbEvents && typeof _gbEvents.close === 'function') _gbEvents.close(); } catch (_) {}
+    _gbEvents = null;
 
     try { gbListenerAbort.abort(); } catch (_) {}
     gbListenerBag.length = 0;
@@ -1735,8 +1738,11 @@ const STORE = {
         const d = e && e.data;
         if (!d || d.from === GB_INSTANCE_ID) return;
         if (d.kind === 'captcha' && typeof captchaTrip === 'function') {
+          const feat = d.payload && d.payload.feature;
+          if (typeof feat !== 'string' || !feat) return;
 
-          captchaTrip(d.payload && d.payload.feature, d.payload && d.payload.detail);
+          if (captchaPaused(feat)) return;
+          captchaTrip(feat, d.payload && d.payload.detail);
         }
       });
     } catch (_) { _gbEvents = false; }
@@ -4679,6 +4685,7 @@ const STORE = {
       if (hp.has('town_id')) bodyObj.town_id = +hp.get('town_id');
     } catch (_) {}
     gbXhr({
+      feature: 'spy-report',
       method: 'POST',
       url: u,
       data: 'json=' + encodeURIComponent(JSON.stringify(bodyObj)),
@@ -6319,6 +6326,7 @@ const STORE = {
       if (state.csrf) params.set('h', state.csrf);
       const u = '/index.php?' + params.toString();
       gbXhr({
+        feature: 'farm-scrape',
         method: 'GET', url: u,
         anonymous: false, budget: 'scrape',
         headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json, text/plain, */*' },
@@ -6626,6 +6634,7 @@ const STORE = {
     params.set('action', action); params.set('h', state.csrf);
     const u = '/index.php?' + params.toString();
     gbXhr({
+      feature: 'town-list-scrape',
       method: 'GET', url: u, budget: 'scrape',
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
       onload(res) {
@@ -6719,6 +6728,7 @@ const STORE = {
       const params = new URLSearchParams();
       params.set('action', action); params.set('town_id', town.id); params.set('h', state.csrf || '');
       gbXhr({
+        feature: 'town-scrape',
         method: 'GET', url: '/index.php?' + params.toString(), budget: 'scrape',
         headers: { 'X-Requested-With': 'XMLHttpRequest' }, anonymous: false,
         onload(res) {
@@ -12803,6 +12813,7 @@ const STORE = {
     try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (e) { gbLogT('webhook-save', 60000, 'webhook pending save: ' + String(e?.message || e).slice(0, 80)); }
     try {
       gbXhr({
+        feature: 'webhook',
         scope: 'external',
         method: 'POST',
         url,
@@ -13194,6 +13205,7 @@ const STORE = {
       return;
     }
     gbXhr({
+      feature: 'pt-trade-view',
       method: 'GET', url,
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
       onload(res) {

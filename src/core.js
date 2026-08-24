@@ -348,6 +348,12 @@
     gbAbortXhrs();
     gbRestoreHooks();
     gbUnregisterMenus();
+    // BroadcastChannel holds a live 'message' listener that is not on
+    // gbListenerAbort (added with .addEventListener directly on the channel).
+    // close() drops the listener and disconnects; null the ref so a hot reload
+    // re-opens cleanly.
+    try { if (_gbEvents && typeof _gbEvents.close === 'function') _gbEvents.close(); } catch (_) {}
+    _gbEvents = null;
 
     // AbortController removes every listener this instance registered with the
     // shared signal in one call. The bag survives as a debug mirror only; the
@@ -1677,8 +1683,13 @@
         const d = e && e.data;
         if (!d || d.from === GB_INSTANCE_ID) return;
         if (d.kind === 'captcha' && typeof captchaTrip === 'function') {
-          // Idempotent: captchaTrip on an already-paused feature is a no-op.
-          captchaTrip(d.payload && d.payload.feature, d.payload && d.payload.detail);
+          const feat = d.payload && d.payload.feature;
+          if (typeof feat !== 'string' || !feat) return;
+          // Re-tripping an already-paused feature would escalate the ladder one
+          // step per cross-tab hop (5→15→60m) and CSRF-thrash this tab for a
+          // captcha observed only in a peer. captchaPaused is true while until > now.
+          if (captchaPaused(feat)) return;
+          captchaTrip(feat, d.payload && d.payload.detail);
         }
       });
     } catch (_) { _gbEvents = false; }
