@@ -12,7 +12,7 @@
   let hudProdWidget = null;
   let hudEtaWidget = null;
   function hudCurrentTownId() {
-    try { const id = gameUw().Game && gameUw().Game.townId; if (id != null) return String(id); } catch (_) {}
+    try { const id = uwCached().Game && uwCached().Game.townId; if (id != null) return String(id); } catch (_) {}
     const t = (state.towns || [])[0];
     return t ? String(t.id) : null;
   }

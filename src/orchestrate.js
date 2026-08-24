@@ -76,7 +76,7 @@
       if (from) from.forEach(t => ids.push(String(t.id)));
     } catch (_) {}
     if (!ids.length) {
-      try { Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}).forEach(id => ids.push(String(id))); } catch (_) {}
+      try { Object.keys((uwCached().ITowns && uwCached().ITowns.towns) || {}).forEach(id => ids.push(String(id))); } catch (_) {}
     }
     return ids;
   }

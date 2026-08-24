@@ -36,7 +36,7 @@
     let attempted = 0, scanned = btns.length;
     const skipped = [];
     let currentTownId = null;
-    try { currentTownId = gameUw().Game && gameUw().Game.townId; } catch (_) {}
+    try { currentTownId = uwCached().Game && uwCached().Game.townId; } catch (_) {}
     for (let bi = 0; bi < btns.length; bi++) {
       const btn = btns[bi];
       if (btn.dataset.grepbotClicked) { skipped.push('already-clicked'); continue; }

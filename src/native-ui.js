@@ -751,7 +751,7 @@
   // queue a tech whose prerequisites they never saw.
   function nativeResearchDeps(tech) {
     try{
-      const def=gameUw().GameData&&gameUw().GameData.researches&&gameUw().GameData.researches[tech];
+      const def=uwCached().GameData&&uwCached().GameData.researches&&uwCached().GameData.researches[tech];
       if(!def)return null;
       const raw=def.research_dependencies||def.dependencies||[];
       const list=Array.isArray(raw)?raw:Object.keys(raw||{}).filter(k=>raw[k]);

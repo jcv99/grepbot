@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.31
+// @version      5.10.32
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -5670,7 +5670,7 @@ const STORE = {
     }
     if (pref === 'auto') {
       let tid = townId;
-      if (tid == null) { try { tid = gameUw().Game && gameUw().Game.townId; } catch (_) { tid = null; } }
+      if (tid == null) { try { tid = uwCached().Game && uwCached().Game.townId; } catch (_) { tid = null; } }
       const auto = farmUnitAutoOption(farm, tid);
       if (auto != null) return auto;
     }
@@ -5705,7 +5705,7 @@ const STORE = {
     const perDay = table ? +table[level] : NaN;
     if (!Number.isFinite(perDay) || perDay <= 0) return null;
     let speed = null;
-    try { speed = +(gameUw().Game && gameUw().Game.game_speed); } catch (_) {}
+    try { speed = +(uwCached().Game && uwCached().Game.game_speed); } catch (_) {}
     if (!Number.isFinite(speed) || speed <= 0) return null;
     let loot = null;
     try { if (rel && typeof rel.getLoot === 'function') loot = +rel.getLoot(); } catch (_) {}
@@ -5825,7 +5825,7 @@ const STORE = {
     const farms = farmsFromGame();
     if (!farms) { gbLog('farm diag: game collections not ready'); return; }
     const islandMap = islandTownMap();
-    const speed = (() => { try { return +(gameUw().Game && gameUw().Game.game_speed); } catch (_) { return null; } })();
+    const speed = (() => { try { return +(uwCached().Game && uwCached().Game.game_speed); } catch (_) { return null; } })();
     const perDayTable = gbGameDataLookup('farm_town', 'max_resources_per_day');
     const unitTable = farmClaimUnitsTable(farms[0]);
     gbLog(`farm diag: mode=${state.farmUnitsMode || 'off'} pick=${state.farmUnitsPref || 'auto'} learnedUnitOpt=${state.farmUnitsOption == null ? '-' : state.farmUnitsOption}` +
@@ -6809,7 +6809,7 @@ const STORE = {
     let attempted = 0, scanned = btns.length;
     const skipped = [];
     let currentTownId = null;
-    try { currentTownId = gameUw().Game && gameUw().Game.townId; } catch (_) {}
+    try { currentTownId = uwCached().Game && uwCached().Game.townId; } catch (_) {}
     for (let bi = 0; bi < btns.length; bi++) {
       const btn = btns[bi];
       if (btn.dataset.grepbotClicked) { skipped.push('already-clicked'); continue; }
@@ -8762,7 +8762,7 @@ const STORE = {
 
   function nativeResearchDeps(tech) {
     try{
-      const def=gameUw().GameData&&gameUw().GameData.researches&&gameUw().GameData.researches[tech];
+      const def=uwCached().GameData&&uwCached().GameData.researches&&uwCached().GameData.researches[tech];
       if(!def)return null;
       const raw=def.research_dependencies||def.dependencies||[];
       const list=Array.isArray(raw)?raw:Object.keys(raw||{}).filter(k=>raw[k]);
@@ -16946,7 +16946,7 @@ const STORE = {
       if (from) from.forEach(t => ids.push(String(t.id)));
     } catch (_) {}
     if (!ids.length) {
-      try { Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}).forEach(id => ids.push(String(id))); } catch (_) {}
+      try { Object.keys((uwCached().ITowns && uwCached().ITowns.towns) || {}).forEach(id => ids.push(String(id))); } catch (_) {}
     }
     return ids;
   }
@@ -23397,7 +23397,7 @@ const STORE = {
   let hudProdWidget = null;
   let hudEtaWidget = null;
   function hudCurrentTownId() {
-    try { const id = gameUw().Game && gameUw().Game.townId; if (id != null) return String(id); } catch (_) {}
+    try { const id = uwCached().Game && uwCached().Game.townId; if (id != null) return String(id); } catch (_) {}
     const t = (state.towns || [])[0];
     return t ? String(t.id) : null;
   }

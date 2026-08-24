@@ -632,7 +632,7 @@
     }
     if (pref === 'auto') {
       let tid = townId;
-      if (tid == null) { try { tid = gameUw().Game && gameUw().Game.townId; } catch (_) { tid = null; } }
+      if (tid == null) { try { tid = uwCached().Game && uwCached().Game.townId; } catch (_) { tid = null; } }
       const auto = farmUnitAutoOption(farm, tid);
       if (auto != null) return auto;
     }
@@ -667,7 +667,7 @@
     const perDay = table ? +table[level] : NaN;
     if (!Number.isFinite(perDay) || perDay <= 0) return null;
     let speed = null;
-    try { speed = +(gameUw().Game && gameUw().Game.game_speed); } catch (_) {}
+    try { speed = +(uwCached().Game && uwCached().Game.game_speed); } catch (_) {}
     if (!Number.isFinite(speed) || speed <= 0) return null;
     let loot = null;
     try { if (rel && typeof rel.getLoot === 'function') loot = +rel.getLoot(); } catch (_) {}
@@ -810,7 +810,7 @@
     const farms = farmsFromGame();
     if (!farms) { gbLog('farm diag: game collections not ready'); return; }
     const islandMap = islandTownMap();
-    const speed = (() => { try { return +(gameUw().Game && gameUw().Game.game_speed); } catch (_) { return null; } })();
+    const speed = (() => { try { return +(uwCached().Game && uwCached().Game.game_speed); } catch (_) { return null; } })();
     const perDayTable = gbGameDataLookup('farm_town', 'max_resources_per_day');
     const unitTable = farmClaimUnitsTable(farms[0]);
     gbLog(`farm diag: mode=${state.farmUnitsMode || 'off'} pick=${state.farmUnitsPref || 'auto'} learnedUnitOpt=${state.farmUnitsOption == null ? '-' : state.farmUnitsOption}` +
