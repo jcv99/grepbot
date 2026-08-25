@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.39
+// @version      5.10.40
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -8556,6 +8556,26 @@ const STORE = {
     gbTimeout(() => abScan('native'), 80); return true;
   }
 
+  function nativeQueueFillToMax(townId, building) {
+    if (!AB_BUILDINGS.includes(building)) return 0;
+    const max = abMaxLevel(building);
+    if (max == null) { flash('No se puede leer el nivel m\u00e1ximo'); return 0; }
+    let projected = nativeQueueProjectedBuildLevel(townId, building);
+    if (projected == null) { flash('No se puede leer el nivel actual'); return 0; }
+    if (projected >= max) { flash(`${nativeBuildLabel(building)} ya est\u00e1 al m\u00e1ximo (${max})`); return 0; }
+    let added = 0;
+    while (projected < max) {
+      const ok = nativeQueueAddBuild(townId, building);
+      if (!ok) break;
+      added++;
+      const next = nativeQueueProjectedBuildLevel(townId, building);
+      if (next == null || next <= projected) break;
+      projected = next;
+    }
+    if (added) flash(`Encoladas ${added} mejoras de ${nativeBuildLabel(building)} hasta nivel ${projected}`);
+    return added;
+  }
+
   const POP_RESCUE_FARM_LEVELS = 2;
   function nativeFarmPendingLevels(townId) {
     const q = abQueueInfo(townId);
@@ -9442,7 +9462,7 @@ const STORE = {
       }
       if(!list.length){const empty=document.createElement('div');empty.className='gb-native-empty';empty.textContent=nativeQueueIsFifo(townId,lane)?'Cola vac\u00eda. Usa los botones + de arriba.':'Usa + para crear una cola FIFO en esta ciudad.';stage.appendChild(empty);return}
       const jobs=document.createElement('div');jobs.className='gb-native-jobs';stage.appendChild(jobs);
-      list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}\u2192${j.toLevel}`:(lane==='research'?nativeResearchLabel(j.tech):`${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`);const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' \u00b7 '+j.reason:''}`;gbTip(sub, 'Estado de la orden virtual + motivo si esta bloqueada');desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const top=nativeQButton('\u2191\u2191','Saltar al inicio de la cola',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-i)));top.disabled=frozen||i===0;const up=nativeQButton('\u2191','Mover antes',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('\u2193','Mover despu\u00e9s',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const bot=nativeQButton('\u2193\u2193','Saltar al final de la cola',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,list.length-1-i)));bot.disabled=frozen||i===list.length-1;const del=nativeQButton('\u00d7','Quitar de la cola virtual',nativePanelAction(townId,()=>{if(j.inflight){flash('Esta orden se est\u00e1 enviando; espera a que termine');return false}if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acci\u00f3n se envi\u00f3 o no.')}catch(_){ok=false}if(!ok)return false}else if(frozen){let ok=false;try{ok=gameUw().confirm('Hay otra acci\u00f3n pendiente en esta cola. \u00bfBorrar este elemento de todos modos?')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id,{force:true})}));del.disabled=!!j.inflight;acts.append(up,down,del);row.append(num,desc,acts);jobs.appendChild(row)});
+      list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}\u2192${j.toLevel}`:(lane==='research'?nativeResearchLabel(j.tech):`${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`);const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' \u00b7 '+j.reason:''}`;gbTip(sub, 'Estado de la orden virtual + motivo si esta bloqueada');desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const top=nativeQButton('\u2191\u2191','Saltar al inicio de la cola',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-i)));top.disabled=frozen||i===0;const up=nativeQButton('\u2191','Mover antes',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('\u2193','Mover despu\u00e9s',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const bot=nativeQButton('\u2193\u2193','Saltar al final de la cola',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,list.length-1-i)));bot.disabled=frozen||i===list.length-1;const del=nativeQButton('\u00d7','Quitar de la cola virtual',nativePanelAction(townId,()=>{if(j.inflight){flash('Esta orden se est\u00e1 enviando; espera a que termine');return false}if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acci\u00f3n se envi\u00f3 o no.')}catch(_){ok=false}if(!ok)return false}else if(frozen){let ok=false;try{ok=gameUw().confirm('Hay otra acci\u00f3n pendiente en esta cola. \u00bfBorrar este elemento de todos modos?')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id,{force:true})}));del.disabled=!!j.inflight;acts.append(top,up,down,bot,del);row.append(num,desc,acts);jobs.appendChild(row)});
     },{key});
   }
   function nativeUiScan() {

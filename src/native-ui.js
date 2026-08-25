@@ -371,6 +371,32 @@
     gbLog(`cola nativa: ${summary}`);
     gbTimeout(() => abScan('native'), 80); return true;
   }
+  // Fill every remaining level up to the cap in one click. Each iteration
+  // re-runs the prereq walk + the same +1 push as nativeQueueAddBuild, so
+  // missing deps for the target are added ONCE in front (the walk only walks
+  // what is still missing), and subsequent iters push straight +1s. The loop
+  // terminates when projected hits max; the explicit max check above the call
+  // prevents the per-call "ya está al máximo" flash from firing on the last
+  // iteration. Returns the number of jobs added (0 = nothing to do).
+  function nativeQueueFillToMax(townId, building) {
+    if (!AB_BUILDINGS.includes(building)) return 0;
+    const max = abMaxLevel(building);
+    if (max == null) { flash('No se puede leer el nivel máximo'); return 0; }
+    let projected = nativeQueueProjectedBuildLevel(townId, building);
+    if (projected == null) { flash('No se puede leer el nivel actual'); return 0; }
+    if (projected >= max) { flash(`${nativeBuildLabel(building)} ya está al máximo (${max})`); return 0; }
+    let added = 0;
+    while (projected < max) {
+      const ok = nativeQueueAddBuild(townId, building);
+      if (!ok) break;
+      added++;
+      const next = nativeQueueProjectedBuildLevel(townId, building);
+      if (next == null || next <= projected) break; // safety: no progress
+      projected = next;
+    }
+    if (added) flash(`Encoladas ${added} mejoras de ${nativeBuildLabel(building)} hasta nivel ${projected}`);
+    return added;
+  }
   // ===== Population rescue ===================================================
   // A build is population-blocked whenever its own population COST exceeds the
   // town's free population — 21 free against a cost of 22 stalls exactly like 0
