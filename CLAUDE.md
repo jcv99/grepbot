@@ -386,10 +386,31 @@ No exceptions.
 one new git commit in the same turn. Flow: edit `src/` → bump `@version`
 → `python3 build.py` → commit (build gates 1/2/4 already failed the turn
 if the artifact is not written; commit the artifact plus src delta
-together).
+together) → tag.
 
-Commit footer: `Co-Authored-By: Claude <noreply@anthropic.com>`. Tag
-pattern: `v<version>` on the commit that lands the bump (optional, manual).
+**Tag every release.** Same turn as the version-bump commit, after the
+commit lands, create an annotated tag:
+
+```sh
+git tag -a "v<version>" HEAD -m "Release v<version>: <subject>"
+```
+
+Annotated (`-a`), not lightweight — annotated tags carry the Tagger/Date
+metadata `git describe` and any future installer need to pick the right
+build. Never rewrite or move a release tag once pushed; if a tag points at
+the wrong commit, add a follow-up tag and warn in the commit message.
+
+**Backfill on first turn in a repo with un-tagged releases.** If a
+`src/header.js` bump exists with no `v<version>` tag, tag it now:
+
+```sh
+git log --all --pretty=format:'%H' -- src/header.js | while read sha; do
+  ver=$(git show "$sha:src/header.js" 2>/dev/null | rtk grep -oP '@version\s+\K\S+' | head -1)
+  [ -n "$ver" ] && [ -z "$(git tag -l "v$ver")" ] && rtk git tag -a "v$ver" "$sha" -m "Release v$ver (backfill)"
+done
+```
+
+Commit footer: `Co-Authored-By: Claude <noreply@anthropic.com>`.
 Never combine a version bump with an unrelated feature — one version = one
 logical change. Skip the rule only when (a) the `src/` edit is
 version-neutral (comment, docs, refactor with no behavior change), or (b)
