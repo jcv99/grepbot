@@ -476,18 +476,82 @@ def check_const_order(parts):
     declarations hoist fully (body included), so forward references inside
     a `function foo() { ... }` body are safe.
 
+    The initializer may span multiple lines (`const X =\n  someLaterConst();`):
+    the scan consumes continuation lines until the statement terminates, so a
+    forward reference buried on a continuation line still trips the gate.
+
     Returns a list of (module, line, decl_name, referenced_name) tuples.
     """
+    def _stmt_terminated(line, lines, line_idx):
+        """True when the line ends a top-level statement - the next line is
+        not part of this initializer. Tracks bracket depth and trailing
+        operators/carriage-returns; a `;` or `,` at depth 0 ends the run."""
+        depth_p = depth_b = depth_c = 0
+        for ch in line:
+            if ch == '(': depth_p += 1
+            elif ch == ')': depth_p -= 1
+            elif ch == '[': depth_b += 1
+            elif ch == ']': depth_b -= 1
+            elif ch == '{': depth_c += 1
+            elif ch == '}': depth_c -= 1
+        if depth_p or depth_b or depth_c:
+            return False
+        stripped = line.rstrip()
+        if not stripped:
+            return False  # blank line - keep gathering
+        if stripped.endswith((';', ',')):
+            return True
+        # Trailing binary operator / arrow / chain token -> continue
+        if stripped.endswith(('=', '+', '-', '*', '/', '%', '<', '>', '?', ':',
+                              '.', ',', '&', '|', '^', '!')):
+            return False
+        if stripped.endswith(('&&', '||', '??', '=>', '**')):
+            return False
+        # A bare identifier on its own line is ambiguous - it terminates the
+        # expression only if the next non-blank line does NOT begin a chained
+        # call/member (`const B = foo\n  .bar();` is one statement).
+        if re.match(r'^\s*[A-Za-z_$][\w$]*\s*$', stripped):
+            for nxt in lines[line_idx + 1:]:
+                ns = nxt.lstrip()
+                if not ns:
+                    continue
+                return not ns.startswith(('.', '(', '[', '`', '+', '-', '!'))
+            return True
+        return True  # any other top-level close ends the initializer
+
+    def _scan_initializer_body(line, lines, start_idx):
+        """Gather the lines that form a single const/let initializer.
+        Returns the joined text of every line that belongs to it."""
+        body = [line]
+        if _stmt_terminated(line, lines, start_idx):
+            return body, start_idx
+        j = start_idx + 1
+        while j < len(lines):
+            body.append(lines[j])
+            if _stmt_terminated(lines[j], lines, j):
+                return body, j
+            j += 1
+        return body, j - 1  # EOF - return what we have
+
     issues = []
     for name, text in parts:
-        decls = []  # (line_no, ident, kind, line_text) ordered by appearance
-        for i, line in enumerate(text.splitlines(), 1):
-            m = _TDZ_DECL_RE.match(line)
+        lines = text.splitlines()
+        decls = []  # (line_no, ident, kind, body_text)
+        i = 0
+        while i < len(lines):
+            m = _TDZ_DECL_RE.match(lines[i])
             if not m:
+                i += 1
                 continue
             ident = m.group(1) or m.group(2)
             kind = 'function' if m.group(1) else 'const'
-            decls.append((i, ident, kind, line))
+            if kind == 'function':
+                decls.append((i + 1, ident, kind, lines[i]))
+                i += 1
+                continue
+            body, end_idx = _scan_initializer_body(lines[i], lines, i)
+            decls.append((i + 1, ident, kind, '\n'.join(body)))
+            i = end_idx + 1
 
         const_decls_after = {}
         for ln, ident, kind, _ in decls:

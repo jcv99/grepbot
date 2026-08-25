@@ -250,7 +250,7 @@
     } catch (_) { return null; }
   }
   function txMilitiaCount(townId) {
-    try { const t = gbTownModel(townId); const u = t && t.units && t.units(); return u ? (+u.militia || 0) : null; } catch (_) { return null; }
+    try { const t = gbTownModel(townId); const u = t && t.units && t.units(); return u ? gbNum(u.militia) : null; } catch (_) { return null; }
   }
   function txSpellPresent(townId, powerId) {
     try { return recruitHasSpell(townId, powerId); } catch (_) { return null; }
@@ -304,8 +304,8 @@
       }
       if (!model) return { exists: false, gold: gbPlayerGold(), price: null };
       const a = model.attributes || model;
-      const price = Number(a.price != null ? a.price : a.gold);
-      return { exists: true, gold: gbPlayerGold(), price: Number.isFinite(price) ? price : null };
+      const price = gbNum(a.price != null ? a.price : a.gold);
+      return { exists: true, gold: gbPlayerGold(), price: price != null ? price : null };
     } catch (_) { return null; }
   }
   function txPtTradeStatus(townId, offerId) {
@@ -326,12 +326,12 @@
       }
       const before = txTownResourceSnap(townId);
       const tradeCap = (function () {
-        try { const t = gbTownModel(townId); return t && t.getAvailableTradeCapacity ? +t.getAvailableTradeCapacity() : null; } catch (_) { return null; }
+        try { const t = gbTownModel(townId); return t && t.getAvailableTradeCapacity ? gbNum(t.getAvailableTradeCapacity()) : null; } catch (_) { return null; }
       })();
       if (!model) return { exists: false, tradeCap, res: before };
       const a = model.attributes || model;
-      const amount = Number(a.amount != null ? a.amount : a.trade_amount != null ? a.trade_amount : a.current_amount);
-      return { exists: true, tradeCap, res: before, amount: Number.isFinite(amount) ? amount : null };
+      const amount = gbNum(a.amount != null ? a.amount : a.trade_amount != null ? a.trade_amount : a.current_amount);
+      return { exists: true, tradeCap, res: before, amount: amount != null ? amount : null };
     } catch (_) { return null; }
   }
   function txCapture(feature, transport, endpoint, data) {

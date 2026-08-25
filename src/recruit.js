@@ -227,7 +227,9 @@
     for (const m of q.models || []) {
       const a = m.attributes || {};
       const uid = a.unit_type || a.unit_id || a.type;
-      if (String(uid) === String(unit)) queued += +(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)) || 0;
+      // Same contract as txUnitStatus: gbNum keeps unreadable null, the sweep
+      // skips that order, and an unknown shape never reads as "0 queued".
+      if (String(uid) === String(unit)) { const q = gbNum(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)); if (q != null) queued += q; }
     }
     return queued;
   }
