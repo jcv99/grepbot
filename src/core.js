@@ -606,6 +606,7 @@
     // behaviour of every town with no goal target on upgrade.
     abRandomFallback: load(STORE.AB_RANDOM_FALLBACK, false),
     abTargets: load(STORE.AB_TARGETS, null),
+    abScript:  load(STORE.AB_SCRIPT, null),
     autoCave: load(STORE.AUTO_CAVE, false),
     caveThreshPct: load(STORE.CAVE_THRESH, 90),
 

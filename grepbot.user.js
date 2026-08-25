@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.41
+// @version      5.10.42
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -81,6 +81,7 @@ const STORE = {
     AUTO_WALL_REPAIR: 'grepbot:auto-wall-repair',
     POP_RESCUE_FARM: 'grepbot:pop-rescue-farm',
     AB_TARGETS: 'grepbot:ab-targets',
+    AB_SCRIPT:  'grepbot:ab-script',
     AUTO_CAVE: 'grepbot:auto-cave',
     CAVE_THRESH: 'grepbot:cave-thresh',
     CAVE_TOWNS: 'grepbot:cave-towns',
@@ -798,6 +799,7 @@ const STORE = {
 
     abRandomFallback: load(STORE.AB_RANDOM_FALLBACK, false),
     abTargets: load(STORE.AB_TARGETS, null),
+    abScript:  load(STORE.AB_SCRIPT, null),
     autoCave: load(STORE.AUTO_CAVE, false),
     caveThreshPct: load(STORE.CAVE_THRESH, 90),
 
@@ -7945,6 +7947,9 @@ const STORE = {
   function goalEffectiveBuildTargets(townId) {
     const cfg=goalTownCfg(townId), e=goalEffective(townId), base=abEnsureTargets();
     const out=(cfg.profile && cfg.profile!=='custom')?Object.assign({},e.build||{}):goalMergeMap(base,cfg.build||{});
+
+    const scripted = abScriptEffectiveTargets(townId);
+    if (scripted) for (const k of Object.keys(scripted)) out[k] = scripted[k];
     for(const id of Object.keys(out))if(goalQueueSuppressed(townId,'build',id))delete out[id];
     return out;
   }
@@ -8203,6 +8208,91 @@ const STORE = {
   const AB_SEND_SPACING_MS = 1100;
   function abDefaultTargets() { return Object.assign({}, AB_CS_FAST); }
   function abDefaultOrder() { return AB_BUILDINGS.slice(); }
+
+  const AB_SCRIPT_PHASES = [
+    { id:'tube', label:'Tubo (Senado 24 + Almac\u00e9n 30)',
+      gate:(l)=>(+l.main||0) < 24,
+      targets:(l)=>({ main:24, storage:Math.max(30, +l.storage||0) }) },
+    { id:'academy7', label:'Academia 7',
+      gate:(l)=>(+l.main||0) >= 24 && (+l.academy||0) < 7,
+      targets:(l)=>({ main:24, storage:Math.max(30, +l.storage||0), academy:Math.max(7, +l.academy||0) }) },
+    { id:'theater', label:'Requisitos para Teatro',
+      gate:(l)=>(+l.academy||0) >= 7 && (+l.theater||0) < 1,
+      targets:(l)=>({ main:24, storage:Math.max(30, +l.storage||0), academy:Math.max(7, +l.academy||0), theater:1 }) },
+    { id:'academy30', label:'Academia 30',
+      gate:(l)=>(+l.theater||0) >= 1 && (+l.academy||0) < 30,
+      targets:(l)=>({ main:24, storage:Math.max(30, +l.storage||0), academy:30, theater:1 }) },
+    { id:'maxall', label:'Todo al m\u00e1ximo',
+      gate:()=>false,
+      targets:(l)=>abScriptMaxTargets(l) },
+  ];
+  function abScriptMaxTargets(levels) {
+    const out = {};
+    for (const b of AB_BUILDINGS) {
+      const max = abMaxLevel(b);
+      if (max == null) continue;
+      const cur = +(levels && levels[b]) || 0;
+      if (cur >= max) continue;
+      out[b] = max;
+    }
+    return out;
+  }
+  function abScriptEnsure() {
+    if (!state.abScript || typeof state.abScript !== 'object') state.abScript = { active:false, startedAt:0, perTown:{} };
+    if (!state.abScript.perTown || typeof state.abScript.perTown !== 'object' || Array.isArray(state.abScript.perTown)) state.abScript.perTown = {};
+    if (!state.abScript.active) state.abScript.perTown = {};
+    return state.abScript;
+  }
+  function abScriptActive() { return !!(state.abScript && state.abScript.active); }
+  function abScriptEffectiveTargets(townId) {
+    if (!abScriptActive()) return null;
+    const p = state.abScript.perTown && state.abScript.perTown[String(townId)];
+    return p && p.targets ? Object.assign({}, p.targets) : null;
+  }
+  function abScriptCurrentPhase(townId) {
+    if (!abScriptActive()) return null;
+    const id = String(townId);
+    const p = state.abScript.perTown && state.abScript.perTown[id];
+    if (!p) return null;
+    const def = AB_SCRIPT_PHASES.find(x => x.id === p.phase);
+    return def || null;
+  }
+  function abScriptToggle() {
+    if (abScriptActive()) {
+      state.abScript = { active:false, startedAt:0, perTown:{} };
+      save(STORE.AB_SCRIPT, state.abScript);
+      gbLog('script CS: desactivado - objetivos vuelven a los valores compartidos');
+      try { renderAbQueue(); } catch (_) {}
+      return false;
+    }
+    state.abScript = { active:true, startedAt:Date.now(), perTown:{} };
+    save(STORE.AB_SCRIPT, state.abScript);
+
+    if (!state.abAuto) { state.abAuto = true; save(STORE.AB_AUTO, true); }
+    gbLog('script CS: activado - Senado 24 \u2192 Academia 7 \u2192 Teatro \u2192 Academia 30 \u2192 M\u00e1x');
+    try { renderAbQueue(); } catch (_) {}
+    return true;
+  }
+  function abScriptTick(townId) {
+    if (!abScriptActive()) return null;
+    const id = String(townId);
+    const levels = abCurrentLevels(townId);
+    if (!levels) return null;
+    let chosen = null;
+    for (const p of AB_SCRIPT_PHASES) { if (p.gate(levels)) { chosen = p; break; } }
+    if (!chosen) return null;
+    const cur = state.abScript.perTown[id];
+    const fresh = chosen.targets(levels);
+
+    if (!cur || cur.phase !== chosen.id) {
+      state.abScript.perTown[id] = { phase:chosen.id, targets:fresh };
+      save(STORE.AB_SCRIPT, state.abScript);
+      gbLog(`script CS: ciudad ${townNameById(id) || id} entra en fase "${chosen.label}"`);
+    } else {
+      state.abScript.perTown[id].targets = fresh;
+    }
+    return state.abScript.perTown[id];
+  }
   function abEnsureOrder() {
     const cur = Array.isArray(state.abOrder) ? state.abOrder.filter(x => AB_BUILDINGS.includes(x)) : [];
     state.abOrder = cur.concat(AB_BUILDINGS.filter(x => !cur.includes(x)));
@@ -9433,6 +9523,19 @@ const STORE = {
       const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot \u00b7 Construcci\u00f3n':(lane==='research'?'Cola GrepBot \u00b7 Investigaci\u00f3n':(lane==='recruitNaval'?'Cola GrepBot \u00b7 Puerto':'Cola GrepBot \u00b7 Cuartel'));gbTip(title, 'Cola virtual de GrepBot para esta ciudad y tipo de edificio/unidad');head.appendChild(title);
       const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'>':'||',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
       if(!list.length&&nativeQueueIsFifo(townId,lane)){const legacy=nativeQButton('Objetivos','Volver al planificador de objetivos',nativeTownAction(root,townId,()=>nativeQueueUseLegacy(townId,lane)));head.appendChild(legacy)}
+
+      if (lane === 'build') {
+        const scriptActive = abScriptActive();
+        const phase = scriptActive ? abScriptCurrentPhase(townId) : null;
+        const scriptLbl = scriptActive ? (phase ? `CS: ${phase.label}` : 'CS: calculando\u2026') : 'Plan CS';
+        const scriptBtn = nativeQButton(scriptActive ? '\u23f9' : '\u25b6', scriptActive ? `Detener ${scriptLbl}` : 'Activar plan CS (Senado 24 \u2192 Academia 7 \u2192 Teatro \u2192 Academia 30 \u2192 M\u00e1x)', nativeTownAction(root,townId,() => {
+          if (abScriptActive() && !confirm('\u00bfDetener el plan CS y volver a los objetivos compartidos?')) return;
+          abScriptToggle();
+          try { abScan('manual'); } catch (_) {}
+        }));
+        scriptBtn.style.color = scriptActive ? '#ffb060' : '#9bd';
+        head.appendChild(scriptBtn);
+      }
       head.appendChild(nativeQButton(collapsed?'\u25b8':'\u25be',collapsed?'Desplegar este panel':'Plegar este panel',nativePanelAction(townId,()=>{nativeQPanelCollapsed[ckey]=!collapsed;scheduleNativeUiScan()})));
       stage.appendChild(head);
       if(collapsed){
@@ -9910,6 +10013,8 @@ const STORE = {
       const id = ids[townIndex];
 
       nativeQueueReconcileBuild(id);
+
+      abScriptTick(id);
       const earlyHead = nativeQueueList(id,'build',false)[0];
       if (earlyHead && nativeQueuePaused(id,'build')) {
         nativeQueueSetJobState(earlyHead,'paused','cola pausada'); noteBlocked(id,'cola pausada'); return nextTown();

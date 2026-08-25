@@ -36,6 +36,11 @@
   function goalEffectiveBuildTargets(townId) {
     const cfg=goalTownCfg(townId), e=goalEffective(townId), base=abEnsureTargets();
     const out=(cfg.profile && cfg.profile!=='custom')?Object.assign({},e.build||{}):goalMergeMap(base,cfg.build||{});
+    // Script CS activo: sus metas por ciudad reemplazan a las compartidas. El
+    // usuario sabe que el script manda mientras esté encendido; sin esta rama
+    // el picker vería main=15 (default) y nunca subiría a 24.
+    const scripted = abScriptEffectiveTargets(townId);
+    if (scripted) for (const k of Object.keys(scripted)) out[k] = scripted[k];
     for(const id of Object.keys(out))if(goalQueueSuppressed(townId,'build',id))delete out[id];
     return out;
   }

@@ -454,6 +454,9 @@
       // Reconcile accepted/unknown work against the real model before deciding
       // that the head must remain frozen for manual review.
       nativeQueueReconcileBuild(id);
+      // Script CS: refresca las metas por ciudad antes del pick. Idempotente:
+      // solo escribe cuando la fase cambia.
+      abScriptTick(id);
       const earlyHead = nativeQueueList(id,'build',false)[0];
       if (earlyHead && nativeQueuePaused(id,'build')) {
         nativeQueueSetJobState(earlyHead,'paused','cola pausada'); noteBlocked(id,'cola pausada'); return nextTown();

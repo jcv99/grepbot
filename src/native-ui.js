@@ -1394,6 +1394,20 @@
       const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot · Construcción':(lane==='research'?'Cola GrepBot · Investigación':(lane==='recruitNaval'?'Cola GrepBot · Puerto':'Cola GrepBot · Cuartel'));gbTip(title, 'Cola virtual de GrepBot para esta ciudad y tipo de edificio/unidad');head.appendChild(title);
       const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'>':'||',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
       if(!list.length&&nativeQueueIsFifo(townId,lane)){const legacy=nativeQButton('Objetivos','Volver al planificador de objetivos',nativeTownAction(root,townId,()=>nativeQueueUseLegacy(townId,lane)));head.appendChild(legacy)}
+      // Plan CS scripted: solo en la cola de construcción. Mientras esté activo,
+      // el botón muestra la fase actual y al pulsarlo detiene el script.
+      if (lane === 'build') {
+        const scriptActive = abScriptActive();
+        const phase = scriptActive ? abScriptCurrentPhase(townId) : null;
+        const scriptLbl = scriptActive ? (phase ? `CS: ${phase.label}` : 'CS: calculando…') : 'Plan CS';
+        const scriptBtn = nativeQButton(scriptActive ? '⏹' : '▶', scriptActive ? `Detener ${scriptLbl}` : 'Activar plan CS (Senado 24 → Academia 7 → Teatro → Academia 30 → Máx)', nativeTownAction(root,townId,() => {
+          if (abScriptActive() && !confirm('¿Detener el plan CS y volver a los objetivos compartidos?')) return;
+          abScriptToggle();
+          try { abScan('manual'); } catch (_) {}
+        }));
+        scriptBtn.style.color = scriptActive ? '#ffb060' : '#9bd';
+        head.appendChild(scriptBtn);
+      }
       head.appendChild(nativeQButton(collapsed?'▸':'▾',collapsed?'Desplegar este panel':'Plegar este panel',nativePanelAction(townId,()=>{nativeQPanelCollapsed[ckey]=!collapsed;scheduleNativeUiScan()})));
       stage.appendChild(head);
       if(collapsed){
