@@ -66,7 +66,9 @@
     if (automationPaused({})) return;
     if (gbLocked('rural-trade')) return;
 
-    const minRatio = +state.ruralTradeRatio || 1.1;
+    // Read-side clamp: the UI input floors at 1.0, but an imported config can
+    // carry a lower value and `ratio >= 0.5` trades at a loss every cadence.
+    const minRatio = Math.max(1, gbNum(state.ruralTradeRatio) || 1.1);
     const relations = ruralRelModels();
     const farms = ruralFarmModels();
     const farmById = {};
@@ -88,17 +90,35 @@
       capLeft[tid] = tradeCap;
 
       const st = townResState(tid);
-      if (!st || !st.cap) continue;        // unreadable warehouse → skip silently
+      if (!st || !st.cap) {
+        gbLogT('ruraltrade-blind-' + tid, 300000,
+          `rural-trade: town ${tid} warehouse unreadable — skip`);
+        continue;
+      }
 
       // Pick the lowest of wood/stone/iron, but skip any that are already
       // near-cap (full[r] true) — the trade would have nowhere to land.
+      // gbNum keeps an unreadable resource out of the running: townResState
+      // can ship NaN for a single resource on a partial read, and NaN || 0
+      // would make a resource we never read always win as "lowest".
       let deficit = null, deficitAmt = Infinity;
       for (const r of RES_KEYS) {
-        const amt = +st[r] || 0;
+        const amt = gbNum(st[r]);
+        if (amt == null) continue;
         if (st.full && st.full[r]) continue;
         if (amt < deficitAmt) { deficitAmt = amt; deficit = r; }
       }
       if (!deficit) continue;
+
+      // Room guard (v1.5.4 regression class): a trade that arrives with no
+      // warehouse room left evaporates the haul. Received ≈ amount × ratio,
+      // so each job reserves amount × its own farm ratio against roomLeft.
+      let roomLeft = Math.max(0, st.cap - deficitAmt);
+      if (roomLeft < 500) {
+        gbLogT('ruraltrade-noroom-' + tid, 300000,
+          `rural-trade: town ${tid} no room for ${deficit} — skip`);
+        continue;
+      }
 
       // Collect same-island farms offering `deficit` with ratio ≥ minRatio.
       const candidates = [];
@@ -115,13 +135,16 @@
         if (!(ratio >= minRatio)) continue;
         candidates.push({ relId: a.id || rel.id, farmId: a.farm_town_id, ratio });
       }
-      candidates.sort((x, y) => (y.ratio - x.ratio) || (x.relId - y.relId));
+      candidates.sort((x, y) => (y.ratio - x.ratio) ||
+        (x.relId > y.relId ? 1 : (x.relId < y.relId ? -1 : 0)));
 
       for (const c of candidates) {
-        if ((capLeft[tid] || 0) < 500) break;
-        const amount = Math.min(3000, capLeft[tid]);
+        if ((capLeft[tid] || 0) < 500 || roomLeft < 500) break;
+        const amount = Math.min(3000, capLeft[tid], Math.floor(roomLeft / c.ratio));
+        if (amount < 100) break;
         jobs.push({ relId: c.relId, farmId: c.farmId, townId: tid, amount, deficit });
         capLeft[tid] -= amount;
+        roomLeft -= amount * c.ratio;
         if (jobs.length >= 6) break;
       }
       if (jobs.length >= 6) break;

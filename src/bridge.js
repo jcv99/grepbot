@@ -440,8 +440,11 @@
       try {
         const r = t.resources && t.resources();
         if (r && r.wood != null) {
-          wood = +r.wood; stone = +r.stone; iron = +r.iron;
-          if (r.storage != null) resStorage = +r.storage;
+          // gbNum per resource: a partial client read (wood present, stone
+          // null) must NOT ship NaN downstream — callers compare these and
+          // NaN silently poisons min/max picks and fillPct.
+          wood = gbNum(r.wood); stone = gbNum(r.stone); iron = gbNum(r.iron);
+          if (r.storage != null) resStorage = gbNum(r.storage);
         }
       } catch (_) {}
       if (wood != null) {

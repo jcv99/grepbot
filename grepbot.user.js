@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.54
+// @version      5.10.55
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -3835,8 +3835,9 @@ const STORE = {
       try {
         const r = t.resources && t.resources();
         if (r && r.wood != null) {
-          wood = +r.wood; stone = +r.stone; iron = +r.iron;
-          if (r.storage != null) resStorage = +r.storage;
+
+          wood = gbNum(r.wood); stone = gbNum(r.stone); iron = gbNum(r.iron);
+          if (r.storage != null) resStorage = gbNum(r.storage);
         }
       } catch (_) {}
       if (wood != null) {
@@ -11961,7 +11962,7 @@ const STORE = {
     if (automationPaused({})) return;
     if (gbLocked('rural-trade')) return;
 
-    const minRatio = +state.ruralTradeRatio || 1.1;
+    const minRatio = Math.max(1, gbNum(state.ruralTradeRatio) || 1.1);
     const relations = ruralRelModels();
     const farms = ruralFarmModels();
     const farmById = {};
@@ -11983,15 +11984,27 @@ const STORE = {
       capLeft[tid] = tradeCap;
 
       const st = townResState(tid);
-      if (!st || !st.cap) continue;
+      if (!st || !st.cap) {
+        gbLogT('ruraltrade-blind-' + tid, 300000,
+          `rural-trade: town ${tid} warehouse unreadable \u2014 skip`);
+        continue;
+      }
 
       let deficit = null, deficitAmt = Infinity;
       for (const r of RES_KEYS) {
-        const amt = +st[r] || 0;
+        const amt = gbNum(st[r]);
+        if (amt == null) continue;
         if (st.full && st.full[r]) continue;
         if (amt < deficitAmt) { deficitAmt = amt; deficit = r; }
       }
       if (!deficit) continue;
+
+      let roomLeft = Math.max(0, st.cap - deficitAmt);
+      if (roomLeft < 500) {
+        gbLogT('ruraltrade-noroom-' + tid, 300000,
+          `rural-trade: town ${tid} no room for ${deficit} \u2014 skip`);
+        continue;
+      }
 
       const candidates = [];
       for (const rel of relations) {
@@ -12007,13 +12020,16 @@ const STORE = {
         if (!(ratio >= minRatio)) continue;
         candidates.push({ relId: a.id || rel.id, farmId: a.farm_town_id, ratio });
       }
-      candidates.sort((x, y) => (y.ratio - x.ratio) || (x.relId - y.relId));
+      candidates.sort((x, y) => (y.ratio - x.ratio) ||
+        (x.relId > y.relId ? 1 : (x.relId < y.relId ? -1 : 0)));
 
       for (const c of candidates) {
-        if ((capLeft[tid] || 0) < 500) break;
-        const amount = Math.min(3000, capLeft[tid]);
+        if ((capLeft[tid] || 0) < 500 || roomLeft < 500) break;
+        const amount = Math.min(3000, capLeft[tid], Math.floor(roomLeft / c.ratio));
+        if (amount < 100) break;
         jobs.push({ relId: c.relId, farmId: c.farmId, townId: tid, amount, deficit });
         capLeft[tid] -= amount;
+        roomLeft -= amount * c.ratio;
         if (jobs.length >= 6) break;
       }
       if (jobs.length >= 6) break;
