@@ -173,13 +173,16 @@
         const barracksNeed = +(def.barracks_level ?? def.required_barracks_level ?? 1);
         if (+(buildings.barracks || 0) < (Number.isFinite(barracksNeed) ? barracksNeed : 1)) return false;
       }
-      if (def.god || def.mythical || def.is_mythical) {
+      // Live client keys mythical units off `god_id` (see GameData.units +
+      // unit card isMythical); some worlds also omit `god`/`is_mythical` while
+      // still charging favor. Treat any of those as mythical.
+      if (def.god || def.god_id || def.mythical || def.is_mythical) {
         // GameData.units.hydra often ships without `god` even though
         // is_mythical:true and a non-zero favor cost are present; the map in
         // core.js (MYTHICAL_UNIT_GOD) fills the gap so the favor gate can clamp
-        // against the canonical god. def.god stays primary — the map is only a
-        // fallback for naval mythicals the client build forgot to label.
-        let requiredGod = def.god ? String(def.god).toLowerCase() : null;
+        // against the canonical god. def.god / def.god_id stay primary — the
+        // map is only a fallback for naval mythicals the client build forgot.
+        let requiredGod = (def.god || def.god_id) ? String(def.god || def.god_id).toLowerCase() : null;
         if (!requiredGod && typeof mythicalUnitGod === 'function') {
           requiredGod = mythicalUnitGod(unitId);
         }
@@ -205,21 +208,68 @@
       return true;
     } catch (_) { return false; }
   }
-  function recruitQueueInfo(townId,unitId) {
-    const t = gbTownModel(townId);
-    if (!t) return { known: false, len: 0, max: null, models: [] };
-    let col = null, models = [];
-    try { col = t.getUnitOrdersCollection && t.getUnitOrdersCollection();if(!col||!Array.isArray(col.models))return {known:false,len:0,max:null,models:[]};models=col.models.slice(); } catch (_) {return {known:false,len:0,max:null,models:[]}}
-    if(unitId){const wantNaval=recruitIsNaval(unitId);models=models.filter(m=>{const a=m.attributes||m,id=a.unit_type||a.unit_id||a.type;return id?recruitIsNaval(id)===wantNaval:true})}
-    let max = null;
-    try { if (col && typeof col.getMaxQueueLength === 'function') max = +col.getMaxQueueLength(); } catch (_) {}
-    try { if (!(max > 0) && col && col.max_queue_length != null) max = +col.max_queue_length; } catch (_) {}
+  // Per-lane unit queue length. Captured client
+  // (GameDataConstructionQueue.getUnitOrdersQueueLength) hardcodes
+  // type_unit_queue → 7; full check is getAllOrders().length === 2*that
+  // (barracks + docks). The old probes (getMaxQueueLength / max_queue_length /
+  // GameDataUnitQueue.getQueueMax) match NOTHING in the live bundle, so max
+  // stayed null and recruitQueueHasSpace fell through to "only when empty" —
+  // any ship already in the harbor froze hydra (and every other naval head)
+  // at waiting-slot forever despite free slots.
+  function recruitQueueMax() {
     try {
       const uw = gameUw();
-      const q = uw.GameDataUnitQueue || uw.GameDataUnits;
-      if (!(max > 0) && q && typeof q.getQueueMax === 'function') max = +q.getQueueMax(townId);
+      const q = uw.GameDataConstructionQueue;
+      if (q && typeof q.getUnitOrdersQueueLength === 'function') {
+        const n = +q.getUnitOrdersQueueLength();
+        if (Number.isFinite(n) && n > 0) return n;
+      }
     } catch (_) {}
-    return { known: true, len: models.length, max: max > 0 ? max : null, models };
+    return 7;
+  }
+  function recruitQueueInfo(townId, unitId) {
+    const t = gbTownModel(townId);
+    const max = recruitQueueMax();
+    if (!t) return { known: false, len: 0, max, models: [] };
+    let col = null, models = [];
+    try {
+      col = t.getUnitOrdersCollection && t.getUnitOrdersCollection();
+      if (!col) return { known: false, len: 0, max, models: [] };
+      // Game's own lane filter: getOrders('docks'|'barracks') keys off
+      // getProductionBuildingType(), which stays correct even when a naval
+      // mythical (hydra) lacks is_naval in GameData. Trust an Array result
+      // even when empty — do not fall through and re-count.
+      const building = unitId ? (recruitIsNaval(unitId) ? 'docks' : 'barracks') : null;
+      let laneKnown = false;
+      if (building && typeof col.getOrders === 'function') {
+        const orders = col.getOrders(building);
+        if (Array.isArray(orders)) { models = orders.slice(); laneKnown = true; }
+      }
+      if (!laneKnown && Array.isArray(col.models)) {
+        models = col.models.slice();
+        if (unitId) {
+          const wantNaval = recruitIsNaval(unitId);
+          models = models.filter(m => {
+            const a = m.attributes || m;
+            let pbt = null;
+            try { if (typeof m.getProductionBuildingType === 'function') pbt = m.getProductionBuildingType(); } catch (_) {}
+            if (!pbt) pbt = a.production_building_type || a.building_type;
+            if (pbt === 'docks' || pbt === 'barracks') return (pbt === 'docks') === wantNaval;
+            const id = a.unit_type || a.unit_id || a.type;
+            return id ? recruitIsNaval(id) === wantNaval : true;
+          });
+        }
+        laneKnown = true;
+      }
+      if (!laneKnown) {
+        if (building && typeof col.getCount === 'function') {
+          const c = +col.getCount(building);
+          if (Number.isFinite(c) && c >= 0) return { known: true, len: c, max, models: [] };
+        }
+        return { known: false, len: 0, max, models: [] };
+      }
+    } catch (_) { return { known: false, len: 0, max, models: [] }; }
+    return { known: true, len: models.length, max, models };
   }
   function recruitQueuedAmount(townId, unit) {
     const q = recruitQueueInfo(townId);
@@ -261,10 +311,10 @@
       const favorCost = gbNum(def.favor ?? def.resources.favor) || 0;
       if (favorCost > 0) {
         // Same naval-mythical fallback as recruitCanBuild: GameData may omit
-        // `def.god` for hydra, so fall back to MYTHICAL_UNIT_GOD before the
-        // pool clamp. Favor is irreversible, so an unknown god still hard-stops
-        // the amount at 0 — never spend against a guess.
-        let god = def.god && String(def.god).toLowerCase();
+        // `def.god` (and only set `god_id`) for hydra, so fall back to
+        // MYTHICAL_UNIT_GOD before the pool clamp. Favor is irreversible, so an
+        // unknown god still hard-stops the amount at 0 — never spend against a guess.
+        let god = (def.god || def.god_id) && String(def.god || def.god_id).toLowerCase();
         if (!god && typeof mythicalUnitGod === 'function') god = mythicalUnitGod(unit);
         const fav = favorCurrent();
         const have = god ? favorForGod(fav, god) : null;

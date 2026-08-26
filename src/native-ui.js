@@ -49,9 +49,16 @@
     const navalWasEmpty=naval.length===0;
     for(let i=land.length-1;i>=0;i--){
       const j=land[i];if(!j)continue;
+      // Must use recruitIsNaval (NAVAL_MYTHICAL_UNITS), not bare is_naval:
+      // hydra often lacks is_naval in GameData and would stay stranded in the
+      // barracks lane forever after an import / pre-split storage.
       const d=gbGameDataLookup("units", j.unit);
-      if(!d){blind=true;continue}
-      if(d.is_naval||d.naval){land.splice(i,1);naval.unshift(j);moved++}
+      if(!d){
+        if(recruitIsNaval(j.unit)){land.splice(i,1);naval.unshift(j);moved++}
+        else blind=true;
+        continue;
+      }
+      if(recruitIsNaval(j.unit)){land.splice(i,1);naval.unshift(j);moved++}
     }
     if(!blind)nativeRecruitSplitDone.add(id);
     if(moved){

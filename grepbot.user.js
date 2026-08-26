@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.42
+// @version      5.10.43
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -8391,9 +8391,14 @@ const STORE = {
     const navalWasEmpty=naval.length===0;
     for(let i=land.length-1;i>=0;i--){
       const j=land[i];if(!j)continue;
+
       const d=gbGameDataLookup("units", j.unit);
-      if(!d){blind=true;continue}
-      if(d.is_naval||d.naval){land.splice(i,1);naval.unshift(j);moved++}
+      if(!d){
+        if(recruitIsNaval(j.unit)){land.splice(i,1);naval.unshift(j);moved++}
+        else blind=true;
+        continue;
+      }
+      if(recruitIsNaval(j.unit)){land.splice(i,1);naval.unshift(j);moved++}
     }
     if(!blind)nativeRecruitSplitDone.add(id);
     if(moved){
@@ -14837,9 +14842,10 @@ const STORE = {
         const barracksNeed = +(def.barracks_level ?? def.required_barracks_level ?? 1);
         if (+(buildings.barracks || 0) < (Number.isFinite(barracksNeed) ? barracksNeed : 1)) return false;
       }
-      if (def.god || def.mythical || def.is_mythical) {
 
-        let requiredGod = def.god ? String(def.god).toLowerCase() : null;
+      if (def.god || def.god_id || def.mythical || def.is_mythical) {
+
+        let requiredGod = (def.god || def.god_id) ? String(def.god || def.god_id).toLowerCase() : null;
         if (!requiredGod && typeof mythicalUnitGod === 'function') {
           requiredGod = mythicalUnitGod(unitId);
         }
@@ -14863,21 +14869,58 @@ const STORE = {
       return true;
     } catch (_) { return false; }
   }
-  function recruitQueueInfo(townId,unitId) {
-    const t = gbTownModel(townId);
-    if (!t) return { known: false, len: 0, max: null, models: [] };
-    let col = null, models = [];
-    try { col = t.getUnitOrdersCollection && t.getUnitOrdersCollection();if(!col||!Array.isArray(col.models))return {known:false,len:0,max:null,models:[]};models=col.models.slice(); } catch (_) {return {known:false,len:0,max:null,models:[]}}
-    if(unitId){const wantNaval=recruitIsNaval(unitId);models=models.filter(m=>{const a=m.attributes||m,id=a.unit_type||a.unit_id||a.type;return id?recruitIsNaval(id)===wantNaval:true})}
-    let max = null;
-    try { if (col && typeof col.getMaxQueueLength === 'function') max = +col.getMaxQueueLength(); } catch (_) {}
-    try { if (!(max > 0) && col && col.max_queue_length != null) max = +col.max_queue_length; } catch (_) {}
+
+  function recruitQueueMax() {
     try {
       const uw = gameUw();
-      const q = uw.GameDataUnitQueue || uw.GameDataUnits;
-      if (!(max > 0) && q && typeof q.getQueueMax === 'function') max = +q.getQueueMax(townId);
+      const q = uw.GameDataConstructionQueue;
+      if (q && typeof q.getUnitOrdersQueueLength === 'function') {
+        const n = +q.getUnitOrdersQueueLength();
+        if (Number.isFinite(n) && n > 0) return n;
+      }
     } catch (_) {}
-    return { known: true, len: models.length, max: max > 0 ? max : null, models };
+    return 7;
+  }
+  function recruitQueueInfo(townId, unitId) {
+    const t = gbTownModel(townId);
+    const max = recruitQueueMax();
+    if (!t) return { known: false, len: 0, max, models: [] };
+    let col = null, models = [];
+    try {
+      col = t.getUnitOrdersCollection && t.getUnitOrdersCollection();
+      if (!col) return { known: false, len: 0, max, models: [] };
+
+      const building = unitId ? (recruitIsNaval(unitId) ? 'docks' : 'barracks') : null;
+      let laneKnown = false;
+      if (building && typeof col.getOrders === 'function') {
+        const orders = col.getOrders(building);
+        if (Array.isArray(orders)) { models = orders.slice(); laneKnown = true; }
+      }
+      if (!laneKnown && Array.isArray(col.models)) {
+        models = col.models.slice();
+        if (unitId) {
+          const wantNaval = recruitIsNaval(unitId);
+          models = models.filter(m => {
+            const a = m.attributes || m;
+            let pbt = null;
+            try { if (typeof m.getProductionBuildingType === 'function') pbt = m.getProductionBuildingType(); } catch (_) {}
+            if (!pbt) pbt = a.production_building_type || a.building_type;
+            if (pbt === 'docks' || pbt === 'barracks') return (pbt === 'docks') === wantNaval;
+            const id = a.unit_type || a.unit_id || a.type;
+            return id ? recruitIsNaval(id) === wantNaval : true;
+          });
+        }
+        laneKnown = true;
+      }
+      if (!laneKnown) {
+        if (building && typeof col.getCount === 'function') {
+          const c = +col.getCount(building);
+          if (Number.isFinite(c) && c >= 0) return { known: true, len: c, max, models: [] };
+        }
+        return { known: false, len: 0, max, models: [] };
+      }
+    } catch (_) { return { known: false, len: 0, max, models: [] }; }
+    return { known: true, len: models.length, max, models };
   }
   function recruitQueuedAmount(townId, unit) {
     const q = recruitQueueInfo(townId);
@@ -14915,7 +14958,7 @@ const STORE = {
       const favorCost = gbNum(def.favor ?? def.resources.favor) || 0;
       if (favorCost > 0) {
 
-        let god = def.god && String(def.god).toLowerCase();
+        let god = (def.god || def.god_id) && String(def.god || def.god_id).toLowerCase();
         if (!god && typeof mythicalUnitGod === 'function') god = mythicalUnitGod(unit);
         const fav = favorCurrent();
         const have = god ? favorForGod(fav, god) : null;
