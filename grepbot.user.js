@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.45
+// @version      5.10.47
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -8960,12 +8960,10 @@ const STORE = {
     if(job.manualReview){nativeQueueSetJobState(job,'unknown',job.reason||'comprobar la cola real y quitar este trabajo si no se envi\u00f3');return null}
     if(job.inflight){nativeQueueSetJobState(job,'sending',job.reason||'enviando a la cola real');return null}
 
-    if(job.status==='waiting-slot'&&job.unit&&typeof recruitQueueHasSpace==='function'){
+    if(job.status==='waiting-slot'){
       try{
-        if(recruitQueueHasSpace(townId,job.unit)){
-          nativeQueueSetJobState(job,'pending','');
-          try{gbTimeout(()=>recruitScan('slot-free'),50)}catch(_){}
-        }
+        nativeQueueSetJobState(job,'pending','re-chequeo cola');
+        try{gbTimeout(()=>recruitScan('slot-free'),50)}catch(_){}
       }catch(_){}
     }
     return job;
@@ -15011,8 +15009,27 @@ const STORE = {
     const q = recruitQueueInfo(townId, unitId);
 
     if (!q.known) return true;
-    const max = q.max != null ? q.max : recruitQueueMax();
+    const max = q.max != null && q.max > 0 ? q.max : recruitQueueMax();
     return q.len < max;
+  }
+
+  function recruitRefreshWaitingSlotJobs() {
+    const root = nativeQueueRoot();
+    for (const tid of Object.keys(root.towns || {})) {
+      for (const lane of NATIVE_RECRUIT_LANES) {
+        const job = nativeQueueList(tid, lane, false)[0];
+        if (!job || job.status !== 'waiting-slot' || !job.unit) continue;
+        if (job.inflight || job.manualReview) continue;
+        const q = recruitQueueInfo(tid, job.unit);
+        const max = (q.max != null && q.max > 0) ? q.max : recruitQueueMax();
+        if (!q.known || q.len < max) {
+          nativeQueueSetJobState(job, 'pending', 'cola liberada / re-chequeo');
+          continue;
+        }
+        const laneLabel = recruitIsNaval(job.unit) ? 'puerto' : 'cuartel';
+        nativeQueueSetJobState(job, 'waiting-slot', `${laneLabel} ${q.len}/${max}`);
+      }
+    }
   }
   function recruitAffordableAmount(townId, unit, want) {
     const def = gbGameDataLookup("units", unit), t = gbTownModel(townId);
@@ -15044,7 +15061,7 @@ const STORE = {
   }
   function recruitValidateJob(job) {
     if (!recruitCanBuild(job.townId, job.unit)) return { ok: false, why: 'requirements' };
-    if (!recruitQueueHasSpace(job.townId,job.unit)) return { ok: false, why: 'queue' };
+
     const amount = recruitAffordableAmount(job.townId, job.unit, job.amount);
     if (!(amount > 0)) return { ok: false, why: 'resources/pop/favor' };
     return { ok: true, amount: Math.min(amount, job.amount) };
@@ -15066,6 +15083,8 @@ const STORE = {
   function recruitScan(reason) {
     const nativePending = nativeRecruitPending();
     if (!hostEnabled() || (!state.autoRecruit && !nativePending) || captchaPaused('recruit')) return;
+
+    try { recruitRefreshWaitingSlotJobs(); } catch (_) {}
     if (automationPaused({})) return;
     if (gbLocked('recruit')) return;
 
@@ -15087,17 +15106,13 @@ const STORE = {
         if (!nativeQueueIsFifo(tid, lane)) continue;
         const explicit = nativeQueueRecruitHead(tid, lane);
         if (!explicit) continue;
-        const qInfo = recruitQueueInfo(tid, explicit.unit);
 
+        const qInfo = recruitQueueInfo(tid, explicit.unit);
         const qMax = (qInfo.max != null && qInfo.max > 0) ? qInfo.max : recruitQueueMax();
         if (qInfo.known && qInfo.len >= qMax) {
-          const laneLabel = recruitIsNaval(explicit.unit) ? 'puerto' : 'cuartel';
-          nativeQueueSetJobState(explicit, 'waiting-slot', `${laneLabel} ${qInfo.len}/${qMax}`);
-          gbLogT('recruit-slot-' + tid, 60000,
-            `recruit: ${explicit.unit} waiting-slot ${qInfo.len}/${qMax} @${tid}`);
-          continue;
-        }
-        if (!qInfo.known) {
+          gbLogT('recruit-slot-soft-' + tid, 60000,
+            `recruit: client says full ${qInfo.len}/${qMax} for ${explicit.unit} @${tid}; posting anyway, server judges`);
+        } else if (!qInfo.known) {
           gbLogT('recruit-queue-blind-' + tid, 300000,
             `recruit: unit queue unreadable in town ${tid}; ${explicit.unit} left to the server to judge`);
         }

@@ -349,11 +349,32 @@
   }
   function recruitQueueHasSpace(townId, unitId) {
     const q = recruitQueueInfo(townId, unitId);
-    // Unreadable ≠ full. Returning false here printed "cola real llena" while
-    // the docks header showed 0/7 (hard-rule: unread → blind → server judges).
+    // Unreadable ≠ full. A wrong "full" read stranded hydra at waiting-slot
+    // while docks showed 0/7 — hard-rule: unread/untrusted → allow, server judges.
     if (!q.known) return true;
-    const max = q.max != null ? q.max : recruitQueueMax();
+    const max = q.max != null && q.max > 0 ? q.max : recruitQueueMax();
     return q.len < max;
+  }
+  // Re-label FIFO heads stuck on waiting-slot without posting. Runs even when
+  // farmFirstHold / captcha blocks the send path, so the panel cannot keep a
+  // pre-upgrade "cola real llena" forever.
+  function recruitRefreshWaitingSlotJobs() {
+    const root = nativeQueueRoot();
+    for (const tid of Object.keys(root.towns || {})) {
+      for (const lane of NATIVE_RECRUIT_LANES) {
+        const job = nativeQueueList(tid, lane, false)[0];
+        if (!job || job.status !== 'waiting-slot' || !job.unit) continue;
+        if (job.inflight || job.manualReview) continue;
+        const q = recruitQueueInfo(tid, job.unit);
+        const max = (q.max != null && q.max > 0) ? q.max : recruitQueueMax();
+        if (!q.known || q.len < max) {
+          nativeQueueSetJobState(job, 'pending', 'cola liberada / re-chequeo');
+          continue;
+        }
+        const laneLabel = recruitIsNaval(job.unit) ? 'puerto' : 'cuartel';
+        nativeQueueSetJobState(job, 'waiting-slot', `${laneLabel} ${q.len}/${max}`);
+      }
+    }
   }
   function recruitAffordableAmount(townId, unit, want) {
     const def = gbGameDataLookup("units", unit), t = gbTownModel(townId);
@@ -391,7 +412,8 @@
   }
   function recruitValidateJob(job) {
     if (!recruitCanBuild(job.townId, job.unit)) return { ok: false, why: 'requirements' };
-    if (!recruitQueueHasSpace(job.townId,job.unit)) return { ok: false, why: 'queue' };
+    // Deliberately no recruitQueueHasSpace here: client lane-length reads have
+    // falsely reported "full" against docks 0/7. Server rejects a real full lane.
     const amount = recruitAffordableAmount(job.townId, job.unit, job.amount);
     if (!(amount > 0)) return { ok: false, why: 'resources/pop/favor' };
     return { ok: true, amount: Math.min(amount, job.amount) };
@@ -416,9 +438,12 @@
   function recruitScan(reason) {
     const nativePending = nativeRecruitPending();
     if (!hostEnabled() || (!state.autoRecruit && !nativePending) || captchaPaused('recruit')) return;
+    // Always re-label stale waiting-slot rows first — even when a later hold
+    // blocks the actual post (farm-first / lock / captcha). Otherwise the panel
+    // keeps a pre-upgrade "cola real llena" forever while docks shows 0/7.
+    try { recruitRefreshWaitingSlotJobs(); } catch (_) {}
     if (automationPaused({})) return;
     if (gbLocked('recruit')) return;
-    // Farm precedence: no unit post while a village claim is still possible.
     // Farm precedence: no unit post while a village claim is still possible.
     // Enforced here as well as in orchTick so a wake/toggle path cannot route
     // around it. See farmClaimPending() in farms.js.
@@ -444,18 +469,15 @@
         if (!nativeQueueIsFifo(tid, lane)) continue;
         const explicit = nativeQueueRecruitHead(tid, lane);
         if (!explicit) continue;
+        // Client queue-length reads have lied (docks UI 0/7 while we set
+        // waiting-slot). Do NOT hard-block the native FIFO head on them —
+        // afford/canBuild still run; the server rejects a truly full lane.
         const qInfo = recruitQueueInfo(tid, explicit.unit);
-        // Use >= with a coerced max — `len < null` is always false in JS, which
-        // used to mark an empty/readable queue as full.
         const qMax = (qInfo.max != null && qInfo.max > 0) ? qInfo.max : recruitQueueMax();
         if (qInfo.known && qInfo.len >= qMax) {
-          const laneLabel = recruitIsNaval(explicit.unit) ? 'puerto' : 'cuartel';
-          nativeQueueSetJobState(explicit, 'waiting-slot', `${laneLabel} ${qInfo.len}/${qMax}`);
-          gbLogT('recruit-slot-' + tid, 60000,
-            `recruit: ${explicit.unit} waiting-slot ${qInfo.len}/${qMax} @${tid}`);
-          continue;
-        }
-        if (!qInfo.known) {
+          gbLogT('recruit-slot-soft-' + tid, 60000,
+            `recruit: client says full ${qInfo.len}/${qMax} for ${explicit.unit} @${tid}; posting anyway, server judges`);
+        } else if (!qInfo.known) {
           gbLogT('recruit-queue-blind-' + tid, 300000,
             `recruit: unit queue unreadable in town ${tid}; ${explicit.unit} left to the server to judge`);
         }
