@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.48
+// @version      5.10.50
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -743,7 +743,12 @@ const STORE = {
     ibFreeThresh: load(STORE.IB_FREE_THRESH, 300),
     ibAction:   load(STORE.IB_ACTION, null) || 'buyInstant',
     ibResearch: load(STORE.IB_RESEARCH, false),
-    farmOptionMap: load(STORE.FARM_OPTION_MAP, null) || { 300: 1 },
+    farmOptionMap: (() => {
+      const m = load(STORE.FARM_OPTION_MAP, null);
+      if (m && typeof m === 'object' && !Array.isArray(m)
+          && Object.keys(m).some(k => m[k] != null && Number.isFinite(+m[k]))) return m;
+      return { 300: 1 };
+    })(),
 
     farmLongClaims: load(STORE.FARM_LONG_CLAIMS, false),
     farmLoyaltyTech: load(STORE.FARM_LOYALTY_TECH, '') || '',
@@ -5526,18 +5531,33 @@ const STORE = {
     if (sec >= 3600) return (sec / 3600) + 'h';
     return Math.round(sec / 60) + 'min';
   }
+
+  function farmOptionMapEnsure() {
+    let m = state.farmOptionMap;
+    if (!m || typeof m !== 'object' || Array.isArray(m)) m = {};
+    const has = Object.keys(m).some(k => m[k] != null && Number.isFinite(+m[k]));
+    if (has) {
+      state.farmOptionMap = m;
+      return m;
+    }
+    m = { 300: 1 };
+    state.farmOptionMap = m;
+    save(wkey(STORE.FARM_OPTION_MAP), m);
+    gbLogT('farm-opt-default', 600000, 'farm: empty option map \u2014 restored default 5min=1');
+    return m;
+  }
   function farmOptionFor(sec) {
-    const m = state.farmOptionMap || {};
+    const m = farmOptionMapEnsure();
     const v = m[String(sec)];
     return v == null ? null : +v;
   }
   function farmOptionMapText() {
-    const m = state.farmOptionMap || {};
+    const m = farmOptionMapEnsure();
     const parts = FARM_DURATIONS.filter(s => m[String(s)] != null).map(s => `${farmDurLabel(s)}=${m[String(s)]}`);
     return parts.length ? parts.join(' ') : 'none';
   }
   function farmOptionMapConflicts() {
-    const m = state.farmOptionMap || {};
+    const m = farmOptionMapEnsure();
     const byOpt = Object.create(null);
     Object.keys(m).forEach(sec => {
       const o = String(m[sec]);
@@ -6145,25 +6165,34 @@ const STORE = {
     const outcome = Object.create(null);
     let i = 0, done = 0, captcha = false;
     const claimSpacingMs=Math.max(700,Math.ceil(60000/Math.max(5,(+state.reqBudgetPerMin||40)-4)));
+    function finishClaimBatch() {
+      const tally = Object.keys(outcome).map(k => `${k}x${outcome[k]}`).join(' ') || 'none';
+      gbLog(`  claim outcomes: ${tally}`);
+
+      const posted = done > 0;
+      if (work.length && !posted) {
+        gbLog(`farm claim: 0 posted \u2014 unlock now (outcomes: ${tally})`);
+        flash('aldeas: 0 cobradas \u2014 ' + tally);
+      }
+      const wrapUp = () => {
+        try {
+          const flipped = posted ? verifyClaims(before, work) : 0;
+          farmScheduleClaimWake(null, 'post-claim', true);
+          if (onBatchDone) onBatchDone({
+            done: flipped,
+            attempted: work.length,
+            captcha,
+            bridgeOk: done,
+          });
+        } finally { gbUnlock('claim', claimLockToken); }
+      };
+      if (posted) gbTimeout(wrapUp, 10000);
+      else wrapUp();
+    }
     (function next() {
       if (!gbLockTouch('claim', claimLockToken)) return;
       if (i >= work.length || captcha || captchaPaused('farm')) {
-        const tally = Object.keys(outcome).map(k => `${k}x${outcome[k]}`).join(' ');
-        if (tally) gbLog(`  claim outcomes: ${tally}`);
-        gbTimeout(() => {
-          try {
-            const flipped = verifyClaims(before, work);
-
-            farmScheduleClaimWake(null, 'post-claim', true);
-
-            if (onBatchDone) onBatchDone({
-              done: flipped,
-              attempted: work.length,
-              captcha,
-              bridgeOk: done,
-            });
-          } finally { gbUnlock('claim', claimLockToken); }
-        }, 10000);
+        finishClaimBatch();
         return;
       }
       const f = work[i++];
@@ -6409,7 +6438,7 @@ const STORE = {
               if (onDone) onDone(false);
               return;
             }
-            gbLogT('farm-http-' + res.status, 30000, `farm ${entry.vill_id}: HTTP ${res.status}, retry ${n + 1}/3 in ${retryMs}ms`);
+            gbLogT('farm-http-' + res.status, 30000, `farm-scrape ${entry.vill_id}: HTTP ${res.status}, retry ${n + 1}/3 in ${retryMs}ms`);
             gbTimeout(() => tryGuess(entry, i, n + 1), retryMs);
             return;
           }
@@ -6528,7 +6557,7 @@ const STORE = {
       fetchFarmResources(f, (good, why) => {
         done++; if (good) ok++;
         const err = (state.farmResources[f.vill_id] || {}).err || '?';
-        if (!good) gbLog(`  farm ${f.vill_id}: no data (${err})`);
+        if (!good) gbLog(`  farm-scrape ${f.vill_id}: no data (${err})`);
         if (!good && err === 'no endpoint matched') hard++;
 
         if (why === 'budget' || why === 'disabled' || why === 'disposed') {
@@ -6540,7 +6569,7 @@ const STORE = {
 
         if (!ok && hard >= FARM_SCRAPE_HARD_ABORT && list.length) {
           gbUnlock('farm-scrape', farmScrapeLock);
-          gbLog(`farm scrape stopped (no endpoint after ${hard} villages): 0/${done} ok`);
+          gbLog(`farm scrape stopped (no endpoint after ${hard} villages): 0/${done} ok \u2014 display only, claims use bridge`);
           farmScrapeNoteSweep(farmScrapeLock, 0);
           return;
         }
@@ -15124,9 +15153,26 @@ const STORE = {
       gbLogT('farm-first-recruit', 300000, 'recruit: held - farming village claim pending (farm-first)');
       return;
     }
-    if (farmHold) {
-      gbLogT('farm-first-recruit-native', 300000,
-        'recruit: farm-first active \u2014 native FIFO still runs, legacy goals held');
+    let nativeFarmBudgetHold = false;
+    if (farmHold && nativePending) {
+      const claimBusy = typeof gbLocked === 'function' && gbLocked('claim');
+      let softMs = 0;
+      try { softMs = typeof reqBudgetSoftDelayMs === 'function' ? +reqBudgetSoftDelayMs() || 0 : 0; } catch (_) {}
+      let used = 0, cap = 0;
+      try {
+        used = typeof reqBudgetUsed === 'function' ? +reqBudgetUsed('action') || 0 : 0;
+        cap = typeof reqBudgetCap === 'function' ? +reqBudgetCap('action') || 0 : 0;
+      } catch (_) {}
+
+      const budgetTight = softMs > 0 || (cap > 0 && used >= Math.floor(cap * 0.75));
+      nativeFarmBudgetHold = !!(claimBusy || budgetTight);
+      if (nativeFarmBudgetHold) {
+        gbLogT('farm-first-recruit-budget', 60000,
+          `recruit: native FIFO deferred \u2014 farm claim owns budget (claimLock=${claimBusy ? 1 : 0} softMs=${softMs} action=${used}/${cap})`);
+      } else {
+        gbLogT('farm-first-recruit-native', 300000,
+          'recruit: farm-first active \u2014 native FIFO still runs, legacy goals held');
+      }
     }
     recruitScanResetMemo();
     const targets = goalEffectiveRecruitTargets();
@@ -15165,7 +15211,9 @@ const STORE = {
 
         const affordable = recruitAffordableAmount(tid, explicit.unit, postAmt);
         if (affordable < postAmt) { nativeQueueSetJobState(explicit, 'waiting-resources', 'recursos/poblaci\u00f3n/favor'); continue; }
-        nativeQueueSetJobState(explicit, 'ready', 'listo');
+        nativeQueueSetJobState(explicit, 'ready', nativeFarmBudgetHold ? 'listo (espera aldeas)' : 'listo');
+
+        if (nativeFarmBudgetHold) continue;
         job = { kind:'build', townId:tid, unit:explicit.unit, amount:postAmt, nativeJobId:explicit.id, nativeLane:lane, nativeChunkSize: cs };
         break;
       }
@@ -17506,6 +17554,11 @@ const STORE = {
     if (!due.length) return;
 
     due.sort((a, b) => {
+
+      if (farmFirst) {
+        if (a.key === 'farm' && b.key !== 'farm') return -1;
+        if (b.key === 'farm' && a.key !== 'farm') return 1;
+      }
       const gap = b.overdue - a.overdue;
 
       const band = Math.max(a.cadence, b.cadence, ORCH_MS) * 2;
@@ -26935,7 +26988,7 @@ const STORE = {
     });
     onCfg('[data-cfg=farm-forget-options]', 'click', () => {
       if (!confirm('Olvidar las opciones de cobro aprendidas (recursos y unidades)?')) return;
-      state.farmOptionMap = {};
+      state.farmOptionMap = { 300: 1 };
       save(wkey(STORE.FARM_OPTION_MAP), state.farmOptionMap);
       state.farmUnitsOption = null;
       save(wkey(STORE.FARM_UNITS_OPTION), null);

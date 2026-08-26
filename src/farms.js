@@ -340,18 +340,35 @@
     if (sec >= 3600) return (sec / 3600) + 'h';
     return Math.round(sec / 60) + 'min';
   }
+  // load() treats {} as present, so a Forget-options click (or a persisted empty
+  // object) dropped the shipped {300:1} default and every resource claim
+  // short-circuited as farm-opt with no post. Empty = unknown, restore 5min.
+  function farmOptionMapEnsure() {
+    let m = state.farmOptionMap;
+    if (!m || typeof m !== 'object' || Array.isArray(m)) m = {};
+    const has = Object.keys(m).some(k => m[k] != null && Number.isFinite(+m[k]));
+    if (has) {
+      state.farmOptionMap = m;
+      return m;
+    }
+    m = { 300: 1 };
+    state.farmOptionMap = m;
+    save(wkey(STORE.FARM_OPTION_MAP), m);
+    gbLogT('farm-opt-default', 600000, 'farm: empty option map — restored default 5min=1');
+    return m;
+  }
   function farmOptionFor(sec) {
-    const m = state.farmOptionMap || {};
+    const m = farmOptionMapEnsure();
     const v = m[String(sec)];
     return v == null ? null : +v;
   }
   function farmOptionMapText() {
-    const m = state.farmOptionMap || {};
+    const m = farmOptionMapEnsure();
     const parts = FARM_DURATIONS.filter(s => m[String(s)] != null).map(s => `${farmDurLabel(s)}=${m[String(s)]}`);
     return parts.length ? parts.join(' ') : 'none';
   }
   function farmOptionMapConflicts() {
-    const m = state.farmOptionMap || {};
+    const m = farmOptionMapEnsure();
     const byOpt = Object.create(null);
     Object.keys(m).forEach(sec => {
       const o = String(m[sec]);
@@ -1061,26 +1078,36 @@
     const outcome = Object.create(null);
     let i = 0, done = 0, captcha = false;
     const claimSpacingMs=Math.max(700,Math.ceil(60000/Math.max(5,(+state.reqBudgetPerMin||40)-4)));
+    function finishClaimBatch() {
+      const tally = Object.keys(outcome).map(k => `${k}x${outcome[k]}`).join(' ') || 'none';
+      gbLog(`  claim outcomes: ${tally}`);
+      // Nothing hit the wire — 10s verify cannot prove a claim, and holding
+      // `claim` that long kept farm-first / native FIFO deferred while villages
+      // stayed lootable (v5.10.49 log: claimLock=1, action=1/54).
+      const posted = done > 0;
+      if (work.length && !posted) {
+        gbLog(`farm claim: 0 posted — unlock now (outcomes: ${tally})`);
+        flash('aldeas: 0 cobradas — ' + tally);
+      }
+      const wrapUp = () => {
+        try {
+          const flipped = posted ? verifyClaims(before, work) : 0;
+          farmScheduleClaimWake(null, 'post-claim', true);
+          if (onBatchDone) onBatchDone({
+            done: flipped,
+            attempted: work.length,
+            captcha,
+            bridgeOk: done,
+          });
+        } finally { gbUnlock('claim', claimLockToken); }
+      };
+      if (posted) gbTimeout(wrapUp, 10000);
+      else wrapUp();
+    }
     (function next() {
       if (!gbLockTouch('claim', claimLockToken)) return;
       if (i >= work.length || captcha || captchaPaused('farm')) {
-        const tally = Object.keys(outcome).map(k => `${k}x${outcome[k]}`).join(' ');
-        if (tally) gbLog(`  claim outcomes: ${tally}`);
-        gbTimeout(() => {
-          try {
-            const flipped = verifyClaims(before, work);
-
-            // Re-read model deadlines after the batch and arm the next exact claim wake.
-            farmScheduleClaimWake(null, 'post-claim', true);
-
-            if (onBatchDone) onBatchDone({
-              done: flipped,
-              attempted: work.length,
-              captcha,
-              bridgeOk: done,
-            });
-          } finally { gbUnlock('claim', claimLockToken); }
-        }, 10000);
+        finishClaimBatch();
         return;
       }
       const f = work[i++];
@@ -1362,7 +1389,7 @@
               if (onDone) onDone(false);
               return;
             }
-            gbLogT('farm-http-' + res.status, 30000, `farm ${entry.vill_id}: HTTP ${res.status}, retry ${n + 1}/3 in ${retryMs}ms`);
+            gbLogT('farm-http-' + res.status, 30000, `farm-scrape ${entry.vill_id}: HTTP ${res.status}, retry ${n + 1}/3 in ${retryMs}ms`);
             gbTimeout(() => tryGuess(entry, i, n + 1), retryMs);
             return;
           }
@@ -1491,7 +1518,7 @@
       fetchFarmResources(f, (good, why) => {
         done++; if (good) ok++;
         const err = (state.farmResources[f.vill_id] || {}).err || '?';
-        if (!good) gbLog(`  farm ${f.vill_id}: no data (${err})`);
+        if (!good) gbLog(`  farm-scrape ${f.vill_id}: no data (${err})`);
         if (!good && err === 'no endpoint matched') hard++;
         // Out of budget mid-sweep: stop the sweep, but still charge the breaker
         // with whatever endpoint evidence this sweep already produced.
@@ -1505,7 +1532,7 @@
         // budget on the remaining villages, the verdict is already in.
         if (!ok && hard >= FARM_SCRAPE_HARD_ABORT && list.length) {
           gbUnlock('farm-scrape', farmScrapeLock);
-          gbLog(`farm scrape stopped (no endpoint after ${hard} villages): 0/${done} ok`);
+          gbLog(`farm scrape stopped (no endpoint after ${hard} villages): 0/${done} ok — display only, claims use bridge`);
           farmScrapeNoteSweep(farmScrapeLock, 0);
           return;
         }

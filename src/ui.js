@@ -3141,7 +3141,7 @@
     });
     onCfg('[data-cfg=farm-forget-options]', 'click', () => {
       if (!confirm('Olvidar las opciones de cobro aprendidas (recursos y unidades)?')) return;
-      state.farmOptionMap = {};
+      state.farmOptionMap = { 300: 1 };
       save(wkey(STORE.FARM_OPTION_MAP), state.farmOptionMap);
       state.farmUnitsOption = null;
       save(wkey(STORE.FARM_UNITS_OPTION), null);

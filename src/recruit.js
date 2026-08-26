@@ -470,18 +470,36 @@
     try { recruitRefreshWaitingSlotJobs(); } catch (_) {}
     if (automationPaused({})) return;
     if (gbLocked('recruit')) return;
-    // Farm-first holds LEGACY goal recruit only. Native FIFO is player-armed —
-    // orch also exempts it. Blocking here left hydra at "pending" for minutes
-    // while docks showed 0/7 and the unit was affordable in the game UI.
+    // Farm-first holds LEGACY goal recruit. Native FIFO is player-armed and may
+    // still run — but never when farm claims already own the request budget
+    // (claim lock / soft ceiling). v5.10.48 let hydra post through claim
+    // batches and starved village/Recoger posts with skip:budget.
     const farmHold = typeof farmClaimPending === 'function' && !!state.autoFarm
       && !captchaPaused('farm') && farmClaimPending();
     if (farmHold && !nativePending) {
       gbLogT('farm-first-recruit', 300000, 'recruit: held - farming village claim pending (farm-first)');
       return;
     }
-    if (farmHold) {
-      gbLogT('farm-first-recruit-native', 300000,
-        'recruit: farm-first active — native FIFO still runs, legacy goals held');
+    let nativeFarmBudgetHold = false;
+    if (farmHold && nativePending) {
+      const claimBusy = typeof gbLocked === 'function' && gbLocked('claim');
+      let softMs = 0;
+      try { softMs = typeof reqBudgetSoftDelayMs === 'function' ? +reqBudgetSoftDelayMs() || 0 : 0; } catch (_) {}
+      let used = 0, cap = 0;
+      try {
+        used = typeof reqBudgetUsed === 'function' ? +reqBudgetUsed('action') || 0 : 0;
+        cap = typeof reqBudgetCap === 'function' ? +reqBudgetCap('action') || 0 : 0;
+      } catch (_) {}
+      // Keep ~25% of the action pool for in-flight / upcoming farm claims.
+      const budgetTight = softMs > 0 || (cap > 0 && used >= Math.floor(cap * 0.75));
+      nativeFarmBudgetHold = !!(claimBusy || budgetTight);
+      if (nativeFarmBudgetHold) {
+        gbLogT('farm-first-recruit-budget', 60000,
+          `recruit: native FIFO deferred — farm claim owns budget (claimLock=${claimBusy ? 1 : 0} softMs=${softMs} action=${used}/${cap})`);
+      } else {
+        gbLogT('farm-first-recruit-native', 300000,
+          'recruit: farm-first active — native FIFO still runs, legacy goals held');
+      }
     }
     recruitScanResetMemo();
     const targets = goalEffectiveRecruitTargets();
@@ -526,7 +544,9 @@
 
         const affordable = recruitAffordableAmount(tid, explicit.unit, postAmt);
         if (affordable < postAmt) { nativeQueueSetJobState(explicit, 'waiting-resources', 'recursos/población/favor'); continue; }
-        nativeQueueSetJobState(explicit, 'ready', 'listo');
+        nativeQueueSetJobState(explicit, 'ready', nativeFarmBudgetHold ? 'listo (espera aldeas)' : 'listo');
+        // Farm claim batch / tight budget: keep UI status fresh but do not post.
+        if (nativeFarmBudgetHold) continue;
         job = { kind:'build', townId:tid, unit:explicit.unit, amount:postAmt, nativeJobId:explicit.id, nativeLane:lane, nativeChunkSize: cs };
         break;
       }

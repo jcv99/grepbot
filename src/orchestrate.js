@@ -201,9 +201,10 @@
       if (!ORCH_HANDLERS[key]) continue;
       if (!orchFeatureEnabled(key)) continue;
       if (farmFirst && ORCH_UNIT_KEYS.includes(key)) {
-        // Player-armed native FIFO must not stall forever behind lootable
-        // villages (hydra sat pending while docks 0/7 and costs met). Legacy
-        // auto-recruit / village-recruit stay farm-first.
+        // Player-armed native FIFO may run alongside farm-first (else hydra
+        // sat pending for whole claim batches). Legacy goals still blocked.
+        // Budget gate inside recruitScan defers the actual post when claims
+        // already own the request pool.
         if (!(key === 'recruit' && typeof nativeRecruitPending === 'function' && nativeRecruitPending())) continue;
       }
       const cap = ORCH_CAPTCHA[key];
@@ -217,6 +218,13 @@
     if (!due.length) return;
 
     due.sort((a, b) => {
+      // Farm-first is a hard order override: a recruit that was blocked for
+      // minutes accrues huge overdue and must not jump ahead of a due farm
+      // claim (v5.10.48 native exemption + overdue sort starved recolecta).
+      if (farmFirst) {
+        if (a.key === 'farm' && b.key !== 'farm') return -1;
+        if (b.key === 'farm' && a.key !== 'farm') return 1;
+      }
       const gap = b.overdue - a.overdue;
       // Tie-break band scales with the slower of the two features' cadences
       // (capped at 2x base) so a 300s feature and a 20s feature can never

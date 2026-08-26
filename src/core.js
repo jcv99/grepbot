@@ -545,7 +545,12 @@
     ibFreeThresh: load(STORE.IB_FREE_THRESH, 300),
     ibAction:   load(STORE.IB_ACTION, null) || 'buyInstant',
     ibResearch: load(STORE.IB_RESEARCH, false),
-    farmOptionMap: load(STORE.FARM_OPTION_MAP, null) || { 300: 1 },
+    farmOptionMap: (() => {
+      const m = load(STORE.FARM_OPTION_MAP, null);
+      if (m && typeof m === 'object' && !Array.isArray(m)
+          && Object.keys(m).some(k => m[k] != null && Number.isFinite(+m[k]))) return m;
+      return { 300: 1 };
+    })(),
     // Default OFF (v5.10.9): new users get predictable 5min claims; only opt in
     // to the adaptive long picker (up to 4h, learned option by town) explicitly.
     // Existing users keep their stored value.
