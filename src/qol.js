@@ -914,7 +914,6 @@
       values: {
         autoCollect: [STORE.AUTO_COLLECT, true],
         autoFarm: [STORE.AUTO_FARM, true],
-        farmLongClaims: [STORE.FARM_LONG_CLAIMS, true],
         autoCave: [STORE.AUTO_CAVE, true],
         abAuto: [STORE.AB_AUTO, true],
         ibAuto: [STORE.IB_AUTO, true],
@@ -929,8 +928,6 @@
         autoBandit: [STORE.AUTO_BANDIT, false],
         reqBudgetPerMin: [STORE.REQ_BUDGET, 25],
         postsPerMinSoftPct: [STORE.POSTS_SOFT_PCT, 50],
-        farmMinMs: [STORE.FARM_MIN, 8 * 60000],
-        farmMaxMs: [STORE.FARM_MAX, 10 * 60000],
       },
     },
     farming: {
@@ -938,7 +935,6 @@
       values: {
         autoCollect: [STORE.AUTO_COLLECT, true],
         autoFarm: [STORE.AUTO_FARM, true],
-        farmLongClaims: [STORE.FARM_LONG_CLAIMS, true],
         autoBandit: [STORE.AUTO_BANDIT, true],
         autoCave: [STORE.AUTO_CAVE, true],
         abAuto: [STORE.AB_AUTO, true],
@@ -952,8 +948,6 @@
         nightPause: [STORE.NIGHT_PAUSE, false],
         reqBudgetPerMin: [STORE.REQ_BUDGET, 40],
         postsPerMinSoftPct: [STORE.POSTS_SOFT_PCT, 60],
-        farmMinMs: [STORE.FARM_MIN, 5 * 60000],
-        farmMaxMs: [STORE.FARM_MAX, 6 * 60000],
       },
     },
     war: {

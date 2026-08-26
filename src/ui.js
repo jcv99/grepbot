@@ -1342,7 +1342,7 @@
           <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Recoger aunque el tiempo mostrado sea mayor que el umbral"><input type="checkbox" data-cfg="collect-all"/> Recoger todo (ignora el tope de tiempo)</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Minutos maximos mostrados para que el bot recoja sin forzar">Minutos maximos para recoger <input class="gb-cfg-input" type="number" data-cfg="collect-max-min" min="1" max="120" style="width:70px"/></label>
           <label class="gb-cfg-row" data-gb-tip="Atacar campamentos bandidos automaticamente"><input type="checkbox" data-cfg="auto-bandit"/> Campamento bandido automatico</label>
-          <label class="gb-cfg-row" data-gb-tip="Cobrar aldeas propias periodicamente"><input type="checkbox" data-cfg="auto-farm"/> Recoleccion automatica de aldeas</label>
+          <label class="gb-cfg-row" data-gb-tip="Cobrar aldeas propias cada 10 minutos + 1-2 min aleatorios (siempre opcion de 10 min)"><input type="checkbox" data-cfg="auto-farm"/> Recoleccion automatica de aldeas</label>
           <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Saltar aldeas/bandido si el almacen de la ciudad esta demasiado lleno"><input type="checkbox" data-cfg="farm-skip-full"/> Saltar aldeas/bandido con el almacen lleno</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Cuando considerar el almacen lleno: 1 recurso o los 3">Criterio de almacen lleno
             <select class="gb-cfg-input" data-cfg="farm-full-mode" data-gb-tip="Cuando considerar el almacen lleno">
@@ -1350,7 +1350,6 @@
               <option value="all">los 3 recursos llenos</option>
             </select>
           </label>
-          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="OFF = cobros de 5 min en todas las aldeas. ON = picker adaptativo: el bot elige la opcion de cobro mas larga aprendida (hasta 4h) cuya produccion estimada quepa en el almacen del pueblo. Solo compensa si tienes la investigacion de lealtad; sin ella, cada aldeas más larga gasta un slot de captcha sin garantia de loot extra. Apaga esto si ves pueblos que pasan horas sin cobrarse."><input type="checkbox" data-cfg="farm-long-claims"/> Recogidas largas adaptativas (hasta 4h, solo si lealtad investigada)</label>
           <label class="gb-cfg-num gb-cfg-sub" title="La aldea tiene dos mitades: recursos y unidades. Con 'al agotarse los recursos' la aldea pasa a pedir unidades el resto del dia en cuanto el servidor rechaza el cobro de recursos (tope diario alcanzado). Las unidades ocupan poblacion.">Cobrar unidades en aldeas
             <select class="gb-cfg-input" data-cfg="farm-units-mode" data-gb-tip="Cuando pedir unidades en vez de recursos">
               <option value="off">nunca (solo recursos)</option>
@@ -1374,10 +1373,9 @@
             <input class="gb-cfg-input" data-cfg="farm-loyalty-tech" placeholder="auto (id del servidor o etiqueta)" title="Id de investigacion del servidor (p.ej. rural_loyalty) o el nombre localizado de la academia. La pestana Registro vuelca los pares id(etiqueta) cuando la deteccion automatica falla." style="width:190px"/>
           </label>
           <label class="gb-cfg-num gb-cfg-sub" title="Segundos de marcha por unidad de coordenada de isla. El juego no expone la formula de marcha, asi que 0 (por defecto) deja el ranking res/min independiente de la distancia.">Segundos de marcha por unidad de isla <input class="gb-cfg-input" type="number" data-cfg="farm-travel" min="0" max="600" step="0.5" style="width:60px"/></label>
-          <div id="gb-farm-optmap" class="gb-cfg-note" data-gb-tip="Mapa aprendido: que opcion de cobro usa cada duracion (5min, 10min, ...) en este mundo"></div>
-          <button data-cfg="farm-forget-options" class="gb-cfg-btn gb-cfg-sub" title="Borra el mapa de opciones aprendido (recursos y unidades) y reactiva la plantilla de cobro. Usalo si los cobros fallan seguido: vuelve a pulsar cada duracion una vez a mano para reaprenderlas.">Olvidar opciones de cobro aprendidas</button>
-          <label class="gb-cfg-row" title="Lee los recursos de cada aldea por HTTP. Solo funciona en mundos cuyo cliente responde a una accion farm_town_*. Si no, cada barrido gasta el presupuesto de peticiones sin devolver nada y se apaga solo."><input type="checkbox" data-cfg="farm-scrape"/> Escanear recursos de aldeas (HTTP)</label>
-          <label class="gb-cfg-num" data-gb-tip="Cadencia del escaneo de aldeas: minimo y maximo en minutos">Cadencia de aldeas min-max (min) <input class="gb-cfg-input" type="number" data-cfg="farm-min" min="1" max="60" style="width:50px"/> - <input class="gb-cfg-input" type="number" data-cfg="farm-max" min="1" max="60" style="width:50px"/></label>
+          <div id="gb-farm-optmap" class="gb-cfg-note" data-gb-tip="Mapa aprendido: opcion de cobro de 10 min en este mundo"></div>
+          <button data-cfg="farm-forget-options" class="gb-cfg-btn gb-cfg-sub" title="Borra el mapa de opciones aprendido (recursos y unidades) y reactiva la plantilla de cobro. Usalo si los cobros fallan seguido: vuelve a pulsar una recogida de 10 minutos a mano para reaprenderla.">Olvidar opciones de cobro aprendidas</button>
+          <label class="gb-cfg-row" title="Lee los recursos de cada aldea por HTTP. Solo funciona en mundos cuyo cliente responde a una accion farm_town_*. Si no, cada barrido gasta el presupuesto de peticiones sin devolver nada y se apaga solo. Cadencia fija: 10 min + 1-2 min aleatorios."><input type="checkbox" data-cfg="farm-scrape"/> Escanear recursos de aldeas (HTTP)</label>
           <label class="gb-cfg-num" data-gb-tip="Cadencia del escaneo de ciudades: minimo y maximo en minutos">Cadencia de ciudades min-max (min) <input class="gb-cfg-input" type="number" data-cfg="town-min" min="1" max="60" style="width:50px"/> - <input class="gb-cfg-input" type="number" data-cfg="town-max" min="1" max="60" style="width:50px"/></label>
         `, true)}
         ${gbCfgGroup('Construcción e investigación', `
@@ -1964,7 +1962,11 @@
       try { fn(); } catch (e) { flash('fallo: ' + String(e).slice(0, 40)); }
     });
     qat('collect', () => { autoCollectResources(); flash('recogiendo'); });
-    qat('farms', () => { state.nextFarmScrape = 0; save(STORE.NEXT_FARM, 0); autoClaimFarms('manual'); farmTick(); flash('cobrando aldeas'); });
+    qat('farms', () => {
+      state.nextFarmScrape = 0; save(STORE.NEXT_FARM, 0);
+      state.nextFarmClaim = 0; save(STORE.NEXT_FARM_CLAIM, 0);
+      autoClaimFarms('manual'); farmTick(); flash('cobrando aldeas');
+    });
     qat('dodge', () => { dodgeScan('manual'); flash('escaneando entrantes'); });
     qat('queue', () => { abEnsureTargets(); abScan('manual'); flash('cola de construccion'); });
     qat('hud-prod', () => { flash('HUD produccion ' + (hudToggle('production') ? 'ON' : 'OFF')); });
@@ -2191,7 +2193,6 @@
   });
   function syncFarmTimingCfg(sec) {
     if (!sec) return;
-    const lc = sec.querySelector('[data-cfg=farm-long-claims]'); if (lc) lc.checked = !!state.farmLongClaims;
     const fsc = sec.querySelector('[data-cfg=farm-scrape]'); if (fsc) fsc.checked = !!state.farmScrape;
     const lt = sec.querySelector('[data-cfg=farm-loyalty-tech]'); if (lt) lt.value = state.farmLoyaltyTech || '';
     const um = sec.querySelector('[data-cfg=farm-units-mode]'); if (um) um.value = String(state.farmUnitsMode || 'off');
@@ -2203,7 +2204,7 @@
       const dup = farmOptionMapConflicts();
       om.textContent = 'learned claim options: ' + farmOptionMapText() +
         (dup ? ' | CONFLICTO: ' + dup + ' comparten opcion - pulsa Olvidar y reaprende' : '') +
-        ' (claim a timer by hand in game to teach the rest)' +
+        ' (claim 10min by hand in game to teach)' +
         ' | units: ' + (uOpt == null ? 'not learned' : uOpt + ' (' + (farmUnitIdFor(uOpt) || '?') + ')');
     }
   }
@@ -2421,8 +2422,6 @@
     setNum('[data-cfg=ib-free-thresh]', state.ibFreeThresh);
     setNum('[data-cfg=collect-max-min]', state.collectMaxMin);
     setNum('[data-cfg=farm-travel]', state.farmTravelSecPerUnit || 0);
-    setNum('[data-cfg=farm-min]', Math.round(state.farmMinMs / 60000));
-    setNum('[data-cfg=farm-max]', Math.round(state.farmMaxMs / 60000));
     setNum('[data-cfg=town-min]', Math.round(state.townMinMs / 60000));
     setNum('[data-cfg=town-max]', Math.round(state.townMaxMs / 60000));
     setNum('[data-cfg=posts-soft-pct]', state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60);
@@ -2457,8 +2456,11 @@
     onCfg('[data-cfg=auto-farm]', 'change', e => {
       state.autoFarm = e.target.checked; save(STORE.AUTO_FARM, state.autoFarm);
       gbLog('auto-farm', state.autoFarm ? 'ON' : 'OFF');
-      if (state.autoFarm) { autoClaimFarms('toggle'); farmScheduleClaimWake(null, 'toggle', true); }
-      else farmCancelClaimWake();
+      if (state.autoFarm) {
+        state.nextFarmClaim = 0;
+        save(STORE.NEXT_FARM_CLAIM, 0);
+        autoClaimFarms('toggle');
+      }
     });
     onCfg('[data-cfg=farm-skip-full]', 'change', e => {
       state.farmSkipFull = e.target.checked; save(STORE.FARM_SKIP_FULL, state.farmSkipFull);
@@ -2473,10 +2475,6 @@
       state.ibAuto = e.target.checked; save(STORE.IB_AUTO, state.ibAuto);
       gbLog('instant-build', state.ibAuto ? 'ON' : 'OFF');
       if (state.ibAuto) ibScan();
-    });
-    onCfg('[data-cfg=farm-long-claims]', 'change', e => {
-      state.farmLongClaims = e.target.checked; save(STORE.FARM_LONG_CLAIMS, state.farmLongClaims);
-      gbLog('recogidas largas adaptativas', state.farmLongClaims ? 'ON' : 'OFF');
     });
     onCfg('[data-cfg=farm-units-mode]', 'change', e => {
       const v = String(e.target.value || 'off');
@@ -3119,8 +3117,6 @@
     });
     saveNum('[data-cfg=ib-free-thresh]', v => { state.ibFreeThresh = Math.max(60,Math.min(300,+v||300)); save(STORE.IB_FREE_THRESH, state.ibFreeThresh); });
     saveNum('[data-cfg=collect-max-min]', v => { state.collectMaxMin = v; save(STORE.COLLECT_MAX_MIN, v); });
-    saveNum('[data-cfg=farm-min]', v => { state.farmMinMs = v * 60000; save(STORE.FARM_MIN, state.farmMinMs); });
-    saveNum('[data-cfg=farm-max]', v => { state.farmMaxMs = v * 60000; save(STORE.FARM_MAX, state.farmMaxMs); });
     saveNum('[data-cfg=town-min]', v => { state.townMinMs = v * 60000; save(STORE.TOWN_MIN, state.townMinMs); });
     saveNum('[data-cfg=town-max]', v => { state.townMaxMs = v * 60000; save(STORE.TOWN_MAX, state.townMaxMs); });
     onCfg('[data-cfg=captcha-ladder]', 'change', e => {
@@ -3141,7 +3137,7 @@
     });
     onCfg('[data-cfg=farm-forget-options]', 'click', () => {
       if (!confirm('Olvidar las opciones de cobro aprendidas (recursos y unidades)?')) return;
-      state.farmOptionMap = { 300: 1 };
+      state.farmOptionMap = { 600: 2 };
       save(wkey(STORE.FARM_OPTION_MAP), state.farmOptionMap);
       state.farmUnitsOption = null;
       save(wkey(STORE.FARM_UNITS_OPTION), null);
@@ -3756,19 +3752,18 @@
   function renderTimers() {
     if (!panel) return;
 
-    // 1s cadence. The farm branch calls farmClaimTiming(), which walks the whole
-    // FarmTownPlayerRelation collection - pointless against a hidden tab, where
-    // nobody can read the countdown. boot.js re-renders on visibilitychange /
-    // pageshow, so the first visible frame is correct.
+    // 1s cadence. Bail on hidden tab — nobody can read the countdown.
+    // boot.js re-renders on visibilitychange / pageshow.
     if (document.hidden) return;
     const fe = panel.querySelector('#gb-next-farms');
     const te = panel.querySelector('#gb-next-towns');
     if (fe) {
       const timing = state.autoFarm ? farmClaimTiming() : null;
+      const dueMs = (+state.nextFarmClaim || 0) - Date.now();
       const claimTxt = !state.autoFarm ? 'Aldeas apagadas'
-        : (timing && timing.ready > 0 ? `Aldeas: ${timing.ready} listas`
-          : (timing && Number.isFinite(timing.nextAt) ? `Aldeas en ${fmtSec(Math.max(0, timing.nextAt - timing.now))}`
-            : (timing && timing.expiredModelWait ? 'Aldeas: esperando al juego' : 'Aldeas: —')));
+        : (timing && timing.ready > 0 && dueMs <= 0 ? `Aldeas: ${timing.ready} listas`
+          : (dueMs > 0 ? `Aldeas en ${fmtSec(Math.max(0, Math.round(dueMs / 1000)))}`
+            : (timing && timing.ready > 0 ? `Aldeas: ${timing.ready} listas` : 'Aldeas: —')));
       const scrapeTxt = state.nextFarmScrape
         ? `escaneo en ${fmtSec(Math.max(0, Math.round((state.nextFarmScrape - Date.now()) / 1000)))}`
         : 'escaneo —';

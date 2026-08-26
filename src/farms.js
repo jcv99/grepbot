@@ -161,13 +161,29 @@
     if (at == null) return true;
     return gameNow() >= at;
   }
-  // Farm claims are deadline-driven: adaptive orchestrator backoff must never sleep
-  // past a known lootable_at. The dedicated wake timer only triggers the existing
-  // transactional claim path; it does not bypass any claim/captcha/warehouse guard.
-  const FARM_CLAIM_WAKE_GRACE_MS = 1500;
-  const FARM_CLAIM_READY_WAKE_MS = 750;
-  const FARM_CLAIM_READY_RETRY_MS = 5000;
-  let farmClaimWakeTimer = 0, farmClaimWakeAt = 0;
+  // Resource claims run on a fixed wall-clock cadence only: 10 min + random
+  // 1–2 min. No per-village lootable_at wake timers — those were the "village
+  // timers" path. Lootable still gates the post itself; scheduling does not.
+  const FARM_CLAIM_DURATION_SEC = 600;
+  const FARM_CLAIM_BASE_MS = 10 * 60 * 1000;
+  const FARM_CLAIM_JITTER_MIN_MS = 1 * 60 * 1000;
+  const FARM_CLAIM_JITTER_MAX_MS = 2 * 60 * 1000;
+  function farmClaimIntervalMs() {
+    return FARM_CLAIM_BASE_MS + FARM_CLAIM_JITTER_MIN_MS
+      + Math.random() * (FARM_CLAIM_JITTER_MAX_MS - FARM_CLAIM_JITTER_MIN_MS);
+  }
+  function farmStampNextClaim(reason) {
+    const wait = farmClaimIntervalMs();
+    state.nextFarmClaim = Date.now() + wait;
+    save(STORE.NEXT_FARM_CLAIM, state.nextFarmClaim);
+    try { renderTimers(); } catch (_) {}
+    gbLogT('farm-claim-cadence', 60000,
+      `farm claim: next in ${fmtSec(Math.round(wait / 1000))}${reason ? ' (' + reason + ')' : ''}`);
+    return state.nextFarmClaim;
+  }
+  function farmClaimDue() {
+    return Date.now() >= (+state.nextFarmClaim || 0);
+  }
   function farmClaimTiming(farmsArg) {
     const farms = Array.isArray(farmsArg) ? farmsArg : (farmsFromGame() || []);
     const now = gameNow();
@@ -183,44 +199,7 @@
       if (Number.isFinite(at) && at > now) nextAt = Math.min(nextAt, at);
       else if (Number.isFinite(at) && at <= now && modelReady === false) expiredModelWait++;
     }
-    return { now, ready, nextAt, expiredModelWait, total: farms.length };
-  }
-  function farmCancelClaimWake() {
-    if (farmClaimWakeTimer) gbClearTimeout(farmClaimWakeTimer);
-    farmClaimWakeTimer = 0; farmClaimWakeAt = 0;
-  }
-  function farmScheduleClaimWake(farmsArg, reason, allowExpiredRetry) {
-    if (!state.autoFarm || !hostEnabled()) { farmCancelClaimWake(); return null; }
-    const t = farmClaimTiming(farmsArg);
-    let targetMs = 0;
-    // v2.2.4: if villages are already claimable (for example after reload, tab focus,
-    // or while the adaptive scheduler is backed off), do not wait for the next
-    // orchestrator cadence. Wake the existing transactional claim path immediately.
-    if (allowExpiredRetry && t.ready > 0) {
-      const delay = gbLocked('claim') || reason === 'post-claim' ? FARM_CLAIM_READY_RETRY_MS : FARM_CLAIM_READY_WAKE_MS;
-      targetMs = Date.now() + delay;
-    } else if (Number.isFinite(t.nextAt)) {
-      targetMs = Date.now() + Math.max(0, (t.nextAt - t.now) * 1000) + FARM_CLAIM_WAKE_GRACE_MS;
-    } else if (allowExpiredRetry && t.expiredModelWait > 0) {
-      targetMs = Date.now() + FARM_CLAIM_READY_RETRY_MS;
-    }
-    if (!targetMs) return null;
-    // Keep an already scheduled wake if it is at least as early as the new target.
-    if (farmClaimWakeTimer && farmClaimWakeAt && farmClaimWakeAt <= targetMs + 1000) return farmClaimWakeAt;
-    farmCancelClaimWake();
-    farmClaimWakeAt = targetMs;
-    const delay = Math.max(250, targetMs - Date.now());
-    farmClaimWakeTimer = gbTimeout(() => {
-      farmClaimWakeTimer = 0; farmClaimWakeAt = 0;
-      if (!gbInstanceAlive() || !state.autoFarm || !hostEnabled()) return;
-      if (automationPaused({}) || captchaPaused('farm')) { farmScheduleClaimWake(null, 'paused-retry', true); return; }
-      if (gbLocked('claim')) { farmScheduleClaimWake(null, 'claim-inflight-retry', true); return; }
-      const liveTiming = farmClaimTiming();
-      const wakeKind = liveTiming.ready > 0 ? 'ready wake' : 'deadline wake';
-      gbLogT('farm-deadline-wake', 5000, `farm claim: ${wakeKind}${reason ? ' (' + reason + ')' : ''}`);
-      autoClaimFarms('deadline');
-    }, delay);
-    return targetMs;
+    return { now, ready, nextAt, expiredModelWait, total: farms.length, nextClaimAt: +state.nextFarmClaim || 0 };
   }
   function farmsFromGame() {
     try {
@@ -341,8 +320,9 @@
     return Math.round(sec / 60) + 'min';
   }
   // load() treats {} as present, so a Forget-options click (or a persisted empty
-  // object) dropped the shipped {300:1} default and every resource claim
-  // short-circuited as farm-opt with no post. Empty = unknown, restore 5min.
+  // object) dropped the shipped default and every resource claim short-circuited
+  // as farm-opt with no post. Empty = unknown; restore provisional 10min=2
+  // (common client index — next hand/bot claim confirms via learner).
   function farmOptionMapEnsure() {
     let m = state.farmOptionMap;
     if (!m || typeof m !== 'object' || Array.isArray(m)) m = {};
@@ -351,10 +331,10 @@
       state.farmOptionMap = m;
       return m;
     }
-    m = { 300: 1 };
+    m = { 600: 2 };
     state.farmOptionMap = m;
     save(wkey(STORE.FARM_OPTION_MAP), m);
-    gbLogT('farm-opt-default', 600000, 'farm: empty option map — restored default 5min=1');
+    gbLogT('farm-opt-default', 600000, 'farm: empty option map — restored default 10min=2');
     return m;
   }
   function farmOptionFor(sec) {
@@ -364,8 +344,8 @@
   }
   // Exact duration → option, else longest learned ≤ want, else shortest learned.
   // Never invents an index: only reuses keys the player (or GameData derive) taught.
-  // Covers farmLongClaims OFF wanting 300 while the map only has 600+ from a
-  // loyalty teach / hand 10min click — that used to done('skip') every village.
+  // Covers wanting 600 while the map only has another learned duration from a
+  // hand claim — that used to done('skip') every village.
   function farmOptionResolve(wantSec) {
     const want = +wantSec;
     const exact = Number.isFinite(want) ? farmOptionFor(want) : null;
@@ -514,44 +494,9 @@
     farmLoyaltyCache[townId] = { ts: now, val: r.val, hit: r.hit };
     return r.val;
   }
-  // sleep-claim (one big overnight auto-claim of all ready villages) removed
-  // in v5.10.8. The shared `autoClaimFarms` path still claims on the adaptive
-  // cadence; the night-only toggle, fill gate and learn-once-a-day wiring are
-  // gone with it. Duration probe (28800/14400) lives in no caller now.
-  // Adaptive claim duration: among the durations that are actually learnable
-  // here (state.farmOptionMap), pick the longest one whose expected haul still
-  // fits the town warehouse headroom. The 20min / 40min / 90min / 3h options
-  // were reachable and unused - claiming less often means fewer captcha slots
-  // and more loot per request.
-  const FARM_PICK_MAX = 14400;
-  const FARM_PICK_LADDER = [600, 1200, 2400, 5400, 10800, FARM_PICK_MAX];
-  function farmDurationPick(townId) {
-    if (!state.farmLongClaims) return 300;
-    const learned = FARM_PICK_LADDER.filter(sec => farmOptionFor(sec) != null);
-    if (!learned.length) return 300;
-    // If loyalty isn't researched, the longer options are not necessarily free
-    // of the loyalty multiplier, so prefer them only when headroom allows.
-    const rs = (typeof townResState === 'function') ? townResState(townId) : null;
-    const headroom = rs && rs.cap > 0 ? Math.max(0, rs.cap - Math.max(rs.wood, rs.stone, rs.iron)) : null;
-    // loyalty is deliberately 1.0, NOT farmLoyaltyResearched(townId) ? 1 : 0.5.
-    // Plan 2.12 suggested the 0.5 factor but cites no evidence for it, and
-    // getting it wrong in that direction is asymmetric: a halved estimate lets
-    // the picker choose a claim roughly twice as long as the warehouse can
-    // absorb, and the overflow is loot thrown away. 1.0 reproduces the numerics
-    // this picker has always used. The parameter stays in the API so a verified
-    // multiplier can be dropped in later.
-    let best = 300;
-    for (const sec of learned) {
-      // The haul estimate now lives in gbLootEstimate (v4 plan 2.12) so the
-      // rate constant has one home. Skip a duration only when fits === false;
-      // fits === null means headroom was unreadable and must not block the
-      // longer claim.
-      const est = gbLootEstimate({ kind: 'farm-claim', durationSec: sec, loyalty: 1.0, headroom });
-      if (est.meta.fits === false) continue;
-      if (sec > best) best = sec;
-    }
-    return best;
-  }
+  // Resource claims are always the 10-minute option. Adaptive long-claim
+  // ladder (5min / 20min / … / 4h) and per-village wake timers removed.
+  function farmDurationPick(_townId) { return FARM_CLAIM_DURATION_SEC; }
   function farmDesiredDuration(townId) { return farmDurationPick(townId); }
   // ===== Farm profitability ranking (v4 plan 2.6) ============================
   // An ESTIMATE, and deliberately so: per-village stock is not in the bridge
@@ -992,6 +937,8 @@
   function farmClaimPending() {
     if (!state.autoFarm || !hostEnabled()) return false;
     if (captchaPaused('farm')) return false;
+    // Cadence wait is deliberate idle — do not starve recruit/units behind it.
+    if (!farmClaimDue() && !gbLocked('claim')) return false;
     // A claim batch in flight IS farm work - hold units without re-walking the
     // collections (the lock is cheap, the walk is not).
     if (gbLocked('claim')) return true;
@@ -1037,6 +984,11 @@
       if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
       return;
     }
+    const force = reason === 'manual' || reason === 'toggle';
+    if (!force && !farmClaimDue()) {
+      if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
+      return;
+    }
     if (gbLocked('claim')) { gbLogT('claim-inflight', 30000, 'farm claim: skipped (in flight)'); return; }
     const uw = uwCached();
     if (!(uw.gpAjax && uw.gpAjax.ajaxPost)) { gbLogT('claim-noajax', 60000, 'farm claim: gpAjax not ready yet'); return; }
@@ -1065,11 +1017,8 @@
     }
     if (!ready.length) {
       const next = Math.min(...farms.map(f => f.lootable_at || Infinity));
-      gbLogT('claim-none', 60000, `farm claim: 0/${farms.length} ready${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}, next in ${next === Infinity ? '?' : Math.max(0, next - now) + 's'}`);
-
-      // The adaptive scheduler may be at x8, but a known village deadline takes priority.
-      // If lootable_at has expired while isLootable() is briefly stale, retry after 5s.
-      farmScheduleClaimWake(farms, 'next-lootable', skippedFull === 0);
+      gbLogT('claim-none', 60000, `farm claim: 0/${farms.length} ready${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}, next lootable in ${next === Infinity ? '?' : Math.max(0, next - now) + 's'}`);
+      farmStampNextClaim('none-ready');
       if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
       return;
     }
@@ -1080,10 +1029,7 @@
     const work = farmApplyDropPolicies(ready);
     if (!work.length) {
       gbLogT('claim-adaptive-empty', 300000, 'farm claim: adaptive policy dropped every candidate this pass');
-
-      // Arm the precise next-lootable wake exactly like the no-candidates path
-      // above: without it the retry falls back to the 15s farmTick sweep.
-      farmScheduleClaimWake(farms, 'adaptive-empty', true);
+      farmStampNextClaim('adaptive-empty');
       if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
       return;
     }
@@ -1092,7 +1038,7 @@
     const unitCount = work.filter(f => farmClaimTypeFor(f) === 'units').length;
     gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${work.length}/${farms.length} ready${work.length !== ready.length ? ` (${ready.length - work.length} adaptivo)` : ''}${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}${unitCount ? ` (${unitCount} as units)` : ''}`);
     gbLogT('farm-claim-opts', 120000,
-      `farm claim opts: map=${farmOptionMapText()} long=${!!state.farmLongClaims} tpl=${state.claimTpl ? 'yes' : 'NO'} unitsMode=${state.farmUnitsMode || 'off'}`);
+      `farm claim opts: map=${farmOptionMapText()} duration=${farmDurLabel(FARM_CLAIM_DURATION_SEC)} tpl=${state.claimTpl ? 'yes' : 'NO'} unitsMode=${state.farmUnitsMode || 'off'}`);
     const before = {};
     farms.forEach(f => { before[f.vill_id] = f.lootable_at; });
     flash(`farm claim x${work.length}`);
@@ -1114,7 +1060,7 @@
       const wrapUp = () => {
         try {
           const flipped = posted ? verifyClaims(before, work) : 0;
-          farmScheduleClaimWake(null, 'post-claim', true);
+          farmStampNextClaim(posted ? 'post-claim' : 'post-empty');
           if (onBatchDone) onBatchDone({
             done: flipped,
             attempted: work.length,
@@ -1614,9 +1560,13 @@
     el.hidden = false;
     el.textContent = msg;
   }
-  // Fire once when loyalty flips false->true (or first load with loyalty and no 600 map).
+  // Fire once when 10min option still unknown — always need it (claims are
+  // fixed to 10min). Loyalty research is a hint for GameData derive only.
   function farmLoyaltyAutoTeachTick() {
-    if (!state.farmLongClaims) return;
+    if (farmOptionFor(600) != null) {
+      if (state.farmTeachBanner) farmSetTeachBanner('');
+      return;
+    }
     let anyLoyalty = false;
     try {
       const towns = townsFromGame() || state.towns || [];
@@ -1630,36 +1580,19 @@
         }
       }
     } catch (_) {}
-    const seen = !!state.farmLoyaltySeen;
-    if (!anyLoyalty) {
-      if (seen) {
-        state.farmLoyaltySeen = false;
-        save(STORE.FARM_LOYALTY_SEEN, false);
-      }
-      return;
-    }
-    if (farmOptionFor(600) != null) {
-      if (!seen) { state.farmLoyaltySeen = true; save(STORE.FARM_LOYALTY_SEEN, true); }
-      if (state.farmTeachBanner) farmSetTeachBanner('');
-      return;
-    }
-    const flip = !seen;
-    if (!flip && state.farmTeachBanner) return;
-    state.farmLoyaltySeen = true;
-    save(STORE.FARM_LOYALTY_SEEN, true);
     const derived = farmTryDeriveOptionMap();
     if (derived && derived['600'] != null) {
-
-      // Tentative write - the next hand/bot claim confirms via farmLearnOptionFromClaim.
       const map = Object.assign({}, state.farmOptionMap || {}, derived);
       state.farmOptionMap = map;
       save(wkey(STORE.FARM_OPTION_MAP), map);
-      gbLog(`farm: loyalty auto-teach provisional 10min option=${derived['600']} (confirm on next claim)`);
+      gbLog(`farm: auto-teach provisional 10min option=${derived['600']} (confirm on next claim)`);
       farmSetTeachBanner('');
       return;
     }
-    farmSetTeachBanner('Investigacion de lealtad completada. Haz una recogida de 10 minutos a mano para ensenarselo al bot.');
-    gbLog('farm: loyalty researched - 10min option unknown; hand-claim once to teach');
+    if (state.farmTeachBanner) return;
+    farmSetTeachBanner('Haz una recogida de 10 minutos a mano para ensenarselo al bot.');
+    gbLog('farm: 10min option unknown; hand-claim once to teach'
+      + (anyLoyalty ? ' (loyalty researched)' : ''));
   }
   function farmTick() {
     try { gbWakeGapTick(); } catch (_) {}
@@ -1668,7 +1601,7 @@
       if (hostEnabled() && !automationPaused({})) {
         if (now >= state.nextFarmScrape) scrapeAllFarms();
         if (now >= state.nextTownsScrape) scrapeAllTowns();
-        if (state.autoFarm) farmScheduleClaimWake(null, 'farm-tick', true);
+        if (state.autoFarm && farmClaimDue()) autoClaimFarms('farm-tick');
       }
       try { farmLoyaltyAutoTeachTick(); } catch (_) {}
       try { renderFarmTeachBanner(); } catch (_) {}

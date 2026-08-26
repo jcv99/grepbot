@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.51
+// @version      5.10.52
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -36,6 +36,7 @@ const STORE = {
     AUTO_BANDIT: 'grepbot:auto-bandit',
     BANDIT_LOG:  'grepbot:bandit-log',
     NEXT_FARM:  'grepbot:next-farm',
+    NEXT_FARM_CLAIM: 'grepbot:next-farm-claim',
     NEXT_TOWNS: 'grepbot:next-towns',
     FARM_ACTION: 'grepbot:farm-action',
     AUTO_FARM:  'grepbot:auto-farm',
@@ -264,7 +265,7 @@ const STORE = {
   const WORLD_SCOPED_BASES = new Set([
     STORE.FINDINGS, STORE.FARMS, STORE.FARMS_PARSED, STORE.FARM_RES, STORE.SEEN,
     STORE.TOWNS, STORE.TOWN_RES, STORE.TOWN_GROWTH_HIST, STORE.THRESH, STORE.ALERTED,
-    STORE.NEXT_FARM, STORE.NEXT_TOWNS, STORE.BANDIT_LOG,
+    STORE.NEXT_FARM, STORE.NEXT_FARM_CLAIM, STORE.NEXT_TOWNS, STORE.BANDIT_LOG,
     STORE.CSRF, STORE.FARM_ACTION, STORE.COLLECT_TPL, STORE.CLAIM_TPL, STORE.ACCEPT_UNITS_TPL,
     STORE.IB_ACTION, STORE.IB_ACTION_R, STORE.FARM_OPTION_MAP, STORE.FARM_LOYALTY_TECH, STORE.FARM_SLEEP_DAY, STORE.FARM_PROFIT, STORE.FARM_TRAVEL, STORE.FARM_CLAIMS_TODAY, STORE.FARM_CLAIMS_DAY,
     STORE.FARM_UNITS_OPTION, STORE.FARM_RES_DRY, STORE.FARM_RES_DRY_DAY,
@@ -723,6 +724,7 @@ const STORE = {
     alerted:  load(STORE.ALERTED, {}),
     csrf:     load(STORE.CSRF, null),
     nextFarmScrape: load(STORE.NEXT_FARM, 0),
+    nextFarmClaim: load(STORE.NEXT_FARM_CLAIM, 0),
     nextTownsScrape: load(STORE.NEXT_TOWNS, 0),
     farmAction: load(STORE.FARM_ACTION, null),
 
@@ -747,7 +749,7 @@ const STORE = {
       const m = load(STORE.FARM_OPTION_MAP, null);
       if (m && typeof m === 'object' && !Array.isArray(m)
           && Object.keys(m).some(k => m[k] != null && Number.isFinite(+m[k]))) return m;
-      return { 300: 1 };
+      return { 600: 2 };
     })(),
 
     farmLongClaims: load(STORE.FARM_LONG_CLAIMS, false),
@@ -771,8 +773,9 @@ const STORE = {
     questAutoRes: load(STORE.QUEST_AUTO_RES, false),
     questHistory: load(STORE.QUEST_HISTORY, []),
     collectMaxMin: load(STORE.COLLECT_MAX_MIN, 10),
-    farmMinMs: load(STORE.FARM_MIN, 5 * 60 * 1000),
-    farmMaxMs: load(STORE.FARM_MAX, 6 * 60 * 1000),
+
+    farmMinMs: 10 * 60 * 1000,
+    farmMaxMs: 12 * 60 * 1000,
     townMinMs: load(STORE.TOWN_MIN, 6 * 60 * 1000),
     townMaxMs: load(STORE.TOWN_MAX, 7 * 60 * 1000),
     enabledHosts: load(STORE.ENABLED_HOSTS, {}),
@@ -5357,10 +5360,26 @@ const STORE = {
     return gameNow() >= at;
   }
 
-  const FARM_CLAIM_WAKE_GRACE_MS = 1500;
-  const FARM_CLAIM_READY_WAKE_MS = 750;
-  const FARM_CLAIM_READY_RETRY_MS = 5000;
-  let farmClaimWakeTimer = 0, farmClaimWakeAt = 0;
+  const FARM_CLAIM_DURATION_SEC = 600;
+  const FARM_CLAIM_BASE_MS = 10 * 60 * 1000;
+  const FARM_CLAIM_JITTER_MIN_MS = 1 * 60 * 1000;
+  const FARM_CLAIM_JITTER_MAX_MS = 2 * 60 * 1000;
+  function farmClaimIntervalMs() {
+    return FARM_CLAIM_BASE_MS + FARM_CLAIM_JITTER_MIN_MS
+      + Math.random() * (FARM_CLAIM_JITTER_MAX_MS - FARM_CLAIM_JITTER_MIN_MS);
+  }
+  function farmStampNextClaim(reason) {
+    const wait = farmClaimIntervalMs();
+    state.nextFarmClaim = Date.now() + wait;
+    save(STORE.NEXT_FARM_CLAIM, state.nextFarmClaim);
+    try { renderTimers(); } catch (_) {}
+    gbLogT('farm-claim-cadence', 60000,
+      `farm claim: next in ${fmtSec(Math.round(wait / 1000))}${reason ? ' (' + reason + ')' : ''}`);
+    return state.nextFarmClaim;
+  }
+  function farmClaimDue() {
+    return Date.now() >= (+state.nextFarmClaim || 0);
+  }
   function farmClaimTiming(farmsArg) {
     const farms = Array.isArray(farmsArg) ? farmsArg : (farmsFromGame() || []);
     const now = gameNow();
@@ -5376,42 +5395,7 @@ const STORE = {
       if (Number.isFinite(at) && at > now) nextAt = Math.min(nextAt, at);
       else if (Number.isFinite(at) && at <= now && modelReady === false) expiredModelWait++;
     }
-    return { now, ready, nextAt, expiredModelWait, total: farms.length };
-  }
-  function farmCancelClaimWake() {
-    if (farmClaimWakeTimer) gbClearTimeout(farmClaimWakeTimer);
-    farmClaimWakeTimer = 0; farmClaimWakeAt = 0;
-  }
-  function farmScheduleClaimWake(farmsArg, reason, allowExpiredRetry) {
-    if (!state.autoFarm || !hostEnabled()) { farmCancelClaimWake(); return null; }
-    const t = farmClaimTiming(farmsArg);
-    let targetMs = 0;
-
-    if (allowExpiredRetry && t.ready > 0) {
-      const delay = gbLocked('claim') || reason === 'post-claim' ? FARM_CLAIM_READY_RETRY_MS : FARM_CLAIM_READY_WAKE_MS;
-      targetMs = Date.now() + delay;
-    } else if (Number.isFinite(t.nextAt)) {
-      targetMs = Date.now() + Math.max(0, (t.nextAt - t.now) * 1000) + FARM_CLAIM_WAKE_GRACE_MS;
-    } else if (allowExpiredRetry && t.expiredModelWait > 0) {
-      targetMs = Date.now() + FARM_CLAIM_READY_RETRY_MS;
-    }
-    if (!targetMs) return null;
-
-    if (farmClaimWakeTimer && farmClaimWakeAt && farmClaimWakeAt <= targetMs + 1000) return farmClaimWakeAt;
-    farmCancelClaimWake();
-    farmClaimWakeAt = targetMs;
-    const delay = Math.max(250, targetMs - Date.now());
-    farmClaimWakeTimer = gbTimeout(() => {
-      farmClaimWakeTimer = 0; farmClaimWakeAt = 0;
-      if (!gbInstanceAlive() || !state.autoFarm || !hostEnabled()) return;
-      if (automationPaused({}) || captchaPaused('farm')) { farmScheduleClaimWake(null, 'paused-retry', true); return; }
-      if (gbLocked('claim')) { farmScheduleClaimWake(null, 'claim-inflight-retry', true); return; }
-      const liveTiming = farmClaimTiming();
-      const wakeKind = liveTiming.ready > 0 ? 'ready wake' : 'deadline wake';
-      gbLogT('farm-deadline-wake', 5000, `farm claim: ${wakeKind}${reason ? ' (' + reason + ')' : ''}`);
-      autoClaimFarms('deadline');
-    }, delay);
-    return targetMs;
+    return { now, ready, nextAt, expiredModelWait, total: farms.length, nextClaimAt: +state.nextFarmClaim || 0 };
   }
   function farmsFromGame() {
     try {
@@ -5540,10 +5524,10 @@ const STORE = {
       state.farmOptionMap = m;
       return m;
     }
-    m = { 300: 1 };
+    m = { 600: 2 };
     state.farmOptionMap = m;
     save(wkey(STORE.FARM_OPTION_MAP), m);
-    gbLogT('farm-opt-default', 600000, 'farm: empty option map \u2014 restored default 5min=1');
+    gbLogT('farm-opt-default', 600000, 'farm: empty option map \u2014 restored default 10min=2');
     return m;
   }
   function farmOptionFor(sec) {
@@ -5694,25 +5678,7 @@ const STORE = {
     return r.val;
   }
 
-  const FARM_PICK_MAX = 14400;
-  const FARM_PICK_LADDER = [600, 1200, 2400, 5400, 10800, FARM_PICK_MAX];
-  function farmDurationPick(townId) {
-    if (!state.farmLongClaims) return 300;
-    const learned = FARM_PICK_LADDER.filter(sec => farmOptionFor(sec) != null);
-    if (!learned.length) return 300;
-
-    const rs = (typeof townResState === 'function') ? townResState(townId) : null;
-    const headroom = rs && rs.cap > 0 ? Math.max(0, rs.cap - Math.max(rs.wood, rs.stone, rs.iron)) : null;
-
-    let best = 300;
-    for (const sec of learned) {
-
-      const est = gbLootEstimate({ kind: 'farm-claim', durationSec: sec, loyalty: 1.0, headroom });
-      if (est.meta.fits === false) continue;
-      if (sec > best) best = sec;
-    }
-    return best;
-  }
+  function farmDurationPick(_townId) { return FARM_CLAIM_DURATION_SEC; }
   function farmDesiredDuration(townId) { return farmDurationPick(townId); }
 
   const FARM_PROFIT_TTL_MS = 300000;
@@ -6087,6 +6053,8 @@ const STORE = {
     if (!state.autoFarm || !hostEnabled()) return false;
     if (captchaPaused('farm')) return false;
 
+    if (!farmClaimDue() && !gbLocked('claim')) return false;
+
     if (gbLocked('claim')) return true;
     const stamp = Date.now();
 
@@ -6128,6 +6096,11 @@ const STORE = {
       if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
       return;
     }
+    const force = reason === 'manual' || reason === 'toggle';
+    if (!force && !farmClaimDue()) {
+      if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
+      return;
+    }
     if (gbLocked('claim')) { gbLogT('claim-inflight', 30000, 'farm claim: skipped (in flight)'); return; }
     const uw = uwCached();
     if (!(uw.gpAjax && uw.gpAjax.ajaxPost)) { gbLogT('claim-noajax', 60000, 'farm claim: gpAjax not ready yet'); return; }
@@ -6156,9 +6129,8 @@ const STORE = {
     }
     if (!ready.length) {
       const next = Math.min(...farms.map(f => f.lootable_at || Infinity));
-      gbLogT('claim-none', 60000, `farm claim: 0/${farms.length} ready${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}, next in ${next === Infinity ? '?' : Math.max(0, next - now) + 's'}`);
-
-      farmScheduleClaimWake(farms, 'next-lootable', skippedFull === 0);
+      gbLogT('claim-none', 60000, `farm claim: 0/${farms.length} ready${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}, next lootable in ${next === Infinity ? '?' : Math.max(0, next - now) + 's'}`);
+      farmStampNextClaim('none-ready');
       if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
       return;
     }
@@ -6166,8 +6138,7 @@ const STORE = {
     const work = farmApplyDropPolicies(ready);
     if (!work.length) {
       gbLogT('claim-adaptive-empty', 300000, 'farm claim: adaptive policy dropped every candidate this pass');
-
-      farmScheduleClaimWake(farms, 'adaptive-empty', true);
+      farmStampNextClaim('adaptive-empty');
       if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
       return;
     }
@@ -6176,7 +6147,7 @@ const STORE = {
     const unitCount = work.filter(f => farmClaimTypeFor(f) === 'units').length;
     gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${work.length}/${farms.length} ready${work.length !== ready.length ? ` (${ready.length - work.length} adaptivo)` : ''}${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}${unitCount ? ` (${unitCount} as units)` : ''}`);
     gbLogT('farm-claim-opts', 120000,
-      `farm claim opts: map=${farmOptionMapText()} long=${!!state.farmLongClaims} tpl=${state.claimTpl ? 'yes' : 'NO'} unitsMode=${state.farmUnitsMode || 'off'}`);
+      `farm claim opts: map=${farmOptionMapText()} duration=${farmDurLabel(FARM_CLAIM_DURATION_SEC)} tpl=${state.claimTpl ? 'yes' : 'NO'} unitsMode=${state.farmUnitsMode || 'off'}`);
     const before = {};
     farms.forEach(f => { before[f.vill_id] = f.lootable_at; });
     flash(`farm claim x${work.length}`);
@@ -6196,7 +6167,7 @@ const STORE = {
       const wrapUp = () => {
         try {
           const flipped = posted ? verifyClaims(before, work) : 0;
-          farmScheduleClaimWake(null, 'post-claim', true);
+          farmStampNextClaim(posted ? 'post-claim' : 'post-empty');
           if (onBatchDone) onBatchDone({
             done: flipped,
             attempted: work.length,
@@ -6647,7 +6618,10 @@ const STORE = {
   }
 
   function farmLoyaltyAutoTeachTick() {
-    if (!state.farmLongClaims) return;
+    if (farmOptionFor(600) != null) {
+      if (state.farmTeachBanner) farmSetTeachBanner('');
+      return;
+    }
     let anyLoyalty = false;
     try {
       const towns = townsFromGame() || state.towns || [];
@@ -6661,35 +6635,19 @@ const STORE = {
         }
       }
     } catch (_) {}
-    const seen = !!state.farmLoyaltySeen;
-    if (!anyLoyalty) {
-      if (seen) {
-        state.farmLoyaltySeen = false;
-        save(STORE.FARM_LOYALTY_SEEN, false);
-      }
-      return;
-    }
-    if (farmOptionFor(600) != null) {
-      if (!seen) { state.farmLoyaltySeen = true; save(STORE.FARM_LOYALTY_SEEN, true); }
-      if (state.farmTeachBanner) farmSetTeachBanner('');
-      return;
-    }
-    const flip = !seen;
-    if (!flip && state.farmTeachBanner) return;
-    state.farmLoyaltySeen = true;
-    save(STORE.FARM_LOYALTY_SEEN, true);
     const derived = farmTryDeriveOptionMap();
     if (derived && derived['600'] != null) {
-
       const map = Object.assign({}, state.farmOptionMap || {}, derived);
       state.farmOptionMap = map;
       save(wkey(STORE.FARM_OPTION_MAP), map);
-      gbLog(`farm: loyalty auto-teach provisional 10min option=${derived['600']} (confirm on next claim)`);
+      gbLog(`farm: auto-teach provisional 10min option=${derived['600']} (confirm on next claim)`);
       farmSetTeachBanner('');
       return;
     }
-    farmSetTeachBanner('Investigacion de lealtad completada. Haz una recogida de 10 minutos a mano para ensenarselo al bot.');
-    gbLog('farm: loyalty researched - 10min option unknown; hand-claim once to teach');
+    if (state.farmTeachBanner) return;
+    farmSetTeachBanner('Haz una recogida de 10 minutos a mano para ensenarselo al bot.');
+    gbLog('farm: 10min option unknown; hand-claim once to teach'
+      + (anyLoyalty ? ' (loyalty researched)' : ''));
   }
   function farmTick() {
     try { gbWakeGapTick(); } catch (_) {}
@@ -6698,7 +6656,7 @@ const STORE = {
       if (hostEnabled() && !automationPaused({})) {
         if (now >= state.nextFarmScrape) scrapeAllFarms();
         if (now >= state.nextTownsScrape) scrapeAllTowns();
-        if (state.autoFarm) farmScheduleClaimWake(null, 'farm-tick', true);
+        if (state.autoFarm && farmClaimDue()) autoClaimFarms('farm-tick');
       }
       try { farmLoyaltyAutoTeachTick(); } catch (_) {}
       try { renderFarmTeachBanner(); } catch (_) {}
@@ -17236,7 +17194,6 @@ const STORE = {
       values: {
         autoCollect: [STORE.AUTO_COLLECT, true],
         autoFarm: [STORE.AUTO_FARM, true],
-        farmLongClaims: [STORE.FARM_LONG_CLAIMS, true],
         autoCave: [STORE.AUTO_CAVE, true],
         abAuto: [STORE.AB_AUTO, true],
         ibAuto: [STORE.IB_AUTO, true],
@@ -17251,8 +17208,6 @@ const STORE = {
         autoBandit: [STORE.AUTO_BANDIT, false],
         reqBudgetPerMin: [STORE.REQ_BUDGET, 25],
         postsPerMinSoftPct: [STORE.POSTS_SOFT_PCT, 50],
-        farmMinMs: [STORE.FARM_MIN, 8 * 60000],
-        farmMaxMs: [STORE.FARM_MAX, 10 * 60000],
       },
     },
     farming: {
@@ -17260,7 +17215,6 @@ const STORE = {
       values: {
         autoCollect: [STORE.AUTO_COLLECT, true],
         autoFarm: [STORE.AUTO_FARM, true],
-        farmLongClaims: [STORE.FARM_LONG_CLAIMS, true],
         autoBandit: [STORE.AUTO_BANDIT, true],
         autoCave: [STORE.AUTO_CAVE, true],
         abAuto: [STORE.AB_AUTO, true],
@@ -17274,8 +17228,6 @@ const STORE = {
         nightPause: [STORE.NIGHT_PAUSE, false],
         reqBudgetPerMin: [STORE.REQ_BUDGET, 40],
         postsPerMinSoftPct: [STORE.POSTS_SOFT_PCT, 60],
-        farmMinMs: [STORE.FARM_MIN, 5 * 60000],
-        farmMaxMs: [STORE.FARM_MAX, 6 * 60000],
       },
     },
     war: {
@@ -25327,7 +25279,7 @@ const STORE = {
           <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Recoger aunque el tiempo mostrado sea mayor que el umbral"><input type="checkbox" data-cfg="collect-all"/> Recoger todo (ignora el tope de tiempo)</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Minutos maximos mostrados para que el bot recoja sin forzar">Minutos maximos para recoger <input class="gb-cfg-input" type="number" data-cfg="collect-max-min" min="1" max="120" style="width:70px"/></label>
           <label class="gb-cfg-row" data-gb-tip="Atacar campamentos bandidos automaticamente"><input type="checkbox" data-cfg="auto-bandit"/> Campamento bandido automatico</label>
-          <label class="gb-cfg-row" data-gb-tip="Cobrar aldeas propias periodicamente"><input type="checkbox" data-cfg="auto-farm"/> Recoleccion automatica de aldeas</label>
+          <label class="gb-cfg-row" data-gb-tip="Cobrar aldeas propias cada 10 minutos + 1-2 min aleatorios (siempre opcion de 10 min)"><input type="checkbox" data-cfg="auto-farm"/> Recoleccion automatica de aldeas</label>
           <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Saltar aldeas/bandido si el almacen de la ciudad esta demasiado lleno"><input type="checkbox" data-cfg="farm-skip-full"/> Saltar aldeas/bandido con el almacen lleno</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Cuando considerar el almacen lleno: 1 recurso o los 3">Criterio de almacen lleno
             <select class="gb-cfg-input" data-cfg="farm-full-mode" data-gb-tip="Cuando considerar el almacen lleno">
@@ -25335,7 +25287,6 @@ const STORE = {
               <option value="all">los 3 recursos llenos</option>
             </select>
           </label>
-          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="OFF = cobros de 5 min en todas las aldeas. ON = picker adaptativo: el bot elige la opcion de cobro mas larga aprendida (hasta 4h) cuya produccion estimada quepa en el almacen del pueblo. Solo compensa si tienes la investigacion de lealtad; sin ella, cada aldeas m\u00e1s larga gasta un slot de captcha sin garantia de loot extra. Apaga esto si ves pueblos que pasan horas sin cobrarse."><input type="checkbox" data-cfg="farm-long-claims"/> Recogidas largas adaptativas (hasta 4h, solo si lealtad investigada)</label>
           <label class="gb-cfg-num gb-cfg-sub" title="La aldea tiene dos mitades: recursos y unidades. Con 'al agotarse los recursos' la aldea pasa a pedir unidades el resto del dia en cuanto el servidor rechaza el cobro de recursos (tope diario alcanzado). Las unidades ocupan poblacion.">Cobrar unidades en aldeas
             <select class="gb-cfg-input" data-cfg="farm-units-mode" data-gb-tip="Cuando pedir unidades en vez de recursos">
               <option value="off">nunca (solo recursos)</option>
@@ -25359,10 +25310,9 @@ const STORE = {
             <input class="gb-cfg-input" data-cfg="farm-loyalty-tech" placeholder="auto (id del servidor o etiqueta)" title="Id de investigacion del servidor (p.ej. rural_loyalty) o el nombre localizado de la academia. La pestana Registro vuelca los pares id(etiqueta) cuando la deteccion automatica falla." style="width:190px"/>
           </label>
           <label class="gb-cfg-num gb-cfg-sub" title="Segundos de marcha por unidad de coordenada de isla. El juego no expone la formula de marcha, asi que 0 (por defecto) deja el ranking res/min independiente de la distancia.">Segundos de marcha por unidad de isla <input class="gb-cfg-input" type="number" data-cfg="farm-travel" min="0" max="600" step="0.5" style="width:60px"/></label>
-          <div id="gb-farm-optmap" class="gb-cfg-note" data-gb-tip="Mapa aprendido: que opcion de cobro usa cada duracion (5min, 10min, ...) en este mundo"></div>
-          <button data-cfg="farm-forget-options" class="gb-cfg-btn gb-cfg-sub" title="Borra el mapa de opciones aprendido (recursos y unidades) y reactiva la plantilla de cobro. Usalo si los cobros fallan seguido: vuelve a pulsar cada duracion una vez a mano para reaprenderlas.">Olvidar opciones de cobro aprendidas</button>
-          <label class="gb-cfg-row" title="Lee los recursos de cada aldea por HTTP. Solo funciona en mundos cuyo cliente responde a una accion farm_town_*. Si no, cada barrido gasta el presupuesto de peticiones sin devolver nada y se apaga solo."><input type="checkbox" data-cfg="farm-scrape"/> Escanear recursos de aldeas (HTTP)</label>
-          <label class="gb-cfg-num" data-gb-tip="Cadencia del escaneo de aldeas: minimo y maximo en minutos">Cadencia de aldeas min-max (min) <input class="gb-cfg-input" type="number" data-cfg="farm-min" min="1" max="60" style="width:50px"/> - <input class="gb-cfg-input" type="number" data-cfg="farm-max" min="1" max="60" style="width:50px"/></label>
+          <div id="gb-farm-optmap" class="gb-cfg-note" data-gb-tip="Mapa aprendido: opcion de cobro de 10 min en este mundo"></div>
+          <button data-cfg="farm-forget-options" class="gb-cfg-btn gb-cfg-sub" title="Borra el mapa de opciones aprendido (recursos y unidades) y reactiva la plantilla de cobro. Usalo si los cobros fallan seguido: vuelve a pulsar una recogida de 10 minutos a mano para reaprenderla.">Olvidar opciones de cobro aprendidas</button>
+          <label class="gb-cfg-row" title="Lee los recursos de cada aldea por HTTP. Solo funciona en mundos cuyo cliente responde a una accion farm_town_*. Si no, cada barrido gasta el presupuesto de peticiones sin devolver nada y se apaga solo. Cadencia fija: 10 min + 1-2 min aleatorios."><input type="checkbox" data-cfg="farm-scrape"/> Escanear recursos de aldeas (HTTP)</label>
           <label class="gb-cfg-num" data-gb-tip="Cadencia del escaneo de ciudades: minimo y maximo en minutos">Cadencia de ciudades min-max (min) <input class="gb-cfg-input" type="number" data-cfg="town-min" min="1" max="60" style="width:50px"/> - <input class="gb-cfg-input" type="number" data-cfg="town-max" min="1" max="60" style="width:50px"/></label>
         `, true)}
         ${gbCfgGroup('Construcci\u00f3n e investigaci\u00f3n', `
@@ -25918,7 +25868,11 @@ const STORE = {
       try { fn(); } catch (e) { flash('fallo: ' + String(e).slice(0, 40)); }
     });
     qat('collect', () => { autoCollectResources(); flash('recogiendo'); });
-    qat('farms', () => { state.nextFarmScrape = 0; save(STORE.NEXT_FARM, 0); autoClaimFarms('manual'); farmTick(); flash('cobrando aldeas'); });
+    qat('farms', () => {
+      state.nextFarmScrape = 0; save(STORE.NEXT_FARM, 0);
+      state.nextFarmClaim = 0; save(STORE.NEXT_FARM_CLAIM, 0);
+      autoClaimFarms('manual'); farmTick(); flash('cobrando aldeas');
+    });
     qat('dodge', () => { dodgeScan('manual'); flash('escaneando entrantes'); });
     qat('queue', () => { abEnsureTargets(); abScan('manual'); flash('cola de construccion'); });
     qat('hud-prod', () => { flash('HUD produccion ' + (hudToggle('production') ? 'ON' : 'OFF')); });
@@ -26133,7 +26087,6 @@ const STORE = {
   });
   function syncFarmTimingCfg(sec) {
     if (!sec) return;
-    const lc = sec.querySelector('[data-cfg=farm-long-claims]'); if (lc) lc.checked = !!state.farmLongClaims;
     const fsc = sec.querySelector('[data-cfg=farm-scrape]'); if (fsc) fsc.checked = !!state.farmScrape;
     const lt = sec.querySelector('[data-cfg=farm-loyalty-tech]'); if (lt) lt.value = state.farmLoyaltyTech || '';
     const um = sec.querySelector('[data-cfg=farm-units-mode]'); if (um) um.value = String(state.farmUnitsMode || 'off');
@@ -26145,7 +26098,7 @@ const STORE = {
       const dup = farmOptionMapConflicts();
       om.textContent = 'learned claim options: ' + farmOptionMapText() +
         (dup ? ' | CONFLICTO: ' + dup + ' comparten opcion - pulsa Olvidar y reaprende' : '') +
-        ' (claim a timer by hand in game to teach the rest)' +
+        ' (claim 10min by hand in game to teach)' +
         ' | units: ' + (uOpt == null ? 'not learned' : uOpt + ' (' + (farmUnitIdFor(uOpt) || '?') + ')');
     }
   }
@@ -26313,8 +26266,6 @@ const STORE = {
     setNum('[data-cfg=ib-free-thresh]', state.ibFreeThresh);
     setNum('[data-cfg=collect-max-min]', state.collectMaxMin);
     setNum('[data-cfg=farm-travel]', state.farmTravelSecPerUnit || 0);
-    setNum('[data-cfg=farm-min]', Math.round(state.farmMinMs / 60000));
-    setNum('[data-cfg=farm-max]', Math.round(state.farmMaxMs / 60000));
     setNum('[data-cfg=town-min]', Math.round(state.townMinMs / 60000));
     setNum('[data-cfg=town-max]', Math.round(state.townMaxMs / 60000));
     setNum('[data-cfg=posts-soft-pct]', state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60);
@@ -26349,8 +26300,11 @@ const STORE = {
     onCfg('[data-cfg=auto-farm]', 'change', e => {
       state.autoFarm = e.target.checked; save(STORE.AUTO_FARM, state.autoFarm);
       gbLog('auto-farm', state.autoFarm ? 'ON' : 'OFF');
-      if (state.autoFarm) { autoClaimFarms('toggle'); farmScheduleClaimWake(null, 'toggle', true); }
-      else farmCancelClaimWake();
+      if (state.autoFarm) {
+        state.nextFarmClaim = 0;
+        save(STORE.NEXT_FARM_CLAIM, 0);
+        autoClaimFarms('toggle');
+      }
     });
     onCfg('[data-cfg=farm-skip-full]', 'change', e => {
       state.farmSkipFull = e.target.checked; save(STORE.FARM_SKIP_FULL, state.farmSkipFull);
@@ -26365,10 +26319,6 @@ const STORE = {
       state.ibAuto = e.target.checked; save(STORE.IB_AUTO, state.ibAuto);
       gbLog('instant-build', state.ibAuto ? 'ON' : 'OFF');
       if (state.ibAuto) ibScan();
-    });
-    onCfg('[data-cfg=farm-long-claims]', 'change', e => {
-      state.farmLongClaims = e.target.checked; save(STORE.FARM_LONG_CLAIMS, state.farmLongClaims);
-      gbLog('recogidas largas adaptativas', state.farmLongClaims ? 'ON' : 'OFF');
     });
     onCfg('[data-cfg=farm-units-mode]', 'change', e => {
       const v = String(e.target.value || 'off');
@@ -26987,8 +26937,6 @@ const STORE = {
     });
     saveNum('[data-cfg=ib-free-thresh]', v => { state.ibFreeThresh = Math.max(60,Math.min(300,+v||300)); save(STORE.IB_FREE_THRESH, state.ibFreeThresh); });
     saveNum('[data-cfg=collect-max-min]', v => { state.collectMaxMin = v; save(STORE.COLLECT_MAX_MIN, v); });
-    saveNum('[data-cfg=farm-min]', v => { state.farmMinMs = v * 60000; save(STORE.FARM_MIN, state.farmMinMs); });
-    saveNum('[data-cfg=farm-max]', v => { state.farmMaxMs = v * 60000; save(STORE.FARM_MAX, state.farmMaxMs); });
     saveNum('[data-cfg=town-min]', v => { state.townMinMs = v * 60000; save(STORE.TOWN_MIN, state.townMinMs); });
     saveNum('[data-cfg=town-max]', v => { state.townMaxMs = v * 60000; save(STORE.TOWN_MAX, state.townMaxMs); });
     onCfg('[data-cfg=captcha-ladder]', 'change', e => {
@@ -27007,7 +26955,7 @@ const STORE = {
     });
     onCfg('[data-cfg=farm-forget-options]', 'click', () => {
       if (!confirm('Olvidar las opciones de cobro aprendidas (recursos y unidades)?')) return;
-      state.farmOptionMap = { 300: 1 };
+      state.farmOptionMap = { 600: 2 };
       save(wkey(STORE.FARM_OPTION_MAP), state.farmOptionMap);
       state.farmUnitsOption = null;
       save(wkey(STORE.FARM_UNITS_OPTION), null);
@@ -27592,10 +27540,11 @@ const STORE = {
     const te = panel.querySelector('#gb-next-towns');
     if (fe) {
       const timing = state.autoFarm ? farmClaimTiming() : null;
+      const dueMs = (+state.nextFarmClaim || 0) - Date.now();
       const claimTxt = !state.autoFarm ? 'Aldeas apagadas'
-        : (timing && timing.ready > 0 ? `Aldeas: ${timing.ready} listas`
-          : (timing && Number.isFinite(timing.nextAt) ? `Aldeas en ${fmtSec(Math.max(0, timing.nextAt - timing.now))}`
-            : (timing && timing.expiredModelWait ? 'Aldeas: esperando al juego' : 'Aldeas: \u2014')));
+        : (timing && timing.ready > 0 && dueMs <= 0 ? `Aldeas: ${timing.ready} listas`
+          : (dueMs > 0 ? `Aldeas en ${fmtSec(Math.max(0, Math.round(dueMs / 1000)))}`
+            : (timing && timing.ready > 0 ? `Aldeas: ${timing.ready} listas` : 'Aldeas: \u2014')));
       const scrapeTxt = state.nextFarmScrape
         ? `escaneo en ${fmtSec(Math.max(0, Math.round((state.nextFarmScrape - Date.now()) / 1000)))}`
         : 'escaneo \u2014';
@@ -27833,8 +27782,8 @@ const STORE = {
 
   if (!state.nextFarmScrape) { state.nextFarmScrape = Date.now() + BOOT_TIMING.FIRST_FARM_DEADLINE_MS; save(STORE.NEXT_FARM, state.nextFarmScrape); }
   if (!state.nextTownsScrape) { state.nextTownsScrape = Date.now() + BOOT_TIMING.FIRST_TOWNS_DEADLINE_MS; save(STORE.NEXT_TOWNS, state.nextTownsScrape); }
+  if (!state.nextFarmClaim) { state.nextFarmClaim = Date.now() + BOOT_TIMING.FARM_WAKE_MS; save(STORE.NEXT_FARM_CLAIM, state.nextFarmClaim); }
   gbInterval(farmTick, BOOT_TIMING.FARM_TICK_MS);
-  gbTimeout(() => { if (state.autoFarm) farmScheduleClaimWake(null, 'boot', true); }, BOOT_TIMING.FARM_WAKE_MS);
 
   let releaseLocksAt = 0;
   const RELEASE_DEDUP_MS = 3000;

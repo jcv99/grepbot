@@ -81,8 +81,8 @@
 
   if (!state.nextFarmScrape) { state.nextFarmScrape = Date.now() + BOOT_TIMING.FIRST_FARM_DEADLINE_MS; save(STORE.NEXT_FARM, state.nextFarmScrape); }
   if (!state.nextTownsScrape) { state.nextTownsScrape = Date.now() + BOOT_TIMING.FIRST_TOWNS_DEADLINE_MS; save(STORE.NEXT_TOWNS, state.nextTownsScrape); }
+  if (!state.nextFarmClaim) { state.nextFarmClaim = Date.now() + BOOT_TIMING.FARM_WAKE_MS; save(STORE.NEXT_FARM_CLAIM, state.nextFarmClaim); }
   gbInterval(farmTick, BOOT_TIMING.FARM_TICK_MS);
-  gbTimeout(() => { if (state.autoFarm) farmScheduleClaimWake(null, 'boot', true); }, BOOT_TIMING.FARM_WAKE_MS);
 
   // Hidden tabs clamp timers, so every clamped loop fires at once on wake and
   // the armed instant-build timer can be minutes late. Mark the burst so the

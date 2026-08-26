@@ -518,6 +518,7 @@
     alerted:  load(STORE.ALERTED, {}),
     csrf:     load(STORE.CSRF, null),
     nextFarmScrape: load(STORE.NEXT_FARM, 0),
+    nextFarmClaim: load(STORE.NEXT_FARM_CLAIM, 0),
     nextTownsScrape: load(STORE.NEXT_TOWNS, 0),
     farmAction: load(STORE.FARM_ACTION, null),
 
@@ -549,11 +550,9 @@
       const m = load(STORE.FARM_OPTION_MAP, null);
       if (m && typeof m === 'object' && !Array.isArray(m)
           && Object.keys(m).some(k => m[k] != null && Number.isFinite(+m[k]))) return m;
-      return { 300: 1 };
+      return { 600: 2 };
     })(),
-    // Default OFF (v5.10.9): new users get predictable 5min claims; only opt in
-    // to the adaptive long picker (up to 4h, learned option by town) explicitly.
-    // Existing users keep their stored value.
+    // Kept for config import compat; claims always use the 10min option (v5.10.52).
     farmLongClaims: load(STORE.FARM_LONG_CLAIMS, false),
     farmLoyaltyTech: load(STORE.FARM_LOYALTY_TECH, '') || '',
     farmProfit: load(STORE.FARM_PROFIT, {}),
@@ -576,8 +575,9 @@
     questAutoRes: load(STORE.QUEST_AUTO_RES, false),
     questHistory: load(STORE.QUEST_HISTORY, []),
     collectMaxMin: load(STORE.COLLECT_MAX_MIN, 10),
-    farmMinMs: load(STORE.FARM_MIN, 5 * 60 * 1000),
-    farmMaxMs: load(STORE.FARM_MAX, 6 * 60 * 1000),
+    // Village scrape cadence locked to claim cadence (10min + 1–2min jitter).
+    farmMinMs: 10 * 60 * 1000,
+    farmMaxMs: 12 * 60 * 1000,
     townMinMs: load(STORE.TOWN_MIN, 6 * 60 * 1000),
     townMaxMs: load(STORE.TOWN_MAX, 7 * 60 * 1000),
     enabledHosts: load(STORE.ENABLED_HOSTS, {}),
