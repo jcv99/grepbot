@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.43
+// @version      5.10.44
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -14881,46 +14881,79 @@ const STORE = {
     } catch (_) {}
     return 7;
   }
+  function recruitQueueBuilding(unitId) {
+    return recruitIsNaval(unitId) ? 'docks' : 'barracks';
+  }
   function recruitQueueInfo(townId, unitId) {
     const t = gbTownModel(townId);
     const max = recruitQueueMax();
     if (!t) return { known: false, len: 0, max, models: [] };
-    let col = null, models = [];
-    try {
-      col = t.getUnitOrdersCollection && t.getUnitOrdersCollection();
-      if (!col) return { known: false, len: 0, max, models: [] };
+    let col = null;
+    try { col = t.getUnitOrdersCollection && t.getUnitOrdersCollection(); } catch (_) {}
+    if (!col) return { known: false, len: 0, max, models: [] };
+    const building = unitId ? recruitQueueBuilding(unitId) : null;
 
-      const building = unitId ? (recruitIsNaval(unitId) ? 'docks' : 'barracks') : null;
-      let laneKnown = false;
-      if (building && typeof col.getOrders === 'function') {
-        const orders = col.getOrders(building);
-        if (Array.isArray(orders)) { models = orders.slice(); laneKnown = true; }
-      }
-      if (!laneKnown && Array.isArray(col.models)) {
-        models = col.models.slice();
-        if (unitId) {
-          const wantNaval = recruitIsNaval(unitId);
-          models = models.filter(m => {
-            const a = m.attributes || m;
-            let pbt = null;
-            try { if (typeof m.getProductionBuildingType === 'function') pbt = m.getProductionBuildingType(); } catch (_) {}
-            if (!pbt) pbt = a.production_building_type || a.building_type;
-            if (pbt === 'docks' || pbt === 'barracks') return (pbt === 'docks') === wantNaval;
-            const id = a.unit_type || a.unit_id || a.type;
-            return id ? recruitIsNaval(id) === wantNaval : true;
-          });
+    if (building && typeof col.getCount === 'function') {
+      try {
+        const c = +col.getCount(building);
+        if (Number.isFinite(c) && c >= 0) {
+          let models = [];
+          try {
+            if (typeof col.getOrders === 'function') {
+              const o = col.getOrders(building);
+              if (Array.isArray(o)) models = o.slice();
+              else if (o && typeof o.length === 'number') models = Array.prototype.slice.call(o);
+            }
+          } catch (_) {}
+          return { known: true, len: c, max, models };
         }
-        laneKnown = true;
-      }
-      if (!laneKnown) {
-        if (building && typeof col.getCount === 'function') {
-          const c = +col.getCount(building);
-          if (Number.isFinite(c) && c >= 0) return { known: true, len: c, max, models: [] };
+      } catch (_) {}
+    }
+    if (building && typeof col.getOrders === 'function') {
+      try {
+        const o = col.getOrders(building);
+        if (Array.isArray(o)) return { known: true, len: o.length, max, models: o.slice() };
+        if (o && typeof o.length === 'number') {
+          const models = Array.prototype.slice.call(o);
+          return { known: true, len: models.length, max, models };
         }
-        return { known: false, len: 0, max, models: [] };
+      } catch (_) {}
+    }
+    if (typeof col.getAllOrders === 'function') {
+      try {
+        let all = col.getAllOrders();
+        if (all && typeof all.length === 'number') {
+          all = Array.isArray(all) ? all.slice() : Array.prototype.slice.call(all);
+          if (building) {
+            all = all.filter(m => {
+              try {
+                return typeof m.getProductionBuildingType === 'function'
+                  && m.getProductionBuildingType() === building;
+              } catch (_) { return false; }
+            });
+          }
+          return { known: true, len: all.length, max, models: all };
+        }
+      } catch (_) {}
+    }
+
+    try {
+      if (!Array.isArray(col.models)) return { known: false, len: 0, max, models: [] };
+      let models = col.models.slice();
+      if (unitId) {
+        const wantNaval = recruitIsNaval(unitId);
+        models = models.filter(m => {
+          const a = m.attributes || m;
+          let pbt = null;
+          try { if (typeof m.getProductionBuildingType === 'function') pbt = m.getProductionBuildingType(); } catch (_) {}
+          if (pbt === 'docks' || pbt === 'barracks') return (pbt === 'docks') === wantNaval;
+          const id = a.unit_type || a.unit_id || a.type;
+          if (!id) return false;
+          return recruitIsNaval(id) === wantNaval;
+        });
       }
+      return { known: true, len: models.length, max, models };
     } catch (_) { return { known: false, len: 0, max, models: [] }; }
-    return { known: true, len: models.length, max, models };
   }
   function recruitQueuedAmount(townId, unit) {
     const q = recruitQueueInfo(townId);
@@ -14933,12 +14966,12 @@ const STORE = {
     }
     return queued;
   }
-  function recruitQueueHasSpace(townId,unitId) {
-    const q = recruitQueueInfo(townId,unitId);
-    if (!q.known) return false;
-    if (q.max != null) return q.len < q.max;
+  function recruitQueueHasSpace(townId, unitId) {
+    const q = recruitQueueInfo(townId, unitId);
 
-    return q.len === 0;
+    if (!q.known) return true;
+    const max = q.max != null ? q.max : recruitQueueMax();
+    return q.len < max;
   }
   function recruitAffordableAmount(townId, unit, want) {
     const def = gbGameDataLookup("units", unit), t = gbTownModel(townId);
@@ -15013,7 +15046,15 @@ const STORE = {
         if (!nativeQueueIsFifo(tid, lane)) continue;
         const explicit = nativeQueueRecruitHead(tid, lane);
         if (!explicit) continue;
-        if (!recruitQueueHasSpace(tid,explicit.unit)) { nativeQueueSetJobState(explicit, 'waiting-slot', 'cola real llena'); continue; }
+        const qInfo = recruitQueueInfo(tid, explicit.unit);
+        if (qInfo.known && !(qInfo.len < qInfo.max)) {
+          nativeQueueSetJobState(explicit, 'waiting-slot', `cola real llena (${qInfo.len}/${qInfo.max})`);
+          continue;
+        }
+        if (!qInfo.known) {
+          gbLogT('recruit-queue-blind-' + tid, 300000,
+            `recruit: unit queue unreadable in town ${tid}; ${explicit.unit} left to the server to judge`);
+        }
         if (!recruitCanBuild(tid, explicit.unit) || !recruitControllerFor(explicit.unit)) {
           nativeQueueSetJobState(explicit, 'blocked', 'requisitos/controlador'); continue;
         }

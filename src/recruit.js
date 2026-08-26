@@ -211,11 +211,8 @@
   // Per-lane unit queue length. Captured client
   // (GameDataConstructionQueue.getUnitOrdersQueueLength) hardcodes
   // type_unit_queue → 7; full check is getAllOrders().length === 2*that
-  // (barracks + docks). The old probes (getMaxQueueLength / max_queue_length /
-  // GameDataUnitQueue.getQueueMax) match NOTHING in the live bundle, so max
-  // stayed null and recruitQueueHasSpace fell through to "only when empty" —
-  // any ship already in the harbor froze hydra (and every other naval head)
-  // at waiting-slot forever despite free slots.
+  // (barracks + docks). Never probe getMaxQueueLength / max_queue_length —
+  // those match nothing in the live bundle.
   function recruitQueueMax() {
     try {
       const uw = gameUw();
@@ -227,49 +224,82 @@
     } catch (_) {}
     return 7;
   }
+  function recruitQueueBuilding(unitId) {
+    return recruitIsNaval(unitId) ? 'docks' : 'barracks';
+  }
   function recruitQueueInfo(townId, unitId) {
     const t = gbTownModel(townId);
     const max = recruitQueueMax();
     if (!t) return { known: false, len: 0, max, models: [] };
-    let col = null, models = [];
+    let col = null;
+    try { col = t.getUnitOrdersCollection && t.getUnitOrdersCollection(); } catch (_) {}
+    if (!col) return { known: false, len: 0, max, models: [] };
+    const building = unitId ? recruitQueueBuilding(unitId) : null;
+
+    // Prefer getCount/getOrders — same path the docks UI uses for "0/7".
+    // Wrap each probe; one throw must not mark the whole queue unknown.
+    if (building && typeof col.getCount === 'function') {
+      try {
+        const c = +col.getCount(building);
+        if (Number.isFinite(c) && c >= 0) {
+          let models = [];
+          try {
+            if (typeof col.getOrders === 'function') {
+              const o = col.getOrders(building);
+              if (Array.isArray(o)) models = o.slice();
+              else if (o && typeof o.length === 'number') models = Array.prototype.slice.call(o);
+            }
+          } catch (_) {}
+          return { known: true, len: c, max, models };
+        }
+      } catch (_) {}
+    }
+    if (building && typeof col.getOrders === 'function') {
+      try {
+        const o = col.getOrders(building);
+        if (Array.isArray(o)) return { known: true, len: o.length, max, models: o.slice() };
+        if (o && typeof o.length === 'number') {
+          const models = Array.prototype.slice.call(o);
+          return { known: true, len: models.length, max, models };
+        }
+      } catch (_) {}
+    }
+    if (typeof col.getAllOrders === 'function') {
+      try {
+        let all = col.getAllOrders();
+        if (all && typeof all.length === 'number') {
+          all = Array.isArray(all) ? all.slice() : Array.prototype.slice.call(all);
+          if (building) {
+            all = all.filter(m => {
+              try {
+                return typeof m.getProductionBuildingType === 'function'
+                  && m.getProductionBuildingType() === building;
+              } catch (_) { return false; }
+            });
+          }
+          return { known: true, len: all.length, max, models: all };
+        }
+      } catch (_) {}
+    }
+    // Raw models fallback. Drop id-less rows — keeping them (old `return true`)
+    // inflated len against an empty docks UI and stranded hydra at waiting-slot.
     try {
-      col = t.getUnitOrdersCollection && t.getUnitOrdersCollection();
-      if (!col) return { known: false, len: 0, max, models: [] };
-      // Game's own lane filter: getOrders('docks'|'barracks') keys off
-      // getProductionBuildingType(), which stays correct even when a naval
-      // mythical (hydra) lacks is_naval in GameData. Trust an Array result
-      // even when empty — do not fall through and re-count.
-      const building = unitId ? (recruitIsNaval(unitId) ? 'docks' : 'barracks') : null;
-      let laneKnown = false;
-      if (building && typeof col.getOrders === 'function') {
-        const orders = col.getOrders(building);
-        if (Array.isArray(orders)) { models = orders.slice(); laneKnown = true; }
+      if (!Array.isArray(col.models)) return { known: false, len: 0, max, models: [] };
+      let models = col.models.slice();
+      if (unitId) {
+        const wantNaval = recruitIsNaval(unitId);
+        models = models.filter(m => {
+          const a = m.attributes || m;
+          let pbt = null;
+          try { if (typeof m.getProductionBuildingType === 'function') pbt = m.getProductionBuildingType(); } catch (_) {}
+          if (pbt === 'docks' || pbt === 'barracks') return (pbt === 'docks') === wantNaval;
+          const id = a.unit_type || a.unit_id || a.type;
+          if (!id) return false;
+          return recruitIsNaval(id) === wantNaval;
+        });
       }
-      if (!laneKnown && Array.isArray(col.models)) {
-        models = col.models.slice();
-        if (unitId) {
-          const wantNaval = recruitIsNaval(unitId);
-          models = models.filter(m => {
-            const a = m.attributes || m;
-            let pbt = null;
-            try { if (typeof m.getProductionBuildingType === 'function') pbt = m.getProductionBuildingType(); } catch (_) {}
-            if (!pbt) pbt = a.production_building_type || a.building_type;
-            if (pbt === 'docks' || pbt === 'barracks') return (pbt === 'docks') === wantNaval;
-            const id = a.unit_type || a.unit_id || a.type;
-            return id ? recruitIsNaval(id) === wantNaval : true;
-          });
-        }
-        laneKnown = true;
-      }
-      if (!laneKnown) {
-        if (building && typeof col.getCount === 'function') {
-          const c = +col.getCount(building);
-          if (Number.isFinite(c) && c >= 0) return { known: true, len: c, max, models: [] };
-        }
-        return { known: false, len: 0, max, models: [] };
-      }
+      return { known: true, len: models.length, max, models };
     } catch (_) { return { known: false, len: 0, max, models: [] }; }
-    return { known: true, len: models.length, max, models };
   }
   function recruitQueuedAmount(townId, unit) {
     const q = recruitQueueInfo(townId);
@@ -283,12 +313,13 @@
     }
     return queued;
   }
-  function recruitQueueHasSpace(townId,unitId) {
-    const q = recruitQueueInfo(townId,unitId);
-    if (!q.known) return false;
-    if (q.max != null) return q.len < q.max;
-    // If max cannot be read, fail conservatively: only start when queue is empty.
-    return q.len === 0;
+  function recruitQueueHasSpace(townId, unitId) {
+    const q = recruitQueueInfo(townId, unitId);
+    // Unreadable ≠ full. Returning false here printed "cola real llena" while
+    // the docks header showed 0/7 (hard-rule: unread → blind → server judges).
+    if (!q.known) return true;
+    const max = q.max != null ? q.max : recruitQueueMax();
+    return q.len < max;
   }
   function recruitAffordableAmount(townId, unit, want) {
     const def = gbGameDataLookup("units", unit), t = gbTownModel(townId);
@@ -379,7 +410,15 @@
         if (!nativeQueueIsFifo(tid, lane)) continue;
         const explicit = nativeQueueRecruitHead(tid, lane);
         if (!explicit) continue;
-        if (!recruitQueueHasSpace(tid,explicit.unit)) { nativeQueueSetJobState(explicit, 'waiting-slot', 'cola real llena'); continue; }
+        const qInfo = recruitQueueInfo(tid, explicit.unit);
+        if (qInfo.known && !(qInfo.len < qInfo.max)) {
+          nativeQueueSetJobState(explicit, 'waiting-slot', `cola real llena (${qInfo.len}/${qInfo.max})`);
+          continue;
+        }
+        if (!qInfo.known) {
+          gbLogT('recruit-queue-blind-' + tid, 300000,
+            `recruit: unit queue unreadable in town ${tid}; ${explicit.unit} left to the server to judge`);
+        }
         if (!recruitCanBuild(tid, explicit.unit) || !recruitControllerFor(explicit.unit)) {
           nativeQueueSetJobState(explicit, 'blocked', 'requisitos/controlador'); continue;
         }
