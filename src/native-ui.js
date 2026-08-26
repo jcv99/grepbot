@@ -674,9 +674,47 @@
     } catch (_) {}
     const list=nativeQueueList(townId,'build',false);if(!list.length)return false;
     const levels=abCurrentLevels(townId);if(!levels)return false;let changed=false;
-    for(const j of list){if(!j)continue;const flight=j.inflight||j.reconcile;if(flight&&flight.building&&flight.targetLevel!=null&&+(levels[flight.building]||0)>=+flight.targetLevel){j.inflight=null;j.reconcile=null;j.manualReview=false;j.status=flight.building===j.building?'pending':'waiting-requirement';j.reason=flight.building===j.building?'confirmado en la cola real':`requisito ${nativeBuildLabel(flight.building)} confirmado`;j.updatedAt=Date.now();changed=true;continue}
+    for(const j of list){
+      if(!j)continue;
+      const flight=j.inflight||j.reconcile;
+      if(flight&&flight.building&&flight.targetLevel!=null&&+(levels[flight.building]||0)>=+flight.targetLevel){
+        j.inflight=null;j.reconcile=null;j.manualReview=false;
+        j.status=flight.building===j.building?'pending':'waiting-requirement';
+        j.reason=flight.building===j.building?'confirmado en la cola real':`requisito ${nativeBuildLabel(flight.building)} confirmado`;
+        j.updatedAt=Date.now();changed=true;continue;
+      }
 
-      if(j.inflight&&Date.now()-(+j.inflight.at||0)>120000){j.reconcile=Object.assign({},j.inflight);j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualizó; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}}
+      // Real-queue reconcile (v5.10.59). timeout_unknown / pending stuck the head
+      // because the bridge settle could not detect the model delta, but the order
+      // may already be sitting in the real queue with its timer running. Match by
+      // building_type on a non-tear-down slot and clear manualReview so the lane
+      // advances; the level-reached branch above fires when the build completes.
+      // Stamping accepted:true on the new inflight skips the 120s re-trip below
+      // — the real queue has the order, we just wait for the model to catch up.
+      if(j.manualReview && j.reconcile && j.reconcile.building && j.reconcile.targetLevel!=null){
+        const fr=j.reconcile;
+        if(+(levels[fr.building]||0)<+fr.targetLevel){
+          const q=abQueueInfo(townId);
+          if(q.known && q.orders.some(o=>o.building_type===fr.building && !o.tear_down)){
+            j.inflight={building:fr.building,targetLevel:+fr.targetLevel,at:Date.now(),accepted:true};
+            j.reconcile=null;
+            j.manualReview=false;
+            j.status='accepted';
+            j.reason='en cola real; esperando actualización del juego';
+            j.updatedAt=Date.now();
+            changed=true;
+            continue;
+          }
+        }
+      }
+
+      if(j.inflight && !j.inflight.accepted && Date.now()-(+j.inflight.at||0)>120000){
+        j.reconcile=Object.assign({},j.inflight);
+        j.inflight=null;j.manualReview=true;j.status='unknown';
+        j.reason='la cola real no se actualizó; comprobar antes de continuar';
+        j.updatedAt=Date.now();changed=true;
+      }
+    }
     for(let i=list.length-1;i>=0;i--){const j=list[i];if(!j||!AB_BUILDINGS.includes(j.building)||+(levels[j.building]||0)>=+j.toLevel){list.splice(i,1);changed=true}}
     if(changed){nativeQueueRebaseBuild(townId);nativeQueueSave()}return changed;
   }

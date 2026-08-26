@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.58
+// @version      5.10.59
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -8909,9 +8909,40 @@ const STORE = {
     } catch (_) {}
     const list=nativeQueueList(townId,'build',false);if(!list.length)return false;
     const levels=abCurrentLevels(townId);if(!levels)return false;let changed=false;
-    for(const j of list){if(!j)continue;const flight=j.inflight||j.reconcile;if(flight&&flight.building&&flight.targetLevel!=null&&+(levels[flight.building]||0)>=+flight.targetLevel){j.inflight=null;j.reconcile=null;j.manualReview=false;j.status=flight.building===j.building?'pending':'waiting-requirement';j.reason=flight.building===j.building?'confirmado en la cola real':`requisito ${nativeBuildLabel(flight.building)} confirmado`;j.updatedAt=Date.now();changed=true;continue}
+    for(const j of list){
+      if(!j)continue;
+      const flight=j.inflight||j.reconcile;
+      if(flight&&flight.building&&flight.targetLevel!=null&&+(levels[flight.building]||0)>=+flight.targetLevel){
+        j.inflight=null;j.reconcile=null;j.manualReview=false;
+        j.status=flight.building===j.building?'pending':'waiting-requirement';
+        j.reason=flight.building===j.building?'confirmado en la cola real':`requisito ${nativeBuildLabel(flight.building)} confirmado`;
+        j.updatedAt=Date.now();changed=true;continue;
+      }
 
-      if(j.inflight&&Date.now()-(+j.inflight.at||0)>120000){j.reconcile=Object.assign({},j.inflight);j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualiz\u00f3; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}}
+      if(j.manualReview && j.reconcile && j.reconcile.building && j.reconcile.targetLevel!=null){
+        const fr=j.reconcile;
+        if(+(levels[fr.building]||0)<+fr.targetLevel){
+          const q=abQueueInfo(townId);
+          if(q.known && q.orders.some(o=>o.building_type===fr.building && !o.tear_down)){
+            j.inflight={building:fr.building,targetLevel:+fr.targetLevel,at:Date.now(),accepted:true};
+            j.reconcile=null;
+            j.manualReview=false;
+            j.status='accepted';
+            j.reason='en cola real; esperando actualizaci\u00f3n del juego';
+            j.updatedAt=Date.now();
+            changed=true;
+            continue;
+          }
+        }
+      }
+
+      if(j.inflight && !j.inflight.accepted && Date.now()-(+j.inflight.at||0)>120000){
+        j.reconcile=Object.assign({},j.inflight);
+        j.inflight=null;j.manualReview=true;j.status='unknown';
+        j.reason='la cola real no se actualiz\u00f3; comprobar antes de continuar';
+        j.updatedAt=Date.now();changed=true;
+      }
+    }
     for(let i=list.length-1;i>=0;i--){const j=list[i];if(!j||!AB_BUILDINGS.includes(j.building)||+(levels[j.building]||0)>=+j.toLevel){list.splice(i,1);changed=true}}
     if(changed){nativeQueueRebaseBuild(townId);nativeQueueSave()}return changed;
   }
