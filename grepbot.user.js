@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.47
+// @version      5.10.48
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -2471,7 +2471,15 @@ const STORE = {
         const tech=a.id||a.research_id||a.research||a.research_type, c=researchCost(tech,townId); if(!c) return null; out(townId,c);
       } else if (feature === 'recruit') {
         const unit=a.unit_id||a.unit_type, n=+a.amount||0, def=gbGameDataLookup("units", unit); if(!def||!def.resources||!(n>0)) return null;
-        out(townId,{wood:(+def.resources.wood||0)*n,stone:(+def.resources.stone||0)*n,iron:(+def.resources.iron||0)*n,population:(+def.population||0)*n});
+
+        const factor = (typeof recruitResourceFactor === 'function')
+          ? recruitResourceFactor(townId, Object.assign({ id: unit }, def)) : 1;
+        out(townId,{
+          wood:(+def.resources.wood||0)*factor*n,
+          stone:(+def.resources.stone||0)*factor*n,
+          iron:(+def.resources.iron||0)*factor*n,
+          population:(+def.population||0)*n
+        });
       } else if (feature === 'trade') {
         const c={wood:+a.wood||0,stone:+a.stone||0,iron:+a.iron||0,tradeCap:(+a.wood||0)+(+a.stone||0)+(+a.iron||0)};
         out(townId,c); if(a.id!=null) inc(a.id,c);
@@ -15031,6 +15039,24 @@ const STORE = {
       }
     }
   }
+
+  function recruitResourceFactor(townId, def) {
+    try {
+      const uw = gameUw();
+      const GM = uw.GeneralModifications;
+      if (!GM || typeof GM.getUnitBuildResourcesModification !== 'function' || !def) return 1;
+
+      let unitDef = def;
+      if (def.id && recruitIsNaval(def.id) && !def.is_naval && !def.naval) {
+        unitDef = Object.assign({}, def, { is_naval: true });
+      } else if (!def.is_naval && !def.naval) {
+
+      }
+      const f = +GM.getUnitBuildResourcesModification(+townId, unitDef);
+      if (Number.isFinite(f) && f > 0) return f;
+    } catch (_) {}
+    return 1;
+  }
   function recruitAffordableAmount(townId, unit, want) {
     const def = gbGameDataLookup("units", unit), t = gbTownModel(townId);
     if (!def || !t || !def.resources) return 0;
@@ -15039,7 +15065,11 @@ const STORE = {
 
       const pop = t.getAvailablePopulation && gbNum(t.getAvailablePopulation());
       if (!r || pop == null) return 0;
-      const rw = gbNum(def.resources.wood) || 0, rs = gbNum(def.resources.stone) || 0, ri = gbNum(def.resources.iron) || 0, rp = gbNum(def.population) || 0;
+      const factor = recruitResourceFactor(townId, Object.assign({ id: unit }, def));
+      const rw = (gbNum(def.resources.wood) || 0) * factor;
+      const rs = (gbNum(def.resources.stone) || 0) * factor;
+      const ri = (gbNum(def.resources.iron) || 0) * factor;
+      const rp = gbNum(def.population) || 0;
       let amount = Math.max(0, gbNum(want) || 0);
       const rWood = gbNum(r.wood), rStone = gbNum(r.stone), rIron = gbNum(r.iron);
       if (rw > 0 && rWood != null) amount = Math.min(amount, Math.floor(rWood / rw));
@@ -15088,7 +15118,16 @@ const STORE = {
     if (automationPaused({})) return;
     if (gbLocked('recruit')) return;
 
-    if (farmFirstHold('recruit')) return;
+    const farmHold = typeof farmClaimPending === 'function' && !!state.autoFarm
+      && !captchaPaused('farm') && farmClaimPending();
+    if (farmHold && !nativePending) {
+      gbLogT('farm-first-recruit', 300000, 'recruit: held - farming village claim pending (farm-first)');
+      return;
+    }
+    if (farmHold) {
+      gbLogT('farm-first-recruit-native', 300000,
+        'recruit: farm-first active \u2014 native FIFO still runs, legacy goals held');
+    }
     recruitScanResetMemo();
     const targets = goalEffectiveRecruitTargets();
 
@@ -15131,6 +15170,7 @@ const STORE = {
         break;
       }
       if (job) break;
+      if (farmHold) continue;
       const want = targets[tid];
       if (!want || typeof want !== 'object') continue;
       let t = null;
@@ -17451,7 +17491,10 @@ const STORE = {
       const key = order[i];
       if (!ORCH_HANDLERS[key]) continue;
       if (!orchFeatureEnabled(key)) continue;
-      if (farmFirst && ORCH_UNIT_KEYS.includes(key)) continue;
+      if (farmFirst && ORCH_UNIT_KEYS.includes(key)) {
+
+        if (!(key === 'recruit' && typeof nativeRecruitPending === 'function' && nativeRecruitPending())) continue;
+      }
       const cap = ORCH_CAPTCHA[key];
       if (cap && captchaPaused(cap)) continue;
       const cadence = orchCadence(key);

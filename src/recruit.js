@@ -376,6 +376,28 @@
       }
     }
   }
+  // Live client multiplies wood/stone/iron by GeneralModifications
+  // .getUnitBuildResourcesModification (mathematics, nereids, …). Raw
+  // GameData costs made hydra look unaffordable while the docks UI (exact
+  // match) said buildable. Pop + favor stay unscaled — same as GameDataUnits.getMaxBuild.
+  function recruitResourceFactor(townId, def) {
+    try {
+      const uw = gameUw();
+      const GM = uw.GeneralModifications;
+      if (!GM || typeof GM.getUnitBuildResourcesModification !== 'function' || !def) return 1;
+      // Hydra often lacks is_naval in GameData; mathematics/nereids key off it.
+      // Pass a shallow copy with is_naval forced when recruitIsNaval says so.
+      let unitDef = def;
+      if (def.id && recruitIsNaval(def.id) && !def.is_naval && !def.naval) {
+        unitDef = Object.assign({}, def, { is_naval: true });
+      } else if (!def.is_naval && !def.naval) {
+        // def may be keyed only by lookup id — try unit id from caller via def.id
+      }
+      const f = +GM.getUnitBuildResourcesModification(+townId, unitDef);
+      if (Number.isFinite(f) && f > 0) return f;
+    } catch (_) {}
+    return 1;
+  }
   function recruitAffordableAmount(townId, unit, want) {
     const def = gbGameDataLookup("units", unit), t = gbTownModel(townId);
     if (!def || !t || !def.resources) return 0;
@@ -387,7 +409,11 @@
       // whose population read was unreadable.
       const pop = t.getAvailablePopulation && gbNum(t.getAvailablePopulation());
       if (!r || pop == null) return 0;
-      const rw = gbNum(def.resources.wood) || 0, rs = gbNum(def.resources.stone) || 0, ri = gbNum(def.resources.iron) || 0, rp = gbNum(def.population) || 0;
+      const factor = recruitResourceFactor(townId, Object.assign({ id: unit }, def));
+      const rw = (gbNum(def.resources.wood) || 0) * factor;
+      const rs = (gbNum(def.resources.stone) || 0) * factor;
+      const ri = (gbNum(def.resources.iron) || 0) * factor;
+      const rp = gbNum(def.population) || 0;
       let amount = Math.max(0, gbNum(want) || 0);
       const rWood = gbNum(r.wood), rStone = gbNum(r.stone), rIron = gbNum(r.iron);
       if (rw > 0 && rWood != null) amount = Math.min(amount, Math.floor(rWood / rw));
@@ -444,10 +470,19 @@
     try { recruitRefreshWaitingSlotJobs(); } catch (_) {}
     if (automationPaused({})) return;
     if (gbLocked('recruit')) return;
-    // Farm precedence: no unit post while a village claim is still possible.
-    // Enforced here as well as in orchTick so a wake/toggle path cannot route
-    // around it. See farmClaimPending() in farms.js.
-    if (farmFirstHold('recruit')) return;
+    // Farm-first holds LEGACY goal recruit only. Native FIFO is player-armed —
+    // orch also exempts it. Blocking here left hydra at "pending" for minutes
+    // while docks showed 0/7 and the unit was affordable in the game UI.
+    const farmHold = typeof farmClaimPending === 'function' && !!state.autoFarm
+      && !captchaPaused('farm') && farmClaimPending();
+    if (farmHold && !nativePending) {
+      gbLogT('farm-first-recruit', 300000, 'recruit: held - farming village claim pending (farm-first)');
+      return;
+    }
+    if (farmHold) {
+      gbLogT('farm-first-recruit-native', 300000,
+        'recruit: farm-first active — native FIFO still runs, legacy goals held');
+    }
     recruitScanResetMemo();
     const targets = goalEffectiveRecruitTargets();
 
@@ -496,6 +531,7 @@
         break;
       }
       if (job) break;
+      if (farmHold) continue;
       const want = targets[tid];
       if (!want || typeof want !== 'object') continue;
       let t = null;

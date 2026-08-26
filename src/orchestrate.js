@@ -200,7 +200,12 @@
       const key = order[i];
       if (!ORCH_HANDLERS[key]) continue;
       if (!orchFeatureEnabled(key)) continue;
-      if (farmFirst && ORCH_UNIT_KEYS.includes(key)) continue;
+      if (farmFirst && ORCH_UNIT_KEYS.includes(key)) {
+        // Player-armed native FIFO must not stall forever behind lootable
+        // villages (hydra sat pending while docks 0/7 and costs met). Legacy
+        // auto-recruit / village-recruit stay farm-first.
+        if (!(key === 'recruit' && typeof nativeRecruitPending === 'function' && nativeRecruitPending())) continue;
+      }
       const cap = ORCH_CAPTCHA[key];
       if (cap && captchaPaused(cap)) continue;
       const cadence = orchCadence(key);

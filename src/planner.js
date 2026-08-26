@@ -123,7 +123,17 @@
         const tech=a.id||a.research_id||a.research||a.research_type, c=researchCost(tech,townId); if(!c) return null; out(townId,c);
       } else if (feature === 'recruit') {
         const unit=a.unit_id||a.unit_type, n=+a.amount||0, def=gbGameDataLookup("units", unit); if(!def||!def.resources||!(n>0)) return null;
-        out(townId,{wood:(+def.resources.wood||0)*n,stone:(+def.resources.stone||0)*n,iron:(+def.resources.iron||0)*n,population:(+def.population||0)*n});
+        // Match docks UI / recruitAffordableAmount: wood/stone/iron scaled by
+        // GeneralModifications.getUnitBuildResourcesModification. Raw GameData
+        // costs blocked hydra when the player had exact discounted stock.
+        const factor = (typeof recruitResourceFactor === 'function')
+          ? recruitResourceFactor(townId, Object.assign({ id: unit }, def)) : 1;
+        out(townId,{
+          wood:(+def.resources.wood||0)*factor*n,
+          stone:(+def.resources.stone||0)*factor*n,
+          iron:(+def.resources.iron||0)*factor*n,
+          population:(+def.population||0)*n
+        });
       } else if (feature === 'trade') {
         const c={wood:+a.wood||0,stone:+a.stone||0,iron:+a.iron||0,tradeCap:(+a.wood||0)+(+a.stone||0)+(+a.iron||0)};
         out(townId,c); if(a.id!=null) inc(a.id,c);
