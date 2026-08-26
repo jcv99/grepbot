@@ -191,7 +191,15 @@
   function txFarmStatus(farmId) {
     try {
       const f = (farmsFromGame() || []).find(x => String(x.vill_id) === String(farmId));
-      return f ? { lootableAt: f.lootable_at == null ? null : +f.lootable_at } : null;
+      if (!f) return null;
+      const at = f.lootable_at == null ? null : +f.lootable_at;
+      // The game omits lootable_at on a claimable village, so a bare timestamp
+      // read is blind exactly when the village is farmable. farmIsLootable
+      // carries the null-means-lootable convention for relation models.
+      let lootableNow = null;
+      if (f._rel) { try { lootableNow = !!farmIsLootable(f._rel, f._attrs || {}); } catch (_) {} }
+      else if (at != null) lootableNow = gameNow() >= at;
+      return { lootableAt: at, lootableNow };
     } catch (_) { return null; }
   }
   function txMovementCount(origin, dest, mission) {
@@ -495,8 +503,16 @@
       }
       if (s.kind === 'farm') {
         const cur = txFarmStatus(s.farmId);
-        if (!cur || !s.status || cur.lootableAt == null || s.status.lootableAt == null) return 'unknown';
-        return cur.lootableAt > s.status.lootableAt ? 'applied' : 'unchanged';
+        if (!cur) return 'unknown';
+        // Verdict off CURRENT claimability, not the old lootableAt-vs-
+        // lootableAt compare: both sides are null for a claimable village,
+        // which made every farm reconcile permanently 'unknown'. On cooldown
+        // = a claim landed; claimable = this tx did not apply (a dup-path
+        // reconcile 10min+ after a landed 10min claim seeing the village
+        // claimable again is still correct: claiming again IS farming).
+        if (cur.lootableNow === false) return 'applied';
+        if (cur.lootableNow === true) return 'unchanged';
+        return 'unknown';
       }
       if (s.kind === 'trade' || s.kind === 'collect' || s.kind === 'wonder' || s.kind === 'ruraltrade') {
         const before = s.kind === 'trade' ? s.source : s.before;
@@ -770,6 +786,18 @@
           if (onDone) onDone(null, { reconciled: true, duplicate: true });
           return;
         }
+        if (r === 'unchanged' && feature === 'farm') {
+          // Farm reconcile 'unchanged' is PROOF the earlier claim did not
+          // land (the village is claimable right now) — the retry the hard
+          // rule forbids is the blind one, and this one carries evidence.
+          // Drop the tombstone and re-enter as a fresh attempt. Without this
+          // fall-through a farm intent could never post again: every cadence
+          // re-reconciled the same tombstone to 'unchanged' and re-armed the
+          // recheck window (es146 2026-08-26: 35/66 villages starved).
+          delete state.txState[intent]; txSave();
+          jrnPush(jtag, 'unknown', 'reconcile-not-applied-retry', existing.id);
+          return txRun(feature, transport, endpoint, data, rawSend, onDone);
+        }
         if (r === 'unchanged') {
           // CLAUDE.md hard rule: "Timeout ≠ retry for an irreversible action.
           // Reconcile instead." A reconcile=unchanged verdict on an irreversible
@@ -777,7 +805,7 @@
           // exact case the rule covers: the previous post MAY have landed but
           // the model read was stale, and re-entering txRun 250ms later would
           // double-spend a unit / attack / trade slot. Set state to 'unknown'
-          // and let the next cadence tick re-evaluate.
+          // and let the next cadence re-evaluate.
           existing.state = 'unknown'; existing.unknownAt = Date.now(); existing.updatedAt = Date.now(); existing.detail = 'reconciled not applied; next cadence re-evaluates'; txSave();
           jrnPush(jtag, 'unknown', 'reconciled-unchanged', existing.id);
           markModuleHealth(feature, 'err');
@@ -791,8 +819,11 @@
         // batch died on the first poisoned village, the claim lock leaked
         // until TTL, and island 64883 went unfarmed all day). Re-stamp
         // 'unknown' so the recheck window re-arms and the next cadence tick
-        // re-evaluates, exactly like the 'unchanged' branch.
-        existing.state = 'unknown'; existing.unknownAt = Date.now(); existing.updatedAt = Date.now(); existing.detail = 'reconcile inconclusive; next cadence re-evaluates'; txSave();
+        // re-evaluates, exactly like the 'unchanged' branch. unknownAt keeps
+        // its ORIGINAL stamp: re-arming it every inconclusive reconcile would
+        // keep the entry forever young and it would never age into
+        // manual-review.
+        existing.state = 'unknown'; existing.unknownAt = existing.unknownAt || Date.now(); existing.updatedAt = Date.now(); existing.detail = 'reconcile inconclusive; next cadence re-evaluates'; txSave();
         jrnPush(jtag, 'unknown', 'reconcile-inconclusive', existing.id);
         markModuleHealth(feature, 'err');
         if (onDone) onDone('unknown', null);

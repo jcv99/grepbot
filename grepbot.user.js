@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.60
+// @version      5.10.61
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -2831,7 +2831,13 @@ const STORE = {
   function txFarmStatus(farmId) {
     try {
       const f = (farmsFromGame() || []).find(x => String(x.vill_id) === String(farmId));
-      return f ? { lootableAt: f.lootable_at == null ? null : +f.lootable_at } : null;
+      if (!f) return null;
+      const at = f.lootable_at == null ? null : +f.lootable_at;
+
+      let lootableNow = null;
+      if (f._rel) { try { lootableNow = !!farmIsLootable(f._rel, f._attrs || {}); } catch (_) {} }
+      else if (at != null) lootableNow = gameNow() >= at;
+      return { lootableAt: at, lootableNow };
     } catch (_) { return null; }
   }
   function txMovementCount(origin, dest, mission) {
@@ -3132,8 +3138,11 @@ const STORE = {
       }
       if (s.kind === 'farm') {
         const cur = txFarmStatus(s.farmId);
-        if (!cur || !s.status || cur.lootableAt == null || s.status.lootableAt == null) return 'unknown';
-        return cur.lootableAt > s.status.lootableAt ? 'applied' : 'unchanged';
+        if (!cur) return 'unknown';
+
+        if (cur.lootableNow === false) return 'applied';
+        if (cur.lootableNow === true) return 'unchanged';
+        return 'unknown';
       }
       if (s.kind === 'trade' || s.kind === 'collect' || s.kind === 'wonder' || s.kind === 'ruraltrade') {
         const before = s.kind === 'trade' ? s.source : s.before;
@@ -3374,6 +3383,12 @@ const STORE = {
           if (onDone) onDone(null, { reconciled: true, duplicate: true });
           return;
         }
+        if (r === 'unchanged' && feature === 'farm') {
+
+          delete state.txState[intent]; txSave();
+          jrnPush(jtag, 'unknown', 'reconcile-not-applied-retry', existing.id);
+          return txRun(feature, transport, endpoint, data, rawSend, onDone);
+        }
         if (r === 'unchanged') {
 
           existing.state = 'unknown'; existing.unknownAt = Date.now(); existing.updatedAt = Date.now(); existing.detail = 'reconciled not applied; next cadence re-evaluates'; txSave();
@@ -3383,7 +3398,7 @@ const STORE = {
           return;
         }
 
-        existing.state = 'unknown'; existing.unknownAt = Date.now(); existing.updatedAt = Date.now(); existing.detail = 'reconcile inconclusive; next cadence re-evaluates'; txSave();
+        existing.state = 'unknown'; existing.unknownAt = existing.unknownAt || Date.now(); existing.updatedAt = Date.now(); existing.detail = 'reconcile inconclusive; next cadence re-evaluates'; txSave();
         jrnPush(jtag, 'unknown', 'reconcile-inconclusive', existing.id);
         markModuleHealth(feature, 'err');
         if (onDone) onDone('unknown', null);
