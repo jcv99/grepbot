@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.50
+// @version      5.10.51
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -5549,7 +5549,26 @@ const STORE = {
   function farmOptionFor(sec) {
     const m = farmOptionMapEnsure();
     const v = m[String(sec)];
-    return v == null ? null : +v;
+    return v == null || !Number.isFinite(+v) ? null : +v;
+  }
+
+  function farmOptionResolve(wantSec) {
+    const want = +wantSec;
+    const exact = Number.isFinite(want) ? farmOptionFor(want) : null;
+    if (exact != null) return { option: exact, sec: want, how: 'exact' };
+    const m = farmOptionMapEnsure();
+    let floorOpt = null, floorSec = -1;
+    let shortOpt = null, shortSec = Infinity;
+    for (const sec of FARM_DURATIONS) {
+      const v = m[String(sec)];
+      if (v == null || !Number.isFinite(+v)) continue;
+      const opt = +v;
+      if (Number.isFinite(want) && sec <= want && sec > floorSec) { floorSec = sec; floorOpt = opt; }
+      if (sec < shortSec) { shortSec = sec; shortOpt = opt; }
+    }
+    if (floorOpt != null) return { option: floorOpt, sec: floorSec, how: 'floor' };
+    if (shortOpt != null) return { option: shortOpt, sec: shortSec, how: 'shortest' };
+    return null;
   }
   function farmOptionMapText() {
     const m = farmOptionMapEnsure();
@@ -5987,7 +6006,7 @@ const STORE = {
     const tid = +townIdForFarm(farm, islandMap);
     if (!tid) {
       gbLogT('claim-no-town', 60000, `farm claim skip ${farm.vill_id}: no same-island town`);
-      return done('skip');
+      return done('skip:no-town');
     }
     const claimType = farmClaimTypeFor(farm);
 
@@ -6001,25 +6020,23 @@ const STORE = {
       }
       if (blocked) {
         gbLogT('claim-wh-block', 30000, `farm claim blocked (warehouse full) town ${tid} vill ${farm.vill_id}`);
-        return done('skip');
+        return done('skip:wh');
       }
     }
     const tplArgs = (state.claimTpl && state.claimTpl.arguments) || {};
     if (claimType === 'units') return claimFarmUnits(farm, tid, tplArgs, done);
     const wantSec = durOverride || farmDesiredDuration(tid);
-    let option = farmOptionFor(wantSec);
-    if (option == null) {
-
-      const fallback = farmOptionFor(300);
-      if (fallback == null) {
-        gbLogT('farm-opt-' + wantSec, 900000,
-          `farm claim: option index for ${farmDurLabel(wantSec)} unknown and no learned 5min index - claim once by hand in game to teach it`);
-        return done('skip');
-      }
-      gbLogT('farm-opt-' + wantSec, 900000,
-        `farm claim: option index for ${farmDurLabel(wantSec)} unknown - claim that timer once by hand in game to teach it (using learned 5min)`);
-      option = fallback;
+    const resolved = farmOptionResolve(wantSec);
+    if (!resolved) {
+      gbLogT('farm-opt-' + wantSec, 120000,
+        `farm claim: no learned option (want ${farmDurLabel(wantSec)}, map ${farmOptionMapText()}) - claim once by hand in game to teach it`);
+      return done('skip:opt');
     }
+    if (resolved.how !== 'exact') {
+      gbLogT('farm-opt-fallback-' + wantSec, 300000,
+        `farm claim: no ${farmDurLabel(wantSec)} option \u2014 using learned ${farmDurLabel(resolved.sec)}=${resolved.option} (${resolved.how}; map ${farmOptionMapText()})`);
+    }
+    const option = resolved.option;
 
     const args = Object.assign({}, tplArgs, { type: 'resources', option, farm_town_id: +farm.vill_id });
     bridgePost('farm', {
@@ -6047,13 +6064,13 @@ const STORE = {
         ', claim_units=' + (farmClaimUnitsTable(farm) ? 'readable' : 'UNREADABLE for village level ' + farmVillageLevel(farm)) +
         ', learned=' + (state.farmUnitsOption == null ? 'none' : state.farmUnitsOption) +
         ') - pin a unit in Ajustes or claim units once by hand; Acciones > Diagnostico de aldeas dumps the reads');
-      return done('skip');
+      return done('skip:units-opt');
     }
     const why = farmUnitsClaimBlocked(farm, tid, option);
     if (why) {
       gbLogT('farm-units-block-' + tid, 300000,
         `farm units claim skip town ${tid} vill ${farm.vill_id}: ${why}`);
-      return done('skip');
+      return done('skip:units-block');
     }
     const args = Object.assign({}, tplArgs, { type: 'units', option, farm_town_id: +farm.vill_id });
     bridgePost('farm', {
@@ -6158,6 +6175,8 @@ const STORE = {
     if (!claimLockToken) return;
     const unitCount = work.filter(f => farmClaimTypeFor(f) === 'units').length;
     gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${work.length}/${farms.length} ready${work.length !== ready.length ? ` (${ready.length - work.length} adaptivo)` : ''}${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}${unitCount ? ` (${unitCount} as units)` : ''}`);
+    gbLogT('farm-claim-opts', 120000,
+      `farm claim opts: map=${farmOptionMapText()} long=${!!state.farmLongClaims} tpl=${state.claimTpl ? 'yes' : 'NO'} unitsMode=${state.farmUnitsMode || 'off'}`);
     const before = {};
     farms.forEach(f => { before[f.vill_id] = f.lootable_at; });
     flash(`farm claim x${work.length}`);
