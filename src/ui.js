@@ -1621,7 +1621,7 @@
         <div class="jrn-list"></div>
         <div class="jrn-btns">
           <button data-jrn="copy" data-gb-tip="Copiar la bitacora visible al portapapeles">Copiar JSON</button>
-          <button data-jrn="copy-log" data-gb-tip="Copiar el registro en vivo (anillo completo) al portapapeles">Copiar log</button>
+          <button data-jrn="copy-log" data-gb-tip="Copiar el registro en vivo (sesion completa) al portapapeles">Copiar log</button>
           <button data-jrn="clear-skips" data-gb-tip="Borrar las ventanas de salto por decision">Limpiar saltos</button>
           <button data-jrn="clear" data-gb-tip="Borrar la bitacora de decisiones (historial)">Limpiar bitacora</button>
           <button data-jrn="clear-all" data-gb-tip="Borrar bitacora, saltos, cortacircuitos, captchas y transacciones desconocidas">Limpiar registros</button>
@@ -1788,9 +1788,7 @@
     const text = JSON.stringify({ decisions: state.decisions, skips: state.decisionSkips }, null, 2);
     navigator.clipboard.writeText(text).then(() => flash('bitacora copiada')).catch(() => flash('fallo al copiar'));
   });
-  // Clipboard copy of the live log ring (the same text "Copiar todo" embeds,
-  // but exposed here so the user does not have to round-trip through the
-  // bundle). No explicit cap: gbLogDumpText defaults to LOG_MAX.
+  // Clipboard copy of the live session log (same text "Copiar todo" embeds).
   panel.querySelector('[data-jrn=copy-log]')?.addEventListener('click', () => {
     const text = gbLogDumpText();
     if (!text) { flash('registro vacio'); return; }

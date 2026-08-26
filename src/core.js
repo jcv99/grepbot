@@ -1518,25 +1518,21 @@
     }
     return [5, 15, 60];
   }
+  // Session-lifetime log. No ring drop — Registro / Copiar / bundle keep every
+  // line until the tab reloads. Optional n on dump still slices a tail for
+  // callers that ask; omit n (or pass <=0) to get the whole buffer.
   const logBuf = [];
-  let logHead = 0;
   const logThrottle = new Map();
-  const LOG_MAX = 200;
   function gbLog(...args) {
     console.info('[grepbot]', ...args);
     const msg = args.map(a => (typeof a === 'string' ? a : (() => { try { return JSON.stringify(a); } catch (_) { return String(a); } })())).join(' ');
     logBuf.push({ ts: Date.now(), msg });
-    if (logBuf.length - logHead > LOG_MAX) logHead = logBuf.length - LOG_MAX;
-    if (logHead > LOG_MAX) {
-      logBuf.splice(0, logHead);
-      logHead = 0;
-    }
     renderLog();
   }
-  // Read-only view of the ring for the copy-everything bundle. Returns the live
-  // entries only (never the pre-head slots), newest last, capped to n.
+  // Read-only view for the copy-everything bundle. Newest last. n > 0 → last n
+  // lines; otherwise the full session buffer.
   function gbLogDump(n) {
-    const start = Math.max(logHead, logBuf.length - (n > 0 ? n : LOG_MAX));
+    const start = n > 0 ? Math.max(0, logBuf.length - n) : 0;
     return logBuf.slice(start).map(l => ({ ts: l.ts, msg: l.msg }));
   }
   function gbLogDumpText(n) {
@@ -1643,12 +1639,9 @@
     const flush = () => {
       logRenderQueued = false;
       if (sec.hidden || list.hidden) return;
-      // Show the whole ring, not just the tail - the previous 80-line cap
-      // made older entries invisible to the user (they were still in logBuf
-      // and still in any bundle, but the pane scrolled them off).
-      const start = Math.max(logHead, logBuf.length - LOG_MAX);
-      const lines = logBuf.slice(start);
-      list.textContent = lines.map(l => new Date(l.ts).toLocaleTimeString() + ' ' + l.msg).join('\n');
+      // Full session buffer — no display-side slice. Older lines stay visible
+      // via scroll; copy/bundle dump the same set.
+      list.textContent = logBuf.map(l => new Date(l.ts).toLocaleTimeString() + ' ' + l.msg).join('\n');
       list.scrollTop = list.scrollHeight;
     };
     if (document.hidden) gbTimeout(flush, 250);

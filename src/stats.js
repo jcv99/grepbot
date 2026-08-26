@@ -1243,10 +1243,7 @@
       bundleSection('evidence', () => gbEvidence()),
       bundleSection('config', () => (typeof qolExportConfigForUi === 'function' ? qolExportConfigForUi() : '(no export path)')),
       bundleSection('decisions', () => ({ decisions: state.decisions || [], skips: state.decisionSkips || {} })),
-      // No explicit cap: gbLogDumpText defaults to LOG_MAX inside the ring.
-      // A hardcoded 200 used to ship an arbitrary slice; the ring is the
-      // source of truth and "Copiar todo" should match what the live pane
-      // can show.
+      // Full session log (no ring drop). Matches the live Registro pane.
       bundleSection('log', () => gbLogDumpText()),
       bundleSection('findings', () => (typeof redactFindingsExport === 'function'
         ? redactFindingsExport({ findings: state.findings, farms: state.farms })

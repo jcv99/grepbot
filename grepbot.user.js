@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.52
+// @version      5.10.53
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1605,24 +1605,18 @@ const STORE = {
     }
     return [5, 15, 60];
   }
+
   const logBuf = [];
-  let logHead = 0;
   const logThrottle = new Map();
-  const LOG_MAX = 200;
   function gbLog(...args) {
     console.info('[grepbot]', ...args);
     const msg = args.map(a => (typeof a === 'string' ? a : (() => { try { return JSON.stringify(a); } catch (_) { return String(a); } })())).join(' ');
     logBuf.push({ ts: Date.now(), msg });
-    if (logBuf.length - logHead > LOG_MAX) logHead = logBuf.length - LOG_MAX;
-    if (logHead > LOG_MAX) {
-      logBuf.splice(0, logHead);
-      logHead = 0;
-    }
     renderLog();
   }
 
   function gbLogDump(n) {
-    const start = Math.max(logHead, logBuf.length - (n > 0 ? n : LOG_MAX));
+    const start = n > 0 ? Math.max(0, logBuf.length - n) : 0;
     return logBuf.slice(start).map(l => ({ ts: l.ts, msg: l.msg }));
   }
   function gbLogDumpText(n) {
@@ -1720,9 +1714,7 @@ const STORE = {
       logRenderQueued = false;
       if (sec.hidden || list.hidden) return;
 
-      const start = Math.max(logHead, logBuf.length - LOG_MAX);
-      const lines = logBuf.slice(start);
-      list.textContent = lines.map(l => new Date(l.ts).toLocaleTimeString() + ' ' + l.msg).join('\n');
+      list.textContent = logBuf.map(l => new Date(l.ts).toLocaleTimeString() + ' ' + l.msg).join('\n');
       list.scrollTop = list.scrollHeight;
     };
     if (document.hidden) gbTimeout(flush, 250);
@@ -25558,7 +25550,7 @@ const STORE = {
         <div class="jrn-list"></div>
         <div class="jrn-btns">
           <button data-jrn="copy" data-gb-tip="Copiar la bitacora visible al portapapeles">Copiar JSON</button>
-          <button data-jrn="copy-log" data-gb-tip="Copiar el registro en vivo (anillo completo) al portapapeles">Copiar log</button>
+          <button data-jrn="copy-log" data-gb-tip="Copiar el registro en vivo (sesion completa) al portapapeles">Copiar log</button>
           <button data-jrn="clear-skips" data-gb-tip="Borrar las ventanas de salto por decision">Limpiar saltos</button>
           <button data-jrn="clear" data-gb-tip="Borrar la bitacora de decisiones (historial)">Limpiar bitacora</button>
           <button data-jrn="clear-all" data-gb-tip="Borrar bitacora, saltos, cortacircuitos, captchas y transacciones desconocidas">Limpiar registros</button>
