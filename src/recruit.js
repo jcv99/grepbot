@@ -234,10 +234,44 @@
     let col = null;
     try { col = t.getUnitOrdersCollection && t.getUnitOrdersCollection(); } catch (_) {}
     if (!col) return { known: false, len: 0, max, models: [] };
-    const building = unitId ? recruitQueueBuilding(unitId) : null;
+    const naval = unitId ? recruitIsNaval(unitId) : null;
+    const building = naval == null ? null : (naval ? 'docks' : 'barracks');
 
-    // Prefer getCount/getOrders — same path the docks UI uses for "0/7".
-    // Wrap each probe; one throw must not mark the whole queue unknown.
+    // Exact counters the docks/barracks UI animation uses (CityOverview binds
+    // isDocksBuildingAnimated → getNavalUnitOrdersCount). Match the "0/7"
+    // header before any other probe.
+    try {
+      if (naval === true && typeof col.getNavalUnitOrdersCount === 'function') {
+        const c = +col.getNavalUnitOrdersCount();
+        if (Number.isFinite(c) && c >= 0) {
+          let models = [];
+          try {
+            if (typeof col.getNavalUnitOrders === 'function') {
+              const o = col.getNavalUnitOrders();
+              if (o && typeof o.length === 'number')
+                models = Array.isArray(o) ? o.slice() : Array.prototype.slice.call(o);
+            }
+          } catch (_) {}
+          return { known: true, len: c, max, models };
+        }
+      }
+      if (naval === false && typeof col.getGroundUnitOrdersCount === 'function') {
+        const c = +col.getGroundUnitOrdersCount();
+        if (Number.isFinite(c) && c >= 0) {
+          let models = [];
+          try {
+            if (typeof col.getGroundUnitOrders === 'function') {
+              const o = col.getGroundUnitOrders();
+              if (o && typeof o.length === 'number')
+                models = Array.isArray(o) ? o.slice() : Array.prototype.slice.call(o);
+            }
+          } catch (_) {}
+          return { known: true, len: c, max, models };
+        }
+      }
+    } catch (_) {}
+
+    // getCount/getOrders — same filter as the named helpers above.
     if (building && typeof col.getCount === 'function') {
       try {
         const c = +col.getCount(building);
@@ -281,8 +315,8 @@
         }
       } catch (_) {}
     }
-    // Raw models fallback. Drop id-less rows — keeping them (old `return true`)
-    // inflated len against an empty docks UI and stranded hydra at waiting-slot.
+    // Raw models fallback. Drop id-less rows — keeping them inflated len
+    // against an empty docks UI and stranded hydra at waiting-slot.
     try {
       if (!Array.isArray(col.models)) return { known: false, len: 0, max, models: [] };
       let models = col.models.slice();
@@ -411,8 +445,14 @@
         const explicit = nativeQueueRecruitHead(tid, lane);
         if (!explicit) continue;
         const qInfo = recruitQueueInfo(tid, explicit.unit);
-        if (qInfo.known && !(qInfo.len < qInfo.max)) {
-          nativeQueueSetJobState(explicit, 'waiting-slot', `cola real llena (${qInfo.len}/${qInfo.max})`);
+        // Use >= with a coerced max — `len < null` is always false in JS, which
+        // used to mark an empty/readable queue as full.
+        const qMax = (qInfo.max != null && qInfo.max > 0) ? qInfo.max : recruitQueueMax();
+        if (qInfo.known && qInfo.len >= qMax) {
+          const laneLabel = recruitIsNaval(explicit.unit) ? 'puerto' : 'cuartel';
+          nativeQueueSetJobState(explicit, 'waiting-slot', `${laneLabel} ${qInfo.len}/${qMax}`);
+          gbLogT('recruit-slot-' + tid, 60000,
+            `recruit: ${explicit.unit} waiting-slot ${qInfo.len}/${qMax} @${tid}`);
           continue;
         }
         if (!qInfo.known) {

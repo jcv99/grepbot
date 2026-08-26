@@ -753,6 +753,16 @@
     if(list.some(j=>j&&j!==job&&(j.manualReview||j.inflight))){nativeQueueSetJobState(job,'blocked','hay otra acción pendiente de revisión');return null}
     if(job.manualReview){nativeQueueSetJobState(job,'unknown',job.reason||'comprobar la cola real y quitar este trabajo si no se envió');return null}
     if(job.inflight){nativeQueueSetJobState(job,'sending',job.reason||'enviando a la cola real');return null}
+    // Stale waiting-slot from an older build / skipped orch tick: if the real
+    // docks/barracks queue now has space, clear it and wake recruitScan.
+    if(job.status==='waiting-slot'&&job.unit&&typeof recruitQueueHasSpace==='function'){
+      try{
+        if(recruitQueueHasSpace(townId,job.unit)){
+          nativeQueueSetJobState(job,'pending','');
+          try{gbTimeout(()=>recruitScan('slot-free'),50)}catch(_){}
+        }
+      }catch(_){}
+    }
     return job;
   }
   function nativeQueueRecruitApplied(townId,lane,jobId,amount,token) {
