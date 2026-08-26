@@ -764,6 +764,10 @@
     postsPerMinSoftPct: load(STORE.POSTS_SOFT_PCT, 60),
     tabFilters: load(STORE.TAB_FILTERS, {}) || {},
     orchDeadlockResolve: load(STORE.ORCH_DEADLOCK, true),
+    // Dead since v5.10.52 (fixed 10min cadence dropped the village-loyalty
+    // wake path, its only writer). Key stays so old localStorage loads cleanly
+    // and the persist list keeps round-tripping it — same policy as
+    // STORE.RURAL_TRADE_RES. Do not reintroduce a reader without a writer.
     farmLoyaltySeen: load(STORE.FARM_LOYALTY_SEEN, false),
     farmTeachBanner: load(STORE.FARM_TEACH_BANNER, ''),
     lastSeenTs: load(STORE.LAST_SEEN_TS, 0),

@@ -3752,11 +3752,17 @@
     const te = panel.querySelector('#gb-next-towns');
     if (fe) {
       const timing = state.autoFarm ? farmClaimTiming() : null;
-      const dueMs = (+state.nextFarmClaim || 0) - Date.now();
+      const dueMs = (gbNum(state.nextFarmClaim) || 0) - Date.now();
+      // Last fallback: cadence due but 0 ready — show the next lootable_at so
+      // the pane never reads "Aldeas: —" while a village is seconds away.
+      // timing.nextAt/now are game-SECONDS (lootable_at domain).
       const claimTxt = !state.autoFarm ? 'Aldeas apagadas'
         : (timing && timing.ready > 0 && dueMs <= 0 ? `Aldeas: ${timing.ready} listas`
           : (dueMs > 0 ? `Aldeas en ${fmtSec(Math.max(0, Math.round(dueMs / 1000)))}`
-            : (timing && timing.ready > 0 ? `Aldeas: ${timing.ready} listas` : 'Aldeas: —')));
+            : (timing && timing.ready > 0 ? `Aldeas: ${timing.ready} listas`
+              : (timing && Number.isFinite(timing.nextAt)
+                ? `Aldeas: próxima en ${fmtSec(Math.max(0, Math.round(timing.nextAt - timing.now)))}`
+                : 'Aldeas: —'))));
       const scrapeTxt = state.nextFarmScrape
         ? `escaneo en ${fmtSec(Math.max(0, Math.round((state.nextFarmScrape - Date.now()) / 1000)))}`
         : 'escaneo —';

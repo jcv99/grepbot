@@ -182,7 +182,7 @@
     return state.nextFarmClaim;
   }
   function farmClaimDue() {
-    return Date.now() >= (+state.nextFarmClaim || 0);
+    return Date.now() >= (gbNum(state.nextFarmClaim) || 0);
   }
   function farmClaimTiming(farmsArg) {
     const farms = Array.isArray(farmsArg) ? farmsArg : (farmsFromGame() || []);
@@ -199,7 +199,9 @@
       if (Number.isFinite(at) && at > now) nextAt = Math.min(nextAt, at);
       else if (Number.isFinite(at) && at <= now && modelReady === false) expiredModelWait++;
     }
-    return { now, ready, nextAt, expiredModelWait, total: farms.length, nextClaimAt: +state.nextFarmClaim || 0 };
+    // Units: now/nextAt are game-SECONDS epoch (lootable_at domain). Callers
+    // needing the wall-clock cadence re-read state.nextFarmClaim themselves.
+    return { now, ready, nextAt, expiredModelWait, total: farms.length };
   }
   function farmsFromGame() {
     try {
@@ -340,7 +342,10 @@
   function farmOptionFor(sec) {
     const m = farmOptionMapEnsure();
     const v = m[String(sec)];
-    return v == null || !Number.isFinite(+v) ? null : +v;
+    // n >= 1: +false / +'' / 0 all coerce to 0, and option 0 is not a claim —
+    // a hand-edited or imported map must not post it. Learner writes 1..4.
+    const n = +v;
+    return v == null || !(n >= 1 && n <= 4) ? null : n;
   }
   // Exact duration → option, else longest learned ≤ want, else shortest learned.
   // Never invents an index: only reuses keys the player (or GameData derive) taught.
@@ -355,8 +360,8 @@
     let shortOpt = null, shortSec = Infinity;
     for (const sec of FARM_DURATIONS) {
       const v = m[String(sec)];
-      if (v == null || !Number.isFinite(+v)) continue;
       const opt = +v;
+      if (v == null || !(opt >= 1 && opt <= 4)) continue;
       if (Number.isFinite(want) && sec <= want && sec > floorSec) { floorSec = sec; floorOpt = opt; }
       if (sec < shortSec) { shortSec = sec; shortOpt = opt; }
     }
@@ -1044,7 +1049,7 @@
     flash(`farm claim x${work.length}`);
 
     const outcome = Object.create(null);
-    let i = 0, done = 0, captcha = false;
+    let i = 0, done = 0, uncertain = 0, captcha = false;
     const claimSpacingMs=Math.max(700,Math.ceil(60000/Math.max(5,(+state.reqBudgetPerMin||40)-4)));
     function finishClaimBatch() {
       const tally = Object.keys(outcome).map(k => `${k}x${outcome[k]}`).join(' ') || 'none';
@@ -1052,7 +1057,10 @@
       // Nothing hit the wire — 10s verify cannot prove a claim, and holding
       // `claim` that long kept farm-first / native FIFO deferred while villages
       // stayed lootable (v5.10.49 log: claimLock=1, action=1/54).
-      const posted = done > 0;
+      // timeout_unknown/pending MAY have executed server-side: skipping the
+      // verify reconcile kept a stale lootable_at, and the next cadence
+      // re-posted into non-lootable villages (budget slot + rejection each).
+      const posted = done > 0 || uncertain > 0;
       if (work.length && !posted) {
         gbLog(`farm claim: 0 posted — unlock now (outcomes: ${tally})`);
         flash('aldeas: 0 cobradas — ' + tally);
@@ -1084,6 +1092,7 @@
           const key = String(err || 'ok').slice(0, 24);
           outcome[key] = (outcome[key] || 0) + 1;
           if (err === 'captcha' || err === 'captcha-pause') { captcha = true; farmPressureNote('captcha'); }
+          else if (err === 'timeout_unknown' || err === 'pending') uncertain++;
           else if (!err) {
             done++;
 

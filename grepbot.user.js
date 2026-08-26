@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.56
+// @version      5.10.57
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -950,6 +950,7 @@ const STORE = {
     postsPerMinSoftPct: load(STORE.POSTS_SOFT_PCT, 60),
     tabFilters: load(STORE.TAB_FILTERS, {}) || {},
     orchDeadlockResolve: load(STORE.ORCH_DEADLOCK, true),
+
     farmLoyaltySeen: load(STORE.FARM_LOYALTY_SEEN, false),
     farmTeachBanner: load(STORE.FARM_TEACH_BANNER, ''),
     lastSeenTs: load(STORE.LAST_SEEN_TS, 0),
@@ -5374,7 +5375,7 @@ const STORE = {
     return state.nextFarmClaim;
   }
   function farmClaimDue() {
-    return Date.now() >= (+state.nextFarmClaim || 0);
+    return Date.now() >= (gbNum(state.nextFarmClaim) || 0);
   }
   function farmClaimTiming(farmsArg) {
     const farms = Array.isArray(farmsArg) ? farmsArg : (farmsFromGame() || []);
@@ -5391,7 +5392,8 @@ const STORE = {
       if (Number.isFinite(at) && at > now) nextAt = Math.min(nextAt, at);
       else if (Number.isFinite(at) && at <= now && modelReady === false) expiredModelWait++;
     }
-    return { now, ready, nextAt, expiredModelWait, total: farms.length, nextClaimAt: +state.nextFarmClaim || 0 };
+
+    return { now, ready, nextAt, expiredModelWait, total: farms.length };
   }
   function farmsFromGame() {
     try {
@@ -5529,7 +5531,9 @@ const STORE = {
   function farmOptionFor(sec) {
     const m = farmOptionMapEnsure();
     const v = m[String(sec)];
-    return v == null || !Number.isFinite(+v) ? null : +v;
+
+    const n = +v;
+    return v == null || !(n >= 1 && n <= 4) ? null : n;
   }
 
   function farmOptionResolve(wantSec) {
@@ -5541,8 +5545,8 @@ const STORE = {
     let shortOpt = null, shortSec = Infinity;
     for (const sec of FARM_DURATIONS) {
       const v = m[String(sec)];
-      if (v == null || !Number.isFinite(+v)) continue;
       const opt = +v;
+      if (v == null || !(opt >= 1 && opt <= 4)) continue;
       if (Number.isFinite(want) && sec <= want && sec > floorSec) { floorSec = sec; floorOpt = opt; }
       if (sec < shortSec) { shortSec = sec; shortOpt = opt; }
     }
@@ -6149,13 +6153,13 @@ const STORE = {
     flash(`farm claim x${work.length}`);
 
     const outcome = Object.create(null);
-    let i = 0, done = 0, captcha = false;
+    let i = 0, done = 0, uncertain = 0, captcha = false;
     const claimSpacingMs=Math.max(700,Math.ceil(60000/Math.max(5,(+state.reqBudgetPerMin||40)-4)));
     function finishClaimBatch() {
       const tally = Object.keys(outcome).map(k => `${k}x${outcome[k]}`).join(' ') || 'none';
       gbLog(`  claim outcomes: ${tally}`);
 
-      const posted = done > 0;
+      const posted = done > 0 || uncertain > 0;
       if (work.length && !posted) {
         gbLog(`farm claim: 0 posted \u2014 unlock now (outcomes: ${tally})`);
         flash('aldeas: 0 cobradas \u2014 ' + tally);
@@ -6187,6 +6191,7 @@ const STORE = {
           const key = String(err || 'ok').slice(0, 24);
           outcome[key] = (outcome[key] || 0) + 1;
           if (err === 'captcha' || err === 'captcha-pause') { captcha = true; farmPressureNote('captcha'); }
+          else if (err === 'timeout_unknown' || err === 'pending') uncertain++;
           else if (!err) {
             done++;
 
@@ -27558,11 +27563,15 @@ const STORE = {
     const te = panel.querySelector('#gb-next-towns');
     if (fe) {
       const timing = state.autoFarm ? farmClaimTiming() : null;
-      const dueMs = (+state.nextFarmClaim || 0) - Date.now();
+      const dueMs = (gbNum(state.nextFarmClaim) || 0) - Date.now();
+
       const claimTxt = !state.autoFarm ? 'Aldeas apagadas'
         : (timing && timing.ready > 0 && dueMs <= 0 ? `Aldeas: ${timing.ready} listas`
           : (dueMs > 0 ? `Aldeas en ${fmtSec(Math.max(0, Math.round(dueMs / 1000)))}`
-            : (timing && timing.ready > 0 ? `Aldeas: ${timing.ready} listas` : 'Aldeas: \u2014')));
+            : (timing && timing.ready > 0 ? `Aldeas: ${timing.ready} listas`
+              : (timing && Number.isFinite(timing.nextAt)
+                ? `Aldeas: pr\u00f3xima en ${fmtSec(Math.max(0, Math.round(timing.nextAt - timing.now)))}`
+                : 'Aldeas: \u2014'))));
       const scrapeTxt = state.nextFarmScrape
         ? `escaneo en ${fmtSec(Math.max(0, Math.round((state.nextFarmScrape - Date.now()) / 1000)))}`
         : 'escaneo \u2014';
