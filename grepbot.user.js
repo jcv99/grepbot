@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.55
+// @version      5.10.56
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1703,22 +1703,25 @@ const STORE = {
     return n;
   }
   let logRenderQueued = false;
+
+  const LOG_VIEW_MAX = 2000;
   function renderLog() {
     const sec = panel && panel.querySelector('section[data-tab=log]');
     const list = sec && sec.querySelector('.log-list');
 
-    if (!list || sec.hidden || list.hidden || logRenderQueued) return;
+    if (!list || document.hidden || sec.hidden || list.hidden || logRenderQueued) return;
     logRenderQueued = true;
 
     const flush = () => {
       logRenderQueued = false;
-      if (sec.hidden || list.hidden) return;
 
-      list.textContent = logBuf.map(l => new Date(l.ts).toLocaleTimeString() + ' ' + l.msg).join('\n');
+      if (document.hidden || sec.hidden || list.hidden) return;
+
+      const view = logBuf.length > LOG_VIEW_MAX ? logBuf.slice(-LOG_VIEW_MAX) : logBuf;
+      list.textContent = view.map(l => new Date(l.ts).toLocaleTimeString() + ' ' + l.msg).join('\n');
       list.scrollTop = list.scrollHeight;
     };
-    if (document.hidden) gbTimeout(flush, 250);
-    else if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
     else gbTimeout(flush, 250);
   }
   function gameUw() {
@@ -27811,7 +27814,7 @@ const STORE = {
     try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (e) { gbLogT('boot-wake-orch', 60000, 'wake orchTick: ' + String(e?.message || e).slice(0, 80)); }
     try { nativeQueueSweep('visible'); } catch (e) { gbLogT('boot-nqs-visible', 60000, 'nqs visible: ' + String(e?.message || e).slice(0, 80)); }
 
-    try { renderTimers(); renderFarms(); renderWorld(); updateStatus(); } catch (e) { gbLogT('boot-repaint-visible', 60000, 'repaint visible: ' + String(e?.message || e).slice(0, 80)); }
+    try { renderTimers(); renderFarms(); renderWorld(); updateStatus(); renderLog(); } catch (e) { gbLogT('boot-repaint-visible', 60000, 'repaint visible: ' + String(e?.message || e).slice(0, 80)); }
   });
   gbListen(window, 'pageshow', (e) => {
     if (!(e && e.persisted)) return;

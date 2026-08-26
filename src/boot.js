@@ -104,7 +104,7 @@
     // renderTimers / renderFarms / renderWorld all bail while document.hidden,
     // so the panel is up to a full cadence stale on the way back in. Repaint
     // immediately instead of showing a frozen countdown for a second.
-    try { renderTimers(); renderFarms(); renderWorld(); updateStatus(); } catch (e) { gbLogT('boot-repaint-visible', 60000, 'repaint visible: ' + String(e?.message || e).slice(0, 80)); }
+    try { renderTimers(); renderFarms(); renderWorld(); updateStatus(); renderLog(); } catch (e) { gbLogT('boot-repaint-visible', 60000, 'repaint visible: ' + String(e?.message || e).slice(0, 80)); }
   });
   gbListen(window, 'pageshow', (e) => {
     if (!(e && e.persisted)) return;

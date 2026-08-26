@@ -1627,25 +1627,32 @@
     return n;
   }
   let logRenderQueued = false;
+  // Display-side tail cap: logBuf is session-lifetime (Copiar/bundle dump it
+  // whole), but flush re-stringifies the whole buffer every frame the pane is
+  // open — O(n) jank once n climbs into the tens of thousands.
+  const LOG_VIEW_MAX = 2000;
   function renderLog() {
     const sec = panel && panel.querySelector('section[data-tab=log]');
     const list = sec && sec.querySelector('.log-list');
 
-    if (!list || sec.hidden || list.hidden || logRenderQueued) return;
+    // Hidden tab: no queue at all — rAF is paused, the 250ms timer fallback
+    // would fire into the document.hidden early-return below, and the
+    // visibilitychange repaint in boot.js re-renders on the way back in.
+    if (!list || document.hidden || sec.hidden || list.hidden || logRenderQueued) return;
     logRenderQueued = true;
     // Visible tab: coalesce per-frame via rAF so a burst of log lines paints
-    // once, not once-per-line. Hidden tab: keep a 250ms timer so the next
-    // visible paint sees the whole batch (rAF is paused in hidden tabs).
+    // once, not once-per-line.
     const flush = () => {
       logRenderQueued = false;
-      if (sec.hidden || list.hidden) return;
-      // Full session buffer — no display-side slice. Older lines stay visible
-      // via scroll; copy/bundle dump the same set.
-      list.textContent = logBuf.map(l => new Date(l.ts).toLocaleTimeString() + ' ' + l.msg).join('\n');
+      // document.hidden: no string churn in a background tab; the
+      // visibilitychange repaint in boot.js calls renderLog on the way back.
+      if (document.hidden || sec.hidden || list.hidden) return;
+      // Tail slice for the pane; gbLogDump()/Copiar still get the full buffer.
+      const view = logBuf.length > LOG_VIEW_MAX ? logBuf.slice(-LOG_VIEW_MAX) : logBuf;
+      list.textContent = view.map(l => new Date(l.ts).toLocaleTimeString() + ' ' + l.msg).join('\n');
       list.scrollTop = list.scrollHeight;
     };
-    if (document.hidden) gbTimeout(flush, 250);
-    else if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
     else gbTimeout(flush, 250);
   }
   function gameUw() {
