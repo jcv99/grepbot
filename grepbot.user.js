@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.59
+// @version      5.10.60
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -2625,6 +2625,8 @@ const STORE = {
   const TX_UNKNOWN_RECHECK_MS = 60 * 1000;
   const TX_UNKNOWN_MAX_MS = 6 * 60 * 60 * 1000;
 
+  const TX_INFLIGHT_MAX_MS = 10 * 60 * 1000;
+
   const TX_REVIEW_MAX = 100;
   const TX_REVIEW_MIN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
   let txSeq = 0;
@@ -2704,6 +2706,15 @@ const STORE = {
     for (const key of Object.keys(state.txState)) {
       const t = state.txState[key];
       if (!t) { delete state.txState[key]; changed = true; continue; }
+
+      if (/^(planned|precheck|sending|confirming|reconciling)$/.test(t.state || '') && now - (+t.updatedAt || +t.createdAt || 0) > TX_INFLIGHT_MAX_MS) {
+        const stuck = t.state;
+        t.state = 'unknown'; t.unknownAt = now; t.updatedAt = now;
+        t.detail = 'in-flight state expired; treating as unknown';
+        plannerRelease(t, 'inflight-expired');
+        gbLogT('tx-inflight-expired', 300000, `tx: ${key} stuck in ${stuck} > ${TX_INFLIGHT_MAX_MS}ms - marked unknown`);
+        changed = true; continue;
+      }
 
       if(t.state==='unknown'&&now-(+t.unknownAt||+t.updatedAt||0)>TX_UNKNOWN_MAX_MS){t.state='manual-review';t.detail='unknown outcome expired; manual review required';t.updatedAt=now;plannerRelease(t,'manual-review');txCompactReview(t);changed=true;continue}
       if (t.state === 'manual-review' && txCompactReview(t)) changed = true;
@@ -3371,6 +3382,11 @@ const STORE = {
           if (onDone) onDone('unknown', null);
           return;
         }
+
+        existing.state = 'unknown'; existing.unknownAt = Date.now(); existing.updatedAt = Date.now(); existing.detail = 'reconcile inconclusive; next cadence re-evaluates'; txSave();
+        jrnPush(jtag, 'unknown', 'reconcile-inconclusive', existing.id);
+        markModuleHealth(feature, 'err');
+        if (onDone) onDone('unknown', null);
       });
     }
 

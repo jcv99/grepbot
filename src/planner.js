@@ -295,6 +295,11 @@
   const TX_INSTANT_TOMBSTONE_TTL = 24 * 60 * 60 * 1000;
   const TX_UNKNOWN_RECHECK_MS = 60 * 1000;
   const TX_UNKNOWN_MAX_MS = 6 * 60 * 60 * 1000;
+  // Runtime expiry for wedged in-flight states; txLoadNormalize covers reload,
+  // txPrune covers the live session. Worst legit window is BRIDGE_TIMEOUT_MS
+  // plus the longest reconcile ladder (~30s), so 10min cannot clobber a live
+  // cross-tab post.
+  const TX_INFLIGHT_MAX_MS = 10 * 60 * 1000;
   // manual-review is the only state nothing ever prunes - by design, it is a
   // blocking tombstone waiting on a human. Left completely unbounded it also
   // grew without limit (a live account reached 213 of them, each still carrying

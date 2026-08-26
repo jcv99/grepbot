@@ -50,6 +50,20 @@
     for (const key of Object.keys(state.txState)) {
       const t = state.txState[key];
       if (!t) { delete state.txState[key]; changed = true; continue; }
+      // Runtime twin of txLoadNormalize's in-flight flip: a post wedged in
+      // planned/precheck/sending/confirming/reconciling (a reconcile chain
+      // that died on an exception, a pre-fix inconclusive reconcile) used to
+      // block its intent until the next reload. 10min is an order of magnitude
+      // past the worst legit in-flight window (BRIDGE_TIMEOUT_MS + the longest
+      // reconcile ladder), so a live cross-tab post is never clobbered.
+      if (/^(planned|precheck|sending|confirming|reconciling)$/.test(t.state || '') && now - (+t.updatedAt || +t.createdAt || 0) > TX_INFLIGHT_MAX_MS) {
+        const stuck = t.state;
+        t.state = 'unknown'; t.unknownAt = now; t.updatedAt = now;
+        t.detail = 'in-flight state expired; treating as unknown';
+        plannerRelease(t, 'inflight-expired');
+        gbLogT('tx-inflight-expired', 300000, `tx: ${key} stuck in ${stuck} > ${TX_INFLIGHT_MAX_MS}ms - marked unknown`);
+        changed = true; continue;
+      }
       // plannerRelease: plannerReservationActive() reports manual-review as
       // inactive, so a held reservation left behind here made the planner ledger
       // and the reservation state disagree for the life of the tombstone.
@@ -770,6 +784,18 @@
           if (onDone) onDone('unknown', null);
           return;
         }
+        // r === 'unknown' (blind model read): the entry MUST NOT stay
+        // 'reconciling' — nothing moves it out of that state at runtime, every
+        // later attempt dup-blocks on it forever, and skipping onDone here
+        // killed the caller's chain mid-sweep (es146 2026-08-26: a farm claim
+        // batch died on the first poisoned village, the claim lock leaked
+        // until TTL, and island 64883 went unfarmed all day). Re-stamp
+        // 'unknown' so the recheck window re-arms and the next cadence tick
+        // re-evaluates, exactly like the 'unchanged' branch.
+        existing.state = 'unknown'; existing.unknownAt = Date.now(); existing.updatedAt = Date.now(); existing.detail = 'reconcile inconclusive; next cadence re-evaluates'; txSave();
+        jrnPush(jtag, 'unknown', 'reconcile-inconclusive', existing.id);
+        markModuleHealth(feature, 'err');
+        if (onDone) onDone('unknown', null);
       });
     }
 
