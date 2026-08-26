@@ -368,11 +368,14 @@
         const q = recruitQueueInfo(tid, job.unit);
         const max = (q.max != null && q.max > 0) ? q.max : recruitQueueMax();
         if (!q.known || q.len < max) {
+          delete job.slotRetryAt;
           nativeQueueSetJobState(job, 'pending', 'cola liberada / re-chequeo');
           continue;
         }
-        const laneLabel = recruitIsNaval(job.unit) ? 'puerto' : 'cuartel';
-        nativeQueueSetJobState(job, 'waiting-slot', `${laneLabel} ${q.len}/${max}`);
+        // Client says full: leave the label alone. nativeQueueRecruitHead owns
+        // the wake decision (post anyway, server judges) — re-marking here set
+        // waiting-slot while the send path flipped it back to pending in the
+        // same scan, so the label flapped and the job posted anyway.
       }
     }
   }
@@ -390,11 +393,9 @@
       let unitDef = def;
       if (def.id && recruitIsNaval(def.id) && !def.is_naval && !def.naval) {
         unitDef = Object.assign({}, def, { is_naval: true });
-      } else if (!def.is_naval && !def.naval) {
-        // def may be keyed only by lookup id — try unit id from caller via def.id
       }
-      const f = +GM.getUnitBuildResourcesModification(+townId, unitDef);
-      if (Number.isFinite(f) && f > 0) return f;
+      const f = gbNum(GM.getUnitBuildResourcesModification(+townId, unitDef));
+      if (f != null && f > 0) return f;
     } catch (_) {}
     return 1;
   }
@@ -484,11 +485,11 @@
     if (farmHold && nativePending) {
       const claimBusy = typeof gbLocked === 'function' && gbLocked('claim');
       let softMs = 0;
-      try { softMs = typeof reqBudgetSoftDelayMs === 'function' ? +reqBudgetSoftDelayMs() || 0 : 0; } catch (_) {}
+      try { softMs = typeof reqBudgetSoftDelayMs === 'function' ? gbNum(reqBudgetSoftDelayMs()) || 0 : 0; } catch (_) {}
       let used = 0, cap = 0;
       try {
-        used = typeof reqBudgetUsed === 'function' ? +reqBudgetUsed('action') || 0 : 0;
-        cap = typeof reqBudgetCap === 'function' ? +reqBudgetCap('action') || 0 : 0;
+        used = typeof reqBudgetUsed === 'function' ? gbNum(reqBudgetUsed('action')) || 0 : 0;
+        cap = typeof reqBudgetCap === 'function' ? gbNum(reqBudgetCap('action')) || 0 : 0;
       } catch (_) {}
       // Keep ~25% of the action pool for in-flight / upcoming farm claims.
       const budgetTight = softMs > 0 || (cap > 0 && used >= Math.floor(cap * 0.75));
@@ -527,7 +528,8 @@
         // afford/canBuild still run; the server rejects a truly full lane.
         const qInfo = recruitQueueInfo(tid, explicit.unit);
         const qMax = (qInfo.max != null && qInfo.max > 0) ? qInfo.max : recruitQueueMax();
-        if (qInfo.known && qInfo.len >= qMax) {
+        const clientSaidFull = qInfo.known && qInfo.len >= qMax;
+        if (clientSaidFull) {
           gbLogT('recruit-slot-soft-' + tid, 60000,
             `recruit: client says full ${qInfo.len}/${qMax} for ${explicit.unit} @${tid}; posting anyway, server judges`);
         } else if (!qInfo.known) {
@@ -547,7 +549,7 @@
         nativeQueueSetJobState(explicit, 'ready', nativeFarmBudgetHold ? 'listo (espera aldeas)' : 'listo');
         // Farm claim batch / tight budget: keep UI status fresh but do not post.
         if (nativeFarmBudgetHold) continue;
-        job = { kind:'build', townId:tid, unit:explicit.unit, amount:postAmt, nativeJobId:explicit.id, nativeLane:lane, nativeChunkSize: cs };
+        job = { kind:'build', townId:tid, unit:explicit.unit, amount:postAmt, nativeJobId:explicit.id, nativeLane:lane, nativeChunkSize: cs, clientSaidFull: clientSaidFull || undefined };
         break;
       }
       if (job) break;
@@ -567,6 +569,10 @@
         if (nativeQueueIsFifo(tid, nativeRecruitLane(unit))) continue;
         if (!recruitCanBuild(tid, unit)) continue;
         if (!recruitControllerFor(unit)) continue;
+        // Deliberately still trusts the client lane read, unlike the native
+        // FIFO path above: a wrong "full" here only SKIPS a cycle (retried
+        // next scan), never posts into a server rejection. Conservative
+        // direction is under-recruit, and unreadable already returns true.
         if (!recruitQueueHasSpace(tid,unit)) continue;
         const cur = +have[unit] || 0;
         const queued = recruitQueuedAmount(tid, unit);
@@ -650,6 +656,14 @@
             head.inflight = null;
             const ambiguous=err === 'pending' || err === 'timeout_unknown';head.manualReview=ambiguous;
             nativeQueueSetJobState(head, ambiguous ? 'unknown' : 'blocked', ambiguous?'resultado desconocido; comprobar la cola real':String(err));
+            // Client said full and the server rejected: that is a REAL full
+            // lane, not a lie. Without a backoff the next cadence re-posts
+            // into the rejection — budget slot + decision-memory strike each
+            // tick until 3 hard errors open the 5/15/60min skip window.
+            if (!ambiguous && job.clientSaidFull) {
+              head.slotRetryAt = Date.now() + 300000;
+              nativeQueueSetJobState(head, 'waiting-slot', 'servidor confirma cola llena — reintento 5min');
+            }
           }
         }
         gbLogT('recruit-err', 60000, `recruit err ${err}`);

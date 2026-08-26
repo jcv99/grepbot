@@ -128,11 +128,13 @@
         // costs blocked hydra when the player had exact discounted stock.
         const factor = (typeof recruitResourceFactor === 'function')
           ? recruitResourceFactor(townId, Object.assign({ id: unit }, def)) : 1;
+        // gbNum, never +x: GameData shipping null for a cost line used to
+        // coerce onto 0 and the planner marked the unit free.
         out(townId,{
-          wood:(+def.resources.wood||0)*factor*n,
-          stone:(+def.resources.stone||0)*factor*n,
-          iron:(+def.resources.iron||0)*factor*n,
-          population:(+def.population||0)*n
+          wood:(gbNum(def.resources.wood)||0)*factor*n,
+          stone:(gbNum(def.resources.stone)||0)*factor*n,
+          iron:(gbNum(def.resources.iron)||0)*factor*n,
+          population:(gbNum(def.population)||0)*n
         });
       } else if (feature === 'trade') {
         const c={wood:+a.wood||0,stone:+a.stone||0,iron:+a.iron||0,tradeCap:(+a.wood||0)+(+a.stone||0)+(+a.iron||0)};

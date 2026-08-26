@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.57
+// @version      5.10.58
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -2478,11 +2478,12 @@ const STORE = {
 
         const factor = (typeof recruitResourceFactor === 'function')
           ? recruitResourceFactor(townId, Object.assign({ id: unit }, def)) : 1;
+
         out(townId,{
-          wood:(+def.resources.wood||0)*factor*n,
-          stone:(+def.resources.stone||0)*factor*n,
-          iron:(+def.resources.iron||0)*factor*n,
-          population:(+def.population||0)*n
+          wood:(gbNum(def.resources.wood)||0)*factor*n,
+          stone:(gbNum(def.resources.stone)||0)*factor*n,
+          iron:(gbNum(def.resources.iron)||0)*factor*n,
+          population:(gbNum(def.population)||0)*n
         });
       } else if (feature === 'trade') {
         const c={wood:+a.wood||0,stone:+a.stone||0,iron:+a.iron||0,tradeCap:(+a.wood||0)+(+a.stone||0)+(+a.iron||0)};
@@ -8976,6 +8977,7 @@ const STORE = {
     if(job.inflight){nativeQueueSetJobState(job,'sending',job.reason||'enviando a la cola real');return null}
 
     if(job.status==='waiting-slot'){
+      if(+job.slotRetryAt>Date.now())return null;
       try{
         nativeQueueSetJobState(job,'pending','re-chequeo cola');
         try{gbTimeout(()=>recruitScan('slot-free'),50)}catch(_){}
@@ -15065,11 +15067,11 @@ const STORE = {
         const q = recruitQueueInfo(tid, job.unit);
         const max = (q.max != null && q.max > 0) ? q.max : recruitQueueMax();
         if (!q.known || q.len < max) {
+          delete job.slotRetryAt;
           nativeQueueSetJobState(job, 'pending', 'cola liberada / re-chequeo');
           continue;
         }
-        const laneLabel = recruitIsNaval(job.unit) ? 'puerto' : 'cuartel';
-        nativeQueueSetJobState(job, 'waiting-slot', `${laneLabel} ${q.len}/${max}`);
+
       }
     }
   }
@@ -15083,11 +15085,9 @@ const STORE = {
       let unitDef = def;
       if (def.id && recruitIsNaval(def.id) && !def.is_naval && !def.naval) {
         unitDef = Object.assign({}, def, { is_naval: true });
-      } else if (!def.is_naval && !def.naval) {
-
       }
-      const f = +GM.getUnitBuildResourcesModification(+townId, unitDef);
-      if (Number.isFinite(f) && f > 0) return f;
+      const f = gbNum(GM.getUnitBuildResourcesModification(+townId, unitDef));
+      if (f != null && f > 0) return f;
     } catch (_) {}
     return 1;
   }
@@ -15162,11 +15162,11 @@ const STORE = {
     if (farmHold && nativePending) {
       const claimBusy = typeof gbLocked === 'function' && gbLocked('claim');
       let softMs = 0;
-      try { softMs = typeof reqBudgetSoftDelayMs === 'function' ? +reqBudgetSoftDelayMs() || 0 : 0; } catch (_) {}
+      try { softMs = typeof reqBudgetSoftDelayMs === 'function' ? gbNum(reqBudgetSoftDelayMs()) || 0 : 0; } catch (_) {}
       let used = 0, cap = 0;
       try {
-        used = typeof reqBudgetUsed === 'function' ? +reqBudgetUsed('action') || 0 : 0;
-        cap = typeof reqBudgetCap === 'function' ? +reqBudgetCap('action') || 0 : 0;
+        used = typeof reqBudgetUsed === 'function' ? gbNum(reqBudgetUsed('action')) || 0 : 0;
+        cap = typeof reqBudgetCap === 'function' ? gbNum(reqBudgetCap('action')) || 0 : 0;
       } catch (_) {}
 
       const budgetTight = softMs > 0 || (cap > 0 && used >= Math.floor(cap * 0.75));
@@ -15199,7 +15199,8 @@ const STORE = {
 
         const qInfo = recruitQueueInfo(tid, explicit.unit);
         const qMax = (qInfo.max != null && qInfo.max > 0) ? qInfo.max : recruitQueueMax();
-        if (qInfo.known && qInfo.len >= qMax) {
+        const clientSaidFull = qInfo.known && qInfo.len >= qMax;
+        if (clientSaidFull) {
           gbLogT('recruit-slot-soft-' + tid, 60000,
             `recruit: client says full ${qInfo.len}/${qMax} for ${explicit.unit} @${tid}; posting anyway, server judges`);
         } else if (!qInfo.known) {
@@ -15219,7 +15220,7 @@ const STORE = {
         nativeQueueSetJobState(explicit, 'ready', nativeFarmBudgetHold ? 'listo (espera aldeas)' : 'listo');
 
         if (nativeFarmBudgetHold) continue;
-        job = { kind:'build', townId:tid, unit:explicit.unit, amount:postAmt, nativeJobId:explicit.id, nativeLane:lane, nativeChunkSize: cs };
+        job = { kind:'build', townId:tid, unit:explicit.unit, amount:postAmt, nativeJobId:explicit.id, nativeLane:lane, nativeChunkSize: cs, clientSaidFull: clientSaidFull || undefined };
         break;
       }
       if (job) break;
@@ -15237,6 +15238,7 @@ const STORE = {
         if (nativeQueueIsFifo(tid, nativeRecruitLane(unit))) continue;
         if (!recruitCanBuild(tid, unit)) continue;
         if (!recruitControllerFor(unit)) continue;
+
         if (!recruitQueueHasSpace(tid,unit)) continue;
         const cur = +have[unit] || 0;
         const queued = recruitQueuedAmount(tid, unit);
@@ -15311,6 +15313,11 @@ const STORE = {
             head.inflight = null;
             const ambiguous=err === 'pending' || err === 'timeout_unknown';head.manualReview=ambiguous;
             nativeQueueSetJobState(head, ambiguous ? 'unknown' : 'blocked', ambiguous?'resultado desconocido; comprobar la cola real':String(err));
+
+            if (!ambiguous && job.clientSaidFull) {
+              head.slotRetryAt = Date.now() + 300000;
+              nativeQueueSetJobState(head, 'waiting-slot', 'servidor confirma cola llena \u2014 reintento 5min');
+            }
           }
         }
         gbLogT('recruit-err', 60000, `recruit err ${err}`);

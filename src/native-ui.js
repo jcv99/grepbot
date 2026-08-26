@@ -755,8 +755,10 @@
     if(job.inflight){nativeQueueSetJobState(job,'sending',job.reason||'enviando a la cola real');return null}
     // Stale waiting-slot: client queue-full reads are untrusted (docks 0/7 vs
     // "cola real llena"). Clear legacy reasons and wake recruitScan; the send
-    // path no longer hard-blocks on client length.
+    // path no longer hard-blocks on client length. Exception: a SERVER-confirmed
+    // full lane (recruitScan sets slotRetryAt on rejection) holds the backoff.
     if(job.status==='waiting-slot'){
+      if(+job.slotRetryAt>Date.now())return null;
       try{
         nativeQueueSetJobState(job,'pending','re-chequeo cola');
         try{gbTimeout(()=>recruitScan('slot-free'),50)}catch(_){}
