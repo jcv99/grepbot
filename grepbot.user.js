@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.53
+// @version      5.10.54
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -837,7 +837,7 @@ const STORE = {
     transportReserve: load(STORE.TRANSPORT_RESERVE, 20),
     transportMin: load(STORE.TRANSPORT_MIN, 1000),
     autoRuralTrade: load(STORE.AUTO_RURAL_TRADE, false),
-    ruralTradeRatio: load(STORE.RURAL_TRADE_RATIO, 1.0),
+    ruralTradeRatio: load(STORE.RURAL_TRADE_RATIO, 1.1),
     ruralTradeRes: load(STORE.RURAL_TRADE_RES, 'iron'),
     autoRuralLevel: load(STORE.AUTO_RURAL_LEVEL, false),
     ruralLevelMax: load(STORE.RURAL_LEVEL_MAX, 3),
@@ -11954,13 +11954,14 @@ const STORE = {
     if (v >= RURAL_MS_EPOCH_FLOOR) v = Math.floor(v / 1000);
     return v;
   }
+
+  const RES_KEYS = ['wood', 'stone', 'iron'];
   function ruralTradeScan(reason) {
     if (!hostEnabled() || !state.autoRuralTrade || captchaPaused('ruraltrade')) return;
     if (automationPaused({})) return;
     if (gbLocked('rural-trade')) return;
 
-    const wantRes = state.ruralTradeRes || 'iron';
-    const minRatio = +state.ruralTradeRatio || 1.0;
+    const minRatio = +state.ruralTradeRatio || 1.1;
     const relations = ruralRelModels();
     const farms = ruralFarmModels();
     const farmById = {};
@@ -11972,6 +11973,7 @@ const STORE = {
       const uw = gameUw();
       townIds = Object.keys((uw.ITowns && uw.ITowns.towns) || {});
     } catch (_) {}
+    const now = gameNow();
     for (const tid of townIds) {
       const xy = ruralTownIslandXY(tid);
       if (!xy || xy.x == null) continue;
@@ -11981,14 +11983,18 @@ const STORE = {
       capLeft[tid] = tradeCap;
 
       const st = townResState(tid);
-      if (st && st.full && st.full[wantRes]) {
-        gbLogT('ruraltrade-full-' + tid, 120000,
-          `rural-trade: town ${tid} ${wantRes} already at capacity \u2014 skip`);
-        continue;
+      if (!st || !st.cap) continue;
+
+      let deficit = null, deficitAmt = Infinity;
+      for (const r of RES_KEYS) {
+        const amt = +st[r] || 0;
+        if (st.full && st.full[r]) continue;
+        if (amt < deficitAmt) { deficitAmt = amt; deficit = r; }
       }
-      const now = gameNow();
+      if (!deficit) continue;
+
+      const candidates = [];
       for (const rel of relations) {
-        if ((capLeft[tid] || 0) < 500) break;
         const a = rel.attributes || {};
         if (+a.relation_status !== 1) continue;
         const readyAt = ruralTradeReadyAt(a);
@@ -11996,11 +12002,17 @@ const STORE = {
         const ft = farmById[a.farm_town_id];
         if (!ft) continue;
         if (ft.island_x !== xy.x || ft.island_y !== xy.y) continue;
-        if (ft.resource_offer && ft.resource_offer !== wantRes) continue;
+        if (ft.resource_offer !== deficit) continue;
         const ratio = +a.current_trade_ratio;
         if (!(ratio >= minRatio)) continue;
+        candidates.push({ relId: a.id || rel.id, farmId: a.farm_town_id, ratio });
+      }
+      candidates.sort((x, y) => (y.ratio - x.ratio) || (x.relId - y.relId));
+
+      for (const c of candidates) {
+        if ((capLeft[tid] || 0) < 500) break;
         const amount = Math.min(3000, capLeft[tid]);
-        jobs.push({ relId: a.id || rel.id, farmId: a.farm_town_id, townId: tid, amount });
+        jobs.push({ relId: c.relId, farmId: c.farmId, townId: tid, amount, deficit });
         capLeft[tid] -= amount;
         if (jobs.length >= 6) break;
       }
@@ -12025,7 +12037,7 @@ const STORE = {
         if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('rural-trade', ruralTradeLock); return; }
         if (!err) {
           done++;
-          gbLog(`rural-trade: town ${j.townId} farm ${j.farmId} amt ${j.amount} (\u2265${minRatio})`);
+          gbLog(`rural-trade: town ${j.townId} farm ${j.farmId} res ${j.deficit} amt ${j.amount} (\u2265${minRatio})`);
         }
         gbTimeout(next, 700 + Math.random() * 400);
       });
@@ -25366,9 +25378,8 @@ const STORE = {
           </label>
           <label class="gb-cfg-num gb-cfg-sub" title="Ciudades propias que aceptan el vaciado, separadas por comas. Vacio = usa el sesgo del perfil y luego el planificador de transporte.">Destinos <input class="gb-cfg-input" data-cfg="dump-sinks" placeholder="vacio = auto" style="width:180px" data-gb-tip="Ciudades propias que aceptan el vaciado (separadas por comas)"/></label>
           <label class="gb-cfg-row" data-gb-tip="Comerciar con aldeas propias (enviar/recibir recursos)"><input type="checkbox" data-cfg="auto-rural-trade"/> Comercio con aldeas</label>
-          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Ratio minimo para que el comercio merezca la pena y recurso objetivo">Ratio minimo <input class="gb-cfg-input" type="number" data-cfg="rural-ratio" step="0.25" min="0.25" max="2" style="width:50px"/>
-            Recurso <select class="gb-cfg-input" data-cfg="rural-res" data-gb-tip="Recurso a pedir/comerciar en las aldeas"><option value="iron">plata</option><option value="stone">piedra</option><option value="wood">madera</option></select>
-          </label>
+          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Ratio minimo para que el comercio merezca la pena">Ratio minimo <input class="gb-cfg-input" type="number" data-cfg="rural-ratio" step="0.05" min="1.0" max="2" style="width:50px"/></label>
+          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="El bot elige el recurso mas bajo del almacen y busca granjas en la misma isla que lo ofrezcan">Modo: equilibrar los 3 recursos (el mas bajo)</label>
           <label class="gb-cfg-row" data-gb-tip="Mejorar aldeas propias automaticamente"><input type="checkbox" data-cfg="auto-rural-level"/> Mejora de aldeas</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Nivel maximo al que se permite mejorar aldeas">Nivel maximo <input class="gb-cfg-input" type="number" data-cfg="rural-level-max" min="1" max="6" style="width:40px"/></label>
         `)}
@@ -26480,7 +26491,6 @@ const STORE = {
     setNum('[data-cfg=night-end]', state.nightEnd);
     setNum('[data-cfg=req-budget]', state.reqBudgetPerMin);
     setNum('[data-cfg=dodge-floor]', state.dodgeFloor);
-    const rr = sec.querySelector('[data-cfg=rural-res]'); if (rr) rr.value = state.ruralTradeRes || 'iron';
     const defense=state.defenseCfg||{mode:'notify',returnMarginSec:120};
     const dm=sec.querySelector('[data-cfg=defense-mode]');if(dm)dm.value=defenseMode();
     { const sc = supportCfg();
@@ -26676,9 +26686,6 @@ const STORE = {
     saveNum('[data-cfg=night-end]', v => { state.nightEnd = v; save(STORE.NIGHT_END, v); });
     saveNum('[data-cfg=req-budget]', v => { state.reqBudgetPerMin = v; save(STORE.REQ_BUDGET, v); });
     saveNum('[data-cfg=dodge-floor]', v => { state.dodgeFloor = v; save(STORE.DODGE_FLOOR, v); });
-    onCfg('[data-cfg=rural-res]', 'change', e => {
-      state.ruralTradeRes = e.target.value; save(STORE.RURAL_TRADE_RES, state.ruralTradeRes);
-    });
     onCfg('[data-cfg=defense-mode]', 'change',e=>{state.defenseCfg=Object.assign({},state.defenseCfg,{mode:['notify','safe'].includes(e.target.value)?e.target.value:'notify'});save(STORE.DEFENSE_CFG,state.defenseCfg)});
 
     const saveThreat = (key, v, lo, hi) => {

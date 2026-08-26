@@ -645,7 +645,7 @@
     transportReserve: load(STORE.TRANSPORT_RESERVE, 20),
     transportMin: load(STORE.TRANSPORT_MIN, 1000),
     autoRuralTrade: load(STORE.AUTO_RURAL_TRADE, false),
-    ruralTradeRatio: load(STORE.RURAL_TRADE_RATIO, 1.0),
+    ruralTradeRatio: load(STORE.RURAL_TRADE_RATIO, 1.1),
     ruralTradeRes: load(STORE.RURAL_TRADE_RES, 'iron'),
     autoRuralLevel: load(STORE.AUTO_RURAL_LEVEL, false),
     ruralLevelMax: load(STORE.RURAL_LEVEL_MAX, 3),

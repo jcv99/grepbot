@@ -2,6 +2,8 @@
 
 Moved out of `CLAUDE.md` so always-loaded file stay small. Nothing here optional when touch subsystem it names — every entry bug that shipped once. `CLAUDE.md` § *Hard rules* carry one-line version of each invariant; this file carry reason.
 
+- **v5.10.54 rural-trade parity mode**: `ruralTradeScan` now picks the lowest of wood/stone/iron per town (skipping any already near-cap) and trades farms on the same island that offer that resource with `current_trade_ratio ≥ state.ruralTradeRatio` (default `1.1`, was `1.0`). Multiple farms offering the same resource are sorted by ratio desc with ties broken by relation id, so the best trade always wins inside a cycle. The legacy `state.ruralTradeRes` selector and its `data-cfg="rural-res"` UI are gone; `STORE.RURAL_TRADE_RES` stays in storage so old `localStorage` loads cleanly. The Grepolis `FarmTownPlayerRelation/trade` endpoint only accepts `{farm_town_id, amount}` — the backend derives the warehouse deduction from `farm.resource_offer` + `current_trade_ratio`, so the bot's only lever is the farm filter + trade size. Log line gained the target resource (`res wood|stone|iron`).
+
 Ordered newest-ish first inside each section, not strictly chronological.
 
 ---

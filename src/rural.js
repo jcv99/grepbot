@@ -54,13 +54,19 @@
     if (v >= RURAL_MS_EPOCH_FLOOR) v = Math.floor(v / 1000);
     return v;
   }
+  // Parity-mode selection: each town trades farms that offer its LOWEST wood/stone/iron
+  // resource, so the warehouse evens out across the three. The Grepolis backend
+  // decides which warehouse resource to deduct from the farm's resource_offer +
+  // current_trade_ratio, so the bot's only lever is the farm filter + amount.
+  // Multiple farms offering the same resource are sorted by ratio desc (ties by
+  // relation id, stable), so the best trade always wins within a cycle.
+  const RES_KEYS = ['wood', 'stone', 'iron'];
   function ruralTradeScan(reason) {
     if (!hostEnabled() || !state.autoRuralTrade || captchaPaused('ruraltrade')) return;
     if (automationPaused({})) return;
     if (gbLocked('rural-trade')) return;
 
-    const wantRes = state.ruralTradeRes || 'iron';
-    const minRatio = +state.ruralTradeRatio || 1.0;
+    const minRatio = +state.ruralTradeRatio || 1.1;
     const relations = ruralRelModels();
     const farms = ruralFarmModels();
     const farmById = {};
@@ -72,6 +78,7 @@
       const uw = gameUw();
       townIds = Object.keys((uw.ITowns && uw.ITowns.towns) || {});
     } catch (_) {}
+    const now = gameNow();
     for (const tid of townIds) {
       const xy = ruralTownIslandXY(tid);
       if (!xy || xy.x == null) continue;
@@ -81,14 +88,21 @@
       capLeft[tid] = tradeCap;
 
       const st = townResState(tid);
-      if (st && st.full && st.full[wantRes]) {
-        gbLogT('ruraltrade-full-' + tid, 120000,
-          `rural-trade: town ${tid} ${wantRes} already at capacity — skip`);
-        continue;
+      if (!st || !st.cap) continue;        // unreadable warehouse → skip silently
+
+      // Pick the lowest of wood/stone/iron, but skip any that are already
+      // near-cap (full[r] true) — the trade would have nowhere to land.
+      let deficit = null, deficitAmt = Infinity;
+      for (const r of RES_KEYS) {
+        const amt = +st[r] || 0;
+        if (st.full && st.full[r]) continue;
+        if (amt < deficitAmt) { deficitAmt = amt; deficit = r; }
       }
-      const now = gameNow();
+      if (!deficit) continue;
+
+      // Collect same-island farms offering `deficit` with ratio ≥ minRatio.
+      const candidates = [];
       for (const rel of relations) {
-        if ((capLeft[tid] || 0) < 500) break;
         const a = rel.attributes || {};
         if (+a.relation_status !== 1) continue;
         const readyAt = ruralTradeReadyAt(a);
@@ -96,11 +110,17 @@
         const ft = farmById[a.farm_town_id];
         if (!ft) continue;
         if (ft.island_x !== xy.x || ft.island_y !== xy.y) continue;
-        if (ft.resource_offer && ft.resource_offer !== wantRes) continue;
+        if (ft.resource_offer !== deficit) continue;
         const ratio = +a.current_trade_ratio;
         if (!(ratio >= minRatio)) continue;
+        candidates.push({ relId: a.id || rel.id, farmId: a.farm_town_id, ratio });
+      }
+      candidates.sort((x, y) => (y.ratio - x.ratio) || (x.relId - y.relId));
+
+      for (const c of candidates) {
+        if ((capLeft[tid] || 0) < 500) break;
         const amount = Math.min(3000, capLeft[tid]);
-        jobs.push({ relId: a.id || rel.id, farmId: a.farm_town_id, townId: tid, amount });
+        jobs.push({ relId: c.relId, farmId: c.farmId, townId: tid, amount, deficit });
         capLeft[tid] -= amount;
         if (jobs.length >= 6) break;
       }
@@ -125,7 +145,7 @@
         if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('rural-trade', ruralTradeLock); return; }
         if (!err) {
           done++;
-          gbLog(`rural-trade: town ${j.townId} farm ${j.farmId} amt ${j.amount} (≥${minRatio})`);
+          gbLog(`rural-trade: town ${j.townId} farm ${j.farmId} res ${j.deficit} amt ${j.amount} (≥${minRatio})`);
         }
         gbTimeout(next, 700 + Math.random() * 400);
       });

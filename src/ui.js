@@ -1437,9 +1437,8 @@
           </label>
           <label class="gb-cfg-num gb-cfg-sub" title="Ciudades propias que aceptan el vaciado, separadas por comas. Vacio = usa el sesgo del perfil y luego el planificador de transporte.">Destinos <input class="gb-cfg-input" data-cfg="dump-sinks" placeholder="vacio = auto" style="width:180px" data-gb-tip="Ciudades propias que aceptan el vaciado (separadas por comas)"/></label>
           <label class="gb-cfg-row" data-gb-tip="Comerciar con aldeas propias (enviar/recibir recursos)"><input type="checkbox" data-cfg="auto-rural-trade"/> Comercio con aldeas</label>
-          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Ratio minimo para que el comercio merezca la pena y recurso objetivo">Ratio minimo <input class="gb-cfg-input" type="number" data-cfg="rural-ratio" step="0.25" min="0.25" max="2" style="width:50px"/>
-            Recurso <select class="gb-cfg-input" data-cfg="rural-res" data-gb-tip="Recurso a pedir/comerciar en las aldeas"><option value="iron">plata</option><option value="stone">piedra</option><option value="wood">madera</option></select>
-          </label>
+          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Ratio minimo para que el comercio merezca la pena">Ratio minimo <input class="gb-cfg-input" type="number" data-cfg="rural-ratio" step="0.05" min="1.0" max="2" style="width:50px"/></label>
+          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="El bot elige el recurso mas bajo del almacen y busca granjas en la misma isla que lo ofrezcan">Modo: equilibrar los 3 recursos (el mas bajo)</label>
           <label class="gb-cfg-row" data-gb-tip="Mejorar aldeas propias automaticamente"><input type="checkbox" data-cfg="auto-rural-level"/> Mejora de aldeas</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Nivel maximo al que se permite mejorar aldeas">Nivel maximo <input class="gb-cfg-input" type="number" data-cfg="rural-level-max" min="1" max="6" style="width:40px"/></label>
         `)}
@@ -2648,7 +2647,6 @@
     setNum('[data-cfg=night-end]', state.nightEnd);
     setNum('[data-cfg=req-budget]', state.reqBudgetPerMin);
     setNum('[data-cfg=dodge-floor]', state.dodgeFloor);
-    const rr = sec.querySelector('[data-cfg=rural-res]'); if (rr) rr.value = state.ruralTradeRes || 'iron';
     const defense=state.defenseCfg||{mode:'notify',returnMarginSec:120};
     const dm=sec.querySelector('[data-cfg=defense-mode]');if(dm)dm.value=defenseMode();
     { const sc = supportCfg();
@@ -2853,9 +2851,6 @@
     saveNum('[data-cfg=night-end]', v => { state.nightEnd = v; save(STORE.NIGHT_END, v); });
     saveNum('[data-cfg=req-budget]', v => { state.reqBudgetPerMin = v; save(STORE.REQ_BUDGET, v); });
     saveNum('[data-cfg=dodge-floor]', v => { state.dodgeFloor = v; save(STORE.DODGE_FLOOR, v); });
-    onCfg('[data-cfg=rural-res]', 'change', e => {
-      state.ruralTradeRes = e.target.value; save(STORE.RURAL_TRADE_RES, state.ruralTradeRes);
-    });
     onCfg('[data-cfg=defense-mode]', 'change',e=>{state.defenseCfg=Object.assign({},state.defenseCfg,{mode:['notify','safe'].includes(e.target.value)?e.target.value:'notify'});save(STORE.DEFENSE_CFG,state.defenseCfg)});
 
     // Weights live under the existing PREDICT_CFG key, already world-scoped.

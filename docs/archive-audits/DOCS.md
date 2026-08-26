@@ -235,7 +235,7 @@ GFBot, Noct, GrepoPlus — bridge-first, paste-only.
 | 8.1 | Auto-cave | CODED v0.7.0+ | Low |
 | 8.2 | Auto-culture | CODED v1.0.0 (`culture.js`) | Low–med |
 | 8.3 | Inter-city trade | CODED (`trade.js`) | Med |
-| 8.4 | Rural village trade | CODED (`rural.js`) | Med |
+| 8.4 | Rural village trade | CODED (`rural.js`) — v5.10.54 parity mode (lowest of wood/stone/iron per town, default ratio 1.1) | Med |
 | 8.5 | Farm village upgrade | CODED (`rural.js`) | Med |
 | 8.6 | Academy research | CODED (`research.js`) | Med |
 | 8.7 | Pause-on-activity, templates, overview | CODED (`qol.js`) | Low |
