@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.61
+// @version      5.10.62
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -5392,7 +5392,7 @@ const STORE = {
   const FARM_CLAIM_DURATION_SEC = 600;
   const FARM_CLAIM_BASE_MS = 10 * 60 * 1000;
   const FARM_CLAIM_JITTER_MIN_MS = 1 * 60 * 1000;
-  const FARM_CLAIM_JITTER_MAX_MS = 2 * 60 * 1000;
+  const FARM_CLAIM_JITTER_MAX_MS = 3 * 60 * 1000;
   function farmClaimIntervalMs() {
     return FARM_CLAIM_BASE_MS + FARM_CLAIM_JITTER_MIN_MS
       + Math.random() * (FARM_CLAIM_JITTER_MAX_MS - FARM_CLAIM_JITTER_MIN_MS);
@@ -6167,13 +6167,7 @@ const STORE = {
       return;
     }
 
-    const work = farmApplyDropPolicies(ready);
-    if (!work.length) {
-      gbLogT('claim-adaptive-empty', 300000, 'farm claim: adaptive policy dropped every candidate this pass');
-      farmStampNextClaim('adaptive-empty');
-      if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
-      return;
-    }
+    const work = ready.slice();
     const claimLockToken = gbLock('claim', Math.max(180000, work.length * 20000));
     if (!claimLockToken) return;
     const unitCount = work.filter(f => farmClaimTypeFor(f) === 'units').length;
@@ -6186,7 +6180,8 @@ const STORE = {
 
     const outcome = Object.create(null);
     let i = 0, done = 0, uncertain = 0, captcha = false;
-    const claimSpacingMs=Math.max(700,Math.ceil(60000/Math.max(5,(+state.reqBudgetPerMin||40)-4)));
+
+    const claimSpacingMs = 2000;
     function finishClaimBatch() {
       const tally = Object.keys(outcome).map(k => `${k}x${outcome[k]}`).join(' ') || 'none';
       gbLog(`  claim outcomes: ${tally}`);

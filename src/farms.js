@@ -162,12 +162,12 @@
     return gameNow() >= at;
   }
   // Resource claims run on a fixed wall-clock cadence only: 10 min + random
-  // 1–2 min. No per-village lootable_at wake timers — those were the "village
+  // 1–3 min. No per-village lootable_at wake timers — those were the "village
   // timers" path. Lootable still gates the post itself; scheduling does not.
   const FARM_CLAIM_DURATION_SEC = 600;
   const FARM_CLAIM_BASE_MS = 10 * 60 * 1000;
   const FARM_CLAIM_JITTER_MIN_MS = 1 * 60 * 1000;
-  const FARM_CLAIM_JITTER_MAX_MS = 2 * 60 * 1000;
+  const FARM_CLAIM_JITTER_MAX_MS = 3 * 60 * 1000;
   function farmClaimIntervalMs() {
     return FARM_CLAIM_BASE_MS + FARM_CLAIM_JITTER_MIN_MS
       + Math.random() * (FARM_CLAIM_JITTER_MAX_MS - FARM_CLAIM_JITTER_MIN_MS);
@@ -1028,16 +1028,8 @@
       return;
     }
 
-    // v4 plan 5.2: trim the SET under pressure rather than widening the cadence,
-    // and claim the highest-yield villages first. `before` below still keys off
-    // every farm, so a partial drop does not affect reconciliation.
-    const work = farmApplyDropPolicies(ready);
-    if (!work.length) {
-      gbLogT('claim-adaptive-empty', 300000, 'farm claim: adaptive policy dropped every candidate this pass');
-      farmStampNextClaim('adaptive-empty');
-      if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
-      return;
-    }
+    // Dumb sweep (user request): every ready village, no adaptive trimming.
+    const work = ready.slice();
     const claimLockToken = gbLock('claim', Math.max(180000, work.length * 20000));
     if (!claimLockToken) return;
     const unitCount = work.filter(f => farmClaimTypeFor(f) === 'units').length;
@@ -1050,7 +1042,8 @@
 
     const outcome = Object.create(null);
     let i = 0, done = 0, uncertain = 0, captcha = false;
-    const claimSpacingMs=Math.max(700,Math.ceil(60000/Math.max(5,(+state.reqBudgetPerMin||40)-4)));
+    // Fixed 2s between villages (user request) — no budget-derived spacing.
+    const claimSpacingMs = 2000;
     function finishClaimBatch() {
       const tally = Object.keys(outcome).map(k => `${k}x${outcome[k]}`).join(' ') || 'none';
       gbLog(`  claim outcomes: ${tally}`);
