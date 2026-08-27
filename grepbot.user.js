@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.62
+// @version      5.10.63
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -8783,9 +8783,10 @@ const STORE = {
       list.splice(i,1);nativeQueueRebaseBuild(townId);nativeQueueSave();return true}}
     return false;
   }
+
+  const NATIVE_UNIT_STEPS={sword:50,slinger:50,archer:50,hoplite:50,rider:30,chariot:30};
   function nativeUnitStep(unit) {
-    try{const d=gbGameDataLookup("units", unit)||{};const pop=+d.population||0,freight=+(d.favor??(d.resources&&d.resources.favor))||0;if(d.is_naval||d.naval||d.mythical||d.is_mythical||d.god||pop>=8||freight>0)return 1}catch(_){}
-    return 10;
+    return NATIVE_UNIT_STEPS[String(unit||'')]||100;
   }
 
   function nativeQueueRecruitAmount(townId,unit){return NATIVE_RECRUIT_LANES.reduce((n,lane)=>n+nativeQueueList(townId,lane,false).reduce((m,j)=>m+(j&&j.unit===unit?(+j.amount||0):0),0),0);}

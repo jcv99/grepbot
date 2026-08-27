@@ -504,9 +504,11 @@
       list.splice(i,1);nativeQueueRebaseBuild(townId);nativeQueueSave();return true}}
     return false;
   }
+  // Operator-tuned batch sizes: cheap core infantry in 50s, cav in 30s,
+  // everything else (catapult, naval, myth) in 100s.
+  const NATIVE_UNIT_STEPS={sword:50,slinger:50,archer:50,hoplite:50,rider:30,chariot:30};
   function nativeUnitStep(unit) {
-    try{const d=gbGameDataLookup("units", unit)||{};const pop=+d.population||0,freight=+(d.favor??(d.resources&&d.resources.favor))||0;if(d.is_naval||d.naval||d.mythical||d.is_mythical||d.god||pop>=8||freight>0)return 1}catch(_){}
-    return 10;
+    return NATIVE_UNIT_STEPS[String(unit||'')]||100;
   }
   // Summed over BOTH lanes on purpose: a unit id belongs to exactly one lane,
   // so the total is exact and stays right even when the def cannot be read.
