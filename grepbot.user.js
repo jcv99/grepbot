@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.63
+// @version      5.10.64
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -749,7 +749,8 @@ const STORE = {
       const m = load(STORE.FARM_OPTION_MAP, null);
       if (m && typeof m === 'object' && !Array.isArray(m)
           && Object.keys(m).some(k => m[k] != null && Number.isFinite(+m[k]))) return m;
-      return { 600: 2 };
+
+      return { 600: 1 };
     })(),
 
     farmLongClaims: load(STORE.FARM_LONG_CLAIMS, false),
@@ -5540,7 +5541,12 @@ const STORE = {
       return tid != null && townWarehouseBlocks(tid);
     } catch (_) { return false; }
   }
-  const FARM_DURATIONS = [300, 600, 1200, 2400, 5400, 10800, 14400, 28800];
+
+  const FARM_DURATIONS = [300, 600, 1200, 2400, 5400, 7200, 10800, 14400, 18000, 28800, 36000];
+  const FARM_SET_BASE = [300, 1200, 7200, 18000];
+  const FARM_SET_BOOTY = [600, 2400, 14400, 36000];
+
+  let farmPostedOpts = Object.create(null);
   function farmDurLabel(sec) {
     if (sec >= 3600) return (sec / 3600) + 'h';
     return Math.round(sec / 60) + 'min';
@@ -5554,7 +5560,7 @@ const STORE = {
       state.farmOptionMap = m;
       return m;
     }
-    m = { 600: 2 };
+    m = { 600: 1 };
     state.farmOptionMap = m;
     save(wkey(STORE.FARM_OPTION_MAP), m);
     gbLogT('farm-opt-default', 600000, 'farm: empty option map \u2014 restored default 10min=2');
@@ -5612,6 +5618,37 @@ const STORE = {
     return best != null && bestDiff <= best * 0.2 ? best : null;
   }
 
+  function farmOptionMapLearn(sec, opt, src) {
+    if (!(opt >= 1 && opt <= 4) || !(sec > 0)) return false;
+    const map = Object.assign({}, state.farmOptionMap || {});
+    if (+map[String(sec)] === opt) return false;
+    Object.keys(map).forEach(k => { if (k !== String(sec) && +map[k] === opt) delete map[k]; });
+    map[String(sec)] = opt;
+    state.farmOptionMap = map;
+    save(wkey(STORE.FARM_OPTION_MAP), map);
+    gbLog(`farm: learned claim option ${opt} = ${farmDurLabel(sec)} (${src}; map: ${farmOptionMapText()})`);
+    return true;
+  }
+
+  function farmOptionSetDerive(sec, opt) {
+    const sets = { base: FARM_SET_BASE, booty: FARM_SET_BOOTY };
+    let hit = null;
+    Object.keys(sets).forEach(name => {
+      if (sets[name][opt - 1] === sec) hit = hit ? 'ambiguous' : name;
+    });
+    if (!hit || hit === 'ambiguous') return false;
+    const map = {};
+    sets[hit].forEach((s, i) => { map[String(s)] = i + 1; });
+    const cur = state.farmOptionMap || {};
+    const same = Object.keys(map).length === Object.keys(cur).length
+      && Object.keys(map).every(k => +cur[k] === map[k]);
+    if (same) return false;
+    state.farmOptionMap = map;
+    save(wkey(STORE.FARM_OPTION_MAP), map);
+    gbLog(`farm: offer set identified (${hit}) from ${farmDurLabel(sec)}=opt${opt} \u2014 derived map: ${farmOptionMapText()}`);
+    return true;
+  }
+
   function farmLearnFromClaim(j) {
     const type = String(((j && j.arguments) || {}).type || '');
     if (type === 'units') return farmLearnUnitsOptionFromClaim(j);
@@ -5648,14 +5685,8 @@ const STORE = {
         }
         const sec = farmSnapDuration(remaining);
         if (sec == null) return;
-        const map = Object.assign({}, state.farmOptionMap || {});
-        if (+map[String(sec)] === opt) return;
-
-        Object.keys(map).forEach(k => { if (k !== String(sec) && +map[k] === opt) delete map[k]; });
-        map[String(sec)] = opt;
-        state.farmOptionMap = map;
-        save(wkey(STORE.FARM_OPTION_MAP), map);
-        gbLog(`farm: learned claim option ${opt} = ${farmDurLabel(sec)} (map: ${farmOptionMapText()})`);
+        farmOptionMapLearn(sec, opt, 'hand claim');
+        farmOptionSetDerive(sec, opt);
       }, 4000);
     } catch (_) {}
   }
@@ -6035,6 +6066,7 @@ const STORE = {
         `farm claim: no ${farmDurLabel(wantSec)} option \u2014 using learned ${farmDurLabel(resolved.sec)}=${resolved.option} (${resolved.how}; map ${farmOptionMapText()})`);
     }
     const option = resolved.option;
+    farmPostedOpts[String(farm.vill_id)] = { opt: option, want: Number.isFinite(+wantSec) ? +wantSec : null };
 
     const args = Object.assign({}, tplArgs, { type: 'resources', option, farm_town_id: +farm.vill_id });
     bridgePost('farm', {
@@ -6168,6 +6200,7 @@ const STORE = {
     }
 
     const work = ready.slice();
+    farmPostedOpts = Object.create(null);
     const claimLockToken = gbLock('claim', Math.max(180000, work.length * 20000));
     if (!claimLockToken) return;
     const unitCount = work.filter(f => farmClaimTypeFor(f) === 'units').length;
@@ -6352,10 +6385,27 @@ const STORE = {
 
       if (!Object.prototype.hasOwnProperty.call(before, f.vill_id)) return;
       if (only && !only.has(String(f.vill_id))) return;
-      if (f.lootable_at != null && f.lootable_at > now && before[f.vill_id] !== f.lootable_at) updated++;
+      if (f.lootable_at != null && f.lootable_at > now && before[f.vill_id] !== f.lootable_at) {
+        updated++;
+        farmVerifyLearnMap(f, now);
+      }
     });
     gbLog(`farm claim verify: ${updated} village(s) now gathering${updated ? '' : ' - claims did NOT land (open Senado once, click Recoger manually, then paste me the Log tab)'}`);
     return updated;
+  }
+
+  function farmVerifyLearnMap(f, now) {
+    const posted = farmPostedOpts[String(f.vill_id)];
+    if (!posted) return;
+    const remaining = +f.lootable_at - now;
+    if (!(remaining > 30)) return;
+    const sec = farmSnapDuration(remaining);
+    if (sec == null) return;
+    const changed = farmOptionMapLearn(sec, posted.opt, 'verify');
+    farmOptionSetDerive(sec, posted.opt);
+    if (changed && posted.want && sec !== posted.want) {
+      gbLog(`farm: wanted ${farmDurLabel(posted.want)} but option ${posted.opt} gathered ${farmDurLabel(sec)} \u2014 map corrected`);
+    }
   }
 
   const FARM_SCRAPE_DEAD_SWEEPS = 2;

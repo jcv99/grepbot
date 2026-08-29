@@ -550,7 +550,10 @@
       const m = load(STORE.FARM_OPTION_MAP, null);
       if (m && typeof m === 'object' && !Array.isArray(m)
           && Object.keys(m).some(k => m[k] != null && Number.isFinite(+m[k]))) return m;
-      return { 600: 2 };
+      // Provisional seed only: option 1 is the shortest offer in both
+      // documented sets (5min base / 10min Booty), so a wrong seed never
+      // over-gathers and the post-claim verify corrects it after one batch.
+      return { 600: 1 };
     })(),
     // Kept for config import compat; claims always use the 10min option (v5.10.52).
     farmLongClaims: load(STORE.FARM_LONG_CLAIMS, false),
