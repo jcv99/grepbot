@@ -1,31 +1,10 @@
-# Reverse-engineering captures: saved game pages, HAR, grepo-dump.
-# ~16M, includes two copies of the 4MB minified game.min.js. Local refs only.
-archive/captures/
-
-# Local dumps: findings JSON exported from the panel, smoke runs.
-archive/data/
-
-# Headless smoke output (run-grepbot skill): screenshots, DOM dumps, preflight.
-data/smoke/
-
-# Build gate bookkeeping (src hash + last built version). Machine-local state.
-.build-stamp.json
-
-# Claude Code machine-local overrides
-.claude/settings.local.json
-
-# Kimi Code project-local overrides (paths, may include machine-specific dirs)
-.kimi-code/
-
-# OS
-.DS_Store
-Thumbs.db
-grepbot.user.js.prod
-
-# Wiki dump scratch (browser-only, see commit preceding v2.0.0 of
-# wiki_dump.user.js). The python receiver was the original local sink and
-# is forbidden by project rules (no server); keep the names ignored so they
-# can't sneak back in.
-wiki_receiver.py
-wiki_dump.user.js
-wiki_corpus/
+# Whitelist mode: GitHub carries only the buildable source + artifact.
+# Everything else (docs, archive, agent configs, caches, local data) stays local.
+*
+!.gitignore
+!README.md
+!LICENSE
+!build.py
+!grepbot.user.js
+!src/
+!src/**
