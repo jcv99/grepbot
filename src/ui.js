@@ -2479,10 +2479,7 @@
         autoClaimFarms('toggle');
       }
     });
-    onCfg('[data-cfg=farm-skip-full]', 'change', e => {
-      state.farmSkipFull = e.target.checked; save(STORE.FARM_SKIP_FULL, state.farmSkipFull);
-      gbLog('farm-skip-full', state.farmSkipFull ? 'ON' : 'OFF');
-    });
+    cfgBindBool('[data-cfg=farm-skip-full]', 'farmSkipFull', STORE.FARM_SKIP_FULL, v => gbLog('farm-skip-full', v ? 'ON' : 'OFF'));
     onCfg('[data-cfg=farm-full-mode]', 'change', e => {
       state.farmFullMode = e.target.value === 'all' ? 'all' : 'any';
       save(STORE.FARM_FULL_MODE, state.farmFullMode);
@@ -2944,22 +2941,16 @@
       onCfg('[data-cfg=' + k + ']', 'change', saveWebhookEvents);
     });
     onCfg('[data-cfg=wh-tg-chat]', 'change', saveWebhookEvents);
-    onCfg('[data-cfg=intel-digest]', 'change', e => {
-      state.intelDigest = !!e.target.checked;
-      save(STORE.INTEL_DIGEST, state.intelDigest);
-      gbLog('intel digest ' + (state.intelDigest ? 'ON - spy summaries go to the webhook' : 'OFF'));
-      if (state.intelDigest && !(state.webhookUrl || '').trim()) flash('resumen ON pero sin URL de webhook');
+    cfgBindBool('[data-cfg=intel-digest]', 'intelDigest', STORE.INTEL_DIGEST, v => {
+      gbLog('intel digest ' + (v ? 'ON - spy summaries go to the webhook' : 'OFF'));
+      if (v && !(state.webhookUrl || '').trim()) flash('resumen ON pero sin URL de webhook');
     });
-    onCfg('[data-cfg=notify-enabled]', 'change', e => {
-      state.notifyEnabled = !!e.target.checked;
-      save(STORE.NOTIFY_ENABLED, state.notifyEnabled);
+    cfgBindBool('[data-cfg=notify-enabled]', 'notifyEnabled', STORE.NOTIFY_ENABLED, v => {
       let perm = 'unsupported';
       try { perm = (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported'; } catch (_) {}
-      if (state.notifyEnabled && perm !== 'granted') flash('falta permiso del navegador: pulsa "Permiso"');
+      if (v && perm !== 'granted') flash('falta permiso del navegador: pulsa "Permiso"');
     });
-    onCfg('[data-cfg=notify-muted]', 'change', e => {
-      state.notifyMuted = !!e.target.checked; save(STORE.NOTIFY_MUTED, state.notifyMuted);
-    });
+    cfgBindBool('[data-cfg=notify-muted]', 'notifyMuted', STORE.NOTIFY_MUTED);
     saveNum('[data-cfg=notify-volume]', v => {
       state.notifyVolume = Math.max(0, Math.min(1, (Number.isFinite(+v) ? +v : 40) / 100));
       save(STORE.NOTIFY_VOLUME, state.notifyVolume);
@@ -2981,16 +2972,9 @@
       if (perm === 'granted') { try { new Notification('GrepBot', { body: 'prueba de notificacion', tag: 'gb-test' }); } catch (_) {} }
       else flash('sonido probado; permiso de notificacion: ' + perm);
     });
-    onCfg('[data-cfg=snapshots-on]', 'change', e => {
-      state.snapshotsOn = !!e.target.checked; save(STORE.SNAPSHOTS_ON, state.snapshotsOn);
-    });
-    onCfg('[data-cfg=profiler-on]', 'change', e => {
-      state.profilerOn = !!e.target.checked; save(STORE.PROFILER_ON, state.profilerOn);
-      if (!state.profilerOn) state.profileRings = {};
-    });
-    onCfg('[data-cfg=mem-probe-on]', 'change', e => {
-      state.memProbeOn = !!e.target.checked; save(STORE.MEM_PROBE_ON, state.memProbeOn);
-    });
+    cfgBindBool('[data-cfg=snapshots-on]', 'snapshotsOn', STORE.SNAPSHOTS_ON);
+    cfgBindBool('[data-cfg=profiler-on]', 'profilerOn', STORE.PROFILER_ON, v => { if (!v) state.profileRings = {}; });
+    cfgBindBool('[data-cfg=mem-probe-on]', 'memProbeOn', STORE.MEM_PROBE_ON);
     onCfg('[data-cfg=snapshot-restore]', 'click', () => {
       const l = snapshotList();
       if (!l.length) { flash('sin instantaneas'); return; }
@@ -3003,16 +2987,11 @@
       if (snapshotRestore(slot)) { flash('instantanea restaurada'); bindConfig(); updateStatus(); }
       else flash('no se pudo restaurar');
     });
-    onCfg('[data-cfg=context-menu]', 'change', e => {
-      state.contextMenu = !!e.target.checked;
-      save(STORE.CONTEXT_MENU, state.contextMenu);
-      if (!state.contextMenu) { try { ctxDispose(); } catch (_) {} }
+    cfgBindBool('[data-cfg=context-menu]', 'contextMenu', STORE.CONTEXT_MENU, v => {
+      if (!v) { try { ctxDispose(); } catch (_) {} }
       else { try { contextMenuStart(); } catch (_) {} }
     });
-    onCfg('[data-cfg=keyboard-shortcuts]', 'change', e => {
-      state.keyboardShortcuts = !!e.target.checked;
-      save(STORE.KEYBOARD_SHORTCUTS, state.keyboardShortcuts);
-    });
+    cfgBindBool('[data-cfg=keyboard-shortcuts]', 'keyboardShortcuts', STORE.KEYBOARD_SHORTCUTS);
     onCfg('[data-cfg=keybindings-edit]', 'click', () => {
       const raw = prompt(
         'Atajos (JSON). Clave = combinacion, valor = accion.\nAcciones: ' + Object.keys(GB_KEY_ACTIONS).join(', ') +
@@ -3089,17 +3068,13 @@
       // Force-recompute: the 5min memo would otherwise hide the change.
       try { farmProfitInvalidate(); farmProfitRefresh(true); renderFarms(); } catch (_) {}
     });
-    onCfg('[data-cfg=adaptive-farm]', 'change', e => {
-      state.adaptiveFarm = !!e.target.checked;
-      save(STORE.ADAPTIVE_FARM, state.adaptiveFarm);
-      gbLog('adaptive farm ' + (state.adaptiveFarm ? 'ON - trims the claim set under pressure' : 'OFF'));
-    });
+    cfgBindBool('[data-cfg=adaptive-farm]', 'adaptiveFarm', STORE.ADAPTIVE_FARM, v => gbLog('adaptive farm ' + (v ? 'ON - trims the claim set under pressure' : 'OFF')));
     saveNum('[data-cfg=farm-drop-pct]', v => {
       state.farmDropPressurePct = Math.max(0, Math.min(90, +v || 0));
       save(STORE.FARM_DROP_PCT, state.farmDropPressurePct);
     });
     saveNum('[data-cfg=ib-free-thresh]', v => { state.ibFreeThresh = Math.max(60,Math.min(300,+v||300)); save(STORE.IB_FREE_THRESH, state.ibFreeThresh); });
-    saveNum('[data-cfg=collect-max-min]', v => { state.collectMaxMin = v; save(STORE.COLLECT_MAX_MIN, v); });
+    cfgBindNumber('[data-cfg=collect-max-min]', 'collectMaxMin', STORE.COLLECT_MAX_MIN);
     saveNum('[data-cfg=town-min]', v => { state.townMinMs = v * 60000; save(STORE.TOWN_MIN, state.townMinMs); });
     saveNum('[data-cfg=town-max]', v => { state.townMaxMs = v * 60000; save(STORE.TOWN_MAX, state.townMaxMs); });
     onCfg('[data-cfg=captcha-ladder]', 'change', e => {
