@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.15-rc4-dev17
+// @version      6.0.15-rc4-dev18
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -6994,7 +6994,9 @@ const STORE = {
     if (n) { save(STORE.FARM_RES, state.farmResources); renderFarms(); }
     return n;
   }
-  function farmScrapeNoteSweep(okCount) {
+  function farmScrapeNoteSweep(token, okCount) {
+
+    if (!token || !gbLockTouch('farm-scrape', token)) return;
     const st = farmScrapeState();
     if (okCount > 0) {
       if (st.misses || st.dead) { st.misses = 0; st.dead = false; farmScrapeSaveState(); }
@@ -7180,7 +7182,7 @@ const STORE = {
     const FARM_SCRAPE_HARD_ABORT = 3;
 
     (function step() {
-      gbLockTouch('farm-scrape', farmScrapeLock);
+      if (!gbLockTouch('farm-scrape', farmScrapeLock)) return;
       if (!hostEnabled() || automationPaused({})) {
         gbUnlock('farm-scrape', farmScrapeLock);
         gbLog(`farm scrape aborted (host/pause): ${ok}/${done} ok`);
@@ -7188,10 +7190,10 @@ const STORE = {
       }
       const f = list.shift();
       if (!f) {
+        if (done) farmScrapeNoteSweep(farmScrapeLock, ok);
         gbUnlock('farm-scrape', farmScrapeLock);
         gbLog(`farm scrape done: ${ok}/${done} ok, next in ${fmtSec(Math.round(wait / 1000))}`);
         flash(`farms ${ok}/${done} ok`);
-        if (done) farmScrapeNoteSweep(ok);
         return;
       }
       fetchFarmResources(f, (good, why) => {
@@ -7201,16 +7203,16 @@ const STORE = {
         if (!good && err === 'no endpoint matched') hard++;
 
         if (why === 'budget' || why === 'disabled' || why === 'disposed') {
+          if (ok || hard) farmScrapeNoteSweep(farmScrapeLock, ok);
           gbUnlock('farm-scrape', farmScrapeLock);
           gbLog(`farm scrape stopped (${why}): ${ok}/${done} ok`);
-          if (ok || hard) farmScrapeNoteSweep(ok);
           return;
         }
 
         if (!ok && hard >= FARM_SCRAPE_HARD_ABORT && list.length) {
+          farmScrapeNoteSweep(farmScrapeLock, 0);
           gbUnlock('farm-scrape', farmScrapeLock);
           gbLog(`farm scrape stopped (no endpoint after ${hard} villages): 0/${done} ok`);
-          farmScrapeNoteSweep(0);
           return;
         }
         gbTimeout(step, 700 + Math.random() * 300);

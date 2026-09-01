@@ -1246,7 +1246,12 @@
     if (n) { save(STORE.FARM_RES, state.farmResources); renderFarms(); }
     return n;
   }
-  function farmScrapeNoteSweep(okCount) {
+  function farmScrapeNoteSweep(token, okCount) {
+    // Reject breaker updates from a callback whose lock has expired or been
+    // re-acquired by a newer sweep - otherwise a stale 5min+ callback can
+    // re-trip dead AFTER the new sweep just cleared it. Call BEFORE gbUnlock:
+    // the token must still validate. OPEN-PLAN 1.3 / 8/23 audit #14.
+    if (!token || !gbLockTouch('farm-scrape', token)) return;
     const st = farmScrapeState();
     if (okCount > 0) {
       if (st.misses || st.dead) { st.misses = 0; st.dead = false; farmScrapeSaveState(); }
@@ -1432,7 +1437,7 @@
     const FARM_SCRAPE_HARD_ABORT = 3;
 
     (function step() {
-      gbLockTouch('farm-scrape', farmScrapeLock);
+      if (!gbLockTouch('farm-scrape', farmScrapeLock)) return;
       if (!hostEnabled() || automationPaused({})) {
         gbUnlock('farm-scrape', farmScrapeLock);
         gbLog(`farm scrape aborted (host/pause): ${ok}/${done} ok`);
@@ -1440,10 +1445,10 @@
       }
       const f = list.shift();
       if (!f) {
+        if (done) farmScrapeNoteSweep(farmScrapeLock, ok);
         gbUnlock('farm-scrape', farmScrapeLock);
         gbLog(`farm scrape done: ${ok}/${done} ok, next in ${fmtSec(Math.round(wait / 1000))}`);
         flash(`farms ${ok}/${done} ok`);
-        if (done) farmScrapeNoteSweep(ok);
         return;
       }
       fetchFarmResources(f, (good, why) => {
@@ -1453,16 +1458,16 @@
         if (!good && err === 'no endpoint matched') hard++;
 
         if (why === 'budget' || why === 'disabled' || why === 'disposed') {
+          if (ok || hard) farmScrapeNoteSweep(farmScrapeLock, ok);
           gbUnlock('farm-scrape', farmScrapeLock);
           gbLog(`farm scrape stopped (${why}): ${ok}/${done} ok`);
-          if (ok || hard) farmScrapeNoteSweep(ok);
           return;
         }
 
         if (!ok && hard >= FARM_SCRAPE_HARD_ABORT && list.length) {
+          farmScrapeNoteSweep(farmScrapeLock, 0);
           gbUnlock('farm-scrape', farmScrapeLock);
           gbLog(`farm scrape stopped (no endpoint after ${hard} villages): 0/${done} ok`);
-          farmScrapeNoteSweep(0);
           return;
         }
         gbTimeout(step, 700 + Math.random() * 300);
