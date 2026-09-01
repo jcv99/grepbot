@@ -170,10 +170,11 @@
         const actions = document.createElement('td');
         // Farm-town attacks use a different game path than Town/sendUnits. The old ATK button
         // prepared an objective that the sender intentionally refuses, so it is removed fail-closed.
-        const thrBtn = document.createElement('button');
-        thrBtn.textContent = 'THR'; thrBtn.title = 'Fijar umbral';
-        thrBtn.style.cssText = 'background:none;border:1px solid #555;color:#fc6;padding:1px 5px;cursor:pointer;font-size:11px';
-        thrBtn.addEventListener('click', () => editThreshold(f));
+        const thrBtn = gbButton('THR', {
+          title: 'Fijar umbral',
+          style: 'background:none;border:1px solid #555;color:#fc6;padding:1px 5px;cursor:pointer;font-size:11px',
+          onClick: () => editThreshold(f),
+        });
         actions.appendChild(thrBtn);
         tr.appendChild(actions);
         tbody.appendChild(tr);
@@ -3362,13 +3363,12 @@
   let replayWindow = '24h';
   // Replay-bar button factory: shared chrome style across <, >, fin.
   function replayButton(label, fn, disabled, title) {
-    const b = document.createElement('button');
-    b.type = 'button'; b.textContent = label;
-    b.style.cssText = 'background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);font-size:10px;padding:1px 6px;cursor:pointer';
-    b.disabled = !!disabled;
-    if (title) gbTip(b, title);
-    b.addEventListener('click', () => { fn(); renderReplay(); });
-    return b;
+    return gbButton(label, {
+      title,
+      disabled,
+      style: 'background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);font-size:10px;padding:1px 6px;cursor:pointer',
+      onClick: () => { fn(); renderReplay(); },
+    });
   }
   function renderReplay() {
     const pane = panel && panel.querySelector('.jrn-pane');
@@ -3381,12 +3381,12 @@
     const bar = document.createElement('div');
     bar.style.cssText = 'display:flex;gap:4px;align-items:center;font-size:10px;margin-bottom:4px;flex-wrap:wrap';
     for (const w of Object.keys(REPLAY_WINDOWS)) {
-      const b = document.createElement('button');
-      b.type = 'button'; b.textContent = w;
-      gbTip(b, `Reproducir la ventana ${w} (1h / 24h / 7d)`);
-      b.style.cssText = 'background:' + (w === replayWindow ? 'var(--gb-chrome-3)' : 'var(--gb-chrome)') +
-        ';border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);font-size:10px;padding:1px 6px;cursor:pointer';
-      b.addEventListener('click', () => { replayWindow = w; state.replayCursor = 0; renderReplay(); });
+      const b = gbButton(w, {
+        title: `Reproducir la ventana ${w} (1h / 24h / 7d)`,
+        style: 'background:' + (w === replayWindow ? 'var(--gb-chrome-3)' : 'var(--gb-chrome)') +
+          ';border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);font-size:10px;padding:1px 6px;cursor:pointer',
+        onClick: () => { replayWindow = w; state.replayCursor = 0; renderReplay(); },
+      });
       bar.appendChild(b);
     }
     bar.appendChild(replayButton('<', () => { state.replayCursor = Math.max(0, cur - 1); }, !rows.length, 'Decision anterior'));
@@ -3579,17 +3579,17 @@
       tr.appendChild(cell('k', r.state));
       tr.appendChild(cell('k', r.detail || '-'));
       const action = document.createElement('td');
-      const btn = document.createElement('button');
-      btn.textContent = 'limpiar';
-      btn.style.cssText = 'font-size:9px;padding:1px 5px;background:#262626;color:#f96;border:1px solid #555;border-radius:3px;cursor:pointer';
-      btn.title = 'Marca esta transaccion como abortada y libera el planner';
-      btn.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        if (!confirm('Limpiar la transaccion pendiente:\n' + r.intent + '\n\nSolo si ya se reconcilio con el servidor o rechazo definitivo.')) return;
-        const ok = txClearOne(r.intent);
-        flash(ok ? 'pendiente limpiada' : 'estado cambio, ya no era pendiente');
-        renderPending();
-        updateStatus();
+      const btn = gbButton('limpiar', {
+        title: 'Marca esta transaccion como abortada y libera el planner',
+        style: 'font-size:9px;padding:1px 5px;background:#262626;color:#f96;border:1px solid #555;border-radius:3px;cursor:pointer',
+        onClick: (ev) => {
+          ev.stopPropagation();
+          if (!confirm('Limpiar la transaccion pendiente:\n' + r.intent + '\n\nSolo si ya se reconcilio con el servidor o rechazo definitivo.')) return;
+          const ok = txClearOne(r.intent);
+          flash(ok ? 'pendiente limpiada' : 'estado cambio, ya no era pendiente');
+          renderPending();
+          updateStatus();
+        },
       });
       action.appendChild(btn);
       tr.appendChild(action);

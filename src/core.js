@@ -542,6 +542,28 @@ const STORE = {
     return n;
   }
 
+  // Shared DOM primitives (DEDUP PR 2). Presentation only — no game reads,
+  // no write state. Sites with extra semantics keep their own factory
+  // (queueCenterButton: leader check + rerender; nativeQButton: event guards).
+  function gbButton(label, opts) {
+    const o = opts || {};
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    if (o.className) b.className = o.className;
+    if (o.style) b.style.cssText = o.style;
+    if (o.title) gbTip(b, o.title);
+    if (o.disabled) b.disabled = true;
+    if (typeof o.onClick === 'function') b.addEventListener('click', o.onClick);
+    return b;
+  }
+  function gbEmptyState(text, className) {
+    const el = document.createElement('div');
+    el.className = className || 'gb-qc-empty';
+    el.textContent = text;
+    return el;
+  }
+
   function gbPaint(host, build, opts) {
     if (!host || typeof build !== 'function') return 'skip';
     const o = opts || {};

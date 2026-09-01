@@ -135,10 +135,10 @@
       lab.style.flex = '1';
       lab.textContent = `${t.name || townNameById(t.id)} (#${t.id}) ${t.intent}` +
         (t.arriveAt ? ' llega ' + new Date(t.arriveAt > 1e12 ? t.arriveAt : t.arriveAt * 1000).toLocaleString() : '');
-      const use = document.createElement('button');
-      use.type = 'button'; use.textContent = 'Usar';
-      use.title = 'Fija este objetivo en el planificador. Sigue necesitando confirmacion para enviar.';
-      use.addEventListener('click', () => { applyAttackTarget({ id: t.id, name: t.name, x: t.x, y: t.y, src: 'shared-plan' }); });
+      const use = gbButton('Usar', {
+        title: 'Fija este objetivo en el planificador. Sigue necesitando confirmacion para enviar.',
+        onClick: () => { applyAttackTarget({ id: t.id, name: t.name, x: t.x, y: t.y, src: 'shared-plan' }); },
+      });
       row.append(lab, use);
       box.appendChild(row);
     }

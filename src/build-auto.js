@@ -455,13 +455,10 @@
       maxEl.style.color = '#666';
       const btns = document.createElement('span');
       btns.style.cssText = 'display:flex;gap:2px';
-      const mkBtn = (txt, fn) => {
-        const b2 = document.createElement('button');
-        b2.textContent = txt;
-        b2.style.cssText = 'background:#333;border:1px solid #555;color:#eee;padding:0 4px;cursor:pointer;font-size:10px';
-        b2.addEventListener('click', fn);
-        return b2;
-      };
+      const mkBtn = (txt, fn) => gbButton(txt, {
+        style: 'background:#333;border:1px solid #555;color:#eee;padding:0 4px;cursor:pointer;font-size:10px',
+        onClick: fn,
+      });
       btns.appendChild(mkBtn('\u2191', () => { abMoveOrder(b, -1); renderAbQueue(); }));
       btns.appendChild(mkBtn('\u2193', () => { abMoveOrder(b, +1); renderAbQueue(); }));
       btns.appendChild(mkBtn('-', () => { abSetTarget(b, (state.abTargets[b] || 0) - 1); renderAbQueue(); }));

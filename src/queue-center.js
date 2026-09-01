@@ -131,7 +131,7 @@
     if (subtitle) { const sm = document.createElement('small'); sm.textContent = subtitle; if (subTitle) gbTip(sm, subTitle); left.appendChild(sm); }
     h.appendChild(left); box.appendChild(h); return { box, head: h };
   }
-  function queueCenterEmpty(text) { const d = document.createElement('div'); d.className = 'gb-qc-empty'; d.textContent = text; return d; }
+  function queueCenterEmpty(text) { return gbEmptyState(text); }
   function queueCenterSequence(title, entries) {
     const wrap = document.createElement('div'); wrap.className = 'gb-qc-sequence';
     const lab = document.createElement('b'); lab.className = 'gb-qc-sequence-title'; lab.textContent = title; wrap.appendChild(lab);

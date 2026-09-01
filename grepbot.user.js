@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.16
+// @version      6.0.17
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -548,6 +548,25 @@ const STORE = {
       n++;
     }
     return n;
+  }
+
+  function gbButton(label, opts) {
+    const o = opts || {};
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    if (o.className) b.className = o.className;
+    if (o.style) b.style.cssText = o.style;
+    if (o.title) gbTip(b, o.title);
+    if (o.disabled) b.disabled = true;
+    if (typeof o.onClick === 'function') b.addEventListener('click', o.onClick);
+    return b;
+  }
+  function gbEmptyState(text, className) {
+    const el = document.createElement('div');
+    el.className = className || 'gb-qc-empty';
+    el.textContent = text;
+    return el;
   }
 
   function gbPaint(host, build, opts) {
@@ -11088,13 +11107,10 @@ const STORE = {
       maxEl.style.color = '#666';
       const btns = document.createElement('span');
       btns.style.cssText = 'display:flex;gap:2px';
-      const mkBtn = (txt, fn) => {
-        const b2 = document.createElement('button');
-        b2.textContent = txt;
-        b2.style.cssText = 'background:#333;border:1px solid #555;color:#eee;padding:0 4px;cursor:pointer;font-size:10px';
-        b2.addEventListener('click', fn);
-        return b2;
-      };
+      const mkBtn = (txt, fn) => gbButton(txt, {
+        style: 'background:#333;border:1px solid #555;color:#eee;padding:0 4px;cursor:pointer;font-size:10px',
+        onClick: fn,
+      });
       btns.appendChild(mkBtn('\u2191', () => { abMoveOrder(b, -1); renderAbQueue(); }));
       btns.appendChild(mkBtn('\u2193', () => { abMoveOrder(b, +1); renderAbQueue(); }));
       btns.appendChild(mkBtn('-', () => { abSetTarget(b, (state.abTargets[b] || 0) - 1); renderAbQueue(); }));
@@ -11973,16 +11989,15 @@ const STORE = {
     tools.className = 'trade-towns-tools';
     tools.style.cssText = 'display:flex;align-items:center;gap:5px;margin:0 0 2px 12px;font-size:9px;color:#888';
     const mk = (txt, on) => {
-      const b = document.createElement('button');
-      b.type = 'button'; b.textContent = txt;
-      b.style.cssText = 'font-size:9px;padding:1px 6px';
-      b.addEventListener('click', () => {
-        ids.forEach(id => setTradeTownEnabled(id, on));
-        renderTradeTowns();
-        gbLog('trade towns', on ? 'ALL' : 'NONE');
-        if (state.autoTrade || state.autoTransport || state.autoDump || state.islandShip) tradeScan('town-filter');
+      return gbButton(txt, {
+        style: 'font-size:9px;padding:1px 6px',
+        onClick: () => {
+          ids.forEach(id => setTradeTownEnabled(id, on));
+          renderTradeTowns();
+          gbLog('trade towns', on ? 'ALL' : 'NONE');
+          if (state.autoTrade || state.autoTransport || state.autoDump || state.islandShip) tradeScan('town-filter');
+        },
       });
-      return b;
     };
     tools.appendChild(mk('Todas', true));
     tools.appendChild(mk('Ninguna', false));
@@ -18955,9 +18970,10 @@ const STORE = {
     const title = document.createElement('b');
     title.textContent = o.title || id;
     title.style.color = 'var(--gb-accent)';
-    const close = document.createElement('button');
-    close.type = 'button'; close.textContent = '\u00d7'; close.title = 'Cerrar';
-    close.style.cssText = 'margin-left:auto;background:none;border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);cursor:pointer;font-size:11px;line-height:1;padding:0 5px';
+    const close = gbButton('\u00d7', {
+      title: 'Cerrar',
+      style: 'margin-left:auto;background:none;border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);cursor:pointer;font-size:11px;line-height:1;padding:0 5px',
+    });
     head.append(title, close);
     const body = document.createElement('div');
     body.className = 'gb-widget-body';
@@ -19170,9 +19186,9 @@ const STORE = {
     const rerender=()=>{renderGoals();renderPlanner();renderDashboard();};
     for(const tid of ids){let name=tid;try{const t=gbTownModel(tid);name=(t&&t.getName&&t.getName())||name}catch(_){} const plan=goalPlanTown(tid);
       const head=document.createElement('div');head.style.cssText='display:flex;gap:4px;align-items:center;padding:4px;border-bottom:1px solid #333';const b=document.createElement('b');b.textContent=`${name} \u00b7 ${plan.progress}%`;head.appendChild(b);
-      const edit=document.createElement('button');edit.textContent='Edit';edit.title='Edit per-town goal overrides/reserves as JSON';edit.style.cssText='font-size:8px;padding:1px 4px';edit.addEventListener('click',()=>{const cur=goalTownCfg(tid),raw=prompt('Overrides de objetivos por ciudad JSON\nClaves: build, research, units, reserve:{hard,soft}, defensive (0..1, null = hereda del perfil), resource:{wood,stone,iron} (-1..+1)',JSON.stringify({build:cur.build,research:cur.research,units:cur.units,reserve:cur.reserve,defensive:cur.defensive!=null?cur.defensive:null,resource:cur.resource||{}},null,2));if(raw==null)return;try{if(!goalSetTownOverrides(tid,JSON.parse(raw)))throw new Error('invalid object');rerender()}catch(e){flash('JSON de objetivos invalido')}});head.appendChild(edit);
-      const rec=document.createElement('button');rec.textContent='Recalc';gbTip(rec,'Recalcular el plan de objetivos de esta ciudad');rec.style.cssText='font-size:8px;padding:1px 4px';rec.addEventListener('click',()=>{goalPlanTown(tid);rerender()});head.appendChild(rec);
-      const reset=document.createElement('button');reset.textContent='Reset Q';reset.title='Clear virtual-queue order/block/mandatory overrides';reset.style.cssText='font-size:8px;padding:1px 4px';reset.addEventListener('click',()=>{goalQueueReset(tid);rerender()});head.appendChild(reset);
+      const edit=gbButton('Edit',{title:'Edit per-town goal overrides/reserves as JSON',style:'font-size:8px;padding:1px 4px',onClick:()=>{const cur=goalTownCfg(tid),raw=prompt('Overrides de objetivos por ciudad JSON\nClaves: build, research, units, reserve:{hard,soft}, defensive (0..1, null = hereda del perfil), resource:{wood,stone,iron} (-1..+1)',JSON.stringify({build:cur.build,research:cur.research,units:cur.units,reserve:cur.reserve,defensive:cur.defensive!=null?cur.defensive:null,resource:cur.resource||{}},null,2));if(raw==null)return;try{if(!goalSetTownOverrides(tid,JSON.parse(raw)))throw new Error('invalid object');rerender()}catch(e){flash('JSON de objetivos invalido')}}});head.appendChild(edit);
+      const rec=gbButton('Recalc',{title:'Recalcular el plan de objetivos de esta ciudad',style:'font-size:8px;padding:1px 4px',onClick:()=>{goalPlanTown(tid);rerender()}});head.appendChild(rec);
+      const reset=gbButton('Reset Q',{title:'Clear virtual-queue order/block/mandatory overrides',style:'font-size:8px;padding:1px 4px',onClick:()=>{goalQueueReset(tid);rerender()}});head.appendChild(reset);
       const sel=document.createElement('select');sel.title='Perfil de la ciudad. "Personalizado" = usa los overrides JSON de esta ciudad (boton Edit); cualquier otro perfil los sustituye.';sel.style.cssText='background:#111;color:#cfc;border:1px solid #333;font-size:9px;margin-left:auto';for(const [id,p] of Object.entries(profiles)){const o=document.createElement('option');o.value=id;o.textContent=p.label||id;sel.appendChild(o)}sel.value=plan.profile;sel.addEventListener('change',()=>{goalSetProfile(tid,sel.value);rerender()});head.appendChild(sel);box.appendChild(head);
       if(cdIsProfile(plan.profile)){const c=cdTownState(tid),row=document.createElement('div');row.style.cssText='display:flex;gap:10px;align-items:center;padding:2px 6px;border-bottom:1px solid #262626;font-size:9px;color:#aaa';const st=document.createElement('b');st.textContent='City Designer: '+cdPhase(tid)+' \u00b7 rev '+c.revision;st.style.color='#9fd';row.appendChild(st);const mk=(key,label,title)=>{const lab=document.createElement('label');lab.title=title;lab.style.cssText='display:flex;gap:3px;align-items:center';const cb=document.createElement('input');cb.type='checkbox';cb.checked=!!c[key];cb.addEventListener('change',()=>{cdSetOption(tid,key,cb.checked);rerender()});lab.appendChild(cb);lab.appendChild(document.createTextNode(label));row.appendChild(lab)};mk('stripEnabled','permitir strip','Permite demoliciones finales solo tras todos los gates de seguridad');mk('safeBackline','backline segura','Confirmaci\u00f3n persistente del usuario: esta ciudad es backline segura');mk('wallMax','muralla MAX','ON: el City Designer lleva la muralla al m\u00e1ximo. OFF: no la construye y, si autorizas strip, el objetivo final es 0.');if(cdCanonicalProfile(plan.profile)==='cd_slinger_50ls')mk('breakthrough','Penetraci\u00f3n','Investigaci\u00f3n t\u00e1ctica opcional; OFF por defecto');box.appendChild(row)}
 
@@ -22576,10 +22592,10 @@ const STORE = {
       lab.style.flex = '1';
       lab.textContent = `${t.name || townNameById(t.id)} (#${t.id}) ${t.intent}` +
         (t.arriveAt ? ' llega ' + new Date(t.arriveAt > 1e12 ? t.arriveAt : t.arriveAt * 1000).toLocaleString() : '');
-      const use = document.createElement('button');
-      use.type = 'button'; use.textContent = 'Usar';
-      use.title = 'Fija este objetivo en el planificador. Sigue necesitando confirmacion para enviar.';
-      use.addEventListener('click', () => { applyAttackTarget({ id: t.id, name: t.name, x: t.x, y: t.y, src: 'shared-plan' }); });
+      const use = gbButton('Usar', {
+        title: 'Fija este objetivo en el planificador. Sigue necesitando confirmacion para enviar.',
+        onClick: () => { applyAttackTarget({ id: t.id, name: t.name, x: t.x, y: t.y, src: 'shared-plan' }); },
+      });
       row.append(lab, use);
       box.appendChild(row);
     }
@@ -26258,7 +26274,7 @@ const STORE = {
     if (subtitle) { const sm = document.createElement('small'); sm.textContent = subtitle; if (subTitle) gbTip(sm, subTitle); left.appendChild(sm); }
     h.appendChild(left); box.appendChild(h); return { box, head: h };
   }
-  function queueCenterEmpty(text) { const d = document.createElement('div'); d.className = 'gb-qc-empty'; d.textContent = text; return d; }
+  function queueCenterEmpty(text) { return gbEmptyState(text); }
   function queueCenterSequence(title, entries) {
     const wrap = document.createElement('div'); wrap.className = 'gb-qc-sequence';
     const lab = document.createElement('b'); lab.className = 'gb-qc-sequence-title'; lab.textContent = title; wrap.appendChild(lab);
@@ -26876,10 +26892,11 @@ const STORE = {
         cells.forEach(() => tr.appendChild(document.createElement('td')));
         const actions = document.createElement('td');
 
-        const thrBtn = document.createElement('button');
-        thrBtn.textContent = 'THR'; thrBtn.title = 'Fijar umbral';
-        thrBtn.style.cssText = 'background:none;border:1px solid #555;color:#fc6;padding:1px 5px;cursor:pointer;font-size:11px';
-        thrBtn.addEventListener('click', () => editThreshold(f));
+        const thrBtn = gbButton('THR', {
+          title: 'Fijar umbral',
+          style: 'background:none;border:1px solid #555;color:#fc6;padding:1px 5px;cursor:pointer;font-size:11px',
+          onClick: () => editThreshold(f),
+        });
         actions.appendChild(thrBtn);
         tr.appendChild(actions);
         tbody.appendChild(tr);
@@ -29893,13 +29910,12 @@ const STORE = {
   let replayWindow = '24h';
 
   function replayButton(label, fn, disabled, title) {
-    const b = document.createElement('button');
-    b.type = 'button'; b.textContent = label;
-    b.style.cssText = 'background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);font-size:10px;padding:1px 6px;cursor:pointer';
-    b.disabled = !!disabled;
-    if (title) gbTip(b, title);
-    b.addEventListener('click', () => { fn(); renderReplay(); });
-    return b;
+    return gbButton(label, {
+      title,
+      disabled,
+      style: 'background:var(--gb-chrome);border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);font-size:10px;padding:1px 6px;cursor:pointer',
+      onClick: () => { fn(); renderReplay(); },
+    });
   }
   function renderReplay() {
     const pane = panel && panel.querySelector('.jrn-pane');
@@ -29912,12 +29928,12 @@ const STORE = {
     const bar = document.createElement('div');
     bar.style.cssText = 'display:flex;gap:4px;align-items:center;font-size:10px;margin-bottom:4px;flex-wrap:wrap';
     for (const w of Object.keys(REPLAY_WINDOWS)) {
-      const b = document.createElement('button');
-      b.type = 'button'; b.textContent = w;
-      gbTip(b, `Reproducir la ventana ${w} (1h / 24h / 7d)`);
-      b.style.cssText = 'background:' + (w === replayWindow ? 'var(--gb-chrome-3)' : 'var(--gb-chrome)') +
-        ';border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);font-size:10px;padding:1px 6px;cursor:pointer';
-      b.addEventListener('click', () => { replayWindow = w; state.replayCursor = 0; renderReplay(); });
+      const b = gbButton(w, {
+        title: `Reproducir la ventana ${w} (1h / 24h / 7d)`,
+        style: 'background:' + (w === replayWindow ? 'var(--gb-chrome-3)' : 'var(--gb-chrome)') +
+          ';border:1px solid var(--gb-chrome-3);color:var(--gb-fg-2);font-size:10px;padding:1px 6px;cursor:pointer',
+        onClick: () => { replayWindow = w; state.replayCursor = 0; renderReplay(); },
+      });
       bar.appendChild(b);
     }
     bar.appendChild(replayButton('<', () => { state.replayCursor = Math.max(0, cur - 1); }, !rows.length, 'Decision anterior'));
@@ -30103,17 +30119,17 @@ const STORE = {
       tr.appendChild(cell('k', r.state));
       tr.appendChild(cell('k', r.detail || '-'));
       const action = document.createElement('td');
-      const btn = document.createElement('button');
-      btn.textContent = 'limpiar';
-      btn.style.cssText = 'font-size:9px;padding:1px 5px;background:#262626;color:#f96;border:1px solid #555;border-radius:3px;cursor:pointer';
-      btn.title = 'Marca esta transaccion como abortada y libera el planner';
-      btn.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        if (!confirm('Limpiar la transaccion pendiente:\n' + r.intent + '\n\nSolo si ya se reconcilio con el servidor o rechazo definitivo.')) return;
-        const ok = txClearOne(r.intent);
-        flash(ok ? 'pendiente limpiada' : 'estado cambio, ya no era pendiente');
-        renderPending();
-        updateStatus();
+      const btn = gbButton('limpiar', {
+        title: 'Marca esta transaccion como abortada y libera el planner',
+        style: 'font-size:9px;padding:1px 5px;background:#262626;color:#f96;border:1px solid #555;border-radius:3px;cursor:pointer',
+        onClick: (ev) => {
+          ev.stopPropagation();
+          if (!confirm('Limpiar la transaccion pendiente:\n' + r.intent + '\n\nSolo si ya se reconcilio con el servidor o rechazo definitivo.')) return;
+          const ok = txClearOne(r.intent);
+          flash(ok ? 'pendiente limpiada' : 'estado cambio, ya no era pendiente');
+          renderPending();
+          updateStatus();
+        },
       });
       action.appendChild(btn);
       tr.appendChild(action);

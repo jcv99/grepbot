@@ -37,16 +37,15 @@
     tools.className = 'trade-towns-tools';
     tools.style.cssText = 'display:flex;align-items:center;gap:5px;margin:0 0 2px 12px;font-size:9px;color:#888';
     const mk = (txt, on) => {
-      const b = document.createElement('button');
-      b.type = 'button'; b.textContent = txt;
-      b.style.cssText = 'font-size:9px;padding:1px 6px';
-      b.addEventListener('click', () => {
-        ids.forEach(id => setTradeTownEnabled(id, on));
-        renderTradeTowns();
-        gbLog('trade towns', on ? 'ALL' : 'NONE');
-        if (state.autoTrade || state.autoTransport || state.autoDump || state.islandShip) tradeScan('town-filter');
+      return gbButton(txt, {
+        style: 'font-size:9px;padding:1px 6px',
+        onClick: () => {
+          ids.forEach(id => setTradeTownEnabled(id, on));
+          renderTradeTowns();
+          gbLog('trade towns', on ? 'ALL' : 'NONE');
+          if (state.autoTrade || state.autoTransport || state.autoDump || state.islandShip) tradeScan('town-filter');
+        },
       });
-      return b;
     };
     tools.appendChild(mk('Todas', true));
     tools.appendChild(mk('Ninguna', false));
