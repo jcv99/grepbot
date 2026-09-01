@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.15-rc4-dev19
+// @version      6.0.15-rc4-dev20
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -258,6 +258,7 @@ const STORE = {
     PT_TRADE_TPL: 'grepbot:pt-trade-tpl',
     PT_VIEW_URL: 'grepbot:pt-view-url',
     SPELL_COOLDOWN: 'grepbot:spell-cooldown',
+    RECRUIT_QCAP: 'grepbot:recruit-qcap',
     FARM_SCRAPE: 'grepbot:farm-scrape',
     TOWN_ACTION: 'grepbot:town-action',
     TOWN_LIST_ACTION: 'grepbot:town-list-action',
@@ -296,7 +297,7 @@ const STORE = {
     STORE.TRADE_TOWNS, STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.ISLAND_BENEFICIARIES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.REINFORCE_PLAN, STORE.REINFORCE_HISTORY, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.SNAPSHOTS, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER, STORE.CONFIG_UNDO, STORE.CONFIG_REDO,
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
-    STORE.SPELL_COOLDOWN,
+    STORE.SPELL_COOLDOWN, STORE.RECRUIT_QCAP,
 
     STORE.FARM_SCRAPE, STORE.FARM_SCRAPE_STATE, STORE.TOWN_ACTION, STORE.TOWN_LIST_ACTION,
     STORE.PT_TRADE_TPL, STORE.PT_VIEW_URL,
@@ -1014,6 +1015,7 @@ const STORE = {
     autoFavor: load(STORE.AUTO_FAVOR, false),
     favorCfg: load(STORE.FAVOR_CFG, { god: 'athena', unit: 'harpy', thresh: 200, maxConcurrent: 2 }),
     spellCooldown: load(STORE.SPELL_COOLDOWN, {}),
+    recruitQueueCap: load(wkey(STORE.RECRUIT_QCAP), {}),
     autoWonder: load(STORE.AUTO_WONDER, false),
 
     wonderCfg: load(STORE.WONDER_CFG, { wonderId: null, islandX: null, islandY: null, wood: 0, stone: 0, iron: 0, reserve: 5000, budget: 50000 }),
@@ -2721,7 +2723,7 @@ const STORE = {
           const c = CULTURE_COSTS[type];
           out(townId,{wood:+c.wood||0,stone:+c.stone||0,iron:+c.iron||0});
         }
-      } else if (feature === 'cave') {
+      } else if (feature === 'cave' || feature === 'cave-emergency') {
         out(townId,{iron:+a.iron_to_store||0});
       } else return [];
     } catch (_) { return null; }
@@ -2840,7 +2842,7 @@ const STORE = {
     circuitSave();
   }
   const TX_WRITE_FEATURES = new Set([
-    'farm', 'collect', 'bandit', 'build', 'instant-build', 'instant-research', 'cave', 'culture', 'trade', 'ruraltrade', 'rurallevel',
+    'farm', 'collect', 'bandit', 'build', 'instant-build', 'instant-research', 'cave', 'cave-emergency', 'culture', 'trade', 'ruraltrade', 'rurallevel',
     'research', 'merchant', 'favor', 'wonder', 'militia', 'dodge', 'spell', 'recruit', 'villrecruit', 'quest', 'attack',
     'cancel', 'hero', 'pttrade',
 
@@ -6646,6 +6648,12 @@ const STORE = {
 
     if (claimType === 'resources') {
       if (farmDailyCapMarked(farm.vill_id)) return done('skip:daily-cap');
+
+      const dailyLeft = farmDailyLeft(farm);
+      if (dailyLeft != null && dailyLeft <= 0) {
+        farmMarkDailyCap(farm.vill_id);
+        return done('skip:daily-cap');
+      }
       let blocked = false;
       if (whCache) {
         if (!(tid in whCache)) whCache[tid] = townWarehouseBlocks(tid);
@@ -17489,7 +17497,26 @@ const STORE = {
     } catch (_) {}
     const dom = recruitQueueDomCapacity(townId, unitId);
     if (dom) return { max:dom.max, source:dom.source, domLen:dom.len };
+    const learned = recruitQueueCapLearned(townId, recruitQueueClass(gbGameDataLookup('units', unitId), unitId));
+    if (learned != null) return { max:learned, source:'learned-reject' };
     return { max:null, source:'capacity-unreadable' };
+  }
+
+  function recruitQueueCapLearned(townId, queueClass) {
+    const t = state.recruitQueueCap && state.recruitQueueCap[String(townId)];
+    const n = t && +t[queueClass];
+    return Number.isFinite(n) && n > 0 && n <= 50 ? n : null;
+  }
+  function recruitQueueCapStamp(townId, queueClass, len) {
+    const n = Math.floor(+len);
+    if (!queueClass || queueClass === 'unknown' || !Number.isFinite(n) || n < 1 || n > 50) return;
+    if (!state.recruitQueueCap || typeof state.recruitQueueCap !== 'object') state.recruitQueueCap = {};
+    const t = state.recruitQueueCap[String(townId)] || (state.recruitQueueCap[String(townId)] = {});
+    const cap = Math.min(+t[queueClass] || Infinity, n);
+    if (+t[queueClass] === cap) return;
+    t[queueClass] = cap;
+    try { save(wkey(STORE.RECRUIT_QCAP), state.recruitQueueCap); } catch (_) {}
+    gbLog(`recruit: learned queue cap ${cap} for town ${townId} ${queueClass} lane (server full at ${n})`);
   }
   function recruitQueueInfo(townId,unitId) {
     const t = gbTownModel(townId);
@@ -17765,11 +17792,15 @@ const STORE = {
         gbLog(`recruit: town ${job.townId} ${job.amount}\u00d7 ${job.unit}`);
         if (job.nativeJobId) nativeQueueRecruitApplied(job.townId, job.nativeLane, job.nativeJobId, job.amount, job.nativeToken);
       } else {
+        const ambiguous=err === 'pending' || err === 'timeout_unknown';
+        const expectedWait=gbExpectedServerReject('recruit', err);
+
+        if (!ambiguous && expectedWait === 'waiting-queue-full' && valid && valid.queue) {
+          recruitQueueCapStamp(job.townId, valid.queue.queueClass, valid.queue.len);
+        }
         if (job.nativeJobId) {
           const head = nativeQueueList(job.townId, job.nativeLane, false).find(j=>j&&j.id===job.nativeJobId);
           if (head) {
-            const ambiguous=err === 'pending' || err === 'timeout_unknown';
-            const expectedWait=gbExpectedServerReject('recruit', err);
 
             if (!ambiguous && expectedWait === 'waiting-queue-full') head.slotRetryAt = Date.now() + 300000;
             if(ambiguous&&head.inflight)head.reconcile=Object.assign({},head.inflight);
@@ -18127,6 +18158,11 @@ const STORE = {
         gbUnlock(lockName, lockToken);
         if (err) {
           stopped = true;
+          if (err !== 'pending' && err !== 'timeout_unknown'
+            && gbExpectedServerReject('recruit', err) === 'waiting-queue-full'
+            && validated && validated.queue) {
+            recruitQueueCapStamp(townId, validated.queue.queueClass, validated.queue.len);
+          }
           gbLogT(`batch-recruit-partial-${townId}`, 60000, `batch recruit: stopped at row ${idx}/${list.length} (${err})`);
           return;
         }

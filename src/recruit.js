@@ -514,7 +514,28 @@
     } catch (_) {}
     const dom = recruitQueueDomCapacity(townId, unitId);
     if (dom) return { max:dom.max, source:dom.source, domLen:dom.len };
+    const learned = recruitQueueCapLearned(townId, recruitQueueClass(gbGameDataLookup('units', unitId), unitId));
+    if (learned != null) return { max:learned, source:'learned-reject' };
     return { max:null, source:'capacity-unreadable' };
+  }
+  // Queue capacity learned from an authoritative "queue full" server reject:
+  // the lane held len orders when the server refused one more, so cap <= len.
+  // Stamped only from the exact-match waiting-queue-full mapping, never guessed.
+  function recruitQueueCapLearned(townId, queueClass) {
+    const t = state.recruitQueueCap && state.recruitQueueCap[String(townId)];
+    const n = t && +t[queueClass];
+    return Number.isFinite(n) && n > 0 && n <= 50 ? n : null;
+  }
+  function recruitQueueCapStamp(townId, queueClass, len) {
+    const n = Math.floor(+len);
+    if (!queueClass || queueClass === 'unknown' || !Number.isFinite(n) || n < 1 || n > 50) return;
+    if (!state.recruitQueueCap || typeof state.recruitQueueCap !== 'object') state.recruitQueueCap = {};
+    const t = state.recruitQueueCap[String(townId)] || (state.recruitQueueCap[String(townId)] = {});
+    const cap = Math.min(+t[queueClass] || Infinity, n);
+    if (+t[queueClass] === cap) return;
+    t[queueClass] = cap;
+    try { save(wkey(STORE.RECRUIT_QCAP), state.recruitQueueCap); } catch (_) {}
+    gbLog(`recruit: learned queue cap ${cap} for town ${townId} ${queueClass} lane (server full at ${n})`);
   }
   function recruitQueueInfo(townId,unitId) {
     const t = gbTownModel(townId);
@@ -797,11 +818,17 @@
         gbLog(`recruit: town ${job.townId} ${job.amount}\u00d7 ${job.unit}`);
         if (job.nativeJobId) nativeQueueRecruitApplied(job.townId, job.nativeLane, job.nativeJobId, job.amount, job.nativeToken);
       } else {
+        const ambiguous=err === 'pending' || err === 'timeout_unknown';
+        const expectedWait=gbExpectedServerReject('recruit', err);
+        // Server says the lane is full while the client said it had room: the
+        // observed length is an authoritative cap — learn it so later scans
+        // block locally instead of re-posting into the same red popup.
+        if (!ambiguous && expectedWait === 'waiting-queue-full' && valid && valid.queue) {
+          recruitQueueCapStamp(job.townId, valid.queue.queueClass, valid.queue.len);
+        }
         if (job.nativeJobId) {
           const head = nativeQueueList(job.townId, job.nativeLane, false).find(j=>j&&j.id===job.nativeJobId);
           if (head) {
-            const ambiguous=err === 'pending' || err === 'timeout_unknown';
-            const expectedWait=gbExpectedServerReject('recruit', err);
             // Server says the lane is full while the client said it had room:
             // back the head off instead of burning a budget slot and stacking
             // decision-memory strikes every cadence.
@@ -1167,6 +1194,11 @@
         gbUnlock(lockName, lockToken);
         if (err) {
           stopped = true;
+          if (err !== 'pending' && err !== 'timeout_unknown'
+            && gbExpectedServerReject('recruit', err) === 'waiting-queue-full'
+            && validated && validated.queue) {
+            recruitQueueCapStamp(townId, validated.queue.queueClass, validated.queue.len);
+          }
           gbLogT(`batch-recruit-partial-${townId}`, 60000, `batch recruit: stopped at row ${idx}/${list.length} (${err})`);
           return;
         }

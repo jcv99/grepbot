@@ -886,6 +886,13 @@
 
     if (claimType === 'resources') {
       if (farmDailyCapMarked(farm.vill_id)) return done('skip:daily-cap');
+      // Local daily-cap precheck: loot vs max_resources_per_day is readable, so
+      // the cap can be learned without spending one server reject per village.
+      const dailyLeft = farmDailyLeft(farm);
+      if (dailyLeft != null && dailyLeft <= 0) {
+        farmMarkDailyCap(farm.vill_id);
+        return done('skip:daily-cap');
+      }
       let blocked = false;
       if (whCache) {
         if (!(tid in whCache)) whCache[tid] = townWarehouseBlocks(tid);

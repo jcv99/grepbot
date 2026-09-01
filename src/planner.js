@@ -119,7 +119,7 @@
           const c = CULTURE_COSTS[type];
           out(townId,{wood:+c.wood||0,stone:+c.stone||0,iron:+c.iron||0});
         }
-      } else if (feature === 'cave') {
+      } else if (feature === 'cave' || feature === 'cave-emergency') {
         out(townId,{iron:+a.iron_to_store||0});
       } else return [];
     } catch (_) { return null; }
@@ -238,7 +238,7 @@
     circuitSave();
   }
   const TX_WRITE_FEATURES = new Set([
-    'farm', 'collect', 'bandit', 'build', 'instant-build', 'instant-research', 'cave', 'culture', 'trade', 'ruraltrade', 'rurallevel',
+    'farm', 'collect', 'bandit', 'build', 'instant-build', 'instant-research', 'cave', 'cave-emergency', 'culture', 'trade', 'ruraltrade', 'rurallevel',
     'research', 'merchant', 'favor', 'wonder', 'militia', 'dodge', 'spell', 'recruit', 'villrecruit', 'quest', 'attack',
     'cancel', 'hero', 'pttrade',
 
