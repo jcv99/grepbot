@@ -1136,17 +1136,19 @@
     return parts ? `${parts[1]}-${Number(parts[2])}-${Number(parts[3])}` : serverDay;
   }
   function farmClaimsToday() {
-    const day = farmDayKey();
-    if (state.farmClaimsDay !== day) {
-      state.farmClaimsDay = day;
-      state.farmClaimsToday = {};
-      save(STORE.FARM_CLAIMS_DAY, day);
-      save(STORE.FARM_CLAIMS_TODAY, state.farmClaimsToday);
-    }
+    // Pure read. Rollover lives in farmClaimCount so the day boundary is
+    // crossed only under the 'claim' lock — a read from any other path can
+    // no longer wipe the counts mid-batch.
     if (!state.farmClaimsToday || typeof state.farmClaimsToday !== 'object') state.farmClaimsToday = {};
     return state.farmClaimsToday;
   }
   function farmClaimCount(villId) {
+    const day = farmDayKey();
+    if (state.farmClaimsDay !== day) {
+      state.farmClaimsDay = day;
+      state.farmClaimsToday = {};
+      saveSoon(STORE.FARM_CLAIMS_DAY, day);
+    }
     const c = farmClaimsToday();
     c[String(villId)] = (+c[String(villId)] || 0) + 1;
 
