@@ -339,10 +339,17 @@
     }
   }
   let banditLoopTimer = null;
+  let banditTimer = null;
   function banditClearLoop() {
     if (banditLoopTimer) {
       try { gbClearTimeout(banditLoopTimer); } catch (_) {}
       banditLoopTimer = null;
+    }
+  }
+  function banditClearScan() {
+    if (banditTimer) {
+      try { gbClearTimeout(banditTimer); } catch (_) {}
+      banditTimer = null;
     }
   }
   function banditScheduleNext() {

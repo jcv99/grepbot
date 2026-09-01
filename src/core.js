@@ -711,6 +711,8 @@ const STORE = {
     if (gbTabLeader) gbLeaderHandoverFlush();
 
     try { if (typeof gbAjaxDispose === 'function') gbAjaxDispose(); } catch (_) {}
+    try { if (typeof banditClearLoop === 'function') banditClearLoop(); } catch (_) {}
+    try { if (typeof banditClearScan === 'function') banditClearScan(); } catch (_) {}
     gbClearTimers();
     gbAbortXhrs();
     gbRestoreHooks();

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.15-rc4-dev12
+// @version      6.0.15-rc4-dev13
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -717,6 +717,8 @@ const STORE = {
     if (gbTabLeader) gbLeaderHandoverFlush();
 
     try { if (typeof gbAjaxDispose === 'function') gbAjaxDispose(); } catch (_) {}
+    try { if (typeof banditClearLoop === 'function') banditClearLoop(); } catch (_) {}
+    try { if (typeof banditClearScan === 'function') banditClearScan(); } catch (_) {}
     gbClearTimers();
     gbAbortXhrs();
     gbRestoreHooks();
@@ -7772,7 +7774,6 @@ const STORE = {
     }
   }
   ensureDomObserver();
-  let banditTimer = null;
   let banditAttackSentAt = 0;
   let banditIdleUntil = 0;
   function banditIdle(ms, cap) { banditIdleUntil = Date.now() + Math.min(ms, cap || 30000); }
@@ -8116,10 +8117,17 @@ const STORE = {
     }
   }
   let banditLoopTimer = null;
+  let banditTimer = null;
   function banditClearLoop() {
     if (banditLoopTimer) {
       try { gbClearTimeout(banditLoopTimer); } catch (_) {}
       banditLoopTimer = null;
+    }
+  }
+  function banditClearScan() {
+    if (banditTimer) {
+      try { gbClearTimeout(banditTimer); } catch (_) {}
+      banditTimer = null;
     }
   }
   function banditScheduleNext() {
