@@ -1,48 +1,92 @@
-  function txSave() { save(STORE.TX_STATE, state.txState); }
+  const TX_TERMINAL_TTL = 30 * 60 * 1000;
+  const TX_INSTANT_TOMBSTONE_TTL = 24 * 60 * 60 * 1000;
+  const TX_PRE_SEND_STALE_MS = 60 * 1000;
+  const TX_UNKNOWN_RECHECK_MS = 30 * 1000;
+  const TX_UNKNOWN_MAX_MS = 10 * 60 * 1000;
+  const TX_MANUAL_REVIEW_TTL_MS = 30 * 60 * 1000;
+  const TX_PERSISTENT_MANUAL_REVIEW_FEATURES = new Set([
+    'attack', 'support', 'spy', 'cancel',
+    // Already classified as high-impact by safeModeBlock().
+    'favor', 'wonder', 'rurallevel', 'merchant', 'spell', 'airaw',
+    // A duplicate dodge can send another troop movement.
+    'dodge',
+  ]);
+  let txSeq = 0;
+  if (!state.txState || typeof state.txState !== 'object' || Array.isArray(state.txState)) state.txState = {};
+  function txManualReviewPermanent(tx) {
+    if (!tx) return false;
+    const feature = String(tx.feature || '');
+    if (TX_PERSISTENT_MANUAL_REVIEW_FEATURES.has(feature)) return true;
+    // Olympic culture spends premium currency; other celebrations retain TTL.
+    return feature === 'culture' && /olympic/i.test(String((tx.snapshot && tx.snapshot.type) || tx.endpoint || ''));
+  }
+  function txLoadNormalize(reason) {
+    const now = Date.now();
+    let changed = false;
+    const justUnknown = new Set();
+    for (const key of Object.keys(state.txState)) {
+      const t = state.txState[key];
+      if (!t || typeof t !== 'object') { delete state.txState[key]; changed = true; continue; }
+      // planned/precheck are pre-send states. rawSend is only invoked after the
+      // state has synchronously been persisted as sending, so they are safe to
+      // abort after a reload/leader handover.
+      if (t.state === 'planned' || t.state === 'precheck') {
+        t.state = 'aborted';
+        t.detail = `stale pre-send transaction cleared (${reason || 'normalize'})`;
+        t.updatedAt = now;
+        plannerRelease(t, 'stale-pre-send');
+        changed = true;
+        continue;
+      }
+      if (t.state === 'sending' || t.state === 'confirming' || t.state === 'reconciling') {
+        t.state = 'unknown';
+        t.unknownAt = now;
+        t.detail = `reloaded while in-flight (${reason || 'normalize'})`;
+        t.updatedAt = now;
+        // Unknown is a diagnostic/dedupe state, not a future resource reserve.
+        plannerRelease(t, 'unknown-after-reload');
+        justUnknown.add(key);
+        changed = true;
+      }
+    }
+    for (const key of Object.keys(state.txState)) {
+      const t = state.txState[key];
+      if (!t) continue;
+      const terminal = /^(committed|failed|aborted|dryrun)$/.test(t.state || '');
+      const terminalTtl=t.state==='committed'&&t.snapshot&&t.snapshot.kind==='instant'?TX_INSTANT_TOMBSTONE_TTL:TX_TERMINAL_TTL;
+      if (terminal && now - (+t.updatedAt || +t.createdAt || 0) > terminalTtl) { delete state.txState[key]; changed = true; continue; }
+      if (justUnknown.has(key)) continue;
+      if (t.state === 'unknown' && now - (+t.unknownAt || +t.updatedAt || 0) > TX_UNKNOWN_MAX_MS) {
+        t.state = 'manual-review';
+        t.detail = 'unknown outcome expired; bounded manual-review tombstone';
+        t.updatedAt = now;
+        plannerRelease(t, 'manual-review');
+        changed = true;
+        continue;
+      }
+      // Only ambiguous high-impact/non-idempotent features retain a permanent
+      // per-intent tombstone. Low-risk reviews keep the bounded legacy policy.
+      if (t.state === 'manual-review' && !txManualReviewPermanent(t) && now - (+t.updatedAt || +t.unknownAt || +t.createdAt || 0) > TX_MANUAL_REVIEW_TTL_MS) {
+        t.state = 'failed';
+        t.detail = 'manual-review tombstone expired; retry allowed';
+        t.updatedAt = now;
+        plannerRelease(t, 'manual-review-expired');
+        changed = true;
+      }
+    }
+    if (changed && gbTabLeader) save(STORE.TX_STATE, state.txState);
+    return changed;
+  }
+  txLoadNormalize('boot');
+  function txSave() {
+    // Operational TX state is leader-owned. Followers may inspect it, but never
+    // persist their stale in-memory snapshot over the active leader.
+    if (!gbTabLeader) return false;
+    return save(STORE.TX_STATE, state.txState);
+  }
   function txRecentlyCommitted(intent, maxAgeMs) {
     const t = state.txState && state.txState[intent];
     return !!(t && t.state === 'committed' && Date.now() - (+t.updatedAt || +t.createdAt || 0) < Math.max(1000, +maxAgeMs || 60000));
-  }
-  // Reconciliation is over once an entry reaches manual-review, so the
-  // before/after snapshot is dead weight that never gets read again - except
-  // `kind`, which txPrune uses for the instant tombstone TTL, and `qid`, which
-  // questClearReviewForTx needs to release the quest when the user clears the
-  // row. Keep exactly those two.
-  function txCompactReview(t) {
-    if (!t || !t.snapshot) return false;
-    const s = t.snapshot;
-    const keys = Object.keys(s);
-    if (keys.length <= 2 && !keys.some(k => k !== 'kind' && k !== 'qid')) return false;
-    const lean = {};
-    if (s.kind != null) lean.kind = s.kind;
-    if (s.qid != null) lean.qid = s.qid;
-    t.snapshot = lean;
-    return true;
-  }
-  // Oldest-first, age-gated cap on the manual-review pile. Dropping a tombstone
-  // does re-open its intent to a future post, which is why nothing younger than
-  // TX_REVIEW_MIN_AGE_MS is ever eligible and why the drop is logged: a week-old
-  // ambiguous write is not something the next cadence tick will repeat blindly -
-  // every feature re-checks its own preconditions before it posts.
-  function txCapReview() {
-    const rows = [];
-    for (const key of Object.keys(state.txState || {})) {
-      const t = state.txState[key];
-      if (t && t.state === 'manual-review') rows.push({ key, at: +t.updatedAt || +t.unknownAt || +t.createdAt || 0 });
-    }
-    if (rows.length <= TX_REVIEW_MAX) return false;
-    rows.sort((a, b) => a.at - b.at);
-    const cut = Date.now() - TX_REVIEW_MIN_AGE_MS;
-    let drop = rows.length - TX_REVIEW_MAX;
-    let dropped = 0;
-    for (const r of rows) {
-      if (drop <= 0) break;
-      if (r.at > cut) break;
-      delete state.txState[r.key];
-      dropped++; drop--;
-    }
-    if (dropped) gbLog(`tx: dropped ${dropped} manual-review tombstone(s) older than 7d (cap ${TX_REVIEW_MAX}, ${rows.length} held)`);
-    return dropped > 0;
   }
   function txPrune() {
     const now = Date.now();
@@ -50,29 +94,19 @@
     for (const key of Object.keys(state.txState)) {
       const t = state.txState[key];
       if (!t) { delete state.txState[key]; changed = true; continue; }
-      // Runtime twin of txLoadNormalize's in-flight flip: a post wedged in
-      // planned/precheck/sending/confirming/reconciling (a reconcile chain
-      // that died on an exception, a pre-fix inconclusive reconcile) used to
-      // block its intent until the next reload. 10min is an order of magnitude
-      // past the worst legit in-flight window (BRIDGE_TIMEOUT_MS + the longest
-      // reconcile ladder), so a live cross-tab post is never clobbered.
-      if (/^(planned|precheck|sending|confirming|reconciling)$/.test(t.state || '') && now - (+t.updatedAt || +t.createdAt || 0) > TX_INFLIGHT_MAX_MS) {
-        const stuck = t.state;
-        t.state = 'unknown'; t.unknownAt = now; t.updatedAt = now;
-        t.detail = 'in-flight state expired; treating as unknown';
-        plannerRelease(t, 'inflight-expired');
-        gbLogT('tx-inflight-expired', 300000, `tx: ${key} stuck in ${stuck} > ${TX_INFLIGHT_MAX_MS}ms - marked unknown`);
-        changed = true; continue;
+      if (/^(planned|precheck)$/.test(t.state || '') && now - (+t.updatedAt || +t.createdAt || 0) > TX_PRE_SEND_STALE_MS) {
+        t.state='aborted';t.detail='stale pre-send transaction cleared';t.updatedAt=now;plannerRelease(t,'stale-pre-send');changed=true;continue;
       }
-      // plannerRelease: plannerReservationActive() reports manual-review as
-      // inactive, so a held reservation left behind here made the planner ledger
-      // and the reservation state disagree for the life of the tombstone.
-      if(t.state==='unknown'&&now-(+t.unknownAt||+t.updatedAt||0)>TX_UNKNOWN_MAX_MS){t.state='manual-review';t.detail='unknown outcome expired; manual review required';t.updatedAt=now;plannerRelease(t,'manual-review');txCompactReview(t);changed=true;continue}
-      if (t.state === 'manual-review' && txCompactReview(t)) changed = true;
+      if (t.state==='unknown' && now-(+t.unknownAt||+t.updatedAt||0)>TX_UNKNOWN_MAX_MS) {
+        t.state='manual-review';t.detail='unknown outcome expired; bounded manual-review tombstone';t.updatedAt=now;plannerRelease(t,'manual-review');changed=true;continue;
+      }
+      if (t.state==='manual-review' && !txManualReviewPermanent(t) && now-(+t.updatedAt||+t.unknownAt||+t.createdAt||0)>TX_MANUAL_REVIEW_TTL_MS) {
+        t.state='failed';t.detail='manual-review tombstone expired; retry allowed';t.updatedAt=now;plannerRelease(t,'manual-review-expired');changed=true;continue;
+      }
       const terminalTtl=t.state==='committed'&&t.snapshot&&t.snapshot.kind==='instant'?TX_INSTANT_TOMBSTONE_TTL:TX_TERMINAL_TTL;
       if (/^(committed|failed|aborted|dryrun)$/.test(t.state || '') && now - (+t.updatedAt || +t.createdAt || 0) > terminalTtl) { delete state.txState[key]; changed = true; }
     }
-    if (txCapReview()) changed = true;
+    if (changed) txSave();
     return changed;
   }
   function txDispose() {
@@ -85,6 +119,7 @@
         t.unknownAt = now;
         t.updatedAt = now;
         t.detail = 'instance disposed while in-flight';
+        plannerRelease(t, 'unknown-dispose');
       }
     }
     txSave();
@@ -92,7 +127,7 @@
   function txClearUnknown() {
     for (const key of Object.keys(state.txState || {})) {
       if (state.txState[key] && /^(unknown|manual-review)$/.test(state.txState[key].state || '')) {
-        try { if (state.txState[key].snapshot && state.txState[key].snapshot.kind === 'quest') questClearReviewForTx(state.txState[key]); } catch (e) { gbLogT('quest-clear-err-' + ((state.txState[key].snapshot && state.txState[key].snapshot.qid) || '?'), 60000, 'quest clear review failed: ' + String(e).slice(0, 80)); }
+        try{if(state.txState[key].snapshot&&state.txState[key].snapshot.kind==='quest')questClearReviewForTx(state.txState[key])}catch(_){}
         state.txState[key].state = 'aborted';
         state.txState[key].updatedAt = Date.now();
         state.txState[key].detail = 'manually cleared';
@@ -105,7 +140,7 @@
     const t = state.txState && state.txState[intent];
     if (!t) return false;
     if (!/^(unknown|manual-review)$/.test(t.state || '')) return false;
-    try { if (t.snapshot && t.snapshot.kind === 'quest') questClearReviewForTx(t); } catch (e) { gbLogT('quest-clear-err-' + ((t.snapshot && t.snapshot.qid) || '?'), 60000, 'quest clear review failed: ' + String(e).slice(0, 80)); }
+    try{if(t.snapshot&&t.snapshot.kind==='quest')questClearReviewForTx(t)}catch(_){}
     t.state = 'aborted';
     t.updatedAt = Date.now();
     t.detail = 'manually cleared';
@@ -136,7 +171,7 @@
     let tradeCap = null;
     try {
       const t = gbTownModel(townId);
-      if (t && t.getAvailableTradeCapacity) tradeCap = gbNum(t.getAvailableTradeCapacity());
+      if (t && t.getAvailableTradeCapacity) tradeCap = +t.getAvailableTradeCapacity();
     } catch (_) {}
     return st ? { wood: st.wood, stone: st.stone, iron: st.iron, cap: st.cap, tradeCap } : null;
   }
@@ -144,22 +179,13 @@
     const t = gbTownModel(townId);
     if (!t) return null;
     let have = null, queued = 0;
-    // Unreadable unit count stays blind: `(+u[unit]||0)` would have collapsed
-    // null/''/[] onto 0, the +queued addition below would have produced a
-    // fabricated total, and reconcile would have classified the post as
-    // 'committed' on a value it never read. gbNum keeps `have` null and
-    // txReconcileNow returns 'unknown' on the next line.
-    try { const u=t.units&&t.units(),o=t.unitsOuter&&t.unitsOuter();if(u){const a=gbNum(u[unit]),b=o?gbNum(o[unit]):null;if(a!=null||b!=null)have=(a||0)+(b||0);} } catch (_) {}
+    try { const u=t.units&&t.units(),o=t.unitsOuter&&t.unitsOuter();if(u)have=(+u[unit]||0)+(o?(+o[unit]||0):0); } catch (_) {}
     try {
       const col = t.getUnitOrdersCollection && t.getUnitOrdersCollection();
       for (const m of ((col && col.models) || [])) {
         const a = m.attributes || {};
         const uid = a.unit_type || a.unit_id || a.type;
-        // Queue size is bot-internal accounting: it is added to `have` and the
-        // total is compared to s.status.total + amount. A real `0` for an
-        // unqueued unit is the only legitimate reading; null means the order
-        // shape is unknown and the sweep skips it.
-        if (String(uid) === String(unit)) { const q = gbNum(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)); if (q != null) queued += q; }
+        if (String(uid) === String(unit)) queued += +(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)) || 0;
       }
     } catch (_) {}
     return have == null ? null : { have, queued, total: have + queued };
@@ -168,9 +194,7 @@
     try {
       const info = researchTownTechs(townId);
       if (!info) return null;
-      // An unreadable real queue makes `queued` a guess, and the reconcile below
-      // reads a false `queued` as "the post did not land" -> retry -> duplicate.
-      // Null keeps it at `unknown`, which is what an unread value means.
+
       if (!info.ordersKnown) return null;
       let queued = false;
       for (const o of info.orders || []) {
@@ -191,15 +215,7 @@
   function txFarmStatus(farmId) {
     try {
       const f = (farmsFromGame() || []).find(x => String(x.vill_id) === String(farmId));
-      if (!f) return null;
-      const at = f.lootable_at == null ? null : +f.lootable_at;
-      // The game omits lootable_at on a claimable village, so a bare timestamp
-      // read is blind exactly when the village is farmable. farmIsLootable
-      // carries the null-means-lootable convention for relation models.
-      let lootableNow = null;
-      if (f._rel) { try { lootableNow = !!farmIsLootable(f._rel, f._attrs || {}); } catch (_) {} }
-      else if (at != null) lootableNow = gameNow() >= at;
-      return { lootableAt: at, lootableNow };
+      return f ? { lootableAt: f.lootable_at == null ? null : +f.lootable_at } : null;
     } catch (_) { return null; }
   }
   function txMovementCount(origin, dest, mission) {
@@ -272,7 +288,7 @@
     } catch (_) { return null; }
   }
   function txMilitiaCount(townId) {
-    try { const t = gbTownModel(townId); const u = t && t.units && t.units(); return u ? gbNum(u.militia) : null; } catch (_) { return null; }
+    try { const t = gbTownModel(townId); const u = t && t.units && t.units(); return u ? (+u.militia || 0) : null; } catch (_) { return null; }
   }
   function txSpellPresent(townId, powerId) {
     try { return recruitHasSpell(townId, powerId); } catch (_) { return null; }
@@ -326,8 +342,8 @@
       }
       if (!model) return { exists: false, gold: gbPlayerGold(), price: null };
       const a = model.attributes || model;
-      const price = gbNum(a.price != null ? a.price : a.gold);
-      return { exists: true, gold: gbPlayerGold(), price: price != null ? price : null };
+      const price = Number(a.price != null ? a.price : a.gold);
+      return { exists: true, gold: gbPlayerGold(), price: Number.isFinite(price) ? price : null };
     } catch (_) { return null; }
   }
   function txPtTradeStatus(townId, offerId) {
@@ -348,12 +364,12 @@
       }
       const before = txTownResourceSnap(townId);
       const tradeCap = (function () {
-        try { const t = gbTownModel(townId); return t && t.getAvailableTradeCapacity ? gbNum(t.getAvailableTradeCapacity()) : null; } catch (_) { return null; }
+        try { const t = gbTownModel(townId); return t && t.getAvailableTradeCapacity ? +t.getAvailableTradeCapacity() : null; } catch (_) { return null; }
       })();
       if (!model) return { exists: false, tradeCap, res: before };
       const a = model.attributes || model;
-      const amount = gbNum(a.amount != null ? a.amount : a.trade_amount != null ? a.trade_amount : a.current_amount);
-      return { exists: true, tradeCap, res: before, amount: amount != null ? amount : null };
+      const amount = Number(a.amount != null ? a.amount : a.trade_amount != null ? a.trade_amount : a.current_amount);
+      return { exists: true, tradeCap, res: before, amount: Number.isFinite(amount) ? amount : null };
     } catch (_) { return null; }
   }
   function txCapture(feature, transport, endpoint, data) {
@@ -368,11 +384,20 @@
         }
         if (a.building_id) {
           const st = txBuildStatus(townId, a.building_id);
-          return { kind: 'build', building: a.building_id, status: st, targetLevel: st ? st.projectedLevel + 1 : null };
+          const action=String((d&&d.action_name)||endpoint||'').toLowerCase();
+          const direction=/tear|down|demol/.test(action)?-1:1;
+          return { kind: 'build', building: a.building_id, status: st, direction, targetLevel: st ? Math.max(0,st.projectedLevel + direction) : null };
         }
       }
       if (feature === 'research') return { kind: 'research', tech: a.id || a.research_id || a.research || a.research_type, status: txResearchStatus(townId, a.id || a.research_id || a.research || a.research_type) };
       if (feature === 'recruit') return { kind: 'recruit', unit: a.unit_id || a.unit_type, amount: +a.amount || 0, status: txUnitStatus(townId, a.unit_id || a.unit_type) };
+      if (feature === 'villrecruit') {
+        const unit = a.unit_id || a.unit_type;
+        const farmId = a.farm_town_id;
+        const counts = villageUnitCounts(farmId);
+        const beforeCount = counts && counts.known && counts.units && Number.isFinite(+counts.units[unit]) ? +counts.units[unit] : null;
+        return { kind:'villrecruit', farmId, unit, amount:+a.amount||0, beforeCount };
+      }
       if (feature === 'farm') return { kind: 'farm', farmId: a.farm_town_id, status: txFarmStatus(a.farm_town_id) };
       if (feature === 'trade') return { kind: 'trade', source: txTownResourceSnap(townId), target: txTownResourceSnap(a.id), total: (+a.wood || 0) + (+a.stone || 0) + (+a.iron || 0) };
       if (feature === 'collect') return { kind: 'collect', before: txTownResourceSnap(townId) };
@@ -445,6 +470,12 @@
       const before = snap && snap.status ? snap.status.total : '?';
       return `recruit:${townId}:${u}:${before}+${+a.amount || 0}`;
     }
+    if (feature === 'villrecruit') {
+      const u = a.unit_id || a.unit_type || '?';
+      const farmId = a.farm_town_id || '?';
+      const before = snap && snap.beforeCount != null ? snap.beforeCount : '?';
+      return `villrecruit:${townId}:${farmId}:${u}:${before}+${+a.amount || 0}`;
+    }
     if (feature === 'trade') return `trade:${townId}:${a.id}:${+a.wood || 0}:${+a.stone || 0}:${+a.iron || 0}`;
 
     if (feature === 'farm') return `farm:${townId}:${a.farm_town_id}:${a.type || 'resources'}:${a.option}`;
@@ -455,26 +486,30 @@
     if (feature === 'quest') return `quest:${a.progressable_id || String(d.model_url || '').split('/').pop() || '?'}`;
     if (feature === 'attack' || feature === 'dodge' || feature === 'favor' || feature === 'support') return `${feature}:${townId}:${a.id || '?'}:${a.type || '?'}:${txUnitSignature(a)}`;
 
-    if (feature === 'spy') return `spy:${townId}:${a.id || '?'}:${+a.espionage_iron || 0}:${snap && snap.before && snap.before.stored != null ? snap.before.stored : '?'}`;
+    // Stable item identity: mutable cave silver must not let an unresolved spy
+    // intent evade its manual-review tombstone on the next scan.
+    if (feature === 'spy') return `spy:${townId}:${a.id || '?'}:${+a.espionage_iron || 0}`;
     if (feature === 'cancel') return `cancel:${a.id != null ? a.id : (a.command_id != null ? a.command_id : '?')}`;
     if (feature === 'hero') return `hero:${String(endpoint || '?').split('/').pop()}:${a.type || a.hero_type || a.hero || '?'}:${a.target_town_id != null ? a.target_town_id : (a.town_id != null ? a.town_id : '-')}`;
     if (feature === 'wonder') return `wonder:${townId}:${a.id || a.wonder_id || '?'}:${+a.wood || 0}:${+a.stone || 0}:${+a.iron || 0}`;
-    if (feature === 'bandit') return `bandit:${townId}:${endpoint}`;
+    if (feature === 'bandit') {
+      const before = snap && snap.before || {};
+      const stage = before.stage != null ? before.stage : '?';
+      const cooldown = before.cooldown != null ? before.cooldown : '?';
+      return `bandit:${townId}:${endpoint}:stage=${stage}:cd=${cooldown}:${txUnitSignature(a)}`;
+    }
     if (feature === 'rurallevel' || feature === 'ruraltrade') return `${feature}:${townId}:${a.farm_town_id || String(d.model_url || '').split('/').pop()}:${endpoint}`;
     if (feature === 'culture') return `culture:${townId}:${a.celebration_type || endpoint}`;
     if (feature === 'merchant') return `merchant:${townId}:${a.offer_id || a.offer || a.id || endpoint}`;
     if (feature === 'pttrade') return `pttrade:${townId || '-'}:${a.offer_id || a.offer || (d.model_url ? String(d.model_url).split('/').pop() : '') || endpoint}`;
     return `${feature}:${townId || '-'}:${endpoint}:${JSON.stringify(txStableObj(a)).slice(0, 100)}`;
   }
-  // txNum was a duplicate of gbNum that accepted null/''/' '/[]/false as 0 -
-  // the exact failure mode CLAUDE.md hard rule #1 calls out. All reconcile
-  // paths now go through gbNum so an unreadable client value stays blind
-  // instead of fabricating a committed / unknown / applied verdict.
-  function txLt(a, b) { const x = gbNum(a), y = gbNum(b); return x != null && y != null && x < y; }
-  function txGt(a, b) { const x = gbNum(a), y = gbNum(b); return x != null && y != null && x > y; }
-  function txNe(a, b) { const x = gbNum(a), y = gbNum(b); return x != null && y != null && x !== y; }
+  function txNum(v) { return gbNum(v); }
+  function txLt(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x < y; }
+  function txGt(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x > y; }
+  function txNe(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x !== y; }
   function txResTriadReadable(o) {
-    return !!o && gbNum(o.wood) != null && gbNum(o.stone) != null && gbNum(o.iron) != null;
+    return !!o && txNum(o.wood) != null && txNum(o.stone) != null && txNum(o.iron) != null;
   }
   function txReconcileNow(tx) {
     const s = tx.snapshot || {};
@@ -484,6 +519,8 @@
       if (s.kind === 'build') {
         const cur = txBuildStatus(meta.townId, s.building);
         if (!cur || s.targetLevel == null) return 'unknown';
+        const dir=+s.direction||1;
+        if (dir<0) return cur.projectedLevel<=s.targetLevel?'applied':'unchanged';
         if (cur.projectedLevel >= s.targetLevel) return 'applied';
         return 'unchanged';
       }
@@ -497,44 +534,50 @@
         const cur = txUnitStatus(meta.townId, s.unit);
         if (!cur || !s.status) return 'unknown';
 
-        if (gbNum(cur.total) == null || gbNum(s.status.total) == null) return 'unknown';
+        if (txNum(cur.total) == null || txNum(s.status.total) == null) return 'unknown';
         if (cur.total >= s.status.total + Math.max(1, s.amount || 0)) return 'applied';
         return 'unchanged';
       }
+      if (s.kind === 'villrecruit') {
+        const counts = villageUnitCounts(s.farmId);
+        if (!counts || !counts.known || !counts.units || s.beforeCount == null || !Number.isFinite(+counts.units[s.unit])) return 'unknown';
+        const cur = +counts.units[s.unit];
+        if (cur >= +s.beforeCount + Math.max(1, +s.amount || 0)) return 'applied';
+        return cur === +s.beforeCount ? 'unchanged' : 'unknown';
+      }
       if (s.kind === 'farm') {
         const cur = txFarmStatus(s.farmId);
-        if (!cur) return 'unknown';
-        // Verdict off CURRENT claimability, not the old lootableAt-vs-
-        // lootableAt compare: both sides are null for a claimable village,
-        // which made every farm reconcile permanently 'unknown'. On cooldown
-        // = a claim landed; claimable = this tx did not apply (a dup-path
-        // reconcile 10min+ after a landed 10min claim seeing the village
-        // claimable again is still correct: claiming again IS farming).
-        if (cur.lootableNow === false) return 'applied';
-        if (cur.lootableNow === true) return 'unchanged';
-        return 'unknown';
+        if (!cur || !s.status || cur.lootableAt == null || s.status.lootableAt == null) return 'unknown';
+        return cur.lootableAt > s.status.lootableAt ? 'applied' : 'unchanged';
       }
       if (s.kind === 'trade' || s.kind === 'collect' || s.kind === 'wonder' || s.kind === 'ruraltrade') {
         const before = s.kind === 'trade' ? s.source : s.before;
         const cur = txTownResourceSnap(meta.townId);
         if (!before || !cur) return 'unknown';
         if (!txResTriadReadable(before) || !txResTriadReadable(cur)) return 'unknown';
-        if (s.kind === 'collect') {
-          if (txGt(cur.wood, before.wood) || txGt(cur.stone, before.stone) || txGt(cur.iron, before.iron)) return 'applied';
-        } else if (txLt(cur.wood, before.wood) || txLt(cur.stone, before.stone) || txLt(cur.iron, before.iron) || txLt(cur.tradeCap, before.tradeCap)) return 'applied';
-        return 'unchanged';
+        const resChanged = txNe(cur.wood, before.wood) || txNe(cur.stone, before.stone) || txNe(cur.iron, before.iron);
+        const capChanged = txNum(cur.tradeCap) != null && txNum(before.tradeCap) != null && txNe(cur.tradeCap, before.tradeCap);
+        // These snapshots have no unique server-side action id. Any resource or
+        // capacity delta may belong to a concurrent module/manual action.
+        return resChanged || capChanged ? 'unknown' : 'unchanged';
       }
       if (s.kind === 'cave') {
         const cur = txCaveStatus(meta.townId);
         if (!cur || !s.before) return 'unknown';
-        if (txGt(cur.stored, s.before.stored) || txLt(cur.iron, s.before.iron)) return 'applied';
-        return 'unchanged';
+        const stored = txNum(cur.stored), beforeStored = txNum(s.before.stored);
+        if (stored == null || beforeStored == null) return 'unknown';
+        const need = Math.max(1, +s.amount || 0);
+        if (stored >= beforeStored + need) return 'applied';
+        if (stored === beforeStored && txNum(cur.iron) != null && txNum(s.before.iron) != null
+          && !txNe(cur.iron, s.before.iron)) return 'unchanged';
+        return 'unknown';
       }
       if (s.kind === 'spy') {
         const cur = txCaveStatus(meta.townId);
-        if (!cur || !s.before || gbNum(cur.stored) == null || gbNum(s.before.stored) == null) return 'unknown';
-
-        return txLt(cur.stored, s.before.stored) ? 'applied' : 'unchanged';
+        if (!cur || !s.before || txNum(cur.stored) == null || txNum(s.before.stored) == null) return 'unknown';
+        // Cave silver is shared by every spy action and does not identify the
+        // destination. A decrease alone can never confirm this intent.
+        return txNum(cur.stored) === txNum(s.before.stored) ? 'unchanged' : 'unknown';
       }
       if (s.kind === 'militia') {
         const cur = txMilitiaCount(meta.townId);
@@ -552,9 +595,9 @@
         return cur == null ? 'unknown' : 'unchanged';
       }
       if (s.kind === 'movement') {
-        const cur = txMovementCount(meta.townId, s.dest, s.mission);
-        if (cur == null || s.before == null) return 'unknown';
-        return cur > s.before ? 'applied' : 'unchanged';
+        // A count at destination/mission granularity cannot distinguish this
+        // command from a concurrent manual or module movement.
+        return 'unknown';
       }
       if (s.kind === 'cancel') {
         const cur = txCommandStatus(s.commandId);
@@ -579,25 +622,30 @@
         const cur = txCultureStatus(meta.townId, s.type);
         if (!cur || !s.before) return 'unknown';
         if (cur.count > s.before.count) return 'applied';
-        if (cur.gold != null && s.before.gold != null && cur.gold < s.before.gold) return 'applied';
-        if (cur.res && s.before.res && (cur.res.wood < s.before.res.wood || cur.res.stone < s.before.res.stone || cur.res.iron < s.before.res.iron)) return 'applied';
-        return 'unchanged';
+        const goldChanged = txNum(cur.gold) != null && txNum(s.before.gold) != null && txNe(cur.gold, s.before.gold);
+        const resChanged = txResTriadReadable(cur.res) && txResTriadReadable(s.before.res)
+          && (txNe(cur.res.wood, s.before.res.wood) || txNe(cur.res.stone, s.before.res.stone) || txNe(cur.res.iron, s.before.res.iron));
+        return cur.count === s.before.count && !goldChanged && !resChanged ? 'unchanged' : 'unknown';
       }
       if (s.kind === 'merchant') {
         const cur = txMerchantStatus(s.offerId);
         if (!cur || !s.before) return 'unknown';
         if (s.before.exists && !cur.exists) return 'applied';
-        if (txLt(cur.gold, s.before.gold)) return 'applied';
-        return cur.exists === s.before.exists ? 'unchanged' : 'unknown';
+        if (cur.exists === s.before.exists && txNum(cur.gold) != null && txNum(s.before.gold) != null
+          && !txNe(cur.gold, s.before.gold)) return 'unchanged';
+        return 'unknown';
       }
       if (s.kind === 'pttrade') {
         const cur = txPtTradeStatus(meta.townId, s.offerId);
         if (!cur || !s.before) return 'unknown';
         if (s.before.exists && !cur.exists) return 'applied';
-        if (txLt(cur.tradeCap, s.before.tradeCap)) return 'applied';
-        if (cur.res && s.before.res && (txNe(cur.res.wood, s.before.res.wood) || txNe(cur.res.stone, s.before.res.stone) || txNe(cur.res.iron, s.before.res.iron))) return 'applied';
-        if (txLt(cur.amount, s.before.amount)) return 'applied';
-        return cur.exists === s.before.exists ? 'unchanged' : 'unknown';
+        if (cur.exists !== s.before.exists) return 'unknown';
+        if (txNum(cur.amount) == null || txNum(s.before.amount) == null) return 'unknown';
+        if (txNum(cur.tradeCap) == null || txNum(s.before.tradeCap) == null) return 'unknown';
+        if (!txResTriadReadable(cur.res) || !txResTriadReadable(s.before.res)) return 'unknown';
+        const changed = txNe(cur.amount, s.before.amount) || txNe(cur.tradeCap, s.before.tradeCap)
+          || txNe(cur.res.wood, s.before.res.wood) || txNe(cur.res.stone, s.before.res.stone) || txNe(cur.res.iron, s.before.res.iron);
+        return changed ? 'unknown' : 'unchanged';
       }
       if (s.kind === 'bandit-attack' || (s.kind === 'bandit' && /\/attack$/i.test(String(tx.endpoint || '')))) {
         return banditMovementReconcileResult(tx, banditMovementEvidence(gameUw(), meta.townId));
@@ -626,9 +674,7 @@
     tx.updatedAt = Date.now();
     txSave();
     const s = tx.snapshot || {};
-    // The attack-spot movement model can arrive after the transport callback
-    // times out. Give it a longer observation window instead of leaving a
-    // successful attack marked unknown.
+
     const checks = (s.kind === 'bandit-attack' || (s.kind === 'bandit' && /\/attack$/i.test(String(tx.endpoint || ''))))
       ? [700, 1800, 3500, 5000, 8000]
       : [700, 1800, 3500];
@@ -643,37 +689,53 @@
     };
     step();
   }
-  // The write guard order is the contract:
-  //   dry -> breaker -> safe -> health -> dedup -> planner -> budget -> captcha
-  // Only the lifecycle gates (disposed / disabled / player-activity pause) run
-  // ahead of it; those are kill switches, not guards. Dry run has to be FIRST or
-  // a payload cannot be validated while the feature is captcha-paused,
-  // remembered or budget-starved -- which is exactly when validating it matters,
-  // and dry run sends nothing, so no downstream guard has anything to protect.
-  // Captcha moves LAST, immediately before the send: it is the closest thing to
-  // a live server verdict, so it gets the final word. The cost is one aborted tx
-  // record per attempt while a ladder is open; txPrune drops those at
-  // TX_TERMINAL_TTL and 'aborted' never blocks the next attempt.
+  function txReconcileUnknownOnLeader(reason) {
+    if (!gbInstanceAlive() || !gbTabLeader) return 0;
+    const list = Object.values(state.txState || {}).filter(t => t && t.state === 'unknown');
+    let n = 0;
+    list.slice(0, 24).forEach((tx, idx) => {
+      gbTimeout(() => {
+        if (!gbInstanceAlive() || !gbTabLeader || !tx || tx.state !== 'unknown') return;
+        txReconcile(tx, r => {
+          if (!gbInstanceAlive() || !gbTabLeader) return;
+          if (r === 'applied') { tx.state='committed'; tx.detail=`reconciled after leader acquire (${reason||'leader'})`; plannerRelease(tx,'leader-reconciled-applied'); }
+          else if (r === 'unchanged') { tx.state='failed'; tx.detail=`confirmed unchanged after leader acquire (${reason||'leader'}); retry allowed`; plannerRelease(tx,'leader-reconcile-unchanged'); }
+          else { tx.state='unknown'; tx.unknownAt=tx.unknownAt||Date.now(); tx.detail=`still unresolved after leader acquire (${reason||'leader'})`; plannerRelease(tx,'leader-reconcile-unknown'); }
+          tx.updatedAt=Date.now(); txSave();
+        });
+      }, 2500 + idx * 120);
+      n++;
+    });
+    return n;
+  }
   function txActionGate(feature, write, jtag) {
     if (!gbInstanceAlive()) return 'disposed';
     if (!hostEnabled()) return 'disabled';
     const pauseInfo = {};
     if (automationPaused(pauseInfo)) return 'paused:' + pauseInfo.reason;
-    if (write) {
-      if (state.dryRun) return 'dryrun';
-      if (circuitOpen(feature)) return 'circuit-open';
-      // safe / health / dedup / planner / budget / captcha are applied by txRun
-      // below, in that order. Nothing else belongs here.
-      return null;
-    }
-    // READ path: no safe mode, no planner, no tx ledger. Captcha and the read
-    // budget are the whole chain.
     if (captchaPaused(feature) || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return 'captcha-pause';
+    if (write && circuitOpen(feature)) return 'circuit-open';
     if (jtag && jrnSkipped(jtag)) return 'remembered';
-    // Scope must match what the caller will MARK below. Charging a read against
-    // the action scope pinned actions at the hard cap while the soft throttle -
-    // which counts scope-specific - never saw the pressure and never delayed.
-    if (!reqBudgetOk('read')) return 'budget';
+    if (write && state.dryRun) return 'dryrun';
+
+    if (!reqBudgetOk(write ? 'action' : 'read')) return 'budget';
+    return null;
+  }
+  function txFindExistingIntent(intent, feature, snapshot, townId) {
+    const exact = state.txState && state.txState[intent];
+    if (exact) return exact;
+    if (feature !== 'spy' || !snapshot) return null;
+    // Compatibility with 6.0.14 spy keys, which included mutable cave silver.
+    // Match only the same spy item; unrelated towns/targets keep running.
+    for (const tx of Object.values(state.txState || {})) {
+      if (!tx || tx.feature !== 'spy' || !/^(planned|precheck|sending|confirming|reconciling|unknown|manual-review)$/.test(tx.state || '')) continue;
+      const old = tx.snapshot || {};
+      const oldTown = tx.meta && tx.meta.townId;
+      if (String(oldTown) !== String(townId)) continue;
+      if (String(old.dest) !== String(snapshot.dest)) continue;
+      if ((+old.amount || 0) !== (+snapshot.amount || 0)) continue;
+      return tx;
+    }
     return null;
   }
   function txRun(feature, transport, endpoint, data, rawSend, onDone) {
@@ -687,8 +749,7 @@
     let journalTxId = null;
     const bail = (err, why) => {
       const journalResult = jrnResult(why || err);
-      // A duplicate blocked behind an in-flight/unknown transaction is not a
-      // new attempt or a failure. TX_STATE remains the source of truth.
+
       if (!jrnPendingResult(journalResult)) jrnPush(jtag, journalResult, why || err, journalTxId);
       if (onDone && gbInstanceAlive()) onDone(err);
     };
@@ -696,14 +757,6 @@
     if (!gate && write) gate = safeModeBlock(feature, transport, endpoint, data);
     if (gate) {
       if (gate === 'dryrun') {
-        // Don't stamp 'dryrun' on top of an in-flight real tx. A dryrun tick
-        // landing on a 'sending'/'confirming'/'reconciling'/'unknown' entry
-        // would silently overwrite the real attempt's id; the server callback
-        // would then arrive against a stamp the reconciler no longer
-        // recognises and the real write is lost.
-        if (write && state.txState[intent] && /^(planned|precheck|sending|confirming|reconciling|unknown|manual-review)$/.test(state.txState[intent].state || '')) {
-          return bail('pending', 'pending:' + state.txState[intent].state);
-        }
         gbLog(`DRY-RUN ${feature}: ${endpoint} ${dryRunFmt(data)}`);
         if (write) {
           state.txState[intent] = { id: `${GB_INSTANCE_ID}:${++txSeq}`, intent, feature, state: 'dryrun', createdAt: Date.now(), updatedAt: Date.now(), owner: GB_INSTANCE_ID, snapshot, meta: { townId: metaTown } };
@@ -717,24 +770,14 @@
       return bail(gate.split(':')[0], gate);
     }
     if (write) {
-      // Learned-payload health: charged per template, never per feature key.
+
       const tplName = tplNameFor(feature, transport === 'bridge' ? data : null);
       if (tplName && !tplHealthOk(tplName)) {
         gbLogT('tpl-stale-' + tplName, 120000, `${feature}: template ${tplName} invalidated - re-learn by hand`);
         whyNote(feature, endpoint, 'blocked', 'tpl-stale');
         return bail('tpl-stale');
       }
-      // dedup, first half: decision memory. Three consecutive hard errors on the
-      // same feature|action|target short-circuit here instead of re-posting.
-      // (Second half is the txState in-flight check further down.)
-      if (jtag && jrnSkipped(jtag)) {
-        whyNote(feature, endpoint, 'blocked', 'remembered');
-        return bail('remembered', 'remembered');
-      }
-      // Soft ceiling under the hard request budget: delay rather than drop. It
-      // stays ahead of the tx record on purpose: the delayed re-entry must not
-      // find its own 'precheck' record and bail as a duplicate.
-      // Soft ceiling under the hard request budget: delay rather than drop.
+
       const softMs = reqBudgetSoftDelayMs();
       if (softMs > 0) {
         gbLogT('req-soft-' + feature, 30000, `${feature}: soft ceiling - delaying ${softMs}ms`);
@@ -747,28 +790,21 @@
       return rawSend((err, result) => {
         if (!gbInstanceAlive()) return;
         if (!err) { markModuleHealth(feature, 'ok'); circuitSuccess(feature); }
-        else if (err === 'captcha') markModuleHealth(feature, 'captcha');
-        else { markModuleHealth(feature, 'err'); circuitNote(feature, err); }
+        else if (err === 'captcha') markModuleHealth(feature, 'captcha', {error:'captcha',townId:metaTown,action:endpoint});
+        else { markModuleHealth(feature, 'err', {error:err,townId:metaTown,action:endpoint}); circuitNote(feature, err); }
         jrnPush(jtag, jrnResult(err), err);
         if (onDone) onDone(err, result);
       });
     }
 
     txPrune();
-    // A 'dryrun' stamp only exists to suppress repeat DRY-RUN logging while dry
-    // run is ON. Once it is OFF the stamp has no meaning, and leaving it in the
-    // slot blocks the first real post for TX_TERMINAL_TTL (30min) as
-    // `duplicate blocked ... state=dryrun`. Drop it here rather than only in the
-    // Config toggle handler: dry run also flips via panic, via storage reload,
-    // and via another tab, and none of those paths run that handler.
+
     if (state.txState[intent] && state.txState[intent].state === 'dryrun' && !state.dryRun) {
       delete state.txState[intent];
       txSave();
     }
-    const existing = state.txState[intent];
-    // 'dryrun' is a txState stamp set by the dry-run bail above; a second
-    // pass on the same intent (cadence tick, MO replay) must short-circuit
-    // instead of re-logging DRY-RUN every interval.
+    const existing = txFindExistingIntent(intent, feature, snapshot, metaTown);
+
     if (existing && /^(planned|precheck|sending|confirming|reconciling|unknown|manual-review|dryrun)$/.test(existing.state || '')) {
       journalTxId = existing.id;
       const age = Date.now() - (+existing.unknownAt || +existing.updatedAt || +existing.createdAt || Date.now());
@@ -780,53 +816,19 @@
       return txReconcile(existing, (r) => {
         if (!gbInstanceAlive()) return;
         if (r === 'applied') {
-          existing.state = 'committed'; existing.updatedAt = Date.now(); existing.detail = 'reconciled before retry'; plannerCommit(existing); txSave();
+          existing.state = 'committed'; existing.updatedAt = Date.now(); existing.detail = 'reconciled before retry'; plannerRelease(existing,'pre-retry-reconciled-applied'); txSave();
           jrnPush(jtag, 'ok', 'reconciled', existing.id);
           markModuleHealth(feature, 'ok');
           if (onDone) onDone(null, { reconciled: true, duplicate: true });
           return;
         }
-        if (r === 'unchanged' && feature === 'farm') {
-          // Farm reconcile 'unchanged' is PROOF the earlier claim did not
-          // land (the village is claimable right now) — the retry the hard
-          // rule forbids is the blind one, and this one carries evidence.
-          // Drop the tombstone and re-enter as a fresh attempt. Without this
-          // fall-through a farm intent could never post again: every cadence
-          // re-reconciled the same tombstone to 'unchanged' and re-armed the
-          // recheck window (es146 2026-08-26: 35/66 villages starved).
-          delete state.txState[intent]; txSave();
-          jrnPush(jtag, 'unknown', 'reconcile-not-applied-retry', existing.id);
-          return txRun(feature, transport, endpoint, data, rawSend, onDone);
-        }
         if (r === 'unchanged') {
-          // CLAUDE.md hard rule: "Timeout ≠ retry for an irreversible action.
-          // Reconcile instead." A reconcile=unchanged verdict on an irreversible
-          // write (recruit / attack / support / trade / cave / spell) is the
-          // exact case the rule covers: the previous post MAY have landed but
-          // the model read was stale, and re-entering txRun 250ms later would
-          // double-spend a unit / attack / trade slot. Set state to 'unknown'
-          // and let the next cadence re-evaluate.
-          existing.state = 'unknown'; existing.unknownAt = Date.now(); existing.updatedAt = Date.now(); existing.detail = 'reconciled not applied; next cadence re-evaluates'; txSave();
-          jrnPush(jtag, 'unknown', 'reconciled-unchanged', existing.id);
-          markModuleHealth(feature, 'err');
-          if (onDone) onDone('unknown', null);
-          return;
+          existing.state = 'failed'; existing.updatedAt = Date.now(); existing.detail = 'reconciled not applied; retry allowed'; plannerRelease(existing, 'reconciled-unchanged'); txSave();
+
+          return gbTimeout(() => txRun(feature, transport, endpoint, data, rawSend, onDone), 250);
         }
-        // r === 'unknown' (blind model read): the entry MUST NOT stay
-        // 'reconciling' — nothing moves it out of that state at runtime, every
-        // later attempt dup-blocks on it forever, and skipping onDone here
-        // killed the caller's chain mid-sweep (es146 2026-08-26: a farm claim
-        // batch died on the first poisoned village, the claim lock leaked
-        // until TTL, and island 64883 went unfarmed all day). Re-stamp
-        // 'unknown' so the recheck window re-arms and the next cadence tick
-        // re-evaluates, exactly like the 'unchanged' branch. unknownAt keeps
-        // its ORIGINAL stamp: re-arming it every inconclusive reconcile would
-        // keep the entry forever young and it would never age into
-        // manual-review.
-        existing.state = 'unknown'; existing.unknownAt = existing.unknownAt || Date.now(); existing.updatedAt = Date.now(); existing.detail = 'reconcile inconclusive; next cadence re-evaluates'; txSave();
-        jrnPush(jtag, 'unknown', 'reconcile-inconclusive', existing.id);
-        markModuleHealth(feature, 'err');
-        if (onDone) onDone('unknown', null);
+        existing.state = 'unknown'; existing.unknownAt = existing.unknownAt || Date.now(); existing.updatedAt = Date.now(); plannerRelease(existing, 'unknown-unresolved'); txSave();
+        return bail('timeout_unknown', 'unknown outcome still unresolved');
       });
     }
 
@@ -852,74 +854,83 @@
         return bail('precheck', held.why);
       }
     }
-    // A write gets budget only when it is actually going to SEND.
+
     if (!reqBudgetOk('action')) { tx.state = 'aborted'; tx.detail = 'budget'; tx.updatedAt = Date.now(); plannerRelease(tx, 'budget'); txSave(); return bail('budget'); }
-    // Last guard before the request leaves. Re-read here rather than at the top
-    // so a ladder that opened during this tick still stops the send, and one
-    // that expired mid-tick does not cost the slot the planner already holds.
-    if (captchaPaused(feature) || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) {
-      tx.state = 'aborted'; tx.detail = 'captcha-pause'; tx.updatedAt = Date.now(); plannerRelease(tx, 'captcha-pause'); txSave();
-      whyNote(feature, endpoint, 'blocked', 'captcha-pause');
-      return bail('captcha', 'captcha-pause');
-    }
     reqBudgetMark('action');
     tx.state = 'sending'; tx.sentAt = Date.now(); tx.updatedAt = Date.now(); txSave();
     rawSend((err, result) => {
       if (!gbInstanceAlive() || tx.owner !== GB_INSTANCE_ID) return;
-      // A callback for a transaction that has already been superseded must never mutate it.
+
       if (state.txState[intent] !== tx || !/^(sending|confirming)$/.test(tx.state)) return;
       if (err === 'timeout') {
-        tx.state = 'unknown'; tx.unknownAt = Date.now(); tx.updatedAt = Date.now(); tx.detail = 'transport timeout'; txSave();
-        markModuleHealth(feature, 'timeout', {latencyMs:Date.now()-tx.sentAt,error:'timeout'});
+        tx.state = 'reconciling'; tx.unknownAt = Date.now(); tx.updatedAt = Date.now(); tx.detail = 'transport timeout; reconciling'; txSave();
+        markModuleHealth(feature, 'timeout', {latencyMs:Date.now()-tx.sentAt,error:'timeout',townId:metaTown,action:endpoint,intent});
         return txReconcile(tx, (r) => {
           if (!gbInstanceAlive() || state.txState[intent] !== tx) return;
           if (r === 'applied') {
-            tx.state = 'committed'; tx.updatedAt = Date.now(); tx.detail = 'confirmed by reconciliation after timeout'; plannerCommit(tx); txSave();
+            tx.state = 'committed'; tx.updatedAt = Date.now(); tx.detail = 'confirmed by reconciliation after timeout'; plannerRelease(tx, 'timeout-reconciled-applied'); txSave();
             jrnPush(jtag, 'ok', 'timeout reconciled', tx.id);
             markModuleHealth(feature, 'ok', {latencyMs:Date.now()-tx.sentAt}); circuitSuccess(feature);
             if (onDone) onDone(null, Object.assign({ reconciled: true }, result || {}));
+          } else if (r === 'unchanged') {
+            tx.state = 'failed'; tx.updatedAt = Date.now(); tx.detail = 'timeout; state remained unchanged after reconciliation; retry allowed'; plannerRelease(tx, 'timeout-unchanged'); txSave();
+            jrnPush(jtag, 'timeout', tx.detail, tx.id);
+            if (onDone) onDone('timeout', result);
           } else {
-            tx.state = 'unknown'; tx.unknownAt = tx.unknownAt || Date.now(); tx.updatedAt = Date.now(); tx.detail = r === 'unchanged' ? 'timeout; state unchanged (retry blocked until next reconciliation)' : 'timeout; unable to reconcile'; txSave();
+            tx.state = 'unknown'; tx.unknownAt = tx.unknownAt || Date.now(); tx.updatedAt = Date.now(); tx.detail = 'timeout; unable to reconcile'; plannerRelease(tx, 'timeout-unknown'); txSave();
             jrnPush(jtag, 'timeout', tx.detail, tx.id);
             if (onDone) onDone('timeout_unknown', result);
           }
         });
       }
       if (err) {
-        tx.state = 'failed'; tx.updatedAt = Date.now(); tx.detail = String(err).slice(0, 160); plannerRelease(tx, 'server-error'); txSave();
-        if (err === 'captcha' || err === 'captcha-pause') markModuleHealth(feature, 'captcha', {latencyMs:Date.now()-tx.sentAt,error:err});
-        else markModuleHealth(feature, 'err', {latencyMs:Date.now()-tx.sentAt,error:err});
-        circuitNote(feature, err);
-        jrnPush(jtag, jrnResult(err), err, tx.id);
-        try { tplHealthNote(feature, jrnResult(err), transport === 'bridge' ? data : null); } catch (_) {}
+        const expectedReject = gbExpectedServerReject(feature, err);
+        tx.state = 'failed'; tx.updatedAt = Date.now(); tx.detail = String(err).slice(0, 160); plannerRelease(tx, expectedReject || 'server-error'); txSave();
+        if (err === 'captcha' || err === 'captcha-pause') {
+          markModuleHealth(feature, 'captcha', {latencyMs:Date.now()-tx.sentAt,error:err,townId:metaTown,action:endpoint,intent});
+        } else if (expectedReject) {
+          markModuleHealth(feature, 'skip', {latencyMs:Date.now()-tx.sentAt,error:err,townId:metaTown,action:endpoint,intent});
+          whyNote(feature, endpoint, 'blocked', expectedReject);
+        } else {
+          markModuleHealth(feature, 'err', {latencyMs:Date.now()-tx.sentAt,error:err,townId:metaTown,action:endpoint,intent});
+        }
+        if (!expectedReject) circuitNote(feature, err);
+        const jr = expectedReject ? ('skip:' + expectedReject) : jrnResult(err);
+        jrnPush(jtag, jr, err, tx.id);
+        try { tplHealthNote(feature, jr, transport === 'bridge' ? data : null); } catch (_) {}
         if (onDone) onDone(err, result);
         return;
       }
       tx.state = 'confirming'; tx.updatedAt = Date.now(); txSave();
-      // A successful server callback is confirmation. For transactions with an observable
-      // model delta we additionally reconcile, but do not create a second SEND.
+
       const r = txReconcileNow(tx);
-      if (r === 'applied') {
-        tx.state = 'committed'; tx.updatedAt = Date.now(); tx.detail = 'server+model confirmed'; plannerCommit(tx); txSave();
+      if (r === 'applied' || r === 'unknown' || r === 'unchanged') {
+        tx.state = 'committed'; tx.updatedAt = Date.now(); tx.detail = r === 'applied' ? 'server+model confirmed' : 'server callback confirmed'; plannerCommit(tx); txSave();
         markModuleHealth(feature, 'ok', {latencyMs:Date.now()-tx.sentAt}); circuitSuccess(feature);
         jrnPush(jtag, 'ok', tx.detail, tx.id);
         try { tplHealthNote(feature, 'ok', transport === 'bridge' ? data : null); } catch (_) {}
         if (onDone) onDone(null, result);
-      } else {
-        // r === 'unknown' or r === 'unchanged': server callback came back but
-        // the model never reflected the change (captcha-walled 200-with-error,
-        // CSRF reject, or server-side silent drop). Do NOT plannerCommit: a
-        // false commit poisons the planner reservation for PLANNER_COMMIT_HOLD_MS
-        // and would double-spend the same resources on the next attempt. Fall
-        // through to the same 'unknown' outcome the timeout-reconcile path uses.
-        tx.state = 'unknown'; tx.unknownAt = tx.unknownAt || Date.now(); tx.updatedAt = Date.now();
-        tx.detail = r === 'unchanged' ? 'server callback; state unchanged (retry blocked until next reconciliation)' : 'server callback; unable to reconcile';
-        txSave();
-        jrnPush(jtag, 'timeout', tx.detail, tx.id);
-        if (onDone) onDone('timeout_unknown', result);
+      }
+    });
+  }
+
+  function txRunAsync(feature, transport, endpoint, data, rawSend, opts) {
+    const sig = opts && opts.signal;
+    return new Promise((resolve, reject) => {
+      if (sig && sig.aborted) return reject(new DOMException('aborted', 'AbortError'));
+      const onAbort = () => reject(new DOMException('aborted', 'AbortError'));
+      if (sig) sig.addEventListener('abort', onAbort, { once: true });
+      try {
+        txRun(feature, transport, endpoint, data, rawSend, (err, result) => {
+          if (sig) sig.removeEventListener('abort', onAbort);
+          if (err) reject(err instanceof Error ? err : new Error(String(err)));
+          else resolve(result);
+        });
+      } catch (e) {
+        if (sig) sig.removeEventListener('abort', onAbort);
+        reject(e);
       }
     });
   }
   const SELF_BRIDGE_MAX = 12;
   const SELF_BRIDGE_TTL_MS = 10000;
-  const selfBridgeLog = [];

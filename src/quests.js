@@ -1,3 +1,5 @@
+  let questMo = null;
+  let questMoContainer = null;
   function questClaimFailLoad() {
     const raw = load(STORE.QUEST_CLAIM_FAIL, null) || {};
     const now = Date.now();
@@ -9,6 +11,7 @@
     return out;
   }
   function questClaimFailSave() {
+    if(!gbTabLeader)return false;
     try {
       const now = Date.now();
       const out = {};
@@ -28,7 +31,7 @@
   function questClaimFailed(id, err) {
     const f = questClaimFail[id] || (questClaimFail[id] = { n: 0, until: 0 });
     f.n++;
-    const wait = backoffFor(f.n, QUEST_FAIL_BACKOFF_MS);
+    const wait = QUEST_FAIL_BACKOFF_MS[Math.min(f.n - 1, QUEST_FAIL_BACKOFF_MS.length - 1)];
     f.until = Date.now() + wait;
     questClaimFailSave();
     gbLog('quest: claim backoff', id, 'fail #' + f.n, Math.round(wait / 60000) + 'min', String(err || ''));
@@ -349,7 +352,7 @@
 
     if (!rewards.length || !rewards.every(isSafeQuestReward)) return;
     if(entry.modelName!=='IslandQuest'){gbLogT('quest-contract-'+entry.questId,300000,'quest: generic/unknown progressable skipped');return}
-    if(!questResolveTownId(entry)){gbLogT('quest-town-'+entry.questId,300000,'quest: island town unresolved — fail closed');return}
+    if(!questResolveTownId(entry)){gbLogT('quest-town-'+entry.questId,300000,'quest: island town unresolved \u2014 fail closed');return}
     if (!state.questAutoBuild && !state.questAutoRes) return;
     if (questClaimBlocked(entry.questId)) {
       gbLogT('quest-block-' + entry.questId, 60000, 'quest: claim backoff active', entry.title || entry.questId);
@@ -376,9 +379,6 @@
       gbTimeout(() => { gbUnlock('quest-auto', autoToken); questScanTick('post-claim'); renderQuests(); }, 2500);
     };
 
-    // liveOnly: the persisted questRewards entry is OUR OWN last snapshot, so
-    // using it to reconcile a timeout lets a stale cache confirm a claim that
-    // never landed. Only the live collection may settle an ambiguous outcome.
     const questStillClaimable = (liveOnly) => {
       try {
         const live = questsFromGame().find(q => String(q.questId) === String(entry.questId)||String(q.progressableId)===String(entry.progressableId));
@@ -394,8 +394,6 @@
       }
       if (err) return finish('bridge', false, err);
 
-      // A successful server callback is authoritative even if the local model
-      // has not refreshed yet. Persist a tombstone so stale cache cannot retry.
       setClaimState(false);return finish('bridge', true);
     });
   }
@@ -421,10 +419,7 @@
     entry.autoBuildReward = entry.rewards.some(r => r.kind === 'build-cost-reduction');
     entry.autoResReward = entry.rewards.some(r => r.kind === 'resources' || r.kind === 'favor');
     entry.safeAuto = entry.rewards.length > 0 && entry.rewards.every(isSafeQuestReward);
-    // Prefer the row's own island coords: the DOM may show the quest while the
-    // player is currently viewing a different town, so `abCurrentTownId()` is
-    // a stale-id footgun (claimQuestViaBridge would route to the wrong town).
-    // Fall back to town-unknown rather than borrowing the current town's id.
+
     const ds = (typeof row?.dataset === 'object' && row.dataset) || {};
     const ix = +ds.islandX || +ds.island_x || null;
     const iy = +ds.islandY || +ds.island_y || null;
@@ -465,9 +460,7 @@
   }
   function questScanTick(reason) {
     if (!hostEnabled()) return;
-    // Single atomic guard: take the lock once, run the whole tick, release in
-    // finally. The previous read-then-acquire pattern left a window where
-    // bindQuestObserver/ingestGameQuests ran with no lock held.
+
     const scanToken = gbLock('quest-scan');
     if (!scanToken) return;
     try {
@@ -482,13 +475,11 @@
       }
       const rows = questRows();
       if (!rows.length) return;
-      // Never change the player's selected quest during a background scan. Game
-      // models are ingested for every row; DOM-only reward details are learned
-      // from whichever quest the player is already viewing.
+
       const row = questSelectedRow(rows);
       if (!row) return;
       try { questCaptureCurrent(row); }
-      catch (_) { /* leave the lock release to finally */ }
+      catch (_) {  }
     } finally {
       gbUnlock('quest-scan', scanToken);
       renderQuests();
@@ -522,9 +513,7 @@
     bindQuestObserver._t = null;
   }
   try {
-    // GB_ROOT, not a private unsafeWindow copy: __grepbotDispose reads the hook
-    // off GB_ROOT, so a second resolution of the same expression is one more
-    // place for the two to disagree (Firefox's wrappedJSObject fallback).
+
     GB_ROOT.__grepbotQuestDispose = questDispose;
   } catch (_) {}
   function renderQuests() {
@@ -582,10 +571,3 @@
       hist.textContent = lines.join('\n') || '(empty)';
     }
   }
-  const ATTACK_HISTORY_MAX = 50;
-  const ATTACK_ROLE_OFFENSE = '__attack_offense';
-  const ATTACK_ROLE_DEFENSE = '__attack_defense';
-  const HARASS_CAPS = { '1sling': 1, '5sling': 5, light: 8 };
-  const HARASS_PREF = ['slinger', 'rider', 'archer', 'hoplite', 'sword'];
-  let attackArmed = null;
-  let attackPreviewRows = [];

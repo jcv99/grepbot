@@ -1,13 +1,3 @@
-  // Exact item id only. `a.type` is an offer CATEGORY on several clients
-  // ("resource", "unit"), so matching a wish against it bought whatever the
-  // salesman happened to be selling in that category - and the final precheck
-  // below compares item ids, so the two disagreed.
-  function merchantExactMatch(wishName, offerId) {
-    const w = String(wishName || '').toLowerCase().trim();
-    const id = String(offerId || '').toLowerCase().trim();
-    if (!w || !id) return false;
-    return w === id;
-  }
   function merchantRowPrice(w) {
     if (!w || typeof w !== 'object') return null;
     if (String(w.pricedIn || '') !== 'exchange') return null;
@@ -93,7 +83,6 @@
     const merchantLock = gbLock('merchant', 180000);
     if (!merchantLock) return;
 
-    // Final offer/gold precheck immediately before any purchase request.
     const fresh = ptRoom(job.townId, exchange, exchange);
     if (fresh.out == null || fresh.out < cost || offer.costPer > job.maxPrice) {
       gbUnlock('merchant', merchantLock);
@@ -107,11 +96,8 @@
         return;
       }
 
-      // A buy is irreversible, and an error STRING is not proof the post did
-      // not land. Reconcile against the balance before spending a second time;
-      // unreadable balance means unknown, so no fallback.
       if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {
-        gbLogT('merchant-timeout', 60000, `merchant: timeout_unknown ${offer.name} — sin reintento`);
+        gbLogT('merchant-timeout', 60000, `merchant: timeout_unknown ${offer.name} \u2014 sin reintento`);
         return;
       }
       if (err) {
@@ -122,3 +108,6 @@
       gbLog(`merchant: ${amount} ${offer.name} por ${cost} ${exchange} en la ciudad ${job.townId}`);
     }, 'merchant');
   }
+
+  const PT_VIEW_TTL_MS = 30000;
+  const PT_RES = ['wood', 'stone', 'iron'];

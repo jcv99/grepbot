@@ -1,14 +1,9 @@
-  // gpAjax settle watchers (v1.6.1). gpAjax skips its success branch whole when
-  // the response carries no json/_srvtime, so the caller would hang on a
-  // server-side rejection. The XHR spy claims the matching watcher on loadend
-  // and settles the post from the raw response.
+  const selfBridgeLog = [];
+
   const GB_AJAX_WATCH_MS = 8000;
   const GB_AJAX_PENDING_MAX = 24;
   const gbAjaxPending = [];
-  // Stable, order-independent stringify. The watcher side has the outgoing
-  // payload OBJECT and the claim side has the serialized request BODY; both must
-  // hash to the same string, so key order is normalized and every scalar is
-  // compared as text (form encoding loses the number/string distinction).
+
   function gbAjaxFpNorm(v, depth) {
     if (v == null) return 'null';
     if (typeof v !== 'object') return JSON.stringify(String(v));
@@ -27,12 +22,10 @@
       town_id: (p && p.town_id) != null ? p.town_id : null,
     });
   }
-  function gbAjaxWatch(sig, fp, settle, feature) {
-    const entry = { sig, fp: fp || '', at: Date.now(), settle, feature: (typeof feature === 'string' && feature) ? feature : null };
+  function gbAjaxWatch(sig, fp, settle) {
+    const entry = { sig, fp: fp || '', at: Date.now(), settle };
     gbAjaxPending.push(entry);
-    // Expire before evicting: a burst of 25 posts inside 8s used to drop the
-    // OLDEST live watchers silently, and those posts then had no raw-response
-    // settle left and hung the full BRIDGE_TIMEOUT_MS on any rejection.
+
     const now = Date.now();
     for (let i = gbAjaxPending.length - 2; i >= 0; i--) {
       if (now - gbAjaxPending[i].at > GB_AJAX_WATCH_MS) gbAjaxPending.splice(i, 1);
@@ -44,37 +37,13 @@
     }
     return entry;
   }
-  // Per-feature cancel for bridge writes. Mirror of gbAbortFeature in core.js,
-  // which only walks gbXhrBag and therefore never saw bridgeRaw / gameAjaxRaw
-  // posts (those ride the patched XMLHttpRequest spy, not gm_xhr). Each
-  // watched entry holds a cancel closure that mimics a timeout settle, so the
-  // post's onDone fires with 'cancelled' instead of hanging on BRIDGE_TIMEOUT_MS.
-  function gbAjaxCancelFeature(feature) {
-    if (!feature) return 0;
-    let n = 0;
-    const tag = String(feature);
-    for (const e of gbAjaxPending.slice()) {
-      if (e && e.feature === tag && typeof e.cancel === 'function') {
-        try { e.cancel(); n++; } catch (_) {}
-      }
-    }
-    return n;
-  }
-  // A watcher whose post already settled (gpAjax callback won the race) MUST be
-  // dropped. gbAjaxClaim matches the OLDEST entry for a signature, so a dead
-  // watcher left behind for its 8s TTL swallowed the claim of the next post with
-  // the same model_url|action_name - that post then had no raw-response settle
-  // left and hung the full BRIDGE_TIMEOUT_MS on any server-side rejection.
+
   function gbAjaxDrop(entry) {
     if (!entry) return;
     const i = gbAjaxPending.indexOf(entry);
     if (i >= 0) gbAjaxPending.splice(i, 1);
   }
-  // Called from __grepbotDispose. bridgePost's finish() already refuses to act
-  // for a dead instance, so a leftover watcher cannot post - but it keeps its
-  // settle closure alive and occupies a GB_AJAX_PENDING_MAX slot that the NEXT
-  // instance's spy can still claim, which would settle a fresh post from a stale
-  // instance's response.
+
   function gbAjaxDispose() {
     gbAjaxPending.length = 0;
   }
@@ -94,8 +63,7 @@
     const act = (u.match(/[?&]action=([a-z_0-9]+)/i) || [])[1] || '';
     if (ctrl && act) {
       out.sigs.push('ajax:' + ctrl + '/' + act);
-      // parseBodyLoose only unwraps `json` for bridge-shaped payloads, so peel
-      // it here to line the body up with the `data` object the watcher holds.
+
       let payload = j;
       if (payload && payload.json != null) {
         let inner = payload.json;
@@ -106,11 +74,7 @@
     }
     return out;
   }
-  // Two concurrent posts can share a signature (same model_url|action_name for
-  // two towns), and a signature-only match pairs the response with whichever
-  // watcher happens to be first — settling post A from post B's response. The
-  // request FINGERPRINT is the only 1:1 key, so it wins; signature order is the
-  // fallback for a body we could not parse.
+
   function gbAjaxClaim(url, body) {
     if (!gbAjaxPending.length) return null;
     const now = Date.now();
@@ -126,50 +90,21 @@
         if (e.fp === fp && sigs.indexOf(e.sig) >= 0) return gbAjaxPending.splice(i, 1)[0].settle;
       }
     }
+    const candidates = [];
     for (let i = 0; i < gbAjaxPending.length; i++) {
-      if (sigs.indexOf(gbAjaxPending[i].sig) >= 0) return gbAjaxPending.splice(i, 1)[0].settle;
+      if (sigs.indexOf(gbAjaxPending[i].sig) >= 0) candidates.push(i);
     }
+    if (candidates.length === 1) return gbAjaxPending.splice(candidates[0], 1)[0].settle;
     return null;
   }
-  // Persist a learned bridge-body template. Strict-by-default per Pact: rejects
-  // payloads missing model_url/action_name, copies j.arguments with stripArgs
-  // removed, copies j.town_id when present. Caller owns stateKey/storeKey
-  // naming and the post-save follow-up (gbLog note, tplHealthMarkLearned). The
-  // matcher tpl that was hand-clicked would be the inverse direction - this
-  // helper only handles the "learned from a sniffed request" path used at 9
-  // inline sites (attackTpl, spyTpl, claimTpl, etc.). OPEN-PLAN 2.7.
-  function learnTemplate(stateKey, storeKey, j, opts) {
-    if (!j || typeof j !== 'object' || !j.model_url || !j.action_name) return false;
-    const stripArgs = (opts && opts.stripArgs) || [];
-    const args = Object.assign({}, j.arguments || {});
-    for (const k of stripArgs) delete args[k];
-    const tpl = {
-      model_url: j.model_url,
-      action_name: j.action_name,
-      arguments: args,
-      version: 1,
-      learned_at: Date.now(),
-    };
-    if (j.town_id != null) tpl.town_id = j.town_id;
-    state[stateKey] = tpl;
-    save(wkey(storeKey), tpl);
-    gbLog('learned ' + ((opts && opts.label) || stateKey) + ' template: ' + j.action_name);
-    try { tplHealthMarkLearned(stateKey); } catch (_) {}
-    return true;
-  }
   const GB_CAPTCHA_FLAGS = ['captcha', 'captcha_required'];
-  // 256 KB cap on the unwrap path's JSON.parse. A hostile mirror can't burn
-  // CPU on every probe; large real responses still pass because the bridge
-  // paths run on game grepolis.com. Bump this only after auditing the real
-  // payload sizes (largest is the all-towns scrape at ~32 KB today).
+
   const GB_AJSON_PARSE_MAX = 256 * 1024;
   function gbAjaxUnwrap(raw) {
     if (!raw || typeof raw !== 'object') return null;
     let d = Object.prototype.hasOwnProperty.call(raw, 'json') ? raw.json : raw;
     if (typeof d === 'string') {
-      // Cap the parse input. The noteCaptchaBody substring sniff (4 KB) is
-      // upstream of this; this guard is the second line against an oversized
-      // hostile body.
+
       const src = d.length > GB_AJSON_PARSE_MAX ? d.slice(0, GB_AJSON_PARSE_MAX) : d;
       try { d = JSON.parse(src); } catch (_) {}
     }
@@ -177,10 +112,7 @@
     else if (typeof d !== 'object') d = { data: d };
     if (raw.plain && typeof raw.plain === 'object') {
       const merged = Object.assign({}, d, raw.plain);
-      // Last-wins merge could overwrite a true captcha flag from `json` with a
-      // falsy/absent one from `plain`, and the post would then be classified as
-      // success while the bot keeps posting into the captcha wall. A captcha
-      // flag set on EITHER side wins.
+
       for (const k of GB_CAPTCHA_FLAGS) {
         const a = d[k], b = raw.plain[k];
         if (a === true || a === 1 || b === true || b === 1) merged[k] = true;
@@ -245,12 +177,14 @@
     };
     const timer = gbTimeout(() => {
       gbLogT('bridge-timeout-' + feature, 30000, feature + ': bridge timeout ' + BRIDGE_TIMEOUT_MS + 'ms');
+      noteTransportTimeout(feature);
       finish('timeout');
     }, BRIDGE_TIMEOUT_MS);
     selfBridgeNote(payload);
     const classify = (data) => {
-      if (!gbInstanceAlive()) return;
+      if (settled || !gbInstanceAlive()) return;
       try {
+        noteTransportSuccess();
         if (responseIsCaptcha(data)) {
           captchaTrip(feature, JSON.stringify(data).slice(0, 120));
           return finish('captcha');
@@ -267,18 +201,6 @@
       } catch (e) { finish(String(e)); }
     };
 
-    // gpAjax only calls back on a non-empty success envelope, so a server-side
-    // rejection would otherwise hang until BRIDGE_TIMEOUT_MS. The XHR spy
-    // settles this post from the raw response; whichever fires first wins.
-    // Per-feature cancel hook: gbAjaxCancelFeature walks gbAjaxPending and
-    // calls cancel() on every watcher whose `feature` tag matches. The cancel
-    // closure settles the post as 'cancelled' so bridgeRaw / gameAjaxRaw's
-    // callback fires instead of hanging on BRIDGE_TIMEOUT_MS.
-    const cancel = () => {
-      if (settled) return;
-      gbLogT('ajax-cancel-' + feature, 30000, feature + ': bridge post cancelled (feature toggle / abort)');
-      finish('cancelled');
-    };
     watchEntry = gbAjaxWatch(
       'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
       gbAjaxBridgeFp(payload),
@@ -289,15 +211,12 @@
           noteServerPressure('http ' + status);
           return finish('http_' + status);
         }
+        noteTransportSuccess();
         classify(gbAjaxUnwrap(raw));
-      },
-      feature
+      }
     );
-    watchEntry.cancel = cancel;
     try {
 
-      // gpAjax hands a bare-function callback (data, t_token) - NOT (wnd, data);
-      // the window handle is only passed to the {success,error} object form.
       uw.gpAjax.ajaxPost('frontend_bridge', 'execute', payload, false, (data) => classify(data));
     } catch (e) { finish(String(e)); }
   }
@@ -313,21 +232,16 @@
       gbAjaxDrop(watchEntry);
       done(err, res);
     };
-    // Same log as bridgeRaw: an ajax timeout used to be completely silent, so a
-    // dead controller/action looked like "nothing happened" in the Log tab.
+
     const timer = gbTimeout(() => {
       gbLogT('ajax-timeout-' + feature, 30000, `${feature}: ajax timeout ${BRIDGE_TIMEOUT_MS}ms (${controller}/${action})`);
+      noteTransportTimeout(feature);
       finish('timeout');
     }, BRIDGE_TIMEOUT_MS);
-    // Mirror bridgeRaw: the bridge sniff (farms.js sniffBridgeBody) only skips
-    // GrepBot's own posts when isSelfBridge() recognises the fingerprint. Until
-    // gameAjaxRaw selfBridgeNote()'d its posts, instant-build / research / cave
-    // sniff branches kept re-learning the action name off our own writes and
-    // emitting noisy log lines on every post.
-    try { selfBridgeNote({ model_url: controller, action_name: action, arguments: data }); } catch (_) {}
     const classify = (res) => {
-      if (!gbInstanceAlive()) return;
+      if (settled || !gbInstanceAlive()) return;
       try {
+        noteTransportSuccess();
         if (responseIsCaptcha(res)) { captchaTrip(feature, JSON.stringify(res).slice(0, 120)); return finish('captcha'); }
         const e=responseServerError(res);
         if (e) {
@@ -339,20 +253,9 @@
         finish(null, res);
       } catch (e) { finish(String(e)); }
     };
-    const cancel = () => {
-      if (settled) return;
-      gbLogT('ajax-cancel-' + feature, 30000, feature + ': gameAjax post cancelled (feature toggle / abort)');
-      finish('cancelled');
-    };
     watchEntry = gbAjaxWatch('ajax:' + controller + '/' + action, gbAjaxFp(data), (status, raw) => {
       if (settled) return;
-      // Status-first classification per RFC 6585 + MDN HTTP 429/503 guidance:
-      // 429 and 503 mean back off with Retry-After (the server-pressure bus
-      // parses it). A 200 with an empty body is a soft-empty (skip, not
-      // failure, so three in a row do not open a JRN_BACKOFF skip window for
-      // nothing). Impossible-early (status 0 before 250ms) is a neterr not a
-      // timeout - it is almost always a proxy or extension tamper, not a
-      // slow server.
+
       if (!status) return finish('neterr');
       if (status === 429 || status === 503) {
         try {
@@ -366,18 +269,23 @@
         noteServerPressure('http ' + status);
         return finish('http_' + status);
       }
-      // Soft-empty 200: empty / whitespace body, JSON-shaped. Short-circuits
-      // to 'soft-empty' (a skip class) so the journal doesn't open a hard-error
-      // skip window for what is actually a benign transient.
-      try {
-        const txt = raw && (raw.responseText != null ? raw.responseText : (raw.json != null ? (typeof raw.json === 'string' ? raw.json : '') : ''));
-        if (!txt || !String(txt).trim()) return finish('soft-empty');
-      } catch (_) {}
+      noteTransportSuccess();
+
+      // The XHR hook already parses responseText before handing it to this watcher.
+      // In 6.0.6 we looked for responseText/json *inside that parsed object*, so a
+      // perfectly normal JSON response was misclassified as "soft-empty".  If the
+      // hook has a parsed body, classify it directly.  If it saw an actually empty
+      // 2xx body, wait for gpAjax's canonical callback (or timeout+reconciliation)
+      // instead of inventing an application error.
+      if (raw == null) {
+        gbLogT('ajax-empty-watch-' + feature, 60000,
+          `${feature}: HTTP ${status} watcher without parseable body; waiting for gpAjax callback`);
+        return;
+      }
       classify(gbAjaxUnwrap(raw));
-    }, feature);
-    watchEntry.cancel = cancel;
+    });
     try {
-      // Bare-function callback signature is (data, t_token) - see bridgeRaw.
+
       uw.gpAjax.ajaxPost(controller, action, data, false, (res) => classify(res));
     } catch (e) { finish(String(e)); }
   }
@@ -408,7 +316,7 @@
   function dryRunFmt(payload) {
     try {
       const s = JSON.stringify(payload);
-      return s.length > 220 ? s.slice(0, 220) + '…' : s;
+      return s.length > 220 ? s.slice(0, 220) + '\u2026' : s;
     } catch (_) { return String(payload); }
   }
   function httpRetryAfterMs(res) {
@@ -440,11 +348,8 @@
       try {
         const r = t.resources && t.resources();
         if (r && r.wood != null) {
-          // gbNum per resource: a partial client read (wood present, stone
-          // null) must NOT ship NaN downstream — callers compare these and
-          // NaN silently poisons min/max picks and fillPct.
-          wood = gbNum(r.wood); stone = gbNum(r.stone); iron = gbNum(r.iron);
-          if (r.storage != null) resStorage = gbNum(r.storage);
+          wood = +r.wood; stone = +r.stone; iron = +r.iron;
+          if (r.storage != null) resStorage = +r.storage;
         }
       } catch (_) {}
       if (wood != null) {
@@ -456,9 +361,7 @@
         if (cap > 0) {
           const isFull = (v) => v >= cap || v / cap >= 0.99;
           const full = { wood: isFull(wood), stone: isFull(stone), iron: isFull(iron) };
-          // `n` stays a RESOURCE count: a town is not blocked from looting just
-          // because its population is capped, and every existing caller of `n`
-          // (cave stash, deadlock resolver, trade) means "warehouses full".
+
           const n = (full.wood ? 1 : 0) + (full.stone ? 1 : 0) + (full.iron ? 1 : 0);
           try { const ps = townPopState(townId); full.pop = !!(ps && ps.warn); } catch (_) { full.pop = false; }
           const fillPct = Math.round(Math.max(wood, stone, iron) / cap * 100);
@@ -469,23 +372,10 @@
     _townResCache[key] = { at: now, v: out };
     return out;
   }
-  // ===== Loot estimate (v4 plan 2.12) ========================================
-  // ONE home for "how much can this action bring back / can the town absorb it".
-  // Three modules carried their own copy of this math; a research multiplier or
-  // a world-specific rate now lands in one place.
-  //
-  // Every branch returns the same shape so a caller can compose checks without
-  // branching by domain:
-  //   {wood, stone, iron, total, blind, blindReason, meta}
-  // `blind:true` means UNKNOWN, and a renderer must print "desconocido", never
-  // "0" - that distinction is the whole point of the helper.
+
   const LOOT_RATE_PER_HOUR = 8000;
   const LOOT_SAFE_FILL_PCT = 0.6;
-  // Per-unit loot carry is NOT named anywhere in src/ and this repo has never
-  // seen a client that exposes it. These names are UNVERIFIED probe candidates,
-  // not an assumption about the field: every one of them missing is the
-  // expected outcome, gbUnitCarry returns null, and the caller stays blind.
-  // Never substitute a guessed number for a missing probe.
+
   const LOOT_CARRY_ATTRS = ['booty', 'carry', 'loot', 'haul_capacity', 'carrying_capacity', 'cargo'];
   function gbUnitCarry(unitId) {
     let m = null;
@@ -494,9 +384,7 @@
     const v = gbProbeAttr(m, LOOT_CARRY_ATTRS);
     return Number.isFinite(v) && v > 0 ? v : null;
   }
-  // Even thirds that actually sum to `total`: rounding each share
-  // independently drifts by up to 2, and a caller rendering the per-resource
-  // numbers next to the total would be reading a contradiction.
+
   function gbLootSplit(total) {
     const t = Math.max(0, Math.floor(+total || 0));
     const base = Math.floor(t / 3), rem = t - base * 3;
@@ -512,8 +400,7 @@
       const loyalty = ctx.loyalty != null ? +ctx.loyalty : 1.0;
       const headroom = ctx.headroom != null ? +ctx.headroom : null;
       const total = Math.round((dur / 3600) * LOOT_RATE_PER_HOUR * (Number.isFinite(loyalty) ? loyalty : 1));
-      // fits === null means "headroom unreadable", not "does not fit": the
-      // caller must not skip the duration on an unread value.
+
       const fits = (headroom != null && Number.isFinite(headroom)) ? total <= headroom * LOOT_SAFE_FILL_PCT : null;
       const split = gbLootSplit(total);
       return {
@@ -526,8 +413,7 @@
       let boats = null;
       try { boats = boatCapacityCheck(ctx.units, ctx.sameIsland); } catch (_) {}
       if (!boats) return gbLootBlind('boat-capacity-unreadable', { units: ctx.units });
-      // Transport capacity is not loot; it rides in meta so callers that want
-      // the discriminator get it without a second call.
+
       return { wood: 0, stone: 0, iron: 0, total: 0, blind: false, blindReason: null, meta: { boats } };
     }
     if (kind === 'attack-loot') {
@@ -540,8 +426,7 @@
         if (carry == null) { unknown += n; continue; }
         total += carry * n;
       }
-      // Any unreadable unit poisons the whole number: a partial sum would read
-      // as a full answer and understate the haul.
+
       if (unknown > 0 || total <= 0) return gbLootBlind('unit-carry-unknown', { units, unknownUnits: unknown });
       const split = gbLootSplit(total);
       return { wood: split.wood, stone: split.stone, iron: split.iron, total, blind: false, blindReason: null, meta: { units } };
@@ -549,16 +434,11 @@
     gbLogT('loot-calc-bad-kind', 300000, 'loot estimate: unknown kind ' + String(kind));
     return gbLootBlind('unknown-kind', { kind });
   }
-  // ===== Population state (v4 plan 2.7) ======================================
-  // Own cache keyspace so a pop invalidation never trashes the resource memo.
+
   const _townPopCache = Object.create(null);
   const POP_WARN_PCT = 90;
   const POP_NEAR_PCT = 75;
-  // NOTE: gbTownPop probes getAvailablePopulation FIRST, so it returns FREE
-  // population, not used. Plan 2.7 calls its field `current` and derives
-  // `freePct = current/cap`, which would light the warn colour on an EMPTY
-  // town. This helper keeps `free` and `used` as separate named fields and
-  // warns on usedPct, which is the number the user cares about.
+
   function townPopState(townId) {
     if (townId == null || townId === '') return null;
     const key = 'pop:' + townId;
@@ -580,23 +460,19 @@
     }
     let used = null;
     if (free != null && cap > 0) used = Math.max(0, cap - free);
-    else if (scraped) { const p = gbNum(scraped.pop); if (p != null) used = p; }
+    else if (scraped && Number.isFinite(+scraped.pop)) used = +scraped.pop;
     const usedPct = (used != null && cap > 0) ? Math.round(used / cap * 100) : null;
     const out = (free == null && used == null && !(cap > 0)) ? null : {
       free, used, cap: cap > 0 ? cap : null, usedPct,
       freePct: (free != null && cap > 0) ? Math.round(free / cap * 100) : null,
       near: usedPct != null && usedPct >= POP_NEAR_PCT,
       warn: usedPct != null && usedPct >= POP_WARN_PCT,
-      // Population growth is not exposed as a rate on stock client builds; a
-      // guard may only block on a value it actually read, so ETA stays null
-      // and the cell renders a dash rather than a fabricated number.
+
       etaMs: null,
     };
     _townPopCache[key] = { at: now, v: out };
     return out;
   }
-  // Both probes go through gbNum: a getter that answers null / '' / false is
-  // UNREADABLE, and `+` would have handed back 0 as if it were the real value.
   function gbProbeNum(obj, names, args) {
     if (!obj) return null;
     for (const n of names) {
@@ -677,29 +553,156 @@
     if (!t) return null;
     try {
       if (t.getBuildings) {
-        const v = gbNum(t.getBuildings().get(building));
-        if (v != null) return v;
+        const v = +t.getBuildings().get(building);
+        if (isFinite(v)) return v;
       }
     } catch (_) {}
     try {
       const a = (t.buildings && t.buildings().attributes) || {};
 
-      const v = gbNum(a[building]);
-      if (v != null) return v;
+      if (a[building] != null) {
+        const v = +a[building];
+        if (Number.isFinite(v)) return v;
+      }
     } catch (_) {}
     return null;
   }
   function hostEnabled() {
-
     return state.enabledHosts[location.host] === true && gbTabLeader;
   }
-  function ensureHostDefault() {
-    const h = location.host;
-    if (state.enabledHosts[h] === undefined) {
-      state.enabledHosts[h] = false;
-      save(STORE.ENABLED_HOSTS, state.enabledHosts);
-      gbLog('host ' + h + ' disabled by default — enable in Config');
+  function gbSpanishWorldNumber(host) {
+    const m=/^es(\d+)\.grepolis\.com$/i.exec(String(host||''));
+    return m ? (+m[1]||0) : 0;
+  }
+  function gbFindEnabledSpanishSibling(host) {
+    const h=String(host||'');
+    const n=gbSpanishWorldNumber(h);
+    if(!n)return null;
+    // Prefer the immediately preceding Spanish worlds. Modern GrepBot stores
+    // the host switch in a dedicated key, so do not rely only on the legacy map.
+    for(let d=1;d<=8;d++){
+      const k=n-d;if(k<=0)break;
+      const sibling='es'+k+'.grepolis.com';
+      const sk=STORE.ENABLED_HOSTS+'@host:'+sibling;
+      const v=load(sk,null);
+      if(v===true)return sibling;
+      if(gbStorageReadFailed(sk))break;
     }
+    // Compatibility with old installations that still have the shared map.
+    for(const [candidate,on] of Object.entries(state.enabledHosts||{})){
+      if(candidate!==h && on===true && gbSpanishWorldNumber(candidate))return candidate;
+    }
+    return null;
+  }
+  function ensureHostDefault() {
+    const h=location.host;
+    const directKey=STORE.ENABLED_HOSTS+'@host:'+h;
+    const direct=load(directKey,null);
+    if(typeof direct==='boolean'){state.enabledHosts[h]=direct;return direct}
+    // New Spanish worlds inherit ONLY the user's decision to enable GrepBot
+    // from an already-enabled Spanish world. All queues, towns, templates, TX,
+    // farm state, health and other runtime data remain hostname-scoped and clean.
+    const spanishSibling=gbFindEnabledSpanishSibling(h);
+    if(spanishSibling){
+      state.enabledHosts[h]=true;
+      save(directKey,true);
+      gbLog('new Spanish world '+h+' enabled from '+spanishSibling+'; world-specific state starts clean');
+      return true;
+    }
+    // Migrate the old shared map lazily, one host at a time. Never persist a
+    // fallback when reading that map failed.
+    if(gbStorageReadFailed(STORE.ENABLED_HOSTS)){
+      gbLogT('enabled-hosts-read',60000,'host enable state unreadable; leaving automation disabled without overwriting storage');
+      state.enabledHosts[h]=false;return false;
+    }
+    if(typeof state.enabledHosts[h]==='boolean'){
+      save(directKey,!!state.enabledHosts[h]);return !!state.enabledHosts[h];
+    }
+    state.enabledHosts[h]=false;
+    save(directKey,false);
+    gbLog('host '+h+' disabled by default — enable in Config');
+    return false;
+  }
+  function setHostEnabled(host,on) {
+    const h=String(host||location.host),v=!!on;
+    state.enabledHosts[h]=v;
+    return save(STORE.ENABLED_HOSTS+'@host:'+h,v);
+  }
+  function gbReloadSharedRuntimeState(reason) {
+    if(!gbTabLeader)return false;
+    const loadObj=(store,fallback)=>{
+      const v=load(store,fallback);
+      if(gbStorageReadFailed(store)||!v||typeof v!=='object'||Array.isArray(v))return null;
+      return v;
+    };
+    const tx=loadObj(STORE.TX_STATE,{});
+    if(tx){state.txState=tx;txLoadNormalize('leader:'+String(reason||'acquired'))}
+    const nq=loadObj(STORE.NATIVE_QUEUE,{version:1,seq:0,towns:{}});
+    if(nq){
+      state.nativeQueue=nq;nativeQueueInflightRestored=false;
+      try{nativeRecruitSplitDone.clear()}catch(_){}
+      try{nativeQueueRoot()}catch(e){gbLogT('leader-reload-nq',60000,'leader reload native queue: '+String(e))}
+    }
+    const circuits=loadObj(STORE.CIRCUITS,{});
+    if(circuits)state.circuits=circuits;
+    const decisions=load(STORE.DECISIONS,[]);
+    if(!gbStorageReadFailed(STORE.DECISIONS)&&Array.isArray(decisions))state.decisions=decisions;
+    const skips=loadObj(STORE.DECISION_SKIPS,{});
+    if(skips)state.decisionSkips=skips;
+
+    // A follower can remain open for hours. On promotion, refresh the config
+    // that controls server writes before any scheduler is poked. Storage is the
+    // source of truth; current in-memory values are only fallbacks if a key is
+    // missing, never replacements after a read error.
+    const reloadFields = [
+      ['configVer',STORE.CONFIG_VER],['dryRun',STORE.DRY_RUN],['safeMode',STORE.SAFE_MODE],
+      ['autoCollect',STORE.AUTO_COLLECT],['collectAll',STORE.COLLECT_ALL],['autoBandit',STORE.AUTO_BANDIT],['banditCfg',STORE.BANDIT_CFG],
+      ['autoFarm',STORE.AUTO_FARM],['farmScrape',STORE.FARM_SCRAPE],['farmOptionMap',STORE.FARM_OPTION_MAP],['farmLongClaims',STORE.FARM_LONG_CLAIMS],
+      ['ibAuto',STORE.IB_AUTO],['ibResearch',STORE.IB_RESEARCH],['questAutoBuild',STORE.QUEST_AUTO_BUILD],['questAutoRes',STORE.QUEST_AUTO_RES],
+      ['abAuto',STORE.AB_AUTO],['abTargets',STORE.AB_TARGETS],['abOrder',STORE.AB_ORDER],['autoWallRepair',STORE.AUTO_WALL_REPAIR],['popRescueFarm',STORE.POP_RESCUE_FARM],['buildSwapThresholdMin',STORE.BUILD_SWAP_MIN],['buildSwapIgnore',STORE.BUILD_SWAP_IGNORE],
+      ['autoResearch',STORE.AUTO_RESEARCH],['researchTargets',STORE.RESEARCH_TARGETS],
+      ['autoRecruit',STORE.AUTO_RECRUIT],['recruitTargets',STORE.RECRUIT_TARGETS],['recruitSpells',STORE.RECRUIT_SPELLS],['batchRecruit',STORE.BATCH_RECRUIT],['batchRecruitLists',STORE.BATCH_RECRUIT_LISTS],['recruitPacks',STORE.RECRUIT_PACKS],['autoVillageRecruit',STORE.AUTO_VILLAGE_RECRUIT],['villageRecruitFillPct',STORE.VILLAGE_RECRUIT_FILL],['villageRecruitAmount',STORE.VILLAGE_RECRUIT_AMOUNT],
+      ['autoCave',STORE.AUTO_CAVE],['caveThreshPct',STORE.CAVE_THRESH],['caveTowns',STORE.CAVE_TOWNS],['emergencyCaveAuto',STORE.EMERGENCY_CAVE_AUTO],['emergencyCaveConfirm',STORE.EMERGENCY_CAVE_CONFIRM],['emergencyCaveMinIron',STORE.EMERGENCY_CAVE_MIN],
+      ['autoCulture',STORE.AUTO_CULTURE],['cultureTypes',STORE.CULTURE_TYPES],['allowPremiumCulture',STORE.ALLOW_PREMIUM_CULTURE],['cultureGoldBudget',STORE.CULTURE_GOLD_BUDGET],
+      ['autoTrade',STORE.AUTO_TRADE],['tradePreset',STORE.TRADE_PRESET],['tradeReservePct',STORE.TRADE_RESERVE],['tradeMinBatch',STORE.TRADE_MIN],['tradeTowns',STORE.TRADE_TOWNS],['tradeRoutes',STORE.TRADE_ROUTES],['autoTradeRoutes',STORE.AUTO_TRADE_ROUTES],['autoTransport',STORE.AUTO_TRANSPORT],['transportReserve',STORE.TRANSPORT_RESERVE],['transportMin',STORE.TRANSPORT_MIN],['autoDump',STORE.AUTO_DUMP],['dumpThreshold',STORE.DUMP_THRESHOLD],['dumpKeep',STORE.DUMP_KEEP],['dumpSinks',STORE.DUMP_SINKS],['islandShip',STORE.ISLAND_SHIP],
+      ['autoRuralTrade',STORE.AUTO_RURAL_TRADE],['autoRuralLevel',STORE.AUTO_RURAL_LEVEL],['ruralLevelMax',STORE.RURAL_LEVEL_MAX],
+      ['autoMerchant',STORE.AUTO_MERCHANT],['merchantWish',STORE.MERCHANT_WISH],['autoPtTrade',STORE.AUTO_PT_TRADE],['ptCfg',STORE.PT_CFG],
+      ['autoFavor',STORE.AUTO_FAVOR],['favorCfg',STORE.FAVOR_CFG],['autoWonder',STORE.AUTO_WONDER],['wonderCfg',STORE.WONDER_CFG],['autoWonderFavor',STORE.AUTO_WONDER_FAVOR],
+      ['autoDodge',STORE.AUTO_DODGE],['dodgeMode',STORE.DODGE_MODE],['dodgeFloor',STORE.DODGE_FLOOR],['defenseCfg',STORE.DEFENSE_CFG],['supportCfg',STORE.SUPPORT_CFG],['autoMilitia',STORE.AUTO_MILITIA],
+      ['spyEnabled',STORE.AUTO_SPY],['spyCfg',STORE.SPY_CFG],
+      ['plannerCfg',STORE.PLANNER_CFG],['goalProfiles',STORE.GOAL_PROFILES],['townGoals',STORE.TOWN_GOALS],['virtualQueue',STORE.VIRTUAL_QUEUE],['virtualQueueOverrides',STORE.VIRTUAL_QUEUE_OVERRIDES]
+    ];
+    for(const [field,store] of reloadFields){
+      const v=load(store,state[field]);
+      if(!gbStorageReadFailed(store))state[field]=v;
+    }
+
+    const dodgeReturns=loadObj(STORE.DODGE_RETURNS,{});
+    if(dodgeReturns)state.dodgeReturns=dodgeReturns;
+    try {
+      const dq=dodgeQueueLoad();
+      for(const k of Object.keys(dodgeQueue))delete dodgeQueue[k];
+      Object.assign(dodgeQueue,dq||{});
+    } catch(e) { gbLogT('leader-reload-dodge',60000,'leader reload dodge queue: '+String(e)); }
+    try {
+      const qf=questClaimFailLoad();
+      for(const k of Object.keys(questClaimFail))delete questClaimFail[k];
+      Object.assign(questClaimFail,qf||{});
+    } catch(e) { gbLogT('leader-reload-quest',60000,'leader reload quest fail state: '+String(e)); }
+    gbLogT('leader-state-reload',30000,`leader: shared runtime state reloaded (${reason||'acquired'})`);
+    return true;
+  }
+  function gbHandleLeadershipAcquired(reason) {
+    if(!gbInstanceAlive()||!gbTabLeader)return false;
+    try{gbReloadSharedRuntimeState(reason)}catch(e){gbLogT('leader-reload',60000,'leader state reload: '+String(e))}
+    try{migrateConfig()}catch(e){gbLogT('leader-migrate',60000,'leader migration: '+String(e))}
+    try{orchStartIndependentTimers()}catch(e){gbLogT('leader-orch-ensure',60000,'leader scheduler ensure: '+String(e))}
+    try{orchTick()}catch(e){gbLogT('leader-orch-poke',60000,'leader scheduler poke: '+String(e))}
+    try{farmTick()}catch(e){gbLogT('leader-farm-poke',60000,'leader farm poke: '+String(e))}
+    try{nativeQueueSweep('leader')}catch(e){gbLogT('leader-nq-poke',60000,'leader native queue poke: '+String(e))}
+    try{txReconcileUnknownOnLeader(reason)}catch(e){gbLogT('leader-tx-reconcile',60000,'leader tx reconcile: '+String(e))}
+    try{updateStatus()}catch(_){}
+    return true;
   }
   const CSRF_TOK16 = /^[a-f0-9]{16,64}$/i;
   const CSRF_TOK32 = /^[a-f0-9]{32,64}$/i;
@@ -766,19 +769,3 @@
   })();
   const JRN_MAX = 400;
   const JRN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-  const JRN_DEDUP_MS = 10 * 60 * 1000;
-  const JRN_SAVE_MS = 5000;
-  const JRN_FAIL_TRIP = 3;
-  const JRN_BACKOFF = [5, 15, 60];
-  // Local gates only: nothing was ever posted, so none of these is evidence
-  // about the endpoint. Anything missing here is charged as a hard error and
-  // three of them in a row open a 5/15/60min skip window — a permanent lockout
-  // built entirely out of our own refusals to send.
-  const JRN_SKIP_ERRS = {
-    disabled: 1, paused: 1, 'captcha-pause': 1, budget: 1, noajax: 1, remembered: 1, dryrun: 1,
-    disposed: 1, 'tpl-stale': 1, 'circuit-open': 1,
-    'safe-mode-high-impact': 1, 'safe-mode-premium': 1,
-  };
-
-  if (!Array.isArray(state.decisions)) state.decisions = [];
-  if (!state.decisionSkips || typeof state.decisionSkips !== 'object') state.decisionSkips = {};

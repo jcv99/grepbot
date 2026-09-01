@@ -1,18 +1,3 @@
-  // ===== Map context menu (v4 plan 6.7) ======================================
-  // It does NOT intercept a single game DOM event. No capture listener, no
-  // preventDefault, no synthetic click: the game's own popup keeps every one of
-  // its own interactions, and GrepBot mounts a SIBLING menu beside it.
-  //
-  // The map itself is canvas (plan 27 section 0 forbids canvas work), so the
-  // only readable anchor is the game's own town-info popup, which does render
-  // a town id into the DOM. When that popup is absent or unreadable, nothing
-  // is shown - no coordinate is inferred and no id is guessed.
-  //
-  // Polling is a self-rescheduling gbTimeout chain, not a gbInterval: the
-  // README hard rule reserves interval registration for the existing cadences,
-  // and a chain that only re-arms after the previous scan settled cannot pile
-  // up behind a slow elementFromPoint.
-  const CTX_SCAN_MS = 750;
   const CTX_POPUP_SEL = '.ui-dialog-content, .gpwindow_content, .town_info, .context_menu';
   const CTX_ID_ATTRS = ['data-townid', 'data-town-id', 'data-id'];
   let ctxMenuEl = null;
@@ -24,9 +9,7 @@
       const v = holder && holder.getAttribute(a);
       if (v && /^\d+$/.test(String(v).trim())) return String(v).trim();
     }
-    // Fall back to a link that names the town id explicitly. A bare number
-    // scraped from popup TEXT is deliberately not accepted: it would happily
-    // match a resource count and mount a menu for a town that does not exist.
+
     try {
       const a = popup.querySelector('a[href*="town_id="], a[href*="&town="], a[href*="?town="]');
       const m = a && String(a.getAttribute('href') || '').match(/(?:town_id|town)=(\d+)/);
@@ -38,8 +21,8 @@
     let nodes = [];
     try { nodes = Array.from(document.querySelectorAll(CTX_POPUP_SEL)); } catch (_) { return null; }
     for (const n of nodes) {
-      // Never mount on our own UI - the same ownership test nativeUiScan uses.
-      if (n.closest('#grepbot-panel, .gb-widget, .gb-ctx-menu')) continue;
+
+      if (n.closest('#grepbot-panel, #grepbot-queue-center, .gb-widget, .gb-ctx-menu')) continue;
       const r = n.getBoundingClientRect();
       if (!r.width || !r.height) continue;
       const id = ctxReadTownId(n);
@@ -53,8 +36,7 @@
     ctxMenuEl = null;
     ctxMenuTown = null;
   }
-  // Full stop, including the pending chain link. ctxDispose alone leaves one
-  // more scan armed; grepbotDispose calls this so teardown is immediate.
+
   function contextMenuStop() {
     if (ctxTimer) { try { gbClearTimeout(ctxTimer); } catch (_) {} ctxTimer = 0; }
     ctxDispose();
@@ -82,7 +64,7 @@
       'background:var(--gb-bg-alt);color:var(--gb-fg);border:1px solid var(--gb-border);box-shadow:0 4px 14px rgba(0,0,0,.45)';
     const head = document.createElement('div');
     head.style.cssText = 'font-size:10px;color:var(--gb-accent);padding:2px 8px 4px;border-bottom:1px solid var(--gb-border-soft)';
-    head.textContent = `GrepBot · ciudad ${townId}`;
+    head.textContent = `GrepBot \u00b7 ciudad ${townId}`;
     m.appendChild(head);
     m.appendChild(ctxItem('Atacar', 'Fija esta ciudad como objetivo del planificador de ataque', () => {
       applyAttackTarget({ id: +townId, town_id: +townId, kind: 'town' });
@@ -117,8 +99,7 @@
     try { applyTheme(); } catch (_) {}
     return m;
   }
-  // Same trap nativeQctlHitCheck exists for: a stacking context can bury the
-  // menu so clicks never reach it. Say so once rather than leaving dead buttons.
+
   function ctxHitCheck() {
     if (!ctxMenuEl || !ctxMenuEl.isConnected) return;
     try {
@@ -133,18 +114,12 @@
     ctxTimer = 0;
     try {
       if (state.contextMenu === false || !hostEnabled()) { ctxDispose(); return; }
-      // Each pass costs a querySelectorAll plus getBoundingClientRect and
-      // elementFromPoint - three forced layout flushes, 80x/min. The game popup
-      // this menu anchors to cannot appear while the tab is hidden (it needs a
-      // click), so there is nothing to find. Keep the existing menu mounted
-      // rather than disposing: a hidden tab is not a closed popup, and the
-      // re-arm in `finally` keeps the poll alive for the return to visible.
+
       if (document.hidden) return;
       const found = ctxFindPopup();
       if (!found) { ctxDispose(); return; }
       if (ctxMenuEl && ctxMenuTown === found.id && ctxMenuEl.isConnected) {
-        // The game popup is draggable, so follow it rather than leaving the
-        // menu stranded where the popup used to be.
+
         const left = Math.round(found.rect.right + 12) + 'px';
         const top = Math.round(found.rect.top) + 'px';
         if (ctxMenuEl.style.left !== left) ctxMenuEl.style.left = left;
@@ -159,8 +134,7 @@
     } catch (e) {
       gbLogT('ctx-scan-err', 300000, 'context menu: ' + String(e).slice(0, 60));
     } finally {
-      // Re-arm only after this scan settled, so a slow elementFromPoint cannot
-      // stack scans on top of each other.
+
       if (!ctxTimer && gbInstanceAlive()) ctxTimer = gbTimeout(contextMenuScan, CTX_SCAN_MS);
     }
   }
@@ -168,3 +142,5 @@
     if (ctxTimer) return;
     ctxTimer = gbTimeout(contextMenuScan, CTX_SCAN_MS);
   }
+
+  const HUD_TICK_MS = 1000;

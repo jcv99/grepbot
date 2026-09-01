@@ -10,11 +10,19 @@ into `grepbot.user.js`. **ToS-breaking** — runs against any `*.grepolis.com`
 world; ban risk is user-accepted. HIGH-RISK toggles (recruit, dodge auto, favor,
 god spells, support send, resource dump, emergency cave) default OFF.
 
-Current: **v5.10.2**, 52 modules, ~1.3 MB artifact. `src/` reproduces the
-artifact exactly again: the externally built v5.8.0 drop-in has been reconciled
-back into `src/`, and `build.py` now refuses to overwrite an artifact whose
-`@version` is newer than `src/` (`--force` overrides). Everything is coded; the
-outstanding work is **manual in-game validation** on `es146`.
+Current: **v6.0.15-rc4-dev7**, 53 modules, ~1.5 MB artifact. `src/` reproduces
+the artifact exactly again: the externally built v5.8.0 drop-in was reconciled
+back into `src/` (v5.8.2), and the second external drop-in — the parallel
+**6.x line** (`grepbot_v6.0.15-rc4-dev6.user.js`, Telegram alerts, city
+designer, legacy-world migration, Web-Locks leader election, rewritten queue
+center) — has now been reconciled the same way (`archive/split_v6.py`, split
+verified byte-identical modulo 6 blank lines at module seams). The 6.x line
+diverged at v5.8.0 and never received the v5.9–v5.10.64 fixes; the merged
+`src/` carries the still-missing ones (gbNum numeric discipline, real-queue
+match, slotRetryAt server-full backoff, unit-queue max probe, naval-mythical
+maps — see REGRESSIONS § tail). `build.py` refuses to overwrite an artifact
+whose `@version` is newer than `src/` (`--force` overrides). Everything is
+coded; the outstanding work is **manual in-game validation** on `es146`.
 
 **NO SERVER.** No `server.py`, no `127.0.0.1:*`, no `/api/*`, no XPI
 self-update, no log relay, no AI command channel. Paste-only: build → install
@@ -42,7 +50,7 @@ If `grepbot.user.js` is older than `src/header.js` → rebuild before editing.
 ## Repo layout
 
 ```
-src/                  # 52 modules (header/core/footer + 49 feature) — concat order matters
+src/                  # 53 modules (header/core/footer + 50 feature) — concat order matters
 build.py              # python3 build.py → grepbot.user.js (concat + 4 gates)
 .build-stamp.json     # build gate bookkeeping (src hash + last built version)
 grepbot.user.js       # built output — paste this into Tampermonkey
@@ -273,7 +281,9 @@ contract, risk class and why a tempting shortcut is forbidden.
 | `farms.js` | `autoClaimFarms`, `farmSleepClaimNow` | `autoFarm` OFF, `farmSleepAuto` OFF | claim option index is **learned** (`farmLearnOptionFromClaim`, snapped to `FARM_DURATIONS`); 10min where villager-loyalty research is done, else 5min; sleep claim once/local day under fill %, day stamped after verified claims |
 | `towns.js` / `collect.js` | scrape deadlines, `autoCollectResources` | `collectAll` | collect walks a TreeWalker for `/^\d{1,2}\s*min$/` up to a `Recoger` button, marks `dataset.grepbotClicked` |
 | `bandit.js` | `banditViaGame` | `autoBandit` | reward via `hasReward()`→`useReward`/`stashReward`, cooldown via `getCooldownDuration()`, en-route via `MovementsUnits[*].destination_is_attack_spot`; model path needs no window |
-| `build-tab.js` / `build-auto.js` / `goals.js` / `build-targets.js` | `ibScan`, `ibCompleteAll`, `abScan` | `ibAuto` OFF, `abAuto` | free instant only when remaining ≤ thresh **and** `GameDataInstantBuy` price === 0; **never** falls back to `buyInstant`; `ibArmNext` arms one timer at `remaining - ibFreeThresh()`; the 10s loop is the safety net |
+| `build-tab.js` / `build-auto.js` / `goals.js` | `ibScan`, `ibCompleteAll`, `abScan` | `ibAuto` OFF, `abAuto` | free instant only when remaining ≤ thresh **and** `GameDataInstantBuy` price === 0 (price read via `gbNum` — a null getter is UNREADABLE, never 0/free); **never** falls back to `buyInstant`; `ibArmNext` arms one timer at `remaining - ibFreeThresh()`; the 10s loop is the safety net |
+| `city-designer.js` (6.x) | `cdPhase`, `cdSyncTownGoal`, `cityDesignerHasExecutableWork` | via goal profile `cd_*` | composition profiles with demolition planning (`cdDemolitionCandidate`, academy-safe checks `cdAcademyDemolitionSafe`); strip builds roll back provisionally (`cdRollbackProvisionalStrip`); planner-owned towns reject manual FIFO (`nativeQueueRejectManualWhenPlanner`) |
+| `telegram.js` (6.x) | `telegramMonitorTick`, `telegramNotify` | per-event toggles OFF | out-of-band alerts over `@connect api.telegram.org` + GM_xmlhttpRequest; bot token in TM storage only — excluded from config export, diagnostics and logs by design; attack/captcha/warehouse/hourly-digest monitors, support-mode capture; host-wide monitor Web Lock dedupes across tabs |
 | `native-ui.js` / `queue-center.js` | `nativeUiScan`, `renderQueueCenter` | `queueFollow` ON | virtual FIFO beside the game's real queue; mutations only via `nativeQueue*`; one queue window — the scan calls `nativeQueueFollowCenter` (fires on town+lane CHANGE only, so it never steals a tab the user switched by hand) and the QC recruit roster reads `nativeLaneRoster`, never a guessed unit list |
 | `cave.js` | `caveScan` | `autoCave` OFF | stash iron ≥ `caveThreshPct`% of warehouse via `BuildingHide`/`storeIron`; ∞ sentinel is `-1`; unreadable finite cap/stored → skip |
 | `emergency.js` | `emergencyScan`, `emergencyStashAllNow` | `emergencyCaveAuto` OFF (HIGH-RISK) | pre-stash before a hostile lands; same `caveStoreIron` payload, own lock + feature key; rides `dodgeScan` |

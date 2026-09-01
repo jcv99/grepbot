@@ -1,15 +1,9 @@
   function banditIdle(ms, cap) { banditIdleUntil = Date.now() + Math.min(ms, cap || 30000); }
-  // Bandit camp legality is the game's own attack-spot unit picker, not a guess:
-  // features/attack_spots/controllers/attack_spot opens it with
-  // `show_land_units:true, show_naval_units:false, filter_units:{ground_units:['catapult']}`,
-  // and `groundUnitIds()` is every GameData.units entry with `is_naval` falsy
-  // (militia is shifted off). So: land units only, catapult and militia never.
-  // Mythical land units are legal by that rule alone — no per-god list needed.
+
   const BANDIT_ILLEGAL_IDS = /^(catapult|militia)$/i;
   const BANDIT_OFFENSE_IDS = /^(slinger|hoplite|rider|chariot|minotaur|manticore|cyclops?|zyklop|harpy|erinys|fury|centaur|griffin|satyr|giant|godsent)$/i;
   function banditIsOffenseUnit(uw, id) {
-    // Hoplites are balanced troops but are valid attackers. Keep this exception
-    // narrow instead of sending every unit marked function_both by the game.
+
     if (BANDIT_ILLEGAL_IDS.test(id)) return false;
     if (/^(godsent|hoplite)$/i.test(id)) return true;
     try {
@@ -35,14 +29,19 @@
     });
     return units;
   }
-  // ===== Booty camp optimizer (v4 plan 5.8) ==================================
-  // Bandit always sends every available offense unit the legality filter keeps.
-  // The user-visible "Tope por unidad" control has been retired; banditRankUnits
-  // is now a thin alias over banditAttackUnits so every existing caller keeps
-  // working without the smart-cap branch.
+
   const BANDIT_HISTORY_MAX = 20;
   const banditAttackHistory = [];
-  function banditRankUnits(uw, rawUnits) {
+  function banditUnitCost(uw, unit) {
+    try {
+      const d = uw.GameData && uw.GameData.units && uw.GameData.units[unit];
+      const r = d && (d.resources || d.costs || d.cost);
+      if (!r) return null;
+      const n = (+r.wood || 0) + (+r.stone || 0) + (+r.iron || 0);
+      return n > 0 ? n : null;
+    } catch (_) { return null; }
+  }
+  function banditRankUnits(uw, rawUnits, cfg) {
     return banditAttackUnits(uw, rawUnits);
   }
   function banditNoteAttack(units) {
@@ -145,13 +144,10 @@
     const useTown = !!evidence.townKnown;
     const current = useTown ? +evidence.townCount || 0 : +evidence.count || 0;
     let before = useTown ? s.beforeTownMovementCount : s.beforeMovementCount;
-    // A globally empty readable collection also proves the per-town baseline was zero.
+
     if (before == null && useTown && +s.beforeMovementCount === 0) before = 0;
     if (before != null && Number.isFinite(+before)) return current > +before ? 'applied' : 'unchanged';
-    // No persisted baseline (transaction created by an older version): `current
-    // > 0` is not evidence about OUR post — any pre-existing movement, from any
-    // town, committed the transaction as applied. Without a baseline the outcome
-    // is genuinely unknown, and the unknown path already re-checks later.
+
     return 'unknown';
   }
   function banditCommitUnknownFromMovement(townId, evidence) {
@@ -162,7 +158,7 @@
       if (townId != null && tx.meta && tx.meta.townId != null && String(tx.meta.townId) !== String(townId)) continue;
       if (banditMovementReconcileResult(tx, evidence) !== 'applied') continue;
       tx.state = 'committed'; tx.updatedAt = Date.now(); tx.detail = 'movement model confirmed';
-      plannerCommit(tx); committed++;
+      plannerRelease(tx, 'bandit-reconciled-applied'); committed++;
       jrnPush({ f:'bandit', a:String(tx.endpoint || '').slice(0,48), k:String(tx.intent || '-').slice(0,120) }, 'ok', tx.detail, tx.id);
       markModuleHealth('bandit', 'ok'); circuitSuccess('bandit');
     }
@@ -214,8 +210,6 @@
       const townId = uw.Game && uw.Game.townId;
       const movement = banditMovementEvidence(uw, townId);
 
-      // Reconcile before reward/cooldown branches so a reloaded UNKNOWN write is
-      // finalized while its outbound or return movement is still observable.
       const earlyReconciled = movement.known && movement.count > 0 ? banditCommitUnknownFromMovement(townId, movement) : 0;
       if (m.hasReward && m.hasReward()) {
         if (gbLocked('bandit-reward')) {
@@ -230,19 +224,17 @@
         if (!rewardLock) return true;
         gbLog('bandit: reward claim posted via', action, pid || '(no power_id)');
 
-        // hasReward() stays true until the model refreshes, and the scan wakes
-        // again 1.5s after the lock drops — without an idle window the next tick
-        // posted a SECOND claim for a reward that was already taken.
         banditIdle(15000);
         post(action, {}, (err) => {
           gbUnlock('bandit-reward', rewardLock);
           if (err) {
-
-            // A hard rejection means the reward is not claimable right now;
-            // re-posting every 1.5s only burns budget.
-            if (err === 'timeout_unknown' || err === 'pending') banditIdle(60000, 60000);
-            else banditIdle(30000);
-            gbLog('bandit: reward claim failed', err);
+            const expected = gbExpectedServerReject('bandit', err);
+            if (expected === 'waiting-inventory-full') {
+              // Do not hammer stashReward while the inventory is full. Recheck later; no health/error pollution.
+              banditIdle(30 * 60 * 1000, 30 * 60 * 1000);
+              gbLogT('bandit-inventory-full', 30 * 60 * 1000, 'bandit: reward waiting - inventory full');
+            } else if (err === 'timeout_unknown' || err === 'pending') banditIdle(60000, 60000);
+            else { banditIdle(30000); gbLog('bandit: reward claim failed', err); }
             return;
           }
           banditIdle(15000);
@@ -292,7 +284,7 @@
         return true;
       }
       if (banditWrongIsland(uw, m)) {
-        gbLogT('bandit-island', 60000, 'bandit: camp on other island — switch town or skip');
+        gbLogT('bandit-island', 60000, 'bandit: camp on other island \u2014 switch town or skip');
         banditIdle(30000);
         return true;
       }
@@ -339,7 +331,7 @@
     try {
       if (banditViaGame()) return;
 
-      gbLogT('bandit-dom-disabled', 120000, 'bandit: game bridge unavailable — DOM write fallback disabled (read-only fail closed)');
+      gbLogT('bandit-dom-disabled', 120000, 'bandit: game bridge unavailable \u2014 DOM write fallback disabled (read-only fail closed)');
       banditIdle(30000);
       return;
     } finally {
@@ -347,17 +339,10 @@
     }
   }
   let banditLoopTimer = null;
-  let banditTimer = null;
   function banditClearLoop() {
     if (banditLoopTimer) {
       try { gbClearTimeout(banditLoopTimer); } catch (_) {}
       banditLoopTimer = null;
-    }
-  }
-  function banditClearScan() {
-    if (banditTimer) {
-      try { gbClearTimeout(banditTimer); } catch (_) {}
-      banditTimer = null;
     }
   }
   function banditScheduleNext() {
@@ -385,11 +370,9 @@
     save(STORE.BANDIT_LOG, state.banditLog);
   }
   banditScheduleNext();
-  // Idle safety net, NOT a duplicate driver: collect is event-driven (the body
-  // MutationObserver plus an rAF coalescer), and a page that stops mutating --
-  // an idle town view, a background SPA route -- produces no records at all, so
-  // a ripe "N min" button would sit there until the player touched something.
-  // collect is not an orchTick feature (no ORCH_CADENCE entry), so the sole
-  // scheduler rule does not claim it.
-  gbInterval(autoCollectResources, COLLECT_SAFETY_MS);
+  gbInterval(autoCollectResources, 5000);
   if (state.autoCollect && state.collectAll) collectAllBackground();
+  const IB_CHECK_MS = 10000;
+  const IB_FREE_ACTIONS = new Set(['buyInstant']);
+  const IB_FREE_SERVER_MARGIN_SEC = 10;
+  function ibFreeThresh() { return Math.max(1,Math.min(300,+state.ibFreeThresh||300)); }

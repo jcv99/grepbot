@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      5.10.64
+// @version      6.0.15-rc4-dev7
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -21,6 +21,7 @@
 
 (function () {
   'use strict';
+  const GB_RELEASE = '6.0.15-rc4-dev7';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -34,9 +35,9 @@ const STORE = {
     COLLECT_ALL: 'grepbot:collect-all',
     COLLECT_TPL: 'grepbot:collect-tpl',
     AUTO_BANDIT: 'grepbot:auto-bandit',
+    BANDIT_CFG: 'grepbot:bandit-cfg',
     BANDIT_LOG:  'grepbot:bandit-log',
     NEXT_FARM:  'grepbot:next-farm',
-    NEXT_FARM_CLAIM: 'grepbot:next-farm-claim',
     NEXT_TOWNS: 'grepbot:next-towns',
     FARM_ACTION: 'grepbot:farm-action',
     AUTO_FARM:  'grepbot:auto-farm',
@@ -78,11 +79,9 @@ const STORE = {
     FARM_SKIP_FULL: 'grepbot:farm-skip-full',
     FARM_FULL_MODE: 'grepbot:farm-full-mode',
     AB_AUTO: 'grepbot:ab-auto',
-    AB_RANDOM_FALLBACK: 'grepbot:ab-random-fallback',
     AUTO_WALL_REPAIR: 'grepbot:auto-wall-repair',
     POP_RESCUE_FARM: 'grepbot:pop-rescue-farm',
     AB_TARGETS: 'grepbot:ab-targets',
-    AB_SCRIPT:  'grepbot:ab-script',
     AUTO_CAVE: 'grepbot:auto-cave',
     CAVE_THRESH: 'grepbot:cave-thresh',
     CAVE_TOWNS: 'grepbot:cave-towns',
@@ -96,8 +95,6 @@ const STORE = {
     FARM_LONG_CLAIMS: 'grepbot:farm-long-claims',
     FARM_LOYALTY_TECH: 'grepbot:farm-loyalty-tech',
     FARM_PROFIT: 'grepbot:farm-profit',
-    ADAPTIVE_FARM: 'grepbot:adaptive-farm',
-    FARM_DROP_PCT: 'grepbot:farm-drop-pressure-pct',
     FARM_CLAIMS_TODAY: 'grepbot:farm-claims-today',
     FARM_CLAIMS_DAY: 'grepbot:farm-claims-day',
     FARM_UNITS_MODE: 'grepbot:farm-units-mode',
@@ -117,6 +114,10 @@ const STORE = {
     TRADE_PRESET: 'grepbot:trade-preset',
     TRADE_RESERVE: 'grepbot:trade-reserve',
     TRADE_MIN: 'grepbot:trade-min',
+    TRADE_TOWNS: 'grepbot:trade-towns',
+    TRADE_OVERFLOW: 'grepbot:trade-overflow',
+    TRADE_TRANSFER_PCT: 'grepbot:trade-transfer-pct',
+    TRADE_RECEIVER_PCT: 'grepbot:trade-receiver-pct',
     TRADE_ROUTES: 'grepbot:trade-routes',
     AUTO_TRADE_ROUTES: 'grepbot:auto-trade-routes',
     AUTO_TRANSPORT: 'grepbot:auto-transport',
@@ -127,21 +128,26 @@ const STORE = {
     TRANSPORT_RESERVE: 'grepbot:transport-reserve',
     TRANSPORT_MIN: 'grepbot:transport-min',
     AUTO_RURAL_TRADE: 'grepbot:auto-rural-trade',
-    RURAL_TRADE_RATIO: 'grepbot:rural-trade-ratio',
-    RURAL_TRADE_RES: 'grepbot:rural-trade-res',
+    ISLAND_BENEFICIARIES: 'grepbot:island-beneficiaries-v1',
     AUTO_RURAL_LEVEL: 'grepbot:auto-rural-level',
     RURAL_LEVEL_MAX: 'grepbot:rural-level-max',
     AUTO_RESEARCH: 'grepbot:auto-research',
     RESEARCH_TARGETS: 'grepbot:research-targets',
-    PAUSE_ON_ACTIVITY: 'grepbot:pause-on-activity',
-    PAUSE_ACTIVITY_MS: 'grepbot:pause-activity-ms',
-    NIGHT_PAUSE: 'grepbot:night-pause',
-    NIGHT_START: 'grepbot:night-start',
-    NIGHT_END: 'grepbot:night-end',
     CITY_TEMPLATES: 'grepbot:city-templates',
     TOWN_GROUPS: 'grepbot:town-groups',
     WEBHOOK_URL: 'grepbot:webhook-url',
     WEBHOOK_EVENTS: 'grepbot:webhook-events',
+    TELEGRAM_ENABLED: 'grepbot:telegram-enabled',
+    TELEGRAM_BOT_TOKEN: 'grepbot:telegram-bot-token',
+    TELEGRAM_CHAT_ID: 'grepbot:telegram-chat-id',
+    TELEGRAM_CAPTCHA: 'grepbot:telegram-captcha',
+    TELEGRAM_CAPTCHA_RESOLVED: 'grepbot:telegram-captcha-resolved',
+    TELEGRAM_CAPTCHA_STATE: 'grepbot:telegram-captcha-state',
+    TELEGRAM_EVENTS: 'grepbot:telegram-events-v1',
+    TELEGRAM_MONITOR_STATE: 'grepbot:telegram-monitor-state-v1',
+    TELEGRAM_WAREHOUSE_PCT: 'grepbot:telegram-warehouse-pct',
+    TELEGRAM_WAREHOUSE_MIN: 'grepbot:telegram-warehouse-min',
+    TELEGRAM_DIAG_STATE: 'grepbot:telegram-diag-state-v1',
     NOTIFY_ENABLED: 'grepbot:notify-enabled',
     NOTIFY_EVENTS: 'grepbot:notify-events',
     NOTIFY_VOLUME: 'grepbot:notify-volume',
@@ -160,11 +166,13 @@ const STORE = {
     RECRUIT_SPELLS: 'grepbot:recruit-spells',
     BATCH_RECRUIT: 'grepbot:batch-recruit',
     BATCH_RECRUIT_LISTS: 'grepbot:batch-recruit-lists',
+    NATIVE_RECRUIT_LAST_QTY: 'grepbot:native-recruit-last-qty',
 
     RECRUIT_PACKS: 'grepbot:recruit-packs',
     PRIORITY_ORDER: 'grepbot:priority-order',
     ISLAND_SHIP: 'grepbot:island-ship',
     AUTO_MILITIA: 'grepbot:auto-militia',
+    MILITIA_CFG: 'grepbot:militia-cfg',
     CS_ALERT: 'grepbot:cs-alert',
     PLAYER_NOTES: 'grepbot:player-notes',
     WATCHLIST: 'grepbot:watchlist',
@@ -184,6 +192,8 @@ const STORE = {
     INTEL_ALLY_FILTER: 'grepbot:intel-alliance-filter',
     INTEL_BATTLE_STATS: 'grepbot:intel-battle-stats',
     CONFIG_VER: 'grepbot:config-ver',
+    GLOBAL_CONFIG_VER: 'grepbot:global-config-ver',
+    LEGACY_WORLD_MIGRATION: 'grepbot:legacy-world-migration-v1',
     CONFIG_UNDO: 'grepbot:config-undo',
     CONFIG_REDO: 'grepbot:config-redo',
     WONDER_SPENT: 'grepbot:wonder-spent',
@@ -193,7 +203,6 @@ const STORE = {
     DECISION_MEM: 'grepbot:decision-memory',
     DRY_RUN: 'grepbot:dry-run',
     EXPORT_REDACT: 'grepbot:export-redact',
-    ORCH_ADAPTIVE: 'grepbot:orch-adaptive',
     SERVER_COOLDOWN: 'grepbot:server-cooldown',
     QUEST_CLAIM_FAIL: 'grepbot:quest-claim-fail',
     DODGE_QUEUE: 'grepbot:dodge-queue',
@@ -228,14 +237,12 @@ const STORE = {
     MEM_PROBE_ON: 'grepbot:mem-probe-on',
     CLIENT_FP: 'grepbot:client-fingerprint',
     SAFE_MODE: 'grepbot:safe-mode',
-    NEVER_STOP: 'grepbot:never-stop',
     SIM_CFG: 'grepbot:sim-cfg',
     WHY_LOG: 'grepbot:why-log',
     TPL_HEALTH: 'grepbot:tpl-health',
     CAPTCHA_LADDER: 'grepbot:captcha-ladder',
     POSTS_SOFT_PCT: 'grepbot:posts-soft-pct',
     TAB_FILTERS: 'grepbot:tab-filters',
-    ORCH_DEADLOCK: 'grepbot:orch-deadlock',
     FARM_LOYALTY_SEEN: 'grepbot:farm-loyalty-seen',
     FARM_TEACH_BANNER: 'grepbot:farm-teach-banner',
     LAST_SEEN_TS: 'grepbot:last-seen-ts',
@@ -259,15 +266,17 @@ const STORE = {
     WEBHOOK_RATELIMIT: 'grepbot:webhook-ratelimit',
     WEBHOOK_PENDING: 'grepbot:webhook-pending',
   };
-  const PRIORITY_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
-    'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'merchant', 'pttrade', 'favor', 'wonder', 'hero', 'godspell', 'spy'];
-  const CONFIG_VER_CURRENT = 13;
+
+  const ORCH_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
+    'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'batchrecruit', 'merchant', 'pttrade', 'favor', 'wonder', 'hero', 'godspell', 'spy'];
+  const CONFIG_VER_CURRENT = 16;
+  const GLOBAL_CONFIG_VER_CURRENT = 1;
   const WORLD_SCOPED_BASES = new Set([
     STORE.FINDINGS, STORE.FARMS, STORE.FARMS_PARSED, STORE.FARM_RES, STORE.SEEN,
     STORE.TOWNS, STORE.TOWN_RES, STORE.TOWN_GROWTH_HIST, STORE.THRESH, STORE.ALERTED,
-    STORE.NEXT_FARM, STORE.NEXT_FARM_CLAIM, STORE.NEXT_TOWNS, STORE.BANDIT_LOG,
+    STORE.NEXT_FARM, STORE.NEXT_TOWNS, STORE.BANDIT_LOG,
     STORE.CSRF, STORE.FARM_ACTION, STORE.COLLECT_TPL, STORE.CLAIM_TPL, STORE.ACCEPT_UNITS_TPL,
-    STORE.IB_ACTION, STORE.IB_ACTION_R, STORE.FARM_OPTION_MAP, STORE.FARM_LOYALTY_TECH, STORE.FARM_SLEEP_DAY, STORE.FARM_PROFIT, STORE.FARM_TRAVEL, STORE.FARM_CLAIMS_TODAY, STORE.FARM_CLAIMS_DAY,
+    STORE.IB_ACTION, STORE.IB_ACTION_R, STORE.FARM_OPTION_MAP, STORE.FARM_LOYALTY_TECH, STORE.FARM_PROFIT, STORE.FARM_TRAVEL, STORE.FARM_CLAIMS_TODAY, STORE.FARM_CLAIMS_DAY,
     STORE.FARM_UNITS_OPTION, STORE.FARM_RES_DRY, STORE.FARM_RES_DRY_DAY,
     STORE.QUEST_REWARDS, STORE.QUEST_HISTORY,
     STORE.ATTACK_TPL, STORE.CANCEL_TPL, STORE.HERO_TPL, STORE.HERO_EQUIP_SUGGEST, STORE.ATTACK_PLAN, STORE.ATTACK_HISTORY, STORE.ATTACK_RECENT, STORE.CAPTCHA,
@@ -280,16 +289,137 @@ const STORE = {
     STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES, STORE.NAP_STATUS, STORE.SPY_CFG, STORE.SPY_HISTORY, STORE.SPY_TPL, STORE.SPY_SEND_CFG, STORE.SPY_SEND_HISTORY,
     STORE.CAPTCHA_GLOBAL_UNTIL,
     STORE.SERVER_COOLDOWN, STORE.QUEST_CLAIM_FAIL, STORE.DODGE_QUEUE,
-    STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.REINFORCE_PLAN, STORE.REINFORCE_HISTORY, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.SNAPSHOTS, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER, STORE.CONFIG_UNDO, STORE.CONFIG_REDO,
+    STORE.TRADE_TOWNS, STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.ISLAND_BENEFICIARIES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.REINFORCE_PLAN, STORE.REINFORCE_HISTORY, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.SNAPSHOTS, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER, STORE.CONFIG_UNDO, STORE.CONFIG_REDO,
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
     STORE.SPELL_COOLDOWN,
 
     STORE.FARM_SCRAPE, STORE.FARM_SCRAPE_STATE, STORE.TOWN_ACTION, STORE.TOWN_LIST_ACTION,
     STORE.PT_TRADE_TPL, STORE.PT_VIEW_URL,
-    STORE.WEBHOOK_RATELIMIT, STORE.WEBHOOK_PENDING,
+    STORE.WEBHOOK_RATELIMIT, STORE.WEBHOOK_PENDING, STORE.TELEGRAM_CAPTCHA_STATE, STORE.TELEGRAM_MONITOR_STATE, STORE.TELEGRAM_DIAG_STATE,
   ]);
   function wkey(base) { return base + '@' + location.hostname; }
+
+  function gbNum(raw) {
+    if (raw == null || typeof raw === 'boolean') return null;
+    if (typeof raw === 'string') { if (!raw.trim()) return null; }
+    else if (typeof raw !== 'number') return null;
+    const v = Number(raw);
+    return Number.isFinite(v) ? v : null;
+  }
+
+  const NAVAL_MYTHICAL_UNITS = new Set(['hydra']);
+
+  const MYTHICAL_UNIT_GOD = { hydra: 'poseidon' };
+  function mythicalUnitGod(unitId) {
+    const fid = unitId == null ? '' : String(unitId).toLowerCase();
+    if (!fid) return null;
+    try {
+      const m = MYTHICAL_UNIT_GOD[fid];
+      return m ? String(m).toLowerCase() : null;
+    } catch (_) { return null; }
+  }
+  function recruitIsNaval(unitId) {
+    const fid = unitId == null ? '' : String(unitId);
+    try {
+      const d = gbGameDataLookup("units", fid);
+      if (!d) return NAVAL_MYTHICAL_UNITS.has(fid);
+      if (d.is_naval || d.naval) return true;
+      if (NAVAL_MYTHICAL_UNITS.has(fid)) return true;
+      if (d.controller === 'building_docks') return true;
+      return false;
+    } catch (_) { return NAVAL_MYTHICAL_UNITS.has(fid); }
+  }
+  const LOAD_MAX_CHARS = 2 * 1024 * 1024;
+  const GB_STORAGE_MISSING = Object.freeze({});
+
+  const gbStorageReadFailedKeys = new Set();
+  function gbStorageReadKey(key) { return String(key); }
+  function gbStorageReadFailed(key) { return gbStorageReadFailedKeys.has(gbStorageReadKey(key)); }
+  function gbStorageProtectRead() {
+    for (const key of arguments) if (key != null) gbStorageReadFailedKeys.add(gbStorageReadKey(key));
+  }
+  let gbLegacyWorldGateCache = null;
+  let gbLegacyWorldProofCache = null;
+  function gbStorageRawRead(key, logicalKey) {
+    try {
+      const value = GM_getValue(key, GB_STORAGE_MISSING);
+      if (value === GB_STORAGE_MISSING) return { status:'missing', value:null };
+      const status = loadValueStatus(value, key);
+      if (status === 'invalid' || status === 'too-large') gbStorageProtectRead(logicalKey || key, key);
+      return { status, value };
+    } catch (error) {
+      gbStorageProtectRead(logicalKey || key, key);
+      return { status: 'read-error', value: null, error };
+    }
+  }
+  function gbLegacyWorldHostProof() {
+    if (gbLegacyWorldProofCache) return gbLegacyWorldProofCache;
+    const enabled = gbStorageRawRead(STORE.ENABLED_HOSTS, STORE.ENABLED_HOSTS);
+    if (enabled.status !== 'valid' || !enabled.value || typeof enabled.value !== 'object' || Array.isArray(enabled.value)) {
+      return (gbLegacyWorldProofCache = { proven:false, reason:'legacy-enabled-hosts-unavailable' });
+    }
+    const hosts = Object.keys(enabled.value).filter(host =>
+      /\.grepolis\.com$/i.test(String(host)) && enabled.value[host] === true);
+    const current = String(location.host || location.hostname || '');
+    const proven = hosts.length === 1 && hosts[0] === current;
+    return (gbLegacyWorldProofCache = { proven, reason:proven?'unique-legacy-host':'legacy-host-ambiguous', hosts, current });
+  }
+  function gbLegacyWorldGate() {
+    if (gbLegacyWorldGateCache) return gbLegacyWorldGateCache;
+    const marker = gbStorageRawRead(STORE.LEGACY_WORLD_MIGRATION, STORE.LEGACY_WORLD_MIGRATION);
+    if (marker.status !== 'missing') {
+      return (gbLegacyWorldGateCache = { allowed:false, reason:marker.status === 'valid' ? 'legacy-consumed' : marker.status });
+    }
+    const scopedVersion = gbStorageRawRead(wkey(STORE.CONFIG_VER), STORE.CONFIG_VER);
+    if (scopedVersion.status !== 'missing' && scopedVersion.status !== 'valid') {
+      return (gbLegacyWorldGateCache = { allowed:false, reason:scopedVersion.status });
+    }
+    if (scopedVersion.status === 'valid' && +scopedVersion.value >= 3) {
+      return (gbLegacyWorldGateCache = { allowed:false, reason:'world-scope-established' });
+    }
+    const proof = gbLegacyWorldHostProof();
+    return (gbLegacyWorldGateCache = { allowed:proof.proven, reason:proof.reason, proof });
+  }
+  function gbLegacyWorldFallbackAllowed(key) {
+    if (key === STORE.CONFIG_VER) return false;
+    return gbLegacyWorldGate().allowed === true;
+  }
+  function gbLegacyWorldOneShotEligible() {
+    const marker = gbStorageRawRead(STORE.LEGACY_WORLD_MIGRATION, STORE.LEGACY_WORLD_MIGRATION);
+    if (marker.status !== 'missing') return false;
+    return gbLegacyWorldHostProof().proven === true;
+  }
+  function gbLegacyWorldMigrationFinalize() {
+    const marker = gbStorageRawRead(STORE.LEGACY_WORLD_MIGRATION, STORE.LEGACY_WORLD_MIGRATION);
+    if (marker.status === 'valid') return true;
+    if (marker.status !== 'missing') return false;
+    const proof = gbLegacyWorldHostProof();
+    if (!proof.proven) return true;
+    const scopedVersion = gbStorageRawRead(wkey(STORE.CONFIG_VER), STORE.CONFIG_VER);
+    if (scopedVersion.status !== 'valid' || !(+scopedVersion.value >= 3)) return false;
+    const out = { consumed:true, version:1, host:String(location.hostname || location.host || ''), at:Date.now() };
+    const ok = save(STORE.LEGACY_WORLD_MIGRATION, out);
+    if (ok) gbLegacyWorldGateCache = { allowed:false, reason:'legacy-consumed', marker:out };
+    return ok;
+  }
+  function migrateGlobalConfig() {
+    if (!gbTabLeader) return false;
+    const marker = gbStorageRawRead(STORE.GLOBAL_CONFIG_VER, STORE.GLOBAL_CONFIG_VER);
+    const markerVer = marker.status === 'valid'
+      ? +(marker.value && typeof marker.value === 'object' ? marker.value.version : marker.value)
+      : 0;
+    if (marker.status === 'valid' && markerVer >= GLOBAL_CONFIG_VER_CURRENT) return true;
+    if (marker.status !== 'missing' && marker.status !== 'valid') return false;
+
+    const legacyVersionRead = gbStorageRawRead(STORE.CONFIG_VER, STORE.GLOBAL_CONFIG_VER);
+    if (legacyVersionRead.status !== 'missing' && legacyVersionRead.status !== 'valid') return false;
+    const legacyVersion = legacyVersionRead.status === 'valid' && Number.isFinite(+legacyVersionRead.value)
+      ? +legacyVersionRead.value : null;
+
+    const globalMarker = { version:GLOBAL_CONFIG_VER_CURRENT, from:legacyVersion, host:String(location.hostname || ''), at:Date.now() };
+    return save(STORE.GLOBAL_CONFIG_VER, globalMarker);
+  }
   const GB_ROOT = (typeof unsafeWindow !== 'undefined' && unsafeWindow) ? unsafeWindow : window;
   if (typeof GB_ROOT.__grepbotDispose === 'function') {
     try { GB_ROOT.__grepbotDispose(); } catch (_) {}
@@ -298,17 +428,11 @@ const STORE = {
   GB_ROOT.__grepbotInstanceId = GB_INSTANCE_ID;
   let gbDisposed = false;
   const gbTabCoordSupported=!!(navigator.locks&&typeof navigator.locks.request==='function');
-  const gbTabLockName='grepbot-leader:'+location.hostname;let gbTabLeader=!gbTabCoordSupported,gbTabLockPending=false,gbTabLockRelease=null;
+  const gbTabLockName='grepbot-leader:'+location.hostname;
+
+  let gbTabLeader=false,gbTabLockPending=false,gbTabLockRelease=null;
   function gbInstanceAlive() {
     return !gbDisposed && GB_ROOT.__grepbotInstanceId === GB_INSTANCE_ID;
-  }
-
-  function gbNum(raw) {
-    if (raw == null || typeof raw === 'boolean') return null;
-    if (typeof raw === 'string') { if (!raw.trim()) return null; }
-    else if (typeof raw !== 'number') return null;
-    const v = Number(raw);
-    return Number.isFinite(v) ? v : null;
   }
   const gbTimerBag = [];
   const gbListenerBag = [];
@@ -358,8 +482,33 @@ const STORE = {
     if (i >= 0) gbTimerBag.splice(i, 1);
   }
   function gbTryAcquireTabLeader() {
-    if(!gbTabCoordSupported||gbDisposed||gbTabLeader||gbTabLockPending)return;gbTabLockPending=true;
-    navigator.locks.request(gbTabLockName,{mode:'exclusive',ifAvailable:true},lock=>{gbTabLockPending=false;if(!gbInstanceAlive())return;if(!lock){gbTabLeader=false;gbTimeout(gbTryAcquireTabLeader,5000);try{updateStatus()}catch(_){}return}gbTabLeader=true;try{updateStatus()}catch(_){}return new Promise(resolve=>{gbTabLockRelease=resolve})}).catch(()=>{gbTabLockPending=false;gbTabLeader=false;if(gbInstanceAlive())gbTimeout(gbTryAcquireTabLeader,10000)});
+    if (gbDisposed || gbTabLeader || gbTabLockPending) return;
+    if (!gbTabCoordSupported) {
+      gbTabLeader = false;
+      try { console.warn('[grepbot] Web Locks unavailable: automation disabled to avoid multi-tab split brain'); } catch (_) {}
+      return;
+    }
+    gbTabLockPending = true;
+    navigator.locks.request(gbTabLockName, { mode:'exclusive', ifAvailable:true }, lock => {
+      gbTabLockPending = false;
+      if (!gbInstanceAlive()) return;
+      if (!lock) {
+        gbTabLeader = false;
+        gbTimeout(gbTryAcquireTabLeader, 5000);
+        try { updateStatus(); } catch (_) {}
+        return;
+      }
+      gbTabLeader = true;
+      try { updateStatus(); } catch (_) {}
+
+      gbTimeout(() => { try { gbHandleLeadershipAcquired('web-lock'); } catch (e) { try { gbLog('leader acquire hook failed', String(e)); } catch (_) {} } }, 0);
+      return new Promise(resolve => { gbTabLockRelease = resolve; });
+    }).catch(err => {
+      gbTabLockPending = false;
+      gbTabLeader = false;
+      try { console.warn('[grepbot] Web Locks leader request failed', err); } catch (_) {}
+      if (gbInstanceAlive()) gbTimeout(gbTryAcquireTabLeader, 10000);
+    });
   }
   gbTryAcquireTabLeader();
   function gbListen(target, type, fn, opts) {
@@ -476,21 +625,6 @@ const STORE = {
     }
     gbXhrBag.length = 0;
   }
-
-  function gbAbortFeature(feature) {
-    if (!feature) return 0;
-    let n = 0;
-    for (const h of gbXhrBag.slice()) {
-      if (h && h.feature === feature && typeof h.abort === 'function') {
-        try { h.abort(); n++; } catch (_) {}
-      }
-    }
-    try {
-      const m = (typeof gbAjaxCancelFeature === 'function') ? gbAjaxCancelFeature(feature) : 0;
-      n += m;
-    } catch (_) {}
-    return n;
-  }
   function gbRestoreHooks() {
     try {
       const uw = (typeof unsafeWindow !== 'undefined' && unsafeWindow) ? unsafeWindow : window;
@@ -561,25 +695,30 @@ const STORE = {
     try { document.querySelectorAll('style[data-grepbot-style]').forEach(el => el.remove()); } catch (_) {}
   }
 
+  function gbLeaderHandoverFlush() {
+    if (!gbTabLeader) return false;
+
+    try { if (typeof txDispose === 'function') txDispose(); } catch (_) {}
+    try { if (typeof jrnFlush === 'function') jrnFlush(); } catch (_) {}
+    try { if (typeof nativeQueueSaveFlush === 'function') nativeQueueSaveFlush(); } catch (_) {}
+    try { if (typeof healthSaveFlush === 'function') healthSaveFlush(); } catch (_) {}
+    try { if (typeof dodgeQueueSave === 'function') dodgeQueueSave(); } catch (_) {}
+    try { if (typeof questClaimFailSave === 'function') questClaimFailSave(); } catch (_) {}
+    try { if (typeof persistServerCooldown === 'function') persistServerCooldown(); } catch (_) {}
+    try { if (typeof saveFlush === 'function') saveFlush(); } catch (_) {}
+    return true;
+  }
+
   GB_ROOT.__grepbotDispose = function grepbotDispose() {
     if (gbDisposed) return;
     gbDisposed = true;
-    if(gbTabLockRelease){try{gbTabLockRelease()}catch(_){}gbTabLockRelease=null}gbTabLeader=false;
-    try { if (typeof txDispose === 'function') txDispose(); } catch (_) {}
-    try { if (typeof jrnFlush === 'function') jrnFlush(); } catch (_) {}
-
-    try { saveFlush(); } catch (_) {}
+    if (gbTabLeader) gbLeaderHandoverFlush();
 
     try { if (typeof gbAjaxDispose === 'function') gbAjaxDispose(); } catch (_) {}
-    try { if (typeof banditClearLoop === 'function') banditClearLoop(); } catch (_) {}
-    try { if (typeof banditClearScan === 'function') banditClearScan(); } catch (_) {}
     gbClearTimers();
     gbAbortXhrs();
     gbRestoreHooks();
     gbUnregisterMenus();
-
-    try { if (_gbEvents && typeof _gbEvents.close === 'function') _gbEvents.close(); } catch (_) {}
-    _gbEvents = null;
 
     try { gbListenerAbort.abort(); } catch (_) {}
     gbListenerBag.length = 0;
@@ -592,12 +731,17 @@ const STORE = {
     } catch (_) {}
     const p = document.getElementById('grepbot-panel');
     if (p) try { p.remove(); } catch (_) {}
+    const qc = document.getElementById('grepbot-queue-center');
+    if (qc) try { qc.remove(); } catch (_) {}
 
     try { gbWidgetDisposeAll(); } catch (_) {}
     try { contextMenuStop(); } catch (_) {}
     try { document.querySelectorAll('.gb-widget').forEach(el => el.remove()); } catch (_) {}
-    try { document.querySelectorAll('.gb-native-qctl,.gb-native-qpop').forEach(el=>el.remove()); } catch (_) {}
+    try { document.querySelectorAll('.gb-native-qctl,.gb-native-panel,.gb-native-qpop').forEach(el=>el.remove()); } catch (_) {}
     gbRemoveStyles();
+
+    if(gbTabLockRelease){try{gbTabLockRelease()}catch(_){}gbTabLockRelease=null}
+    gbTabLeader=false;
 
     if (GB_ROOT.__grepbotTest && GB_ROOT.__grepbotTest.instanceId === GB_INSTANCE_ID) {
       try { delete GB_ROOT.__grepbotTest; } catch (_) { GB_ROOT.__grepbotTest = null; }
@@ -628,8 +772,7 @@ const STORE = {
     spy: 180000,
     support: 180000,
     recruit: 180000,
-
-    'village-recruit': 60000,
+    'defense-pull': 180000,
     cancel: 120000,
     hero: 180000,
     'collect-bg': 300000,
@@ -724,7 +867,6 @@ const STORE = {
     alerted:  load(STORE.ALERTED, {}),
     csrf:     load(STORE.CSRF, null),
     nextFarmScrape: load(STORE.NEXT_FARM, 0),
-    nextFarmClaim: load(STORE.NEXT_FARM_CLAIM, 0),
     nextTownsScrape: load(STORE.NEXT_TOWNS, 0),
     farmAction: load(STORE.FARM_ACTION, null),
 
@@ -738,6 +880,7 @@ const STORE = {
     collectTpl: load(STORE.COLLECT_TPL, null),
     autoBandit: load(STORE.AUTO_BANDIT, false),
 
+    banditCfg: load(STORE.BANDIT_CFG, {}) || {},
     banditLog:  load(STORE.BANDIT_LOG, []),
     autoFarm:   load(STORE.AUTO_FARM, false),
     claimTpl:   load(STORE.CLAIM_TPL, null),
@@ -745,24 +888,15 @@ const STORE = {
     ibFreeThresh: load(STORE.IB_FREE_THRESH, 300),
     ibAction:   load(STORE.IB_ACTION, null) || 'buyInstant',
     ibResearch: load(STORE.IB_RESEARCH, false),
-    farmOptionMap: (() => {
-      const m = load(STORE.FARM_OPTION_MAP, null);
-      if (m && typeof m === 'object' && !Array.isArray(m)
-          && Object.keys(m).some(k => m[k] != null && Number.isFinite(+m[k]))) return m;
-
-      return { 600: 1 };
-    })(),
-
-    farmLongClaims: load(STORE.FARM_LONG_CLAIMS, false),
+    farmOptionMap: load(STORE.FARM_OPTION_MAP, null) || { 300: 1 },
+    farmLongClaims: load(STORE.FARM_LONG_CLAIMS, true),
     farmLoyaltyTech: load(STORE.FARM_LOYALTY_TECH, '') || '',
     farmProfit: load(STORE.FARM_PROFIT, {}),
 
-    adaptiveFarm: load(STORE.ADAPTIVE_FARM, false),
-    farmDropPressurePct: load(STORE.FARM_DROP_PCT, 25),
     farmClaimsToday: load(STORE.FARM_CLAIMS_TODAY, {}) || {},
     farmClaimsDay: load(STORE.FARM_CLAIMS_DAY, '') || '',
 
-    farmUnitsMode: load(STORE.FARM_UNITS_MODE, 'off') || 'off',
+    farmUnitsMode: load(STORE.FARM_UNITS_MODE, 'fallback') || 'fallback',
     farmUnitsPref: load(STORE.FARM_UNITS_PREF, 'auto') || 'auto',
     farmUnitsOption: load(STORE.FARM_UNITS_OPTION, null),
     farmResDry: load(STORE.FARM_RES_DRY, {}) || {},
@@ -774,9 +908,8 @@ const STORE = {
     questAutoRes: load(STORE.QUEST_AUTO_RES, false),
     questHistory: load(STORE.QUEST_HISTORY, []),
     collectMaxMin: load(STORE.COLLECT_MAX_MIN, 10),
-
-    farmMinMs: 10 * 60 * 1000,
-    farmMaxMs: 12 * 60 * 1000,
+    farmMinMs: load(STORE.FARM_MIN, 5 * 60 * 1000),
+    farmMaxMs: load(STORE.FARM_MAX, 6 * 60 * 1000),
     townMinMs: load(STORE.TOWN_MIN, 6 * 60 * 1000),
     townMaxMs: load(STORE.TOWN_MAX, 7 * 60 * 1000),
     enabledHosts: load(STORE.ENABLED_HOSTS, {}),
@@ -803,12 +936,9 @@ const STORE = {
     panelGeom: load(STORE.PANEL_GEOM, null),
     activeTab: load(STORE.ACTIVE_TAB, 'overview'),
     farmSkipFull: load(STORE.FARM_SKIP_FULL, true),
-    farmFullMode: load(STORE.FARM_FULL_MODE, 'all'),
+    farmFullMode: load(STORE.FARM_FULL_MODE, 'any'),
     abAuto: load(STORE.AB_AUTO, false),
-
-    abRandomFallback: load(STORE.AB_RANDOM_FALLBACK, false),
     abTargets: load(STORE.AB_TARGETS, null),
-    abScript:  load(STORE.AB_SCRIPT, null),
     autoCave: load(STORE.AUTO_CAVE, false),
     caveThreshPct: load(STORE.CAVE_THRESH, 90),
 
@@ -825,6 +955,11 @@ const STORE = {
     tradePreset: load(STORE.TRADE_PRESET, 'storage'),
     tradeReservePct: load(STORE.TRADE_RESERVE, 20),
     tradeMinBatch: load(STORE.TRADE_MIN, 1000),
+    tradeTowns: load(STORE.TRADE_TOWNS, {}) || {},
+    tradeOverflowPct: load(STORE.TRADE_OVERFLOW, 100),
+    tradeTransferPct: load(STORE.TRADE_TRANSFER_PCT, 10),
+    tradeReceiverPct: load(STORE.TRADE_RECEIVER_PCT, 80),
+    islandBeneficiaries: load(STORE.ISLAND_BENEFICIARIES, {}) || {},
 
     tradeRoutes: load(STORE.TRADE_ROUTES, {}) || {},
 
@@ -838,20 +973,23 @@ const STORE = {
     transportReserve: load(STORE.TRANSPORT_RESERVE, 20),
     transportMin: load(STORE.TRANSPORT_MIN, 1000),
     autoRuralTrade: load(STORE.AUTO_RURAL_TRADE, false),
-    ruralTradeRatio: load(STORE.RURAL_TRADE_RATIO, 1.1),
-    ruralTradeRes: load(STORE.RURAL_TRADE_RES, 'iron'),
     autoRuralLevel: load(STORE.AUTO_RURAL_LEVEL, false),
     ruralLevelMax: load(STORE.RURAL_LEVEL_MAX, 3),
     autoResearch: load(STORE.AUTO_RESEARCH, false),
     researchTargets: load(STORE.RESEARCH_TARGETS, null),
-    pauseOnActivity: load(STORE.PAUSE_ON_ACTIVITY, false),
-    pauseActivityMs: load(STORE.PAUSE_ACTIVITY_MS, 3 * 60 * 1000),
-    nightPause: load(STORE.NIGHT_PAUSE, false),
-    nightStart: load(STORE.NIGHT_START, 0),
-    nightEnd: load(STORE.NIGHT_END, 7),
     cityTemplates: load(STORE.CITY_TEMPLATES, {}),
     townGroups: load(STORE.TOWN_GROUPS, {}),
     webhookUrl: load(STORE.WEBHOOK_URL, ''),
+    telegramEnabled: load(STORE.TELEGRAM_ENABLED, false),
+    telegramChatId: load(STORE.TELEGRAM_CHAT_ID, '') || '',
+    telegramCaptcha: load(STORE.TELEGRAM_CAPTCHA, true) !== false,
+    telegramCaptchaResolved: load(STORE.TELEGRAM_CAPTCHA_RESOLVED, true) !== false,
+    telegramCaptchaState: load(STORE.TELEGRAM_CAPTCHA_STATE, {}) || {},
+    telegramEvents: Object.assign({ attack:true, hourly:true, critical:true, warehouse:true, diagnostic:true }, load(STORE.TELEGRAM_EVENTS, {}) || {}),
+    telegramMonitorState: load(STORE.TELEGRAM_MONITOR_STATE, {}) || {},
+    telegramDiagState: load(STORE.TELEGRAM_DIAG_STATE, {}) || {},
+    telegramWarehousePct: load(STORE.TELEGRAM_WAREHOUSE_PCT, 95),
+    telegramWarehouseMin: load(STORE.TELEGRAM_WAREHOUSE_MIN, 15),
     notifyEnabled: load(STORE.NOTIFY_ENABLED, false),
     notifyEvents: load(STORE.NOTIFY_EVENTS, {}) || {},
     notifyVolume: load(STORE.NOTIFY_VOLUME, 0.4),
@@ -879,7 +1017,7 @@ const STORE = {
     villageRecruitFillPct: load(STORE.VILLAGE_RECRUIT_FILL, 90),
     villageRecruitAmount: load(STORE.VILLAGE_RECRUIT_AMOUNT, 1),
     villageRecruitStreaks: load(STORE.VILLAGE_RECRUIT_STREAKS, {}),
-    priorityOrder: load(STORE.PRIORITY_ORDER, PRIORITY_ORDER_DEFAULT.slice()),
+    priorityOrder: load(STORE.PRIORITY_ORDER, ORCH_ORDER_DEFAULT.slice()),
     islandShip: load(STORE.ISLAND_SHIP, false),
     autoMilitia: load(STORE.AUTO_MILITIA, false),
     csAlert: load(STORE.CS_ALERT, true),
@@ -898,7 +1036,7 @@ const STORE = {
     napStatus: load(STORE.NAP_STATUS, { players: {}, alliances: {} }),
     intelAllianceFilter: load(STORE.INTEL_ALLY_FILTER, '') || '',
     allianceNotes: load(STORE.ALLIANCE_NOTES, {}),
-    configVer: load(STORE.CONFIG_VER, 1),
+    configVer: load(STORE.CONFIG_VER, gbLegacyWorldGate().allowed ? 1 : CONFIG_VER_CURRENT),
     configUndo: load(STORE.CONFIG_UNDO, []) || [],
     configRedo: load(STORE.CONFIG_REDO, []) || [],
     replayCursor: 0,
@@ -908,7 +1046,6 @@ const STORE = {
     dryRun: load(STORE.DRY_RUN, false),
     intelBattleStats: load(STORE.INTEL_BATTLE_STATS, true),
     exportRedact: load(STORE.EXPORT_REDACT, true),
-    orchAdaptive: load(STORE.ORCH_ADAPTIVE, true),
     txState: load(STORE.TX_STATE, {}),
     circuitAutoClear: load(STORE.CIRCUIT_AUTO_CLEAR, true),
     circuits: load(STORE.CIRCUITS, {}),
@@ -930,6 +1067,7 @@ const STORE = {
     defenseCfg: load(STORE.DEFENSE_CFG, { mode: 'notify', returnMarginSec: 120, smartAuto: false }),
 
     defenseHistory: load(STORE.DEFENSE_HISTORY, []) || [],
+    militiaCfg: load(STORE.MILITIA_CFG, { forceRisk: 50, skipRisk: 10, localOk: 400, graceMs: 180000 }),
     supportCfg: load(STORE.SUPPORT_CFG, { auto: false, confirmThreshold: 100, homeFloor: 0, shareDodgeFloor: true, minEtaSec: 120, noArmSec: 60, overlapSec: 30 }),
     supportLastSend: load(STORE.SUPPORT_LAST_SEND, {}) || {},
     supportTpl: load(STORE.SUPPORT_TEMPLATE, null),
@@ -943,15 +1081,12 @@ const STORE = {
     health: load(STORE.HEALTH, {}),
     clientFingerprint: load(STORE.CLIENT_FP, null),
     safeMode: load(STORE.SAFE_MODE, true),
-    neverStop: load(STORE.NEVER_STOP, true),
     simCfg: load(STORE.SIM_CFG, { horizonHours: 24 }),
     whyLog: load(STORE.WHY_LOG, []),
     tplHealth: load(STORE.TPL_HEALTH, {}) || {},
     captchaLadder: load(STORE.CAPTCHA_LADDER, [5, 15, 60]),
     postsPerMinSoftPct: load(STORE.POSTS_SOFT_PCT, 60),
     tabFilters: load(STORE.TAB_FILTERS, {}) || {},
-    orchDeadlockResolve: load(STORE.ORCH_DEADLOCK, true),
-
     farmLoyaltySeen: load(STORE.FARM_LOYALTY_SEEN, false),
     farmTeachBanner: load(STORE.FARM_TEACH_BANNER, ''),
     lastSeenTs: load(STORE.LAST_SEEN_TS, 0),
@@ -970,8 +1105,9 @@ const STORE = {
     webhookRatelimit: load(STORE.WEBHOOK_RATELIMIT, {}) || {},
     webhookPending: load(STORE.WEBHOOK_PENDING, {}) || {},
   };
+
+  let telegramBotToken = load(STORE.TELEGRAM_BOT_TOKEN, '') || '';
   let panel = null;
-  let userPausedUntil = 0;
 
   const GB_PANIC_GRACE_MS = 30000;
   let panicUntil = 0;
@@ -983,18 +1119,43 @@ const STORE = {
     save(STORE.CAPTCHA_GLOBAL_UNTIL, captchaGlobalUntil || 0);
   }
   function migrateConfig() {
-    let ver = +state.configVer || 1;
-    if (ver < 2) {
-      const cur = Array.isArray(state.priorityOrder) ? state.priorityOrder.slice() : [];
-      state.priorityOrder = cur.concat(PRIORITY_ORDER_DEFAULT.filter(k => cur.indexOf(k) === -1));
-      save(STORE.PRIORITY_ORDER, state.priorityOrder);
+    if (!gbTabLeader) return false;
+    if (!migrateGlobalConfig()) {
+      gbLogT('config-global-migrate', 60000, 'global config migration skipped: schema gate could not be persisted safely');
+      return false;
+    }
+    const scopedConfigRead = gbStorageRawRead(wkey(STORE.CONFIG_VER), STORE.CONFIG_VER);
+    const needsScopedVersionMarker = scopedConfigRead.status === 'missing';
+    const startVer = +state.configVer || 1;
+    if ((scopedConfigRead.status !== 'missing' && scopedConfigRead.status !== 'valid') || gbStorageReadFailed(STORE.CONFIG_VER)) {
+      gbLogT('config-migrate-read', 60000, 'config migration skipped: CONFIG_VER could not be read safely');
+      return false;
+    }
+    let ver = startVer;
+    gbMigrationActive = true;
+    gbMigrationWriteFailed = false;
+    if (ver < 3 && gbLegacyWorldGate().allowed) {
+
       for (const base of WORLD_SCOPED_BASES) {
         try {
           if (base === STORE.CONFIG_VER) continue;
-          const v = load(base, null);
-          if (v != null) save(base, v);
-        } catch (_) {}
+          const scopedKey = wkey(base);
+          const scoped = gbStorageRawRead(scopedKey, base);
+          if (scoped.status === 'valid') continue;
+          if (scoped.status !== 'missing') { gbMigrationWriteFailed = true; continue; }
+          const legacy = gbStorageRawRead(base, base);
+          if (legacy.status === 'valid') save(base, legacy.value);
+          else if (legacy.status !== 'missing') {
+            gbStorageProtectRead(scopedKey);
+            gbMigrationWriteFailed = true;
+          }
+        } catch (_) { gbMigrationWriteFailed = true; }
       }
+    }
+    if (ver < 2) {
+      const cur = Array.isArray(state.priorityOrder) ? state.priorityOrder.slice() : [];
+      state.priorityOrder = cur.concat(ORCH_ORDER_DEFAULT.filter(k => cur.indexOf(k) === -1));
+      save(STORE.PRIORITY_ORDER, state.priorityOrder);
       ver = 2;
     }
     if (ver < 3) {
@@ -1008,9 +1169,6 @@ const STORE = {
         save(STORE.ATTACK_PLAN, state.attackPlan);
       }
 
-      if (typeof state.autoCollect !== 'boolean') { state.autoCollect = false; save(STORE.AUTO_COLLECT, false); }
-
-      if (state.autoFavor) { state.autoFavor = false; save(STORE.AUTO_FAVOR, false); }
       save(STORE.TX_STATE, state.txState);
       save(STORE.CIRCUITS, state.circuits);
       if (state.abOrder) save(STORE.AB_ORDER, state.abOrder);
@@ -1108,13 +1266,6 @@ const STORE = {
     }
     if (ver < 12) {
 
-      if (typeof state.autoDump !== 'boolean') { state.autoDump = false; save(STORE.AUTO_DUMP, state.autoDump); }
-      const seedMap = (key, store, def) => {
-        const cur = state[key];
-        if (!cur || typeof cur !== 'object' || Array.isArray(cur)) { state[key] = def; save(store, def); }
-      };
-      seedMap('dumpThreshold', STORE.DUMP_THRESHOLD, { wood: 95, stone: 95, iron: 90 });
-      seedMap('dumpKeep', STORE.DUMP_KEEP, { wood: 50, stone: 50, iron: 50 });
       if (!Array.isArray(state.dumpSinks)) { state.dumpSinks = []; save(STORE.DUMP_SINKS, state.dumpSinks); }
 
       if (!state.defenseCfg || typeof state.defenseCfg !== 'object') state.defenseCfg = { mode: 'notify', returnMarginSec: 120, smartAuto: false };
@@ -1129,20 +1280,100 @@ const STORE = {
     if (ver < 13) {
 
       try {
-        const legacy = GM_getValue(STORE.BATCH_RECRUIT_LISTS, null);
-        const scoped = GM_getValue(wkey(STORE.BATCH_RECRUIT_LISTS), null);
-        if (scoped == null && legacy != null) {
-          save(STORE.BATCH_RECRUIT_LISTS, legacy);
-          if (legacy && typeof legacy === 'object') state.batchRecruitLists = legacy;
+        const scoped = gbStorageRawRead(wkey(STORE.BATCH_RECRUIT_LISTS), STORE.BATCH_RECRUIT_LISTS);
+        if (scoped.status !== 'missing' && scoped.status !== 'valid') gbMigrationWriteFailed = true;
+        else if (scoped.status === 'missing' && gbLegacyWorldOneShotEligible()) {
+          const legacy = gbStorageRawRead(STORE.BATCH_RECRUIT_LISTS, STORE.BATCH_RECRUIT_LISTS);
+          if (legacy.status !== 'missing' && legacy.status !== 'valid') gbMigrationWriteFailed = true;
+          else if (legacy.status === 'valid') {
+            save(STORE.BATCH_RECRUIT_LISTS, legacy.value);
+            if (legacy.value && typeof legacy.value === 'object') state.batchRecruitLists = legacy.value;
+          }
         }
-      } catch (_) {}
+      } catch (_) { gbMigrationWriteFailed = true; }
       ver = 13;
     }
-    if (ver !== state.configVer) {
-      state.configVer = ver;
-      save(STORE.CONFIG_VER, ver);
-      gbLog('config migrated \u2192 v' + ver);
+    if (ver < 14) {
+      try {
+        const scopedKey = wkey(STORE.ISLAND_BENEFICIARIES);
+        const scopedRead = gbStorageRawRead(scopedKey, STORE.ISLAND_BENEFICIARIES);
+        if (scopedRead.status !== 'missing' && scopedRead.status !== 'valid') gbMigrationWriteFailed = true;
+        let legacyRead = { status:'missing', value:null };
+        if (scopedRead.status === 'missing' && gbLegacyWorldOneShotEligible()) {
+          legacyRead = gbStorageRawRead(STORE.ISLAND_BENEFICIARIES, STORE.ISLAND_BENEFICIARIES);
+          if (legacyRead.status !== 'missing' && legacyRead.status !== 'valid') gbMigrationWriteFailed = true;
+        }
+        const scopedRaw = scopedRead.status === 'valid' ? scopedRead.value : null;
+        const legacyRaw = legacyRead.status === 'valid' ? legacyRead.value : null;
+        let normalized = null;
+        if (scopedRaw != null) {
+          normalized = normalizeIslandBeneficiaryConfig(scopedRaw);
+          if (normalized == null) {
+            gbLogT('island-beneficiary-migrate-scoped', 60000, 'island beneficiaries: scoped config invalid/unresolvable; preserving runtime empty config');
+            state.islandBeneficiaries = {};
+          }
+        } else if (legacyRaw != null) {
+          normalized = normalizeIslandBeneficiaryConfig(legacyRaw);
+          if (normalized == null) {
+            gbMigrationWriteFailed = true;
+            gbLogT('island-beneficiary-migrate-legacy', 60000, 'island beneficiaries: legacy global config cannot yet be validated; preserving it for a later migration retry');
+          }
+        }
+        if (normalized != null) {
+          state.islandBeneficiaries = normalized;
+          if (!save(STORE.ISLAND_BENEFICIARIES, normalized)) gbMigrationWriteFailed = true;
+          else gbLog('island beneficiaries: migrated/normalized to world-scoped canonical island ids');
+        } else if (scopedRead.status === 'missing' && legacyRead.status === 'valid' && legacyRaw === null && !gbMigrationWriteFailed) {
+          state.islandBeneficiaries = {};
+          if (!save(STORE.ISLAND_BENEFICIARIES, null)) gbMigrationWriteFailed = true;
+        } else if (scopedRead.status === 'missing' && legacyRead.status === 'missing' && !gbMigrationWriteFailed) {
+          state.islandBeneficiaries = {};
+          if (!save(STORE.ISLAND_BENEFICIARIES, {})) gbMigrationWriteFailed = true;
+        }
+      } catch (_) { gbMigrationWriteFailed = true; }
+      ver = 14;
     }
+    if (ver < 15) {
+
+      try {
+        for (const h of Object.values(moduleHealth || {})) {
+          if (!h || typeof h !== 'object') continue;
+          if (String(h.lastErrorKind || '') === 'timeout' || String(h.lastError || '') === 'timeout') h.consecutiveErr = 0;
+        }
+        state.health = moduleHealth;
+        save(STORE.HEALTH, moduleHealth);
+      } catch (_) { gbMigrationWriteFailed = true; }
+      ver = 15;
+    }
+    if (ver < 16) {
+
+      ver = 16;
+    }
+    gbMigrationActive = false;
+    if (gbMigrationWriteFailed) {
+      state.configVer = startVer;
+      gbLogT('config-migrate-write', 60000, `config migration v${startVer}->v${ver} incomplete; version NOT advanced and migration will retry after reload`);
+      return false;
+    }
+    if (ver !== startVer || needsScopedVersionMarker) {
+      const versionAdvanced = ver !== startVer;
+      gbMigrationActive = true;
+      gbMigrationWriteFailed = false;
+      const ok = save(STORE.CONFIG_VER, ver);
+      gbMigrationActive = false;
+      if (!ok || gbMigrationWriteFailed) {
+        state.configVer = startVer;
+        gbLogT('config-migrate-version', 60000, `config migration data saved but CONFIG_VER write failed; staying at v${startVer}`);
+        return false;
+      }
+      state.configVer = ver;
+      if (versionAdvanced) gbLog('config migrated \u2192 v' + ver);
+    }
+    if (!gbLegacyWorldMigrationFinalize()) {
+      gbLogT('legacy-world-finalize', 60000, 'legacy world migration completed but its global consumed marker could not be persisted');
+      return false;
+    }
+    return true;
   }
   let healthSaveTimer = 0;
   function healthSaveSoon() {
@@ -1150,16 +1381,42 @@ const STORE = {
     if (healthSaveTimer) return;
     healthSaveTimer = gbTimeout(() => { healthSaveTimer = 0; save(STORE.HEALTH, moduleHealth); }, 1500);
   }
+  function healthSaveFlush() {
+    if (healthSaveTimer) { try { gbClearTimeout(healthSaveTimer); } catch (_) {} healthSaveTimer = 0; }
+    state.health = moduleHealth;
+    return save(STORE.HEALTH, moduleHealth);
+  }
   function markModuleHealth(feature, kind, meta) {
     const h = moduleHealth[feature] || { ok:0, err:0, captcha:0, timeout:0, last:0, consecutiveErr:0, avgLatency:null, samples:0 };
     const now=Date.now(), m=meta||{};
+
+    let expectedWait = null;
+    try { if (kind === 'err') expectedWait = gbExpectedServerReject(feature, m.error); } catch (_) {}
+    if (expectedWait) kind = 'skip';
+
     if (kind === 'ok') { h.ok++; h.lastOk=now; h.consecutiveErr=0; }
+    else if (kind === 'skip') {
+      h.skip=(h.skip||0)+1; h.lastSkip=now;
+      h.lastSkipReason=String(expectedWait || m.error || 'skip').slice(0,160);
+      h.lastSkipKind=String(expectedWait || 'skip').slice(0,80);
+    }
     else if (kind === 'captcha') { h.captcha++; h.lastErr=now; h.consecutiveErr=(h.consecutiveErr||0)+1; }
     else if (kind === 'timeout') { h.timeout=(h.timeout||0)+1; h.err++; h.lastErr=now; h.consecutiveErr=(h.consecutiveErr||0)+1; }
     else { h.err++; h.lastErr=now; h.consecutiveErr=(h.consecutiveErr||0)+1; }
-    if (m.error) h.lastError=String(m.error).slice(0,160);
+
+    if (kind !== 'ok' && kind !== 'skip') {
+      h.lastErrorKind=String(kind||'err');
+      h.lastError=String(m.error || kind || 'error').slice(0,160);
+    }
     if (Number.isFinite(+m.latencyMs) && +m.latencyMs>=0) { h.samples=(h.samples||0)+1; h.lastLatency=+m.latencyMs; h.avgLatency=h.avgLatency==null?+m.latencyMs:(h.avgLatency*0.85+(+m.latencyMs)*0.15); }
-    h.last=now; moduleHealth[feature]=h; healthSaveSoon();
+    h.last=now; moduleHealth[feature]=h;
+    if (kind !== 'ok' && kind !== 'skip') {
+      try {
+        const diag = telegramDiagRecordHealth(feature, kind, m);
+        if (diag && diag.id) h.lastErrorId = diag.id;
+      } catch (_) {}
+    }
+    healthSaveSoon();
   }
   function whyNote(feature, action, status, why) {
     if (!Array.isArray(state.whyLog)) state.whyLog=[];
@@ -1168,6 +1425,7 @@ const STORE = {
     state.whyLog.unshift({ts:Date.now(),feature:String(feature||''),action:String(action||'').slice(0,120),status:String(status||''),why:String(why||'').slice(0,180),key});
 
     if(state.whyLog.length>200)state.whyLog.length=200; saveSoon(STORE.WHY_LOG,state.whyLog);
+    try { telegramSupportCaptureWhy(feature, action, status, why); } catch (_) {}
   }
   let serverCooldownUntil = 0;
   const SERVER_COOLDOWN_MAX = 300000;
@@ -1179,6 +1437,7 @@ const STORE = {
     } catch (_) {}
   })();
   function persistServerCooldown() {
+    if(!gbTabLeader)return false;
     try {
       if (serverCooldownUntil > Date.now()) save(STORE.SERVER_COOLDOWN, { until: serverCooldownUntil });
       else save(STORE.SERVER_COOLDOWN, null);
@@ -1200,17 +1459,44 @@ const STORE = {
     gbServerCooldown(10000 + Math.floor(Math.random() * 10000), String(msg).slice(0, 40));
     return true;
   }
+
+  const GB_TRANSPORT_TIMEOUT_WINDOW_MS = 90000;
+  const gbTransportTimeouts = [];
+  let gbTransportBackoffLevel = 0;
+  let gbTransportLastOkAt = 0;
+  function gbTransportPrune(now) {
+    const cut = now - GB_TRANSPORT_TIMEOUT_WINDOW_MS;
+    while (gbTransportTimeouts.length && gbTransportTimeouts[0].ts < cut) gbTransportTimeouts.shift();
+  }
+  function noteTransportSuccess() {
+    const now = Date.now();
+    gbTransportLastOkAt = now;
+    gbTransportPrune(now);
+    if (gbTransportTimeouts.length) gbTransportTimeouts.length = 0;
+    if (gbTransportBackoffLevel && (!serverCooldownUntil || serverCooldownUntil <= now)) gbTransportBackoffLevel = 0;
+  }
+  function noteTransportTimeout(feature) {
+    const now = Date.now();
+    gbTransportPrune(now);
+    gbTransportTimeouts.push({ ts: now, feature: String(feature || 'unknown') });
+    const features = new Set(gbTransportTimeouts.map(e => e.feature));
+    const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+    const correlated = gbTransportTimeouts.length >= 3 && features.size >= 2;
+    const repeated = gbTransportTimeouts.length >= 5;
+    if (!offline && !correlated && !repeated) return false;
+    gbTransportBackoffLevel = Math.min(3, gbTransportBackoffLevel + 1);
+    const delays = [60000, 120000, 300000];
+    const ms = offline ? 120000 : delays[gbTransportBackoffLevel - 1];
+    gbServerCooldown(ms, offline ? 'browser offline' : `transport timeout storm ${gbTransportTimeouts.length}/${features.size} modules`);
+    whyNote('system', 'transport', 'blocked', offline ? 'offline' : 'timeout-storm');
+    gbLogT('transport-timeout-storm', 30000, `transport: ${gbTransportTimeouts.length} timeout(s) across ${features.size} module(s); global backoff ${Math.round(ms/1000)}s`);
+    return true;
+  }
   function gbPanicActive() { return panicUntil > Date.now(); }
   function gbPanicPending() { return panicNeedsClear; }
   function gbPanicLeftMs() { return Math.max(0, panicUntil - Date.now()); }
 
   function gbPanicActivate() {
-
-    if (gbNeverStop()) {
-      gbLog('panic: ignored - "no parar nunca" is ON');
-      try { flash('No parar nunca activo: usa el interruptor principal'); } catch (_) {}
-      return false;
-    }
     if (gbPanicActive()) { gbLogT('panic-dup', 5000, 'panic: already active'); return false; }
     panicUntil = Date.now() + GB_PANIC_GRACE_MS;
     panicNeedsClear = true;
@@ -1239,17 +1525,12 @@ const STORE = {
     try { updateStatus(); } catch (_) {}
     return { ok: true, reason: stillPaused ? (info.reason || '?') : '' };
   }
-
-  function gbNeverStop() { return state.neverStop !== false; }
-
-  function gbSafeModeOn() { return !!state.safeMode && !gbNeverStop(); }
   function automationPaused(reasonOut) {
-    const never = gbNeverStop();
-    if (!never && panicUntil && Date.now() < panicUntil) {
+    if (panicUntil && Date.now() < panicUntil) {
       if (reasonOut) reasonOut.reason = 'panic';
       return true;
     }
-    if (!never && panicNeedsClear) {
+    if (panicNeedsClear) {
       if (reasonOut) reasonOut.reason = 'panic-grace';
       return true;
     }
@@ -1261,25 +1542,7 @@ const STORE = {
       if (reasonOut) reasonOut.reason = 'server';
       return true;
     }
-    if (!never && state.pauseOnActivity && Date.now() < userPausedUntil) {
-      if (reasonOut) reasonOut.reason = 'user';
-      return true;
-    }
-    if (!never && state.nightPause) {
-      const h = new Date().getHours();
-      const a = Number.isFinite(+state.nightStart) ? +state.nightStart : 0;
-      const b = Number.isFinite(+state.nightEnd) ? +state.nightEnd : 7;
-      const inNight = a === b ? false : (a < b ? (h >= a && h < b) : (h >= a || h < b));
-      if (inNight) {
-        if (reasonOut) reasonOut.reason = 'night';
-        return true;
-      }
-    }
     return false;
-  }
-  function bumpUserActivity() {
-    if (!state.pauseOnActivity) return;
-    userPausedUntil = Date.now() + (state.pauseActivityMs || 180000);
   }
   let reqBudgetHead = 0;
 
@@ -1352,7 +1615,15 @@ const STORE = {
     const now = Date.now();
     const gap = now - gbWakeLastTickAt;
     gbWakeLastTickAt = now;
-    if (gap > 45000) gbWakeMarkResume('timer-gap ' + Math.round(gap / 1000) + 's');
+    if (gap > 45000) {
+      gbWakeMarkResume('timer-gap ' + Math.round(gap / 1000) + 's');
+
+      if (hostEnabled() && !automationPaused({})) {
+        try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (_) {}
+        try { gbWake('nativeQueueSweep', () => nativeQueueSweep('timer-gap'), { priority: 20 }); } catch (_) {}
+        try { orchStartIndependentTimers(); gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (_) {}
+      }
+    }
   }
 
   const CAVE_SOON_MS = 15 * 60 * 1000;
@@ -1396,22 +1667,9 @@ const STORE = {
     return { reserved: etaMs <= CAVE_SOON_MS, etaMs, blind: false };
   }
   function cultureShouldDeferForCave(townId) {
-    const r = ironReservedForCave(townId);
-    if (!r.reserved) {
-      cultureCaveDeferCount[townId] = 0;
-      return false;
-    }
-    const n = (cultureCaveDeferCount[townId] || 0) + 1;
-    cultureCaveDeferCount[townId] = n;
-    if (n > 3) {
-      gbLogT('culture-cave-override-' + townId, 120000,
-        `culture: defer cap hit for town ${townId} - culture wins over cave reserve`);
-      cultureCaveDeferCount[townId] = 0;
-      return false;
-    }
-    gbLogT('culture-defer-' + townId, 60000,
-      `culture: defer town ${townId} - iron reserved for cave (eta ${r.etaMs != null ? Math.round(r.etaMs / 1000) + 's' : '?'})`);
-    return true;
+
+    cultureCaveDeferCount[townId] = 0;
+    return false;
   }
   function reqBudgetMark(scope) {
     reqBudgetWindow.push({ t: Date.now(), s: REQ_SCOPE_FRACTION[scope] != null ? scope : 'action' });
@@ -1517,7 +1775,6 @@ const STORE = {
   }
   function tplHealthOk(name) {
     if (!name) return true;
-    if (gbNeverStop()) return true;
     const h = state.tplHealth && state.tplHealth[name];
     if (!h || !h.invalidated) return true;
 
@@ -1541,6 +1798,21 @@ const STORE = {
     }
     return false;
   }
+
+  (function tplClaimTransientRejectMigration() {
+    const key = wkey('grepbot:mig:6.0.8:claimtpl-transient-reject');
+    if (load(key, false)) return;
+    try {
+      const h = state.tplHealth && state.tplHealth.claimTpl;
+      if (h && h.invalidated) {
+        h.invalidated = false; h.hardFails = 0; h.stales = 0; h.invalidAt = 0;
+        tplHealthSave();
+        gbLog('tpl: claimTpl recovered by 6.0.8 transient-rejection migration');
+      }
+    } catch (_) {}
+    save(key, true);
+  })();
+
   function tplHealthBannerText() {
     const h = state.tplHealth || {};
     const bad = Object.keys(h).filter(k => h[k] && h[k].invalidated);
@@ -1575,29 +1847,6 @@ const STORE = {
     } catch (_) { return null; }
   }
 
-  const NAVAL_MYTHICAL_UNITS = new Set(['hydra']);
-
-  const MYTHICAL_UNIT_GOD = { hydra: 'poseidon' };
-  function mythicalUnitGod(unitId) {
-    const fid = unitId == null ? '' : String(unitId).toLowerCase();
-    if (!fid) return null;
-    try {
-      const m = MYTHICAL_UNIT_GOD[fid];
-      return m ? String(m).toLowerCase() : null;
-    } catch (_) { return null; }
-  }
-  function recruitIsNaval(unitId) {
-    const fid = unitId == null ? '' : String(unitId);
-    try {
-      const d = gbGameDataLookup("units", fid);
-      if (!d) return NAVAL_MYTHICAL_UNITS.has(fid);
-      if (d.is_naval || d.naval) return true;
-      if (NAVAL_MYTHICAL_UNITS.has(fid)) return true;
-      if (d.controller === 'building_docks') return true;
-      return false;
-    } catch (_) { return NAVAL_MYTHICAL_UNITS.has(fid); }
-  }
-
   function scanReason(reason) { return reason || 'scan'; }
   function captchaLadder() {
     const raw = state.captchaLadder;
@@ -1607,18 +1856,24 @@ const STORE = {
     }
     return [5, 15, 60];
   }
-
   const logBuf = [];
+  let logHead = 0;
   const logThrottle = new Map();
+  const LOG_MAX = 200;
   function gbLog(...args) {
     console.info('[grepbot]', ...args);
     const msg = args.map(a => (typeof a === 'string' ? a : (() => { try { return JSON.stringify(a); } catch (_) { return String(a); } })())).join(' ');
     logBuf.push({ ts: Date.now(), msg });
+    if (logBuf.length - logHead > LOG_MAX) logHead = logBuf.length - LOG_MAX;
+    if (logHead > LOG_MAX) {
+      logBuf.splice(0, logHead);
+      logHead = 0;
+    }
     renderLog();
   }
 
   function gbLogDump(n) {
-    const start = n > 0 ? Math.max(0, logBuf.length - n) : 0;
+    const start = Math.max(logHead, logBuf.length - (n > 0 ? n : LOG_MAX));
     return logBuf.slice(start).map(l => ({ ts: l.ts, msg: l.msg }));
   }
   function gbLogDumpText(n) {
@@ -1643,14 +1898,6 @@ const STORE = {
       }
     }
     gbLog(...args);
-  }
-
-  function gbTry(fn, fallback, tag) {
-    try { return fn(); }
-    catch (e) {
-      if (tag) gbLogT(tag, 60000, 'gbTry: ' + String(e && e.message || e).slice(0, 120));
-      return fallback;
-    }
   }
 
   function gbDomClick(el, feature) {
@@ -1705,25 +1952,23 @@ const STORE = {
     return n;
   }
   let logRenderQueued = false;
-
-  const LOG_VIEW_MAX = 2000;
   function renderLog() {
     const sec = panel && panel.querySelector('section[data-tab=log]');
     const list = sec && sec.querySelector('.log-list');
 
-    if (!list || document.hidden || sec.hidden || list.hidden || logRenderQueued) return;
+    if (!list || sec.hidden || list.hidden || logRenderQueued) return;
     logRenderQueued = true;
 
     const flush = () => {
       logRenderQueued = false;
-
-      if (document.hidden || sec.hidden || list.hidden) return;
-
-      const view = logBuf.length > LOG_VIEW_MAX ? logBuf.slice(-LOG_VIEW_MAX) : logBuf;
-      list.textContent = view.map(l => new Date(l.ts).toLocaleTimeString() + ' ' + l.msg).join('\n');
+      if (sec.hidden || list.hidden) return;
+      const start = Math.max(logHead, logBuf.length - 80);
+      const lines = logBuf.slice(start);
+      list.textContent = lines.map(l => new Date(l.ts).toLocaleTimeString() + ' ' + l.msg).join('\n');
       list.scrollTop = list.scrollHeight;
     };
-    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
+    if (document.hidden) gbTimeout(flush, 250);
+    else if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
     else gbTimeout(flush, 250);
   }
   function gameUw() {
@@ -1739,77 +1984,6 @@ const STORE = {
 
   function gbLit(html) { return html == null ? '' : String(html); }
 
-  let _gbEvents = null;
-  function gbEventsChannel() {
-    if (_gbEvents == null) return _gbEvents;
-    try {
-      _gbEvents = new BroadcastChannel('grepbot:events');
-      _gbEvents.addEventListener('message', (e) => {
-
-        if (!gbInstanceAlive()) return;
-        const d = e && e.data;
-        if (!d || d.from === GB_INSTANCE_ID) return;
-        if (d.kind === 'captcha' && typeof captchaTrip === 'function') {
-          const feat = d.payload && d.payload.feature;
-          if (typeof feat !== 'string' || !feat) return;
-
-          if (captchaPausedPure(feat)) return;
-          captchaTrip(feat, d.payload && d.payload.detail);
-        }
-      });
-    } catch (_) { _gbEvents = null; }
-    return _gbEvents;
-  }
-  function gbEventsEmit(kind, payload) {
-    try {
-      const ch = gbEventsChannel();
-      if (ch) ch.postMessage({ kind, payload: payload || null, ts: Date.now(), from: GB_INSTANCE_ID });
-    } catch (_) {}
-  }
-
-  function backoffFor(streak, ladder) {
-    if (!Array.isArray(ladder) || !ladder.length) return 0;
-    const i = Math.min(Math.max(0, (+streak || 1) - 1), ladder.length - 1);
-    return ladder[i];
-  }
-  function countUnits(units) {
-    if (!units || typeof units !== 'object') return 0;
-    let n = 0;
-    for (const k of Object.keys(units)) n += +units[k] || 0;
-    return n;
-  }
-
-  function xhrLadder(guesses, opts) {
-    const g = (guesses || []).slice();
-    const learned = opts && opts.learned;
-    if (learned) {
-      const i = g.indexOf(learned);
-      if (i >= 0) g.splice(i, 1);
-      g.unshift(learned);
-    }
-    return g;
-  }
-
-  function gbButton(opts) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    if (opts.text != null) b.textContent = opts.text;
-    if (opts.title) { b.title = opts.title; b.setAttribute('aria-label', opts.title); }
-    if (opts.className) b.className = opts.className;
-    if (opts.disabled) b.disabled = true;
-    if (opts.style) b.style.cssText = opts.style;
-    if (opts.tip && typeof gbTip === 'function') gbTip(b, opts.tip);
-    if (typeof opts.onClick === 'function') b.addEventListener('click', opts.onClick);
-    return b;
-  }
-
-  function gbEmptyState(text, tip) {
-    const e = document.createElement('div');
-    e.className = 'gb-empty-state';
-    e.textContent = text;
-    if (tip && typeof gbTip === 'function') gbTip(e, tip);
-    return e;
-  }
   let _uwCache = null, _uwCacheAt = 0;
   const UW_CACHE_MS = 400;
   function uwCached() {
@@ -1940,45 +2114,90 @@ const STORE = {
     get TOWN_MIN_MS() { return state.townMinMs; },
     get TOWN_MAX_MS() { return state.townMaxMs; },
   };
-  function load(key, fallback) {
+  function islandBeneficiaryWorldIndex() {
+    const byCanonical = Object.create(null), coordToCanonical = Object.create(null);
     try {
-      const scopedCall = String(key).indexOf('@') !== -1;
-      if (!scopedCall && WORLD_SCOPED_BASES.has(key)) {
-        const wk = wkey(key);
-        const v = GM_getValue(wk, null);
-        if (v !== null && v !== undefined) return loadValueOk(v, key) ? v : fallback;
-
-        const migrated = +GM_getValue(wkey(STORE.CONFIG_VER), 0) >= 3;
-        if (!migrated) {
-          const legacy = GM_getValue(key, null);
-          if (legacy !== null && legacy !== undefined) return loadValueOk(legacy, key) ? legacy : fallback;
+      const towns = gameUw().ITowns && gameUw().ITowns.towns || {};
+      for (const tid of Object.keys(towns)) {
+        const t = towns[tid];
+        let island = null, x = null, y = null;
+        try { island = typeof t.getIslandId === 'function' ? t.getIslandId() : (t.attributes && t.attributes.island_id); } catch (_) {}
+        try { x = typeof t.getIslandCoordinateX === 'function' ? t.getIslandCoordinateX() : (t.attributes && t.attributes.island_x); } catch (_) {}
+        try { y = typeof t.getIslandCoordinateY === 'function' ? t.getIslandCoordinateY() : (t.attributes && t.attributes.island_y); } catch (_) {}
+        if (island == null) continue;
+        const key = String(island), id = String(tid);
+        if (!byCanonical[key]) byCanonical[key] = [];
+        if (!byCanonical[key].includes(id)) byCanonical[key].push(id);
+        if (x != null && y != null) {
+          const c = String(x) + ',' + String(y);
+          if (coordToCanonical[c] == null) coordToCanonical[c] = key;
+          else if (coordToCanonical[c] !== key) coordToCanonical[c] = 'AMBIGUOUS';
         }
-        return fallback;
       }
-      const v = GM_getValue(key, null);
-      if (v === null || v === undefined) return fallback;
-      return loadValueOk(v, key) ? v : fallback;
-    } catch (e) { return fallback; }
+    } catch (_) { return null; }
+    return { byCanonical, coordToCanonical };
   }
-  const LOAD_MAX_CHARS = 2 * 1024 * 1024;
+  function normalizeIslandBeneficiaryConfig(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const idx = islandBeneficiaryWorldIndex();
+    if (!idx) return null;
+    const out = {};
+    for (const [rawKey, rawCfg] of Object.entries(value)) {
+      if (!rawCfg || typeof rawCfg !== 'object' || Array.isArray(rawCfg)) return null;
+      const k = String(rawKey);
+      let canonical = idx.byCanonical[k] ? k : idx.coordToCanonical[k];
+      if (!canonical || canonical === 'AMBIGUOUS' || !idx.byCanonical[canonical]) return null;
+      const ids = idx.byCanonical[canonical].map(String);
+      const resourceRaw = rawCfg.resource == null ? 'auto' : String(rawCfg.resource);
+      const unitRaw = rawCfg.unit == null ? 'none' : String(rawCfg.unit);
+      const resource = resourceRaw === 'auto' ? 'auto' : (ids.includes(resourceRaw) ? resourceRaw : null);
+      const unit = (unitRaw === 'none' || unitRaw === 'auto') ? 'none' : (ids.includes(unitRaw) ? unitRaw : null);
+      if (resource == null || unit == null) return null;
+      out[canonical] = { resource, unit };
+    }
+    return out;
+  }
+  function islandBeneficiaryConfigValid(value) {
+    return normalizeIslandBeneficiaryConfig(value) !== null;
+  }
+  function load(key, fallback) {
+    const errKey = gbStorageReadKey(key);
+    const scopedCall = String(key).indexOf('@') !== -1;
+    if (!scopedCall && WORLD_SCOPED_BASES.has(key)) {
+      const wk = wkey(key);
+      const scoped = gbStorageRawRead(wk, errKey);
+      if (scoped.status === 'valid') return scoped.value;
+      if (scoped.status !== 'missing') return fallback;
+      if (gbLegacyWorldFallbackAllowed(key)) {
+        const legacy = gbStorageRawRead(key, errKey);
+        if (legacy.status === 'valid') return legacy.value;
+        if (legacy.status !== 'missing') gbStorageProtectRead(wk);
+      }
+      return fallback;
+    }
+    const direct = gbStorageRawRead(key, errKey);
+    return direct.status === 'valid' ? direct.value : fallback;
+  }
   let storageWarnUntil = 0;
   let storageWarnMsg = '';
   let storagePruneBusy = false;
-  function loadValueOk(v, key) {
-    if (v === null || v === undefined) return true;
+  function loadValueStatus(v, key) {
     try {
-      const n = typeof v === 'string' ? v.length : JSON.stringify(v).length;
+      const json = typeof v === 'string' ? v : JSON.stringify(v);
+      if (typeof json !== 'string') return 'invalid';
+      const n = json.length;
       if (n > LOAD_MAX_CHARS) {
         try {
           if (typeof gbLogT === 'function') gbLogT('load-huge', 60000, 'storage: refusing huge key', key, n);
           else console.warn('[grepbot] storage: refusing huge key', key, n);
         } catch (_) {}
-        return false;
+        return 'too-large';
       }
-    } catch (_) {}
-    return true;
+    } catch (_) { return 'invalid'; }
+    return 'valid';
   }
   function storageRawSet(k, val) {
+    if (gbStorageReadFailed(k)) return false;
     try { GM_setValue(k, val); return true; } catch (_) { return false; }
   }
 
@@ -2081,11 +2300,23 @@ const STORE = {
     storagePruneBusy = false;
     return bytes;
   }
+  let gbMigrationActive = false;
+  let gbMigrationWriteFailed = false;
   function save(key, val) {
     const scopedCall = String(key).indexOf('@') !== -1;
     const k = (!scopedCall && WORLD_SCOPED_BASES.has(key)) ? wkey(key) : key;
+
+    if (gbStorageReadFailed(key) || gbStorageReadFailed(k)) {
+      if (gbMigrationActive) gbMigrationWriteFailed = true;
+      try {
+        if (typeof gbLogT === 'function') gbLogT('storage-readonly-' + String(key), 60000, `storage: refusing write to ${key} after unsafe read`);
+        else console.warn('[grepbot] refusing write after unsafe read', key);
+      } catch (_) {}
+      return false;
+    }
     try {
       GM_setValue(k, val);
+      return true;
     } catch (e) {
       const isQuota = e && (e.name === 'QuotaExceededError' || /quota.?exceeded/i.test(String(e.message || e)));
       if (isQuota) {
@@ -2096,18 +2327,21 @@ const STORE = {
           storageWarnMsg = 'quota:pruned';
           gbLog('storage: QuotaExceeded on', key, '- pruned ~' + pruned + 'B and retried OK');
           try { updateStatus(); } catch (_) {}
-          return;
+          return true;
         } catch (e2) {
+          if (gbMigrationActive) gbMigrationWriteFailed = true;
           storageWarnUntil = Date.now() + 30 * 60000;
           storageWarnMsg = 'quota FULL';
           console.warn('[grepbot] save fail (quota)', key, e2);
           gbLog('storage: QuotaExceeded on', key, '- write LOST after prune');
           try { updateStatus(); } catch (_) {}
-          return;
+          return false;
         }
       }
+      if (gbMigrationActive) gbMigrationWriteFailed = true;
       console.warn('[grepbot] save fail', key, e);
       try { gbLog('storage: save fail', key, String(e).slice(0, 80)); } catch (_) {}
+      return false;
     }
   }
 
@@ -2164,11 +2398,11 @@ const STORE = {
       let data = null;
       try { if (snip[0] === '{' || snip[0] === '[') data = JSON.parse(txt); } catch (_) {}
       if (data && responseIsCaptcha(data)) {
-        captchaTrip(opts.feature || 'http', 'gm-xhr-json');
+        captchaTrip('http', 'gm-xhr-json');
         return true;
       }
       if (/<html/i.test(snip) || /captcha[_-]?required/i.test(snip)) {
-        captchaTrip(opts.feature || 'http', 'gm-xhr-html');
+        captchaTrip('http', 'gm-xhr-html');
         return true;
       }
       return false;
@@ -2202,11 +2436,7 @@ const STORE = {
           if (typeof opts.onabort === 'function') opts.onabort(e);
         },
       }));
-      if (handle) {
-
-        handle.feature = (typeof opts.feature === 'string' && opts.feature) ? opts.feature : null;
-        gbXhrBag.push(handle);
-      }
+      if (handle) gbXhrBag.push(handle);
       return handle;
     } catch (e) {
       drop();
@@ -2249,28 +2479,19 @@ const STORE = {
   function i18n(key) { return (marketLocale()[key] || I18N.en[key] || key); }
   const BRIDGE_TIMEOUT_MS = 15000;
   function saveCaptcha() { save(wkey(STORE.CAPTCHA), state.captchaBreakers); }
-
-  function captchaPausedPure(feature) {
+  function captchaPaused(feature) {
     const b = state.captchaBreakers[feature];
     if (!b || !b.until) return false;
-    return Date.now() < b.until;
-  }
+    if (Date.now() >= b.until) {
 
-  function captchaPaused(feature) {
-    const paused = captchaPausedPure(feature);
-    if (!paused) captchaExpireSweep(feature);
-    return paused;
-  }
-
-  function captchaExpireSweep(feature) {
-    const b = state.captchaBreakers[feature];
-    if (!b || !b.until) return;
-    if (Date.now() < b.until) return;
-    if ((b.trips || 0) > 0) {
-      b.trips = Math.max(0, (b.trips || 1) - 1);
-      delete b.until;
-      saveSoon(wkey(STORE.CAPTCHA), state.captchaBreakers);
+      if ((b.trips || 0) > 0) {
+        b.trips = Math.max(0, (b.trips || 1) - 1);
+        delete b.until;
+        saveSoon(wkey(STORE.CAPTCHA), state.captchaBreakers);
+      }
+      return false;
     }
+    return true;
   }
   function captchaPausedAny(...features) {
     for (let i = 0; i < features.length; i++) {
@@ -2280,8 +2501,6 @@ const STORE = {
     return false;
   }
   function captchaTrip(feature, detail) {
-
-    if (!gbInstanceAlive()) return;
     const prev = state.captchaBreakers[feature] || { trips: 0 };
     const ladder = captchaLadder();
     const trips = Math.min((prev.trips || 0) + 1, ladder.length);
@@ -2301,20 +2520,28 @@ const STORE = {
     }
     gbLog(`CAPTCHA breaker: ${feature} paused ${mins}m`, detail || '');
     flash(`captcha: ${feature} paused ${mins}m`);
+    try { telegramCaptchaTripNotify(feature, mins); } catch (_) {}
     try { if (typeof alertWebhook === 'function') alertWebhook('captcha', { feature, mins, detail }); } catch (_) {}
-    try { gbEventsEmit('captcha', { feature, mins, detail }); } catch (_) {}
     updateStatus();
   }
   function captchaClear(feature) {
+    let changed = false;
     if (feature) {
-      if (!state.captchaBreakers[feature]) return;
-      delete state.captchaBreakers[feature];
+      if (state.captchaBreakers[feature]) {
+        delete state.captchaBreakers[feature];
+        changed = true;
+      }
     } else {
+      if (Object.keys(state.captchaBreakers || {}).length || captchaGlobalUntil) changed = true;
       state.captchaBreakers = {};
       captchaGlobalUntil = 0;
       saveCaptchaGlobalUntil();
     }
-    saveCaptcha();
+    if (changed) saveCaptcha();
+
+    if (feature) {
+      try { telegramCaptchaMaybeResolved('successful-request:' + String(feature)); } catch (_) {}
+    }
     updateStatus();
   }
 
@@ -2358,13 +2585,10 @@ const STORE = {
     if (!v || typeof v !== 'object') return null;
     const out = plannerZero();
     let known = false;
-
     for (const k of PLANNER_KEYS) {
-      const n = gbNum(v[k]);
-      if (n != null && n >= 0) { out[k] = n; known = true; }
+      if (v[k] != null && Number.isFinite(+v[k]) && +v[k] >= 0) { out[k] = +v[k]; known = true; }
     }
-    const tc = gbNum(v.tradeCap);
-    if (tc != null && tc >= 0) { out.tradeCap = tc; known = true; }
+    if (v.tradeCap != null && Number.isFinite(+v.tradeCap) && +v.tradeCap >= 0) { out.tradeCap = +v.tradeCap; known = true; }
     return known ? out : null;
   }
   function plannerCfgRoot() {
@@ -2379,18 +2603,8 @@ const STORE = {
   }
   function plannerSaveCfg() { plannerCfgRoot(); save(STORE.PLANNER_CFG, state.plannerCfg); }
   function plannerReservePolicy(townId) {
-    const cfg = plannerCfgRoot();
-    const tc = cfg.towns[String(townId)] || {};
-    const out = { hard: plannerZero(), soft: plannerZero() };
-    for (const mode of ['hard','soft']) {
-      const g = cfg.global[mode] || {}, t = tc[mode] || {};
-      for (const k of PLANNER_KEYS) out[mode][k] = Math.max(0, +(g[k] || 0), +(t[k] || 0));
-    }
-    try {
-      const gr = goalReservePolicy(townId);
-      if (gr) for (const mode of ['hard','soft']) for (const k of PLANNER_KEYS) out[mode][k] = Math.max(out[mode][k], +(gr[mode] && gr[mode][k] || 0));
-    } catch (_) {}
-    return out;
+
+    return { hard: plannerZero(), soft: plannerZero() };
   }
   function plannerLive(townId) {
     const st = townResState(townId);
@@ -2403,7 +2617,7 @@ const STORE = {
   }
   function plannerReservationActive(tx) {
     if (!tx || !tx.reservation || tx.reservation.state === 'released') return false;
-    if (/^(planned|precheck|sending|confirming|reconciling|unknown)$/.test(tx.state || '')) return true;
+    if (/^(planned|precheck|sending|confirming|reconciling)$/.test(tx.state || '')) return true;
     if (tx.state === 'committed' && +(tx.reservation.holdUntil || 0) > Date.now()) return true;
     return false;
   }
@@ -2471,26 +2685,28 @@ const STORE = {
     const inc = (tid,c) => { const n=plannerNormCost(c); if(n) effects.push({townId:String(tid),direction:'in',cost:n}); };
     try {
       if (feature === 'build' && a.building_id && a.order_id == null) {
+
+        if (transport === 'bridge' && String(d.action_name || '') === 'tearDown') return [];
         const c = abBuildingCost(townId, a.building_id); if (!c) return null; out(townId,c);
       } else if (feature === 'research') {
         const tech=a.id||a.research_id||a.research||a.research_type, c=researchCost(tech,townId); if(!c) return null; out(townId,c);
       } else if (feature === 'recruit') {
-        const unit=a.unit_id||a.unit_type, n=+a.amount||0, def=gbGameDataLookup("units", unit); if(!def||!def.resources||!(n>0)) return null;
-
-        const factor = (typeof recruitResourceFactor === 'function')
-          ? recruitResourceFactor(townId, Object.assign({ id: unit }, def)) : 1;
-
-        out(townId,{
-          wood:(gbNum(def.resources.wood)||0)*factor*n,
-          stone:(gbNum(def.resources.stone)||0)*factor*n,
-          iron:(gbNum(def.resources.iron)||0)*factor*n,
-          population:(gbNum(def.population)||0)*n
-        });
+        const unit=a.unit_id||a.unit_type, n=+a.amount||0, ec=recruitEffectiveUnitCost(townId, unit); if(!(n>0)) return null;
+        if (!ec) return [];
+        const c={};
+        for (const k of ['wood','stone','iron','population']) if (recruitCostFieldKnown(ec,k)) c[k]=+ec[k]*n;
+        if (Object.keys(c).length) out(townId,c);
       } else if (feature === 'trade') {
         const c={wood:+a.wood||0,stone:+a.stone||0,iron:+a.iron||0,tradeCap:(+a.wood||0)+(+a.stone||0)+(+a.iron||0)};
         out(townId,c); if(a.id!=null) inc(a.id,c);
       } else if (feature === 'wonder') {
         out(townId,{wood:+a.wood||0,stone:+a.stone||0,iron:+a.iron||0,tradeCap:(+a.wood||0)+(+a.stone||0)+(+a.iron||0)});
+      } else if (feature === 'culture') {
+        const type = String(a.celebration_type || '');
+        if (type === 'party' || type === 'theater') {
+          const c = CULTURE_COSTS[type];
+          out(townId,{wood:+c.wood||0,stone:+c.stone||0,iron:+c.iron||0});
+        }
       } else if (feature === 'cave') {
         out(townId,{iron:+a.iron_to_store||0});
       } else return [];
@@ -2530,7 +2746,7 @@ const STORE = {
   }
   function clientFingerprintCompatible(prev,cur){if(!cur)return{ok:false,why:'fingerprint-unreadable'};for(const k of ['MM','gpAjax','ITowns','GameData'])if(!cur.required[k])return{ok:false,why:`missing-${k}`};if(!prev)return{ok:true,first:true};for(const k of ['MM','gpAjax','ITowns','GameData'])if(prev.required&&prev.required[k]&&!cur.required[k])return{ok:false,why:`lost-${k}`};for(const k of ['units','buildings']){const a=+(prev.counts&&prev.counts[k]||0),b=+(cur.counts&&cur.counts[k]||0);if(a>0&&b>0&&Math.abs(b-a)/a>0.45)return{ok:false,why:`${k}-shape-changed:${a}->${b}`}}return{ok:true}}
   function clientFingerprintCheck() {const cur=clientFingerprintNow(),cmp=clientFingerprintCompatible(state.clientFingerprint,cur);if(!cmp.ok){state.safeMode=true;save(STORE.SAFE_MODE,true);gbLog(`SAFE MODE: Grepolis client compatibility check failed (${cmp.why})`);whyNote('system','client fingerprint','blocked',cmp.why);}else if(!state.clientFingerprint){state.clientFingerprint=cur;save(STORE.CLIENT_FP,cur);}else{state.clientFingerprint=cur;save(STORE.CLIENT_FP,cur);}return{current:cur,check:cmp}}
-  function safeModeBlock(feature,transport,endpoint,data){if(gbNeverStop())return null;if(!state.safeMode)return null;const f=String(feature||'');if(['attack','support','spy','favor','wonder','rurallevel','merchant','spell','airaw'].includes(f))return 'safe-mode-high-impact';if(f==='culture'){const a=transport==='bridge'?(data&&data.arguments||{}):(data||{});if(/olympic/i.test(String(a.celebration_type||endpoint||'')))return 'safe-mode-premium';}return null}
+  function safeModeBlock(feature,transport,endpoint,data){if(!state.safeMode)return null;const f=String(feature||'');if(['attack','support','spy','favor','wonder','rurallevel','merchant','spell','airaw'].includes(f))return 'safe-mode-high-impact';if(f==='culture'){const a=transport==='bridge'?(data&&data.arguments||{}):(data||{});if(/olympic/i.test(String(a.celebration_type||endpoint||'')))return 'safe-mode-premium';}return null}
   const CIRCUIT_TRIP = 3;
   const CIRCUIT_STRUCTURAL_RE = /unknown.?action|invalid.?action|unknown.?model|model.?not.?found|unknown.?controller|controller.?not.?found|no.?such.?action|does.?not.?exist|unsupported.?action|invalid.?model|endpoint.?not.?found/i;
   function circuitSave() { save(STORE.CIRCUITS, state.circuits || {}); }
@@ -2546,7 +2762,6 @@ const STORE = {
     return Math.max(60000, Math.min(CIRCUIT_COOLDOWN_MAX_MS, n));
   }
   function circuitOpen(feature) {
-    if (gbNeverStop()) return false;
     const c = circuitState(feature);
     if (!c || !c.open) return false;
     if (state.circuitAutoClear === false) return true;
@@ -2617,33 +2832,55 @@ const STORE = {
 
     'support', 'spy',
 
-    'cave-emergency',
-
     'airaw'
   ]);
   const TX_TERMINAL_TTL = 30 * 60 * 1000;
   const TX_INSTANT_TOMBSTONE_TTL = 24 * 60 * 60 * 1000;
-  const TX_UNKNOWN_RECHECK_MS = 60 * 1000;
-  const TX_UNKNOWN_MAX_MS = 6 * 60 * 60 * 1000;
+  const TX_PRE_SEND_STALE_MS = 60 * 1000;
+  const TX_UNKNOWN_RECHECK_MS = 30 * 1000;
+  const TX_UNKNOWN_MAX_MS = 10 * 60 * 1000;
+  const TX_MANUAL_REVIEW_TTL_MS = 30 * 60 * 1000;
+  const TX_PERSISTENT_MANUAL_REVIEW_FEATURES = new Set([
+    'attack', 'support', 'spy', 'cancel',
 
-  const TX_INFLIGHT_MAX_MS = 10 * 60 * 1000;
+    'favor', 'wonder', 'rurallevel', 'merchant', 'spell', 'airaw',
 
-  const TX_REVIEW_MAX = 100;
-  const TX_REVIEW_MIN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+    'dodge',
+  ]);
   let txSeq = 0;
   if (!state.txState || typeof state.txState !== 'object' || Array.isArray(state.txState)) state.txState = {};
-  (function txLoadNormalize() {
-    const now = Date.now();
+  function txManualReviewPermanent(tx) {
+    if (!tx) return false;
+    const feature = String(tx.feature || '');
+    if (TX_PERSISTENT_MANUAL_REVIEW_FEATURES.has(feature)) return true;
 
+    return feature === 'culture' && /olympic/i.test(String((tx.snapshot && tx.snapshot.type) || tx.endpoint || ''));
+  }
+  function txLoadNormalize(reason) {
+    const now = Date.now();
+    let changed = false;
     const justUnknown = new Set();
     for (const key of Object.keys(state.txState)) {
       const t = state.txState[key];
-      if (!t || typeof t !== 'object') { delete state.txState[key]; continue; }
+      if (!t || typeof t !== 'object') { delete state.txState[key]; changed = true; continue; }
+
+      if (t.state === 'planned' || t.state === 'precheck') {
+        t.state = 'aborted';
+        t.detail = `stale pre-send transaction cleared (${reason || 'normalize'})`;
+        t.updatedAt = now;
+        plannerRelease(t, 'stale-pre-send');
+        changed = true;
+        continue;
+      }
       if (t.state === 'sending' || t.state === 'confirming' || t.state === 'reconciling') {
         t.state = 'unknown';
         t.unknownAt = now;
-        t.detail = 'reloaded while in-flight';
+        t.detail = `reloaded while in-flight (${reason || 'normalize'})`;
+        t.updatedAt = now;
+
+        plannerRelease(t, 'unknown-after-reload');
         justUnknown.add(key);
+        changed = true;
       }
     }
     for (const key of Object.keys(state.txState)) {
@@ -2651,55 +2888,37 @@ const STORE = {
       if (!t) continue;
       const terminal = /^(committed|failed|aborted|dryrun)$/.test(t.state || '');
       const terminalTtl=t.state==='committed'&&t.snapshot&&t.snapshot.kind==='instant'?TX_INSTANT_TOMBSTONE_TTL:TX_TERMINAL_TTL;
-      if (terminal && now - (+t.updatedAt || +t.createdAt || 0) > terminalTtl) { delete state.txState[key]; continue; }
+      if (terminal && now - (+t.updatedAt || +t.createdAt || 0) > terminalTtl) { delete state.txState[key]; changed = true; continue; }
       if (justUnknown.has(key)) continue;
       if (t.state === 'unknown' && now - (+t.unknownAt || +t.updatedAt || 0) > TX_UNKNOWN_MAX_MS) {
-
         t.state = 'manual-review';
-        t.detail = 'unknown outcome expired; manual review required';
+        t.detail = 'unknown outcome expired; bounded manual-review tombstone';
         t.updatedAt = now;
         plannerRelease(t, 'manual-review');
+        changed = true;
+        continue;
+      }
+
+      if (t.state === 'manual-review' && !txManualReviewPermanent(t) && now - (+t.updatedAt || +t.unknownAt || +t.createdAt || 0) > TX_MANUAL_REVIEW_TTL_MS) {
+        t.state = 'failed';
+        t.detail = 'manual-review tombstone expired; retry allowed';
+        t.updatedAt = now;
+        plannerRelease(t, 'manual-review-expired');
+        changed = true;
       }
     }
-    save(STORE.TX_STATE, state.txState);
-  })();
-  function txSave() { save(STORE.TX_STATE, state.txState); }
+    if (changed && gbTabLeader) save(STORE.TX_STATE, state.txState);
+    return changed;
+  }
+  txLoadNormalize('boot');
+  function txSave() {
+
+    if (!gbTabLeader) return false;
+    return save(STORE.TX_STATE, state.txState);
+  }
   function txRecentlyCommitted(intent, maxAgeMs) {
     const t = state.txState && state.txState[intent];
     return !!(t && t.state === 'committed' && Date.now() - (+t.updatedAt || +t.createdAt || 0) < Math.max(1000, +maxAgeMs || 60000));
-  }
-
-  function txCompactReview(t) {
-    if (!t || !t.snapshot) return false;
-    const s = t.snapshot;
-    const keys = Object.keys(s);
-    if (keys.length <= 2 && !keys.some(k => k !== 'kind' && k !== 'qid')) return false;
-    const lean = {};
-    if (s.kind != null) lean.kind = s.kind;
-    if (s.qid != null) lean.qid = s.qid;
-    t.snapshot = lean;
-    return true;
-  }
-
-  function txCapReview() {
-    const rows = [];
-    for (const key of Object.keys(state.txState || {})) {
-      const t = state.txState[key];
-      if (t && t.state === 'manual-review') rows.push({ key, at: +t.updatedAt || +t.unknownAt || +t.createdAt || 0 });
-    }
-    if (rows.length <= TX_REVIEW_MAX) return false;
-    rows.sort((a, b) => a.at - b.at);
-    const cut = Date.now() - TX_REVIEW_MIN_AGE_MS;
-    let drop = rows.length - TX_REVIEW_MAX;
-    let dropped = 0;
-    for (const r of rows) {
-      if (drop <= 0) break;
-      if (r.at > cut) break;
-      delete state.txState[r.key];
-      dropped++; drop--;
-    }
-    if (dropped) gbLog(`tx: dropped ${dropped} manual-review tombstone(s) older than 7d (cap ${TX_REVIEW_MAX}, ${rows.length} held)`);
-    return dropped > 0;
   }
   function txPrune() {
     const now = Date.now();
@@ -2707,22 +2926,19 @@ const STORE = {
     for (const key of Object.keys(state.txState)) {
       const t = state.txState[key];
       if (!t) { delete state.txState[key]; changed = true; continue; }
-
-      if (/^(planned|precheck|sending|confirming|reconciling)$/.test(t.state || '') && now - (+t.updatedAt || +t.createdAt || 0) > TX_INFLIGHT_MAX_MS) {
-        const stuck = t.state;
-        t.state = 'unknown'; t.unknownAt = now; t.updatedAt = now;
-        t.detail = 'in-flight state expired; treating as unknown';
-        plannerRelease(t, 'inflight-expired');
-        gbLogT('tx-inflight-expired', 300000, `tx: ${key} stuck in ${stuck} > ${TX_INFLIGHT_MAX_MS}ms - marked unknown`);
-        changed = true; continue;
+      if (/^(planned|precheck)$/.test(t.state || '') && now - (+t.updatedAt || +t.createdAt || 0) > TX_PRE_SEND_STALE_MS) {
+        t.state='aborted';t.detail='stale pre-send transaction cleared';t.updatedAt=now;plannerRelease(t,'stale-pre-send');changed=true;continue;
       }
-
-      if(t.state==='unknown'&&now-(+t.unknownAt||+t.updatedAt||0)>TX_UNKNOWN_MAX_MS){t.state='manual-review';t.detail='unknown outcome expired; manual review required';t.updatedAt=now;plannerRelease(t,'manual-review');txCompactReview(t);changed=true;continue}
-      if (t.state === 'manual-review' && txCompactReview(t)) changed = true;
+      if (t.state==='unknown' && now-(+t.unknownAt||+t.updatedAt||0)>TX_UNKNOWN_MAX_MS) {
+        t.state='manual-review';t.detail='unknown outcome expired; bounded manual-review tombstone';t.updatedAt=now;plannerRelease(t,'manual-review');changed=true;continue;
+      }
+      if (t.state==='manual-review' && !txManualReviewPermanent(t) && now-(+t.updatedAt||+t.unknownAt||+t.createdAt||0)>TX_MANUAL_REVIEW_TTL_MS) {
+        t.state='failed';t.detail='manual-review tombstone expired; retry allowed';t.updatedAt=now;plannerRelease(t,'manual-review-expired');changed=true;continue;
+      }
       const terminalTtl=t.state==='committed'&&t.snapshot&&t.snapshot.kind==='instant'?TX_INSTANT_TOMBSTONE_TTL:TX_TERMINAL_TTL;
       if (/^(committed|failed|aborted|dryrun)$/.test(t.state || '') && now - (+t.updatedAt || +t.createdAt || 0) > terminalTtl) { delete state.txState[key]; changed = true; }
     }
-    if (txCapReview()) changed = true;
+    if (changed) txSave();
     return changed;
   }
   function txDispose() {
@@ -2735,6 +2951,7 @@ const STORE = {
         t.unknownAt = now;
         t.updatedAt = now;
         t.detail = 'instance disposed while in-flight';
+        plannerRelease(t, 'unknown-dispose');
       }
     }
     txSave();
@@ -2742,7 +2959,7 @@ const STORE = {
   function txClearUnknown() {
     for (const key of Object.keys(state.txState || {})) {
       if (state.txState[key] && /^(unknown|manual-review)$/.test(state.txState[key].state || '')) {
-        try { if (state.txState[key].snapshot && state.txState[key].snapshot.kind === 'quest') questClearReviewForTx(state.txState[key]); } catch (e) { gbLogT('quest-clear-err-' + ((state.txState[key].snapshot && state.txState[key].snapshot.qid) || '?'), 60000, 'quest clear review failed: ' + String(e).slice(0, 80)); }
+        try{if(state.txState[key].snapshot&&state.txState[key].snapshot.kind==='quest')questClearReviewForTx(state.txState[key])}catch(_){}
         state.txState[key].state = 'aborted';
         state.txState[key].updatedAt = Date.now();
         state.txState[key].detail = 'manually cleared';
@@ -2755,7 +2972,7 @@ const STORE = {
     const t = state.txState && state.txState[intent];
     if (!t) return false;
     if (!/^(unknown|manual-review)$/.test(t.state || '')) return false;
-    try { if (t.snapshot && t.snapshot.kind === 'quest') questClearReviewForTx(t); } catch (e) { gbLogT('quest-clear-err-' + ((t.snapshot && t.snapshot.qid) || '?'), 60000, 'quest clear review failed: ' + String(e).slice(0, 80)); }
+    try{if(t.snapshot&&t.snapshot.kind==='quest')questClearReviewForTx(t)}catch(_){}
     t.state = 'aborted';
     t.updatedAt = Date.now();
     t.detail = 'manually cleared';
@@ -2786,7 +3003,7 @@ const STORE = {
     let tradeCap = null;
     try {
       const t = gbTownModel(townId);
-      if (t && t.getAvailableTradeCapacity) tradeCap = gbNum(t.getAvailableTradeCapacity());
+      if (t && t.getAvailableTradeCapacity) tradeCap = +t.getAvailableTradeCapacity();
     } catch (_) {}
     return st ? { wood: st.wood, stone: st.stone, iron: st.iron, cap: st.cap, tradeCap } : null;
   }
@@ -2794,15 +3011,13 @@ const STORE = {
     const t = gbTownModel(townId);
     if (!t) return null;
     let have = null, queued = 0;
-
-    try { const u=t.units&&t.units(),o=t.unitsOuter&&t.unitsOuter();if(u){const a=gbNum(u[unit]),b=o?gbNum(o[unit]):null;if(a!=null||b!=null)have=(a||0)+(b||0);} } catch (_) {}
+    try { const u=t.units&&t.units(),o=t.unitsOuter&&t.unitsOuter();if(u)have=(+u[unit]||0)+(o?(+o[unit]||0):0); } catch (_) {}
     try {
       const col = t.getUnitOrdersCollection && t.getUnitOrdersCollection();
       for (const m of ((col && col.models) || [])) {
         const a = m.attributes || {};
         const uid = a.unit_type || a.unit_id || a.type;
-
-        if (String(uid) === String(unit)) { const q = gbNum(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)); if (q != null) queued += q; }
+        if (String(uid) === String(unit)) queued += +(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)) || 0;
       }
     } catch (_) {}
     return have == null ? null : { have, queued, total: have + queued };
@@ -2832,13 +3047,7 @@ const STORE = {
   function txFarmStatus(farmId) {
     try {
       const f = (farmsFromGame() || []).find(x => String(x.vill_id) === String(farmId));
-      if (!f) return null;
-      const at = f.lootable_at == null ? null : +f.lootable_at;
-
-      let lootableNow = null;
-      if (f._rel) { try { lootableNow = !!farmIsLootable(f._rel, f._attrs || {}); } catch (_) {} }
-      else if (at != null) lootableNow = gameNow() >= at;
-      return { lootableAt: at, lootableNow };
+      return f ? { lootableAt: f.lootable_at == null ? null : +f.lootable_at } : null;
     } catch (_) { return null; }
   }
   function txMovementCount(origin, dest, mission) {
@@ -2911,7 +3120,7 @@ const STORE = {
     } catch (_) { return null; }
   }
   function txMilitiaCount(townId) {
-    try { const t = gbTownModel(townId); const u = t && t.units && t.units(); return u ? gbNum(u.militia) : null; } catch (_) { return null; }
+    try { const t = gbTownModel(townId); const u = t && t.units && t.units(); return u ? (+u.militia || 0) : null; } catch (_) { return null; }
   }
   function txSpellPresent(townId, powerId) {
     try { return recruitHasSpell(townId, powerId); } catch (_) { return null; }
@@ -2965,8 +3174,8 @@ const STORE = {
       }
       if (!model) return { exists: false, gold: gbPlayerGold(), price: null };
       const a = model.attributes || model;
-      const price = gbNum(a.price != null ? a.price : a.gold);
-      return { exists: true, gold: gbPlayerGold(), price: price != null ? price : null };
+      const price = Number(a.price != null ? a.price : a.gold);
+      return { exists: true, gold: gbPlayerGold(), price: Number.isFinite(price) ? price : null };
     } catch (_) { return null; }
   }
   function txPtTradeStatus(townId, offerId) {
@@ -2987,12 +3196,12 @@ const STORE = {
       }
       const before = txTownResourceSnap(townId);
       const tradeCap = (function () {
-        try { const t = gbTownModel(townId); return t && t.getAvailableTradeCapacity ? gbNum(t.getAvailableTradeCapacity()) : null; } catch (_) { return null; }
+        try { const t = gbTownModel(townId); return t && t.getAvailableTradeCapacity ? +t.getAvailableTradeCapacity() : null; } catch (_) { return null; }
       })();
       if (!model) return { exists: false, tradeCap, res: before };
       const a = model.attributes || model;
-      const amount = gbNum(a.amount != null ? a.amount : a.trade_amount != null ? a.trade_amount : a.current_amount);
-      return { exists: true, tradeCap, res: before, amount: amount != null ? amount : null };
+      const amount = Number(a.amount != null ? a.amount : a.trade_amount != null ? a.trade_amount : a.current_amount);
+      return { exists: true, tradeCap, res: before, amount: Number.isFinite(amount) ? amount : null };
     } catch (_) { return null; }
   }
   function txCapture(feature, transport, endpoint, data) {
@@ -3007,11 +3216,20 @@ const STORE = {
         }
         if (a.building_id) {
           const st = txBuildStatus(townId, a.building_id);
-          return { kind: 'build', building: a.building_id, status: st, targetLevel: st ? st.projectedLevel + 1 : null };
+          const action=String((d&&d.action_name)||endpoint||'').toLowerCase();
+          const direction=/tear|down|demol/.test(action)?-1:1;
+          return { kind: 'build', building: a.building_id, status: st, direction, targetLevel: st ? Math.max(0,st.projectedLevel + direction) : null };
         }
       }
       if (feature === 'research') return { kind: 'research', tech: a.id || a.research_id || a.research || a.research_type, status: txResearchStatus(townId, a.id || a.research_id || a.research || a.research_type) };
       if (feature === 'recruit') return { kind: 'recruit', unit: a.unit_id || a.unit_type, amount: +a.amount || 0, status: txUnitStatus(townId, a.unit_id || a.unit_type) };
+      if (feature === 'villrecruit') {
+        const unit = a.unit_id || a.unit_type;
+        const farmId = a.farm_town_id;
+        const counts = villageUnitCounts(farmId);
+        const beforeCount = counts && counts.known && counts.units && Number.isFinite(+counts.units[unit]) ? +counts.units[unit] : null;
+        return { kind:'villrecruit', farmId, unit, amount:+a.amount||0, beforeCount };
+      }
       if (feature === 'farm') return { kind: 'farm', farmId: a.farm_town_id, status: txFarmStatus(a.farm_town_id) };
       if (feature === 'trade') return { kind: 'trade', source: txTownResourceSnap(townId), target: txTownResourceSnap(a.id), total: (+a.wood || 0) + (+a.stone || 0) + (+a.iron || 0) };
       if (feature === 'collect') return { kind: 'collect', before: txTownResourceSnap(townId) };
@@ -3084,6 +3302,12 @@ const STORE = {
       const before = snap && snap.status ? snap.status.total : '?';
       return `recruit:${townId}:${u}:${before}+${+a.amount || 0}`;
     }
+    if (feature === 'villrecruit') {
+      const u = a.unit_id || a.unit_type || '?';
+      const farmId = a.farm_town_id || '?';
+      const before = snap && snap.beforeCount != null ? snap.beforeCount : '?';
+      return `villrecruit:${townId}:${farmId}:${u}:${before}+${+a.amount || 0}`;
+    }
     if (feature === 'trade') return `trade:${townId}:${a.id}:${+a.wood || 0}:${+a.stone || 0}:${+a.iron || 0}`;
 
     if (feature === 'farm') return `farm:${townId}:${a.farm_town_id}:${a.type || 'resources'}:${a.option}`;
@@ -3094,23 +3318,28 @@ const STORE = {
     if (feature === 'quest') return `quest:${a.progressable_id || String(d.model_url || '').split('/').pop() || '?'}`;
     if (feature === 'attack' || feature === 'dodge' || feature === 'favor' || feature === 'support') return `${feature}:${townId}:${a.id || '?'}:${a.type || '?'}:${txUnitSignature(a)}`;
 
-    if (feature === 'spy') return `spy:${townId}:${a.id || '?'}:${+a.espionage_iron || 0}:${snap && snap.before && snap.before.stored != null ? snap.before.stored : '?'}`;
+    if (feature === 'spy') return `spy:${townId}:${a.id || '?'}:${+a.espionage_iron || 0}`;
     if (feature === 'cancel') return `cancel:${a.id != null ? a.id : (a.command_id != null ? a.command_id : '?')}`;
     if (feature === 'hero') return `hero:${String(endpoint || '?').split('/').pop()}:${a.type || a.hero_type || a.hero || '?'}:${a.target_town_id != null ? a.target_town_id : (a.town_id != null ? a.town_id : '-')}`;
     if (feature === 'wonder') return `wonder:${townId}:${a.id || a.wonder_id || '?'}:${+a.wood || 0}:${+a.stone || 0}:${+a.iron || 0}`;
-    if (feature === 'bandit') return `bandit:${townId}:${endpoint}`;
+    if (feature === 'bandit') {
+      const before = snap && snap.before || {};
+      const stage = before.stage != null ? before.stage : '?';
+      const cooldown = before.cooldown != null ? before.cooldown : '?';
+      return `bandit:${townId}:${endpoint}:stage=${stage}:cd=${cooldown}:${txUnitSignature(a)}`;
+    }
     if (feature === 'rurallevel' || feature === 'ruraltrade') return `${feature}:${townId}:${a.farm_town_id || String(d.model_url || '').split('/').pop()}:${endpoint}`;
     if (feature === 'culture') return `culture:${townId}:${a.celebration_type || endpoint}`;
     if (feature === 'merchant') return `merchant:${townId}:${a.offer_id || a.offer || a.id || endpoint}`;
     if (feature === 'pttrade') return `pttrade:${townId || '-'}:${a.offer_id || a.offer || (d.model_url ? String(d.model_url).split('/').pop() : '') || endpoint}`;
     return `${feature}:${townId || '-'}:${endpoint}:${JSON.stringify(txStableObj(a)).slice(0, 100)}`;
   }
-
-  function txLt(a, b) { const x = gbNum(a), y = gbNum(b); return x != null && y != null && x < y; }
-  function txGt(a, b) { const x = gbNum(a), y = gbNum(b); return x != null && y != null && x > y; }
-  function txNe(a, b) { const x = gbNum(a), y = gbNum(b); return x != null && y != null && x !== y; }
+  function txNum(v) { return gbNum(v); }
+  function txLt(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x < y; }
+  function txGt(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x > y; }
+  function txNe(a, b) { const x = txNum(a), y = txNum(b); return x != null && y != null && x !== y; }
   function txResTriadReadable(o) {
-    return !!o && gbNum(o.wood) != null && gbNum(o.stone) != null && gbNum(o.iron) != null;
+    return !!o && txNum(o.wood) != null && txNum(o.stone) != null && txNum(o.iron) != null;
   }
   function txReconcileNow(tx) {
     const s = tx.snapshot || {};
@@ -3120,6 +3349,8 @@ const STORE = {
       if (s.kind === 'build') {
         const cur = txBuildStatus(meta.townId, s.building);
         if (!cur || s.targetLevel == null) return 'unknown';
+        const dir=+s.direction||1;
+        if (dir<0) return cur.projectedLevel<=s.targetLevel?'applied':'unchanged';
         if (cur.projectedLevel >= s.targetLevel) return 'applied';
         return 'unchanged';
       }
@@ -3133,39 +3364,48 @@ const STORE = {
         const cur = txUnitStatus(meta.townId, s.unit);
         if (!cur || !s.status) return 'unknown';
 
-        if (gbNum(cur.total) == null || gbNum(s.status.total) == null) return 'unknown';
+        if (txNum(cur.total) == null || txNum(s.status.total) == null) return 'unknown';
         if (cur.total >= s.status.total + Math.max(1, s.amount || 0)) return 'applied';
         return 'unchanged';
       }
+      if (s.kind === 'villrecruit') {
+        const counts = villageUnitCounts(s.farmId);
+        if (!counts || !counts.known || !counts.units || s.beforeCount == null || !Number.isFinite(+counts.units[s.unit])) return 'unknown';
+        const cur = +counts.units[s.unit];
+        if (cur >= +s.beforeCount + Math.max(1, +s.amount || 0)) return 'applied';
+        return cur === +s.beforeCount ? 'unchanged' : 'unknown';
+      }
       if (s.kind === 'farm') {
         const cur = txFarmStatus(s.farmId);
-        if (!cur) return 'unknown';
-
-        if (cur.lootableNow === false) return 'applied';
-        if (cur.lootableNow === true) return 'unchanged';
-        return 'unknown';
+        if (!cur || !s.status || cur.lootableAt == null || s.status.lootableAt == null) return 'unknown';
+        return cur.lootableAt > s.status.lootableAt ? 'applied' : 'unchanged';
       }
       if (s.kind === 'trade' || s.kind === 'collect' || s.kind === 'wonder' || s.kind === 'ruraltrade') {
         const before = s.kind === 'trade' ? s.source : s.before;
         const cur = txTownResourceSnap(meta.townId);
         if (!before || !cur) return 'unknown';
         if (!txResTriadReadable(before) || !txResTriadReadable(cur)) return 'unknown';
-        if (s.kind === 'collect') {
-          if (txGt(cur.wood, before.wood) || txGt(cur.stone, before.stone) || txGt(cur.iron, before.iron)) return 'applied';
-        } else if (txLt(cur.wood, before.wood) || txLt(cur.stone, before.stone) || txLt(cur.iron, before.iron) || txLt(cur.tradeCap, before.tradeCap)) return 'applied';
-        return 'unchanged';
+        const resChanged = txNe(cur.wood, before.wood) || txNe(cur.stone, before.stone) || txNe(cur.iron, before.iron);
+        const capChanged = txNum(cur.tradeCap) != null && txNum(before.tradeCap) != null && txNe(cur.tradeCap, before.tradeCap);
+
+        return resChanged || capChanged ? 'unknown' : 'unchanged';
       }
       if (s.kind === 'cave') {
         const cur = txCaveStatus(meta.townId);
         if (!cur || !s.before) return 'unknown';
-        if (txGt(cur.stored, s.before.stored) || txLt(cur.iron, s.before.iron)) return 'applied';
-        return 'unchanged';
+        const stored = txNum(cur.stored), beforeStored = txNum(s.before.stored);
+        if (stored == null || beforeStored == null) return 'unknown';
+        const need = Math.max(1, +s.amount || 0);
+        if (stored >= beforeStored + need) return 'applied';
+        if (stored === beforeStored && txNum(cur.iron) != null && txNum(s.before.iron) != null
+          && !txNe(cur.iron, s.before.iron)) return 'unchanged';
+        return 'unknown';
       }
       if (s.kind === 'spy') {
         const cur = txCaveStatus(meta.townId);
-        if (!cur || !s.before || gbNum(cur.stored) == null || gbNum(s.before.stored) == null) return 'unknown';
+        if (!cur || !s.before || txNum(cur.stored) == null || txNum(s.before.stored) == null) return 'unknown';
 
-        return txLt(cur.stored, s.before.stored) ? 'applied' : 'unchanged';
+        return txNum(cur.stored) === txNum(s.before.stored) ? 'unchanged' : 'unknown';
       }
       if (s.kind === 'militia') {
         const cur = txMilitiaCount(meta.townId);
@@ -3183,9 +3423,8 @@ const STORE = {
         return cur == null ? 'unknown' : 'unchanged';
       }
       if (s.kind === 'movement') {
-        const cur = txMovementCount(meta.townId, s.dest, s.mission);
-        if (cur == null || s.before == null) return 'unknown';
-        return cur > s.before ? 'applied' : 'unchanged';
+
+        return 'unknown';
       }
       if (s.kind === 'cancel') {
         const cur = txCommandStatus(s.commandId);
@@ -3210,25 +3449,30 @@ const STORE = {
         const cur = txCultureStatus(meta.townId, s.type);
         if (!cur || !s.before) return 'unknown';
         if (cur.count > s.before.count) return 'applied';
-        if (cur.gold != null && s.before.gold != null && cur.gold < s.before.gold) return 'applied';
-        if (cur.res && s.before.res && (cur.res.wood < s.before.res.wood || cur.res.stone < s.before.res.stone || cur.res.iron < s.before.res.iron)) return 'applied';
-        return 'unchanged';
+        const goldChanged = txNum(cur.gold) != null && txNum(s.before.gold) != null && txNe(cur.gold, s.before.gold);
+        const resChanged = txResTriadReadable(cur.res) && txResTriadReadable(s.before.res)
+          && (txNe(cur.res.wood, s.before.res.wood) || txNe(cur.res.stone, s.before.res.stone) || txNe(cur.res.iron, s.before.res.iron));
+        return cur.count === s.before.count && !goldChanged && !resChanged ? 'unchanged' : 'unknown';
       }
       if (s.kind === 'merchant') {
         const cur = txMerchantStatus(s.offerId);
         if (!cur || !s.before) return 'unknown';
         if (s.before.exists && !cur.exists) return 'applied';
-        if (txLt(cur.gold, s.before.gold)) return 'applied';
-        return cur.exists === s.before.exists ? 'unchanged' : 'unknown';
+        if (cur.exists === s.before.exists && txNum(cur.gold) != null && txNum(s.before.gold) != null
+          && !txNe(cur.gold, s.before.gold)) return 'unchanged';
+        return 'unknown';
       }
       if (s.kind === 'pttrade') {
         const cur = txPtTradeStatus(meta.townId, s.offerId);
         if (!cur || !s.before) return 'unknown';
         if (s.before.exists && !cur.exists) return 'applied';
-        if (txLt(cur.tradeCap, s.before.tradeCap)) return 'applied';
-        if (cur.res && s.before.res && (txNe(cur.res.wood, s.before.res.wood) || txNe(cur.res.stone, s.before.res.stone) || txNe(cur.res.iron, s.before.res.iron))) return 'applied';
-        if (txLt(cur.amount, s.before.amount)) return 'applied';
-        return cur.exists === s.before.exists ? 'unchanged' : 'unknown';
+        if (cur.exists !== s.before.exists) return 'unknown';
+        if (txNum(cur.amount) == null || txNum(s.before.amount) == null) return 'unknown';
+        if (txNum(cur.tradeCap) == null || txNum(s.before.tradeCap) == null) return 'unknown';
+        if (!txResTriadReadable(cur.res) || !txResTriadReadable(s.before.res)) return 'unknown';
+        const changed = txNe(cur.amount, s.before.amount) || txNe(cur.tradeCap, s.before.tradeCap)
+          || txNe(cur.res.wood, s.before.res.wood) || txNe(cur.res.stone, s.before.res.stone) || txNe(cur.res.iron, s.before.res.iron);
+        return changed ? 'unknown' : 'unchanged';
       }
       if (s.kind === 'bandit-attack' || (s.kind === 'bandit' && /\/attack$/i.test(String(tx.endpoint || '')))) {
         return banditMovementReconcileResult(tx, banditMovementEvidence(gameUw(), meta.townId));
@@ -3272,23 +3516,52 @@ const STORE = {
     };
     step();
   }
-
+  function txReconcileUnknownOnLeader(reason) {
+    if (!gbInstanceAlive() || !gbTabLeader) return 0;
+    const list = Object.values(state.txState || {}).filter(t => t && t.state === 'unknown');
+    let n = 0;
+    list.slice(0, 24).forEach((tx, idx) => {
+      gbTimeout(() => {
+        if (!gbInstanceAlive() || !gbTabLeader || !tx || tx.state !== 'unknown') return;
+        txReconcile(tx, r => {
+          if (!gbInstanceAlive() || !gbTabLeader) return;
+          if (r === 'applied') { tx.state='committed'; tx.detail=`reconciled after leader acquire (${reason||'leader'})`; plannerRelease(tx,'leader-reconciled-applied'); }
+          else if (r === 'unchanged') { tx.state='failed'; tx.detail=`confirmed unchanged after leader acquire (${reason||'leader'}); retry allowed`; plannerRelease(tx,'leader-reconcile-unchanged'); }
+          else { tx.state='unknown'; tx.unknownAt=tx.unknownAt||Date.now(); tx.detail=`still unresolved after leader acquire (${reason||'leader'})`; plannerRelease(tx,'leader-reconcile-unknown'); }
+          tx.updatedAt=Date.now(); txSave();
+        });
+      }, 2500 + idx * 120);
+      n++;
+    });
+    return n;
+  }
   function txActionGate(feature, write, jtag) {
     if (!gbInstanceAlive()) return 'disposed';
     if (!hostEnabled()) return 'disabled';
     const pauseInfo = {};
     if (automationPaused(pauseInfo)) return 'paused:' + pauseInfo.reason;
-    if (write) {
-      if (state.dryRun) return 'dryrun';
-      if (circuitOpen(feature)) return 'circuit-open';
-
-      return null;
-    }
-
     if (captchaPaused(feature) || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return 'captcha-pause';
+    if (write && circuitOpen(feature)) return 'circuit-open';
     if (jtag && jrnSkipped(jtag)) return 'remembered';
+    if (write && state.dryRun) return 'dryrun';
 
-    if (!reqBudgetOk('read')) return 'budget';
+    if (!reqBudgetOk(write ? 'action' : 'read')) return 'budget';
+    return null;
+  }
+  function txFindExistingIntent(intent, feature, snapshot, townId) {
+    const exact = state.txState && state.txState[intent];
+    if (exact) return exact;
+    if (feature !== 'spy' || !snapshot) return null;
+
+    for (const tx of Object.values(state.txState || {})) {
+      if (!tx || tx.feature !== 'spy' || !/^(planned|precheck|sending|confirming|reconciling|unknown|manual-review)$/.test(tx.state || '')) continue;
+      const old = tx.snapshot || {};
+      const oldTown = tx.meta && tx.meta.townId;
+      if (String(oldTown) !== String(townId)) continue;
+      if (String(old.dest) !== String(snapshot.dest)) continue;
+      if ((+old.amount || 0) !== (+snapshot.amount || 0)) continue;
+      return tx;
+    }
     return null;
   }
   function txRun(feature, transport, endpoint, data, rawSend, onDone) {
@@ -3310,10 +3583,6 @@ const STORE = {
     if (!gate && write) gate = safeModeBlock(feature, transport, endpoint, data);
     if (gate) {
       if (gate === 'dryrun') {
-
-        if (write && state.txState[intent] && /^(planned|precheck|sending|confirming|reconciling|unknown|manual-review)$/.test(state.txState[intent].state || '')) {
-          return bail('pending', 'pending:' + state.txState[intent].state);
-        }
         gbLog(`DRY-RUN ${feature}: ${endpoint} ${dryRunFmt(data)}`);
         if (write) {
           state.txState[intent] = { id: `${GB_INSTANCE_ID}:${++txSeq}`, intent, feature, state: 'dryrun', createdAt: Date.now(), updatedAt: Date.now(), owner: GB_INSTANCE_ID, snapshot, meta: { townId: metaTown } };
@@ -3335,11 +3604,6 @@ const STORE = {
         return bail('tpl-stale');
       }
 
-      if (jtag && jrnSkipped(jtag)) {
-        whyNote(feature, endpoint, 'blocked', 'remembered');
-        return bail('remembered', 'remembered');
-      }
-
       const softMs = reqBudgetSoftDelayMs();
       if (softMs > 0) {
         gbLogT('req-soft-' + feature, 30000, `${feature}: soft ceiling - delaying ${softMs}ms`);
@@ -3352,8 +3616,8 @@ const STORE = {
       return rawSend((err, result) => {
         if (!gbInstanceAlive()) return;
         if (!err) { markModuleHealth(feature, 'ok'); circuitSuccess(feature); }
-        else if (err === 'captcha') markModuleHealth(feature, 'captcha');
-        else { markModuleHealth(feature, 'err'); circuitNote(feature, err); }
+        else if (err === 'captcha') markModuleHealth(feature, 'captcha', {error:'captcha',townId:metaTown,action:endpoint});
+        else { markModuleHealth(feature, 'err', {error:err,townId:metaTown,action:endpoint}); circuitNote(feature, err); }
         jrnPush(jtag, jrnResult(err), err);
         if (onDone) onDone(err, result);
       });
@@ -3365,7 +3629,7 @@ const STORE = {
       delete state.txState[intent];
       txSave();
     }
-    const existing = state.txState[intent];
+    const existing = txFindExistingIntent(intent, feature, snapshot, metaTown);
 
     if (existing && /^(planned|precheck|sending|confirming|reconciling|unknown|manual-review|dryrun)$/.test(existing.state || '')) {
       journalTxId = existing.id;
@@ -3378,31 +3642,19 @@ const STORE = {
       return txReconcile(existing, (r) => {
         if (!gbInstanceAlive()) return;
         if (r === 'applied') {
-          existing.state = 'committed'; existing.updatedAt = Date.now(); existing.detail = 'reconciled before retry'; plannerCommit(existing); txSave();
+          existing.state = 'committed'; existing.updatedAt = Date.now(); existing.detail = 'reconciled before retry'; plannerRelease(existing,'pre-retry-reconciled-applied'); txSave();
           jrnPush(jtag, 'ok', 'reconciled', existing.id);
           markModuleHealth(feature, 'ok');
           if (onDone) onDone(null, { reconciled: true, duplicate: true });
           return;
         }
-        if (r === 'unchanged' && feature === 'farm') {
-
-          delete state.txState[intent]; txSave();
-          jrnPush(jtag, 'unknown', 'reconcile-not-applied-retry', existing.id);
-          return txRun(feature, transport, endpoint, data, rawSend, onDone);
-        }
         if (r === 'unchanged') {
+          existing.state = 'failed'; existing.updatedAt = Date.now(); existing.detail = 'reconciled not applied; retry allowed'; plannerRelease(existing, 'reconciled-unchanged'); txSave();
 
-          existing.state = 'unknown'; existing.unknownAt = Date.now(); existing.updatedAt = Date.now(); existing.detail = 'reconciled not applied; next cadence re-evaluates'; txSave();
-          jrnPush(jtag, 'unknown', 'reconciled-unchanged', existing.id);
-          markModuleHealth(feature, 'err');
-          if (onDone) onDone('unknown', null);
-          return;
+          return gbTimeout(() => txRun(feature, transport, endpoint, data, rawSend, onDone), 250);
         }
-
-        existing.state = 'unknown'; existing.unknownAt = existing.unknownAt || Date.now(); existing.updatedAt = Date.now(); existing.detail = 'reconcile inconclusive; next cadence re-evaluates'; txSave();
-        jrnPush(jtag, 'unknown', 'reconcile-inconclusive', existing.id);
-        markModuleHealth(feature, 'err');
-        if (onDone) onDone('unknown', null);
+        existing.state = 'unknown'; existing.unknownAt = existing.unknownAt || Date.now(); existing.updatedAt = Date.now(); plannerRelease(existing, 'unknown-unresolved'); txSave();
+        return bail('timeout_unknown', 'unknown outcome still unresolved');
       });
     }
 
@@ -3430,12 +3682,6 @@ const STORE = {
     }
 
     if (!reqBudgetOk('action')) { tx.state = 'aborted'; tx.detail = 'budget'; tx.updatedAt = Date.now(); plannerRelease(tx, 'budget'); txSave(); return bail('budget'); }
-
-    if (captchaPaused(feature) || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) {
-      tx.state = 'aborted'; tx.detail = 'captcha-pause'; tx.updatedAt = Date.now(); plannerRelease(tx, 'captcha-pause'); txSave();
-      whyNote(feature, endpoint, 'blocked', 'captcha-pause');
-      return bail('captcha', 'captcha-pause');
-    }
     reqBudgetMark('action');
     tx.state = 'sending'; tx.sentAt = Date.now(); tx.updatedAt = Date.now(); txSave();
     rawSend((err, result) => {
@@ -3443,48 +3689,72 @@ const STORE = {
 
       if (state.txState[intent] !== tx || !/^(sending|confirming)$/.test(tx.state)) return;
       if (err === 'timeout') {
-        tx.state = 'unknown'; tx.unknownAt = Date.now(); tx.updatedAt = Date.now(); tx.detail = 'transport timeout'; txSave();
-        markModuleHealth(feature, 'timeout', {latencyMs:Date.now()-tx.sentAt,error:'timeout'});
+        tx.state = 'reconciling'; tx.unknownAt = Date.now(); tx.updatedAt = Date.now(); tx.detail = 'transport timeout; reconciling'; txSave();
+        markModuleHealth(feature, 'timeout', {latencyMs:Date.now()-tx.sentAt,error:'timeout',townId:metaTown,action:endpoint,intent});
         return txReconcile(tx, (r) => {
           if (!gbInstanceAlive() || state.txState[intent] !== tx) return;
           if (r === 'applied') {
-            tx.state = 'committed'; tx.updatedAt = Date.now(); tx.detail = 'confirmed by reconciliation after timeout'; plannerCommit(tx); txSave();
+            tx.state = 'committed'; tx.updatedAt = Date.now(); tx.detail = 'confirmed by reconciliation after timeout'; plannerRelease(tx, 'timeout-reconciled-applied'); txSave();
             jrnPush(jtag, 'ok', 'timeout reconciled', tx.id);
             markModuleHealth(feature, 'ok', {latencyMs:Date.now()-tx.sentAt}); circuitSuccess(feature);
             if (onDone) onDone(null, Object.assign({ reconciled: true }, result || {}));
+          } else if (r === 'unchanged') {
+            tx.state = 'failed'; tx.updatedAt = Date.now(); tx.detail = 'timeout; state remained unchanged after reconciliation; retry allowed'; plannerRelease(tx, 'timeout-unchanged'); txSave();
+            jrnPush(jtag, 'timeout', tx.detail, tx.id);
+            if (onDone) onDone('timeout', result);
           } else {
-            tx.state = 'unknown'; tx.unknownAt = tx.unknownAt || Date.now(); tx.updatedAt = Date.now(); tx.detail = r === 'unchanged' ? 'timeout; state unchanged (retry blocked until next reconciliation)' : 'timeout; unable to reconcile'; txSave();
+            tx.state = 'unknown'; tx.unknownAt = tx.unknownAt || Date.now(); tx.updatedAt = Date.now(); tx.detail = 'timeout; unable to reconcile'; plannerRelease(tx, 'timeout-unknown'); txSave();
             jrnPush(jtag, 'timeout', tx.detail, tx.id);
             if (onDone) onDone('timeout_unknown', result);
           }
         });
       }
       if (err) {
-        tx.state = 'failed'; tx.updatedAt = Date.now(); tx.detail = String(err).slice(0, 160); plannerRelease(tx, 'server-error'); txSave();
-        if (err === 'captcha' || err === 'captcha-pause') markModuleHealth(feature, 'captcha', {latencyMs:Date.now()-tx.sentAt,error:err});
-        else markModuleHealth(feature, 'err', {latencyMs:Date.now()-tx.sentAt,error:err});
-        circuitNote(feature, err);
-        jrnPush(jtag, jrnResult(err), err, tx.id);
-        try { tplHealthNote(feature, jrnResult(err), transport === 'bridge' ? data : null); } catch (_) {}
+        const expectedReject = gbExpectedServerReject(feature, err);
+        tx.state = 'failed'; tx.updatedAt = Date.now(); tx.detail = String(err).slice(0, 160); plannerRelease(tx, expectedReject || 'server-error'); txSave();
+        if (err === 'captcha' || err === 'captcha-pause') {
+          markModuleHealth(feature, 'captcha', {latencyMs:Date.now()-tx.sentAt,error:err,townId:metaTown,action:endpoint,intent});
+        } else if (expectedReject) {
+          markModuleHealth(feature, 'skip', {latencyMs:Date.now()-tx.sentAt,error:err,townId:metaTown,action:endpoint,intent});
+          whyNote(feature, endpoint, 'blocked', expectedReject);
+        } else {
+          markModuleHealth(feature, 'err', {latencyMs:Date.now()-tx.sentAt,error:err,townId:metaTown,action:endpoint,intent});
+        }
+        if (!expectedReject) circuitNote(feature, err);
+        const jr = expectedReject ? ('skip:' + expectedReject) : jrnResult(err);
+        jrnPush(jtag, jr, err, tx.id);
+        try { tplHealthNote(feature, jr, transport === 'bridge' ? data : null); } catch (_) {}
         if (onDone) onDone(err, result);
         return;
       }
       tx.state = 'confirming'; tx.updatedAt = Date.now(); txSave();
 
       const r = txReconcileNow(tx);
-      if (r === 'applied') {
-        tx.state = 'committed'; tx.updatedAt = Date.now(); tx.detail = 'server+model confirmed'; plannerCommit(tx); txSave();
+      if (r === 'applied' || r === 'unknown' || r === 'unchanged') {
+        tx.state = 'committed'; tx.updatedAt = Date.now(); tx.detail = r === 'applied' ? 'server+model confirmed' : 'server callback confirmed'; plannerCommit(tx); txSave();
         markModuleHealth(feature, 'ok', {latencyMs:Date.now()-tx.sentAt}); circuitSuccess(feature);
         jrnPush(jtag, 'ok', tx.detail, tx.id);
         try { tplHealthNote(feature, 'ok', transport === 'bridge' ? data : null); } catch (_) {}
         if (onDone) onDone(null, result);
-      } else {
+      }
+    });
+  }
 
-        tx.state = 'unknown'; tx.unknownAt = tx.unknownAt || Date.now(); tx.updatedAt = Date.now();
-        tx.detail = r === 'unchanged' ? 'server callback; state unchanged (retry blocked until next reconciliation)' : 'server callback; unable to reconcile';
-        txSave();
-        jrnPush(jtag, 'timeout', tx.detail, tx.id);
-        if (onDone) onDone('timeout_unknown', result);
+  function txRunAsync(feature, transport, endpoint, data, rawSend, opts) {
+    const sig = opts && opts.signal;
+    return new Promise((resolve, reject) => {
+      if (sig && sig.aborted) return reject(new DOMException('aborted', 'AbortError'));
+      const onAbort = () => reject(new DOMException('aborted', 'AbortError'));
+      if (sig) sig.addEventListener('abort', onAbort, { once: true });
+      try {
+        txRun(feature, transport, endpoint, data, rawSend, (err, result) => {
+          if (sig) sig.removeEventListener('abort', onAbort);
+          if (err) reject(err instanceof Error ? err : new Error(String(err)));
+          else resolve(result);
+        });
+      } catch (e) {
+        if (sig) sig.removeEventListener('abort', onAbort);
+        reject(e);
       }
     });
   }
@@ -3514,8 +3784,8 @@ const STORE = {
       town_id: (p && p.town_id) != null ? p.town_id : null,
     });
   }
-  function gbAjaxWatch(sig, fp, settle, feature) {
-    const entry = { sig, fp: fp || '', at: Date.now(), settle, feature: (typeof feature === 'string' && feature) ? feature : null };
+  function gbAjaxWatch(sig, fp, settle) {
+    const entry = { sig, fp: fp || '', at: Date.now(), settle };
     gbAjaxPending.push(entry);
 
     const now = Date.now();
@@ -3528,18 +3798,6 @@ const STORE = {
         `ajax watch: pending list full (${GB_AJAX_PENDING_MAX}) - dropped watcher ${lost && lost.sig}; that post can only settle on timeout`);
     }
     return entry;
-  }
-
-  function gbAjaxCancelFeature(feature) {
-    if (!feature) return 0;
-    let n = 0;
-    const tag = String(feature);
-    for (const e of gbAjaxPending.slice()) {
-      if (e && e.feature === tag && typeof e.cancel === 'function') {
-        try { e.cancel(); n++; } catch (_) {}
-      }
-    }
-    return n;
   }
 
   function gbAjaxDrop(entry) {
@@ -3594,30 +3852,12 @@ const STORE = {
         if (e.fp === fp && sigs.indexOf(e.sig) >= 0) return gbAjaxPending.splice(i, 1)[0].settle;
       }
     }
+    const candidates = [];
     for (let i = 0; i < gbAjaxPending.length; i++) {
-      if (sigs.indexOf(gbAjaxPending[i].sig) >= 0) return gbAjaxPending.splice(i, 1)[0].settle;
+      if (sigs.indexOf(gbAjaxPending[i].sig) >= 0) candidates.push(i);
     }
+    if (candidates.length === 1) return gbAjaxPending.splice(candidates[0], 1)[0].settle;
     return null;
-  }
-
-  function learnTemplate(stateKey, storeKey, j, opts) {
-    if (!j || typeof j !== 'object' || !j.model_url || !j.action_name) return false;
-    const stripArgs = (opts && opts.stripArgs) || [];
-    const args = Object.assign({}, j.arguments || {});
-    for (const k of stripArgs) delete args[k];
-    const tpl = {
-      model_url: j.model_url,
-      action_name: j.action_name,
-      arguments: args,
-      version: 1,
-      learned_at: Date.now(),
-    };
-    if (j.town_id != null) tpl.town_id = j.town_id;
-    state[stateKey] = tpl;
-    save(wkey(storeKey), tpl);
-    gbLog('learned ' + ((opts && opts.label) || stateKey) + ' template: ' + j.action_name);
-    try { tplHealthMarkLearned(stateKey); } catch (_) {}
-    return true;
   }
   const GB_CAPTCHA_FLAGS = ['captcha', 'captcha_required'];
 
@@ -3699,12 +3939,14 @@ const STORE = {
     };
     const timer = gbTimeout(() => {
       gbLogT('bridge-timeout-' + feature, 30000, feature + ': bridge timeout ' + BRIDGE_TIMEOUT_MS + 'ms');
+      noteTransportTimeout(feature);
       finish('timeout');
     }, BRIDGE_TIMEOUT_MS);
     selfBridgeNote(payload);
     const classify = (data) => {
-      if (!gbInstanceAlive()) return;
+      if (settled || !gbInstanceAlive()) return;
       try {
+        noteTransportSuccess();
         if (responseIsCaptcha(data)) {
           captchaTrip(feature, JSON.stringify(data).slice(0, 120));
           return finish('captcha');
@@ -3721,11 +3963,6 @@ const STORE = {
       } catch (e) { finish(String(e)); }
     };
 
-    const cancel = () => {
-      if (settled) return;
-      gbLogT('ajax-cancel-' + feature, 30000, feature + ': bridge post cancelled (feature toggle / abort)');
-      finish('cancelled');
-    };
     watchEntry = gbAjaxWatch(
       'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
       gbAjaxBridgeFp(payload),
@@ -3736,11 +3973,10 @@ const STORE = {
           noteServerPressure('http ' + status);
           return finish('http_' + status);
         }
+        noteTransportSuccess();
         classify(gbAjaxUnwrap(raw));
-      },
-      feature
+      }
     );
-    watchEntry.cancel = cancel;
     try {
 
       uw.gpAjax.ajaxPost('frontend_bridge', 'execute', payload, false, (data) => classify(data));
@@ -3761,13 +3997,13 @@ const STORE = {
 
     const timer = gbTimeout(() => {
       gbLogT('ajax-timeout-' + feature, 30000, `${feature}: ajax timeout ${BRIDGE_TIMEOUT_MS}ms (${controller}/${action})`);
+      noteTransportTimeout(feature);
       finish('timeout');
     }, BRIDGE_TIMEOUT_MS);
-
-    try { selfBridgeNote({ model_url: controller, action_name: action, arguments: data }); } catch (_) {}
     const classify = (res) => {
-      if (!gbInstanceAlive()) return;
+      if (settled || !gbInstanceAlive()) return;
       try {
+        noteTransportSuccess();
         if (responseIsCaptcha(res)) { captchaTrip(feature, JSON.stringify(res).slice(0, 120)); return finish('captcha'); }
         const e=responseServerError(res);
         if (e) {
@@ -3778,11 +4014,6 @@ const STORE = {
         captchaClear(feature);
         finish(null, res);
       } catch (e) { finish(String(e)); }
-    };
-    const cancel = () => {
-      if (settled) return;
-      gbLogT('ajax-cancel-' + feature, 30000, feature + ': gameAjax post cancelled (feature toggle / abort)');
-      finish('cancelled');
     };
     watchEntry = gbAjaxWatch('ajax:' + controller + '/' + action, gbAjaxFp(data), (status, raw) => {
       if (settled) return;
@@ -3800,14 +4031,15 @@ const STORE = {
         noteServerPressure('http ' + status);
         return finish('http_' + status);
       }
+      noteTransportSuccess();
 
-      try {
-        const txt = raw && (raw.responseText != null ? raw.responseText : (raw.json != null ? (typeof raw.json === 'string' ? raw.json : '') : ''));
-        if (!txt || !String(txt).trim()) return finish('soft-empty');
-      } catch (_) {}
+      if (raw == null) {
+        gbLogT('ajax-empty-watch-' + feature, 60000,
+          `${feature}: HTTP ${status} watcher without parseable body; waiting for gpAjax callback`);
+        return;
+      }
       classify(gbAjaxUnwrap(raw));
-    }, feature);
-    watchEntry.cancel = cancel;
+    });
     try {
 
       uw.gpAjax.ajaxPost(controller, action, data, false, (res) => classify(res));
@@ -3872,9 +4104,8 @@ const STORE = {
       try {
         const r = t.resources && t.resources();
         if (r && r.wood != null) {
-
-          wood = gbNum(r.wood); stone = gbNum(r.stone); iron = gbNum(r.iron);
-          if (r.storage != null) resStorage = gbNum(r.storage);
+          wood = +r.wood; stone = +r.stone; iron = +r.iron;
+          if (r.storage != null) resStorage = +r.storage;
         }
       } catch (_) {}
       if (wood != null) {
@@ -3985,7 +4216,7 @@ const STORE = {
     }
     let used = null;
     if (free != null && cap > 0) used = Math.max(0, cap - free);
-    else if (scraped) { const p = gbNum(scraped.pop); if (p != null) used = p; }
+    else if (scraped && Number.isFinite(+scraped.pop)) used = +scraped.pop;
     const usedPct = (used != null && cap > 0) ? Math.round(used / cap * 100) : null;
     const out = (free == null && used == null && !(cap > 0)) ? null : {
       free, used, cap: cap > 0 ? cap : null, usedPct,
@@ -3998,7 +4229,6 @@ const STORE = {
     _townPopCache[key] = { at: now, v: out };
     return out;
   }
-
   function gbProbeNum(obj, names, args) {
     if (!obj) return null;
     for (const n of names) {
@@ -4079,29 +4309,148 @@ const STORE = {
     if (!t) return null;
     try {
       if (t.getBuildings) {
-        const v = gbNum(t.getBuildings().get(building));
-        if (v != null) return v;
+        const v = +t.getBuildings().get(building);
+        if (isFinite(v)) return v;
       }
     } catch (_) {}
     try {
       const a = (t.buildings && t.buildings().attributes) || {};
 
-      const v = gbNum(a[building]);
-      if (v != null) return v;
+      if (a[building] != null) {
+        const v = +a[building];
+        if (Number.isFinite(v)) return v;
+      }
     } catch (_) {}
     return null;
   }
   function hostEnabled() {
-
     return state.enabledHosts[location.host] === true && gbTabLeader;
   }
-  function ensureHostDefault() {
-    const h = location.host;
-    if (state.enabledHosts[h] === undefined) {
-      state.enabledHosts[h] = false;
-      save(STORE.ENABLED_HOSTS, state.enabledHosts);
-      gbLog('host ' + h + ' disabled by default \u2014 enable in Config');
+  function gbSpanishWorldNumber(host) {
+    const m=/^es(\d+)\.grepolis\.com$/i.exec(String(host||''));
+    return m ? (+m[1]||0) : 0;
+  }
+  function gbFindEnabledSpanishSibling(host) {
+    const h=String(host||'');
+    const n=gbSpanishWorldNumber(h);
+    if(!n)return null;
+
+    for(let d=1;d<=8;d++){
+      const k=n-d;if(k<=0)break;
+      const sibling='es'+k+'.grepolis.com';
+      const sk=STORE.ENABLED_HOSTS+'@host:'+sibling;
+      const v=load(sk,null);
+      if(v===true)return sibling;
+      if(gbStorageReadFailed(sk))break;
     }
+
+    for(const [candidate,on] of Object.entries(state.enabledHosts||{})){
+      if(candidate!==h && on===true && gbSpanishWorldNumber(candidate))return candidate;
+    }
+    return null;
+  }
+  function ensureHostDefault() {
+    const h=location.host;
+    const directKey=STORE.ENABLED_HOSTS+'@host:'+h;
+    const direct=load(directKey,null);
+    if(typeof direct==='boolean'){state.enabledHosts[h]=direct;return direct}
+
+    const spanishSibling=gbFindEnabledSpanishSibling(h);
+    if(spanishSibling){
+      state.enabledHosts[h]=true;
+      save(directKey,true);
+      gbLog('new Spanish world '+h+' enabled from '+spanishSibling+'; world-specific state starts clean');
+      return true;
+    }
+
+    if(gbStorageReadFailed(STORE.ENABLED_HOSTS)){
+      gbLogT('enabled-hosts-read',60000,'host enable state unreadable; leaving automation disabled without overwriting storage');
+      state.enabledHosts[h]=false;return false;
+    }
+    if(typeof state.enabledHosts[h]==='boolean'){
+      save(directKey,!!state.enabledHosts[h]);return !!state.enabledHosts[h];
+    }
+    state.enabledHosts[h]=false;
+    save(directKey,false);
+    gbLog('host '+h+' disabled by default \u2014 enable in Config');
+    return false;
+  }
+  function setHostEnabled(host,on) {
+    const h=String(host||location.host),v=!!on;
+    state.enabledHosts[h]=v;
+    return save(STORE.ENABLED_HOSTS+'@host:'+h,v);
+  }
+  function gbReloadSharedRuntimeState(reason) {
+    if(!gbTabLeader)return false;
+    const loadObj=(store,fallback)=>{
+      const v=load(store,fallback);
+      if(gbStorageReadFailed(store)||!v||typeof v!=='object'||Array.isArray(v))return null;
+      return v;
+    };
+    const tx=loadObj(STORE.TX_STATE,{});
+    if(tx){state.txState=tx;txLoadNormalize('leader:'+String(reason||'acquired'))}
+    const nq=loadObj(STORE.NATIVE_QUEUE,{version:1,seq:0,towns:{}});
+    if(nq){
+      state.nativeQueue=nq;nativeQueueInflightRestored=false;
+      try{nativeRecruitSplitDone.clear()}catch(_){}
+      try{nativeQueueRoot()}catch(e){gbLogT('leader-reload-nq',60000,'leader reload native queue: '+String(e))}
+    }
+    const circuits=loadObj(STORE.CIRCUITS,{});
+    if(circuits)state.circuits=circuits;
+    const decisions=load(STORE.DECISIONS,[]);
+    if(!gbStorageReadFailed(STORE.DECISIONS)&&Array.isArray(decisions))state.decisions=decisions;
+    const skips=loadObj(STORE.DECISION_SKIPS,{});
+    if(skips)state.decisionSkips=skips;
+
+    const reloadFields = [
+      ['configVer',STORE.CONFIG_VER],['dryRun',STORE.DRY_RUN],['safeMode',STORE.SAFE_MODE],
+      ['autoCollect',STORE.AUTO_COLLECT],['collectAll',STORE.COLLECT_ALL],['autoBandit',STORE.AUTO_BANDIT],['banditCfg',STORE.BANDIT_CFG],
+      ['autoFarm',STORE.AUTO_FARM],['farmScrape',STORE.FARM_SCRAPE],['farmOptionMap',STORE.FARM_OPTION_MAP],['farmLongClaims',STORE.FARM_LONG_CLAIMS],
+      ['ibAuto',STORE.IB_AUTO],['ibResearch',STORE.IB_RESEARCH],['questAutoBuild',STORE.QUEST_AUTO_BUILD],['questAutoRes',STORE.QUEST_AUTO_RES],
+      ['abAuto',STORE.AB_AUTO],['abTargets',STORE.AB_TARGETS],['abOrder',STORE.AB_ORDER],['autoWallRepair',STORE.AUTO_WALL_REPAIR],['popRescueFarm',STORE.POP_RESCUE_FARM],['buildSwapThresholdMin',STORE.BUILD_SWAP_MIN],['buildSwapIgnore',STORE.BUILD_SWAP_IGNORE],
+      ['autoResearch',STORE.AUTO_RESEARCH],['researchTargets',STORE.RESEARCH_TARGETS],
+      ['autoRecruit',STORE.AUTO_RECRUIT],['recruitTargets',STORE.RECRUIT_TARGETS],['recruitSpells',STORE.RECRUIT_SPELLS],['batchRecruit',STORE.BATCH_RECRUIT],['batchRecruitLists',STORE.BATCH_RECRUIT_LISTS],['recruitPacks',STORE.RECRUIT_PACKS],['autoVillageRecruit',STORE.AUTO_VILLAGE_RECRUIT],['villageRecruitFillPct',STORE.VILLAGE_RECRUIT_FILL],['villageRecruitAmount',STORE.VILLAGE_RECRUIT_AMOUNT],
+      ['autoCave',STORE.AUTO_CAVE],['caveThreshPct',STORE.CAVE_THRESH],['caveTowns',STORE.CAVE_TOWNS],['emergencyCaveAuto',STORE.EMERGENCY_CAVE_AUTO],['emergencyCaveConfirm',STORE.EMERGENCY_CAVE_CONFIRM],['emergencyCaveMinIron',STORE.EMERGENCY_CAVE_MIN],
+      ['autoCulture',STORE.AUTO_CULTURE],['cultureTypes',STORE.CULTURE_TYPES],['allowPremiumCulture',STORE.ALLOW_PREMIUM_CULTURE],['cultureGoldBudget',STORE.CULTURE_GOLD_BUDGET],
+      ['autoTrade',STORE.AUTO_TRADE],['tradePreset',STORE.TRADE_PRESET],['tradeReservePct',STORE.TRADE_RESERVE],['tradeMinBatch',STORE.TRADE_MIN],['tradeTowns',STORE.TRADE_TOWNS],['tradeRoutes',STORE.TRADE_ROUTES],['autoTradeRoutes',STORE.AUTO_TRADE_ROUTES],['autoTransport',STORE.AUTO_TRANSPORT],['transportReserve',STORE.TRANSPORT_RESERVE],['transportMin',STORE.TRANSPORT_MIN],['autoDump',STORE.AUTO_DUMP],['dumpThreshold',STORE.DUMP_THRESHOLD],['dumpKeep',STORE.DUMP_KEEP],['dumpSinks',STORE.DUMP_SINKS],['islandShip',STORE.ISLAND_SHIP],
+      ['autoRuralTrade',STORE.AUTO_RURAL_TRADE],['autoRuralLevel',STORE.AUTO_RURAL_LEVEL],['ruralLevelMax',STORE.RURAL_LEVEL_MAX],
+      ['autoMerchant',STORE.AUTO_MERCHANT],['merchantWish',STORE.MERCHANT_WISH],['autoPtTrade',STORE.AUTO_PT_TRADE],['ptCfg',STORE.PT_CFG],
+      ['autoFavor',STORE.AUTO_FAVOR],['favorCfg',STORE.FAVOR_CFG],['autoWonder',STORE.AUTO_WONDER],['wonderCfg',STORE.WONDER_CFG],['autoWonderFavor',STORE.AUTO_WONDER_FAVOR],
+      ['autoDodge',STORE.AUTO_DODGE],['dodgeMode',STORE.DODGE_MODE],['dodgeFloor',STORE.DODGE_FLOOR],['defenseCfg',STORE.DEFENSE_CFG],['supportCfg',STORE.SUPPORT_CFG],['autoMilitia',STORE.AUTO_MILITIA],
+      ['spyEnabled',STORE.AUTO_SPY],['spyCfg',STORE.SPY_CFG],
+      ['plannerCfg',STORE.PLANNER_CFG],['goalProfiles',STORE.GOAL_PROFILES],['townGoals',STORE.TOWN_GOALS],['virtualQueue',STORE.VIRTUAL_QUEUE],['virtualQueueOverrides',STORE.VIRTUAL_QUEUE_OVERRIDES]
+    ];
+    for(const [field,store] of reloadFields){
+      const v=load(store,state[field]);
+      if(!gbStorageReadFailed(store))state[field]=v;
+    }
+
+    const dodgeReturns=loadObj(STORE.DODGE_RETURNS,{});
+    if(dodgeReturns)state.dodgeReturns=dodgeReturns;
+    try {
+      const dq=dodgeQueueLoad();
+      for(const k of Object.keys(dodgeQueue))delete dodgeQueue[k];
+      Object.assign(dodgeQueue,dq||{});
+    } catch(e) { gbLogT('leader-reload-dodge',60000,'leader reload dodge queue: '+String(e)); }
+    try {
+      const qf=questClaimFailLoad();
+      for(const k of Object.keys(questClaimFail))delete questClaimFail[k];
+      Object.assign(questClaimFail,qf||{});
+    } catch(e) { gbLogT('leader-reload-quest',60000,'leader reload quest fail state: '+String(e)); }
+    gbLogT('leader-state-reload',30000,`leader: shared runtime state reloaded (${reason||'acquired'})`);
+    return true;
+  }
+  function gbHandleLeadershipAcquired(reason) {
+    if(!gbInstanceAlive()||!gbTabLeader)return false;
+    try{gbReloadSharedRuntimeState(reason)}catch(e){gbLogT('leader-reload',60000,'leader state reload: '+String(e))}
+    try{migrateConfig()}catch(e){gbLogT('leader-migrate',60000,'leader migration: '+String(e))}
+    try{orchStartIndependentTimers()}catch(e){gbLogT('leader-orch-ensure',60000,'leader scheduler ensure: '+String(e))}
+    try{orchTick()}catch(e){gbLogT('leader-orch-poke',60000,'leader scheduler poke: '+String(e))}
+    try{farmTick()}catch(e){gbLogT('leader-farm-poke',60000,'leader farm poke: '+String(e))}
+    try{nativeQueueSweep('leader')}catch(e){gbLogT('leader-nq-poke',60000,'leader native queue poke: '+String(e))}
+    try{txReconcileUnknownOnLeader(reason)}catch(e){gbLogT('leader-tx-reconcile',60000,'leader tx reconcile: '+String(e))}
+    try{updateStatus()}catch(_){}
+    return true;
   }
   const CSRF_TOK16 = /^[a-f0-9]{16,64}$/i;
   const CSRF_TOK32 = /^[a-f0-9]{32,64}$/i;
@@ -4186,6 +4535,32 @@ const STORE = {
     const s = String(r || '');
     return /^planner-/i.test(s) || /^safe-mode-/i.test(s);
   }
+
+  function gbExpectedServerReject(feature, err) {
+    if (!err) return null;
+    let s = String(err).toLowerCase();
+    try { s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (_) {}
+    const f = String(feature || '').toLowerCase();
+    if (f === 'recruit') {
+      if (/no hay suficientes recursos|no hay suficiente(?:s)? recursos|not enough resources|insufficient resources/.test(s)) return 'waiting-resources';
+      if (/no hay suficiente favor|not enough favor|insufficient favor/.test(s)) return 'waiting-favor';
+      if (/no hay suficiente poblacion|poblacion libre|not enough population|insufficient population|free population/.test(s)) return 'waiting-population';
+      if (/no puedes (?:reclutar|construir) mas de\s+\d+|cannot (?:recruit|build) more than\s+\d+|can(?:not|'t) (?:recruit|build) more than\s+\d+/.test(s)) return 'waiting-runtime-max';
+      if (/^(?:la cola de construccion esta llena|the (?:building|construction) queue is full)[.!]?\s*$/.test(s)) return 'waiting-queue-full';
+    }
+    if (f === 'farm') {
+      if (/cantidad diaria maxima de recursos|daily maximum (?:amount )?of resources|maximum daily (?:amount )?of resources|daily resource (?:limit|cap)/.test(s)) return 'farm-daily-cap';
+      if (/^(?:tu peticion no esta lista aun|(?:your )?(?:request|claim) is not ready yet)[.!]?\s*$/.test(s)) return 'waiting-not-ready';
+    }
+    if (f === 'culture') {
+      if (/^(?:no se ha podido organizar ningun festival|no festival could be organized)[.!]?\s*$/.test(s)) return 'waiting-culture-capacity';
+    }
+    if (f === 'bandit') {
+
+      if (/^(?:tu inventario esta lleno|your inventory is full)\b/.test(s)) return 'waiting-inventory-full';
+    }
+    return null;
+  }
   function jrnResult(err) {
     if (!err) return 'ok';
     const s = String(err);
@@ -4213,7 +4588,7 @@ const STORE = {
     if (location.hostname === jrnHost) return;
 
     jrnSaveQueued = false;
-    try { jrnSaveForHost(jrnHost); } catch (e) { gbLog('journal save-for-host failed (previous world decisions may be lost): ' + String(e).slice(0, 120)); }
+    try { jrnSaveForHost(jrnHost); } catch (_) {}
     jrnHost = location.hostname;
     const next = load(wkey(STORE.DECISIONS), []);
     state.decisions = Array.isArray(next) ? next : [];
@@ -4305,11 +4680,9 @@ const STORE = {
         return rec;
       }
     }
-    for (let i = list.length - 1; i >= 0; i--) {
+    for (let i = list.length - 1, seen = 0; i >= 0 && seen < 40; i--, seen++) {
       const r = list[i];
       if (r.f !== tag.f || r.a !== tag.a || r.k !== tag.k) continue;
-
-      if (r.x != null && id != null && r.x !== id) break;
       if (r.r === result && now - r.ts < JRN_DEDUP_MS) {
         r.n = (r.n || 1) + 1;
         r.ts = now;
@@ -4353,15 +4726,13 @@ const STORE = {
     const prev = state.decisionSkips[key] || { trips: 0 };
     if (prev.until && Date.now() < prev.until) return;
     const trips = Math.min((prev.trips || 0) + 1, JRN_BACKOFF.length);
-    const mins = backoffFor(trips, JRN_BACKOFF);
+    const mins = JRN_BACKOFF[trips - 1];
     state.decisionSkips[key] = { trips, until: Date.now() + mins * 60000, r: result };
     gbLog(`memory: ${tag.f} ${tag.a} ${tag.k} failed ${JRN_FAIL_TRIP}x (${result}) - skipping ${mins}m`);
     jrnSave(true);
   }
   function jrnSkipped(tag) {
     jrnCheckHost();
-
-    if (gbNeverStop()) return false;
     if (state.decisionMemory === false) return false;
     const key = jrnId(tag);
     const s = state.decisionSkips[key];
@@ -4488,7 +4859,6 @@ const STORE = {
   const seenThisRun = new Set();
 
   function seenKey(id) { return String(id); }
-
   const SPY_LOAD_GATE_RE = /report|tombstone|attack_planner|quest|progressable|frontend_bridge/i;
   function hookFetch() {
     const uw = gameUw();
@@ -4506,7 +4876,7 @@ const STORE = {
             || (reportCtrl && u.match(/[?&]action=(view|index|delete)(?:&|$)/));
           const idMatch = u.match(/[?&](?:id|report_id)=(\d+)/);
           if ((m || reportCtrl) && idMatch) queueReport(idMatch[1], u);
-          else if (m || reportCtrl) queueReportList();
+          else if (m || reportCtrl) queueReportList(u);
           learnCollectAction(u);
           learnFarmAction(u);
           try { ptLearnFromXhr(u, args[1] && args[1].body); } catch (_) {}
@@ -4544,7 +4914,7 @@ const STORE = {
           const idMatch = u.match(/[?&](?:id|report_id)=(\d+)/);
           const actionReport = /[?&]action=(report|reports|combat_reports|tombstone|attack_planner)(?:&|$)/.test(u);
           if ((actionReport || reportCtrl) && idMatch) queueReport(idMatch[1], u);
-          else if (actionReport || /[?&]action=(reports|combat_reports|tombstone)(?:&|$)/.test(u) || reportCtrl) queueReportList();
+          else if (actionReport || /[?&]action=(reports|combat_reports|tombstone)(?:&|$)/.test(u) || reportCtrl) queueReportList(u);
           learnCollectAction(u);
           learnFarmAction(u);
           try { ptLearnFromXhr(u, body); } catch (_) {}
@@ -4559,7 +4929,7 @@ const STORE = {
             let raw = null;
             try { raw = tryParseJson(this.responseText || ''); } catch (_) {}
             try { settle(this.status, raw); } catch (_) {}
-          }, { once: true });
+          });
         }
       } catch (_) {}
       try {
@@ -4708,8 +5078,8 @@ const STORE = {
     seenThisRun.add(k);
     gbTimeout(() => fetchReport(id, hintUrl), 200 + Math.random() * 800);
   }
-
   function queueReportList() {
+
     gbTimeout(scrapeInboxDom, 1500);
   }
   function ingestReport(id, data) {
@@ -4786,7 +5156,6 @@ const STORE = {
       if (hp.has('town_id')) bodyObj.town_id = +hp.get('town_id');
     } catch (_) {}
     gbXhr({
-      feature: 'spy-report',
       method: 'POST',
       url: u,
       data: 'json=' + encodeURIComponent(JSON.stringify(bodyObj)),
@@ -4969,7 +5338,7 @@ const STORE = {
     if (!lockToken) return;
     let i = 0;
     (function next() {
-      if (!gbLockTouch('spy', lockToken)) return;
+      gbLockTouch('spy', lockToken);
       if (i >= picks.length) { gbUnlock('spy', lockToken); return; }
       const t = picks[i++];
       const payload = {
@@ -5003,7 +5372,12 @@ const STORE = {
   function spyLearnTemplate(j) {
     if (!j || !j.model_url || !j.action_name) return;
     if (typeof isSelfBridge === 'function' && isSelfBridge(j)) return;
-    learnTemplate('spyTpl', STORE.SPY_TPL, j, { stripArgs: ['id'], label: 'spy' });
+    const args = Object.assign({}, j.arguments || {});
+    delete args.id;
+    state.spyTpl = { model_url: j.model_url, action_name: j.action_name, arguments: args, town_id: j.town_id, version: 1, learned_at: Date.now() };
+    save(wkey(STORE.SPY_TPL), state.spyTpl);
+    gbLog('learned spy template: ' + j.action_name);
+    try { tplHealthMarkLearned('spyTpl'); } catch (_) {}
   }
 
   function nameOf(p) {
@@ -5235,8 +5609,7 @@ const STORE = {
     return {
       wood, stone, iron,
       pop: pop.current ?? pop.pop ?? popNum ?? null,
-
-      cap: pop.max ?? pop.cap ?? gbNum(r.population_max) ?? null,
+      cap: pop.max ?? pop.cap ?? (Number.isFinite(+r.population_max) ? +r.population_max : null) ?? null,
       name: r.name || r.town_name || null,
       got: wood != null || stone != null || iron != null || !!(r.name || r.town_name),
     };
@@ -5277,8 +5650,6 @@ const STORE = {
         gbLog('sniffed bandit bridge call:', body.slice(0, 300));
       } else if (/BuildingOrder/.test(body) && /Instant|instant/i.test(body)) {
         const j = parseBodyLoose(body);
-
-        if (j && isSelfBridge(j)) return;
         if (j && j.action_name && /instant/i.test(j.action_name)) {
           if (typeof ibLearnAction === 'function') {
             ibLearnAction('build', j.action_name);
@@ -5291,7 +5662,6 @@ const STORE = {
         }
       } else if (/ResearchOrder/.test(body) && /Instant|instant/i.test(body)) {
         const j = parseBodyLoose(body);
-        if (j && isSelfBridge(j)) return;
         if (j && j.action_name && /instant/i.test(j.action_name)) {
           if (typeof ibLearnAction === 'function') {
             ibLearnAction('research', j.action_name);
@@ -5390,26 +5760,11 @@ const STORE = {
     return gameNow() >= at;
   }
 
-  const FARM_CLAIM_DURATION_SEC = 600;
-  const FARM_CLAIM_BASE_MS = 10 * 60 * 1000;
-  const FARM_CLAIM_JITTER_MIN_MS = 1 * 60 * 1000;
-  const FARM_CLAIM_JITTER_MAX_MS = 3 * 60 * 1000;
-  function farmClaimIntervalMs() {
-    return FARM_CLAIM_BASE_MS + FARM_CLAIM_JITTER_MIN_MS
-      + Math.random() * (FARM_CLAIM_JITTER_MAX_MS - FARM_CLAIM_JITTER_MIN_MS);
-  }
-  function farmStampNextClaim(reason) {
-    const wait = farmClaimIntervalMs();
-    state.nextFarmClaim = Date.now() + wait;
-    save(STORE.NEXT_FARM_CLAIM, state.nextFarmClaim);
-    try { renderTimers(); } catch (_) {}
-    gbLogT('farm-claim-cadence', 60000,
-      `farm claim: next in ${fmtSec(Math.round(wait / 1000))}${reason ? ' (' + reason + ')' : ''}`);
-    return state.nextFarmClaim;
-  }
-  function farmClaimDue() {
-    return Date.now() >= (gbNum(state.nextFarmClaim) || 0);
-  }
+  const FARM_CLAIM_WAKE_GRACE_MS = 1500;
+  const FARM_CLAIM_READY_WAKE_MS = 750;
+  const FARM_CLAIM_READY_RETRY_MS = 5000;
+  const FARM_NOT_READY_RETRY_MS = 30000;
+  let farmClaimWakeTimer = 0, farmClaimWakeAt = 0;
   function farmClaimTiming(farmsArg) {
     const farms = Array.isArray(farmsArg) ? farmsArg : (farmsFromGame() || []);
     const now = gameNow();
@@ -5425,8 +5780,53 @@ const STORE = {
       if (Number.isFinite(at) && at > now) nextAt = Math.min(nextAt, at);
       else if (Number.isFinite(at) && at <= now && modelReady === false) expiredModelWait++;
     }
-
     return { now, ready, nextAt, expiredModelWait, total: farms.length };
+  }
+  function farmCancelClaimWake() {
+    if (farmClaimWakeTimer) gbClearTimeout(farmClaimWakeTimer);
+    farmClaimWakeTimer = 0; farmClaimWakeAt = 0;
+  }
+  function farmScheduleClaimWake(farmsArg, reason, allowExpiredRetry) {
+    if (!state.autoFarm || !hostEnabled()) { farmCancelClaimWake(); return null; }
+    const t = farmClaimTiming(farmsArg);
+    let targetMs = 0;
+
+    if (allowExpiredRetry && t.ready > 0) {
+      const delay = gbLocked('claim') || reason === 'post-claim' ? FARM_CLAIM_READY_RETRY_MS : FARM_CLAIM_READY_WAKE_MS;
+      targetMs = Date.now() + delay;
+    } else if (Number.isFinite(t.nextAt)) {
+      targetMs = Date.now() + Math.max(0, (t.nextAt - t.now) * 1000) + FARM_CLAIM_WAKE_GRACE_MS;
+    } else if (allowExpiredRetry && t.expiredModelWait > 0) {
+      targetMs = Date.now() + FARM_CLAIM_READY_RETRY_MS;
+    }
+    if (!targetMs) return null;
+
+    if (farmClaimWakeTimer && farmClaimWakeAt && farmClaimWakeAt <= targetMs + 1000) return farmClaimWakeAt;
+    farmCancelClaimWake();
+    farmClaimWakeAt = targetMs;
+    const delay = Math.max(250, targetMs - Date.now());
+    farmClaimWakeTimer = gbTimeout(() => {
+      farmClaimWakeTimer = 0; farmClaimWakeAt = 0;
+      if (!gbInstanceAlive() || !state.autoFarm || !hostEnabled()) return;
+      if (automationPaused({}) || captchaPaused('farm')) { farmScheduleClaimWake(null, 'paused-retry', true); return; }
+      if (gbLocked('claim')) { farmScheduleClaimWake(null, 'claim-inflight-retry', true); return; }
+      const liveTiming = farmClaimTiming();
+      const wakeKind = liveTiming.ready > 0 ? 'ready wake' : 'deadline wake';
+      gbLogT('farm-deadline-wake', 5000, `farm claim: ${wakeKind}${reason ? ' (' + reason + ')' : ''}`);
+      autoClaimFarms('deadline');
+    }, delay);
+    return targetMs;
+  }
+  function farmScheduleNotReadyWake(farm) {
+    const now = gameNow();
+    const candidates = [];
+    const add = value => { const n=+value; if(Number.isFinite(n)&&n>now)candidates.push(n); };
+    try { add(farm && farm.lootable_at); } catch (_) {}
+    try { add(farm && farm._rel && farm._rel.attributes && farm._rel.attributes.lootable_at); } catch (_) {}
+    try { const live=txFarmStatus(farm && farm.vill_id); add(live && live.lootableAt); } catch (_) {}
+    const nextAt = candidates.length ? Math.min.apply(Math, candidates) : now + FARM_NOT_READY_RETRY_MS / 1000;
+
+    return farmScheduleClaimWake([{ lootable_at:nextAt }], 'server-not-ready', false);
   }
   function farmsFromGame() {
     try {
@@ -5440,7 +5840,7 @@ const STORE = {
         return null;
       }
       const farmById = {};
-      ((farmCol && farmCol.models) || []).forEach(m => { const a = m.attributes || {}; farmById[a.id] = a; });
+      ((farmCol && farmCol.models) || []).forEach(m => { const a = m.attributes || {}; farmById[a.id] = { attrs:a, model:m }; });
       const out = [];
       const statusCount = {};
       let noRelId = 0;
@@ -5450,12 +5850,16 @@ const STORE = {
         if (!farmBelongsToPlayer(r, a)) return;
         const relId = r.id ?? a.id;
         if (relId == null) { noRelId++; return; }
-        const f = farmById[a.farm_town_id] || {};
+        const frow = farmById[a.farm_town_id] || {};
+        const f = frow.attrs || {};
+        const farmModel = frow.model || null;
+        const islandId = farmModelIslandId(farmModel, f) || resolveIslandIdByCoords(f.island_x, f.island_y);
         out.push({
           vill_id: String(a.farm_town_id),
           relation_id: relId,
           x: f.island_x ?? null,
           y: f.island_y ?? null,
+          island_id: islandId,
           lootable_at: a.lootable_at ?? null,
           name: f.name || null,
           fromGame: true,
@@ -5473,25 +5877,39 @@ const STORE = {
     } catch (e) { gbLogT('farmsFromGame', 60000, 'farmsFromGame fail', String(e)); return null; }
   }
   function mergedFarms() {
-    const game = farmsFromGame() || [];
-    const manual = parseFarms(state.farms);
-    const seen = new Set(game.map(f => f.vill_id));
-    return game.concat(manual.filter(f => !seen.has(f.vill_id)));
+    const game=farmsFromGame();
+    const manual=parseFarms(state.farms);
+    if(game==null){
+
+      const prior=Array.isArray(state.farmsParsed)?state.farmsParsed:[];
+      const seen=new Set(prior.map(f=>f&&f.vill_id).filter(Boolean));
+      return {known:false,list:prior.concat(manual.filter(f=>!seen.has(f.vill_id)))};
+    }
+    const seen=new Set(game.map(f=>f.vill_id));
+    return {known:true,list:game.concat(manual.filter(f=>!seen.has(f.vill_id)))};
   }
   let farmsParsedSig = null;
   function refreshFarmsParsed() {
-    state.farmsParsed = mergedFarms();
+    const merged=mergedFarms();
+    if(!merged||!merged.known){
+      if(merged&&Array.isArray(merged.list)&&merged.list.length)state.farmsParsed=merged.list;
+      gbLogT('farm-discovery-unreadable',60000,'farm discovery: game collection not ready; preserving persisted farm state');
+      return false;
+    }
+    state.farmsParsed=merged.list;
+    const sig=JSON.stringify(state.farmsParsed);
+    if(sig===farmsParsedSig)return true;
+    farmsParsedSig=sig;
 
-    const sig = JSON.stringify(state.farmsParsed);
-    if (sig === farmsParsedSig) return;
-    farmsParsedSig = sig;
-    save(STORE.FARMS_PARSED, state.farmsParsed);
-
-    const ids = state.farmsParsed.map(f => f.vill_id);
-    if (pruneMapsToIds(state.farmResources, ids)) save(STORE.FARM_RES, state.farmResources);
-    if (pruneMapsToIds(state.alerted, ids)) save(STORE.ALERTED, state.alerted);
-    if (pruneMapsToIds(state.thresholds, ids)) save(STORE.THRESH, state.thresholds);
-    if (pruneMapsToIds(state.farmProfit, ids)) save(STORE.FARM_PROFIT, state.farmProfit);
+    if(gbTabLeader){
+      save(STORE.FARMS_PARSED,state.farmsParsed);
+      const ids=state.farmsParsed.map(f=>f.vill_id);
+      if(pruneMapsToIds(state.farmResources,ids))save(STORE.FARM_RES,state.farmResources);
+      if(pruneMapsToIds(state.alerted,ids))save(STORE.ALERTED,state.alerted);
+      if(pruneMapsToIds(state.thresholds,ids))save(STORE.THRESH,state.thresholds);
+      if(pruneMapsToIds(state.farmProfit,ids))save(STORE.FARM_PROFIT,state.farmProfit);
+    }
+    return true;
   }
   function islandTownMap() {
     const map = Object.create(null);
@@ -5507,21 +5925,154 @@ const STORE = {
           if (t.getIslandCoordinateY) y = t.getIslandCoordinateY();
         } catch (_) {}
         if (x == null || y == null) continue;
-        const key = x + ',' + y;
-        if (!Array.isArray(map[key])) map[key] = [];
-        map[key].push(String(tid));
+        const keys = [x + ',' + y];
+        try {
+          const islandId = typeof t.getIslandId === 'function' ? t.getIslandId() : (t.attributes && t.attributes.island_id);
+          if (islandId != null) keys.push(String(islandId));
+        } catch (_) {}
+        keys.forEach(key => {
+          if (!Array.isArray(map[key])) map[key] = [];
+          if (!map[key].includes(String(tid))) map[key].push(String(tid));
+        });
       }
     } catch (_) {}
     return map;
   }
-  function townIdForFarm(farm, islandMap) {
-
-    if (farm.x == null || farm.y == null) return null;
+  function townCanonicalIslandId(townId) {
+    try {
+      const t = gbTownModel(townId);
+      const id = t && (typeof t.getIslandId === 'function' ? t.getIslandId() : t.attributes && t.attributes.island_id);
+      return id != null && String(id) !== '' ? String(id) : null;
+    } catch (_) { return null; }
+  }
+  function townIslandKey(townId) {
+    const canonical = townCanonicalIslandId(townId);
+    if (canonical != null) return canonical;
+    const p = ruralTownIslandXY(townId);
+    return p && p.x != null && p.y != null ? String(p.x) + ',' + String(p.y) : null;
+  }
+  function farmModelIslandId(model, attrs) {
+    try {
+      for (const fn of ['getIslandId', 'getIslandID']) {
+        if (model && typeof model[fn] === 'function') {
+          const v = model[fn]();
+          if (v != null && String(v) !== '') return String(v);
+        }
+      }
+    } catch (_) {}
+    const a = (model && model.attributes) || attrs || {};
+    for (const key of ['island_id', 'islandId', 'island']) {
+      if (a[key] != null && String(a[key]) !== '') return String(a[key]);
+    }
+    return null;
+  }
+  function resolveIslandIdByCoords(x, y) {
+    if (x == null || y == null) return null;
+    try {
+      const towns = gameUw().ITowns && gameUw().ITowns.towns || {};
+      const ids = new Set();
+      for (const tid of Object.keys(towns)) {
+        const t = towns[tid];
+        let tx = null, ty = null;
+        try { tx = typeof t.getIslandCoordinateX === 'function' ? t.getIslandCoordinateX() : (t.attributes && t.attributes.island_x); } catch (_) {}
+        try { ty = typeof t.getIslandCoordinateY === 'function' ? t.getIslandCoordinateY() : (t.attributes && t.attributes.island_y); } catch (_) {}
+        if (String(tx) !== String(x) || String(ty) !== String(y)) continue;
+        const id = townCanonicalIslandId(tid);
+        if (id != null) ids.add(String(id));
+      }
+      return ids.size === 1 ? [...ids][0] : null;
+    } catch (_) { return null; }
+  }
+  function farmIslandContext(farm, islandMap) {
+    if (!farm) return { known:false, key:null, ids:[], coordsKey:null, reason:'farm-unreadable' };
     const map = islandMap || islandTownMap();
-    const hit = map[farm.x + ',' + farm.y];
-    const ids=Array.isArray(hit)?hit:(hit!=null?[hit]:[]);if(!ids.length)return null;
-    ids.sort((a,b)=>{const A=townWarehouseState(a),B=townWarehouseState(b);const af=A&&A.cap>0?A.cap-Math.max(+A.wood||0,+A.stone||0,+A.iron||0):-1;const bf=B&&B.cap>0?B.cap-Math.max(+B.wood||0,+B.stone||0,+B.iron||0):-1;return bf-af});
-    return ids.find(id=>!townWarehouseBlocks(id))||ids[0];
+    const coordsKey = farm.x != null && farm.y != null ? String(farm.x) + ',' + String(farm.y) : null;
+    const directKey = farm.island_id != null && String(farm.island_id) !== '' ? String(farm.island_id) : null;
+    let ids = [];
+    const add = raw => {
+      const list = Array.isArray(raw) ? raw : (raw != null ? [raw] : []);
+      for (const id of list.map(String)) if (!ids.includes(id)) ids.push(id);
+    };
+    if (directKey) add(map[directKey]);
+    if (coordsKey) add(map[coordsKey]);
+    const derived = new Set(ids.map(townCanonicalIslandId).filter(Boolean).map(String));
+    let key = directKey;
+    if (derived.size > 1) return { known:false, key:null, ids, coordsKey, reason:'island-id-ambiguous' };
+    if (derived.size === 1) {
+      const only = [...derived][0];
+      if (key && key !== only) return { known:false, key:null, ids, coordsKey, reason:'island-id-conflict' };
+      key = only;
+      add(map[key]);
+    }
+    if (!key && coordsKey) key = resolveIslandIdByCoords(farm.x, farm.y);
+    if (key) add(map[key]);
+    if (!ids.length && coordsKey) add(map[coordsKey]);
+    const anyConfigured = !!Object.keys(state.islandBeneficiaries || {}).length;
+    if (!key && anyConfigured) return { known:false, key:null, ids, coordsKey, reason:'canonical-island-unreadable' };
+    return { known:ids.length > 0, key:key || null, ids, coordsKey, reason:ids.length ? '' : 'same-island-towns-unreadable' };
+  }
+  function farmIslandKey(farm) {
+    const ctx = farmIslandContext(farm, islandTownMap());
+    return ctx && ctx.key ? String(ctx.key) : null;
+  }
+  function resolveIslandResourceBeneficiary(islandKey, sameIslandTownIds) {
+    const ids = [...new Set((sameIslandTownIds || []).map(String).filter(Boolean))];
+    if (!ids.length) return { known:false, townId:null, reason:'same-island-towns-unreadable' };
+    const cfg = islandKey && state.islandBeneficiaries && state.islandBeneficiaries[String(islandKey)];
+    const selected = cfg && cfg.resource;
+    if (selected != null && selected !== 'auto') {
+      return ids.includes(String(selected))
+        ? { known:true, townId:String(selected), explicit:true, reason:'configured' }
+        : { known:false, townId:null, explicit:true, reason:'configured-resource-beneficiary-invalid' };
+    }
+    if (!islandKey && Object.keys(state.islandBeneficiaries || {}).length) {
+      return { known:false, townId:null, reason:'canonical-island-unreadable' };
+    }
+    const readable = ids.map(id => {
+      const st = townWarehouseState(id);
+      if (!st || !(st.cap > 0) || st.wood == null || st.stone == null || st.iron == null) return null;
+      const tightestFree = st.cap - Math.max(+st.wood, +st.stone, +st.iron);
+      return { id, st, tightestFree, blocked:townWarehouseBlocks(id) };
+    }).filter(Boolean).sort((a,b) => (+a.blocked - +b.blocked) || b.tightestFree - a.tightestFree || a.id.localeCompare(b.id, undefined, {numeric:true}));
+    if (readable.length) return { known:true, townId:readable[0].id, explicit:false, reason:'auto-live-emptiest' };
+    if (ids.length === 1) return { known:true, townId:ids[0], explicit:false, reason:'auto-single-town' };
+    return { known:false, townId:null, explicit:false, reason:'auto-town-state-unreadable' };
+  }
+  function resolveIslandUnitBeneficiary(islandKey, sameIslandTownIds) {
+    const ids = [...new Set((sameIslandTownIds || []).map(String).filter(Boolean))];
+    if (!ids.length) return { known:false, enabled:false, townId:null, reason:'same-island-towns-unreadable' };
+    if (!islandKey) return { known:true, enabled:false, townId:null, reason:'resources-only-no-canonical-island' };
+    const cfg = state.islandBeneficiaries && state.islandBeneficiaries[String(islandKey)];
+    if (!cfg || cfg.unit == null || cfg.unit === 'none' || cfg.unit === 'auto') {
+      return { known:true, enabled:false, townId:null, reason:'resources-only' };
+    }
+    const selected = String(cfg.unit);
+    if (!ids.includes(selected)) return { known:false, enabled:false, townId:null, reason:'configured-unit-beneficiary-invalid' };
+    return { known:true, enabled:true, townId:selected, reason:'configured' };
+  }
+  function configuredIslandBeneficiary(farm, ids, kind) {
+    const ctx = farmIslandContext(farm, islandTownMap());
+    const useIds = ids && ids.length ? ids : ctx.ids;
+    if (!ctx.known) return 'UNKNOWN';
+    if (kind === 'unit') {
+      const r = resolveIslandUnitBeneficiary(ctx.key, useIds);
+      if (!r.known) return 'UNKNOWN';
+      return r.enabled ? r.townId : 'none';
+    }
+    const r = resolveIslandResourceBeneficiary(ctx.key, useIds);
+    return r.known ? r.townId : 'UNKNOWN';
+  }
+  function townIdForFarmUnits(farm, islandMap) {
+    const ctx = farmIslandContext(farm, islandMap || islandTownMap());
+    if (!ctx.known) return null;
+    const selected = resolveIslandUnitBeneficiary(ctx.key, ctx.ids);
+    return selected.known && selected.enabled ? selected.townId : null;
+  }
+  function townIdForFarm(farm, islandMap) {
+    const ctx = farmIslandContext(farm, islandMap || islandTownMap());
+    if (!ctx.known) return null;
+    const selected = resolveIslandResourceBeneficiary(ctx.key, ctx.ids);
+    return selected.known ? selected.townId : null;
   }
   function townWarehouseState(townId) { return townResState(townId); }
   function townWarehouseBlocks(townId) {
@@ -5541,64 +6092,23 @@ const STORE = {
       return tid != null && townWarehouseBlocks(tid);
     } catch (_) { return false; }
   }
-
-  const FARM_DURATIONS = [300, 600, 1200, 2400, 5400, 7200, 10800, 14400, 18000, 28800, 36000];
-  const FARM_SET_BASE = [300, 1200, 7200, 18000];
-  const FARM_SET_BOOTY = [600, 2400, 14400, 36000];
-
-  let farmPostedOpts = Object.create(null);
+  const FARM_DURATIONS = [300, 600, 1200, 2400, 5400, 10800, 14400, 28800];
   function farmDurLabel(sec) {
     if (sec >= 3600) return (sec / 3600) + 'h';
     return Math.round(sec / 60) + 'min';
   }
-
-  function farmOptionMapEnsure() {
-    let m = state.farmOptionMap;
-    if (!m || typeof m !== 'object' || Array.isArray(m)) m = {};
-    const has = Object.keys(m).some(k => m[k] != null && Number.isFinite(+m[k]));
-    if (has) {
-      state.farmOptionMap = m;
-      return m;
-    }
-    m = { 600: 1 };
-    state.farmOptionMap = m;
-    save(wkey(STORE.FARM_OPTION_MAP), m);
-    gbLogT('farm-opt-default', 600000, 'farm: empty option map \u2014 restored default 10min=2');
-    return m;
-  }
   function farmOptionFor(sec) {
-    const m = farmOptionMapEnsure();
+    const m = state.farmOptionMap || {};
     const v = m[String(sec)];
-
-    const n = +v;
-    return v == null || !(n >= 1 && n <= 4) ? null : n;
-  }
-
-  function farmOptionResolve(wantSec) {
-    const want = +wantSec;
-    const exact = Number.isFinite(want) ? farmOptionFor(want) : null;
-    if (exact != null) return { option: exact, sec: want, how: 'exact' };
-    const m = farmOptionMapEnsure();
-    let floorOpt = null, floorSec = -1;
-    let shortOpt = null, shortSec = Infinity;
-    for (const sec of FARM_DURATIONS) {
-      const v = m[String(sec)];
-      const opt = +v;
-      if (v == null || !(opt >= 1 && opt <= 4)) continue;
-      if (Number.isFinite(want) && sec <= want && sec > floorSec) { floorSec = sec; floorOpt = opt; }
-      if (sec < shortSec) { shortSec = sec; shortOpt = opt; }
-    }
-    if (floorOpt != null) return { option: floorOpt, sec: floorSec, how: 'floor' };
-    if (shortOpt != null) return { option: shortOpt, sec: shortSec, how: 'shortest' };
-    return null;
+    return v == null ? null : +v;
   }
   function farmOptionMapText() {
-    const m = farmOptionMapEnsure();
+    const m = state.farmOptionMap || {};
     const parts = FARM_DURATIONS.filter(s => m[String(s)] != null).map(s => `${farmDurLabel(s)}=${m[String(s)]}`);
     return parts.length ? parts.join(' ') : 'none';
   }
   function farmOptionMapConflicts() {
-    const m = farmOptionMapEnsure();
+    const m = state.farmOptionMap || {};
     const byOpt = Object.create(null);
     Object.keys(m).forEach(sec => {
       const o = String(m[sec]);
@@ -5616,37 +6126,6 @@ const STORE = {
     });
 
     return best != null && bestDiff <= best * 0.2 ? best : null;
-  }
-
-  function farmOptionMapLearn(sec, opt, src) {
-    if (!(opt >= 1 && opt <= 4) || !(sec > 0)) return false;
-    const map = Object.assign({}, state.farmOptionMap || {});
-    if (+map[String(sec)] === opt) return false;
-    Object.keys(map).forEach(k => { if (k !== String(sec) && +map[k] === opt) delete map[k]; });
-    map[String(sec)] = opt;
-    state.farmOptionMap = map;
-    save(wkey(STORE.FARM_OPTION_MAP), map);
-    gbLog(`farm: learned claim option ${opt} = ${farmDurLabel(sec)} (${src}; map: ${farmOptionMapText()})`);
-    return true;
-  }
-
-  function farmOptionSetDerive(sec, opt) {
-    const sets = { base: FARM_SET_BASE, booty: FARM_SET_BOOTY };
-    let hit = null;
-    Object.keys(sets).forEach(name => {
-      if (sets[name][opt - 1] === sec) hit = hit ? 'ambiguous' : name;
-    });
-    if (!hit || hit === 'ambiguous') return false;
-    const map = {};
-    sets[hit].forEach((s, i) => { map[String(s)] = i + 1; });
-    const cur = state.farmOptionMap || {};
-    const same = Object.keys(map).length === Object.keys(cur).length
-      && Object.keys(map).every(k => +cur[k] === map[k]);
-    if (same) return false;
-    state.farmOptionMap = map;
-    save(wkey(STORE.FARM_OPTION_MAP), map);
-    gbLog(`farm: offer set identified (${hit}) from ${farmDurLabel(sec)}=opt${opt} \u2014 derived map: ${farmOptionMapText()}`);
-    return true;
   }
 
   function farmLearnFromClaim(j) {
@@ -5685,8 +6164,14 @@ const STORE = {
         }
         const sec = farmSnapDuration(remaining);
         if (sec == null) return;
-        farmOptionMapLearn(sec, opt, 'hand claim');
-        farmOptionSetDerive(sec, opt);
+        const map = Object.assign({}, state.farmOptionMap || {});
+        if (+map[String(sec)] === opt) return;
+
+        Object.keys(map).forEach(k => { if (k !== String(sec) && +map[k] === opt) delete map[k]; });
+        map[String(sec)] = opt;
+        state.farmOptionMap = map;
+        save(wkey(STORE.FARM_OPTION_MAP), map);
+        gbLog(`farm: learned claim option ${opt} = ${farmDurLabel(sec)} (map: ${farmOptionMapText()})`);
       }, 4000);
     } catch (_) {}
   }
@@ -5701,9 +6186,11 @@ const STORE = {
     const keys = Object.keys(techs).filter(k => techs[k]);
     return keys.some(k => k.toLowerCase() === want || researchLabel(k).toLowerCase() === want);
   }
-  function farmLoyaltyProbe(townId) {
+  function farmLoyaltyResearched(townId) {
+    const now = Date.now();
+    const c = farmLoyaltyCache[townId];
+    if (c && now - c.ts < 60000) return c.val;
     let val = false;
-    let hit = null;
     try {
       const info = researchTownTechs(townId);
       const techs = (info && info.techs) || null;
@@ -5712,10 +6199,14 @@ const STORE = {
         if (pin) val = farmLoyaltyPinHit(techs, pin);
         else {
           const done = Object.keys(techs).filter(k => techs[k]);
-          hit = FARM_LOYALTY_IDS.find(id => done.indexOf(id) >= 0) ||
+          const hit = FARM_LOYALTY_IDS.find(id => done.indexOf(id) >= 0) ||
             done.find(k => FARM_LOYALTY_RE.test(k) || FARM_LOYALTY_RE.test(researchLabel(k)));
-          if (hit) val = true;
-          else {
+          if (hit) {
+            state.farmLoyaltyTech = hit;
+            save(wkey(STORE.FARM_LOYALTY_TECH), hit);
+            gbLog(`farm: loyalty tech detected: ${hit}${researchLabel(hit) ? ' (' + researchLabel(hit) + ')' : ''}`);
+            val = true;
+          } else {
 
             gbLogT('farm-loyalty-miss', 900000, 'farm: loyalty tech not found; researched = ' +
               done.map(k => k + (researchLabel(k) ? '(' + researchLabel(k) + ')' : '')).join(',').slice(0, 600));
@@ -5723,25 +6214,41 @@ const STORE = {
         }
       }
     } catch (_) {}
-    return { val, hit };
+    farmLoyaltyCache[townId] = { ts: now, val };
+    return val;
   }
-  function farmLoyaltyLearnTech(hit) {
-    if (!hit) return;
-    if (state.farmLoyaltyTech === hit) return;
-    state.farmLoyaltyTech = hit;
-    save(wkey(STORE.FARM_LOYALTY_TECH), hit);
-    gbLog(`farm: loyalty tech detected: ${hit}${researchLabel(hit) ? ' (' + researchLabel(hit) + ')' : ''}`);
-  }
-  function farmLoyaltyResearched(townId) {
-    const now = Date.now();
-    const c = farmLoyaltyCache[townId];
-    if (c && now - c.ts < 60000) return c.val;
-    const r = farmLoyaltyProbe(townId);
-    farmLoyaltyCache[townId] = { ts: now, val: r.val, hit: r.hit };
-    return r.val;
+  function farmLongClaimDuration() {
+    return farmOptionFor(28800) != null ? 28800 : 14400;
   }
 
-  function farmDurationPick(_townId) { return FARM_CLAIM_DURATION_SEC; }
+  const FARM_PICK_MAX = 14400;
+  const FARM_PICK_LADDER = [600, 1200, 2400, 5400, 10800, FARM_PICK_MAX];
+  function farmShortestClaimDuration(townId) {
+
+    if (farmOptionFor(600) != null && farmOptionFor(300) == null) return 600;
+    if (state.farmLoyaltySeen && farmOptionFor(600) != null) return 600;
+    try { if (farmLoyaltyResearched(townId)) return 600; } catch (_) {}
+    return 300;
+  }
+  function farmDurationPick(townId) {
+    const shortest = farmShortestClaimDuration(townId);
+    if (!state.farmLongClaims) return shortest;
+    const learned = FARM_PICK_LADDER.filter(sec => sec >= shortest && farmOptionFor(sec) != null);
+    if (!learned.length) return shortest;
+
+    const rs = (typeof townResState === 'function') ? townResState(townId) : null;
+    const headroom = rs && rs.cap > 0 ? Math.max(0, rs.cap - Math.max(rs.wood, rs.stone, rs.iron)) : null;
+
+    let best = null;
+    for (const sec of learned) {
+
+      const est = gbLootEstimate({ kind: 'farm-claim', durationSec: sec, loyalty: 1.0, headroom });
+      if (est.meta.fits === false) continue;
+      if (best == null || sec > best) best = sec;
+    }
+
+    return best != null ? best : (shortest === 600 ? null : 300);
+  }
   function farmDesiredDuration(townId) { return farmDurationPick(townId); }
 
   const FARM_PROFIT_TTL_MS = 300000;
@@ -5770,8 +6277,8 @@ const STORE = {
       return out({ score: null, why: 'headroom-blind', townId: String(tid) });
     }
     const duration = farmDurationPick(tid);
-
-    const est = gbLootEstimate({ kind: 'farm-claim', durationSec: duration, loyalty: 1.0, headroom });
+    const loyalty = farmLoyaltyResearched(tid) ? 1.0 : 0.5;
+    const est = gbLootEstimate({ kind: 'farm-claim', durationSec: duration, loyalty, headroom });
 
     let distance = null;
     try {
@@ -5817,15 +6324,15 @@ const STORE = {
   function farmProfitInvalidate() { for (const k of Object.keys(farmProfitCache)) delete farmProfitCache[k]; farmProfitRefreshAt = 0; }
 
   const FARM_UNIT_ORDER = ['sword', 'slinger', 'archer', 'hoplite'];
-  function farmUnitIdFor(option) { return FARM_UNIT_ORDER[(gbNum(option) || 0) - 1] || null; }
+  function farmUnitIdFor(option) { return FARM_UNIT_ORDER[(+option || 0) - 1] || null; }
   function farmVillageLevel(farm) {
     const rel = farm && farm._rel;
     const a = (farm && farm._attrs) || {};
     let level = null;
     try { if (rel && typeof rel.getLevel === 'function') level = gbNum(rel.getLevel()); } catch (_) {}
-    if (level != null) return level;
-
-    if (a.relation_status === 0) return 0;
+    if (Number.isFinite(level)) return level;
+    const status = gbNum(a.relation_status);
+    if (status === 0) return 0;
     return gbNum(a.expansion_stage);
   }
   function farmClaimUnitsTable(farm) {
@@ -5847,7 +6354,7 @@ const STORE = {
     }
     if (pref === 'auto') {
       let tid = townId;
-      if (tid == null) { try { tid = uwCached().Game && uwCached().Game.townId; } catch (_) { tid = null; } }
+      if (tid == null) { try { tid = gameUw().Game && gameUw().Game.townId; } catch (_) { tid = null; } }
       const auto = farmUnitAutoOption(farm, tid);
       if (auto != null) return auto;
     }
@@ -5882,7 +6389,7 @@ const STORE = {
     const perDay = table ? +table[level] : NaN;
     if (!Number.isFinite(perDay) || perDay <= 0) return null;
     let speed = null;
-    try { speed = +(uwCached().Game && uwCached().Game.game_speed); } catch (_) {}
+    try { speed = +(gameUw().Game && gameUw().Game.game_speed); } catch (_) {}
     if (!Number.isFinite(speed) || speed <= 0) return null;
     let loot = null;
     try { if (rel && typeof rel.getLoot === 'function') loot = +rel.getLoot(); } catch (_) {}
@@ -5982,19 +6489,34 @@ const STORE = {
     saveSoon(wkey(STORE.FARM_RES_DRY), m);
   }
 
-  function farmClaimTypeFor(farm) {
+  function farmMarkDailyCap(villId) {
+    const m = farmResDryMap(), key = String(villId);
+    m[key] = { n:FARM_RES_DRY_STRIKES, why:'daily-cap', at:Date.now(), dailyCap:true };
+    saveSoon(wkey(STORE.FARM_RES_DRY), m);
+    gbLogT('farm-daily-cap-server-' + key, 600000,
+      `farm: village ${key} daily resource cap confirmed by server - suppressing resource claims until next farm day`);
+  }
+  function farmDailyCapMarked(villId) {
+    const r = farmResDryMap()[String(villId)];
+    return !!(r && r.dailyCap === true);
+  }
+
+  function farmClaimTypeFor(farm, islandMap) {
+    const ctx = farmIslandContext(farm, islandMap || islandTownMap());
+    if (!ctx.known) return 'resources';
+    const unitBeneficiary = resolveIslandUnitBeneficiary(ctx.key, ctx.ids);
+    if (!unitBeneficiary.known || !unitBeneficiary.enabled) return 'resources';
     const mode = String(state.farmUnitsMode || 'off');
     if (mode === 'always') return 'units';
     if (mode !== 'fallback') return 'resources';
     const left = farmDailyLeft(farm);
     if (left != null && left <= 0) {
       gbLogT('farm-daily-cap-' + farm.vill_id, 600000,
-        `farm: village ${farm.vill_id} daily resource allowance spent - claiming units`);
+        `farm: village ${farm.vill_id} daily resource allowance spent - claiming units for configured town ${unitBeneficiary.townId}`);
       return 'units';
     }
     const exhausted = farmResExhausted(farm);
     if (exhausted === true) return 'units';
-
     if (exhausted === false) return 'resources';
     return farmResDryMarked(farm.vill_id) ? 'units' : 'resources';
   }
@@ -6002,7 +6524,7 @@ const STORE = {
     const farms = farmsFromGame();
     if (!farms) { gbLog('farm diag: game collections not ready'); return; }
     const islandMap = islandTownMap();
-    const speed = (() => { try { return +(uwCached().Game && uwCached().Game.game_speed); } catch (_) { return null; } })();
+    const speed = (() => { try { return +(gameUw().Game && gameUw().Game.game_speed); } catch (_) { return null; } })();
     const perDayTable = gbGameDataLookup('farm_town', 'max_resources_per_day');
     const unitTable = farmClaimUnitsTable(farms[0]);
     gbLog(`farm diag: mode=${state.farmUnitsMode || 'off'} pick=${state.farmUnitsPref || 'auto'} learnedUnitOpt=${state.farmUnitsOption == null ? '-' : state.farmUnitsOption}` +
@@ -6012,11 +6534,14 @@ const STORE = {
       ` optionMap=${farmOptionMapText()}`);
     const n = Math.max(1, Math.min(+limit || 8, farms.length));
     for (const f of farms.slice(0, n)) {
-      const tid = townIdForFarm(f, islandMap);
+      const resourceTid = townIdForFarm(f, islandMap);
+      const unitTid = townIdForFarmUnits(f, islandMap);
+      const tid = unitTid || resourceTid;
       const left = farmDailyLeft(f);
-      const type = farmClaimTypeFor(f);
-      const opt = type === 'units' ? farmUnitOption(f, tid) : null;
-      const blocked = (type === 'units' && opt != null && tid != null) ? farmUnitsClaimBlocked(f, tid, opt) : null;
+      const type = farmClaimTypeFor(f, islandMap);
+      const targetTid = type === 'units' ? unitTid : resourceTid;
+      const opt = type === 'units' ? farmUnitOption(f, targetTid) : null;
+      const blocked = (type === 'units' && opt != null && targetTid != null) ? farmUnitsClaimBlocked(f, targetTid, opt) : null;
       const dry = farmResDryMap()[String(f.vill_id)];
       gbLog(`  vill ${f.vill_id} town=${tid == null ? '-' : tid}` +
         ` lootable=${f.lootable_at == null ? '-' : Math.max(0, f.lootable_at - gameNow()) + 's'}` +
@@ -6032,14 +6557,16 @@ const STORE = {
   function claimFarm(farm, islandMap, whCache, durOverride, onDone) {
     const done = (err) => { if (onDone) onDone(err); };
     if (captchaPaused('farm')) return done('captcha');
-    const tid = +townIdForFarm(farm, islandMap);
+    const claimType = farmClaimTypeFor(farm, islandMap);
+    const target = claimType === 'units' ? townIdForFarmUnits(farm, islandMap) : townIdForFarm(farm, islandMap);
+    const tid = target == null ? null : +target;
     if (!tid) {
-      gbLogT('claim-no-town', 60000, `farm claim skip ${farm.vill_id}: no same-island town`);
-      return done('skip:no-town');
+      gbLogT('claim-no-town', 60000, `farm claim skip ${farm.vill_id}: ${claimType === 'units' ? 'no configured unit beneficiary' : 'no readable resource beneficiary'}`);
+      return done('skip');
     }
-    const claimType = farmClaimTypeFor(farm);
 
     if (claimType === 'resources') {
+      if (farmDailyCapMarked(farm.vill_id)) return done('skip:daily-cap');
       let blocked = false;
       if (whCache) {
         if (!(tid in whCache)) whCache[tid] = townWarehouseBlocks(tid);
@@ -6049,24 +6576,30 @@ const STORE = {
       }
       if (blocked) {
         gbLogT('claim-wh-block', 30000, `farm claim blocked (warehouse full) town ${tid} vill ${farm.vill_id}`);
-        return done('skip:wh');
+        return done('skip');
       }
     }
     const tplArgs = (state.claimTpl && state.claimTpl.arguments) || {};
     if (claimType === 'units') return claimFarmUnits(farm, tid, tplArgs, done);
-    const wantSec = durOverride || farmDesiredDuration(tid);
-    const resolved = farmOptionResolve(wantSec);
-    if (!resolved) {
-      gbLogT('farm-opt-' + wantSec, 120000,
-        `farm claim: no learned option (want ${farmDurLabel(wantSec)}, map ${farmOptionMapText()}) - claim once by hand in game to teach it`);
-      return done('skip:opt');
+    const wantSec = durOverride != null ? durOverride : farmDesiredDuration(tid);
+    const shortest = farmShortestClaimDuration(tid);
+    if (wantSec == null) {
+      gbLogT('farm-no-fit-' + tid, 60000,
+        `farm claim: shortest available ${farmDurLabel(shortest)} would not fit current warehouse headroom - waiting`);
+      return done('skip');
     }
-    if (resolved.how !== 'exact') {
-      gbLogT('farm-opt-fallback-' + wantSec, 300000,
-        `farm claim: no ${farmDurLabel(wantSec)} option \u2014 using learned ${farmDurLabel(resolved.sec)}=${resolved.option} (${resolved.how}; map ${farmOptionMapText()})`);
+    let option = farmOptionFor(wantSec);
+    if (option == null) {
+      const fallback = farmOptionFor(shortest);
+      if (fallback == null) {
+        gbLogT('farm-opt-' + wantSec, 900000,
+          `farm claim: option index for ${farmDurLabel(wantSec)} unknown and no learned ${farmDurLabel(shortest)} index - claim ${farmDurLabel(shortest)} once by hand in game to teach it`);
+        return done('skip');
+      }
+      gbLogT('farm-opt-' + wantSec, 900000,
+        `farm claim: option index for ${farmDurLabel(wantSec)} unknown - using learned ${farmDurLabel(shortest)} option`);
+      option = fallback;
     }
-    const option = resolved.option;
-    farmPostedOpts[String(farm.vill_id)] = { opt: option, want: Number.isFinite(+wantSec) ? +wantSec : null };
 
     const args = Object.assign({}, tplArgs, { type: 'resources', option, farm_town_id: +farm.vill_id });
     bridgePost('farm', {
@@ -6077,7 +6610,13 @@ const STORE = {
     }, (err) => {
       if (!err && whCache) delete whCache[tid];
 
-      const hard = err && err !== 'remembered' && !JRN_SKIP_ERRS[String(err).split(':')[0]] && err !== 'captcha' && !jrnPendingResult(err);
+      const expectedReject = gbExpectedServerReject('farm', err);
+      if (expectedReject === 'farm-daily-cap') {
+        farmMarkDailyCap(farm.vill_id);
+      } else if (expectedReject === 'waiting-not-ready') {
+        farmScheduleNotReadyWake(farm);
+      }
+      const hard = err && !expectedReject && err !== 'remembered' && !JRN_SKIP_ERRS[String(err).split(':')[0]] && err !== 'captcha' && !jrnPendingResult(err);
       if (hard) {
         if (String(state.farmUnitsMode || 'off') === 'fallback') farmMarkResDry(farm.vill_id, String(err).slice(0, 40));
       } else if (!err) {
@@ -6094,13 +6633,13 @@ const STORE = {
         ', claim_units=' + (farmClaimUnitsTable(farm) ? 'readable' : 'UNREADABLE for village level ' + farmVillageLevel(farm)) +
         ', learned=' + (state.farmUnitsOption == null ? 'none' : state.farmUnitsOption) +
         ') - pin a unit in Ajustes or claim units once by hand; Acciones > Diagnostico de aldeas dumps the reads');
-      return done('skip:units-opt');
+      return done('skip');
     }
     const why = farmUnitsClaimBlocked(farm, tid, option);
     if (why) {
       gbLogT('farm-units-block-' + tid, 300000,
         `farm units claim skip town ${tid} vill ${farm.vill_id}: ${why}`);
-      return done('skip:units-block');
+      return done('skip');
     }
     const args = Object.assign({}, tplArgs, { type: 'units', option, farm_town_id: +farm.vill_id });
     bridgePost('farm', {
@@ -6112,17 +6651,14 @@ const STORE = {
   }
 
   const FARM_PENDING_MEMO_MS = 3000;
-  let farmPendingMemo = { at: 0, val: false, locked: 0 };
+  let farmPendingMemo = { at: 0, val: false };
   function farmClaimPending() {
     if (!state.autoFarm || !hostEnabled()) return false;
     if (captchaPaused('farm')) return false;
 
-    if (!farmClaimDue() && !gbLocked('claim')) return false;
-
     if (gbLocked('claim')) return true;
     const stamp = Date.now();
-
-    if (stamp - farmPendingMemo.at < FARM_PENDING_MEMO_MS && !farmPendingMemo.locked) return farmPendingMemo.val;
+    if (stamp - farmPendingMemo.at < FARM_PENDING_MEMO_MS) return farmPendingMemo.val;
     let val = false;
     try {
       const farms = farmsFromGame();
@@ -6137,31 +6673,25 @@ const STORE = {
           } else if (f.lootable_at != null && f.lootable_at > now) {
             continue;
           }
-          const tid = townIdForFarm(f, islandMap);
+          const claimType = farmClaimTypeFor(f, islandMap);
+          const tid = claimType === 'units' ? townIdForFarmUnits(f, islandMap) : townIdForFarm(f, islandMap);
           if (!tid) continue;
-          if (!(tid in whCache)) whCache[tid] = townWarehouseBlocks(tid);
-          if (whCache[tid]) continue;
+          if (claimType !== 'units') {
+            if (farmDailyCapMarked(f.vill_id)) continue;
+            if (!(tid in whCache)) whCache[tid] = townWarehouseBlocks(tid);
+            if (whCache[tid]) continue;
+          }
           val = true;
           break;
         }
       }
     } catch (_) { val = false; }
-    farmPendingMemo = { at: stamp, val, locked: 0 };
+    farmPendingMemo = { at: stamp, val };
     return val;
   }
 
-  function farmFirstHold(who) {
-    if (!farmClaimPending()) return false;
-    gbLogT('farm-first-' + who, 300000, `${who}: held - farming village claim pending (farm-first)`);
-    return true;
-  }
   function autoClaimFarms(reason, durOverride, onBatchDone) {
     if (!hostEnabled() || !state.autoFarm || captchaPaused('farm') || automationPaused({})) {
-      if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
-      return;
-    }
-    const force = reason === 'manual' || reason === 'toggle';
-    if (!force && !farmClaimDue()) {
       if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
       return;
     }
@@ -6180,10 +6710,11 @@ const STORE = {
       } else if (f.lootable_at != null && f.lootable_at > now) {
         return false;
       }
-      const tid = townIdForFarm(f, islandMap);
+      const claimType = farmClaimTypeFor(f, islandMap);
+      const tid = claimType === 'units' ? townIdForFarmUnits(f, islandMap) : townIdForFarm(f, islandMap);
       if (!tid) return false;
-
-      if (farmClaimTypeFor(f) === 'units') return true;
+      if (claimType === 'units') return true;
+      if (farmDailyCapMarked(f.vill_id)) return false;
       if (!(tid in whCache)) whCache[tid] = townWarehouseBlocks(tid);
       if (whCache[tid]) { skippedFull++; return false; }
       return true;
@@ -6193,56 +6724,51 @@ const STORE = {
     }
     if (!ready.length) {
       const next = Math.min(...farms.map(f => f.lootable_at || Infinity));
-      gbLogT('claim-none', 60000, `farm claim: 0/${farms.length} ready${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}, next lootable in ${next === Infinity ? '?' : Math.max(0, next - now) + 's'}`);
-      farmStampNextClaim('none-ready');
+      gbLogT('claim-none', 60000, `farm claim: 0/${farms.length} ready${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}, next in ${next === Infinity ? '?' : Math.max(0, next - now) + 's'}`);
+
+      farmScheduleClaimWake(farms, 'next-lootable', skippedFull === 0);
       if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
       return;
     }
 
-    const work = ready.slice();
-    farmPostedOpts = Object.create(null);
+    const work = farmApplyDropPolicies(ready);
+    if (!work.length) {
+      gbLogT('claim-policy-empty', 300000, 'farm claim: current claim policy dropped every candidate this pass');
+
+      farmScheduleClaimWake(farms, 'policy-empty', true);
+      if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
+      return;
+    }
     const claimLockToken = gbLock('claim', Math.max(180000, work.length * 20000));
     if (!claimLockToken) return;
-    const unitCount = work.filter(f => farmClaimTypeFor(f) === 'units').length;
-    gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${work.length}/${farms.length} ready${work.length !== ready.length ? ` (${ready.length - work.length} adaptivo)` : ''}${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}${unitCount ? ` (${unitCount} as units)` : ''}`);
-    gbLogT('farm-claim-opts', 120000,
-      `farm claim opts: map=${farmOptionMapText()} duration=${farmDurLabel(FARM_CLAIM_DURATION_SEC)} tpl=${state.claimTpl ? 'yes' : 'NO'} unitsMode=${state.farmUnitsMode || 'off'}`);
+    const unitCount = work.filter(f => farmClaimTypeFor(f, islandMap) === 'units').length;
+    gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${work.length}/${farms.length} ready${work.length !== ready.length ? ` (${ready.length - work.length} filtered)` : ''}${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}${unitCount ? ` (${unitCount} as units)` : ''}`);
     const before = {};
     farms.forEach(f => { before[f.vill_id] = f.lootable_at; });
     flash(`farm claim x${work.length}`);
 
     const outcome = Object.create(null);
-    let i = 0, done = 0, uncertain = 0, captcha = false;
-
-    const claimSpacingMs = 2000;
-    function finishClaimBatch() {
-      const tally = Object.keys(outcome).map(k => `${k}x${outcome[k]}`).join(' ') || 'none';
-      gbLog(`  claim outcomes: ${tally}`);
-
-      const posted = done > 0 || uncertain > 0;
-      if (work.length && !posted) {
-        gbLog(`farm claim: 0 posted \u2014 unlock now (outcomes: ${tally})`);
-        flash('aldeas: 0 cobradas \u2014 ' + tally);
-      }
-      const wrapUp = () => {
-        try {
-          const flipped = posted ? verifyClaims(before, work) : 0;
-          farmStampNextClaim(posted ? 'post-claim' : 'post-empty');
-          if (onBatchDone) onBatchDone({
-            done: flipped,
-            attempted: work.length,
-            captcha,
-            bridgeOk: done,
-          });
-        } finally { gbUnlock('claim', claimLockToken); }
-      };
-      if (posted) gbTimeout(wrapUp, 10000);
-      else wrapUp();
-    }
+    let i = 0, done = 0, captcha = false;
+    const claimSpacingMs=Math.max(700,Math.ceil(60000/Math.max(5,(+state.reqBudgetPerMin||40)-4)));
     (function next() {
-      if (!gbLockTouch('claim', claimLockToken)) return;
+      gbLockTouch('claim', claimLockToken);
       if (i >= work.length || captcha || captchaPaused('farm')) {
-        finishClaimBatch();
+        const tally = Object.keys(outcome).map(k => `${k}x${outcome[k]}`).join(' ');
+        if (tally) gbLog(`  claim outcomes: ${tally}`);
+        gbTimeout(() => {
+          try {
+            const flipped = verifyClaims(before, work);
+
+            farmScheduleClaimWake(null, 'post-claim', true);
+
+            if (onBatchDone) onBatchDone({
+              done: flipped,
+              attempted: work.length,
+              captcha,
+              bridgeOk: done,
+            });
+          } finally { gbUnlock('claim', claimLockToken); }
+        }, 10000);
         return;
       }
       const f = work[i++];
@@ -6251,7 +6777,6 @@ const STORE = {
           const key = String(err || 'ok').slice(0, 24);
           outcome[key] = (outcome[key] || 0) + 1;
           if (err === 'captcha' || err === 'captcha-pause') { captcha = true; farmPressureNote('captcha'); }
-          else if (err === 'timeout_unknown' || err === 'pending') uncertain++;
           else if (!err) {
             done++;
 
@@ -6295,38 +6820,20 @@ const STORE = {
     const cut = Date.now() - 3600000;
     return farmPressure.some(p => p.kind === 'captcha' && p.at >= cut);
   }
-
-  const FARM_CAPTCHA_CLAIMS_TTL_MS = 3600000;
-  const FARM_CAPTCHA_CLAIMS_MAX = 200;
-  const farmCaptchaClaims = [];
-  function farmCaptchaClaimsPrune() {
-    const cut = Date.now() - FARM_CAPTCHA_CLAIMS_TTL_MS;
-    while (farmCaptchaClaims.length && farmCaptchaClaims[0].at < cut) farmCaptchaClaims.shift();
-    while (farmCaptchaClaims.length > FARM_CAPTCHA_CLAIMS_MAX) farmCaptchaClaims.shift();
-  }
-  function farmCaptchaClaimNote(villId) {
-    farmCaptchaClaimsPrune();
-    farmCaptchaClaims.push({ villId: String(villId), at: Date.now() });
-  }
-  function farmCaptchaClaimsRecent(villId) {
-    farmCaptchaClaimsPrune();
-    const id = String(villId);
-    return farmCaptchaClaims.some(e => e.villId === id);
-  }
   function farmDayKey() {
-    const d = new Date();
-    return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+    const serverDay = String(gbServerDay() || '');
+    const parts = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(serverDay);
+    return parts ? `${parts[1]}-${Number(parts[2])}-${Number(parts[3])}` : serverDay;
   }
   function farmClaimsToday() {
     const day = farmDayKey();
     if (state.farmClaimsDay !== day) {
-
       state.farmClaimsDay = day;
       state.farmClaimsToday = {};
+      save(STORE.FARM_CLAIMS_DAY, day);
+      save(STORE.FARM_CLAIMS_TODAY, state.farmClaimsToday);
     }
     if (!state.farmClaimsToday || typeof state.farmClaimsToday !== 'object') state.farmClaimsToday = {};
-    saveSoon(STORE.FARM_CLAIMS_DAY, state.farmClaimsDay);
-    saveSoon(STORE.FARM_CLAIMS_TODAY, state.farmClaimsToday);
     return state.farmClaimsToday;
   }
   function farmClaimCount(villId) {
@@ -6334,46 +6841,30 @@ const STORE = {
     c[String(villId)] = (+c[String(villId)] || 0) + 1;
 
     saveSoon(STORE.FARM_CLAIMS_TODAY, c);
-    farmCaptchaClaimNote(villId);
   }
   function farmProfitScoreOf(villId) {
     const p = (state.farmProfit || {})[String(villId)];
     return p && p.score != null ? +p.score : null;
   }
 
-  function farmApplyDropPolicies(ready) {
-    if (!state.adaptiveFarm) return ready.slice();
-    farmPressureTick();
-    const pressure = farmPressureOn();
-    let work = ready.slice();
-    if (pressure) {
-
-      const known = work.filter(f => farmProfitScoreOf(f.vill_id) != null);
-      const dropped = work.length - known.length;
-      if (known.length) {
-        work = known;
-        if (dropped) gbLogT('farm-adaptive-unranked', 300000, `adaptive farm: pressure - dropped ${dropped} unranked village(s)`);
-      }
+  function farmApplyDropPolicies(ready) { return Array.isArray(ready) ? ready.slice() : []; }
+  function farmLongClaimNow(reason, onDone) {
+    const sec = farmLongClaimDuration();
+    if (farmOptionFor(sec) == null) {
+      gbLog(`long farm claim: ${farmDurLabel(sec)} option not learned yet - teach this Grepolis claim duration once by hand`);
+      flash('claim largo: ensenale ' + farmDurLabel(sec));
+      if (onDone) onDone(null);
+      return false;
     }
-    if (pressure && work.length >= 4) {
-      const pct = Math.max(0, Math.min(90, gbCfgNum(state.farmDropPressurePct, 25)));
-      work.sort((a, b) => (farmProfitScoreOf(b.vill_id) ?? -Infinity) - (farmProfitScoreOf(a.vill_id) ?? -Infinity));
-      const keep = Math.max(1, Math.ceil(work.length * (100 - pct) / 100));
-      if (keep < work.length) {
-        gbLogT('farm-adaptive-trim', 300000, `adaptive farm: pressure - claiming top ${keep}/${work.length} by yield`);
-        work = work.slice(0, keep);
-      }
+    if (!state.autoFarm) {
+      gbLog('long farm claim: auto-farm is OFF');
+      flash('claim largo: auto-granjas APAGADO');
+      if (onDone) onDone(null);
+      return false;
     }
-    if (farmCaptchaHot()) {
-      const before = work.length;
-      work = work.filter(f => !farmCaptchaClaimsRecent(f.vill_id));
-      if (work.length < before) {
-        gbLogT('farm-adaptive-daily', 300000, `adaptive farm: captcha hot - skipped ${before - work.length} village(s) claimed in this captcha window`);
-      }
-    }
-
-    work.sort((a, b) => (farmProfitScoreOf(b.vill_id) ?? -Infinity) - (farmProfitScoreOf(a.vill_id) ?? -Infinity));
-    return work;
+    gbLog(`long farm claim ${farmDurLabel(sec)}${reason ? ' (' + reason + ')' : ''}`);
+    autoClaimFarms('long claim ' + farmDurLabel(sec), sec, onDone);
+    return true;
   }
   function verifyClaims(before, attempted) {
     const farms = farmsFromGame();
@@ -6385,27 +6876,10 @@ const STORE = {
 
       if (!Object.prototype.hasOwnProperty.call(before, f.vill_id)) return;
       if (only && !only.has(String(f.vill_id))) return;
-      if (f.lootable_at != null && f.lootable_at > now && before[f.vill_id] !== f.lootable_at) {
-        updated++;
-        farmVerifyLearnMap(f, now);
-      }
+      if (f.lootable_at != null && f.lootable_at > now && before[f.vill_id] !== f.lootable_at) updated++;
     });
     gbLog(`farm claim verify: ${updated} village(s) now gathering${updated ? '' : ' - claims did NOT land (open Senado once, click Recoger manually, then paste me the Log tab)'}`);
     return updated;
-  }
-
-  function farmVerifyLearnMap(f, now) {
-    const posted = farmPostedOpts[String(f.vill_id)];
-    if (!posted) return;
-    const remaining = +f.lootable_at - now;
-    if (!(remaining > 30)) return;
-    const sec = farmSnapDuration(remaining);
-    if (sec == null) return;
-    const changed = farmOptionMapLearn(sec, posted.opt, 'verify');
-    farmOptionSetDerive(sec, posted.opt);
-    if (changed && posted.want && sec !== posted.want) {
-      gbLog(`farm: wanted ${farmDurLabel(posted.want)} but option ${posted.opt} gathered ${farmDurLabel(sec)} \u2014 map corrected`);
-    }
   }
 
   const FARM_SCRAPE_DEAD_SWEEPS = 2;
@@ -6425,9 +6899,7 @@ const STORE = {
     if (n) { save(STORE.FARM_RES, state.farmResources); renderFarms(); }
     return n;
   }
-  function farmScrapeNoteSweep(token, okCount) {
-
-    if (!token || !gbLockTouch('farm-scrape', token)) return;
+  function farmScrapeNoteSweep(okCount) {
     const st = farmScrapeState();
     if (okCount > 0) {
       if (st.misses || st.dead) { st.misses = 0; st.dead = false; farmScrapeSaveState(); }
@@ -6455,7 +6927,14 @@ const STORE = {
   const FARM_ACTION_OK = /^(farm_town_|get_farm|farm_info|island_farm)/;
   const FARM_ACTION_BAD = /farm_remove|village_attack|attack_log|farm_town_lock/;
   function farmGuesses() {
-    return xhrLadder(ACTION_GUESSES, { learned: state.farmAction });
+    const g = ACTION_GUESSES.slice();
+    const a = state.farmAction;
+    if (a) {
+      const i = g.indexOf(a);
+      if (i >= 0) g.splice(i, 1);
+      g.unshift(a);
+    }
+    return g;
   }
   function learnFarmAction(u) {
     const m = String(u || '').match(/[?&]action=([a-z0-9_]+)/i);
@@ -6463,13 +6942,12 @@ const STORE = {
     const a = m[1].toLowerCase();
     if (FARM_ACTION_BAD.test(a)) return;
     if (!FARM_ACTION_OK.test(a) && !(/^farm/.test(a) && /town|info|overview/.test(a))) return;
+    if (state.farmAction === a) return;
+    state.farmAction = a;
+    save(wkey(STORE.FARM_ACTION), a);
+    gbLog('learned farm action', a);
 
-    if (state.farmAction !== a) {
-      state.farmAction = a;
-      save(wkey(STORE.FARM_ACTION), a);
-      gbLog('learned farm action', a);
-    }
-    farmScrapeRevive('observed action ' + a);
+    farmScrapeRevive('learned action ' + a);
   }
   function fetchFarmResources(entry, onDone) {
     const guesses = farmGuesses();
@@ -6490,7 +6968,6 @@ const STORE = {
       if (state.csrf) params.set('h', state.csrf);
       const u = '/index.php?' + params.toString();
       gbXhr({
-        feature: 'farm-scrape',
         method: 'GET', url: u,
         anonymous: false, budget: 'scrape',
         headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json, text/plain, */*' },
@@ -6506,7 +6983,7 @@ const STORE = {
               if (onDone) onDone(false);
               return;
             }
-            gbLogT('farm-http-' + res.status, 30000, `farm-scrape ${entry.vill_id}: HTTP ${res.status}, retry ${n + 1}/3 in ${retryMs}ms`);
+            gbLogT('farm-http-' + res.status, 30000, `farm ${entry.vill_id}: HTTP ${res.status}, retry ${n + 1}/3 in ${retryMs}ms`);
             gbTimeout(() => tryGuess(entry, i, n + 1), retryMs);
             return;
           }
@@ -6608,7 +7085,7 @@ const STORE = {
     const FARM_SCRAPE_HARD_ABORT = 3;
 
     (function step() {
-      if (!gbLockTouch('farm-scrape', farmScrapeLock)) return;
+      gbLockTouch('farm-scrape', farmScrapeLock);
       if (!hostEnabled() || automationPaused({})) {
         gbUnlock('farm-scrape', farmScrapeLock);
         gbLog(`farm scrape aborted (host/pause): ${ok}/${done} ok`);
@@ -6619,26 +7096,26 @@ const STORE = {
         gbUnlock('farm-scrape', farmScrapeLock);
         gbLog(`farm scrape done: ${ok}/${done} ok, next in ${fmtSec(Math.round(wait / 1000))}`);
         flash(`farms ${ok}/${done} ok`);
-        if (done) farmScrapeNoteSweep(farmScrapeLock, ok);
+        if (done) farmScrapeNoteSweep(ok);
         return;
       }
       fetchFarmResources(f, (good, why) => {
         done++; if (good) ok++;
         const err = (state.farmResources[f.vill_id] || {}).err || '?';
-        if (!good) gbLog(`  farm-scrape ${f.vill_id}: no data (${err})`);
+        if (!good) gbLog(`  farm ${f.vill_id}: no data (${err})`);
         if (!good && err === 'no endpoint matched') hard++;
 
         if (why === 'budget' || why === 'disabled' || why === 'disposed') {
           gbUnlock('farm-scrape', farmScrapeLock);
           gbLog(`farm scrape stopped (${why}): ${ok}/${done} ok`);
-          if (ok || hard) farmScrapeNoteSweep(farmScrapeLock, ok);
+          if (ok || hard) farmScrapeNoteSweep(ok);
           return;
         }
 
         if (!ok && hard >= FARM_SCRAPE_HARD_ABORT && list.length) {
           gbUnlock('farm-scrape', farmScrapeLock);
-          gbLog(`farm scrape stopped (no endpoint after ${hard} villages): 0/${done} ok \u2014 display only, claims use bridge`);
-          farmScrapeNoteSweep(farmScrapeLock, 0);
+          gbLog(`farm scrape stopped (no endpoint after ${hard} villages): 0/${done} ok`);
+          farmScrapeNoteSweep(0);
           return;
         }
         gbTimeout(step, 700 + Math.random() * 300);
@@ -6696,36 +7173,43 @@ const STORE = {
   }
 
   function farmLoyaltyAutoTeachTick() {
-    if (farmOptionFor(600) != null) {
-      if (state.farmTeachBanner) farmSetTeachBanner('');
-      return;
-    }
+    if (!state.farmLongClaims) return;
     let anyLoyalty = false;
     try {
       const towns = townsFromGame() || state.towns || [];
       for (const t of towns) {
-        const r = farmLoyaltyProbe(t.id);
-        farmLoyaltyCache[t.id] = { ts: Date.now(), val: r.val, hit: r.hit };
-        if (r.val) {
-          anyLoyalty = true;
-          if (!String(state.farmLoyaltyTech || '').trim() && r.hit) farmLoyaltyLearnTech(r.hit);
-          break;
-        }
+        if (farmLoyaltyResearched(t.id)) { anyLoyalty = true; break; }
       }
     } catch (_) {}
+    const seen = !!state.farmLoyaltySeen;
+    if (!anyLoyalty) {
+      if (seen) {
+        state.farmLoyaltySeen = false;
+        save(STORE.FARM_LOYALTY_SEEN, false);
+      }
+      return;
+    }
+    if (farmOptionFor(600) != null) {
+      if (!seen) { state.farmLoyaltySeen = true; save(STORE.FARM_LOYALTY_SEEN, true); }
+      if (state.farmTeachBanner) farmSetTeachBanner('');
+      return;
+    }
+    const flip = !seen;
+    if (!flip && state.farmTeachBanner) return;
+    state.farmLoyaltySeen = true;
+    save(STORE.FARM_LOYALTY_SEEN, true);
     const derived = farmTryDeriveOptionMap();
     if (derived && derived['600'] != null) {
+
       const map = Object.assign({}, state.farmOptionMap || {}, derived);
       state.farmOptionMap = map;
       save(wkey(STORE.FARM_OPTION_MAP), map);
-      gbLog(`farm: auto-teach provisional 10min option=${derived['600']} (confirm on next claim)`);
+      gbLog(`farm: loyalty auto-teach provisional 10min option=${derived['600']} (confirm on next claim)`);
       farmSetTeachBanner('');
       return;
     }
-    if (state.farmTeachBanner) return;
-    farmSetTeachBanner('Haz una recogida de 10 minutos a mano para ensenarselo al bot.');
-    gbLog('farm: 10min option unknown; hand-claim once to teach'
-      + (anyLoyalty ? ' (loyalty researched)' : ''));
+    farmSetTeachBanner('Investigacion de lealtad completada. Haz una recogida de 10 minutos a mano para ensenarselo al bot.');
+    gbLog('farm: loyalty researched - 10min option unknown; hand-claim once to teach');
   }
   function farmTick() {
     try { gbWakeGapTick(); } catch (_) {}
@@ -6734,7 +7218,7 @@ const STORE = {
       if (hostEnabled() && !automationPaused({})) {
         if (now >= state.nextFarmScrape) scrapeAllFarms();
         if (now >= state.nextTownsScrape) scrapeAllTowns();
-        if (state.autoFarm && farmClaimDue()) autoClaimFarms('farm-tick');
+        if (state.autoFarm) farmScheduleClaimWake(null, 'farm-tick', true);
       }
       try { farmLoyaltyAutoTeachTick(); } catch (_) {}
       try { renderFarmTeachBanner(); } catch (_) {}
@@ -6758,7 +7242,7 @@ const STORE = {
   function townResourcesFromGame(id) {
     const uw = gameUw();
     try {
-      const t = gbTownModel(id);
+      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(id) : uw.ITowns.towns[id]);
       if (!t || !t.resources) return null;
       const r = t.resources();
       if (!r || r.wood == null) return null;
@@ -6767,7 +7251,15 @@ const STORE = {
   }
   const TOWN_LIST_GUESSES = ['get_towns', 'towns_overview', 'get_owned_towns', 'overview_towns', 'town_list'];
 
-  function townLadder(guesses, learned) { return xhrLadder(guesses, { learned }); }
+  function townLadder(guesses, learned) {
+    const g = guesses.slice();
+    if (learned) {
+      const i = g.indexOf(learned);
+      if (i >= 0) g.splice(i, 1);
+      g.unshift(learned);
+    }
+    return g;
+  }
   function townLearnAction(key, storeKey, action) {
     if (!action || state[key] === action) return;
     const had = state[key];
@@ -6785,7 +7277,6 @@ const STORE = {
     params.set('action', action); params.set('h', state.csrf);
     const u = '/index.php?' + params.toString();
     gbXhr({
-      feature: 'town-list-scrape',
       method: 'GET', url: u, budget: 'scrape',
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
       onload(res) {
@@ -6879,7 +7370,6 @@ const STORE = {
       const params = new URLSearchParams();
       params.set('action', action); params.set('town_id', town.id); params.set('h', state.csrf || '');
       gbXhr({
-        feature: 'town-scrape',
         method: 'GET', url: '/index.php?' + params.toString(), budget: 'scrape',
         headers: { 'X-Requested-With': 'XMLHttpRequest' }, anonymous: false,
         onload(res) {
@@ -6993,10 +7483,18 @@ const STORE = {
     save(wkey(STORE.COLLECT_TPL), u);
     gbLog('learned collect action', a);
   }
+  function collectPendingBlock(intent) {
+    const tx = state.txState && state.txState[intent];
+    if (!tx || !/^(planned|precheck|sending|confirming|reconciling|unknown|manual-review|dryrun)$/.test(tx.state || '')) return null;
+    const age = Date.now() - (+tx.unknownAt || +tx.updatedAt || +tx.createdAt || Date.now());
+
+    if (tx.state === 'unknown' && age >= TX_UNKNOWN_RECHECK_MS) return null;
+    if (tx.state === 'manual-review' && !txManualReviewPermanent(tx) && age > TX_MANUAL_REVIEW_TTL_MS) return null;
+    return tx.state || 'pending';
+  }
   function autoCollectResources() {
     if (!state.autoCollect) return;
     if (!hostEnabled() || automationPaused({}) || captchaPaused('collect') || circuitOpen('collect')) return;
-    if (document.hidden) return;
     if (currentTownWarehouseBlocks()) {
       gbLogT('collect-wh-full', 60000, `auto-collect: skipped Recoger (warehouse full, mode=${state.farmFullMode})`);
       return;
@@ -7005,7 +7503,7 @@ const STORE = {
     let attempted = 0, scanned = btns.length;
     const skipped = [];
     let currentTownId = null;
-    try { currentTownId = uwCached().Game && uwCached().Game.townId; } catch (_) {}
+    try { currentTownId = gameUw().Game && gameUw().Game.townId; } catch (_) {}
     for (let bi = 0; bi < btns.length; bi++) {
       const btn = btns[bi];
       if (btn.dataset.grepbotClicked) { skipped.push('already-clicked'); continue; }
@@ -7025,9 +7523,17 @@ const STORE = {
         continue;
       }
       const beforeTime = (timeEl.textContent || '').trim();
+      const endpoint = `dom-collect:${currentTownId || '-'}:${min}:${bi}`;
+      const intent = txIntent('collect', 'dom', endpoint, { town_id: currentTownId, minutes: min, dom_index: bi }, null);
+      const pendingState = collectPendingBlock(intent);
+      if (pendingState) {
+        skipped.push('pending:' + pendingState);
+        gbLogT('collect-pending-' + intent, 30000, `auto-collect: ${min}min blocked by pending TX (${pendingState})`);
+        continue;
+      }
       attempted++;
 
-      txDomWrite('collect', `dom-collect:${currentTownId || '-'}:${min}:${bi}`,
+      txDomWrite('collect', endpoint,
         { town_id: currentTownId, minutes: min, dom_index: bi },
         () => {
           btn.dataset.grepbotClicked = String(Date.now());
@@ -7054,13 +7560,14 @@ const STORE = {
     const e = panel?.querySelector('#gb-collect-state');
     if (!e) return;
     if (state.collectAll) {
-      e.textContent = `Recogida: todo (${clicked}/${scanned})`;
+      e.textContent = `* ALL ON (${scanned}/${clicked})`;
       e.style.color = '#f96';
     } else if (scanned > 0) {
-      e.textContent = `Recogida: ${clicked}/${scanned}`;
+      e.textContent = `auto: ${clicked}/${scanned}`;
       e.style.color = clicked ? '#6c6' : '#888';
     } else {
-      e.textContent = state.collectTpl ? 'Recogida: bot\u00f3n aprendido' : 'Recogida: sin bot\u00f3n a la vista';
+      const a = state.collectTpl && state.collectTpl.match(/action=([^&]+)/);
+      e.textContent = state.collectTpl ? '* learn:' + (a ? a[1] : '?') : 'no btn';
       e.style.color = '#888';
     }
   }
@@ -7103,13 +7610,12 @@ const STORE = {
     let pending = n;
     let errors = 0;
     const finish = () => {
-      if (!gbLockTouch('collect-bg', collectBgLock)) return;
+      gbLockTouch('collect-bg', collectBgLock);
       if (--pending > 0) return;
       gbUnlock('collect-bg', collectBgLock);
       if (errors) collectBgBackoff = Math.min(collectBgBackoff * 2, 600_000);
       else collectBgBackoff = 90_000;
-
-      gbTimeout(() => scheduleCollectBg(collectBgBackoff + Math.random() * 30_000), 0);
+      scheduleCollectBg(collectBgBackoff + Math.random() * 30_000);
     };
     state.towns.forEach((t, i) => {
       gbTimeout(() => {
@@ -7134,8 +7640,6 @@ const STORE = {
     });
     flash(`bg-collect x${n}`);
   }
-
-  const COLLECT_SAFETY_MS = 5000;
   let collectTimer = null;
   let collectRafPending = false;
   function scheduleAutoCollect() {
@@ -7154,7 +7658,7 @@ const STORE = {
       gbDomObserver = new MutationObserver((records) => {
         if (document.hidden) return;
 
-        const GB_OWN_SEL = '.gb-native-qctl,.gb-native-qpop,.gb-flash,#grepbot-panel';
+        const GB_OWN_SEL = '.gb-native-qctl,.gb-native-panel,.gb-flash,#grepbot-panel,#grepbot-queue-center';
         const ownEl = n => !!(n && n.nodeType === 1 && n.closest && n.closest(GB_OWN_SEL));
         const ownRecord = (r) => {
           const t = r.target && r.target.nodeType === 1 ? r.target : r.target && r.target.parentElement;
@@ -7184,6 +7688,7 @@ const STORE = {
     }
   }
   ensureDomObserver();
+  let banditTimer = null;
   let banditAttackSentAt = 0;
   let banditIdleUntil = 0;
   function banditIdle(ms, cap) { banditIdleUntil = Date.now() + Math.min(ms, cap || 30000); }
@@ -7220,7 +7725,16 @@ const STORE = {
 
   const BANDIT_HISTORY_MAX = 20;
   const banditAttackHistory = [];
-  function banditRankUnits(uw, rawUnits) {
+  function banditUnitCost(uw, unit) {
+    try {
+      const d = uw.GameData && uw.GameData.units && uw.GameData.units[unit];
+      const r = d && (d.resources || d.costs || d.cost);
+      if (!r) return null;
+      const n = (+r.wood || 0) + (+r.stone || 0) + (+r.iron || 0);
+      return n > 0 ? n : null;
+    } catch (_) { return null; }
+  }
+  function banditRankUnits(uw, rawUnits, cfg) {
     return banditAttackUnits(uw, rawUnits);
   }
   function banditNoteAttack(units) {
@@ -7337,7 +7851,7 @@ const STORE = {
       if (townId != null && tx.meta && tx.meta.townId != null && String(tx.meta.townId) !== String(townId)) continue;
       if (banditMovementReconcileResult(tx, evidence) !== 'applied') continue;
       tx.state = 'committed'; tx.updatedAt = Date.now(); tx.detail = 'movement model confirmed';
-      plannerCommit(tx); committed++;
+      plannerRelease(tx, 'bandit-reconciled-applied'); committed++;
       jrnPush({ f:'bandit', a:String(tx.endpoint || '').slice(0,48), k:String(tx.intent || '-').slice(0,120) }, 'ok', tx.detail, tx.id);
       markModuleHealth('bandit', 'ok'); circuitSuccess('bandit');
     }
@@ -7407,10 +7921,13 @@ const STORE = {
         post(action, {}, (err) => {
           gbUnlock('bandit-reward', rewardLock);
           if (err) {
+            const expected = gbExpectedServerReject('bandit', err);
+            if (expected === 'waiting-inventory-full') {
 
-            if (err === 'timeout_unknown' || err === 'pending') banditIdle(60000, 60000);
-            else banditIdle(30000);
-            gbLog('bandit: reward claim failed', err);
+              banditIdle(30 * 60 * 1000, 30 * 60 * 1000);
+              gbLogT('bandit-inventory-full', 30 * 60 * 1000, 'bandit: reward waiting - inventory full');
+            } else if (err === 'timeout_unknown' || err === 'pending') banditIdle(60000, 60000);
+            else { banditIdle(30000); gbLog('bandit: reward claim failed', err); }
             return;
           }
           banditIdle(15000);
@@ -7515,17 +8032,10 @@ const STORE = {
     }
   }
   let banditLoopTimer = null;
-  let banditTimer = null;
   function banditClearLoop() {
     if (banditLoopTimer) {
       try { gbClearTimeout(banditLoopTimer); } catch (_) {}
       banditLoopTimer = null;
-    }
-  }
-  function banditClearScan() {
-    if (banditTimer) {
-      try { gbClearTimeout(banditTimer); } catch (_) {}
-      banditTimer = null;
     }
   }
   function banditScheduleNext() {
@@ -7553,14 +8063,11 @@ const STORE = {
     save(STORE.BANDIT_LOG, state.banditLog);
   }
   banditScheduleNext();
-
-  gbInterval(autoCollectResources, COLLECT_SAFETY_MS);
+  gbInterval(autoCollectResources, 5000);
   if (state.autoCollect && state.collectAll) collectAllBackground();
   const IB_CHECK_MS = 10000;
   const IB_FREE_ACTIONS = new Set(['buyInstant']);
   const IB_FREE_SERVER_MARGIN_SEC = 10;
-
-  const IB_RESCAN_AFTER_MS = 3000;
   function ibFreeThresh() { return Math.max(1,Math.min(300,+state.ibFreeThresh||300)); }
   function ibSafeFreeThresh(){return Math.min(300-IB_FREE_SERVER_MARGIN_SEC,ibFreeThresh());}
   function ibGoldCost(kind, seconds) {
@@ -7569,14 +8076,12 @@ const STORE = {
       const gdi = uw.GameDataInstantBuy;
       if (!gdi || typeof gdi.getPriceForType !== 'function') return null;
       const type = kind === 'research' ? 'research' : 'building';
-      const price = gdi.getPriceForType(type, Math.max(0, gbNum(seconds) || 0));
-      const p = gbNum(price);
-      return p;
+      const price = gdi.getPriceForType(type, Math.max(0, +seconds || 0));
+      return gbNum(price);
     } catch (_) { return null; }
   }
   function ibIsFreeOrder(timeLeft, gold) {
-    const t = gbNum(timeLeft);
-    return t != null && t > 0 && t <= ibSafeFreeThresh() && gold === 0;
+    return Number.isFinite(+timeLeft) && +timeLeft > 0 && +timeLeft <= ibSafeFreeThresh() && gold === 0;
   }
   function ibOrderStillPresent(orderId,kind) {
     return ibOrders(true).some(o => String(o.id) === String(orderId) && (kind==null||o.kind===kind));
@@ -7825,7 +8330,7 @@ const STORE = {
       if (!hostEnabled() || captchaPaused(tag)) { resolve('pause'); return; }
 
       const live = ibFindLiveOrder(order.id, kind);
-      const instantLeft = live ? (gbNum(live.instantLeft) != null ? gbNum(live.instantLeft) : gbNum(live.timeLeft)) : null;
+      const instantLeft = live && Number.isFinite(+live.instantLeft) ? +live.instantLeft : +(live && live.timeLeft);
 
       const positionAllowed = kind === 'build' || (live && live.isHead === true);
       if (!live || !positionAllowed || !live.isFree || live.gold !== 0 || !(instantLeft > 0) || instantLeft > ibSafeFreeThresh()) {
@@ -7905,13 +8410,13 @@ const STORE = {
 
     const watchdog = gbTimeout(unlock, Math.max(30000, free.length * (BRIDGE_TIMEOUT_MS + 5000)));
     (function next() {
-      if (!gbLockTouch('ib', ibLockToken)) return;
+      gbLockTouch('ib', ibLockToken);
       if (i >= free.length || captcha) {
         try { gbClearTimeout(watchdog); } catch (_) {}
         unlock();
         gbLog(`instant: completed ${done}/${free.length}${captcha ? ' (captcha abort)' : ''}`);
         if (done) flash(`instant x${done}`);
-        gbTimeout(ibScan, IB_RESCAN_AFTER_MS);
+        gbTimeout(ibScan, 3000);
         return;
       }
       ibComplete(free[i]).then(res => {
@@ -8003,9 +8508,240 @@ const STORE = {
     conquest: { label:'Conquista / CS', build:{main:25,storage:25,farm:30,academy:30,docks:20,market:15}, research:{colonize_ship:1}, units:{colonize_ship:1}, reserve:{hard:{wood:10000,stone:10000,iron:10000,population:170}}, defensive:0.4, resource:{wood:0,stone:0,iron:0} },
     favor: { label:'Favor / m\u00edticas', build:{main:15,storage:20,farm:25,temple:20,academy:20}, research:{}, units:{}, reserve:{soft:{wood:5000,stone:5000,iron:5000,population:100}}, defensive:0.4, resource:{wood:0,stone:0,iron:0} },
   };
+  const CD_PROFILE_ALIASES = Object.freeze({
+    cd_slinger:'cd_slinger_50ls', cd_slinger_50ls:'cd_slinger_50ls', cd_honderos:'cd_slinger_50ls',
+    cd_bireme:'cd_bireme', cd_birras:'cd_bireme',
+    cd_lightship:'cd_lightship', cd_ls:'cd_lightship', cd_attack_ship:'cd_lightship', cd_catapult:'cd_lightship',
+    cd_trireme:'cd_trireme', cd_trirreme:'cd_trireme',
+    cd_defense:'cd_defense', cd_defense_land:'cd_defense'
+  });
+  const CD_PROFILE_DEFAULTS = Object.freeze({
+    cd_slinger_50ls:{label:'CD \u00b7 Honderos + 50 mechas',cd:true},
+    cd_bireme:{label:'CD \u00b7 Full birremes',cd:true},
+    cd_lightship:{label:'CD \u00b7 Full mechas',cd:true},
+    cd_trireme:{label:'CD \u00b7 Full trirremes',cd:true},
+    cd_defense:{label:'CD \u00b7 Defensa terrestre m\u00f3vil',cd:true},
+  });
+  function cdCanonicalProfile(profile){const p=String(profile||'');return CD_PROFILE_ALIASES[p]||p}
+  function cdIsProfile(profile){return !!CD_PROFILE_DEFAULTS[cdCanonicalProfile(profile)]}
+  function cdGoalClone(v){try{return JSON.parse(JSON.stringify(v))}catch(_){return null}}
+  function cdGoalStamp(g){const c=g&&g.cd&&typeof g.cd==='object'?g.cd:{};return {revision:Number.isFinite(+c.revision)?+c.revision:0,at:Math.max(+c.lastRevisionAt||0,+c.changedAt||0,+c.stripStartedAt||0)}}
+  const CD_OPTION_FIELDS=Object.freeze(['stripEnabled','safeBackline','breakthrough','wallMax']);
+  const CD_OPTION_MISSING=Object.freeze({});
+  function cdOptionStorageKey(townId,key){return `grepbot:cd-option-v1@${String(location.hostname||location.host||'')}:${String(townId)}:${String(key)}`}
+  function cdOptionRead(townId,key){if(!CD_OPTION_FIELDS.includes(String(key)))return null;try{const v=GM_getValue(cdOptionStorageKey(townId,key),CD_OPTION_MISSING);return v===CD_OPTION_MISSING?null:(typeof v==='boolean'?v:null)}catch(_){return null}}
+  function cdOptionWrite(townId,key,value){if(!CD_OPTION_FIELDS.includes(String(key)))return false;try{GM_setValue(cdOptionStorageKey(townId,key),!!value);return true}catch(_){return false}}
+  function cdApplyStoredOptions(townId,c){if(!c||typeof c!=='object')return c;for(const key of CD_OPTION_FIELDS){const v=cdOptionRead(townId,key);if(v!==null)c[key]=v}return c}
+  let cdAliasCacheOwner=null,cdAliasCacheWorld='',cdAliasCache=new Map();
+  function cdSyncTownGoal(townId){
+    const id=String(townId),latestAll=load(STORE.TOWN_GOALS,{});if(!latestAll||typeof latestAll!=='object'||Array.isArray(latestAll))return false;
+    const latest=latestAll[id],local=state.townGoals&&state.townGoals[id];if(!latest||typeof latest!=='object'||Array.isArray(latest))return false;
+    const A=cdGoalStamp(latest),B=cdGoalStamp(local);if(!local||A.revision>B.revision||(A.revision===B.revision&&A.at>B.at)){const copy=cdGoalClone(latest);if(copy){if(!copy.cd||typeof copy.cd!=='object')copy.cd={};cdApplyStoredOptions(id,copy.cd);if(!state.townGoals||typeof state.townGoals!=='object'||Array.isArray(state.townGoals))state.townGoals={};state.townGoals[id]=copy;return true}}
+    if(local&&local.cd)cdApplyStoredOptions(id,local.cd);
+    return false;
+  }
+  function cdPersistTownGoal(townId){
+    const id=String(townId),mine=state.townGoals&&state.townGoals[id];if(!mine)return false;const latest=load(STORE.TOWN_GOALS,{}),merged=latest&&typeof latest==='object'&&!Array.isArray(latest)?cdGoalClone(latest):{};if(!merged)return false;const copy=cdGoalClone(mine)||mine;if(!copy.cd||typeof copy.cd!=='object')copy.cd={};cdApplyStoredOptions(id,copy.cd);merged[id]=copy;const ok=save(STORE.TOWN_GOALS,merged);if(ok)state.townGoals=merged;return ok;
+  }
+  function cdTownState(townId){
+    const g=goalTownCfg(townId); if(!g.cd||typeof g.cd!=='object'||Array.isArray(g.cd))g.cd={};
+    const c=g.cd;
+    if(!Number.isFinite(+c.revision)||+c.revision<1)c.revision=1;else c.revision=Math.floor(+c.revision);
+    if(typeof c.stripEnabled!=='boolean')c.stripEnabled=false;
+    if(typeof c.safeBackline!=='boolean')c.safeBackline=false;
+    if(typeof c.breakthrough!=='boolean')c.breakthrough=false;
+
+    if(typeof c.wallMax!=='boolean')c.wallMax=cdCanonicalProfile(g.profile)==='cd_defense';
+    if(typeof c.stripStarted!=='boolean')c.stripStarted=false;
+    if(typeof c.stripFinalized!=='boolean')c.stripFinalized=false;
+    if(typeof c.landDocksFinalized!=='boolean')c.landDocksFinalized=false;
+    cdApplyStoredOptions(townId,c);
+    return c;
+  }
+  function cdProfileRevision(townId){return +cdTownState(townId).revision||1}
+  function cdBumpRevision(townId,why){const c=cdTownState(townId);c.revision=(+c.revision||0)+1;c.landDocksFinalized=false;c.lastRevisionWhy=String(why||'change');c.lastRevisionAt=Date.now();cdPersistTownGoal(townId);return c.revision}
+  function cdSetOption(townId,key,value){cdSyncTownGoal(townId);const c=cdTownState(townId);if(!CD_OPTION_FIELDS.includes(String(key)))return false;const v=!!value;if(c[key]===v)return true;if(!cdOptionWrite(townId,key,v))return false;c[key]=v;
+
+    if((key==='stripEnabled'||key==='safeBackline')&&!v)c.stripStarted=false;
+    cdBumpRevision(townId,'option:'+key);goalPlanTown(townId);return true}
+  function cdGameDataMap(kind){try{const gd=gameUw().GameData||{};return gd[kind]||{}}catch(_){return {}}}
+  function cdFindId(kind,candidates){
+    let gd=null;try{gd=gameUw().GameData||null}catch(_){}const world=String(location.hostname||location.host||'');
+    if(gd!==cdAliasCacheOwner||world!==cdAliasCacheWorld){cdAliasCacheOwner=gd;cdAliasCacheWorld=world;cdAliasCache=new Map()}
+    const list=candidates||[],key=String(kind)+'|'+list.join(',');if(cdAliasCache.has(key))return cdAliasCache.get(key);
+    const map=(gd&&gd[kind])||cdGameDataMap(kind);for(const id of list)if(Object.prototype.hasOwnProperty.call(map,id)){cdAliasCache.set(key,id);return id}
+    return null;
+  }
+  function cdUnitId(role){
+    const c={slinger:['slinger'],lightship:['attack_ship','light_ship'],bireme:['bireme'],trireme:['trireme'],fast:['small_transporter','fast_transport_ship','small_transport'],sword:['sword'],archer:['archer'],hoplite:['hoplite']};
+    return cdFindId('units',c[role]||[role])
+  }
+  function cdResearchId(role){
+    const c={architecture:['architecture'],crane:['crane'],slinger:['slinger'],meteorology:['meteorology'],trainer:['trainer','instructor'],shipwright:['shipwright'],lightship:['attack_ship','light_ship'],conscription:['conscription','mandatory_military_service'],fast:['small_transporter','fast_transport_ship','small_transport'],plow:['plow'],bunks:['bunks','berth','berths'],phalanx:['phalanx'],mathematics:['mathematics'],ram:['ram'],cartography:['cartography'],bireme:['bireme'],trireme:['trireme'],archer:['archer'],hoplite:['hoplite'],breakthrough:['breakthrough','penetration']};
+    return cdFindId('researches',c[role]||[role])
+  }
+  function cdUnitPop(unit){const d=unit&&gbGameDataLookup('units',unit);const n=d&&+(d.population??d.pop);return Number.isFinite(n)&&n>0?n:null}
+  function cdResearchNeedAcademy(tech){const d=tech&&gbGameDataLookup('researches',tech);if(!d)return null;const n=+(d.academy_level??d.required_academy_level??d.building_level??d.level);return Number.isFinite(n)&&n>=0?n:0}
+  function cdResearchRoles(profile,townId){
+    const canon=cdCanonicalProfile(profile), c=cdTownState(townId);let roles=['architecture','crane'];
+    if(canon==='cd_slinger_50ls')roles=roles.concat(['slinger','meteorology','trainer','shipwright','lightship','conscription','fast','plow','bunks','phalanx','mathematics','ram','cartography']);
+    else if(canon==='cd_bireme')roles=roles.concat(['bireme','shipwright','plow','mathematics','ram','cartography']);
+    else if(canon==='cd_lightship')roles=roles.concat(['lightship','shipwright','plow','mathematics','ram','cartography']);
+    else if(canon==='cd_trireme')roles=roles.concat(['trireme','shipwright','plow','mathematics','ram','cartography']);
+    else if(canon==='cd_defense')roles=roles.concat(['archer','hoplite','trainer','conscription','fast','plow','bunks','phalanx','cartography']);
+    if(c.breakthrough&&canon==='cd_slinger_50ls')roles.push('breakthrough');
+    return [...new Set(roles)];
+  }
+  function cdResearchTargets(townId){
+    const g=goalTownCfg(townId),canon=cdCanonicalProfile(g.profile);if(!cdIsProfile(canon))return {};
+    const out={},unresolved=[];let order=0;
+    for(const role of cdResearchRoles(canon,townId)){const id=cdResearchId(role);if(id)out[id]={order:order++,tgt:1,cdRole:role};else unresolved.push(role)}
+    out.__cdUnresolved=unresolved;return out;
+  }
+  function cdQueuedResearchIds(info){
+    const out=new Set();if(!info||!Array.isArray(info.orders))return out;
+    for(const o of info.orders){const id=researchOrderTechId(o);if(id!=null)out.add(String(id))}
+    return out;
+  }
+  function cdResearchCapacityState(townId,targets){
+    const t=targets||cdResearchTargets(townId),info=researchTownTechs(townId);if(!info||!info.techs||!info.ordersKnown)return {known:false,feasible:false,why:'research-state-unreadable'};
+    const max=abMaxLevel('academy'),per=researchConstant('points_per_academy_level');if(max==null||per==null||!(per>0))return {known:false,feasible:false,why:'academy-capacity-unreadable'};
+    if(info.library==null)return {known:false,feasible:false,why:'library-unreadable'};
+    let lib=0;if(info.library===1){lib=researchConstant('points_per_library_level');if(lib==null)return {known:false,feasible:false,why:'library-capacity-unreadable'}}
+    const spent=researchPointsSpent(info);if(spent==null)return {known:false,feasible:false,why:'research-points-unreadable'};
+    const queued=cdQueuedResearchIds(info);let missing=0;
+    for(const [tech,v] of Object.entries(t||{})){
+      if(tech==='__cdUnresolved'||!v||!v.tgt||info.techs[tech]||queued.has(String(tech)))continue;
+      const pts=researchPointCost(tech);if(pts==null)return {known:false,feasible:false,why:'target-points-unreadable'};missing+=pts;
+    }
+    const required=spent+missing,maxCapacity=Math.max(0,+max||0)*per+lib;
+    return {known:true,feasible:required<=maxCapacity,required,maxCapacity,spent,missing,queued:queued.size,why:required<=maxCapacity?'ok':`research-points:${required}/${maxCapacity}`};
+  }
+  function cdAcademyTarget(townId,targets){
+    const info=researchTownTechs(townId), max=abMaxLevel('academy');let need=30;
+    for(const [tech,t] of Object.entries(targets||{})){if(tech==='__cdUnresolved'||!t||!t.tgt)continue;const n=cdResearchNeedAcademy(tech);if(n!=null)need=Math.max(need,n)}
+    if(info){
+      const spent=researchPointsSpent(info),queued=cdQueuedResearchIds(info);let missing=0;
+      if(spent!=null&&info.techs){for(const [tech,t] of Object.entries(targets||{})){if(tech==='__cdUnresolved'||!t||!t.tgt||info.techs[tech]||queued.has(String(tech)))continue;const pts=researchPointCost(tech);if(pts==null){missing=null;break}missing+=pts}}
+      const per=researchConstant('points_per_academy_level');const lib=info.library===1?researchConstant('points_per_library_level'):0;
+      if(spent!=null&&missing!=null&&per!=null&&per>0&&lib!=null){need=Math.max(need,Math.ceil(Math.max(0,spent+missing-lib)/per))}
+    }
+    return max==null?need:Math.min(max,need)
+  }
+  function cdBaseBuild(profile,townId){
+    const canon=cdCanonicalProfile(profile),cap=(id,fallback)=>{const n=abMaxLevel(id);return n==null?fallback:Math.max(0,+n||0)},rt=cdResearchTargets(townId),acad=cdAcademyTarget(townId,rt);
+    const base={main:Math.min(24,cap('main',24)),storage:cap('storage',35),farm:cap('farm',45),academy:Math.min(acad,cap('academy',acad)),market:Math.min(20,cap('market',20)),hide:Math.min(10,cap('hide',10)),temple:Math.min(15,cap('temple',15))};
+    if(canon==='cd_slinger_50ls')Object.assign(base,{barracks:cap('barracks',30),docks:cap('docks',30),lumber:Math.min(40,cap('lumber',40)),stoner:Math.min(40,cap('stoner',40)),ironer:Math.min(40,cap('ironer',40)),thermal:Math.min(1,cap('thermal',1))});
+    if(canon==='cd_bireme')Object.assign(base,{barracks:Math.min(5,cap('barracks',5)),docks:cap('docks',30),lumber:Math.min(40,cap('lumber',40)),stoner:Math.min(40,cap('stoner',40)),ironer:Math.min(30,cap('ironer',30)),thermal:Math.min(1,cap('thermal',1))});
+    if(canon==='cd_lightship')Object.assign(base,{barracks:Math.min(5,cap('barracks',5)),docks:cap('docks',30),lumber:Math.min(40,cap('lumber',40)),stoner:Math.min(25,cap('stoner',25)),ironer:Math.min(40,cap('ironer',40)),thermal:Math.min(1,cap('thermal',1))});
+    if(canon==='cd_trireme')Object.assign(base,{barracks:Math.min(5,cap('barracks',5)),docks:cap('docks',30),lumber:Math.min(40,cap('lumber',40)),stoner:Math.min(40,cap('stoner',40)),ironer:Math.min(40,cap('ironer',40)),thermal:Math.min(1,cap('thermal',1))});
+    if(canon==='cd_defense')Object.assign(base,{barracks:cap('barracks',30),docks:Math.min(20,cap('docks',20)),lumber:Math.min(40,cap('lumber',40)),stoner:Math.min(35,cap('stoner',35)),ironer:Math.min(40,cap('ironer',40)),wall:cap('wall',25),thermal:Math.min(1,cap('thermal',1)),tower:Math.min(1,cap('tower',1))});
+    const c=cdTownState(townId);
+    if(c.wallMax)base.wall=cap('wall',25);else delete base.wall;
+    const lv=abCurrentLevels(townId);if(lv){const left=['thermal','library','lighthouse','theater'].find(id=>+(lv[id]||0)>0);if(left&&left!=='thermal')delete base.thermal;const right=['tower','statue','oracle','trade_office'].find(id=>+(lv[id]||0)>0);if(right&&right!=='tower')delete base.tower}
+    return base;
+  }
+  function cdStripBuild(profile,townId){const out=Object.assign({},cdBaseBuild(profile,townId)),c=cdTownState(townId);out.main=Math.min(15,out.main||15);const wallMax=abMaxLevel('wall');out.wall=c.wallMax?(wallMax==null?25:Math.max(0,+wallMax||0)):0;return out}
+  function cdFinalBuild(profile,townId){const c=cdTownState(townId);return (c.stripStarted||c.stripFinalized)?cdStripBuild(profile,townId):cdBaseBuild(profile,townId)}
+  function cdBuildTargets(townId){const g=goalTownCfg(townId);return cdFinalBuild(g.profile,townId)}
+  function cdBuildOrder(townId){const canon=cdCanonicalProfile(goalTownCfg(townId).profile),wall=!!cdTownState(townId).wallMax;const common=['farm','storage','main','lumber','stoner','ironer','market','hide','academy','temple'];let out;if(canon==='cd_slinger_50ls')out=['farm','storage','main','lumber','stoner','ironer','barracks','academy','docks','market','hide','temple','thermal'];else if(canon==='cd_defense')out=['farm','storage','main','lumber','ironer','stoner','barracks','academy','docks','market','hide','temple','thermal','tower'];else out=['farm','storage','main','lumber','stoner','ironer','docks','academy','market','hide','temple','thermal','lighthouse'].filter(x=>common.includes(x)||['docks','thermal','lighthouse'].includes(x));if(wall&&!out.includes('wall'))out.unshift('wall');return out}
+  function cdQueuedUnitAmount(townId,unit){try{return +recruitQueuedAmount(townId,unit)||0}catch(_){return 0}}
+  function cdAvailablePopulation(townId){try{const t=gbTownModel(townId);const n=t&&t.getAvailablePopulation&&+t.getAvailablePopulation();return Number.isFinite(n)?Math.max(0,n):null}catch(_){return null}}
+  function cdCountsWithQueued(townId,units){const st=goalUnitCountsState(townId);if(!st.known)return null;const current=st.counts,out={};for(const u of units.filter(Boolean))out[u]=Math.max(0,+current[u]||0)+cdQueuedUnitAmount(townId,u);return out}
+  function cdSolveLandBudget(budget,fixedShipCount,shipPop,mainPop,transportPop,capacity,minTransport){
+    if(![budget,fixedShipCount,shipPop,mainPop,transportPop,capacity].every(Number.isFinite)||budget<0||mainPop<=0||transportPop<=0||capacity<=0)return {feasible:false};
+    const fixed=fixedShipCount*shipPop;if(fixed>budget)return {feasible:false};const mt=minTransport||0,maxMain=Math.floor((budget-fixed)/mainPop);
+    const fit=main=>fixed+main*mainPop+Math.max(mt,Math.ceil(main*mainPop/capacity))*transportPop<=budget;if(!fit(0))return {feasible:false};
+    let lo=0,hi=maxMain;while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(fit(mid))lo=mid;else hi=mid-1}
+    const main=lo,landPopulation=main*mainPop,transport=Math.max(mt,Math.ceil(landPopulation/capacity)),used=fixed+landPopulation+transport*transportPop;
+    return {feasible:true,main,transport,fixed:fixedShipCount,used,free:budget-used,landPopulation};
+  }
+  function cdSolveDefenseBudget(budget,pops,transportPop,capacity,mins){
+    if(!Number.isFinite(budget)||budget<0)return {feasible:false};const den=+(pops&&pops.sword)+ +(pops&&pops.archer)+2*+(pops&&pops.hoplite);
+    if(!(den>0)||!Number.isFinite(transportPop)||transportPop<0||!Number.isFinite(capacity)||!(capacity>0))return {feasible:false};
+    const m=mins||{},evalBlocks=blocks=>{const sword=Math.max(m.sword||0,blocks),archer=Math.max(m.archer||0,blocks),hoplite=Math.max(m.hoplite||0,2*blocks),landPopulation=sword*pops.sword+archer*pops.archer+hoplite*pops.hoplite,transport=Math.max(m.transport||0,Math.ceil(landPopulation/capacity)),used=landPopulation+transport*transportPop;return{sword,archer,hoplite,transport,landPopulation,used}};
+    const zero=evalBlocks(0);if(zero.used>budget)return {feasible:false};let lo=0,hi=Math.floor(budget/den);while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(evalBlocks(mid).used<=budget)lo=mid;else hi=mid-1}
+    const e=evalBlocks(lo);return {feasible:true,sword:e.sword,archer:e.archer,hoplite:e.hoplite,transport:e.transport,landPopulation:e.landPopulation,used:e.used,free:budget-e.used};
+  }
+  function cdRecruitTargets(townId){
+    const g=goalTownCfg(townId),canon=cdCanonicalProfile(g.profile);if(!cdIsProfile(canon))return {};
+    const free=cdAvailablePopulation(townId);if(free==null)return {__cdFeasible:false,__cdUnreadable:true,__cdReason:'population-unreadable'};
+    const roles=canon==='cd_slinger_50ls'?['slinger','lightship','fast']:canon==='cd_bireme'?['bireme']:canon==='cd_lightship'?['lightship']:canon==='cd_trireme'?['trireme']:['sword','archer','hoplite','fast'];
+    const ids={};for(const r of roles)ids[r]=cdUnitId(r);if(Object.values(ids).some(x=>!x))return {__cdFeasible:false,__cdUnreadable:true,__cdReason:'unit-model-unreadable'};
+    const vals=Object.values(ids),counts=cdCountsWithQueued(townId,vals);if(!counts)return {__cdFeasible:false,__cdUnreadable:true,__cdReason:'unit-inventory-unreadable'};let budget=free;for(const u of vals){const p=cdUnitPop(u);if(p==null)return {__cdFeasible:false,__cdUnreadable:true,__cdReason:'unit-population-unreadable'};budget+=(counts[u]||0)*p}
+    const out={};
+    if(canon==='cd_slinger_50ls'){
+      const pMain=cdUnitPop(ids.slinger),pShip=cdUnitPop(ids.lightship),pTr=cdUnitPop(ids.fast);if([pMain,pShip,pTr].some(x=>x==null))return {__cdFeasible:false,__cdUnreadable:true,__cdReason:'unit-population-unreadable'};
+      const fixed=Math.max(50,counts[ids.lightship]||0),minTr=counts[ids.fast]||0;const bunks=cdResearchId('bunks');let cap=10;try{const info=researchTownTechs(townId);if(bunks&&info&&info.techs&&info.techs[bunks])cap=16}catch(_){}
+      const sol=cdSolveLandBudget(budget,fixed,pShip,pMain,pTr,cap,minTr);if(!sol.feasible)return {__cdFeasible:false};out[ids.fast]=sol.transport;out[ids.lightship]=sol.fixed;out[ids.slinger]=sol.main;
+    }else if(canon==='cd_defense'){
+      const ps={sword:cdUnitPop(ids.sword),archer:cdUnitPop(ids.archer),hoplite:cdUnitPop(ids.hoplite)},pTr=cdUnitPop(ids.fast);if(Object.values(ps).concat([pTr]).some(x=>x==null))return {__cdFeasible:false,__cdUnreadable:true,__cdReason:'unit-population-unreadable'};
+      const bunks=cdResearchId('bunks');let cap=10;try{const info=researchTownTechs(townId);if(bunks&&info&&info.techs&&info.techs[bunks])cap=16}catch(_){}
+      const sol=cdSolveDefenseBudget(budget,ps,pTr,cap,{sword:counts[ids.sword]||0,archer:counts[ids.archer]||0,hoplite:counts[ids.hoplite]||0,transport:counts[ids.fast]||0});if(!sol.feasible)return {__cdFeasible:false};out[ids.fast]=sol.transport;out[ids.sword]=sol.sword;out[ids.archer]=sol.archer;out[ids.hoplite]=sol.hoplite;
+    }else{const u=ids[canon==='cd_bireme'?'bireme':canon==='cd_trireme'?'trireme':'lightship'],pop=cdUnitPop(u);if(pop==null)return {__cdFeasible:false,__cdUnreadable:true,__cdReason:'unit-population-unreadable'};out[u]=Math.floor(budget/pop)}
+    return out;
+  }
+  function cdResearchDone(townId){const t=cdResearchTargets(townId),info=researchTownTechs(townId);if(!info||!info.techs)return false;if((t.__cdUnresolved||[]).length)return false;for(const [id,v] of Object.entries(t))if(id!=='__cdUnresolved'&&v&&v.tgt&&!info.techs[id])return false;return true}
+  function cdResearchExecutable(townId){const t=cdResearchTargets(townId),info=researchTownTechs(townId);if(!info||!info.techs)return false;const cap=cdResearchCapacityState(townId,t);if(cap.known&&!cap.feasible)return false;const queued=cdQueuedResearchIds(info);for(const [id,v] of Object.entries(t))if(id!=='__cdUnresolved'&&v&&v.tgt&&!info.techs[id]&&!queued.has(String(id)))return true;return false}
+  function cdCompositionResearchReady(townId){
+    const canon=cdCanonicalProfile(goalTownCfg(townId).profile);if(!cdIsProfile(canon))return false;
+    const info=researchTownTechs(townId);if(!info||!info.techs)return false;
+    let roles=[];
+    if(canon==='cd_slinger_50ls')roles=['slinger','lightship','fast','bunks'];
+    else if(canon==='cd_bireme')roles=['bireme'];
+    else if(canon==='cd_lightship')roles=['lightship'];
+    else if(canon==='cd_trireme')roles=['trireme'];
+    else if(canon==='cd_defense')roles=['archer','hoplite','fast','bunks'];
+    for(const role of roles){const id=cdResearchId(role);if(!id||!info.techs[id])return false}
+    return true;
+  }
+  const CD_CORE_BUILDINGS=Object.freeze(['main','storage','farm','academy','temple','barracks','docks','market','hide','lumber','stoner','ironer','wall']);
+  function abActualLevels(townId){
+    try{const t=abGetTown(townId);if(!t)return null;const b=t&&(t.getBuildings?t.getBuildings():(t.buildings&&t.buildings()));const a=b&&(b.attributes||b);if(!a||typeof a!=='object')return null;const out={};
+      for(const id of AB_BUILDINGS){if(Object.prototype.hasOwnProperty.call(a,id)){const n=+a[id];if(!Number.isFinite(n)||n<0)return null;out[id]=n;continue}const max=abMaxLevel(id);if(CD_CORE_BUILDINGS.includes(id)||(max!=null&&max>0))return null;out[id]=0}
+      return out;
+    }catch(_){return null}
+  }
+  function cdActualLevels(townId){return abActualLevels(townId)}
+  function cdBuildDone(townId){const levels=cdActualLevels(townId),targets=cdBuildTargets(townId);if(!levels)return false;for(const [id,n] of Object.entries(targets))if(+n>0&&+(levels[id]||0)<+n)return false;return true}
+  function cdAuxDone(townId){const canon=cdCanonicalProfile(goalTownCfg(townId).profile),tar=cdRecruitTargets(townId),st=goalUnitCountsState(townId);if(!st.known||!tar||tar.__cdFeasible===false)return false;const cur=st.counts;if(canon==='cd_slinger_50ls'){const tr=cdUnitId('fast'),ls=cdUnitId('lightship');return !!tr&&!!ls&&(+cur[tr]||0)>=+tar[tr]&&(+cur[ls]||0)>=+tar[ls]}if(canon==='cd_defense'){const tr=cdUnitId('fast');return !!tr&&(+cur[tr]||0)>=+tar[tr]}return true}
+  function cdArmyDone(townId){const tar=cdRecruitTargets(townId),st=goalUnitCountsState(townId);if(!st.known||!tar||tar.__cdFeasible===false)return false;const cur=st.counts;for(const [u,n] of Object.entries(tar)){if(u.startsWith('__'))continue;if((+cur[u]||0)<+n)return false}return true}
+  function cdThreatState(townId){try{const snap=dodgeIncomingSnapshot();if(!snap||snap.known!==true||!Array.isArray(snap.moves))return {known:false,threatened:false};return {known:true,threatened:snap.moves.some(m=>m&&String(m.dest)===String(townId))}}catch(_){return {known:false,threatened:false}}}
+  function cdCanStartStrip(townId){const g=goalTownCfg(townId),c=cdTownState(townId);if(!cdIsProfile(g.profile)||!c.stripEnabled||!c.safeBackline)return {ok:false,why:'strip-not-authorized'};const th=cdThreatState(townId);if(!th.known)return {ok:false,why:'threat-unreadable'};if(th.threatened)return {ok:false,why:'under-attack'};if(!cdBuildDone(townId))return {ok:false,why:'development-incomplete'};if(!cdResearchDone(townId))return {ok:false,why:'research-incomplete'};if(!cdAuxDone(townId))return {ok:false,why:'aux-incomplete'};if(!cdArmyDone(townId))return {ok:false,why:'army-incomplete'};return {ok:true}}
+  function cdMaybeLatchStrip(townId,persistNow=true){cdSyncTownGoal(townId);const c=cdTownState(townId);if(c.stripStarted)return true;const v=cdCanStartStrip(townId);if(!v.ok)return false;c.stripStarted=true;c.stripFinalized=true;c.stripStartedAt=Date.now();if(persistNow)cdPersistTownGoal(townId);return true}
+  function cdRollbackProvisionalStrip(townId,ref){const clear=c=>{if(!c)return;c.stripStarted=false;c.stripFinalized=false;delete c.stripStartedAt};clear(ref);try{clear(cdTownState(townId))}catch(_){}cdPersistTownGoal(townId)}
+  function cdAcademyDemolitionSafe(townId,targetLevel){
+    const info=researchTownTechs(townId);if(!info||info.academy==null||!info.techs||!info.ordersKnown)return {ok:false,why:'research-points-unreadable'};
+    const per=researchConstant('points_per_academy_level'),spent=researchPointsSpent(info);if(per==null||!(per>0)||spent==null)return {ok:false,why:'research-points-unreadable'};
+    let cap=Math.max(0,+targetLevel||0)*per;if(info.library==null)return {ok:false,why:'library-unreadable'};if(info.library===1){const lib=researchConstant('points_per_library_level');if(lib==null)return {ok:false,why:'library-points-unreadable'};cap+=lib}
+    return spent<=cap?{ok:true,freeAfter:cap-spent}:{ok:false,why:`research-points:${spent}/${cap}`};
+  }
+  function cdDemolitionCandidate(townId,levelsIgnored){
+    const g=goalTownCfg(townId);if(!cdIsProfile(g.profile))return null;
+
+    const q=abQueueInfo(townId);if(!q.known||q.len!==0)return null;const levels=abActualLevels(townId);if(!levels)return null;
+    const gate=cdCanStartStrip(townId);if(!gate.ok)return null;const final=cdStripBuild(g.profile,townId);
+    for(const id of ['main','wall','barracks','docks','academy','market','temple','lumber','stoner','ironer']){
+      const want=+final[id]||0,have=+(levels[id]||0);if(have<=want)continue;const targetLevel=have-1;
+      if(id==='academy'&&!cdAcademyDemolitionSafe(townId,targetLevel).ok)continue;
+      return {mode:'teardown',building:id,forTarget:id,targetLevel,cdRevision:cdProfileRevision(townId),reason:'city-designer strip'};
+    }
+    return null;
+  }
+  function cdNextDemolition(townId,levels){return cdDemolitionCandidate(townId,levels)}
+  function cdPhase(townId){
+    const g=goalTownCfg(townId);if(!cdIsProfile(g.profile))return 'OFF';const c=cdTownState(townId);
+    if(c.stripStarted||c.stripFinalized){const d=cdDemolitionCandidate(townId,abCurrentLevels(townId));if(d)return 'STRIP';if(!c.stripEnabled||!c.safeBackline)return 'STRIP_PAUSED';return 'MAINTAIN'}
+    if(!cdBuildDone(townId))return 'DEVELOP';const rt=cdResearchTargets(townId),cap=cdResearchCapacityState(townId,rt);
+    if((rt.__cdUnresolved||[]).length&&!cdResearchExecutable(townId))return 'BLOCKED_SCHEMA';if(cap.known&&!cap.feasible)return 'BLOCKED_POINTS';if(!cdResearchDone(townId))return 'RESEARCH';if(!cdAuxDone(townId))return 'AUXILIARIES';if(!cdArmyDone(townId))return 'ARMY';return 'READY'
+  }
+  function cdHasAnyTown(){let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){}return ids.some(id=>cdIsProfile(goalTownCfg(id).profile))}
+  function cityDesignerHasExecutableWork(kind){if(!cdHasAnyTown())return false;let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){};for(const id of ids){if(!cdIsProfile(goalTownCfg(id).profile))continue;if(kind==='build'){const levels=abCurrentLevels(id);if(!levels)return true;const tar=cdBuildTargets(id);if(Object.entries(tar).some(([b,n])=>+n>0&&+(levels[b]||0)<+n))return true;if(cdDemolitionCandidate(id,levels))return true}else if(kind==='research'){if(cdResearchExecutable(id))return true}else if(kind==='recruit'){
+        if(!cdBuildDone(id)||!cdCompositionResearchReady(id))continue;if(!cdArmyDone(id))return true}}return false}
+  function cdEffective(townId){const g=goalTownCfg(townId),canon=cdCanonicalProfile(g.profile),p=CD_PROFILE_DEFAULTS[canon]||{label:canon};const rt=cdResearchTargets(townId),research={};for(const [id,v] of Object.entries(rt))if(id!=='__cdUnresolved'&&v&&v.tgt)research[id]=1;const units=cdRecruitTargets(townId),clean={};for(const [u,n] of Object.entries(units||{}))if(!u.startsWith('__')&&Number.isFinite(+n)&&+n>=0)clean[u]=+n;return {profile:canon,label:p.label||canon,build:cdBuildTargets(townId),research,units:clean,reserve:{hard:{},soft:{}},defensive:canon==='cd_defense'?0.8:0.2,resource:{wood:0,stone:0,iron:0},cd:{revision:cdProfileRevision(townId),phase:cdPhase(townId),feasible:units&&units.__cdFeasible!==false,unresolvedResearch:rt.__cdUnresolved||[]}}}
   function goalProfiles() {
     if (!state.goalProfiles || typeof state.goalProfiles !== 'object') state.goalProfiles={};
-    return Object.assign({}, GOAL_PROFILE_DEFAULTS, state.goalProfiles);
+    return Object.assign({}, GOAL_PROFILE_DEFAULTS, CD_PROFILE_DEFAULTS, state.goalProfiles);
   }
   function goalTownCfg(townId) {
     if (!state.townGoals || typeof state.townGoals !== 'object') state.townGoals={};
@@ -8013,13 +8749,14 @@ const STORE = {
     if (!g || typeof g !== 'object') g=state.townGoals[id]={profile:'custom',build:{},research:{},units:{},reserve:{},resource:{}};
     if (!g.profile) g.profile='custom';
     for (const k of ['build','research','units','reserve','resource']) if (!g[k] || typeof g[k] !== 'object') g[k]={};
+    if (!g.cd || typeof g.cd !== 'object' || Array.isArray(g.cd)) g.cd={};
 
     if (g.defensive != null && !Number.isFinite(+g.defensive)) delete g.defensive;
     return g;
   }
   function goalMergeMap(base, over) { const o=Object.assign({},base||{}); for(const [k,v] of Object.entries(over||{})) o[k]=v; return o; }
   function goalEffective(townId) {
-    const cfg=goalTownCfg(townId), p=goalProfiles()[cfg.profile]||GOAL_PROFILE_DEFAULTS.custom;
+    const cfg=goalTownCfg(townId); if(cdIsProfile(cfg.profile)) return cdEffective(townId); const p=goalProfiles()[cfg.profile]||GOAL_PROFILE_DEFAULTS.custom;
     return { profile:cfg.profile, label:p.label||cfg.profile,
       build:goalMergeMap(p.build,cfg.build), research:goalMergeMap(p.research,cfg.research), units:goalMergeMap(p.units,cfg.units),
       reserve:{ hard:goalMergeMap((p.reserve||{}).hard,(cfg.reserve||{}).hard), soft:goalMergeMap((p.reserve||{}).soft,(cfg.reserve||{}).soft) },
@@ -8038,15 +8775,13 @@ const STORE = {
   function goalReservePolicy(townId) { const e=goalEffective(townId); return e && e.reserve; }
   function goalEffectiveBuildTargets(townId) {
     const cfg=goalTownCfg(townId), e=goalEffective(townId), base=abEnsureTargets();
-    const out=(cfg.profile && cfg.profile!=='custom')?Object.assign({},e.build||{}):goalMergeMap(base,cfg.build||{});
-
-    const scripted = abScriptEffectiveTargets(townId);
-    if (scripted) for (const k of Object.keys(scripted)) out[k] = scripted[k];
+    const out=cdIsProfile(cfg.profile)?Object.assign({},cdBuildTargets(townId)):(cfg.profile && cfg.profile!=='custom')?Object.assign({},e.build||{}):goalMergeMap(base,cfg.build||{});
     for(const id of Object.keys(out))if(goalQueueSuppressed(townId,'build',id))delete out[id];
     return out;
   }
   function goalEffectiveResearchTargets(townId, globalTargets) {
-    const cfg=goalTownCfg(townId), e=goalEffective(townId); const base=(cfg.profile&&cfg.profile!=='custom')?{}:Object.assign({},globalTargets||researchEnsureTargets());
+    const cfg=goalTownCfg(townId);if(cdIsProfile(cfg.profile)){const t=cdResearchTargets(townId),base={};for(const [tech,v] of Object.entries(t))if(tech!=='__cdUnresolved')base[tech]=Object.assign({},v);for(const tech of Object.keys(base))if(goalQueueSuppressed(townId,'research',tech))delete base[tech];return base}
+    const e=goalEffective(townId); const base=(cfg.profile&&cfg.profile!=='custom')?{}:Object.assign({},globalTargets||researchEnsureTargets());
     let maxOrder=Object.values(base).reduce((m,x)=>Math.max(m,+((x&&x.order)||0)),0)+1;
     for(const [tech,v] of Object.entries(e.research||{})) {
       if(!+v){ if(base[tech]) base[tech]=Object.assign({},base[tech],{tgt:0}); continue; }
@@ -8058,9 +8793,11 @@ const STORE = {
     return base;
   }
   function goalEffectiveRecruitTargets() {
-    const raw=structuredClone(state.recruitTargets||{}),out={};
+    const raw=Object.assign({},state.recruitTargets||{}),out={};
     let ids=[]; try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){}
-    for(const tid of ids){ const e=goalEffective(tid),cfg=goalTownCfg(tid),m=Object.assign({},raw[tid]||{}); for(const [u,n] of Object.entries(e.units||{})) if(+n>0)m[u]=Math.max(+m[u]||0,+n);for(const[u,n]of Object.entries(cfg.units||{})){if(+n>0)m[u]=+n;else delete m[u]} const ordered=goalOrderIds(tid,'recruit',Object.keys(m));out[tid]={};for(const u of ordered)if(!goalQueueSuppressed(tid,'recruit',u))out[tid][u]=m[u]; }
+    for(const tid of ids){const cfg=goalTownCfg(tid);let m;if(cdIsProfile(cfg.profile)){m=cdRecruitTargets(tid);if(m&&m.__cdFeasible===false)m={}}else{const e=goalEffective(tid);m=Object.assign({},raw[tid]||{});for(const [u,n] of Object.entries(e.units||{}))if(+n>0)m[u]=Math.max(+m[u]||0,+n);for(const[u,n]of Object.entries(cfg.units||{})){if(+n>0)m[u]=+n;else delete m[u]}}
+      const clean=Object.keys(m||{}).filter(u=>!String(u).startsWith('__'));const ordered=cdIsProfile(cfg.profile)?clean:goalOrderIds(tid,'recruit',clean);out[tid]={};for(const u of ordered)if(!goalQueueSuppressed(tid,'recruit',u))out[tid][u]=+m[u]||0;
+    }
     return out;
   }
   function goalResearchDependencies(townId, tech) {
@@ -8078,16 +8815,19 @@ const STORE = {
     const need=d.research_required||d.research_dependencies||[]; const list=Array.isArray(need)?need:[need]; const research=list.filter(Boolean).map(x=>typeof x==='string'?x:(x.id||x.research_id||x.research_type)).filter(Boolean);
     return {ok:true,build,research};
   }
-  function goalUnitCounts(townId) {
-    const out={};try{const t=gbTownModel(townId);const local=t&&t.units&&t.units();for(const[k,n]of Object.entries(local||{}))out[k]=(+out[k]||0)+(+n||0);const outer=t&&t.unitsOuter&&t.unitsOuter();for(const[k,n]of Object.entries(outer||{}))out[k]=(+out[k]||0)+(+n||0)}catch(_){}return out;
+  function goalUnitCountsState(townId) {
+    const out={};let t=null;try{t=gbTownModel(townId)}catch(_){return {known:false,counts:{},why:'town-unreadable'}}if(!t||typeof t.units!=='function'||typeof t.unitsOuter!=='function')return {known:false,counts:{},why:'unit-model-unreadable'};
+    let local,outer;try{local=t.units();outer=t.unitsOuter()}catch(_){return {known:false,counts:{},why:'unit-read-failed'}}if(!local||typeof local!=='object'||!outer||typeof outer!=='object')return {known:false,counts:{},why:'unit-state-unreadable'};
+    for(const[k,n]of Object.entries(local))out[k]=(+out[k]||0)+(+n||0);for(const[k,n]of Object.entries(outer))out[k]=(+out[k]||0)+(+n||0);return {known:true,counts:out,why:'ok'};
   }
+  function goalUnitCounts(townId) {const st=goalUnitCountsState(townId);return st.known?st.counts:{}}
   function goalPlanTown(townId) {
     const e=goalEffective(townId), levels=abCurrentLevels(townId); if(!levels)return {townId:String(townId),profile:e.profile,error:'levels-unreadable',actions:[]};
     const sim=Object.assign({},levels), actions=[], maxActions=40; const av=plannerAvailable(townId,{allowSoft:false});
     const ledger=av?Object.assign({},av):null;
     const buildTargets=e.build||{};
 
-    const base=abEnsureOrder();
+    const base=goalBuildOrder(townId,Object.keys(buildTargets));
     const order=base.concat(Object.keys(buildTargets).filter(k=>!base.includes(k)));
     let guard=0;
     while(actions.length<maxActions && guard++<100){ let added=false;
@@ -8101,6 +8841,7 @@ const STORE = {
       }
       if(!added)break;
     }
+    if(cdIsProfile(e.profile)){const realBuild=abPickNext(townId);if(realBuild&&realBuild.mode==='teardown'){actions.push({kind:'demolish',id:realBuild.building,building:realBuild.building,mode:'teardown',level:realBuild.targetLevel,status:'planned',why:realBuild.reason||'city-designer strip',cdRevision:realBuild.cdRevision})}}
     let info=null; try{info=researchTownTechs(townId)}catch(_){}
     for(const [tech,on] of Object.entries(e.research||{})){if(!+on)continue;if(info&&info.techs&&info.techs[tech])continue;if(info&&(info.orders||[]).some(o=>String(researchOrderTechId(o))===String(tech)))continue;
       const dep=goalResearchDependencies(townId,tech);let status=dep.ok?'planned':'blocked',why=dep.why||'';
@@ -8111,7 +8852,7 @@ const STORE = {
     let t=null;try{t=gbTownModel(townId)}catch(_){}; const have=goalUnitCounts(townId);
     for(const [unit,target] of Object.entries(e.units||{})){const tgt=+target||0;if(!(tgt>0))continue;let queued=0;try{const c=t.getUnitOrdersCollection&&t.getUnitOrdersCollection();for(const m of((c&&c.models)||[])){const a=m.attributes||{};if(String(a.unit_type||a.unit_id||a.type)===unit)queued+=+(a.count||a.amount||0)}}catch(_){}
       const need=tgt-(+have[unit]||0)-queued;if(need<=0)continue;const dep=goalUnitDependencies(unit);let status=dep.ok?'planned':'blocked',why=dep.why||'';if(dep.ok){for(const b of dep.build)if(+(sim[b.id]||0)<b.level){status='waiting-dependency';why=`${b.id}`;break}}
-      const d=gbGameDataLookup("units", unit),cost=d&&d.resources?{wood:(+d.resources.wood||0)*need,stone:(+d.resources.stone||0)*need,iron:(+d.resources.iron||0)*need,population:(+d.population||0)*need}:null;if(!cost){status='blocked';why='cost-unreadable'}
+      const ec=recruitEffectiveUnitCost(townId, unit);let cost=null;if(ec){cost={};for(const k of ['wood','stone','iron','population']){const v=recruitDisplayCost(ec,k);cost[k]=v==null?null:v*need}if(ec.authoritative!==true){status=status==='planned'?'planned-cost-advisory':status;why=why||'effective-cost-unreadable; GameData shown for reference'}}else{status='blocked';why='cost-unreadable'}
       actions.push({kind:'recruit',id:unit,amount:need,cost,status,why});
     }
     const decorated=goalQueueDecorate(townId,actions.slice(0,maxActions));
@@ -8237,7 +8978,7 @@ const STORE = {
     gbLog('optimal order: cache cleared');
   }
   function goalPlanAll(){let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){};return ids.map(goalPlanTown)}
-  function goalSetProfile(townId,profile){const g=goalTownCfg(townId);if(!goalProfiles()[profile])return false;g.profile=profile;save(STORE.TOWN_GOALS,state.townGoals);goalPlanTown(townId);return true}
+  function goalSetProfile(townId,profile){cdSyncTownGoal(townId);const g=goalTownCfg(townId);if(!goalProfiles()[profile]&&!cdIsProfile(profile))return false;const prev=cdCanonicalProfile(g.profile),next=cdCanonicalProfile(profile);g.profile=next;if(prev!==next){const c=cdTownState(townId);c.revision=(+c.revision||0)+1;c.stripStarted=false;c.stripFinalized=false;c.landDocksFinalized=false;c.changedAt=Date.now();c.lastRevisionAt=c.changedAt;c.changedFrom=prev}cdPersistTownGoal(townId);if(next!=='custom')nativeQueueClearForPlanner(townId,'profile:'+next);goalPlanTown(townId);return true}
   function goalQueueCfg(townId) {
     if (!state.virtualQueueOverrides || typeof state.virtualQueueOverrides !== 'object' || Array.isArray(state.virtualQueueOverrides)) state.virtualQueueOverrides = {};
     const id=String(townId); let q=state.virtualQueueOverrides[id];
@@ -8250,7 +8991,7 @@ const STORE = {
   function goalQueueSuppressed(townId,kind,id){const q=goalQueueCfg(townId),k=goalActionKey(kind,id);return !!(q.blocked[k]||q.hidden[k]);}
   function goalQueueRank(townId,kind,id){const q=goalQueueCfg(townId),k=goalActionKey(kind,id),i=q.order.indexOf(k);return {mandatory:!!q.mandatory[k],index:i<0?9999:i,key:k};}
   function goalOrderIds(townId,kind,ids){const seen=new Set(),base=(ids||[]).map(String).filter(x=>x&&!seen.has(x)&&seen.add(x));return base.filter(id=>!goalQueueSuppressed(townId,kind,id)).sort((a,b)=>{const A=goalQueueRank(townId,kind,a),B=goalQueueRank(townId,kind,b);return (B.mandatory-A.mandatory)||(A.index-B.index)||(base.indexOf(a)-base.indexOf(b));});}
-  function goalBuildOrder(townId,extra){const base=abEnsureOrder();return goalOrderIds(townId,'build',base.concat((extra||[]).filter(k=>!base.includes(k))));}
+  function goalBuildOrder(townId,extra){if(cdIsProfile(goalTownCfg(townId).profile)){const base=cdBuildOrder(townId);return goalOrderIds(townId,'build',base.concat((extra||[]).filter(k=>!base.includes(k))))}const base=abEnsureOrder();return goalOrderIds(townId,'build',base.concat((extra||[]).filter(k=>!base.includes(k))));}
   function goalQueueDecorate(townId,actions){const q=goalQueueCfg(townId);const arr=(actions||[]).filter(a=>!q.hidden[goalActionKey(a)]).map(a=>{const key=goalActionKey(a),blocked=!!q.blocked[key];return Object.assign({},a,{queueKey:key,mandatory:!!q.mandatory[key],status:blocked?'user-blocked':a.status,why:blocked?'blocked by user':a.why});});return arr.sort((a,b)=>{const A=goalQueueRank(townId,a.kind,a.id),B=goalQueueRank(townId,b.kind,b.id);return (B.mandatory-A.mandatory)||(A.index-B.index);});}
   function goalQueueMove(townId,key,delta){
     const q=goalQueueCfg(townId);
@@ -8275,12 +9016,12 @@ const STORE = {
   function goalQueueToggleMandatory(townId,key){const q=goalQueueCfg(townId);if(q.mandatory[key])delete q.mandatory[key];else q.mandatory[key]=true;goalQueueSave();goalPlanTown(townId);return !!q.mandatory[key];}
   function goalQueueHide(townId,key){const q=goalQueueCfg(townId);q.hidden[key]=true;q.blocked[key]=true;goalQueueSave();goalPlanTown(townId);return true;}
   function goalQueueReset(townId){delete state.virtualQueueOverrides[String(townId)];goalQueueSave();goalPlanTown(townId);return true;}
-  function goalSetTownOverrides(townId,obj){if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;const g=goalTownCfg(townId),cleanMap=v=>{const o={};if(v&&typeof v==='object'&&!Array.isArray(v))for(const[k,n]of Object.entries(v))if(Number.isFinite(+n)&&+n>=0)o[k]=+n;return o;};if(obj.build!=null)g.build=cleanMap(obj.build);if(obj.research!=null)g.research=cleanMap(obj.research);if(obj.units!=null)g.units=cleanMap(obj.units);if(obj.reserve&&typeof obj.reserve==='object'){g.reserve={hard:cleanMap(obj.reserve.hard),soft:cleanMap(obj.reserve.soft)}}
+  function goalSetTownOverrides(townId,obj){if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;cdSyncTownGoal(townId);const g=goalTownCfg(townId),cleanMap=v=>{const o={};if(v&&typeof v==='object'&&!Array.isArray(v))for(const[k,n]of Object.entries(v))if(Number.isFinite(+n)&&+n>=0)o[k]=+n;return o;};if(obj.build!=null)g.build=cleanMap(obj.build);if(obj.research!=null)g.research=cleanMap(obj.research);if(obj.units!=null)g.units=cleanMap(obj.units);if(obj.reserve&&typeof obj.reserve==='object'){g.reserve={hard:cleanMap(obj.reserve.hard),soft:cleanMap(obj.reserve.soft)}}
 
     if(obj.defensive!==undefined){if(obj.defensive===null||obj.defensive==='')delete g.defensive;else if(Number.isFinite(+obj.defensive))g.defensive=Math.max(0,Math.min(1,+obj.defensive));}
 
     if(obj.resource!==undefined){const r={};if(obj.resource&&typeof obj.resource==='object'&&!Array.isArray(obj.resource))for(const k of GB_RES_KEYS){const n=+obj.resource[k];if(Number.isFinite(n))r[k]=Math.max(-1,Math.min(1,n))}g.resource=r;}
-    save(STORE.TOWN_GOALS,state.townGoals);goalPlanTown(townId);return true;}
+    cdPersistTownGoal(townId);goalPlanTown(townId);return true;}
   function goalProgress(townId){const e=goalEffective(townId),parts=[];const levels=abCurrentLevels(townId)||{};for(const[id,t]of Object.entries(e.build||{})){const tgt=+t||0;if(tgt>0)parts.push(Math.min(1,(+(levels[id]||0))/tgt))}let info=null;try{info=researchTownTechs(townId)}catch(_){};for(const[id,on]of Object.entries(e.research||{}))if(+on)parts.push(info&&info.techs&&info.techs[id]?1:0);const units=goalUnitCounts(townId);for(const[id,t]of Object.entries(e.units||{})){const tgt=+t||0;if(tgt>0)parts.push(Math.min(1,(+(units[id]||0))/tgt))}return parts.length?Math.round(parts.reduce((a,b)=>a+b,0)/parts.length*100):100;}
   function goalMandatoryModules(){const out=[];for(const [tid,q] of Object.entries(state.virtualQueueOverrides||{})){if(!q||!q.mandatory)continue;for(const key of Object.keys(q.mandatory)){if(!q.mandatory[key]||q.blocked&&q.blocked[key]||q.hidden&&q.hidden[key])continue;const kind=String(key).split(':')[0],mod=kind==='build'?'build':kind==='research'?'research':kind==='recruit'?'recruit':null;if(mod&&!out.includes(mod))out.push(mod)}}return out;}
   const AB_BUILDINGS = ['main', 'storage', 'farm', 'academy', 'temple', 'barracks', 'docks', 'market', 'hide', 'lumber', 'stoner', 'ironer', 'wall',
@@ -8300,91 +9041,6 @@ const STORE = {
   const AB_SEND_SPACING_MS = 1100;
   function abDefaultTargets() { return Object.assign({}, AB_CS_FAST); }
   function abDefaultOrder() { return AB_BUILDINGS.slice(); }
-
-  const AB_SCRIPT_PHASES = [
-    { id:'tube', label:'Tubo (Senado 24 + Almac\u00e9n 30)',
-      gate:(l)=>(+l.main||0) < 24,
-      targets:(l)=>({ main:24, storage:Math.max(30, +l.storage||0) }) },
-    { id:'academy7', label:'Academia 7',
-      gate:(l)=>(+l.main||0) >= 24 && (+l.academy||0) < 7,
-      targets:(l)=>({ main:24, storage:Math.max(30, +l.storage||0), academy:Math.max(7, +l.academy||0) }) },
-    { id:'theater', label:'Requisitos para Teatro',
-      gate:(l)=>(+l.academy||0) >= 7 && (+l.theater||0) < 1,
-      targets:(l)=>({ main:24, storage:Math.max(30, +l.storage||0), academy:Math.max(7, +l.academy||0), theater:1 }) },
-    { id:'academy30', label:'Academia 30',
-      gate:(l)=>(+l.theater||0) >= 1 && (+l.academy||0) < 30,
-      targets:(l)=>({ main:24, storage:Math.max(30, +l.storage||0), academy:30, theater:1 }) },
-    { id:'maxall', label:'Todo al m\u00e1ximo',
-      gate:()=>false,
-      targets:(l)=>abScriptMaxTargets(l) },
-  ];
-  function abScriptMaxTargets(levels) {
-    const out = {};
-    for (const b of AB_BUILDINGS) {
-      const max = abMaxLevel(b);
-      if (max == null) continue;
-      const cur = +(levels && levels[b]) || 0;
-      if (cur >= max) continue;
-      out[b] = max;
-    }
-    return out;
-  }
-  function abScriptEnsure() {
-    if (!state.abScript || typeof state.abScript !== 'object') state.abScript = { active:false, startedAt:0, perTown:{} };
-    if (!state.abScript.perTown || typeof state.abScript.perTown !== 'object' || Array.isArray(state.abScript.perTown)) state.abScript.perTown = {};
-    if (!state.abScript.active) state.abScript.perTown = {};
-    return state.abScript;
-  }
-  function abScriptActive() { return !!(state.abScript && state.abScript.active); }
-  function abScriptEffectiveTargets(townId) {
-    if (!abScriptActive()) return null;
-    const p = state.abScript.perTown && state.abScript.perTown[String(townId)];
-    return p && p.targets ? Object.assign({}, p.targets) : null;
-  }
-  function abScriptCurrentPhase(townId) {
-    if (!abScriptActive()) return null;
-    const id = String(townId);
-    const p = state.abScript.perTown && state.abScript.perTown[id];
-    if (!p) return null;
-    const def = AB_SCRIPT_PHASES.find(x => x.id === p.phase);
-    return def || null;
-  }
-  function abScriptToggle() {
-    if (abScriptActive()) {
-      state.abScript = { active:false, startedAt:0, perTown:{} };
-      save(STORE.AB_SCRIPT, state.abScript);
-      gbLog('script CS: desactivado - objetivos vuelven a los valores compartidos');
-      try { renderAbQueue(); } catch (_) {}
-      return false;
-    }
-    state.abScript = { active:true, startedAt:Date.now(), perTown:{} };
-    save(STORE.AB_SCRIPT, state.abScript);
-
-    if (!state.abAuto) { state.abAuto = true; save(STORE.AB_AUTO, true); }
-    gbLog('script CS: activado - Senado 24 \u2192 Academia 7 \u2192 Teatro \u2192 Academia 30 \u2192 M\u00e1x');
-    try { renderAbQueue(); } catch (_) {}
-    return true;
-  }
-  function abScriptTick(townId) {
-    if (!abScriptActive()) return null;
-    const id = String(townId);
-    const levels = abCurrentLevels(townId);
-    if (!levels) return null;
-    let chosen = null;
-    for (const p of AB_SCRIPT_PHASES) { if (p.gate(levels)) { chosen = p; break; } }
-    if (!chosen) return null;
-    const cur = state.abScript.perTown[id];
-    const fresh = chosen.targets(levels);
-
-    if (!cur || cur.phase !== chosen.id) {
-      state.abScript.perTown[id] = { phase:chosen.id, targets:fresh };
-      save(STORE.AB_SCRIPT, state.abScript);
-      gbLog(`script CS: ciudad ${townNameById(id) || id} entra en fase "${chosen.label}"`);
-    } else {
-      state.abScript.perTown[id].targets = fresh;
-    }
-    return state.abScript.perTown[id];
-  }
   function abEnsureOrder() {
     const cur = Array.isArray(state.abOrder) ? state.abOrder.filter(x => AB_BUILDINGS.includes(x)) : [];
     state.abOrder = cur.concat(AB_BUILDINGS.filter(x => !cur.includes(x)));
@@ -8427,7 +9083,7 @@ const STORE = {
   function abClampTarget(building, lvl) {
     const lo = abMinLevel(building);
     const hi = abMaxLevel(building);
-    const n = Math.max(lo, Math.floor(gbNum(lvl) || 0));
+    const n = Math.max(lo, Math.floor(Number.isFinite(+lvl) ? +lvl : 0));
     return hi == null ? n : Math.min(hi, n);
   }
   function abSetTarget(building, lvl) {
@@ -8444,9 +9100,9 @@ const STORE = {
   };
   const NATIVE_SPECIAL_GROUPS=[['theater','thermal','library','lighthouse'],['tower','statue','oracle','trade_office']];
   let nativeQueueInflightRestored=false;
-
   const NATIVE_QUEUE_LANES=['build','recruit','recruitNaval','research'];
   const NATIVE_RECRUIT_LANES=['recruit','recruitNaval'];
+
   function nativeUnitIsNaval(unit){return recruitIsNaval(unit)}
   function nativeRecruitLane(unit){return nativeUnitIsNaval(unit)?'recruitNaval':'recruit'}
 
@@ -8459,7 +9115,7 @@ const STORE = {
     if(!q||typeof q!=='object'||Array.isArray(q))q=state.nativeQueue={version:1,seq:0,towns:{}};
     if(!q.towns||typeof q.towns!=='object'||Array.isArray(q.towns))q.towns={};
     q.version=1;q.seq=Math.max(0,+q.seq||0);
-    if(!nativeQueueInflightRestored){nativeQueueInflightRestored=true;let changed=false;for(const town of Object.values(q.towns))for(const lane of NATIVE_QUEUE_LANES)for(const job of ((town&&Array.isArray(town[lane]))?town[lane]:[])){if(job&&job.inflight){if(lane==='build')job.reconcile=Object.assign({},job.inflight);job.inflight=null;job.manualReview=true;job.status='unknown';job.reason='acci\u00f3n en curso al recargar; comprobando la cola real';job.updatedAt=Date.now();changed=true}}if(changed)save(STORE.NATIVE_QUEUE,q)}
+    if(!nativeQueueInflightRestored){nativeQueueInflightRestored=true;let changed=false;for(const town of Object.values(q.towns))for(const lane of NATIVE_QUEUE_LANES)for(const job of ((town&&Array.isArray(town[lane]))?town[lane]:[])){if(job&&job.inflight){if(lane==='build')job.reconcile=Object.assign({},job.inflight);job.inflight=null;job.manualReview=true;job.status='unknown';job.reason='acci\u00f3n en curso al recargar; comprobando la cola real';job.updatedAt=Date.now();changed=true}}if(changed&&gbTabLeader)save(STORE.NATIVE_QUEUE,q)}
     return q;
   }
   function nativeQueueTown(townId,create) {
@@ -8483,40 +9139,50 @@ const STORE = {
     const navalWasEmpty=naval.length===0;
     for(let i=land.length-1;i>=0;i--){
       const j=land[i];if(!j)continue;
-
       const d=gbGameDataLookup("units", j.unit);
-      if(!d){
-        if(recruitIsNaval(j.unit)){land.splice(i,1);naval.unshift(j);moved++}
-        else blind=true;
-        continue;
-      }
-      if(recruitIsNaval(j.unit)){land.splice(i,1);naval.unshift(j);moved++}
+      if(!d){blind=true;continue}
+      if(d.is_naval||d.naval){land.splice(i,1);naval.unshift(j);moved++}
     }
     if(!blind)nativeRecruitSplitDone.add(id);
     if(moved){
 
       if (navalWasEmpty) { t.mode.recruitNaval = t.mode.recruit; t.paused.recruitNaval = !!t.paused.recruit; }
 
-      try{save(STORE.NATIVE_QUEUE,nativeQueueRoot())}catch(_){}
+      try{if(gbTabLeader)save(STORE.NATIVE_QUEUE,nativeQueueRoot())}catch(_){}
       gbLog(`cola nativa: ${moved} orden(es) naval(es) movida(s) a la cola del puerto @${id}`);
     }
   }
   function nativeQueueList(townId,lane,create){const t=nativeQueueTown(townId,create);return t&&Array.isArray(t[lane])?t[lane]:[];}
 
+  function nativeQueuePlannerOwnsTown(townId){return String((goalTownCfg(townId)||{}).profile||'custom')!=='custom'}
+  function nativeQueueManualAllowed(townId){return !nativeQueuePlannerOwnsTown(townId)}
+  function nativeQueuePlannerTombstone(job){return !!(job&&(job.inflight||job.reconcile||job.manualReview||['unknown','sending','accepted'].includes(String(job.status||''))))}
+  function nativeQueuePlannerLaneBlocked(townId,lane){return nativeQueueList(townId,lane,false).some(nativeQueuePlannerTombstone)}
+  function nativeQueueClearForPlanner(townId,reason,silent){
+    if(!nativeQueuePlannerOwnsTown(townId))return false;const t=nativeQueueTown(townId,true);let changed=false,removed=0,kept=0;
+    for(const lane of NATIVE_QUEUE_LANES){const before=t[lane].length,keep=t[lane].filter(nativeQueuePlannerTombstone);removed+=before-keep.length;kept+=keep.length;if(keep.length!==before){t[lane]=keep;changed=true}if(t.mode[lane]!=='legacy'){t.mode[lane]='legacy';changed=true}if(t.paused[lane]){t.paused[lane]=false;changed=true}}
+    if(changed){nativeQueueSave();if(!silent)gbLog(`City Planner @${townId}: FIFO limpiada (${removed} orden(es) descartadas${kept?`, ${kept} resultado(s) ambiguo(s) conservado(s) para reconciliar`:''})${reason?' \u00b7 '+reason:''}`)}
+    return changed;
+  }
+  function nativeQueueRejectManualWhenPlanner(townId){if(nativeQueueManualAllowed(townId))return false;flash('La cola FIFO solo est\u00e1 disponible en Personalizado');gbLogT('native-fifo-planner-'+townId,60000,`cola FIFO @${townId}: ignorada porque el planificador de objetivos est\u00e1 activo; cambia a Personalizado para usar FIFO`);return true}
+
   let nativeQueueSaveTimer=0;
   function nativeQueueSaveNow() {
     if(nativeQueueSaveTimer){try{gbClearTimeout(nativeQueueSaveTimer)}catch(_){}nativeQueueSaveTimer=0}
-    save(STORE.NATIVE_QUEUE,nativeQueueRoot());
+    if(!gbTabLeader){gbLogT('native-queue-follower-save',60000,'native queue: follower save skipped');return false}
+    return save(STORE.NATIVE_QUEUE,nativeQueueRoot());
   }
   function nativeQueueSaveSoon() {
+    if(!gbTabLeader)return;
     if(nativeQueueSaveTimer)return;
-    nativeQueueSaveTimer=gbTimeout(()=>{nativeQueueSaveTimer=0;try{save(STORE.NATIVE_QUEUE,nativeQueueRoot())}catch(_){}},250);
+    nativeQueueSaveTimer=gbTimeout(()=>{nativeQueueSaveTimer=0;try{nativeQueueSaveNow()}catch(_){}},250);
   }
   function nativeQueueSaveFlush(){if(nativeQueueSaveTimer)nativeQueueSaveNow()}
   function nativeQueueSave() {
     nativeQueueSaveNow();
     try{scheduleNativeUiScan()}catch(_){}
     try{renderAbQueue()}catch(_){}
+    try{renderQueueCenter()}catch(_){}
   }
   function nativeQueueId(prefix){const q=nativeQueueRoot();q.seq++;return `${prefix}:${Date.now().toString(36)}:${q.seq.toString(36)}`;}
   function nativeQueueHasPending(lane,townId) {
@@ -8545,7 +9211,7 @@ const STORE = {
   }
   let nativeQueueSweepAt=0;
   function nativeQueueSweep(reason) {
-
+    if(!gbTabLeader)return 0;
     if(reason!=='manual'&&nativeQueueSweepAt&&Date.now()-nativeQueueSweepAt<5000)return 0;
     const towns=nativeQueueRoot().towns;let n=0;
     for(const id of Object.keys(towns))if(nativeQueueReconcileTown(id))n++;
@@ -8555,7 +9221,7 @@ const STORE = {
   }
   function nativeQueueMove(townId,lane,jobId,delta) {
     nativeQueueReconcile(townId,lane);
-    const list=nativeQueueList(townId,lane,false);if(list.some(j=>j&&(j.inflight||j.manualReview)))return false;const i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return false;
+    const list=nativeQueueList(townId,lane,false);if(list.some(j=>j&&j.inflight))return false;const i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return false;
     const j=Math.max(0,Math.min(list.length-1,i+(+delta||0)));if(i===j)return false;
     const item=list.splice(i,1)[0];list.splice(j,0,item);if(lane==='build')nativeQueueRebaseBuild(townId);nativeQueueSave();return true;
   }
@@ -8566,8 +9232,6 @@ const STORE = {
 
     if(target.inflight)return false;
     if(!force&&list.some(j=>j&&j.inflight))return false;
-
-    if(!force&&list.some(j=>j&&j.manualReview)&&!target.manualReview)return false;
 
     if(lane==='build'){
       const impact=nativeQueueRemovalImpact(townId,jobId);
@@ -8615,7 +9279,7 @@ const STORE = {
   }
   function nativeQueueRebaseBuild(townId) {
     const levels=abCurrentLevels(townId);if(!levels)return false;const next=Object.assign({},levels);
-    for(const j of nativeQueueList(townId,'build',false)){if(!j||!AB_BUILDINGS.includes(j.building))continue;if(j.inflight||j.manualReview){next[j.building]=Math.max(+next[j.building]||0,+j.toLevel||0);continue}const from=+next[j.building]||0;j.fromLevel=from;j.toLevel=from+1;next[j.building]=from+1}return true;
+    for(const j of nativeQueueList(townId,'build',false)){if(!j||!AB_BUILDINGS.includes(j.building))continue;if(j.inflight){next[j.building]=Math.max(+next[j.building]||0,+j.toLevel||0);continue}if(j.manualReview)continue;const from=+next[j.building]||0;j.fromLevel=from;j.toLevel=from+1;next[j.building]=from+1}return true;
   }
 
   function nativeQueueRemovalImpact(townId, jobId) {
@@ -8686,6 +9350,7 @@ const STORE = {
     return { chain, error: 'chain-too-long' };
   }
   function nativeQueueAddBuild(townId,building) {
+    if(nativeQueueRejectManualWhenPlanner(townId))return false;
     if(!AB_BUILDINGS.includes(building))return false;
 
     nativeQueueReconcileBuild(townId);
@@ -8743,26 +9408,6 @@ const STORE = {
     gbTimeout(() => abScan('native'), 80); return true;
   }
 
-  function nativeQueueFillToMax(townId, building) {
-    if (!AB_BUILDINGS.includes(building)) return 0;
-    const max = abMaxLevel(building);
-    if (max == null) { flash('No se puede leer el nivel m\u00e1ximo'); return 0; }
-    let projected = nativeQueueProjectedBuildLevel(townId, building);
-    if (projected == null) { flash('No se puede leer el nivel actual'); return 0; }
-    if (projected >= max) { flash(`${nativeBuildLabel(building)} ya est\u00e1 al m\u00e1ximo (${max})`); return 0; }
-    let added = 0;
-    while (projected < max) {
-      const ok = nativeQueueAddBuild(townId, building);
-      if (!ok) break;
-      added++;
-      const next = nativeQueueProjectedBuildLevel(townId, building);
-      if (next == null || next <= projected) break;
-      projected = next;
-    }
-    if (added) flash(`Encoladas ${added} mejoras de ${nativeBuildLabel(building)} hasta nivel ${projected}`);
-    return added;
-  }
-
   const POP_RESCUE_FARM_LEVELS = 2;
   function nativeFarmPendingLevels(townId) {
     const q = abQueueInfo(townId);
@@ -8796,7 +9441,7 @@ const STORE = {
     if (!room) return 0;
     const list = nativeQueueList(townId, 'build', false);
 
-    if (list.some(j => j && (j.inflight || j.manualReview))) return 0;
+    if (list.some(j => j && (j.inflight || (j.manualReview && j.building==='farm')))) return 0;
     const town = nativeQueueTown(townId, true);
 
     const short = aff && aff.need && aff.have
@@ -8833,14 +9478,14 @@ const STORE = {
       list.splice(i,1);nativeQueueRebaseBuild(townId);nativeQueueSave();return true}}
     return false;
   }
-
-  const NATIVE_UNIT_STEPS={sword:50,slinger:50,archer:50,hoplite:50,rider:30,chariot:30};
   function nativeUnitStep(unit) {
-    return NATIVE_UNIT_STEPS[String(unit||'')]||100;
+    try{const d=gbGameDataLookup("units", unit)||{};const pop=+d.population||0,freight=+(d.favor??(d.resources&&d.resources.favor))||0;if(d.is_naval||d.naval||d.mythical||d.is_mythical||d.god||pop>=8||freight>0)return 1}catch(_){}
+    return 10;
   }
 
   function nativeQueueRecruitAmount(townId,unit){return NATIVE_RECRUIT_LANES.reduce((n,lane)=>n+nativeQueueList(townId,lane,false).reduce((m,j)=>m+(j&&j.unit===unit?(+j.amount||0):0),0),0);}
   function nativeQueueAddRecruit(townId,unit,amount,chunkSize) {
+    if(nativeQueueRejectManualWhenPlanner(townId))return false;
     const n=Math.max(1,Math.floor(+amount||0));if(!unit||!gbGameDataLookup("units", unit)||!(n>0))return false;
 
     const lane=nativeRecruitLane(unit);
@@ -8875,11 +9520,13 @@ const STORE = {
     if(merged){
       nativeQueueSave();
       try{scheduleNativeUiScan()}catch(_){}
+      try{renderQueueCenter()}catch(_){}
       gbLog(`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): compactadas ${merged} entrada(s) adyacente(s) en @${townId}`);
     }
     return merged;
   }
   function nativeQueueAddRecruitBatch(townId,unit,total,chunk) {
+    if(nativeQueueRejectManualWhenPlanner(townId))return {ok:false,why:'FIFO solo disponible en Personalizado'};
     const T=Math.floor(+total||0),C=Math.floor(+chunk||0);
     if(!unit||!gbGameDataLookup("units", unit))return {ok:false,why:'unidad desconocida'};
     if(!(T>0))return {ok:false,why:'total debe ser > 0'};
@@ -8908,7 +9555,7 @@ const STORE = {
       const stable=x=>String(x||'').replace(/\d+(?:[.,]\d+)?/g,'#');
       if(stable(job.reason)===stable(r)&&now-(+job.reasonUpdatedAt||+job.updatedAt||0)<300000)return;
     }
-    job.status=status;job.reason=r;job.reasonUpdatedAt=now;job.updatedAt=now;nativeQueueSaveSoon();try{scheduleNativeUiScan()}catch(_){}
+    job.status=status;job.reason=r;job.reasonUpdatedAt=now;job.updatedAt=now;nativeQueueSaveSoon();try{scheduleNativeUiScan()}catch(_){}try{renderQueueCenter()}catch(_){}
   }
 
   const BUILD_SWAP_DEFAULT_MIN = 5;
@@ -8950,7 +9597,7 @@ const STORE = {
     if (buildSwapIgnored(townId, blocked.jobId)) return null;
     const list = nativeQueueList(townId, 'build', false);
 
-    if (list.some(j => j && (j.inflight || j.manualReview))) return null;
+    if (list.some(j => j && j.inflight)) return null;
     const levels = abCurrentLevels(townId);
     if (!levels) return null;
     for (let i = 1; i < list.length; i++) {
@@ -8971,11 +9618,16 @@ const STORE = {
     return null;
   }
   function nativeQueueMarkBuild(townId,jobId,opts) {
-    const job=nativeQueueList(townId,'build',false)[0];if(!job||job.id!==jobId)return false;const o=opts||{};
+    const list=nativeQueueList(townId,'build',false);
+    const job=list.find(j=>j&&j.id===jobId);
+    if(!job)return false;
+    const o=opts||{};
     if(Object.prototype.hasOwnProperty.call(o,'inflight')){job.inflight=o.inflight;if(o.inflight)job.reconcile=null}
     if(Object.prototype.hasOwnProperty.call(o,'reconcile'))job.reconcile=o.reconcile;
     if(Object.prototype.hasOwnProperty.call(o,'manualReview'))job.manualReview=!!o.manualReview;
-    if(o.status)job.status=o.status;if(Object.prototype.hasOwnProperty.call(o,'reason'))job.reason=String(o.reason||'');job.updatedAt=Date.now();nativeQueueSave();return true;
+    if(o.status)job.status=o.status;
+    if(Object.prototype.hasOwnProperty.call(o,'reason'))job.reason=String(o.reason||'');
+    job.updatedAt=Date.now();nativeQueueSave();return true;
   }
   function nativeQueueReconcileBuild(townId) {
 
@@ -8986,15 +9638,7 @@ const STORE = {
     } catch (_) {}
     const list=nativeQueueList(townId,'build',false);if(!list.length)return false;
     const levels=abCurrentLevels(townId);if(!levels)return false;let changed=false;
-    for(const j of list){
-      if(!j)continue;
-      const flight=j.inflight||j.reconcile;
-      if(flight&&flight.building&&flight.targetLevel!=null&&+(levels[flight.building]||0)>=+flight.targetLevel){
-        j.inflight=null;j.reconcile=null;j.manualReview=false;
-        j.status=flight.building===j.building?'pending':'waiting-requirement';
-        j.reason=flight.building===j.building?'confirmado en la cola real':`requisito ${nativeBuildLabel(flight.building)} confirmado`;
-        j.updatedAt=Date.now();changed=true;continue;
-      }
+    for(const j of list){if(!j)continue;const flight=j.inflight||j.reconcile;if(flight&&flight.building&&flight.targetLevel!=null&&+(levels[flight.building]||0)>=+flight.targetLevel){j.inflight=null;j.reconcile=null;j.manualReview=false;j.status=flight.building===j.building?'pending':'waiting-requirement';j.reason=flight.building===j.building?'confirmado en la cola real':`requisito ${nativeBuildLabel(flight.building)} confirmado`;j.updatedAt=Date.now();changed=true;continue}
 
       if(j.manualReview && j.reconcile && j.reconcile.building && j.reconcile.targetLevel!=null){
         const fr=j.reconcile;
@@ -9006,104 +9650,151 @@ const STORE = {
             j.manualReview=false;
             j.status='accepted';
             j.reason='en cola real; esperando actualizaci\u00f3n del juego';
-            j.updatedAt=Date.now();
-            changed=true;
+            j.updatedAt=Date.now();changed=true;
             continue;
           }
         }
       }
 
-      if(j.inflight && !j.inflight.accepted && Date.now()-(+j.inflight.at||0)>120000){
-        j.reconcile=Object.assign({},j.inflight);
-        j.inflight=null;j.manualReview=true;j.status='unknown';
-        j.reason='la cola real no se actualiz\u00f3; comprobar antes de continuar';
-        j.updatedAt=Date.now();changed=true;
-      }
-    }
+      if(j.inflight&&!j.inflight.accepted&&Date.now()-(+j.inflight.at||0)>120000){j.reconcile=Object.assign({},j.inflight);j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualiz\u00f3; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}}
     for(let i=list.length-1;i>=0;i--){const j=list[i];if(!j||!AB_BUILDINGS.includes(j.building)||+(levels[j.building]||0)>=+j.toLevel){list.splice(i,1);changed=true}}
     if(changed){nativeQueueRebaseBuild(townId);nativeQueueSave()}return changed;
   }
   function nativeQueueBuildPlan(townId,levels) {
-    nativeQueueReconcileBuild(townId);nativeQueueRebaseBuild(townId);const list=nativeQueueList(townId,'build',false),job=list[0];if(!job)return {hasJob:nativeQueueIsFifo(townId,'build'),plan:null};
-    if(nativeQueuePaused(townId,'build')){nativeQueueSetJobState(job,'paused','cola pausada');return {hasJob:true,plan:null,why:'paused'}}
-    if(list.some(j=>j&&j!==job&&(j.manualReview||j.inflight))){nativeQueueSetJobState(job,'blocked','hay otra acci\u00f3n pendiente de revisi\u00f3n');return {hasJob:true,plan:null,why:'lane-review'}}
-    if(job.manualReview){nativeQueueSetJobState(job,'unknown',job.reason||'comprobar la cola real y quitar este trabajo si no se envi\u00f3');return {hasJob:true,plan:null,why:'manual-review'}}
-    if(job.inflight){nativeQueueSetJobState(job,'sending',job.reason||'enviando a la cola real');return {hasJob:true,plan:null,why:'inflight'}}
-    const special=nativeSpecialConflict(townId,job.building);if(special){nativeQueueSetJobState(job,'blocked',`conflicto con ${nativeBuildLabel(special)}`);return {hasJob:true,plan:null,why:'special-conflict'}}
-    const max=abMaxLevel(job.building);if(max==null){nativeQueueSetJobState(job,'blocked','nivel m\u00e1ximo desconocido');return {hasJob:true,plan:null,why:'max-unreadable'}}
-    if(+job.toLevel>max){nativeQueueSetJobState(job,'blocked','nivel m\u00e1ximo alcanzado');return {hasJob:true,plan:null,why:'max-level'}}
-    const resolved=abResolvePrerequisite(townId,job.building,levels);
-    if(!resolved||!resolved.building){const why=resolved&&resolved.error||'requisito desconocido';nativeQueueSetJobState(job,'blocked',abReasonText(why));return {hasJob:true,plan:null,why}}
-    const aff=abCanAfford(townId,resolved.building);
-    if(!aff.ok){const why=aff.why||'recursos',detail=abAffordReason(aff),status=why==='resources'?'waiting-resources':(why==='population'?'waiting-population':'blocked');nativeQueueSetJobState(job,status,detail);
+    nativeQueueReconcileBuild(townId);
+    nativeQueueRebaseBuild(townId);
+    const list=nativeQueueList(townId,'build',false);
+    if(nativeQueuePlannerOwnsTown(townId)){const blocked=nativeQueuePlannerLaneBlocked(townId,'build');return {hasJob:blocked,plan:null,why:blocked?'planner-awaiting-reconcile':null}}
+    if(!list.length)return {hasJob:nativeQueueIsFifo(townId,'build'),plan:null};
+    if(nativeQueuePaused(townId,'build')){
+      const first=list.find(Boolean);if(first)nativeQueueSetJobState(first,'paused','cola pausada');
+      return {hasJob:true,plan:null,why:'paused'};
+    }
 
-      if(aff.popShort&&resolved.building!=='farm')nativePopRescueFifo(townId,levels,aff);
-      return {hasJob:true,plan:null,why}}
-    const isRequirement=resolved.building!==job.building;
-    nativeQueueSetJobState(job,'ready',isRequirement?`antes: ${nativeBuildLabel(resolved.building)}`:'listo');
-    return {hasJob:true,plan:{building:resolved.building,forTarget:job.building,reason:isRequirement?`requisito para ${job.building}`:'cola FIFO',cost:aff.need,nativeJobId:job.id,nativeRequestedBuilding:job.building,nativeRequirement:isRequirement}};
+    const active=list.find(j=>j&&j.inflight);
+    if(active){nativeQueueSetJobState(active,'sending',active.reason||'enviando a la cola real');return {hasJob:true,plan:null,why:'inflight'}}
+
+    const reviewBuildings=new Set();
+    for(const j of list){
+      if(!j||!j.manualReview)continue;
+      if(j.building)reviewBuildings.add(String(j.building));
+      if(j.reconcile&&j.reconcile.building)reviewBuildings.add(String(j.reconcile.building));
+      nativeQueueSetJobState(j,'unknown',j.reason||'resultado pendiente de revisi\u00f3n; otros edificios independientes pueden continuar');
+    }
+
+    let lastWhy='manual-review-only';
+    for(const job of list){
+      if(!job||job.manualReview||job.inflight)continue;
+      if(reviewBuildings.has(String(job.building))){
+        nativeQueueSetJobState(job,'waiting-review','misma construcci\u00f3n pendiente de revisi\u00f3n');
+        lastWhy='same-building-review';continue;
+      }
+      const special=nativeSpecialConflict(townId,job.building);
+      if(special){nativeQueueSetJobState(job,'blocked',`conflicto con ${nativeBuildLabel(special)}`);lastWhy='special-conflict';continue}
+      const max=abMaxLevel(job.building);
+      if(max==null){nativeQueueSetJobState(job,'blocked','nivel m\u00e1ximo desconocido');lastWhy='max-unreadable';continue}
+      if(+job.toLevel>max){nativeQueueSetJobState(job,'blocked','nivel m\u00e1ximo alcanzado');lastWhy='max-level';continue}
+      const resolved=abResolvePrerequisite(townId,job.building,levels);
+      if(!resolved||!resolved.building){
+        const why=resolved&&resolved.error||'requisito desconocido';
+        nativeQueueSetJobState(job,'blocked',abReasonText(why));lastWhy=why;continue;
+      }
+      if(reviewBuildings.has(String(resolved.building))){
+        nativeQueueSetJobState(job,'waiting-review',`requisito ${nativeBuildLabel(resolved.building)} pendiente de revisi\u00f3n`);
+        lastWhy='requirement-review';continue;
+      }
+      const aff=abCanAfford(townId,resolved.building);
+      if(!aff.ok){
+        const why=aff.why||'recursos',detail=abAffordReason(aff),status=why==='resources'?'waiting-resources':(why==='population'?'waiting-population':'blocked');
+        nativeQueueSetJobState(job,status,detail);
+        if(aff.popShort&&resolved.building!=='farm')nativePopRescueFifo(townId,levels,aff);
+        lastWhy=why;continue;
+      }
+      const isRequirement=resolved.building!==job.building;
+      nativeQueueSetJobState(job,'ready',isRequirement?`antes: ${nativeBuildLabel(resolved.building)}`:'listo');
+      return {hasJob:true,plan:{building:resolved.building,forTarget:job.building,reason:isRequirement?`requisito para ${job.building}`:'cola ejecutable',cost:aff.need,nativeJobId:job.id,nativeRequestedBuilding:job.building,nativeRequirement:isRequirement}};
+    }
+    return {hasJob:true,plan:null,why:lastWhy};
   }
   function nativeQueueBuildApplied(townId,plan) {
     if(!plan||!plan.nativeJobId)return;
-    const list=nativeQueueList(townId,'build',false),job=list[0];if(!job||job.id!==plan.nativeJobId)return;
-    if(!plan.nativeRequirement&&plan.building===job.building){list.shift();nativeQueueRebaseBuild(townId)}
+    const list=nativeQueueList(townId,'build',false);
+    const i=list.findIndex(j=>j&&j.id===plan.nativeJobId);if(i<0)return;
+    const job=list[i];
+    if(!plan.nativeRequirement&&plan.building===job.building){list.splice(i,1);nativeQueueRebaseBuild(townId)}
     else{job.inflight=null;job.reconcile=null;job.manualReview=false;nativeQueueSetJobState(job,'waiting-requirement',`construyendo ${nativeBuildLabel(plan.building)} primero`)}
     nativeQueueSave();
   }
 
   function nativeQueueReconcileRecruit(townId,lane) {
     const lanes=lane?[lane]:NATIVE_RECRUIT_LANES;let changed=false;
-
     let queueKnown=false;
     try{queueKnown=!!(recruitQueueInfo(townId)||{}).known}catch(_){}
     for(const ln of lanes){
       const list=nativeQueueList(townId,ln,false);if(!list.length)continue;
-      const head=list[0];
       for(const j of list){
-        if(!j||!j.inflight)continue;
-        const fl=j.inflight;
-        if(queueKnown&&j===head&&fl.token&&fl.queuedBefore!=null&&j.unit){
+        if(!j)continue;
+        const fl=j.inflight||j.reconcile;
+        if(fl&&queueKnown&&fl.queuedBefore!=null&&j.unit){
           let now=null;
           try{now=recruitQueuedAmount(townId,j.unit)}catch(_){now=null}
           if(now!=null&&now>=(+fl.queuedBefore||0)+(+fl.amount||0)){
-            nativeQueueRecruitApplied(townId,ln,j.id,+fl.amount||0,fl.token);
+            const amount=+fl.amount||0;
+
+            nativeQueueRecruitApplied(townId,ln,j.id,amount,j.inflight&&j.inflight.token||null);
             changed=true;continue;
           }
         }
-        if(Date.now()-(+fl.at||0)>120000){j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualiz\u00f3; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}
+        if(j.inflight&&Date.now()-(+j.inflight.at||0)>120000){
+          j.reconcile=Object.assign({},j.inflight);
+          j.inflight=null;j.manualReview=true;j.status='unknown';
+          j.reason='la cola real no se actualiz\u00f3; este trabajo queda en revisi\u00f3n sin bloquear otras unidades';
+          j.updatedAt=Date.now();changed=true;
+        }
       }
     }
     if(changed)nativeQueueSave();return changed;
   }
-  function nativeQueueRecruitHead(townId,lane) {
+  function nativeQueueRecruitCandidates(townId,lane) {
     lane=lane||'recruit';
     nativeQueueReconcileRecruit(townId,lane);
-    const list=nativeQueueList(townId,lane,false),job=list[0];if(!job)return null;
-    if(nativeQueuePaused(townId,lane)){nativeQueueSetJobState(job,'paused','cola pausada');return null}
-    if(list.some(j=>j&&j!==job&&(j.manualReview||j.inflight))){nativeQueueSetJobState(job,'blocked','hay otra acci\u00f3n pendiente de revisi\u00f3n');return null}
-    if(job.manualReview){nativeQueueSetJobState(job,'unknown',job.reason||'comprobar la cola real y quitar este trabajo si no se envi\u00f3');return null}
-    if(job.inflight){nativeQueueSetJobState(job,'sending',job.reason||'enviando a la cola real');return null}
-
-    if(job.status==='waiting-slot'){
-      if(+job.slotRetryAt>Date.now())return null;
-      try{
-        nativeQueueSetJobState(job,'pending','re-chequeo cola');
-        try{gbTimeout(()=>recruitScan('slot-free'),50)}catch(_){}
-      }catch(_){}
+    const list=nativeQueueList(townId,lane,false);if(!list.length)return [];
+    if(nativeQueuePaused(townId,lane)){
+      const first=list.find(Boolean);if(first)nativeQueueSetJobState(first,'paused','cola pausada');return [];
     }
-    return job;
+
+    const active=list.find(j=>j&&j.inflight);
+    if(active){nativeQueueSetJobState(active,'sending',active.reason||'enviando a la cola real');return []}
+    const reviewUnits=new Set(list.filter(j=>j&&j.manualReview&&j.unit).map(j=>String(j.unit)));
+    for(const j of list)if(j&&j.manualReview)nativeQueueSetJobState(j,'unknown',j.reason||'resultado pendiente de revisi\u00f3n; otras unidades pueden continuar');
+    const out=[];
+    for(const job of list){
+      if(!job||job.manualReview||job.inflight)continue;
+      if(job.slotRetryAt&&+job.slotRetryAt>Date.now()){
+        nativeQueueSetJobState(job,'waiting-slot','cola llena seg\u00fan el servidor; reintento en ' + Math.ceil((+job.slotRetryAt-Date.now())/60000) + 'min');continue;
+      }
+      if(job.slotRetryAt)job.slotRetryAt=0;
+      if(reviewUnits.has(String(job.unit))){
+        nativeQueueSetJobState(job,'waiting-review','misma unidad pendiente de revisi\u00f3n');continue;
+      }
+      out.push(job);
+    }
+    return out;
+  }
+  function nativeQueueRecruitHead(townId,lane) {
+    return nativeQueueRecruitCandidates(townId,lane)[0]||null;
   }
   function nativeQueueRecruitApplied(townId,lane,jobId,amount,token) {
-    const list=nativeQueueList(townId,lane||'recruit',false),job=list[0];if(!job||job.id!==jobId)return;
-
+    const list=nativeQueueList(townId,lane||'recruit',false);
+    const i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return;
+    const job=list[i];
     if(token&&!(job.inflight&&job.inflight.token===token))return;
     const drained=Math.max(0,+amount||0);
-    job.inflight=null;job.amount=Math.max(0,(+job.amount||0)-drained);
+    job.inflight=null;job.reconcile=null;job.manualReview=false;job.amount=Math.max(0,(+job.amount||0)-drained);
     const removed=job.amount<=0;
-    if(removed)list.shift();else{job.status='pending';job.reason='resto del lote';job.updatedAt=Date.now()}
+    if(removed)list.splice(i,1);else{job.status='pending';job.reason='resto del lote';job.updatedAt=Date.now()}
     nativeQueueSave();
-
-    try { jrnPush({ f:'recruit', a:'chunk-drain', k:String(townId)+'|'+String(job.unit||'')+'|'+jobId }, removed ? 'ok' : 'ok', removed ? 'drained' : ('rest '+job.amount)); } catch (_) {}
+    try { jrnPush({ f:'recruit', a:'chunk-drain', k:String(townId)+'|'+String(job.unit||'')+'|'+jobId }, 'ok', removed ? 'drained' : ('rest '+job.amount)); } catch (_) {}
   }
 
   function nativeResearchLabel(tech) {
@@ -9113,7 +9804,7 @@ const STORE = {
 
   function nativeResearchDeps(tech) {
     try{
-      const def=uwCached().GameData&&uwCached().GameData.researches&&uwCached().GameData.researches[tech];
+      const def=gameUw().GameData&&gameUw().GameData.researches&&gameUw().GameData.researches[tech];
       if(!def)return null;
       const raw=def.research_dependencies||def.dependencies||[];
       const list=Array.isArray(raw)?raw:Object.keys(raw||{}).filter(k=>raw[k]);
@@ -9175,6 +9866,7 @@ const STORE = {
     return nativeQueueList(townId,'research',false).some(j=>j&&String(j.tech)===String(tech));
   }
   function nativeQueueAddResearch(townId,tech) {
+    if(nativeQueueRejectManualWhenPlanner(townId))return false;
     tech=String(tech||'');
     if(!tech||!gbGameDataLookup("researches", tech)){flash('Investigaci\u00f3n desconocida');return false}
     nativeQueueReconcileResearch(townId);
@@ -9233,18 +9925,35 @@ const STORE = {
     }
     if(changed)nativeQueueSave();return changed;
   }
-  function nativeQueueResearchHead(townId) {
+  function nativeQueueResearchCandidates(townId) {
     nativeQueueReconcileResearch(townId);
-    const list=nativeQueueList(townId,'research',false),job=list[0];if(!job)return null;
-    if(nativeQueuePaused(townId,'research')){nativeQueueSetJobState(job,'paused','cola pausada');return null}
-    if(list.some(j=>j&&j!==job&&(j.manualReview||j.inflight))){nativeQueueSetJobState(job,'blocked','hay otra acci\u00f3n pendiente de revisi\u00f3n');return null}
-    if(job.manualReview){nativeQueueSetJobState(job,'unknown',job.reason||'comprobar la cola real y quitar este trabajo si no se envi\u00f3');return null}
-    if(job.inflight){nativeQueueSetJobState(job,'sending',job.reason||'enviando a la cola real');return null}
-    return job;
+    const list=nativeQueueList(townId,'research',false);if(!list.length)return [];
+    if(nativeQueuePaused(townId,'research')){
+      const first=list.find(Boolean);if(first)nativeQueueSetJobState(first,'paused','cola pausada');return [];
+    }
+    const active=list.find(j=>j&&j.inflight);
+    if(active){nativeQueueSetJobState(active,'sending',active.reason||'enviando a la cola real');return []}
+    const reviewTechs=new Set(list.filter(j=>j&&j.manualReview&&j.tech).map(j=>String(j.tech)));
+    for(const j of list)if(j&&j.manualReview)nativeQueueSetJobState(j,'unknown',j.reason||'resultado pendiente de revisi\u00f3n; otras investigaciones pueden continuar');
+    const out=[];
+    for(const job of list){
+      if(!job||job.manualReview||job.inflight)continue;
+      if(reviewTechs.has(String(job.tech))){nativeQueueSetJobState(job,'waiting-review','misma investigaci\u00f3n pendiente de revisi\u00f3n');continue}
+      const deps=nativeResearchDepClosure(job.tech);
+      let blocked=false;
+      for(const t of reviewTechs)if(deps.has(t)){blocked=true;break}
+      if(blocked){nativeQueueSetJobState(job,'waiting-review','requisito pendiente de revisi\u00f3n');continue}
+      out.push(job);
+    }
+    return out;
+  }
+  function nativeQueueResearchHead(townId) {
+    return nativeQueueResearchCandidates(townId)[0]||null;
   }
   function nativeQueueResearchApplied(townId,jobId) {
-    const list=nativeQueueList(townId,'research',false),job=list[0];if(!job||job.id!==jobId)return;
-    list.shift();nativeQueueSave();
+    const list=nativeQueueList(townId,'research',false);
+    const i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return;
+    list.splice(i,1);nativeQueueSave();
   }
 
   gbAddStyle('native-ui', `
@@ -9254,8 +9963,9 @@ const STORE = {
        even though the button looked reachable. position+z-index puts it on top
        of its stacking context and makes hit-testing land on the button. */
     .gb-native-qctl{position:relative;z-index:2147482000;pointer-events:auto;display:inline-flex;align-items:center;gap:2px;margin:0 0 0 2px;padding:1px 3px;border:1px solid #8a6725;border-radius:4px;background:rgba(31,25,16,.94);color:#f6e3b0;font:10px/1.2 Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";box-shadow:0 1px 3px rgba(0,0,0,.45);vertical-align:middle}
-    /* Shared style for the batched-input fields used by the recruit popover
-       and the in-window native recruit tile (+Lote row, +N, etc.). */
+    /* Shared style for the batched-input fields used by both the Queue Center
+       +Lote row and the in-window native recruit tile (native-ui.js +
+       queue-center.js used to keep the literal inline and out of sync). */
     .gb-native-qinp{width:55px;background:#111;color:#cfc;border:1px solid #444;border-radius:3px;padding:1px 3px}
     .gb-native-qbtn{position:relative;z-index:1;pointer-events:auto;min-width:22px;height:20px;padding:0 4px;border:1px solid #9b7938;border-radius:4px;background:linear-gradient(#5b4828,#342814);color:#fff3c7;font:bold 11px Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";cursor:pointer}
     .gb-native-qbtn:hover{border-color:#e5b94f;color:#fff}.gb-native-qbtn:disabled{opacity:.42;cursor:default}
@@ -9343,6 +10053,17 @@ const STORE = {
     return nativeTownAction(root,townId,e=>{const live=kind==='build'?nativeBuildingId(tile):(kind==='research'?nativeResearchId(tile):nativeUnitId(tile));if(String(live||'')!==String(id||'')){flash('Este elemento de la ventana ha cambiado; vuelve a intentarlo');scheduleNativeUiScan();return false}return onClick&&onClick(e)});
   }
   function nativeGuardEvent(e){e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation()}
+  function nativeRecruitRememberedQty(fallback) {
+    const fb=Math.max(1,Math.floor(+fallback||1));
+    const n=Math.floor(+load(STORE.NATIVE_RECRUIT_LAST_QTY,fb)||fb);
+    return Math.max(1,n);
+  }
+  function nativeRecruitRememberQty(value,fallback) {
+    const fb=Math.max(1,Math.floor(+fallback||1));
+    const n=Math.max(1,Math.floor(+value||fb));
+    save(STORE.NATIVE_RECRUIT_LAST_QTY,n);
+    return n;
+  }
   function nativeQButton(text,title,onClick) {
     const b=document.createElement('button');b.type='button';b.className='gb-native-qbtn';b.textContent=text;b.title=title;b.setAttribute('aria-label',title);
     b.addEventListener('pointerdown',e=>{e.stopPropagation()});b.addEventListener('mousedown',e=>{e.stopPropagation()});
@@ -9472,7 +10193,7 @@ const STORE = {
     },250);
   }
   function nativeMountBuildControl(root,tile,townId,building) {
-    const list=nativeQueueList(townId,'build',false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),jobs=list.filter(j=>j&&j.building===building);
+    const list=nativeQueueList(townId,'build',false),frozen=list.some(j=>j&&j.inflight),jobs=list.filter(j=>j&&j.building===building);
     const projected=nativeQueueProjectedBuildLevel(townId,building),pos=nativeQueuePosition(townId,'build',j=>j&&j.building===building);
     const head=pos===1&&list[0],max=abMaxLevel(building),special=nativeSpecialConflict(townId,building),sig=JSON.stringify([townId,building,projected,pos,frozen,max,special,jobs.map(j=>[j.id,j.toLevel,j.status,j.reason,!!j.inflight,!!j.manualReview])]);
 
@@ -9485,10 +10206,8 @@ const STORE = {
     if(!jobs.length){
 
       const plus=nativeQButton('+',`A\u00f1adir ${nativeBuildLabel(building)} +1 al final de la cola virtual`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueAddBuild(townId,building)));
-      const fill=nativeQButton('++',`Encolar ${nativeBuildLabel(building)} desde el nivel ${projected} hasta el m\u00e1ximo (${max})`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueFillToMax(townId,building)));
       nativeApplyPlusBlock(plus,nativeBuildPlusBlock(building,projected,max,special));
-      nativeApplyPlusBlock(fill,nativeBuildPlusBlock(building,projected,max,special));
-      ctl.append(plus,fill);nativeQctlHitCheck(ctl,building);return;
+      ctl.append(plus);nativeQctlHitCheck(ctl,building);return;
     }
 
     const minus=nativeQButton('-','Quitar la \u00faltima mejora virtual',nativeTileAction(root,townId,tile,'build',building,()=>{if(!nativeQueueRemoveLastBuild(townId,building))flash('No hay mejora virtual que quitar')}));minus.disabled=!jobs.some(j=>j&&!j.inflight&&!j.manualReview);
@@ -9497,15 +10216,13 @@ const STORE = {
     if(head&&head.reason)count.title=head.reason;
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
     const plus=nativeQButton('+',`A\u00f1adir ${nativeBuildLabel(building)} +1 al final de la cola`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueAddBuild(townId,building)));
-    const fill=nativeQButton('++',`Encolar ${nativeBuildLabel(building)} desde el nivel ${projected} hasta el m\u00e1ximo (${max})`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueFillToMax(townId,building)));
     nativeApplyPlusBlock(plus,nativeBuildPlusBlock(building,projected,max,special));
-    nativeApplyPlusBlock(fill,nativeBuildPlusBlock(building,projected,max,special));
-    ctl.append(minus,count,plus,fill);nativeQctlHitCheck(ctl,building);
+    ctl.append(minus,count,plus);nativeQctlHitCheck(ctl,building);
   }
   function nativeMountRecruitControl(root,tile,townId,unit) {
 
     const lane=nativeRecruitLaneOf(townId,unit);
-    const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit);
+    const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&j.inflight),step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit);
     const pos=nativeQueuePosition(townId,lane,j=>j&&j.unit===unit),head=pos===1&&list[0];
 
     const sig=JSON.stringify([townId,unit,lane,step,pending,pos,frozen,head&&head.status,head&&head.reason,list.length]);
@@ -9562,8 +10279,10 @@ const STORE = {
     const plus=nativeQButton(`+${step}`,`A\u00f1adir ${step} ${nativeUnitLabel(unit)} a la cola virtual`,act(e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));
     rowA.append(minus,count,plus);pop.appendChild(rowA);
     const rowB=document.createElement('div');rowB.className='gb-native-qpop-row';
-    const qtyInp=document.createElement('input');qtyInp.type='number';qtyInp.min='1';qtyInp.step=String(step);qtyInp.value=String(step);qtyInp.title=`Cantidad a a\u00f1adir (paso ${step})`;qtyInp.className='gb-native-qinp';
-    const qtyBtn=nativeQButton('+N',`A\u00f1adir N ${nativeUnitLabel(unit)} a la cola virtual (paso ${step})`,act(()=>{const n=Math.max(1,Math.floor(+qtyInp.value||step));nativeQueueAddRecruit(townId,unit,n)}));
+    const qtyInp=document.createElement('input');qtyInp.type='number';qtyInp.min='1';qtyInp.step=String(step);qtyInp.value=String(nativeRecruitRememberedQty(step));qtyInp.title=`Cantidad a a\u00f1adir (paso ${step}) \u00b7 recuerda el ultimo valor usado`;qtyInp.className='gb-native-qinp';
+
+    qtyInp.addEventListener('change',()=>{qtyInp.value=String(nativeRecruitRememberQty(qtyInp.value,step))});
+    const qtyBtn=nativeQButton('+N',`A\u00f1adir N ${nativeUnitLabel(unit)} a la cola virtual (paso ${step})`,act(()=>{const n=nativeRecruitRememberQty(qtyInp.value,step);nativeQueueAddRecruit(townId,unit,n)}));
     rowB.append(qtyInp,qtyBtn);pop.appendChild(rowB);
     const rowC=document.createElement('div');rowC.className='gb-native-qpop-row';
     const totalInp=document.createElement('input');totalInp.type='number';totalInp.min='1';totalInp.step=String(step);totalInp.value=String(step*10);totalInp.title='Total de unidades a encolar';totalInp.className='gb-native-qinp';
@@ -9649,7 +10368,7 @@ const STORE = {
     let box=document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`);
     if(!box){box=document.createElement('div');box.className='gb-native-panel';box.dataset.lane=lane;box.dataset.town=String(townId);document.body.appendChild(box);box.addEventListener('mousedown',e=>e.stopPropagation());box.addEventListener('click',e=>e.stopPropagation())}
 
-    const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&(j.inflight||j.manualReview));
+    const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&j.inflight);
     const roster=NATIVE_RECRUIT_LANES.includes(lane)?[...new Set((units||[]).filter(Boolean))]:[];
     const ckey=`${lane}|${townId}`,collapsed=!!nativeQPanelCollapsed[ckey];
 
@@ -9660,19 +10379,6 @@ const STORE = {
       const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot \u00b7 Construcci\u00f3n':(lane==='research'?'Cola GrepBot \u00b7 Investigaci\u00f3n':(lane==='recruitNaval'?'Cola GrepBot \u00b7 Puerto':'Cola GrepBot \u00b7 Cuartel'));gbTip(title, 'Cola virtual de GrepBot para esta ciudad y tipo de edificio/unidad');head.appendChild(title);
       const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'>':'||',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
       if(!list.length&&nativeQueueIsFifo(townId,lane)){const legacy=nativeQButton('Objetivos','Volver al planificador de objetivos',nativeTownAction(root,townId,()=>nativeQueueUseLegacy(townId,lane)));head.appendChild(legacy)}
-
-      if (lane === 'build') {
-        const scriptActive = abScriptActive();
-        const phase = scriptActive ? abScriptCurrentPhase(townId) : null;
-        const scriptLbl = scriptActive ? (phase ? `CS: ${phase.label}` : 'CS: calculando\u2026') : 'Plan CS';
-        const scriptBtn = nativeQButton(scriptActive ? '\u23f9' : '\u25b6', scriptActive ? `Detener ${scriptLbl}` : 'Activar plan CS (Senado 24 \u2192 Academia 7 \u2192 Teatro \u2192 Academia 30 \u2192 M\u00e1x)', nativeTownAction(root,townId,() => {
-          if (abScriptActive() && !confirm('\u00bfDetener el plan CS y volver a los objetivos compartidos?')) return;
-          abScriptToggle();
-          try { abScan('manual'); } catch (_) {}
-        }));
-        scriptBtn.style.color = scriptActive ? '#ffb060' : '#9bd';
-        head.appendChild(scriptBtn);
-      }
       head.appendChild(nativeQButton(collapsed?'\u25b8':'\u25be',collapsed?'Desplegar este panel':'Plegar este panel',nativePanelAction(townId,()=>{nativeQPanelCollapsed[ckey]=!collapsed;scheduleNativeUiScan()})));
       stage.appendChild(head);
       if(collapsed){
@@ -9706,7 +10412,7 @@ const STORE = {
       }
       if(!list.length){const empty=document.createElement('div');empty.className='gb-native-empty';empty.textContent=nativeQueueIsFifo(townId,lane)?'Cola vac\u00eda. Usa los botones + de arriba.':'Usa + para crear una cola FIFO en esta ciudad.';stage.appendChild(empty);return}
       const jobs=document.createElement('div');jobs.className='gb-native-jobs';stage.appendChild(jobs);
-      list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}\u2192${j.toLevel}`:(lane==='research'?nativeResearchLabel(j.tech):`${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`);const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' \u00b7 '+j.reason:''}`;gbTip(sub, 'Estado de la orden virtual + motivo si esta bloqueada');desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const top=nativeQButton('\u2191\u2191','Saltar al inicio de la cola',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-i)));top.disabled=frozen||i===0;const up=nativeQButton('\u2191','Mover antes',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('\u2193','Mover despu\u00e9s',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const bot=nativeQButton('\u2193\u2193','Saltar al final de la cola',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,list.length-1-i)));bot.disabled=frozen||i===list.length-1;const del=nativeQButton('\u00d7','Quitar de la cola virtual',nativePanelAction(townId,()=>{if(j.inflight){flash('Esta orden se est\u00e1 enviando; espera a que termine');return false}if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acci\u00f3n se envi\u00f3 o no.')}catch(_){ok=false}if(!ok)return false}else if(frozen){let ok=false;try{ok=gameUw().confirm('Hay otra acci\u00f3n pendiente en esta cola. \u00bfBorrar este elemento de todos modos?')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id,{force:true})}));del.disabled=!!j.inflight;acts.append(top,up,down,bot,del);row.append(num,desc,acts);jobs.appendChild(row)});
+      list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}\u2192${j.toLevel}`:(lane==='research'?nativeResearchLabel(j.tech):`${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`);const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' \u00b7 '+j.reason:''}`;gbTip(sub, 'Estado de la orden virtual + motivo si esta bloqueada');desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const up=nativeQButton('\u2191','Mover antes',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('\u2193','Mover despu\u00e9s',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const del=nativeQButton('\u00d7','Quitar de la cola virtual',nativePanelAction(townId,()=>{if(j.inflight){flash('Esta orden se est\u00e1 enviando; espera a que termine');return false}if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acci\u00f3n se envi\u00f3 o no.')}catch(_){ok=false}if(!ok)return false}else if(frozen){let ok=false;try{ok=gameUw().confirm('Hay otra acci\u00f3n pendiente en esta cola. \u00bfBorrar este elemento de todos modos?')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id,{force:true})}));del.disabled=!!j.inflight;acts.append(up,down,del);row.append(num,desc,acts);jobs.appendChild(row)});
     },{key});
   }
   function nativeUiScan() {
@@ -9721,17 +10427,17 @@ const STORE = {
       const senateContext=!!(root.matches('#building_main,.building_main,.senate')||root.querySelector('#building_main,.building_main,[id^="building_main_"],[id^="special_building_"]'));
 
       const buildTiles=senateContext?[...root.querySelectorAll('[id^="building_main_"],[id^="special_building_"]')]:[];
-      for(const tile of buildTiles){if(tile.classList.contains('gb-native-qctl')||tile.closest('.gb-native-qctl'))continue;const id=nativeBuildingId(tile);if(!id||mountedBuildIds.has(id))continue;mountedBuildIds.add(id);nativeMountBuildControl(root,tile,townId,id);buildN++}
+      for(const tile of buildTiles){if(tile.classList.contains('gb-native-qctl')||tile.closest('.gb-native-qctl,.gb-native-panel'))continue;const id=nativeBuildingId(tile);if(!id||mountedBuildIds.has(id))continue;mountedBuildIds.add(id);nativeMountBuildControl(root,tile,townId,id);buildN++}
       const unitContext=root.matches('#unit_order')?root:root.querySelector('#unit_order');const unitTiles=unitContext?[...unitContext.querySelectorAll('#units .unit_tab,.unit_tab')]:[];
 
       const unitsByLane={recruit:[],recruitNaval:[]};
       for(const tile of unitTiles){const id=nativeUnitId(tile);if(!id||mountedUnitIds.has(id))continue;mountedUnitIds.add(id);const ulane=nativeRecruitLaneOf(townId,id);mountedUnitLanes.add(ulane);(unitsByLane[ulane]||(unitsByLane[ulane]=[])).push(id);nativeMountRecruitControl(root,tile,townId,id)}
 
-      const researchTiles=[...root.querySelectorAll(nativeResearchTileSel(root))].filter(n=>!n.closest('.gb-native-qctl'));
+      const researchTiles=[...root.querySelectorAll(nativeResearchTileSel(root))].filter(n=>!n.closest('.gb-native-qctl,.gb-native-panel'));
       const researchOuter=researchTiles.filter(n=>{const id=nativeResearchId(n);return id&&!researchTiles.some(o=>o!==n&&o.contains(n)&&nativeResearchId(o)===id)});
       for(const node of researchOuter){const id=nativeResearchId(node);if(!id||mountedResearchIds.has(id))continue;
         const tile=/^(?:button|a)$/i.test(node.tagName)?(node.parentElement||node):node;
-        if(tile.closest('.gb-native-qctl'))continue;
+        if(tile.closest('.gb-native-qctl,.gb-native-panel'))continue;
         mountedResearchIds.add(id);nativeMountResearchControl(root,tile,townId,id);researchN++}
 
       if(!researchN&&nativeAcademyRoot(root)&&(root.querySelector('.tech_tree_box')||researchTiles.length)){
@@ -9795,22 +10501,10 @@ const STORE = {
     return Math.max(0, wallLevel - lost);
   }
   function abCurrentLevels(townId) {
-    const t = abGetTown(townId);
-    if (!t) return null;
-    let attrs = null;
-    try { const b = t.getBuildings ? t.getBuildings() : (t.buildings && t.buildings()); attrs = b && (b.attributes || b); } catch (_) {}
-    if (!attrs) return null;
-    const levels = {};
-    AB_BUILDINGS.forEach(id => { levels[id] = +(attrs[id] || 0); });
+    const t=abGetTown(townId),actual=abActualLevels(townId);if(!t||!actual)return null;const levels=Object.assign({},actual);
     try {
-      const orders = t.buildingOrders ? t.buildingOrders() : null;
-      for (const m of ((orders && orders.models) || [])) {
-        const a = m.attributes || m;
-        const type = a.building_type;
-        if (!type || levels[type] == null) continue;
-        if (a.tear_down) levels[type] = Math.max(0, levels[type] - 1);
-        else levels[type] += 1;
-      }
+      const orders=t.buildingOrders?t.buildingOrders():null;if(!orders||!Array.isArray(orders.models))return levels;
+      for(const m of orders.models){const a=m.attributes||m,type=a.building_type;if(!type||levels[type]==null)continue;if(a.tear_down)levels[type]=Math.max(0,levels[type]-1);else levels[type]+=1}
     } catch (_) {}
     return levels;
   }
@@ -9898,7 +10592,8 @@ const STORE = {
     try { res = t.resources && t.resources(); } catch (_) {}
     try { pop = t.getAvailablePopulation ? +t.getAvailablePopulation() : (res && res.population != null ? +res.population : null); } catch (_) {}
     if (!res || res.wood == null || res.stone == null || res.iron == null || pop == null) return { ok: false, why: 'resources/pop unreadable' };
-    const margin = 10;
+
+    const margin = 0;
     const have = { wood:+res.wood, stone:+res.stone, iron:+res.iron, population:pop };
 
     if (need.popBlind) {
@@ -9995,22 +10690,26 @@ const STORE = {
         if (aff.popShort && resolved.building !== 'farm' && nativePopRescueFifo(townId, levels, aff)) return null;
         continue;
       }
-      return { building: resolved.building, forTarget: target, reason: resolved.reason, cost: aff.need };
+      const out={ building: resolved.building, forTarget: target, reason: resolved.reason, cost: aff.need };if(cdIsProfile(goalTownCfg(townId).profile))out.cdRevision=cdProfileRevision(townId);return out;
     }
+    const demo=cdNextDemolition(townId,levels);if(demo)return demo;
     return null;
   }
   function abPickNext(townId) { return abPickNextFromLevels(townId, abCurrentLevels(townId)); }
   function abFinalValidate(townId, plan) {
     const q = abQueueInfo(townId);
     if (!q.known) return { ok: false, why: 'queue-unreadable' };
+    if(plan&&plan.mode==='teardown'&&q.len!==0)return {ok:false,why:'teardown-queue-busy',detail:`demolici\u00f3n requiere cola real vac\u00eda (${q.len}/${q.max})`};
     if (q.len >= q.max) return { ok: false, why: 'queue-full', detail:`cola real llena (${q.len}/${q.max})` };
     const levels = abCurrentLevels(townId);
     if (!levels) return { ok: false, why: 'levels-unreadable' };
 
-    const fresh = (plan && plan.randomFallback) ? plan : abPickNextFromLevels(townId, levels);
+    if(plan&&plan.cdRevision!=null&&+plan.cdRevision!==cdProfileRevision(townId))return {ok:false,why:'cd-revision-changed'};
+    const fresh = abPickNextFromLevels(townId, levels);
     if (!fresh) return { ok: false, why: 'no-valid-build' };
     if(plan&&plan.nativeJobId&&fresh.nativeJobId!==plan.nativeJobId)return {ok:false,why:'native-head-changed'};
     if (plan && fresh.building !== plan.building) return { ok: false, why: `plan-changed:${plan.building}->${fresh.building}`, replan: fresh };
+    if(fresh.mode==='teardown'){const actual=abActualLevels(townId);if(!actual)return {ok:false,why:'levels-unreadable'};const targetLevel=+(actual[fresh.building]||0)-1;if(targetLevel<0)return {ok:false,why:'min-level'};if(targetLevel!==+fresh.targetLevel)return {ok:false,why:'teardown-level-changed'};const gate=cdCanStartStrip(townId);if(!gate.ok)return {ok:false,why:'strip-'+gate.why};if(txRecentlyCommitted(`build:${townId}:${fresh.building}:${targetLevel}`,60000))return {ok:false,why:'recently-accepted-waiting-model'};return {ok:true,plan:Object.assign({},fresh,{targetLevel,mode:'teardown',cdRevision:cdProfileRevision(townId)})}}
     const targetLevel=+(levels[fresh.building]||0)+1;
     if(txRecentlyCommitted(`build:${townId}:${fresh.building}:${targetLevel}`,60000))return {ok:false,why:'recently-accepted-waiting-model'};
     const max = abMaxLevel(fresh.building);
@@ -10043,189 +10742,122 @@ const STORE = {
         if(plan&&plan.nativeJobId){const status=/^queue-/.test(check.why)?'waiting-queue':(check.why==='resources'?'waiting-resources':(check.why==='population'?'waiting-population':'blocked'));nativeQueueMarkBuild(townId,plan.nativeJobId,{status,reason:detail})}
         gbLogT('ab-precheck-' + townId, 30000, `auto-queue: final precheck blocked @${townId}: ${detail}`); resolve('replan'); return;
       }
+      let provisionalStrip=false,stripStateRef=null;if(check.plan.mode==='teardown'){stripStateRef=cdTownState(townId);const already=!!(stripStateRef.stripStarted||stripStateRef.stripFinalized);if(!cdMaybeLatchStrip(townId,false)){resolve('replan');return}provisionalStrip=!already}
       const building = check.plan.building;
       const nativeId=check.plan.nativeJobId||null;
       if(nativeId&&!nativeQueueMarkBuild(townId,nativeId,{inflight:{building,targetLevel:check.plan.targetLevel,at:Date.now()},manualReview:false,status:'sending',reason:`enviando ${nativeBuildLabel(building)}`})){resolve('replan');return}
-      const nativeFail=(status,reason,manualReview)=>{if(!nativeId)return;const head=nativeQueueList(townId,'build',false)[0],reconcile=manualReview&&head&&head.id===nativeId&&head.inflight?Object.assign({},head.inflight):null;nativeQueueMarkBuild(townId,nativeId,{inflight:null,reconcile,manualReview:!!manualReview,status,reason})};
+      const nativeFail=(status,reason,manualReview)=>{if(!nativeId)return;const cur=nativeQueueList(townId,'build',false).find(j=>j&&j.id===nativeId),reconcile=manualReview&&cur&&cur.inflight?Object.assign({},cur.inflight):null;nativeQueueMarkBuild(townId,nativeId,{inflight:null,reconcile,manualReview:!!manualReview,status,reason})};
+      const buildAction=check.plan.mode==='teardown'?'tearDown':'buildUp';
       bridgePost('build', {
-        model_url: 'BuildingOrder', action_name: 'buildUp', arguments: { building_id: building }, town_id: +townId,
+        model_url: 'BuildingOrder', action_name: buildAction, arguments: { building_id: building }, town_id: +townId,
       }, (err) => {
-        if (err === 'captcha' || err === 'captcha-pause') { nativeFail('waiting','pausado por captcha',false);resolve('captcha'); return; }
-        if (err === 'timeout_unknown' || err === 'pending') { nativeFail('unknown','resultado desconocido; comprobar la cola real',true);gbLog(`auto-queue: ${building} @${townId} outcome unknown/pending \u2014 no retry`); resolve('unknown'); return; }
-        if (err) { nativeFail('blocked',String(err),false);gbLog(`auto-queue: ${building} @${townId} fail: ${err}`); resolve('err'); return; }
+        if (err === 'captcha' || err === 'captcha-pause') { if(provisionalStrip)cdRollbackProvisionalStrip(townId,stripStateRef);nativeFail('waiting','pausado por captcha',false);resolve('captcha'); return; }
+        if (err === 'timeout_unknown' || err === 'pending') { if(provisionalStrip)cdPersistTownGoal(townId);nativeFail('unknown','resultado desconocido; comprobar la cola real',true);gbLog(`auto-queue: ${building} @${townId} outcome unknown/pending \u2014 no retry`); resolve('unknown'); return; }
+        if (err) { if(provisionalStrip)cdRollbackProvisionalStrip(townId,stripStateRef);nativeFail('blocked',String(err),false);gbLog(`auto-queue: ${building} @${townId} fail: ${err}`); resolve('err'); return; }
+        if(provisionalStrip)cdPersistTownGoal(townId);
         const waits=[0,200,600,1400,2800];let i=0;
-        const confirmModel=()=>{const levels=abCurrentLevels(townId);if(levels&&+(levels[building]||0)>=+check.plan.targetLevel){gbLog(`auto-queue: ${AB_LABELS[building] || building} +1 in town ${townId}${check.plan.forTarget !== building ? ` (prereq for ${check.plan.forTarget})` : ''}`);resolve('ok');return}
+        const confirmModel=()=>{const levels=abCurrentLevels(townId);const reached=levels&&(check.plan.mode==='teardown'?+(levels[building]||0)<=+check.plan.targetLevel:+(levels[building]||0)>=+check.plan.targetLevel);if(reached){gbLog(`auto-queue: ${AB_LABELS[building] || building} ${check.plan.mode==='teardown'?'-1':'+1'} in town ${townId}${check.plan.forTarget !== building ? ` (prereq for ${check.plan.forTarget})` : ''}`);resolve('ok');return}
           if(i>=waits.length){if(nativeId)nativeQueueMarkBuild(townId,nativeId,{inflight:{building,targetLevel:check.plan.targetLevel,at:Date.now(),accepted:true},manualReview:false,status:'accepted',reason:'aceptado; esperando actualizaci\u00f3n del juego'});gbLog(`auto-queue: ${building} @${townId} accepted; waiting for model update`);resolve('accepted');return}gbTimeout(confirmModel,waits[i++])};confirmModel();
       });
     });
   }
-
-  const AB_OP_WATCHDOG_MS = 90000;
-  const AB_RANDOM_DENY = new Set(NATIVE_SPECIAL_GROUPS.reduce((a, g) => a.concat(g), []));
-  function abRandomPool() {
-    return AB_BUILDINGS.filter(b => !AB_RANDOM_DENY.has(b));
-  }
-  function abRandomShuffle(arr) {
-    const a = arr.slice();
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      const tmp = a[i]; a[i] = a[j]; a[j] = tmp;
-    }
-    return a;
-  }
-  function abRandomPick(townId, levels) {
-    if (!levels) return null;
-    const pool = abRandomShuffle(abRandomPool());
-    for (const candidate of pool) {
-      const max = abMaxLevel(candidate);
-      if (max == null) { gbLogT('ab-rmax-' + candidate, 300000, `random-fallback: max level unreadable for ${candidate} \u2014 skip`); continue; }
-      const have = +(levels[candidate] || 0);
-      if (have >= max) continue;
-      if (goalQueueSuppressed(townId, 'build', candidate)) continue;
-      const resolved = abResolvePrerequisite(townId, candidate, levels);
-      if (!resolved || !resolved.building) continue;
-      const aff = abCanAfford(townId, resolved.building);
-      if (!aff.ok) continue;
-      return { building: resolved.building, forTarget: candidate, reason: 'random-fallback', cost: aff.need, randomFallback: true };
-    }
-    return null;
-  }
   function abTownIds() {
-    const fromGame = townsFromGame();
-    const ids=(fromGame&&fromGame.length?fromGame.map(t=>t.id):(state.towns||[]).map(t=>t.id)).map(String);
-    for(const id of Object.keys(nativeQueueRoot().towns))if(!ids.includes(String(id)))ids.push(String(id));
+
+    const ids=[];
+    const add=id=>{const s=String(id==null?'':id);if(s&&!ids.includes(s))ids.push(s)};
+    const fromGame=townsFromGame();
+    if(fromGame&&fromGame.length)fromGame.forEach(t=>t&&t.id!=null&&add(t.id));
+    try{Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{}).forEach(add)}catch(_){}
+    try{(state.towns||[]).forEach(t=>t&&t.id!=null&&add(t.id))}catch(_){}
+    for(const id of Object.keys(nativeQueueRoot().towns))add(id);
     return ids;
+  }
+  function abPlannerBlockedInfo(townId,levels){
+    if(!levels)return null;const targets=goalEffectiveBuildTargets(townId);
+    for(const target of goalBuildOrder(townId,Object.keys(targets||{}))){const max=abMaxLevel(target);if(max==null)continue;const want=Math.min(+targets[target]||0,max),have=target==='wall'?abWallEffectiveLevel(townId,+(levels.wall||0)):+(levels[target]||0);if(want<=0||have>=want)continue;const resolved=abResolvePrerequisite(townId,target,levels);if(!resolved||!resolved.building)return {building:target,fromLevel:have,toLevel:Math.min(max,have+1),detail:abReasonText(resolved&&resolved.error||'requisito desconocido')};const b=resolved.building,from=+(levels[b]||0),aff=abCanAfford(townId,b);if(!aff.ok)return {building:b,fromLevel:from,toLevel:from+1,detail:abAffordReason(aff)||abReasonText(aff.why)};return {building:b,fromLevel:from,toLevel:from+1,detail:'listo; esperando turno del scheduler'}}
+    return null;
   }
   let abBlockedLogSig = '';
   let abBlockedLogAt = 0;
   function abScan(reason) {
-    const nativePending=nativeQueueHasPending('build');
-    if (!hostEnabled() || (!state.abAuto && !nativePending && reason !== 'manual') || captchaPaused('build') || circuitOpen('build') || gbLocked('ab')) return;
-    if (automationPaused({})) return;
-    const ids = abTownIds();
-    if (!ids.length) { gbLogT('ab-notowns', 120000, 'auto-queue: no towns'); return; }
-    const lockToken = gbLock('ab', Math.max(300000, ids.length * 90000));
-    if (!lockToken) return;
-    let townIndex = 0, done = 0, captcha = false, operations = 0;
-    const blocked = [];
-    const noteBlocked = (townId, why) => {
-      const head = nativeQueueList(townId, 'build', false)[0];
-      if (!head || blocked.some(x => x.townId === String(townId))) return;
-      const detail = String(why || head.reason || head.status || 'sin acci\u00f3n ejecutable');
-
-      const stableDetail = /^waiting-(?:resources|population)$/.test(head.status || '')
-        ? detail.replace(/\d+(?:[.,]\d+)?/g, '#') : detail;
-      const townName = townNameById(townId), townLabel = townName === String(townId) ? String(townId) : `${townName} [${townId}]`;
-      blocked.push({
-        townId:String(townId),
-        sig:[townId,head.id,head.status,stableDetail].join('|'),
-        text:`ciudad ${townLabel} \u00b7 #1 ${nativeBuildLabel(head.building)} ${head.fromLevel}\u2192${head.toLevel} \u00b7 ${detail}`,
-      });
+    const nativePending=nativeQueueHasPending('build'), cdPending=cityDesignerHasExecutableWork('build');
+    if(!hostEnabled()||(!state.abAuto&&!nativePending&&!cdPending&&reason!=='manual')||captchaPaused('build')||circuitOpen('build'))return;
+    if(automationPaused({}))return;
+    const ids=abTownIds();
+    if(!ids.length){gbLogT('ab-notowns',120000,'auto-queue: no towns');return}
+    let townIndex=0,done=0,captcha=false,operations=0;
+    const blocked=[];
+    const noteBlocked=(townId,why)=>{
+      const list=nativeQueueList(townId,'build',false);
+      const head=list.find(j=>j&&!j.manualReview)||list.find(Boolean);
+      const townName=townNameById(townId),townLabel=townName===String(townId)?String(townId):`${townName} [${townId}]`;
+      if(head){if(blocked.some(x=>x.townId===String(townId)))return;const detail=String(why||head.reason||head.status||'sin acci\u00f3n ejecutable'),stableDetail=/^waiting-(?:resources|population)$/.test(head.status||'')?detail.replace(/\d+(?:[.,]\d+)?/g,'#'):detail;blocked.push({townId:String(townId),sig:[townId,head.id,head.status,stableDetail].join('|'),text:`ciudad ${townLabel} \u00b7 ${nativeBuildLabel(head.building)} ${head.fromLevel}\u2192${head.toLevel} \u00b7 ${detail}`});return}
+      if(blocked.some(x=>x.townId===String(townId))||!nativeQueuePlannerOwnsTown(townId))return;const info=abPlannerBlockedInfo(townId,abCurrentLevels(townId));if(!info)return;const detail=String(why||info.detail||'sin acci\u00f3n ejecutable'),stableDetail=detail.replace(/\d+(?:[.,]\d+)?/g,'#');blocked.push({townId:String(townId),sig:[townId,'planner',info.building,stableDetail].join('|'),text:`ciudad ${townLabel} \u00b7 ${nativeBuildLabel(info.building)} ${info.fromLevel}\u2192${info.toLevel} \u00b7 ${detail}`});
     };
-    const maxOps = Math.max(1, ids.length * 7);
-    const finish = () => {
-      gbUnlock('ab', lockToken);
-      if (done) flash(`auto-queue x${done}`);
-      const prefix = `auto-queue${reason ? ' (' + reason + ')' : ''}: ${done} queued`;
-      if (done) {
-        abBlockedLogSig = ''; abBlockedLogAt = 0;
-        gbLogT('ab-finish-ok', 30000, prefix);
-      } else if (blocked.length) {
-        const sig = blocked.map(x => x.sig).join('||');
-        const now = Date.now();
-        const quietRepeat = reason === 'native-watch' || reason === 'orch';
-        if (!quietRepeat || sig !== abBlockedLogSig || now - abBlockedLogAt >= 300000) {
-          abBlockedLogSig = sig; abBlockedLogAt = now;
-          const shown = blocked.slice(0,3).map(x => x.text).join('; ');
-          gbLog(`${prefix} \u2014 ${shown}${blocked.length>3 ? `; +${blocked.length-3} m\u00e1s` : ''}`);
+    const maxOps=Math.max(1,ids.length*7);
+    const finish=()=>{
+      if(done)flash(`auto-queue x${done}`);
+      const prefix=`auto-queue${reason?' ('+reason+')':''}: ${done} queued`;
+      if(done){abBlockedLogSig='';abBlockedLogAt=0;gbLogT('ab-finish-ok',30000,prefix)}
+      else if(blocked.length){
+        const sig=blocked.map(x=>x.sig).join('||'),now=Date.now(),quietRepeat=reason==='native-watch'||reason==='orch';
+        if(!quietRepeat||sig!==abBlockedLogSig||now-abBlockedLogAt>=300000){
+          abBlockedLogSig=sig;abBlockedLogAt=now;
+          const shown=blocked.slice(0,3).map(x=>x.text).join('; ');
+          gbLog(`${prefix} \u2014 ${shown}${blocked.length>3?`; +${blocked.length-3} m\u00e1s`:''}`);
         }
-      } else gbLogT('ab-finish', 30000, prefix);
-      renderAbQueue();
-      gbTimeout(ibScan, 1500);
+      }else gbLogT('ab-finish',30000,prefix);
+      renderAbQueue();gbTimeout(ibScan,1500);
     };
-    const nextTown = () => { townIndex++; gbTimeout(step, 150); };
-    const step = () => {
-      if (!gbInstanceAlive() || captcha || operations >= maxOps || townIndex >= ids.length) return finish();
-      if (!gbLockTouch('ab', lockToken)) return;
-      const id = ids[townIndex];
-
+    const nextTown=()=>{townIndex++;gbTimeout(step,150)};
+    const step=()=>{
+      if(!gbInstanceAlive()||captcha||operations>=maxOps||townIndex>=ids.length)return finish();
+      const id=ids[townIndex];
       nativeQueueReconcileBuild(id);
-
-      abScriptTick(id);
-      const earlyHead = nativeQueueList(id,'build',false)[0];
-      if (earlyHead && nativeQueuePaused(id,'build')) {
-        nativeQueueSetJobState(earlyHead,'paused','cola pausada'); noteBlocked(id,'cola pausada'); return nextTown();
-      }
-      if (earlyHead && earlyHead.manualReview) {
-        noteBlocked(id,earlyHead.reason||'comprobar la cola real antes de continuar'); return nextTown();
-      }
-      if (earlyHead && earlyHead.inflight) {
-        noteBlocked(id,earlyHead.reason||'env\u00edo en curso'); return nextTown();
-      }
-      const q = abQueueInfo(id);
-      if (!q.known) {
-        const head=nativeQueueList(id,'build',false)[0];if(head)nativeQueueSetJobState(head,'blocked','cola real ilegible');
-        noteBlocked(id,'cola real ilegible'); return nextTown();
-      }
-      if (q.len >= q.max) {
-        const why=`cola real llena (${q.len}/${q.max})`,head=nativeQueueList(id,'build',false)[0];if(head)nativeQueueSetJobState(head,'waiting-queue',why);
-        noteBlocked(id,why); return nextTown();
-      }
-      const levels = abCurrentLevels(id);
-      if (!levels) {
-        const head=nativeQueueList(id,'build',false)[0];if(head)nativeQueueSetJobState(head,'blocked','niveles ilegibles');
-        noteBlocked(id,'niveles ilegibles'); return nextTown();
-      }
-      const plan = abPickNextFromLevels(id,levels);
-      if (!plan) {
-
-        const nativeEmpty = nativeQueueList(id, 'build', false).length === 0;
-        if (state.abRandomFallback && q.len === 0 && nativeEmpty) {
-          const picked = abRandomPick(id, levels);
-          if (picked) {
-            operations++;
-            let opSettled = false;
-
-            const randomBlocked = why => { gbLogT('ab-random-' + id, 60000, `auto-queue: random-fallback ${picked.building} @${id}: ${why}`); };
-            const watchdog = gbTimeout(() => {
-              if (opSettled || !gbInstanceAlive()) return; opSettled = true;
-              randomBlocked('sin respuesta; comprobar la cola real'); nextTown();
-            }, AB_OP_WATCHDOG_MS);
-            const handleResult = res => {
-              if (opSettled || !gbInstanceAlive()) return; opSettled = true; gbClearTimeout(watchdog);
-              if (res === 'ok') { done++; gbLog(`auto-queue: random-fallback ${AB_LABELS[picked.building] || picked.building} +1 @${townNameById(id) || id}`); return nextTown(); }
-              if (res === 'accepted') { done++; return nextTown(); }
-              if (res === 'captcha') { randomBlocked('pausado por captcha'); captcha = true; return finish(); }
-              randomBlocked(String(res || 'sin exito'));
-              nextTown();
-            };
-            const handleError = err => { if (opSettled || !gbInstanceAlive()) return; opSettled = true; gbClearTimeout(watchdog); randomBlocked('error inesperado: ' + String(err)); nextTown(); };
-            try { Promise.resolve(abBuildUp(id, picked)).then(handleResult, handleError); } catch (err) { handleError(err); }
-            return;
-          }
-        }
-        noteBlocked(id); return nextTown();
-      }
+      if(nativeQueuePlannerOwnsTown(id))nativeQueueClearForPlanner(id,'build-scan',true);
+      const list=nativeQueueList(id,'build',false);
+      const first=list.find(Boolean);
+      if(!first&&!state.abAuto&&!cdIsProfile(goalTownCfg(id).profile))return nextTown();
+      if(first&&nativeQueuePaused(id,'build')){nativeQueueSetJobState(first,'paused','cola pausada');noteBlocked(id,'cola pausada');return nextTown()}
+      const active=list.find(j=>j&&j.inflight);
+      if(active){noteBlocked(id,active.reason||'env\u00edo en curso');return nextTown()}
+      const q=abQueueInfo(id);
+      if(!q.known){if(first)nativeQueueSetJobState(first,'blocked','cola real ilegible');noteBlocked(id,'cola real ilegible');return nextTown()}
+      if(q.len>=q.max){const why=`cola real llena (${q.len}/${q.max})`;if(first)nativeQueueSetJobState(first,'waiting-queue',why);noteBlocked(id,why);return nextTown()}
+      const levels=abCurrentLevels(id);
+      if(!levels){if(first)nativeQueueSetJobState(first,'blocked','niveles ilegibles');noteBlocked(id,'niveles ilegibles');return nextTown()}
+      const plan=abPickNextFromLevels(id,levels);
+      if(!plan){noteBlocked(id);return nextTown()}
+      const lockName=`build:${String(id)}`,lockToken=gbLock(lockName,120000);
+      if(!lockToken)return nextTown();
       operations++;
       let opSettled=false;
-      const markOperationUnknown=why=>{if(!plan.nativeJobId)return;const head=nativeQueueList(id,'build',false)[0];if(head&&head.id===plan.nativeJobId&&head.inflight)nativeQueueMarkBuild(id,plan.nativeJobId,{inflight:null,reconcile:Object.assign({},head.inflight),manualReview:true,status:'unknown',reason:why})};
-      const watchdog=gbTimeout(()=>{if(opSettled||!gbInstanceAlive())return;opSettled=true;const why='operaci\u00f3n sin respuesta; comprobar la cola real';markOperationUnknown(why);noteBlocked(id,why);gbLogT('ab-operation-watchdog-'+id,60000,`auto-queue: watchdog @${id}; moving on without retry`);nextTown()},AB_OP_WATCHDOG_MS);
-      const handleResult=res=>{
-        if(opSettled||!gbInstanceAlive())return;opSettled=true;gbClearTimeout(watchdog);
-        if (res === 'ok') {
-          done++;
-          nativeQueueBuildApplied(id,plan);
-
-          gbTimeout(step, AB_SEND_SPACING_MS + Math.random() * 350);
-          return;
-        }
-        if(res==='accepted'){done++;return nextTown()}
-        if (res === 'captcha') { noteBlocked(id,'pausado por captcha'); captcha = true; return finish(); }
-
-        noteBlocked(id, nativeQueueList(id,'build',false)[0]?.reason || res);
-        nextTown();
+      const release=()=>gbUnlock(lockName,lockToken);
+      const markOperationUnknown=why=>{
+        if(!plan.nativeJobId)return;
+        const cur=nativeQueueList(id,'build',false).find(j=>j&&j.id===plan.nativeJobId);
+        if(cur&&cur.inflight)nativeQueueMarkBuild(id,plan.nativeJobId,{inflight:null,reconcile:Object.assign({},cur.inflight),manualReview:true,status:'unknown',reason:why});
       };
-      const handleError=err=>{if(opSettled||!gbInstanceAlive())return;opSettled=true;gbClearTimeout(watchdog);const why='error inesperado; comprobar la cola real';markOperationUnknown(why);noteBlocked(id,why);gbLogT('ab-operation-error-'+id,60000,`auto-queue: unexpected error @${id}: ${String(err)}`);nextTown()};
+      const watchdog=gbTimeout(()=>{
+        if(opSettled||!gbInstanceAlive())return;
+        opSettled=true;markOperationUnknown('operaci\u00f3n sin respuesta; comprobar la cola real');release();
+        noteBlocked(id,'operaci\u00f3n sin respuesta; comprobar la cola real');
+        gbLogT('ab-operation-watchdog-'+id,60000,`auto-queue: watchdog @${id}; moving on without retry`);nextTown();
+      },90000);
+      const handleResult=res=>{
+        if(opSettled||!gbInstanceAlive())return;
+        opSettled=true;gbClearTimeout(watchdog);release();
+        if(res==='ok'){done++;nativeQueueBuildApplied(id,plan);gbTimeout(step,AB_SEND_SPACING_MS+Math.random()*350);return}
+        if(res==='accepted'){done++;return nextTown()}
+        if(res==='captcha'){noteBlocked(id,'pausado por captcha');captcha=true;return finish()}
+        const cur=plan.nativeJobId?nativeQueueList(id,'build',false).find(j=>j&&j.id===plan.nativeJobId):null;
+        noteBlocked(id,cur&&cur.reason||res);nextTown();
+      };
+      const handleError=err=>{
+        if(opSettled||!gbInstanceAlive())return;
+        opSettled=true;gbClearTimeout(watchdog);markOperationUnknown('error inesperado; comprobar la cola real');release();
+        noteBlocked(id,'error inesperado; comprobar la cola real');gbLogT('ab-operation-error-'+id,60000,`auto-queue: unexpected error @${id}: ${String(err)}`);nextTown();
+      };
       try{Promise.resolve(abBuildUp(id,plan)).then(handleResult,handleError)}catch(err){handleError(err)}
     };
     step();
@@ -10306,7 +10938,7 @@ const STORE = {
     if (status) {
       const q = townId ? abQueueInfo(townId) : null;
       const next = townId && q && q.len < q.max ? abPickNext(townId) : null;
-      status.textContent = (gbLocked('ab') ? 'queueing... ' : '')
+      status.textContent = (gbLockList().some(k=>String(k).startsWith('build:')) ? 'queueing... ' : '')
         + (townId ? `town ${townId}` : 'no town')
         + (q ? ` \u00b7 queue ${q.len}/${q.max}` : '')
         + (next ? ` \u00b7 next: ${AB_LABELS[next.building] || next.building}${next.forTarget !== next.building ? '\u2192' + (AB_LABELS[next.forTarget] || next.forTarget) : ''}` : ' \u00b7 idle')
@@ -10365,20 +10997,19 @@ const STORE = {
     const uw = uwCached();
     let t = null;
     try {
-      t = gbTownModel(townId);
+      t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
     } catch (_) {}
     if (!t) return null;
     let hideLvl = 0;
     try {
-
-      if (t.getBuildings) { const h = gbNum(t.getBuildings().get('hide')); if (h != null) hideLvl = h; }
-      else if (t.buildings) { const h = gbNum((t.buildings().attributes || {}).hide); if (h != null) hideLvl = h; }
+      if (t.getBuildings) hideLvl = +t.getBuildings().get('hide') || 0;
+      else if (t.buildings) hideLvl = +(t.buildings().attributes || {}).hide || 0;
     } catch (_) {}
     let iron = null, cap = null, resStorage = null;
     try {
       const r = t.resources && t.resources();
-      if (r && r.iron != null) iron = gbNum(r.iron);
-      if (r && r.storage != null) resStorage = gbNum(r.storage);
+      if (r && r.iron != null) iron = +r.iron;
+      if (r && r.storage != null) resStorage = +r.storage;
     } catch (_) {}
 
     const shared = townResState(townId);
@@ -10412,8 +11043,8 @@ const STORE = {
       const gd = uw.GameData && uw.GameData.buildings && uw.GameData.buildings.hide;
       if (hideCap == null && gd && gd.storage != null) {
         const s = gd.storage;
-        const v = gbNum(Array.isArray(s) || typeof s === 'object' ? s[hideLvl] : s);
-        if (v != null && v > 0) hideCap = v;
+        const v = +(Array.isArray(s) || typeof s === 'object' ? s[hideLvl] : s);
+        if (isFinite(v) && v > 0) hideCap = v;
       }
       const maxHide = gd && gd.max_level;
       if (maxHide != null && +maxHide > 0 && hideLvl === +maxHide) unlimited = true;
@@ -10509,7 +11140,6 @@ const STORE = {
   }
   function caveScan(reason) {
     if (!hostEnabled() || !state.autoCave || captchaPaused('cave')) return;
-    if (gbLocked('cave')) { gbLogT('cave-inflight', 30000, 'cave: skipped (in flight)'); return; }
     if (!gameBridgeReady()) { gbLogT('cave-nobridge', 60000, 'cave: bridge not ready'); return; }
     const ids = caveListTownIds();
     if (!ids.length) { gbLogT('cave-notowns', 120000, 'cave: no towns'); return; }
@@ -10534,36 +11164,27 @@ const STORE = {
       gbLogT('cave-idle', 120000, `cave: nothing to stash (${scanReason(reason)})`);
       return;
     }
-    const lockToken = gbLock('cave');
-    if (!lockToken) return;
-    let i = 0, done = 0, captcha = false;
-    (function next() {
-      if (!gbLockTouch('cave', lockToken)) return;
-      if (i >= jobs.length || captcha) {
-        gbUnlock('cave', lockToken);
-        if (done) gbLog(`cave: stashed ${done}/${jobs.length} town(s)${captcha ? ' (captcha abort)' : ''}`);
-        renderCaveTowns();
-        return;
+    let i=0,done=0,captcha=false;
+    (function next(){
+      if(i>=jobs.length||captcha){
+        if(done)gbLog(`cave: stashed ${done}/${jobs.length} town(s)${captcha?' (captcha abort)':''}`);
+        renderCaveTowns();return;
       }
-      const job = jobs[i++];
-      const fresh = caveTownInfo(job.id);
-      const freshAmt = caveExcessAmount(fresh);
-      if (!fresh || freshAmt < CAVE_MIN_STORE) {
-        gbLogT('cave-stale-' + job.id, 60000, `cave: town ${job.id} changed before send \u2014 skipped`);
-        gbTimeout(next, 150);
-        return;
+      const job=jobs[i++];
+      const lockName=`cave:${String(job.id)}`,lockToken=gbLock(lockName,120000);
+      if(!lockToken){gbTimeout(next,100);return}
+      const fresh=caveTownInfo(job.id),freshAmt=caveExcessAmount(fresh);
+      if(!fresh||freshAmt<CAVE_MIN_STORE){
+        gbUnlock(lockName,lockToken);
+        gbLogT('cave-stale-'+job.id,60000,`cave: town ${job.id} changed before send \u2014 skipped`);
+        gbTimeout(next,150);return;
       }
-      caveStoreIron(job.id, Math.min(job.amt, freshAmt), (err) => {
-        if (err === 'captcha' || err === 'captcha-pause') {
-          captcha = true;
-          i = jobs.length;
-        } else if (!err) {
-          done++;
-          gbLog(`cave: town ${job.id} stored ${job.amt} iron (was ${job.iron}/${job.cap})`);
-        } else {
-          gbLogT('cave-err-' + job.id, 60000, `cave: town ${job.id} err ${err}`);
-        }
-        gbTimeout(next, 500 + Math.random() * 400);
+      caveStoreIron(job.id,Math.min(job.amt,freshAmt),(err)=>{
+        gbUnlock(lockName,lockToken);
+        if(err==='captcha'||err==='captcha-pause'){captcha=true;i=jobs.length}
+        else if(!err){done++;gbLog(`cave: town ${job.id} stored ${Math.min(job.amt,freshAmt)} iron (was ${job.iron}/${job.cap})`)}
+        else gbLogT('cave-err-'+job.id,60000,`cave: town ${job.id} err ${err}`);
+        gbTimeout(next,500+Math.random()*400);
       });
     })();
   }
@@ -10597,6 +11218,7 @@ const STORE = {
     if (!sec || sec.hidden || panel.classList.contains('collapsed')) return;
     if (document.hidden) return;
     renderCaveTowns();
+    renderTradeTowns();
   }
   function renderCaveTowns() {
     const box = panel && panel.querySelector('.cave-towns');
@@ -10747,9 +11369,8 @@ const STORE = {
         const need = +cost[k] || 0;
         if (need <= 0) continue;
 
-        const have = gbNum(r[k]);
-        if (have == null) return cultureBlind(k, townId, type);
-        if (have < need) return false;
+        if (r[k] == null || !isFinite(+r[k])) return cultureBlind(k, townId, type);
+        if (+r[k] < need) return false;
       }
       return true;
     } catch (_) { return cultureBlind('read-error', townId, type); }
@@ -10780,7 +11401,6 @@ const STORE = {
   function cultureScan(reason) {
     if (!hostEnabled() || !state.autoCulture || captchaPaused('culture')) return;
     if (automationPaused({})) return;
-    if (gbLocked('culture')) return;
     const types = state.cultureTypes || {};
 
     const enabled = Object.keys(types).filter(k => {
@@ -10851,47 +11471,39 @@ const STORE = {
       gbLogT('culture-idle', 180000, `culture: nothing to start (${scanReason(reason)})`);
       return;
     }
-    const cultureLock = gbLock('culture');
-    if (!cultureLock) return;
-    let i = 0, done = 0;
-    (function next() {
-      if (!gbLockTouch('culture', cultureLock)) return;
-      if (i >= jobs.length) {
-        gbUnlock('culture', cultureLock);
-        if (done) gbLog(`culture: started ${done}/${jobs.length}`);
-        return;
+    let i=0,done=0,stopped=false;
+    (function next(){
+      if(stopped)return;
+      if(i>=jobs.length){if(done)gbLog(`culture: started ${done}/${jobs.length}`);return}
+      const job=jobs[i++];
+      const lockNames=[`culture:town:${String(job.id)}`];
+      if(job.ctype==='triumph')lockNames.push('culture:killpoints');
+      if(job.ctype==='olympic')lockNames.push('culture:gold');
+      lockNames.sort();
+      const held=[];
+      for(const name of lockNames){
+        const tok=gbLock(name,120000);
+        if(!tok){for(const h of held)gbUnlock(h.name,h.token);gbTimeout(next,150);return}
+        held.push({name,token:tok});
       }
-      const job = jobs[i++];
-
-      if (!cultureCanAfford(job.id, job.ctype)) {
-        gbTimeout(next, 200);
-        return;
+      const release=()=>{for(const h of held)gbUnlock(h.name,h.token)};
+      if(!cultureCanAfford(job.id,job.ctype)){
+        release();gbTimeout(next,200);return;
       }
-      cultureStart(job.type, job.id, (err) => {
-        if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('culture', cultureLock); return; }
-        if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {
-          gbLogT('culture-timeout', 60000, `culture: ${job.type} ${job.id} timeout_unknown \u2014 stopping batch`);
-          gbUnlock('culture', cultureLock);
-          return;
+      cultureStart(job.type,job.id,(err)=>{
+        release();
+        if(err==='captcha'||err==='captcha-pause'){stopped=true;return}
+        if(err==='timeout'||err==='timeout_unknown'||err==='pending'){
+          gbLogT('culture-timeout',60000,`culture: ${job.type} ${job.id} timeout_unknown \u2014 stopping batch`);
+          stopped=true;return;
         }
-        if (!err) {
-          done++;
-          cultureLast = { type: job.type, townId: job.id, ts: Date.now() };
+        if(!err){
+          done++;cultureLast={type:job.type,townId:job.id,ts:Date.now()};
           gbLog(`culture: ${job.type} town ${job.id}`);
-          if (job.ctype === 'olympic') {
-            const s = cultureGoldSpentLoad();
-            s.amount += OLYMPIC_GOLD;
-            cultureGoldSpentSave(s);
-          }
-          try { if (typeof alertWebhook === 'function') alertWebhook('culture', cultureLast); } catch (_) {}
-          gbTimeout(next, 600 + Math.random() * 400);
-        } else {
-          gbLogT('culture-err-' + job.id, 60000, `culture: ${job.type} ${job.id} err ${err}`);
-
-          gbUnlock('culture', cultureLock);
-
-          gbTimeout(next, 600 + Math.random() * 400);
-        }
+          if(job.ctype==='olympic'){const st=cultureGoldSpentLoad();st.amount+=OLYMPIC_GOLD;cultureGoldSpentSave(st)}
+          try{if(typeof alertWebhook==='function')alertWebhook('culture',cultureLast)}catch(_){}
+        }else gbLogT('culture-err-'+job.id,60000,`culture: ${job.type} ${job.id} err ${err}`);
+        gbTimeout(next,600+Math.random()*400);
       });
     })();
   }
@@ -10901,10 +11513,9 @@ const STORE = {
     try { if(typeof t.getProduction==='function') p=t.getProduction(); } catch(_){}
     try { if(!p && typeof t.getResourceProduction==='function') p=t.getResourceProduction(); } catch(_){}
     try { if(!p){const r=t.resources&&t.resources(); if(r) p={wood:r.wood_production??r.production_wood,stone:r.stone_production??r.production_stone,iron:r.iron_production??r.production_iron};} } catch(_){}
+    if(!p||[p.wood,p.stone,p.iron].some(v=>v==null||!Number.isFinite(+v))) return null;
 
-    if(!p||!GB_RES_KEYS.every(k=>gbNum(p[k])!=null)) return null;
-
-    return {wood:gbNum(p.wood),stone:gbNum(p.stone),iron:gbNum(p.iron)};
+    return {wood:+p.wood,stone:+p.stone,iron:+p.iron};
   }
   function economyPlannedCost(townId, maxActions) {
     let plan=state.virtualQueue&&state.virtualQueue[String(townId)]; if(!plan||Date.now()-(+plan.generatedAt||0)>60000)try{plan=goalPlanTown(townId)}catch(_){}
@@ -10984,7 +11595,6 @@ const STORE = {
       try { alertWebhook('cappingPreWarn', r); } catch (_) {}
     }
   }
-
   const EMERGENCY_MIN_RISK = 35;
   const EMERGENCY_LEDGER_GRACE_MS = 600000;
   const EMERGENCY_LEDGER_PRUNE_MS = 3600000;
@@ -11054,10 +11664,11 @@ const STORE = {
       return done('skip:' + plan.why);
     }
     if (plan.amount > emergencyConfirmAt() && !(opts && opts.confirmed)) return done('need-confirm');
-    const lockToken = gbLock('cave-emergency');
+    const lockName = `cave-emergency:${String(townId)}`;
+    const lockToken = gbLock(lockName, 120000);
     if (!lockToken) return done('busy');
     caveStoreIron(townId, plan.amount, (err, data) => {
-      gbUnlock('cave-emergency', lockToken);
+      gbUnlock(lockName, lockToken);
       if (!err) gbLog(`cave-emergency: town ${townId} stashed ${plan.amount} iron`);
       else gbLogT('cave-emergency-err', 60000, `cave-emergency: town ${townId} err ${err}`);
       done(err, data);
@@ -11069,9 +11680,11 @@ const STORE = {
     if (!state.emergencyCaveAuto) return;
     if (!hostEnabled() || automationPaused({})) return;
     if (captchaPausedAny('cave', 'cave-emergency', 'dodge')) return;
-    if (gbLocked('cave-emergency')) return;
-    const incoming = gbTry(() => dodgeIncomingMovements() || [], null, 'cave-emergency-nobridge');
-    if (!incoming) return;
+    let incoming = [];
+    try { incoming = dodgeIncomingMovements() || []; } catch (_) {
+      gbLogT('cave-emergency-nobridge', 60000, 'cave-emergency: incoming movements unreadable - no stash');
+      return;
+    }
     if (!incoming.length) return;
     const L = emergencyLedger();
     const now = Date.now();
@@ -11088,11 +11701,18 @@ const STORE = {
       if (!assess || !(assess.risk >= EMERGENCY_MIN_RISK)) continue;
       const plan = emergencyPlan(mov.dest);
       if (!plan.ok) continue;
+      if (gbLocked(`cave-emergency:${String(mov.dest)}`)) continue;
 
-      L[key] = { townId: String(mov.dest), ts: now, expires: now + eta * 1000 + EMERGENCY_LEDGER_GRACE_MS };
-      emergencyLedgerSave();
       gbLog(`cave-emergency: ${mov.dest} incoming ${mov.type || 'atk'} in ${fmtSec(eta)} (risk ${assess.risk}) - stashing ${plan.amount}`);
-      emergencyStoreNow(mov.dest, { confirmed: true }, () => {});
+      emergencyStoreNow(mov.dest, { confirmed: true }, (err) => {
+        if (!err) {
+          const at=Date.now();
+          L[key] = { townId: String(mov.dest), ts: at, expires: at + Math.max(0, eta) * 1000 + EMERGENCY_LEDGER_GRACE_MS };
+          emergencyLedgerSave();
+        } else {
+          gbLogT('cave-emergency-retry-'+key,30000,`cave-emergency: ${mov.dest} not committed (${err}); next scan may retry`);
+        }
+      });
       return;
     }
   }
@@ -11114,26 +11734,38 @@ const STORE = {
   function tradeTownRes(townId) {
     const uw = gameUw();
     try {
-      const t = gbTownModel(townId);
+      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
       if (!t) return null;
       const r = t.resources && t.resources();
       let cap = null, tradeCap = null, pop = null, small = false;
-
-      const shared = townResState(townId);
-      if (shared && shared.cap > 0) cap = shared.cap;
-      if (!(cap > 0)) { try { if (t.getStorageCapacity) cap = +t.getStorageCapacity(); } catch (_) {} }
-      try { if (t.getAvailableTradeCapacity) tradeCap = +t.getAvailableTradeCapacity(); } catch (_) {}
-      try { if (t.getAvailablePopulation) pop = +t.getAvailablePopulation(); } catch (_) {}
+      try { if (t.getStorageCapacity) cap = +t.getStorageCapacity(); } catch (_) {}
+      if (!(cap > 0)) { const shared = townResState(townId); if (shared) cap = shared.cap; }
+      try { if (t.getAvailableTradeCapacity) tradeCap = gbNum(t.getAvailableTradeCapacity()); } catch (_) {}
+      try { if (t.getAvailablePopulation) pop = gbNum(t.getAvailablePopulation()); } catch (_) {}
       try {
         const a = t.attributes || (t.get && t.get('on_small_island') != null ? { on_small_island: t.get('on_small_island') } : {});
         small = !!(a.on_small_island || (t.isOnSmallIsland && t.isOnSmallIsland()));
       } catch (_) {}
+      const finiteOrNull = value => gbNum(value);
       return {
         id: +townId,
-        wood: r && +r.wood || 0, stone: r && +r.stone || 0, iron: r && +r.iron || 0,
-        cap: cap || 0, tradeCap: tradeCap || 0, pop: pop || 0, small,
+        wood: finiteOrNull(r && r.wood), stone: finiteOrNull(r && r.stone), iron: finiteOrNull(r && r.iron),
+        cap: finiteOrNull(cap), tradeCap: finiteOrNull(tradeCap), pop: finiteOrNull(pop), small,
+        known: !!r && finiteOrNull(cap) != null && finiteOrNull(tradeCap) != null,
       };
     } catch (_) { return null; }
+  }
+  function tradeTownEnabled(townId) {
+    const id = String(townId);
+    const map = state.tradeTowns || {};
+
+    return map[id] !== false;
+  }
+  function setTradeTownEnabled(townId, on) {
+    const id = String(townId);
+    if (!state.tradeTowns || typeof state.tradeTowns !== 'object' || Array.isArray(state.tradeTowns)) state.tradeTowns = {};
+    state.tradeTowns[id] = !!on;
+    save(STORE.TRADE_TOWNS, state.tradeTowns);
   }
   function tradeListTowns() {
     const ids = [];
@@ -11148,6 +11780,63 @@ const STORE = {
       } catch (_) {}
     }
     return ids.map(tradeTownRes).filter(Boolean);
+  }
+  function tradeAutoTowns(towns) {
+    return (Array.isArray(towns) ? towns : tradeListTowns()).filter(t => t && tradeTownEnabled(t.id));
+  }
+  function renderTradeTowns() {
+    const box = panel && panel.querySelector('.trade-towns');
+    if (!box) return;
+    const ids = caveListTownIds();
+    box.replaceChildren();
+    if (!ids.length) {
+      const e = document.createElement('div');
+      e.style.cssText = 'color:#888;font-size:10px';
+      e.textContent = 'sin ciudades cargadas';
+      box.appendChild(e);
+      return;
+    }
+    const tools = document.createElement('div');
+    tools.className = 'trade-towns-tools';
+    tools.style.cssText = 'display:flex;align-items:center;gap:5px;margin:0 0 2px 12px;font-size:9px;color:#888';
+    const mk = (txt, on) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = txt;
+      b.style.cssText = 'font-size:9px;padding:1px 6px';
+      b.addEventListener('click', () => {
+        ids.forEach(id => setTradeTownEnabled(id, on));
+        renderTradeTowns();
+        gbLog('trade towns', on ? 'ALL' : 'NONE');
+        if (state.autoTrade || state.autoTransport || state.autoDump || state.islandShip) tradeScan('town-filter');
+      });
+      return b;
+    };
+    tools.appendChild(mk('Todas', true));
+    tools.appendChild(mk('Ninguna', false));
+    const count = document.createElement('span');
+    count.textContent = `${ids.filter(tradeTownEnabled).length}/${ids.length} activas`;
+    tools.appendChild(count);
+    box.appendChild(tools);
+
+    const names = Object.create(null);
+    try { (townsFromGame() || []).forEach(t => { if (t.id != null && t.name) names[String(t.id)] = t.name; }); } catch (_) {}
+    ids.forEach(id => {
+      const label = document.createElement('label');
+      label.dataset.tradeTown = String(id);
+      label.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;font-size:10px;margin-left:12px';
+      gbTip(label, 'Permite que esta ciudad participe en el comercio automatico calculado por el bot');
+      const chk = document.createElement('input');
+      chk.type = 'checkbox'; chk.checked = tradeTownEnabled(id);
+      chk.addEventListener('change', () => {
+        setTradeTownEnabled(id, chk.checked);
+        gbLog(`trade town ${id}`, chk.checked ? 'ON' : 'OFF');
+        renderTradeTowns();
+        if (state.autoTrade || state.autoTransport || state.autoDump || state.islandShip) tradeScan('town-filter');
+      });
+      const span = document.createElement('span');
+      span.textContent = `${names[String(id)] || id} (#${id})`;
+      label.appendChild(chk); label.appendChild(span); box.appendChild(label);
+    });
   }
   function tradeSend(fromId, toId, wood, stone, iron, onDone) {
     gameAjaxPost('trade', 'town_info', 'trade', {
@@ -11166,8 +11855,18 @@ const STORE = {
     const addModel=m=>{if(m&&!seenModels.has(m)){seenModels.add(m);models.push(m)}};
     const addCollection=c=>{if(Array.isArray(c))c.forEach(addCollection);else if(c&&Array.isArray(c.models))c.models.forEach(addModel)};
     try{const maps=uw.MM&&uw.MM.getModels&&uw.MM.getModels();if(maps&&Object.prototype.hasOwnProperty.call(maps,'Trade')){known=true;const m=maps.Trade;if(Array.isArray(m))m.forEach(addModel);else if(m&&typeof m==='object')Object.values(m).forEach(addModel)}}catch(_){}
-    try{const c=uw.MM&&uw.MM.getOnlyCollectionByName&&uw.MM.getOnlyCollectionByName('Trade');if(c){known=true;addCollection(c)}for(const name of ['Trades','TradeMovement','TradeMovements','TownTrade','TownTrades','Transport','Transports'])addCollection(uw.MM&&uw.MM.getOnlyCollectionByName&&uw.MM.getOnlyCollectionByName(name))}catch(_){}
-    try{const all=uw.MM&&uw.MM.getCollections&&uw.MM.getCollections()||{};if(Object.prototype.hasOwnProperty.call(all,'Trade'))known=true;for(const [name,c] of Object.entries(all))if(/trade|transport/i.test(name))addCollection(c)}catch(_){}
+    try{
+      const c=uw.MM&&uw.MM.getOnlyCollectionByName&&uw.MM.getOnlyCollectionByName('Trade');if(c){known=true;addCollection(c)}
+      for(const name of ['Trades','TradeMovement','TradeMovements','TownTrade','TownTrades','Transport','Transports']){
+        const alt=uw.MM&&uw.MM.getOnlyCollectionByName&&uw.MM.getOnlyCollectionByName(name);
+        if(alt){if(/trade/i.test(name))known=true;addCollection(alt)}
+      }
+    }catch(_){}
+    try{
+      const all=uw.MM&&uw.MM.getCollections&&uw.MM.getCollections()||{};
+      if(Object.prototype.hasOwnProperty.call(all,'Trade'))known=true;
+      for(const [name,c] of Object.entries(all))if(/trade|transport/i.test(name)){if(/trade/i.test(name))known=true;addCollection(c)}
+    }catch(_){}
     const own=new Set(Object.keys(uw.ITowns&&uw.ITowns.towns||{}).map(String)),seenRows=new Set(),now=gameNow();
     for(const m of models){try{
       const a=m.attributes||m,status=String(a.status||a.state||'').toLowerCase();if(/cancel|complete|arrived|finished|deleted/.test(status))continue;
@@ -11184,7 +11883,9 @@ const STORE = {
   function tradeLedger(towns) {
     const incomingState=tradeIncomingByTown();if(!incomingState.known)return null;const L = Object.create(null),incoming=incomingState.byTown;
     for (const t of towns) {
-      const mov=incoming[String(t.id)]||{},pending=plannerSnapshot(t.id)?.incoming||{};
+      const mov=incoming[String(t.id)]||{};
+      let pending;
+      try { pending=plannerPendingForTown(t.id).incoming||{}; } catch (_) { return null; }
       L[t.id] = {
 
         wood: t.wood+(+mov.wood||0)+(+pending.wood||0), stone: t.stone+(+mov.stone||0)+(+pending.stone||0), iron: t.iron+(+mov.iron||0)+(+pending.iron||0),
@@ -11200,47 +11901,80 @@ const STORE = {
     src.tradeCap = Math.max(0, src.tradeCap - (job.wood + job.stone + job.iron));
     tgt.wood += job.wood; tgt.stone += job.stone; tgt.iron += job.iron;
   }
-
-  function tradeDeadlockJobs(towns, L) {
-    const ledger = L || tradeLedger(towns);
+  function tradeOverflowPct() { return Math.max(95, Math.min(100, gbCfgNum(state.tradeOverflowPct, 100))) / 100; }
+  function tradeTransferPct() { return Math.max(1, Math.min(100, gbCfgNum(state.tradeTransferPct, 10))) / 100; }
+  function tradeReceiverPct() { return Math.max(0, Math.min(80, gbCfgNum(state.tradeReceiverPct, 80))) / 100; }
+  const tradeDecisionDiagnostics = Object.create(null);
+  function tradeDiagnosticPut(townId, resource, patch) {
+    const key = String(townId) + '|' + String(resource);
+    tradeDecisionDiagnostics[key] = Object.assign({}, tradeDecisionDiagnostics[key] || {}, patch, { ts:Date.now() });
+    const keys = Object.keys(tradeDecisionDiagnostics);
+    if (keys.length > 100) delete tradeDecisionDiagnostics[keys[0]];
+  }
+  function tradeDiagnosticsSnapshot() {
+    return JSON.parse(JSON.stringify(tradeDecisionDiagnostics));
+  }
+  function tradeOverflowDecision(towns, resource, trigger, transfer, receiver) {
+    const rows = Array.isArray(towns) ? towns : [];
+    const source = rows[0];
+    const threshold = Number.isFinite(+trigger) ? +trigger : 1;
+    const transferPct = Number.isFinite(+transfer) ? +transfer : .1;
+    const receiverPct = Number.isFinite(+receiver) ? +receiver : .8;
+    if (!source || !GB_RES_KEYS.includes(resource)) return { ok:false, reason:'town-state-unreadable' };
+    const amount = source[resource], cap = +source.cap, tradeCap = +source.tradeCap;
+    const live = { amount, cap, fill:amount == null || !(cap > 0) ? null : amount / cap, tradeCap };
+    if (amount == null || !(cap > 0)) { tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, action:'none', reason:'source-state-unreadable' }); return { ok:false, reason:'source-state-unreadable' }; }
+    if (amount / cap < threshold) { tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, action:'none', reason:'not-overflowing' }); return { ok:false, reason:'not-overflowing' }; }
+    if (tradeCap == null) { tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, action:'none', reason:'trade-capacity-unreadable' }); return { ok:false, reason:'trade-capacity-unreadable' }; }
+    const candidates = rows.slice(1).map(t => {
+      const value = t[resource], targetCap = +t.cap;
+      if (value == null || !(targetCap > 0)) return null;
+      const fill = value / targetCap;
+      const free = Number.isFinite(+t.free) ? +t.free : targetCap-value;
+      return fill <= receiverPct ? { id:String(t.id), fill, free, t } : null;
+    }).filter(Boolean).sort((a,b) => a.fill-b.fill || b.free-a.free || a.id.localeCompare(b.id, undefined, {numeric:true}));
+    const target = candidates[0];
+    if (!target) { tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, intercity:null, action:'none', reason:'no-intercity-destination-under-80' }); return { ok:false, reason:'no-intercity-destination-under-80' }; }
+    const executable = Math.floor(Math.min(cap * transferPct, amount, tradeCap, target.free));
+    if (!(executable > 0)) { const reason = tradeCap <= 0 ? 'trade-capacity-zero' : 'destination-space-zero'; tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, intercity:{ destination:target.id, fill:target.fill, free:target.free, executable:0 }, action:'none', reason }); return { ok:false, reason, target }; }
+    tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, intercity:{ destination:target.id, fill:target.fill, free:target.free, executable }, action:'intercity', reason:'ready-intercity' });
+    return { ok:true, source:String(source.id), target:target.id, resource, amount:executable, destinationFill:target.fill, destinationFree:target.free };
+  }
+  function tradeOverflowJobs(towns, L, blockedPairs) {
+    const rawRows = Array.isArray(towns) ? towns : [];
+    const rawById = Object.create(null);
+    rawRows.forEach(t => { if (t && t.id != null) rawById[String(t.id)] = t; });
+    const ledger = L || tradeLedger(rawRows);
     if (!ledger) return [];
-    const minBatch = gbCfgClamp(state.tradeMinBatch, 100, Infinity, 1000);
-    const RES = ['wood', 'stone', 'iron'];
-    const jobs = [];
-    const ids = towns.map(t => t.id);
-    for (const srcId of ids) {
-      const src = ledger[srcId];
-      if (!src || !(src.cap > 0) || src.tradeCap < minBatch) continue;
-      for (const res of RES) {
-        if (src[res] / src.cap < 0.97) continue;
+    const attackState = tradeTownsUnderAttack();
+    if (!attackState.known) return [];
+    const blocked = blockedPairs instanceof Set ? blockedPairs : new Set();
+    const jobs = [], ids = rawRows.map(t => String(t.id)).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    for (const sourceId of ids) {
+      const rawSource = rawById[sourceId], projectedSource = ledger[sourceId];
+      if (!rawSource || !projectedSource || !(rawSource.cap > 0)) continue;
+      for (const resource of GB_RES_KEYS) {
+        if (blocked.has(sourceId + '|' + resource)) continue;
 
-        let best = null;
-        for (const tgtId of ids) {
-          if (tgtId === srcId) continue;
-          const tgt = ledger[tgtId];
-          if (!tgt || !(tgt.cap > 0)) continue;
-          const headroom = tgt.cap - tgt[res];
-          if (headroom < minBatch) continue;
-          const amount = Math.floor(Math.min(headroom, src.tradeCap, src[res] * 0.5));
-          if (amount < minBatch) continue;
-          if (!best || headroom > best.headroom) {
-            best = { tgtId, amount, headroom };
-          }
-        }
-        if (best) {
-          const job = { from: srcId, to: best.tgtId, wood: 0, stone: 0, iron: 0, deadlock: true };
-          job[res] = best.amount;
-          jobs.push(job);
-          tradeApplyJob(ledger, job);
-          if (jobs.length >= 4) return jobs;
-        }
+        const source = Object.assign({}, rawSource, { tradeCap:projectedSource.tradeCap });
+        const destRows = ids.filter(id => id !== sourceId && !(attackState.value && attackState.value.has(id))).map(id => {
+          const raw = rawById[id], projected = ledger[id];
+          if (!raw || !projected || !(raw.cap > 0) || projected[resource] == null) return null;
+          return Object.assign({}, raw, {
+            [resource]:projected[resource],
+            free:Math.max(0, raw.cap - projected[resource]),
+          });
+        }).filter(Boolean);
+        const decision = tradeOverflowDecision([source].concat(destRows), resource, tradeOverflowPct(), tradeTransferPct(), tradeReceiverPct());
+        if (!decision.ok) { gbLogT(`trade-overflow-${sourceId}-${resource}`, 180000, `trade: ${decision.reason}`); continue; }
+        const job = { from: sourceId, to: decision.target, wood: 0, stone: 0, iron: 0, overflow: true, overflowResource: resource, destinationFill: decision.destinationFill, destinationFree: decision.destinationFree };
+        job[resource] = decision.amount; jobs.push(job); tradeApplyJob(ledger, job);
+        if (jobs.length >= 6) return jobs;
       }
-    }
-    if (!jobs.length && typeof orchDeadlockNoteStuck === 'function') {
-      orchDeadlockNoteStuck('no town has headroom in the pinned resource');
     }
     return jobs;
   }
+
   function tradeFillStorageJobs(towns, L) {
     const ledger = L || tradeLedger(towns);
     if(!ledger)return [];
@@ -11328,13 +12062,7 @@ const STORE = {
   function tradeGoalDeficit(townId, preset) {
 
     if (preset === 'party') {
-      if (typeof ironReservedForCave === 'function') {
-        const r = ironReservedForCave(townId);
-        if (r && r.reserved) {
-          gbLogT('trade-party-cave-' + townId, 120000, `trade party: skip town ${townId} - iron reserved for cave`);
-          return { wood: 0, stone: 0, iron: 0 };
-        }
-      }
+
       const types = state.cultureTypes || {};
       const order = ['festival', 'theater', 'procession'];
       let ctype = null;
@@ -11367,15 +12095,15 @@ const STORE = {
       for (const unit of Object.keys(want)) {
         const count = +want[unit] || 0;
         if (!(count > 0)) continue;
-        let def = null;
-        try { def = gbGameDataLookup("units", unit); } catch (_) {}
-        if (!def || !def.resources) {
-          gbLogT('trade-unit-nocost-' + unit, 120000, `trade unit: unknown cost for ${unit} - town ${townId} blind`);
+        let ec = null;
+        try { ec = recruitEffectiveUnitCost(townId, unit); } catch (_) {}
+        if (!ec || !['wood','stone','iron'].every(k => recruitCostFieldKnown(ec,k))) {
+          gbLogT('trade-unit-nocost-' + unit, 120000, `trade unit: authoritative effective cost unreadable for ${unit} - town ${townId} blind`);
           return null;
         }
-        wood += (+def.resources.wood || 0) * count;
-        stone += (+def.resources.stone || 0) * count;
-        iron += (+def.resources.iron || 0) * count;
+        wood += +ec.wood * count;
+        stone += +ec.stone * count;
+        iron += +ec.iron * count;
       }
       return { wood, stone, iron };
     }
@@ -11534,23 +12262,11 @@ const STORE = {
       }
       if (!fire) continue;
       const keep = Math.floor(src.cap * reserve);
-      let ironKeep = keep;
-      if (route.iron > 0) {
-        try {
-          const r = ironReservedForCave(route.from);
-          if (r && r.reserved) {
-            const thresh = gbCfgClamp(state.caveThreshPct, 50, 99, 90) / 100;
-            ironKeep = Math.max(keep, Math.ceil(src.cap * thresh));
-            gbLogT('trade-route-iron-reserved-' + route.id, 600000, `trade route ${route.id}: iron held for cave on ${route.from}`);
-          }
-        } catch (_) {}
-      }
       const send = {};
       for (const k of GB_RES_KEYS) {
         const want = +route[k] || 0;
         if (!(want > 0)) { send[k] = 0; continue; }
-        const k2 = k === 'iron' ? ironKeep : keep;
-        send[k] = Math.max(0, Math.min(want, src[k] - k2, src.tradeCap, tgt.cap - tgt[k]));
+        send[k] = Math.max(0, Math.min(want, src[k] - keep, src.tradeCap, tgt.cap - tgt[k]));
       }
       let total = send.wood + send.stone + send.iron;
       if (route.maxPerCycle > 0 && total > route.maxPerCycle) {
@@ -11573,15 +12289,57 @@ const STORE = {
     }
     return jobs;
   }
+  function tradeValidateOverflowJob(job, src, tgt) {
+    const resource = job.overflowResource;
+    if (!resource || !GB_RES_KEYS.includes(resource)) return { ok:true };
+    const incomingState = tradeIncomingByTown();
+    if (!incomingState.known) return { ok:false, why:'incoming-trades-unreadable' };
+    const attackState = tradeTownsUnderAttack();
+    if (!attackState.known) return { ok:false, why:'incoming-attacks-unreadable' };
+    const liveDestinations = tradeAutoTowns(tradeListTowns()).filter(t => String(t.id) !== String(src.id));
+    const projected = [];
+    for (const t of liveDestinations) {
+      const id = String(t.id);
+      if (attackState.value && attackState.value.has(id)) continue;
+      if (!(t.cap > 0) || t[resource] == null) continue;
+      const mov = incomingState.byTown[id] || {};
+      let pending;
+      try { pending = plannerPendingForTown(id).incoming || {}; } catch (_) { return { ok:false, why:'planner-incoming-unreadable' }; }
+      const value = +t[resource] + (+mov[resource] || 0) + (+pending[resource] || 0);
+      if (!Number.isFinite(value)) continue;
+      projected.push(Object.assign({}, t, {
+        [resource]:value,
+        free:Math.max(0, +t.cap - value),
+      }));
+    }
+    if (!projected.length) return { ok:false, why:'no-intercity-destination-under-80' };
+    const decision = tradeOverflowDecision([src].concat(projected), resource, tradeOverflowPct(), tradeTransferPct(), tradeReceiverPct());
+    if (!decision.ok) return { ok:false, why:decision.reason };
+    if (String(decision.target) !== String(job.to)) {
+      job.to = decision.target;
+      job.wood = 0; job.stone = 0; job.iron = 0;
+    }
+    job[resource] = decision.amount;
+    job.destinationFill = decision.destinationFill;
+    job.destinationFree = decision.destinationFree;
+    return { ok:true };
+  }
   function tradeValidateJob(job) {
-    const src = tradeTownRes(job.from), tgt = tradeTownRes(job.to);
+    const src = tradeTownRes(job.from);
+    let tgt = tradeTownRes(job.to);
     if (!src || !tgt || !(src.cap > 0) || !(tgt.cap > 0)) return { ok: false, why: 'town-state-unreadable' };
+    const overflowCheck = tradeValidateOverflowJob(job, src, tgt);
+    if (!overflowCheck.ok) return overflowCheck;
+    if (job.overflowResource) {
+      tgt = tradeTownRes(job.to);
+      if (!tgt || !(tgt.cap > 0)) return { ok:false, why:'town-state-unreadable' };
+    }
     const reserveN = Number(state.tradeReservePct);
     const reservePct = Math.min(80, Math.max(0, Number.isFinite(reserveN) ? reserveN : 20)) / 100;
     const keep = Math.floor(src.cap * reservePct);
     const total = (+job.wood || 0) + (+job.stone || 0) + (+job.iron || 0);
     const pav = plannerAvailable(job.from, {allowSoft:false});
-    const incomingState=tradeIncomingByTown();if(!incomingState.known)return {ok:false,why:'incoming-trades-unreadable'};const mov=incomingState.byTown[String(job.to)]||{},pending=plannerSnapshot(job.to)?.incoming||{};
+    const incomingState=tradeIncomingByTown();if(!incomingState.known)return {ok:false,why:'incoming-trades-unreadable'};const mov=incomingState.byTown[String(job.to)]||{};let pending={};try{pending=plannerPendingForTown(job.to).incoming||{}}catch(_){}
     if (!pav) return { ok:false, why:'planner-unreadable' };
 
     const num = (v) => (Number.isFinite(+v) ? +v : null);
@@ -11602,7 +12360,14 @@ const STORE = {
     if (Date.now() - tradeUnderAttackCache.at < 1000) return { known: tradeUnderAttackCache.known, value: tradeUnderAttackCache.value };
     let value = null, known = false;
     try {
-      if (typeof dodgeIncomingMovements === 'function') {
+      if (typeof dodgeIncomingSnapshot === 'function') {
+        const snap = dodgeIncomingSnapshot();
+        if (snap && snap.known === true && Array.isArray(snap.moves)) {
+          const set = new Set();
+          for (const m of snap.moves) { if (m && m.dest != null) set.add(String(m.dest)); }
+          value = set; known = true;
+        }
+      } else if (typeof dodgeIncomingMovements === 'function') {
         const moves = dodgeIncomingMovements();
         if (Array.isArray(moves)) {
           const set = new Set();
@@ -11614,41 +12379,46 @@ const STORE = {
     tradeUnderAttackCache = { at: Date.now(), known, value };
     return { known, value };
   }
-  function tradeScan(reason) {
+  function tradeTownUnderAttack(townId) {
+    const u = tradeTownsUnderAttack();
+    if (!u.known || !u.value) return false;
+    return u.value.has(String(townId));
+  }
+  function tradeScan(reason, opts) {
+    const o = opts || {};
     if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes && !state.autoDump) || captchaPaused('trade')) return;
     if (automationPaused({})) return;
-    if (gbLocked('trade')) return;
     const towns = tradeListTowns();
     if (towns.length < 2) { gbLogT('trade-towns', 180000, 'trade: need \u22652 towns'); return; }
+    const autoTowns = tradeAutoTowns(towns);
+    const autoPairOk = autoTowns.length >= 2;
     const ledger = tradeLedger(towns);
     if(!ledger){gbLogT('trade-incoming-unreadable',180000,'trade: incoming movements unavailable \u2014 fail closed');return}
     let jobs = [];
-    const preset = state.tradePreset || 'storage';
 
-    if (state.autoTradeRoutes) jobs = jobs.concat(tradeRouteJobs(towns, ledger));
-    if (state.autoTransport) jobs = jobs.concat(transportBalanceJobs(towns, ledger));
+    if (!o.overflowOnly) {
 
-    if (state.autoDump) jobs = jobs.concat(dumpJobs(towns, ledger));
+      if (state.autoTradeRoutes) jobs = jobs.concat(tradeRouteJobs(towns, ledger));
+      if (!autoPairOk && (state.autoTrade || state.autoTransport || state.autoDump || state.islandShip)) {
+        gbLogT('trade-town-filter', 180000, `trade: only ${autoTowns.length} automatic town(s) enabled - need \u22652`);
+      }
+      if (state.autoTransport && autoPairOk) jobs = jobs.concat(transportBalanceJobs(autoTowns, ledger));
+      if (state.autoDump && autoPairOk) jobs = jobs.concat(dumpJobs(autoTowns, ledger));
+    }
 
-    if (state.autoTrade && preset === 'storage') {
-      jobs = jobs.concat(tradeFillStorageJobs(towns, ledger));
-
-      if (typeof orchDeadlockOpen === 'function' && orchDeadlockOpen()) {
-        const dead = jobs.length > 0 && !jobs.some(j => tradeValidateJob(j).ok);
-        if (!jobs.length || dead) {
-
-          const dl = tradeDeadlockJobs(towns, dead ? tradeLedger(towns) : ledger);
-          if (dl.length) {
-            gbLog(`trade: deadlock drain - ${dl.length} job(s) on the pinned resource${dead ? ` (replaced ${jobs.length} job(s) the validator rejects)` : ''}`);
-            if (dead) jobs = [];
-            jobs = jobs.concat(dl);
-          }
+    if (state.autoTrade && autoPairOk) {
+      let ruralPairs = new Set();
+      if (!o.skipRural && state.autoRuralTrade) {
+        ruralPairs = ruralExecutableOverflowPairSet(autoTowns);
+        if (ruralPairs.size) {
+          const rr = ruralTradeScan('trade-coordinator') || {};
+          gbLogT('trade-rural-first', 60000, `trade: ${ruralPairs.size} town/resource rural-first pair(s); unrelated intercity remains eligible`);
+          if (rr.reason === 'locked') ruralCoordinatorScheduleRetry();
         }
       }
-    } else if (state.autoTrade && (preset === 'party' || preset === 'unit')) {
-      jobs = jobs.concat(tradeGoalJobs(towns, ledger, preset));
+      jobs = jobs.concat(tradeOverflowJobs(autoTowns, ledger, ruralPairs));
     }
-    if (state.islandShip) jobs = jobs.concat(tradeIslandShipJobs(towns, ledger));
+    if (!o.overflowOnly && state.islandShip && autoPairOk) jobs = jobs.concat(tradeIslandShipJobs(autoTowns, ledger));
 
     const underAttack = tradeTownsUnderAttack();
     if (!underAttack.known) {
@@ -11665,30 +12435,29 @@ const STORE = {
       gbLogT('trade-idle', 180000, `trade: nothing to send (${scanReason(reason)})`);
       return;
     }
-    const lockToken = gbLock('trade');
-    if (!lockToken) return;
-    let i = 0, done = 0;
+    let i = 0, done = 0, stopped = false;
     (function next() {
-      if (!gbLockTouch('trade', lockToken)) return;
+      if(stopped)return;
       if (i >= jobs.length) {
-        gbUnlock('trade', lockToken);
         if (done) gbLog(`trade: sent ${done}/${jobs.length}`);
         return;
       }
-      const j = jobs[i++];
-      const valid = tradeValidateJob(j);
-      if (!valid.ok) {
-        gbLogT('trade-stale-' + j.from + '-' + j.to, 60000, `trade: stale job ${j.from}\u2192${j.to} skipped (${valid.why})`);
-        gbTimeout(next, 100);
-        return;
+      const j=jobs[i++];
+      const lockName=`trade:${String(j.from)}`;
+      const lockToken=gbLock(lockName,120000);
+      if(!lockToken){gbTimeout(next,100);return}
+      const valid=tradeValidateJob(j);
+      if(!valid.ok){
+        gbUnlock(lockName,lockToken);
+        gbLogT('trade-stale-'+j.from+'-'+j.to,60000,`trade: stale job ${j.from}\u2192${j.to} skipped (${valid.why})`);
+        gbTimeout(next,100);return;
       }
-      tradeSend(j.from, j.to, j.wood, j.stone, j.iron, (err) => {
-        if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('trade', lockToken); return; }
-        if (!err) {
-          done++;
-          gbLog(`trade: ${j.from}\u2192${j.to} w${j.wood}/s${j.stone}/i${j.iron}`);
-        } else gbLogT('trade-err', 60000, `trade err ${err}`);
-        gbTimeout(next, 800 + Math.random() * 600);
+      tradeSend(j.from,j.to,j.wood,j.stone,j.iron,(err)=>{
+        gbUnlock(lockName,lockToken);
+        if(err==='captcha'||err==='captcha-pause'){stopped=true;return}
+        if(!err){done++;gbLog(`trade: ${j.from}\u2192${j.to} w${j.wood}/s${j.stone}/i${j.iron}`)}
+        else gbLogT('trade-err',60000,`trade err ${err}`);
+        gbTimeout(next,800+Math.random()*600);
       });
     })();
   }
@@ -11718,9 +12487,8 @@ const STORE = {
     const out = {};
     let any = false;
     for (const k of GB_RES_KEYS) {
-
-      const raw = gbNum(p[k]);
-      if (raw == null || raw < 0) { out[k] = null; continue; }
+      const raw = +p[k];
+      if (!Number.isFinite(raw) || raw < 0) { out[k] = null; continue; }
       out[k] = raw > 100 ? raw / 3600 : raw;
       any = true;
     }
@@ -11735,12 +12503,9 @@ const STORE = {
     const fillPct = {};
     const eta = {};
     for (const k of GB_RES_KEYS) {
-
-      const have = gbNum(base[k]);
-      fillPct[k] = (base.cap > 0 && have != null) ? Math.max(0, Math.min(1, have / base.cap)) : null;
+      fillPct[k] = base.cap > 0 ? Math.max(0, Math.min(1, (+base[k] || 0) / base.cap)) : null;
       if (!(base.cap > 0)) { eta[k] = null; continue; }
-      const room = (have != null) ? base.cap - have : null;
-      if (room == null) { eta[k] = null; continue; }
+      const room = base.cap - (+base[k] || 0);
       if (room <= 0) { eta[k] = 0; continue; }
       const rate = prod ? prod[k] : null;
       eta[k] = rate > 0 ? (room / rate) * 1000 : null;
@@ -11764,19 +12529,14 @@ const STORE = {
 
     if (!inc.known) return { woodFree: null, stoneFree: null, ironFree: null, blind: true };
     const mov = inc.byTown[String(townId)] || {};
-    const ms = Math.max(0, gbNum(deltaMs) || 0);
+    const ms = Math.max(0, +deltaMs || 0);
 
-    let ironDrain = 0;
-    try {
-      const r = ironReservedForCave(townId);
-      if (r && r.reserved) ironDrain = Math.ceil(st.cap * (gbCfgClamp(state.caveThreshPct, 50, 99, 90) / 100));
-    } catch (_) {}
     const out = { blind: false };
     for (const k of GB_RES_KEYS) {
       const rate = st.production ? st.production[k] : null;
       if (rate == null) { out[k + 'Free'] = null; out.blind = true; continue; }
       const grown = rate * (ms / 1000);
-      const projected = (+st[k] || 0) + (+mov[k] || 0) + grown + (k === 'iron' ? ironDrain : 0);
+      const projected = (+st[k] || 0) + (+mov[k] || 0) + grown;
       out[k + 'Free'] = Math.max(0, st.cap - projected);
     }
     return { woodFree: out.woodFree, stoneFree: out.stoneFree, ironFree: out.ironFree, blind: out.blind };
@@ -11787,7 +12547,7 @@ const STORE = {
     const st = transportTownRes(townId);
     if (!st || !(st.cap > 0)) return { ms: null, blind: true };
     if (!st.production || st.production[resource] == null) return { ms: null, blind: true };
-    const want = Math.max(0, Math.min(1, gbNum(targetFillPct) || 0)) * st.cap;
+    const want = Math.max(0, Math.min(1, +targetFillPct || 0)) * st.cap;
     const key = resource + 'Free';
 
     let delta = TRANSPORT_ETA_MAX_MS / 128;
@@ -11818,27 +12578,11 @@ const STORE = {
     if (src.tradeCap < minBatch) return false;
     const keep = Math.floor(src.cap * reserve);
 
-    let ironKeep = keep;
-    try {
-      const r = ironReservedForCave(srcId);
-      if (r && r.reserved) {
-
-        const rawThresh = (state.caveThreshPct == null) ? 90 : +state.caveThreshPct;
-        const thresh = gbCfgClamp(rawThresh, 50, 99, 90) / 100;
-        ironKeep = Math.max(keep, Math.ceil(src.cap * thresh));
-        gbLogT('transport-iron-reserved-' + srcId, 600000,
-          `transport: town ${srcId} iron held for cave (keep ${ironKeep})`);
-      } else if (r && r.blind) {
-        gbLogT('transport-iron-blind-' + srcId, 600000,
-          `transport: town ${srcId} cave reserve unreadable - no iron deduction`);
-      }
-    } catch (_) {}
     for (const res of GB_RES_KEYS) {
 
       if (src.tradeCap < minBatch) return false;
       if (src[res] / src.cap < TRANSPORT_SRC_FILL) continue;
-      const srcKeep = res === 'iron' ? ironKeep : keep;
-      const surplus = Math.max(0, src[res] - srcKeep);
+      const surplus = Math.max(0, src[res] - keep);
       if (surplus < minBatch) continue;
 
       if (transportBias(srcId, res) > 0) continue;
@@ -11928,10 +12672,7 @@ const STORE = {
     const roomOf = id => {
       const l = ledger[id] || ledger[+id];
       if (!l || !(l.cap > 0)) return null;
-
-      const have = gbNum(l[res]);
-      if (have == null) return null;
-      return Math.max(0, l.cap - have);
+      return Math.max(0, l.cap - (+l[res] || 0));
     };
     const sinks = dumpSinkList().filter(id => ids.includes(id));
     if (sinks.length) {
@@ -11949,9 +12690,9 @@ const STORE = {
     let jobs = [];
     try {
       const probe = Object.create(null);
-      for (const [k, v] of Object.entries(ledger)) probe[k] = structuredClone(v);
+      for (const [k, v] of Object.entries(ledger)) probe[k] = Object.assign({}, v);
       jobs = transportBalanceJobs(towns, probe) || [];
-    } catch (e) { jobs = []; gbLogT('dump-balance-err', 60000, 'dump: transportBalanceJobs threw: ' + String(e).slice(0, 120)); }
+    } catch (_) { jobs = []; }
     const hit = jobs.find(j => String(j.from) === from && (+j[res] || 0) > 0);
     return hit ? String(hit.to) : null;
   }
@@ -11973,27 +12714,8 @@ const STORE = {
         if (src.tradeCap <= 0) break;
 
         if (perTown >= 1) break;
-
-        const have = gbNum(src[res]);
-        if (have == null) continue;
-        const fillPct = Math.round(have / src.cap * 100);
+        const fillPct = Math.round((+src[res] || 0) / src.cap * 100);
         if (fillPct < dumpThresholdFor(res)) continue;
-        if (res === 'iron' && caveHasHeadroom(id)) {
-          gbLogT('dump-cave-' + id, 600000, `dump: town ${id} iron held - cave still has headroom`);
-          continue;
-        }
-
-        if (res === 'iron') {
-          let caveSkip = false;
-          try {
-            const r = ironReservedForCave(id);
-            if (r && r.reserved) {
-              gbLogT('dump-cave-res-' + id, 600000, `dump: town ${id} iron reserved for cave`);
-              caveSkip = true;
-            }
-          } catch (e) { gbLogT('dump-cave-err-' + id, 60000, 'dump: ironReservedForCave threw: ' + String(e).slice(0, 120)); caveSkip = true; }
-          if (caveSkip) continue;
-        }
         const keep = Math.floor(src.cap * dumpKeepPctFor(res) / 100);
         const surplus = Math.max(0, (+src[res] || 0) - keep);
 
@@ -12036,16 +12758,17 @@ const STORE = {
   function ruralTownIslandXY(townId) {
     const uw = gameUw();
     try {
-      const t = gbTownModel(townId);
+      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
       if (!t) return null;
-      return { x: t.getIslandCoordinateX && t.getIslandCoordinateX(), y: t.getIslandCoordinateY && t.getIslandCoordinateY(), t };
+      const islandId = typeof t.getIslandId === 'function' ? t.getIslandId() : (t.attributes && t.attributes.island_id);
+      return { id: islandId != null ? String(islandId) : null, x: t.getIslandCoordinateX && t.getIslandCoordinateX(), y: t.getIslandCoordinateY && t.getIslandCoordinateY(), t };
     } catch (_) { return null; }
   }
   function ruralTradePost(relationId, farmTownId, amount, townId, onDone) {
     bridgePost('ruraltrade', {
       model_url: `FarmTownPlayerRelation/${relationId}`,
       action_name: 'trade',
-      arguments: { farm_town_id: +farmTownId, amount: Math.min(3000, Math.max(100, +amount)) },
+      arguments: { farm_town_id: +farmTownId, amount: Math.max(0, Math.floor(+amount)) },
       town_id: +townId,
     }, onDone);
   }
@@ -12067,248 +12790,503 @@ const STORE = {
   }
 
   const RURAL_MS_EPOCH_FLOOR = 1e12;
-  function ruralTradeReadyAt(a) {
-    let v = gbProbeAttr(a, ['trade_at', 'tradeable_at', 'next_trade_at', 'lootable_at']);
-    if (v == null || !(v > 0)) return null;
-    if (v >= RURAL_MS_EPOCH_FLOOR) v = Math.floor(v / 1000);
-    return v;
+  function ruralTradeCooldownState(rel) {
+    const a = rel && (rel.attributes || rel);
+    if (!a) return { known:false, ready:null, readyAt:null, source:'rural-cooldown-unreadable' };
+    for (const key of ['can_trade','tradeable','is_tradeable','trade_ready']) {
+      if (!Object.prototype.hasOwnProperty.call(a, key)) continue;
+      const raw = a[key];
+      if (typeof raw === 'boolean') return { known:true, ready:raw, readyAt:raw ? gameNow() : null, source:key };
+      if (raw === 0 || raw === 1 || raw === '0' || raw === '1') return { known:true, ready:+raw === 1, readyAt:+raw === 1 ? gameNow() : null, source:key };
+    }
+    for (const key of ['trade_at','tradeable_at','next_trade_at','trade_cooldown_until','trade_available_at']) {
+      if (!Object.prototype.hasOwnProperty.call(a, key)) continue;
+      let v = Number(a[key]);
+      if (!Number.isFinite(v)) return { known:false, ready:null, readyAt:null, source:key + ':invalid' };
+      if (v >= RURAL_MS_EPOCH_FLOOR) v = Math.floor(v / 1000);
+      return { known:true, ready:v <= 0 || v <= gameNow(), readyAt:v, source:key };
+    }
+    return { known:false, ready:null, readyAt:null, source:'rural-cooldown-unreadable' };
   }
+  function ruralTradeReadyAt(rel) {
+    const st = ruralTradeCooldownState(rel);
+    return st.known ? st.readyAt : null;
+  }
+  function ruralBeneficiaryTown(islandKey, towns) {
+    const r = resolveIslandResourceBeneficiary(islandKey, (towns || []).map(t => String(t.id)));
+    return r.known ? r.townId : null;
+  }
+  function ruralTradeDecision(candidates) {
+    return (Array.isArray(candidates) ? candidates : []).filter(c => c && c.ratio != null && +c.ratio >= 1 && c.returnedFill != null && +c.returnedFill <= tradeReceiverPct() && +c.amount > 0)
+      .sort((a,b) => +a.returnedFill - +b.returnedFill || +b.ratio - +a.ratio || +b.amount - +a.amount || String(a.village).localeCompare(String(b.village), undefined, {numeric:true}))[0] || null;
+  }
+  function ruralOfferData(rel, farm) {
+    const rm = rel || null, fm = farm || null;
+    const a = rm && (rm.attributes || rm) || {};
+    const f = fm && (fm.attributes || fm) || {};
+    const firstString = (obj, keys) => {
+      for (const key of keys) {
+        const v = obj && obj[key];
+        if (v != null && String(v) !== '') return String(v);
+      }
+      return null;
+    };
+    const firstNumber = (obj, keys) => {
+      for (const key of keys) {
+        if (!obj || !Object.prototype.hasOwnProperty.call(obj, key)) continue;
+        const n = Number(obj[key]);
+        if (Number.isFinite(n)) return { value:n, source:key };
+      }
+      return null;
+    };
+    const callNumber = (obj, names) => {
+      for (const name of names) {
+        try {
+          if (!obj || typeof obj[name] !== 'function') continue;
+          const n = Number(obj[name]());
+          if (Number.isFinite(n)) return { value:n, source:name + '()' };
+        } catch (_) {}
+      }
+      return null;
+    };
+    const give = firstString(a, ['resource_offer','resource_give','give_resource']) || firstString(f, ['resource_offer','resource_give','give_resource']);
+    const receive = firstString(a, ['resource_receive','resource_demand','receive_resource']) || firstString(f, ['resource_receive','resource_demand','receive_resource']);
+    const ratioHit = callNumber(rm, ['getCurrentTradeRatio','getTradeRatio']) || firstNumber(a, ['current_trade_ratio','trade_ratio','ratio']) || firstNumber(f, ['current_trade_ratio','trade_ratio']);
+    const limitHit = callNumber(rm, ['getAvailableTradeCapacity','getTradeCapacity','getMaxTradeAmount','getTradeAmountLimit'])
+      || firstNumber(a, ['available_trade_capacity','trade_capacity','max_trade_amount','amount_limit','trade_amount_limit'])
+      || callNumber(fm, ['getAvailableTradeCapacity','getTradeCapacity','getMaxTradeAmount'])
+      || firstNumber(f, ['available_trade_capacity','trade_capacity','max_trade_amount','amount_limit','trade_amount_limit']);
+    const multiplierHit = callNumber(rm, ['getReceiveMultiplier','getOutputPerInput'])
+      || firstNumber(a, ['receive_multiplier','return_multiplier','output_per_input','amount_received_per_input'])
+      || firstNumber(f, ['receive_multiplier','return_multiplier','output_per_input','amount_received_per_input']);
+    const ratio = ratioHit && ratioHit.value > 0 ? ratioHit.value : null;
+    const limit = limitHit && limitHit.value >= 0 ? limitHit.value : null;
 
-  const RES_KEYS = ['wood', 'stone', 'iron'];
-  function ruralTradeScan(reason) {
-    if (!hostEnabled() || !state.autoRuralTrade || captchaPaused('ruraltrade')) return;
-    if (automationPaused({})) return;
-    if (gbLocked('rural-trade')) return;
+    const returnedMultiplier = multiplierHit && multiplierHit.value > 0 ? multiplierHit.value : ratio;
+    return {
+      give:GB_RES_KEYS.includes(String(give)) ? String(give) : null,
+      receive:GB_RES_KEYS.includes(String(receive)) ? String(receive) : null,
+      ratio, limit, returnedMultiplier,
+      source:{ ratio:ratioHit && ratioHit.source || null, limit:limitHit && limitHit.source || null, multiplier:multiplierHit && multiplierHit.source || (ratio != null ? 'trade-ratio' : null) },
+    };
+  }
+  function ruralSameIslandTowns(townId, liveTowns) {
+    const src = ruralTownIslandXY(townId);
+    if (!src) return { known:false, key:null, towns:[], ids:[], reason:'town-island-unreadable' };
+    const key = src.id || resolveIslandIdByCoords(src.x, src.y);
+    const rows = (liveTowns || []).filter(t => {
+      const p = ruralTownIslandXY(t.id);
+      if (!p) return false;
+      if (key && p.id) return String(p.id) === String(key);
+      return String(p.x) === String(src.x) && String(p.y) === String(src.y);
+    });
+    const ids = rows.map(t => String(t.id));
+    if (!ids.length) return { known:false, key:key || null, towns:[], ids:[], reason:'same-island-towns-unreadable' };
+    if (!key && Object.keys(state.islandBeneficiaries || {}).length) return { known:false, key:null, towns:rows, ids, reason:'canonical-island-unreadable' };
+    return { known:true, key:key || null, towns:rows, ids, reason:'' };
+  }
+  function ruralCandidateRowsForTown(townId, liveTowns, relations, farmById) {
+    const live = tradeTownRes(townId);
+    if (!live || !(live.cap > 0) || live.tradeCap == null) return [];
+    const island = ruralSameIslandTowns(townId, liveTowns);
+    if (!island.known) return [];
+    const beneficiary = resolveIslandResourceBeneficiary(island.key, island.ids);
+    if (!beneficiary.known || String(beneficiary.townId) !== String(townId)) return [];
+    const xy = ruralTownIslandXY(townId);
+    if (!xy) return [];
+    const now = gameNow();
+    const candidates = [];
+    for (const resource of GB_RES_KEYS) {
+      if (live[resource] == null || live[resource] / live.cap < tradeOverflowPct()) continue;
+      for (const rel of relations || []) {
+        const a = rel.attributes || rel || {};
+        const farm = farmById[String(a.farm_town_id)];
+        const f = farm && (farm.attributes || farm) || {};
+        if (+a.relation_status !== 1 || !farm || String(f.island_x) !== String(xy.x) || String(f.island_y) !== String(xy.y)) continue;
+        const cooldown = ruralTradeCooldownState(rel);
+        if (!cooldown.known) {
+          gbLogT('rural-cooldown-unreadable-' + String(a.farm_town_id), 180000, `rural-trade: village ${a.farm_town_id} cooldown unreadable`);
+          continue;
+        }
+        if (!cooldown.ready) continue;
+        const offer = ruralOfferData(rel, farm);
+        if (offer.give !== resource || !offer.receive || offer.receive === resource || offer.ratio == null || offer.ratio < 1) continue;
+        if (offer.limit == null) {
+          gbLogT('rural-limit-unreadable-' + String(a.farm_town_id), 180000, `rural-trade: village ${a.farm_town_id} trade limit unreadable`);
+          continue;
+        }
+        if (!(offer.limit > 0) || !(offer.returnedMultiplier > 0)) continue;
+        if (live[offer.receive] == null) continue;
+        const returnedFill = live[offer.receive] / live.cap;
+        if (returnedFill > tradeReceiverPct()) continue;
+        const headroom = Math.max(0, live.cap - live[offer.receive]);
+        const amount = Math.floor(Math.min(live.cap * tradeTransferPct(), live[resource], live.tradeCap, offer.limit, headroom / offer.returnedMultiplier));
+        if (!(amount > 0)) continue;
+        candidates.push({
+          village:String(a.farm_town_id), relId:String(a.id ?? rel.id), farmId:String(a.farm_town_id), townId:String(townId),
+          amount, give:resource, receive:offer.receive, ratio:offer.ratio, returnedFill, returnedMultiplier:offer.returnedMultiplier,
+          islandKey:island.key, cooldownSource:cooldown.source, limitSource:offer.source && offer.source.limit,
+        });
+      }
+    }
+    return candidates;
+  }
+  function ruralExecutableOverflowCandidates(towns) {
+    const relations = ruralRelModels(), farms = ruralFarmModels(), farmById = Object.create(null);
+    farms.forEach(f => { const a=f.attributes||{}; if (a.id != null) farmById[String(a.id)] = f; });
 
-    const minRatio = Math.max(1, gbNum(state.ruralTradeRatio) || 1.1);
+    const eligible = new Set((towns || []).map(t => String(t.id)));
+    const liveTowns = tradeListTowns().map(t => tradeTownRes(t.id)).filter(Boolean);
+    const out = [];
+    for (const town of liveTowns) {
+      if (!eligible.has(String(town.id))) continue;
+      const chosen = ruralTradeDecision(ruralCandidateRowsForTown(town.id, liveTowns, relations, farmById));
+      if (chosen) out.push(chosen);
+    }
+    return out;
+  }
+  function ruralExecutableOverflowPairSet(towns) {
+    const relations = ruralRelModels(), farms = ruralFarmModels(), farmById = Object.create(null);
+    farms.forEach(f => { const a=f.attributes||{}; if (a.id != null) farmById[String(a.id)] = f; });
+    const eligible = new Set((towns || []).map(t => String(t.id)));
+    const liveTowns = tradeListTowns().map(t => tradeTownRes(t.id)).filter(Boolean);
+    const out = new Set();
+    for (const town of liveTowns) {
+      if (!eligible.has(String(town.id))) continue;
+      for (const c of ruralCandidateRowsForTown(town.id, liveTowns, relations, farmById)) {
+        if (c && c.townId != null && GB_RES_KEYS.includes(c.give)) out.add(String(c.townId) + '|' + String(c.give));
+      }
+    }
+    return out;
+  }
+  function ruralValidateJob(j) {
+    const rel = ruralRelModels().find(r => String(r.id ?? (r.attributes || {}).id) === String(j.relId));
+    const farm = ruralFarmModels().find(f => String(f.id ?? (f.attributes || {}).id) === String(j.farmId));
+    const town = tradeTownRes(j.townId);
+    if (!rel || !farm || !town) { tradeDiagnosticPut(j.townId, j.give, { rural:null, action:'none', reason:'rural-state-unreadable' }); return { ok:false, why:'rural-state-unreadable' }; }
+    const a = rel.attributes || {}, f = farm.attributes || farm;
+    if (+a.relation_status !== 1) return { ok:false, why:'rural-state-changed' };
+    const allTowns = tradeListTowns().map(t => tradeTownRes(t.id)).filter(Boolean);
+    const island = ruralSameIslandTowns(j.townId, allTowns);
+    if (!island.known) return { ok:false, why:island.reason || 'island-unreadable' };
+    const beneficiary = resolveIslandResourceBeneficiary(island.key, island.ids);
+    if (!beneficiary.known || String(beneficiary.townId) !== String(j.townId)) return { ok:false, why:'beneficiary-invalid' };
+    const xy = ruralTownIslandXY(j.townId);
+    if (!xy || String(f.island_x) !== String(xy.x) || String(f.island_y) !== String(xy.y)) return { ok:false, why:'rural-island-changed' };
+    const offer = ruralOfferData(rel, farm);
+    if (offer.give !== j.give || offer.receive !== j.receive) return { ok:false, why:'rural-offer-changed' };
+    if (offer.ratio == null || offer.ratio < 1) return { ok:false, why:offer.ratio != null ? 'rural-ratio-below-1' : 'rural-ratio-unreadable' };
+    if (offer.limit == null) return { ok:false, why:'rural-limit-unreadable' };
+    if (!(offer.limit > 0) || !(offer.returnedMultiplier > 0)) return { ok:false, why:'rural-capacity-zero' };
+    const cooldown = ruralTradeCooldownState(rel);
+    if (!cooldown.known) return { ok:false, why:'rural-cooldown-unreadable' };
+    if (!cooldown.ready) return { ok:false, why:'rural-cooldown' };
+    if (town[j.give] == null || town[j.receive] == null || !(town.cap > 0)) return { ok:false, why:'live-state-unreadable' };
+    if (town[j.give] / town.cap < tradeOverflowPct() || town[j.receive] / town.cap > tradeReceiverPct()) return { ok:false, why:'live-state-changed' };
+    if (town.tradeCap == null || !(town.tradeCap > 0)) return { ok:false, why:'rural-trade-capacity-unreadable' };
+    const headroom = Math.max(0, town.cap - town[j.receive]);
+    const amount = Math.floor(Math.min(town.cap * tradeTransferPct(), town[j.give], town.tradeCap, offer.limit, headroom / offer.returnedMultiplier));
+    if (!(amount > 0)) return { ok:false, why:'rural-headroom-zero' };
+    j.amount = amount; j.ratio = offer.ratio; j.returnedMultiplier = offer.returnedMultiplier; j.islandKey = island.key;
+    tradeDiagnosticPut(j.townId, j.give, { rural:{ give:j.give, receive:j.receive, ratio:j.ratio, limit:offer.limit, executable:amount }, finalValidation:'ok', action:'rural', reason:'ready-rural' });
+    return { ok:true, cooldown, offer };
+  }
+  function ruralReconcileTrade(j, before, onDone) {
+    const giveBefore = before && Number.isFinite(+before[j.give]) ? +before[j.give] : null;
+    const receiveBefore = before && Number.isFinite(+before[j.receive]) ? +before[j.receive] : null;
+    if (giveBefore == null || receiveBefore == null || !(+j.amount > 0)) return onDone(false, 'rural-reconcile-pre-unreadable');
+    let attempt = 0;
+    const check = () => {
+      const cur = tradeTownRes(j.townId);
+      let resourcesProve = false;
+      if (cur && Number.isFinite(+cur[j.give]) && Number.isFinite(+cur[j.receive])) {
+        const giveDelta = giveBefore - +cur[j.give];
+        const receiveDelta = +cur[j.receive] - receiveBefore;
+        resourcesProve = giveDelta >= +j.amount && receiveDelta > 0;
+      }
+      let cooldownProves = false;
+      try {
+        const rel = ruralRelModels().find(r => String(r.id ?? (r.attributes || {}).id) === String(j.relId));
+        const cd = rel ? ruralTradeCooldownState(rel) : { known:false };
+        cooldownProves = !!(cd.known && cd.ready === false);
+      } catch (_) {}
+
+      const sourceDeducted = cur && Number.isFinite(+cur[j.give]) && (giveBefore - +cur[j.give] >= +j.amount);
+      if (resourcesProve || (sourceDeducted && cooldownProves)) return onDone(true, resourcesProve ? 'resources-updated' : 'source-and-cooldown-updated');
+      if (++attempt >= 7) return onDone(false, 'rural-reconcile-timeout');
+      gbTimeout(check, 200 + attempt * 250);
+    };
+    gbTimeout(check, 150);
+  }
+  let ruralCoordinatorRetryTimer = 0;
+  const ruralTradeActivePairs = new Set();
+  function ruralCoordinatorScheduleRetry() {
+    if (ruralCoordinatorRetryTimer) return;
+    ruralCoordinatorRetryTimer = gbTimeout(() => {
+      ruralCoordinatorRetryTimer = 0;
+      try { tradeScan('rural-lock-retry'); } catch (_) {}
+    }, 1500);
+  }
+  function ruralTradeScan(reason, onSettled) {
+    const settle = (info) => { try { if (onSettled) onSettled(info || {}); } catch (_) {} };
+    if (!hostEnabled() || !state.autoRuralTrade || captchaPaused('ruraltrade') || automationPaused({})) {
+      const info = {ran:false, started:false, reason:'disabled-or-paused'};
+      settle(info); return info;
+    }
+    if (gbLocked('rural-trade')) {
+      const info = {ran:false, started:false, reason:'locked', activePairs:[...ruralTradeActivePairs]};
+      settle(info); return info;
+    }
     const relations = ruralRelModels();
     const farms = ruralFarmModels();
-    const farmById = {};
-    farms.forEach(f => { const a = f.attributes || {}; if (a.id != null) farmById[a.id] = a; });
+    const farmById = Object.create(null);
+    farms.forEach(f => { const a = f.attributes || {}; if (a.id != null) farmById[String(a.id)] = f; });
+
+    const allLiveTowns = tradeListTowns();
+    const enabledLiveTowns = tradeAutoTowns(allLiveTowns);
+    const townIds = enabledLiveTowns.map(t => String(t.id));
     const jobs = [];
-    const capLeft = Object.create(null);
-    let townIds = [];
-    try {
-      const uw = gameUw();
-      townIds = Object.keys((uw.ITowns && uw.ITowns.towns) || {});
-    } catch (_) {}
-    const now = gameNow();
     for (const tid of townIds) {
-      const xy = ruralTownIslandXY(tid);
-      if (!xy || xy.x == null) continue;
-      let tradeCap = 0;
-      try { tradeCap = +xy.t.getAvailableTradeCapacity(); } catch (_) {}
-      if (tradeCap < 500) continue;
-      capLeft[tid] = tradeCap;
-
-      const st = townResState(tid);
-      if (!st || !st.cap) {
-        gbLogT('ruraltrade-blind-' + tid, 300000,
-          `rural-trade: town ${tid} warehouse unreadable \u2014 skip`);
-        continue;
-      }
-
-      let deficit = null, deficitAmt = Infinity;
-      for (const r of RES_KEYS) {
-        const amt = gbNum(st[r]);
-        if (amt == null) continue;
-        if (st.full && st.full[r]) continue;
-        if (amt < deficitAmt) { deficitAmt = amt; deficit = r; }
-      }
-      if (!deficit) continue;
-
-      let roomLeft = Math.max(0, st.cap - deficitAmt);
-      if (roomLeft < 500) {
-        gbLogT('ruraltrade-noroom-' + tid, 300000,
-          `rural-trade: town ${tid} no room for ${deficit} \u2014 skip`);
-        continue;
-      }
-
-      const candidates = [];
-      for (const rel of relations) {
-        const a = rel.attributes || {};
-        if (+a.relation_status !== 1) continue;
-        const readyAt = ruralTradeReadyAt(a);
-        if (readyAt != null && readyAt > now) continue;
-        const ft = farmById[a.farm_town_id];
-        if (!ft) continue;
-        if (ft.island_x !== xy.x || ft.island_y !== xy.y) continue;
-        if (ft.resource_offer !== deficit) continue;
-        const ratio = +a.current_trade_ratio;
-        if (!(ratio >= minRatio)) continue;
-        candidates.push({ relId: a.id || rel.id, farmId: a.farm_town_id, ratio });
-      }
-      candidates.sort((x, y) => (y.ratio - x.ratio) ||
-        (x.relId > y.relId ? 1 : (x.relId < y.relId ? -1 : 0)));
-
-      for (const c of candidates) {
-        if ((capLeft[tid] || 0) < 500 || roomLeft < 500) break;
-        const amount = Math.min(3000, capLeft[tid], Math.floor(roomLeft / c.ratio));
-        if (amount < 100) break;
-        jobs.push({ relId: c.relId, farmId: c.farmId, townId: tid, amount, deficit });
-        capLeft[tid] -= amount;
-        roomLeft -= amount * c.ratio;
-        if (jobs.length >= 6) break;
-      }
+      const chosen = ruralTradeDecision(ruralCandidateRowsForTown(tid, allLiveTowns, relations, farmById));
+      if (chosen) jobs.push(chosen);
       if (jobs.length >= 6) break;
     }
     if (!jobs.length) {
       gbLogT('ruraltrade-idle', 180000, `rural-trade: idle (${scanReason(reason)})`);
-      return;
+      const info = {ran:true, started:false, jobs:0, done:0, reason:'no-executable-rural'};
+      settle(info);
+      if (String(reason || '').includes('trade-coordinator')) gbTimeout(() => { try { tradeScan('rural-fallback-empty', { skipRural:true, overflowOnly:true }); } catch (_) {} }, 0);
+      return info;
     }
     const ruralTradeLock = gbLock('rural-trade', Math.max(180000, jobs.length * 30000));
-    if (!ruralTradeLock) return;
-    let i = 0, done = 0;
-    (function next() {
-      if (i >= jobs.length) {
-        gbUnlock('rural-trade', ruralTradeLock);
-        if (done) gbLog(`rural-trade: ${done}/${jobs.length}`);
-        return;
+    if (!ruralTradeLock) {
+      const info = {ran:false, started:false, reason:'lock-race', activePairs:[...ruralTradeActivePairs]};
+      settle(info); return info;
+    }
+    ruralTradeActivePairs.clear();
+    jobs.forEach(j => ruralTradeActivePairs.add(String(j.townId) + '|' + String(j.give)));
+    let i = 0, done = 0, validationFailed = 0, postFailed = 0, ambiguousPost = 0, reconcileFailed = 0;
+    const finish = () => {
+      gbUnlock('rural-trade', ruralTradeLock);
+      ruralTradeActivePairs.clear();
+      if (done) gbLog(`rural-trade: ${done}/${jobs.length} reconciled`);
+      const info = { ran:true, started:true, jobs:jobs.length, done, validationFailed, postFailed, ambiguousPost, reconcileFailed };
+      settle(info);
+      if (reconcileFailed || ambiguousPost) return;
+      if (done > 0) gbTimeout(() => { try { tradeScan('rural-reconciled'); } catch (_) {} }, 0);
+      else if (String(reason || '').includes('trade-coordinator') && (validationFailed || postFailed)) {
+        gbTimeout(() => { try { tradeScan('rural-fallback', { skipRural:true, overflowOnly:true }); } catch (_) {} }, 0);
       }
+    };
+    (function next() {
+      if (i >= jobs.length) return finish();
       const j = jobs[i++];
-      if (!gbLockTouch('rural-trade', ruralTradeLock)) return;
+      gbLockTouch('rural-trade', ruralTradeLock);
+
+      const townTradeLockName = `trade:${String(j.townId)}`;
+      const townTradeToken = gbLock(townTradeLockName, 30000);
+      if (!townTradeToken) { i--; return gbTimeout(next, 100); }
+      const validation = ruralValidateJob(j);
+      if (!validation.ok) {
+        gbUnlock(townTradeLockName, townTradeToken);
+        validationFailed++;
+        gbLogT('ruraltrade-live-change', 60000, `rural-trade: ${validation.why}`);
+        return gbTimeout(next, 100);
+      }
+      const before = tradeTownRes(j.townId);
+      if (!before || before[j.give] == null) { gbUnlock(townTradeLockName, townTradeToken); validationFailed++; return gbTimeout(next, 100); }
       ruralTradePost(j.relId, j.farmId, j.amount, j.townId, (err) => {
-        if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('rural-trade', ruralTradeLock); return; }
-        if (!err) {
-          done++;
-          gbLog(`rural-trade: town ${j.townId} farm ${j.farmId} res ${j.deficit} amt ${j.amount} (\u2265${minRatio})`);
+        if (err === 'captcha' || err === 'captcha-pause') {
+          gbUnlock(townTradeLockName, townTradeToken);
+          gbUnlock('rural-trade', ruralTradeLock);
+          ruralTradeActivePairs.clear();
+          settle({ran:true, started:true, captcha:true, done});
+          return;
         }
-        gbTimeout(next, 700 + Math.random() * 400);
+        if (err === 'pending' || err === 'timeout_unknown') {
+
+          return ruralReconcileTrade(j, before, (ok, why) => {
+            gbUnlock(townTradeLockName, townTradeToken);
+            if (ok) {
+              done++;
+              gbLog(`rural-trade: ambiguous ${err} reconciled for town ${j.townId} farm ${j.farmId}`);
+            } else {
+              ambiguousPost++;
+              gbLogT('ruraltrade-ambiguous-' + j.farmId, 60000, `rural-trade: ${err} + ${why}; intercity blocked this cycle`);
+            }
+            gbTimeout(next, 250);
+          });
+        }
+        if (err) {
+          gbUnlock(townTradeLockName, townTradeToken);
+          postFailed++; gbLogT('ruraltrade-post-' + j.farmId, 60000, `rural-trade: post failed ${err}`);
+          return gbTimeout(next, 150);
+        }
+        ruralReconcileTrade(j, before, (ok, why) => {
+          gbUnlock(townTradeLockName, townTradeToken);
+          if (!ok) {
+            reconcileFailed++;
+            gbLogT('ruraltrade-reconcile-' + j.farmId, 60000, `rural-trade: ${why}; intercity skipped this cycle`);
+          } else {
+            done++;
+            gbLog(`rural-trade: town ${j.townId} farm ${j.farmId} amt ${j.amount} (ratio ${j.ratio}) reconciled`);
+          }
+          gbTimeout(next, 250);
+        });
       });
     })();
+    return { ran:true, started:true, jobs:jobs.length, activePairs:[...ruralTradeActivePairs] };
   }
   function ruralKillpoints() {
     try {
       const uw = gameUw();
-      const kp = uw.MM.getModelByNameAndPlayerId('PlayerKillpoints');
-      const a = kp && kp.attributes;
-      return a ? (+a.att || 0) + (+a.def || 0) - (+a.used || 0) : 0;
-    } catch (_) { return 0; }
+      const kp = uw.MM && uw.MM.getModelByNameAndPlayerId && uw.MM.getModelByNameAndPlayerId('PlayerKillpoints');
+      if (!kp) return null;
+      for (const name of ['getAvailableKillpoints','getAvailablePoints','getSpendablePoints','getUnusedPoints']) {
+        try {
+          if (typeof kp[name] !== 'function') continue;
+          const n = Number(kp[name]());
+          if (Number.isFinite(n) && n >= 0) return n;
+        } catch (_) {}
+      }
+      const a = kp.attributes || kp;
+      for (const key of ['available_killpoints','available_points','spendable_points','unused_points','available']) {
+        if (!Object.prototype.hasOwnProperty.call(a, key)) continue;
+        const n = Number(a[key]);
+        if (Number.isFinite(n) && n >= 0) return n;
+      }
+    } catch (_) {}
+    return null;
   }
-  const KP_UNLOCK_MIN = 100;
+  function ruralLevelCostInfo(rel, farm, kind) {
+    const rm = rel || null, fm = farm || null;
+    const a = rm && (rm.attributes || rm) || {};
+    const f = fm && (fm.attributes || fm) || {};
+    const methodNames = kind === 'unlock'
+      ? ['getUnlockCost','getNextUnlockCost','getUnlockPrice','getCostToUnlock']
+      : ['getUpgradeCost','getNextUpgradeCost','getExpansionCost','getNextExpansionCost','getCostToUpgrade'];
+    const attrNames = kind === 'unlock'
+      ? ['next_unlock_cost','unlock_cost','unlock_price','cost_to_unlock']
+      : ['next_upgrade_cost','upgrade_cost','next_expansion_cost','expansion_cost','upgrade_price','cost_to_upgrade'];
+    for (const obj of [rm, fm]) {
+      for (const name of methodNames) {
+        try {
+          if (!obj || typeof obj[name] !== 'function') continue;
+          let raw;
+          try { raw = obj[name](); } catch (_) { raw = obj[name](a.farm_town_id); }
+          const n = Number(raw && typeof raw === 'object' ? (raw.amount ?? raw.cost ?? raw.value) : raw);
+          if (Number.isFinite(n) && n >= 0) return { known:true, cost:n, source:name + '()' };
+        } catch (_) {}
+      }
+    }
+    for (const [obj, prefix] of [[a,'relation'],[f,'farm']]) {
+      for (const key of attrNames) {
+        if (!obj || !Object.prototype.hasOwnProperty.call(obj, key)) continue;
+        const raw = obj[key];
+        const n = Number(raw && typeof raw === 'object' ? (raw.amount ?? raw.cost ?? raw.value) : raw);
+        if (Number.isFinite(n) && n >= 0) return { known:true, cost:n, source:prefix + '.' + key };
+      }
+    }
+    return { known:false, cost:null, source:'cost-unreadable' };
+  }
+  function ruralLevelTownForFarm(farm, townIds) {
+    const f = farm && (farm.attributes || farm) || {};
+    const matches = (townIds || []).filter(tid => {
+      const p = ruralTownIslandXY(tid);
+      return p && String(p.x) === String(f.island_x) && String(p.y) === String(f.island_y);
+    }).map(String);
+    if (!matches.length) return null;
+    const key = resolveIslandIdByCoords(f.island_x, f.island_y);
+    const r = resolveIslandResourceBeneficiary(key, matches);
+    return r.known && r.townId ? r.townId : matches[0];
+  }
   function ruralLevelScan(reason) {
     if (!hostEnabled() || !state.autoRuralLevel || captchaPaused('rurallevel')) return;
-    if (automationPaused({})) return;
-    if (gbLocked('rural-level')) return;
+    if (automationPaused({}) || gbLocked('rural-level')) return;
+    const available = ruralKillpoints();
+    if (available == null) {
+      gbLogT('rurallevel-kp-unreadable', 180000, 'rural-level: killpoints-unreadable; no POST');
+      return;
+    }
     const maxLvl = Math.min(6, Math.max(1, +state.ruralLevelMax || 3));
     const relations = ruralRelModels();
     const farms = ruralFarmModels();
-    const farmById = {};
-    farms.forEach(f => { const a = f.attributes || {}; if (a.id != null) farmById[a.id] = a; });
-    let available = ruralKillpoints();
-    const unlockCosts = [2, 8, 10, 30, 50, 100];
-    const levelCosts = [1, 5, 25, 50, 100];
+    const farmById = Object.create(null);
+    farms.forEach(f => { const a=f.attributes||{}; if (a.id != null) farmById[String(a.id)] = f; });
     let townIds = [];
-    try {
-      const uw = gameUw();
-      const seenIslands = new Set();
-      for (const id of Object.keys((uw.ITowns && uw.ITowns.towns) || {})) {
-        const t = uw.ITowns.towns[id];
-        try {
-          if (t.attributes && t.attributes.on_small_island) continue;
-          const iid = t.getIslandId ? t.getIslandId() : (t.attributes && t.attributes.island_id);
-          if (iid != null && seenIslands.has(iid)) continue;
-          if (iid != null) seenIslands.add(iid);
-          townIds.push(id);
-        } catch (_) { townIds.push(id); }
-      }
-    } catch (_) {}
-    const locked = relations.filter(r => +((r.attributes || {}).relation_status) === 0);
+    try { townIds = Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}); } catch (_) {}
+    let job = null, sawUnreadableCost = false;
 
-    const jobQueue = [];
-    if (locked.length > 0) {
-
-      if (available > KP_UNLOCK_MIN) {
-        const startUnlocked = relations.length - locked.length;
-
-        for (const tid of townIds) {
-          const xy = ruralTownIslandXY(tid);
-          if (!xy) continue;
-          for (const rel of locked) {
-            const a = rel.attributes || {};
-            const ft = farmById[a.farm_town_id];
-            if (!ft || ft.island_x !== xy.x || ft.island_y !== xy.y) continue;
-            jobQueue.push({ kind: 'unlock', relId: a.id || rel.id, farmId: a.farm_town_id, townId: tid });
-          }
-        }
-        if (!jobQueue.length) {
-          gbLogT('rurallevel-no-island-match', 180000, 'rural-level: locked villages exist but none match own-town islands');
-          return;
-        }
-
-        jobQueue._startUnlocked = startUnlocked;
-      } else {
-        gbLogT('rurallevel-kp-low', 180000, `rural-level: ${locked.length} locked village(s) waiting; KP ${available} \u2264 ${KP_UNLOCK_MIN} \u2014 upgrades only after unlock phase drains`);
-        return;
-      }
-    } else {
-
-      for (let level = 1; level <= maxLvl; level++) {
-        const cost = levelCosts[level - 1] || 100;
-        if (available < cost) break;
-        for (const tid of townIds) {
-          const xy = ruralTownIslandXY(tid);
-          if (!xy) continue;
-          for (const rel of relations) {
-            const a = rel.attributes || {};
-            if (+a.relation_status !== 1) continue;
-            if (a.expansion_at) continue;
-            const stage = +a.expansion_stage || 0;
-
-            if (stage !== level - 1) continue;
-            if (stage >= maxLvl) continue;
-            const ft = farmById[a.farm_town_id];
-            if (!ft || ft.island_x !== xy.x || ft.island_y !== xy.y) continue;
-            jobQueue.push({ kind: 'upgrade', relId: a.id || rel.id, farmId: a.farm_town_id, townId: tid, stage, cost });
-            available -= cost;
-          }
-        }
-      }
+    for (const rel of relations) {
+      const a = rel.attributes || {};
+      if (+a.relation_status !== 0) continue;
+      const farm = farmById[String(a.farm_town_id)];
+      if (!farm) continue;
+      const tid = ruralLevelTownForFarm(farm, townIds);
+      if (!tid) continue;
+      const cost = ruralLevelCostInfo(rel, farm, 'unlock');
+      if (!cost.known) { sawUnreadableCost = true; gbLogT('rurallevel-unlock-cost-' + String(a.farm_town_id), 180000, `rural-level: unlock cost-unreadable village=${a.farm_town_id}`); continue; }
+      if (available < cost.cost) continue;
+      job = { kind:'unlock', relId:String(a.id ?? rel.id), farmId:String(a.farm_town_id), townId:String(tid), cost:cost.cost, costSource:cost.source, stage:+a.expansion_stage || 0 };
+      break;
     }
 
-    if (!jobQueue.length) {
-      gbLogT('rurallevel-idle', 180000, `rural-level: idle (${scanReason(reason)})`);
+    if (!job) {
+      for (const rel of relations) {
+        const a = rel.attributes || {};
+        if (+a.relation_status !== 1 || a.expansion_at) continue;
+        const stage = Number(a.expansion_stage);
+        if (!Number.isFinite(stage) || stage >= maxLvl) continue;
+        const farm = farmById[String(a.farm_town_id)];
+        if (!farm) continue;
+        const tid = ruralLevelTownForFarm(farm, townIds);
+        if (!tid) continue;
+        const cost = ruralLevelCostInfo(rel, farm, 'upgrade');
+        if (!cost.known) { sawUnreadableCost = true; gbLogT('rurallevel-upgrade-cost-' + String(a.farm_town_id), 180000, `rural-level: upgrade cost-unreadable village=${a.farm_town_id} stage=${stage}`); continue; }
+        if (available < cost.cost) continue;
+        job = { kind:'upgrade', relId:String(a.id ?? rel.id), farmId:String(a.farm_town_id), townId:String(tid), cost:cost.cost, costSource:cost.source, stage };
+        break;
+      }
+    }
+    if (!job) {
+      gbLogT('rurallevel-idle', 180000, `rural-level: idle (${scanReason(reason)})${sawUnreadableCost ? ' \u00b7 cost-unreadable candidates skipped' : ''}`);
       return;
     }
 
-    const lockTtl = Math.min(600000, Math.max(180000, jobQueue.length * 1500));
-    const ruralLevelLock = gbLock('rural-level', lockTtl);
-    if (!ruralLevelLock) return;
-    let i = 0, done = 0, stopped = '';
-    const startUnlocked = jobQueue._startUnlocked || 0;
-    (function next() {
-      if (i >= jobQueue.length || stopped) {
-        gbUnlock('rural-level', ruralLevelLock);
-        if (done) gbLog(`rural-level: ${done}/${jobQueue.length}${stopped ? ' (stopped: ' + stopped + ')' : ''} \u2014 phase: ${locked.length ? 'unlock' : 'upgrade'}`);
-        return;
-      }
-      const j = jobQueue[i++];
-
-      if (j.kind === 'unlock') {
-        const cur = ruralKillpoints();
-        if (cur <= KP_UNLOCK_MIN) { stopped = 'kp-low'; return next(); }
-        const idx = startUnlocked + done;
-        const need = idx < unlockCosts.length ? unlockCosts[idx] : 100;
-        if (cur < need) { stopped = 'kp-short(need ' + need + ')'; return next(); }
-      }
-      if (!gbLockTouch('rural-level', ruralLevelLock)) return;
-      const fire = j.kind === 'unlock' ? ruralUnlock : ruralUpgrade;
-      fire(j.relId, j.farmId, j.townId, (err) => {
-        if (err === 'captcha' || err === 'captcha-pause') {
-          stopped = err;
-          gbUnlock('rural-level', ruralLevelLock);
-          gbLogT('rurallevel-pause', 60000, `rural-level paused: ${err}`);
-          return;
-        }
-        if (!err) {
-          done++;
-        } else if (j.kind === 'unlock') {
-
-          stopped = 'unlock-err:' + err;
-        }
-        gbTimeout(next, 700 + Math.random() * 400);
-      });
-    })();
+    const lockToken = gbLock('rural-level', 180000);
+    if (!lockToken) return;
+    const relNow = ruralRelModels().find(r => String((r.attributes || {}).id ?? r.id) === String(job.relId));
+    const farmNow = ruralFarmModels().find(f => String((f.attributes || {}).id ?? f.id) === String(job.farmId));
+    const kpNow = ruralKillpoints();
+    if (!relNow || !farmNow || kpNow == null) {
+      gbUnlock('rural-level', lockToken);
+      gbLogT('rurallevel-live-unreadable', 60000, 'rural-level: final state unreadable; no POST');
+      return;
+    }
+    const aNow = relNow.attributes || {};
+    if ((job.kind === 'unlock' && +aNow.relation_status !== 0) || (job.kind === 'upgrade' && (+aNow.relation_status !== 1 || aNow.expansion_at || +aNow.expansion_stage !== +job.stage))) {
+      gbUnlock('rural-level', lockToken); return;
+    }
+    const costNow = ruralLevelCostInfo(relNow, farmNow, job.kind);
+    if (!costNow.known) {
+      gbUnlock('rural-level', lockToken);
+      gbLogT('rurallevel-cost-final', 60000, `rural-level: ${job.kind} cost-unreadable at final check; no POST`);
+      return;
+    }
+    if (kpNow < costNow.cost) {
+      gbUnlock('rural-level', lockToken);
+      gbLogT('rurallevel-kp-short', 60000, `rural-level: ${kpNow}/${costNow.cost} killpoints; waiting`);
+      return;
+    }
+    job.cost = costNow.cost; job.costSource = costNow.source;
+    gbLockTouch('rural-level', lockToken);
+    const fire = job.kind === 'unlock' ? ruralUnlock : ruralUpgrade;
+    fire(job.relId, job.farmId, job.townId, (err) => {
+      gbUnlock('rural-level', lockToken);
+      if (err === 'captcha' || err === 'captcha-pause') return;
+      if (!err) gbLog(`rural-level: ${job.kind} village ${job.farmId} cost=${job.cost} source=${job.costSource}`);
+      else gbLogT('rurallevel-err-' + job.farmId, 60000, `rural-level ${job.kind} error: ${err}`);
+    });
   }
   const RESEARCH_CS_FAST = ['booty', 'ceramics', 'architecture', 'crane', 'shipwright', 'colonize_ship', 'mathematics'];
 
@@ -12457,10 +13435,10 @@ const STORE = {
   function researchTownTechs(townId) {
     const uw = gameUw();
     try {
-      const t = gbTownModel(townId);
+      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
       if (!t) return null;
-      let res = {};
-      try { res = (t.researches && t.researches().attributes) || {}; } catch (_) {}
+      let res = null, techsKnown = false;
+      try { const rm=t.researches&&t.researches();const attrs=rm&&(rm.attributes||rm);if(attrs&&typeof attrs==='object'){res=attrs;techsKnown=true} } catch (_) {}
       let buildings = null;
       try {
         const b = t.getBuildings ? t.getBuildings() : (t.buildings && t.buildings());
@@ -12469,14 +13447,14 @@ const STORE = {
 
       let acad = null;
       try {
-        if (t.getBuildings) { const v = gbNum(t.getBuildings().get('academy')); if (v != null) acad = v; }
-        if (acad == null && buildings) { const v = gbNum(buildings.academy); if (v != null) acad = v; }
+        if (t.getBuildings) { const v = +t.getBuildings().get('academy'); if (isFinite(v)) acad = v; }
+        if (acad == null && buildings && buildings.academy != null) { const v = +buildings.academy; if (isFinite(v)) acad = v; }
       } catch (_) {}
 
       let library = null;
       try {
-        if (t.getBuildings) { const v = gbNum(t.getBuildings().get('library')); if (v != null) library = v; }
-        if (library == null && buildings) { const v = gbNum(buildings.library); if (v != null) library = v; }
+        if (t.getBuildings) { const v = +t.getBuildings().get('library'); if (isFinite(v)) library = v; }
+        if (library == null && buildings && buildings.library != null) library = +buildings.library || 0;
       } catch (_) {}
 
       let smallIsland = null;
@@ -12486,12 +13464,6 @@ const STORE = {
           () => ((t.attributes || {}).on_small_island),
           () => (t.getTownModelReference && t.getTownModelReference().get('on_small_island')),
           () => (t.isOnSmallIsland && t.isOnSmallIsland()),
-
-          () => {
-            const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('Town');
-            const m = col && ((col.get && col.get(townId)) || (col.models || []).find(x => String(((x && x.attributes) || {}).id) === String(townId)));
-            return m && m.get ? m.get('on_small_island') : undefined;
-          },
         ];
         for (const p of probes) {
           let raw;
@@ -12503,6 +13475,7 @@ const STORE = {
       return {
         town: t,
         techs: res,
+        techsKnown,
         academy: acad,
         library,
         smallIsland,
@@ -12657,8 +13630,8 @@ const STORE = {
       const uw = gameUw();
       const g = uw.GeneralModifications;
       if (!(g && g.getResearchResourcesModification)) return null;
-      const v = gbNum(g.getResearchResourcesModification(townId != null ? townId : (uw.Game && uw.Game.townId)));
-      return v != null && v > 0 ? v : null;
+      const v = +g.getResearchResourcesModification(townId != null ? townId : (uw.Game && uw.Game.townId));
+      return isFinite(v) && v > 0 ? v : null;
     } catch (_) { return null; }
   }
   function researchCost(tech, townId) {
@@ -12689,7 +13662,8 @@ const STORE = {
   function researchConstant(name) {
     try {
       const c = gameUw().Game && gameUw().Game.constants && gameUw().Game.constants.academy;
-      return c ? gbNum(c[name]) : null;
+      const v = c ? +c[name] : NaN;
+      return isFinite(v) ? v : null;
     } catch (_) { return null; }
   }
 
@@ -12739,8 +13713,9 @@ const STORE = {
     if (!info) return null;
     const perAcademy = researchConstant('points_per_academy_level');
     if (perAcademy == null) return null;
-    const acad = gbNum(info.academy);
-    if (acad == null || acad < 0) return null;
+    if (info.academy == null) return null;
+    const acad = +info.academy;
+    if (!isFinite(acad) || acad < 0) return null;
     const level = researchAcademyTearingDown(townId) === true ? Math.max(0, acad - 1) : acad;
     let current = level * perAcademy;
     if (info.library == null) return null;
@@ -12893,10 +13868,9 @@ const STORE = {
   let researchIdleUntil = 0;
   function researchScan(reason) {
     if (reason === 'native-watch' && Date.now() < researchIdleUntil) return;
-    const nativePending = nativeQueueHasPending('research');
-    if (!hostEnabled() || (!state.autoResearch && !nativePending) || captchaPaused('research')) return;
+    const nativePending = nativeQueueHasPending('research'), cdPending = cityDesignerHasExecutableWork('research');
+    if (!hostEnabled() || (!state.autoResearch && !nativePending && !cdPending) || captchaPaused('research')) return;
     if (automationPaused({})) return;
-    if (gbLocked('research')) return;
     const globalTargets = researchEnsureTargets();
     let townIds = [];
     try {
@@ -12904,29 +13878,36 @@ const STORE = {
       townIds = Object.keys((uw.ITowns && uw.ITowns.towns) || {});
     } catch (_) {}
     let job = null;
+    for(const tid of townIds)if(nativeQueuePlannerOwnsTown(tid))nativeQueueClearForPlanner(tid,'research-scan',true);
 
     const explicitIds = Object.keys(nativeQueueRoot().towns)
-      .filter(id => nativeQueueIsFifo(id, 'research') && nativeQueueList(id, 'research', false).length);
+      .filter(id => !nativeQueuePlannerOwnsTown(id) && nativeQueueIsFifo(id, 'research') && nativeQueueList(id, 'research', false).length);
     for (const tid of explicitIds) {
-      const head = nativeQueueResearchHead(tid);
-      if (!head) continue;
-      const valid = researchValidateJob({ townId: tid, tech: head.tech });
-      if (!valid.ok) { nativeQueueSetJobState(head, researchNativeStatus(valid.why), String(valid.why || '')); continue; }
-      const memWhy = researchSkipWhy(tid, head.tech);
-      if (memWhy) {
-        nativeQueueSetJobState(head, 'blocked', `memoria: ${memWhy}`);
-        gbLogT('research-mem-' + tid + '-' + head.tech, 60000, `research: ${head.tech} @${tid} skipped from memory (${memWhy})`);
-        continue;
+      const queuedJobs = nativeQueueResearchCandidates(tid);
+      for (const item of queuedJobs) {
+        const valid = researchValidateJob({ townId: tid, tech: item.tech });
+        if (!valid.ok) {
+          nativeQueueSetJobState(item, researchNativeStatus(valid.why), String(valid.why || ''));
+
+          continue;
+        }
+        const memWhy = researchSkipWhy(tid, item.tech);
+        if (memWhy) {
+          nativeQueueSetJobState(item, 'blocked', `memoria: ${memWhy}`);
+          gbLogT('research-mem-' + tid + '-' + item.tech, 60000, `research: ${item.tech} @${tid} skipped from memory (${memWhy})`);
+          continue;
+        }
+        nativeQueueSetJobState(item, 'ready', 'listo');
+        job = { townId: tid, tech: item.tech, nativeJobId: item.id };
+        break;
       }
-      nativeQueueSetJobState(head, 'ready', 'listo');
-      job = { townId: tid, tech: head.tech, nativeJobId: head.id };
-      break;
+      if (job) break;
     }
 
-    if (job || !state.autoResearch) townIds = [];
+    if (job) townIds = []; else if(!state.autoResearch) townIds=townIds.filter(tid=>cdIsProfile(goalTownCfg(tid).profile));
     const candidates = [];
     for (const tid of townIds) {
-      if (nativeQueueIsFifo(tid, 'research')) continue;
+      if (nativeQueuePlannerOwnsTown(tid)) { if(nativeQueuePlannerLaneBlocked(tid,'research')) continue; } else if (nativeQueueIsFifo(tid, 'research')) continue;
       const targets = goalEffectiveResearchTargets(tid, globalTargets);
       let ordered = Object.keys(targets).sort((a, b) => (+targets[a].order || 0) - (+targets[b].order || 0));
       const info = researchTownTechs(tid);
@@ -12975,7 +13956,7 @@ const STORE = {
       candidates.sort(researchCandidateCmp);
       const pick = candidates[0];
 
-      job = { townId: pick.townId, tech: pick.tech };
+      job = { townId: pick.townId, tech: pick.tech, cdRevision:cdIsProfile(goalTownCfg(pick.townId).profile)?cdProfileRevision(pick.townId):null };
       if (candidates.length > 1) {
         gbLogT('research-rank', 300000,
           `research: picked ${pick.tech} @${pick.townId} (${researchCandidateWhy(pick)}) from ${candidates.length} candidates`);
@@ -12987,34 +13968,36 @@ const STORE = {
       return;
     }
     researchIdleUntil = 0;
+    if(job.cdRevision!=null&&+job.cdRevision!==cdProfileRevision(job.townId)){gbLogT('research-cd-stale-'+job.townId,60000,'research: city-designer revision changed; stale job dropped');return}
     const valid = researchValidateJob(job);
     if (!valid.ok) {
       if (job.nativeJobId) {
-        const head = nativeQueueList(job.townId, 'research', false)[0];
-        if (head && head.id === job.nativeJobId) nativeQueueSetJobState(head, researchNativeStatus(valid.why), String(valid.why || ''));
+        const head = nativeQueueList(job.townId, 'research', false).find(j=>j&&j.id===job.nativeJobId);
+        if (head) nativeQueueSetJobState(head, researchNativeStatus(valid.why), String(valid.why || ''));
       }
       researchIdleUntil = Date.now() + RESEARCH_IDLE_BACKOFF_MS;
       gbLogT('research-stale-' + job.townId + '-' + job.tech, 60000, `research: final precheck blocked (${valid.why})`); return;
     }
-    const lockToken = gbLock('research');
+    const lockName=`research:${String(job.townId)}`;
+    const lockToken = gbLock(lockName,120000);
     if (!lockToken) return;
     if (job.nativeJobId) {
-      const head = nativeQueueList(job.townId, 'research', false)[0];
-      if (!head || head.id !== job.nativeJobId) { gbUnlock('research', lockToken); return; }
+      const head = nativeQueueList(job.townId, 'research', false).find(j=>j&&j.id===job.nativeJobId);
+      if (!head) { gbUnlock(lockName, lockToken); return; }
       head.manualReview = false;
       head.inflight = { tech: job.tech, at: Date.now() };
       nativeQueueSetJobState(head, 'sending', 'enviando a la cola real');
       nativeQueueSave();
     }
     researchPost(job.townId, job.tech, (err) => {
-      gbUnlock('research', lockToken);
+      gbUnlock(lockName, lockToken);
       if (!err) {
         gbLog(`research: town ${job.townId} \u2192 ${job.tech}`);
         if (job.nativeJobId) nativeQueueResearchApplied(job.townId, job.nativeJobId);
       } else {
         if (job.nativeJobId) {
-          const head = nativeQueueList(job.townId, 'research', false)[0];
-          if (head && head.id === job.nativeJobId) {
+          const head = nativeQueueList(job.townId, 'research', false).find(j=>j&&j.id===job.nativeJobId);
+          if (head) {
             head.inflight = null;
 
             const ambiguous = err === 'pending' || err === 'timeout_unknown';
@@ -13033,6 +14016,925 @@ const STORE = {
     save(STORE.RESEARCH_TARGETS, t);
     gbLog('research: loaded CS-fast tech list');
   }
+
+  function telegramTokenLooksValid(token) {
+    return /^\d{5,}:[A-Za-z0-9_-]{20,}$/.test(String(token || '').trim());
+  }
+  function telegramChatIdLooksValid(chatId) {
+    return /^-?\d{4,}$/.test(String(chatId || '').trim());
+  }
+  function telegramApiUrl(method) {
+    const token = String(telegramBotToken || '').trim();
+    if (!telegramTokenLooksValid(token) || !/^[A-Za-z][A-Za-z0-9_]*$/.test(String(method || ''))) return null;
+    return 'https://api.telegram.org/bot' + token + '/' + method;
+  }
+  function telegramWorldLabel() {
+    const host = String(location && location.hostname || '');
+    return host ? host.split('.')[0] : 'Grepolis';
+  }
+  function telegramCurrentTownLabel() {
+    try {
+      const uw = gameUw();
+      const id = (uw.Game && (uw.Game.townId ?? uw.Game.town_id)) ?? null;
+      if (id == null) return '';
+      const t = gbTownModel(id);
+      const name = t && (typeof t.getName === 'function' ? t.getName() : (t.name || (t.attributes && t.attributes.name)));
+      return name ? String(name) + ' (#' + String(id) + ')' : '#' + String(id);
+    } catch (_) { return ''; }
+  }
+  function telegramRequest(method, payload, onDone, opts) {
+    const o = opts || {};
+    const url = telegramApiUrl(method);
+    if (!url) { if (onDone) onDone(false, { reason:'token-invalid' }); return false; }
+    const maxRetries = Math.max(0, Math.min(2, Number.isFinite(+o.maxRetries) ? +o.maxRetries : 2));
+    let attempt = 0;
+    const run = () => {
+      attempt++;
+      gbXhr({
+        scope:'external',
+        method:'POST',
+        url,
+        headers:{ 'Content-Type':'application/json' },
+        data:JSON.stringify(payload || {}),
+        timeout:15000,
+        onload:r => {
+          let data = null;
+          try { data = JSON.parse((r && r.responseText) || '{}'); } catch (_) {}
+          if (r && r.status >= 200 && r.status < 300 && data && data.ok === true) {
+            if (onDone) onDone(true, data);
+            return;
+          }
+          let retryMs = 0;
+          if (data && data.parameters && Number.isFinite(+data.parameters.retry_after)) retryMs = Math.max(1000, Math.min(30000, +data.parameters.retry_after * 1000));
+          const retryable = !!(r && (r.status === 429 || r.status >= 500));
+          if (retryable && attempt <= maxRetries) {
+            gbTimeout(run, retryMs || Math.min(5000, 750 * attempt));
+            return;
+          }
+          if (onDone) onDone(false, { reason:'http', status:r && r.status, description:data && data.description ? String(data.description).slice(0,120) : '' });
+        },
+        onerror:() => {
+          if (attempt <= maxRetries) { gbTimeout(run, Math.min(5000, 750 * attempt)); return; }
+          if (onDone) onDone(false, { reason:'transport' });
+        },
+        ontimeout:() => {
+          if (attempt <= maxRetries) { gbTimeout(run, Math.min(5000, 750 * attempt)); return; }
+          if (onDone) onDone(false, { reason:'timeout' });
+        },
+      });
+    };
+    run();
+    return true;
+  }
+  function telegramSendText(text, onDone, opts) {
+    const o = opts || {};
+    if (!o.force && !state.telegramEnabled) { if (onDone) onDone(false, { reason:'disabled' }); return false; }
+    const chatId = String(state.telegramChatId || '').trim();
+    if (!telegramChatIdLooksValid(chatId)) { if (onDone) onDone(false, { reason:'chat-id-missing' }); return false; }
+    return telegramRequest('sendMessage', {
+      chat_id:chatId,
+      text:String(text || '').slice(0,3900),
+      disable_web_page_preview:true,
+    }, onDone, { maxRetries:2 });
+  }
+  function telegramDetectChatId(onDone) {
+    if (!telegramTokenLooksValid(telegramBotToken)) { if (onDone) onDone(false, { reason:'token-invalid' }); return false; }
+    return telegramRequest('getUpdates', {
+      limit:50,
+      timeout:0,
+      allowed_updates:['message'],
+    }, (ok, data) => {
+      if (!ok) { if (onDone) onDone(false, data); return; }
+      const updates = Array.isArray(data && data.result) ? data.result : [];
+      const chats = [];
+      for (const u of updates) {
+        const msg = u && u.message;
+        const c = msg && msg.chat;
+        if (!c || c.id == null) continue;
+        chats.push({ id:String(c.id), type:String(c.type || ''), updateId:+u.update_id || 0 });
+      }
+      const priv = chats.filter(c => c.type === 'private');
+      const pool = priv.length ? priv : chats;
+      const unique = [...new Set(pool.map(c => c.id))];
+      if (!unique.length) { if (onDone) onDone(false, { reason:'no-updates' }); return; }
+      if (unique.length > 1) { if (onDone) onDone(false, { reason:'ambiguous-chats', ids:unique.slice(0,5) }); return; }
+      const id = unique[0];
+      state.telegramChatId = id;
+      save(STORE.TELEGRAM_CHAT_ID, id);
+      if (onDone) onDone(true, { chatId:id });
+    }, { maxRetries:1 });
+  }
+  function telegramCaptchaStateRoot() {
+    if (!state.telegramCaptchaState || typeof state.telegramCaptchaState !== 'object' || Array.isArray(state.telegramCaptchaState)) state.telegramCaptchaState = {};
+    return state.telegramCaptchaState;
+  }
+  function telegramCaptchaStillPaused() {
+    const now = Date.now();
+    if (captchaGlobalUntil && captchaGlobalUntil > now) return true;
+    for (const b of Object.values(state.captchaBreakers || {})) if (b && +b.until > now) return true;
+    return false;
+  }
+  function telegramCaptchaPersist() {
+    save(STORE.TELEGRAM_CAPTCHA_STATE, telegramCaptchaStateRoot());
+  }
+  function telegramCaptchaMessage(kind, feature, mins) {
+    const town = telegramCurrentTownLabel();
+    const where = town ? '\nCiudad activa: ' + town : '';
+    if (kind === 'detected') {
+      return '\ud83d\udea8 GrepBot \u2014 CAPTCHA detectado\n' +
+        'Mundo: ' + telegramWorldLabel() + where + '\n' +
+        'Modulo: ' + String(feature || 'desconocido') + '\n' +
+        (mins ? 'Pausa: ' + String(mins) + ' min\n' : '') +
+        'Automatizacion pausada.';
+    }
+    return '\u2705 GrepBot \u2014 CAPTCHA resuelto\n' +
+      'Mundo: ' + telegramWorldLabel() + where + '\n' +
+      'Grepolis ha vuelto a responder sin CAPTCHA; automatizacion rearmada.';
+  }
+  function telegramCaptchaTripNotify(feature, mins) {
+    const st = telegramCaptchaStateRoot();
+    const now = Date.now();
+    if (st.active) {
+      st.lastTripAt = now;
+      st.lastFeature = String(feature || '');
+      telegramCaptchaPersist();
+      return false;
+    }
+    st.active = true;
+    st.episodeId = String(now) + ':' + String(feature || 'captcha');
+    st.startedAt = now;
+    st.lastTripAt = now;
+    st.lastFeature = String(feature || '');
+    st.detectedSent = false;
+    telegramCaptchaPersist();
+    if (!state.telegramEnabled || state.telegramCaptcha === false) return true;
+    telegramSendText(telegramCaptchaMessage('detected', feature, mins), (ok, info) => {
+      const cur = telegramCaptchaStateRoot();
+      if (cur.episodeId !== st.episodeId) return;
+      cur.detectedSent = !!ok;
+      cur.detectedSendAt = ok ? Date.now() : 0;
+      cur.lastSendError = ok ? '' : String(info && info.reason || 'send-failed');
+      telegramCaptchaPersist();
+    });
+    return true;
+  }
+  function telegramCaptchaMaybeResolved(proofFeature) {
+    const st = telegramCaptchaStateRoot();
+    if (!st.active || !proofFeature || telegramCaptchaStillPaused()) return false;
+    const oldEpisode = st.episodeId || '';
+    st.active = false;
+    st.resolvedAt = Date.now();
+    st.resolvedBy = String(proofFeature);
+    telegramCaptchaPersist();
+    if (!state.telegramEnabled || state.telegramCaptchaResolved === false) return true;
+    telegramSendText(telegramCaptchaMessage('resolved', proofFeature, 0), (ok, info) => {
+      const cur = telegramCaptchaStateRoot();
+      cur.resolvedSent = !!ok;
+      cur.resolvedSendAt = ok ? Date.now() : 0;
+      cur.lastResolvedEpisode = oldEpisode;
+      cur.lastSendError = ok ? '' : String(info && info.reason || 'send-failed');
+      telegramCaptchaPersist();
+    });
+    return true;
+  }
+
+  function telegramEventsRoot() {
+    const base = { attack:true, hourly:true, critical:true, warehouse:true, diagnostic:true };
+    if (!state.telegramEvents || typeof state.telegramEvents !== 'object' || Array.isArray(state.telegramEvents)) state.telegramEvents = {};
+    state.telegramEvents = Object.assign(base, state.telegramEvents);
+    return state.telegramEvents;
+  }
+  function telegramEventEnabled(event) {
+    const e = telegramEventsRoot();
+    return e[String(event)] !== false;
+  }
+  function telegramMonitorStateRoot() {
+    if (!state.telegramMonitorState || typeof state.telegramMonitorState !== 'object' || Array.isArray(state.telegramMonitorState)) state.telegramMonitorState = {};
+    const r = state.telegramMonitorState;
+    if (!r.attacks || typeof r.attacks !== 'object' || Array.isArray(r.attacks)) r.attacks = {};
+    if (!r.warehouses || typeof r.warehouses !== 'object' || Array.isArray(r.warehouses)) r.warehouses = {};
+    if (!r.critical || typeof r.critical !== 'object' || Array.isArray(r.critical)) r.critical = {};
+    if (!r.sent || typeof r.sent !== 'object' || Array.isArray(r.sent)) r.sent = {};
+    return r;
+  }
+  function telegramMonitorPersist() {
+    save(STORE.TELEGRAM_MONITOR_STATE, telegramMonitorStateRoot());
+  }
+  function telegramTownLabelById(townId) {
+    try {
+      const t = gbTownModel(townId);
+      const name = t && (typeof t.getName === 'function' ? t.getName() : (t.name || (t.attributes && t.attributes.name)));
+      return name ? String(name) + ' (#' + String(townId) + ')' : '#' + String(townId);
+    } catch (_) { return '#' + String(townId); }
+  }
+  function telegramCompactNumber(n) {
+    if (!Number.isFinite(+n)) return '?';
+    const v = +n;
+    if (Math.abs(v) >= 1000000) return (v / 1000000).toFixed(v >= 10000000 ? 0 : 1).replace(/\.0$/, '') + 'M';
+    if (Math.abs(v) >= 1000) return (v / 1000).toFixed(v >= 100000 ? 0 : 1).replace(/\.0$/, '') + 'k';
+    return String(Math.round(v));
+  }
+
+  function telegramDiagSanitizeText(value, maxLen) {
+    let x = String(value == null ? '' : value);
+    x = x.replace(/\b\d{5,}:[A-Za-z0-9_-]{20,}\b/g, '[REDACTED_TELEGRAM_TOKEN]');
+    x = x.replace(/https?:\/\/api\.telegram\.org\/bot[^/\s]+\//gi, 'https://api.telegram.org/bot[REDACTED]/');
+    x = x.replace(/https?:\/\/(?:discord(?:app)?\.com)\/api\/webhooks\/\d+\/[A-Za-z0-9_-]+/gi, '[REDACTED_DISCORD_WEBHOOK]');
+    x = x.replace(/\b(csrf|authorization|cookie|bot[_ -]?token|access[_ -]?token)\b\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]');
+    const lim = Math.max(20, Math.min(24000, Number.isFinite(+maxLen) ? +maxLen : 400));
+    return x.slice(0, lim);
+  }
+  function telegramDiagHash(text) {
+    let h = 0x811c9dc5;
+    const x = String(text || '');
+    for (let i = 0; i < x.length; i++) { h ^= x.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return h.toString(16).padStart(8, '0').toUpperCase();
+  }
+  function telegramDiagErrorId(feature, kind, error) {
+    const normalized = telegramDiagSanitizeText(error || kind || 'error', 220)
+      .replace(/\b\d{4,}\b/g, '#').replace(/\s+/g, ' ').trim().toLowerCase();
+    return telegramDiagHash(telegramWorldLabel() + '|' + String(feature || '?') + '|' + String(kind || 'err') + '|' + normalized).slice(0, 8);
+  }
+  function telegramDiagStateRoot() {
+    if (!state.telegramDiagState || typeof state.telegramDiagState !== 'object' || Array.isArray(state.telegramDiagState)) state.telegramDiagState = {};
+    const r = state.telegramDiagState;
+    if (!Array.isArray(r.events)) r.events = [];
+    if (!Array.isArray(r.supportEvents)) r.supportEvents = [];
+    if (!r.signatures || typeof r.signatures !== 'object' || Array.isArray(r.signatures)) r.signatures = {};
+    if (!r.support || typeof r.support !== 'object' || Array.isArray(r.support)) r.support = {};
+    const cut = Date.now() - 48 * 3600000;
+    r.events = r.events.filter(e => e && +e.ts >= cut).slice(0, 160);
+    r.supportEvents = r.supportEvents.filter(e => e && +e.ts >= cut).slice(0, 240);
+    for (const [id, rec] of Object.entries(r.signatures)) if (!rec || (+rec.lastAt || 0) < cut) delete r.signatures[id];
+    return r;
+  }
+  let telegramDiagSaveTimer = 0;
+  function telegramDiagPersistSoon() {
+    if (telegramDiagSaveTimer) return;
+    telegramDiagSaveTimer = gbTimeout(() => { telegramDiagSaveTimer = 0; save(STORE.TELEGRAM_DIAG_STATE, telegramDiagStateRoot()); }, 800);
+  }
+  function telegramSupportModeActive() {
+    const r = telegramDiagStateRoot(), until = +(r.support && r.support.activeUntil) || 0;
+    if (until > Date.now()) return true;
+    if (until) { r.support.activeUntil = 0; telegramDiagPersistSoon(); }
+    return false;
+  }
+  function telegramSupportModeStart(minutes) {
+    const r = telegramDiagStateRoot(), now = Date.now(), mins = Math.max(5, Math.min(120, +minutes || 30));
+    r.support = { startedAt:now, activeUntil:now + mins * 60000, minutes:mins };
+    r.supportEvents = [];
+    telegramDiagPersistSoon();
+    return r.support;
+  }
+  function telegramSupportModeStop() {
+    const r = telegramDiagStateRoot();
+    if (!r.support || typeof r.support !== 'object') r.support = {};
+    r.support.activeUntil = 0; r.support.stoppedAt = Date.now(); telegramDiagPersistSoon();
+  }
+  function telegramSupportCaptureWhy(feature, action, status, why) {
+    if (!telegramSupportModeActive()) return false;
+    const r = telegramDiagStateRoot();
+    const rec = { ts:Date.now(), type:'decision', feature:String(feature || ''), action:telegramDiagSanitizeText(action,120), status:String(status || ''), why:telegramDiagSanitizeText(why,220) };
+    r.supportEvents.unshift(rec); if (r.supportEvents.length > 240) r.supportEvents.length = 240; telegramDiagPersistSoon(); return true;
+  }
+  function telegramDiagCurrentTownId() {
+    try { const uw=gameUw(); const id=(uw.Game && (uw.Game.townId ?? uw.Game.town_id)); return id == null ? null : String(id); } catch (_) { return null; }
+  }
+  function telegramDiagRecordHealth(feature, kind, meta) {
+    if (kind === 'ok') return null;
+    const r = telegramDiagStateRoot(), m = meta || {}, now = Date.now();
+    const error = telegramDiagSanitizeText(m.error || kind || 'error', 240);
+    const id = telegramDiagErrorId(feature, kind, error);
+    const rec = { ts:now, type:'health', id, feature:String(feature || '?'), kind:String(kind || 'err'), error };
+    if (m.townId != null) rec.townId = String(m.townId); else { const t=telegramDiagCurrentTownId(); if (t) rec.townId=t; }
+    if (m.action != null) rec.action = telegramDiagSanitizeText(m.action,120);
+    if (m.intent != null) rec.intent = telegramDiagSanitizeText(m.intent,160);
+    if (Number.isFinite(+m.latencyMs)) rec.latencyMs = Math.max(0, Math.round(+m.latencyMs));
+    try {
+      const w = (state.whyLog || []).find(x => x && x.feature === rec.feature && now - (+x.ts || 0) < 10 * 60000);
+      if (w) { rec.lastAction = telegramDiagSanitizeText(w.action,120); rec.lastWhy = telegramDiagSanitizeText(w.why,180); rec.lastStatus = String(w.status || ''); }
+    } catch (_) {}
+    r.events.unshift(rec); if (r.events.length > 160) r.events.length = 160;
+    const sig = r.signatures[id] || { firstAt:now, count:0, feature:rec.feature, kind:rec.kind, error:rec.error };
+    sig.count = (+sig.count || 0) + 1; sig.lastAt = now; sig.feature = rec.feature; sig.kind = rec.kind; sig.error = rec.error; r.signatures[id] = sig;
+    if (telegramSupportModeActive()) { r.supportEvents.unshift(Object.assign({type:'health-context'}, rec)); if (r.supportEvents.length > 240) r.supportEvents.length=240; }
+    telegramDiagPersistSoon();
+    return { id, count:sig.count, rec };
+  }
+  function telegramRecentErrorGroups(windowMs) {
+    const r = telegramDiagStateRoot(), cut = Date.now() - Math.max(60000, +windowMs || 3600000), groups = {};
+    for (const e of r.events) {
+      if (!e || +e.ts < cut || !['err','timeout'].includes(String(e.kind))) continue;
+      const f = String(e.feature || '?');
+      const g = groups[f] || (groups[f] = { feature:f, count:0, lastAt:0, lastId:'', lastError:'' });
+      g.count++; if (+e.ts >= g.lastAt) { g.lastAt=+e.ts; g.lastId=String(e.id || ''); g.lastError=String(e.error || ''); }
+    }
+    return Object.values(groups).sort((a,b)=>b.count-a.count || b.lastAt-a.lastAt);
+  }
+
+  (function telegramExpectedWaitHealthMigration609() {
+    const key = wkey('grepbot:mig:6.0.9:expected-waits-health');
+    if (load(key, false)) return;
+    let changedHealth=false, changedDiag=false;
+    try {
+      for (const [feature,h] of Object.entries(moduleHealth || {})) {
+        if (!h || !h.lastError) continue;
+        const wait=gbExpectedServerReject(feature,h.lastError);
+        if (!wait) continue;
+        h.consecutiveErr=0;
+        h.lastSkip=Date.now(); h.lastSkipKind=wait; h.lastSkipReason=String(h.lastError).slice(0,160);
+        h.lastErrorKind=''; h.lastError=''; h.lastErrorId=''; h.lastErr=0;
+        changedHealth=true;
+      }
+      if (changedHealth) { state.health=moduleHealth; save(STORE.HEALTH,moduleHealth); }
+    } catch (_) {}
+    try {
+      const r=telegramDiagStateRoot();
+      const keep=e => !(e && gbExpectedServerReject(e.feature,e.error));
+      const before=r.events.length;
+      r.events=r.events.filter(keep);
+      r.supportEvents=r.supportEvents.filter(e => !(e && (e.type==='health'||e.type==='health-context') && gbExpectedServerReject(e.feature,e.error)));
+      if (r.events.length !== before) changedDiag=true;
+      if (changedDiag) {
+        const sig={};
+        for (const e of r.events) {
+          if (!e || !e.id) continue;
+          const rec=sig[e.id] || { firstAt:+e.ts||Date.now(), count:0, feature:e.feature, kind:e.kind, error:e.error };
+          rec.count++; rec.firstAt=Math.min(+rec.firstAt||+e.ts,+e.ts||Date.now()); rec.lastAt=Math.max(+rec.lastAt||0,+e.ts||0);
+          rec.feature=e.feature; rec.kind=e.kind; rec.error=e.error; sig[e.id]=rec;
+        }
+        r.signatures=sig; save(STORE.TELEGRAM_DIAG_STATE,r);
+      }
+      const mon=telegramMonitorStateRoot();
+      for (const k of Object.keys(mon.critical||{})) if (/module:(recruit|farm):/i.test(k)) delete mon.critical[k];
+      telegramMonitorPersist();
+    } catch (_) {}
+    save(key,true);
+  })();
+
+  function telegramFmtClock(ts) {
+    if (!(+ts > 0)) return '?';
+    try { return new Date(+ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}); } catch (_) { return new Date(+ts).toISOString(); }
+  }
+  function telegramCriticalDetailedMessage(pending) {
+    const lines = ['\ud83d\udee0\ufe0f GrepBot \u00b7 diagnostico', 'Version: ' + GB_RELEASE, 'Mundo: ' + telegramWorldLabel(), 'Hora: ' + telegramFmtClock(Date.now())];
+    const root = telegramDiagStateRoot();
+    for (const x of (pending || []).slice(0,6)) {
+      const row = x.row || x;
+      lines.push('');
+      if (row.type === 'module') {
+        const h = moduleHealth[row.feature] || {};
+        const id = row.errorId || h.lastErrorId || telegramDiagErrorId(row.feature,'err',h.lastError || 'error');
+        const sig = root.signatures[id] || {};
+        lines.push('\u274c ' + row.feature + ' \u00b7 ID ' + id + (sig.count ? ' \u00b7 x' + sig.count : ''));
+        lines.push('Errores consecutivos: ' + (+h.consecutiveErr || 0));
+        lines.push('Ultimo error: ' + telegramFmtClock(h.lastErr) + ' \u00b7 ' + telegramDiagSanitizeText(h.lastError || 'sin detalle',180));
+        lines.push('Ultimo OK: ' + telegramFmtClock(h.lastOk));
+        const ev = root.events.find(e => e && e.id === id);
+        if (ev && ev.townId) lines.push('Ciudad: ' + telegramTownLabelById(ev.townId));
+        if (ev && (ev.action || ev.lastAction)) lines.push('Accion: ' + telegramDiagSanitizeText(ev.action || ev.lastAction,120));
+        if (ev && ev.lastWhy) lines.push('Contexto: ' + telegramDiagSanitizeText(ev.lastWhy,160));
+      } else if (row.type === 'tx') {
+        const tx = row.tx || {};
+        lines.push('\u26a0\ufe0f tx ' + String(tx.state || '?') + ' \u00b7 ID ' + row.errorId);
+        lines.push('Modulo: ' + String(tx.feature || '?') + ' \u00b7 accion: ' + telegramDiagSanitizeText(tx.endpoint || row.intent || '?',120));
+        if (tx.meta && tx.meta.townId != null) lines.push('Ciudad: ' + telegramTownLabelById(tx.meta.townId));
+        lines.push('Motivo: ' + telegramDiagSanitizeText(tx.detail || 'resultado desconocido',180));
+      } else if (row.type === 'circuit') {
+        const c = row.circuit || {};
+        lines.push('\ud83d\udea8 circuit breaker ' + row.feature + ' \u00b7 ID ' + row.errorId);
+        lines.push('Motivo: ' + telegramDiagSanitizeText(c.lastError || 'sin detalle',180));
+      } else lines.push('\u2022 ' + telegramDiagSanitizeText(row.label || 'incidencia',240));
+    }
+    if ((pending || []).length > 6) lines.push('', '+' + ((pending || []).length - 6) + ' incidencia(s) mas');
+    lines.push('', 'Puedes copiar este mensaje y mandarselo a ChatGPT.');
+    return lines.join('\n');
+  }
+  function telegramBuildSupportReport() {
+    const now = Date.now(), r = telegramDiagStateRoot(), recent = telegramRecentErrorGroups(3600000);
+    const lines = ['GREPBOT SUPPORT REPORT', 'Version: ' + GB_RELEASE, 'World: ' + telegramWorldLabel(), 'Generated: ' + new Date(now).toISOString(), 'Current town: ' + (telegramCurrentTownLabel() || '?')];
+    const support = r.support || {};
+    lines.push('Support mode: ' + (telegramSupportModeActive() ? 'ACTIVE until ' + new Date(+support.activeUntil).toISOString() : 'OFF'));
+    lines.push('', 'RECENT ERRORS (60m)');
+    if (!recent.length) lines.push('- none');
+    for (const g of recent.slice(0,12)) {
+      const h=moduleHealth[g.feature]||{};
+      lines.push('- ' + g.feature + ': x' + g.count + ' \u00b7 ID ' + (g.lastId || '?') + ' \u00b7 consecutive=' + (+h.consecutiveErr||0) + ' \u00b7 last=' + telegramFmtClock(g.lastAt) + ' \u00b7 ' + telegramDiagSanitizeText(g.lastError,220));
+    }
+    lines.push('', 'TELEGRAM MONITOR');
+    try {
+      const tm = telegramMonitorStateRoot();
+      lines.push('- hourly enabled=' + (telegramEventEnabled('hourly') ? 'yes' : 'no') + ' \u00b7 last success=' + (tm.lastDigestSentAt ? new Date(+tm.lastDigestSentAt).toISOString() : 'never') + ' \u00b7 last error=' + telegramDiagSanitizeText(tm.lastDigestError || 'none',120));
+      lines.push('- attack enabled=' + (telegramEventEnabled('attack') ? 'yes' : 'no') + ' \u00b7 scanner=' + (tm.attackScanKnown === true ? 'readable' : (tm.attackScanKnown === false ? 'UNREADABLE' : 'unknown')) + (tm.attackScanWhy ? ' \u00b7 ' + telegramDiagSanitizeText(tm.attackScanWhy,120) : '') + (tm.attackScanAt ? ' \u00b7 checked=' + new Date(+tm.attackScanAt).toISOString() : ''));
+    } catch (_) { lines.push('- unreadable'); }
+    lines.push('', 'TRANSACTIONS REQUIRING REVIEW');
+    const txs = Object.entries(state.txState || {}).filter(([,t]) => t && /^(unknown|manual-review)$/.test(String(t.state || ''))).slice(0,20);
+    if (!txs.length) lines.push('- none');
+    for (const [intent,t] of txs) lines.push('- ' + String(t.feature||'?') + ' \u00b7 ' + String(t.state||'?') + ' \u00b7 town=' + String(t.meta&&t.meta.townId!=null?t.meta.townId:'?') + ' \u00b7 action=' + telegramDiagSanitizeText(t.endpoint||intent,120) + ' \u00b7 ' + telegramDiagSanitizeText(t.detail||'',180));
+    lines.push('', 'RECENT ERROR EVENTS');
+    if (!r.events.length) lines.push('- none');
+    for (const e of r.events.slice(0,30)) lines.push('- ' + new Date(+e.ts||0).toISOString() + ' \u00b7 ' + String(e.feature||'?') + '/' + String(e.kind||'?') + ' \u00b7 ID ' + String(e.id||'?') + (e.townId?' \u00b7 town='+e.townId:'') + (e.action?' \u00b7 action='+telegramDiagSanitizeText(e.action,90):'') + ' \u00b7 ' + telegramDiagSanitizeText(e.error||e.lastWhy||'',200));
+    lines.push('', 'SUPPORT TRACE');
+    const trace = r.supportEvents || [];
+    if (!trace.length) lines.push('- no support trace (activate Support mode for extra context)');
+    for (const e of trace.slice(0,60)) lines.push('- ' + new Date(+e.ts||0).toISOString() + ' \u00b7 ' + String(e.feature||'?') + ' \u00b7 ' + String(e.status||e.kind||e.type||'?') + (e.action?' \u00b7 '+telegramDiagSanitizeText(e.action,100):'') + (e.why?' \u00b7 '+telegramDiagSanitizeText(e.why,180):'') + (e.error?' \u00b7 '+telegramDiagSanitizeText(e.error,180):''));
+    lines.push('', 'CURRENT WAREHOUSE PRESSURE');
+    try {
+      const threshold=telegramWarehouseThresholdPct()/100, rows=[];
+      for(const t of tradeListTowns()) for(const k of GB_RES_KEYS) if(t&&t.cap>0&&t[k]!=null&&+t[k]/+t.cap>=threshold) rows.push({t,k,fill:+t[k]/+t.cap});
+      if(!rows.length) lines.push('- none');
+      for(const x of rows.slice(0,12)){const d=telegramWarehouseDiagnostic(x.t,x.k);lines.push('- '+telegramTownLabelById(x.t.id)+' \u00b7 '+x.k+' '+(x.fill*100).toFixed(1)+'% \u00b7 merchants='+(d.tradeCap==null?'?':Math.round(d.tradeCap))+' \u00b7 '+telegramDiagSanitizeText(d.reason,180));}
+    } catch (_) { lines.push('- unreadable'); }
+    lines.push('', 'LATEST DECISION CONTEXT');
+    const recentFeatures=new Set(recent.map(g=>g.feature));
+    const whyRows=(state.whyLog||[]).filter(x=>x&&(!recentFeatures.size||recentFeatures.has(String(x.feature||'')))).slice(0,30);
+    if(!whyRows.length) lines.push('- none');
+    for(const x of whyRows) lines.push('- '+new Date(+x.ts||0).toISOString()+' \u00b7 '+String(x.feature||'?')+' \u00b7 '+String(x.status||'?')+' \u00b7 '+telegramDiagSanitizeText(x.action||'',100)+(x.why?' \u00b7 '+telegramDiagSanitizeText(x.why,180):''));
+    lines.push('', 'NOTE: credentials/tokens are intentionally excluded and sanitized.');
+    return telegramDiagSanitizeText(lines.join('\n'), 24000);
+  }
+  function telegramCopySupportReport(onDone) {
+    const text = telegramBuildSupportReport();
+    const fallback = () => {
+      try { const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.focus(); ta.select(); const ok=document.execCommand('copy'); ta.remove(); if(onDone)onDone(!!ok); return !!ok; } catch (_) { if(onDone)onDone(false); return false; }
+    };
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(text).then(()=>{if(onDone)onDone(true)}).catch(fallback); return true;
+      }
+    } catch (_) {}
+    return fallback();
+  }
+  function telegramNotify(event, text, opts) {
+    const o = opts || {};
+    if (!state.telegramEnabled || (!o.force && !telegramEventEnabled(event))) {
+      if (o.onDone) o.onDone(false, { reason:'disabled' });
+      return false;
+    }
+    const key = o.key ? String(event) + '|' + String(o.key) : '';
+    const now = Date.now();
+    const root = telegramMonitorStateRoot();
+    if (key && !o.force) {
+      const prev = +root.sent[key] || 0;
+      const cooldown = Math.max(0, Number.isFinite(+o.cooldownMs) ? +o.cooldownMs : 0);
+      if (prev && (!cooldown || now - prev < cooldown)) {
+        if (o.onDone) o.onDone(false, { reason:'dedup' });
+        return false;
+      }
+    }
+    return telegramSendText(text, (ok, info) => {
+      if (ok && key) {
+        root.sent[key] = Date.now();
+
+        const cut = Date.now() - 14 * 86400000;
+        for (const [k, ts] of Object.entries(root.sent)) if (+ts < cut) delete root.sent[k];
+        telegramMonitorPersist();
+      }
+      if (o.onDone) o.onDone(ok, info);
+    }, { force:true });
+  }
+  function telegramMovementKey(m) {
+    if (m && m.id != null && String(m.id) !== '') return 'id:' + String(m.id);
+    return ['mv', m && m.dest, m && m.origin, m && m.arrival, m && m.type].map(x => String(x == null ? '' : x)).join('|');
+  }
+  function telegramMovementOriginLabel(m) {
+    const a = m && m.model && (m.model.attributes || m.model) || {};
+    const town = a.origin_town_name || a.origin_name || a.source_town_name || '';
+    const player = a.origin_player_name || a.attacker_name || a.player_name || a.source_player_name || '';
+    if (town && player) return String(town) + ' \u00b7 ' + String(player);
+    if (town) return String(town);
+    if (player) return String(player);
+    return m && m.origin ? '#' + String(m.origin) : 'origen desconocido';
+  }
+  function telegramMovementEtaText(m) {
+    let eta = null;
+    try { eta = dodgeEtaSec(m); } catch (_) {}
+    if (eta == null || !Number.isFinite(+eta)) return 'ETA ?';
+    eta = Math.max(0, +eta);
+    if (eta < 60) return 'ETA ' + Math.ceil(eta) + 's';
+    if (eta < 3600) return 'ETA ' + Math.ceil(eta / 60) + 'm';
+    return 'ETA ' + Math.floor(eta / 3600) + 'h ' + Math.ceil((eta % 3600) / 60) + 'm';
+  }
+  function telegramAttackMessage(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    const csN = list.filter(m => m && m.hasCs).length;
+    const title = (csN ? '\ud83d\uded1' : '\ud83d\udea8') + ' GrepBot \u2014 ' + list.length + ' ataque' + (list.length === 1 ? '' : 's') + ' entrante' + (list.length === 1 ? '' : 's');
+    const lines = [title, 'Mundo: ' + telegramWorldLabel()];
+    for (const m of list.slice(0, 12)) {
+      const type = String(m.type || 'ataque').replace(/_/g, ' ');
+      lines.push('\u2022 ' + telegramTownLabelById(m.dest) + ' \u00b7 ' + telegramMovementEtaText(m) + ' \u00b7 ' + telegramMovementOriginLabel(m) + ' \u00b7 ' + type + (m.hasCs ? ' \u00b7 \u26a0\ufe0f CS/conquista' : ''));
+    }
+    if (list.length > 12) lines.push('\u2022 +' + (list.length - 12) + ' ataque(s) mas');
+    return lines.join('\n');
+  }
+  function telegramAttackMonitor(incomingOverride) {
+    const root = telegramMonitorStateRoot(), now = Date.now();
+    let snap;
+    try {
+      if (Array.isArray(incomingOverride)) snap = { known:true, moves:incomingOverride, why:'override', rawCount:incomingOverride.length };
+      else snap = dodgeIncomingSnapshot();
+    } catch (_) { snap = { known:false, moves:[], why:'scan-exception', rawCount:0 }; }
+    if (!snap || snap.known !== true) {
+      root.attackScanKnown = false;
+      root.attackScanWhy = String(snap && snap.why || 'unreadable').slice(0,80);
+      root.attackScanAt = now;
+
+      telegramMonitorPersist();
+      return false;
+    }
+    root.attackScanKnown = true;
+    root.attackScanWhy = '';
+    root.attackScanAt = now;
+    root.attackScanRawCount = +snap.rawCount || 0;
+    const incoming = Array.isArray(snap.moves) ? snap.moves : [];
+    const live = new Map();
+    for (const m of incoming) live.set(telegramMovementKey(m), m);
+    let changed = false;
+    const pending = [];
+    for (const [key, m] of live.entries()) {
+      let rec = root.attacks[key];
+      if (!rec || typeof rec !== 'object') {
+        rec = root.attacks[key] = { firstSeen:now, lastSeen:now, sent:false, lastAttemptAt:0 };
+        changed = true;
+      } else rec.lastSeen = now;
+      if (!rec.sent && (!rec.lastAttemptAt || now - +rec.lastAttemptAt >= 2 * 60000)) pending.push({ key, m, rec });
+    }
+    for (const [key, rec] of Object.entries(root.attacks)) {
+      if (live.has(key)) continue;
+      if (!rec || now - (+rec.lastSeen || +rec.firstSeen || 0) > 6 * 3600000) { delete root.attacks[key]; changed = true; }
+    }
+    if (changed) telegramMonitorPersist();
+    if (!pending.length || !state.telegramEnabled || !telegramEventEnabled('attack')) { telegramMonitorPersist(); return pending.length > 0; }
+    const rows = pending.map(x => x.m);
+    for (const x of pending) x.rec.lastAttemptAt = now;
+    telegramMonitorPersist();
+    telegramNotify('attack', telegramAttackMessage(rows), { force:true, onDone:(ok, info) => {
+      const r = telegramMonitorStateRoot();
+      for (const x of pending) {
+        const rec = r.attacks[x.key];
+        if (!rec) continue;
+        if (ok) { rec.sent = true; rec.sentAt = Date.now(); rec.lastError = ''; }
+        else rec.lastError = String(info && info.reason || 'send-failed');
+      }
+      telegramMonitorPersist();
+    }});
+    return true;
+  }
+  function telegramWarehouseThresholdPct() {
+    const n = Number(state.telegramWarehousePct);
+    return Math.max(90, Math.min(100, Number.isFinite(n) ? n : 95));
+  }
+  function telegramWarehouseDelayMs() {
+    const n = Number(state.telegramWarehouseMin);
+    return Math.max(1, Math.min(180, Number.isFinite(n) ? n : 15)) * 60000;
+  }
+  function telegramWarehouseDiagnostic(town, resource) {
+    const d = { reason:'sin salida automatica ejecutable', townId:town&&String(town.id), resource:String(resource||''), amount:null, cap:null, fill:null, tradeCap:null, rural:{known:false,count:0,best:null}, intercity:{known:false,checked:0,eligible:0,best:null} };
+    if (!town || !GB_RES_KEYS.includes(resource)) { d.reason='estado de ciudad ilegible'; return d; }
+    d.amount = town[resource] != null && Number.isFinite(+town[resource]) ? +town[resource] : null; d.cap=town.cap!=null&&Number.isFinite(+town.cap)?+town.cap:null; d.fill=d.amount!=null&&d.cap>0?d.amount/d.cap:null; d.tradeCap=town.tradeCap!=null&&Number.isFinite(+town.tradeCap)?+town.tradeCap:null;
+    if (d.fill == null) { d.reason='nivel de almacen ilegible'; return d; }
+    if (town.tradeCap == null) { d.reason='capacidad mercante ilegible'; return d; }
+    if (!(town.tradeCap > 0)) { d.reason='sin capacidad mercante libre'; return d; }
+    if (!tradeTownEnabled(town.id)) { d.reason='ciudad excluida del comercio automatico'; return d; }
+    if (!state.autoTrade && !state.autoRuralTrade) { d.reason='comercio automatico desactivado'; return d; }
+    try {
+      if (state.autoRuralTrade) {
+        const auto = tradeAutoTowns(tradeListTowns());
+        const candidates = ruralExecutableOverflowCandidates(auto).filter(c => String(c.townId) === String(town.id) && c.give === resource);
+        d.rural.known=true; d.rural.count=candidates.length;
+        if (candidates.length) { const best=ruralTradeDecision(candidates)||candidates[0]; d.rural.best={ farmId:best.farmId||best.village, receive:best.receive, ratio:best.ratio, amount:best.amount }; d.reason='hay comercio rural ejecutable pero el recurso sigue alto'; }
+      }
+    } catch (_) { d.rural.known=false; }
+    if (state.autoTrade) {
+      const overflowAt = tradeOverflowPct();
+      if (d.fill != null && d.fill < overflowAt && !d.rural.best) {
+        const pct = Math.round(overflowAt * 10000) / 100;
+        d.reason = 'esperando umbral autoTrade ' + pct + '%';
+        return d;
+      }
+      const incoming = tradeIncomingByTown();
+      if (!incoming.known) { d.reason='comercios entrantes ilegibles'; return d; }
+      const attacks = tradeTownsUnderAttack();
+      if (!attacks.known) { d.reason='ataques entrantes ilegibles'; return d; }
+      d.intercity.known=true; d.intercity.underAttack=0;
+      const rows = tradeAutoTowns(tradeListTowns()).filter(t => String(t.id) !== String(town.id));
+      const ranked=[];
+      for (const t of rows) {
+        d.intercity.checked++;
+        const id=String(t.id);
+        if (attacks.value && attacks.value.has(id)) { d.intercity.underAttack++; continue; }
+        const mov = incoming.byTown[id] || {};
+        let pending={};
+        try { pending=plannerPendingForTown(id).incoming||{}; } catch (_) { d.reason='reservas entrantes del planificador ilegibles'; d.intercity.known=false; return d; }
+        if (t[resource] == null || !(t.cap > 0)) continue;
+        const projected = +t[resource] + (+mov[resource] || 0) + (+pending[resource] || 0), fill=projected/+t.cap, free=Math.max(0,+t.cap-projected);
+        ranked.push({id,fill,free,projected,cap:+t.cap});
+        if (fill <= tradeReceiverPct()) d.intercity.eligible++;
+      }
+      ranked.sort((a,b)=>a.fill-b.fill || b.free-a.free || a.id.localeCompare(b.id,undefined,{numeric:true}));
+      if (ranked.length) d.intercity.best=ranked[0];
+      if (!d.intercity.eligible) d.reason='sin ciudad receptora <= ' + Math.round(tradeReceiverPct()*100) + '%';
+      else if (!d.rural.best) d.reason='hay receptor disponible pero el overflow persiste';
+    }
+    return d;
+  }
+  function telegramWarehouseReason(town, resource) { return telegramWarehouseDiagnostic(town, resource).reason; }
+  function telegramWarehouseDiagnosticLines(a) {
+    const d=a.diag||telegramWarehouseDiagnostic(a.town,a.resource), lines=[];
+    const id=telegramDiagErrorId('warehouse', a.resource, String(a.town&&a.town.id)+'|'+d.reason);
+    const amt=d.amount==null?'?':Math.round(d.amount), cap=d.cap==null?'?':Math.round(d.cap), pct=d.fill==null?'?':(d.fill*100).toFixed(1)+'%';
+    lines.push('\u2022 ' + telegramTownLabelById(a.town.id) + ' \u00b7 ' + a.resource + ' ' + amt + '/' + cap + ' (' + pct + ') \u00b7 ID ' + id);
+    lines.push('  Mercantes: ' + (d.tradeCap==null?'?':Math.round(d.tradeCap)) + ' \u00b7 Rural: ' + (d.rural.known ? (d.rural.count + ' ejecutable(s)' + (d.rural.best?' \u00b7 mejor ratio '+d.rural.best.ratio+' amt '+d.rural.best.amount:'')) : '?'));
+    if (d.intercity.known) {
+      const best=d.intercity.best;
+      lines.push('  Ciudad\u2192ciudad: ' + d.intercity.checked + ' analizada(s) \u00b7 ' + d.intercity.eligible + ' elegible(s)' + (d.intercity.underAttack ? ' \u00b7 ' + d.intercity.underAttack + ' bajo ataque' : '') + (best ? ' \u00b7 mejor ' + telegramTownLabelById(best.id) + ' ' + (best.fill*100).toFixed(1) + '%' : ''));
+    } else lines.push('  Ciudad\u2192ciudad: ?');
+    lines.push('  Motivo final: ' + d.reason);
+    return lines;
+  }
+  function telegramWarehouseMonitor() {
+    const root = telegramMonitorStateRoot(), now = Date.now(), threshold = telegramWarehouseThresholdPct() / 100, delay = telegramWarehouseDelayMs();
+    let towns = [];
+    try { towns = tradeListTowns(); } catch (_) { return false; }
+    const liveKeys = new Set();
+    const alerts = [];
+    for (const t of towns) {
+      if (!t || !(t.cap > 0)) continue;
+      for (const resource of GB_RES_KEYS) {
+        if (t[resource] == null) continue;
+        const fill = +t[resource] / +t.cap;
+        const key = String(t.id) + '|' + resource;
+        if (fill < threshold) { if (root.warehouses[key]) { delete root.warehouses[key]; } continue; }
+        liveKeys.add(key);
+        let rec = root.warehouses[key];
+        if (!rec || typeof rec !== 'object') rec = root.warehouses[key] = { since:now, sent:false, lastAmount:+t[resource], lastFill:fill };
+        rec.lastSeen = now; rec.lastAmount = +t[resource]; rec.lastFill = fill;
+        if (!rec.sent && now - (+rec.since || now) >= delay && (!rec.lastAttemptAt || now - +rec.lastAttemptAt >= 10 * 60000)) {
+          const diag=telegramWarehouseDiagnostic(t,resource); alerts.push({ key, town:t, resource, fill, rec, reason:diag.reason, diag });
+        }
+      }
+    }
+    for (const key of Object.keys(root.warehouses)) if (!liveKeys.has(key)) delete root.warehouses[key];
+    telegramMonitorPersist();
+    if (!alerts.length || !state.telegramEnabled || !telegramEventEnabled('warehouse')) return alerts.length > 0;
+    const lines = ['\u26a0\ufe0f GrepBot \u2014 almacen atascado', 'Mundo: ' + telegramWorldLabel()];
+    for (const a of alerts.slice(0, 4)) { lines.push(...telegramWarehouseDiagnosticLines(a)); a.rec.lastAttemptAt = now; }
+    if (alerts.length > 4) lines.push('\u2022 +' + (alerts.length - 4) + ' recurso(s) mas');
+    telegramMonitorPersist();
+    telegramNotify('warehouse', lines.join('\n'), { force:true, onDone:(ok, info) => {
+      const r = telegramMonitorStateRoot();
+      for (const a of alerts) {
+        const rec = r.warehouses[a.key]; if (!rec) continue;
+        if (ok) { rec.sent = true; rec.sentAt = Date.now(); rec.lastError = ''; }
+        else rec.lastError = String(info && info.reason || 'send-failed');
+      }
+      telegramMonitorPersist();
+    }});
+    return true;
+  }
+  function telegramCriticalCandidates() {
+    const now = Date.now(), out = [], diag=telegramDiagStateRoot();
+    for (const [name, h] of Object.entries(moduleHealth || {})) {
+      if (!h || h.lastErrorKind === 'captcha' || !(+h.consecutiveErr >= 3) || !h.lastError || !(+h.lastErr > 0) || now - +h.lastErr > 30 * 60000) continue;
+      const errorId=h.lastErrorId||telegramDiagErrorId(name,'err',h.lastError||'error');
+      const sig=diag.signatures[errorId]||{};
+      out.push({ key:'module:' + name + ':' + errorId, type:'module', feature:name, errorId, health:h, label:'Modulo ' + name + ': ' + (+h.consecutiveErr) + ' errores consecutivos \u00b7 ID ' + errorId + (sig.count?' \u00b7 x'+sig.count:'') + ' \u00b7 ' + String(h.lastError).slice(0,100) });
+    }
+    for (const [name, c] of Object.entries(state.circuits || {})) {
+      if (c && c.open) { const errorId=telegramDiagErrorId(name,'circuit',c.lastError||'open'); out.push({ key:'circuit:' + name + ':' + errorId, type:'circuit', feature:name, errorId, circuit:c, label:'Circuit breaker abierto: ' + name + ' \u00b7 ID ' + errorId + (c.lastError ? ' \u00b7 ' + String(c.lastError).slice(0,100) : '') }); }
+    }
+    for (const [intent, tx] of Object.entries(state.txState || {})) {
+      if (!tx || !/^(unknown|manual-review)$/.test(String(tx.state || ''))) continue;
+      const at = +tx.updatedAt || +tx.unknownAt || +tx.createdAt || 0;
+      if (!at || now - at > 30 * 60000) continue;
+      const errorId=telegramDiagErrorId(tx.feature||'tx',tx.state,tx.detail||intent);
+      out.push({ key:'tx:' + errorId + ':' + String(intent).slice(0,80), type:'tx', feature:String(tx.feature||'tx'), intent, tx, errorId, label:'Transaccion ' + tx.state + ': ' + String(tx.feature || intent).slice(0,80) + ' \u00b7 ID ' + errorId + (tx.detail ? ' \u00b7 ' + String(tx.detail).slice(0,100) : '') });
+    }
+    return out;
+  }
+  function telegramCriticalMonitor() {
+    const root = telegramMonitorStateRoot(), now = Date.now(), rows = telegramCriticalCandidates();
+    const active = new Set(rows.map(x => x.key));
+    for (const key of Object.keys(root.critical)) if (!active.has(key)) delete root.critical[key];
+    const pending = [];
+    for (const row of rows) {
+      let rec = root.critical[row.key];
+      if (!rec || typeof rec !== 'object') rec = root.critical[row.key] = { firstSeen:now, sent:false, lastAttemptAt:0 };
+      rec.lastSeen = now;
+      if (!rec.sent && (!rec.lastAttemptAt || now - +rec.lastAttemptAt >= 15 * 60000)) pending.push({ row, rec });
+    }
+    telegramMonitorPersist();
+    if (!pending.length || !state.telegramEnabled || !telegramEventEnabled('critical')) return pending.length > 0;
+    let text;
+    if (telegramEventEnabled('diagnostic')) text=telegramCriticalDetailedMessage(pending);
+    else {
+      const lines = ['\ud83d\udea8 GrepBot \u2014 necesita atencion', 'Mundo: ' + telegramWorldLabel()];
+      for (const x of pending.slice(0, 8)) lines.push('\u2022 ' + x.row.label);
+      if (pending.length > 8) lines.push('\u2022 +' + (pending.length - 8) + ' incidencia(s) mas');
+      text=lines.join('\n');
+    }
+    for (const x of pending) x.rec.lastAttemptAt = now;
+    telegramMonitorPersist();
+    telegramNotify('critical', text, { force:true, onDone:(ok, info) => {
+      const r = telegramMonitorStateRoot();
+      for (const x of pending) {
+        const rec = r.critical[x.row.key]; if (!rec) continue;
+        if (ok) { rec.sent = true; rec.sentAt = Date.now(); rec.lastError = ''; }
+        else rec.lastError = String(info && info.reason || 'send-failed');
+      }
+      telegramMonitorPersist();
+    }});
+    return true;
+  }
+  function telegramHourKey(d) {
+    const x = d || new Date();
+    const z = n => String(n).padStart(2, '0');
+    return x.getFullYear() + '-' + z(x.getMonth() + 1) + '-' + z(x.getDate()) + 'T' + z(x.getHours());
+  }
+  function telegramSummaryTownIds() {
+    const out = [], seen = new Set();
+    const add = id => { const s=String(id==null?'':id); if (s && !seen.has(s)) { seen.add(s); out.push(s); } };
+    try { (caveListTownIds() || []).forEach(add); } catch (_) {}
+    try { (state.towns || []).forEach(t => t && t.id != null && add(t.id)); } catch (_) {}
+    try { Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}).forEach(add); } catch (_) {}
+    try { Object.keys((nativeQueueRoot().towns) || {}).forEach(add); } catch (_) {}
+    try { const uw=gameUw(); add(uw.Game && (uw.Game.townId ?? uw.Game.town_id)); } catch (_) {}
+    return out;
+  }
+  function telegramSummaryTownRes(townId) {
+    try { const live=tradeTownRes(townId); if (live) return live; } catch (_) {}
+    try {
+      const live=townResState(townId);
+      if (live) return { id:+townId, wood:live.wood, stone:live.stone, iron:live.iron, cap:live.cap };
+    } catch (_) {}
+    try {
+      const r=(state.townResources||{})[townId] || (state.townResources||{})[String(townId)];
+      if (r && r.ok !== false) return {
+        id:+townId,
+        wood:Number.isFinite(+r.wood)?+r.wood:null,
+        stone:Number.isFinite(+r.stone)?+r.stone:null,
+        iron:Number.isFinite(+r.iron)?+r.iron:null,
+        cap:Number.isFinite(+r.cap)&&+r.cap>0?+r.cap:null,
+      };
+    } catch (_) {}
+    return { id:+townId, wood:null, stone:null, iron:null, cap:null };
+  }
+  function telegramBuildHourlyDigest() {
+    const townIds = telegramSummaryTownIds();
+    const towns = townIds.map(telegramSummaryTownRes);
+    const totals = { wood:0, stone:0, iron:0 }, unreadable = { wood:0, stone:0, iron:0 }, readable = { wood:0, stone:0, iron:0 };
+    const hot = [];
+    let buildActive = 0, researchActive = 0, recruitActive = 0;
+    for (const t of towns) {
+      for (const k of GB_RES_KEYS) {
+        if (t[k] == null || !Number.isFinite(+t[k])) unreadable[k]++;
+        else { totals[k] += +t[k]; readable[k]++; }
+      }
+      if (t.cap > 0) {
+        const maxFill = Math.max(...GB_RES_KEYS.map(k => t[k] == null ? -1 : +t[k] / +t.cap));
+        if (maxFill >= .95) hot.push(telegramTownLabelById(t.id));
+      }
+      try { const q = abQueueInfo(t.id); if (q && q.known && q.len > 0) buildActive++; } catch (_) {}
+      try { const r = researchTownTechs(t.id); if (r && r.ordersKnown && r.orders && r.orders.length) researchActive++; } catch (_) {}
+      try { const q = recruitQueueInfo(t.id); if (q && q.known && q.len > 0) recruitActive++; } catch (_) {}
+    }
+    let farmReady = null, farmTotal = null;
+    try { const o = qolOverviewData(); farmReady = o.farmReady; farmTotal = o.farmTotal; } catch (_) {}
+    let attacks = null;
+    try { const snap = dodgeIncomingSnapshot(); attacks = snap && snap.known === true ? (snap.moves || []).length : null; } catch (_) {}
+    let caveStored = 0, caveKnown = 0;
+    try {
+      for (const id of caveListTownIds()) {
+        const info = caveTownInfo(id);
+        if (info && Number.isFinite(+info.stored)) { caveStored += +info.stored; caveKnown++; }
+      }
+    } catch (_) {}
+    const recentErrors = telegramRecentErrorGroups(3600000);
+    const unknownTx = Object.values(state.txState || {}).filter(t => t && /^(unknown|manual-review)$/.test(String(t.state || ''))).length;
+    const allResourcesUnreadable = townIds.length > 0 && GB_RES_KEYS.every(k => readable[k] === 0);
+    const resourcesLine = allResourcesUnreadable
+      ? 'Recursos: ? (sin lectura actual)'
+      : 'Recursos: \ud83e\udeb5 ' + telegramCompactNumber(totals.wood) + ' \u00b7 \ud83e\udea8 ' + telegramCompactNumber(totals.stone) + ' \u00b7 \ud83e\ude99 ' + telegramCompactNumber(totals.iron);
+    const lines = ['\ud83d\udcca GrepBot \u00b7 resumen horario', 'Mundo: ' + telegramWorldLabel(),
+      'Ciudades: ' + townIds.length,
+      resourcesLine,
+      'Colas activas: \ud83c\udfd7\ufe0f ' + buildActive + ' \u00b7 \ud83d\udcda ' + researchActive + ' \u00b7 \u2694\ufe0f ' + recruitActive,
+      'Aldeas listas: ' + (farmReady == null ? '?' : String(farmReady)) + '/' + (farmTotal == null ? '?' : String(farmTotal)),
+      'Ataques entrantes: ' + (attacks == null ? '?' : String(attacks)),
+      'Almacenes \u226595%: ' + (hot.length ? hot.slice(0,6).join(', ') + (hot.length > 6 ? ' +' + (hot.length - 6) : '') : 'ninguno'),
+      'Cueva: ' + (caveKnown ? telegramCompactNumber(caveStored) + ' plata guardada' : '?'),
+      'Salud: ' + (recentErrors.length ? '\u26a0\ufe0f ' + recentErrors.slice(0,6).map(g => g.feature + '\u00d7' + g.count + (g.lastId ? ' [' + g.lastId + ']' : '')).join(' \u00b7 ') : 'sin errores recientes') + (unknownTx ? ' \u00b7 ' + unknownTx + ' tx por revisar' : '')
+    ];
+    const townsWithAnyUnreadable = towns.filter(t => GB_RES_KEYS.some(k => t[k] == null || !Number.isFinite(+t[k]))).length;
+    if (townsWithAnyUnreadable) lines.push('Recursos sin lectura completa: ' + townsWithAnyUnreadable + '/' + townIds.length + ' ciudad(es)');
+    return lines.join('\n');
+  }
+  function telegramHourlyDigestTick(forceNow) {
+    const root = telegramMonitorStateRoot(), now = Date.now(), hourKey = telegramHourKey(new Date());
+    if (forceNow) {
+      return telegramSendText(telegramBuildHourlyDigest(), null, { force:true });
+    }
+
+    if (!state.telegramEnabled || !telegramEventEnabled('hourly')) return false;
+    let lastSentAt = +root.lastDigestSentAt || 0;
+    if (lastSentAt > now + 5 * 60000) {
+      lastSentAt = 0;
+      root.lastDigestSentAt = 0;
+      root.lastDigestError = 'future-timestamp-reset';
+      telegramMonitorPersist();
+    }
+    if (!(lastSentAt > 0)) {
+      lastSentAt = now - 3600000;
+      root.lastDigestSentAt = lastSentAt;
+      telegramMonitorPersist();
+    }
+    if (now - lastSentAt < 3600000) return false;
+
+    if (now - (+root.digestAttemptAt || 0) < 2 * 60000) return false;
+    root.digestAttemptAt = now; root.digestAttemptHour = hourKey; telegramMonitorPersist();
+    telegramNotify('hourly', telegramBuildHourlyDigest(), { force:true, onDone:(ok, info) => {
+      const r = telegramMonitorStateRoot();
+      if (ok) {
+        r.lastDigestSentAt = Date.now();
+        r.lastDigestHour = telegramHourKey(new Date());
+        r.digestAttemptHour = ''; r.digestAttemptAt = 0; r.lastDigestError = '';
+      } else {
+        r.lastDigestError = String(info && info.reason || 'send-failed');
+
+      }
+      telegramMonitorPersist();
+    }});
+    return true;
+  }
+
+  const TELEGRAM_MONITOR_POLL_MS = 15000;
+  const telegramMonitorLockName = 'grepbot-telegram-monitor:' + location.hostname;
+  let telegramMonitorLockPending = false;
+  function telegramReloadSharedMonitorState() {
+    try {
+      const mon = load(STORE.TELEGRAM_MONITOR_STATE, null);
+      if (mon && typeof mon === 'object' && !Array.isArray(mon)) state.telegramMonitorState = mon;
+    } catch (_) {}
+    try {
+      const diag = load(STORE.TELEGRAM_DIAG_STATE, null);
+      if (diag && typeof diag === 'object' && !Array.isArray(diag)) state.telegramDiagState = diag;
+    } catch (_) {}
+    try {
+      const h = load(STORE.HEALTH, null);
+      if (h && typeof h === 'object' && !Array.isArray(h)) {
+        for (const k of Object.keys(moduleHealth)) delete moduleHealth[k];
+        Object.assign(moduleHealth, h); state.health = moduleHealth;
+      }
+    } catch (_) {}
+    try { const tx = load(STORE.TX_STATE, null); if (tx && typeof tx === 'object' && !Array.isArray(tx)) state.txState = tx; } catch (_) {}
+    try { const c = load(STORE.CIRCUITS, null); if (c && typeof c === 'object' && !Array.isArray(c)) state.circuits = c; } catch (_) {}
+    try { const q = load(STORE.NATIVE_QUEUE, null); if (q && typeof q === 'object' && !Array.isArray(q)) state.nativeQueue = q; } catch (_) {}
+  }
+  function telegramMonitorTickCore() {
+    try { telegramAttackMonitor(); } catch (e) { gbLogT('telegram-attack-monitor', 60000, 'telegram attack monitor: ' + String(e && e.message || e).slice(0,100)); }
+    try { telegramWarehouseMonitor(); } catch (e) { gbLogT('telegram-wh-monitor', 60000, 'telegram warehouse monitor: ' + String(e && e.message || e).slice(0,100)); }
+    try { telegramCriticalMonitor(); } catch (e) { gbLogT('telegram-critical-monitor', 60000, 'telegram critical monitor: ' + String(e && e.message || e).slice(0,100)); }
+    try { telegramHourlyDigestTick(false); } catch (e) { gbLogT('telegram-digest-monitor', 60000, 'telegram digest: ' + String(e && e.message || e).slice(0,100)); }
+  }
+  function telegramMonitorTick() {
+    if (state.enabledHosts[location.host] !== true || !state.telegramEnabled || !gbInstanceAlive()) return false;
+    const run = () => { telegramReloadSharedMonitorState(); telegramMonitorTickCore(); };
+    if (!gbTabCoordSupported) {
+      if (!gbTabLeader) return false;
+      run(); return true;
+    }
+    if (telegramMonitorLockPending) return false;
+    telegramMonitorLockPending = true;
+    try {
+      navigator.locks.request(telegramMonitorLockName, { mode:'exclusive', ifAvailable:true }, lock => {
+        telegramMonitorLockPending = false;
+        if (!gbInstanceAlive() || !lock) return;
+        run();
+      }).catch(() => { telegramMonitorLockPending = false; });
+      return true;
+    } catch (_) {
+      telegramMonitorLockPending = false;
+      if (gbTabLeader) { run(); return true; }
+      return false;
+    }
+  }
+  (function telegramLivenessMigration613() {
+    const key = wkey('grepbot:mig:6.0.13:telegram-liveness');
+    if (load(key, false)) return;
+    try {
+      const root = telegramMonitorStateRoot();
+
+      root.lastDigestSentAt = 0;
+      root.digestAttemptAt = 0;
+      root.digestAttemptHour = '';
+      root.lastDigestError = '';
+      root.attacks = {};
+      root.attackScanKnown = null;
+      root.attackScanWhy = '';
+      telegramMonitorPersist();
+      save(key, true);
+    } catch (_) {}
+  })();
 
   state.webhookRatelimit || (state.webhookRatelimit = {});
   state.webhookPending || (state.webhookPending = {});
@@ -13087,7 +14989,7 @@ const STORE = {
         o.start(t0); o.stop(t0 + 0.12);
       });
 
-      gbTimeout(() => { try { ctx.close(); } catch (e) { gbLogT('chime-close', 60000, 'audio ctx close: ' + String(e?.message || e).slice(0, 80)); } }, 800);
+      setTimeout(() => { try { ctx.close(); } catch (e) { gbLogT('chime-close', 60000, 'audio ctx close: ' + String(e?.message || e).slice(0, 80)); } }, 800);
     } catch (e) { gbLogT('chime-' + event, 60000, 'chime: ' + String(e).slice(0, 60)); }
   }
   function alertNotifyText(event, payload) {
@@ -13177,7 +15079,6 @@ const STORE = {
     try { save(STORE.WEBHOOK_PENDING, state.webhookPending); } catch (e) { gbLogT('webhook-save', 60000, 'webhook pending save: ' + String(e?.message || e).slice(0, 80)); }
     try {
       gbXhr({
-        feature: 'webhook',
         scope: 'external',
         method: 'POST',
         url,
@@ -13410,11 +15311,11 @@ const STORE = {
     if (!m) return null;
     const a = m.attributes || m;
     const tid = gbProbeAttr(a, ['town_id', 'current_town_id', 'in_town_id']);
-    if (tid != null && gbNum(tid) > 0) return gbNum(tid);
+    if (tid != null && +tid > 0) return +tid;
 
     try {
       if (typeof m.isInCurrentTown === 'function' && m.isInCurrentTown()) {
-        return gbNum(uw.Game && uw.Game.townId);
+        return +(uw.Game && uw.Game.townId) || null;
       }
     } catch (_) {}
     return null;
@@ -13569,7 +15470,6 @@ const STORE = {
       return;
     }
     gbXhr({
-      feature: 'pt-trade-view',
       method: 'GET', url,
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
       onload(res) {
@@ -13839,45 +15739,6 @@ const STORE = {
       return a;
     } catch (_) { return {}; }
   }
-
-  const FAVOR_GODS = ['zeus', 'poseidon', 'hera', 'athena', 'hades', 'ares', 'artemis', 'aphrodite'];
-  function favorForGod(fav, god) {
-    if (!fav || !god) return null;
-    const g = String(god).toLowerCase();
-    let v = gbNum(fav[g + '_favor']);
-    if (v != null) return v;
-    const ov = fav.production_overview;
-    if (ov && ov[g]) { v = gbNum(ov[g].current); if (v != null) return v; }
-
-    v = gbNum(fav[g]);
-    if (v != null) return v;
-    return gbNum(fav['favor_' + g]);
-  }
-  function favorMaxPool(fav) {
-    if (!fav) return null;
-    const v = gbNum(fav.max_favor);
-    return v != null && v > 0 ? v : null;
-  }
-
-  function favorProdPerHour(fav, god) {
-    if (!fav || !god) return null;
-    const ov = fav.production_overview;
-    const row = ov && ov[String(god).toLowerCase()];
-    return row ? gbNum(row.production) : null;
-  }
-
-  function favorGodsList(fav) {
-    const seen = new Set();
-    const ov = fav && fav.production_overview;
-    if (ov && typeof ov === 'object') {
-      Object.keys(ov).forEach(k => { const g = String(k).toLowerCase(); if (FAVOR_GODS.includes(g)) seen.add(g); });
-    }
-    for (const k of Object.keys(fav || {})) {
-      const m = String(k).match(/^([a-z]+)_favor$/i);
-      if (m && FAVOR_GODS.includes(m[1].toLowerCase())) seen.add(m[1].toLowerCase());
-    }
-    return seen.size ? Array.from(seen) : FAVOR_GODS.slice();
-  }
   function favorHasTemplePlunder(townId) {
     try {
       const info = typeof researchTownTechs === 'function' ? researchTownTechs(townId) : null;
@@ -13928,8 +15789,9 @@ const STORE = {
     const fav = favorCurrent();
     const god = cfg.god || 'athena';
 
-    const cur = favorForGod(fav, god);
-    if (cur == null) {
+    const raw = fav[god] != null ? fav[god] : fav['favor_' + god];
+    const cur = Number(raw);
+    if (!Number.isFinite(cur)) {
       gbLogT('favor-unreadable', 300000, `favor: ${god} pool unreadable \u2014 no send`);
       return;
     }
@@ -13989,7 +15851,6 @@ const STORE = {
     }
     const favorLock = gbLock('favor', 180000);
     if (!favorLock) return;
-
     const tpl = state.attackTpl;
     const payload = {
       model_url: (tpl && tpl.model_url) || ('Town/' + townId),
@@ -14067,8 +15928,7 @@ const STORE = {
 
     if (!state.autoFavor) return;
     if (!hostEnabled() || automationPaused({})) return;
-
-    if (captchaPaused('spell')) return;
+    if (captchaPaused('godspell')) return;
     if (gbLocked('godspell')) return;
     const cfg = state.favorCfg || {};
     const power = cfg.spellPower ? String(cfg.spellPower) : '';
@@ -14225,10 +16085,11 @@ const STORE = {
     const tot = job.send.wood + job.send.stone + job.send.iron;
     const pav = plannerAvailable(job.townId, {allowSoft:false});
 
-    const pvW = gbNum(pav && pav.wood), pvS = gbNum(pav && pav.stone), pvI = gbNum(pav && pav.iron);
-    const frW = gbNum(fresh && fresh.wood), frS = gbNum(fresh && fresh.stone), frI = gbNum(fresh && fresh.iron);
+    const wonderNum = (v) => (Number.isFinite(+v) ? +v : null);
+    const pvW = wonderNum(pav && pav.wood), pvS = wonderNum(pav && pav.stone), pvI = wonderNum(pav && pav.iron);
+    const frW = wonderNum(fresh && fresh.wood), frS = wonderNum(fresh && fresh.stone), frI = wonderNum(fresh && fresh.iron);
     if (!fresh || !pav || pvW == null || pvS == null || pvI == null || frW == null || frS == null || frI == null
-      || !(gbNum(fresh.tradeCap) >= tot) || pav.tradeCap == null || !(gbNum(pav.tradeCap) >= tot)
+      || !(wonderNum(fresh.tradeCap) >= tot) || pav.tradeCap == null || !(wonderNum(pav.tradeCap) >= tot)
       || pvW < job.send.wood || pvS < job.send.stone || pvI < job.send.iron
       || frW - job.send.wood < reserve || frS - job.send.stone < reserve || frI - job.send.iron < reserve
       || wonderSpentToday.amount + tot > budget) {
@@ -14369,6 +16230,9 @@ const STORE = {
     if (!due) due = Date.now() + margin * 1000;
     state.dodgeReturns[id]={commandId:id,attackId:String(mov.id||''),from:String(from),dest:String(dest),attackArrival:arrival,dueAt:due,state:'waiting',createdAt:Date.now()};dodgeReturnSave()}
   function dodgeReturnTick(){if(!hostEnabled()||automationPaused({}))return;const now=Date.now();for(const[id,r]of Object.entries(state.dodgeReturns||{})){if(!r||r.state==='done'||r.state==='manual')continue;if(+r.dueAt>now)continue;const live=militaryOutgoingMovements().find(x=>String(x.commandId)===String(r.commandId));if(live&&state.cancelTpl){r.state='returning';dodgeReturnSave();militaryCancelCommand(r.commandId,{confirmed:true,automation:true},err=>{if(!err){r.state='done';r.doneAt=Date.now()}else if(err==='not-cancelable'){r.state='manual';r.why='support already arrived; withdraw manually'}else{r.state='waiting';r.lastError=String(err)}dodgeReturnSave()});}else{r.state='manual';r.why=live?'cancel template missing':'movement no longer cancelable/visible';dodgeReturnSave();gbLogT('dodge-return-'+id,60000,`dodge return ${id}: ${r.why}`)}}}
+  const DODGE_CHECK_MS = 5000;
+  const DODGE_FAIL_BACKOFF = [15000, 45000, 120000];
+  const DODGE_QUEUE_TTL = 3600000;
 
   function wonderFavorScan(reason) {
     if (!hostEnabled() || !state.autoWonderFavor || captchaPaused('wonder')) return;
@@ -14407,9 +16271,6 @@ const STORE = {
       }
     });
   }
-  const DODGE_CHECK_MS = 5000;
-  const DODGE_FAIL_BACKOFF = [15000, 45000, 120000];
-  const DODGE_QUEUE_TTL = 3600000;
   function dodgeQueueLoad() {
     const raw = load(STORE.DODGE_QUEUE, null) || {};
     const cut = Date.now() - DODGE_QUEUE_TTL;
@@ -14429,6 +16290,7 @@ const STORE = {
     return out;
   }
   function dodgeQueueSave() {
+    if(!gbTabLeader)return false;
     try {
       const cut = Date.now() - DODGE_QUEUE_TTL;
       const out = {};
@@ -14463,44 +16325,119 @@ const STORE = {
     }
     return false;
   }
-  function dodgeIncomingMovements() {
+  function dodgeOwnTownIds() {
+    const out = new Set();
+    try { Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}).forEach(id => out.add(String(id))); } catch (_) {}
+    try { (state.towns || []).forEach(t => { if (t && t.id != null) out.add(String(t.id)); }); } catch (_) {}
+    try { Object.keys((state.nativeQueue && state.nativeQueue.towns) || {}).forEach(id => out.add(String(id))); } catch (_) {}
+    try {
+      const uw = gameUw();
+      const id = uw.Game && (uw.Game.townId ?? uw.Game.town_id);
+      if (id != null) out.add(String(id));
+    } catch (_) {}
+    return out;
+  }
+  function dodgeMovementTownId(m, a, side) {
+    const methods = side === 'dest'
+      ? ['getTargetTownId', 'getDestinationTownId', 'getTargetId']
+      : ['getHomeTownId', 'getOriginTownId', 'getSourceTownId'];
+    for (const name of methods) {
+      try {
+        if (m && typeof m[name] === 'function') {
+          const v = m[name]();
+          if (v != null && String(v) !== '') return String(v);
+        }
+      } catch (_) {}
+    }
+    const attrs = side === 'dest'
+      ? ['destination_town_id', 'target_town_id', 'destination_id', 'target_id']
+      : ['origin_town_id', 'home_town_id', 'source_town_id', 'origin_id'];
+    for (const name of attrs) {
+      try {
+        const v = a && a[name];
+        if (v != null && String(v) !== '') return String(v);
+      } catch (_) {}
+    }
+    return '';
+  }
+  function dodgeIncomingSnapshot() {
     const uw = gameUw();
     const out = [];
+    const myTowns = dodgeOwnTownIds();
+    if (!myTowns.size) {
+      gbLogT('dodge-notowns-read', 120000, 'dodge: own towns unreadable \u2014 incoming scan is blind, not empty');
+      return { known:false, moves:out, why:'towns-unreadable', rawCount:0 };
+    }
+    let models = [];
+    let collectionKnown = false;
     try {
-
-      const models = mmModelsAll('MovementsUnits');
-      const myTowns = new Set(Object.keys((uw.ITowns && uw.ITowns.towns) || {}).map(String));
-      if (!myTowns.size) {
-        gbLogT('dodge-notowns-read', 120000, 'dodge: ITowns unreadable \u2014 incoming scan is blind, not empty');
-        return out;
+      models = mmModelsAll('MovementsUnits') || [];
+      if (models.length) collectionKnown = true;
+      if (!collectionKnown && mmCol('MovementsUnits')) collectionKnown = true;
+      if (!collectionKnown && uw.MM && typeof uw.MM.getCollections === 'function') {
+        const cols = uw.MM.getCollections();
+        if (cols && Object.prototype.hasOwnProperty.call(cols, 'MovementsUnits')) collectionKnown = true;
       }
-      models.forEach(m => {
-        const a = m.attributes || {};
-        const dest = String(a.destination_town_id || a.target_town_id || '');
-        if (!myTowns.has(dest)) return;
+
+      if (typeof militaryMovementsUnitsModels === 'function') {
+        const extra = militaryMovementsUnitsModels() || [];
+        if (extra.length) collectionKnown = true;
+        if (extra.length) {
+          const seen = new Set(models.map(m => String((m && ((m.attributes || {}).id ?? m.id)) ?? '')));
+          for (const m of extra) {
+            const id = String((m && ((m.attributes || {}).id ?? m.id)) ?? '');
+            if (id && seen.has(id)) continue;
+            if (id) seen.add(id);
+            models.push(m);
+          }
+        }
+      }
+    } catch (_) {}
+    if (!collectionKnown) {
+      gbLogT('dodge-movements-read', 120000, 'dodge: MovementsUnits unreadable \u2014 incoming scan is blind, not empty');
+      return { known:false, moves:out, why:'movements-unreadable', rawCount:models.length };
+    }
+    for (const m of models) {
+      try {
+        const a = m && (m.attributes || m) || {};
+        const dest = dodgeMovementTownId(m, a, 'dest');
+        if (!dest || !myTowns.has(dest)) continue;
+        const origin = dodgeMovementTownId(m, a, 'origin');
+        const type = gbMovementType(a);
+
+        try { if (typeof m.isReturning === 'function' && m.isReturning() === true) continue; } catch (_) {}
+        if (DODGE_FRIENDLY_TYPES.test(type)) continue;
+
+        let incoming = false;
+        try { if (typeof m.isIncomingMovement === 'function') incoming = m.isIncomingMovement() === true; } catch (_) {}
+        if (!incoming && origin && !myTowns.has(origin)) incoming = true;
+        if (!incoming && !origin && dest) incoming = true;
 
         let hostile = false;
         try { hostile = typeof m.isIncomingAttack === 'function' && m.isIncomingAttack() === true; } catch (_) {}
-        if (!hostile && !dodgeIsHostileMovement(a)) return;
+        if (!hostile && dodgeIsHostileMovement(a)) hostile = true;
 
-        const origin = String(a.origin_town_id || a.home_town_id || '');
+        if (!hostile && incoming && (!origin || !myTowns.has(origin))) hostile = true;
+        if (!hostile) continue;
 
-        try { if (typeof m.isReturning === 'function' && m.isReturning() === true) return; } catch (_) {}
-
-        if (myTowns.has(origin) && !dodgeIsHostileMovement(a)) return;
-        const type = gbMovementType(a);
-        const units = a.units || {};
-        const hasCs = !!(units.colonize_ship || units.colony_ship || /^(revolt|colonize|take_over|conquer|attack_takeover)$/.test(type));
+        let units = a.units || {};
+        try { if ((!units || typeof units !== 'object') && typeof m.getUnits === 'function') units = m.getUnits() || {}; } catch (_) {}
+        let arrival = a.arrived_at || a.arrival_at || a.finished_at || a.arrival_time || null;
+        try { if (typeof m.getArrivalAt === 'function') arrival = m.getArrivalAt() || arrival; } catch (_) {}
+        const hasCs = !!(units && (units.colonize_ship || units.colony_ship)) || /^(revolt|colonize|take_over|conquer|attack_takeover)$/.test(type);
         out.push({
-          id: a.id || m.id,
-          dest, origin, type, hasCs,
-          arrival: a.arrived_at || a.arrival_at || a.finished_at,
-          units,
+          id: (typeof m.getCommandId === 'function' ? (() => { try { return m.getCommandId(); } catch (_) { return null; } })() : null) || a.command_id || a.id || m.id,
+          dest, origin, type: type || 'attack', hasCs,
+          arrival,
+          units: units || {},
           model: m,
         });
-      });
-    } catch (_) {}
-    return out;
+      } catch (_) {}
+    }
+    return { known:true, moves:out, why:'', rawCount:models.length };
+  }
+  function dodgeIncomingMovements() {
+    return dodgeIncomingSnapshot().moves;
   }
   function dodgeSafeTown(excludeId, incoming) {
     try {
@@ -14544,11 +16481,10 @@ const STORE = {
     }
     gameAjaxPost('militia', 'building_farm', 'request_militia', { town_id: +townId }, onDone);
   }
-
   function dodgeSendOut(townId, units, safeId, onDone) {
     const payload = {
       model_url: 'Town/' + townId,
-      action_name: (state.supportTpl && state.supportTpl.action_name) || 'sendUnits',
+      action_name: (state.attackTpl && state.attackTpl.action_name) || 'sendUnits',
       arguments: Object.assign({ id: +safeId, type: 'support' }, units),
       town_id: +townId,
     };
@@ -14752,7 +16688,7 @@ const STORE = {
     if (!valid.ok) {
       entry.state = 'pending';
       entry.tries = (entry.tries || 0) + 1;
-      const bo = backoffFor(entry.tries, DODGE_FAIL_BACKOFF);
+      const bo = DODGE_FAIL_BACKOFF[Math.min(entry.tries - 1, DODGE_FAIL_BACKOFF.length - 1)];
       entry.nextAt = Date.now() + bo;
       gbLogT('dodge-nousable', 30000, `dodge: cannot evacuate ${mov.dest} (${valid.why}); retry later`);
       return;
@@ -14775,7 +16711,7 @@ const STORE = {
           gbLog(`dodge: outcome unknown (${err}); bounded recheck in ${Math.round(TX_UNKNOWN_RECHECK_MS/1000)}s \u2014 units may have already left`);
         } else {
           entry.state = 'failed';
-          const bo = backoffFor(entry.tries, DODGE_FAIL_BACKOFF);
+          const bo = DODGE_FAIL_BACKOFF[Math.min(entry.tries - 1, DODGE_FAIL_BACKOFF.length - 1)];
           entry.nextAt = Date.now() + bo;
           gbLog(`dodge: send failed ${err} (retry in ${Math.round(bo / 1000)}s)`);
         }
@@ -14785,6 +16721,11 @@ const STORE = {
   }
   function dodgeScan(reason) {
     if (!hostEnabled()) return;
+
+    let telegramIncoming = null;
+    if (state.telegramEnabled && telegramEventEnabled('attack')) {
+      try { telegramIncoming = dodgeIncomingMovements() || []; telegramAttackMonitor(telegramIncoming); } catch (_) { telegramIncoming = null; }
+    }
     if (automationPaused({})) return;
     const wantDodge = state.autoDodge;
     const wantCs = state.csAlert !== false;
@@ -14794,7 +16735,7 @@ const STORE = {
     const dodgeOk = wantDodge && !captchaPaused('dodge');
     const militiaOk = wantMilitia && !captchaPausedAny('militia', 'dodge');
     if (!dodgeOk && !militiaOk && !wantCs) return;
-    const incoming = dodgeIncomingMovements();
+    const incoming = telegramIncoming || dodgeIncomingMovements();
 
     const trains = (wantCs && csCfg().on) ? csWaveClusters(incoming) : [];
     const trainFor = dest => trains.find(t => String(t.dest) === String(dest)) || null;
@@ -14822,7 +16763,15 @@ const STORE = {
         dodgeTrySend(entry, mov);
       }
 
-      if (!entry || entry.state !== 'sent') { try { supportTryBurst(mov); } catch (_) {} }
+      if (!entry || entry.state !== 'sent') {
+        try { supportTryBurst(mov); }
+        catch (e) {
+          const msg=String(e&&e.stack||e).slice(0,180);
+          gbLogT('dodge-support-burst',60000,'dodge support burst error: '+msg);
+          try{markModuleHealth('support','err',{error:msg})}catch(_){}
+          try{whyNote('support',mov.dest,'error',msg)}catch(_){}
+        }
+      }
     }
 
     for (const t of trains) {
@@ -14831,8 +16780,20 @@ const STORE = {
         `cs: town ${t.dest} ${t.verdict} n=${t.n} gap=${t.gapSec == null ? '?' : t.gapSec}s cover=${t.cover}` +
         (t.unknownArrival ? ` unreadable=${t.unknownArrival}` : ''));
     }
-    try { supportScan('dodge'); } catch (_) {}
-    try { emergencyScan('dodge'); } catch (_) {}
+    try { supportScan('dodge'); }
+    catch (e) {
+      const msg=String(e&&e.stack||e).slice(0,180);
+      gbLogT('dodge-support-scan',60000,'support scan error: '+msg);
+      try{markModuleHealth('support','err',{error:msg})}catch(_){}
+      try{whyNote('support','dodge','error',msg)}catch(_){}
+    }
+    try { emergencyScan('dodge'); }
+    catch (e) {
+      const msg=String(e&&e.stack||e).slice(0,180);
+      gbLogT('dodge-emergency-scan',60000,'emergency cave scan error: '+msg);
+      try{markModuleHealth('cave','err',{error:msg})}catch(_){}
+      try{whyNote('cave','emergency','error',msg)}catch(_){}
+    }
 
     const cut = now - DODGE_QUEUE_TTL;
     Object.keys(dodgeQueue).forEach(k => {
@@ -14844,11 +16805,19 @@ const STORE = {
   }
 
   const RECRUIT_SPELLS = ['call_of_the_ocean', 'spartan_training', 'fertility_improvement'];
-
   const RECRUIT_SPELL_GODS = {
     call_of_the_ocean: 'poseidon',
     spartan_training: 'ares',
     fertility_improvement: 'hera',
+  };
+  const RECRUIT_SPELL_COSTS = {
+    call_of_the_ocean: 60,
+    fertility_improvement: 80,
+    spartan_training: 80,
+  };
+  const RECRUIT_AUTO_SPELL_BY_CONTROLLER = {
+    building_barracks: 'fertility_improvement',
+    building_docks: 'call_of_the_ocean',
   };
   function recruitControllerFor(unitId) {
     const def = gbGameDataLookup("units", unitId);
@@ -14857,21 +16826,39 @@ const STORE = {
     if (recruitIsNaval(unitId)) return { controller: 'building_docks', feature: 'recruit' };
     return { controller: 'building_barracks', feature: 'recruit' };
   }
-  function recruitHasSpell(townId, powerId) {
+  function recruitSpellActiveState(townId, powerId) {
     try {
       const uw = gameUw();
       const col = uw.MM && uw.MM.getFirstTownAgnosticCollectionByName &&
         uw.MM.getFirstTownAgnosticCollectionByName('CastedPowers');
-      const frag = col && col.fragments && col.fragments[townId];
-      const models = (frag && frag.models) || [];
-      return models.some(m => {
-        const pid = (m.attributes || {}).power_id;
-        if (powerId) return pid === powerId;
-        return RECRUIT_SPELLS.includes(pid);
-      });
-    } catch (_) { return false; }
-  }
+      if (!col) return { known:false, active:false, source:'collection-unreadable' };
+      const tid = String(townId);
+      const candidates = [];
+      let townSurfaceKnown = false;
+      const fragments = col.fragments || null;
+      const frag = fragments && (fragments[townId] || fragments[tid]);
 
+      if (fragments && typeof fragments === 'object') townSurfaceKnown = true;
+      if (frag && Array.isArray(frag.models)) candidates.push(...frag.models);
+      if (Array.isArray(col.models)) {
+        for (const m of col.models) {
+          const a = (m && m.attributes) || {};
+          const mt = a.town_id ?? a.target_id ?? a.target_town_id ?? a.townId;
+          if (mt != null && String(mt) === tid) {
+            townSurfaceKnown = true;
+            candidates.push(m);
+          }
+        }
+      }
+      if (!townSurfaceKnown) return { known:false, active:false, source:'town-powers-unreadable' };
+      const active = candidates.some(m => String(((m && m.attributes) || {}).power_id || '') === String(powerId || ''));
+      return { known:true, active, source:'CastedPowers' };
+    } catch (_) { return { known:false, active:false, source:'exception' }; }
+  }
+  function recruitHasSpell(townId, powerId) {
+    const st = recruitSpellActiveState(townId, powerId);
+    return st.known && st.active;
+  }
   function recruitSpellCooldown(townId, powerId) {
     const map = state.spellCooldown || (state.spellCooldown = {});
     const t = map[String(townId)] || (map[String(townId)] = {});
@@ -14885,16 +16872,36 @@ const STORE = {
     try { save(STORE.SPELL_COOLDOWN, state.spellCooldown); } catch (_) {}
   }
   function recruitSpellGateOk(townId, powerId) {
-    if (!powerId || !RECRUIT_SPELLS.includes(powerId)) return { ok: false, why: 'bad-power' };
-    const academy = gbBuildingLevel(townId, 'academy');
-    if (academy != null && academy < 1) return { ok: false, why: 'no-academy' };
-
+    if (!powerId || !RECRUIT_SPELLS.includes(powerId)) return { ok:false, blind:false, why:'bad-power' };
     const god = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
-    if (god == null) return { ok: true, blind: true, why: null };
-
+    if (god == null) return { ok:false, blind:true, why:'god-unreadable' };
     const need = RECRUIT_SPELL_GODS[powerId];
-    if (need && god !== need) return { ok: false, why: `god-mismatch:${god}!=${need}` };
-    return { ok: true, blind: false, why: null };
+    if (need && god !== need) return { ok:false, blind:false, why:`god-mismatch:${god}!=${need}` };
+    return { ok:true, blind:false, why:null };
+  }
+  function recruitAutoSpellForUnit(unitId) {
+    const ctrl = recruitControllerFor(unitId);
+    return ctrl ? (RECRUIT_AUTO_SPELL_BY_CONTROLLER[ctrl.controller] || null) : null;
+  }
+
+  function recruitAutoSpellDecision(townId, unitId) {
+    const power = recruitAutoSpellForUnit(unitId);
+    if (!power || !state.recruitSpells || state.safeMode) return { action:'proceed', power, why:'disabled' };
+    const active = recruitSpellActiveState(townId, power);
+    if (active.known && active.active) return { action:'proceed', power, why:'already-active' };
+
+    if (!active.known) return { action:'proceed', power, why:'active-unreadable' };
+    if (captchaPausedAny('recruit', 'spell')) return { action:'proceed', power, why:'spell-paused' };
+    const gate = recruitSpellGateOk(townId, power);
+    if (!gate.ok) return { action:'proceed', power, why:gate.why || 'spell-unavailable' };
+    const left = recruitSpellCooldown(townId, power);
+    if (left > 0) return { action:'proceed', power, why:'spell-cooldown', left };
+    const god = RECRUIT_SPELL_GODS[power];
+    const favor = recruitFavorRead(townId, god);
+    const cost = +RECRUIT_SPELL_COSTS[power] || 0;
+    if (favor.value == null) return { action:'proceed', power, why:'favor-unreadable', cost };
+    if (favor.value < cost) return { action:'proceed', power, why:'insufficient-favor', favor:favor.value, cost };
+    return { action:'cast', power, god, favor:favor.value, cost };
   }
   function spellCastPost(townId, powerId, onDone) {
     return bridgePost('spell', {
@@ -14967,6 +16974,218 @@ const STORE = {
     return [];
   }
   const _recruitBlindLog = new Set();
+  function recruitFinite(v) {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    if (typeof v === 'string' && v.trim() !== '') {
+      const n = +v;
+      return Number.isFinite(n) ? n : null;
+    }
+    return null;
+  }
+  function recruitNumericFrom(v) {
+    const direct = recruitFinite(v);
+    if (direct != null) return direct;
+    if (!v || typeof v !== 'object') return null;
+    const a = v.attributes || v;
+    for (const k of ['favor','current','amount','value','points','available','free']) {
+      const n = recruitFinite(a[k]);
+      if (n != null) return n;
+    }
+    return null;
+  }
+  function recruitLiveResources(townId) {
+    const t = gbTownModel(townId);
+    const out = { wood:null, stone:null, iron:null, source:'unreadable' };
+    if (!t) return out;
+    const bags = [];
+    try {
+      const r = typeof t.resources === 'function' ? t.resources() : t.resources;
+      if (r) bags.push(['town.resources', r.attributes || r]);
+    } catch (_) {}
+    try {
+      const r = typeof t.getResources === 'function' ? t.getResources() : null;
+      if (r) bags.push(['town.getResources', r.attributes || r]);
+    } catch (_) {}
+    try { if (t.attributes) bags.push(['town.attributes', t.attributes]); } catch (_) {}
+    for (const [source, bag] of bags) {
+      let hit = false;
+      for (const k of ['wood','stone','iron']) {
+        if (out[k] != null) continue;
+        const n = recruitFinite(bag && bag[k]);
+        if (n != null) { out[k] = n; hit = true; }
+      }
+      if (hit && out.source === 'unreadable') out.source = source;
+      if (out.wood != null && out.stone != null && out.iron != null) break;
+    }
+    return out;
+  }
+  function recruitLivePopulation(townId) {
+    const t = gbTownModel(townId);
+    if (!t) return { value:null, source:'town-unreadable' };
+    for (const name of ['getAvailablePopulation','getFreePopulation']) {
+      try {
+        if (typeof t[name] === 'function') {
+          const n = recruitFinite(t[name]());
+          if (n != null) return { value:n, source:'town.' + name };
+        }
+      } catch (_) {}
+    }
+    try {
+      const r = typeof t.resources === 'function' ? t.resources() : t.resources;
+      const a = r && (r.attributes || r);
+      for (const k of ['population','available_population','population_available','free_population','population_free']) {
+        const n = recruitFinite(a && a[k]);
+        if (n != null) return { value:n, source:'town.resources.' + k };
+      }
+    } catch (_) {}
+    try {
+      const a = t.attributes || {};
+      for (const k of ['available_population','population_available','free_population','population_free']) {
+        const n = recruitFinite(a[k]);
+        if (n != null) return { value:n, source:'town.attributes.' + k };
+      }
+    } catch (_) {}
+    try {
+      const n = gbTownPop(townId);
+      if (n != null && Number.isFinite(+n)) return { value:+n, source:'gbTownPop' };
+    } catch (_) {}
+    return { value:null, source:'population-unreadable' };
+  }
+  function recruitFavorRead(townId, god) {
+    const g = String(god || '').toLowerCase();
+    if (!g) return { value:null, source:'god-unreadable' };
+    const townGod = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
+    const readBag = (bag, source) => {
+      if (!bag || typeof bag !== 'object') return null;
+      const a = bag.attributes || bag;
+      const keys = [g, 'favor_' + g, g + '_favor', 'current_' + g, 'current_favor_' + g];
+      for (const k of keys) {
+        const n = recruitNumericFrom(a[k]);
+        if (n != null) return { value:n, source:source + '.' + k };
+      }
+      for (const ck of ['favor','favors','gods','god_favor','god_favors']) {
+        const c = a[ck];
+        if (!c || typeof c !== 'object') continue;
+        const n = recruitNumericFrom(c[g] ?? c['favor_' + g]);
+        if (n != null) return { value:n, source:source + '.' + ck + '.' + g };
+      }
+      if (townGod && townGod === g) {
+        for (const k of ['favor','current_favor','currentFavor']) {
+          const n = recruitFinite(a[k]);
+          if (n != null) return { value:n, source:source + '.' + k };
+        }
+      }
+      return null;
+    };
+    try {
+      const hit = readBag(favorCurrent(), 'favorCurrent');
+      if (hit) return hit;
+    } catch (_) {}
+    try {
+      const uw = gameUw();
+      const pg = uw.MM && uw.MM.getModelByNameAndPlayerId && uw.MM.getModelByNameAndPlayerId('PlayerGods');
+      const hit = readBag(pg, 'PlayerGods');
+      if (hit) return hit;
+      if (pg && typeof pg.get === 'function') {
+        for (const k of [g, 'favor_' + g, g + '_favor']) {
+          const n = recruitNumericFrom(pg.get(k));
+          if (n != null) return { value:n, source:'PlayerGods.get.' + k };
+        }
+      }
+    } catch (_) {}
+    try {
+      const uw = gameUw();
+      const hit = readBag(uw.Game && uw.Game.gods, 'Game.gods');
+      if (hit) return hit;
+    } catch (_) {}
+    return { value:null, source:'favor-unreadable' };
+  }
+  function recruitRuntimeEffectiveCost(townId, unitId, def) {
+    const t = gbTownModel(townId);
+    const normalize = (raw, source) => {
+      if (!raw || typeof raw !== 'object') return null;
+      const a = raw.attributes || raw.effective || raw.cost || raw;
+      if (!a || typeof a !== 'object') return null;
+      const out = { wood:null, stone:null, iron:null, favor:null, population:null, fieldKnown:{}, authoritative:true, effective:true, base:null, modifier:null, source };
+      let any = false;
+      for (const k of ['wood','stone','iron','favor','population']) {
+        let present = false, value = null;
+        for (const key of [k, k + '_cost', 'effective_' + k]) {
+          if (!Object.prototype.hasOwnProperty.call(a, key)) continue;
+          present = true;
+          const n = Number(a[key]);
+          if (Number.isFinite(n) && n >= 0) value = n;
+          break;
+        }
+        out.fieldKnown[k] = present && value != null;
+        out[k] = out.fieldKnown[k] ? value : null;
+        if (out.fieldKnown[k]) any = true;
+      }
+
+      return any ? out : null;
+    };
+    try {
+      for (const name of ['getEffectiveRecruitmentCost','getRecruitmentCost','getRecruitCost','getUnitCost']) {
+        if (t && typeof t[name] === 'function') {
+          const hit = normalize(t[name](unitId), name + '()');
+          if (hit) return hit;
+        }
+      }
+    } catch (_) {}
+    try {
+      const bag = t && (t.recruitment || t.recruit || t.attributes && (t.attributes.recruitment || t.attributes.recruit));
+      const hit = normalize(bag && (bag[unitId] || bag), 'town.runtime.recruitment');
+      if (hit) return hit;
+    } catch (_) {}
+    return null;
+  }
+  function recruitRuntimeMaxAmount(townId, unitId) {
+    const t = gbTownModel(townId);
+    for (const name of ['getMaxRecruitableUnits','getMaxRecruitable','getMaxUnitAmount','getMaxBuildableUnits']) {
+      try {
+        if (!t || typeof t[name] !== 'function') continue;
+        const raw = t[name](unitId);
+        const n = Number(raw && typeof raw === 'object' ? (raw.amount ?? raw.max ?? raw.value) : raw);
+        if (Number.isFinite(n) && n >= 0) return { known:true, amount:Math.floor(n), source:name + '()' };
+      } catch (_) {}
+    }
+    return { known:false, amount:null, source:'max-recruitable-unreadable' };
+  }
+  function recruitEffectiveUnitCost(townId, unitId) {
+    const def = gbGameDataLookup('units', unitId);
+    if (!def || !def.resources) return null;
+    const rr = def.resources || {};
+    const base = {
+      wood:gbNum(rr.wood),
+      stone:gbNum(rr.stone),
+      iron:gbNum(rr.iron),
+      population:gbNum(def.population),
+      favor:gbNum(def.favor ?? rr.favor),
+    };
+    const runtime = recruitRuntimeEffectiveCost(townId, unitId, def);
+    if (runtime) {
+      runtime.base = base;
+      return runtime;
+    }
+
+    return {
+      wood:base.wood, stone:base.stone, iron:base.iron, population:base.population, favor:base.favor,
+      fieldKnown:{ wood:false, stone:false, iron:false, population:false, favor:false },
+      authoritative:false, effective:false, base, modifier:null, source:'gamedata-base-advisory',
+    };
+  }
+  function recruitCostFieldKnown(cost, key) {
+    const v = cost ? gbNum(cost[key]) : null;
+    return !!(cost && cost.authoritative === true && cost.fieldKnown && cost.fieldKnown[key] === true && v != null && v >= 0);
+  }
+  function recruitDisplayCost(cost, key) {
+    if (!cost) return null;
+    const v = gbNum(cost[key]);
+    if (v != null) return v;
+    const b = cost.base ? gbNum(cost.base[key]) : null;
+    return b;
+  }
+  try { GB_ROOT.__grepbotRecruitEffectiveCost = recruitEffectiveUnitCost; } catch (_) {}
   function recruitCanBuild(townId, unitId) {
     const def = gbGameDataLookup("units", unitId);
     if (!def) return false;
@@ -14977,7 +17196,6 @@ const STORE = {
       if (rdeps.length) {
         const info = typeof researchTownTechs === 'function' ? researchTownTechs(townId) : null;
         if (!info || !info.techs) {
-
           const k = townId + '|' + unitId + '|tech';
           if (!_recruitBlindLog.has(k)) { _recruitBlindLog.add(k); gbLogT('recruit-blind-' + townId + '-' + unitId, 300000, 'recruit: ' + unitId + ' techs unreadable in town ' + townId + ' - blind precheck, server judges'); }
           return true;
@@ -14987,13 +17205,13 @@ const STORE = {
       let buildings = null;
       try { const b = t.getBuildings ? t.getBuildings() : (t.buildings && t.buildings()); buildings = b && (b.attributes || b); } catch (_) {}
       if (!buildings) {
-
         const k = townId + '|' + unitId + '|bld';
         if (!_recruitBlindLog.has(k)) { _recruitBlindLog.add(k); gbLogT('recruit-blind-' + townId + '-' + unitId, 300000, 'recruit: ' + unitId + ' buildings unreadable in town ' + townId + ' - blind precheck, server judges'); }
         return true;
       }
       const bdeps = recruitRequiredBuildings(def);
       for (const [bid, lvl] of Object.entries(bdeps)) if (+(buildings[bid] || 0) < +lvl) return false;
+      const isMythical = !!(def.god || def.mythical || def.is_mythical || mythicalUnitGod(unitId));
       if (recruitIsNaval(unitId)) {
         const docksNeed = +(def.docks_level ?? def.harbor_level ?? def.required_docks_level ?? 1);
         if (+(buildings.docks || 0) < (Number.isFinite(docksNeed) ? docksNeed : 1)) return false;
@@ -15001,150 +17219,144 @@ const STORE = {
         const barracksNeed = +(def.barracks_level ?? def.required_barracks_level ?? 1);
         if (+(buildings.barracks || 0) < (Number.isFinite(barracksNeed) ? barracksNeed : 1)) return false;
       }
-
-      if (def.god || def.god_id || def.mythical || def.is_mythical) {
-
-        let requiredGod = (def.god || def.god_id) ? String(def.god || def.god_id).toLowerCase() : null;
-        if (!requiredGod && typeof mythicalUnitGod === 'function') {
-          requiredGod = mythicalUnitGod(unitId);
-        }
-        const townGod = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
-
-        if (requiredGod && townGod && townGod !== requiredGod) return false;
-        if (requiredGod && !townGod) {
-          gbLogT('recruit-god-blind-' + townId, 300000,
-            `recruit: town ${townId} god unreadable; ${unitId} left to the server to judge`);
+      if (isMythical) {
+        const requiredGod = (def.god ? String(def.god).toLowerCase() : null) || mythicalUnitGod(unitId);
+        const townGod2 = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
+        if (requiredGod && townGod2 && townGod2 !== requiredGod) return false;
+        if (requiredGod && !townGod2) {
+          gbLogT('recruit-god-blind-' + townId, 300000, `recruit: town ${townId} god unreadable; ${unitId} left to the server to judge`);
         }
         const templeNeed = +(def.temple_level ?? def.required_temple_level ?? 1);
         if (+(buildings.temple || 0) < (Number.isFinite(templeNeed) ? templeNeed : 1)) return false;
-        const favorCost = +(def.favor ?? (def.resources && def.resources.favor) ?? 0);
-        if (favorCost > 0) {
+        const ec = recruitEffectiveUnitCost(townId, unitId);
+        const baseFavor = gbNum(def.favor ?? (def.resources && def.resources.favor));
+        if (baseFavor != null && baseFavor > 0) {
           if (!requiredGod) return false;
-          const fav = favorCurrent();
-          const haveFavor = favorForGod(fav, requiredGod);
-          if (haveFavor == null || haveFavor < favorCost) return false;
+          if (recruitCostFieldKnown(ec, 'favor')) {
+            const favorCost = +ec.favor;
+            const fr = recruitFavorRead(townId, requiredGod);
+            if (fr.value != null && fr.value < favorCost) return false;
+            if (fr.value == null) gbLogT('recruit-favor-blind-' + townId + '-' + requiredGod, 120000,
+              `recruit: ${requiredGod} favor balance unreadable for ${unitId}; server judges`);
+          } else {
+            gbLogT('recruit-favor-cost-blind-' + townId + '-' + unitId, 120000,
+              `recruit: effective favor cost unreadable for ${unitId}; UNKNOWN, server authoritative`);
+          }
         }
       }
       return true;
     } catch (_) { return false; }
   }
+  function recruitQueueClass(def, unitId) {
+    if (!def) return 'unknown';
 
-  function recruitQueueMax() {
+    if (recruitIsNaval(unitId || def.id)) return 'naval';
+    return 'land';
+  }
+  function recruitQueueDomCapacity(townId, unitId) {
     try {
       const uw = gameUw();
-      const q = uw.GameDataConstructionQueue;
-      if (q && typeof q.getUnitOrdersQueueLength === 'function') {
-        const n = +q.getUnitOrdersQueueLength();
-        if (Number.isFinite(n) && n > 0) return n;
-      }
-    } catch (_) {}
-    return 7;
-  }
-  function recruitQueueBuilding(unitId) {
-    return recruitIsNaval(unitId) ? 'docks' : 'barracks';
-  }
-  function recruitQueueInfo(townId, unitId) {
-    const t = gbTownModel(townId);
-    const max = recruitQueueMax();
-    if (!t) return { known: false, len: 0, max, models: [] };
-    let col = null;
-    try { col = t.getUnitOrdersCollection && t.getUnitOrdersCollection(); } catch (_) {}
-    if (!col) return { known: false, len: 0, max, models: [] };
-    const naval = unitId ? recruitIsNaval(unitId) : null;
-    const building = naval == null ? null : (naval ? 'docks' : 'barracks');
-
-    try {
-      if (naval === true && typeof col.getNavalUnitOrdersCount === 'function') {
-        const c = +col.getNavalUnitOrdersCount();
-        if (Number.isFinite(c) && c >= 0) {
-          let models = [];
-          try {
-            if (typeof col.getNavalUnitOrders === 'function') {
-              const o = col.getNavalUnitOrders();
-              if (o && typeof o.length === 'number')
-                models = Array.isArray(o) ? o.slice() : Array.prototype.slice.call(o);
-            }
-          } catch (_) {}
-          return { known: true, len: c, max, models };
-        }
-      }
-      if (naval === false && typeof col.getGroundUnitOrdersCount === 'function') {
-        const c = +col.getGroundUnitOrdersCount();
-        if (Number.isFinite(c) && c >= 0) {
-          let models = [];
-          try {
-            if (typeof col.getGroundUnitOrders === 'function') {
-              const o = col.getGroundUnitOrders();
-              if (o && typeof o.length === 'number')
-                models = Array.isArray(o) ? o.slice() : Array.prototype.slice.call(o);
-            }
-          } catch (_) {}
-          return { known: true, len: c, max, models };
+      if (!uw.Game || String(uw.Game.townId) !== String(townId)) return null;
+      const wantClass = recruitQueueClass(gbGameDataLookup('units', unitId), unitId);
+      const windows = Array.from(document.querySelectorAll('.gpwindow, .ui-dialog, [class*="gpwindow"]'));
+      const classRx = wantClass === 'naval'
+        ? /(puerto|port|harbor|docks|hafen|porto)/i
+        : /(cuartel|barracks|kaserne|caserne|caserma|quartel)/i;
+      const countRx = /(?:entrenamiento|training|ausbildung|entrainement|entra\u00eenement|addestramento|treinamento)?\s*\(\s*(\d+)\s*\/\s*(\d+)\s*\)/i;
+      for (const el of windows) {
+        const text = String(el && el.textContent || '');
+        if (!classRx.test(text)) continue;
+        const m = countRx.exec(text);
+        if (!m) continue;
+        const len = +m[1], max = +m[2];
+        if (Number.isFinite(len) && Number.isFinite(max) && max > 0 && len >= 0 && len <= max && max <= 50) {
+          return { len, max, source:'dom-training-counter' };
         }
       }
     } catch (_) {}
-
-    if (building && typeof col.getCount === 'function') {
+    return null;
+  }
+  function recruitQueueMaxProbe(col, townId, unitId) {
+    const methodNames = ['getMaxQueueLength','getMaxQueueSize','getQueueMax','getMaxOrders','getMaxOrderCount','getQueueLimit'];
+    for (const name of methodNames) {
       try {
-        const c = +col.getCount(building);
-        if (Number.isFinite(c) && c >= 0) {
-          let models = [];
-          try {
-            if (typeof col.getOrders === 'function') {
-              const o = col.getOrders(building);
-              if (Array.isArray(o)) models = o.slice();
-              else if (o && typeof o.length === 'number') models = Array.prototype.slice.call(o);
-            }
-          } catch (_) {}
-          return { known: true, len: c, max, models };
-        }
-      } catch (_) {}
-    }
-    if (building && typeof col.getOrders === 'function') {
-      try {
-        const o = col.getOrders(building);
-        if (Array.isArray(o)) return { known: true, len: o.length, max, models: o.slice() };
-        if (o && typeof o.length === 'number') {
-          const models = Array.prototype.slice.call(o);
-          return { known: true, len: models.length, max, models };
-        }
-      } catch (_) {}
-    }
-    if (typeof col.getAllOrders === 'function') {
-      try {
-        let all = col.getAllOrders();
-        if (all && typeof all.length === 'number') {
-          all = Array.isArray(all) ? all.slice() : Array.prototype.slice.call(all);
-          if (building) {
-            all = all.filter(m => {
-              try {
-                return typeof m.getProductionBuildingType === 'function'
-                  && m.getProductionBuildingType() === building;
-              } catch (_) { return false; }
-            });
+        if (col && typeof col[name] === 'function') {
+          for (const args of [[], [townId], [townId, unitId]]) {
+            const n = recruitFinite(col[name].apply(col, args));
+            if (n != null && n > 0 && n <= 50) return { max:n, source:'collection.' + name };
           }
-          return { known: true, len: all.length, max, models: all };
         }
       } catch (_) {}
     }
-
+    const attrNames = ['max_queue_length','maxQueueLength','max_queue_size','maxQueueSize','queue_max','queueMax','max_orders','maxOrders','queue_limit','queueLimit'];
+    for (const name of attrNames) {
+      try {
+        let raw = null;
+        if (col && typeof col.get === 'function') raw = col.get(name);
+        if (raw == null && col) raw = col[name];
+        if (raw == null && col && col.attributes) raw = col.attributes[name];
+        const n = recruitFinite(raw);
+        if (n != null && n > 0 && n <= 50) return { max:n, source:'collection.' + name };
+      } catch (_) {}
+    }
     try {
-      if (!Array.isArray(col.models)) return { known: false, len: 0, max, models: [] };
-      let models = col.models.slice();
-      if (unitId) {
-        const wantNaval = recruitIsNaval(unitId);
-        models = models.filter(m => {
-          const a = m.attributes || m;
-          let pbt = null;
-          try { if (typeof m.getProductionBuildingType === 'function') pbt = m.getProductionBuildingType(); } catch (_) {}
-          if (pbt === 'docks' || pbt === 'barracks') return (pbt === 'docks') === wantNaval;
-          const id = a.unit_type || a.unit_id || a.type;
-          if (!id) return false;
-          return recruitIsNaval(id) === wantNaval;
-        });
+      const uw = gameUw();
+      const objs = [
+
+        ['GameDataConstructionQueue', uw.GameDataConstructionQueue],
+        ['GameDataUnitQueue', uw.GameDataUnitQueue],
+        ['GameDataUnits', uw.GameDataUnits],
+        ['GameData.unit_queue', uw.GameData && uw.GameData.unit_queue],
+        ['GameData.unit_orders', uw.GameData && uw.GameData.unit_orders],
+      ];
+      for (const [label, obj] of objs) {
+        if (!obj) continue;
+        for (const name of ['getUnitOrdersQueueLength','getQueueMax','getMaxQueueLength','getMaxQueueSize','getMaxOrders','getQueueLimit']) {
+          if (typeof obj[name] !== 'function') continue;
+          for (const args of [[townId], [townId, unitId], []]) {
+            try {
+              const n = recruitFinite(obj[name].apply(obj, args));
+              if (n != null && n > 0 && n <= 50) return { max:n, source:label + '.' + name };
+            } catch (_) {}
+          }
+        }
       }
-      return { known: true, len: models.length, max, models };
-    } catch (_) { return { known: false, len: 0, max, models: [] }; }
+    } catch (_) {}
+    const dom = recruitQueueDomCapacity(townId, unitId);
+    if (dom) return { max:dom.max, source:dom.source, domLen:dom.len };
+    return { max:null, source:'capacity-unreadable' };
+  }
+  function recruitQueueInfo(townId,unitId) {
+    const t = gbTownModel(townId);
+    if (!t) return { known:false, len:0, max:null, models:[], queueClass:'unknown', capacitySource:'town-unreadable' };
+    let col = null, models = [];
+    try {
+      col = t.getUnitOrdersCollection && t.getUnitOrdersCollection();
+      if (!col || !Array.isArray(col.models)) return {known:false,len:0,max:null,models:[],queueClass:'unknown',capacitySource:'collection-unreadable'};
+      models = col.models.slice();
+    } catch (_) {
+      return {known:false,len:0,max:null,models:[],queueClass:'unknown',capacitySource:'collection-unreadable'};
+    }
+    const want = unitId ? gbGameDataLookup('units', unitId) : null;
+    const wantClass = unitId ? recruitQueueClass(want, unitId) : 'all';
+    if (unitId) {
+      models = models.filter(m => {
+        const a = m.attributes || m, id = a.unit_type || a.unit_id || a.type, d = gbGameDataLookup('units', id);
+        return !d || recruitQueueClass(d, id) === wantClass;
+      });
+    }
+    const cap = recruitQueueMaxProbe(col, townId, unitId);
+    const len = cap.domLen != null && Number.isFinite(+cap.domLen) ? +cap.domLen : models.length;
+    if (cap.max == null) {
+      const key = `recruit-qcap-${townId}-${wantClass}`;
+      let hints = '';
+      try {
+        const keys = Object.keys((col && (col.attributes || col)) || {}).filter(k => /(queue|order|max|slot)/i.test(k)).slice(0,12);
+        if (keys.length) hints = ` keys=${keys.join(',')}`;
+      } catch (_) {}
+      gbLogT(key, 120000, `recruit: queue capacity unreadable town=${townId} lane=${wantClass} len=${len}; proceeding blind (server authoritative).${hints}`);
+    }
+    return { known:true, len, max:cap.max, models, queueClass:wantClass, capacitySource:cap.source };
   }
   function recruitQueuedAmount(townId, unit) {
     const q = recruitQueueInfo(townId);
@@ -15152,94 +17364,86 @@ const STORE = {
     for (const m of q.models || []) {
       const a = m.attributes || {};
       const uid = a.unit_type || a.unit_id || a.type;
-
-      if (String(uid) === String(unit)) { const q = gbNum(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)); if (q != null) queued += q; }
+      if (String(uid) === String(unit)) queued += +(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)) || 0;
     }
     return queued;
   }
-  function recruitQueueHasSpace(townId, unitId) {
+  function recruitQueueSpace(townId, unitId) {
     const q = recruitQueueInfo(townId, unitId);
-
-    if (!q.known) return true;
-    const max = q.max != null && q.max > 0 ? q.max : recruitQueueMax();
-    return q.len < max;
-  }
-
-  function recruitRefreshWaitingSlotJobs() {
-    const root = nativeQueueRoot();
-    for (const tid of Object.keys(root.towns || {})) {
-      for (const lane of NATIVE_RECRUIT_LANES) {
-        const job = nativeQueueList(tid, lane, false)[0];
-        if (!job || job.status !== 'waiting-slot' || !job.unit) continue;
-        if (job.inflight || job.manualReview) continue;
-        const q = recruitQueueInfo(tid, job.unit);
-        const max = (q.max != null && q.max > 0) ? q.max : recruitQueueMax();
-        if (!q.known || q.len < max) {
-          delete job.slotRetryAt;
-          nativeQueueSetJobState(job, 'pending', 'cola liberada / re-chequeo');
-          continue;
-        }
-
-      }
+    if (!q.known) return { ok:false, full:null, blind:true, why:'queue-unknown', q };
+    if (q.max != null) {
+      const full = q.len >= q.max;
+      return { ok:!full, full, blind:false, why:full?'queue-full':'queue-space', q };
     }
+    return { ok:true, full:null, blind:true, why:'queue-capacity-unreadable', q };
   }
-
-  function recruitResourceFactor(townId, def) {
-    try {
-      const uw = gameUw();
-      const GM = uw.GeneralModifications;
-      if (!GM || typeof GM.getUnitBuildResourcesModification !== 'function' || !def) return 1;
-
-      let unitDef = def;
-      if (def.id && recruitIsNaval(def.id) && !def.is_naval && !def.naval) {
-        unitDef = Object.assign({}, def, { is_naval: true });
+  function recruitQueueHasSpace(townId,unitId) {
+    return recruitQueueSpace(townId,unitId).ok;
+  }
+  function recruitAffordability(townId, unit, want) {
+    const def = gbGameDataLookup('units', unit), desired = Math.max(0, Math.floor(+want || 0));
+    if (!def || !def.resources || !(desired > 0)) return { amount:0, desired, why:'unit-cost-unreadable', blind:['unit-cost-unreadable'], limits:{} };
+    const ec = recruitEffectiveUnitCost(townId, unit);
+    const maxNow = recruitRuntimeMaxAmount(townId, unit);
+    const res = recruitLiveResources(townId);
+    const pop = recruitLivePopulation(townId);
+    let amount = maxNow.known ? Math.min(desired, maxNow.amount) : desired;
+    const blind = [], limits = {};
+    if (!maxNow.known) blind.push('max-recruitable-unreadable');
+    const apply = (name, have, cost, unreadableTag) => {
+      if (!(cost > 0)) return;
+      if (have == null || !Number.isFinite(+have)) { blind.push(unreadableTag); return; }
+      const lim = Math.max(0, Math.floor(+have / cost));
+      limits[name] = { have:+have, cost, max:lim };
+      amount = Math.min(amount, lim);
+    };
+    for (const k of ['wood','stone','iron']) {
+      if (recruitCostFieldKnown(ec, k)) apply(k, res[k], +ec[k], 'resources-unreadable:' + k);
+      else blind.push('effective-cost-unreadable:' + k);
+    }
+    if (recruitCostFieldKnown(ec, 'population')) apply('population', pop.value, +ec.population, 'population-unreadable');
+    else blind.push('effective-cost-unreadable:population');
+    let favor = null;
+    const baseFavor = gbNum(def.favor ?? (def.resources && def.resources.favor));
+    if (baseFavor != null && baseFavor > 0) {
+      const god = (def.god && String(def.god).toLowerCase()) || mythicalUnitGod(unit);
+      if (!god) blind.push('favor-unreadable:god');
+      else if (recruitCostFieldKnown(ec, 'favor')) {
+        favor = recruitFavorRead(townId, god);
+        apply('favor', favor.value, +ec.favor, 'favor-unreadable:' + god);
+      } else blind.push('effective-cost-unreadable:favor');
+    }
+    amount = Math.max(0, Math.floor(amount));
+    let limiting = null;
+    if (amount < desired) {
+      for (const k of ['wood','stone','iron','population','favor']) {
+        if (limits[k] && limits[k].max === amount) { limiting = k; break; }
       }
-      const f = gbNum(GM.getUnitBuildResourcesModification(+townId, unitDef));
-      if (f != null && f > 0) return f;
-    } catch (_) {}
-    return 1;
+      if (!limiting && maxNow.known && maxNow.amount === amount) limiting = 'runtime-max';
+    }
+    const why = limiting === 'population' ? 'waiting-population'
+      : limiting === 'runtime-max' ? 'waiting-runtime-max'
+      : limiting ? ('waiting-' + limiting)
+      : (blind.length ? blind[0] : 'ready');
+    return { amount, desired, why, limiting, blind:[...new Set(blind)], limits, resources:res, population:pop, favor, effectiveCost:ec, maxRecruitable:maxNow };
   }
   function recruitAffordableAmount(townId, unit, want) {
-    const def = gbGameDataLookup("units", unit), t = gbTownModel(townId);
-    if (!def || !t || !def.resources) return 0;
-    try {
-      const r = t.resources && t.resources();
-
-      const pop = t.getAvailablePopulation && gbNum(t.getAvailablePopulation());
-      if (!r || pop == null) return 0;
-      const factor = recruitResourceFactor(townId, Object.assign({ id: unit }, def));
-      const rw = (gbNum(def.resources.wood) || 0) * factor;
-      const rs = (gbNum(def.resources.stone) || 0) * factor;
-      const ri = (gbNum(def.resources.iron) || 0) * factor;
-      const rp = gbNum(def.population) || 0;
-      let amount = Math.max(0, gbNum(want) || 0);
-      const rWood = gbNum(r.wood), rStone = gbNum(r.stone), rIron = gbNum(r.iron);
-      if (rw > 0 && rWood != null) amount = Math.min(amount, Math.floor(rWood / rw));
-      if (rs > 0 && rStone != null) amount = Math.min(amount, Math.floor(rStone / rs));
-      if (ri > 0 && rIron != null) amount = Math.min(amount, Math.floor(rIron / ri));
-      if (rp > 0) amount = Math.min(amount, Math.floor(pop / rp));
-      const favorCost = gbNum(def.favor ?? def.resources.favor) || 0;
-      if (favorCost > 0) {
-
-        let god = (def.god || def.god_id) && String(def.god || def.god_id).toLowerCase();
-        if (!god && typeof mythicalUnitGod === 'function') god = mythicalUnitGod(unit);
-        const fav = favorCurrent();
-        const have = god ? favorForGod(fav, god) : null;
-        if (have == null) return 0;
-        amount = Math.min(amount, Math.floor(have / favorCost));
-      }
-      return Math.max(0, Math.floor(amount));
-    } catch (_) { return 0; }
+    return recruitAffordability(townId, unit, want).amount;
   }
   function recruitValidateJob(job) {
-    if (!recruitCanBuild(job.townId, job.unit)) return { ok: false, why: 'requirements' };
-
-    const amount = recruitAffordableAmount(job.townId, job.unit, job.amount);
-    if (!(amount > 0)) return { ok: false, why: 'resources/pop/favor' };
-    return { ok: true, amount: Math.min(amount, job.amount) };
+    if (!recruitCanBuild(job.townId, job.unit)) return { ok:false, why:'requirements' };
+    const qs = recruitQueueSpace(job.townId, job.unit);
+    if (!qs.ok) return { ok:false, why:qs.why, queue:qs.q, blind:qs.blind };
+    const af = recruitAffordability(job.townId, job.unit, job.amount);
+    if (!(af.amount > 0)) return { ok:false, why:af.why || 'resources-unavailable', affordability:af, queue:qs.q };
+    return { ok:true, amount:Math.min(af.amount, job.amount), why:af.why, affordability:af, queue:qs.q, blind:qs.blind || af.blind.length > 0 };
   }
   let recruitNativeCursor=0,recruitLegacyCursor=0;
   function recruitRotate(ids,cursor){if(!ids.length)return ids;const at=Math.max(0,cursor%ids.length);return ids.slice(at).concat(ids.slice(0,at))}
+  function recruitLockName(townId, unit) {
+    const lane = nativeRecruitLane(unit);
+    return `recruit:${String(townId)}:${lane === 'recruitNaval' ? 'docks' : 'barracks'}`;
+  }
 
   let recruitScanGodCache = null;
   function recruitScanResetMemo() {
@@ -15253,45 +17457,16 @@ const STORE = {
     return g;
   }
   function recruitScan(reason) {
-    const nativePending = nativeRecruitPending();
-    if (!hostEnabled() || (!state.autoRecruit && !nativePending) || captchaPaused('recruit')) return;
-
-    try { recruitRefreshWaitingSlotJobs(); } catch (_) {}
+    const nativePending = nativeRecruitPending(), cdPending = cityDesignerHasExecutableWork('recruit');
+    if (!hostEnabled() || (!state.autoRecruit && !nativePending && !cdPending) || captchaPaused('recruit')) return;
     if (automationPaused({})) return;
-    if (gbLocked('recruit')) return;
 
-    const farmHold = typeof farmClaimPending === 'function' && !!state.autoFarm
-      && !captchaPaused('farm') && farmClaimPending();
-    if (farmHold && !nativePending) {
-      gbLogT('farm-first-recruit', 300000, 'recruit: held - farming village claim pending (farm-first)');
-      return;
-    }
-    let nativeFarmBudgetHold = false;
-    if (farmHold && nativePending) {
-      const claimBusy = typeof gbLocked === 'function' && gbLocked('claim');
-      let softMs = 0;
-      try { softMs = typeof reqBudgetSoftDelayMs === 'function' ? gbNum(reqBudgetSoftDelayMs()) || 0 : 0; } catch (_) {}
-      let used = 0, cap = 0;
-      try {
-        used = typeof reqBudgetUsed === 'function' ? gbNum(reqBudgetUsed('action')) || 0 : 0;
-        cap = typeof reqBudgetCap === 'function' ? gbNum(reqBudgetCap('action')) || 0 : 0;
-      } catch (_) {}
-
-      const budgetTight = softMs > 0 || (cap > 0 && used >= Math.floor(cap * 0.75));
-      nativeFarmBudgetHold = !!(claimBusy || budgetTight);
-      if (nativeFarmBudgetHold) {
-        gbLogT('farm-first-recruit-budget', 60000,
-          `recruit: native FIFO deferred \u2014 farm claim owns budget (claimLock=${claimBusy ? 1 : 0} softMs=${softMs} action=${used}/${cap})`);
-      } else {
-        gbLogT('farm-first-recruit-native', 300000,
-          'recruit: farm-first active \u2014 native FIFO still runs, legacy goals held');
-      }
-    }
     recruitScanResetMemo();
     const targets = goalEffectiveRecruitTargets();
+    for(const tid of Object.keys(targets))if(nativeQueuePlannerOwnsTown(tid))nativeQueueClearForPlanner(tid,'recruit-scan',true);
 
-    const explicitIds=Object.keys(nativeQueueRoot().towns).filter(id=>NATIVE_RECRUIT_LANES.some(l=>nativeQueueIsFifo(id,l)&&nativeQueueList(id,l,false).length));
-    const legacyIds=Object.keys(targets).filter(id=>!NATIVE_RECRUIT_LANES.every(l=>nativeQueueIsFifo(id,l)));
+    const explicitIds=Object.keys(nativeQueueRoot().towns).filter(id=>!nativeQueuePlannerOwnsTown(id)&&NATIVE_RECRUIT_LANES.some(l=>nativeQueueIsFifo(id,l)&&nativeQueueList(id,l,false).length));
+    const legacyIds=Object.keys(targets).filter(id=>(state.autoRecruit||cdIsProfile(goalTownCfg(id).profile))&&(nativeQueuePlannerOwnsTown(id)||!NATIVE_RECRUIT_LANES.every(l=>nativeQueueIsFifo(id,l))));
     const townIds=recruitRotate(explicitIds,recruitNativeCursor++).concat(recruitRotate(legacyIds,recruitLegacyCursor++)).filter((id,i,a)=>a.indexOf(id)===i);
     if (!townIds.length) {
       gbLogT('recruit-empty', 300000, 'recruit: no town targets configured');
@@ -15301,38 +17476,45 @@ const STORE = {
     let job = null;
     for (const tid of townIds) {
       for (const lane of NATIVE_RECRUIT_LANES) {
-        if (!nativeQueueIsFifo(tid, lane)) continue;
-        const explicit = nativeQueueRecruitHead(tid, lane);
-        if (!explicit) continue;
+        if (nativeQueuePlannerOwnsTown(tid) || !nativeQueueIsFifo(tid, lane)) continue;
+        const explicitJobs = nativeQueueRecruitCandidates(tid, lane);
+        for (const explicit of explicitJobs) {
+          const qspace = recruitQueueSpace(tid, explicit.unit);
+          if (!qspace.ok) {
+            nativeQueueSetJobState(explicit, qspace.full ? 'waiting-slot' : 'queue-unknown',
+              qspace.full ? `cola real llena (${qspace.q.len}/${qspace.q.max})` : 'cola real no legible');
 
-        const qInfo = recruitQueueInfo(tid, explicit.unit);
-        const qMax = (qInfo.max != null && qInfo.max > 0) ? qInfo.max : recruitQueueMax();
-        const clientSaidFull = qInfo.known && qInfo.len >= qMax;
-        if (clientSaidFull) {
-          gbLogT('recruit-slot-soft-' + tid, 60000,
-            `recruit: client says full ${qInfo.len}/${qMax} for ${explicit.unit} @${tid}; posting anyway, server judges`);
-        } else if (!qInfo.known) {
-          gbLogT('recruit-queue-blind-' + tid, 300000,
-            `recruit: unit queue unreadable in town ${tid}; ${explicit.unit} left to the server to judge`);
+            if (qspace.full) break;
+            continue;
+          }
+          if (!recruitCanBuild(tid, explicit.unit) || !recruitControllerFor(explicit.unit)) {
+            nativeQueueSetJobState(explicit, 'blocked', 'requisitos/controlador'); continue;
+          }
+          const totalAmt = +explicit.amount || 0;
+          if (!(totalAmt > 0)) { nativeQueueSetJobState(explicit, 'blocked', 'cantidad inv\u00e1lida'); continue; }
+
+          const cs = +explicit.chunkSize || 0;
+          const postAmt = cs > 0 && cs < totalAmt ? cs : totalAmt;
+
+          const afford = recruitAffordability(tid, explicit.unit, postAmt);
+          if (afford.amount < postAmt) {
+            nativeQueueSetJobState(explicit, afford.why || 'waiting-resources',
+              `${afford.why || 'waiting-resources'}: ${afford.amount}/${postAmt}`);
+
+            continue;
+          }
+          const blindBits = [];
+          if (qspace.blind) blindBits.push(`queue ${qspace.q.len}/?`);
+          if (afford.blind.length) blindBits.push(afford.blind.join(','));
+          nativeQueueSetJobState(explicit, 'ready', blindBits.length ? ('listo; precheck ciego ' + blindBits.join(' | ')) : 'listo');
+          job = { kind:'build', townId:tid, unit:explicit.unit, amount:postAmt, nativeJobId:explicit.id, nativeLane:lane, nativeChunkSize: cs };
+          break;
         }
-        if (!recruitCanBuild(tid, explicit.unit) || !recruitControllerFor(explicit.unit)) {
-          nativeQueueSetJobState(explicit, 'blocked', 'requisitos/controlador'); continue;
-        }
-        const totalAmt = +explicit.amount || 0;
-
-        const cs = +explicit.chunkSize || 0;
-        const postAmt = cs > 0 && cs < totalAmt ? cs : totalAmt;
-
-        const affordable = recruitAffordableAmount(tid, explicit.unit, postAmt);
-        if (affordable < postAmt) { nativeQueueSetJobState(explicit, 'waiting-resources', 'recursos/poblaci\u00f3n/favor'); continue; }
-        nativeQueueSetJobState(explicit, 'ready', nativeFarmBudgetHold ? 'listo (espera aldeas)' : 'listo');
-
-        if (nativeFarmBudgetHold) continue;
-        job = { kind:'build', townId:tid, unit:explicit.unit, amount:postAmt, nativeJobId:explicit.id, nativeLane:lane, nativeChunkSize: cs, clientSaidFull: clientSaidFull || undefined };
-        break;
+        if (job) break;
       }
       if (job) break;
-      if (farmHold) continue;
+
+      if(cdIsProfile(goalTownCfg(tid).profile)&&(!cdBuildDone(tid)||!cdCompositionResearchReady(tid)))continue;
       const want = targets[tid];
       if (!want || typeof want !== 'object') continue;
       let t = null;
@@ -15343,34 +17525,23 @@ const STORE = {
         const tgt = +want[unit] || 0;
         if (!(tgt > 0)) continue;
 
-        if (nativeQueueIsFifo(tid, nativeRecruitLane(unit))) continue;
+        const dynLane=nativeRecruitLane(unit);if(nativeQueuePlannerOwnsTown(tid)){if(nativeQueuePlannerLaneBlocked(tid,dynLane))continue}else if(nativeQueueIsFifo(tid,dynLane))continue;
         if (!recruitCanBuild(tid, unit)) continue;
         if (!recruitControllerFor(unit)) continue;
-
         if (!recruitQueueHasSpace(tid,unit)) continue;
         const cur = +have[unit] || 0;
         const queued = recruitQueuedAmount(tid, unit);
         const need = tgt - cur - queued;
         if (need <= 0) continue;
-        let amount = recruitAffordableAmount(tid, unit, need);
-        if (!(amount > 0)) continue;
-
-        if (state.recruitSpells && !state.safeMode) {
-
-          const rawPower = (state.favorCfg && state.favorCfg.recruitPower) || null;
-          const wantPower = rawPower ? String(rawPower).trim().toLowerCase() : null;
-          if (wantPower && !RECRUIT_SPELLS.includes(wantPower)) {
-            gbLogT('recruit-badpower', 600000, `recruit: unknown spell power id "${rawPower}" - spells idle`);
-          }
-          if (wantPower && RECRUIT_SPELLS.includes(wantPower) && !recruitHasSpell(tid, wantPower)
-              && !captchaPausedAny('recruit', 'spell') && recruitSpellGateOk(tid, wantPower).ok
-              && !recruitSpellCooldown(tid, wantPower)) {
-            job = { kind:'spell', townId:tid, power:wantPower };
-            break;
-          }
+        const affordGoal = recruitAffordability(tid, unit, need);
+        let amount = affordGoal.amount;
+        if (!(amount > 0)) {
+          gbLogT(`recruit-wait-${tid}-${unit}`, 60000, `recruit: town ${tid} ${unit} ${affordGoal.why || 'resources-unavailable'}`);
+          continue;
         }
+
         amount = Math.min(amount, 50);
-        job = { kind: 'build', townId: tid, unit, amount };
+        job = { kind: 'build', townId: tid, unit, amount, cdRevision:cdIsProfile(goalTownCfg(tid).profile)?cdProfileRevision(tid):null };
         break;
       }
       if (job) break;
@@ -15379,30 +17550,44 @@ const STORE = {
       gbLogT('recruit-idle', 180000, `recruit: idle (${scanReason(reason)})`);
       return;
     }
-    const lockToken = gbLock('recruit');
-    if (!lockToken) return;
-    if (job.kind === 'spell') {
-      recruitCastSpell(job.townId, job.power, (err) => {
-        gbUnlock('recruit', lockToken);
-        if (!err) gbLog(`spell: ${job.power} on ${job.townId}`);
-        else if (err === 'timeout_unknown' || err === 'pending') {
-          recruitSpellCooldownStamp(job.townId, job.power);
-          gbLog(`spell: outcome unknown (${err}); cooldown 30min \u2014 favor is irreversible, manual review required`);
-        } else gbLogT('spell-err', 60000, `spell err ${err}`);
+    if(job.cdRevision!=null&&+job.cdRevision!==cdProfileRevision(job.townId)){gbLogT('recruit-cd-stale-'+job.townId,60000,'recruit: city-designer revision changed; stale job dropped');return}
+
+    const spellDecision = recruitAutoSpellDecision(job.townId, job.unit);
+    if (spellDecision.action === 'cast') {
+      const spellLockName = `recruit:${String(job.townId)}:spell`;
+      const spellLock = gbLock(spellLockName, 120000);
+      if (!spellLock) return;
+      recruitCastSpell(job.townId, spellDecision.power, (err) => {
+        gbUnlock(spellLockName, spellLock);
+        if (!err) {
+          recruitSpellCooldownStamp(job.townId, spellDecision.power, 60000);
+          gbLog(`recruit spell: ${spellDecision.power} on ${job.townId}; recruit on next scan`);
+        } else if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {
+          recruitSpellCooldownStamp(job.townId, spellDecision.power);
+          gbLog(`recruit spell: outcome unknown (${err}); next scan recruits without recasting`);
+        } else {
+          recruitSpellCooldownStamp(job.townId, spellDecision.power, 60000);
+          gbLogT('spell-err', 60000, `recruit spell unavailable (${err}); next scan recruits normally`);
+        }
+        gbTimeout(() => { try { recruitScan('spell-fallback'); } catch (_) {} }, 900);
       });
       return;
     }
+    const lockName = recruitLockName(job.townId, job.unit);
+    const lockToken = gbLock(lockName, 120000);
+    if (!lockToken) return;
     const valid = recruitValidateJob(job);
-    if (!valid.ok) { gbUnlock('recruit', lockToken); gbLogT('recruit-stale-' + job.townId, 60000, `recruit: final precheck blocked (${valid.why})`); return; }
+    if (!valid.ok) { gbUnlock(lockName, lockToken); gbLogT('recruit-stale-' + job.townId, 60000, `recruit: final precheck blocked (${valid.why})`); return; }
     if (job.nativeJobId && valid.amount < job.amount) {
-      const head = nativeQueueList(job.townId, job.nativeLane, false)[0];
-      nativeQueueSetJobState(head, 'waiting-resources', 'cantidad completa no asequible');
-      gbUnlock('recruit', lockToken); return;
+      const head = nativeQueueList(job.townId, job.nativeLane, false).find(j=>j&&j.id===job.nativeJobId);
+      const why = (valid.affordability && valid.affordability.why) || 'waiting-resources';
+      nativeQueueSetJobState(head, why, `${why}: ${valid.amount}/${job.amount}`);
+      gbUnlock(lockName, lockToken); return;
     }
     job.amount = valid.amount;
     if (job.nativeJobId) {
-      const head = nativeQueueList(job.townId, job.nativeLane, false)[0];
-      if (!head || head.id !== job.nativeJobId) { gbUnlock('recruit', lockToken); return; }
+      const head = nativeQueueList(job.townId, job.nativeLane, false).find(j=>j&&j.id===job.nativeJobId);
+      if (!head) { gbUnlock(lockName, lockToken); return; }
       head.manualReview=false;
 
       job.nativeToken = nativeQueueId('f');
@@ -15410,22 +17595,23 @@ const STORE = {
       nativeQueueSave();
     }
     recruitBuild(job.townId, job.unit, job.amount, (err) => {
-      gbUnlock('recruit', lockToken);
+      gbUnlock(lockName, lockToken);
       if (!err) {
         gbLog(`recruit: town ${job.townId} ${job.amount}\u00d7 ${job.unit}`);
         if (job.nativeJobId) nativeQueueRecruitApplied(job.townId, job.nativeLane, job.nativeJobId, job.amount, job.nativeToken);
       } else {
         if (job.nativeJobId) {
-          const head = nativeQueueList(job.townId, job.nativeLane, false)[0];
-          if (head && head.id === job.nativeJobId) {
-            head.inflight = null;
-            const ambiguous=err === 'pending' || err === 'timeout_unknown';head.manualReview=ambiguous;
-            nativeQueueSetJobState(head, ambiguous ? 'unknown' : 'blocked', ambiguous?'resultado desconocido; comprobar la cola real':String(err));
+          const head = nativeQueueList(job.townId, job.nativeLane, false).find(j=>j&&j.id===job.nativeJobId);
+          if (head) {
+            const ambiguous=err === 'pending' || err === 'timeout_unknown';
+            const expectedWait=gbExpectedServerReject('recruit', err);
 
-            if (!ambiguous && job.clientSaidFull) {
-              head.slotRetryAt = Date.now() + 300000;
-              nativeQueueSetJobState(head, 'waiting-slot', 'servidor confirma cola llena \u2014 reintento 5min');
-            }
+            if (!ambiguous && expectedWait === 'waiting-queue-full') head.slotRetryAt = Date.now() + 300000;
+            if(ambiguous&&head.inflight)head.reconcile=Object.assign({},head.inflight);
+            head.inflight = null;head.manualReview=ambiguous;
+            nativeQueueSetJobState(head,
+              ambiguous ? 'unknown' : (expectedWait || 'blocked'),
+              ambiguous ? 'resultado desconocido; se reconciliar\u00e1 sin bloquear otras unidades' : (expectedWait ? (expectedWait + ': ' + String(err)) : String(err)));
           }
         }
         gbLogT('recruit-err', 60000, `recruit err ${err}`);
@@ -15530,13 +17716,11 @@ const STORE = {
       town_id: +farm.owning_town_id || 0,
     }, onDone);
   }
+  let villageRecruitCursor = 0;
   function villageRecruitScan(reason) {
     if (!hostEnabled() || !state.autoVillageRecruit) return;
     if (automationPaused({})) return;
     if (captchaPaused('villrecruit')) return;
-    if (gbLocked('village-recruit')) return;
-
-    if (farmFirstHold('villrecruit')) return;
 
     if (!state.acceptUnitsTpl || !state.acceptUnitsTpl.action_name) {
       gbLogT('villrecruit-tpl', 600000, 'village recruit: abre una aldea, pulsa Aceptar una vez a mano para ensenar al bot el payload del puente');
@@ -15545,8 +17729,11 @@ const STORE = {
 
     const list = state.farmsParsed || [];
     if (!list.length) return;
+    const start = Math.max(0, villageRecruitCursor % list.length);
 
-    for (const farm of list) {
+    for (let step = 0; step < list.length; step++) {
+      const idx = (start + step) % list.length;
+      const farm = list[idx];
       if (!farm || !farm.vill_id) continue;
 
       if (farm._rel && typeof farmBelongsToPlayer === 'function') {
@@ -15563,17 +17750,23 @@ const STORE = {
       const unit = villagePairPick(counts.units);
       if (!unit) continue;
 
-      const owning = typeof townIdForFarm === 'function' ? townIdForFarm(farm) : null;
-      if (!owning) continue;
-      farm.owning_town_id = owning;
+      const islandMap = islandTownMap();
+      const ctx = farmIslandContext(farm, islandMap);
+      if (!ctx.known) continue;
+      const unitBeneficiary = resolveIslandUnitBeneficiary(ctx.key, ctx.ids);
+      if (!unitBeneficiary.known || !unitBeneficiary.enabled || !unitBeneficiary.townId) continue;
+      farm.owning_town_id = String(unitBeneficiary.townId);
 
       const amount = Math.max(1, Math.min(20, +state.villageRecruitAmount || 1));
-      const lockToken = gbLock('village-recruit', 60000);
-      if (!lockToken) return;
+      const lockName = `village-recruit:${farm.vill_id}`;
+      const lockToken = gbLock(lockName, 60000);
+      if (!lockToken) continue;
 
-      gbLog(`village recruit: vill ${farm.vill_id} -> ${amount}x ${unit} (streak ${streak}, town ${owning})`);
+      villageRecruitCursor = (idx + 1) % list.length;
+
+      gbLog(`village recruit: vill ${farm.vill_id} -> ${amount}x ${unit} (streak ${streak}, town ${farm.owning_town_id})`);
       villageAcceptUnits(farm, unit, amount, (err) => {
-        gbUnlock('village-recruit', lockToken);
+        gbUnlock(lockName, lockToken);
         if (!err) {
           gbLog(`village recruit: vill ${farm.vill_id} +${amount} ${unit}`);
           flash(`aldea ${farm.name || farm.vill_id}: +${amount} ${unit}`);
@@ -15586,20 +17779,10 @@ const STORE = {
     }
   }
   function batchRecruitNormLists() {
-    let root = state.batchRecruitLists;
-    if (!root || typeof root !== 'object' || Array.isArray(root)) root = state.batchRecruitLists = { towns: {} };
-    if (!root.towns || typeof root.towns !== 'object' || Array.isArray(root.towns)) root.towns = {};
+    let root=state.batchRecruitLists;
+    if(!root||typeof root!=='object'||Array.isArray(root))root=state.batchRecruitLists={towns:{}};
+    if(!root.towns||typeof root.towns!=='object'||Array.isArray(root.towns))root.towns={};
 
-    try {
-      const known = new Set();
-      try { Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}).forEach(id => known.add(String(id))); } catch (_) {}
-      try { (state.towns || []).forEach(t => t && t.id != null && known.add(String(t.id))); } catch (_) {}
-      let pruned = 0;
-      for (const id of Object.keys(root.towns)) {
-        if (!known.has(String(id))) { delete root.towns[id]; pruned++; }
-      }
-      if (pruned) gbLog(`batch recruit: ${pruned} lista(s) hu\u00e9rfana(s) eliminada(s)`);
-    } catch (_) {}
     return root;
   }
   function batchRecruitTownList(townId) {
@@ -15653,85 +17836,136 @@ const STORE = {
     const t = (typeof gbTownModel === 'function') ? gbTownModel(townId) : null;
     const list = Array.isArray(rows) ? rows : batchRecruitTownList(townId);
     let wood = 0, stone = 0, iron = 0, pop = 0, favor = 0;
-    const missing = [];
+    const missing = [], advisory = [];
     for (const r of list) {
-      const def = gbGameDataLookup('units', r.unit);
-      if (!def) { missing.push(r.unit); continue; }
+      const def = gbGameDataLookup('units', r.unit), ec = recruitEffectiveUnitCost(townId, r.unit);
+      if (!def || !ec) { missing.push(r.unit); continue; }
       const a = +r.amount || 0;
-      const res = def.resources || {};
-      wood += (+res.wood || 0) * a;
-      stone += (+res.stone || 0) * a;
-      iron += (+res.iron || 0) * a;
-      pop += (+def.population || 0) * a;
-      const fv = +(def.favor ?? res.favor) || 0;
-      if (fv > 0) favor += fv * a;
+      for (const [k, bucket] of [['wood','wood'],['stone','stone'],['iron','iron'],['population','pop'],['favor','favor']]) {
+        const v = recruitDisplayCost(ec, k);
+        if (v == null) { missing.push(r.unit + ':' + k); continue; }
+        if (!recruitCostFieldKnown(ec, k)) advisory.push(r.unit + ':' + k);
+        if (bucket === 'wood') wood += v*a;
+        else if (bucket === 'stone') stone += v*a;
+        else if (bucket === 'iron') iron += v*a;
+        else if (bucket === 'pop') pop += v*a;
+        else if (v > 0) favor += v*a;
+      }
     }
     const rs = t && t.resources && t.resources();
-    const haveWood = rs ? +rs.wood : null;
-    const haveStone = rs ? +rs.stone : null;
-    const haveIron = rs ? +rs.iron : null;
-    const havePop = (t && typeof t.getAvailablePopulation === 'function') ? +t.getAvailablePopulation() : null;
-    const fits = !(missing.length) && wood <= (haveWood == null ? Infinity : haveWood)
-      && stone <= (haveStone == null ? Infinity : haveStone)
-      && iron <= (haveIron == null ? Infinity : haveIron)
-      && pop <= (havePop == null ? Infinity : havePop);
-    return { wood, stone, iron, pop, favor, haveWood, haveStone, haveIron, havePop, fits, missing };
+    const haveWood = rs && Number.isFinite(+rs.wood) ? +rs.wood : null;
+    const haveStone = rs && Number.isFinite(+rs.stone) ? +rs.stone : null;
+    const haveIron = rs && Number.isFinite(+rs.iron) ? +rs.iron : null;
+    const havePop = (t && typeof t.getAvailablePopulation === 'function' && Number.isFinite(+t.getAvailablePopulation())) ? +t.getAvailablePopulation() : null;
+    const authoritative = !missing.length && !advisory.length;
+    const fits = authoritative && haveWood != null && haveStone != null && haveIron != null && havePop != null
+      ? wood <= haveWood && stone <= haveStone && iron <= haveIron && pop <= havePop : null;
+    return { wood, stone, iron, pop, favor, haveWood, haveStone, haveIron, havePop, fits, missing, advisory:[...new Set(advisory)] };
   }
   const _batchRecruitBlind = new Set();
   function batchRecruitAtomicAfford(townId) {
     const list = batchRecruitTownList(townId);
-    if (!list.length) return { ok: false, why: 'empty' };
+    if (!list.length) return { ok:false, why:'empty' };
     const t = gbTownModel(townId);
-    if (!t) {
-      const k = String(townId) + '|town';
-      if (!_batchRecruitBlind.has(k)) { _batchRecruitBlind.add(k); gbLogT('batch-recruit-blind-' + townId, 300000, `batch recruit: town ${townId} model unreadable - blind precheck, server judges`); }
-      return { ok: false, why: 'blind-town' };
-    }
+    if (!t) return { ok:false, why:'blind-town' };
+    const res = recruitLiveResources(townId), pop = recruitLivePopulation(townId);
+    const need = { wood:0, stone:0, iron:0, pop:0 };
+    const known = { wood:true, stone:true, iron:true, pop:true };
+    const favorNeed = Object.create(null), laneRows = { land:[], naval:[] }, blind = [];
     for (let i = 0; i < list.length; i++) {
-      const r = list[i];
-      const unit = r && r.unit;
-      const amount = +r.amount || 0;
+      const r = list[i], unit = r && r.unit, amount = +r.amount || 0;
       if (!unit || !(amount > 0)) continue;
-      if (!recruitControllerFor(unit)) return { ok: false, why: 'no-controller', rowIdx: i, unit };
-      if (!recruitCanBuild(townId, unit)) return { ok: false, why: 'requirements', rowIdx: i, unit };
-      if (!recruitQueueHasSpace(townId, unit)) return { ok: false, why: 'queue', rowIdx: i, unit };
-      const afford = recruitAffordableAmount(townId, unit, amount);
-      if (afford < amount) return { ok: false, why: 'resources/pop/favor', rowIdx: i, unit };
+      const def = gbGameDataLookup('units', unit);
+      if (!def || !recruitControllerFor(unit)) return { ok:false, why:'no-controller', rowIdx:i, unit };
+      if (!recruitCanBuild(townId, unit)) return { ok:false, why:'requirements', rowIdx:i, unit };
+      const maxNow = recruitRuntimeMaxAmount(townId, unit);
+      if (maxNow.known && maxNow.amount < amount) return { ok:false, why:'waiting-runtime-max', rowIdx:i, unit, have:maxNow.amount, need:amount };
+      if (!maxNow.known) blind.push('max-recruitable-unreadable:' + unit);
+      const ec = recruitEffectiveUnitCost(townId, unit);
+      if (!ec) { blind.push('unit-cost-unreadable:' + unit); continue; }
+      for (const k of ['wood','stone','iron']) {
+        if (recruitCostFieldKnown(ec,k)) need[k] += +ec[k] * amount;
+        else { known[k] = false; blind.push('effective-cost-unreadable:' + unit + ':' + k); }
+      }
+      if (recruitCostFieldKnown(ec,'population')) need.pop += +ec.population * amount;
+      else { known.pop = false; blind.push('effective-cost-unreadable:' + unit + ':population'); }
+      const baseFavor = gbNum(def.favor ?? (def.resources && def.resources.favor));
+      if (baseFavor != null && baseFavor > 0) {
+        const god = (def.god && String(def.god).toLowerCase()) || mythicalUnitGod(unit);
+        if (!god || !recruitCostFieldKnown(ec,'favor')) blind.push('effective-cost-unreadable:' + unit + ':favor');
+        else favorNeed[god] = (favorNeed[god] || 0) + (+ec.favor * amount);
+      }
+      laneRows[recruitIsNaval(unit)?'naval':'land'].push({i,unit});
     }
-    return { ok: true };
+    for (const k of ['wood','stone','iron']) {
+      if (!known[k]) continue;
+      if (res[k] == null) { blind.push('resources-unreadable:' + k); continue; }
+      if (+res[k] < need[k]) return { ok:false, why:'waiting-' + k, aggregate:true, need, have:+res[k] };
+    }
+    if (known.pop && need.pop > 0) {
+      if (pop.value == null) blind.push('population-unreadable');
+      else if (pop.value < need.pop) return { ok:false, why:'waiting-population', aggregate:true, need, havePop:pop.value };
+    }
+    for (const [god, n] of Object.entries(favorNeed)) {
+      const fr = recruitFavorRead(townId, god);
+      if (fr.value == null) { blind.push('favor-unreadable:' + god); continue; }
+      if (fr.value < n) return { ok:false, why:'waiting-favor', aggregate:true, god, needFavor:n, haveFavor:fr.value };
+    }
+    for (const kind of ['land','naval']) {
+      const rows = laneRows[kind];
+      if (!rows.length) continue;
+      const qs = recruitQueueSpace(townId, rows[0].unit);
+      if (!qs.ok) return { ok:false, why:qs.why, rowIdx:rows[0].i, unit:rows[0].unit };
+      if (qs.q.max != null && qs.q.len + rows.length > qs.q.max) return { ok:false, why:'queue-full', rowIdx:rows[0].i, unit:rows[0].unit };
+      if (qs.blind) blind.push(`queue-${kind}-capacity-unreadable`);
+    }
+    return { ok:true, aggregate:need, aggregateKnown:known, favorNeed, blind:[...new Set(blind)] };
   }
   function batchRecruitFire(townId) {
-    const list = batchRecruitTownList(townId);
+    const list = batchRecruitTownList(townId).map(r => ({ unit:String(r.unit), amount:+r.amount||0 }));
     if (!list.length) return;
-    const lockToken = gbLock('recruit', 120000);
-    if (!lockToken) return;
     let idx = 0;
     let stopped = false;
     const fireOne = () => {
-      if (stopped || idx >= list.length) {
-        gbUnlock('recruit', lockToken);
+      if (stopped || idx >= list.length) return;
+      const r = list[idx];
+      const unit = r.unit, amount = +r.amount || 0;
+      const spellDecision = recruitAutoSpellDecision(townId, unit);
+      if (spellDecision.action === 'cast') {
+        const spellLockName = `recruit:${String(townId)}:spell`;
+        const spellLock = gbLock(spellLockName, 120000);
+        if (!spellLock) { gbTimeout(fireOne, 500); return; }
+        recruitCastSpell(townId, spellDecision.power, (err) => {
+          gbUnlock(spellLockName, spellLock);
+          recruitSpellCooldownStamp(townId, spellDecision.power,
+            (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') ? undefined : 60000);
+          if (err) gbLogT(`batch-recruit-spell-${townId}`, 60000,
+            `batch recruit: spell ${spellDecision.power} unavailable (${err}); recruiting normally`);
+          else gbLog(`batch recruit: spell ${spellDecision.power} on ${townId}; row waits for next pass`);
+          gbTimeout(fireOne, 900);
+        });
         return;
       }
-
-      const r = list[idx++];
-      const unit = r.unit, amount = +r.amount || 0;
+      const lockName = recruitLockName(townId, unit);
+      const lockToken = gbLock(lockName, 120000);
+      if (!lockToken) { gbTimeout(fireOne, 500); return; }
+      idx++;
 
       const validated = recruitValidateJob({ townId, unit, amount });
-      if (!validated.ok) {
+      if (!validated.ok || validated.amount < amount) {
         stopped = true;
-        gbLogT(`batch-recruit-pre-${townId}`, 60000, `batch recruit: ${validated.why} @ ${unit} (row ${idx}/${list.length})`);
-        gbUnlock('recruit', lockToken);
+        gbUnlock(lockName, lockToken);
+        gbLogT(`batch-recruit-pre-${townId}`, 60000, `batch recruit: ${validated.why || 'partial-afford'} @ ${unit} (row ${idx}/${list.length})`);
         return;
       }
-      recruitBuild(townId, unit, validated.amount, (err) => {
+      recruitBuild(townId, unit, amount, (err) => {
+        gbUnlock(lockName, lockToken);
         if (err) {
           stopped = true;
           gbLogT(`batch-recruit-partial-${townId}`, 60000, `batch recruit: stopped at row ${idx}/${list.length} (${err})`);
-          gbUnlock('recruit', lockToken);
           return;
         }
-        gbLog(`batch recruit: town ${townId} ${validated.amount}\u00d7 ${unit} (row ${idx}/${list.length})`);
-
+        gbLog(`batch recruit: town ${townId} ${amount}\u00d7 ${unit} (row ${idx}/${list.length})`);
         gbTimeout(fireOne, 450);
       });
     };
@@ -15768,22 +18002,12 @@ const STORE = {
     return out;
   }
   function batchRecruitUiTownIds() {
-    const out = [];
-    try {
-      const uw = gameUw();
-      const ts = (uw && uw.ITowns && uw.ITowns.towns) || {};
-      Object.keys(ts).forEach(id => out.push(String(id)));
-    } catch (_) {}
-    if (!out.length) {
-      try { (state.towns || []).forEach(t => t && t.id != null && out.push(String(t.id))); } catch (_) {}
-    }
+    const out=[];
+    const add=id=>{id=String(id==null?'':id);if(id&&!out.includes(id))out.push(id)};
+    try{Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{}).forEach(add)}catch(_){}
+    try{(state.towns||[]).forEach(t=>t&&t.id!=null&&add(t.id))}catch(_){}
 
-    try {
-      const root = batchRecruitNormLists();
-      for (const id of Object.keys(root.towns || {})) {
-        if (!out.includes(String(id))) { delete root.towns[id]; batchRecruitListSave(); }
-      }
-    } catch (_) {}
+    try{Object.keys((batchRecruitNormLists().towns)||{}).forEach(add)}catch(_){}
     return out;
   }
   function batchRecruitUiTownName(id) {
@@ -16468,14 +18692,13 @@ const STORE = {
     if (!hostEnabled() || !state.batchRecruit) return;
     if (automationPaused({})) return;
     if (captchaPaused('recruit')) return;
-    if (gbLocked('recruit')) return;
     let anyTown = false;
     try {
       const tlists = batchRecruitNormLists().towns || {};
       for (const townId of Object.keys(tlists)) {
         if (batchRecruitTownList(townId).length) { anyTown = true; break; }
       }
-    } catch (e) { gbLogT('batch-recruit-probe-err', 60000, 'batch recruit probe failed: ' + String(e).slice(0, 120)); }
+    } catch (_) {}
     if (!anyTown) {
       gbLogT('batch-recruit-empty', 180000, `batch recruit: idle (${scanReason(reason)})`);
       return;
@@ -16496,21 +18719,9 @@ const STORE = {
         batchRecruitFire(townId);
         count++;
       }
-    } catch (e) { gbLogT('batch-recruit-fire-err', 60000, 'batch recruit fire loop threw: ' + String(e).slice(0, 120)); }
+    } catch (_) {}
     if (!count) gbLogT('batch-recruit-idle', 180000, `batch recruit: idle (${scanReason(reason)})`);
   }
-  function qolBindActivityPause() {
-    if (qolBindActivityPause._bound) return;
-    qolBindActivityPause._bound = true;
-    const bump = () => bumpUserActivity();
-    ['mousemove', 'keydown', 'mousedown', 'touchstart'].forEach(ev => {
-      gbListen(document, ev, bump, { passive: true });
-    });
-    gbListen(document, 'visibilitychange', () => {
-      if (!document.hidden) bumpUserActivity();
-    });
-  }
-
   const GB_WIDGET_DEFAULT_POS = { left: '8px', top: '60px' };
   const gbWidgets = Object.create(null);
   function gbWidgetGeom() {
@@ -16615,16 +18826,8 @@ const STORE = {
     'preflight': { label: 'Comprobar sistema', run: () => { showTab('stats'); preflightRunAndRender(); } },
     'copy-findings': { label: 'Copiar hallazgos', run: () => { const b = panel && panel.querySelector('footer button[data-act=copy]'); if (b) b.click(); } },
     'copy-all': { label: 'Copiar todo (log + datos)', run: () => bundleCopy() },
+    'queue-center': { label: 'Abrir Colas', run: () => openQueueCenter() },
     'rescan-inbox': { label: 'Releer bandeja', run: () => scrapeInboxDom() },
-    'toggle-pause': {
-      label: 'Pausa por actividad',
-      run: () => {
-        state.pauseOnActivity = !state.pauseOnActivity;
-        save(STORE.PAUSE_ON_ACTIVITY, state.pauseOnActivity);
-
-        flash('pausa por actividad ' + (state.pauseOnActivity ? 'ON' : 'OFF'));
-      },
-    },
     'diag': { label: 'Diagnostico', run: () => diagRun() },
 
     'panic': {
@@ -16647,6 +18850,7 @@ const STORE = {
     'Ctrl+Shift+,': 'panel-config',
     'Ctrl+Shift+P': 'preflight',
     'Ctrl+Shift+F': 'copy-findings',
+    'Ctrl+Shift+Q': 'queue-center',
     'Ctrl+Shift+R': 'rescan-inbox',
     'Ctrl+Shift+L': 'toggle-pause',
     'Ctrl+Shift+D': 'diag',
@@ -16757,7 +18961,7 @@ const STORE = {
     let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){};const profiles=goalProfiles();
 
     const sig=[ids.join(','),Object.keys(profiles).join(','),state.abOptimalOrderOn!==false?'1':'0'];
-    for(const tid of ids){const p=goalPlanTown(tid);sig.push(tid+':'+p.progress+':'+p.profile+':'+(p.actions||[]).length)}
+    for(const tid of ids){const p=goalPlanTown(tid),c=cdIsProfile(p.profile)?cdTownState(tid):null;sig.push(tid+':'+p.progress+':'+p.profile+':'+(p.actions||[]).length+(c?':'+c.revision+':'+cdPhase(tid)+':'+(+c.stripEnabled)+':'+(+c.safeBackline)+':'+(+c.breakthrough)+':'+(+c.wallMax):''))}
     const sigStr=sig.join('|');
     if(box.dataset.gbGoalsSig===sigStr)return;
     box.dataset.gbGoalsSig=sigStr;
@@ -16765,10 +18969,11 @@ const STORE = {
     const rerender=()=>{renderGoals();renderPlanner();renderDashboard();};
     for(const tid of ids){let name=tid;try{const t=gbTownModel(tid);name=(t&&t.getName&&t.getName())||name}catch(_){} const plan=goalPlanTown(tid);
       const head=document.createElement('div');head.style.cssText='display:flex;gap:4px;align-items:center;padding:4px;border-bottom:1px solid #333';const b=document.createElement('b');b.textContent=`${name} \u00b7 ${plan.progress}%`;head.appendChild(b);
-      const edit=document.createElement('button');edit.textContent='Editar';edit.title='Editar en JSON los objetivos y reservas propios de esta ciudad';edit.style.cssText='font-size:8px;padding:1px 4px';edit.addEventListener('click',()=>{const cur=goalTownCfg(tid),raw=prompt('Overrides de objetivos por ciudad JSON\nClaves: build, research, units, reserve:{hard,soft}, defensive (0..1, null = hereda del perfil), resource:{wood,stone,iron} (-1..+1)',JSON.stringify({build:cur.build,research:cur.research,units:cur.units,reserve:cur.reserve,defensive:cur.defensive!=null?cur.defensive:null,resource:cur.resource||{}},null,2));if(raw==null)return;try{if(!goalSetTownOverrides(tid,JSON.parse(raw)))throw new Error('invalid object');rerender()}catch(e){flash('JSON de objetivos invalido')}});head.appendChild(edit);
-      const rec=document.createElement('button');rec.textContent='Recalcular';gbTip(rec,'Recalcular el plan de objetivos de esta ciudad');rec.style.cssText='font-size:8px;padding:1px 4px';rec.addEventListener('click',()=>{goalPlanTown(tid);rerender()});head.appendChild(rec);
-      const reset=document.createElement('button');reset.textContent='Reiniciar cola';reset.title='Borra el orden, los bloqueos y los obligatorios de la cola virtual';reset.style.cssText='font-size:8px;padding:1px 4px';reset.addEventListener('click',()=>{goalQueueReset(tid);rerender()});head.appendChild(reset);
+      const edit=document.createElement('button');edit.textContent='Edit';edit.title='Edit per-town goal overrides/reserves as JSON';edit.style.cssText='font-size:8px;padding:1px 4px';edit.addEventListener('click',()=>{const cur=goalTownCfg(tid),raw=prompt('Overrides de objetivos por ciudad JSON\nClaves: build, research, units, reserve:{hard,soft}, defensive (0..1, null = hereda del perfil), resource:{wood,stone,iron} (-1..+1)',JSON.stringify({build:cur.build,research:cur.research,units:cur.units,reserve:cur.reserve,defensive:cur.defensive!=null?cur.defensive:null,resource:cur.resource||{}},null,2));if(raw==null)return;try{if(!goalSetTownOverrides(tid,JSON.parse(raw)))throw new Error('invalid object');rerender()}catch(e){flash('JSON de objetivos invalido')}});head.appendChild(edit);
+      const rec=document.createElement('button');rec.textContent='Recalc';gbTip(rec,'Recalcular el plan de objetivos de esta ciudad');rec.style.cssText='font-size:8px;padding:1px 4px';rec.addEventListener('click',()=>{goalPlanTown(tid);rerender()});head.appendChild(rec);
+      const reset=document.createElement('button');reset.textContent='Reset Q';reset.title='Clear virtual-queue order/block/mandatory overrides';reset.style.cssText='font-size:8px;padding:1px 4px';reset.addEventListener('click',()=>{goalQueueReset(tid);rerender()});head.appendChild(reset);
       const sel=document.createElement('select');sel.title='Perfil de la ciudad. "Personalizado" = usa los overrides JSON de esta ciudad (boton Edit); cualquier otro perfil los sustituye.';sel.style.cssText='background:#111;color:#cfc;border:1px solid #333;font-size:9px;margin-left:auto';for(const [id,p] of Object.entries(profiles)){const o=document.createElement('option');o.value=id;o.textContent=p.label||id;sel.appendChild(o)}sel.value=plan.profile;sel.addEventListener('change',()=>{goalSetProfile(tid,sel.value);rerender()});head.appendChild(sel);box.appendChild(head);
+      if(cdIsProfile(plan.profile)){const c=cdTownState(tid),row=document.createElement('div');row.style.cssText='display:flex;gap:10px;align-items:center;padding:2px 6px;border-bottom:1px solid #262626;font-size:9px;color:#aaa';const st=document.createElement('b');st.textContent='City Designer: '+cdPhase(tid)+' \u00b7 rev '+c.revision;st.style.color='#9fd';row.appendChild(st);const mk=(key,label,title)=>{const lab=document.createElement('label');lab.title=title;lab.style.cssText='display:flex;gap:3px;align-items:center';const cb=document.createElement('input');cb.type='checkbox';cb.checked=!!c[key];cb.addEventListener('change',()=>{cdSetOption(tid,key,cb.checked);rerender()});lab.appendChild(cb);lab.appendChild(document.createTextNode(label));row.appendChild(lab)};mk('stripEnabled','permitir strip','Permite demoliciones finales solo tras todos los gates de seguridad');mk('safeBackline','backline segura','Confirmaci\u00f3n persistente del usuario: esta ciudad es backline segura');mk('wallMax','muralla MAX','ON: el City Designer lleva la muralla al m\u00e1ximo. OFF: no la construye y, si autorizas strip, el objetivo final es 0.');if(cdCanonicalProfile(plan.profile)==='cd_slinger_50ls')mk('breakthrough','Penetraci\u00f3n','Investigaci\u00f3n t\u00e1ctica opcional; OFF por defecto');box.appendChild(row)}
 
       if (state.abOptimalOrderOn !== false) {
         try {
@@ -16865,7 +19070,6 @@ const STORE = {
       breakers, pause: pause.reason || null,
       health: Object.assign({}, moduleHealth),
       globalCaptcha: captchaGlobalUntil > Date.now() ? captchaGlobalUntil : 0,
-      userPause: userPausedUntil > Date.now() ? userPausedUntil : 0,
     };
   }
   function renderHealth() {
@@ -16886,259 +19090,42 @@ const STORE = {
   function simulateTown(townId,horizonHours){const h=Math.max(1,+horizonHours||24),snap=plannerSnapshot(townId),forecast=economyForecast(townId,h*3600),plan=goalPlanTown(townId);if(!snap)return{townId:String(townId),error:'state-unreadable',actions:[]};const stock={wood:snap.availableSoft.wood,stone:snap.availableSoft.stone,iron:snap.availableSoft.iron,population:snap.availableSoft.population};if(forecast&&forecast.production){for(const k of ['wood','stone','iron'])stock[k]+=forecast.production[k]*h}const actions=[];let bottleneck='';for(const a of(plan.actions||[])){if(a.kind==='build'&&a.costExact===false){const why='future build cost requires live recalculation after previous level';actions.push({...a,sim:'waiting',simWhy:why});if(!bottleneck)bottleneck=why;break}const c=plannerNormCost(a.cost);if(!c){actions.push({...a,sim:'blocked:cost'});continue}let ok=true,why='';for(const k of PLANNER_KEYS){if((+c[k]||0)>+(stock[k]||0)){ok=false;why=`${k} ${Math.floor(stock[k]||0)}/${Math.ceil(c[k]||0)}`;break}}if(!ok){actions.push({...a,sim:'waiting',simWhy:why});if(!bottleneck)bottleneck=why;break}for(const k of PLANNER_KEYS)stock[k]-=+c[k]||0;actions.push({...a,sim:'would-run'})}return{townId:String(townId),horizonHours:h,actions,final:stock,bottleneck,productionKnown:!!(forecast&&forecast.productionKnown)}}
   function simulateAccount(horizonHours){let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){};const towns=ids.map(id=>simulateTown(id,horizonHours));return{at:Date.now(),horizonHours:+horizonHours||24,towns,totalActions:towns.reduce((n,t)=>n+t.actions.filter(a=>a.sim==='would-run').length,0),blocked:towns.filter(t=>t.bottleneck).length}}
   let dashboardSimulation=null;
-
-  const GB_KIND_ES = { build: 'Construir', research: 'Investigar', recruit: 'Reclutar' };
-  const GB_RES_ES = { wood: 'madera', stone: 'piedra', iron: 'plata', population: 'poblaci\u00f3n', pop: 'poblaci\u00f3n' };
-
-  function gbWhyEs(why) {
-    const w = String(why == null ? '' : why).trim();
-    if (!w) return '';
-    const m = w.match(/^(wood|stone|iron|population|pop)\s+(\d+)\/(\d+)$/);
-    if (m) return `faltan ${Math.max(0, +m[3] - +m[2])} de ${GB_RES_ES[m[1]]}`;
-    if (w === 'cost-unreadable') return 'no se puede leer el coste';
-    if (w === 'dependency') return 'falta un requisito';
-    if (w === 'blocked by user') return 'bloqueado por ti';
-    if (/^research:/.test(w)) return 'falta una investigaci\u00f3n previa';
-    return w;
-  }
-  function gbAttentionEl(item) {
-    const box = document.createElement('div');
-    box.className = 'gb-att' + (item.tone === 'bad' ? ' bad' : '');
-    const ico = gbIcon(item.tone === 'bad' ? 'alert' : 'info', 15, item.tone === 'bad' ? '#ff9aa3' : '#ffd27a');
-    if (ico) { ico.style.flex = '0 0 auto'; ico.style.marginTop = '1px'; box.appendChild(ico); }
-    const mid = document.createElement('div');
-    mid.style.cssText = 'flex:1;min-width:0';
-    const t = document.createElement('div');
-    t.className = 'gb-att-t';
-    t.textContent = item.title;
-    mid.appendChild(t);
-    if (item.sub) {
-      const sb = document.createElement('div');
-      sb.className = 'gb-att-s';
-      sb.textContent = item.sub;
-      mid.appendChild(sb);
-    }
-    box.appendChild(mid);
-    if (item.action) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'gb-action';
-      b.textContent = item.action;
-      b.addEventListener('click', item.onClick);
-      box.appendChild(b);
-    }
-    return box;
-  }
-  function gbAttentionItems(ctx) {
-    const items = [];
-    (ctx.threats || []).slice(0, 3).forEach(m => {
-      const eta = (typeof dodgeEtaSec === 'function') ? dodgeEtaSec(m) : null;
-      const when = eta == null ? 'no se puede leer la llegada' : 'llega en ' + fmtSec(eta);
-      let name = String(m.dest);
-      try { name = gbTownModel(m.dest).getName() || name; } catch (_) {}
-      const mode = state.dodgeMode === 'auto' ? 'El esquive autom\u00e1tico est\u00e1 activo.' : 'El esquive esta en "solo avisar": el bot no mover\u00e1 tropas.';
-      items.push({
-        tone: 'bad',
-        title: `Ataque a ${name}, ${when}`,
-        sub: mode + (m.hasCs ? ' Lleva barco de conquista.' : ''),
-        action: 'Ver',
-        onClick: () => showTab('intel'),
-      });
-    });
-    if (ctx.unknown) {
-      items.push({
-        tone: 'bad',
-        title: ctx.unknown === 1 ? 'Un env\u00edo qued\u00f3 sin confirmar' : `${ctx.unknown} env\u00edos quedaron sin confirmar`,
-        sub: 'Se acab\u00f3 el tiempo antes de saber si llegaron al servidor. Compru\u00e9balos antes de repetirlos.',
-        action: 'Revisar',
-        onClick: () => { showTab('log'); const b = panel.querySelector('[data-logsub=pending]'); if (b) b.click(); },
-      });
-    }
-    if (ctx.circuits.length) {
-      items.push({
-        tone: 'warn',
-        title: ctx.circuits.length === 1 ? 'Un m\u00f3dulo est\u00e1 parado por errores repetidos' : `${ctx.circuits.length} m\u00f3dulos est\u00e1n parados por errores repetidos`,
-        sub: 'Sin enviar nada m\u00e1s hasta que se revise: ' + ctx.circuits.slice(0, 4).join(', '),
-        action: 'Ver',
-        onClick: () => showTab('stats'),
-      });
-    }
-    if (ctx.captchaKeys.length) {
-      items.push({
-        tone: 'warn',
-        title: 'El juego pidi\u00f3 un captcha',
-        sub: 'En pausa hasta que lo resuelvas: ' + ctx.captchaKeys.slice(0, 4).join(', '),
-        action: 'Ver',
-        onClick: () => showTab('stats'),
-      });
-    }
-    if (!ctx.compatible) {
-      const miss = Object.entries(ctx.fps.required || {}).filter(([, v]) => !v).map(([k]) => k);
-      items.push({
-        tone: 'bad',
-        title: 'El bot no reconoce esta versi\u00f3n del juego',
-        sub: 'No puede leer: ' + (miss.length ? miss.join(', ') : 'la huella del cliente') + '. Recarga la p\u00e1gina antes de fiarte de nada.',
-        action: 'Comprobar',
-        onClick: () => { preflightRunAndRender(); showTab('stats'); },
-      });
-    }
-    if (ctx.overflow.length) {
-      items.push({
-        tone: 'warn',
-        title: ctx.overflow.length === 1 ? 'Un almac\u00e9n se va a llenar' : `${ctx.overflow.length} almacenes se van a llenar`,
-        sub: ctx.overflow.slice(0, 3).join(' \u00b7 ') + '. Lo que sobre se pierde.',
-        action: 'Ver',
-        onClick: () => showTab('overview'),
-      });
-    }
-    return items;
-  }
   function renderDashboard() {
     const sec=panel&&panel.querySelector('section[data-tab=overview]');
     if(!sec||sec.hidden)return;
-    const sim=sec.querySelector('.sim-panel');
-    const cards=sec.querySelector('.gb-dashboard-cards');
-    const hero=sec.querySelector('.gb-hero');
-    const chips=sec.querySelector('.gb-chips');
-    const attBox=sec.querySelector('.gb-attention');
-    const nextBox=sec.querySelector('.gb-next');
+    const sum=sec.querySelector('.dashboard-summary'),time=sec.querySelector('.timeline-panel'),sim=sec.querySelector('.sim-panel'),cards=sec.querySelector('.gb-dashboard-cards');
+    if(!sum||!time||!sim)return;
     let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){}
-    const threats=(typeof dodgeIncomingMovements==='function')?(dodgeIncomingMovements()||[]):[];
+    const threats=dodgeIncomingMovements();
     const unknown=Object.values(state.txState||{}).filter(t=>t&&/^(unknown|manual-review)$/.test(t.state||'')).length;
     const circuits=Object.keys(state.circuits||{}).filter(k=>state.circuits[k]&&state.circuits[k].open);
-    const captchaKeys=Object.keys(state.captchaBreakers||{}).filter(k=>captchaPaused(k));
     const fps=clientFingerprintNow();
     const compatible=Object.values(fps.required).every(Boolean);
     const activeGoals=ids.filter(id=>(goalPlanTown(id).actions||[]).length).length;
-
-    const avgProgress=ids.length?Math.round(ids.reduce((n,id)=>n+goalProgress(id),0)/ids.length):null;
+    const avgProgress=ids.length?Math.round(ids.reduce((n,id)=>n+goalProgress(id),0)/ids.length):100;
     const pauseInfo={}; const paused=automationPaused(pauseInfo);
-
-    const overflow=[];
-    for(const id of ids){
-      let name=id;try{name=gbTownModel(id).getName()||id}catch(_){}
-      let f=null;try{f=economyForecast(id)}catch(_){}
-      if(f&&f.overflow&&Object.values(f.overflow).some(Boolean)){
-        const which=Object.entries(f.overflow).filter(([,v])=>v).map(([k])=>GB_RES_ES[k]||k);
-        overflow.push(`${name}: ${which.join(', ')}`);
-      }
-    }
-    const items=gbAttentionItems({threats,unknown,circuits,captchaKeys,compatible,fps,overflow});
-
-    if(hero){
-      const dot=hero.querySelector('.gb-hero-dot');
-      const t=hero.querySelector('.gb-hero-t');
-      const sb=hero.querySelector('.gb-hero-s');
-      const bad=items.some(x=>x.tone==='bad');
-      if(dot){dot.classList.remove('warn','bad');if(items.length)dot.classList.add(bad?'bad':'warn')}
-      if(t)t.textContent=!items.length?'Todo en marcha'
-        :(items.length===1?'1 cosa necesita tu atenci\u00f3n':`${items.length} cosas necesitan tu atenci\u00f3n`);
-      if(sb)sb.textContent=paused?`Automatizaci\u00f3n en pausa: ${pauseInfo.reason}`
-        :(items.length?'Lo dem\u00e1s va solo.':'No hay nada esperando por ti.');
-    }
-    if(chips){
-      const list=[];
-      list.push({t:gbNeverStop()?'No parar nunca':(state.safeMode?'MODO SEGURO':'Modo normal'),c:gbSafeModeOn()?'warn':''});
-      if(state.dryRun)list.push({t:'Simulaci\u00f3n: no env\u00eda nada',c:'warn'});
-      list.push({t:captchaKeys.length?`Captcha en ${captchaKeys.length} modulo(s)`:'Sin captcha',c:captchaKeys.length?'bad':''});
-      let used=null;try{used=reqBudgetUsed()}catch(_){}
-      list.push({t:used==null?'Peticiones: \u2014':`${used} de ${state.reqBudgetPerMin||40} peticiones/min`,c:''});
-      if(paused)list.push({t:`En pausa: ${pauseInfo.reason}`,c:'warn'});
-      gbPaint(chips,stage=>{
-        for(const c of list){
-          const e=document.createElement('span');
-          e.className='gb-chip'+(c.c?' '+c.c:'');
-          e.textContent=c.t;
-          stage.appendChild(e);
-        }
-      },{key:list.map(c=>c.t+c.c).join('|')});
-    }
-    if(attBox){
-      gbPaint(attBox,stage=>{
-        if(!items.length){
-          const e=document.createElement('div');
-          e.className='gb-att-ok';
-          e.textContent='Nada que revisar ahora mismo.';
-          stage.appendChild(e);
-          return;
-        }
-        items.forEach(it=>stage.appendChild(gbAttentionEl(it)));
-      },{key:items.map(i=>i.tone+i.title).join('|')});
-    }
-    if(nextBox){
-      const rows=[];
-      for(const id of ids){
-        let name=id;try{name=gbTownModel(id).getName()||id}catch(_){}
-        const a=(goalPlanTown(id).actions||[])[0];
-        if(!a)continue;
-        const what=`${GB_KIND_ES[a.kind]||a.kind} ${a.id}${a.level?' al nivel '+a.level:''}`;
-        const waiting=/^(waiting|blocked|user-blocked)/.test(String(a.status||''));
-        rows.push({town:String(name),what,when:waiting?(gbWhyEs(a.why)||'en espera'):'en cola',wait:waiting});
-      }
-      gbPaint(nextBox,stage=>{
-        if(!ids.length){
-          const e=document.createElement('div');
-          e.className='gb-att-ok';
-          e.textContent='No se pueden leer las ciudades todav\u00eda.';
-          stage.appendChild(e);
-          return;
-        }
-        if(!rows.length){
-          const e=document.createElement('div');
-          e.className='gb-att-ok';
-          e.textContent='No hay nada planificado. Marca objetivos en "Objetivos y cola por ciudad".';
-          stage.appendChild(e);
-          return;
-        }
-        rows.slice(0,6).forEach(r=>{
-          const row=document.createElement('div');
-          row.className='gb-next-row';
-          const a=document.createElement('span');a.className='gb-next-town';a.textContent=r.town;
-          const b=document.createElement('span');b.className='gb-next-what';b.textContent=r.what;
-          const c=document.createElement('span');c.className='gb-next-when'+(r.wait?' wait':'');c.textContent=r.when;
-          row.append(a,b,c);
-          stage.appendChild(row);
-        });
-      },{key:rows.slice(0,6).map(r=>r.town+r.what+r.when).join('|')});
-    }
+    sum.textContent=`towns ${ids.length} \u00b7 progress ${avgProgress}% \u00b7 ${activeGoals} objetivo(s) activos \u00b7 ${unknown} transacci\u00f3n(es) pendientes de revisar \u00b7 ${circuits.length} circuit breaker abierto(s)`;
     if(cards){
-      let farmReady='\u2014',farmTotal=null;
-      try{const d=qolOverviewData();farmReady=String(d.farmReady);farmTotal=d.farmTotal}catch(_){}
+      cards.replaceChildren();
       const data=[
-        ['Ciudades',ids.length?String(ids.length):'\u2014',activeGoals?`${activeGoals} con trabajo pendiente`:'sin objetivos pendientes'],
-        ['Objetivos',avgProgress==null?'\u2014':`${avgProgress}%`,avgProgress==null?'no se pueden leer las ciudades':(avgProgress>=100?'objetivos completados':'media de objetivos')],
-        ['Aldeas listas',farmTotal==null?'\u2014':`${farmReady}/${farmTotal}`,state.autoFarm?'cobro autom\u00e1tico activo':'cobro autom\u00e1tico apagado'],
-        ['Amenazas',String(threats.length),threats.length?'requieren revisi\u00f3n':'sin entradas hostiles'],
+        ['Ciudades',ids.length,activeGoals?`${activeGoals} con trabajo pendiente`:'sin objetivos pendientes'],
+        ['Progreso',`${avgProgress}%`,avgProgress>=100?'objetivos completados':'media de objetivos'],
+        ['Amenazas',threats.length,threats.length?'requieren revisi\u00f3n':'sin entradas hostiles detectadas'],
+        ['Sistema',compatible&&!unknown&&!circuits.length?'OK':'Revisar',paused?`pausado: ${pauseInfo.reason}`:(state.safeMode?'SAFE MODE':'automatizaci\u00f3n disponible')],
       ];
-      gbPaint(cards,stage=>{
-        for(const [k,v,sub] of data){
-          const c=document.createElement('div');c.className='gb-card';gbTip(c,sub);
-          const a=document.createElement('div');a.className='k';a.textContent=k;
-          const b=document.createElement('div');b.className='v';b.textContent=String(v);
-          const d=document.createElement('div');d.className='s';d.textContent=sub;
-          c.append(a,b,d);stage.appendChild(c);
-        }
-      },{key:data.map(d=>d.join('|')).join('~')});
+      for(const [k,v,sub] of data){const c=document.createElement('div');c.className='gb-card';gbTip(c, sub);const a=document.createElement('div');a.className='k';a.textContent=k;const b=document.createElement('div');b.className='v';b.textContent=String(v);const d=document.createElement('div');d.className='s';d.textContent=sub;c.append(a,b,d);cards.appendChild(c)}
     }
-    const mode=panel.querySelector('#gb-head-mode');if(mode){mode.textContent=gbNeverStop()?'Sin paradas':(state.safeMode?'MODO SEGURO':'Automatizaci\u00f3n activa');mode.className='gb-pill '+(gbSafeModeOn()?'warn':'ok')}
+    const mode=panel.querySelector('#gb-head-mode');if(mode){mode.textContent=state.safeMode?'SAFE':'NORMAL';mode.className='gb-pill '+(state.safeMode?'warn':'ok')}
     const health=panel.querySelector('#gb-head-health');if(health){const bad=!compatible||unknown||circuits.length;health.textContent=bad?'REVISAR':'SISTEMA OK';health.className='gb-pill '+(bad?'bad':'ok');const tipParts=[];if(!compatible){const miss=Object.entries(fps.required||{}).filter(([,v])=>!v).map(([k])=>k);tipParts.push('fp falta: '+(miss.length?miss.join(','):'fingerprint roto'))}if(unknown){const stuck=Object.entries(state.txState||{}).filter(([,t])=>t&&/^(unknown|manual-review)$/.test(t.state||'')).map(([k])=>k);tipParts.push('tx '+unknown+': '+(stuck.slice(0,4).join(',')+(stuck.length>4?' +'+(stuck.length-4):'')))}if(circuits.length){tipParts.push('cb '+circuits.length+': '+circuits.slice(0,4).join(',')+(circuits.length>4?' +'+(circuits.length-4):''))}gbTip(health, tipParts.length?tipParts.join(' \u00b7 '):'Salud agregada OK')}
-    const quickSafe=sec.querySelector('#gb-quick-safe');if(quickSafe)quickSafe.textContent=gbNeverStop()?'MODO SEGURO: anulado':(state.safeMode?'MODO SEGURO: ON':'MODO SEGURO: OFF');
-    if(sim){
-      if(dashboardSimulation){const lines=[`Simulaci\u00f3n ${dashboardSimulation.horizonHours} h \u00b7 ${dashboardSimulation.totalActions} acciones \u00b7 ${dashboardSimulation.blocked} ciudad(es) con cuello de botella`];for(const t of dashboardSimulation.towns)lines.push(`Ciudad ${t.townId}: ${t.actions.filter(a=>a.sim==='would-run').length} acciones \u00b7 final ${Math.floor(t.final.wood)}/${Math.floor(t.final.stone)}/${Math.floor(t.final.iron)} \u00b7 ${t.bottleneck||'sin bloqueo'}${t.productionKnown?'':' \u00b7 producci\u00f3n desconocida'}`);sim.textContent=lines.join('\n')}else sim.textContent='Todav\u00eda no se ha ejecutado una simulaci\u00f3n.';
-    }
+    const quickSafe=sec.querySelector('#gb-quick-safe');if(quickSafe)quickSafe.textContent=state.safeMode?'SAFE MODE: ON':'SAFE MODE: OFF';
+    const rows=[];
+    for(const id of ids){let name=id;try{name=gbTownModel(id).getName()||id}catch(_){}const p=goalPlanTown(id),f=economyForecast(id);const a=(p.actions||[])[0];if(a)rows.push(`${name}: ${a.kind} ${a.id}${a.level?' \u2192 '+a.level:''} \u00b7 ${a.status}${a.why?' \u00b7 '+a.why:''}`);if(f&&Object.values(f.overflow).some(Boolean))rows.push(`${name}: AVISO \u00b7 almac\u00e9n previsto al l\u00edmite en ${Object.entries(f.overflow).filter(([,v])=>v).map(([k])=>k).join(', ')}`)}
+    time.textContent=rows.slice(0,30).join('\n')||'No hay acciones planificadas.';
+    if(dashboardSimulation){const lines=[`Simulaci\u00f3n ${dashboardSimulation.horizonHours} h \u00b7 ${dashboardSimulation.totalActions} acciones \u00b7 ${dashboardSimulation.blocked} ciudad(es) con cuello de botella`];for(const t of dashboardSimulation.towns)lines.push(`Ciudad ${t.townId}: ${t.actions.filter(a=>a.sim==='would-run').length} acciones \u00b7 final ${Math.floor(t.final.wood)}/${Math.floor(t.final.stone)}/${Math.floor(t.final.iron)} \u00b7 ${t.bottleneck||'sin bloqueo'}${t.productionKnown?'':' \u00b7 producci\u00f3n desconocida'}`);sim.textContent=lines.join('\n')}else sim.textContent='Todav\u00eda no se ha ejecutado una simulaci\u00f3n.';
     const why=sec.querySelector('.why-panel');if(why)why.textContent=(state.whyLog||[]).slice(0,12).map(x=>`${new Date(x.ts).toLocaleTimeString()} \u00b7 ${x.feature} \u00b7 ${x.status}${x.why?' \u00b7 '+x.why:''}`).join('\n')||'Todav\u00eda no hay decisiones registradas.';
     renderHealth();
   }
-
   function renderOverview() {
-    const ov = panel && panel.querySelector('section[data-tab=overview]');
-    if (ov && !ov.dataset.uxBound) {
-      ov.dataset.uxBound = '1';
-      gbListen(ov.querySelector('#gb-quick-safe'), 'click', () => { state.safeMode = !state.safeMode; save(STORE.SAFE_MODE, state.safeMode); renderOverview(); flash(state.safeMode ? 'MODO SEGURO activado' : 'MODO SEGURO desactivado'); });
-      gbListen(ov.querySelector('#gb-quick-sim'), 'click', () => { dashboardSimulation = simulateAccount(24); const h = ov.querySelector('#gb-sim-hours'); if (h) h.value = '24'; renderDashboard(); });
-      gbListen(ov.querySelector('#gb-quick-config'), 'click', () => showTab('config'));
-    }
-    try { renderGoals(); renderPlanner(); renderDashboard(); } catch (_) {}
     const box = panel && panel.querySelector('.overview-panel');
     if (!box) return;
     const sec = box.closest('section[data-tab]');
@@ -17160,6 +19147,14 @@ const STORE = {
       })(),
     ];
     box.textContent = lines.join('\n');
+    if (sec && !sec.dataset.uxBound) {
+      sec.dataset.uxBound = '1';
+      sec.querySelector('#gb-quick-safe')?.addEventListener('click', () => { state.safeMode = !state.safeMode; save(STORE.SAFE_MODE, state.safeMode); renderOverview(); flash(state.safeMode ? 'SAFE MODE activado' : 'SAFE MODE desactivado'); });
+      sec.querySelector('#gb-quick-preflight')?.addEventListener('click', () => { preflightRunAndRender(); showTab('stats'); });
+      sec.querySelector('#gb-quick-sim')?.addEventListener('click', () => { dashboardSimulation = simulateAccount(24); const h=sec.querySelector('#gb-sim-hours'); if(h)h.value='24'; renderDashboard(); });
+      sec.querySelector('#gb-quick-config')?.addEventListener('click', () => showTab('config'));
+    }
+    try { renderGoals(); renderPlanner(); renderDashboard(); } catch (_) {}
   }
   const CONFIG_EXPORT_SCHEMA = 3;
 
@@ -17192,8 +19187,8 @@ const STORE = {
   const CONFIG_SNAPSHOT_KEYS = [
     'abTargets', 'abOrder', 'researchTargets', 'recruitTargets', 'plannerCfg',
     'goalProfiles', 'townGoals', 'virtualQueueOverrides', 'nativeQueue',
-    'predictCfg', 'defenseCfg', 'safeMode', 'neverStop', 'autoTransport', 'transportReserve',
-    'transportMin', 'cityTemplates', 'townGroups', 'cultureTypes', 'favorCfg',
+    'predictCfg', 'defenseCfg', 'safeMode', 'autoTransport', 'transportReserve',
+    'transportMin', 'tradeTowns', 'cityTemplates', 'townGroups', 'cultureTypes', 'favorCfg',
     'spyCfg', 'wonderCfg', 'merchantWish', 'priorityOrder',
     'playerNotes', 'watchlist', 'recruitPacks', 'batchRecruitLists',
   ];
@@ -17294,14 +19289,14 @@ const STORE = {
   function qolExportConfig() {
     return { schema:CONFIG_EXPORT_SCHEMA, ver:state.configVer||1, host:location.host,
       abTargets:state.abTargets,abOrder:state.abOrder,researchTargets:state.researchTargets,recruitTargets:state.recruitTargets,
-      plannerCfg:state.plannerCfg,goalProfiles:state.goalProfiles,townGoals:state.townGoals,virtualQueueOverrides:state.virtualQueueOverrides,nativeQueue:state.nativeQueue,predictCfg:state.predictCfg,defenseCfg:state.defenseCfg,safeMode:!!state.safeMode,neverStop:state.neverStop!==false,
-      autoTransport:!!state.autoTransport,transportReserve:+state.transportReserve||20,transportMin:+state.transportMin||1000,
+      plannerCfg:state.plannerCfg,goalProfiles:state.goalProfiles,townGoals:state.townGoals,virtualQueueOverrides:state.virtualQueueOverrides,nativeQueue:state.nativeQueue,predictCfg:state.predictCfg,defenseCfg:state.defenseCfg,safeMode:!!state.safeMode,
+      autoTransport:!!state.autoTransport,transportReserve:+state.transportReserve||20,transportMin:+state.transportMin||1000,tradeTowns:state.tradeTowns,
       cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,spyCfg:state.spyCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,playerNotes:state.playerNotes,watchlist:state.watchlist,recruitPacks:state.recruitPacks,batchRecruitLists:state.batchRecruitLists };
   }
   function qolImportConfig(obj, opts) {
     if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;if(obj.host&&String(obj.host)!==String(location.host)){gbLog(`config import refused: file host ${obj.host} != ${location.host}`);return false}if(obj.schema!=null&&+obj.schema>CONFIG_EXPORT_SCHEMA){gbLog(`config import refused: schema ${obj.schema} newer than supported ${CONFIG_EXPORT_SCHEMA}`);return false}
-    const clone=v=>structuredClone(v),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',neverStop:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray,batchRecruit:v=>typeof v==='boolean',batchRecruitLists:isObj,recruitPacks:isObj};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,neverStop:STORE.NEVER_STOP,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,batchRecruit:STORE.BATCH_RECRUIT,batchRecruitLists:STORE.BATCH_RECRUIT_LISTS,recruitPacks:STORE.RECRUIT_PACKS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
-    for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='priorityOrder'){const allowed=new Set(PRIORITY_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(PRIORITY_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
+    const clone=v=>structuredClone(v),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>Number.isFinite(+v),transportMin:v=>Number.isFinite(+v),tradeTowns:isObj,cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray,batchRecruit:v=>typeof v==='boolean',batchRecruitLists:isObj,recruitPacks:isObj};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,tradeTowns:STORE.TRADE_TOWNS,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,batchRecruit:STORE.BATCH_RECRUIT,batchRecruitLists:STORE.BATCH_RECRUIT_LISTS,recruitPacks:STORE.RECRUIT_PACKS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
+    for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='priorityOrder'){const allowed=new Set(ORCH_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(ORCH_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
       const clean={version:1,seq:Math.max(0,+v.seq||0),towns:{}},seen=new Set();
       const jobId=(raw,prefix)=>{let id=/^[A-Za-z0-9:._-]{1,160}$/.test(String(raw||''))?String(raw):'';if(!id||seen.has(id)){clean.seq++;id=`${prefix}:import:${clean.seq.toString(36)}`}seen.add(id);return id};
       for(const[tid,t]of Object.entries(v.towns||{}).slice(0,500)){if(!/^\d+$/.test(String(tid))||!isObj(t))continue;const townId=String(tid),build=[],recruit=[],recruitNaval=[],research=[];
@@ -17333,10 +19328,11 @@ const STORE = {
   };
   const CONFIG_PRESETS = {
     afk: {
-      label: 'AFK nocturno',
+      label: 'Perfil de baja actividad manual',
       values: {
         autoCollect: [STORE.AUTO_COLLECT, true],
         autoFarm: [STORE.AUTO_FARM, true],
+        farmLongClaims: [STORE.FARM_LONG_CLAIMS, true],
         autoCave: [STORE.AUTO_CAVE, true],
         abAuto: [STORE.AB_AUTO, true],
         ibAuto: [STORE.IB_AUTO, true],
@@ -17344,13 +19340,11 @@ const STORE = {
         autoTrade: [STORE.AUTO_TRADE, true],
         autoCulture: [STORE.AUTO_CULTURE, true],
         autoRuralTrade: [STORE.AUTO_RURAL_TRADE, true],
-        orchAdaptive: [STORE.ORCH_ADAPTIVE, true],
-        orchDeadlockResolve: [STORE.ORCH_DEADLOCK, true],
-        pauseOnActivity: [STORE.PAUSE_ON_ACTIVITY, false],
-        nightPause: [STORE.NIGHT_PAUSE, false],
         autoBandit: [STORE.AUTO_BANDIT, false],
         reqBudgetPerMin: [STORE.REQ_BUDGET, 25],
         postsPerMinSoftPct: [STORE.POSTS_SOFT_PCT, 50],
+        farmMinMs: [STORE.FARM_MIN, 8 * 60000],
+        farmMaxMs: [STORE.FARM_MAX, 10 * 60000],
       },
     },
     farming: {
@@ -17358,6 +19352,7 @@ const STORE = {
       values: {
         autoCollect: [STORE.AUTO_COLLECT, true],
         autoFarm: [STORE.AUTO_FARM, true],
+        farmLongClaims: [STORE.FARM_LONG_CLAIMS, true],
         autoBandit: [STORE.AUTO_BANDIT, true],
         autoCave: [STORE.AUTO_CAVE, true],
         abAuto: [STORE.AB_AUTO, true],
@@ -17365,12 +19360,10 @@ const STORE = {
         autoTrade: [STORE.AUTO_TRADE, true],
         autoResearch: [STORE.AUTO_RESEARCH, true],
         autoCulture: [STORE.AUTO_CULTURE, false],
-        orchAdaptive: [STORE.ORCH_ADAPTIVE, true],
-        orchDeadlockResolve: [STORE.ORCH_DEADLOCK, true],
-        pauseOnActivity: [STORE.PAUSE_ON_ACTIVITY, true],
-        nightPause: [STORE.NIGHT_PAUSE, false],
         reqBudgetPerMin: [STORE.REQ_BUDGET, 40],
         postsPerMinSoftPct: [STORE.POSTS_SOFT_PCT, 60],
+        farmMinMs: [STORE.FARM_MIN, 5 * 60000],
+        farmMaxMs: [STORE.FARM_MAX, 6 * 60000],
       },
     },
     war: {
@@ -17385,10 +19378,6 @@ const STORE = {
         autoCulture: [STORE.AUTO_CULTURE, false],
         autoResearch: [STORE.AUTO_RESEARCH, false],
         autoBandit: [STORE.AUTO_BANDIT, false],
-        orchAdaptive: [STORE.ORCH_ADAPTIVE, true],
-        orchDeadlockResolve: [STORE.ORCH_DEADLOCK, true],
-        pauseOnActivity: [STORE.PAUSE_ON_ACTIVITY, true],
-        nightPause: [STORE.NIGHT_PAUSE, false],
         reqBudgetPerMin: [STORE.REQ_BUDGET, 40],
         postsPerMinSoftPct: [STORE.POSTS_SOFT_PCT, 70],
       },
@@ -17420,6 +19409,7 @@ const STORE = {
     gbLog(`config preset "${preset.label}" applied: ${applied.length} setting(s) changed; HIGH-RISK loops forced OFF`);
     return true;
   }
+  const ORCH_MODE = 'independent-v5.9.2';
   const ORCH_MS = 20000;
   const ORCH_MAX_PER_TICK = 3;
   const ORCH_SPACING_MS = 450;
@@ -17445,16 +19435,15 @@ const STORE = {
     hero: 300000,
     godspell: 180000,
   };
-
   const ORCH_CAPTCHA = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villrecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'spell',
+    recruit: 'recruit', villrecruit: 'villageRecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
   };
   const ORCH_JRN = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villrecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'spell',
+    recruit: 'recruit', villrecruit: 'villageRecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
   };
   const ORCH_IDLE_TRIP = 4;
   const ORCH_IDLE_MAX = 8;
@@ -17486,13 +19475,13 @@ const STORE = {
     return {
       culture: state.autoCulture,
       cave: state.autoCave,
-      build: state.abAuto || nativeQueueHasPending('build'),
-      research: state.autoResearch || nativeQueueHasPending('research'),
+      build: state.abAuto || nativeQueueHasPending('build') || cityDesignerHasExecutableWork('build'),
+      research: state.autoResearch || nativeQueueHasPending('research') || cityDesignerHasExecutableWork('research'),
       trade: state.autoTrade || state.islandShip || state.autoTransport || state.autoTradeRoutes || state.autoDump,
       farm: state.autoFarm,
       ruraltrade: state.autoRuralTrade,
       rurallevel: state.autoRuralLevel,
-      recruit: state.autoRecruit || nativeRecruitPending(),
+      recruit: state.autoRecruit || nativeRecruitPending() || cityDesignerHasExecutableWork('recruit'),
       villrecruit: state.autoVillageRecruit,
 
       batchrecruit: state.batchRecruit && batchRecruitHasAnyTown(),
@@ -17508,7 +19497,11 @@ const STORE = {
     }[key];
   }
   function orchDefaultOrder() {
-    return PRIORITY_ORDER_DEFAULT.slice();
+    const out=[];
+    for(const k of ORCH_ORDER_DEFAULT)if(ORCH_HANDLERS[k]&&!out.includes(k))out.push(k);
+
+    for(const k of Object.keys(ORCH_HANDLERS))if(!out.includes(k))out.push(k);
+    return out;
   }
 
   function orchJrnOkSince(key, since) {
@@ -17524,176 +19517,76 @@ const STORE = {
     return n;
   }
 
-  const ORCH_PIN_RATIO = 0.97;
-  const ORCH_DRAIN_KEYS = ['cave', 'trade', 'ruraltrade'];
-
-  const ORCH_UNIT_KEYS = ['recruit', 'villrecruit'];
-  function orchFarmFirst() {
-    try { return typeof farmClaimPending === 'function' && farmClaimPending(); }
-    catch (_) { return false; }
-  }
-  const ORCH_DEADLOCK_FARM_IDLE = 2;
-  let orchDeadlock = { open: false, towns: [], at: 0, stuckLoggedAt: 0 };
-  function orchTownIds() {
-    const ids = [];
-    try {
-      const from = (typeof townsFromGame === 'function') ? townsFromGame() : null;
-      if (from) from.forEach(t => ids.push(String(t.id)));
-    } catch (_) {}
-    if (!ids.length) {
-      try { Object.keys((uwCached().ITowns && uwCached().ITowns.towns) || {}).forEach(id => ids.push(String(id))); } catch (_) {}
-    }
-    return ids;
-  }
-  function orchPinnedTowns() {
-    const pinned = [];
-    let blind = 0;
-    for (const id of orchTownIds()) {
-      const rs = (typeof townResState === 'function') ? townResState(id) : null;
-
-      if (!rs || !(rs.cap > 0)) { blind++; continue; }
-      if (Math.max(rs.wood, rs.stone, rs.iron) / rs.cap >= ORCH_PIN_RATIO) pinned.push(id);
-    }
-    if (blind && !pinned.length) {
-      gbLogT('orch-deadlock-blind', 600000, `orch: ${blind} town(s) with unreadable capacity - deadlock check skipped for them`);
-    }
-    return pinned;
-  }
-  function orchDeadlockEval() {
-    const off = state.orchDeadlockResolve === false;
-    const pinned = off ? [] : orchPinnedTowns();
-    const farmStuck = !!state.autoFarm && (orchIdle.farm || 0) >= ORCH_DEADLOCK_FARM_IDLE;
-    const open = !off && pinned.length > 0 && farmStuck;
-    if (open !== orchDeadlock.open) {
-      orchDeadlock = { open, towns: pinned, at: Date.now(), stuckLoggedAt: 0 };
-      gbLog(open
-        ? `orch: warehouse deadlock in town(s) ${pinned.join(',')} - forcing ${ORCH_DRAIN_KEYS.join('/')} ahead of farm`
-        : 'orch: warehouse deadlock cleared - normal priority order restored');
-      try { updateStatus(); } catch (_) {}
-    } else if (open) {
-      orchDeadlock.towns = pinned;
-    }
-    return orchDeadlock.open;
-  }
-  function orchDeadlockOpen() { return !!orchDeadlock.open; }
-  function orchDeadlockState() { return { open: !!orchDeadlock.open, towns: (orchDeadlock.towns || []).slice(), since: orchDeadlock.at || 0 }; }
-
-  function orchDeadlockNoteStuck(why) {
-    if (!orchDeadlock.open) return;
-    const now = Date.now();
-    if (now - (orchDeadlock.stuckLoggedAt || 0) < 3600000) return;
-    orchDeadlock.stuckLoggedAt = now;
-    gbLog(`orch: deadlock cannot drain (${why}) - spend resources by hand (build/recruit/culture)`);
-  }
   function orchIdleFactor(key) {
-    if (gbNeverStop()) return 1;
-    if (state.orchAdaptive === false) return 1;
 
-    if (orchDeadlock.open && ORCH_DRAIN_KEYS.includes(key)) return 1;
-
-    if (key === 'farm' && orchFarmFirst()) return 1;
-    const streak = orchIdle[key] || 0;
-    if (streak < ORCH_IDLE_TRIP) return 1;
-    return Math.min(ORCH_IDLE_MAX, 1 << Math.min(3, streak - ORCH_IDLE_TRIP + 1));
+    return 1;
   }
   function orchCadence(key) {
-    const base = (ORCH_CADENCE[key] || ORCH_MS) * orchIdleFactor(key);
-    const jitter = 1 + (Math.random() * 2 - 1) * ORCH_JITTER;
-    return Math.round(base * jitter);
+    return ORCH_CADENCE[key] || ORCH_MS;
   }
   function orchNoteResult(key) {
     const since = orchJrnMark[key];
     if (!(since > 0)) return;
-    if (orchJrnOkSince(key, since) > 0) {
-      if (orchIdle[key]) {
-        gbLogT('orch-wake-' + key, 300000, `orch: ${key} acted, cadence back to normal`);
-      }
-      orchIdle[key] = 0;
-      return;
-    }
-    orchIdle[key] = (orchIdle[key] || 0) + 1;
-    if (orchIdle[key] === ORCH_IDLE_TRIP) {
-      gbLog(`orch: ${key} idle ${ORCH_IDLE_TRIP}x - widening cadence (adaptive)`);
-    }
+    if (orchJrnOkSince(key, since) > 0) orchIdle[key] = 0;
+    else orchIdle[key] = (orchIdle[key] || 0) + 1;
   }
   function orchStatus() {
     const now = Date.now();
     return orchDefaultOrder().map(key => ({
       key,
       on: !!orchFeatureEnabled(key),
-      cadenceMs: (ORCH_CADENCE[key] || ORCH_MS) * orchIdleFactor(key),
+      cadenceMs: ORCH_CADENCE[key] || ORCH_MS,
       idle: orchIdle[key] || 0,
       captcha: captchaPaused(ORCH_CAPTCHA[key] || key),
-      dueInMs: Math.max(0, ((orchLastRun[key] || 0) + (ORCH_CADENCE[key] || ORCH_MS) * orchIdleFactor(key)) - now),
+      dueInMs: Math.max(0, ((orchLastRun[key] || 0) + (ORCH_CADENCE[key] || ORCH_MS)) - now),
     }));
   }
-  function orchTick() {
+  function orchHousekeepingTick() {
     if (!hostEnabled()) return;
-
     try { intelDigestTick(); } catch (_) {}
-
     try { townCapWatcher(); } catch (_) {}
+
+    try { telegramMonitorTick(); } catch (_) {}
+  }
+  function orchModuleTick(key, reason) {
+    if (!hostEnabled()) return;
     if (automationPaused({})) return;
-    const configured = (state.priorityOrder && state.priorityOrder.length)
-      ? state.priorityOrder : orchDefaultOrder();
+    if (!ORCH_HANDLERS[key] || !orchFeatureEnabled(key)) return;
+    const cap = ORCH_CAPTCHA[key];
+    if (cap && captchaPaused(cap)) return;
 
-    const mandatory = goalMandatoryModules();
+    orchNoteResult(key);
+    orchLastRun[key] = Date.now();
+    orchJrnMark[key] = Date.now();
+    ORCH_HANDLERS[key]();
+  }
+  function orchTick() {
 
-    let order = [...new Set(mandatory.concat(configured, orchDefaultOrder()))];
-
-    if (orchDeadlockEval()) {
-      const drain = ORCH_DRAIN_KEYS.filter(k => order.includes(k));
-      order = drain.concat(order.filter(k => !drain.includes(k)));
+    orchHousekeepingTick();
+    if (automationPaused({})) return;
+    let idx = 0;
+    for (const key of orchDefaultOrder()) {
+      if (!ORCH_HANDLERS[key] || !orchFeatureEnabled(key)) continue;
+      const delay = idx++ * 120;
+      gbTimeout(() => orchModuleTick(key, 'poke'), delay);
     }
-    const farmFirst = orchFarmFirst();
-    if (farmFirst && order.includes('farm')) order = ['farm'].concat(order.filter(k => k !== 'farm'));
-    const now = Date.now();
-    const due = [];
-    for (let i = 0; i < order.length; i++) {
-      const key = order[i];
-      if (!ORCH_HANDLERS[key]) continue;
-      if (!orchFeatureEnabled(key)) continue;
-      if (farmFirst && ORCH_UNIT_KEYS.includes(key)) {
-
-        if (!(key === 'recruit' && typeof nativeRecruitPending === 'function' && nativeRecruitPending())) continue;
+  }
+  const orchTimerIds=Object.create(null),orchBootTimerIds=Object.create(null);
+  function orchStartIndependentTimers() {
+    let idx=0,created=0;
+    for(const key of orchDefaultOrder()){
+      if(!ORCH_HANDLERS[key])continue;
+      const cadence=ORCH_CADENCE[key]||ORCH_MS;
+      if(!orchBootTimerIds[key]){
+        orchBootTimerIds[key]=gbTimeout(()=>{orchBootTimerIds[key]=0;orchModuleTick(key,'boot')},500+(idx*120));
       }
-      const cap = ORCH_CAPTCHA[key];
-      if (cap && captchaPaused(cap)) continue;
-      const cadence = orchCadence(key);
-      const last = orchLastRun[key] || 0;
-      const overdue = now - last - cadence;
-      if (overdue < 0) continue;
-      due.push({ key, rank: i, overdue, cadence });
+      if(!orchTimerIds[key]){
+        orchTimerIds[key]=gbInterval(()=>orchModuleTick(key,'timer'),cadence);
+        created++;
+      }
+      idx++;
     }
-    if (!due.length) return;
-
-    due.sort((a, b) => {
-
-      if (farmFirst) {
-        if (a.key === 'farm' && b.key !== 'farm') return -1;
-        if (b.key === 'farm' && a.key !== 'farm') return 1;
-      }
-      const gap = b.overdue - a.overdue;
-
-      const band = Math.max(a.cadence, b.cadence, ORCH_MS) * 2;
-      if (Math.abs(gap) > band) return gap;
-      return a.rank - b.rank;
-    });
-    const run = due.slice(0, ORCH_MAX_PER_TICK);
-    run.forEach((item, idx) => {
-      const fire = () => {
-
-        if (automationPaused({})) return;
-        if (ORCH_CAPTCHA[item.key] && captchaPaused(ORCH_CAPTCHA[item.key])) return;
-
-        orchNoteResult(item.key);
-        orchLastRun[item.key] = Date.now();
-        orchJrnMark[item.key] = Date.now();
-        ORCH_HANDLERS[item.key]();
-      };
-      if (idx === 0) fire();
-      else gbTimeout(fire, idx * ORCH_SPACING_MS + Math.floor(Math.random() * 200));
-    });
+    return created;
   }
   function intelPlayerKey(p) {
     if (p == null) return null;
@@ -17788,7 +19681,7 @@ const STORE = {
   function intelUnitPop(bag) {
     let pop = 0, known = 0, unknown = 0, naval = 0;
     for (const [id, n0] of Object.entries(bag || {})) {
-      const n = gbNum(n0) || 0;
+      const n = +n0 || 0;
       if (!(n > 0)) continue;
       const m = unitMeta(id);
       if (!m) { unknown += n; continue; }
@@ -18052,8 +19945,7 @@ const STORE = {
         }
         patchCells(tr, cells);
 
-        const wRaw = r.cur && gbNum(r.cur.wall);
-        const wallRaw = wRaw != null ? String(wRaw) : '';
+        const wallRaw = (r.cur && r.cur.wall != null && Number.isFinite(+r.cur.wall)) ? String(+r.cur.wall) : '';
         tr.dataset.sort = [g.label, String(r.ts), wallRaw, d.units, d.res, d.name, d.alliance, d.vacation, d.deep].join('\t');
       });
     }
@@ -18061,7 +19953,7 @@ const STORE = {
   }
 
   function ghostAgeLabel(ageMs) {
-    const s = Math.max(0, Math.round((gbNum(ageMs) || 0) / 1000));
+    const s = Math.max(0, Math.round((+ageMs || 0) / 1000));
     if (s >= 86400) return Math.floor(s / 86400) + 'd';
     if (s >= 3600) return Math.floor(s / 3600) + 'h';
     return Math.floor(s / 60) + 'm';
@@ -18095,7 +19987,7 @@ const STORE = {
         ageMs,
         vacation,
         abandoned,
-        wall: gbNum(last.wall),
+        wall: (last.wall != null && Number.isFinite(+last.wall)) ? +last.wall : null,
         alliance: last.alliance || null,
         reasons,
       });
@@ -18523,7 +20415,7 @@ const STORE = {
     return n;
   }
   function intelAllianceMatrix(windowMs) {
-    const win = gbNum(windowMs) != null ? gbNum(windowMs) : INTEL_MATRIX_WINDOW_MS;
+    const win = Number.isFinite(+windowMs) ? +windowMs : INTEL_MATRIX_WINDOW_MS;
     const cutoffTs = Date.now() - win;
     const out = { alliances: [], towns: [], totalForAlliance: {}, totalForTown: {}, cells: {}, windowMs: win, cutoffTs };
     const me = intelMyIdentity();
@@ -18665,7 +20557,7 @@ const STORE = {
     for (const t of (state.towns || [])) {
       const r = (state.townResources || {})[t.id];
       if (!r || !r.ok) continue;
-      for (const k of GB_RES_KEYS) { const v = gbNum(r[k]); if (v != null) own.totals[k] += v; }
+      for (const k of GB_RES_KEYS) if (Number.isFinite(+r[k])) own.totals[k] += +r[k];
       own.towns++;
       if (+r.ts > own.lastTs) own.lastTs = +r.ts;
     }
@@ -18712,7 +20604,7 @@ const STORE = {
   function intelMemberActivity(opts) {
     const o = opts || {};
     const filter = String(o.alliance || '').trim().toLowerCase();
-    const cut = Date.now() - ((gbNum(o.windowHours) != null ? gbNum(o.windowHours) : 24 * 7) * 3600000);
+    const cut = Date.now() - ((Number.isFinite(+o.windowHours) ? +o.windowHours : 24 * 7) * 3600000);
     const me = intelMyIdentity();
     const byPlayer = {};
     for (const f of (state.findings || [])) {
@@ -18805,6 +20697,7 @@ const STORE = {
     return out;
   }
   function questClaimFailSave() {
+    if(!gbTabLeader)return false;
     try {
       const now = Date.now();
       const out = {};
@@ -18824,7 +20717,7 @@ const STORE = {
   function questClaimFailed(id, err) {
     const f = questClaimFail[id] || (questClaimFail[id] = { n: 0, until: 0 });
     f.n++;
-    const wait = backoffFor(f.n, QUEST_FAIL_BACKOFF_MS);
+    const wait = QUEST_FAIL_BACKOFF_MS[Math.min(f.n - 1, QUEST_FAIL_BACKOFF_MS.length - 1)];
     f.until = Date.now() + wait;
     questClaimFailSave();
     gbLog('quest: claim backoff', id, 'fail #' + f.n, Math.round(wait / 60000) + 'min', String(err || ''));
@@ -19837,7 +21730,7 @@ const STORE = {
     if (!ATTACK_GENERIC_MISSIONS.has(String(plan.mission || 'attack').toLowerCase())) plan.mission = 'attack';
     saveAttackPlan();
     gbLog('attack: harass preset ' + plan.harassPreset);
-    flash('preset de acoso: ' + plan.harassPreset + ' (sigue haciendo falta confirmacion manual)');
+    flash('preset de acoso: ' + plan.harassPreset + ' (manual confirmation still required)');
     return plan;
   }
   function buildAttackSchedule(plan) {
@@ -19861,7 +21754,7 @@ const STORE = {
       } else if (plan.timingMode === 'send_now') {
         sendAt = now + (idx * (plan.staggerMs || 0)) / 1000;
       }
-      const unitCount = countUnits(units);
+      const unitCount = Object.values(units).reduce((a, b) => a + (+b || 0), 0);
       let status = 'ok';
       if (!unitCount) status = 'no-units';
       else if (!boats.ok) status = boats.reason;
@@ -20459,6 +22352,10 @@ const STORE = {
       })),
     };
   }
+  function sharedPlanTargetIds() {
+    const plan = ensureAttackPlan();
+    return (Array.isArray(plan.targets) ? plan.targets : []).map(t => String(t.id));
+  }
   function renderSharedPlan(sec) {
     const box = sec && sec.querySelector('.atk-shared');
     if (!box || sec.hidden) return;
@@ -20487,8 +22384,22 @@ const STORE = {
     }
   }
   function militaryMovementsUnitsModels() {
+    const uw = gameUw();
+    const models = [], seen = new Set();
+    const push = (m) => {
+      if (!m) return;
+      const a = m.attributes || {};
+      const id = (typeof m.getCommandId === 'function' && m.getCommandId()) || a.command_id || a.id || m.id;
+      const k = String(id == null ? '' : id);
+      if (k && seen.has(k)) return;
+      if (k) seen.add(k);
+      models.push(m);
+    };
 
-    try { return mmModelsAll('MovementsUnits'); } catch (_) { return []; }
+    try { mmModelsAll('MovementsUnits').forEach(push); } catch (_) {}
+    try { const c = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits'); if (c && c.models) c.models.forEach(push); } catch (_) {}
+    try { const cs = uw.MM && uw.MM.getCollections && uw.MM.getCollections().MovementsUnits; (Array.isArray(cs) ? cs : (cs ? [cs] : [])).forEach(c => { if (c && c.models) c.models.forEach(push); }); } catch (_) {}
+    return models;
   }
   function militaryOutgoingMovements() {
     const uw = gameUw();
@@ -20776,26 +22687,22 @@ const STORE = {
       else rows.forEach(r => {
         const row = document.createElement('div'); row.style.cssText = 'display:grid;grid-template-columns:1fr .7fr .6fr auto;gap:4px;font-size:10px;border-bottom:1px solid #2a2a2a;padding:2px 0;align-items:center';
         gbTip(row, `Movimiento saliente #${r.commandId}`);
-        const c1 = document.createElement('span'); c1.textContent = `${townNameById(r.home)} -> ${r.target}`; c1.title = `comando ${r.commandId}`; gbTip(c1, 'Origen -> destino del movimiento');
+        const c1 = document.createElement('span'); c1.textContent = `${townNameById(r.home)} -> ${r.target}`; c1.title = `command ${r.commandId}`; gbTip(c1, 'Origen -> destino del movimiento');
         const c2 = document.createElement('span'); c2.textContent = r.type || 'move'; gbTip(c2, 'Tipo de movimiento (ataque / apoyo / colonizacion...)');
         const c3 = document.createElement('span'); c3.textContent = r.cancelLeft != null ? `${Math.round(r.cancelLeft)}s` : 'ok'; c3.style.color = '#888'; gbTip(c3, 'Tiempo restante en el que se puede cancelar');
-        const b = gbButton({
-          text: 'Cancelar',
-          disabled: !state.cancelTpl,
-          title: state.cancelTpl ? 'Cancelar este movimiento' : 'Cancela un movimiento a mano una vez para aprender la accion canonica',
-          onClick: () => { if (!confirm(`Cancelar ${r.type || 'comando'} ${r.commandId}?`)) return; militaryCancelCommand(r.commandId, { confirmed: true }, err => { flash(err ? 'fallo al cancelar: ' + err : 'comando cancelado'); renderAttack(); }); },
-        });
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Cancel'; b.disabled = !state.cancelTpl; b.title = state.cancelTpl ? 'Cancel this movement' : 'Cancel one movement manually once to learn the canonical action';
+        b.addEventListener('click', () => { if (!confirm(`Cancelar ${r.type || 'comando'} ${r.commandId}?`)) return; militaryCancelCommand(r.commandId, { confirmed: true }, err => { flash(err ? 'cancel failed: ' + err : 'command cancelled'); renderAttack(); }); });
         row.append(c1,c2,c3,b); box.appendChild(row);
       });
     }
     const hbox = sec && sec.querySelector('.atk-heroes');
     if (!hbox) return;
     hbox.replaceChildren();
-    if (!heroesEnabled()) { const e = document.createElement('div'); e.textContent = 'Heroes desactivados en este mundo'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
+    if (!heroesEnabled()) { const e = document.createElement('div'); e.textContent = 'Heroes disabled on this world'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
     const heroes = playerHeroesListCached();
-    if (!heroes.length) { const e = document.createElement('div'); e.textContent = 'No hay modelos PlayerHero legibles'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
+    if (!heroes.length) { const e = document.createElement('div'); e.textContent = 'No readable PlayerHero models'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
     const townSel = document.createElement('select'); townSel.style.cssText = 'background:#111;color:#cfc;border:1px solid #333;font-size:10px;margin-bottom:4px';
-    gbTip(townSel, 'Ciudad de destino al pulsar Asignar');
+    gbTip(townSel, 'Ciudad de destino al pulsar Assign');
     (state.towns || []).forEach(t => { const o = document.createElement('option'); o.value = t.id; o.textContent = t.name || t.id; townSel.appendChild(o); }); hbox.appendChild(townSel);
     heroes.forEach(h => {
       const row = document.createElement('div'); row.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:10px;border-bottom:1px solid #2a2a2a;padding:3px 0';
@@ -20807,10 +22714,10 @@ const STORE = {
       gbTip(lab, 'Estado del heroe: nombre \u00b7 nivel \u00b7 estado \u00b7 ciudad \u00b7 vigor \u00b7 mana');
       if (st != null && st <= heroLowStaminaPct()) lab.style.color = '#f66';
       row.appendChild(lab);
-      const addBtn = (text, action, color, fn, hint) => { const b=document.createElement('button'); b.type='button'; b.textContent=text; b.style.color=color; b.disabled=!(state.heroTpl && state.heroTpl[action]); b.title=b.disabled?`Haz ${action} a mano una vez para aprender la plantilla`:(hint||''); b.addEventListener('click',fn); row.appendChild(b); };
-      if (h.traveling) addBtn('Cancelar viaje','cancelTownTravel','#fc6',()=>{ if(confirm(`Cancelar traslado de ${h.name}?`)) heroCancelTravel(h.type,{confirmed:true},err=>{flash(err?'fallo al cancelar el viaje: '+err:'viaje del heroe cancelado');renderAttack();}); }, 'Cancelar el traslado en curso del heroe');
-      else if (h.assigned || h.attacking) addBtn('Desasignar','unassignFromTown','#f96',()=>{ if(confirm(`Desasignar ${h.name}?`)) heroUnassign(h.type,{confirmed:true},err=>{flash(err?'fallo al desasignar: '+err:'heroe desasignado');renderAttack();}); }, 'Quitar al heroe de su ciudad actual');
-      if (!h.injured && !h.attacking && !h.traveling) addBtn('Asignar','assignToTown','#6cf',()=>{ const tid=townSel.value; if(tid&&confirm(`Asignar ${h.name} -> ${townNameById(tid)}?`)) heroAssignToTown(h.type,tid,{confirmed:true},err=>{flash(err?'fallo al asignar: '+err:'traslado del heroe iniciado');renderAttack();}); }, 'Asignar el heroe a la ciudad seleccionada');
+      const addBtn = (text, action, color, fn, hint) => { const b=document.createElement('button'); b.type='button'; b.textContent=text; b.style.color=color; b.disabled=!(state.heroTpl && state.heroTpl[action]); b.title=b.disabled?`Perform ${action} manually once to learn template`:(hint||''); b.addEventListener('click',fn); row.appendChild(b); };
+      if (h.traveling) addBtn('Cancel travel','cancelTownTravel','#fc6',()=>{ if(confirm(`Cancelar traslado de ${h.name}?`)) heroCancelTravel(h.type,{confirmed:true},err=>{flash(err?'hero cancel failed: '+err:'hero travel cancelled');renderAttack();}); }, 'Cancelar el traslado en curso del heroe');
+      else if (h.assigned || h.attacking) addBtn('Unassign','unassignFromTown','#f96',()=>{ if(confirm(`Desasignar ${h.name}?`)) heroUnassign(h.type,{confirmed:true},err=>{flash(err?'hero unassign failed: '+err:'hero unassigned');renderAttack();}); }, 'Quitar al heroe de su ciudad actual');
+      if (!h.injured && !h.attacking && !h.traveling) addBtn('Assign','assignToTown','#6cf',()=>{ const tid=townSel.value; if(tid&&confirm(`Asignar ${h.name} -> ${townNameById(tid)}?`)) heroAssignToTown(h.type,tid,{confirmed:true},err=>{flash(err?'hero assign failed: '+err:'hero transfer started');renderAttack();}); }, 'Asignar el heroe a la ciudad seleccionada');
       hbox.appendChild(row);
     });
 
@@ -21001,10 +22908,10 @@ const STORE = {
       else if (!recruitCanBuild(townId, u)) { status = 'requirements'; why = 'requisitos'; }
       else if (!recruitQueueHasSpace(townId, u)) { status = 'queue-full'; why = 'cola llena'; }
       else {
-        const max = recruitAffordableAmount(townId, u, gap);
-        buildableToday.push({ id: u, maxAmount: max, blind: false });
-        if (max > 0) { status = 'ready'; why = max < gap ? `solo ${max} ahora` : ''; }
-        else { status = 'short'; why = 'recursos/poblacion/favor'; }
+        const af = recruitAffordability(townId, u, gap), max = af.amount;
+        buildableToday.push({ id: u, maxAmount: max, blind: af.blind.length > 0 });
+        if (max > 0) { status = af.blind.length ? 'ready-blind' : 'ready'; why = max < gap ? `${af.why}: solo ${max} ahora` : (af.blind.length ? af.blind.join(',') : ''); }
+        else { status = 'short'; why = af.why || 'resources-unavailable'; }
       }
       shortage.push({ id: u, want, have: h, queued, gap, status, why });
     }
@@ -21380,7 +23287,7 @@ const STORE = {
     }
     next();
     function supportStep() {
-      if (!gbLockTouch('support', lockToken)) return;
+      gbLockTouch('support', lockToken);
       if (i >= donors.length) {
         gbUnlock('support', lockToken);
         if (sent) {
@@ -21586,7 +23493,7 @@ const STORE = {
       } else if (plan.timingMode === 'send_now') {
         sendAt = now + (idx * (plan.staggerMs || 0)) / 1000;
       }
-      const unitCount = countUnits(units);
+      const unitCount = Object.values(units).reduce((a, b) => a + (+b || 0), 0);
       let status = 'ok';
       if (!unitCount) status = 'no-units';
       else if (!boats.ok) status = boats.reason;
@@ -21723,7 +23630,7 @@ const STORE = {
       delays.push(delayMs);
       const expectedFire = Date.now() + delayMs;
       const tid = gbTimeout(() => {
-        if (!gbLockTouch('support', token)) return;
+        gbLockTouch('support', token);
         const late = Date.now() - expectedFire;
         if (late > 5000) {
           gbLog(`refuerzo: refuse overdue fire for ${row.townId} (late ${Math.round(late)}ms)`);
@@ -21789,7 +23696,7 @@ const STORE = {
     }
     let i = 0;
     (function rfNext() {
-      if (!gbLockTouch('support', token)) return;
+      gbLockTouch('support', token);
       if (i >= okRows.length) {
         rfReleaseLock(token);
         rfPushHistory({ ts: Date.now(), mode: 'send_now_immediate', helpMode: plan.helpMode, targetId: plan.targetId, towns: okRows.map(r => r.townId) });
@@ -22286,7 +24193,7 @@ const STORE = {
       renderSpySend();
     };
     const step = () => {
-      if (!gbLockTouch('spy', token)) return;
+      gbLockTouch('spy', token);
       if (spsStopFlag) { stopWhy = 'parado'; return finish(); }
       if (wave >= plan.waves) { stopWhy = 'rafagas completadas'; return finish(); }
       if (remaining != null && remaining <= 0) { stopWhy = 'cueva vacia'; return finish(); }
@@ -22508,7 +24415,7 @@ const STORE = {
         autoFarm: !!state.autoFarm, autoCave: !!state.autoCave, autoTrade: !!state.autoTrade,
         abAuto: !!state.abAuto, ibAuto: !!state.ibAuto, autoResearch: !!state.autoResearch,
         autoRecruit: !!state.autoRecruit, autoCulture: !!state.autoCulture,
-        dryRun: !!state.dryRun, safeMode: !!state.safeMode, neverStop: state.neverStop !== false,
+        dryRun: !!state.dryRun, safeMode: !!state.safeMode,
       },
       plans: {
         abTargets: state.abTargets, researchTargets: state.researchTargets,
@@ -22529,14 +24436,12 @@ const STORE = {
     let text = '';
     try { text = JSON.stringify(snapshotPayload()); } catch (_) { return false; }
 
-    let byteLen = 0;
-    try { byteLen = new TextEncoder().encode(text).length; } catch (_) { byteLen = text.length; }
-    if (byteLen > SNAPSHOT_BUDGET_BYTES) {
-      gbLogT('snapshot-oversize', 60000, `snapshot: ${byteLen}B over the ${SNAPSHOT_BUDGET_BYTES}B budget - dropped`);
+    if (text.length > SNAPSHOT_BUDGET_BYTES) {
+      gbLogT('snapshot-oversize', 60000, `snapshot: ${text.length}B over the ${SNAPSHOT_BUDGET_BYTES}B budget - dropped`);
       return false;
     }
     const ring = snapshotRing();
-    ring.push({ at: Date.now(), sizeBytes: byteLen, reason: reason || 'tick', payload: JSON.parse(text) });
+    ring.push({ at: Date.now(), sizeBytes: text.length, reason: reason || 'tick', payload: JSON.parse(text) });
     while (ring.length > SNAPSHOT_SLOTS) ring.shift();
     snapshotLastAt = Date.now();
     save(STORE.SNAPSHOTS, ring);
@@ -22658,12 +24563,31 @@ const STORE = {
   }
   function statsPct(n, d) { return d ? Math.round(n / d * 100) + '%' : '-'; }
 
-  const FAVOR_HUD_WINDOW_MS = 600000;
-  const favorRateSamples = Object.create(null);
+  const statsYieldToMain = () => (globalThis.scheduler && typeof globalThis.scheduler.yield === 'function')
+    ? globalThis.scheduler.yield()
+    : new Promise(r => setTimeout(r, 0));
 
-  function favorHudGods(fav) { return favorGodsList(fav); }
+  const FAVOR_HUD_WINDOW_MS = 600000;
+  const FAVOR_HUD_GODS = ['zeus', 'poseidon', 'hera', 'athena', 'hades', 'ares', 'artemis', 'aphrodite'];
+  const favorRateSamples = Object.create(null);
+  function favorHudGods(fav) {
+
+    const seen = new Set();
+    for (const k of Object.keys(fav || {})) {
+      const m = String(k).match(/^(?:favor_)?([a-z]+)(?:_max)?$/i);
+      if (m && FAVOR_HUD_GODS.includes(m[1].toLowerCase())) seen.add(m[1].toLowerCase());
+    }
+    return seen.size ? Array.from(seen) : FAVOR_HUD_GODS;
+  }
   function favorHudRead(fav, god) {
-    return { cur: favorForGod(fav, god), max: favorMaxPool(fav) };
+    const cur = +(fav[god] != null ? fav[god] : fav['favor_' + god]);
+    const maxRaw = fav['max_favor_' + god] != null ? fav['max_favor_' + god]
+      : (fav['favor_' + god + '_max'] != null ? fav['favor_' + god + '_max'] : fav['max_' + god]);
+    const max = +maxRaw;
+    return {
+      cur: Number.isFinite(cur) ? cur : null,
+      max: Number.isFinite(max) && max > 0 ? max : null,
+    };
   }
   function favorHudRate(god, cur) {
     const now = Date.now();
@@ -22691,10 +24615,7 @@ const STORE = {
     for (const god of favorHudGods(fav)) {
       const r = favorHudRead(fav, god);
       if (r.cur == null && r.max == null) continue;
-
-      const perHour = favorProdPerHour(fav, god);
-      const measured = r.cur == null ? null : favorHudRate(god, r.cur);
-      const rate = perHour != null ? perHour / 3600 : measured;
+      const rate = r.cur == null ? null : favorHudRate(god, r.cur);
       let eta = '\u2014';
       if (r.cur != null && r.cur >= thresh) eta = 'ya';
       else if (rate == null) eta = '\u2026';
@@ -22732,9 +24653,8 @@ const STORE = {
       if (!r || !r.ok) continue;
 
       const row = { t: now };
-
-      for (const k of GB_RES_KEYS) { const v = gbNum(r[k]); if (v != null) row[k] = v; }
-      { const p = gbNum(r.pop); if (p != null) row.pop = p; }
+      for (const k of GB_RES_KEYS) if (Number.isFinite(+r[k])) row[k] = +r[k];
+      if (Number.isFinite(+r.pop)) row.pop = +r.pop;
       if (Object.keys(row).length < 2) continue;
       const list = H[key] || (H[key] = []);
       list.push(row);
@@ -22835,13 +24755,21 @@ const STORE = {
       const on = !!state.farmScrape;
       const learned = !!state.farmAction;
       if (!on) return { ok: true, warn: true, detail: 'disabled in Config (reads no village stock)' };
-
-      if (st.dead) return { ok: false, detail: `endpoint dead after ${st.misses} empty sweeps - abre una aldea a mano (el breaker se reactiva solo al ver la peticion) o fuerza un barrido en Aldeas` };
+      if (st.dead) return { ok: false, detail: `endpoint dead after ${st.misses} empty sweeps - teach it by opening a village, then re-enable` };
       const okRows = Object.values(state.farmResources || {}).filter(r => r && r.ok).length;
       return {
         ok: okRows > 0 || !learned,
         warn: !learned,
         detail: `${okRows} villages with data, action ${state.farmAction || 'not learned'}, misses ${st.misses || 0}`,
+      };
+    }));
+    out.push(preflightProbe('long farm claim', () => {
+      const sec = farmLongClaimDuration();
+      const opt = farmOptionFor(sec);
+      return {
+        ok: opt != null,
+        warn: opt == null,
+        detail: opt != null ? `${farmDurLabel(sec)} = option ${opt}` : `${farmDurLabel(sec)} not learned - claim that timer once by hand`,
       };
     }));
     out.push(preflightProbe('instant build', () => {
@@ -22885,13 +24813,10 @@ const STORE = {
 
     out.push(preflightProbe('academy read path', () => {
       const ids = (townsFromGame() || []).map(t => t.id);
-
-      let cur = null;
-      try { const v = gameUw().Game && gameUw().Game.townId; if (v != null) cur = v; } catch (_) {}
-      const tid = (cur != null && ids.some(id => String(id) === String(cur))) ? cur : ids[0];
+      const tid = ids[0];
       const info = tid != null ? researchTownTechs(tid) : null;
       if (!info) return { ok: false, detail: 'no readable town' };
-      const parts = [`town ${tid}${cur != null && String(tid) === String(cur) ? ' (abierta)' : ' (no abierta)'}`];
+      const parts = [];
       let bad = 0;
       let defs = 0;
       try { defs = Object.keys((gameUw().GameData && gameUw().GameData.researches) || {}).length; } catch (_) {}
@@ -22933,19 +24858,13 @@ const STORE = {
     out.push(preflightProbe('tx registry', () => {
       const tx = state.txState || {};
 
-      const vals = Object.values(tx).filter(Boolean);
-      const st = t => String(t.state || '');
-      const inflight = vals.filter(t => /^(planned|precheck|sending|confirming|reconciling)$/.test(st(t))).length;
-      const unknown = vals.filter(t => st(t) === 'unknown').length;
-      const review = vals.filter(t => st(t) === 'manual-review').length;
-      const done = vals.filter(t => /^(committed|dryrun)$/.test(st(t))).length;
-      const stale = vals.filter(t => st(t) === 'aborted' && (Date.now() - (+t.updatedAt || 0)) > 600000).length;
+      const inflight = Object.values(tx).filter(t => t && /^(planned|precheck|sending|confirming|reconciling|sent|dryrun|aborted|failed|unknown|manual-review)$/.test(t.state || '')).length;
+      const unknown = Object.values(tx).filter(t => t && /^(unknown|manual-review)$/.test(t.state || '')).length;
+      const stale = Object.values(tx).filter(t => t && t.state === 'aborted' && (Date.now() - (+t.updatedAt || 0)) > 600000).length;
       return {
         ok: true,
-        warn: unknown > 0 || review > 0 || stale > 0,
-        detail: `${vals.length} transactions, ${inflight} live, ${done} terminadas, ${unknown} unknown, `
-          + `${review} manual-review, ${stale} stale-aborted`
-          + (unknown + review > 0 ? ' - Diagnostico > pendientes para revisar o limpiar' : ''),
+        warn: unknown > 0 || stale > 0,
+        detail: `${Object.keys(tx).length} transactions, ${inflight} live, ${unknown} unknown, ${stale} stale-aborted`,
       };
     }));
     out.push(preflightProbe('phoenician', () => {
@@ -23034,19 +24953,6 @@ const STORE = {
           + `, ${plan.error ? 'plan: ' + plan.error : 'plan listo (~' + plan.total + ' plata)'}`,
       };
     }));
-    out.push(preflightProbe('adaptive farm', () => {
-      if (!state.adaptiveFarm) return { ok: true, detail: 'desactivado (por defecto)' };
-      const claimed = Object.keys(state.farmClaimsToday || {}).length;
-      const ranked = Object.values(state.farmProfit || {}).filter(r => r && r.score != null).length;
-      const total = (state.farmsParsed || []).length;
-      return {
-        ok: true,
-
-        warn: total > 0 && ranked === 0,
-        detail: `${ranked}/${total} aldea(s) puntuadas, ${claimed} reclamada(s) hoy, descarte ${gbCfgNum(state.farmDropPressurePct, 25)}%` +
-          (ranked === 0 && total ? ' - sin puntuaciones el recorte no tiene orden' : ''),
-      };
-    }));
     out.push(preflightProbe('snapshots', () => {
       const l = snapshotList();
       const kb = Math.round(snapshotTotalBytes() / 1024);
@@ -23077,15 +24983,12 @@ const STORE = {
       try { fav = favorCurrent(); } catch (_) {}
       if (!fav || typeof fav !== 'object') return { ok: false, detail: 'PlayerGods no legible' };
       const gods = favorHudGods(fav);
-      const readable = gods.filter(g => favorForGod(fav, g) != null);
-
-      const max = favorMaxPool(fav);
-      const withRate = gods.filter(g => favorProdPerHour(fav, g) != null);
+      const readable = gods.filter(g => favorHudRead(fav, g).cur != null);
+      const withMax = gods.filter(g => favorHudRead(fav, g).max != null);
       return {
         ok: readable.length > 0,
-        warn: readable.length === 0 || max == null,
-        detail: `${readable.length}/${gods.length} pozo(s) legibles, maximo ${max == null ? 'no legible' : max}` +
-          `, ${withRate.length} con produccion legible` +
+        warn: withMax.length === 0,
+        detail: `${readable.length}/${gods.length} pozo(s) legibles, ${withMax.length} con maximo legible` +
           (readable.length ? ` (${readable.join(',')})` : ''),
       };
     }));
@@ -23099,7 +25002,7 @@ const STORE = {
 
         warn: readable === 0,
         detail: `${readable}/${ids.length} ciudad(es) con dano legible, ${damaged} danada(s)` +
-          (readable === 0 ? ' - este cliente no expone dano de muralla: no se aplica ningun ajuste, puedes desactivarla' : ''),
+          (readable === 0 ? ' - nombre de atributo no capturado en este cliente' : ''),
       };
     }));
     out.push(preflightProbe('godspell', () => {
@@ -23123,9 +25026,9 @@ const STORE = {
       return {
         ok: true,
 
-        warn: withStam === 0 && !!state.autoHero,
+        warn: withStam === 0,
         detail: `${hs.length} heroe(s), ${withStam} con vigor legible, ${withEquip} con equipo legible` +
-          (withStam === 0 ? ' - este cliente no expone vigor/equipo de heroe (solo nivel, experiencia y curacion)' : '') +
+          (withStam === 0 ? ' - nombres de atributo no capturados en este cliente' : '') +
           `, auto ${state.autoHero ? 'ON (propone)' : 'OFF'}`,
       };
     }));
@@ -23257,22 +25160,6 @@ const STORE = {
         detail: `${(opt.actions || []).length} entradas \u00b7 ${blocked} bloqueadas` + (ledgerBlind ? ' - contable del planificador no legible' : ''),
       };
     }));
-    out.push(preflightProbe('cola aleatoria', () => {
-      if (!state.abRandomFallback) return { ok: true, detail: 'desactivada (por defecto)' };
-      if (!state.abAuto) return { ok: true, warn: true, detail: 'activada, pero la cola automatica esta OFF: no se ejecuta' };
-
-      const pool = abRandomPool();
-      const noMax = pool.filter(b => abMaxLevel(b) == null);
-      const townId = (townsFromGame() || []).map(t => String(t.id))[0] || null;
-      const costReadable = townId ? pool.filter(b => abCanAfford(townId, b).why !== 'cost unreadable').length : null;
-      return {
-        ok: !!pool.length && !noMax.length,
-        warn: !!noMax.length || costReadable === 0,
-        detail: `${pool.length} edificios en el sorteo` +
-          (noMax.length ? `, ${noMax.length} sin nivel maximo legible (${noMax.slice(0, 4).join(',')})` : ', niveles maximos legibles') +
-          (costReadable == null ? ', coste sin ciudad que probar' : `, coste legible en ${costReadable}/${pool.length}`),
-      };
-    }));
     out.push(preflightProbe('goal profile', () => {
       const known = goalProfiles();
       const goals = state.townGoals || {};
@@ -23384,8 +25271,7 @@ const STORE = {
     out.push(preflightProbe('client fingerprint',()=>{const r=clientFingerprintCompatible(state.clientFingerprint,clientFingerprintNow());return{ok:r.ok,detail:r.ok?'compatible':r.why}}));
     out.push(preflightProbe('resource planner',()=>{let ids=[];try{ids=Object.keys((uw.ITowns&&uw.ITowns.towns)||{})}catch(_){};const bad=ids.filter(id=>!plannerSnapshot(id));return{ok:bad.length===0,detail:bad.length?`unreadable towns: ${bad.join(',')}`:`${ids.length} town snapshots`}}));
     out.push(preflightProbe('goal planner',()=>{const plans=goalPlanAll();const bad=plans.filter(p=>p.error);return{ok:bad.length===0,warn:bad.length>0,detail:`${plans.length} plans, ${bad.length} unreadable`}}));
-    out.push(preflightProbe('never stop',()=>({ok:true,warn:gbNeverStop(),detail:gbNeverStop()?'ON: panic/circuit/decision-memory/safe-mode/tpl-health/night/activity/orch-backoff all bypassed; captcha + server cooldown still live':'off'})));
-    out.push(preflightProbe('safe mode',()=>({ok:true,warn:gbSafeModeOn(),detail:gbSafeModeOn()?'ON: high-impact writes blocked':(state.safeMode?'overridden by never stop':'off')})));
+    out.push(preflightProbe('safe mode',()=>({ok:true,warn:!!state.safeMode,detail:state.safeMode?'ON: high-impact writes blocked':'off'})));
     out.push(preflightProbe('guards', () => {
       const locks = gbLockList();
       const paused = Object.keys(state.captchaBreakers || {}).filter(k => captchaPaused(k));
@@ -23397,18 +25283,10 @@ const STORE = {
       const skips = jrnActiveSkips();
       if (skips.length) parts.push(skips.length + ' memory skip windows');
       const openCircuits = Object.keys(state.circuits || {}).filter(k => state.circuits[k] && state.circuits[k].open);
-      const txVals = Object.values(state.txState || {}).filter(Boolean);
-      const unknownTx = txVals.filter(t => String(t.state || '') === 'unknown').length;
-      const reviewTx = txVals.filter(t => String(t.state || '') === 'manual-review').length;
+      const unknownTx = Object.values(state.txState || {}).filter(t => t && /^(unknown|manual-review)$/.test(t.state || '')).length;
       if (openCircuits.length) parts.push('OPEN circuits: ' + openCircuits.join(','));
-
-      if (unknownTx) parts.push(unknownTx + ' UNKNOWN transaction(s) awaiting reconciliation');
-      if (reviewTx) parts.push(reviewTx + ' manual-review tombstone(s) - clear them in Diagnostico > pendientes');
-      return {
-        ok: openCircuits.length === 0 && unknownTx === 0 && reviewTx === 0,
-        warn: parts.length > 0,
-        detail: parts.length ? parts.join(' | ') : 'clear',
-      };
+      if (unknownTx) parts.push(unknownTx + ' UNKNOWN transaction(s) require reconciliation/review');
+      return { ok: openCircuits.length === 0 && unknownTx === 0, warn: parts.length > 0, detail: parts.length ? parts.join(' | ') : 'clear' };
     }));
     return out;
   }
@@ -23479,12 +25357,7 @@ const STORE = {
       }
     } catch (_) {}
     lines.push('');
-    const dl = (typeof orchDeadlockState === 'function') ? orchDeadlockState() : null;
-    if (dl && dl.open) {
-      lines.push(`ATASCO DE ALMACEN abierto en ${dl.towns.join(',') || '?'} - cueva/comercio/aldeas van antes que recoleccion`);
-      lines.push('');
-    }
-    lines.push('planificador (cadencia con adaptativa por inactividad)');
+    lines.push('planificador (cadencias fijas independientes)');
     orchStatus().filter(s => s.on).forEach(s => {
       lines.push(`  ${s.key.padEnd(11)} cada ${fmtSec(Math.round(s.cadenceMs / 1000)).padEnd(6)} proxima ${fmtSec(Math.round(s.dueInMs / 1000)).padEnd(6)}${s.idle ? ' inact. x' + s.idle : ''}${s.captcha ? ' CAPTCHA' : ''}`);
 
@@ -23516,80 +25389,6 @@ const STORE = {
       });
     }
     box.textContent = lines.join('\n');
-    renderPreflightBoard(sec);
-  }
-
-  const PF_ES = {
-    'bridge': 'Puente con el juego',
-    'csrf': 'Token de sesi\u00f3n',
-    'towns': 'Ciudades',
-    'farm claims': 'Cobro de aldeas',
-    'farm unit claims': 'Cobro de unidades en aldeas',
-    'farm resource scrape': 'Lectura de recursos de aldeas',
-    'instant build': 'Terminar construcci\u00f3n gratis',
-    'instant research': 'Terminar investigaci\u00f3n gratis',
-    'cave': 'Cueva',
-    'trade': 'Comercio',
-    'research': 'Investigaci\u00f3n',
-    'academy read path': 'Academia',
-    'village recruit': 'Reclutar en aldeas',
-    'tx registry': 'Registro de transacciones',
-    'phoenician': 'Comercio fenicio',
-    'native queue': 'Colas del juego',
-    'snapshots': 'Instant\u00e1neas',
-    'profiler': 'Perfilador',
-    'memory probe': 'Memoria',
-  };
-  function renderPreflightBoard(sec) {
-    const when = sec.querySelector('#gb-pf-when');
-    const list = sec.querySelector('.gb-pf-list');
-    if (!list) return;
-    if (!preflightLast) {
-      if (when) when.textContent = 'Lee todos los m\u00f3dulos sin enviar nada al juego. Todav\u00eda no se ha ejecutado.';
-      list.replaceChildren();
-      return;
-    }
-    const rows = preflightLast.rows || [];
-    const bad = rows.filter(r => !r.ok);
-    const warn = rows.filter(r => r.ok && r.warn);
-    const okN = rows.length - bad.length - warn.length;
-    if (when) {
-      when.textContent = `${new Date(preflightLast.at).toLocaleTimeString()} \u00b7 ${okN} bien`
-        + (warn.length ? ` \u00b7 ${warn.length} aviso(s)` : '')
-        + (bad.length ? ` \u00b7 ${bad.length} fallo(s)` : '');
-    }
-    const show = bad.concat(warn);
-    gbPaint(list, stage => {
-      show.forEach(r => {
-        const row = document.createElement('div');
-        row.className = 'gb-pf-row';
-        const ico = gbIcon(r.ok ? 'info' : 'alert', 14, r.ok ? '#ffd27a' : '#ff9aa3');
-        if (ico) { ico.style.flex = '0 0 auto'; ico.style.marginTop = '1px'; row.appendChild(ico); }
-        const mid = document.createElement('div');
-        mid.style.cssText = 'flex:1;min-width:0';
-        const t = document.createElement('div');
-        t.className = 'gb-pf-t ' + (r.ok ? 'warn' : 'bad');
-        t.textContent = PF_ES[r.name] || r.name;
-        const d = document.createElement('div');
-        d.className = 'gb-pf-s';
-        d.textContent = r.detail;
-        mid.append(t, d);
-        row.appendChild(mid);
-        stage.appendChild(row);
-      });
-      if (!okN) return;
-      const sum = document.createElement('div');
-      sum.className = 'gb-pf-row';
-      const ico = gbIcon('check', 14, '#6dda7e');
-      if (ico) { ico.style.flex = '0 0 auto'; ico.style.marginTop = '1px'; sum.appendChild(ico); }
-      const st = document.createElement('div');
-      st.className = 'gb-pf-t';
-      st.textContent = !show.length
-        ? (okN === 1 ? 'El \u00fanico m\u00f3dulo probado lee bien' : `Los ${okN} m\u00f3dulos leen bien`)
-        : (okN === 1 ? 'Otro m\u00f3dulo lee bien' : `Otros ${okN} m\u00f3dulos leen bien`);
-      sum.appendChild(st);
-      stage.appendChild(sum);
-    }, { key: show.map(r => r.name + (r.ok ? 'w' : 'x')).join('|') + '#' + okN });
   }
 
   function evidenceTplShape(v) {
@@ -23652,8 +25451,8 @@ const STORE = {
     Object.keys(state).forEach(k => {
       if (/^auto[A-Z]/.test(k) || k === 'dryRun' || k === 'ibAuto' || k === 'ibResearch' ||
           k === 'collectAll' || k === 'decisionMemory' || k === 'captchaGlobalKill' ||
-          k === 'orchAdaptive' || k === 'farmLongClaims') {
-        toggles[k] = !!state[k];
+          k === 'farmLongClaims') {
+          toggles[k] = !!state[k];
       }
     });
     toggles.hostEnabled = !!hostEnabled();
@@ -23685,7 +25484,6 @@ const STORE = {
         globalLeftMs: Math.max(0, (captchaGlobalUntil || 0) - now),
         breakers,
       },
-      deadlock: typeof orchDeadlockState === 'function' ? orchDeadlockState() : null,
       server: {
         paused: typeof gbServerPaused === 'function' ? gbServerPaused() : false,
         leftMs: typeof gbServerCooldownLeftMs === 'function' ? gbServerCooldownLeftMs() : 0,
@@ -23803,8 +25601,7 @@ const STORE = {
       bundleSection('evidence', () => gbEvidence()),
       bundleSection('config', () => (typeof qolExportConfigForUi === 'function' ? qolExportConfigForUi() : '(no export path)')),
       bundleSection('decisions', () => ({ decisions: state.decisions || [], skips: state.decisionSkips || {} })),
-
-      bundleSection('log', () => gbLogDumpText()),
+      bundleSection('log', () => gbLogDumpText(200)),
       bundleSection('findings', () => (typeof redactFindingsExport === 'function'
         ? redactFindingsExport({ findings: state.findings, farms: state.farms })
         : '(no redaction path - refusing raw findings)')),
@@ -23878,7 +25675,7 @@ const STORE = {
     try { nodes = Array.from(document.querySelectorAll(CTX_POPUP_SEL)); } catch (_) { return null; }
     for (const n of nodes) {
 
-      if (n.closest('#grepbot-panel, .gb-widget, .gb-ctx-menu')) continue;
+      if (n.closest('#grepbot-panel, #grepbot-queue-center, .gb-widget, .gb-ctx-menu')) continue;
       const r = n.getBoundingClientRect();
       if (!r.width || !r.height) continue;
       const id = ctxReadTownId(n);
@@ -24004,7 +25801,7 @@ const STORE = {
   let hudProdWidget = null;
   let hudEtaWidget = null;
   function hudCurrentTownId() {
-    try { const id = uwCached().Game && uwCached().Game.townId; if (id != null) return String(id); } catch (_) {}
+    try { const id = gameUw().Game && gameUw().Game.townId; if (id != null) return String(id); } catch (_) {}
     const t = (state.towns || [])[0];
     return t ? String(t.id) : null;
   }
@@ -24030,77 +25827,66 @@ const STORE = {
     return s;
   }
   function hudRenderProduction(body) {
-
+    body.replaceChildren();
     const ids = hudTownOrder();
-    gbPaint(body, (stage) => {
-      if (!ids.length) { stage.appendChild(hudCell('sin ciudades legibles', 'var(--gb-fg-mute)')); return; }
-      const head = document.createElement('div');
-      head.style.cssText = 'display:grid;grid-template-columns:1.2fr repeat(3,1fr) .8fr;gap:4px;font-size:9px;color:var(--gb-fg-mute);border-bottom:1px solid var(--gb-border-soft);padding-bottom:2px';
-      ['ciudad', 'madera', 'piedra', 'plata', 'lleno en'].forEach(t => head.appendChild(hudCell(t)));
-      stage.appendChild(head);
-      for (const id of ids.slice(0, 12)) {
-        const rs = (typeof townResState === 'function') ? townResState(id) : null;
-        const rate = (typeof economyProductionRate === 'function') ? economyProductionRate(id) : null;
-        const row = document.createElement('div');
-        row.style.cssText = 'display:grid;grid-template-columns:1.2fr repeat(3,1fr) .8fr;gap:4px;padding:1px 0;border-bottom:1px solid var(--gb-rule)';
-        row.appendChild(hudCell(townNameById(id)));
-        let soonest = null;
-        for (const k of GB_RES_KEYS) {
-          if (!rs || !(rs.cap > 0)) { row.appendChild(hudCell('\u2014', 'var(--gb-fg-mute)')); continue; }
-
-          const cur = gbNum(rs[k]);
-          if (cur == null) { row.appendChild(hudCell('\u2014', 'var(--gb-fg-mute)')); continue; }
-          const perH = rate ? gbNum(rate[k]) : null;
-          const pct = Math.round(cur / rs.cap * 100);
-          row.appendChild(hudCell(`${fmt(cur)} ${perH == null ? '\u2014' : '+' + Math.round(perH) + '/h'}`,
-            pct >= 97 ? 'var(--gb-err-3)' : (pct >= 85 ? 'var(--gb-warn-2)' : null)));
-          if (perH != null && perH > 0) {
-            const sec = Math.max(0, (rs.cap - cur) / perH * 3600);
-            if (soonest == null || sec < soonest) soonest = sec;
-          }
+    if (!ids.length) { body.appendChild(hudCell('sin ciudades legibles', 'var(--gb-fg-mute)')); return; }
+    const head = document.createElement('div');
+    head.style.cssText = 'display:grid;grid-template-columns:1.2fr repeat(3,1fr) .8fr;gap:4px;font-size:9px;color:var(--gb-fg-mute);border-bottom:1px solid var(--gb-border-soft);padding-bottom:2px';
+    ['ciudad', 'madera', 'piedra', 'plata', 'lleno en'].forEach(t => head.appendChild(hudCell(t)));
+    body.appendChild(head);
+    for (const id of ids.slice(0, 12)) {
+      const rs = (typeof townResState === 'function') ? townResState(id) : null;
+      const rate = (typeof economyProductionRate === 'function') ? economyProductionRate(id) : null;
+      const row = document.createElement('div');
+      row.style.cssText = 'display:grid;grid-template-columns:1.2fr repeat(3,1fr) .8fr;gap:4px;padding:1px 0;border-bottom:1px solid var(--gb-rule)';
+      row.appendChild(hudCell(townNameById(id)));
+      let soonest = null;
+      for (const k of GB_RES_KEYS) {
+        if (!rs || !(rs.cap > 0)) { row.appendChild(hudCell('\u2014', 'var(--gb-fg-mute)')); continue; }
+        const cur = +rs[k] || 0;
+        const perH = rate ? +rate[k] : null;
+        const pct = Math.round(cur / rs.cap * 100);
+        row.appendChild(hudCell(`${fmt(cur)} ${perH == null ? '\u2014' : '+' + Math.round(perH) + '/h'}`,
+          pct >= 97 ? 'var(--gb-err-3)' : (pct >= 85 ? 'var(--gb-warn-2)' : null)));
+        if (perH != null && perH > 0) {
+          const sec = Math.max(0, (rs.cap - cur) / perH * 3600);
+          if (soonest == null || sec < soonest) soonest = sec;
         }
-        row.appendChild(hudCell(hudEtaText(soonest), soonest != null && soonest < 3600 ? 'var(--gb-warn-2)' : null));
-        stage.appendChild(row);
       }
-    }, { key: 'prod|' + ids.join('|') });
+      row.appendChild(hudCell(hudEtaText(soonest), soonest != null && soonest < 3600 ? 'var(--gb-warn-2)' : null));
+      body.appendChild(row);
+    }
   }
   function hudRenderCountdown(body) {
+    body.replaceChildren();
     let incoming = [];
-    let incomingErr = false;
-    try { incoming = dodgeIncomingMovements() || []; } catch (_) { incomingErr = true; }
-    gbPaint(body, (stage) => {
-      if (incomingErr) { stage.appendChild(hudCell('movimientos no legibles', 'var(--gb-fg-mute)')); return; }
-      if (!incoming.length) { stage.appendChild(hudCell('sin ataques entrantes', 'var(--gb-fg-mute)')); return; }
-      const rows = incoming
-        .map(m => ({ m, eta: dodgeEtaSec(m) }))
+    try { incoming = dodgeIncomingMovements() || []; } catch (_) {
+      body.appendChild(hudCell('movimientos no legibles', 'var(--gb-fg-mute)'));
+      return;
+    }
+    if (!incoming.length) { body.appendChild(hudCell('sin ataques entrantes', 'var(--gb-fg-mute)')); return; }
+    const rows = incoming
+      .map(m => ({ m, eta: dodgeEtaSec(m) }))
 
-        .sort((a, b) => (a.eta == null ? Infinity : a.eta) - (b.eta == null ? Infinity : b.eta));
-      for (const { m, eta } of rows.slice(0, 12)) {
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex;gap:6px;align-items:center;padding:1px 0;border-bottom:1px solid var(--gb-rule);white-space:nowrap';
-        const etaCell = hudCell(eta == null ? '\u2014' : (() => {
+      .sort((a, b) => (a.eta == null ? Infinity : a.eta) - (b.eta == null ? Infinity : b.eta));
+    for (const { m, eta } of rows.slice(0, 12)) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:6px;align-items:center;padding:1px 0;border-bottom:1px solid var(--gb-rule);white-space:nowrap';
+      const etaCell = hudCell(eta == null ? '\u2014' : queueCenterFmt(eta));
+      etaCell.style.fontWeight = 'bold';
+      etaCell.style.color = eta == null ? 'var(--gb-fg-mute)'
+        : (eta < 300 ? 'var(--gb-err-3)' : (eta < 900 ? 'var(--gb-warn-2)' : 'var(--gb-fg-2)'));
+      row.appendChild(etaCell);
+      row.appendChild(hudCell(String(m.type || 'atk')));
+      row.appendChild(hudCell('\u2192 ' + townNameById(m.dest)));
+      row.appendChild(hudCell('de ' + (m.origin || '?'), 'var(--gb-fg-mute)'));
 
-          const e = gbNum(eta);
-          if (e == null) return '\u2014';
-          const s = Math.max(0, Math.floor(e));
-          const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
-          return h ? `${h}h ${String(m).padStart(2,'0')}m` : `${m}m ${String(s % 60).padStart(2,'0')}s`;
-        })());
-        etaCell.style.fontWeight = 'bold';
-        etaCell.style.color = eta == null ? 'var(--gb-fg-mute)'
-          : (eta < 300 ? 'var(--gb-err-3)' : (eta < 900 ? 'var(--gb-warn-2)' : 'var(--gb-fg-2)'));
-        row.appendChild(etaCell);
-        row.appendChild(hudCell(String(m.type || 'atk')));
-        row.appendChild(hudCell('\u2192 ' + townNameById(m.dest)));
-        row.appendChild(hudCell('de ' + (m.origin || '?'), 'var(--gb-fg-mute)'));
-
-        if (m.hasCs) row.appendChild(hudCell('[CS]', 'var(--gb-err-3)'));
-        let n = 0;
-        try { n = countUnits(m.units); } catch (_) {}
-        if (n > 0) row.appendChild(hudCell(n + ' u.', 'var(--gb-fg-mute)'));
-        stage.appendChild(row);
-      }
-    }, { key: 'eta|' + incoming.map(m => (m && m.id) || '').join('|') });
+      if (m.hasCs) row.appendChild(hudCell('[CS]', 'var(--gb-err-3)'));
+      let n = 0;
+      try { n = Object.values(m.units || {}).reduce((a, b) => a + (+b || 0), 0); } catch (_) {}
+      if (n > 0) row.appendChild(hudCell(n + ' u.', 'var(--gb-fg-mute)'));
+      body.appendChild(row);
+    }
   }
   function hudEnsure() {
     if (!hudProdWidget) {
@@ -24135,6 +25921,602 @@ const STORE = {
     if (state.hudCountdown && hudEtaWidget) hudEtaWidget.open();
   }
 
+  let gbQueueCenter = null;
+  let gbQueueCenterTab = 'build';
+  let gbQueueCenterTown = null;
+  let gbQueueCenterResearchPick = '';
+
+  function makeDraggable(w, h) {
+    let drag = null;
+    const onDown = e => {
+      if (e.target.closest('button,select')) return;
+      const r = w.getBoundingClientRect();
+      drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+      e.preventDefault();
+    };
+    const onMove = e => {
+      if (!drag) return;
+      const cssMax = parseFloat(getComputedStyle(w).maxWidth) || w.offsetWidth;
+      const maxW = Math.min(w.offsetWidth || 0, Math.max(0, innerWidth - cssMax));
+      const maxH = Math.max(0, innerHeight - w.offsetHeight);
+      w.style.left = Math.max(0, Math.min(innerWidth - maxW, e.clientX - drag.dx)) + 'px';
+      w.style.top = Math.max(0, Math.min(maxH, e.clientY - drag.dy)) + 'px';
+      w.style.right = 'auto';
+    };
+    const onUp = () => { drag = null; };
+    gbListen(h, 'mousedown', onDown);
+    gbListen(document, 'mousemove', onMove);
+    gbListen(document, 'mouseup', onUp);
+    gbListenerBag.push({ target: document, type: 'mousemove', fn: onMove, opts: undefined }, { target: document, type: 'mouseup', fn: onUp, opts: undefined });
+  }
+
+  if (!state._gbQcCssInjected) {
+    state._gbQcCssInjected = true;
+    gbAddStyle('queue-center', `
+    #grepbot-queue-center{position:fixed;top:90px;left:90px;width:760px;height:560px;min-width:520px;min-height:320px;max-width:94vw;max-height:88vh;z-index:2147483646;background:var(--gb-bg-deep);color:var(--gb-fg);border:1px solid #4a505b;border-radius:10px;box-shadow:0 10px 32px rgba(0,0,0,.6);display:flex;flex-direction:column;resize:both;overflow:hidden;font:12px/1.35 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+    #grepbot-queue-center header{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#24272e;border-bottom:1px solid #3d424c;cursor:move;flex-shrink:0}
+    #grepbot-queue-center header b{color:var(--gb-accent);font-size:13px}#grepbot-queue-center .gb-qc-spacer{flex:1}
+    #grepbot-queue-center header select{max-width:210px;background:#11141a;color:var(--gb-fg);border:1px solid #4b5260;border-radius:5px;padding:4px 7px}
+    #grepbot-queue-center header button,#grepbot-queue-center .gb-qc-btn{background:#2d323b;color:#e9edf2;border:1px solid #4f5764;border-radius:5px;padding:3px 7px;cursor:pointer;font-size:11px}
+    #grepbot-queue-center header button:hover,#grepbot-queue-center .gb-qc-btn:hover{background:#39404b;border-color:#707a89}#grepbot-queue-center button:disabled{opacity:.35;cursor:default}
+    #grepbot-queue-center .gb-qc-btn:active{background:#4b5462}#grepbot-queue-center .gb-qc-btn.busy{background:#4b5462;border-color:#8a94a3}
+    #grepbot-queue-center nav{display:flex;gap:5px;padding:7px 9px;background:#1d2026;border-bottom:1px solid var(--gb-border-soft);flex-shrink:0}
+    #grepbot-queue-center .gb-qc-tab{padding:6px 12px;background:#272b33;color:var(--gb-fg-soft2);border:1px solid transparent;border-radius:7px;cursor:pointer;font-weight:600}
+    #grepbot-queue-center .gb-qc-tab.on{background:var(--gb-warn-bg);color:var(--gb-fg-hi);border-color:var(--gb-accent-3)}
+    #grepbot-queue-center .gb-qc-body{padding:10px;flex:1 1 0;min-height:0;height:0;overflow-y:scroll;overflow-x:hidden;scrollbar-gutter:stable;scrollbar-width:auto;scrollbar-color:#5f6978 var(--gb-bg-deep);overscroll-behavior:contain;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:max-content;gap:10px;align-content:start}
+    #grepbot-queue-center .gb-qc-body::-webkit-scrollbar{width:10px}
+    #grepbot-queue-center .gb-qc-body::-webkit-scrollbar-track{background:var(--gb-bg-deep);border-left:1px solid #2e333c}
+    #grepbot-queue-center .gb-qc-body::-webkit-scrollbar-thumb{background:#4f5764;border:2px solid var(--gb-bg-deep);border-radius:8px}
+    #grepbot-queue-center .gb-qc-body::-webkit-scrollbar-thumb:hover{background:#6a7484}
+    #grepbot-queue-center .gb-qc-card{background:#20232a;border:1px solid #383e48;border-radius:8px;overflow:hidden;min-width:0;align-self:start;height:max-content}
+    #grepbot-queue-center .gb-qc-card-head{display:flex;gap:8px;align-items:center;padding:8px 9px;background:#272b33;border-bottom:1px solid #383e48}#grepbot-queue-center .gb-qc-card-head>div:first-child{display:flex;flex-direction:column;flex:1;min-width:0}#grepbot-queue-center .gb-qc-card-head small{color:#89919d;font-size:10px}
+    #grepbot-queue-center .gb-qc-live-row,#grepbot-queue-center .gb-qc-plan-row,#grepbot-queue-center .gb-qc-job{display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:8px;align-items:center;padding:7px 9px;border-top:1px solid rgba(255,255,255,.05)}
+    #grepbot-queue-center .gb-qc-job-desc{display:flex;flex-direction:column;min-width:0}.gb-qc-job-desc>span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #grepbot-queue-center .gb-qc-acts{display:flex;gap:3px}.gb-qc-btn.danger{color:#ffb0a8}.gb-qc-empty{padding:16px 10px;color:#828a95;text-align:center}
+    #grepbot-queue-center .gb-qc-picker{display:flex;gap:6px;align-items:center;padding:8px 9px;border-top:1px solid rgba(255,255,255,.05);background:#1b1e24}
+    #grepbot-queue-center .gb-qc-pick{flex:1;min-width:0;background:#20232a;color:var(--gb-fg);border:1px solid #454c58;border-radius:5px;padding:3px 5px;font-size:11px}
+    #grepbot-queue-center .gb-qc-sequence{padding:8px 9px 9px;border-top:1px solid rgba(255,255,255,.05);background:#1b1e24}
+    #grepbot-queue-center .gb-qc-sequence-title{display:block;margin-bottom:6px;color:#f5c36a;font-size:10px;text-transform:uppercase;letter-spacing:.35px}
+    #grepbot-queue-center .gb-qc-sequence-line{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+    #grepbot-queue-center .gb-qc-sequence-chip{padding:3px 6px;border-radius:5px;background:var(--gb-bg-raise);border:1px solid #454c58;color:var(--gb-fg);font-size:10px;white-space:nowrap}
+    #grepbot-queue-center .gb-qc-sequence-arrow{color:#757f8c;font-weight:bold}
+    #grepbot-queue-center .gb-qc-status{font-size:9px;color:#aab2bd}.gb-qc-status.ready{color:#7ddd96}.gb-qc-status.blocked,.gb-qc-status.unknown{color:#ff9e94}.gb-qc-status.paused{color:var(--gb-warn)}.gb-qc-status.waiting-resources,.gb-qc-status.waiting-population,.gb-qc-status.waiting-queue,.gb-qc-status.waiting-requirement{color:#e5bf70}.gb-qc-muted{color:#929aa5;font-size:10px}
+    @media(max-width:760px){#grepbot-queue-center{left:2vw!important;top:4vh!important;width:96vw!important;height:80vh!important}#grepbot-queue-center .gb-qc-body{grid-template-columns:1fr}}
+    `);
+  }
+  function queueCenterTownIds() {
+    let ids = [];
+    try { ids = Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}); } catch (_) {}
+    if (!ids.length) ids = (state.towns || []).map(t => String(t.id));
+    return ids.map(String);
+  }
+  function queueCenterTownName(id) {
+    try {
+      const t = (state.towns || []).find(x => String(x.id) === String(id));
+      if (t && t.name) return t.name;
+      const gt = gbTownModel(id);
+      const a = gt && (gt.attributes || gt);
+      if (a && a.name) return String(a.name);
+    } catch (_) {}
+    return String(id || '?');
+  }
+
+  function queueCenterUnitIsNaval(unit) {
+    try {
+      const d = gbGameDataLookup("units", unit);
+      if (!d) return null;
+      return !!(d.is_naval || d.naval);
+    } catch (_) { return null; }
+  }
+  function queueCenterUnitId(model) {
+    const a = (model && model.attributes) || model || {};
+    return String(a.unit_type || a.unit_id || a.type || '?');
+  }
+  function queueCenterUnitAmount(model) {
+    const a = (model && model.attributes) || model || {};
+    return +(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)) || 0;
+  }
+  function queueCenterTimeLeft(model) {
+    const a = (model && model.attributes) || model || {};
+    const now = gameNow();
+    const done = +(a.to_be_completed_at || a.completed_at || a.done_at || a.time_finished || 0);
+    if (done > 0) return Math.max(0, done - now);
+    const left = +(a.time_left || a.remaining_time || a.recruitment_time || a.research_time || a.building_time || 0);
+    return left > 0 ? left : null;
+  }
+  function queueCenterFmt(sec) {
+    if (sec == null || !Number.isFinite(+sec)) return '';
+    sec = Math.max(0, Math.floor(+sec));
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), ss = sec % 60;
+    return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m ${String(ss).padStart(2, '0')}s`;
+  }
+
+  function queueCenterButton(txt, title, fn, cls) {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = txt; b.title = title || ''; b.className = 'gb-qc-btn' + (cls ? ' ' + cls : '');
+    b.addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
+      if (!gbInstanceAlive()) return;
+      if (!gbTabLeader) { flash('GrepBot est\u00e1 activo en otra pesta\u00f1a'); return; }
+
+      b.classList.add('busy');
+      let r;
+      try { r = fn && fn(e); } finally { b.classList.remove('busy'); }
+      if (r !== false) renderQueueCenterFlush();
+    });
+    return b;
+  }
+  function queueCenterStatusBadge(status, reason) {
+    const s = document.createElement('span'); s.className = 'gb-qc-status ' + String(status || 'pending').replace(/[^a-z-]/gi, '');
+    const map = { pending: 'pendiente', ready: 'listo', sending: 'enviando', paused: 'pausada', blocked: 'bloqueada', unknown: 'revisar', 'waiting-resources': 'recursos', 'waiting-population': 'poblaci\u00f3n', 'waiting-queue': 'cola llena', 'waiting-requirement': 'requisito' };
+    s.textContent = map[status] || status || 'pendiente'; if (reason) s.title = reason; return s;
+  }
+  function queueCenterCard(title, subtitle, subTitle) {
+    const box = document.createElement('div'); box.className = 'gb-qc-card';
+    const h = document.createElement('div'); h.className = 'gb-qc-card-head';
+    const left = document.createElement('div'); const b = document.createElement('b'); b.textContent = title; left.appendChild(b);
+    if (subtitle) { const sm = document.createElement('small'); sm.textContent = subtitle; if (subTitle) gbTip(sm, subTitle); left.appendChild(sm); }
+    h.appendChild(left); box.appendChild(h); return { box, head: h };
+  }
+  function queueCenterEmpty(text) { const d = document.createElement('div'); d.className = 'gb-qc-empty'; d.textContent = text; return d; }
+  function queueCenterSequence(title, entries) {
+    const wrap = document.createElement('div'); wrap.className = 'gb-qc-sequence';
+    const lab = document.createElement('b'); lab.className = 'gb-qc-sequence-title'; lab.textContent = title; wrap.appendChild(lab);
+    const line = document.createElement('div'); line.className = 'gb-qc-sequence-line';
+    (entries || []).forEach((e, i) => {
+      if (i) { const arrow = document.createElement('span'); arrow.className = 'gb-qc-sequence-arrow'; arrow.textContent = '>'; line.appendChild(arrow); }
+      const chip = document.createElement('span'); chip.className = 'gb-qc-sequence-chip'; chip.textContent = String(e && e.text != null ? e.text : e || '');
+      if (e && e.title) chip.title = e.title; line.appendChild(chip);
+    });
+    wrap.appendChild(line); return wrap;
+  }
+
+  function queueCenterLiveRow(num, label, sec, numTitle) {
+    const r = document.createElement('div'); r.className = 'gb-qc-live-row';
+    const n = document.createElement('span'); n.textContent = `#${num}`; if (numTitle) n.title = numTitle;
+    const nm = document.createElement('b'); nm.textContent = label;
+
+    const t = document.createElement('span'); t.className = 'gb-qc-eta'; t.textContent = queueCenterFmt(sec);
+    if (sec != null && Number.isFinite(+sec)) { t.dataset.eta = String(Math.max(0, +sec)); t.dataset.t0 = String(Date.now()); }
+    r.append(n, nm, t); return r;
+  }
+
+  function queueCenterJobRow(num, desc, badge, lane, townId, job, frozen, i, list) {
+    const r = document.createElement('div'); r.className = 'gb-qc-job';
+    const numEl = document.createElement('b'); numEl.textContent = `#${num}`;
+    gbTip(numEl, 'Posicion en la cola virtual');
+    const descEl = document.createElement('div'); descEl.className = 'gb-qc-job-desc';
+    const main = document.createElement('span'); main.textContent = desc;
+    gbTip(main, 'Descripcion de la orden virtual');
+    descEl.append(main, badge);
+    const acts = document.createElement('div'); acts.className = 'gb-qc-acts';
+    const up = queueCenterButton('\u2191', 'Subir', () => nativeQueueMove(townId, lane, job.id, -1));
+    const dn = queueCenterButton('\u2193', 'Bajar', () => nativeQueueMove(townId, lane, job.id, 1));
+    const del = queueCenterButton('\u00d7', 'Eliminar', () => queueCenterRemove(townId, lane, job, frozen), 'danger');
+    up.disabled = frozen || i === 0;
+    dn.disabled = frozen || i === list.length - 1;
+    del.disabled = !!job.inflight;
+    acts.append(up, dn, del); r.append(numEl, descEl, acts); return r;
+  }
+
+  function queueCenterRemove(townId, lane, job, frozen) {
+    if (job.inflight) { flash('Esta orden se est\u00e1 enviando; espera a que termine'); return false; }
+    if (job.manualReview) {
+      let ok = false;
+      try { ok = gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acci\u00f3n se envi\u00f3 o no.'); } catch (_) { ok = false; }
+      if (!ok) return false;
+    } else if (frozen) {
+      let ok = false;
+      try { ok = gameUw().confirm('Hay otra acci\u00f3n pendiente en esta cola. \u00bfBorrar este elemento de todos modos?'); } catch (_) { ok = false; }
+      if (!ok) return false;
+    }
+    return nativeQueueRemove(townId, lane, job.id, { force: true });
+  }
+  function renderQueueCenterBuild(body, townId) {
+    const q = abQueueInfo(townId);
+    const live = queueCenterCard('Cola real de construcci\u00f3n', q.known ? `${q.len}/${q.max}` : 'estado no legible', 'Numero de ordenes reales en la cola del juego');
+    body.appendChild(live.box);
+    if (q.known && q.orders.length) {
+      q.orders.forEach((o, i) => {
+        const left = o.to_be_completed_at ? Math.max(0, +o.to_be_completed_at - gameNow()) : o.building_time;
+        live.box.appendChild(queueCenterLiveRow(i + 1, nativeBuildLabel(o.building_type), left));
+      });
+    } else live.box.appendChild(queueCenterEmpty(q.known ? 'Sin construcciones reales' : 'No se puede leer la cola real'));
+
+    const list = nativeQueueList(townId, 'build', false), fifo = nativeQueueIsFifo(townId, 'build'), paused = nativeQueuePaused(townId, 'build');
+    const plan = queueCenterCard('Plan GrepBot \u00b7 Construcci\u00f3n', fifo ? (paused ? 'FIFO pausada' : 'FIFO activa') : 'Objetivos autom\u00e1ticos', fifo ? (paused ? 'Cola FIFO en pausa - el plan automatico no actua' : 'Cola FIFO activa - gestionas las ordenes manualmente') : 'El plan automatico es el due\u00f1o de esta cola');
+    body.appendChild(plan.box);
+    plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? 'Reanudar cola' : 'Pausar cola', () => nativeQueueTogglePaused(townId, 'build')));
+    if (!list.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador autom\u00e1tico', () => nativeQueueUseLegacy(townId, 'build')));
+
+    if (!list.length) { plan.box.appendChild(queueCenterEmpty(fifo ? 'Cola FIFO vac\u00eda. A\u00f1ade edificios con + desde el Senado.' : 'Esta ciudad usa el planificador de objetivos.')); renderQueueCenterOptimal(body, townId); return; }
+    plan.box.appendChild(queueCenterSequence('Orden FIFO', list.map((j, i) => ({
+      text: `#${i + 1} ${nativeBuildLabel(j.building)}`,
+      title: `${nativeBuildLabel(j.building)} ${j.fromLevel}\u2192${j.toLevel}${j.reason ? ' \u00b7 ' + j.reason : ''}`,
+    }))));
+    const frozen = list.some(j => j && j.inflight);
+    list.forEach((j, i) => {
+      plan.box.appendChild(queueCenterJobRow(
+        i + 1,
+        `${nativeBuildLabel(j.building)} ${j.fromLevel}\u2192${j.toLevel}`,
+        queueCenterStatusBadge(j.status, j.reason),
+        'build', townId, j, frozen, i, list,
+      ));
+    });
+    renderQueueCenterSwap(body, townId);
+    renderQueueCenterOptimal(body, townId);
+  }
+
+  function renderQueueCenterSwap(body, townId) {
+    let sug = null;
+    try { sug = nativeQueueSuggestSwap(townId); } catch (_) { sug = null; }
+    if (!sug) return;
+    const box = document.createElement('div');
+    box.className = 'gb-qc-card';
+    box.style.cssText = 'border-color:#f5a623';
+    const txt = document.createElement('div');
+    txt.style.cssText = 'font-size:10px;color:#f5a623;padding:4px';
+    txt.textContent = `Sugerencia: ascender ${nativeBuildLabel(sug.successor.building)} mientras se esperan recursos para ${nativeBuildLabel(sug.head.building)} (${sug.head.forMinutes} min bloqueada)`;
+    box.appendChild(txt);
+    const acts = document.createElement('div');
+    acts.className = 'gb-qc-acts';
+    acts.style.cssText = 'padding:0 4px 4px';
+    acts.appendChild(queueCenterButton('Ascender', 'Mueve esta orden a la cabeza de la cola FIFO', () => {
+      if (!nativeQueueMove(townId, 'build', sug.swap.successorId, -sug.successorIndex)) {
+        flash('no se pudo reordenar (cola congelada)');
+        return false;
+      }
+      flash('orden ascendida');
+    }));
+    acts.appendChild(queueCenterButton('Ignorar', 'Oculta esta sugerencia 10 minutos', () => {
+      buildSwapIgnore(townId, sug.swap.headId);
+    }));
+    box.appendChild(acts);
+    body.appendChild(box);
+  }
+
+  function renderQueueCenterOptimal(body, townId) {
+    if (state.abOptimalOrderOn === false) return;
+    let opt = null;
+    try { opt = abOptimalOrderCached(townId); } catch (e) { opt = { error: String(e).slice(0, 60), actions: [] }; }
+    const card = queueCenterCard('Secuencia \u00f3ptima \u00b7 Construcci\u00f3n', 'solo consejo - no envia nada', 'Sugerencia de orden: solo se aplica si la pulsas, no se envia sola');
+    body.appendChild(card.box);
+    if (!opt || opt.error) {
+      card.box.appendChild(queueCenterEmpty('No se puede calcular: ' + ((opt && opt.error) || 'desconocido')));
+      return;
+    }
+    const rows = (opt.actions || []).slice(0, 8);
+    if (!rows.length) { card.box.appendChild(queueCenterEmpty('Sin objetivos de construccion pendientes.')); return; }
+    rows.forEach((a, i) => {
+      const r = document.createElement('div'); r.className = 'gb-qc-job';
+      const num = document.createElement('b'); num.textContent = `#${i + 1}`;
+      const desc = document.createElement('div'); desc.className = 'gb-qc-job-desc';
+      const main = document.createElement('span');
+      main.textContent = `${nativeBuildLabel(a.building)}${a.level ? ' ' + (a.level - 1) + '\u2192' + a.level : ''}` +
+        (a.etaMs ? ' \u00b7 ' + queueCenterFmt(Math.round(a.etaMs / 1000)) : '');
+      desc.append(main, queueCenterStatusBadge(a.status, a.why));
+      r.append(num, desc); card.box.appendChild(r);
+    });
+    const addable = rows.filter(a => a.building && a.status !== 'blocked');
+    const btn = queueCenterButton('+ A\u00f1adir secuencia', 'Anade estos edificios al final de la cola FIFO. No toca la cabeza actual.', () => {
+      let n = 0;
+      for (const a of addable) {
+
+        if (!nativeQueueAddBuild(townId, a.building)) break;
+        n++;
+      }
+      if (n) flash(`+${n} edificios anadidos a la cola FIFO @${townId}`);
+    });
+    btn.disabled = !addable.length;
+    card.head.appendChild(btn);
+  }
+
+  function queueCenterResearchOptions(townId, info) {
+    let all = [];
+    try { all = Object.keys((gameUw().GameData && gameUw().GameData.researches) || {}); } catch (_) {}
+    return all.filter(id => {
+      if (!gbGameDataLookup("researches", id)) return false;
+      if (info && info.techs && info.techs[id]) return false;
+      if (info && (info.orders || []).some(o => String(researchOrderTechId(o)) === String(id))) return false;
+      return !nativeQueueResearchPending(townId, id);
+    }).sort((a, b) => nativeResearchLabel(a).localeCompare(nativeResearchLabel(b)));
+  }
+  function queueCenterResearchPicker(townId, info) {
+    const row = document.createElement('div'); row.className = 'gb-qc-picker';
+    const sel = document.createElement('select'); sel.className = 'gb-qc-pick';
+    const opts = queueCenterResearchOptions(townId, info);
+    opts.forEach(id => { const o = document.createElement('option'); o.value = id; o.textContent = nativeResearchLabel(id); if (id === gbQueueCenterResearchPick) o.selected = true; sel.appendChild(o); });
+    sel.addEventListener('change', () => { gbQueueCenterResearchPick = sel.value; });
+    const add = queueCenterButton('+ A\u00f1adir', 'A\u00f1adir esta investigaci\u00f3n al final de la cola (los requisitos se insertan delante)', () => {
+      const tech = sel.value;
+      if (!tech) { flash('Selecciona una investigaci\u00f3n'); return false; }
+      gbQueueCenterResearchPick = '';
+      return nativeQueueAddResearch(townId, tech);
+    });
+
+    if (!info || !opts.length) {
+      sel.replaceChildren(); sel.disabled = true; add.disabled = true;
+      const o = document.createElement('option'); o.value = '';
+      o.textContent = info ? 'Sin investigaciones disponibles' : 'Academia ilegible';
+      sel.appendChild(o);
+    }
+    row.append(sel, add); return row;
+  }
+  function renderQueueCenterResearch(body, townId) {
+    const info = researchTownTechs(townId); const orders = (info && info.orders) || [];
+    const liveSub = !info ? 'estado no legible'
+      : (info.ordersKnown ? `${orders.length}/${researchQueueMax()} \u00b7 Academia ${info.academy || 0}`
+        : `cola real ilegible \u00b7 Academia ${info.academy || 0}`);
+    const live = queueCenterCard('Cola real de investigaci\u00f3n', liveSub, 'Estado actual de la cola de investigacion real');
+    body.appendChild(live.box);
+    if (orders.length) {
+      orders.forEach((o, i) => {
+        const id = researchOrderTechId(o);
+        live.box.appendChild(queueCenterLiveRow(i + 1, researchLabel(id) || String(id || '?'), queueCenterTimeLeft(o)));
+      });
+    } else live.box.appendChild(queueCenterEmpty(info ? 'Sin investigaciones en curso' : 'No se puede leer la Academia'));
+
+    const list = nativeQueueList(townId, 'research', false), fifo = nativeQueueIsFifo(townId, 'research'), paused = nativeQueuePaused(townId, 'research');
+    const plan = queueCenterCard('Plan GrepBot \u00b7 Investigaci\u00f3n', fifo ? (paused ? 'FIFO pausada' : 'FIFO activa') : 'Objetivos autom\u00e1ticos', fifo ? (paused ? 'Cola FIFO en pausa - el plan automatico no actua' : 'Cola FIFO activa - gestionas las ordenes manualmente') : 'El plan automatico es el due\u00f1o de esta cola');
+    body.appendChild(plan.box);
+    plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? 'Reanudar cola' : 'Pausar cola', () => nativeQueueTogglePaused(townId, 'research')));
+    if (!list.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador autom\u00e1tico', () => nativeQueueUseLegacy(townId, 'research')));
+    plan.box.appendChild(queueCenterResearchPicker(townId, info));
+    if (!list.length) {
+      plan.box.appendChild(queueCenterEmpty(fifo ? 'Cola FIFO vac\u00eda. A\u00f1ade investigaciones arriba o con + desde la Academia.' : 'Esta ciudad usa el planificador de objetivos.'));
+    } else {
+      plan.box.appendChild(queueCenterSequence('Orden FIFO', list.map((j, i) => ({
+        text: `#${i + 1} ${nativeResearchLabel(j.tech)}`,
+        title: j.reason || nativeResearchLabel(j.tech),
+      }))));
+      const frozen = list.some(j => j && j.inflight);
+      list.forEach((j, i) => {
+        plan.box.appendChild(queueCenterJobRow(
+          i + 1,
+          nativeResearchLabel(j.tech),
+          queueCenterStatusBadge(j.status, j.reason),
+          'research', townId, j, frozen, i, list,
+        ));
+      });
+    }
+
+    const targets = goalEffectiveResearchTargets(townId, researchEnsureTargets());
+    const planned = queueCenterCard('Pr\u00f3ximas investigaciones', fifo && list.length ? 'planificador autom\u00e1tico (en pausa: manda la cola FIFO)' : 'orden del planificador', 'Cola del planificador automatico: lo siguiente que investigara si no tienes FIFO activa');
+    body.appendChild(planned.box);
+    let shown = 0;
+    Object.keys(targets).sort((a, b) => (+targets[a].order || 0) - (+targets[b].order || 0)).forEach(id => {
+      const t = targets[id];
+      if (!t || !t.tgt) return;
+      if (info && info.techs && info.techs[id]) return;
+      if (orders.some(o => String(researchOrderTechId(o)) === String(id))) return;
+      if (nativeQueueResearchPending(townId, id)) return;
+      shown++;
+      const r = document.createElement('div'); r.className = 'gb-qc-plan-row';
+      const n = document.createElement('span'); n.textContent = `#${shown}`;
+      const nm = document.createElement('b'); nm.textContent = researchLabel(id) || id;
+      let st = 'pendiente';
+      try {
+        const dep = researchDepsOk(townId, info, id), aff = dep && researchCanAfford(townId, id, info);
+
+        st = !dep ? 'requisito'
+          : (aff && aff.ok ? (aff.blind ? 'listo (sin verificar)' : 'listo')
+            : (aff && aff.why) || 'esperando');
+      } catch (_) {}
+      const badge = document.createElement('span'); badge.className = 'gb-qc-muted'; badge.textContent = st;
+      r.append(n, nm, badge); planned.box.appendChild(r);
+    });
+    if (!shown) planned.box.appendChild(queueCenterEmpty('No hay investigaciones pendientes en el plan.'));
+  }
+
+  function renderQueueCenterRecruit(body, townId, wantNaval) {
+    const label = wantNaval ? 'Puerto' : 'Cuartel';
+    const lane = wantNaval ? 'recruitNaval' : 'recruit';
+    const q = recruitQueueInfo(townId);
+    const allModels = q.models || [];
+    const liveModels = allModels.filter(m => queueCenterUnitIsNaval(queueCenterUnitId(m)) === wantNaval);
+    const unclassified = allModels.filter(m => queueCenterUnitIsNaval(queueCenterUnitId(m)) == null);
+    const live = queueCenterCard(`Cola real \u00b7 ${label}`, q.known ? `${liveModels.length}${q.max != null ? ' / ' + q.max : ''}` : 'estado no legible', 'Numero de ordenes reales en la cola del cuartel/puerto');
+    body.appendChild(live.box);
+    if (liveModels.length) {
+      liveModels.forEach((m, i) => {
+        const id = queueCenterUnitId(m);
+        live.box.appendChild(queueCenterLiveRow(
+          i + 1,
+          `${queueCenterUnitAmount(m)}\u00d7 ${nativeUnitLabel(id)}`,
+          queueCenterTimeLeft(m),
+          `posici\u00f3n en la cola real de ${label.toLowerCase()}`,
+        ));
+      });
+    } else live.box.appendChild(queueCenterEmpty(q.known ? `Sin \u00f3rdenes en ${label.toLowerCase()}` : 'No se puede leer la cola real'));
+
+    if (unclassified.length) {
+      live.box.appendChild(queueCenterEmpty(`${unclassified.length} orden(es) con tipo de unidad no legible \u2014 sin clasificar`));
+    }
+
+    const list = nativeQueueList(townId, lane, false);
+    const fifo = nativeQueueIsFifo(townId, lane), paused = nativeQueuePaused(townId, lane);
+    const plan = queueCenterCard(`Plan GrepBot \u00b7 ${label}`, fifo ? (paused ? 'FIFO pausada' : 'FIFO activa') : 'Objetivos autom\u00e1ticos', fifo ? (paused ? 'Cola FIFO en pausa - el plan automatico no actua' : 'Cola FIFO activa - gestionas las ordenes manualmente') : 'El plan automatico es el due\u00f1o de esta cola');
+    body.appendChild(plan.box);
+    plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? `Reanudar ${label.toLowerCase()}` : `Pausar ${label.toLowerCase()}`, () => nativeQueueTogglePaused(townId, lane)));
+    if (!list.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador autom\u00e1tico', () => nativeQueueUseLegacy(townId, lane)));
+    if (list.length >= 2) plan.head.appendChild(queueCenterButton('Compactar', 'Fusionar entradas adyacentes del mismo tipo en la cola virtual', () => {
+      const n = nativeQueueCompactRecruit(townId, lane);
+      flash(n ? `Compactadas ${n} entradas en ${label.toLowerCase()}` : 'No hay entradas adyacentes iguales para fusionar');
+    }));
+
+    if (list[0] && list[0].unit) {
+      const headUnit = list[0].unit;
+      const totalInp = document.createElement('input'); totalInp.type = 'number'; totalInp.min = '1'; totalInp.value = '200'; totalInp.title = `Total de unidades a encolar (${nativeUnitLabel(headUnit)})`; totalInp.className = 'gb-native-qinp';
+      const sep = document.createElement('span'); sep.textContent = '/'; sep.style.color = '#666';
+      const chunkInp = document.createElement('input'); chunkInp.type = 'number'; chunkInp.min = '1'; chunkInp.value = '50'; chunkInp.title = 'Tama\u00f1o de cada lote al servidor'; chunkInp.className = 'gb-native-qinp';
+      const lotBtn = queueCenterButton('+Lote', `Encolar el total en lotes del tama\u00f1o indicado; la fila se quita sola al agotarse`, () => {
+        const r = nativeQueueAddRecruitBatch(townId, headUnit, +totalInp.value || 0, +chunkInp.value || 0);
+        if (r && r.ok) flash(`Lote encolado en ${label.toLowerCase()}: ${r.total} en ${r.lotes} env\u00edo(s) de ${r.chunk}`);
+        else flash((r && r.why) || 'no se pudo encolar el lote');
+      });
+      const wrap = document.createElement('span'); wrap.className = 'gb-qc-batch'; wrap.append(totalInp, sep, chunkInp, lotBtn);
+      plan.head.appendChild(wrap);
+    }
+    if (!list.length) { plan.box.appendChild(queueCenterEmpty(fifo ? `No hay \u00f3rdenes ${wantNaval ? 'navales' : 'terrestres'} pendientes. A\u00f1\u00e1delas con + desde ${label}.` : 'Esta ciudad usa objetivos autom\u00e1ticos.')); return; }
+    plan.box.appendChild(queueCenterSequence(`Orden FIFO \u00b7 ${label}`, list.map((j, i) => ({
+      text: `#${i + 1} ${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`,
+      title: j.reason || nativeUnitLabel(j.unit),
+    }))));
+    const frozen = list.some(j => j && j.inflight);
+    list.forEach((j, i) => {
+      plan.box.appendChild(queueCenterJobRow(
+        i + 1,
+        `${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`,
+        queueCenterStatusBadge(j.status, j.reason),
+        lane, townId, j, frozen, i, list,
+      ));
+    });
+  }
+
+  let gbQcRendering = false;
+  let gbQcReconciledAt = 0;
+  let gbQcDirty = false;
+  let gbQcPaintTimer = 0;
+  let gbQcTickTimer = 0;
+
+  const QC_TAB_LANES = { build: ['build'], research: ['research'], barracks: ['recruit'], docks: ['recruitNaval'] };
+  function queueCenterKey(townId) {
+
+    const lanes = QC_TAB_LANES[gbQueueCenterTab] || ['build', 'research', 'recruit', 'recruitNaval'];
+    let k = gbQueueCenterTab + '|' + townId;
+    for (const lane of lanes) {
+      k += '|' + lane + ':';
+      try { k += nativeQueueList(townId, lane, false).map(j => `${j.id}${j.inflight ? '!' : ''}${j.manualReview ? 'm' : ''}`).join(','); } catch (_) { k += '?'; }
+    }
+    return k;
+  }
+  function queueCenterVisible() {
+    const w = gbQueueCenter;
+    return !!(w && document.body.contains(w) && w.style.display !== 'none');
+  }
+
+  function queueCenterUserBusy() {
+    const w = gbQueueCenter, a = document.activeElement;
+    if (!w || !a || a === document.body || !w.contains(a)) return false;
+    return a.tagName === 'SELECT' || a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable === true;
+  }
+
+  function renderQueueCenter() {
+    if (!queueCenterVisible()) { gbQcDirty = false; return; }
+    gbQcDirty = true;
+    if (gbQcPaintTimer) return;
+    gbQcPaintTimer = gbTimeout(() => { gbQcPaintTimer = 0; queueCenterPaint(false); }, 90);
+  }
+
+  function renderQueueCenterFlush() {
+    if (gbQcPaintTimer) { gbClearTimeout(gbQcPaintTimer); gbQcPaintTimer = 0; }
+    queueCenterPaint(true);
+  }
+  function queueCenterPaint(userDriven) {
+    const w = gbQueueCenter;
+    if (!queueCenterVisible()) { gbQcDirty = false; return; }
+    if (gbQcRendering) return;
+    if (!userDriven && queueCenterUserBusy()) {
+
+      if (!gbQcPaintTimer) gbQcPaintTimer = gbTimeout(() => { gbQcPaintTimer = 0; queueCenterPaint(false); }, 400);
+      return;
+    }
+    const ids = queueCenterTownIds();
+    if (!ids.length) return;
+    if (!gbQueueCenterTown || !ids.includes(String(gbQueueCenterTown))) {
+      let cur = null;
+      try { cur = gameUw().Game && gameUw().Game.townId; } catch (_) {}
+      gbQueueCenterTown = String(cur || ids[0]);
+    }
+    gbQcRendering = true;
+    gbQcDirty = false;
+    try {
+
+      if (!userDriven && Date.now() - gbQcReconciledAt > 2000) {
+        gbQcReconciledAt = Date.now();
+        try { nativeQueueReconcileTown(gbQueueCenterTown); } catch (_) {}
+      }
+
+      const sel = w.querySelector('.gb-qc-town');
+      const sig = ids.map(id => id + '' + queueCenterTownName(id)).join('');
+      if (sel.dataset.sig !== sig) {
+        sel.dataset.sig = sig;
+        sel.replaceChildren();
+        ids.forEach(id => {
+          const o = document.createElement('option'); o.value = id; o.textContent = queueCenterTownName(id);
+          sel.appendChild(o);
+        });
+      }
+      if (sel.value !== String(gbQueueCenterTown)) sel.value = String(gbQueueCenterTown);
+      w.querySelectorAll('.gb-qc-tab').forEach(b => b.classList.toggle('on', b.dataset.qtab === gbQueueCenterTab));
+
+      const body = w.querySelector('.gb-qc-body');
+      gbPaint(body, stage => {
+        if (gbQueueCenterTab === 'build') renderQueueCenterBuild(stage, gbQueueCenterTown);
+        else if (gbQueueCenterTab === 'research') renderQueueCenterResearch(stage, gbQueueCenterTown);
+        else if (gbQueueCenterTab === 'barracks') renderQueueCenterRecruit(stage, gbQueueCenterTown, false);
+        else renderQueueCenterRecruit(stage, gbQueueCenterTown, true);
+      }, { key: queueCenterKey(gbQueueCenterTown) });
+    } finally { gbQcRendering = false; }
+  }
+
+  function queueCenterTick() {
+    if (!queueCenterVisible()) { queueCenterStopTick(); return; }
+    if (document.hidden) return;
+    const now = Date.now();
+    let finished = false;
+    gbQueueCenter.querySelectorAll('.gb-qc-live-row [data-eta]').forEach(el => {
+      const left = +el.dataset.eta - (now - (+el.dataset.t0 || now)) / 1000;
+      el.textContent = queueCenterFmt(Math.max(0, left));
+      if (left <= 0 && el.dataset.done !== '1') { el.dataset.done = '1'; finished = true; }
+    });
+    if (finished) { gbQcReconciledAt = 0; renderQueueCenter(); }
+  }
+  function queueCenterStartTick() {
+    if (gbQcTickTimer) return;
+    gbQcTickTimer = gbInterval(queueCenterTick, 1000);
+  }
+  function queueCenterStopTick() {
+    if (!gbQcTickTimer) return;
+    gbClearInterval(gbQcTickTimer); gbQcTickTimer = 0;
+  }
+  function openQueueCenter(tab, townId) {
+    if (tab) gbQueueCenterTab = tab;
+    if (townId != null) gbQueueCenterTown = String(townId);
+
+    if (gbQueueCenter && !document.body.contains(gbQueueCenter)) gbQueueCenter = null;
+    if (!gbQueueCenter) {
+      const w = document.createElement('div');
+      w.id = 'grepbot-queue-center';
+
+      w.innerHTML = `<header><b>Colas GrepBot</b><select class="gb-qc-town" title="Ciudad que est\u00e1s gestionando"></select><span class="gb-qc-spacer"></span><button class="gb-qc-refresh" title="Actualizar">\u21bb</button><button class="gb-qc-close" title="Cerrar">\u00d7</button></header><nav><button class="gb-qc-tab" data-qtab="build" data-gb-tip="Cola de construccion (edificios)">Construcci\u00f3n</button><button class="gb-qc-tab" data-qtab="research" data-gb-tip="Cola de investigacion (academia)">Investigaci\u00f3n</button><button class="gb-qc-tab" data-qtab="barracks" data-gb-tip="Cola de reclutamiento del cuartel">Cuartel</button><button class="gb-qc-tab" data-qtab="docks" data-gb-tip="Cola de reclutamiento del puerto">Puerto</button></nav><div class="gb-qc-body"></div>`;
+      document.body.appendChild(w);
+      gbTipWalk(w);
+      try { applyTheme(); } catch (_) {}
+      gbQueueCenter = w;
+      w.querySelector('.gb-qc-close').addEventListener('click', () => { w.style.display = 'none'; queueCenterStopTick(); });
+
+      w.querySelector('.gb-qc-refresh').addEventListener('click', () => {
+        try { nativeQueueSweep('manual'); } catch (_) {}
+        gbQcReconciledAt = 0;
+        queueCenterPaint(false);
+      });
+
+      w.querySelector('.gb-qc-town').addEventListener('change', e => { gbQueueCenterTown = e.target.value; gbQcReconciledAt = 0; queueCenterPaint(false); });
+      w.querySelectorAll('.gb-qc-tab').forEach(b => b.addEventListener('click', () => { gbQueueCenterTab = b.dataset.qtab; renderQueueCenterFlush(); }));
+
+      gbListen(document, 'visibilitychange', () => {
+        if (document.hidden || !queueCenterVisible()) return;
+        gbQcReconciledAt = 0;
+        renderQueueCenter();
+      });
+      makeDraggable(w, w.querySelector('header'));
+    }
+    gbQueueCenter.style.display = 'flex';
+    gbQcReconciledAt = 0;
+    if (gbQcPaintTimer) { gbClearTimeout(gbQcPaintTimer); gbQcPaintTimer = 0; }
+    queueCenterPaint(false);
+    queueCenterStartTick();
+  }
   function tabFilters() {
     if (!state.tabFilters || typeof state.tabFilters !== 'object') state.tabFilters = {};
     return state.tabFilters;
@@ -24183,7 +26565,7 @@ const STORE = {
     thead.querySelectorAll('th').forEach((th, col) => {
       if (th.dataset.nosort) return;
       th.style.cursor = 'pointer';
-      th.title = 'Ordenar por esta columna';
+      th.title = 'sort';
       th.addEventListener('click', () => {
         const asc = th.dataset.sort !== 'asc';
         sortRows(table, col, asc);
@@ -24191,7 +26573,6 @@ const STORE = {
       });
     });
   }
-
   function tableShell(list, headers, key) {
     let table = list.querySelector('table');
     if (!table) {
@@ -24261,7 +26642,16 @@ const STORE = {
     if (_renderWorldSoonT) return;
     _renderWorldSoonT = gbTimeout(() => { _renderWorldSoonT = 0; try { renderWorld(); } catch (_) {} }, RENDER_SOON_MS);
   }
+  function renderLongClaimStatus() {
+
+    try {
+      const fn = GB_ROOT && GB_ROOT.renderLongClaimStatus;
+      if (typeof fn === 'function' && fn !== renderLongClaimStatus) return fn();
+    } catch (_) {}
+    return false;
+  }
   function renderFarms() {
+    renderLongClaimStatus();
     const list = panel && panel.querySelector('.farms-list');
     if (!list) return;
 
@@ -24293,7 +26683,7 @@ const STORE = {
         const actions = document.createElement('td');
 
         const thrBtn = document.createElement('button');
-        thrBtn.textContent = 'THR'; thrBtn.title = 'Fijar umbral';
+        thrBtn.textContent = 'THR'; thrBtn.title = 'Set threshold';
         thrBtn.style.cssText = 'background:none;border:1px solid #555;color:#fc6;padding:1px 5px;cursor:pointer;font-size:11px';
         thrBtn.addEventListener('click', () => editThreshold(f));
         actions.appendChild(thrBtn);
@@ -24352,21 +26742,19 @@ const STORE = {
       const pre = cappingPending();
       if (pre.length) preTxt = '\npreaviso: ' + pre.slice(0, 6).map(x => `${x.name}: ${x.resource} ~${x.etaMin}min`).join(' | ');
     } catch (_) {}
-    const res = `Madera ${fmt(w)} | Piedra ${fmt(s)} | Plata ${fmt(i)} | Poblacion ${fmt(p)}${popTxt}${preTxt}`;
+    const res = `Wood ${fmt(w)} | Stone ${fmt(s)} | Iron ${fmt(i)} | Pop ${fmt(p)}${popTxt}${preTxt}`;
     if (head + res !== _worldTotalsLast) {
       _worldTotalsLast = head + res;
-
-      gbPaint(totals, (stage) => {
-        const totalsH = document.createElement('div');
-        totalsH.style.cssText = 'font-weight:bold;color:#f5a623';
-        totalsH.textContent = head;
-        if (popWarn) totalsH.className = 'pop-warn-row';
-        stage.appendChild(totalsH);
-        const totalsR = document.createElement('div');
-        totalsR.style.cssText = 'color:#cfc;margin-top:3px;white-space:pre-wrap';
-        totalsR.textContent = res;
-        stage.appendChild(totalsR);
-      }, { key: 'totals|' + head + res });
+      totals.replaceChildren();
+      const totalsH = document.createElement('div');
+      totalsH.style.cssText = 'font-weight:bold;color:#f5a623';
+      totalsH.textContent = head;
+      if (popWarn) totalsH.className = 'pop-warn-row';
+      totals.appendChild(totalsH);
+      const totalsR = document.createElement('div');
+      totalsR.style.cssText = 'color:#cfc;margin-top:3px;white-space:pre-wrap';
+      totalsR.textContent = res;
+      totals.appendChild(totalsR);
     }
     if (!state.towns.length) {
       if (!list.querySelector('div')) placeholder(list, 'no towns loaded yet - click Refresh towns');
@@ -24422,55 +26810,19 @@ const STORE = {
     return String(n);
   }
   const PANEL_MIN_W = 360, PANEL_MIN_H = 200, PANEL_SQ = 40;
-
-  const GB_ICONS = {
-    home: '<path d="M3 11l9-7 9 7"></path><path d="M5 10v10h14V10"></path>',
-    sword: '<path d="M4 20l7-7"></path><path d="M14 4l6 6-9 9H5v-6z"></path>',
-    gear: '<circle cx="12" cy="12" r="3"></circle><path d="M19 12a7 7 0 0 0-.2-1.6l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2.8-1.6L13.4 2h-3.9l-.3 2.9a7 7 0 0 0-2.8 1.6l-2.3-1-2 3.4 2 1.5a7 7 0 0 0 0 3.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2.8 1.6l.3 2.9h3.9l.3-2.9a7 7 0 0 0 2.8-1.6l2.3 1 2-3.4-2-1.5c.1-.5.2-1 .2-1.6z"></path>',
-    pulse: '<path d="M3 12h4l2 6 4-14 2 8h6"></path>',
-    plus: '<path d="M5 12h14"></path><path d="M12 5v14"></path>',
-    village: '<path d="M3 21V9l9-6 9 6v12"></path><path d="M9 21v-6h6v6"></path>',
-    list: '<path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h10"></path>',
-    shield: '<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"></path>',
-    bars: '<path d="M4 19h16"></path><path d="M7 19v-7"></path><path d="M12 19V6"></path><path d="M17 19v-4"></path>',
-    clock: '<circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path>',
-    stop: '<rect x="6" y="6" width="12" height="12" rx="2"></rect>',
-    alert: '<path d="M12 3l9 16H3z"></path><path d="M12 9v5"></path><path d="M12 17h.01"></path>',
-    info: '<circle cx="12" cy="12" r="9"></circle><path d="M12 8v5"></path><path d="M12 16h.01"></path>',
-    check: '<circle cx="12" cy="12" r="9"></circle><path d="M8 12.5l2.5 2.5 5-5"></path>',
-  };
-  function gbIcon(name, size, color) {
-    const body = GB_ICONS[name];
-    if (!body) return null;
-    const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    el.setAttribute('width', String(size || 13));
-    el.setAttribute('height', String(size || 13));
-    el.setAttribute('viewBox', '0 0 24 24');
-    el.setAttribute('fill', 'none');
-    el.setAttribute('stroke', color || 'currentColor');
-    el.setAttribute('stroke-width', '2');
-    el.setAttribute('stroke-linecap', 'round');
-    el.setAttribute('stroke-linejoin', 'round');
-    el.setAttribute('aria-hidden', 'true');
-    el.innerHTML = gbLit(body);
-    return el;
-  }
-
   const TAB_GROUPS = [
-    { id: 'home', label: 'Resumen', icon: 'home', tabs: [
+    { id: 'home', label: 'Inicio', tabs: [
       { id: 'overview', label: 'Resumen' },
     ]},
-    { id: 'military', label: 'Militar', icon: 'sword', tabs: [
+    { id: 'military', label: 'Militar', tabs: [
       { id: 'attack', label: 'Ataques' },
       { id: 'reinforce', label: 'Refuerzos' },
       { id: 'train', label: 'Entrenamiento' },
       { id: 'spy', label: 'Espionaje' },
       { id: 'intel', label: 'Inteligencia' },
     ]},
-    { id: 'settings', label: 'Ajustes', icon: 'gear', tabs: [
+    { id: 'system', label: 'Sistema', tabs: [
       { id: 'config', label: 'Ajustes' },
-    ]},
-    { id: 'diag', label: 'Diagn\u00f3stico', icon: 'pulse', tabs: [
       { id: 'stats', label: 'Diagn\u00f3stico' },
       { id: 'log', label: 'Registro' },
     ]},
@@ -24525,22 +26877,6 @@ const STORE = {
     save(STORE.PANEL_GEOM, null);
     flash('panel restablecido');
   }
-
-  function navBadgeCount(groupId) {
-    try {
-      if (groupId === 'military') {
-        if (typeof dodgeIncomingMovements !== 'function') return null;
-        const inc = dodgeIncomingMovements();
-        return Array.isArray(inc) ? inc.length : null;
-      }
-      if (groupId === 'diag') {
-        const unknown = Object.values(state.txState || {}).filter(t => t && /^(unknown|manual-review)$/.test(t.state || '')).length;
-        const open = Object.keys(state.circuits || {}).filter(k => state.circuits[k] && state.circuits[k].open).length;
-        return unknown + open;
-      }
-    } catch (_) { return null; }
-    return 0;
-  }
   function paintNav(activeTab) {
     if (!panel) return;
     const group = tabGroupOf(activeTab);
@@ -24552,17 +26888,7 @@ const STORE = {
       const b = document.createElement('button');
       b.type = 'button';
       b.dataset.group = g.id;
-      const ico = gbIcon(g.icon, 13);
-      if (ico) b.appendChild(ico);
-      b.appendChild(document.createTextNode(g.label));
-      const n = navBadgeCount(g.id);
-      if (n) {
-        const bad = document.createElement('span');
-        bad.className = 'gb-nav-badge';
-        bad.textContent = String(n);
-        gbTip(bad, g.id === 'military' ? 'Movimientos hostiles en camino' : 'Envios sin confirmar y cortacircuitos abiertos');
-        b.appendChild(bad);
-      }
+      b.textContent = g.label;
       if (g.id === group.id) b.classList.add('on');
       b.addEventListener('click', () => {
         if (g.id === group.id) return;
@@ -24571,8 +26897,6 @@ const STORE = {
       });
       nav.appendChild(b);
     });
-
-    sub.hidden = group.tabs.length < 2;
     sub.replaceChildren();
     group.tabs.forEach(t => {
       const b = document.createElement('button');
@@ -24595,7 +26919,7 @@ const STORE = {
   }
   function applyTheme() {
     const cls = 'gb-theme-' + gbThemeResolved();
-    const targets = [panel];
+    const targets = [panel, (gbQueueCenter || null)];
 
     try { document.querySelectorAll('.gb-widget').forEach(w => targets.push(w)); } catch (_) {}
     for (const el of targets) {
@@ -24622,22 +26946,22 @@ const STORE = {
       else if (tabId === 'reinforce') renderReinforce();
       else if (tabId === 'spy') renderSpySend();
       else if (tabId === 'log') { renderLog(); renderJournal(); }
-      else if (tabId === 'stats') { renderStats(); renderOverview(); }
+      else if (tabId === 'stats') renderStats();
       else if (tabId === 'overview') renderOverview();
       else if (tabId === 'intel') renderIntel();
       else if (tabId === 'train') renderTrain();
-      else if (tabId === 'config') { bindConfig(); renderCaveTowns(); }
+      else if (tabId === 'config') { bindConfig(); renderCaveTowns(); renderTradeTowns(); }
       return;
     }
     if (tabId === 'attack') { bindAttackTab(); renderAttack(); }
     if (tabId === 'reinforce') { bindReinforceTab(); renderReinforce(); }
     if (tabId === 'spy') { bindSpyTab(); renderSpySend(); }
     if (tabId === 'train') { bindTrainTab(); renderTrain(); }
-    if (tabId === 'config') { bindConfig(); renderCaveTowns(); }
+    if (tabId === 'config') { bindConfig(); renderCaveTowns(); renderTradeTowns(); }
     if (tabId === 'overview') renderOverview();
     if (tabId === 'intel') renderIntel();
     if (tabId === 'log') { renderLog(); renderJournal(); }
-    if (tabId === 'stats') { renderStats(); renderOverview(); }
+    if (tabId === 'stats') renderStats();
   }
 
   gbAddStyle('panel', `
@@ -24650,9 +26974,9 @@ const STORE = {
        block (54 duplicated declarations parsed on every install) and applyTheme
        only ever ADDS a class, so the default already covers both the class-less
        host and the resolved-dark one. Nothing outside #grepbot-panel
-       is scoped, so the game's own DOM is untouched.
+       and #grepbot-queue-center is scoped, so the game's own DOM is untouched.
        ===================================================================== */
-    #grepbot-panel, .gb-widget {
+    #grepbot-panel, #grepbot-queue-center, .gb-widget {
       --gb-bg:#181a1f;
       --gb-bg-deep:#17191e;
       --gb-bg-alt:#22252b;
@@ -24707,7 +27031,7 @@ const STORE = {
       --gb-err-bg:#381f23;
       --gb-err-border:#8a3b42;
     }
-    #grepbot-panel.gb-theme-light, .gb-widget.gb-theme-light {
+    #grepbot-panel.gb-theme-light, #grepbot-queue-center.gb-theme-light, .gb-widget.gb-theme-light {
       --gb-bg:#f4f5f7;
       --gb-bg-deep:#eceef1;
       --gb-bg-alt:#e8eaee;
@@ -24918,6 +27242,8 @@ const STORE = {
     #grepbot-panel .config-panel{font-size:11px;display:flex;flex-direction:column;gap:2px}
     #grepbot-panel .gb-cfg-toolbar{position:sticky;top:0;z-index:2;display:flex;gap:5px;align-items:center;padding:4px 0 6px;background:var(--gb-bg)}
     #grepbot-panel .gb-cfg-filter{flex:1;min-width:0;background:var(--gb-input-bg);color:var(--gb-input-fg);border:1px solid var(--gb-chrome);border-radius:6px;padding:4px 7px;font-size:11px}
+    #grepbot-panel .gb-cfg-expand{background:var(--gb-bg-raise);border:1px solid var(--gb-chrome-2);color:var(--gb-fg-soft2);padding:3px 7px;border-radius:6px;cursor:pointer;font-size:10px}
+    #grepbot-panel .gb-cfg-expand:hover{border-color:var(--gb-accent-3)}
     #grepbot-panel .gb-cfg-empty{padding:8px;font-size:10px;color:var(--gb-fg-dim)}
     /* The filter hides rows with the hidden property. .gb-cfg-row / .gb-cfg-num
        set display:flex from a CLASS rule, which outranks the UA sheet's
@@ -24941,82 +27267,9 @@ const STORE = {
     #grepbot-panel .gb-cfg-btn.danger{color:var(--gb-warn-3)}
     #grepbot-panel .gb-cfg-btn.ok{color:var(--gb-ok-4)}
     #grepbot-panel .gb-cfg-num .gb-cfg-btn{align-self:auto;margin-left:0}
-    #grepbot-panel .cave-towns{display:flex;flex-direction:column;gap:2px;max-height:120px;overflow:auto;margin-left:16px}
+    #grepbot-panel .cave-towns,#grepbot-panel .trade-towns{display:flex;flex-direction:column;gap:2px;max-height:140px;overflow:auto;margin-left:16px}
     #grepbot-panel pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
     @media (max-width:700px){#grepbot-panel{width:94vw;min-width:320px;right:3vw}.gb-dashboard-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
-
-    /* ===== v5.9.0 panel UX rework ==========================================
-       New chrome for the Resumen hero/attention/next lists, the icon nav, the
-       Ajustes rail and the grouped Acciones menu. Every rule is scoped to
-       #grepbot-panel and every colour is a theme custom property, so the light
-       theme follows without a second block.
-       ===================================================================== */
-    /* .gb-subtabs sets display:flex from a CLASS rule, which outranks the UA
-       sheet's [hidden] rule - without this the single-tab group's row stayed on
-       screen even though paintNav hid it (the .atk-row[hidden] bug again). */
-    #grepbot-panel .gb-subtabs[hidden]{display:none}
-    #grepbot-panel .gb-nav button svg{flex:0 0 auto}
-    #grepbot-panel .gb-nav-badge{background:var(--gb-err-bg);border:1px solid var(--gb-err-border);color:var(--gb-err);border-radius:999px;font-size:9px;font-weight:700;padding:0 5px;line-height:14px}
-    #grepbot-panel .gb-qat button{display:inline-flex;align-items:center;gap:4px;border-radius:5px;padding:3px 8px}
-    #grepbot-panel .gb-qat .gb-qat-sep{width:1px;height:16px;background:var(--gb-chrome-2)}
-    #grepbot-panel .gb-qat button[data-qat=panic]{margin-left:auto;color:var(--gb-err-3);border-color:var(--gb-err-border);background:var(--gb-err-bg);font-weight:700}
-    #grepbot-panel .gb-hero{display:flex;align-items:center;gap:9px;margin-bottom:8px}
-    #grepbot-panel .gb-hero-dot{width:10px;height:10px;border-radius:50%;background:var(--gb-ok-3);flex:0 0 auto}
-    #grepbot-panel .gb-hero-dot.warn{background:var(--gb-warn-2)}
-    #grepbot-panel .gb-hero-dot.bad{background:var(--gb-err-2)}
-    #grepbot-panel .gb-hero-t{font-size:15px;font-weight:750;line-height:1.2}
-    #grepbot-panel .gb-hero-s{font-size:10px;color:var(--gb-fg-dim)}
-    #grepbot-panel .gb-chips{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px}
-    #grepbot-panel .gb-chip{font-size:10px;color:var(--gb-fg-soft2);background:var(--gb-bg-alt3);border:1px solid var(--gb-border-soft2);border-radius:999px;padding:2px 8px}
-    #grepbot-panel .gb-chip.warn{color:var(--gb-warn);border-color:var(--gb-warn-border);background:var(--gb-warn-bg2)}
-    #grepbot-panel .gb-chip.bad{color:var(--gb-err);border-color:var(--gb-err-border);background:var(--gb-err-bg)}
-    #grepbot-panel .gb-lbl{font-size:10px;font-weight:700;color:var(--gb-fg-dim);text-transform:uppercase;letter-spacing:.05em;margin:8px 0 5px}
-    #grepbot-panel .gb-att{display:flex;align-items:flex-start;gap:8px;padding:8px 9px;border-radius:8px;border:1px solid var(--gb-warn-border);background:var(--gb-warn-bg2);margin-bottom:6px}
-    #grepbot-panel .gb-att.bad{border-color:var(--gb-err-border);background:var(--gb-err-bg)}
-    #grepbot-panel .gb-att-t{font-size:12px;font-weight:700;color:var(--gb-warn)}
-    #grepbot-panel .gb-att.bad .gb-att-t{color:var(--gb-err)}
-    #grepbot-panel .gb-att-s{font-size:10px;color:var(--gb-fg-soft2)}
-    #grepbot-panel .gb-att-ok{font-size:11px;color:var(--gb-fg-dim);padding:2px 0 6px}
-    #grepbot-panel .gb-next-row{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;background:var(--gb-bg-alt2);border:1px solid var(--gb-border-soft);margin-bottom:4px}
-    #grepbot-panel .gb-next-town{font-size:11px;color:var(--gb-fg-soft);width:96px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #grepbot-panel .gb-next-what{font-size:11px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #grepbot-panel .gb-next-when{font-size:10px;color:var(--gb-ok-3);white-space:nowrap}
-    #grepbot-panel .gb-next-when.wait{color:var(--gb-warn-2)}
-    #grepbot-panel .gb-cfg-split{display:flex;gap:8px;align-items:flex-start}
-    #grepbot-panel .gb-cfg-rail{width:168px;flex:0 0 auto;display:flex;flex-direction:column;gap:1px;border-right:1px solid var(--gb-border-soft);padding-right:7px}
-    #grepbot-panel .gb-cfg-rail button{display:flex;align-items:center;gap:6px;padding:5px 7px;border-radius:6px;color:var(--gb-fg-soft2);font:10.5px system-ui,-apple-system,Segoe UI,sans-serif;border:1px solid transparent;background:transparent;cursor:pointer;text-align:left;width:100%}
-    #grepbot-panel .gb-cfg-rail button:hover{background:var(--gb-bg-alt4)}
-    #grepbot-panel .gb-cfg-rail button.on{background:var(--gb-bg-raise);color:var(--gb-fg-hi);border-color:var(--gb-border-hard);font-weight:700}
-    #grepbot-panel .gb-cfg-rail button.risk{color:var(--gb-warn-3)}
-    #grepbot-panel .gb-cfg-rail button .dot{width:6px;height:6px;border-radius:50%;background:var(--gb-err-2);flex:0 0 auto}
-    #grepbot-panel .gb-cfg-rail button .n{margin-left:auto;font-size:9px;color:var(--gb-fg-dim);font-weight:400}
-    #grepbot-panel .gb-cfg-rail-note{font-size:9px;color:var(--gb-fg-dim);padding:6px 7px 0;line-height:1.35}
-    #grepbot-panel .gb-cfg-panes{flex:1;min-width:0}
-    #grepbot-panel .gb-cfg-panes .gb-cfg-num{flex-wrap:wrap}
-    #grepbot-panel .gb-cfg-panes .gb-cfg-row{align-items:flex-start}
-    #grepbot-panel .gb-cfg-body{display:flex;flex-direction:column;flex:1;min-width:0}
-    #grepbot-panel .gb-cfg-help{flex:0 0 100%;margin-left:19px;font-size:9.5px;line-height:1.35;color:var(--gb-fg-dim);white-space:normal}
-    #grepbot-panel .gb-cfg-body .gb-cfg-help{margin-left:0;margin-top:1px}
-    /* The rail is the affordance for switching group now, so the pane header
-       keeps its title and drops the +/- marker that invited a collapse into an
-       empty pane. */
-    #grepbot-panel .gb-cfg-panes .gb-cfg-group>summary::after{content:''}
-    /* The rail owns which group is on screen, so a pane it hid must stay hidden
-       even though .gb-section sets no display of its own - [hidden] on <details>
-       is honoured by the UA sheet, and the filter path clears it again. */
-    #grepbot-panel .gb-menu-h{font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--gb-fg-dim);padding:5px 8px 2px}
-    #grepbot-panel .gb-menu-sep{height:1px;background:var(--gb-chrome-2);margin:5px 3px}
-    #grepbot-panel footer .gb-foot-lbl{color:var(--gb-fg-dim)}
-    #grepbot-panel footer .gb-foot-sep{color:var(--gb-chrome-2)}
-    #grepbot-panel #gb-foot-preflight{background:var(--gb-warn-bg);border:1px solid var(--gb-accent-3);color:var(--gb-accent-2);font-weight:700;padding:4px 8px;border-radius:5px;cursor:pointer;font-size:10px;flex-shrink:0}
-    #grepbot-panel .gb-diag-hero{display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid var(--gb-border-soft);border-radius:8px;background:var(--gb-bg-alt2);margin-bottom:8px}
-    #grepbot-panel .gb-diag-hero-t{font-size:13px;font-weight:750}
-    #grepbot-panel .gb-diag-hero-s{font-size:10px;color:var(--gb-fg-dim)}
-    #grepbot-panel .gb-pf-row{display:flex;align-items:flex-start;gap:8px;padding:5px 7px;border-radius:6px}
-    #grepbot-panel .gb-pf-t{font-size:11px;color:var(--gb-fg-soft)}
-    #grepbot-panel .gb-pf-t.warn{color:var(--gb-warn)}
-    #grepbot-panel .gb-pf-t.bad{color:var(--gb-err)}
-    #grepbot-panel .gb-pf-s{font-size:10px;color:var(--gb-fg-dim)}
 
     /* ===== Accessibility ===================================================
        The panel had no focus indicator at all: a keyboard user tabbing through
@@ -25025,6 +27278,7 @@ const STORE = {
        Scoped to our own roots - the game's DOM is never restyled.
        ===================================================================== */
     #grepbot-panel :focus-visible,
+    #grepbot-queue-center :focus-visible,
     .gb-widget :focus-visible {
       outline:2px solid var(--gb-link);
       outline-offset:1px;
@@ -25034,7 +27288,7 @@ const STORE = {
        transitions are decorative (hover tints, toast fades); none carries
        information that is lost by removing them. */
     @media (prefers-reduced-motion: reduce){
-      #grepbot-panel *,.gb-widget *{
+      #grepbot-panel *,#grepbot-queue-center *,.gb-widget *{
         animation-duration:.001ms!important;
         animation-iteration-count:1!important;
         transition-duration:.001ms!important;
@@ -25046,18 +27300,19 @@ const STORE = {
        invisible ground. Re-anchor on the system keywords and keep a visible
        border so the panel still reads as a distinct surface. */
     @media (forced-colors: active){
-      #grepbot-panel,.gb-widget{
+      #grepbot-panel,#grepbot-queue-center,.gb-widget{
         border:1px solid CanvasText;
         background:Canvas;
         color:CanvasText;
         forced-color-adjust:none;
       }
-      #grepbot-panel button,.gb-widget button{
+      #grepbot-panel button,#grepbot-queue-center button,.gb-widget button{
         border:1px solid ButtonText;
         background:ButtonFace;
         color:ButtonText;
       }
       #grepbot-panel :focus-visible,
+      #grepbot-queue-center :focus-visible,
       .gb-widget :focus-visible{outline:2px solid Highlight}
     }
   `);
@@ -25068,30 +27323,6 @@ const STORE = {
   panel.id = 'grepbot-panel';
   panel.style.zIndex = '2147483647';
 
-  function gbClipWrite(text, okMsg) {
-    const done = ok => flash(ok ? okMsg : 'fallo al copiar');
-    const fallback = () => {
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        const ok = document.execCommand('copy');
-        ta.remove();
-        done(ok);
-      } catch (_) { done(false); }
-    };
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(() => done(true), fallback);
-        return;
-      }
-    } catch (_) {}
-    fallback();
-  }
-
   function gbSection(title, body, open) {
     return `<details class="gb-section"${open ? ' open' : ''}><summary>${title}</summary><div class="gb-section-body">${body}</div></details>`;
   }
@@ -25101,17 +27332,16 @@ const STORE = {
   }
 
   panel.innerHTML = `
-    <header><div class="gb-head-main"><b>GrepBot v<span id="gb-head-ver"></span></b><div class="gb-head-status"><span id="gb-head-mode" class="gb-pill" data-gb-tip="Perfil activo (AFK / recoleccion / guerra / personalizado)">...</span><span id="gb-head-health" class="gb-pill" data-gb-tip="Salud agregada del bot: OK / con errores / parado">...</span></div></div><div style="display:flex;gap:4px"><button data-act="queues" title="Abrir centro de colas">Colas</button><button data-act="toggle" title="Minimizar">_</button></div></header>
+    <header><div class="gb-head-main"><b>GrepBot v${runningVersion()}</b><div class="gb-head-status"><span id="gb-head-mode" class="gb-pill" data-gb-tip="Perfil activo (AFK / recoleccion / guerra / personalizado)">...</span><span id="gb-head-health" class="gb-pill" data-gb-tip="Salud agregada del bot: OK / con errores / parado">...</span></div></div><div style="display:flex;gap:4px"><button data-act="queues" title="Abrir centro de colas">Colas</button><button data-act="toggle" title="Minimizar">_</button></div></header>
     <div class="gb-qat" role="toolbar" aria-label="GrepBot acciones rapidas">
       <select data-qs="town" title="Cambiar de ciudad" style="background:var(--gb-input-bg);color:var(--gb-input-fg);border:1px solid var(--gb-chrome);font-size:10px;max-width:150px"></select>
-      <button type="button" data-qat="collect" data-ico="plus" title="Recoger recursos ahora">Recoger</button>
-      <button type="button" data-qat="farms" data-ico="village" title="Cobrar aldeas y re-escanear">Aldeas</button>
-      <button type="button" data-qat="queue" data-ico="list" title="Ejecutar la cola de construccion ahora">Cola</button>
-      <span class="gb-qat-sep" aria-hidden="true"></span>
-      <button type="button" data-qat="dodge" data-ico="shield" title="Escanear entrantes ahora">Esquivar</button>
-      <button type="button" data-qat="hud-prod" data-ico="bars" title="Mostrar/ocultar el HUD de produccion">Producci\u00f3n</button>
-      <button type="button" data-qat="hud-eta" data-ico="clock" title="Mostrar/ocultar la cuenta atras de ataques">Llegadas</button>
-      <button type="button" data-qat="panic" data-ico="stop" title="Parada de emergencia: pausa toda la automatizacion, fuerza Simulacion y libera los bloqueos. No envia nada.">Parar todo</button>
+      <button type="button" data-qat="collect" title="Recoger recursos ahora">Recoger</button>
+      <button type="button" data-qat="farms" title="Cobrar aldeas y re-escanear">Aldeas</button>
+      <button type="button" data-qat="dodge" title="Escanear entrantes ahora">Dodge</button>
+      <button type="button" data-qat="queue" title="Ejecutar la cola de construccion ahora">Cola</button>
+      <button type="button" data-qat="hud-prod" title="Mostrar/ocultar el HUD de produccion">Prod</button>
+      <button type="button" data-qat="hud-eta" title="Mostrar/ocultar la cuenta atras de ataques">ETA</button>
+      <button type="button" data-qat="panic" title="Parada de emergencia" style="color:var(--gb-err-3);font-weight:bold">PANICO</button>
     </div>
     <div class="gb-nav" role="tablist" aria-label="GrepBot groups"></div>
     <div class="gb-subtabs" role="tablist" aria-label="GrepBot tabs"></div>
@@ -25122,17 +27352,17 @@ const STORE = {
         <span id="gb-atk-armed" style="font-size:10px;color:#f96;font-weight:bold;margin-left:auto"></span>
       </div>
       <div class="atk-row">
-        <label data-gb-tip="ID de ciudad destino (deja vacio y elige en el desplegable)">destino <input data-atk="target" style="width:70px" placeholder="id de ciudad"/></label>
-        <select data-atk="target-type" title="El enviador generico solo admite objetivos de ciudad canonicos"><option value="town">ciudad</option></select>
-        <select data-atk="pick" title="Ciudades objetivo conocidas por informes/historial" style="max-width:150px"></select>
+        <label data-gb-tip="ID de ciudad destino (deja vacio y elige en el desplegable)">target <input data-atk="target" style="width:70px" placeholder="town id"/></label>
+        <select data-atk="target-type" title="Generic sender only supports canonical town targets"><option value="town">ciudad</option></select>
+        <select data-atk="pick" title="Known town targets from reports/history" style="max-width:150px"></select>
         <label data-gb-tip="Coordenada X (isla) del objetivo">x <input data-atk="x" style="width:40px"/></label>
         <label data-gb-tip="Coordenada Y (isla) del objetivo">y <input data-atk="y" style="width:40px"/></label>
-        <select data-atk="mission" data-gb-tip="Tipo de envio: ataque, apoyo o provocacion de revuelta"><option value="attack">ataque</option><option value="support">apoyo</option><option value="revolt">revuelta</option></select>
+        <select data-atk="mission" data-gb-tip="Tipo de envio: ataque, apoyo o provocacion de revuelta"><option value="attack">ataque</option><option value="support">apoyo</option><option value="revolt">revolt</option></select>
       </div>
       <div id="gb-atk-target-hint" style="font-size:9px;color:#888;margin:-2px 0 4px"></div>
       <div class="atk-row">
         <select data-atk="timing" data-gb-tip="Cuando enviar: ahora o para llegar a una hora concreta"><option value="send_now">enviar ya</option><option value="arrive_at">llegar a las</option></select>
-        <input data-atk="arrival" type="datetime-local" step="1" title="Llegada (hora local)"/>
+        <input data-atk="arrival" type="datetime-local" step="1" title="arrival (local)"/>
         <label data-gb-tip="Retraso aleatorio en ms aplicado al envio (anti-deteccion de patron exacto)">pad ms <input data-atk="pad" type="number" style="width:50px" value="200"/></label>
       </div>
       <div class="atk-row">
@@ -25145,7 +27375,7 @@ const STORE = {
           <option value="per_town">editar por ciudad</option>
         </select>
         <label style="display:flex;align-items:center;gap:3px">unit
-          <select data-atk="unit-type" title="Solo se usa con el modo de tropas &quot;todo el tipo&quot;"></select>
+          <select data-atk="unit-type" title="only used when troop mode is 'all of type'"></select>
         </label>
       </div>
       <div class="atk-harass" style="display:flex;gap:4px;flex-wrap:wrap;margin:4px 0">
@@ -25347,24 +27577,18 @@ const STORE = {
       <div class="sp-hist" style="max-height:140px;overflow:auto"></div>
     </section>
     <section data-tab="overview" hidden>
-      <div class="gb-hero">
-        <span class="gb-hero-dot"></span>
-        <div style="min-width:0">
-          <div class="gb-hero-t">Leyendo el estado\u2026</div>
-          <div class="gb-hero-s"></div>
-        </div>
-      </div>
-      <div class="gb-chips"></div>
-      <div class="gb-lbl">Necesita tu atenci\u00f3n</div>
-      <div class="gb-attention"></div>
-      <div class="gb-lbl">Qu\u00e9 har\u00e1 a continuaci\u00f3n</div>
-      <div class="gb-next"></div>
+      <div style="font-size:15px;font-weight:750;margin-bottom:2px">Resumen de la cuenta</div>
+      <div style="font-size:10px;color:#939ba7;margin-bottom:4px">Estado, pr\u00f3ximas acciones y bloqueos importantes sin entrar en configuraci\u00f3n avanzada.</div>
       <div class="gb-dashboard-cards"></div>
       <div class="gb-quick">
         <button id="gb-quick-safe" data-gb-tip="Pausa global: bloquea premium, ataques, favor, puntos y donaciones">MODO SEGURO</button>
+        <button id="gb-quick-preflight" data-gb-tip="Probar todos los modulos sin enviar nada (solo lectura)">Comprobar sistema</button>
         <button id="gb-quick-sim" data-gb-tip="Simular 24 h para ver que haria el bot">Simular 24 h</button>
         <button id="gb-quick-config" data-gb-tip="Abrir la pesta\u00f1a de configuracion (Ajustes)">Ajustes</button>
       </div>
+      <div class="dashboard-summary" style="font-size:10px;color:#aab2bd;margin-bottom:4px"></div>
+      ${gbSection('Pr\u00f3ximas acciones', '<pre class="timeline-panel" style="font-size:10px;white-space:pre-wrap;margin:0;max-height:150px;overflow:auto"></pre>', true)}
+      ${gbSection('Estado operativo', '<pre class="overview-panel" style="font-size:10px;white-space:pre-wrap;margin:0;max-height:180px;overflow:auto;color:#cfd6df"></pre>')}
       ${gbSection('Objetivos y cola por ciudad', '<div class="goals-panel" style="font-size:10px;max-height:300px;overflow:auto"></div>', true)}
       ${gbSection('Recursos y reservas', '<div class="planner-controls" style="font-size:10px;display:flex;gap:5px;flex-wrap:wrap;align-items:center"></div><div class="planner-panel" style="font-size:10px;max-height:240px;overflow:auto;margin-top:6px"></div>')}
       ${gbSection('Simulaci\u00f3n y motivos', '<div style="display:flex;gap:5px;align-items:center;margin-bottom:5px"><label data-gb-tip="Horas a simular (1-168)">Horizonte <input id="gb-sim-hours" type="number" min="1" max="168" value="24" style="width:55px;background:#111;color:#cfc;border:1px solid #444;border-radius:4px;padding:3px"/> h</label><button id="gb-sim-run" class="gb-action" data-gb-tip="Correr la simulacion con el horizonte indicado">Simular</button></div><pre class="sim-panel" style="font-size:10px;white-space:pre-wrap;margin:0 0 6px;max-height:160px;overflow:auto"></pre><pre class="why-panel" style="font-size:10px;white-space:pre-wrap;margin:0;max-height:130px;overflow:auto;color:#bbb"></pre>')}
@@ -25386,28 +27610,26 @@ const STORE = {
         <div class="intel-inactive-def"></div>
       </div>
       <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <input class="gb-cfg-input" id="gb-note-player" placeholder="player" style="width:80px;font-size:11px" data-gb-tip="Nombre del jugador al que apuntar la nota"/>
-        <input class="gb-cfg-input" id="gb-note-text" placeholder="note" style="flex:1;font-size:11px" data-gb-tip="Texto de la nota del jugador"/>
+        <input class="gb-cfg-input" id="gb-note-player" placeholder="player" style="width:80px;;font-size:11px" data-gb-tip="Nombre del jugador al que apuntar la nota"/>
+        <input class="gb-cfg-input" id="gb-note-text" placeholder="note" style="flex:1;;font-size:11px" data-gb-tip="Texto de la nota del jugador"/>
         <button id="gb-note-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px" data-gb-tip="Guardar la nota del jugador">Guardar nota</button>
       </div>
       <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <input class="gb-cfg-input" id="gb-anote-ally" placeholder="alianza" style="width:80px;font-size:11px" data-gb-tip="Nombre de la alianza a la que apuntar la nota"/>
-        <input class="gb-cfg-input" id="gb-anote-text" placeholder="nota de alianza" style="flex:1;font-size:11px" data-gb-tip="Texto de la nota de alianza"/>
+        <input class="gb-cfg-input" id="gb-anote-ally" placeholder="alianza" style="width:80px;;font-size:11px" data-gb-tip="Nombre de la alianza a la que apuntar la nota"/>
+        <input class="gb-cfg-input" id="gb-anote-text" placeholder="nota de alianza" style="flex:1;;font-size:11px" data-gb-tip="Texto de la nota de alianza"/>
         <button id="gb-anote-save" style="background:#333;border:1px solid #555;color:#eee;padding:2px 6px;cursor:pointer;font-size:10px" data-gb-tip="Guardar la nota de la alianza">Guardar nota de alianza</button>
       </div>
     </section>
     <section data-tab="config" hidden>
       <div class="config-panel">
         <div class="gb-cfg-toolbar">
-          <input class="gb-cfg-filter" type="search" placeholder="Buscar un ajuste por nombre o por lo que hace\u2026" title="Filtra por texto. Mientras escribes se buscan todos los grupos a la vez; vacia el campo para volver al grupo elegido."/>
+          <input class="gb-cfg-filter" type="search" placeholder="filtrar ajustes..." title="Filtra por texto. Los grupos con coincidencias se abren solos; vacia el campo para restaurarlos."/>
+          <button type="button" class="gb-cfg-expand" data-cfgx="open" title="Abrir todos los grupos">Abrir todo</button>
+          <button type="button" class="gb-cfg-expand" data-cfgx="close" title="Cerrar todos los grupos">Cerrar todo</button>
         </div>
         <div class="gb-cfg-empty" hidden>Ningun ajuste coincide con el filtro.</div>
-        <div class="gb-cfg-split">
-        <nav class="gb-cfg-rail" aria-label="Grupos de ajustes"></nav>
-        <div class="gb-cfg-panes">
         ${gbCfgGroup('General y seguridad', `
           <label class="gb-cfg-row" data-gb-tip="Activar el bot solo en este dominio (marcado por mundo)"><input type="checkbox" data-cfg="enabled-host"/> Activar en <span class="cfg-host"></span></label>
-          <label class="gb-cfg-row" title="El unico freno pasa a ser el interruptor de arriba. Desactiva panico, cortacircuitos, memoria de decisiones, modo seguro, salud de plantillas, pausa nocturna, pausa por actividad y el frenado adaptativo del orquestador. El cortacircuitos de captcha y el enfriamiento por presion del servidor siguen activos: ahi el servidor ya esta rechazando el envio."><input type="checkbox" data-cfg="never-stop"/> <b class="gb-cfg-accent">No parar nunca (solo para con el interruptor de arriba)</b></label>
           <label class="gb-cfg-row gb-cfg-warn" data-gb-tip="Bloquea premium, ataques, favor, puntos y donaciones"><input type="checkbox" data-cfg="safe-mode"/> MODO SEGURO (bloquea premium/ataques/favor/puntos/donaciones)</label>
           <label class="gb-cfg-row" title="Registra cada payload que el bot enviaria y no envia nada. Sirve para comparar el payload del bot con una accion pulsada a mano antes de activar algo arriesgado."><input type="checkbox" data-cfg="dry-run"/> <b class="gb-cfg-accent">Simulacion (registra payloads, no envia nada)</b></label>
           <label class="gb-cfg-row" data-gb-tip="Apagado global de captcha: cualquier captcha detiene todo el bot"><input type="checkbox" data-cfg="captcha-global"/> Interruptor global de captcha</label>
@@ -25417,12 +27639,12 @@ const STORE = {
           <label class="gb-cfg-num" title="Minutos de pausa tras el 1er, 2o, 3er... captcha del mismo modulo. Lista separada por comas, de 1 a 1440. Vacio = 5,15,60.">Escalera de captcha (min) <input class="gb-cfg-input" type="text" data-cfg="captcha-ladder" placeholder="5,15,60" style="width:110px"/></label>
           <button data-cfg="clear-captcha" class="gb-cfg-btn danger" data-gb-tip="Limpiar los cortacircuitos de captcha de todos los modulos">Limpiar cortacircuitos de captcha</button>
         `, true)}
-        ${gbCfgGroup('Recolecci\u00f3n y aldeas', `
+        ${gbCfgGroup('Recoleccion y aldeas', `
           <label class="gb-cfg-row" data-gb-tip="Cobrar recompensas visibles (boton Recoger) automaticamente"><input type="checkbox" data-cfg="auto-collect"/> Recoger recompensas de recursos visibles</label>
           <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Recoger aunque el tiempo mostrado sea mayor que el umbral"><input type="checkbox" data-cfg="collect-all"/> Recoger todo (ignora el tope de tiempo)</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Minutos maximos mostrados para que el bot recoja sin forzar">Minutos maximos para recoger <input class="gb-cfg-input" type="number" data-cfg="collect-max-min" min="1" max="120" style="width:70px"/></label>
           <label class="gb-cfg-row" data-gb-tip="Atacar campamentos bandidos automaticamente"><input type="checkbox" data-cfg="auto-bandit"/> Campamento bandido automatico</label>
-          <label class="gb-cfg-row" data-gb-tip="Cobrar aldeas propias cada 10 minutos + 1-2 min aleatorios (siempre opcion de 10 min)"><input type="checkbox" data-cfg="auto-farm"/> Recoleccion automatica de aldeas</label>
+          <label class="gb-cfg-row" data-gb-tip="Cobrar aldeas propias periodicamente"><input type="checkbox" data-cfg="auto-farm"/> Recoleccion automatica de aldeas</label>
           <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Saltar aldeas/bandido si el almacen de la ciudad esta demasiado lleno"><input type="checkbox" data-cfg="farm-skip-full"/> Saltar aldeas/bandido con el almacen lleno</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Cuando considerar el almacen lleno: 1 recurso o los 3">Criterio de almacen lleno
             <select class="gb-cfg-input" data-cfg="farm-full-mode" data-gb-tip="Cuando considerar el almacen lleno">
@@ -25430,6 +27652,7 @@ const STORE = {
               <option value="all">los 3 recursos llenos</option>
             </select>
           </label>
+          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Pedir cobros de 10 min en aldeas donde la lealtad esta investigada"><input type="checkbox" data-cfg="farm-long-claims"/> Cobros de 10 min donde la lealtad de aldeanos esta investigada</label>
           <label class="gb-cfg-num gb-cfg-sub" title="La aldea tiene dos mitades: recursos y unidades. Con 'al agotarse los recursos' la aldea pasa a pedir unidades el resto del dia en cuanto el servidor rechaza el cobro de recursos (tope diario alcanzado). Las unidades ocupan poblacion.">Cobrar unidades en aldeas
             <select class="gb-cfg-input" data-cfg="farm-units-mode" data-gb-tip="Cuando pedir unidades en vez de recursos">
               <option value="off">nunca (solo recursos)</option>
@@ -25447,23 +27670,21 @@ const STORE = {
               <option value="hoplite">Hoplita</option>
             </select>
           </label>
-          <label class="gb-cfg-row gb-cfg-sub" title="Bajo presion (captcha, enfriamiento del servidor o presupuesto justo) recorta la lista de aldeas en vez de ampliar la cadencia, y reclama primero las mas rentables."><input type="checkbox" data-cfg="adaptive-farm"/> Recoleccion adaptativa bajo presion</label>
-          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Porcentaje de aldeas a descartar bajo presion (de menos rentable a mas)">Descartar bajo presion <input class="gb-cfg-input" type="number" data-cfg="farm-drop-pct" min="0" max="90" style="width:45px"/> %</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="ID o nombre exacto de la investigacion de lealtad (la pestana Registro lo vuelca si la deteccion automatica falla)">Clave de la investigacion de lealtad
             <input class="gb-cfg-input" data-cfg="farm-loyalty-tech" placeholder="auto (id del servidor o etiqueta)" title="Id de investigacion del servidor (p.ej. rural_loyalty) o el nombre localizado de la academia. La pestana Registro vuelca los pares id(etiqueta) cuando la deteccion automatica falla." style="width:190px"/>
           </label>
           <label class="gb-cfg-num gb-cfg-sub" title="Segundos de marcha por unidad de coordenada de isla. El juego no expone la formula de marcha, asi que 0 (por defecto) deja el ranking res/min independiente de la distancia.">Segundos de marcha por unidad de isla <input class="gb-cfg-input" type="number" data-cfg="farm-travel" min="0" max="600" step="0.5" style="width:60px"/></label>
-          <div id="gb-farm-optmap" class="gb-cfg-note" data-gb-tip="Mapa aprendido: opcion de cobro de 10 min en este mundo"></div>
-          <button data-cfg="farm-forget-options" class="gb-cfg-btn gb-cfg-sub" title="Borra el mapa de opciones aprendido (recursos y unidades) y reactiva la plantilla de cobro. Usalo si los cobros fallan seguido: vuelve a pulsar una recogida de 10 minutos a mano para reaprenderla.">Olvidar opciones de cobro aprendidas</button>
-          <label class="gb-cfg-row" title="Lee los recursos de cada aldea por HTTP. Solo funciona en mundos cuyo cliente responde a una accion farm_town_*. Si no, cada barrido gasta el presupuesto de peticiones sin devolver nada y se apaga solo. Cadencia fija: 10 min + 1-2 min aleatorios."><input type="checkbox" data-cfg="farm-scrape"/> Escanear recursos de aldeas (HTTP)</label>
+          <div id="gb-farm-optmap" class="gb-cfg-note" data-gb-tip="Mapa aprendido: que opcion de cobro usa cada duracion (5min, 10min, ...) en este mundo"></div>
+          <button data-cfg="farm-forget-options" class="gb-cfg-btn gb-cfg-sub" title="Borra el mapa de opciones aprendido (recursos y unidades) y reactiva la plantilla de cobro. Usalo si los cobros fallan seguido: vuelve a pulsar cada duracion una vez a mano para reaprenderlas.">Olvidar opciones de cobro aprendidas</button>
+          <label class="gb-cfg-row" title="Lee los recursos de cada aldea por HTTP. Solo funciona en mundos cuyo cliente responde a una accion farm_town_*. Si no, cada barrido gasta el presupuesto de peticiones sin devolver nada y se apaga solo."><input type="checkbox" data-cfg="farm-scrape"/> Escanear recursos de aldeas (HTTP)</label>
+          <label class="gb-cfg-num" data-gb-tip="Cadencia del escaneo de aldeas: minimo y maximo en minutos">Cadencia de aldeas min-max (min) <input class="gb-cfg-input" type="number" data-cfg="farm-min" min="1" max="60" style="width:50px"/> - <input class="gb-cfg-input" type="number" data-cfg="farm-max" min="1" max="60" style="width:50px"/></label>
           <label class="gb-cfg-num" data-gb-tip="Cadencia del escaneo de ciudades: minimo y maximo en minutos">Cadencia de ciudades min-max (min) <input class="gb-cfg-input" type="number" data-cfg="town-min" min="1" max="60" style="width:50px"/> - <input class="gb-cfg-input" type="number" data-cfg="town-max" min="1" max="60" style="width:50px"/></label>
         `, true)}
-        ${gbCfgGroup('Construcci\u00f3n e investigaci\u00f3n', `
+        ${gbCfgGroup('Construccion e investigacion', `
           <label class="gb-cfg-row" data-gb-tip="Completar gratis la construccion en cola cuando el tiempo restante esta dentro del umbral"><input type="checkbox" data-cfg="auto-build"/> Construccion instantanea gratis</label>
           <label class="gb-cfg-row" data-gb-tip="Completar gratis la investigacion en la academia cuando esta dentro del umbral"><input type="checkbox" data-cfg="instant-research"/> Investigacion instantanea gratis (academia)</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Segundos antes de acabar para considerarlo gratis (max 290)">Umbral de instantanea gratis (s, tope de seguridad 290) <input class="gb-cfg-input" type="number" data-cfg="ib-free-thresh" min="60" max="300" style="width:70px"/></label>
           <label class="gb-cfg-row" data-gb-tip="Anadir automaticamente el siguiente edificio del plan a la cola"><input type="checkbox" data-cfg="auto-queue"/> Cola de construccion automatica</label>
-          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Si la cola de construccion esta vacia y no hay objetivo pendiente, el bot anade un edificio aleatorio de los disponibles (excluye especiales: Teatro, Termas, Biblioteca, Faro, Torre, Estatua, Oraculo, Oficina comercial). Solo uno por ciclo; la cola sigue vacia hasta la siguiente pasada."><input type="checkbox" data-cfg="ab-random-fallback"/> Cola aleatoria cuando este vacia</label>
           <label class="gb-cfg-row gb-cfg-sub" title="Si el coste de poblacion de la siguiente construccion supera la poblacion libre de la ciudad, mete 2 niveles de granja al principio de la cola. Antes comprueba lo que ya se esta construyendo (cola real + cola virtual); si la granja ya esta en marcha o al maximo, no hace nada."><input type="checkbox" data-cfg="pop-rescue-farm"/> Granja automatica si falta poblacion</label>
           <label class="gb-cfg-row gb-cfg-sub" title="Un muro danado conserva su nivel, asi que el planificador no lo ve. Con esto activado el nivel efectivo baja segun el dano y la cola lo reconstruye. Gasta recursos: por defecto OFF."><input type="checkbox" data-cfg="auto-wall-repair"/> Reparar muralla danada</label>
           <label class="gb-cfg-num gb-cfg-sub" title="Si la cabeza de la cola lleva bloqueada por recursos mas de estos minutos, Colas > Construccion ofrece ascender la siguiente orden que SI se puede pagar. Solo sugerencia: nunca reordena solo. 0 = desactivado.">Sugerir adelanto tras <input class="gb-cfg-input" type="number" data-cfg="build-swap-min" min="0" max="120" style="width:45px"/> min bloqueada</label>
@@ -25474,7 +27695,7 @@ const STORE = {
           <label class="gb-cfg-row" data-gb-tip="Cobrar el descuento de construccion que otorgan las misiones"><input type="checkbox" data-cfg="auto-quest-build"/> Cobrar el descuento de construccion de las misiones</label>
           <label class="gb-cfg-row" data-gb-tip="Cobrar automaticamente las recompensas de recursos y favor de misiones"><input type="checkbox" data-cfg="auto-quest-res"/> Cobrar recursos/favor de las misiones</label>
         `, true)}
-        ${gbCfgGroup('Almac\u00e9n, cueva y comercio', `
+        ${gbCfgGroup('Almacen, cueva y comercio', `
           <label class="gb-cfg-row" data-gb-tip="Guardar plata sobrante en la cueva cuando supera el umbral"><input type="checkbox" data-cfg="auto-cave"/> Cueva automatica (guarda la plata sobrante)</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Porcentaje de llenado del almacen a partir del cual la plata se guarda">Guardar cuando la plata &ge; % del almacen
             <input class="gb-cfg-input" type="number" data-cfg="cave-thresh" min="50" max="99" style="width:50px"/>
@@ -25488,12 +27709,10 @@ const STORE = {
             <button data-cfg="emergency-cave-now" class="gb-cfg-btn danger" title="Guarda ahora la plata de todas las ciudades con cueva activada, ignorando el umbral.">Guardar plata YA</button>
           </label>
           <label class="gb-cfg-row" data-gb-tip="Enviar mercantes entre ciudades para llenar almacenes"><input type="checkbox" data-cfg="auto-trade"/> Comercio entre ciudades (llenar almacen)</label>
-          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Perfil de comercio, reserva minima y lote minimo por envio">Perfil
-            <select class="gb-cfg-input" data-cfg="trade-preset" data-gb-tip="Perfil de envio: solo 'almacen' esta implementado">
-              <option value="storage">almacen</option>
-              <option value="party">fiesta (sin implementar)</option>
-              <option value="unit">unidades (sin implementar)</option>
-            </select>
+          <div class="gb-cfg-note gb-cfg-sub" data-gb-tip="Selector de ciudades participantes en los calculos automaticos. Las rutas guardadas tienen origen/destino explicitos y no usan este filtro.">Ciudades para comercio automatico (sin marcar = no envia ni recibe en auto):</div>
+          <div class="trade-towns"></div>
+          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Umbrales del balancer de overflow">Overflow <input class="gb-cfg-input" type="number" data-cfg="trade-overflow" min="95" max="100" style="width:45px"/>%
+            Envio <input class="gb-cfg-input" type="number" data-cfg="trade-transfer" min="1" max="100" style="width:45px"/>% de capacidad; receptor <= <input class="gb-cfg-input" type="number" data-cfg="trade-receiver" min="0" max="80" style="width:45px"/>%
             Reserva % <input class="gb-cfg-input" type="number" data-cfg="trade-reserve" min="0" max="80" style="width:45px" data-gb-tip="Reserva minima del recurso en el destino"/>
             Lote minimo <input class="gb-cfg-input" type="number" data-cfg="trade-min" min="100" max="50000" step="100" style="width:60px" data-gb-tip="Cantidad minima por envio de mercante"/>
           </label>
@@ -25516,9 +27735,8 @@ const STORE = {
             pla <input class="gb-cfg-input" type="number" data-cfg="dump-keep-iron" min="0" max="95" style="width:45px"/>
           </label>
           <label class="gb-cfg-num gb-cfg-sub" title="Ciudades propias que aceptan el vaciado, separadas por comas. Vacio = usa el sesgo del perfil y luego el planificador de transporte.">Destinos <input class="gb-cfg-input" data-cfg="dump-sinks" placeholder="vacio = auto" style="width:180px" data-gb-tip="Ciudades propias que aceptan el vaciado (separadas por comas)"/></label>
-          <label class="gb-cfg-row" data-gb-tip="Comerciar con aldeas propias (enviar/recibir recursos)"><input type="checkbox" data-cfg="auto-rural-trade"/> Comercio con aldeas</label>
-          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Ratio minimo para que el comercio merezca la pena">Ratio minimo <input class="gb-cfg-input" type="number" data-cfg="rural-ratio" step="0.05" min="1.0" max="2" style="width:50px"/></label>
-          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="El bot elige el recurso mas bajo del almacen y busca granjas en la misma isla que lo ofrezcan">Modo: equilibrar los 3 recursos (el mas bajo)</label>
+          <label class="gb-cfg-row" data-gb-tip="Comerciar con ofertas live de aldeas propias"><input type="checkbox" data-cfg="auto-rural-trade"/> Comercio rural overflow</label>
+          <button data-cfg="island-beneficiaries-edit" class="gb-cfg-btn gb-cfg-sub">Beneficiarios por isla...</button>
           <label class="gb-cfg-row" data-gb-tip="Mejorar aldeas propias automaticamente"><input type="checkbox" data-cfg="auto-rural-level"/> Mejora de aldeas</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Nivel maximo al que se permite mejorar aldeas">Nivel maximo <input class="gb-cfg-input" type="number" data-cfg="rural-level-max" min="1" max="6" style="width:40px"/></label>
         `)}
@@ -25535,13 +27753,8 @@ const STORE = {
             <input class="gb-cfg-input" type="number" data-cfg="culture-gold-budget" min="0" max="500" step="50" style="width:60px"/>
           </label>
         `)}
-        ${gbCfgGroup('Ritmo y pausas', `
-          <label class="gb-cfg-row" data-gb-tip="Detectar actividad del usuario (movimientos del raton) y pausar el bot"><input type="checkbox" data-cfg="pause-activity"/> Pausar cuando estoy activo</label>
-          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Minutos de pausa tras detectar actividad">Minutos de pausa <input class="gb-cfg-input" type="number" data-cfg="pause-ms" min="1" max="60" style="width:40px"/></label>
-          <label class="gb-cfg-row" data-gb-tip="Pausar el bot durante la noche"><input type="checkbox" data-cfg="night-pause"/> Pausa nocturna</label>
-          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Rango horario (formato 24h) en que se aplica la pausa nocturna">Horas <input class="gb-cfg-input" type="number" data-cfg="night-start" min="0" max="23" style="width:40px"/>-<input class="gb-cfg-input" type="number" data-cfg="night-end" min="0" max="23" style="width:40px"/></label>
-          <label class="gb-cfg-row" title="Un modulo que nunca encuentra nada que hacer duplica su propio intervalo (hasta 8x) hasta que vuelve a actuar."><input type="checkbox" data-cfg="orch-adaptive"/> Cadencia adaptativa (frena modulos inactivos)</label>
-          <label class="gb-cfg-row" title="Si un almacen se llena y la recoleccion deja de rendir, cueva/comercio/aldeas pasan por delante de la recoleccion y no se les aplica el frenado por inactividad. Solo cambia el ORDEN, nunca el presupuesto."><input type="checkbox" data-cfg="orch-deadlock"/> Resolver atasco de almacen (prioriza vaciado)</label>
+        ${gbCfgGroup('Ritmo', `
+          <div class="gb-cfg-note">Cadencias operativas fijas e independientes. La actividad del usuario, la visibilidad de la pesta\u00f1a y la hora no detienen ni ralentizan la automatizacion.</div>
         `)}
         ${gbCfgGroup('Interfaz', `
           <label class="gb-cfg-num" data-gb-tip="Tema visual del panel">Tema
@@ -25557,7 +27770,33 @@ const STORE = {
           <label class="gb-cfg-row" title="Anade un menu GrepBot junto al popup de ciudad del juego. No intercepta ningun evento del juego: solo se monta al lado."><input type="checkbox" data-cfg="context-menu"/> Menu contextual junto al popup del juego</label>
         `)}
         ${gbCfgGroup('Avisos y notificaciones', `
-          <label class="gb-cfg-num" data-gb-tip="URL del webhook (Discord o Telegram) al que enviar avisos">URL de webhook <input class="gb-cfg-input" type="text" data-cfg="webhook-url" placeholder="webhook de Discord o https://api.telegram.org/bot.../sendMessage" style="width:100%;font-size:10px"/></label>
+          <div class="gb-cfg-note"><b>Telegram movil</b> \u00b7 el token se guarda solo en Tampermonkey y no se incluye en exportaciones, logs ni diagnosticos.</div>
+          <label class="gb-cfg-row"><input type="checkbox" data-cfg="telegram-enabled"/> Activar avisos por Telegram</label>
+          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Token privado creado con @BotFather. Se guarda localmente; GrepBot nunca lo imprime.">Bot Token
+            <input class="gb-cfg-input" type="password" autocomplete="off" data-cfg="telegram-token" placeholder="123456789:AA..." style="width:260px;font-size:10px"/>
+          </label>
+          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Envia /start a tu bot y pulsa Detectar Chat ID.">Chat ID
+            <input class="gb-cfg-input" type="text" data-cfg="telegram-chat-id" placeholder="pulsa Detectar" style="width:140px;font-size:10px"/>
+            <button data-cfg="telegram-detect-chat" class="gb-cfg-btn">Detectar Chat ID</button>
+            <button data-cfg="telegram-test" class="gb-cfg-btn">Enviar prueba</button>
+          </label>
+          <label class="gb-cfg-row gb-cfg-sub"><input type="checkbox" data-cfg="telegram-captcha"/> \ud83d\udea8 CAPTCHA detectado</label>
+          <label class="gb-cfg-row gb-cfg-sub"><input type="checkbox" data-cfg="telegram-captcha-resolved"/> \u2705 CAPTCHA resuelto</label>
+          <label class="gb-cfg-row gb-cfg-sub"><input type="checkbox" data-cfg="telegram-attacks"/> \ud83d\udea8 Ataques entrantes nuevos</label>
+          <label class="gb-cfg-row gb-cfg-sub"><input type="checkbox" data-cfg="telegram-critical"/> \ud83d\udea8 Errores graves / transacciones por revisar</label>
+          <label class="gb-cfg-row gb-cfg-sub"><input type="checkbox" data-cfg="telegram-diagnostic"/> \ud83d\udee0\ufe0f Incluir diagnostico tecnico e ID de error</label>
+          <label class="gb-cfg-row gb-cfg-sub"><input type="checkbox" data-cfg="telegram-warehouse"/> \u26a0\ufe0f Almacenes atascados</label>
+          <label class="gb-cfg-num gb-cfg-sub">Atascado si \u2265 <input class="gb-cfg-input" type="number" data-cfg="telegram-wh-pct" min="90" max="100" style="width:45px"/>% durante <input class="gb-cfg-input" type="number" data-cfg="telegram-wh-min" min="1" max="180" style="width:45px"/> min</label>
+          <label class="gb-cfg-row gb-cfg-sub"><input type="checkbox" data-cfg="telegram-hourly"/> \ud83d\udcca Resumen cada hora</label>
+          <button data-cfg="telegram-summary-now" class="gb-cfg-btn gb-cfg-sub">Enviar resumen ahora</button>
+          <button data-cfg="telegram-diagnostic-now" class="gb-cfg-btn gb-cfg-sub">Enviar diagnostico ahora</button>
+          <button data-cfg="telegram-copy-support" class="gb-cfg-btn gb-cfg-sub">Copiar informe para ChatGPT</button>
+          <button data-cfg="telegram-support-mode" class="gb-cfg-btn gb-cfg-sub">Modo soporte 30 min</button>
+          <span data-cfg="telegram-support-status" class="gb-cfg-note gb-cfg-sub"></span>
+          <div class="gb-cfg-note gb-cfg-sub">Modo soporte guarda durante 30 min contexto extra de decisiones/errores sin cambiar el comportamiento del bot. El informe excluye tokens y credenciales.</div>
+          <div class="gb-cfg-note gb-cfg-sub">Para detectar el Chat ID: abre tu bot en Telegram, envia <b>/start</b> y despues pulsa \u201cDetectar Chat ID\u201d. Los avisos se deduplican para evitar spam.</div>
+          <div class="gb-cfg-note" style="margin-top:5px"><b>Webhook generico (opcional/compatibilidad)</b></div>
+          <label class="gb-cfg-num" data-gb-tip="URL del webhook (Discord o Telegram) al que enviar avisos">URL de webhook <input class="gb-cfg-input" type="text" data-cfg="webhook-url" placeholder="webhook de Discord o URL Telegram antigua" style="width:100%;font-size:10px"/></label>
           <label class="gb-cfg-num" data-gb-tip="Tipos de evento que disparan un aviso al webhook">Eventos
             <label data-gb-tip="Aviso cuando aparece un captcha"><input type="checkbox" data-cfg="wh-captcha"/> captcha</label>
             <label data-gb-tip="Aviso cuando se envia un ataque"><input type="checkbox" data-cfg="wh-attack"/> ataque</label>
@@ -25576,7 +27815,7 @@ const STORE = {
             <button data-cfg="notify-test" class="gb-cfg-btn" data-gb-tip="Disparar una notificacion de prueba">Probar</button>
           </label>
         `)}
-        ${gbCfgGroup('Diagn\u00f3stico y datos', `
+        ${gbCfgGroup('Diagnostico y datos', `
           <label class="gb-cfg-row" title="Guarda cada 5 min una instantanea acotada de la configuracion y el estado de transacciones. No copia la bitacora ni los hallazgos."><input type="checkbox" data-cfg="snapshots-on"/> Instantaneas de estado</label>
           <button data-cfg="snapshot-restore" class="gb-cfg-btn gb-cfg-sub" data-gb-tip="Restaurar una instantanea guardada anteriormente">Restaurar instantanea...</button>
           <label class="gb-cfg-row" title="Mide ms por llamada de cada bucle. Muy barato, pero por defecto OFF."><input type="checkbox" data-cfg="profiler-on"/> Perfilador de rendimiento</label>
@@ -25626,7 +27865,7 @@ const STORE = {
             <label data-gb-tip="Ver el payload antes de enviar (no envia nada)"><input type="checkbox" data-cfg="spy-dry"/> Simulacion</label>
           </label>
           <label class="gb-cfg-row" data-gb-tip="Reclutar tropas automaticamente en cuarteles/puerto"><input type="checkbox" data-cfg="auto-recruit"/> Reclutamiento automatico</label>
-          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Lanzar hechizos de reclutamiento antes de reclutar"><input type="checkbox" data-cfg="recruit-spells"/> Lanzar antes los hechizos de reclutamiento</label>
+          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Cuartel: Crecimiento de la poblaci\u00f3n. Puerto: Llamada del mar. Si ya est\u00e1 activo o no puede lanzarse, recluta normalmente."><input type="checkbox" data-cfg="recruit-spells"/> Hechizos autom\u00e1ticos de reclutamiento</label>
           <label class="gb-cfg-row gb-cfg-sub gb-cfg-risk" title="Convierte aldeanos en unidades cuando la aldea no admite mas recursos. Recompute: compara espada+arquero vs hoplita+hondero, elige la pareja con mas tropas y dentro de ella la unidad con menos. Requiere abrir la aldea y pulsar Aceptar una vez a mano la primera vez."><input type="checkbox" data-cfg="village-recruit"/> Reclutar en aldeas saturadas</label>
           <label class="gb-cfg-num gb-cfg-sub" style="margin-left:28px" data-gb-tip="% de llenado y cantidad a reclutar por tick">% llenado aldea
             <input class="gb-cfg-input" type="number" data-cfg="village-recruit-fill" min="50" max="99" style="width:50px" data-gb-tip="% minimo de llenado de la aldea para reclutar"/>
@@ -25662,27 +27901,18 @@ const STORE = {
           <label class="gb-cfg-row" data-gb-tip="Donar recursos a la Maravilla del mundo"><input type="checkbox" data-cfg="auto-wonder"/> Donaciones a la Maravilla</label>
           <label class="gb-cfg-row" title="Gasta favor en la maravilla de la alianza. Requiere haber capturado wonderFavorTpl. Por defecto OFF."><input type="checkbox" data-cfg="auto-wonder-favor"/> Lanzar favor en la Maravilla (captura el poder antes)</label>
         `, false, 'risk')}
-        </div>
-        </div>
       </div>
     </section>
     <section data-tab="stats" hidden>
-      <div class="gb-diag-hero">
-        <div style="flex:1;min-width:0">
-          <div class="gb-diag-hero-t">Comprobaci\u00f3n del sistema</div>
-          <div class="gb-diag-hero-s" id="gb-pf-when">Lee todos los m\u00f3dulos sin enviar nada al juego.</div>
-        </div>
-        <button id="gb-preflight" class="gb-action" title="Prueba de solo lectura de cada modulo: colecciones, claves aprendidas, payloads que se enviarian. No envia nada." style="background:var(--gb-warn-bg);border:1px solid var(--gb-accent-3);color:var(--gb-accent-2);font-weight:700;flex-shrink:0">Comprobar ahora</button>
-      </div>
-      <div class="gb-pf-list"></div>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">
-        <b style="font-size:11px;color:#f5a623">Qu\u00e9 ha hecho</b>
+        <b style="font-size:11px;color:#f5a623">Estadisticas</b>
         <button data-stats="1h" data-gb-tip="Ver estadisticas de la ultima hora" style="background:#262626;border:1px solid #333;color:#aaa;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">1h</button>
         <button data-stats="24h" class="on" data-gb-tip="Ver estadisticas de las ultimas 24 horas" style="background:#333;border:1px solid #555;color:#fff;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">24h</button>
         <button data-stats="7d" data-gb-tip="Ver estadisticas de los ultimos 7 dias" style="background:#262626;border:1px solid #333;color:#aaa;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">7d</button>
+        <span style="flex:1"></span>
+        <button id="gb-preflight" title="Read-only probe of every module: collections, learned action keys, would-be payloads. Sends nothing." style="background:#333;border:1px solid #555;color:#6cf;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">Comprobar sistema</button>
       </div>
       <pre class="stats-body" style="font-size:10px;white-space:pre-wrap;background:#111;padding:6px;border:1px solid #333;max-height:320px;overflow:auto;color:#cfc"></pre>
-      ${gbSection('Estado operativo (texto de m\u00e1quina)', '<pre class="overview-panel" style="font-size:10px;white-space:pre-wrap;margin:0;max-height:180px;overflow:auto;color:#cfd6df"></pre>')}
     </section>
     <section data-tab="log" hidden>
       <div class="gb-logsub">
@@ -25691,19 +27921,13 @@ const STORE = {
         <input class="jrn-filter" placeholder="filter feature/action/target" data-gb-tip="Filtrar por feature, action o target"/>
       </div>
       <div class="log-list"></div>
-      <div class="jrn-btns log-btns">
-        <button data-log="copy" data-gb-tip="Copiar el registro en vivo entero (anillo completo) al portapapeles">Copiar todo</button>
-        <button data-log="download" data-gb-tip="Descargar el registro en vivo entero como .txt">Descargar .txt</button>
-      </div>
       <div class="jrn-pane" hidden>
         <div class="jrn-head"></div>
         <div class="jrn-list"></div>
         <div class="jrn-btns">
           <button data-jrn="copy" data-gb-tip="Copiar la bitacora visible al portapapeles">Copiar JSON</button>
-          <button data-jrn="copy-log" data-gb-tip="Copiar el registro en vivo (sesion completa) al portapapeles">Copiar log</button>
           <button data-jrn="clear-skips" data-gb-tip="Borrar las ventanas de salto por decision">Limpiar saltos</button>
-          <button data-jrn="clear" data-gb-tip="Borrar la bitacora de decisiones (historial)">Limpiar bitacora</button>
-          <button data-jrn="clear-all" data-gb-tip="Borrar bitacora, saltos, cortacircuitos, captchas y transacciones desconocidas">Limpiar registros</button>
+          <button data-jrn="clear" data-gb-tip="Borrar toda la bitacora de decisiones">Limpiar bitacora</button>
         </div>
       </div>
       <div class="pending-pane" hidden>
@@ -25718,44 +27942,35 @@ const STORE = {
     </section>
     <footer>
       <div class="gb-status-row">
-        <span id="gb-next-farms" data-gb-tip="Cuenta atras hasta el proximo cobro y escaneo de aldeas" style="color:#6cf"></span>
+        <span id="gb-next-farms" data-gb-tip="Cuenta atras hasta el proximo escaneo de aldeas" style="color:#6cf"></span>
         <span id="gb-next-towns" data-gb-tip="Cuenta atras hasta el proximo escaneo de ciudades" style="color:#fc6"></span>
-        <span id="gb-collect-state" data-gb-tip="Estado de la recoleccion automatica (activa / apagada / pausas)" style="color:#f96;font-weight:bold"></span>
+        <span id="gb-collect-state" data-gb-tip="Estado de la recoleccion automatica (ON / OFF / pausas)" style="color:#f96;font-weight:bold"></span>
         <span id="gb-status" style="color:#888"></span>
       </div>
-      <button type="button" id="gb-foot-preflight" data-act="preflight" data-gb-tip="Probar todos los modulos sin enviar nada (solo lectura)">Comprobar sistema</button>
       <details class="gb-actions">
-        <summary>M\u00e1s</summary>
+        <summary>Acciones</summary>
         <div class="gb-actions-menu">
-          <div class="gb-menu-h">Actualizar ahora</div>
-          <button type="button" data-act="refresh" data-gb-tip="Volver a leer las ciudades del juego">Releer ciudades</button>
-          <button type="button" data-act="scrape-farms" data-gb-tip="Forzar el escaneo de aldeas ahora (ignora la cadencia)">Cobrar aldeas ahora</button>
-          <button type="button" data-act="scrape-towns" data-gb-tip="Forzar el escaneo de ciudades ahora (ignora la cadencia)">Escanear ciudades ahora</button>
-          <div class="gb-menu-h">Perfiles</div>
-          <button type="button" data-act="preset-afk" title="Activa granjas, cueva, construccion e investigacion con cadencia lenta y presupuesto bajo. Todo HIGH-RISK queda OFF.">AFK nocturno</button>
-          <button type="button" data-act="preset-farming" title="Cadencia corta, banda y cueva, todo economico, culture OFF.">Recolecci\u00f3n activa</button>
-          <button type="button" data-act="preset-war" title="Construccion, dodge notify, sin cultura ni investigacion. HIGH-RISK forzado a OFF.">Guerra</button>
-          <div class="gb-menu-h">Datos</div>
-          <button type="button" data-act="copy" data-gb-tip="Copiar JSON de estado al portapapeles">Copiar el estado</button>
-          <button type="button" data-act="export" data-gb-tip="Exportar la configuracion completa al portapapeles">Exportar la configuraci\u00f3n</button>
-          <button type="button" data-act="bundle" title="Copia TODO en un solo texto: evidencia, configuracion, bitacora de decisiones, log, hallazgos, puente y preflight. Respeta la opcion de anonimizado. No envia nada.">Copiar todo para un informe</button>
-          <button type="button" data-act="bundle-file" title="Lo mismo que Copiar todo, pero guardado en un archivo .txt.">Guardar un informe (.txt)</button>
-          <button type="button" data-act="evidence" title="Instantanea de solo lectura y anonimizada para las validaciones de TASKS. Copia JSON. No envia nada.">Evidencia</button>
-          <button type="button" data-act="clear" data-gb-tip="Borrar los hallazgos de inteligencia almacenados">Limpiar hallazgos</button>
-          <div class="gb-menu-h">Diagn\u00f3stico</div>
-          <button type="button" data-act="diag" data-gb-tip="Volcar diagnostico de bridge y estado de partidas">Diagn\u00f3stico del puente</button>
-          <button type="button" data-act="diag-farms" title="Vuelca en el Registro, por aldea: cupo diario restante, marca de agotado, tipo de cobro elegido y la carta de unidad. Solo lectura, no envia nada.">Diagn\u00f3stico de aldeas</button>
-          <div class="gb-menu-h">Ventana</div>
-          <button type="button" data-act="reset-pos" title="Reset panel position">Volver a su sitio</button>
-          <div class="gb-menu-sep"></div>
-          <button type="button" data-act="panic" style="color:#f66;font-weight:bold" title="Parada de emergencia: pausa toda la automatizacion, fuerza Simulacion y libera los bloqueos. No envia nada.">Parar todo</button>
+          <button type="button" data-act="panic" style="color:#f66;font-weight:bold" title="Parada de emergencia: pausa toda la automatizacion, fuerza Simulacion y libera los bloqueos. No envia nada.">\u26a0 P\u00c1NICO</button>
           <button type="button" data-act="panic-recover" disabled title="Disponible 30 s despues del panico. Limpia las ventanas de salto y reanuda. Simulacion sigue ON.">Reanudar (limpiar saltos)</button>
+          <button type="button" data-act="copy" data-gb-tip="Copiar JSON de estado al portapapeles">Copiar JSON</button>
+          <button type="button" data-act="export" data-gb-tip="Exportar la configuracion completa al portapapeles">Exportar</button>
+          <button type="button" data-act="refresh" data-gb-tip="Volver a leer las ciudades del juego">Refrescar ciudades</button>
+          <button type="button" data-act="scrape-farms" data-gb-tip="Forzar el escaneo de aldeas ahora (ignora la cadencia)">Granjas ahora</button>
+          <button type="button" data-act="scrape-towns" data-gb-tip="Forzar el escaneo de ciudades ahora (ignora la cadencia)">Ciudades ahora</button>
+          <button type="button" data-act="diag" data-gb-tip="Volcar diagnostico de bridge y estado de partidas">Diagnostico</button>
+          <button type="button" data-act="diag-farms" title="Vuelca en el Registro, por aldea: cupo diario restante, marca de agotado, tipo de cobro elegido y la carta de unidad. Solo lectura, no envia nada.">Diagnostico de aldeas</button>
+          <button type="button" data-act="preflight" data-gb-tip="Probar todos los modulos sin enviar nada (solo lectura)">Comprobar sistema</button>
+          <button type="button" data-act="evidence" title="Instantanea de solo lectura y anonimizada para las validaciones de TASKS. Copia JSON. No envia nada.">Evidencia</button>
+          <button type="button" data-act="bundle" title="Copia TODO en un solo texto: evidencia, configuracion, bitacora de decisiones, log, hallazgos, puente y preflight. Respeta la opcion de anonimizado. No envia nada.">Copiar todo</button>
+          <button type="button" data-act="bundle-file" title="Lo mismo que Copiar todo, pero guardado en un archivo .txt.">Guardar todo (.txt)</button>
+          <button type="button" data-act="clear" data-gb-tip="Borrar los hallazgos de inteligencia almacenados">Limpiar hallazgos</button>
+          <button type="button" data-act="reset-pos" title="Reset panel position">Restablecer posicion</button>
+          <button type="button" data-act="preset-farming" title="Cadencia corta, banda y cueva, todo economico, culture OFF.">Perfil: recoleccion activa</button>
+          <button type="button" data-act="preset-war" title="Construccion, dodge notify, sin cultura ni investigacion. HIGH-RISK forzado a OFF.">Perfil: guerra</button>
         </div>
       </details>
     </footer>
   `;
-
-  { const verEl = panel.querySelector('#gb-head-ver'); if (verEl) verEl.textContent = runningVersion(); }
   document.body.appendChild(panel);
 
   gbTipWalk(panel);
@@ -25795,12 +28010,9 @@ const STORE = {
       const usesPending = sub === 'pending';
       panel.querySelectorAll('.gb-logsub button').forEach(b => b.classList.toggle('on', b === btn));
       const live = panel.querySelector('.log-list');
-      const liveBtns = panel.querySelector('.log-btns');
       const pane = panel.querySelector('.jrn-pane');
       const pend = panel.querySelector('.pending-pane');
       if (live) live.hidden = usesPane || usesPending;
-
-      if (liveBtns) liveBtns.hidden = usesPane || usesPending;
       if (pane) pane.hidden = !(usesPane);
       if (pend) pend.hidden = !usesPending;
       if (sub === 'mem') renderJournal();
@@ -25834,33 +28046,9 @@ const STORE = {
       });
     }
   }
-
-  panel.querySelector('[data-log=copy]')?.addEventListener('click', () => {
-    const text = gbLogDumpText();
-    if (!text) { flash('registro vacio'); return; }
-    gbClipWrite(text, 'log copiado (' + text.split('\n').length + ' lineas)');
-  });
-  panel.querySelector('[data-log=download]')?.addEventListener('click', () => {
-    const text = gbLogDumpText();
-    if (!text) { flash('registro vacio'); return; }
-    const blob = new Blob([text], { type: 'text/plain' });
-    const a = document.createElement('a');
-    const objectUrl = URL.createObjectURL(blob);
-    a.href = objectUrl;
-    a.download = `grepbot-log-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
-    a.click();
-    gbTimeout(() => { try { URL.revokeObjectURL(objectUrl); } catch (_) {} }, 0);
-    flash('log descargado');
-  });
   panel.querySelector('[data-jrn=copy]')?.addEventListener('click', () => {
     const text = JSON.stringify({ decisions: state.decisions, skips: state.decisionSkips }, null, 2);
     navigator.clipboard.writeText(text).then(() => flash('bitacora copiada')).catch(() => flash('fallo al copiar'));
-  });
-
-  panel.querySelector('[data-jrn=copy-log]')?.addEventListener('click', () => {
-    const text = gbLogDumpText();
-    if (!text) { flash('registro vacio'); return; }
-    gbClipWrite(text, 'log copiado (' + text.split('\n').length + ' lineas)');
   });
   panel.querySelector('[data-jrn=clear-skips]')?.addEventListener('click', () => {
     jrnClearSkips();
@@ -25869,25 +28057,6 @@ const STORE = {
   panel.querySelector('[data-jrn=clear]')?.addEventListener('click', () => {
     if (!confirm('Clear the decision journal for ' + location.host + '?')) return;
     jrnClear();
-    renderJournal();
-  });
-
-  panel.querySelector('[data-jrn=clear-all]')?.addEventListener('click', () => {
-    if (!confirm('Limpiar TODOS los registros de GrepBot en ' + location.host + '?\n\n' +
-      '- Bitacora de decisiones (historial)\n' +
-      '- Ventanas de salto por decision\n' +
-      '- Cortacircuitos por feature\n' +
-      '- Cooldowns de captcha (incluido el global)\n' +
-      '- Transacciones unknown / manual-review (marcadas como aborted)\n\n' +
-      'No envia nada al servidor. Solo desbloquea el bot.')) return;
-    jrnClear();
-    circuitClear();
-    captchaClear();
-    try { txClearUnknown(); } catch (_) {}
-    try { gbUnlockAll(); } catch (_) {}
-    gbLog('memory: all registries cleared (journal, skips, circuits, captcha, tx)');
-    flash('registros limpiados');
-    updateStatus();
     renderJournal();
   });
 
@@ -26001,20 +28170,11 @@ const STORE = {
   });
 
   {
-
-    panel.querySelectorAll('.gb-qat button[data-ico]').forEach(b => {
-      const ico = gbIcon(b.getAttribute('data-ico'), 12);
-      if (ico) b.insertBefore(ico, b.firstChild);
-    });
     const qat = (sel, fn) => panel.querySelector(`.gb-qat button[data-qat=${sel}]`)?.addEventListener('click', () => {
       try { fn(); } catch (e) { flash('fallo: ' + String(e).slice(0, 40)); }
     });
     qat('collect', () => { autoCollectResources(); flash('recogiendo'); });
-    qat('farms', () => {
-      state.nextFarmScrape = 0; save(STORE.NEXT_FARM, 0);
-      state.nextFarmClaim = 0; save(STORE.NEXT_FARM_CLAIM, 0);
-      autoClaimFarms('manual'); farmTick(); flash('cobrando aldeas');
-    });
+    qat('farms', () => { state.nextFarmScrape = 0; save(STORE.NEXT_FARM, 0); autoClaimFarms('manual'); farmTick(); flash('cobrando aldeas'); });
     qat('dodge', () => { dodgeScan('manual'); flash('escaneando entrantes'); });
     qat('queue', () => { abEnsureTargets(); abScan('manual'); flash('cola de construccion'); });
     qat('hud-prod', () => { flash('HUD produccion ' + (hudToggle('production') ? 'ON' : 'OFF')); });
@@ -26119,6 +28279,10 @@ const STORE = {
   panel.querySelector('[data-qs=town]')?.addEventListener('change', e => {
     const id = e.target.value;
     if (!jumpToTown(id)) renderTownSwitch();
+  });
+  panel.querySelector('header button[data-act=queues]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openQueueCenter();
   });
   panel.querySelector('header button[data-act=toggle]').addEventListener('click', (e) => {
     e.stopPropagation();
@@ -26229,6 +28393,7 @@ const STORE = {
   });
   function syncFarmTimingCfg(sec) {
     if (!sec) return;
+    const lc = sec.querySelector('[data-cfg=farm-long-claims]'); if (lc) lc.checked = !!state.farmLongClaims;
     const fsc = sec.querySelector('[data-cfg=farm-scrape]'); if (fsc) fsc.checked = !!state.farmScrape;
     const lt = sec.querySelector('[data-cfg=farm-loyalty-tech]'); if (lt) lt.value = state.farmLoyaltyTech || '';
     const um = sec.querySelector('[data-cfg=farm-units-mode]'); if (um) um.value = String(state.farmUnitsMode || 'off');
@@ -26240,7 +28405,7 @@ const STORE = {
       const dup = farmOptionMapConflicts();
       om.textContent = 'learned claim options: ' + farmOptionMapText() +
         (dup ? ' | CONFLICTO: ' + dup + ' comparten opcion - pulsa Olvidar y reaprende' : '') +
-        ' (claim 10min by hand in game to teach)' +
+        ' (claim a timer by hand in game to teach the rest)' +
         ' | units: ' + (uOpt == null ? 'not learned' : uOpt + ' (' + (farmUnitIdFor(uOpt) || '?') + ')');
     }
   }
@@ -26252,122 +28417,37 @@ const STORE = {
     const bindNow = !configBound;
     configBound = true;
     const onCfg = (sel, type, fn) => { if (bindNow) sec.querySelector(sel)?.addEventListener(type, fn); };
-
-    const cfgBindBool = (sel, stateKey, storeKey, onChange) => onCfg(sel, 'change', e => {
-      const v = !!e.target.checked;
-      state[stateKey] = v;
-      save(storeKey, v);
-      if (typeof onChange === 'function') onChange(v, e);
-    });
-    const cfgBindNumber = (sel, stateKey, storeKey, onChange) => onCfg(sel, 'change', e => {
-      const v = +e.target.value;
-      state[stateKey] = v;
-      save(storeKey, v);
-      if (typeof onChange === 'function') onChange(v, e);
-    });
     const hostEl = sec.querySelector('.cfg-host');
     if (hostEl) hostEl.textContent = location.host;
 
     if (bindNow) {
       const filt = sec.querySelector('.gb-cfg-filter');
       const empty = sec.querySelector('.gb-cfg-empty');
-      const rail = sec.querySelector('.gb-cfg-rail');
       const groups = Array.from(sec.querySelectorAll('.gb-cfg-group'));
       const rowsOf = g => Array.from(g.querySelectorAll(':scope > .gb-section-body > *'));
-
-      const fold = v => String(v == null ? '' : v).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      const q = () => fold((filt ? filt.value : '').trim());
-
-      let railSel = 0;
-      const savedSel = tabFilterGet('cfg:group');
-      if (savedSel != null && +savedSel >= 0 && +savedSel < groups.length) railSel = +savedSel;
-      const applyRail = () => {
-        groups.forEach((g, idx) => {
-          const on = idx === railSel;
-          g.hidden = !on;
-          if (on) g.open = true;
-        });
-        if (rail) Array.from(rail.children).forEach((b, idx) => b.classList.toggle('on', idx === railSel));
-      };
-      if (rail) {
-        rail.replaceChildren();
-        groups.forEach((g, idx) => {
-          const b = document.createElement('button');
-          b.type = 'button';
-          const risk = g.classList.contains('risk');
-          if (risk) {
-            b.classList.add('risk');
-            const dot = document.createElement('span');
-            dot.className = 'dot';
-            b.appendChild(dot);
-          }
-          const sum = g.querySelector(':scope > summary');
-          const label = ((sum && sum.textContent) || '').replace(/\s*\(ALTO RIESGO\)\s*/i, '').trim();
-          b.appendChild(document.createTextNode(label));
-          const n = document.createElement('span');
-          n.className = 'n';
-          n.textContent = String(g.querySelectorAll('[data-cfg]').length);
-          b.appendChild(n);
-          gbTip(b, risk ? 'Puede gastar oro o mover tropas' : 'Controles de este grupo');
-          b.addEventListener('click', () => {
-            railSel = idx;
-            tabFilterSet('cfg:group', idx);
-            if (filt && filt.value) { filt.value = ''; }
-            applyFilter();
-          });
-          rail.appendChild(b);
-        });
-        const note = document.createElement('div');
-        note.className = 'gb-cfg-rail-note';
-        note.textContent = 'El punto rojo marca los grupos que pueden gastar oro o mover tropas.';
-        rail.appendChild(note);
-      }
-
-      sec.querySelectorAll('.gb-cfg-panes .gb-cfg-row, .gb-cfg-panes .gb-cfg-num').forEach(row => {
-        if (row.dataset.gbHelp) return;
-        row.dataset.gbHelp = '1';
-        const txt = (row.getAttribute('title') || row.getAttribute('data-gb-tip') || '').trim();
-        if (!txt) return;
-        const help = document.createElement('span');
-        help.className = 'gb-cfg-help';
-        help.textContent = txt;
-
-        const lead = row.firstElementChild;
-        const leadIsBox = row.classList.contains('gb-cfg-row') && lead && lead.tagName === 'INPUT' && lead.type === 'checkbox';
-        if (leadIsBox) {
-          const body = document.createElement('span');
-          body.className = 'gb-cfg-body';
-          Array.from(row.childNodes).forEach(n => { if (n !== lead) body.appendChild(n); });
-          body.appendChild(help);
-          row.appendChild(body);
-          return;
-        }
-        row.appendChild(help);
-      });
-
+      const q = () => (filt ? filt.value : '').trim().toLowerCase();
       groups.forEach(g => {
         g.dataset.open = g.open ? '1' : '0';
 
         g.addEventListener('toggle', () => { if (!q()) g.dataset.open = g.open ? '1' : '0'; });
       });
-
       const applyFilter = () => {
         const needle = q();
-        if (rail) rail.hidden = !!needle;
         let shown = 0;
-        if (!needle) {
-          groups.forEach(g => { rowsOf(g).forEach(r => { r.hidden = false; }); });
-          applyRail();
-          if (empty) empty.hidden = true;
-          return;
-        }
         groups.forEach(g => {
+          if (!needle) {
+            g.hidden = false;
+            rowsOf(g).forEach(r => { r.hidden = false; });
+            g.open = g.dataset.open === '1';
+            shown++;
+            return;
+          }
           let hits = 0;
           const rows = rowsOf(g);
-          const match = rows.map(r => fold(r.textContent).includes(needle)
-            || Array.from(r.querySelectorAll('[data-cfg]')).some(c => fold(c.getAttribute('data-cfg') || '').includes(needle)));
+          const match = rows.map(r => (r.textContent || '').toLowerCase().includes(needle)
+            || Array.from(r.querySelectorAll('[data-cfg]')).some(c => (c.getAttribute('data-cfg') || '').includes(needle)));
 
-          const isChild = r => r.classList.contains('gb-cfg-sub') || r.classList.contains('gb-cfg-note') || r.classList.contains('cave-towns');
+          const isChild = r => r.classList.contains('gb-cfg-sub') || r.classList.contains('gb-cfg-note') || r.classList.contains('cave-towns') || r.classList.contains('trade-towns');
           rows.forEach((r, i) => {
             if (!match[i] || isChild(r)) return;
             for (let j = i + 1; j < rows.length && isChild(rows[j]); j++) match[j] = true;
@@ -26380,7 +28460,10 @@ const STORE = {
         if (empty) empty.hidden = shown > 0;
       };
       if (filt) filt.addEventListener('input', applyFilter);
-      applyFilter();
+      sec.querySelectorAll('.gb-cfg-expand').forEach(b => b.addEventListener('click', () => {
+        const open = b.getAttribute('data-cfgx') === 'open';
+        groups.forEach(g => { g.open = open; g.dataset.open = open ? '1' : '0'; });
+      }));
     }
     const setChk = (sel, val) => { const el = sec.querySelector(sel); if (el) el.checked = !!val; };
 
@@ -26397,7 +28480,6 @@ const STORE = {
     setChk('[data-cfg=auto-build]', state.ibAuto);
     setChk('[data-cfg=instant-research]', state.ibResearch);
     setChk('[data-cfg=auto-queue]', state.abAuto);
-    setChk('[data-cfg=ab-random-fallback]', !!state.abRandomFallback);
     setChk('[data-cfg=auto-wall-repair]', !!state.autoWallRepair);
     setChk('[data-cfg=pop-rescue-farm]', !!state.popRescueFarm);
     setNum('[data-cfg=build-swap-min]', gbCfgNum(state.buildSwapThresholdMin, 5));
@@ -26408,16 +28490,16 @@ const STORE = {
     setNum('[data-cfg=ib-free-thresh]', state.ibFreeThresh);
     setNum('[data-cfg=collect-max-min]', state.collectMaxMin);
     setNum('[data-cfg=farm-travel]', state.farmTravelSecPerUnit || 0);
+    setNum('[data-cfg=farm-min]', Math.round(state.farmMinMs / 60000));
+    setNum('[data-cfg=farm-max]', Math.round(state.farmMaxMs / 60000));
     setNum('[data-cfg=town-min]', Math.round(state.townMinMs / 60000));
     setNum('[data-cfg=town-max]', Math.round(state.townMaxMs / 60000));
     setNum('[data-cfg=posts-soft-pct]', state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60);
     const cl = sec.querySelector('[data-cfg=captcha-ladder]');
     if (cl) cl.value = (Array.isArray(state.captchaLadder) && state.captchaLadder.length ? state.captchaLadder : [5, 15, 60]).join(',');
-    cfgBindBool('[data-cfg=never-stop]', 'neverStop', STORE.NEVER_STOP, v => { gbLog('neverStop', v); updateStatus(); });
-    cfgBindBool('[data-cfg=safe-mode]', 'safeMode', STORE.SAFE_MODE, v => { gbLog('safeMode', v); updateStatus(); });
+    onCfg('[data-cfg=safe-mode]', 'change',e=>{state.safeMode=!!e.target.checked;save(STORE.SAFE_MODE,state.safeMode);gbLog('safeMode',state.safeMode);updateStatus();});
     onCfg('[data-cfg=enabled-host]', 'change', e => {
-      state.enabledHosts[location.host] = e.target.checked;
-      save(STORE.ENABLED_HOSTS, state.enabledHosts);
+      setHostEnabled(location.host, e.target.checked);
       flash(e.target.checked ? 'enabled on ' + location.host : 'disabled on ' + location.host);
     });
     onCfg('[data-cfg=auto-collect]', 'change', e => {
@@ -26442,11 +28524,8 @@ const STORE = {
     onCfg('[data-cfg=auto-farm]', 'change', e => {
       state.autoFarm = e.target.checked; save(STORE.AUTO_FARM, state.autoFarm);
       gbLog('auto-farm', state.autoFarm ? 'ON' : 'OFF');
-      if (state.autoFarm) {
-        state.nextFarmClaim = 0;
-        save(STORE.NEXT_FARM_CLAIM, 0);
-        autoClaimFarms('toggle');
-      }
+      if (state.autoFarm) { autoClaimFarms('toggle'); farmScheduleClaimWake(null, 'toggle', true); }
+      else farmCancelClaimWake();
     });
     onCfg('[data-cfg=farm-skip-full]', 'change', e => {
       state.farmSkipFull = e.target.checked; save(STORE.FARM_SKIP_FULL, state.farmSkipFull);
@@ -26461,6 +28540,10 @@ const STORE = {
       state.ibAuto = e.target.checked; save(STORE.IB_AUTO, state.ibAuto);
       gbLog('instant-build', state.ibAuto ? 'ON' : 'OFF');
       if (state.ibAuto) ibScan();
+    });
+    onCfg('[data-cfg=farm-long-claims]', 'change', e => {
+      state.farmLongClaims = e.target.checked; save(STORE.FARM_LONG_CLAIMS, state.farmLongClaims);
+      gbLog('farm 10min claims', state.farmLongClaims ? 'ON' : 'OFF');
     });
     onCfg('[data-cfg=farm-units-mode]', 'change', e => {
       const v = String(e.target.value || 'off');
@@ -26517,13 +28600,6 @@ const STORE = {
       if (state.abAuto) abScan('toggle');
       renderAbQueue();
     });
-    onCfg('[data-cfg=ab-random-fallback]', 'change', e => {
-      state.abRandomFallback = e.target.checked; save(STORE.AB_RANDOM_FALLBACK, state.abRandomFallback);
-      gbLog('ab-random-fallback', state.abRandomFallback ? 'ON' : 'OFF');
-
-      if (state.abRandomFallback) abScan('manual');
-      renderAbQueue();
-    });
     onCfg('[data-cfg=auto-quest-build]', 'change', e => {
       state.questAutoBuild = e.target.checked; save(STORE.QUEST_AUTO_BUILD, state.questAutoBuild);
       gbLog('auto-quest-build', state.questAutoBuild ? 'ON' : 'OFF');
@@ -26564,16 +28640,11 @@ const STORE = {
     setChk('[data-cfg=auto-rural-trade]', state.autoRuralTrade);
     setChk('[data-cfg=auto-rural-level]', state.autoRuralLevel);
     setChk('[data-cfg=auto-research]', state.autoResearch);
-    setChk('[data-cfg=pause-activity]', state.pauseOnActivity);
-    setChk('[data-cfg=night-pause]', state.nightPause);
     setChk('[data-cfg=captcha-global]', state.captchaGlobalKill !== false);
     setChk('[data-cfg=decision-memory]', state.decisionMemory !== false);
     setChk('[data-cfg=dry-run]', !!state.dryRun);
 
     setChk('[data-cfg=safe-mode]', !!state.safeMode);
-    setChk('[data-cfg=never-stop]', state.neverStop !== false);
-    setChk('[data-cfg=orch-adaptive]', state.orchAdaptive !== false);
-    setChk('[data-cfg=orch-deadlock]', state.orchDeadlockResolve !== false);
     setChk('[data-cfg=export-redact]', state.exportRedact !== false);
     setChk('[data-cfg=auto-merchant]', state.autoMerchant);
     setChk('[data-cfg=auto-pt-trade]', state.autoPtTrade);
@@ -26623,11 +28694,7 @@ const STORE = {
     setNum('[data-cfg=village-recruit-fill]', state.villageRecruitFillPct);
     setNum('[data-cfg=village-recruit-amount]', state.villageRecruitAmount);
     setChk('[data-cfg=grepodata]', state.grepodataIndex);
-    setNum('[data-cfg=rural-ratio]', state.ruralTradeRatio);
     setNum('[data-cfg=rural-level-max]', state.ruralLevelMax);
-    setNum('[data-cfg=pause-ms]', Math.round((state.pauseActivityMs || 180000) / 60000));
-    setNum('[data-cfg=night-start]', state.nightStart);
-    setNum('[data-cfg=night-end]', state.nightEnd);
     setNum('[data-cfg=req-budget]', state.reqBudgetPerMin);
     setNum('[data-cfg=dodge-floor]', state.dodgeFloor);
     const defense=state.defenseCfg||{mode:'notify',returnMarginSec:120};
@@ -26642,6 +28709,20 @@ const STORE = {
       setNum('[data-cfg=threat-cs]', tw.cs); setNum('[data-cfg=threat-eta15]', tw.eta15);
       setNum('[data-cfg=threat-sim]', tw.simPer); setNum('[data-cfg=threat-support]', tw.supportPer); }
     setNum('[data-cfg=defense-return-margin]',Math.max(0,+defense.returnMarginSec||120));
+    setChk('[data-cfg=telegram-enabled]', !!state.telegramEnabled);
+    setChk('[data-cfg=telegram-captcha]', state.telegramCaptcha !== false);
+    setChk('[data-cfg=telegram-captcha-resolved]', state.telegramCaptchaResolved !== false);
+    { const te = telegramEventsRoot();
+      setChk('[data-cfg=telegram-attacks]', te.attack !== false);
+      setChk('[data-cfg=telegram-critical]', te.critical !== false);
+      setChk('[data-cfg=telegram-diagnostic]', te.diagnostic !== false);
+      setChk('[data-cfg=telegram-warehouse]', te.warehouse !== false);
+      setChk('[data-cfg=telegram-hourly]', te.hourly !== false); }
+    setNum('[data-cfg=telegram-wh-pct]', telegramWarehouseThresholdPct());
+    setNum('[data-cfg=telegram-wh-min]', Math.round(telegramWarehouseDelayMs()/60000));
+    { const tt = sec.querySelector('[data-cfg=telegram-token]'); if (tt && document.activeElement !== tt) tt.value = telegramBotToken || ''; }
+    { const tc = sec.querySelector('[data-cfg=telegram-chat-id]'); if (tc && document.activeElement !== tc) tc.value = state.telegramChatId || ''; }
+    { const bs=sec.querySelector('[data-cfg=telegram-support-mode]'), ss=sec.querySelector('[data-cfg=telegram-support-status]'), active=telegramSupportModeActive(), sp=telegramDiagStateRoot().support||{}; if(bs)bs.textContent=active?'Detener modo soporte':'Modo soporte 30 min'; if(ss)ss.textContent=active?'Activo hasta '+telegramFmtClock(sp.activeUntil):'Modo soporte: OFF'; }
     const wh = sec.querySelector('[data-cfg=webhook-url]'); if (wh) wh.value = state.webhookUrl || '';
     const we = state.webhookEvents || {};
     setChk('[data-cfg=wh-captcha]', we.captcha !== false);
@@ -26667,17 +28748,16 @@ const STORE = {
     const tp = sec.querySelector('[data-cfg=trade-preset]'); if (tp) tp.value = state.tradePreset || 'storage';
     setNum('[data-cfg=trade-reserve]', state.tradeReservePct);
     setNum('[data-cfg=trade-min]', state.tradeMinBatch);
+    setNum('[data-cfg=trade-overflow]', state.tradeOverflowPct);
+    setNum('[data-cfg=trade-transfer]', state.tradeTransferPct);
+    setNum('[data-cfg=trade-receiver]', state.tradeReceiverPct);
     setNum('[data-cfg=transport-reserve]', state.transportReserve);
     setNum('[data-cfg=transport-min]', state.transportMin);
     const bindToggle = (sel, key, store, onOn) => {
       onCfg(sel, 'change', e => {
-        const next = e.target.checked;
-        const prev = !!state[key];
-        state[key] = next; save(store, state[key]);
-        gbLog(key, next ? 'ON' : 'OFF');
-        if (next && onOn) onOn();
-
-        else if (!next && prev) { try { gbAbortFeature(key); } catch (_) {} }
+        state[key] = e.target.checked; save(store, state[key]);
+        gbLog(key, state[key] ? 'ON' : 'OFF');
+        if (state[key] && onOn) onOn();
       });
     };
     bindToggle('[data-cfg=auto-culture]', 'autoCulture', STORE.AUTO_CULTURE, () => cultureScan('toggle'));
@@ -26700,6 +28780,47 @@ const STORE = {
         gbLog(`trade routes: ${kept}/${before} saved`);
       } catch (e) { flash('JSON de rutas invalido'); }
     });
+    onCfg('[data-cfg=island-beneficiaries-edit]', 'click', () => {
+      const groups = Object.create(null);
+      try {
+        for (const t of (townsFromGame() || [])) {
+          const id = t.island != null ? String(t.island) : (t.x != null && t.y != null ? String(t.x) + ',' + String(t.y) : null);
+          if (!id) continue;
+          (groups[id] || (groups[id] = [])).push({ id:String(t.id), name:t.name || String(t.id) });
+        }
+      } catch (_) {}
+      const islands = Object.keys(groups).filter(k => groups[k].length >= 2).sort((a,b) => a.localeCompare(b, undefined, {numeric:true}));
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center';
+      const dialog = document.createElement('div');
+      dialog.style.cssText = 'background:#20242a;color:#eee;border:1px solid #657080;padding:12px;max-width:680px;width:92vw;max-height:80vh;overflow:auto';
+      const title = document.createElement('h3'); title.textContent = 'Beneficiarios por isla'; title.style.marginTop = '0'; dialog.appendChild(title);
+      const help = document.createElement('div'); help.textContent = 'Recursos: ciudad que recibe reclamaciones y comercio rural. Unidades: solo se activan si eliges una ciudad concreta.'; help.style.cssText = 'font-size:11px;color:#aeb7c2;margin:0 0 8px'; dialog.appendChild(help);
+      if (!islands.length) { const empty = document.createElement('div'); empty.textContent = 'No hay islas con varias ciudades descubiertas.'; dialog.appendChild(empty); }
+      for (const island of islands) {
+        const towns = groups[island], cfg = (state.islandBeneficiaries && state.islandBeneficiaries[island]) || {};
+        const row = document.createElement('div'); row.style.cssText = 'border-top:1px solid #46505b;padding:7px 0;display:grid;grid-template-columns:90px 1fr 1fr;gap:6px;align-items:center';
+        const label = document.createElement('strong'); label.textContent = 'Isla ' + island; row.appendChild(label);
+        const makeSelect = (kind, none) => {
+          const select = document.createElement('select');
+          const first = document.createElement('option'); first.value = none ? 'none' : 'auto'; first.textContent = none ? 'Ninguna \u2014 solo recursos' : 'Auto \u2014 ciudad con m\u00e1s hueco en vivo'; select.appendChild(first);
+          towns.forEach(t => { const option = document.createElement('option'); option.value = t.id; option.textContent = t.name + ' (#' + t.id + ')'; select.appendChild(option); });
+          select.value = cfg[kind] == null ? (none ? 'none' : 'auto') : String(cfg[kind]);
+          select.addEventListener('change', () => {
+            const value = select.value, next = Object.assign({}, state.islandBeneficiaries || {});
+            next[island] = Object.assign({}, next[island] || {}, { [kind]:value });
+            state.islandBeneficiaries = next; save(STORE.ISLAND_BENEFICIARIES, next);
+          });
+          return select;
+        };
+        row.appendChild(makeSelect('resource', false)); row.appendChild(makeSelect('unit', true)); dialog.appendChild(row);
+      }
+      const close = document.createElement('button'); close.type = 'button'; close.textContent = 'Cerrar'; close.addEventListener('click', () => overlay.remove()); dialog.appendChild(close);
+      overlay.appendChild(dialog); document.body.appendChild(overlay);
+    });
+    saveNum('[data-cfg=trade-overflow]', v => { state.tradeOverflowPct = Math.max(95, Math.min(100, Number.isFinite(v) ? v : 100)); save(STORE.TRADE_OVERFLOW, state.tradeOverflowPct); });
+    saveNum('[data-cfg=trade-transfer]', v => { state.tradeTransferPct = Math.max(1, Math.min(100, Number.isFinite(v) ? v : 10)); save(STORE.TRADE_TRANSFER_PCT, state.tradeTransferPct); });
+    saveNum('[data-cfg=trade-receiver]', v => { state.tradeReceiverPct = Math.max(0, Math.min(80, Number.isFinite(v) ? v : 80)); save(STORE.TRADE_RECEIVER_PCT, state.tradeReceiverPct); });
     bindToggle('[data-cfg=auto-transport]', 'autoTransport', STORE.AUTO_TRANSPORT, () => tradeScan('toggle'));
     bindToggle('[data-cfg=auto-dump]', 'autoDump', STORE.AUTO_DUMP, () => tradeScan('toggle'));
     const saveDumpMap = (field, store, res, v, lo, hi) => {
@@ -26726,12 +28847,8 @@ const STORE = {
     bindToggle('[data-cfg=auto-rural-trade]', 'autoRuralTrade', STORE.AUTO_RURAL_TRADE, () => ruralTradeScan('toggle'));
     bindToggle('[data-cfg=auto-rural-level]', 'autoRuralLevel', STORE.AUTO_RURAL_LEVEL, () => ruralLevelScan('toggle'));
     bindToggle('[data-cfg=auto-research]', 'autoResearch', STORE.AUTO_RESEARCH, () => researchScan('toggle'));
-    bindToggle('[data-cfg=pause-activity]', 'pauseOnActivity', STORE.PAUSE_ON_ACTIVITY);
-    bindToggle('[data-cfg=night-pause]', 'nightPause', STORE.NIGHT_PAUSE);
     bindToggle('[data-cfg=captcha-global]', 'captchaGlobalKill', STORE.CAPTCHA_GLOBAL);
     bindToggle('[data-cfg=decision-memory]', 'decisionMemory', STORE.DECISION_MEM);
-    bindToggle('[data-cfg=orch-adaptive]', 'orchAdaptive', STORE.ORCH_ADAPTIVE);
-    bindToggle('[data-cfg=orch-deadlock]', 'orchDeadlockResolve', STORE.ORCH_DEADLOCK);
     bindToggle('[data-cfg=export-redact]', 'exportRedact', STORE.EXPORT_REDACT);
     onCfg('[data-cfg=dry-run]', 'change', e => {
       state.dryRun = e.target.checked; save(STORE.DRY_RUN, state.dryRun);
@@ -26818,11 +28935,7 @@ const STORE = {
       state.cultureGoldBudget = Math.max(0, v);
       save(STORE.CULTURE_GOLD_BUDGET, state.cultureGoldBudget);
     });
-    saveNum('[data-cfg=rural-ratio]', v => { state.ruralTradeRatio = v; save(STORE.RURAL_TRADE_RATIO, v); });
     saveNum('[data-cfg=rural-level-max]', v => { state.ruralLevelMax = v; save(STORE.RURAL_LEVEL_MAX, v); });
-    saveNum('[data-cfg=pause-ms]', v => { state.pauseActivityMs = Math.max(1, v) * 60000; save(STORE.PAUSE_ACTIVITY_MS, state.pauseActivityMs); });
-    saveNum('[data-cfg=night-start]', v => { state.nightStart = v; save(STORE.NIGHT_START, v); });
-    saveNum('[data-cfg=night-end]', v => { state.nightEnd = v; save(STORE.NIGHT_END, v); });
     saveNum('[data-cfg=req-budget]', v => { state.reqBudgetPerMin = v; save(STORE.REQ_BUDGET, v); });
     saveNum('[data-cfg=dodge-floor]', v => { state.dodgeFloor = v; save(STORE.DODGE_FLOOR, v); });
     onCfg('[data-cfg=defense-mode]', 'change',e=>{state.defenseCfg=Object.assign({},state.defenseCfg,{mode:['notify','safe'].includes(e.target.value)?e.target.value:'notify'});save(STORE.DEFENSE_CFG,state.defenseCfg)});
@@ -26904,6 +29017,92 @@ const STORE = {
     saveNum('[data-cfg=threat-sim]', v => saveThreat('simPer', v, 0, 30));
     saveNum('[data-cfg=threat-support]', v => saveThreat('supportPer', v, 0, 30));
     saveNum('[data-cfg=defense-return-margin]',v=>{state.defenseCfg=Object.assign({},state.defenseCfg,{returnMarginSec:Math.max(0,Math.min(3600,+v||0))});save(STORE.DEFENSE_CFG,state.defenseCfg)});
+    onCfg('[data-cfg=telegram-enabled]', 'change', e => {
+      state.telegramEnabled = !!e.target.checked;
+      save(STORE.TELEGRAM_ENABLED, state.telegramEnabled);
+      gbLog('telegram alerts ' + (state.telegramEnabled ? 'ON' : 'OFF'));
+    });
+    onCfg('[data-cfg=telegram-token]', 'change', e => {
+      telegramBotToken = String(e.target.value || '').trim();
+      save(STORE.TELEGRAM_BOT_TOKEN, telegramBotToken);
+      gbLog('telegram bot token updated');
+      if (telegramBotToken && !telegramTokenLooksValid(telegramBotToken)) flash('Telegram: formato de Bot Token no valido');
+    });
+    onCfg('[data-cfg=telegram-chat-id]', 'change', e => {
+      state.telegramChatId = String(e.target.value || '').trim();
+      save(STORE.TELEGRAM_CHAT_ID, state.telegramChatId);
+      gbLog('telegram chat id ' + (state.telegramChatId ? 'set' : 'cleared'));
+      if (state.telegramChatId && !telegramChatIdLooksValid(state.telegramChatId)) flash('Telegram: Chat ID no valido');
+    });
+    onCfg('[data-cfg=telegram-captcha]', 'change', e => {
+      state.telegramCaptcha = !!e.target.checked; save(STORE.TELEGRAM_CAPTCHA, state.telegramCaptcha);
+    });
+    onCfg('[data-cfg=telegram-captcha-resolved]', 'change', e => {
+      state.telegramCaptchaResolved = !!e.target.checked; save(STORE.TELEGRAM_CAPTCHA_RESOLVED, state.telegramCaptchaResolved);
+    });
+    const saveTelegramEvent = (name, value) => { const te = telegramEventsRoot(); te[name] = !!value; save(STORE.TELEGRAM_EVENTS, te); };
+    onCfg('[data-cfg=telegram-attacks]', 'change', e => saveTelegramEvent('attack', e.target.checked));
+    onCfg('[data-cfg=telegram-critical]', 'change', e => saveTelegramEvent('critical', e.target.checked));
+    onCfg('[data-cfg=telegram-diagnostic]', 'change', e => saveTelegramEvent('diagnostic', e.target.checked));
+    onCfg('[data-cfg=telegram-warehouse]', 'change', e => saveTelegramEvent('warehouse', e.target.checked));
+    onCfg('[data-cfg=telegram-hourly]', 'change', e => {
+      const on=!!e.target.checked; saveTelegramEvent('hourly', on);
+      if(on){const r=telegramMonitorStateRoot();r.lastDigestSentAt=Date.now()-3600000;r.digestAttemptAt=0;r.digestAttemptHour='';telegramMonitorPersist();gbTimeout(()=>{try{telegramHourlyDigestTick(false)}catch(_){}},250)}
+    });
+    saveNum('[data-cfg=telegram-wh-pct]', v => { state.telegramWarehousePct = Math.max(90, Math.min(100, +v || 95)); save(STORE.TELEGRAM_WAREHOUSE_PCT, state.telegramWarehousePct); });
+    saveNum('[data-cfg=telegram-wh-min]', v => { state.telegramWarehouseMin = Math.max(1, Math.min(180, +v || 15)); save(STORE.TELEGRAM_WAREHOUSE_MIN, state.telegramWarehouseMin); });
+    onCfg('[data-cfg=telegram-summary-now]', 'click', e => {
+      const b = e && e.currentTarget; if (b) b.disabled = true;
+      telegramSendText(telegramBuildHourlyDigest(), (ok, info) => {
+        if (b) b.disabled = false;
+        flash(ok ? 'Telegram: resumen enviado' : 'Telegram: no se pudo enviar el resumen (' + String(info && info.reason || 'error') + ')');
+      }, { force:true });
+    });
+    onCfg('[data-cfg=telegram-diagnostic-now]', 'click', e => {
+      const b=e&&e.currentTarget; if(b)b.disabled=true;
+      const text=telegramBuildSupportReport();
+      const body=text.length>3500?text.slice(0,3500)+'\n\n[INFORME RECORTADO EN TELEGRAM \u00b7 usa \u201cCopiar informe para ChatGPT\u201d para el informe completo]':text;
+      telegramSendText('\ud83d\udee0\ufe0f GrepBot \u00b7 informe de soporte\n\n'+body,(ok,info)=>{if(b)b.disabled=false;flash(ok?'Telegram: diagnostico enviado':'Telegram: no se pudo enviar diagnostico ('+String(info&&info.reason||'error')+')')},{force:true});
+    });
+    onCfg('[data-cfg=telegram-copy-support]', 'click', () => {
+      telegramCopySupportReport(ok => flash(ok ? 'Informe para ChatGPT copiado al portapapeles' : 'No se pudo copiar el informe'));
+    });
+    onCfg('[data-cfg=telegram-support-mode]', 'click', () => {
+      if (telegramSupportModeActive()) { telegramSupportModeStop(); flash('Modo soporte detenido'); }
+      else { telegramSupportModeStart(30); flash('Modo soporte activo durante 30 min'); }
+      try { bindConfig(); } catch (_) {}
+    });
+    onCfg('[data-cfg=telegram-detect-chat]', 'click', e => {
+      const b = e && e.currentTarget; if (b) b.disabled = true;
+      telegramDetectChatId((ok, info) => {
+        if (b) b.disabled = false;
+        if (ok) {
+          flash('Telegram: Chat ID detectado ' + info.chatId);
+          try { bindConfig(); } catch (_) {}
+        } else {
+          const why = info && info.reason;
+          if (why === 'no-updates') flash('Telegram: envia /start al bot y vuelve a pulsar Detectar');
+          else if (why === 'ambiguous-chats') flash('Telegram: hay varios chats; escribe el Chat ID manualmente');
+          else if (why === 'token-invalid') flash('Telegram: Bot Token no valido');
+          else flash('Telegram: no se pudo detectar el Chat ID (' + String(why || 'error') + ')');
+        }
+      });
+    });
+    onCfg('[data-cfg=telegram-test]', 'click', e => {
+      const b = e && e.currentTarget; if (b) b.disabled = true;
+      const town = telegramCurrentTownLabel();
+      const txt = '\u2705 GrepBot \u2014 prueba de Telegram\nMundo: ' + telegramWorldLabel() + (town ? '\nCiudad activa: ' + town : '') + '\nConexion correcta.';
+      telegramSendText(txt, (ok, info) => {
+        if (b) b.disabled = false;
+        if (ok) flash('Telegram: mensaje de prueba enviado');
+        else {
+          const why = info && info.reason;
+          if (why === 'chat-id-missing') flash('Telegram: falta Chat ID');
+          else if (why === 'token-invalid') flash('Telegram: Bot Token no valido');
+          else flash('Telegram: fallo de envio (' + String(why || 'error') + ')');
+        }
+      }, { force:true });
+    });
     onCfg('[data-cfg=webhook-url]', 'change', e => {
       state.webhookUrl = e.target.value.trim(); save(STORE.WEBHOOK_URL, state.webhookUrl);
       gbLog('webhook url', state.webhookUrl ? 'set' : 'cleared');
@@ -26948,7 +29147,7 @@ const STORE = {
 
       try {
         const r = Notification.requestPermission();
-        if (r && typeof r.then === 'function') r.then(() => bindConfig(), () => bindConfig());
+        if (r && typeof r.then === 'function') r.then(() => bindConfig());
         else bindConfig();
       } catch (e) { flash('notificaciones no soportadas'); }
     });
@@ -27058,15 +29257,6 @@ const STORE = {
       save(STORE.CAVE_THRESH, state.caveThreshPct);
       gbLog('cave-thresh', state.caveThreshPct + '%');
     });
-    onCfg('[data-cfg=adaptive-farm]', 'change', e => {
-      state.adaptiveFarm = !!e.target.checked;
-      save(STORE.ADAPTIVE_FARM, state.adaptiveFarm);
-      gbLog('adaptive farm ' + (state.adaptiveFarm ? 'ON - trims the claim set under pressure' : 'OFF'));
-    });
-    saveNum('[data-cfg=farm-drop-pct]', v => {
-      state.farmDropPressurePct = Math.max(0, Math.min(90, +v || 0));
-      save(STORE.FARM_DROP_PCT, state.farmDropPressurePct);
-    });
     saveNum('[data-cfg=farm-travel]', v => {
       state.farmTravelSecPerUnit = Math.min(600, Math.max(0, Number.isFinite(+v) ? +v : 0));
       save(STORE.FARM_TRAVEL, state.farmTravelSecPerUnit);
@@ -27075,6 +29265,8 @@ const STORE = {
     });
     saveNum('[data-cfg=ib-free-thresh]', v => { state.ibFreeThresh = Math.max(60,Math.min(300,+v||300)); save(STORE.IB_FREE_THRESH, state.ibFreeThresh); });
     saveNum('[data-cfg=collect-max-min]', v => { state.collectMaxMin = v; save(STORE.COLLECT_MAX_MIN, v); });
+    saveNum('[data-cfg=farm-min]', v => { state.farmMinMs = v * 60000; save(STORE.FARM_MIN, state.farmMinMs); });
+    saveNum('[data-cfg=farm-max]', v => { state.farmMaxMs = v * 60000; save(STORE.FARM_MAX, state.farmMaxMs); });
     saveNum('[data-cfg=town-min]', v => { state.townMinMs = v * 60000; save(STORE.TOWN_MIN, state.townMinMs); });
     saveNum('[data-cfg=town-max]', v => { state.townMaxMs = v * 60000; save(STORE.TOWN_MAX, state.townMaxMs); });
     onCfg('[data-cfg=captcha-ladder]', 'change', e => {
@@ -27093,7 +29285,7 @@ const STORE = {
     });
     onCfg('[data-cfg=farm-forget-options]', 'click', () => {
       if (!confirm('Olvidar las opciones de cobro aprendidas (recursos y unidades)?')) return;
-      state.farmOptionMap = { 600: 2 };
+      state.farmOptionMap = {};
       save(wkey(STORE.FARM_OPTION_MAP), state.farmOptionMap);
       state.farmUnitsOption = null;
       save(wkey(STORE.FARM_UNITS_OPTION), null);
@@ -27125,6 +29317,7 @@ const STORE = {
       } }
     renderResearchPath(sec);
     renderCaveTowns();
+    renderTradeTowns();
 
     setChk('[data-cfg=batch-recruit]', !!state.batchRecruit);
     onCfg('[data-cfg=batch-recruit]', 'change', e => {
@@ -27227,7 +29420,6 @@ const STORE = {
     try { if (typeof updateStatus === 'function') updateStatus(); } catch (_) {}
     flash('perfil aplicado: ' + name);
   };
-  panel.querySelector('footer button[data-act=preset-afk]')?.addEventListener('click', presetHandler('afk'));
   panel.querySelector('footer button[data-act=preset-farming]')?.addEventListener('click', presetHandler('farming'));
   panel.querySelector('footer button[data-act=preset-war]')?.addEventListener('click', presetHandler('war'));
   function gbDebounce(fn, ms) {
@@ -27248,7 +29440,7 @@ const STORE = {
     filt.className = 'findings-filter';
     filt.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap';
 
-    filt.innerHTML = '<input class="gb-cfg-input" data-f="type" placeholder="type filter" style="flex:1;min-width:60px;padding:2px 4px;font:11px monospace"/><input class="gb-cfg-input" data-f="attacker" placeholder="attacker filter" style="flex:1;min-width:60px;padding:2px 4px;font:11px monospace"/>';
+    filt.innerHTML = '<input class="gb-cfg-input" data-f="type" placeholder="type filter" style="flex:1;min-width:60px;;padding:2px 4px;font:11px monospace"/><input class="gb-cfg-input" data-f="attacker" placeholder="attacker filter" style="flex:1;min-width:60px;;padding:2px 4px;font:11px monospace"/>';
     filt.querySelectorAll('input').forEach(inp => {
       inp.value = state.findingsFilter[inp.dataset.f] || '';
       inp.addEventListener('input', () => {
@@ -27274,7 +29466,7 @@ const STORE = {
     } else if (!filt.parentNode) {
       sec.insertBefore(filt, list);
     }
-
+    list.replaceChildren();
     const typeF = (state.findingsFilter.type || '').toLowerCase();
     const atkF = (state.findingsFilter.attacker || '').toLowerCase();
     const slice = state.findings.filter(f => {
@@ -27282,63 +29474,62 @@ const STORE = {
       if (atkF && !(f.attacker?.name || '').toLowerCase().includes(atkF)) return false;
       return true;
     }).slice(0, 80);
-    gbPaint(list, (stage) => {
-      if (!slice.length) {
-        const empty = document.createElement('div');
-        empty.style.cssText = 'color:#888;padding:10px';
-        empty.textContent = state.findings.length ? 'no matches' : 'no findings yet - visit inbox';
-        stage.appendChild(empty);
-        return;
+    if (!slice.length) {
+      const empty = document.createElement('div');
+      empty.style.cssText = 'color:#888;padding:10px';
+      empty.textContent = state.findings.length ? 'no matches' : 'no findings yet - visit inbox';
+      list.appendChild(empty);
+      return;
+    }
+    for (const f of slice) {
+      const row = document.createElement('div');
+      row.className = 'finding';
+
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      const when = new Date(f.ts).toLocaleTimeString();
+      const target = f.town?.name || `t#${f.town?.id || '?'}`;
+      const coord = (f.town?.x != null) ? ` (${f.town.x}|${f.town.y})` : '';
+      meta.textContent = `#${f.id} | ${when} | ${f.type} | ${target}${coord}`;
+      gbTip(meta, 'ID \u00b7 hora \u00b7 tipo de informe \u00b7 ciudad objetivo');
+      row.appendChild(meta);
+
+      const units = document.createElement('div');
+      units.className = 'units';
+      units.textContent = f.units
+        ? Object.entries(f.units).map(([k,v]) => `${k}:${v}`).join(' ')
+        : '-';
+      gbTip(units, 'Unidades observadas en el informe');
+      row.appendChild(units);
+
+      if (f.resources && (f.resources.wood != null || f.resources.stone != null || f.resources.iron != null)) {
+        const res = document.createElement('div');
+        res.className = 'res';
+        res.textContent = `W${f.resources.wood ?? '?'} S${f.resources.stone ?? '?'} I${f.resources.iron ?? '?'}`;
+        gbTip(res, 'Recursos observados (madera/piedra/plata)');
+        row.appendChild(res);
       }
-      for (const f of slice) {
-        const row = document.createElement('div');
-        row.className = 'finding';
-        stage.appendChild(row);
 
-        const meta = document.createElement('div');
-        meta.className = 'meta';
-        const when = new Date(f.ts).toLocaleTimeString();
-        const target = f.town?.name || `t#${f.town?.id || '?'}`;
-        const coord = (f.town?.x != null) ? ` (${f.town.x}|${f.town.y})` : '';
-        meta.textContent = `#${f.id} | ${when} | ${f.type} | ${target}${coord}`;
-        gbTip(meta, 'ID \u00b7 hora \u00b7 tipo de informe \u00b7 ciudad objetivo');
-        row.appendChild(meta);
-
-        const units = document.createElement('div');
-        units.className = 'units';
-        units.textContent = f.units
-          ? Object.entries(f.units).map(([k,v]) => `${k}:${v}`).join(' ')
-          : '-';
-        gbTip(units, 'Unidades observadas en el informe');
-        row.appendChild(units);
-
-        if (f.resources && (f.resources.wood != null || f.resources.stone != null || f.resources.iron != null)) {
-          const res = document.createElement('div');
-          res.className = 'res';
-          res.textContent = `W${f.resources.wood ?? '?'} S${f.resources.stone ?? '?'} I${f.resources.iron ?? '?'}`;
-          gbTip(res, 'Recursos observados (madera/piedra/plata)');
-          row.appendChild(res);
-        }
-
-        const bldgKeys = Object.keys(f.buildings || {});
-        if (bldgKeys.length) {
-          const b = document.createElement('div');
-          b.className = 'res';
-          const top = bldgKeys.sort((x, y) => f.buildings[y] - f.buildings[x]).slice(0, 3);
-          b.textContent = 'bldg: ' + top.map(k => `${k}=${f.buildings[k]}`).join(' ') + (bldgKeys.length > 3 ? ' \u2026' : '');
-          b.title = bldgKeys.sort().map(k => `${k}=${f.buildings[k]}`).join(' ');
-          gbTip(b, 'Top 3 edificios por nivel (hover para ver todos)');
-          row.appendChild(b);
-        }
-        if (f.hero) {
-          const h = document.createElement('div');
-          h.className = 'res';
-          h.textContent = 'heroe: ' + [f.hero.name, f.hero.level != null ? 'lv' + f.hero.level : null, f.hero.cls].filter(Boolean).join(' ');
-          gbTip(h, 'Heroe visto en el informe');
-          row.appendChild(h);
-        }
+      const bldgKeys = Object.keys(f.buildings || {});
+      if (bldgKeys.length) {
+        const b = document.createElement('div');
+        b.className = 'res';
+        const top = bldgKeys.sort((x, y) => f.buildings[y] - f.buildings[x]).slice(0, 3);
+        b.textContent = 'bldg: ' + top.map(k => `${k}=${f.buildings[k]}`).join(' ') + (bldgKeys.length > 3 ? ' \u2026' : '');
+        b.title = bldgKeys.sort().map(k => `${k}=${f.buildings[k]}`).join(' ');
+        gbTip(b, 'Top 3 edificios por nivel (hover para ver todos)');
+        row.appendChild(b);
       }
-    }, { key: 'findings|' + typeF + '|' + atkF + '|' + state.findings.length + '|' + slice.length });
+      if (f.hero) {
+        const h = document.createElement('div');
+        h.className = 'res';
+        h.textContent = 'heroe: ' + [f.hero.name, f.hero.level != null ? 'lv' + f.hero.level : null, f.hero.cls].filter(Boolean).join(' ');
+        gbTip(h, 'Heroe visto en el informe');
+        row.appendChild(h);
+      }
+
+      list.appendChild(row);
+    }
   }
 
   const REPLAY_WINDOWS = { '1h': 3600000, '24h': 86400000, '7d': 604800000 };
@@ -27621,13 +29812,13 @@ const STORE = {
     if (openCircuits.length) pauseTxt += ` circuit:${openCircuits.length}`;
     if (unknownTx) pauseTxt += ` tx?:${unknownTx}`;
     if (gbServerPaused()) pauseTxt += ` ||srv:${fmtSec(Math.round(gbServerCooldownLeftMs() / 1000))}`;
-    if(gbTabCoordSupported&&!gbTabLeader)pauseTxt+=' ||other-tab';
+    if(!gbTabCoordSupported) pauseTxt += ' ||NO-WEBLOCKS';
+    else if(!gbTabLeader) pauseTxt += ' ||other-tab';
     if (storageWarnUntil > Date.now()) pauseTxt += ` !${storageWarnMsg || 'quota'}`;
-    if (typeof orchDeadlockOpen === 'function' && orchDeadlockOpen()) pauseTxt += ' !WH';
     let tplBanner = '';
     try { tplBanner = tplHealthBannerText() || ''; } catch (_) {}
     if (tplBanner) pauseTxt += ' tpl!';
-    const dryTxt = state.dryRun ? ' [DRY]' : ''; const safeTxt=(state.safeMode&&!gbNeverStop())?' SAFE':(gbNeverStop()?' NOSTOP':'');
+    const dryTxt = state.dryRun ? ' [DRY]' : ''; const safeTxt=state.safeMode?' SAFE':'';
 
     const panicOn = gbPanicActive();
     const panicPend = gbPanicPending();
@@ -27678,25 +29869,20 @@ const STORE = {
     const te = panel.querySelector('#gb-next-towns');
     if (fe) {
       const timing = state.autoFarm ? farmClaimTiming() : null;
-      const dueMs = (gbNum(state.nextFarmClaim) || 0) - Date.now();
-
-      const claimTxt = !state.autoFarm ? 'Aldeas apagadas'
-        : (timing && timing.ready > 0 && dueMs <= 0 ? `Aldeas: ${timing.ready} listas`
-          : (dueMs > 0 ? `Aldeas en ${fmtSec(Math.max(0, Math.round(dueMs / 1000)))}`
-            : (timing && timing.ready > 0 ? `Aldeas: ${timing.ready} listas`
-              : (timing && Number.isFinite(timing.nextAt)
-                ? `Aldeas: pr\u00f3xima en ${fmtSec(Math.max(0, Math.round(timing.nextAt - timing.now)))}`
-                : 'Aldeas: \u2014'))));
+      const claimTxt = !state.autoFarm ? 'claim: off'
+        : (timing && timing.ready > 0 ? `claim: ${timing.ready} ready`
+          : (timing && Number.isFinite(timing.nextAt) ? `claim: ${fmtSec(Math.max(0, timing.nextAt - timing.now))}`
+            : (timing && timing.expiredModelWait ? 'claim: model sync' : 'claim: -')));
       const scrapeTxt = state.nextFarmScrape
-        ? `escaneo en ${fmtSec(Math.max(0, Math.round((state.nextFarmScrape - Date.now()) / 1000)))}`
-        : 'escaneo \u2014';
+        ? `scrape: ${fmtSec(Math.max(0, Math.round((state.nextFarmScrape - Date.now()) / 1000)))}`
+        : 'scrape: -';
       const t = `${claimTxt} \u00b7 ${scrapeTxt}`;
       if (t !== _timerFarmLast) { _timerFarmLast = t; fe.textContent = t; }
     }
     if (te) {
       const t = state.nextTownsScrape
-        ? `Ciudades en ${fmtSec(Math.max(0, Math.round((state.nextTownsScrape - Date.now()) / 1000)))}`
-        : 'Ciudades \u2014';
+        ? `towns: ${fmtSec(Math.max(0, Math.round((state.nextTownsScrape - Date.now()) / 1000)))}`
+        : 'towns: -';
       if (t !== _timerTownLast) { _timerTownLast = t; te.textContent = t; }
     }
   }
@@ -27721,8 +29907,7 @@ const STORE = {
       const loot = f.lootable_at != null ? f.lootable_at : src.lootable_at;
       const last = src.last_looted_at;
       let delta = '?';
-      const lootN = gbNum(loot), lastN = gbNum(last);
-      if (lootN != null && lastN != null) delta = (lootN - lastN) + 's';
+      if (loot != null && last != null && isFinite(+loot) && isFinite(+last)) delta = (+loot - +last) + 's';
       lines.push('  id=' + f.vill_id +
         ' name=' + (f.name || src.name || '?') +
         ' rel=' + (f.relation_id != null ? f.relation_id : (src.id != null ? src.id : '?')) +
@@ -27810,7 +29995,7 @@ const STORE = {
   }
 
   ensureHostDefault();
-  migrateConfig();
+  if(gbTabLeader)migrateConfig();
   gbTimeout(clientFingerprintCheck, 10000);
   state.csrf = huntCsrf() || state.csrf;
   if (state.csrf) save(wkey(STORE.CSRF), state.csrf);
@@ -27826,6 +30011,7 @@ const STORE = {
   });
   gbMenu('GrepBot: copiar todo (log + datos)', () => { bundleCopy(); });
   gbMenu('GrepBot: guardar todo (.txt)', () => { bundleDownload(); });
+  gbMenu('GrepBot: colas', () => { openQueueCenter(); });
   gbMenu('GrepBot: diag', () => { diagRun(); });
   gbMenu('GrepBot: reset panel position', () => { resetPanelGeom(); });
   gbMenu('GrepBot: rescan inbox', () => {
@@ -27851,7 +30037,6 @@ const STORE = {
     flash(`revisadas ${unknown.length} tx desconocidas`);
     updateStatus();
   });
-
   const BOOT_TIMING = Object.freeze({
 
     FIRST_FARM_DEADLINE_MS: 20000,
@@ -27867,7 +30052,7 @@ const STORE = {
     LOCK_SWEEP_MS: 10000,
     DODGE_RETURN_MS: 15000,
     NATIVE_QUEUE_LOOP_MS: 60000,
-    NATIVE_UI_REPAINT_MS: 5000,
+    QUEUE_CENTER_PAINT_MS: 5000,
     OVERVIEW_RENDER_MS: 15000,
 
     HUD_RESTORE_MS: 1500,
@@ -27879,8 +30064,6 @@ const STORE = {
     NATIVE_QUEUE_BOOT_MS: 14000,
     ORCH_FIRST_TICK_MS: 15000,
     IB_CLICK_HOOK_MS: 2000,
-
-    PANEL_MOUNT_MS: 50,
   });
   function ensurePanelMounted() {
     if (!panel) return;
@@ -27924,32 +30107,39 @@ const STORE = {
 
   if (!state.nextFarmScrape) { state.nextFarmScrape = Date.now() + BOOT_TIMING.FIRST_FARM_DEADLINE_MS; save(STORE.NEXT_FARM, state.nextFarmScrape); }
   if (!state.nextTownsScrape) { state.nextTownsScrape = Date.now() + BOOT_TIMING.FIRST_TOWNS_DEADLINE_MS; save(STORE.NEXT_TOWNS, state.nextTownsScrape); }
-  if (!state.nextFarmClaim) { state.nextFarmClaim = Date.now() + BOOT_TIMING.FARM_WAKE_MS; save(STORE.NEXT_FARM_CLAIM, state.nextFarmClaim); }
   gbInterval(farmTick, BOOT_TIMING.FARM_TICK_MS);
+  gbTimeout(() => { if (state.autoFarm) farmScheduleClaimWake(null, 'boot', true); }, BOOT_TIMING.FARM_WAKE_MS);
 
-  let releaseLocksAt = 0;
-  const RELEASE_DEDUP_MS = 3000;
+  gbTimeout(() => { try { telegramMonitorTick(); } catch (_) {} }, 3000);
+  gbInterval(() => { try { telegramMonitorTick(); } catch (_) {} }, TELEGRAM_MONITOR_POLL_MS);
+  gbListen(window, 'focus', () => { try { telegramMonitorTick(); } catch (_) {} });
+  gbListen(window, 'online', () => { try { telegramMonitorTick(); } catch (_) {} });
+
   gbListen(document, 'visibilitychange', () => {
     if (document.hidden) return;
     try { gbWakeMarkResume('visible'); } catch (e) { gbLogT('boot-wake-visible', 60000, 'wake visible: ' + String(e?.message || e).slice(0, 80)); }
+    try { gbTryAcquireTabLeader(); orchStartIndependentTimers(); } catch (_) {}
+    try { telegramMonitorTick(); } catch (_) {}
     farmTick();
     try { reportCatchUpEnqueue(); } catch (e) { gbLogT('boot-catchup', 60000, 'catchup: ' + String(e?.message || e).slice(0, 80)); }
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (e) { gbLogT('boot-wake-ib', 60000, 'wake ibScan: ' + String(e?.message || e).slice(0, 80)); }
-    try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (e) { gbLogT('boot-wake-orch', 60000, 'wake orchTick: ' + String(e?.message || e).slice(0, 80)); }
+    try { orchStartIndependentTimers(); gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (e) { gbLogT('boot-wake-orch', 60000, 'wake orchTick: ' + String(e?.message || e).slice(0, 80)); }
     try { nativeQueueSweep('visible'); } catch (e) { gbLogT('boot-nqs-visible', 60000, 'nqs visible: ' + String(e?.message || e).slice(0, 80)); }
 
-    try { renderTimers(); renderFarms(); renderWorld(); updateStatus(); renderLog(); } catch (e) { gbLogT('boot-repaint-visible', 60000, 'repaint visible: ' + String(e?.message || e).slice(0, 80)); }
+    try { renderTimers(); renderFarms(); renderWorld(); updateStatus(); } catch (e) { gbLogT('boot-repaint-visible', 60000, 'repaint visible: ' + String(e?.message || e).slice(0, 80)); }
   });
   gbListen(window, 'pageshow', (e) => {
     if (!(e && e.persisted)) return;
 
-    releaseLocksAt = Date.now() + RELEASE_DEDUP_MS;
+    releaseLocksAt = 0;
     try { gbWakeMarkResume('bfcache'); } catch (e) { gbLogT('boot-wake-bfcache', 60000, 'wake bfcache: ' + String(e?.message || e).slice(0, 80)); }
+    try { gbTryAcquireTabLeader(); orchStartIndependentTimers(); } catch (_) {}
+    try { telegramMonitorTick(); } catch (_) {}
     farmTick();
     try { reportCatchUpEnqueue(); } catch (e) { gbLogT('boot-catchup', 60000, 'catchup: ' + String(e?.message || e).slice(0, 80)); }
     try { bindQuestObserver(); } catch (e) { gbLogT('boot-quest-obs', 60000, 'quest observer: ' + String(e?.message || e).slice(0, 80)); }
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (e) { gbLogT('boot-wake-ib', 60000, 'wake ibScan: ' + String(e?.message || e).slice(0, 80)); }
-    try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (e) { gbLogT('boot-wake-orch', 60000, 'wake orchTick: ' + String(e?.message || e).slice(0, 80)); }
+    try { orchStartIndependentTimers(); gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (e) { gbLogT('boot-wake-orch', 60000, 'wake orchTick: ' + String(e?.message || e).slice(0, 80)); }
     try { nativeQueueSweep('bfcache'); } catch (e) { gbLogT('boot-nqs-bfcache', 60000, 'nqs bfcache: ' + String(e?.message || e).slice(0, 80)); }
     try { renderTimers(); renderFarms(); renderWorld(); updateStatus(); } catch (e) { gbLogT('boot-repaint-bfcache', 60000, 'repaint bfcache: ' + String(e?.message || e).slice(0, 80)); }
   });
@@ -27982,19 +30172,21 @@ const STORE = {
   gbTimeout(scheduleNativeUiScan, BOOT_TIMING.NATIVE_UI_SCAN_MS);
   gbInterval(() => {
 
+    if (queueCenterVisible() || nativeQueueHasPending('build') || nativeRecruitPending() || nativeQueueHasPending('research')) {
+      try { renderQueueCenter(); } catch (e) { gbLogT('boot-qc-paint', 60000, 'queue center paint: ' + String(e?.message || e).slice(0, 80)); }
+    }
+
     scheduleNativeUiScan();
-  }, BOOT_TIMING.NATIVE_UI_REPAINT_MS);
+  }, BOOT_TIMING.QUEUE_CENTER_PAINT_MS);
 
   gbTimeout(() => { try { nativeQueueSweep('boot'); } catch (e) { gbLogT('boot-nqs-boot', 60000, 'native queue boot: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.NATIVE_QUEUE_BOOT_MS);
   gbInterval(() => { try { nativeQueueSweep('loop'); } catch (e) { gbLogT('boot-nqs-loop', 60000, 'native queue loop: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.NATIVE_QUEUE_LOOP_MS);
   gbInterval(() => dodgeScan('loop'), DODGE_CHECK_MS);
   gbInterval(dodgeReturnTick, BOOT_TIMING.DODGE_RETURN_MS);
 
-  gbTimeout(() => { if (hostEnabled()) orchTick(); }, BOOT_TIMING.ORCH_FIRST_TICK_MS);
-  gbInterval(() => {
-    if (gbInWakeBurst && gbInWakeBurst()) gbWake('orchTick', () => orchTick(), { priority: 30 });
-    else orchTick();
-  }, ORCH_MS);
+  orchStartIndependentTimers();
+  gbTimeout(() => { orchStartIndependentTimers(); if(hostEnabled())orchTick(); }, BOOT_TIMING.ORCH_FIRST_TICK_MS);
+  gbInterval(() => { orchStartIndependentTimers(); orchHousekeepingTick(); }, 60000);
   gbInterval(() => {
 
     renderOverview();
@@ -28003,18 +30195,13 @@ const STORE = {
     intelGrepodataAssist();
     intelWatchlistScan();
   }, BOOT_TIMING.OVERVIEW_RENDER_MS);
-  qolBindActivityPause();
   gbKeyBind();
   contextMenuStart();
   gbTimeout(() => { try { hudRestore(); } catch (e) { gbLogT('boot-hud-restore', 60000, 'hud restore: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.HUD_RESTORE_MS);
 
-  gbInterval(() => {
-    gbLockSweep();
-
-    try { if (state && state.captchaBreakers) for (const f of Object.keys(state.captchaBreakers)) { try { if (typeof captchaExpireSweep === 'function') captchaExpireSweep(f); } catch (_) {} } } catch (_) {}
-    try { diagnosticsTick(); } catch (e) { gbLogT('boot-diag-tick', 60000, 'diag tick: ' + String(e?.message || e).slice(0, 80)); }
-  }, BOOT_TIMING.LOCK_SWEEP_MS);
-
+  gbInterval(() => { gbLockSweep(); try { diagnosticsTick(); } catch (e) { gbLogT('boot-diag-tick', 60000, 'diag tick: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.LOCK_SWEEP_MS);
+  let releaseLocksAt = 0;
+  const RELEASE_DEDUP_MS = 3000;
   const releaseLocks = () => {
     const now = Date.now();
     if (now - releaseLocksAt < RELEASE_DEDUP_MS) return;
@@ -28028,10 +30215,7 @@ const STORE = {
     try { if (typeof questClaimFailSave === 'function') questClaimFailSave(); } catch (e) { gbLogT('boot-release-quest', 60000, 'quest save: ' + String(e?.message || e).slice(0, 80)); }
     try { if (typeof persistServerCooldown === 'function') persistServerCooldown(); } catch (e) { gbLogT('boot-release-cooldown', 60000, 'cooldown save: ' + String(e?.message || e).slice(0, 80)); }
     try { if (typeof nativeQueueSaveFlush === 'function') nativeQueueSaveFlush(); } catch (e) { gbLogT('boot-release-nqs', 60000, 'nqs flush: ' + String(e?.message || e).slice(0, 80)); }
-    try { snapshotBuild('exit'); } catch (e) { gbLogT('boot-release-snap', 60000, 'snapshot: ' + String(e?.message || e).slice(0, 80)); }
-
-    try { if (_gbEvents && typeof _gbEvents.close === 'function') { _gbEvents.close(); _gbEvents = null; } } catch (e) { gbLogT('boot-release-bc', 60000, 'bc close: ' + String(e?.message || e).slice(0, 80)); }
-    try { if (typeof gbAbortXhrs === 'function') gbAbortXhrs(); } catch (e) { gbLogT('boot-release-xhrs', 60000, 'xhr abort: ' + String(e?.message || e).slice(0, 80)); }
+    try { if(gbTabLeader)snapshotBuild('exit'); } catch (e) { gbLogT('boot-release-snap', 60000, 'snapshot: ' + String(e?.message || e).slice(0, 80)); }
 
     try { if (typeof saveFlush === 'function') saveFlush(); } catch (e) { gbLogT('boot-release-save', 60000, 'save flush: ' + String(e?.message || e).slice(0, 80)); }
   };
@@ -28042,6 +30226,37 @@ const STORE = {
     GB_ROOT.__grepbotTest = {
       instanceId: GB_INSTANCE_ID,
       state,
+      STORE,
+      load,
+      save,
+      saveFlush,
+      migrateConfig,
+      migrateGlobalConfig,
+      ensureHostDefault,
+      gbStorageReadFailed,
+      gbLegacyWorldGate,
+      gbLegacyWorldHostProof,
+      gbLegacyWorldOneShotEligible,
+      gbLegacyWorldMigrationFinalize,
+      gbExpectedServerReject,
+      farmScheduleNotReadyWake,
+      gbAjaxWatch,
+      gbAjaxClaim,
+      gbAjaxPendingCount: () => gbAjaxPending.length,
+      gbAjaxPendingSnapshot: () => gbAjaxPending.map(p => ({ sig:p.sig, fp:p.fp, claimed:!!p.claimed })),
+      txLoadNormalize,
+      txPrune,
+      txFindExistingIntent,
+      plannerReservePolicy,
+      farmDayKey,
+      gbServerDay,
+      markModuleHealth,
+      moduleHealth,
+      recruitAutoSpellDecision,
+      batchRecruitAtomicAfford,
+      batchRecruitFire,
+      gbLeaderHandoverFlush,
+      lifecycle: () => ({ disposed:gbDisposed, leader:gbTabLeader, lockHeld:!!gbTabLockRelease }),
       bridgePost,
       gameAjaxPost,
       txDomWrite,
@@ -28067,6 +30282,38 @@ const STORE = {
       plannerCommit,
       goalProfiles,
       goalEffective,
+      goalEffectiveBuildTargets,
+      goalEffectiveResearchTargets,
+      goalEffectiveRecruitTargets,
+      cdCanonicalProfile,
+      cdIsProfile,
+      cdSyncTownGoal,
+      cdPersistTownGoal,
+      cdTownState,
+      cdSetOption,
+      cdProfileRevision,
+      cdEffective,
+      cdBuildTargets,
+      cdActualLevels,
+      abActualLevels,
+      cdResearchTargets,
+      cdRecruitTargets,
+      cdPhase,
+      cdBuildDone,
+      cdResearchDone,
+      cdResearchExecutable,
+      cdResearchCapacityState,
+      cdCompositionResearchReady,
+      cdAuxDone,
+      cdArmyDone,
+      cdCanStartStrip,
+      cdAcademyDemolitionSafe,
+      cdNextDemolition,
+      cdThreatState,
+      cityDesignerHasExecutableWork,
+      cdSolveLandBudget,
+      cdSolveDefenseBudget,
+      goalUnitCountsState,
 
       gbCityProfile: goalEffective,
 
@@ -28120,6 +30367,9 @@ const STORE = {
       autoCollectResources,
       abScan,
       abPickNext,
+      abPickNextFromLevels,
+      abFinalValidate,
+      abBuildUp,
       abQueueInfo,
       abEnsureOrder,
       nativeQueueRoot,
@@ -28157,10 +30407,67 @@ const STORE = {
       farmClaimUnitsTable,
       farmVillageLevel,
       farmClaimDiag,
+      tradeTownRes,
+      tradeOverflowDecision,
+      tradeOverflowJobs,
+      tradeValidateOverflowJob,
+      tradeDiagnosticsSnapshot,
+      tradeIncomingByTown,
+      ruralTradeDecision,
+      ruralExecutableOverflowCandidates,
+      ruralExecutableOverflowPairSet,
+      ruralValidateJob,
+      ruralTradeCooldownState,
+      ruralOfferData,
+      ruralSameIslandTowns,
+      ruralCandidateRowsForTown,
+      ruralReconcileTrade,
+      recruitQueueHasSpace,
+      recruitQueueSpace,
+      recruitRuntimeEffectiveCost,
+      recruitRuntimeMaxAmount,
+      recruitEffectiveUnitCost,
+      recruitCostFieldKnown,
+      ruralKillpoints,
+      ruralLevelCostInfo,
+      ruralTradeScan,
+      ruralTradePost,
+      resolveIslandResourceBeneficiary,
+      resolveIslandUnitBeneficiary,
+      farmIslandContext,
+      townCanonicalIslandId,
+      townIslandKey,
+      townIdForFarm,
+      townIdForFarmUnits,
       tradeScan,
       dodgeScan,
       orchTick,
+      orchFeatureEnabled,
+      dodgeIncomingSnapshot,
       alertWebhook,
+      telegramTokenLooksValid,
+      telegramChatIdLooksValid,
+      telegramSendText,
+      telegramDetectChatId,
+      telegramCaptchaTripNotify,
+      telegramCaptchaMaybeResolved,
+      telegramCaptchaStillPaused,
+      telegramNotify,
+      telegramAttackMessage,
+      telegramAttackMonitor,
+      telegramWarehouseMonitor,
+      telegramCriticalCandidates,
+      telegramCriticalMonitor,
+      telegramBuildHourlyDigest,
+      telegramDiagErrorId,
+      telegramDiagSanitizeText,
+      telegramRecentErrorGroups,
+      telegramBuildSupportReport,
+      telegramWarehouseDiagnostic,
+      telegramSupportModeStart,
+      telegramSupportModeStop,
+      telegramHourlyDigestTick,
+      telegramMonitorTick,
       attackKnownTargets,
       applyAttackTarget,
       applyHarassPreset,
@@ -28182,6 +30489,8 @@ const STORE = {
       spsRun,
       spsStop,
       renderSpySend,
+      openQueueCenter,
+      renderQueueCenter,
       dispose: GB_ROOT.__grepbotDispose,
     };
   }

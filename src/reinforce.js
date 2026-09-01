@@ -1,30 +1,3 @@
-  // ===== Refuerzos: manual reinforcement planner (Militar > Refuerzos) =======
-  // Same shape as the Ataques tab (target -> sources -> preview -> arm/send),
-  // but the mission is fixed to 'support' and the composition question is
-  // "naval, terrestre o ambas" instead of offense/defense.
-  //
-  // Why a separate module instead of a mission dropdown on the attack tab:
-  //  - the attack plan is one persisted object; sharing it means a reinforce
-  //    run silently rewrites the target/composition an attack wave was staged
-  //    with, and vice versa. Two plans, two storage keys, two armed waves.
-  //  - a reinforcement legitimately targets OWN towns, which attackSendAllowed
-  //    only tolerates for mission 'support'. Making that the module's only
-  //    mission removes the "did I remember to switch the dropdown" failure.
-  //  - the transport question is the opposite one: an attack picks offense
-  //    units and adds boats, a reinforcement picks defense units OR warships,
-  //    and a naval-only reinforcement needs no transports at all.
-  //
-  // Template discipline: state.supportTpl (support.js) is preferred when the
-  // player has hand-sent one support, exactly like the auto-support path. When
-  // it is unlearned this module falls back to the CANONICAL client route
-  //   gpAjax.ajaxPost('town_info','send_units',{<unit>:n,…,id,type:'support'})
-  // which is the same call attack.js documents from
-  // archive/captures/grepo-dump/js/game.min.js - a read route, not a guess.
-  // The feature key is 'support', never 'attack', so a rejection here cannot
-  // open a decision-memory window on live attacks.
-  const RF_ARM_MAX_MS = 90000;
-  const RF_HISTORY_MAX = 50;
-  const RF_HELP_MODES = new Set(['land', 'naval', 'both', 'all_of_type', 'per_town']);
   const RF_MODE_ES = { land: 'terrestre', naval: 'naval', both: 'ambas', all_of_type: 'todo el tipo', per_town: 'por ciudad' };
   let rfArmed = null;
   let rfPreviewRows = [];
@@ -58,9 +31,7 @@
     return state.reinforcePlan;
   }
   function rfSavePlan() { save(STORE.REINFORCE_PLAN, state.reinforcePlan); }
-  // A warship is naval WITHOUT transport capacity. A transporter is naval too,
-  // but it is cargo, not help: sending one as "naval support" parks an empty
-  // boat in the destination and defends nothing.
+
   function rfIsWarship(id) {
     const m = unitMeta(id);
     if (!m || !m.is_naval) return false;
@@ -73,7 +44,7 @@
     const fn = classifyUnitFn(id);
     return fn === 'defense' || fn === 'both';
   }
-  // Every composition path runs through here so the home floor is applied once.
+
   function rfTake(live, id, floor, want) {
     const have = +live[id] || 0;
     const spare = Math.max(0, have - Math.max(0, floor));
@@ -112,9 +83,7 @@
     }
     return out;
   }
-  // Land units crossing water need boats; a naval-only reinforcement does not.
-  // attackAddMinimumTransports picks the smallest transport set that covers the
-  // population, so it is reused verbatim rather than re-derived here.
+
   function rfUnitsForTarget(townId, target, plan) {
     const units = rfSelectUnits(townId, plan);
     const hasLand = Object.keys(units).some(id => {
@@ -137,8 +106,7 @@
     if (ownTown) {
       x = x ?? ownTown.x; y = y ?? ownTown.y; island = ownTown.island;
     } else {
-      // A village is farm_town, not a town: it cannot hold a garrison and the
-      // server rejects support for it. Refuse before the post.
+
       const farm = (state.farmsParsed || []).find(f => String(f.vill_id) === id || String(f.id) === id);
       if (farm) {
         gbLogT('rf-target-farm', 30000, `refuerzo: ${id} is a village - support unsupported`);
@@ -147,8 +115,7 @@
     }
     return { id, vill_id: null, town_id: id, kind: 'town', x: x != null ? +x : null, y: y != null ? +y : null, island };
   }
-  // Own towns first (the common reinforcement destination), then everything the
-  // attack tab already learned from reports / history / watchlist.
+
   function rfKnownTargets() {
     const map = new Map();
     for (const t of (state.towns || [])) {
@@ -195,7 +162,7 @@
       } else if (plan.timingMode === 'send_now') {
         sendAt = now + (idx * (plan.staggerMs || 0)) / 1000;
       }
-      const unitCount = countUnits(units);
+      const unitCount = Object.values(units).reduce((a, b) => a + (+b || 0), 0);
       let status = 'ok';
       if (!unitCount) status = 'no-units';
       else if (!boats.ok) status = boats.reason;
@@ -235,16 +202,11 @@
       if (onDone) onDone(null, data);
     };
     const tpl = state.supportTpl;
-    // The mission is pinned to 'support' by this tab's contract, so a learned
-    // template that carries a different type is a template shape we do not
-    // understand - say so once instead of silently overwriting it.
+
     if (tpl && tpl.arguments && tpl.arguments.type && String(tpl.arguments.type) !== 'support') {
       gbLogT('rf-tpl-type', 120000, `refuerzo: supportTpl type=${tpl.arguments.type} (se envia support) - revisa la plantilla`);
     }
-    // String.replace with NO match returns the original string, which would
-    // post the LEARNED town's model_url out of every other source town - a
-    // wrong-garrison send with no error. Retarget only a real /Town/<id>
-    // segment; anything else falls through to the canonical route below.
+
     const tplModelUrl = (tpl && /Town\/\d+/.test(String(tpl.model_url || '')))
       ? String(tpl.model_url).replace(/Town\/\d+/, 'Town/' + srcTownId)
       : null;
@@ -273,14 +235,7 @@
     if (state.reinforceHistory.length > RF_HISTORY_MAX) state.reinforceHistory.length = RF_HISTORY_MAX;
     save(STORE.REINFORCE_HISTORY, state.reinforceHistory);
   }
-  // The armed wave HOLDS the 'support' lock for its whole window instead of
-  // taking one per fire. support.js posts under the same feature key out of the
-  // same garrisons, so the lock is mandatory; but a per-fire lock would drop
-  // every town after the first whenever a send callback outlives the ~25ms
-  // stagger. One lease for the wave, touched on every fire, released by cancel
-  // or by the wave's own cleanup timer.
-  // Idempotent on purpose: cancel and the cleanup timer both run, and gbUnlock
-  // logs a 'refused foreign unlock' every time it is handed a stale token.
+
   function rfReleaseLock(tok) {
     if (!tok) return;
     const held = gbLockHeld('support');
@@ -344,7 +299,7 @@
       delays.push(delayMs);
       const expectedFire = Date.now() + delayMs;
       const tid = gbTimeout(() => {
-        if (!gbLockTouch('support', token)) return;
+        gbLockTouch('support', token);
         const late = Date.now() - expectedFire;
         if (late > 5000) {
           gbLog(`refuerzo: refuse overdue fire for ${row.townId} (late ${Math.round(late)}ms)`);
@@ -401,8 +356,7 @@
     const total = okRows.reduce((a, r) => a + r.unitCount, 0);
     const label = RF_MODE_ES[plan.helpMode] || plan.helpMode;
     if (!confirm(`${state.dryRun ? '[SIMULACION] ' : ''}Enviar refuerzo (${label}) a #${plan.targetId}?\n${okRows.length} ciudad(es) / ${total} unidades`)) return;
-    // Same feature key as the auto-support burst, same garrisons: take the lock
-    // for the whole run so the two can never interleave out of one town.
+
     const token = gbLock('support');
     if (!token) {
       gbLogT('rf-now-busy', 60000, 'refuerzo: support lock held (apoyo automatico) - manual send refused');
@@ -411,7 +365,7 @@
     }
     let i = 0;
     (function rfNext() {
-      if (!gbLockTouch('support', token)) return;
+      gbLockTouch('support', token);
       if (i >= okRows.length) {
         rfReleaseLock(token);
         rfPushHistory({ ts: Date.now(), mode: 'send_now_immediate', helpMode: plan.helpMode, targetId: plan.targetId, towns: okRows.map(r => r.townId) });
@@ -561,7 +515,7 @@
       delete table.dataset.empty;
       const hdr = document.createElement('div');
       hdr.style.cssText = 'display:grid;grid-template-columns:1.1fr .8fr .7fr .9fr .7fr .8fr;gap:4px;color:#888;font-size:9px;margin-bottom:2px';
-      // LITERAL ONLY - town names reach the rows through textContent.
+
       hdr.innerHTML = gbLit('<span>ciudad</span><span>tropas</span><span>marcha</span><span>envio</span><span>barcos</span><span>estado</span>');
       table.appendChild(hdr);
     }
@@ -717,13 +671,7 @@
       renderReinforce();
       rfFireNow(plan, sched.rows);
     });
-    // Every control except the picker feeds the plan on change. Binding only
-    // help/target left timing + unit-type (which renderReinforce writes
-    // unconditionally) and x/y/pad/floor/arrival (written back on blur) to be
-    // reverted to the stored plan by the next repaint, so a value typed before
-    // pressing Previsualizar was silently lost. [data-rf=pick] is excluded: it
-    // is not a form field but a "copy this known destination into targetId"
-    // control, and rfReadForm would re-read the not-yet-written target input.
+
     sec.querySelectorAll('[data-rf]:not([data-rf=pick])').forEach(el => {
       el.addEventListener('change', () => { rfReadForm(); renderReinforce(); });
     });
@@ -738,3 +686,8 @@
     sec.querySelector('#gb-rf-src-def')?.addEventListener('click', () => rfSelectRoleSources(ATTACK_ROLE_DEFENSE));
     sec.querySelector('#gb-rf-src-off')?.addEventListener('click', () => rfSelectRoleSources(ATTACK_ROLE_OFFENSE));
   }
+
+  const SPS_MAX_WAVES = 100;
+  const SPS_HISTORY_MAX = 40;
+  const SPS_DEFAULT_CHUNK = 1000;
+  let spsStopFlag = false;

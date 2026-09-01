@@ -11,7 +11,7 @@
   function townResourcesFromGame(id) {
     const uw = gameUw();
     try {
-      const t = gbTownModel(id);
+      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(id) : uw.ITowns.towns[id]);
       if (!t || !t.resources) return null;
       const r = t.resources();
       if (!r || r.wood == null) return null;
@@ -19,11 +19,16 @@
     } catch (_) { return null; }
   }
   const TOWN_LIST_GUESSES = ['get_towns', 'towns_overview', 'get_owned_towns', 'overview_towns', 'town_list'];
-  // Try the action that worked last time first. Without this every sweep walked
-  // the whole ladder again and charged the request budget for each miss.
-  // Logic now lives in core.js as xhrLadder(guesses, {learned}); this thin
-  // wrapper keeps the per-module call-site terse.
-  function townLadder(guesses, learned) { return xhrLadder(guesses, { learned }); }
+
+  function townLadder(guesses, learned) {
+    const g = guesses.slice();
+    if (learned) {
+      const i = g.indexOf(learned);
+      if (i >= 0) g.splice(i, 1);
+      g.unshift(learned);
+    }
+    return g;
+  }
   function townLearnAction(key, storeKey, action) {
     if (!action || state[key] === action) return;
     const had = state[key];
@@ -41,7 +46,6 @@
     params.set('action', action); params.set('h', state.csrf);
     const u = '/index.php?' + params.toString();
     gbXhr({
-      feature: 'town-list-scrape',
       method: 'GET', url: u, budget: 'scrape',
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
       onload(res) {
@@ -74,8 +78,7 @@
         fetchOwnedTowns(i + 1, 0);
       },
       onerror(e) {
-        // Budget / host-disabled rejections happen before the wire: walking the
-        // rest of the ladder there just burns the remaining guesses.
+
         const why = e && e.error ? String(e.error) : '';
         if (why === 'budget' || why === 'disabled' || why === 'disposed') return;
         fetchOwnedTowns(i + 1, 0);
@@ -136,7 +139,6 @@
       const params = new URLSearchParams();
       params.set('action', action); params.set('town_id', town.id); params.set('h', state.csrf || '');
       gbXhr({
-        feature: 'town-scrape',
         method: 'GET', url: '/index.php?' + params.toString(), budget: 'scrape',
         headers: { 'X-Requested-With': 'XMLHttpRequest' }, anonymous: false,
         onload(res) {
@@ -184,8 +186,7 @@
       gbUnlock('town-scrape', townScrapeLock);
       const ids = state.towns.map(t => t.id);
       pruneMapsToIds(state.townResources, ids); save(STORE.TOWN_RES, state.townResources);
-      // v4 plan 6.12: sample off the EXISTING 6-7min town scrape cadence rather
-      // than adding a scheduler for a read-only chart.
+
       try { townGrowthSample(ids); } catch (_) {}
       renderWorld();
       gbLog(`towns scrape: ${state.towns.length} towns (${fromGame} via game data, ${fromHttp} via HTTP)`);

@@ -1,15 +1,10 @@
-  // Barracks and docks are two INDEPENDENT queues in the game: a full harbour
-  // never blocks a land recruit and vice versa. One shared FIFO lane therefore
-  // stalled every land order behind a naval head (and the reverse), so the
-  // recruit lane is split in two — `recruit` is the barracks, `recruitNaval`
-  // the harbour. Each keeps its own order, its own pause flag and its own mode.
   const NATIVE_QUEUE_LANES=['build','recruit','recruitNaval','research'];
   const NATIVE_RECRUIT_LANES=['recruit','recruitNaval'];
+  // Delegates to recruitIsNaval: NAVAL_MYTHICAL_UNITS (hydra) is naval even
+  // when GameData lacks is_naval, or the docks lane never gets its FIFO head.
   function nativeUnitIsNaval(unit){return recruitIsNaval(unit)}
   function nativeRecruitLane(unit){return nativeUnitIsNaval(unit)?'recruitNaval':'recruit'}
-  // Lane of an ALREADY QUEUED unit. The array a job actually sits in wins over
-  // GameData: the unit metadata can be unreadable at render time, and falling
-  // back to the land lane there would make a queued trireme invisible.
+
   function nativeRecruitLaneOf(townId,unit) {
     for(const lane of NATIVE_RECRUIT_LANES)if(nativeQueueList(townId,lane,false).some(j=>j&&j.unit===unit))return lane;
     return nativeRecruitLane(unit);
@@ -19,7 +14,7 @@
     if(!q||typeof q!=='object'||Array.isArray(q))q=state.nativeQueue={version:1,seq:0,towns:{}};
     if(!q.towns||typeof q.towns!=='object'||Array.isArray(q.towns))q.towns={};
     q.version=1;q.seq=Math.max(0,+q.seq||0);
-    if(!nativeQueueInflightRestored){nativeQueueInflightRestored=true;let changed=false;for(const town of Object.values(q.towns))for(const lane of NATIVE_QUEUE_LANES)for(const job of ((town&&Array.isArray(town[lane]))?town[lane]:[])){if(job&&job.inflight){if(lane==='build')job.reconcile=Object.assign({},job.inflight);job.inflight=null;job.manualReview=true;job.status='unknown';job.reason='acción en curso al recargar; comprobando la cola real';job.updatedAt=Date.now();changed=true}}if(changed)save(STORE.NATIVE_QUEUE,q)}
+    if(!nativeQueueInflightRestored){nativeQueueInflightRestored=true;let changed=false;for(const town of Object.values(q.towns))for(const lane of NATIVE_QUEUE_LANES)for(const job of ((town&&Array.isArray(town[lane]))?town[lane]:[])){if(job&&job.inflight){if(lane==='build')job.reconcile=Object.assign({},job.inflight);job.inflight=null;job.manualReview=true;job.status='unknown';job.reason='acci\u00f3n en curso al recargar; comprobando la cola real';job.updatedAt=Date.now();changed=true}}if(changed&&gbTabLeader)save(STORE.NATIVE_QUEUE,q)}
     return q;
   }
   function nativeQueueTown(townId,create) {
@@ -34,90 +29,82 @@
     nativeRecruitSplitTown(t,id);
     return t;
   }
-  // Pre-split storage (and any import) keeps every unit in `recruit`. Move the
-  // naval ones across once GameData can classify them — a town whose units do
-  // not resolve yet is retried on the next access instead of being marked done,
-  // because an unreadable def is "unknown", never "land".
+
   const nativeRecruitSplitDone=new Set();
   function nativeRecruitSplitTown(t,id) {
     if(nativeRecruitSplitDone.has(id))return;
     const land=t.recruit,naval=t.recruitNaval;let moved=0,blind=false;
-    // nativeQueueTown normalizes mode/paused BEFORE calling this, so both fields
-    // are always set by the time we get here — the old `== null` guards could
-    // never fire and the migrated lane stayed 'legacy', which recruitScan skips.
-    // "Only fills empty slots" now keys off the lane actually being empty.
+
     const navalWasEmpty=naval.length===0;
     for(let i=land.length-1;i>=0;i--){
       const j=land[i];if(!j)continue;
-      // Must use recruitIsNaval (NAVAL_MYTHICAL_UNITS), not bare is_naval:
-      // hydra often lacks is_naval in GameData and would stay stranded in the
-      // barracks lane forever after an import / pre-split storage.
       const d=gbGameDataLookup("units", j.unit);
-      if(!d){
-        if(recruitIsNaval(j.unit)){land.splice(i,1);naval.unshift(j);moved++}
-        else blind=true;
-        continue;
-      }
-      if(recruitIsNaval(j.unit)){land.splice(i,1);naval.unshift(j);moved++}
+      if(!d){blind=true;continue}
+      if(d.is_naval||d.naval){land.splice(i,1);naval.unshift(j);moved++}
     }
     if(!blind)nativeRecruitSplitDone.add(id);
     if(moved){
-      // A lane split inherits the settings of the lane it split off from; a
-      // recruitNaval lane that already held jobs is a deliberate configuration
-      // and is left alone.
+
       if (navalWasEmpty) { t.mode.recruitNaval = t.mode.recruit; t.paused.recruitNaval = !!t.paused.recruit; }
-      // Direct save: nativeQueueSave() re-renders, and this runs from inside
-      // nativeQueueList, which the renderers themselves call.
-      try{save(STORE.NATIVE_QUEUE,nativeQueueRoot())}catch(_){}
+
+      try{if(gbTabLeader)save(STORE.NATIVE_QUEUE,nativeQueueRoot())}catch(_){}
       gbLog(`cola nativa: ${moved} orden(es) naval(es) movida(s) a la cola del puerto @${id}`);
     }
   }
   function nativeQueueList(townId,lane,create){const t=nativeQueueTown(townId,create);return t&&Array.isArray(t[lane])?t[lane]:[];}
-  // Status churn (a sweep re-labelling 20 jobs 'waiting-resources') used to fire
-  // one GM_setValue per job while the render was already coalesced. Debounce the
-  // write; anything structural still goes through nativeQueueSave().
+
+  // Any non-custom goal profile is planner-owned. Manual FIFO is deliberately
+  // available only in Personalizado. Switching to a planner profile discards
+  // unsent FIFO work so stale manual orders cannot override the planner.
+  // Ambiguous/in-flight tombstones are retained only for reconciliation safety.
+  function nativeQueuePlannerOwnsTown(townId){return String((goalTownCfg(townId)||{}).profile||'custom')!=='custom'}
+  function nativeQueueManualAllowed(townId){return !nativeQueuePlannerOwnsTown(townId)}
+  function nativeQueuePlannerTombstone(job){return !!(job&&(job.inflight||job.reconcile||job.manualReview||['unknown','sending','accepted'].includes(String(job.status||''))))}
+  function nativeQueuePlannerLaneBlocked(townId,lane){return nativeQueueList(townId,lane,false).some(nativeQueuePlannerTombstone)}
+  function nativeQueueClearForPlanner(townId,reason,silent){
+    if(!nativeQueuePlannerOwnsTown(townId))return false;const t=nativeQueueTown(townId,true);let changed=false,removed=0,kept=0;
+    for(const lane of NATIVE_QUEUE_LANES){const before=t[lane].length,keep=t[lane].filter(nativeQueuePlannerTombstone);removed+=before-keep.length;kept+=keep.length;if(keep.length!==before){t[lane]=keep;changed=true}if(t.mode[lane]!=='legacy'){t.mode[lane]='legacy';changed=true}if(t.paused[lane]){t.paused[lane]=false;changed=true}}
+    if(changed){nativeQueueSave();if(!silent)gbLog(`City Planner @${townId}: FIFO limpiada (${removed} orden(es) descartadas${kept?`, ${kept} resultado(s) ambiguo(s) conservado(s) para reconciliar`:''})${reason?' · '+reason:''}`)}
+    return changed;
+  }
+  function nativeQueueRejectManualWhenPlanner(townId){if(nativeQueueManualAllowed(townId))return false;flash('La cola FIFO solo está disponible en Personalizado');gbLogT('native-fifo-planner-'+townId,60000,`cola FIFO @${townId}: ignorada porque el planificador de objetivos está activo; cambia a Personalizado para usar FIFO`);return true}
+
   let nativeQueueSaveTimer=0;
   function nativeQueueSaveNow() {
     if(nativeQueueSaveTimer){try{gbClearTimeout(nativeQueueSaveTimer)}catch(_){}nativeQueueSaveTimer=0}
-    save(STORE.NATIVE_QUEUE,nativeQueueRoot());
+    if(!gbTabLeader){gbLogT('native-queue-follower-save',60000,'native queue: follower save skipped');return false}
+    return save(STORE.NATIVE_QUEUE,nativeQueueRoot());
   }
   function nativeQueueSaveSoon() {
+    if(!gbTabLeader)return;
     if(nativeQueueSaveTimer)return;
-    nativeQueueSaveTimer=gbTimeout(()=>{nativeQueueSaveTimer=0;try{save(STORE.NATIVE_QUEUE,nativeQueueRoot())}catch(_){}},250);
+    nativeQueueSaveTimer=gbTimeout(()=>{nativeQueueSaveTimer=0;try{nativeQueueSaveNow()}catch(_){}},250);
   }
   function nativeQueueSaveFlush(){if(nativeQueueSaveTimer)nativeQueueSaveNow()}
   function nativeQueueSave() {
     nativeQueueSaveNow();
     try{scheduleNativeUiScan()}catch(_){}
     try{renderAbQueue()}catch(_){}
+    try{renderQueueCenter()}catch(_){}
   }
   function nativeQueueId(prefix){const q=nativeQueueRoot();q.seq++;return `${prefix}:${Date.now().toString(36)}:${q.seq.toString(36)}`;}
   function nativeQueueHasPending(lane,townId) {
     if(townId!=null)return nativeQueueList(townId,lane,false).length>0;
     const towns=nativeQueueRoot().towns;return Object.keys(towns).some(id=>nativeQueueList(id,lane,false).length>0);
   }
-  // Both recruit lanes at once — every caller that used to ask "is there any
-  // unit queued" means barracks OR harbour.
+
   function nativeRecruitPending(townId){return NATIVE_RECRUIT_LANES.some(l=>nativeQueueHasPending(l,townId));}
   function nativeQueuePaused(townId,lane){const t=nativeQueueTown(townId,false);return !!(t&&t.paused&&t.paused[lane]);}
   function nativeQueueIsFifo(townId,lane){const t=nativeQueueTown(townId,false);return !!(t&&t.mode&&t.mode[lane]==='fifo');}
   function nativeQueueUseLegacy(townId,lane){const t=nativeQueueTown(townId,true);if(t[lane].length)return false;t.mode[lane]='legacy';t.paused[lane]=false;nativeQueueSave();return true;}
   function nativeQueueTogglePaused(townId,lane){const t=nativeQueueTown(townId,true);t.paused[lane]=!t.paused[lane];nativeQueueSave();return t.paused[lane];}
-  // One dispatcher instead of a build/else-recruit ternary: adding the research
-  // lane to that ternary would have silently reconciled research jobs with the
-  // recruit reconciler.
+
   function nativeQueueReconcile(townId,lane) {
     if(lane==='build')return nativeQueueReconcileBuild(townId);
     if(lane==='research')return nativeQueueReconcileResearch(townId);
     return nativeQueueReconcileRecruit(townId,lane);
   }
-  // Periodic reality check across every town and lane. The reconcilers are
-  // otherwise only reached when something already touches the lane (an
-  // auto-queue sweep, a head post, a UI mutation), so a level the player raised
-  // BY HAND in the game window stayed in the virtual plan for as long as those
-  // paths stayed idle — with auto-build off, forever. Read-only: each
-  // reconciler prunes against the live model and saves only when it changed
-  // something, and an unreadable model still means "unknown", never "done".
+
   function nativeQueueReconcileTown(townId) {
     let changed=false;
     try{if(nativeQueueList(townId,'build',false).length&&nativeQueueReconcileBuild(townId))changed=true}catch(_){}
@@ -127,8 +114,7 @@
   }
   let nativeQueueSweepAt=0;
   function nativeQueueSweep(reason) {
-    // Wake events and the 60s loop can land in the same second; a manual click
-    // is always honoured because it is the player asking for a re-read.
+    if(!gbTabLeader)return 0;
     if(reason!=='manual'&&nativeQueueSweepAt&&Date.now()-nativeQueueSweepAt<5000)return 0;
     const towns=nativeQueueRoot().towns;let n=0;
     for(const id of Object.keys(towns))if(nativeQueueReconcileTown(id))n++;
@@ -138,7 +124,7 @@
   }
   function nativeQueueMove(townId,lane,jobId,delta) {
     nativeQueueReconcile(townId,lane);
-    const list=nativeQueueList(townId,lane,false);if(list.some(j=>j&&(j.inflight||j.manualReview)))return false;const i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return false;
+    const list=nativeQueueList(townId,lane,false);if(list.some(j=>j&&j.inflight))return false;const i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return false;
     const j=Math.max(0,Math.min(list.length-1,i+(+delta||0)));if(i===j)return false;
     const item=list.splice(i,1)[0];list.splice(j,0,item);if(lane==='build')nativeQueueRebaseBuild(townId);nativeQueueSave();return true;
   }
@@ -147,39 +133,27 @@
     const list=nativeQueueList(townId,lane,false),i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return false;
     const target=list[i];const force=!(!opts||!opts.force);
 
-    // Target itself is always protected — a post that's actually flying cannot
-    // be cancelled from here. The list-wide inflight gate is the lane's own
-    // safety net for the *normal* path; the × button bypasses it after a
-    // player confirm so a stuck head no longer strands the queued tail.
     if(target.inflight)return false;
     if(!force&&list.some(j=>j&&j.inflight))return false;
 
-    // A lane under review stays frozen, but any individual UNKNOWN item can be
-    // removed after the UI asks the player to verify the real game queue.
-    if(!force&&list.some(j=>j&&j.manualReview)&&!target.manualReview)return false;
-
-    // Prereq impact check — ALWAYS runs for the build lane. The force flag
-    // only bypasses the lane-state gates above (stuck-head escape hatch);
-    // it must not be a back door around a missing dependency.
     if(lane==='build'){
       const impact=nativeQueueRemovalImpact(townId,jobId);
       if(!impact.ok){
         const head=impact.blockers.slice(0,3).map(b=>`${nativeBuildLabel(b.building)} (necesita ${impact.target.building} ${b.requires}, sin esta entrada solo ${b.has})`).join('; ');
-        const more=impact.blockers.length>3?` y ${impact.blockers.length-3} más`:'';
-        flash(`Bloqueado: ${nativeBuildLabel(impact.target.building)} ${impact.target.toLevel} aún hace falta para ${head}${more}`);
-        gbLog(`cola nativa: borrado bloqueado — ${impact.blockers.length} edificio(s) dependen de ${impact.target.building} ${impact.target.toLevel}: `+impact.blockers.map(b=>`${b.building}>=${b.requires}`).join(', '));
+        const more=impact.blockers.length>3?` y ${impact.blockers.length-3} m\u00e1s`:'';
+        flash(`Bloqueado: ${nativeBuildLabel(impact.target.building)} ${impact.target.toLevel} a\u00fan hace falta para ${head}${more}`);
+        gbLog(`cola nativa: borrado bloqueado \u2014 ${impact.blockers.length} edificio(s) dependen de ${impact.target.building} ${impact.target.toLevel}: `+impact.blockers.map(b=>`${b.building}>=${b.requires}`).join(', '));
         return false;
       }
     }
 
-    // Same rule for research: a tech queued behind this one may depend on it.
     if(lane==='research'){
       const impact=nativeQueueResearchRemovalImpact(townId,jobId);
       if(!impact.ok){
         const head=impact.blockers.slice(0,3).map(t=>nativeResearchLabel(t)).join(', ');
-        const more=impact.blockers.length>3?` y ${impact.blockers.length-3} más`:'';
+        const more=impact.blockers.length>3?` y ${impact.blockers.length-3} m\u00e1s`:'';
         flash(`Bloqueado: ${nativeResearchLabel(impact.target)} es requisito de ${head}${more}`);
-        gbLog(`cola nativa: borrado bloqueado — ${impact.blockers.length} investigación(es) dependen de ${impact.target}: `+impact.blockers.join(', '));
+        gbLog(`cola nativa: borrado bloqueado \u2014 ${impact.blockers.length} investigaci\u00f3n(es) dependen de ${impact.target}: `+impact.blockers.join(', '));
         return false;
       }
     }
@@ -208,15 +182,9 @@
   }
   function nativeQueueRebaseBuild(townId) {
     const levels=abCurrentLevels(townId);if(!levels)return false;const next=Object.assign({},levels);
-    for(const j of nativeQueueList(townId,'build',false)){if(!j||!AB_BUILDINGS.includes(j.building))continue;if(j.inflight||j.manualReview){next[j.building]=Math.max(+next[j.building]||0,+j.toLevel||0);continue}const from=+next[j.building]||0;j.fromLevel=from;j.toLevel=from+1;next[j.building]=from+1}return true;
+    for(const j of nativeQueueList(townId,'build',false)){if(!j||!AB_BUILDINGS.includes(j.building))continue;if(j.inflight){next[j.building]=Math.max(+next[j.building]||0,+j.toLevel||0);continue}if(j.manualReview)continue;const from=+next[j.building]||0;j.fromLevel=from;j.toLevel=from+1;next[j.building]=from+1}return true;
   }
-  // Simulate the build queue with and without one specific job, then list the
-  // jobs QUEUED AFTER it that flip from "prereq met" to "prereq broken" when
-  // this job is removed. Buildings that are not queued behind the target are
-  // never blockers: an existing building cannot be un-built, and an unqueued
-  // one is not a plan.
-  // Returns {ok:true} when removal is safe (or uncheckable); otherwise
-  // {ok:false, blockers:[{building, requires, has}], target:{building,toLevel}}.
+
   function nativeQueueRemovalImpact(townId, jobId) {
     const list = nativeQueueList(townId, 'build', false);
     const idx = list.findIndex(j => j && j.id === jobId);
@@ -229,11 +197,6 @@
     const T = +target.toLevel || 0;
     const fold = (skipIdx) => {
 
-      // FIFO walk matching nativeQueueRebaseBuild: each pending entry for a
-      // building contributes +1 from the current simulated level. Naive max()
-      // over toLevels would skip the chain — e.g. [silver 30→31, silver 31→32]
-      // with the first removed would still report silver=32 because the
-      // second entry's stored toLevel (32) is taken as already-achieved.
       const sim = Object.assign({}, levels);
       for (let i = 0; i < list.length; i++) {
         if (i === skipIdx) continue;
@@ -241,8 +204,6 @@
         if (!j || !AB_BUILDINGS.includes(j.building)) continue;
         if (j.inflight || j.manualReview) {
 
-          // Reconciled/head entries are treated as already at their toLevel —
-          // the live queue reflects them regardless of FIFO position.
           sim[j.building] = Math.max(+sim[j.building] || 0, +j.toLevel || 0);
           continue;
         }
@@ -255,12 +216,6 @@
     const withLvl = +simWith[B] || 0;
     if (withLvl < T) return { ok: true };
 
-    // Only entries QUEUED BEHIND the target can be broken by this removal.
-    // Scanning every AB_BUILDINGS id was wrong twice over: a building already
-    // standing in town cannot be un-built by dropping a queued prereq, and a
-    // building nobody queued is not a plan at all — so deleting a queue entry
-    // and then trying to delete the one in front of it was refused because the
-    // just-deleted building "still needs" it.
     const blockers = [], seenDep = new Set();
     for (let i = idx + 1; i < list.length; i++) {
       const j = list[i];
@@ -278,13 +233,7 @@
     return { ok: false, blockers, target: { building: B, toLevel: T, withLvl, withoutLvl: +simWithout[B] || 0 } };
   }
   function nativeQueuePrereqWalk(townId, building) {
-    // Walk the prerequisite chain for `building`, returning an ordered list of
-    // building ids that must be queued in front (deepest dep first). The walk
-    // reuses the project's own recursive resolver: each iteration asks for the
-    // next unmet dependency of the current target, bumps simulated levels by
-    // one, and continues until the target itself is buildable or an error
-    // surfaces. Existing queue jobs are folded into the simulated levels so a
-    // prereq already covered by the queue is skipped (no duplicates).
+
     const levels = abCurrentLevels(townId);
     if (!levels) return { chain: [], error: 'levels-unreadable' };
     const sim = Object.assign({}, levels);
@@ -304,29 +253,17 @@
     return { chain, error: 'chain-too-long' };
   }
   function nativeQueueAddBuild(townId,building) {
+    if(nativeQueueRejectManualWhenPlanner(townId))return false;
     if(!AB_BUILDINGS.includes(building))return false;
 
-    // Appending to the TAIL never touches the head, so neither an in-flight
-    // send (`gbLocked('ab')`) nor a head awaiting manual review may block it:
-    // both gates froze every [+] in the town after the first order went out,
-    // and a head stuck in `unknown` froze them until the player cleaned it up.
-    // Only the head is ever posted; `nativeQueueRebaseBuild` already treats
-    // inflight/manualReview entries as achieved when rebasing the tail.
     nativeQueueReconcileBuild(townId);
     const special=nativeSpecialConflict(townId,building);if(special){flash(`Conflicto con ${nativeBuildLabel(special)}`);return false}
     const baseLevels = abCurrentLevels(townId);
     if (!baseLevels) { flash('No se puede leer el nivel actual'); return false; }
 
-    // Compute the prerequisite chain BEFORE the max check: a building that is
-    // not yet buildable (missing deps) is exactly the case the player wants
-    // resolved by inserting those deps in front. Only reject on max when the
-    // projected level (current + already-queued) is already at the cap.
     const walk = nativeQueuePrereqWalk(townId, building);
     if (walk.error && walk.error !== 'levels-unreadable') {
 
-      // Partial chain is still a valid set of builds (the walk only errors on
-      // the LAST unresolved hop). Add what we found, then surface the reason
-      // so the player can decide whether to keep or scrub the head.
       if (!walk.chain.length) { flash(`Requisitos no resolubles: ${abReasonText(walk.error)}`); return false; }
     }
     const sim = Object.assign({}, baseLevels);
@@ -335,14 +272,11 @@
       sim[j.building] = Math.max(+sim[j.building] || 0, +j.toLevel || 0);
     }
     const max = abMaxLevel(building);
-    if (max == null) { flash('No se puede leer el nivel máximo'); return false; }
+    if (max == null) { flash('No se puede leer el nivel m\u00e1ximo'); return false; }
     const from = +sim[building] || 0;
-    if (from >= max) { flash(`${nativeBuildLabel(building)} ya está al máximo`); return false; }
+    if (from >= max) { flash(`${nativeBuildLabel(building)} ya est\u00e1 al m\u00e1ximo`); return false; }
     const town = nativeQueueTown(townId, true); town.mode.build = 'fifo';
 
-    // Insert prerequisite jobs in front (deepest first). Each push bumps the
-    // simulated level so the next chain entry and the requested building
-    // reflect the right from/to levels.
     let addedPrereqs = 0;
     for (const dep of walk.chain) {
       const dMax = abMaxLevel(dep);
@@ -359,10 +293,8 @@
       addedPrereqs++;
     }
 
-    // Only queue the requested building if the walk did not end on a hard
-    // error; partial prereqs are still pushed above.
     if (walk.error && walk.error !== 'levels-unreadable') {
-      flash(`${addedPrereqs} requisito(s) añadidos; el objetivo final no se puede resolver: ${abReasonText(walk.error)}`);
+      flash(`${addedPrereqs} requisito(s) a\u00f1adidos; el objetivo final no se puede resolver: ${abReasonText(walk.error)}`);
     } else {
       town.build.push({
         id: nativeQueueId('b'), kind: 'build', townId: String(townId),
@@ -373,50 +305,12 @@
     }
     nativeQueueRebaseBuild(townId); nativeQueueSave();
     const summary = addedPrereqs
-      ? `${nativeBuildLabel(building)} ${from}→${from + 1} + ${addedPrereqs} requisito(s) [${walk.chain.map(b => nativeBuildLabel(b)).join(', ')}] @${townId}`
-      : `${nativeBuildLabel(building)} ${from}→${from + 1} @${townId}`;
+      ? `${nativeBuildLabel(building)} ${from}\u2192${from + 1} + ${addedPrereqs} requisito(s) [${walk.chain.map(b => nativeBuildLabel(b)).join(', ')}] @${townId}`
+      : `${nativeBuildLabel(building)} ${from}\u2192${from + 1} @${townId}`;
     gbLog(`cola nativa: ${summary}`);
     gbTimeout(() => abScan('native'), 80); return true;
   }
-  // Fill every remaining level up to the cap in one click. Each iteration
-  // re-runs the prereq walk + the same +1 push as nativeQueueAddBuild, so
-  // missing deps for the target are added ONCE in front (the walk only walks
-  // what is still missing), and subsequent iters push straight +1s. The loop
-  // terminates when projected hits max; the explicit max check above the call
-  // prevents the per-call "ya está al máximo" flash from firing on the last
-  // iteration. Returns the number of jobs added (0 = nothing to do).
-  function nativeQueueFillToMax(townId, building) {
-    if (!AB_BUILDINGS.includes(building)) return 0;
-    const max = abMaxLevel(building);
-    if (max == null) { flash('No se puede leer el nivel máximo'); return 0; }
-    let projected = nativeQueueProjectedBuildLevel(townId, building);
-    if (projected == null) { flash('No se puede leer el nivel actual'); return 0; }
-    if (projected >= max) { flash(`${nativeBuildLabel(building)} ya está al máximo (${max})`); return 0; }
-    let added = 0;
-    while (projected < max) {
-      const ok = nativeQueueAddBuild(townId, building);
-      if (!ok) break;
-      added++;
-      const next = nativeQueueProjectedBuildLevel(townId, building);
-      if (next == null || next <= projected) break; // safety: no progress
-      projected = next;
-    }
-    if (added) flash(`Encoladas ${added} mejoras de ${nativeBuildLabel(building)} hasta nivel ${projected}`);
-    return added;
-  }
-  // ===== Population rescue ===================================================
-  // A build is population-blocked whenever its own population COST exceeds the
-  // town's free population — 21 free against a cost of 22 stalls exactly like 0
-  // free does, and it blocks every other build behind it too. The farm is the
-  // only building that raises free population, so the rescue puts farm levels
-  // at the HEAD of the lane and the stalled job resumes on its own instead of
-  // sitting in `waiting-population` forever.
-  //
-  // "First check if farms are already being done" is the whole safety of this:
-  // the count is read from the REAL game build queue *and* the virtual lane,
-  // and an unreadable real queue is UNKNOWN, never "nothing queued" — queueing
-  // a third farm on top of two that are already building is exactly the
-  // failure this check exists to prevent.
+
   const POP_RESCUE_FARM_LEVELS = 2;
   function nativeFarmPendingLevels(townId) {
     const q = abQueueInfo(townId);
@@ -426,9 +320,7 @@
     for (const j of nativeQueueList(townId, 'build', false)) if (j && j.building === 'farm') n++;
     return n;
   }
-  // How many farm levels the rescue may still add: 0 = nothing to do (already
-  // building, suppressed, maxed, disabled), null-ish reads also collapse to 0
-  // after logging, so a blind town never gets a blind post.
+
   function nativePopRescueRoom(townId, levels) {
     if (!state.popRescueFarm) return 0;
     if (!levels) return 0;
@@ -438,8 +330,7 @@
     const pending = nativeFarmPendingLevels(townId);
     if (pending == null) { gbLogT('pop-rescue-blind-' + townId, 300000, `pop rescue: real build queue unreadable @${townId} - not queueing farm blind`); return 0; }
     if (pending >= POP_RESCUE_FARM_LEVELS) return 0;
-    // abCurrentLevels already folds the real build queue in, so this is the
-    // PROJECTED farm level, not the standing one.
+
     const projected = +(levels.farm || 0);
     if (projected >= max) {
       gbLogT('pop-rescue-maxed-' + townId, 600000, `pop rescue: farm already at max (${max}) @${townId} - population cannot be raised by building`);
@@ -447,25 +338,18 @@
     }
     return Math.max(0, Math.min(POP_RESCUE_FARM_LEVELS - pending, max - projected));
   }
-  // Returns the number of farm jobs inserted (0 = nothing done). Works in both
-  // lane modes: the jobs are pushed WITHOUT flipping `mode.build` to 'fifo',
-  // because an empty fifo lane would then own the lane forever and the legacy
-  // goal planner would never pick again.
+
   function nativePopRescueFifo(townId, levels, aff) {
     const room = nativePopRescueRoom(townId, levels);
     if (!room) return 0;
     const list = nativeQueueList(townId, 'build', false);
 
-    // Same rule nativeQueueMove enforces: never reorder around a post that is
-    // already flying or a head waiting on a manual decision.
-    if (list.some(j => j && (j.inflight || j.manualReview))) return 0;
+    if (list.some(j => j && (j.inflight || (j.manualReview && j.building==='farm')))) return 0;
     const town = nativeQueueTown(townId, true);
 
-    // Only shown, never used as a gate: an unreadable aff still queues the farm
-    // (the caller already established the shortfall) with a plainer reason.
     const short = aff && aff.need && aff.have
-      ? `población ${Math.floor(+aff.have.population || 0)}/${Math.ceil(+aff.need.pop || 0)}`
-      : 'población insuficiente';
+      ? `poblaci\u00f3n ${Math.floor(+aff.have.population || 0)}/${Math.ceil(+aff.need.pop || 0)}`
+      : 'poblaci\u00f3n insuficiente';
     const jobs = [];
     for (let i = 0; i < room; i++) jobs.push({
       id: nativeQueueId('b'), kind: 'build', townId: String(townId),
@@ -475,57 +359,41 @@
     });
     town.build.unshift(...jobs);
 
-    // Levels are placeholders above on purpose: the rebase is the one place
-    // that knows the projected level of every job in the lane.
     nativeQueueRebaseBuild(townId);
     nativeQueueSave();
-    gbLog(`cola nativa: ${short} @${townId} — ${room} nivel(es) de granja al principio de la cola`);
+    gbLog(`cola nativa: ${short} @${townId} \u2014 ${room} nivel(es) de granja al principio de la cola`);
 
-    // Deliberately not 80ms like the manual [+]: this fires from inside an
-    // abScan sweep that still holds the 'ab' lock, and a re-entry would no-op.
     gbTimeout(() => abScan('pop-rescue'), 1500);
     return room;
   }
   function nativeQueueRemoveLastBuild(townId,building) {
 
-    // Only the target item itself blocks removal; a stuck head must not freeze
-    // the entire queued tail. Items flagged manualReview still need a player
-    // decision, so they stay unremovable from this shortcut (use the × button).
     nativeQueueReconcileBuild(townId);
     const list=nativeQueueList(townId,'build',false);for(let i=list.length-1;i>=0;i--){const j=list[i];if(j&&j.building===building&&!j.inflight&&!j.manualReview){
       const impact=nativeQueueRemovalImpact(townId,j.id);
       if(!impact.ok){
         const head=impact.blockers.slice(0,3).map(b=>`${nativeBuildLabel(b.building)} (necesita ${impact.target.building} ${b.requires}, sin esta entrada solo ${b.has})`).join('; ');
-        const more=impact.blockers.length>3?` y ${impact.blockers.length-3} más`:'';
-        flash(`Bloqueado: ${nativeBuildLabel(impact.target.building)} ${impact.target.toLevel} aún hace falta para ${head}${more}`);
-        gbLog(`cola nativa: borrado bloqueado — ${impact.blockers.length} edificio(s) dependen de ${impact.target.building} ${impact.target.toLevel}: `+impact.blockers.map(b=>`${b.building}>=${b.requires}`).join(', '));
+        const more=impact.blockers.length>3?` y ${impact.blockers.length-3} m\u00e1s`:'';
+        flash(`Bloqueado: ${nativeBuildLabel(impact.target.building)} ${impact.target.toLevel} a\u00fan hace falta para ${head}${more}`);
+        gbLog(`cola nativa: borrado bloqueado \u2014 ${impact.blockers.length} edificio(s) dependen de ${impact.target.building} ${impact.target.toLevel}: `+impact.blockers.map(b=>`${b.building}>=${b.requires}`).join(', '));
         return false;
       }
       list.splice(i,1);nativeQueueRebaseBuild(townId);nativeQueueSave();return true}}
     return false;
   }
-  // Operator-tuned batch sizes: cheap core infantry in 50s, cav in 30s,
-  // everything else (catapult, naval, myth) in 100s.
-  const NATIVE_UNIT_STEPS={sword:50,slinger:50,archer:50,hoplite:50,rider:30,chariot:30};
   function nativeUnitStep(unit) {
-    return NATIVE_UNIT_STEPS[String(unit||'')]||100;
+    try{const d=gbGameDataLookup("units", unit)||{};const pop=+d.population||0,freight=+(d.favor??(d.resources&&d.resources.favor))||0;if(d.is_naval||d.naval||d.mythical||d.is_mythical||d.god||pop>=8||freight>0)return 1}catch(_){}
+    return 10;
   }
-  // Summed over BOTH lanes on purpose: a unit id belongs to exactly one lane,
-  // so the total is exact and stays right even when the def cannot be read.
+
   function nativeQueueRecruitAmount(townId,unit){return NATIVE_RECRUIT_LANES.reduce((n,lane)=>n+nativeQueueList(townId,lane,false).reduce((m,j)=>m+(j&&j.unit===unit?(+j.amount||0):0),0),0);}
   function nativeQueueAddRecruit(townId,unit,amount,chunkSize) {
+    if(nativeQueueRejectManualWhenPlanner(townId))return false;
     const n=Math.max(1,Math.floor(+amount||0));if(!unit||!gbGameDataLookup("units", unit)||!(n>0))return false;
 
-    // Same as the build lane: only the head is ever posted, so a tail append is
-    // safe while an order is in flight or awaiting review.
     const lane=nativeRecruitLane(unit);
     const town=nativeQueueTown(townId,true);
 
-    // Same as the build (:mode.build) and research (:mode.research) lanes: a
-    // manual [+] puts the lane in FIFO. The old `== null` guard could never fire
-    // — nativeQueueTown normalizes every lane to 'legacy' first — so the job
-    // landed in the virtual list while recruitScan, which only walks FIFO lanes,
-    // skipped it forever. Use "Cola automática" to hand the lane back.
     town.mode[lane] = 'fifo';
     const job={id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:n,status:'pending',reason:'',createdAt:Date.now()};
 
@@ -533,7 +401,7 @@
     if(cs>0&&cs<n)job.chunkSize=cs;
     town[lane].push(job);
     nativeQueueSave();
-    const label=`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): ${n}× ${nativeUnitLabel(unit)} @${townId}`;
+    const label=`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): ${n}\u00d7 ${nativeUnitLabel(unit)} @${townId}`;
     gbLog(job.chunkSize?`${label} en lotes de ${job.chunkSize}`:label);
     gbTimeout(()=>recruitScan('native'),80);return true;
   }
@@ -555,11 +423,13 @@
     if(merged){
       nativeQueueSave();
       try{scheduleNativeUiScan()}catch(_){}
+      try{renderQueueCenter()}catch(_){}
       gbLog(`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): compactadas ${merged} entrada(s) adyacente(s) en @${townId}`);
     }
     return merged;
   }
   function nativeQueueAddRecruitBatch(townId,unit,total,chunk) {
+    if(nativeQueueRejectManualWhenPlanner(townId))return {ok:false,why:'FIFO solo disponible en Personalizado'};
     const T=Math.floor(+total||0),C=Math.floor(+chunk||0);
     if(!unit||!gbGameDataLookup("units", unit))return {ok:false,why:'unidad desconocida'};
     if(!(T>0))return {ok:false,why:'total debe ser > 0'};
@@ -568,10 +438,10 @@
     const lane=nativeRecruitLane(unit);
     const town=nativeQueueTown(townId,true);
     town.mode[lane]='fifo';
-    const job={id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:T,chunkSize:C,status:'pending',reason:`${Math.ceil(T/C)} × ${C}`,createdAt:Date.now()};
+    const job={id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:T,chunkSize:C,status:'pending',reason:`${Math.ceil(T/C)} \u00d7 ${C}`,createdAt:Date.now()};
     town[lane].push(job);
     nativeQueueSave();
-    gbLog(`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): lote ${T}× ${nativeUnitLabel(unit)} en ${Math.ceil(T/C)} envío(s) de ${C} @${townId}`);
+    gbLog(`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): lote ${T}\u00d7 ${nativeUnitLabel(unit)} en ${Math.ceil(T/C)} env\u00edo(s) de ${C} @${townId}`);
     gbTimeout(()=>recruitScan('native'),80);
     return {ok:true,lane,jobId:job.id,total:T,lotes:Math.ceil(T/C),chunk:C};
   }
@@ -588,13 +458,9 @@
       const stable=x=>String(x||'').replace(/\d+(?:[.,]\d+)?/g,'#');
       if(stable(job.reason)===stable(r)&&now-(+job.reasonUpdatedAt||+job.updatedAt||0)<300000)return;
     }
-    job.status=status;job.reason=r;job.reasonUpdatedAt=now;job.updatedAt=now;nativeQueueSaveSoon();try{scheduleNativeUiScan()}catch(_){}
+    job.status=status;job.reason=r;job.reasonUpdatedAt=now;job.updatedAt=now;nativeQueueSaveSoon();try{scheduleNativeUiScan()}catch(_){}try{renderQueueCenter()}catch(_){}
   }
-  // ===== Build queue optimizer (v4 plan 5.6) =================================
-  // A FIFO head that cannot be paid for stalls every job behind it. This offers
-  // to promote the first successor that IS affordable - as a suggestion the
-  // user clicks, never an automatic reorder. The auto-queue is untouched: it
-  // keeps taking the head, whichever head the user has left there.
+
   const BUILD_SWAP_DEFAULT_MIN = 5;
   const BUILD_SWAP_IGNORE_MS = 600000;
   function buildSwapThresholdMs() {
@@ -602,8 +468,7 @@
     if (n === 0) return 0;
     return (Number.isFinite(n) ? Math.max(1, Math.min(120, n)) : BUILD_SWAP_DEFAULT_MIN) * 60000;
   }
-  // {townId, jobId, why, forMinutes} or null. Only a head that is BLOCKED on
-  // something readable counts - a head that is merely pending is not stuck.
+
   function nativeQueueHeadBlockedFor(townId) {
     const list = nativeQueueList(townId, 'build', false);
     const head = list[0];
@@ -612,8 +477,7 @@
     if (!/^waiting-(?:resources|population)$/.test(String(head.status || ''))) return null;
     const since = +head.reasonUpdatedAt || +head.updatedAt || 0;
     if (!since) return null;
-    // `building` is carried on the result so the renderer does not have to
-    // re-read list[0] and hope nothing moved in between.
+
     return { townId: String(townId), jobId: head.id, building: head.building, why: head.reason || head.status, forMinutes: Math.floor((Date.now() - since) / 60000) };
   }
   function buildSwapIgnored(townId, headId) {
@@ -635,17 +499,15 @@
     if (!blocked || blocked.forMinutes * 60000 < thresh) return null;
     if (buildSwapIgnored(townId, blocked.jobId)) return null;
     const list = nativeQueueList(townId, 'build', false);
-    // A frozen queue is not reorderable at all - nativeQueueMove would refuse
-    // anyway, so do not offer a button that cannot work.
-    if (list.some(j => j && (j.inflight || j.manualReview))) return null;
+
+    if (list.some(j => j && j.inflight)) return null;
     const levels = abCurrentLevels(townId);
     if (!levels) return null;
     for (let i = 1; i < list.length; i++) {
       const j = list[i];
       if (!j || !j.building) continue;
       const dep = abResolvePrerequisite(townId, j.building, levels);
-      // Only promote a job that is ITSELF the next step - promoting one whose
-      // own prerequisite is missing just moves the stall up the queue.
+
       if (!dep || !dep.building || dep.building !== j.building) continue;
       const aff = abCanAfford(townId, j.building);
       if (!aff || !aff.ok) continue;
@@ -659,16 +521,19 @@
     return null;
   }
   function nativeQueueMarkBuild(townId,jobId,opts) {
-    const job=nativeQueueList(townId,'build',false)[0];if(!job||job.id!==jobId)return false;const o=opts||{};
+    const list=nativeQueueList(townId,'build',false);
+    const job=list.find(j=>j&&j.id===jobId);
+    if(!job)return false;
+    const o=opts||{};
     if(Object.prototype.hasOwnProperty.call(o,'inflight')){job.inflight=o.inflight;if(o.inflight)job.reconcile=null}
     if(Object.prototype.hasOwnProperty.call(o,'reconcile'))job.reconcile=o.reconcile;
     if(Object.prototype.hasOwnProperty.call(o,'manualReview'))job.manualReview=!!o.manualReview;
-    if(o.status)job.status=o.status;if(Object.prototype.hasOwnProperty.call(o,'reason'))job.reason=String(o.reason||'');job.updatedAt=Date.now();nativeQueueSave();return true;
+    if(o.status)job.status=o.status;
+    if(Object.prototype.hasOwnProperty.call(o,'reason'))job.reason=String(o.reason||'');
+    job.updatedAt=Date.now();nativeQueueSave();return true;
   }
   function nativeQueueReconcileBuild(townId) {
 
-    // Log-only: makes a long stall visible in the Log for someone who never
-    // opens the in-game building windows.
     try {
       const sug = nativeQueueSuggestSwap(townId);
       if (sug) gbLogT('build-swap-' + townId, 600000,
@@ -676,23 +541,13 @@
     } catch (_) {}
     const list=nativeQueueList(townId,'build',false);if(!list.length)return false;
     const levels=abCurrentLevels(townId);if(!levels)return false;let changed=false;
-    for(const j of list){
-      if(!j)continue;
-      const flight=j.inflight||j.reconcile;
-      if(flight&&flight.building&&flight.targetLevel!=null&&+(levels[flight.building]||0)>=+flight.targetLevel){
-        j.inflight=null;j.reconcile=null;j.manualReview=false;
-        j.status=flight.building===j.building?'pending':'waiting-requirement';
-        j.reason=flight.building===j.building?'confirmado en la cola real':`requisito ${nativeBuildLabel(flight.building)} confirmado`;
-        j.updatedAt=Date.now();changed=true;continue;
-      }
+    for(const j of list){if(!j)continue;const flight=j.inflight||j.reconcile;if(flight&&flight.building&&flight.targetLevel!=null&&+(levels[flight.building]||0)>=+flight.targetLevel){j.inflight=null;j.reconcile=null;j.manualReview=false;j.status=flight.building===j.building?'pending':'waiting-requirement';j.reason=flight.building===j.building?'confirmado en la cola real':`requisito ${nativeBuildLabel(flight.building)} confirmado`;j.updatedAt=Date.now();changed=true;continue}
 
-      // Real-queue reconcile (v5.10.59). timeout_unknown / pending stuck the head
-      // because the bridge settle could not detect the model delta, but the order
-      // may already be sitting in the real queue with its timer running. Match by
-      // building_type on a non-tear-down slot and clear manualReview so the lane
-      // advances; the level-reached branch above fires when the build completes.
-      // Stamping accepted:true on the new inflight skips the 120s re-trip below
-      // — the real queue has the order, we just wait for the model to catch up.
+      // A timeout_unknown/pending head whose order IS in the real queue (timer
+      // running, model not yet bumped) must not sit at manualReview: match the
+      // reconcile snapshot against a non-tear-down slot by building_type and
+      // stamp accepted:true so the 120s re-trip below leaves it alone until the
+      // level-reached branch fires.
       if(j.manualReview && j.reconcile && j.reconcile.building && j.reconcile.targetLevel!=null){
         const fr=j.reconcile;
         if(+(levels[fr.building]||0)<+fr.targetLevel){
@@ -703,139 +558,163 @@
             j.manualReview=false;
             j.status='accepted';
             j.reason='en cola real; esperando actualización del juego';
-            j.updatedAt=Date.now();
-            changed=true;
+            j.updatedAt=Date.now();changed=true;
             continue;
           }
         }
       }
 
-      if(j.inflight && !j.inflight.accepted && Date.now()-(+j.inflight.at||0)>120000){
-        j.reconcile=Object.assign({},j.inflight);
-        j.inflight=null;j.manualReview=true;j.status='unknown';
-        j.reason='la cola real no se actualizó; comprobar antes de continuar';
-        j.updatedAt=Date.now();changed=true;
-      }
-    }
+      if(j.inflight&&!j.inflight.accepted&&Date.now()-(+j.inflight.at||0)>120000){j.reconcile=Object.assign({},j.inflight);j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualiz\u00f3; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}}
     for(let i=list.length-1;i>=0;i--){const j=list[i];if(!j||!AB_BUILDINGS.includes(j.building)||+(levels[j.building]||0)>=+j.toLevel){list.splice(i,1);changed=true}}
     if(changed){nativeQueueRebaseBuild(townId);nativeQueueSave()}return changed;
   }
   function nativeQueueBuildPlan(townId,levels) {
-    nativeQueueReconcileBuild(townId);nativeQueueRebaseBuild(townId);const list=nativeQueueList(townId,'build',false),job=list[0];if(!job)return {hasJob:nativeQueueIsFifo(townId,'build'),plan:null};
-    if(nativeQueuePaused(townId,'build')){nativeQueueSetJobState(job,'paused','cola pausada');return {hasJob:true,plan:null,why:'paused'}}
-    if(list.some(j=>j&&j!==job&&(j.manualReview||j.inflight))){nativeQueueSetJobState(job,'blocked','hay otra acción pendiente de revisión');return {hasJob:true,plan:null,why:'lane-review'}}
-    if(job.manualReview){nativeQueueSetJobState(job,'unknown',job.reason||'comprobar la cola real y quitar este trabajo si no se envió');return {hasJob:true,plan:null,why:'manual-review'}}
-    if(job.inflight){nativeQueueSetJobState(job,'sending',job.reason||'enviando a la cola real');return {hasJob:true,plan:null,why:'inflight'}}
-    const special=nativeSpecialConflict(townId,job.building);if(special){nativeQueueSetJobState(job,'blocked',`conflicto con ${nativeBuildLabel(special)}`);return {hasJob:true,plan:null,why:'special-conflict'}}
-    const max=abMaxLevel(job.building);if(max==null){nativeQueueSetJobState(job,'blocked','nivel máximo desconocido');return {hasJob:true,plan:null,why:'max-unreadable'}}
-    if(+job.toLevel>max){nativeQueueSetJobState(job,'blocked','nivel máximo alcanzado');return {hasJob:true,plan:null,why:'max-level'}}
-    const resolved=abResolvePrerequisite(townId,job.building,levels);
-    if(!resolved||!resolved.building){const why=resolved&&resolved.error||'requisito desconocido';nativeQueueSetJobState(job,'blocked',abReasonText(why));return {hasJob:true,plan:null,why}}
-    const aff=abCanAfford(townId,resolved.building);
-    if(!aff.ok){const why=aff.why||'recursos',detail=abAffordReason(aff),status=why==='resources'?'waiting-resources':(why==='population'?'waiting-population':'blocked');nativeQueueSetJobState(job,status,detail);
+    nativeQueueReconcileBuild(townId);
+    nativeQueueRebaseBuild(townId);
+    const list=nativeQueueList(townId,'build',false);
+    if(nativeQueuePlannerOwnsTown(townId)){const blocked=nativeQueuePlannerLaneBlocked(townId,'build');return {hasJob:blocked,plan:null,why:blocked?'planner-awaiting-reconcile':null}}
+    if(!list.length)return {hasJob:nativeQueueIsFifo(townId,'build'),plan:null};
+    if(nativeQueuePaused(townId,'build')){
+      const first=list.find(Boolean);if(first)nativeQueueSetJobState(first,'paused','cola pausada');
+      return {hasJob:true,plan:null,why:'paused'};
+    }
+    // A real request in flight owns the real building queue briefly. A tombstone
+    // in manual review does not own the lane and must not starve unrelated jobs.
+    const active=list.find(j=>j&&j.inflight);
+    if(active){nativeQueueSetJobState(active,'sending',active.reason||'enviando a la cola real');return {hasJob:true,plan:null,why:'inflight'}}
 
-      // Population is the one block the queue can clear by itself. Keyed off
-      // aff.popShort, not `why`: when wood AND population are both short the
-      // verdict reads 'resources', and waiting for the wood first would only
-      // land on the same population wall a cadence later.
-      if(aff.popShort&&resolved.building!=='farm')nativePopRescueFifo(townId,levels,aff);
-      return {hasJob:true,plan:null,why}}
-    const isRequirement=resolved.building!==job.building;
-    nativeQueueSetJobState(job,'ready',isRequirement?`antes: ${nativeBuildLabel(resolved.building)}`:'listo');
-    return {hasJob:true,plan:{building:resolved.building,forTarget:job.building,reason:isRequirement?`requisito para ${job.building}`:'cola FIFO',cost:aff.need,nativeJobId:job.id,nativeRequestedBuilding:job.building,nativeRequirement:isRequirement}};
+    const reviewBuildings=new Set();
+    for(const j of list){
+      if(!j||!j.manualReview)continue;
+      if(j.building)reviewBuildings.add(String(j.building));
+      if(j.reconcile&&j.reconcile.building)reviewBuildings.add(String(j.reconcile.building));
+      nativeQueueSetJobState(j,'unknown',j.reason||'resultado pendiente de revisión; otros edificios independientes pueden continuar');
+    }
+
+    let lastWhy='manual-review-only';
+    for(const job of list){
+      if(!job||job.manualReview||job.inflight)continue;
+      if(reviewBuildings.has(String(job.building))){
+        nativeQueueSetJobState(job,'waiting-review','misma construcción pendiente de revisión');
+        lastWhy='same-building-review';continue;
+      }
+      const special=nativeSpecialConflict(townId,job.building);
+      if(special){nativeQueueSetJobState(job,'blocked',`conflicto con ${nativeBuildLabel(special)}`);lastWhy='special-conflict';continue}
+      const max=abMaxLevel(job.building);
+      if(max==null){nativeQueueSetJobState(job,'blocked','nivel máximo desconocido');lastWhy='max-unreadable';continue}
+      if(+job.toLevel>max){nativeQueueSetJobState(job,'blocked','nivel máximo alcanzado');lastWhy='max-level';continue}
+      const resolved=abResolvePrerequisite(townId,job.building,levels);
+      if(!resolved||!resolved.building){
+        const why=resolved&&resolved.error||'requisito desconocido';
+        nativeQueueSetJobState(job,'blocked',abReasonText(why));lastWhy=why;continue;
+      }
+      if(reviewBuildings.has(String(resolved.building))){
+        nativeQueueSetJobState(job,'waiting-review',`requisito ${nativeBuildLabel(resolved.building)} pendiente de revisión`);
+        lastWhy='requirement-review';continue;
+      }
+      const aff=abCanAfford(townId,resolved.building);
+      if(!aff.ok){
+        const why=aff.why||'recursos',detail=abAffordReason(aff),status=why==='resources'?'waiting-resources':(why==='population'?'waiting-population':'blocked');
+        nativeQueueSetJobState(job,status,detail);
+        if(aff.popShort&&resolved.building!=='farm')nativePopRescueFifo(townId,levels,aff);
+        lastWhy=why;continue;
+      }
+      const isRequirement=resolved.building!==job.building;
+      nativeQueueSetJobState(job,'ready',isRequirement?`antes: ${nativeBuildLabel(resolved.building)}`:'listo');
+      return {hasJob:true,plan:{building:resolved.building,forTarget:job.building,reason:isRequirement?`requisito para ${job.building}`:'cola ejecutable',cost:aff.need,nativeJobId:job.id,nativeRequestedBuilding:job.building,nativeRequirement:isRequirement}};
+    }
+    return {hasJob:true,plan:null,why:lastWhy};
   }
   function nativeQueueBuildApplied(townId,plan) {
     if(!plan||!plan.nativeJobId)return;
-    const list=nativeQueueList(townId,'build',false),job=list[0];if(!job||job.id!==plan.nativeJobId)return;
-    if(!plan.nativeRequirement&&plan.building===job.building){list.shift();nativeQueueRebaseBuild(townId)}
+    const list=nativeQueueList(townId,'build',false);
+    const i=list.findIndex(j=>j&&j.id===plan.nativeJobId);if(i<0)return;
+    const job=list[i];
+    if(!plan.nativeRequirement&&plan.building===job.building){list.splice(i,1);nativeQueueRebaseBuild(townId)}
     else{job.inflight=null;job.reconcile=null;job.manualReview=false;nativeQueueSetJobState(job,'waiting-requirement',`construyendo ${nativeBuildLabel(plan.building)} primero`)}
     nativeQueueSave();
   }
-  // Recruit counterpart of nativeQueueReconcileBuild's stuck-inflight rule. The
-  // recruit head's `inflight` was only ever cleared by its own bridge callback,
-  // so a dropped callback (superseded tx, transport never settling) froze the
-  // whole lane until a page reload. A boolean nobody can clear is exactly what
-  // the v1.4.0 lock registry note warns about.
+
   function nativeQueueReconcileRecruit(townId,lane) {
     const lanes=lane?[lane]:NATIVE_RECRUIT_LANES;let changed=false;
-
-    // Real-queue confirmation, the half the build (:491) and research (:680)
-    // reconcilers already had. `queuedBefore` is the baseline this unit's queued
-    // count had when the post left, so reaching baseline+amount proves OUR batch
-    // landed — a dropped bridge callback no longer strands the head for 120s.
-    // An unreadable queue (known:false) stays UNKNOWN and confirms nothing.
     let queueKnown=false;
     try{queueKnown=!!(recruitQueueInfo(townId)||{}).known}catch(_){}
     for(const ln of lanes){
       const list=nativeQueueList(townId,ln,false);if(!list.length)continue;
-      const head=list[0];
       for(const j of list){
-        if(!j||!j.inflight)continue;
-        const fl=j.inflight;
-        if(queueKnown&&j===head&&fl.token&&fl.queuedBefore!=null&&j.unit){
+        if(!j)continue;
+        const fl=j.inflight||j.reconcile;
+        if(fl&&queueKnown&&fl.queuedBefore!=null&&j.unit){
           let now=null;
           try{now=recruitQueuedAmount(townId,j.unit)}catch(_){now=null}
           if(now!=null&&now>=(+fl.queuedBefore||0)+(+fl.amount||0)){
-            nativeQueueRecruitApplied(townId,ln,j.id,+fl.amount||0,fl.token);
+            const amount=+fl.amount||0;
+            // Apply by stable job id. Manual-review jobs have no inflight token.
+            nativeQueueRecruitApplied(townId,ln,j.id,amount,j.inflight&&j.inflight.token||null);
             changed=true;continue;
           }
         }
-        if(Date.now()-(+fl.at||0)>120000){j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualizó; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}
+        if(j.inflight&&Date.now()-(+j.inflight.at||0)>120000){
+          j.reconcile=Object.assign({},j.inflight);
+          j.inflight=null;j.manualReview=true;j.status='unknown';
+          j.reason='la cola real no se actualizó; este trabajo queda en revisión sin bloquear otras unidades';
+          j.updatedAt=Date.now();changed=true;
+        }
       }
     }
     if(changed)nativeQueueSave();return changed;
   }
-  function nativeQueueRecruitHead(townId,lane) {
+  function nativeQueueRecruitCandidates(townId,lane) {
     lane=lane||'recruit';
     nativeQueueReconcileRecruit(townId,lane);
-    const list=nativeQueueList(townId,lane,false),job=list[0];if(!job)return null;
-    if(nativeQueuePaused(townId,lane)){nativeQueueSetJobState(job,'paused','cola pausada');return null}
-    if(list.some(j=>j&&j!==job&&(j.manualReview||j.inflight))){nativeQueueSetJobState(job,'blocked','hay otra acción pendiente de revisión');return null}
-    if(job.manualReview){nativeQueueSetJobState(job,'unknown',job.reason||'comprobar la cola real y quitar este trabajo si no se envió');return null}
-    if(job.inflight){nativeQueueSetJobState(job,'sending',job.reason||'enviando a la cola real');return null}
-    // Stale waiting-slot: client queue-full reads are untrusted (docks 0/7 vs
-    // "cola real llena"). Clear legacy reasons and wake recruitScan; the send
-    // path no longer hard-blocks on client length. Exception: a SERVER-confirmed
-    // full lane (recruitScan sets slotRetryAt on rejection) holds the backoff.
-    if(job.status==='waiting-slot'){
-      if(+job.slotRetryAt>Date.now())return null;
-      try{
-        nativeQueueSetJobState(job,'pending','re-chequeo cola');
-        try{gbTimeout(()=>recruitScan('slot-free'),50)}catch(_){}
-      }catch(_){}
+    const list=nativeQueueList(townId,lane,false);if(!list.length)return [];
+    if(nativeQueuePaused(townId,lane)){
+      const first=list.find(Boolean);if(first)nativeQueueSetJobState(first,'paused','cola pausada');return [];
     }
-    return job;
+    // Only a request already in flight owns the real training lane.  A job that
+    // merely lacks resources must NEVER reserve them or block later affordable jobs.
+    const active=list.find(j=>j&&j.inflight);
+    if(active){nativeQueueSetJobState(active,'sending',active.reason||'enviando a la cola real');return []}
+    const reviewUnits=new Set(list.filter(j=>j&&j.manualReview&&j.unit).map(j=>String(j.unit)));
+    for(const j of list)if(j&&j.manualReview)nativeQueueSetJobState(j,'unknown',j.reason||'resultado pendiente de revisión; otras unidades pueden continuar');
+    const out=[];
+    for(const job of list){
+      if(!job||job.manualReview||job.inflight)continue;
+      if(job.slotRetryAt&&+job.slotRetryAt>Date.now()){
+        nativeQueueSetJobState(job,'waiting-slot','cola llena según el servidor; reintento en ' + Math.ceil((+job.slotRetryAt-Date.now())/60000) + 'min');continue;
+      }
+      if(job.slotRetryAt)job.slotRetryAt=0;
+      if(reviewUnits.has(String(job.unit))){
+        nativeQueueSetJobState(job,'waiting-review','misma unidad pendiente de revisión');continue;
+      }
+      out.push(job);
+    }
+    return out;
+  }
+  function nativeQueueRecruitHead(townId,lane) {
+    return nativeQueueRecruitCandidates(townId,lane)[0]||null;
   }
   function nativeQueueRecruitApplied(townId,lane,jobId,amount,token) {
-    const list=nativeQueueList(townId,lane||'recruit',false),job=list[0];if(!job||job.id!==jobId)return;
-
-    // The inflight token is the idempotency key. Both the bridge callback and
-    // nativeQueueReconcileRecruit can reach this for the same batch; applying it
-    // twice would eat units the game never recruited.
+    const list=nativeQueueList(townId,lane||'recruit',false);
+    const i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return;
+    const job=list[i];
     if(token&&!(job.inflight&&job.inflight.token===token))return;
     const drained=Math.max(0,+amount||0);
-    job.inflight=null;job.amount=Math.max(0,(+job.amount||0)-drained);
+    job.inflight=null;job.reconcile=null;job.manualReview=false;job.amount=Math.max(0,(+job.amount||0)-drained);
     const removed=job.amount<=0;
-    if(removed)list.shift();else{job.status='pending';job.reason='resto del lote';job.updatedAt=Date.now()}
+    if(removed)list.splice(i,1);else{job.status='pending';job.reason='resto del lote';job.updatedAt=Date.now()}
     nativeQueueSave();
-
-    try { jrnPush({ f:'recruit', a:'chunk-drain', k:String(townId)+'|'+String(job.unit||'')+'|'+jobId }, removed ? 'ok' : 'ok', removed ? 'drained' : ('rest '+job.amount)); } catch (_) {}
+    try { jrnPush({ f:'recruit', a:'chunk-drain', k:String(townId)+'|'+String(job.unit||'')+'|'+jobId }, 'ok', removed ? 'drained' : ('rest '+job.amount)); } catch (_) {}
   }
-  // ---------------------------------------------------------------------------
-  // Research lane (academy). Same contract as build/recruit: only the head is
-  // ever posted, appends are always safe, and the real queue is the authority —
-  // a job leaves the virtual list once the game shows it researched or queued.
-  // ---------------------------------------------------------------------------
+
   function nativeResearchLabel(tech) {
     try{const n=researchLabel(tech);if(n)return String(n)}catch(_){}
     return String(tech||'?');
   }
-  // Returns null when GameData does not describe this tech: unreadable is NOT
-  // "no dependencies", so callers must treat null as unknown and not silently
-  // queue a tech whose prerequisites they never saw.
+
   function nativeResearchDeps(tech) {
     try{
-      const def=uwCached().GameData&&uwCached().GameData.researches&&uwCached().GameData.researches[tech];
+      const def=gameUw().GameData&&gameUw().GameData.researches&&gameUw().GameData.researches[tech];
       if(!def)return null;
       const raw=def.research_dependencies||def.dependencies||[];
       const list=Array.isArray(raw)?raw:Object.keys(raw||{}).filter(k=>raw[k]);
@@ -853,9 +732,7 @@
     walk(String(tech),0);
     return out;
   }
-  // Ordered list of techs that must be researched before `tech` (deepest first),
-  // skipping anything already researched, already in the real queue, or already
-  // in the virtual list.
+
   function nativeResearchPrereqChain(townId,tech) {
     const info=researchTownTechs(townId);
     if(!info)return {chain:[],error:'estado de la Academia ilegible'};
@@ -899,20 +776,17 @@
     return nativeQueueList(townId,'research',false).some(j=>j&&String(j.tech)===String(tech));
   }
   function nativeQueueAddResearch(townId,tech) {
+    if(nativeQueueRejectManualWhenPlanner(townId))return false;
     tech=String(tech||'');
-    if(!tech||!gbGameDataLookup("researches", tech)){flash('Investigación desconocida');return false}
+    if(!tech||!gbGameDataLookup("researches", tech)){flash('Investigaci\u00f3n desconocida');return false}
     nativeQueueReconcileResearch(townId);
     const info=researchTownTechs(townId);
     if(!info){flash('No se puede leer la Academia');return false}
-    if(info.techs&&info.techs[tech]){flash(`${nativeResearchLabel(tech)} ya está investigada`);return false}
-    if((info.orders||[]).some(o=>String(researchOrderTechId(o))===tech)){flash(`${nativeResearchLabel(tech)} ya está en la cola real`);return false}
-    if(nativeQueueResearchPending(townId,tech)){flash(`${nativeResearchLabel(tech)} ya está en la cola virtual`);return false}
+    if(info.techs&&info.techs[tech]){flash(`${nativeResearchLabel(tech)} ya est\u00e1 investigada`);return false}
+    if((info.orders||[]).some(o=>String(researchOrderTechId(o))===tech)){flash(`${nativeResearchLabel(tech)} ya est\u00e1 en la cola real`);return false}
+    if(nativeQueueResearchPending(townId,tech)){flash(`${nativeResearchLabel(tech)} ya est\u00e1 en la cola virtual`);return false}
     const walk=nativeResearchPrereqChain(townId,tech);
 
-    // Same refusal as nativeQueueAddBuild (:330): an unresolved prerequisite
-    // chain must not put the target at the lane head, where it would sit
-    // 'blocked' forever behind a requirement nobody queued. Partial prereqs are
-    // still pushed — they are valid research on their own.
     if(walk.error&&!walk.chain.length){flash(`Requisitos no resolubles: ${walk.error}`);return false}
     const town=nativeQueueTown(townId,true);town.mode.research='fifo';
     const push=(id,reason)=>town.research.push({id:nativeQueueId('r'),kind:'research',townId:String(townId),tech:String(id),status:'pending',reason:reason||'',createdAt:Date.now()});
@@ -922,10 +796,10 @@
     nativeQueueSave();
     if(walk.error){
       gbLogT('native-research-walk-'+tech,300000,`native queue: research prereq walk for ${tech} incomplete (${walk.error})`);
-      flash(`${added} requisito(s) añadidos; el objetivo final no se puede resolver: ${walk.error}`);
+      flash(`${added} requisito(s) a\u00f1adidos; el objetivo final no se puede resolver: ${walk.error}`);
     }
     else if(added)flash(`+${added} requisito(s) antes de ${nativeResearchLabel(tech)}`);
-    gbLog(`cola nativa: investigación ${walk.error?`(solo requisitos, ${walk.error}) `:''}${tech}${added?` + ${added} requisito(s) [${walk.chain.join(', ')}]`:''} @${townId}`);
+    gbLog(`cola nativa: investigaci\u00f3n ${walk.error?`(solo requisitos, ${walk.error}) `:''}${tech}${added?` + ${added} requisito(s) [${walk.chain.join(', ')}]`:''} @${townId}`);
     gbTimeout(()=>researchScan('native'),80);return true;
   }
   function nativeQueueRemoveResearch(townId,tech) {
@@ -942,22 +816,15 @@
     const list=nativeQueueList(townId,'research',false);if(!list.length)return false;
     const info=researchTownTechs(townId);let changed=false;
 
-    // The real-queue half of this check is only usable when the queue was
-    // actually read (H4). For a town whose ResearchOrder fragment is missing,
-    // `orders` is [] and every job would look "not landed" — or, on the prune
-    // side, a landed job would never be dropped. Researched flags are readable
-    // either way, so they still count.
     const ordersUsable=!!(info&&info.ordersKnown);
     const landed=j=>!!(info&&((info.techs&&info.techs[j.tech])||(ordersUsable&&(info.orders||[]).some(o=>String(researchOrderTechId(o))===String(j.tech)))));
     for(const j of list){
       if(!j||!j.inflight)continue;
       if(landed(j)){j.inflight=null;j.manualReview=false;j.status='pending';j.reason='confirmado en la cola real';j.updatedAt=Date.now();changed=true;continue}
 
-      if(Date.now()-(+j.inflight.at||0)>120000){j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualizó; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}
+      if(Date.now()-(+j.inflight.at||0)>120000){j.inflight=null;j.manualReview=true;j.status='unknown';j.reason='la cola real no se actualiz\u00f3; comprobar antes de continuar';j.updatedAt=Date.now();changed=true}
     }
 
-    // Only prune against a READ state — an unreadable academy means unknown, so
-    // nothing is dropped.
     if(info){
       for(let i=list.length-1;i>=0;i--){
         const j=list[i];
@@ -968,18 +835,35 @@
     }
     if(changed)nativeQueueSave();return changed;
   }
-  function nativeQueueResearchHead(townId) {
+  function nativeQueueResearchCandidates(townId) {
     nativeQueueReconcileResearch(townId);
-    const list=nativeQueueList(townId,'research',false),job=list[0];if(!job)return null;
-    if(nativeQueuePaused(townId,'research')){nativeQueueSetJobState(job,'paused','cola pausada');return null}
-    if(list.some(j=>j&&j!==job&&(j.manualReview||j.inflight))){nativeQueueSetJobState(job,'blocked','hay otra acción pendiente de revisión');return null}
-    if(job.manualReview){nativeQueueSetJobState(job,'unknown',job.reason||'comprobar la cola real y quitar este trabajo si no se envió');return null}
-    if(job.inflight){nativeQueueSetJobState(job,'sending',job.reason||'enviando a la cola real');return null}
-    return job;
+    const list=nativeQueueList(townId,'research',false);if(!list.length)return [];
+    if(nativeQueuePaused(townId,'research')){
+      const first=list.find(Boolean);if(first)nativeQueueSetJobState(first,'paused','cola pausada');return [];
+    }
+    const active=list.find(j=>j&&j.inflight);
+    if(active){nativeQueueSetJobState(active,'sending',active.reason||'enviando a la cola real');return []}
+    const reviewTechs=new Set(list.filter(j=>j&&j.manualReview&&j.tech).map(j=>String(j.tech)));
+    for(const j of list)if(j&&j.manualReview)nativeQueueSetJobState(j,'unknown',j.reason||'resultado pendiente de revisión; otras investigaciones pueden continuar');
+    const out=[];
+    for(const job of list){
+      if(!job||job.manualReview||job.inflight)continue;
+      if(reviewTechs.has(String(job.tech))){nativeQueueSetJobState(job,'waiting-review','misma investigación pendiente de revisión');continue}
+      const deps=nativeResearchDepClosure(job.tech);
+      let blocked=false;
+      for(const t of reviewTechs)if(deps.has(t)){blocked=true;break}
+      if(blocked){nativeQueueSetJobState(job,'waiting-review','requisito pendiente de revisión');continue}
+      out.push(job);
+    }
+    return out;
+  }
+  function nativeQueueResearchHead(townId) {
+    return nativeQueueResearchCandidates(townId)[0]||null;
   }
   function nativeQueueResearchApplied(townId,jobId) {
-    const list=nativeQueueList(townId,'research',false),job=list[0];if(!job||job.id!==jobId)return;
-    list.shift();nativeQueueSave();
+    const list=nativeQueueList(townId,'research',false);
+    const i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return;
+    list.splice(i,1);nativeQueueSave();
   }
 
   gbAddStyle('native-ui', `
@@ -989,8 +873,9 @@
        even though the button looked reachable. position+z-index puts it on top
        of its stacking context and makes hit-testing land on the button. */
     .gb-native-qctl{position:relative;z-index:2147482000;pointer-events:auto;display:inline-flex;align-items:center;gap:2px;margin:0 0 0 2px;padding:1px 3px;border:1px solid #8a6725;border-radius:4px;background:rgba(31,25,16,.94);color:#f6e3b0;font:10px/1.2 Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";box-shadow:0 1px 3px rgba(0,0,0,.45);vertical-align:middle}
-    /* Shared style for the batched-input fields used by the recruit popover
-       and the in-window native recruit tile (+Lote row, +N, etc.). */
+    /* Shared style for the batched-input fields used by both the Queue Center
+       +Lote row and the in-window native recruit tile (native-ui.js +
+       queue-center.js used to keep the literal inline and out of sync). */
     .gb-native-qinp{width:55px;background:#111;color:#cfc;border:1px solid #444;border-radius:3px;padding:1px 3px}
     .gb-native-qbtn{position:relative;z-index:1;pointer-events:auto;min-width:22px;height:20px;padding:0 4px;border:1px solid #9b7938;border-radius:4px;background:linear-gradient(#5b4828,#342814);color:#fff3c7;font:bold 11px Arial,sans-serif,"Segoe UI Symbol","Noto Sans Symbols 2","DejaVu Sans";cursor:pointer}
     .gb-native-qbtn:hover{border-color:#e5b94f;color:#fff}.gb-native-qbtn:disabled{opacity:.42;cursor:default}
@@ -1047,11 +932,7 @@
     try{for(let n=root;n&&n!==document.body;n=n.parentElement){add(n.getAttribute&&n.getAttribute('data-town-id'));add(n.getAttribute&&n.getAttribute('data-town_id'));add(n.getAttribute&&n.getAttribute('data-townid'))}}
     catch(_){}
     try{root.querySelectorAll('input[name="town_id"],input[data-town-id],input[data-town_id]').forEach(n=>{add(n.value);add(n.getAttribute('data-town-id'));add(n.getAttribute('data-town_id'))})}catch(_){}
-    // C3: a window that carries several distinct town ids (a town selector, a
-    // trade/support widget) used to abort the whole root, which removes every
-    // control and the panel with it — "no panel at all". When the currently
-    // open town is one of the candidates and this root is the focused window,
-    // that is the town the window is acting on.
+
     if(ids.size>1){
       const cur=abCurrentTownId();
       const curId=cur==null?null:String(cur);
@@ -1065,26 +946,34 @@
     const isRelevant=r=>!!(r&&r.matches&&r.matches('#unit_order,.window_content,.gpwindow_content'))&&!!(r.matches('#unit_order')||nativeAcademyRoot(r)||r.querySelector(`#unit_order,#building_main,.building_main,[id^="building_main_"],[id^="special_building_"],${NATIVE_RESEARCH_SEL}`));
     const relevant=isRelevant(root);
     if(!relevant)return null;
-    // With several open windows, only the focused one may inherit Game.townId.
+
     let focusProven=false;
     try{const mgr=gameUw().GPWindowMgr,w=mgr&&mgr.getFocusedWindow&&mgr.getFocusedWindow(),jq=w&&w.getJQElement&&w.getJQElement(),el=jq&&(jq[0]||jq.get&&jq.get(0));if(el){focusProven=true;if(!(el===root||el.contains(root)||root.contains(el)))return null}}catch(_){}
     if(!focusProven){try{const candidates=[...document.querySelectorAll('.window_content,.gpwindow_content,#unit_order')].filter((x,i,a)=>a.indexOf(x)===i&&!x.closest('#grepbot-panel')&&!x.closest('[hidden]')&&(x.getClientRects?x.getClientRects().length>0:true)),visibleRoots=candidates.filter(x=>!candidates.some(y=>y!==x&&y.contains(x))).filter(isRelevant);if(visibleRoots.length!==1||visibleRoots[0]!==root){if(visibleRoots.length>=2){const focused=document.activeElement;let pick=null;for(const r of visibleRoots){if(r===focused||(focused&&r.contains(focused)))pick=r;if(pick)break}if(!pick)pick=visibleRoots[0];if(pick!==root)return null}else return null}}catch(_){return null}}
     const current=abCurrentTownId(),id=current==null?null:String(current);return id&&abGetTown(id)?id:null;
   }
   function nativeTownAction(root,townId,onClick) {
-    return e=>{if(!gbTabLeader){flash('GrepBot está activo en otra pestaña');return false}const live=nativeWindowTownId(root);if(String(live||'')!==String(townId||'')){flash('La ciudad de esta ventana ha cambiado; vuelve a intentarlo');scheduleNativeUiScan();return false}return onClick&&onClick(e)};
+    return e=>{if(!gbTabLeader){flash('GrepBot est\u00e1 activo en otra pesta\u00f1a');return false}const live=nativeWindowTownId(root);if(String(live||'')!==String(townId||'')){flash('La ciudad de esta ventana ha cambiado; vuelve a intentarlo');scheduleNativeUiScan();return false}return onClick&&onClick(e)};
   }
-  // The panel lives on document.body, so re-running nativeWindowTownId against
-  // the in-window root can return null (focus moved, window rerendered) and
-  // swallow every click. Town validity is enforced by nativeUiScan — the panel
-  // itself is destroyed when its town is no longer mounted.
+
   function nativePanelAction(townId,onClick) {
-    return e=>{if(!gbTabLeader){flash('GrepBot está activo en otra pestaña');return false}return onClick&&onClick(e)};
+    return e=>{if(!gbTabLeader){flash('GrepBot est\u00e1 activo en otra pesta\u00f1a');return false}return onClick&&onClick(e)};
   }
   function nativeTileAction(root,townId,tile,kind,id,onClick) {
     return nativeTownAction(root,townId,e=>{const live=kind==='build'?nativeBuildingId(tile):(kind==='research'?nativeResearchId(tile):nativeUnitId(tile));if(String(live||'')!==String(id||'')){flash('Este elemento de la ventana ha cambiado; vuelve a intentarlo');scheduleNativeUiScan();return false}return onClick&&onClick(e)});
   }
   function nativeGuardEvent(e){e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation()}
+  function nativeRecruitRememberedQty(fallback) {
+    const fb=Math.max(1,Math.floor(+fallback||1));
+    const n=Math.floor(+load(STORE.NATIVE_RECRUIT_LAST_QTY,fb)||fb);
+    return Math.max(1,n);
+  }
+  function nativeRecruitRememberQty(value,fallback) {
+    const fb=Math.max(1,Math.floor(+fallback||1));
+    const n=Math.max(1,Math.floor(+value||fb));
+    save(STORE.NATIVE_RECRUIT_LAST_QTY,n);
+    return n;
+  }
   function nativeQButton(text,title,onClick) {
     const b=document.createElement('button');b.type='button';b.className='gb-native-qbtn';b.textContent=text;b.title=title;b.setAttribute('aria-label',title);
     b.addEventListener('pointerdown',e=>{e.stopPropagation()});b.addEventListener('mousedown',e=>{e.stopPropagation()});
@@ -1094,10 +983,7 @@
     if(!node)return null;const ids=new Set(),add=v=>{v=String(v||'');if(AB_BUILDINGS.includes(v))ids.add(v)};for(const k of ['data-building_type','data-building-type','data-building'])add(node.getAttribute(k));
     try{const child=node.querySelector('[data-building_type],[data-building-type],[data-building]');if(child)for(const k of ['data-building_type','data-building-type','data-building'])add(child.getAttribute(k))}catch(_){}const m=String(node.id||'').match(/^(?:building_main|special_building)_([a-z0-9_]+)$/i);if(m)add(m[1]);return ids.size===1?[...ids][0]:null;
   }
-  // Suffix matchers for every known unit id, longest first so `slinger` cannot
-  // win over `attack_slinger`. Built once per GameData.units shape: nativeUiScan
-  // runs on an 80ms DOM debounce and calls nativeUnitId per unit tile, so
-  // compiling ~35 regexes per tile per scan was the hottest thing in the file.
+
   let nativeUnitMatcherCache = null;
   function nativeUnitMatchers() {
     let keys=[];try{keys=Object.keys((gameUw().GameData&&gameUw().GameData.units)||{})}catch(_){}
@@ -1112,29 +998,12 @@
     if(!node)return null;const child=node.querySelector&&node.querySelector('[data-unit_id],[data-unit-id],[data-unit_type],[data-unit-type]');const vals=[node.getAttribute('data-unit_id'),node.getAttribute('data-unit-id'),node.getAttribute('data-unit_type'),node.getAttribute('data-unit-type'),child&&(child.getAttribute('data-unit_id')||child.getAttribute('data-unit-id')||child.getAttribute('data-unit_type')||child.getAttribute('data-unit-type')),node.id].filter(Boolean).map(String);
     const ids=new Set();for(const id of vals)if(gbGameDataLookup("units", id))ids.add(id);const matchers=nativeUnitMatchers();for(const raw of vals)for(const m of matchers)if(m.re.test(raw))ids.add(m.id);return ids.size===1?[...ids][0]:null;
   }
-  // The academy tech tree keys every entry off data-research_id (the game's own
-  // `.tech_tree_box .button_upgrade[data-research_id=…]` selector); the dashed
-  // and _type spellings are accepted because client builds have used both.
+
   const NATIVE_RESEARCH_SEL='[data-research_id],[data-research-id],[data-research_type],[data-research-type]';
-  // C1 fallback. The tech tree template is server-rendered and absent from every
-  // capture, so the attribute's presence cannot be proven offline — and jQuery
-  // `.data()` (which the game's click handler uses) reads its own store BEFORE
-  // the attribute, so a template that sets the value in JS leaves no attribute
-  // to match. These class hooks are what the game itself binds (`.btn_upgrade`)
-  // and what its user guide targets (`.button_upgrade` / `.research_icon`).
-  // A node only becomes a tile if nativeResearchId resolves a real GameData
-  // tech from it — an unresolvable node is skipped, never guessed.
+
   const NATIVE_RESEARCH_SEL_CLASS='.btn_upgrade,.button_upgrade,.research_icon';
   const NATIVE_RESEARCH_SEL_ALL=NATIVE_RESEARCH_SEL+','+NATIVE_RESEARCH_SEL_CLASS;
-  // C3: those class hooks are NOT academy-exclusive. The capture has
-  // `.js-window-main-container classic_window farm_town` shipping
-  // `.farm_town .btn_upgrade` (rural village upgrade), and the construction
-  // queue's `getIconType()` returns `research_icon research40x40` for a running
-  // research. Both matched NATIVE_RESEARCH_SEL_CLASS in windows with no academy
-  // in them, resolved no tech, and fired the "academy root matched N research
-  // node(s) but resolved 0 techs" warning. Only widen to the class fallback
-  // inside a root that is provably the academy; the attribute selector stays
-  // global because data-research_id is unambiguous on its own.
+
   function nativeAcademyRoot(root) {
     if(!root)return false;
     try{
@@ -1150,10 +1019,7 @@
   function nativeResearchTileSel(root) {
     return nativeAcademyRoot(root)?NATIVE_RESEARCH_SEL_ALL:NATIVE_RESEARCH_SEL;
   }
-  // C2: the value on the tile need not be the GameData key — a numeric id or a
-  // differing research_type spelling yields null for every tile and the whole
-  // lane silently disappears. Map through GameData.researches' own id fields
-  // instead of relaxing the gate to "anything string-shaped".
+
   let nativeResearchKeyCache=null;
   function nativeResearchKey(raw) {
     const v=String(raw==null?'':raw).trim();
@@ -1175,8 +1041,7 @@
     }
     return nativeResearchKeyCache.map[v]||null;
   }
-  // GameDataResearches.getResearchCssClass(e) returns the tech key, with `_old`
-  // (take_over on old command worlds) or `_bpv` (booty) appended.
+
   function nativeResearchFromClass(node) {
     try{
       const raw=node&&node.className;
@@ -1213,22 +1078,18 @@
     }
     return null;
   }
-  // Why a [+] must stay disabled. Returns '' when the append is allowed. A
-  // silent disabled button is unreadable in-game, so every caller also puts
-  // this text on the tooltip.
+
   function nativeBuildPlusBlock(building,projected,max,special) {
     if(special)return `Conflicto con ${nativeBuildLabel(special)}`;
     if(projected==null)return 'No se puede leer el nivel actual de este edificio';
-    if(max==null)return 'No se puede leer el nivel máximo de este edificio';
-    if(projected>=max)return `${nativeBuildLabel(building)} ya está al máximo (${max}) contando la cola`;
+    if(max==null)return 'No se puede leer el nivel m\u00e1ximo de este edificio';
+    if(projected>=max)return `${nativeBuildLabel(building)} ya est\u00e1 al m\u00e1ximo (${max}) contando la cola`;
     return '';
   }
   function nativeApplyPlusBlock(btn,why) {
     if(!btn||!why)return;btn.disabled=true;btn.title=why;btn.setAttribute('aria-label',why);
   }
-  // z-index only wins inside the nearest stacking context; a game ancestor that
-  // creates its own can still bury the control. Detect it instead of guessing:
-  // hit-test the button centre and name whatever intercepts the click.
+
   function nativeQctlHitCheck(ctl,label) {
     gbTimeout(()=>{
       try{
@@ -1237,19 +1098,15 @@
         const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
         if(hit&&(hit===btn||btn.contains(hit)||ctl.contains(hit)))return;
         const desc=hit?`${hit.tagName.toLowerCase()}${hit.id?'#'+hit.id:''}${hit.className&&typeof hit.className==='string'?'.'+hit.className.trim().split(/\s+/).join('.'):''}`:'nada';
-        gbLogT('native-qctl-covered-'+label,300000,`native queue: [+] for ${label} is covered by ${desc} — click will not reach it`);
+        gbLogT('native-qctl-covered-'+label,300000,`native queue: [+] for ${label} is covered by ${desc} \u2014 click will not reach it`);
       }catch(_){}
     },250);
   }
   function nativeMountBuildControl(root,tile,townId,building) {
-    const list=nativeQueueList(townId,'build',false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),jobs=list.filter(j=>j&&j.building===building);
+    const list=nativeQueueList(townId,'build',false),frozen=list.some(j=>j&&j.inflight),jobs=list.filter(j=>j&&j.building===building);
     const projected=nativeQueueProjectedBuildLevel(townId,building),pos=nativeQueuePosition(townId,'build',j=>j&&j.building===building);
     const head=pos===1&&list[0],max=abMaxLevel(building),special=nativeSpecialConflict(townId,building),sig=JSON.stringify([townId,building,projected,pos,frozen,max,special,jobs.map(j=>[j.id,j.toLevel,j.status,j.reason,!!j.inflight,!!j.manualReview])]);
 
-    // The signature has to be read off the control that is ALREADY mounted. The
-    // old order removed every control first and then compared the signature of a
-    // freshly created node, which can never match - so every 80ms scan rebuilt
-    // the whole control stack. Keep the matching node, strip the rest.
     const existing=[...tile.querySelectorAll('.gb-native-qctl[data-building]')];
     const keep=existing.find(c=>c.dataset.building===building&&c.dataset.sig===sig);
     for(const c of existing)if(c!==keep)c.remove();
@@ -1258,35 +1115,28 @@
     const anchor=tile.querySelector('.level,.building_level,.level_wrapper');(anchor&&anchor.parentElement||tile).appendChild(ctl);
     if(!jobs.length){
 
-      const plus=nativeQButton('+',`Añadir ${nativeBuildLabel(building)} +1 al final de la cola virtual`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueAddBuild(townId,building)));
-      const fill=nativeQButton('++',`Encolar ${nativeBuildLabel(building)} desde el nivel ${projected} hasta el máximo (${max})`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueFillToMax(townId,building)));
+      const plus=nativeQButton('+',`A\u00f1adir ${nativeBuildLabel(building)} +1 al final de la cola virtual`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueAddBuild(townId,building)));
       nativeApplyPlusBlock(plus,nativeBuildPlusBlock(building,projected,max,special));
-      nativeApplyPlusBlock(fill,nativeBuildPlusBlock(building,projected,max,special));
-      ctl.append(plus,fill);nativeQctlHitCheck(ctl,building);return;
+      ctl.append(plus);nativeQctlHitCheck(ctl,building);return;
     }
 
-    const minus=nativeQButton('-','Quitar la última mejora virtual',nativeTileAction(root,townId,tile,'build',building,()=>{if(!nativeQueueRemoveLastBuild(townId,building))flash('No hay mejora virtual que quitar')}));minus.disabled=!jobs.some(j=>j&&!j.inflight&&!j.manualReview);
+    const minus=nativeQButton('-','Quitar la \u00faltima mejora virtual',nativeTileAction(root,townId,tile,'build',building,()=>{if(!nativeQueueRemoveLastBuild(townId,building))flash('No hay mejora virtual que quitar')}));minus.disabled=!jobs.some(j=>j&&!j.inflight&&!j.manualReview);
     const count=document.createElement('span');count.className='gb-native-qcount';
-    count.textContent=`Plan ${projected}${pos?' · #'+pos:''}`;
+    count.textContent=`Plan ${projected}${pos?' \u00b7 #'+pos:''}`;
     if(head&&head.reason)count.title=head.reason;
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
-    const plus=nativeQButton('+',`Añadir ${nativeBuildLabel(building)} +1 al final de la cola`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueAddBuild(townId,building)));
-    const fill=nativeQButton('++',`Encolar ${nativeBuildLabel(building)} desde el nivel ${projected} hasta el máximo (${max})`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueFillToMax(townId,building)));
+    const plus=nativeQButton('+',`A\u00f1adir ${nativeBuildLabel(building)} +1 al final de la cola`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueAddBuild(townId,building)));
     nativeApplyPlusBlock(plus,nativeBuildPlusBlock(building,projected,max,special));
-    nativeApplyPlusBlock(fill,nativeBuildPlusBlock(building,projected,max,special));
-    ctl.append(minus,count,plus,fill);nativeQctlHitCheck(ctl,building);
+    ctl.append(minus,count,plus);nativeQctlHitCheck(ctl,building);
   }
   function nativeMountRecruitControl(root,tile,townId,unit) {
 
-    // Position and freeze are read from THIS unit's own lane: a stuck trireme
-    // must not grey out the barracks controls.
     const lane=nativeRecruitLaneOf(townId,unit);
-    const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&(j.inflight||j.manualReview)),step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit);
+    const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&j.inflight),step=nativeUnitStep(unit),pending=nativeQueueRecruitAmount(townId,unit);
     const pos=nativeQueuePosition(townId,lane,j=>j&&j.unit===unit),head=pos===1&&list[0];
 
     const sig=JSON.stringify([townId,unit,lane,step,pending,pos,frozen,head&&head.status,head&&head.reason,list.length]);
 
-    // Same as the build lane: compare against the mounted node, not a new one.
     const existing=[...tile.querySelectorAll(':scope > .gb-native-qctl[data-unit]')];
     const keep=existing.find(c=>c.dataset.unit===unit&&c.dataset.sig===sig);
     for(const c of existing)if(c!==keep)c.remove();
@@ -1296,14 +1146,14 @@
     try{if(getComputedStyle(tile).position==='static')tile.style.position='relative'}catch(_){}
     tile.appendChild(ctl);
     if(pending>0){
-      const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=`+${pending}${pos?' · #'+pos:''}`;count.title=head&&head.reason?head.reason:`${pending} pendiente(s)`;
+      const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=`+${pending}${pos?' \u00b7 #'+pos:''}`;count.title=head&&head.reason?head.reason:`${pending} pendiente(s)`;
       if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
       ctl.append(count);
     }
     const row=document.createElement('div');row.className='gb-native-qrow';
-    const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola virtual (Ctrl: ×5)`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));
+    const plus=nativeQButton(`+${step}`,`A\u00f1adir ${step} ${nativeUnitLabel(unit)} a la cola virtual (Ctrl: \u00d75)`,nativeTileAction(root,townId,tile,'unit',unit,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));
 
-    const more=nativeQButton('...',`Más opciones de cola para ${nativeUnitLabel(unit)}: restar, cantidad libre, lote y compactar`,nativeTileAction(root,townId,tile,'unit',unit,()=>nativeRecruitPopover(root,tile,townId,unit)));
+    const more=nativeQButton('...',`M\u00e1s opciones de cola para ${nativeUnitLabel(unit)}: restar, cantidad libre, lote y compactar`,nativeTileAction(root,townId,tile,'unit',unit,()=>nativeRecruitPopover(root,tile,townId,unit)));
     row.append(plus,more);ctl.append(row);
     nativeQctlHitCheck(ctl,unit);
   }
@@ -1328,25 +1178,28 @@
       return tile?nativeTileAction(root,townId,tile,'unit',unit,run):nativePanelAction(townId,run);
     };
     const head1=document.createElement('div');head1.className='gb-native-qpop-head';
-    const title=document.createElement('span');title.textContent=`${nativeUnitLabel(unit)} · ${lane==='recruitNaval'?'Puerto':'Cuartel'}`;
+    const title=document.createElement('span');title.textContent=`${nativeUnitLabel(unit)} \u00b7 ${lane==='recruitNaval'?'Puerto':'Cuartel'}`;
     head1.append(title,nativeQButton('x','Cerrar',()=>nativeQPopClose()));pop.appendChild(head1);
     const rowA=document.createElement('div');rowA.className='gb-native-qpop-row';
     const minus=nativeQButton(`-${step}`,`Restar ${step} de la cola virtual de esta unidad`,act(()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));
     minus.disabled=!list.some(j=>j&&j.unit===unit&&!j.inflight&&!j.manualReview);
-    const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=pending>0?`+${pending}${pos?' · #'+pos:''}`:'sin cola';
+    const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=pending>0?`+${pending}${pos?' \u00b7 #'+pos:''}`:'sin cola';
     count.title=head&&head.reason?head.reason:`${pending||0} pendiente(s)`;
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
-    const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola virtual`,act(e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));
+    const plus=nativeQButton(`+${step}`,`A\u00f1adir ${step} ${nativeUnitLabel(unit)} a la cola virtual`,act(e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));
     rowA.append(minus,count,plus);pop.appendChild(rowA);
     const rowB=document.createElement('div');rowB.className='gb-native-qpop-row';
-    const qtyInp=document.createElement('input');qtyInp.type='number';qtyInp.min='1';qtyInp.step=String(step);qtyInp.value=String(step);qtyInp.title=`Cantidad a añadir (paso ${step})`;qtyInp.className='gb-native-qinp';
-    const qtyBtn=nativeQButton('+N',`Añadir N ${nativeUnitLabel(unit)} a la cola virtual (paso ${step})`,act(()=>{const n=Math.max(1,Math.floor(+qtyInp.value||step));nativeQueueAddRecruit(townId,unit,n)}));
+    const qtyInp=document.createElement('input');qtyInp.type='number';qtyInp.min='1';qtyInp.step=String(step);qtyInp.value=String(nativeRecruitRememberedQty(step));qtyInp.title=`Cantidad a a\u00f1adir (paso ${step}) · recuerda el ultimo valor usado`;qtyInp.className='gb-native-qinp';
+    // The popover is rebuilt after every queue action. Persist the custom amount
+    // globally so +N keeps the last value instead of snapping back to 1/10.
+    qtyInp.addEventListener('change',()=>{qtyInp.value=String(nativeRecruitRememberQty(qtyInp.value,step))});
+    const qtyBtn=nativeQButton('+N',`A\u00f1adir N ${nativeUnitLabel(unit)} a la cola virtual (paso ${step})`,act(()=>{const n=nativeRecruitRememberQty(qtyInp.value,step);nativeQueueAddRecruit(townId,unit,n)}));
     rowB.append(qtyInp,qtyBtn);pop.appendChild(rowB);
     const rowC=document.createElement('div');rowC.className='gb-native-qpop-row';
     const totalInp=document.createElement('input');totalInp.type='number';totalInp.min='1';totalInp.step=String(step);totalInp.value=String(step*10);totalInp.title='Total de unidades a encolar';totalInp.className='gb-native-qinp';
     const sep2=document.createElement('span');sep2.textContent='/';sep2.style.color='#666';
-    const chunkInp=document.createElement('input');chunkInp.type='number';chunkInp.min='1';chunkInp.step=String(step);chunkInp.value=String(step);chunkInp.title='Tamaño de cada lote al servidor';chunkInp.className='gb-native-qinp';
-    const lotBtn=nativeQButton('+Lote','Encolar el total en lotes del tamaño indicado; cada envío se confirma antes de pasar al siguiente, y la fila se quita al agotarse',act(()=>{const r=nativeQueueAddRecruitBatch(townId,unit,+totalInp.value||0,+chunkInp.value||0);if(r&&r.ok)flash(`Lote encolado: ${r.total} en ${r.lotes} envío(s) de ${r.chunk}`);else flash((r&&r.why)||'no se pudo encolar el lote')}));
+    const chunkInp=document.createElement('input');chunkInp.type='number';chunkInp.min='1';chunkInp.step=String(step);chunkInp.value=String(step);chunkInp.title='Tama\u00f1o de cada lote al servidor';chunkInp.className='gb-native-qinp';
+    const lotBtn=nativeQButton('+Lote','Encolar el total en lotes del tama\u00f1o indicado; cada env\u00edo se confirma antes de pasar al siguiente, y la fila se quita al agotarse',act(()=>{const r=nativeQueueAddRecruitBatch(townId,unit,+totalInp.value||0,+chunkInp.value||0);if(r&&r.ok)flash(`Lote encolado: ${r.total} en ${r.lotes} env\u00edo(s) de ${r.chunk}`);else flash((r&&r.why)||'no se pudo encolar el lote')}));
     rowC.append(totalInp,sep2,chunkInp,lotBtn);pop.appendChild(rowC);
     if(list.length>=2){
       const rowD=document.createElement('div');rowD.className='gb-native-qpop-row';
@@ -1376,31 +1229,23 @@
     const pos=nativeQueuePosition(townId,'research',j=>j&&String(j.tech)===String(tech)),head=pos===1&&list[0];
     const sig=JSON.stringify([townId,tech,pos,done,inReal,head&&head.status,head&&head.reason,list.length]);
 
-    // Scoped to THIS tech across the whole root, not to `tile`. The control is
-    // anchored next to the tech caption when there is one, so it is not always a
-    // direct child of tile — and a tile-wide `[data-research]` sweep would let
-    // one tech delete a sibling tech's control when several share a parent,
-    // which churns forever. Matching on the tech makes both cases exact.
     const existing=[...root.querySelectorAll('.gb-native-qctl[data-research]')].filter(c=>c.dataset.research===tech);
     const keep=existing.find(c=>c.dataset.sig===sig);
     for(const c of existing)if(c!==keep)c.remove();
     if(keep)return;
     const ctl=document.createElement('div');ctl.className='gb-native-qctl';ctl.dataset.research=tech;ctl.dataset.sig=sig;
 
-    // Match the build lane's anchor logic (H6). A tech-tree cell is a fixed-size
-    // sprite box, so an inline-flex control appended to the cell itself can be
-    // clipped; the caption/level wrapper next to it is laid out in flow.
     const anchor=tile.querySelector('.research_name,.research_level,.level');
     ((anchor&&anchor.parentElement)||tile).appendChild(ctl);
-    const blockWhy=done?`${nativeResearchLabel(tech)} ya está investigada`:(inReal?`${nativeResearchLabel(tech)} ya está en la cola real`:'');
+    const blockWhy=done?`${nativeResearchLabel(tech)} ya est\u00e1 investigada`:(inReal?`${nativeResearchLabel(tech)} ya est\u00e1 en la cola real`:'');
     if(!pos){
-      const plus=nativeQButton('+',`Añadir ${nativeResearchLabel(tech)} a la cola virtual`,nativeTileAction(root,townId,tile,'research',tech,()=>nativeQueueAddResearch(townId,tech)));
+      const plus=nativeQButton('+',`A\u00f1adir ${nativeResearchLabel(tech)} a la cola virtual`,nativeTileAction(root,townId,tile,'research',tech,()=>nativeQueueAddResearch(townId,tech)));
       nativeApplyPlusBlock(plus,blockWhy);
       ctl.append(plus);nativeQctlHitCheck(ctl,tech);return;
     }
-    const minus=nativeQButton('-','Quitar esta investigación de la cola virtual',nativeTileAction(root,townId,tile,'research',tech,()=>{if(!nativeQueueRemoveResearch(townId,tech))flash('No se puede quitar esta investigación de la cola')}));
+    const minus=nativeQButton('-','Quitar esta investigaci\u00f3n de la cola virtual',nativeTileAction(root,townId,tile,'research',tech,()=>{if(!nativeQueueRemoveResearch(townId,tech))flash('No se puede quitar esta investigaci\u00f3n de la cola')}));
     minus.disabled=!list.some(j=>j&&String(j.tech)===String(tech)&&!j.inflight&&!j.manualReview);
-    const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=`Cola · #${pos}`;
+    const count=document.createElement('span');count.className='gb-native-qcount';count.textContent=`Cola \u00b7 #${pos}`;
     if(head&&head.reason)count.title=head.reason;
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
     ctl.append(minus,count);nativeQctlHitCheck(ctl,tech);
@@ -1431,17 +1276,10 @@
   }
   function nativeRenderQueuePanel(root,townId,lane,units) {
 
-    // The panel mounts on document.body (fixed position) so it never sits on top
-    // of the in-game queue UI inside the window. Scoped per town window by id.
     let box=document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`);
     if(!box){box=document.createElement('div');box.className='gb-native-panel';box.dataset.lane=lane;box.dataset.town=String(townId);document.body.appendChild(box);box.addEventListener('mousedown',e=>e.stopPropagation());box.addEventListener('click',e=>e.stopPropagation())}
 
-    // nativeUiScan re-renders this on every game-DOM mutation and every 5s tick,
-    // so it paints through gbPaint: unchanged lanes are patched, not rebuilt,
-    // and the panel stops swallowing the click you were about to make on it.
-    // The key carries the job ids AND the flags each row's handler closes over
-    // (frozen/inflight), so a kept button can never act for a different job.
-    const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&(j.inflight||j.manualReview));
+    const list=nativeQueueList(townId,lane,false),frozen=list.some(j=>j&&j.inflight);
     const roster=NATIVE_RECRUIT_LANES.includes(lane)?[...new Set((units||[]).filter(Boolean))]:[];
     const ckey=`${lane}|${townId}`,collapsed=!!nativeQPanelCollapsed[ckey];
 
@@ -1449,29 +1287,15 @@
       +list.map(j=>`${j.id}:${j.inflight?1:0}${j.manualReview?'m':''}`).join(',')
       +'|'+roster.map(u=>`${u}:${nativeQueueRecruitAmount(townId,u)}:${nativeQueuePosition(townId,lane,j=>j&&j.unit===u)||0}`).join(',');
     gbPaint(box,stage=>{
-      const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot · Construcción':(lane==='research'?'Cola GrepBot · Investigación':(lane==='recruitNaval'?'Cola GrepBot · Puerto':'Cola GrepBot · Cuartel'));gbTip(title, 'Cola virtual de GrepBot para esta ciudad y tipo de edificio/unidad');head.appendChild(title);
+      const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot \u00b7 Construcci\u00f3n':(lane==='research'?'Cola GrepBot \u00b7 Investigaci\u00f3n':(lane==='recruitNaval'?'Cola GrepBot \u00b7 Puerto':'Cola GrepBot \u00b7 Cuartel'));gbTip(title, 'Cola virtual de GrepBot para esta ciudad y tipo de edificio/unidad');head.appendChild(title);
       const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'>':'||',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
       if(!list.length&&nativeQueueIsFifo(townId,lane)){const legacy=nativeQButton('Objetivos','Volver al planificador de objetivos',nativeTownAction(root,townId,()=>nativeQueueUseLegacy(townId,lane)));head.appendChild(legacy)}
-      // Plan CS scripted: solo en la cola de construcción. Mientras esté activo,
-      // el botón muestra la fase actual y al pulsarlo detiene el script.
-      if (lane === 'build') {
-        const scriptActive = abScriptActive();
-        const phase = scriptActive ? abScriptCurrentPhase(townId) : null;
-        const scriptLbl = scriptActive ? (phase ? `CS: ${phase.label}` : 'CS: calculando…') : 'Plan CS';
-        const scriptBtn = nativeQButton(scriptActive ? '⏹' : '▶', scriptActive ? `Detener ${scriptLbl}` : 'Activar plan CS (Senado 24 → Academia 7 → Teatro → Academia 30 → Máx)', nativeTownAction(root,townId,() => {
-          if (abScriptActive() && !confirm('¿Detener el plan CS y volver a los objetivos compartidos?')) return;
-          abScriptToggle();
-          try { abScan('manual'); } catch (_) {}
-        }));
-        scriptBtn.style.color = scriptActive ? '#ffb060' : '#9bd';
-        head.appendChild(scriptBtn);
-      }
-      head.appendChild(nativeQButton(collapsed?'▸':'▾',collapsed?'Desplegar este panel':'Plegar este panel',nativePanelAction(townId,()=>{nativeQPanelCollapsed[ckey]=!collapsed;scheduleNativeUiScan()})));
+      head.appendChild(nativeQButton(collapsed?'\u25b8':'\u25be',collapsed?'Desplegar este panel':'Plegar este panel',nativePanelAction(townId,()=>{nativeQPanelCollapsed[ckey]=!collapsed;scheduleNativeUiScan()})));
       stage.appendChild(head);
       if(collapsed){
         const sum=document.createElement('div');sum.className='gb-native-panel-sum';
         const pend=list.reduce((n,j)=>n+(+j.amount||0),0);
-        sum.textContent=list.length?`${list.length} en cola${pend?` · ${pend} unidad(es)`:''}`:'Cola vacía';
+        sum.textContent=list.length?`${list.length} en cola${pend?` \u00b7 ${pend} unidad(es)`:''}`:'Cola vac\u00eda';
         stage.appendChild(sum);return;
       }
 
@@ -1483,23 +1307,23 @@
           const row=document.createElement('div');row.className='gb-native-unit';row.dataset.unit=unit;
           const name=document.createElement('b');name.textContent=nativeUnitLabel(unit);name.title=nativeUnitLabel(unit);
           const count=document.createElement('span');count.className='gb-native-qcount';
-          count.textContent=pending>0?`+${pending}${pos?' · #'+pos:''}`:'—';
+          count.textContent=pending>0?`+${pending}${pos?' \u00b7 #'+pos:''}`:'\u2014';
           count.title=uhead&&uhead.reason?uhead.reason:`${pending||0} pendiente(s) en la cola virtual`;
           if(pending>0&&uhead){if(uhead.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(uhead.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
           const acts=document.createElement('div');acts.className='gb-native-unit-actions';
           const minus=nativeQButton(`-${step}`,`Restar ${step} ${nativeUnitLabel(unit)} de la cola virtual`,nativePanelAction(townId,()=>{if(!nativeQueueRemoveLastRecruit(townId,unit,step))flash('No hay unidades virtuales que quitar')}));
           minus.disabled=!list.some(j=>j&&j.unit===unit&&!j.inflight&&!j.manualReview);
-          const plus=nativeQButton(`+${step}`,`Añadir ${step} ${nativeUnitLabel(unit)} a la cola virtual (Ctrl: ×5)`,nativePanelAction(townId,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));
+          const plus=nativeQButton(`+${step}`,`A\u00f1adir ${step} ${nativeUnitLabel(unit)} a la cola virtual (Ctrl: \u00d75)`,nativePanelAction(townId,e=>nativeQueueAddRecruit(townId,unit,(e.ctrlKey||e.metaKey)?step*5:step)));
 
-          const more=nativeQButton('…',`Más opciones para ${nativeUnitLabel(unit)}: cantidad libre, lote y compactar`,nativePanelAction(townId,()=>nativeRecruitPopover(root,null,townId,unit,row)));
+          const more=nativeQButton('\u2026',`M\u00e1s opciones para ${nativeUnitLabel(unit)}: cantidad libre, lote y compactar`,nativePanelAction(townId,()=>nativeRecruitPopover(root,null,townId,unit,row)));
           acts.append(minus,plus,more);
           row.append(name,count,acts);grid.appendChild(row);
         }
         stage.appendChild(grid);
       }
-      if(!list.length){const empty=document.createElement('div');empty.className='gb-native-empty';empty.textContent=nativeQueueIsFifo(townId,lane)?'Cola vacía. Usa los botones + de arriba.':'Usa + para crear una cola FIFO en esta ciudad.';stage.appendChild(empty);return}
+      if(!list.length){const empty=document.createElement('div');empty.className='gb-native-empty';empty.textContent=nativeQueueIsFifo(townId,lane)?'Cola vac\u00eda. Usa los botones + de arriba.':'Usa + para crear una cola FIFO en esta ciudad.';stage.appendChild(empty);return}
       const jobs=document.createElement('div');jobs.className='gb-native-jobs';stage.appendChild(jobs);
-      list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}→${j.toLevel}`:(lane==='research'?nativeResearchLabel(j.tech):`${j.amount}× ${nativeUnitLabel(j.unit)}`);const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' · '+j.reason:''}`;gbTip(sub, 'Estado de la orden virtual + motivo si esta bloqueada');desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const top=nativeQButton('↑↑','Saltar al inicio de la cola',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-i)));top.disabled=frozen||i===0;const up=nativeQButton('↑','Mover antes',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('↓','Mover después',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const bot=nativeQButton('↓↓','Saltar al final de la cola',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,list.length-1-i)));bot.disabled=frozen||i===list.length-1;const del=nativeQButton('×','Quitar de la cola virtual',nativePanelAction(townId,()=>{if(j.inflight){flash('Esta orden se está enviando; espera a que termine');return false}if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acción se envió o no.')}catch(_){ok=false}if(!ok)return false}else if(frozen){let ok=false;try{ok=gameUw().confirm('Hay otra acción pendiente en esta cola. ¿Borrar este elemento de todos modos?')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id,{force:true})}));del.disabled=!!j.inflight;acts.append(top,up,down,bot,del);row.append(num,desc,acts);jobs.appendChild(row)});
+      list.forEach((j,i)=>{const row=document.createElement('div');row.className='gb-native-job';const num=document.createElement('b');num.textContent='#'+(i+1);const desc=document.createElement('div');const main=document.createElement('div');main.textContent=lane==='build'?`${nativeBuildLabel(j.building)} ${j.fromLevel}\u2192${j.toLevel}`:(lane==='research'?nativeResearchLabel(j.tech):`${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`);const sub=document.createElement('small');sub.textContent=`${j.status||'pending'}${j.reason?' \u00b7 '+j.reason:''}`;gbTip(sub, 'Estado de la orden virtual + motivo si esta bloqueada');desc.append(main,sub);const acts=document.createElement('div');acts.className='gb-native-job-actions';const up=nativeQButton('\u2191','Mover antes',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,-1)));up.disabled=frozen||i===0;const down=nativeQButton('\u2193','Mover despu\u00e9s',nativePanelAction(townId,()=>nativeQueueMove(townId,lane,j.id,1)));down.disabled=frozen||i===list.length-1;const del=nativeQButton('\u00d7','Quitar de la cola virtual',nativePanelAction(townId,()=>{if(j.inflight){flash('Esta orden se est\u00e1 enviando; espera a que termine');return false}if(j.manualReview){let ok=false;try{ok=gameUw().confirm('Comprueba primero la cola real. Borrar este elemento confirma que asumes si la acci\u00f3n se envi\u00f3 o no.')}catch(_){ok=false}if(!ok)return false}else if(frozen){let ok=false;try{ok=gameUw().confirm('Hay otra acci\u00f3n pendiente en esta cola. \u00bfBorrar este elemento de todos modos?')}catch(_){ok=false}if(!ok)return false}return nativeQueueRemove(townId,lane,j.id,{force:true})}));del.disabled=!!j.inflight;acts.append(up,down,del);row.append(num,desc,acts);jobs.appendChild(row)});
     },{key});
   }
   function nativeUiScan() {
@@ -1513,29 +1337,20 @@
       mountedTowns.add(String(townId));
       const senateContext=!!(root.matches('#building_main,.building_main,.senate')||root.querySelector('#building_main,.building_main,[id^="building_main_"],[id^="special_building_"]'));
 
-      // Iterate the unique per-building wrapper only. The Senate renders
-      // multiple descendant tiles inside each wrapper that all carry
-      // data-building_type=X; iterating them duplicates the control stack.
       const buildTiles=senateContext?[...root.querySelectorAll('[id^="building_main_"],[id^="special_building_"]')]:[];
-      for(const tile of buildTiles){if(tile.classList.contains('gb-native-qctl')||tile.closest('.gb-native-qctl'))continue;const id=nativeBuildingId(tile);if(!id||mountedBuildIds.has(id))continue;mountedBuildIds.add(id);nativeMountBuildControl(root,tile,townId,id);buildN++}
+      for(const tile of buildTiles){if(tile.classList.contains('gb-native-qctl')||tile.closest('.gb-native-qctl,.gb-native-panel'))continue;const id=nativeBuildingId(tile);if(!id||mountedBuildIds.has(id))continue;mountedBuildIds.add(id);nativeMountBuildControl(root,tile,townId,id);buildN++}
       const unitContext=root.matches('#unit_order')?root:root.querySelector('#unit_order');const unitTiles=unitContext?[...unitContext.querySelectorAll('#units .unit_tab,.unit_tab')]:[];
 
       const unitsByLane={recruit:[],recruitNaval:[]};
       for(const tile of unitTiles){const id=nativeUnitId(tile);if(!id||mountedUnitIds.has(id))continue;mountedUnitIds.add(id);const ulane=nativeRecruitLaneOf(townId,id);mountedUnitLanes.add(ulane);(unitsByLane[ulane]||(unitsByLane[ulane]=[])).push(id);nativeMountRecruitControl(root,tile,townId,id)}
 
-      // Academy: every tech entry carries data-research_id. The attribute can sit
-      // on the upgrade button itself, so mount on the outermost node per id —
-      // appending a control INSIDE a <button> would nest interactive elements.
-      const researchTiles=[...root.querySelectorAll(nativeResearchTileSel(root))].filter(n=>!n.closest('.gb-native-qctl'));
+      const researchTiles=[...root.querySelectorAll(nativeResearchTileSel(root))].filter(n=>!n.closest('.gb-native-qctl,.gb-native-panel'));
       const researchOuter=researchTiles.filter(n=>{const id=nativeResearchId(n);return id&&!researchTiles.some(o=>o!==n&&o.contains(n)&&nativeResearchId(o)===id)});
       for(const node of researchOuter){const id=nativeResearchId(node);if(!id||mountedResearchIds.has(id))continue;
         const tile=/^(?:button|a)$/i.test(node.tagName)?(node.parentElement||node):node;
-        if(tile.closest('.gb-native-qctl'))continue;
+        if(tile.closest('.gb-native-qctl,.gb-native-panel'))continue;
         mountedResearchIds.add(id);nativeMountResearchControl(root,tile,townId,id);researchN++}
 
-      // Step 1 instrumentation. `researchN === 0` removes the whole Investigación
-      // panel, which is indistinguishable in-game from "the scan never ran".
-      // Say which of the two it was, and what the academy DOM actually offered.
       if(!researchN&&nativeAcademyRoot(root)&&(root.querySelector('.tech_tree_box')||researchTiles.length)){
         gbLogT('native-research-zero',300000,
           `native ui: academy root matched ${researchTiles.length} research node(s) but resolved 0 techs `
@@ -1546,10 +1361,17 @@
       if(buildN)nativeRenderQueuePanel(root,townId,'build');else document.querySelector(`.gb-native-panel[data-lane="build"][data-town="${townId}"]`)?.remove();for(const lane of NATIVE_RECRUIT_LANES){if(mountedUnitLanes.has(lane))nativeRenderQueuePanel(root,townId,lane,unitsByLane[lane]);else document.querySelector(`.gb-native-panel[data-lane="${lane}"][data-town="${townId}"]`)?.remove()}if(researchN)nativeRenderQueuePanel(root,townId,'research');else document.querySelector(`.gb-native-panel[data-lane="research"][data-town="${townId}"]`)?.remove();
     }
 
-    // Drop panels whose town window is gone.
     document.querySelectorAll('.gb-native-panel[data-town]').forEach(p => { if (!mountedTowns.has(p.dataset.town)) p.remove(); });
 
     document.querySelectorAll('.gb-native-qpop[data-town]').forEach(p => { if (!mountedTowns.has(p.dataset.town)) nativeQPopClose(); });
 
     nativeLayoutPanels();
+  }
+  function abLoadCsFast() {
+    state.abTargets = abDefaultTargets();
+    state.abOrder = abDefaultOrder();
+    save(STORE.AB_TARGETS, state.abTargets);
+    save(STORE.AB_ORDER, state.abOrder);
+    gbLog('auto-queue: loaded CS-fast targets + default priority');
+    renderAbQueue();
   }

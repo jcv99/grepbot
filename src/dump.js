@@ -1,14 +1,3 @@
-  // ===== Resource dump automation (v4 plan 3.4) ==============================
-  // POLICY layer over the transport planner from plan 1.3: it decides whether a
-  // (source, destination, resource) move is ALLOWED, it does not invent a new
-  // way to move resources. Every job is shaped like a transport job and goes
-  // out through tradeSend, so dry-run, the captcha breaker, the request budget
-  // and the decision journal all apply unchanged.
-  //
-  // HIGH-RISK, default OFF: a trade post is irreversible from the server's
-  // side, and an over-eager dump can ship away iron a build order needed
-  // between the scan and the post.
-  const DUMP_MAX_JOBS = 4;
   const DUMP_SURPLUS_SHARE = 0.5;
   function dumpCfgNum(map, key, def, lo, hi) {
     const v = +((map || {})[key]);
@@ -24,10 +13,7 @@
     const raw = state.dumpSinks;
     return Array.isArray(raw) ? raw.map(String).filter(Boolean) : [];
   }
-  // true only when the cave can still absorb iron here. Unreadable capacity is
-  // UNKNOWN, not "full": ironReservedForCave's own comment sets the precedent
-  // that a blind read must not silently block the other feature, so a blind
-  // cave does NOT reserve the iron.
+
   function caveHasHeadroom(townId) {
     if (!state.autoCave) return false;
     let info = null;
@@ -44,25 +30,18 @@
       return Number.isFinite(v) ? v : 0;
     } catch (_) { return 0; }
   }
-  // Three-tier cascade: explicit user sinks, then profile appetite, then the
-  // transport planner's own thresholds. Returns a town id or null.
+
   function pickDumpDestination(fromId, res, towns, ledger) {
     const from = String(fromId);
     const ids = towns.map(t => String(t.id)).filter(id => id !== from);
     const roomOf = id => {
       const l = ledger[id] || ledger[+id];
       if (!l || !(l.cap > 0)) return null;
-      // gbNum preserves null on null / '' / [] / false; `+l[res] || 0` would
-      // have returned full cap for an unreadable ledger entry, and the
-      // precheck below would have promoted the town to a valid dump sink.
-      const have = gbNum(l[res]);
-      if (have == null) return null;
-      return Math.max(0, l.cap - have);
+      return Math.max(0, l.cap - (+l[res] || 0));
     };
     const sinks = dumpSinkList().filter(id => ids.includes(id));
     if (sinks.length) {
-      // An explicit sink wins outright, but still only if it has real room -
-      // a haul over the target warehouse evaporates on arrival.
+
       const best = sinks.map(id => ({ id, room: roomOf(id) }))
         .filter(x => x.room != null && x.room > 0)
         .sort((a, b) => b.room - a.room)[0];
@@ -72,17 +51,13 @@
       .filter(x => x.bias >= 0.5 && x.room != null && x.room > 0)
       .sort((a, b) => (b.bias - a.bias) || (b.room - a.room))[0];
     if (wanted) return wanted.id;
-    // Tier 3: let the transport planner answer with its own thresholds rather
-    // than re-deriving them here - but on a CLONE. transportBalanceJobs calls
-    // tradeApplyJob internally, and running it on the shared ledger would
-    // deduct resources for jobs we are only inspecting, on top of the real
-    // transport pass tradeScan already ran this tick.
+
     let jobs = [];
     try {
       const probe = Object.create(null);
-      for (const [k, v] of Object.entries(ledger)) probe[k] = structuredClone(v);
+      for (const [k, v] of Object.entries(ledger)) probe[k] = Object.assign({}, v);
       jobs = transportBalanceJobs(towns, probe) || [];
-    } catch (e) { jobs = []; gbLogT('dump-balance-err', 60000, 'dump: transportBalanceJobs threw: ' + String(e).slice(0, 120)); }
+    } catch (_) { jobs = []; }
     const hit = jobs.find(j => String(j.from) === from && (+j[res] || 0) > 0);
     return hit ? String(hit.to) : null;
   }
@@ -98,46 +73,17 @@
         gbLogT('dump-blind-' + id, 600000, `dump: town ${id} capacity unreadable - skipped`);
         continue;
       }
-      // ONE basis for both the threshold test and the amount: the ledger, which
-      // already counts in-flight arrivals and every deduction made earlier this
-      // scan. Testing the threshold against live stock while sizing against the
-      // ledger let the same resource keep re-firing as the ledger shrank.
+
       let perTown = 0;
       for (const res of GB_RES_KEYS) {
         if (src.tradeCap <= 0) break;
-        // One job per town per scan: otherwise the first town with three
-        // resources over threshold eats the whole per-scan budget and every
-        // later town is starved.
+
         if (perTown >= 1) break;
-        // gbNum preserves null on null/''/[]; +src[res] || 0 would have made
-        // fillPct 0 for an unreadable resource, so the threshold check below
-        // never fires and the dump silently skips the town.
-        const have = gbNum(src[res]);
-        if (have == null) continue;
-        const fillPct = Math.round(have / src.cap * 100);
+        const fillPct = Math.round((+src[res] || 0) / src.cap * 100);
         if (fillPct < dumpThresholdFor(res)) continue;
-        if (res === 'iron' && caveHasHeadroom(id)) {
-          gbLogT('dump-cave-' + id, 600000, `dump: town ${id} iron held - cave still has headroom`);
-          continue;
-        }
-        // Second, independent guard: the cave may be about to need this iron
-        // even when the hide is technically full-ish.
-        if (res === 'iron') {
-          let caveSkip = false;
-          try {
-            const r = ironReservedForCave(id);
-            if (r && r.reserved) {
-              gbLogT('dump-cave-res-' + id, 600000, `dump: town ${id} iron reserved for cave`);
-              caveSkip = true;
-            }
-          } catch (e) { gbLogT('dump-cave-err-' + id, 60000, 'dump: ironReservedForCave threw: ' + String(e).slice(0, 120)); caveSkip = true; }
-          if (caveSkip) continue;
-        }
         const keep = Math.floor(src.cap * dumpKeepPctFor(res) / 100);
         const surplus = Math.max(0, (+src[res] || 0) - keep);
-        // Half the surplus, never all of it: a town that zeroes a resource and
-        // then meets a build order that needs it is stranded until the next
-        // production cycle.
+
         let amount = Math.floor(surplus * DUMP_SURPLUS_SHARE);
         if (amount <= 0) continue;
         const to = pickDumpDestination(id, res, towns, ledger);
@@ -159,4 +105,11 @@
       }
     }
     return jobs;
+  }
+  function ruralRelModels() {
+    try {
+      const uw = gameUw();
+      const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('FarmTownPlayerRelation');
+      return (col && col.models) || [];
+    } catch (_) { return []; }
   }

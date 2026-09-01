@@ -1,16 +1,7 @@
-  // ===== Research dependency graph (v4 plan 2.10) ============================
-  // READ-ONLY. Pure graph helpers over the LIVE GameData.researches definitions.
-  // There is deliberately no static table of research ids here: a hardcoded
-  // graph would be a guess about a client this repo cannot verify, and
-  // CLAUDE.md forbids inventing game data. Every id in the output came out of
-  // Object.keys(GameData.researches) on this world, this session.
-  //
-  // Absent or malformed data is reported as `blind`, never as "no
-  // prerequisites" - the difference between "this tech needs nothing" and "we
-  // could not read what it needs" is exactly what makes a planner post garbage.
+  const RESEARCH_CS_FAST = ['booty', 'ceramics', 'architecture', 'crane', 'shipwright', 'colonize_ship', 'mathematics'];
+
   const RG_MAX_DEPTH = 60;
-  // Normalise one definition's dependency list. Returns null (NOT []) when the
-  // shape is unreadable, so the caller can tell "none" from "unknown".
+
   function researchGraphDeps(def) {
     if (!def || typeof def !== 'object') return null;
     const raw = def.research_dependencies !== undefined ? def.research_dependencies
@@ -29,16 +20,13 @@
     }
     return out;
   }
-  // {known, blind, ids, edges, why}
-  // Memoised: the walk touches every definition and researchScan calls it once
-  // per town, on a 5s native-watch cadence. GameData is static for a session.
+
   let _rgMemo = { at: 0, v: null };
   const RG_MEMO_MS = 60000;
   function researchGraphBuild() {
     if (_rgMemo.v && Date.now() - _rgMemo.at < RG_MEMO_MS) return _rgMemo.v;
     const built = researchGraphBuildRaw();
-    // Only cache a graph we actually read; a blind one may be a transient
-    // "GameData not loaded yet" and must be retried on the next call.
+
     if (built.known) _rgMemo = { at: Date.now(), v: built };
     return built;
   }
@@ -55,10 +43,7 @@
     for (const id of ids) {
       const deps = researchGraphDeps(defs[id]);
       if (deps === null) { edges[id] = null; partial++; continue; }
-      // An edge pointing at an id this client does not define is UNRESOLVABLE,
-      // not absent. Dropping it would make "we cannot resolve this prerequisite"
-      // read as "this tech has no prerequisites" - the exact failure this
-      // module exists to prevent. Keep it; the closure reports blind on it.
+
       edges[id] = deps;
       if (deps.some(d => !Object.prototype.hasOwnProperty.call(defs, d))) partial++;
     }
@@ -70,10 +55,7 @@
       why: partial ? `${partial} definition(s) with unreadable dependencies` : '',
     };
   }
-  // Missing prerequisite closure for `target`, topologically ordered so every
-  // entry appears after everything it needs. `have` is the set of already
-  // researched or already queued ids.
-  // -> {ok, blind, order:[ids], missing:[ids], why}
+
   function researchGraphClosure(graph, target, have) {
     if (!graph || !graph.known) return { ok: false, blind: true, order: [], missing: [], why: (graph && graph.why) || 'graph unreadable' };
     if (!Object.prototype.hasOwnProperty.call(graph.edges, target)) {
@@ -101,14 +83,11 @@
       return true;
     };
     const ok = visit(String(target), 0);
-    // `order` ends with the target itself; `missing` is everything before it.
+
     const missing = order.slice(0, Math.max(0, order.length - 1));
     return { ok: ok && !blind, blind, order, missing, why };
   }
-  // Deterministic rank for a set of candidate targets: fewer missing
-  // prerequisites first, then the caller's own order index. A blind target
-  // sorts LAST - never first - because acting on an unreadable path is the one
-  // outcome this module exists to prevent.
+
   function researchGraphRank(graph, targets, have, orderOf) {
     const idx = typeof orderOf === 'function' ? orderOf : (() => 0);
     return (targets || []).map(t => {
@@ -120,3 +99,122 @@
       (a.order - b.order) ||
       String(a.tech).localeCompare(String(b.tech)));
   }
+  function researchEnsureTargets() {
+    if (state.researchTargets && typeof state.researchTargets === 'object') return state.researchTargets;
+    const t = {};
+    RESEARCH_CS_FAST.forEach((k, i) => { t[k] = { order: i, tgt: 1 }; });
+    state.researchTargets = t;
+    save(STORE.RESEARCH_TARGETS, t);
+    return t;
+  }
+
+  function researchOrdersFor(townId) {
+    const uw = gameUw();
+    const want = String(townId);
+    let current = null;
+    try { if (uw.Game && uw.Game.townId != null) current = String(uw.Game.townId); } catch (_) {}
+    const isCurrent = current != null && want === current;
+
+    try {
+      const col = uw.MM && uw.MM.getFirstTownAgnosticCollectionByName
+        && uw.MM.getFirstTownAgnosticCollectionByName('ResearchOrder');
+      const frag = col && col.getFragment && col.getFragment(want);
+      const models = frag && frag.models;
+      if (models && models.length) return { orders: models.slice(), known: true };
+      if (models && isCurrent) return { orders: [], known: true };
+    } catch (_) {}
+
+    try {
+      const raw = uw.MM && uw.MM.getModels && uw.MM.getModels().ResearchOrder;
+      const list = raw ? (Array.isArray(raw) ? raw : Object.keys(raw).map(k => raw[k])) : null;
+      if (list) {
+        const townOf = m => String(((m && m.attributes) || {}).town_id);
+        const mine = list.filter(m => townOf(m) === want);
+        if (mine.length) return { orders: mine, known: true };
+        if (isCurrent) return { orders: [], known: true };
+        if (current != null && list.some(m => townOf(m) !== current)) return { orders: [], known: true };
+      }
+    } catch (_) {}
+
+    try {
+      const mm = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('ResearchOrder');
+      if (mm && mm.models && isCurrent) return { orders: mm.models.slice(), known: true };
+    } catch (_) {}
+    return { orders: [], known: false };
+  }
+  function researchTownTechs(townId) {
+    const uw = gameUw();
+    try {
+      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      if (!t) return null;
+      let res = null, techsKnown = false;
+      try { const rm=t.researches&&t.researches();const attrs=rm&&(rm.attributes||rm);if(attrs&&typeof attrs==='object'){res=attrs;techsKnown=true} } catch (_) {}
+      let buildings = null;
+      try {
+        const b = t.getBuildings ? t.getBuildings() : (t.buildings && t.buildings());
+        buildings = (b && (b.attributes || b)) || null;
+      } catch (_) {}
+
+      let acad = null;
+      try {
+        if (t.getBuildings) { const v = +t.getBuildings().get('academy'); if (isFinite(v)) acad = v; }
+        if (acad == null && buildings && buildings.academy != null) { const v = +buildings.academy; if (isFinite(v)) acad = v; }
+      } catch (_) {}
+
+      let library = null;
+      try {
+        if (t.getBuildings) { const v = +t.getBuildings().get('library'); if (isFinite(v)) library = v; }
+        if (library == null && buildings && buildings.library != null) library = +buildings.library || 0;
+      } catch (_) {}
+
+      let smallIsland = null;
+      try {
+        const probes = [
+          () => (t.get ? t.get('on_small_island') : undefined),
+          () => ((t.attributes || {}).on_small_island),
+          () => (t.getTownModelReference && t.getTownModelReference().get('on_small_island')),
+          () => (t.isOnSmallIsland && t.isOnSmallIsland()),
+        ];
+        for (const p of probes) {
+          let raw;
+          try { raw = p(); } catch (_) { continue; }
+          if (raw != null) { smallIsland = !!raw; break; }
+        }
+      } catch (_) {}
+      const q = researchOrdersFor(townId);
+      return {
+        town: t,
+        techs: res,
+        techsKnown,
+        academy: acad,
+        library,
+        smallIsland,
+        orders: q.orders,
+        ordersKnown: q.known,
+      };
+    } catch (_) { return null; }
+  }
+
+  function researchQueueMax() {
+    try {
+      const uw = gameUw();
+      const q = uw.GameDataConstructionQueue;
+      if (q && q.getResearchOrdersQueueLength) {
+        const n = +q.getResearchOrdersQueueLength();
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+      const p = uw.GameDataPremium;
+      if (p && p.hasCurator && p.hasCurator()) return 7;
+      if (p && p.isAdvisorActivated && p.isAdvisorActivated('curator')) return 7;
+    } catch (_) {}
+    return 2;
+  }
+
+  function researchHaveSet(info, queuedIds) {
+    const have = new Set();
+    for (const k of Object.keys((info && info.techs) || {})) if (info.techs[k]) have.add(String(k));
+    for (const q of (queuedIds || [])) have.add(String(q));
+    return have;
+  }
+
+  const RESEARCH_CANDIDATE_MAX = 24;

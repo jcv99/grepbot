@@ -1,13 +1,8 @@
-  // ===== Timing constants (better-practice sweep, v5) ========================
-  // Cadences that used to be naked literals in the boot block. Hoisted here so
-  // a future tuning pass touches one place, and so the persisted-deadline pair
-  // (state.nextFarmScrape / state.nextTownsScrape) reads in the same named unit
-  // as the in-memory intervals that drive them.
   const BOOT_TIMING = Object.freeze({
-    // persistence deadlines — first fire of the persistent loops after install
+
     FIRST_FARM_DEADLINE_MS: 20000,
     FIRST_TOWNS_DEADLINE_MS: 30000,
-    // scrape / poll cadences
+
     INBOX_SCRAPE_MS: 30000,
     FARM_TICK_MS: 15000,
     THRESHOLD_CHECK_MS: 30000,
@@ -18,10 +13,9 @@
     LOCK_SWEEP_MS: 10000,
     DODGE_RETURN_MS: 15000,
     NATIVE_QUEUE_LOOP_MS: 60000,
-    NATIVE_UI_REPAINT_MS: 5000,
+    QUEUE_CENTER_PAINT_MS: 5000,
     OVERVIEW_RENDER_MS: 15000,
-    // one-shot boot delays — staggered so the panel + scan + reconcile each
-    // find a settled UI by the time they paint
+
     HUD_RESTORE_MS: 1500,
     FARM_WAKE_MS: 2500,
     QUEST_SCAN_BOOT_MS: 5000,
@@ -31,10 +25,6 @@
     NATIVE_QUEUE_BOOT_MS: 14000,
     ORCH_FIRST_TICK_MS: 15000,
     IB_CLICK_HOOK_MS: 2000,
-    // SPA-nav re-mount delay used by the pushState / popstate / hashchange
-    // hand-off in ensurePanelMounted. Naked 50 literals here used to drift
-    // with this constant; keep them in sync.
-    PANEL_MOUNT_MS: 50,
   });
   function ensurePanelMounted() {
     if (!panel) return;
@@ -47,9 +37,6 @@
   function hookSpaNav() {
     const wrap = (name, origKey) => {
 
-      // Never bind over another instance's wrapper: after a hot reload gbHookOrig
-      // is a fresh object, so the guard passes and the old wrapper becomes the
-      // "original" - N reloads then schedule N ensurePanelMounted per nav.
       const cur = history[name];
       if (!gbHookOrig[origKey]) {
         const pristine = (cur && cur._grepbot && cur.__grepbotOrig) ? cur.__grepbotOrig : cur.bind(history);
@@ -81,46 +68,42 @@
 
   if (!state.nextFarmScrape) { state.nextFarmScrape = Date.now() + BOOT_TIMING.FIRST_FARM_DEADLINE_MS; save(STORE.NEXT_FARM, state.nextFarmScrape); }
   if (!state.nextTownsScrape) { state.nextTownsScrape = Date.now() + BOOT_TIMING.FIRST_TOWNS_DEADLINE_MS; save(STORE.NEXT_TOWNS, state.nextTownsScrape); }
-  if (!state.nextFarmClaim) { state.nextFarmClaim = Date.now() + BOOT_TIMING.FARM_WAKE_MS; save(STORE.NEXT_FARM_CLAIM, state.nextFarmClaim); }
   gbInterval(farmTick, BOOT_TIMING.FARM_TICK_MS);
+  gbTimeout(() => { if (state.autoFarm) farmScheduleClaimWake(null, 'boot', true); }, BOOT_TIMING.FARM_WAKE_MS);
 
-  // Hidden tabs clamp timers, so every clamped loop fires at once on wake and
-  // the armed instant-build timer can be minutes late. Mark the burst so the
-  // catch-up is serialized, then re-read orders.
-  // Dedup stamp for the pagehide/beforeunload releaseLocks handler. Declared
-  // before any listener so the pageshow reset above (and any future listener)
-  // can touch it without a temporal-dead-zone ReferenceError.
-  let releaseLocksAt = 0;
-  const RELEASE_DEDUP_MS = 3000;
+  // Dedicated out-of-band Telegram heartbeat. This is intentionally independent
+  // from the automation/server pause scheduler; the ephemeral monitor Web Lock
+  // prevents duplicate sends across tabs.
+  gbTimeout(() => { try { telegramMonitorTick(); } catch (_) {} }, 3000);
+  gbInterval(() => { try { telegramMonitorTick(); } catch (_) {} }, TELEGRAM_MONITOR_POLL_MS);
+  gbListen(window, 'focus', () => { try { telegramMonitorTick(); } catch (_) {} });
+  gbListen(window, 'online', () => { try { telegramMonitorTick(); } catch (_) {} });
+
   gbListen(document, 'visibilitychange', () => {
     if (document.hidden) return;
     try { gbWakeMarkResume('visible'); } catch (e) { gbLogT('boot-wake-visible', 60000, 'wake visible: ' + String(e?.message || e).slice(0, 80)); }
+    try { gbTryAcquireTabLeader(); orchStartIndependentTimers(); } catch (_) {}
+    try { telegramMonitorTick(); } catch (_) {}
     farmTick();
     try { reportCatchUpEnqueue(); } catch (e) { gbLogT('boot-catchup', 60000, 'catchup: ' + String(e?.message || e).slice(0, 80)); }
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (e) { gbLogT('boot-wake-ib', 60000, 'wake ibScan: ' + String(e?.message || e).slice(0, 80)); }
-    try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (e) { gbLogT('boot-wake-orch', 60000, 'wake orchTick: ' + String(e?.message || e).slice(0, 80)); }
+    try { orchStartIndependentTimers(); gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (e) { gbLogT('boot-wake-orch', 60000, 'wake orchTick: ' + String(e?.message || e).slice(0, 80)); }
     try { nativeQueueSweep('visible'); } catch (e) { gbLogT('boot-nqs-visible', 60000, 'nqs visible: ' + String(e?.message || e).slice(0, 80)); }
 
-    // renderTimers / renderFarms / renderWorld all bail while document.hidden,
-    // so the panel is up to a full cadence stale on the way back in. Repaint
-    // immediately instead of showing a frozen countdown for a second.
-    try { renderTimers(); renderFarms(); renderWorld(); updateStatus(); renderLog(); } catch (e) { gbLogT('boot-repaint-visible', 60000, 'repaint visible: ' + String(e?.message || e).slice(0, 80)); }
+    try { renderTimers(); renderFarms(); renderWorld(); updateStatus(); } catch (e) { gbLogT('boot-repaint-visible', 60000, 'repaint visible: ' + String(e?.message || e).slice(0, 80)); }
   });
   gbListen(window, 'pageshow', (e) => {
     if (!(e && e.persisted)) return;
 
-    // Forward the dedup window instead of breaking it: the pagehide that
-    // brought us here already fired releaseLocks. Letting the next pagehide
-    // fire again would double-clear (cancelArmedAttack, ibClearArmed,
-    // gbUnlockAll, bandit stamp, save flush). RELEASE_DEDUP_MS is declared
-    // further down; the 3000ms here must move with it.
-    releaseLocksAt = Date.now() + RELEASE_DEDUP_MS;
+    releaseLocksAt = 0;
     try { gbWakeMarkResume('bfcache'); } catch (e) { gbLogT('boot-wake-bfcache', 60000, 'wake bfcache: ' + String(e?.message || e).slice(0, 80)); }
+    try { gbTryAcquireTabLeader(); orchStartIndependentTimers(); } catch (_) {}
+    try { telegramMonitorTick(); } catch (_) {}
     farmTick();
     try { reportCatchUpEnqueue(); } catch (e) { gbLogT('boot-catchup', 60000, 'catchup: ' + String(e?.message || e).slice(0, 80)); }
     try { bindQuestObserver(); } catch (e) { gbLogT('boot-quest-obs', 60000, 'quest observer: ' + String(e?.message || e).slice(0, 80)); }
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (e) { gbLogT('boot-wake-ib', 60000, 'wake ibScan: ' + String(e?.message || e).slice(0, 80)); }
-    try { gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (e) { gbLogT('boot-wake-orch', 60000, 'wake orchTick: ' + String(e?.message || e).slice(0, 80)); }
+    try { orchStartIndependentTimers(); gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (e) { gbLogT('boot-wake-orch', 60000, 'wake orchTick: ' + String(e?.message || e).slice(0, 80)); }
     try { nativeQueueSweep('bfcache'); } catch (e) { gbLogT('boot-nqs-bfcache', 60000, 'nqs bfcache: ' + String(e?.message || e).slice(0, 80)); }
     try { renderTimers(); renderFarms(); renderWorld(); updateStatus(); } catch (e) { gbLogT('boot-repaint-bfcache', 60000, 'repaint bfcache: ' + String(e?.message || e).slice(0, 80)); }
   });
@@ -153,27 +136,23 @@
   gbTimeout(scheduleNativeUiScan, BOOT_TIMING.NATIVE_UI_SCAN_MS);
   gbInterval(() => {
 
-    // Ungated: this used to fire only while a lane already had work, which is a
-    // chicken-and-egg lock on a fresh install — no scan means no [+] control,
-    // no [+] means the lane stays empty, and the empty lane suppresses the scan.
-    // nativeUiScan is a no-op when no game window is open.
-    scheduleNativeUiScan();
-  }, BOOT_TIMING.NATIVE_UI_REPAINT_MS);
+    if (queueCenterVisible() || nativeQueueHasPending('build') || nativeRecruitPending() || nativeQueueHasPending('research')) {
+      try { renderQueueCenter(); } catch (e) { gbLogT('boot-qc-paint', 60000, 'queue center paint: ' + String(e?.message || e).slice(0, 80)); }
+    }
 
-  // Whole-account reconcile of the virtual queues against the real ones. The
-  // per-window pass in nativeUiScan only covers the towns on screen; this is
-  // what drops a hand-made upgrade from a background town's plan without
-  // waiting for auto-queue to sweep it.
+    scheduleNativeUiScan();
+  }, BOOT_TIMING.QUEUE_CENTER_PAINT_MS);
+
   gbTimeout(() => { try { nativeQueueSweep('boot'); } catch (e) { gbLogT('boot-nqs-boot', 60000, 'native queue boot: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.NATIVE_QUEUE_BOOT_MS);
   gbInterval(() => { try { nativeQueueSweep('loop'); } catch (e) { gbLogT('boot-nqs-loop', 60000, 'native queue loop: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.NATIVE_QUEUE_LOOP_MS);
   gbInterval(() => dodgeScan('loop'), DODGE_CHECK_MS);
   gbInterval(dodgeReturnTick, BOOT_TIMING.DODGE_RETURN_MS);
 
-  gbTimeout(() => { if (hostEnabled()) orchTick(); }, BOOT_TIMING.ORCH_FIRST_TICK_MS);
-  gbInterval(() => {
-    if (gbInWakeBurst && gbInWakeBurst()) gbWake('orchTick', () => orchTick(), { priority: 30 });
-    else orchTick();
-  }, ORCH_MS);
+  // Create module timers unconditionally; each tick gates on hostEnabled().
+  // This makes scheduler installation independent of the exact leader state at boot.
+  orchStartIndependentTimers();
+  gbTimeout(() => { orchStartIndependentTimers(); if(hostEnabled())orchTick(); }, BOOT_TIMING.ORCH_FIRST_TICK_MS);
+  gbInterval(() => { orchStartIndependentTimers(); orchHousekeepingTick(); }, 60000);
   gbInterval(() => {
 
     renderOverview();
@@ -182,31 +161,19 @@
     intelGrepodataAssist();
     intelWatchlistScan();
   }, BOOT_TIMING.OVERVIEW_RENDER_MS);
-  qolBindActivityPause();
   gbKeyBind();
   contextMenuStart();
   gbTimeout(() => { try { hudRestore(); } catch (e) { gbLogT('boot-hud-restore', 60000, 'hud restore: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.HUD_RESTORE_MS);
 
-  gbInterval(() => {
-    gbLockSweep();
-    // captchaExpireSweep decays one ladder step for every paused feature
-    // whose `until` has passed. Splits the side effect out of captchaPaused
-    // so the BC receiver and tx.js probe the pure predicate without
-    // accidentally re-bumping trips on every cross-tab hop.
-    try { if (state && state.captchaBreakers) for (const f of Object.keys(state.captchaBreakers)) { try { if (typeof captchaExpireSweep === 'function') captchaExpireSweep(f); } catch (_) {} } } catch (_) {}
-    try { diagnosticsTick(); } catch (e) { gbLogT('boot-diag-tick', 60000, 'diag tick: ' + String(e?.message || e).slice(0, 80)); }
-  }, BOOT_TIMING.LOCK_SWEEP_MS);
-  // releaseLocksAt + RELEASE_DEDUP_MS are declared at the top of this block
-  // so the pageshow listener above (and any future listener) can read and
-  // reset the dedup stamp without a TDZ. Move the listener, move these.
+  gbInterval(() => { gbLockSweep(); try { diagnosticsTick(); } catch (e) { gbLogT('boot-diag-tick', 60000, 'diag tick: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.LOCK_SWEEP_MS);
+  let releaseLocksAt = 0;
+  const RELEASE_DEDUP_MS = 3000;
   const releaseLocks = () => {
     const now = Date.now();
     if (now - releaseLocksAt < RELEASE_DEDUP_MS) return;
     releaseLocksAt = now;
     try { cancelArmedAttack(); } catch (e) { gbLogT('boot-release-armed', 60000, 'cancel armed: ' + String(e?.message || e).slice(0, 80)); }
 
-    // An armed instant-complete timer that survives the page exit fires against
-    // a disposed instance on bfcache restore and posts from a stale order list.
     try { ibClearArmed(); } catch (e) { gbLogT('boot-release-ib', 60000, 'ib clear armed: ' + String(e?.message || e).slice(0, 80)); }
     try { gbUnlockAll(); } catch (e) { gbLogT('boot-release-locks', 60000, 'unlock all: ' + String(e?.message || e).slice(0, 80)); }
     try { banditAttackSentAt = 0; } catch (e) { gbLogT('boot-release-bandit', 60000, 'bandit stamp: ' + String(e?.message || e).slice(0, 80)); }
@@ -214,29 +181,48 @@
     try { if (typeof questClaimFailSave === 'function') questClaimFailSave(); } catch (e) { gbLogT('boot-release-quest', 60000, 'quest save: ' + String(e?.message || e).slice(0, 80)); }
     try { if (typeof persistServerCooldown === 'function') persistServerCooldown(); } catch (e) { gbLogT('boot-release-cooldown', 60000, 'cooldown save: ' + String(e?.message || e).slice(0, 80)); }
     try { if (typeof nativeQueueSaveFlush === 'function') nativeQueueSaveFlush(); } catch (e) { gbLogT('boot-release-nqs', 60000, 'nqs flush: ' + String(e?.message || e).slice(0, 80)); }
-    try { snapshotBuild('exit'); } catch (e) { gbLogT('boot-release-snap', 60000, 'snapshot: ' + String(e?.message || e).slice(0, 80)); }
+    try { if(gbTabLeader)snapshotBuild('exit'); } catch (e) { gbLogT('boot-release-snap', 60000, 'snapshot: ' + String(e?.message || e).slice(0, 80)); }
 
-    // Close the cross-tab BroadcastChannel: __grepbotDispose does this on
-    // hot reload, but pagehide/beforeunload only ever fired releaseLocks
-    // before, so a real tab close leaked the BC listener (and any in-flight
-    // gm_xhr from gbXhrBag) until the browser killed the context. The
-    // pagehide→bfcache window is also where a peer captcha message could
-    // land against this dead instance; closing here makes that path a no-op.
-    try { if (_gbEvents && typeof _gbEvents.close === 'function') { _gbEvents.close(); _gbEvents = null; } } catch (e) { gbLogT('boot-release-bc', 60000, 'bc close: ' + String(e?.message || e).slice(0, 80)); }
-    try { if (typeof gbAbortXhrs === 'function') gbAbortXhrs(); } catch (e) { gbLogT('boot-release-xhrs', 60000, 'xhr abort: ' + String(e?.message || e).slice(0, 80)); }
-
-    // LAST: every handler above may have queued a coalesced write. Flushing
-    // before them would leave those writes stranded on the page exit.
     try { if (typeof saveFlush === 'function') saveFlush(); } catch (e) { gbLogT('boot-release-save', 60000, 'save flush: ' + String(e?.message || e).slice(0, 80)); }
   };
   gbListen(window, 'beforeunload', releaseLocks);
   gbListen(window, 'pagehide', releaseLocks);
 
-  // Test hooks are never exposed in normal Tampermonkey execution.
   if (GB_ROOT.__grepbotTestMode === true) {
     GB_ROOT.__grepbotTest = {
       instanceId: GB_INSTANCE_ID,
       state,
+      STORE,
+      load,
+      save,
+      saveFlush,
+      migrateConfig,
+      migrateGlobalConfig,
+      ensureHostDefault,
+      gbStorageReadFailed,
+      gbLegacyWorldGate,
+      gbLegacyWorldHostProof,
+      gbLegacyWorldOneShotEligible,
+      gbLegacyWorldMigrationFinalize,
+      gbExpectedServerReject,
+      farmScheduleNotReadyWake,
+      gbAjaxWatch,
+      gbAjaxClaim,
+      gbAjaxPendingCount: () => gbAjaxPending.length,
+      gbAjaxPendingSnapshot: () => gbAjaxPending.map(p => ({ sig:p.sig, fp:p.fp, claimed:!!p.claimed })),
+      txLoadNormalize,
+      txPrune,
+      txFindExistingIntent,
+      plannerReservePolicy,
+      farmDayKey,
+      gbServerDay,
+      markModuleHealth,
+      moduleHealth,
+      recruitAutoSpellDecision,
+      batchRecruitAtomicAfford,
+      batchRecruitFire,
+      gbLeaderHandoverFlush,
+      lifecycle: () => ({ disposed:gbDisposed, leader:gbTabLeader, lockHeld:!!gbTabLockRelease }),
       bridgePost,
       gameAjaxPost,
       txDomWrite,
@@ -262,12 +248,41 @@
       plannerCommit,
       goalProfiles,
       goalEffective,
+      goalEffectiveBuildTargets,
+      goalEffectiveResearchTargets,
+      goalEffectiveRecruitTargets,
+      cdCanonicalProfile,
+      cdIsProfile,
+      cdSyncTownGoal,
+      cdPersistTownGoal,
+      cdTownState,
+      cdSetOption,
+      cdProfileRevision,
+      cdEffective,
+      cdBuildTargets,
+      cdActualLevels,
+      abActualLevels,
+      cdResearchTargets,
+      cdRecruitTargets,
+      cdPhase,
+      cdBuildDone,
+      cdResearchDone,
+      cdResearchExecutable,
+      cdResearchCapacityState,
+      cdCompositionResearchReady,
+      cdAuxDone,
+      cdArmyDone,
+      cdCanStartStrip,
+      cdAcademyDemolitionSafe,
+      cdNextDemolition,
+      cdThreatState,
+      cityDesignerHasExecutableWork,
+      cdSolveLandBudget,
+      cdSolveDefenseBudget,
+      goalUnitCountsState,
 
-      // Canonical name promised to downstream plans 1.3/5.1/5.5/5.6; the
-      // implementation stays goalEffective so existing callers are untouched.
       gbCityProfile: goalEffective,
 
-      // Capacity/ETA contract consumed by plans 3.2, 3.4 and 5.1.
       townPopState,
       transportTownRes,
       transportProjectHeadroom,
@@ -318,6 +333,9 @@
       autoCollectResources,
       abScan,
       abPickNext,
+      abPickNextFromLevels,
+      abFinalValidate,
+      abBuildUp,
       abQueueInfo,
       abEnsureOrder,
       nativeQueueRoot,
@@ -355,10 +373,67 @@
       farmClaimUnitsTable,
       farmVillageLevel,
       farmClaimDiag,
+      tradeTownRes,
+      tradeOverflowDecision,
+      tradeOverflowJobs,
+      tradeValidateOverflowJob,
+      tradeDiagnosticsSnapshot,
+      tradeIncomingByTown,
+      ruralTradeDecision,
+      ruralExecutableOverflowCandidates,
+      ruralExecutableOverflowPairSet,
+      ruralValidateJob,
+      ruralTradeCooldownState,
+      ruralOfferData,
+      ruralSameIslandTowns,
+      ruralCandidateRowsForTown,
+      ruralReconcileTrade,
+      recruitQueueHasSpace,
+      recruitQueueSpace,
+      recruitRuntimeEffectiveCost,
+      recruitRuntimeMaxAmount,
+      recruitEffectiveUnitCost,
+      recruitCostFieldKnown,
+      ruralKillpoints,
+      ruralLevelCostInfo,
+      ruralTradeScan,
+      ruralTradePost,
+      resolveIslandResourceBeneficiary,
+      resolveIslandUnitBeneficiary,
+      farmIslandContext,
+      townCanonicalIslandId,
+      townIslandKey,
+      townIdForFarm,
+      townIdForFarmUnits,
       tradeScan,
       dodgeScan,
       orchTick,
+      orchFeatureEnabled,
+      dodgeIncomingSnapshot,
       alertWebhook,
+      telegramTokenLooksValid,
+      telegramChatIdLooksValid,
+      telegramSendText,
+      telegramDetectChatId,
+      telegramCaptchaTripNotify,
+      telegramCaptchaMaybeResolved,
+      telegramCaptchaStillPaused,
+      telegramNotify,
+      telegramAttackMessage,
+      telegramAttackMonitor,
+      telegramWarehouseMonitor,
+      telegramCriticalCandidates,
+      telegramCriticalMonitor,
+      telegramBuildHourlyDigest,
+      telegramDiagErrorId,
+      telegramDiagSanitizeText,
+      telegramRecentErrorGroups,
+      telegramBuildSupportReport,
+      telegramWarehouseDiagnostic,
+      telegramSupportModeStart,
+      telegramSupportModeStop,
+      telegramHourlyDigestTick,
+      telegramMonitorTick,
       attackKnownTargets,
       applyAttackTarget,
       applyHarassPreset,
@@ -380,6 +455,8 @@
       spsRun,
       spsStop,
       renderSpySend,
+      openQueueCenter,
+      renderQueueCenter,
       dispose: GB_ROOT.__grepbotDispose,
     };
   }

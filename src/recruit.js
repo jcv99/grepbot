@@ -1,44 +1,48 @@
-  // Declared with their only consumer. These used to sit at the tail of
-  // dodge.js, so recruit.js silently depended on dodge.js being concatenated
-  // first — a build-order footgun with no compile-time signal.
-  const RECRUIT_SPELLS = ['call_of_the_ocean', 'spartan_training', 'fertility_improvement'];
-  // Every recruit spell belongs to exactly one god. Casting one on a town that
-  // worships another god is a guaranteed server rejection: it costs a request
-  // budget slot and a decision-memory strike every cadence.
-  const RECRUIT_SPELL_GODS = {
-    call_of_the_ocean: 'poseidon',
-    spartan_training: 'ares',
-    fertility_improvement: 'hera',
+  const RECRUIT_AUTO_SPELL_BY_CONTROLLER = {
+    building_barracks: 'fertility_improvement',
+    building_docks: 'call_of_the_ocean',
   };
   function recruitControllerFor(unitId) {
     const def = gbGameDataLookup("units", unitId);
     if (!def) return null;
-    // Two valid recruit controllers only: barracks (land) and docks (naval).
-    // Mythical/god gating belongs in recruitCanBuild (temple_level + god +
-    // favor preconditions), never in the controller — there is no recruit
-    // endpoint at building_temple, and posting there costs a request-budget
-    // slot and a decision-memory strike every cadence.
+    // Mythical land units still train through the barracks; naval units through docks.
     if (recruitIsNaval(unitId)) return { controller: 'building_docks', feature: 'recruit' };
     return { controller: 'building_barracks', feature: 'recruit' };
   }
-  function recruitHasSpell(townId, powerId) {
+  function recruitSpellActiveState(townId, powerId) {
     try {
       const uw = gameUw();
       const col = uw.MM && uw.MM.getFirstTownAgnosticCollectionByName &&
         uw.MM.getFirstTownAgnosticCollectionByName('CastedPowers');
-      const frag = col && col.fragments && col.fragments[townId];
-      const models = (frag && frag.models) || [];
-      return models.some(m => {
-        const pid = (m.attributes || {}).power_id;
-        if (powerId) return pid === powerId;
-        return RECRUIT_SPELLS.includes(pid);
-      });
-    } catch (_) { return false; }
+      if (!col) return { known:false, active:false, source:'collection-unreadable' };
+      const tid = String(townId);
+      const candidates = [];
+      let townSurfaceKnown = false;
+      const fragments = col.fragments || null;
+      const frag = fragments && (fragments[townId] || fragments[tid]);
+      // CastedPowers is a town-agnostic collection: an existing fragments map
+      // with no fragment for this town means there is no active power here.
+      if (fragments && typeof fragments === 'object') townSurfaceKnown = true;
+      if (frag && Array.isArray(frag.models)) candidates.push(...frag.models);
+      if (Array.isArray(col.models)) {
+        for (const m of col.models) {
+          const a = (m && m.attributes) || {};
+          const mt = a.town_id ?? a.target_id ?? a.target_town_id ?? a.townId;
+          if (mt != null && String(mt) === tid) {
+            townSurfaceKnown = true;
+            candidates.push(m);
+          }
+        }
+      }
+      if (!townSurfaceKnown) return { known:false, active:false, source:'town-powers-unreadable' };
+      const active = candidates.some(m => String(((m && m.attributes) || {}).power_id || '') === String(powerId || ''));
+      return { known:true, active, source:'CastedPowers' };
+    } catch (_) { return { known:false, active:false, source:'exception' }; }
   }
-  // Cooldown persisted via STORE.SPELL_COOLDOWN so the 30-min favor-spell
-  // safety window survives page reload — without persistence a reload wipes
-  // the guard and the bot can re-spend favor on a town whose previous outcome
-  // was unknown (the irreversible double-spend the v2.4.1 guard prevents).
+  function recruitHasSpell(townId, powerId) {
+    const st = recruitSpellActiveState(townId, powerId);
+    return st.known && st.active;
+  }
   function recruitSpellCooldown(townId, powerId) {
     const map = state.spellCooldown || (state.spellCooldown = {});
     const t = map[String(townId)] || (map[String(townId)] = {});
@@ -52,18 +56,36 @@
     try { save(STORE.SPELL_COOLDOWN, state.spellCooldown); } catch (_) {}
   }
   function recruitSpellGateOk(townId, powerId) {
-    if (!powerId || !RECRUIT_SPELLS.includes(powerId)) return { ok: false, why: 'bad-power' };
-    const academy = gbBuildingLevel(townId, 'academy');
-    if (academy != null && academy < 1) return { ok: false, why: 'no-academy' };
-    // Unreadable god = unknown = blind verdict, let the server be the authority.
-    // Use the scan-tick memo when present so we don't re-hit unsafeWindow for
-    // every candidate in the inner loop.
+    if (!powerId || !RECRUIT_SPELLS.includes(powerId)) return { ok:false, blind:false, why:'bad-power' };
     const god = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
-    if (god == null) return { ok: true, blind: true, why: null };
-    // A READ god is authoritative: only the spell's own god may cast it.
+    if (god == null) return { ok:false, blind:true, why:'god-unreadable' };
     const need = RECRUIT_SPELL_GODS[powerId];
-    if (need && god !== need) return { ok: false, why: `god-mismatch:${god}!=${need}` };
-    return { ok: true, blind: false, why: null };
+    if (need && god !== need) return { ok:false, blind:false, why:`god-mismatch:${god}!=${need}` };
+    return { ok:true, blind:false, why:null };
+  }
+  function recruitAutoSpellForUnit(unitId) {
+    const ctrl = recruitControllerFor(unitId);
+    return ctrl ? (RECRUIT_AUTO_SPELL_BY_CONTROLLER[ctrl.controller] || null) : null;
+  }
+  // active => recruit now; absent+castable => cast first; unavailable => recruit now.
+  function recruitAutoSpellDecision(townId, unitId) {
+    const power = recruitAutoSpellForUnit(unitId);
+    if (!power || !state.recruitSpells || state.safeMode) return { action:'proceed', power, why:'disabled' };
+    const active = recruitSpellActiveState(townId, power);
+    if (active.known && active.active) return { action:'proceed', power, why:'already-active' };
+    // Avoid duplicate favor spend when active powers cannot be read reliably.
+    if (!active.known) return { action:'proceed', power, why:'active-unreadable' };
+    if (captchaPausedAny('recruit', 'spell')) return { action:'proceed', power, why:'spell-paused' };
+    const gate = recruitSpellGateOk(townId, power);
+    if (!gate.ok) return { action:'proceed', power, why:gate.why || 'spell-unavailable' };
+    const left = recruitSpellCooldown(townId, power);
+    if (left > 0) return { action:'proceed', power, why:'spell-cooldown', left };
+    const god = RECRUIT_SPELL_GODS[power];
+    const favor = recruitFavorRead(townId, god);
+    const cost = +RECRUIT_SPELL_COSTS[power] || 0;
+    if (favor.value == null) return { action:'proceed', power, why:'favor-unreadable', cost };
+    if (favor.value < cost) return { action:'proceed', power, why:'insufficient-favor', favor:favor.value, cost };
+    return { action:'cast', power, god, favor:favor.value, cost };
   }
   function spellCastPost(townId, powerId, onDone) {
     return bridgePost('spell', {
@@ -136,6 +158,221 @@
     return [];
   }
   const _recruitBlindLog = new Set();
+  function recruitFinite(v) {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    if (typeof v === 'string' && v.trim() !== '') {
+      const n = +v;
+      return Number.isFinite(n) ? n : null;
+    }
+    return null;
+  }
+  function recruitNumericFrom(v) {
+    const direct = recruitFinite(v);
+    if (direct != null) return direct;
+    if (!v || typeof v !== 'object') return null;
+    const a = v.attributes || v;
+    for (const k of ['favor','current','amount','value','points','available','free']) {
+      const n = recruitFinite(a[k]);
+      if (n != null) return n;
+    }
+    return null;
+  }
+  function recruitLiveResources(townId) {
+    const t = gbTownModel(townId);
+    const out = { wood:null, stone:null, iron:null, source:'unreadable' };
+    if (!t) return out;
+    const bags = [];
+    try {
+      const r = typeof t.resources === 'function' ? t.resources() : t.resources;
+      if (r) bags.push(['town.resources', r.attributes || r]);
+    } catch (_) {}
+    try {
+      const r = typeof t.getResources === 'function' ? t.getResources() : null;
+      if (r) bags.push(['town.getResources', r.attributes || r]);
+    } catch (_) {}
+    try { if (t.attributes) bags.push(['town.attributes', t.attributes]); } catch (_) {}
+    for (const [source, bag] of bags) {
+      let hit = false;
+      for (const k of ['wood','stone','iron']) {
+        if (out[k] != null) continue;
+        const n = recruitFinite(bag && bag[k]);
+        if (n != null) { out[k] = n; hit = true; }
+      }
+      if (hit && out.source === 'unreadable') out.source = source;
+      if (out.wood != null && out.stone != null && out.iron != null) break;
+    }
+    return out;
+  }
+  function recruitLivePopulation(townId) {
+    const t = gbTownModel(townId);
+    if (!t) return { value:null, source:'town-unreadable' };
+    for (const name of ['getAvailablePopulation','getFreePopulation']) {
+      try {
+        if (typeof t[name] === 'function') {
+          const n = recruitFinite(t[name]());
+          if (n != null) return { value:n, source:'town.' + name };
+        }
+      } catch (_) {}
+    }
+    try {
+      const r = typeof t.resources === 'function' ? t.resources() : t.resources;
+      const a = r && (r.attributes || r);
+      for (const k of ['population','available_population','population_available','free_population','population_free']) {
+        const n = recruitFinite(a && a[k]);
+        if (n != null) return { value:n, source:'town.resources.' + k };
+      }
+    } catch (_) {}
+    try {
+      const a = t.attributes || {};
+      for (const k of ['available_population','population_available','free_population','population_free']) {
+        const n = recruitFinite(a[k]);
+        if (n != null) return { value:n, source:'town.attributes.' + k };
+      }
+    } catch (_) {}
+    try {
+      const n = gbTownPop(townId);
+      if (n != null && Number.isFinite(+n)) return { value:+n, source:'gbTownPop' };
+    } catch (_) {}
+    return { value:null, source:'population-unreadable' };
+  }
+  function recruitFavorRead(townId, god) {
+    const g = String(god || '').toLowerCase();
+    if (!g) return { value:null, source:'god-unreadable' };
+    const townGod = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
+    const readBag = (bag, source) => {
+      if (!bag || typeof bag !== 'object') return null;
+      const a = bag.attributes || bag;
+      const keys = [g, 'favor_' + g, g + '_favor', 'current_' + g, 'current_favor_' + g];
+      for (const k of keys) {
+        const n = recruitNumericFrom(a[k]);
+        if (n != null) return { value:n, source:source + '.' + k };
+      }
+      for (const ck of ['favor','favors','gods','god_favor','god_favors']) {
+        const c = a[ck];
+        if (!c || typeof c !== 'object') continue;
+        const n = recruitNumericFrom(c[g] ?? c['favor_' + g]);
+        if (n != null) return { value:n, source:source + '.' + ck + '.' + g };
+      }
+      if (townGod && townGod === g) {
+        for (const k of ['favor','current_favor','currentFavor']) {
+          const n = recruitFinite(a[k]);
+          if (n != null) return { value:n, source:source + '.' + k };
+        }
+      }
+      return null;
+    };
+    try {
+      const hit = readBag(favorCurrent(), 'favorCurrent');
+      if (hit) return hit;
+    } catch (_) {}
+    try {
+      const uw = gameUw();
+      const pg = uw.MM && uw.MM.getModelByNameAndPlayerId && uw.MM.getModelByNameAndPlayerId('PlayerGods');
+      const hit = readBag(pg, 'PlayerGods');
+      if (hit) return hit;
+      if (pg && typeof pg.get === 'function') {
+        for (const k of [g, 'favor_' + g, g + '_favor']) {
+          const n = recruitNumericFrom(pg.get(k));
+          if (n != null) return { value:n, source:'PlayerGods.get.' + k };
+        }
+      }
+    } catch (_) {}
+    try {
+      const uw = gameUw();
+      const hit = readBag(uw.Game && uw.Game.gods, 'Game.gods');
+      if (hit) return hit;
+    } catch (_) {}
+    return { value:null, source:'favor-unreadable' };
+  }
+  function recruitRuntimeEffectiveCost(townId, unitId, def) {
+    const t = gbTownModel(townId);
+    const normalize = (raw, source) => {
+      if (!raw || typeof raw !== 'object') return null;
+      const a = raw.attributes || raw.effective || raw.cost || raw;
+      if (!a || typeof a !== 'object') return null;
+      const out = { wood:null, stone:null, iron:null, favor:null, population:null, fieldKnown:{}, authoritative:true, effective:true, base:null, modifier:null, source };
+      let any = false;
+      for (const k of ['wood','stone','iron','favor','population']) {
+        let present = false, value = null;
+        for (const key of [k, k + '_cost', 'effective_' + k]) {
+          if (!Object.prototype.hasOwnProperty.call(a, key)) continue;
+          present = true;
+          const n = Number(a[key]);
+          if (Number.isFinite(n) && n >= 0) value = n;
+          break;
+        }
+        out.fieldKnown[k] = present && value != null;
+        out[k] = out.fieldKnown[k] ? value : null;
+        if (out.fieldKnown[k]) any = true;
+      }
+      // A direct effective-cost surface is useful even when it omits a field;
+      // omitted fields remain UNKNOWN and are never coerced to zero.
+      return any ? out : null;
+    };
+    try {
+      for (const name of ['getEffectiveRecruitmentCost','getRecruitmentCost','getRecruitCost','getUnitCost']) {
+        if (t && typeof t[name] === 'function') {
+          const hit = normalize(t[name](unitId), name + '()');
+          if (hit) return hit;
+        }
+      }
+    } catch (_) {}
+    try {
+      const bag = t && (t.recruitment || t.recruit || t.attributes && (t.attributes.recruitment || t.attributes.recruit));
+      const hit = normalize(bag && (bag[unitId] || bag), 'town.runtime.recruitment');
+      if (hit) return hit;
+    } catch (_) {}
+    return null;
+  }
+  function recruitRuntimeMaxAmount(townId, unitId) {
+    const t = gbTownModel(townId);
+    for (const name of ['getMaxRecruitableUnits','getMaxRecruitable','getMaxUnitAmount','getMaxBuildableUnits']) {
+      try {
+        if (!t || typeof t[name] !== 'function') continue;
+        const raw = t[name](unitId);
+        const n = Number(raw && typeof raw === 'object' ? (raw.amount ?? raw.max ?? raw.value) : raw);
+        if (Number.isFinite(n) && n >= 0) return { known:true, amount:Math.floor(n), source:name + '()' };
+      } catch (_) {}
+    }
+    return { known:false, amount:null, source:'max-recruitable-unreadable' };
+  }
+  function recruitEffectiveUnitCost(townId, unitId) {
+    const def = gbGameDataLookup('units', unitId);
+    if (!def || !def.resources) return null;
+    const rr = def.resources || {};
+    const base = {
+      wood:gbNum(rr.wood),
+      stone:gbNum(rr.stone),
+      iron:gbNum(rr.iron),
+      population:gbNum(def.population),
+      favor:gbNum(def.favor ?? rr.favor),
+    };
+    const runtime = recruitRuntimeEffectiveCost(townId, unitId, def);
+    if (runtime) {
+      runtime.base = base;
+      return runtime;
+    }
+    // GameData is retained as base/reference metadata only. It is not labelled
+    // or enforced as the current effective cost when Grepolis runtime does not
+    // expose that value.
+    return {
+      wood:base.wood, stone:base.stone, iron:base.iron, population:base.population, favor:base.favor,
+      fieldKnown:{ wood:false, stone:false, iron:false, population:false, favor:false },
+      authoritative:false, effective:false, base, modifier:null, source:'gamedata-base-advisory',
+    };
+  }
+  function recruitCostFieldKnown(cost, key) {
+    const v = cost ? gbNum(cost[key]) : null;
+    return !!(cost && cost.authoritative === true && cost.fieldKnown && cost.fieldKnown[key] === true && v != null && v >= 0);
+  }
+  function recruitDisplayCost(cost, key) {
+    if (!cost) return null;
+    const v = gbNum(cost[key]);
+    if (v != null) return v;
+    const b = cost.base ? gbNum(cost.base[key]) : null;
+    return b;
+  }
+  try { GB_ROOT.__grepbotRecruitEffectiveCost = recruitEffectiveUnitCost; } catch (_) {}
   function recruitCanBuild(townId, unitId) {
     const def = gbGameDataLookup("units", unitId);
     if (!def) return false;
@@ -146,9 +383,6 @@
       if (rdeps.length) {
         const info = typeof researchTownTechs === 'function' ? researchTownTechs(townId) : null;
         if (!info || !info.techs) {
-          // Unreadable techs = unknown, not "missing". Blind precheck: let the
-          // server be the authority. Log once per (townId,unitId) so the player
-          // sees which gate silently went blind instead of a hard block.
           const k = townId + '|' + unitId + '|tech';
           if (!_recruitBlindLog.has(k)) { _recruitBlindLog.add(k); gbLogT('recruit-blind-' + townId + '-' + unitId, 300000, 'recruit: ' + unitId + ' techs unreadable in town ' + townId + ' - blind precheck, server judges'); }
           return true;
@@ -158,14 +392,13 @@
       let buildings = null;
       try { const b = t.getBuildings ? t.getBuildings() : (t.buildings && t.buildings()); buildings = b && (b.attributes || b); } catch (_) {}
       if (!buildings) {
-        // Same blind-on-unknown contract as above: a renamed getter must not
-        // strand a feature. Log once and return true so the server judges.
         const k = townId + '|' + unitId + '|bld';
         if (!_recruitBlindLog.has(k)) { _recruitBlindLog.add(k); gbLogT('recruit-blind-' + townId + '-' + unitId, 300000, 'recruit: ' + unitId + ' buildings unreadable in town ' + townId + ' - blind precheck, server judges'); }
         return true;
       }
       const bdeps = recruitRequiredBuildings(def);
       for (const [bid, lvl] of Object.entries(bdeps)) if (+(buildings[bid] || 0) < +lvl) return false;
+      const isMythical = !!(def.god || def.mythical || def.is_mythical || mythicalUnitGod(unitId));
       if (recruitIsNaval(unitId)) {
         const docksNeed = +(def.docks_level ?? def.harbor_level ?? def.required_docks_level ?? 1);
         if (+(buildings.docks || 0) < (Number.isFinite(docksNeed) ? docksNeed : 1)) return false;
@@ -173,167 +406,147 @@
         const barracksNeed = +(def.barracks_level ?? def.required_barracks_level ?? 1);
         if (+(buildings.barracks || 0) < (Number.isFinite(barracksNeed) ? barracksNeed : 1)) return false;
       }
-      // Live client keys mythical units off `god_id` (see GameData.units +
-      // unit card isMythical); some worlds also omit `god`/`is_mythical` while
-      // still charging favor. Treat any of those as mythical.
-      if (def.god || def.god_id || def.mythical || def.is_mythical) {
-        // GameData.units.hydra often ships without `god` even though
-        // is_mythical:true and a non-zero favor cost are present; the map in
-        // core.js (MYTHICAL_UNIT_GOD) fills the gap so the favor gate can clamp
-        // against the canonical god. def.god / def.god_id stay primary — the
-        // map is only a fallback for naval mythicals the client build forgot.
-        let requiredGod = (def.god || def.god_id) ? String(def.god || def.god_id).toLowerCase() : null;
-        if (!requiredGod && typeof mythicalUnitGod === 'function') {
-          requiredGod = mythicalUnitGod(unitId);
-        }
-        const townGod = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
-        // Unreadable god is UNKNOWN, not "wrong god": client builds rename
-        // getGod()/god attributes, and blocking on the miss silently killed
-        // every mythical unit in every town. A read god still decides.
-        if (requiredGod && townGod && townGod !== requiredGod) return false;
-        if (requiredGod && !townGod) {
-          gbLogT('recruit-god-blind-' + townId, 300000,
-            `recruit: town ${townId} god unreadable; ${unitId} left to the server to judge`);
+      if (isMythical) {
+        const requiredGod = (def.god ? String(def.god).toLowerCase() : null) || mythicalUnitGod(unitId);
+        const townGod2 = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
+        if (requiredGod && townGod2 && townGod2 !== requiredGod) return false;
+        if (requiredGod && !townGod2) {
+          gbLogT('recruit-god-blind-' + townId, 300000, `recruit: town ${townId} god unreadable; ${unitId} left to the server to judge`);
         }
         const templeNeed = +(def.temple_level ?? def.required_temple_level ?? 1);
         if (+(buildings.temple || 0) < (Number.isFinite(templeNeed) ? templeNeed : 1)) return false;
-        const favorCost = +(def.favor ?? (def.resources && def.resources.favor) ?? 0);
-        if (favorCost > 0) {
+        const ec = recruitEffectiveUnitCost(townId, unitId);
+        const baseFavor = gbNum(def.favor ?? (def.resources && def.resources.favor));
+        if (baseFavor != null && baseFavor > 0) {
           if (!requiredGod) return false;
-          const fav = favorCurrent();
-          const haveFavor = favorForGod(fav, requiredGod);
-          if (haveFavor == null || haveFavor < favorCost) return false;
+          if (recruitCostFieldKnown(ec, 'favor')) {
+            const favorCost = +ec.favor;
+            const fr = recruitFavorRead(townId, requiredGod);
+            if (fr.value != null && fr.value < favorCost) return false;
+            if (fr.value == null) gbLogT('recruit-favor-blind-' + townId + '-' + requiredGod, 120000,
+              `recruit: ${requiredGod} favor balance unreadable for ${unitId}; server judges`);
+          } else {
+            gbLogT('recruit-favor-cost-blind-' + townId + '-' + unitId, 120000,
+              `recruit: effective favor cost unreadable for ${unitId}; UNKNOWN, server authoritative`);
+          }
         }
       }
       return true;
     } catch (_) { return false; }
   }
-  // Per-lane unit queue length. Captured client
-  // (GameDataConstructionQueue.getUnitOrdersQueueLength) hardcodes
-  // type_unit_queue → 7; full check is getAllOrders().length === 2*that
-  // (barracks + docks). Never probe getMaxQueueLength / max_queue_length —
-  // those match nothing in the live bundle.
-  function recruitQueueMax() {
+  function recruitQueueClass(def, unitId) {
+    if (!def) return 'unknown';
+    // The real queue split is docks vs barracks. Mythical land units share the
+    // barracks queue with other land units; temple remains only a prerequisite.
+    // recruitIsNaval covers NAVAL_MYTHICAL_UNITS whose GameData lacks is_naval.
+    if (recruitIsNaval(unitId || def.id)) return 'naval';
+    return 'land';
+  }
+  function recruitQueueDomCapacity(townId, unitId) {
     try {
       const uw = gameUw();
-      const q = uw.GameDataConstructionQueue;
-      if (q && typeof q.getUnitOrdersQueueLength === 'function') {
-        const n = +q.getUnitOrdersQueueLength();
-        if (Number.isFinite(n) && n > 0) return n;
-      }
-    } catch (_) {}
-    return 7;
-  }
-  function recruitQueueBuilding(unitId) {
-    return recruitIsNaval(unitId) ? 'docks' : 'barracks';
-  }
-  function recruitQueueInfo(townId, unitId) {
-    const t = gbTownModel(townId);
-    const max = recruitQueueMax();
-    if (!t) return { known: false, len: 0, max, models: [] };
-    let col = null;
-    try { col = t.getUnitOrdersCollection && t.getUnitOrdersCollection(); } catch (_) {}
-    if (!col) return { known: false, len: 0, max, models: [] };
-    const naval = unitId ? recruitIsNaval(unitId) : null;
-    const building = naval == null ? null : (naval ? 'docks' : 'barracks');
-
-    // Exact counters the docks/barracks UI animation uses (CityOverview binds
-    // isDocksBuildingAnimated → getNavalUnitOrdersCount). Match the "0/7"
-    // header before any other probe.
-    try {
-      if (naval === true && typeof col.getNavalUnitOrdersCount === 'function') {
-        const c = +col.getNavalUnitOrdersCount();
-        if (Number.isFinite(c) && c >= 0) {
-          let models = [];
-          try {
-            if (typeof col.getNavalUnitOrders === 'function') {
-              const o = col.getNavalUnitOrders();
-              if (o && typeof o.length === 'number')
-                models = Array.isArray(o) ? o.slice() : Array.prototype.slice.call(o);
-            }
-          } catch (_) {}
-          return { known: true, len: c, max, models };
-        }
-      }
-      if (naval === false && typeof col.getGroundUnitOrdersCount === 'function') {
-        const c = +col.getGroundUnitOrdersCount();
-        if (Number.isFinite(c) && c >= 0) {
-          let models = [];
-          try {
-            if (typeof col.getGroundUnitOrders === 'function') {
-              const o = col.getGroundUnitOrders();
-              if (o && typeof o.length === 'number')
-                models = Array.isArray(o) ? o.slice() : Array.prototype.slice.call(o);
-            }
-          } catch (_) {}
-          return { known: true, len: c, max, models };
+      if (!uw.Game || String(uw.Game.townId) !== String(townId)) return null;
+      const wantClass = recruitQueueClass(gbGameDataLookup('units', unitId), unitId);
+      const windows = Array.from(document.querySelectorAll('.gpwindow, .ui-dialog, [class*="gpwindow"]'));
+      const classRx = wantClass === 'naval'
+        ? /(puerto|port|harbor|docks|hafen|porto)/i
+        : /(cuartel|barracks|kaserne|caserne|caserma|quartel)/i;
+      const countRx = /(?:entrenamiento|training|ausbildung|entrainement|entraînement|addestramento|treinamento)?\s*\(\s*(\d+)\s*\/\s*(\d+)\s*\)/i;
+      for (const el of windows) {
+        const text = String(el && el.textContent || '');
+        if (!classRx.test(text)) continue;
+        const m = countRx.exec(text);
+        if (!m) continue;
+        const len = +m[1], max = +m[2];
+        if (Number.isFinite(len) && Number.isFinite(max) && max > 0 && len >= 0 && len <= max && max <= 50) {
+          return { len, max, source:'dom-training-counter' };
         }
       }
     } catch (_) {}
-
-    // getCount/getOrders — same filter as the named helpers above.
-    if (building && typeof col.getCount === 'function') {
+    return null;
+  }
+  function recruitQueueMaxProbe(col, townId, unitId) {
+    const methodNames = ['getMaxQueueLength','getMaxQueueSize','getQueueMax','getMaxOrders','getMaxOrderCount','getQueueLimit'];
+    for (const name of methodNames) {
       try {
-        const c = +col.getCount(building);
-        if (Number.isFinite(c) && c >= 0) {
-          let models = [];
-          try {
-            if (typeof col.getOrders === 'function') {
-              const o = col.getOrders(building);
-              if (Array.isArray(o)) models = o.slice();
-              else if (o && typeof o.length === 'number') models = Array.prototype.slice.call(o);
-            }
-          } catch (_) {}
-          return { known: true, len: c, max, models };
-        }
-      } catch (_) {}
-    }
-    if (building && typeof col.getOrders === 'function') {
-      try {
-        const o = col.getOrders(building);
-        if (Array.isArray(o)) return { known: true, len: o.length, max, models: o.slice() };
-        if (o && typeof o.length === 'number') {
-          const models = Array.prototype.slice.call(o);
-          return { known: true, len: models.length, max, models };
-        }
-      } catch (_) {}
-    }
-    if (typeof col.getAllOrders === 'function') {
-      try {
-        let all = col.getAllOrders();
-        if (all && typeof all.length === 'number') {
-          all = Array.isArray(all) ? all.slice() : Array.prototype.slice.call(all);
-          if (building) {
-            all = all.filter(m => {
-              try {
-                return typeof m.getProductionBuildingType === 'function'
-                  && m.getProductionBuildingType() === building;
-              } catch (_) { return false; }
-            });
+        if (col && typeof col[name] === 'function') {
+          for (const args of [[], [townId], [townId, unitId]]) {
+            const n = recruitFinite(col[name].apply(col, args));
+            if (n != null && n > 0 && n <= 50) return { max:n, source:'collection.' + name };
           }
-          return { known: true, len: all.length, max, models: all };
         }
       } catch (_) {}
     }
-    // Raw models fallback. Drop id-less rows — keeping them inflated len
-    // against an empty docks UI and stranded hydra at waiting-slot.
+    const attrNames = ['max_queue_length','maxQueueLength','max_queue_size','maxQueueSize','queue_max','queueMax','max_orders','maxOrders','queue_limit','queueLimit'];
+    for (const name of attrNames) {
+      try {
+        let raw = null;
+        if (col && typeof col.get === 'function') raw = col.get(name);
+        if (raw == null && col) raw = col[name];
+        if (raw == null && col && col.attributes) raw = col.attributes[name];
+        const n = recruitFinite(raw);
+        if (n != null && n > 0 && n <= 50) return { max:n, source:'collection.' + name };
+      } catch (_) {}
+    }
     try {
-      if (!Array.isArray(col.models)) return { known: false, len: 0, max, models: [] };
-      let models = col.models.slice();
-      if (unitId) {
-        const wantNaval = recruitIsNaval(unitId);
-        models = models.filter(m => {
-          const a = m.attributes || m;
-          let pbt = null;
-          try { if (typeof m.getProductionBuildingType === 'function') pbt = m.getProductionBuildingType(); } catch (_) {}
-          if (pbt === 'docks' || pbt === 'barracks') return (pbt === 'docks') === wantNaval;
-          const id = a.unit_type || a.unit_id || a.type;
-          if (!id) return false;
-          return recruitIsNaval(id) === wantNaval;
-        });
+      const uw = gameUw();
+      const objs = [
+        // Captured client: GameDataConstructionQueue.getUnitOrdersQueueLength()
+        // is the live unit-queue API (7 per lane; full = 2x across barracks+docks).
+        ['GameDataConstructionQueue', uw.GameDataConstructionQueue],
+        ['GameDataUnitQueue', uw.GameDataUnitQueue],
+        ['GameDataUnits', uw.GameDataUnits],
+        ['GameData.unit_queue', uw.GameData && uw.GameData.unit_queue],
+        ['GameData.unit_orders', uw.GameData && uw.GameData.unit_orders],
+      ];
+      for (const [label, obj] of objs) {
+        if (!obj) continue;
+        for (const name of ['getUnitOrdersQueueLength','getQueueMax','getMaxQueueLength','getMaxQueueSize','getMaxOrders','getQueueLimit']) {
+          if (typeof obj[name] !== 'function') continue;
+          for (const args of [[townId], [townId, unitId], []]) {
+            try {
+              const n = recruitFinite(obj[name].apply(obj, args));
+              if (n != null && n > 0 && n <= 50) return { max:n, source:label + '.' + name };
+            } catch (_) {}
+          }
+        }
       }
-      return { known: true, len: models.length, max, models };
-    } catch (_) { return { known: false, len: 0, max, models: [] }; }
+    } catch (_) {}
+    const dom = recruitQueueDomCapacity(townId, unitId);
+    if (dom) return { max:dom.max, source:dom.source, domLen:dom.len };
+    return { max:null, source:'capacity-unreadable' };
+  }
+  function recruitQueueInfo(townId,unitId) {
+    const t = gbTownModel(townId);
+    if (!t) return { known:false, len:0, max:null, models:[], queueClass:'unknown', capacitySource:'town-unreadable' };
+    let col = null, models = [];
+    try {
+      col = t.getUnitOrdersCollection && t.getUnitOrdersCollection();
+      if (!col || !Array.isArray(col.models)) return {known:false,len:0,max:null,models:[],queueClass:'unknown',capacitySource:'collection-unreadable'};
+      models = col.models.slice();
+    } catch (_) {
+      return {known:false,len:0,max:null,models:[],queueClass:'unknown',capacitySource:'collection-unreadable'};
+    }
+    const want = unitId ? gbGameDataLookup('units', unitId) : null;
+    const wantClass = unitId ? recruitQueueClass(want, unitId) : 'all';
+    if (unitId) {
+      models = models.filter(m => {
+        const a = m.attributes || m, id = a.unit_type || a.unit_id || a.type, d = gbGameDataLookup('units', id);
+        return !d || recruitQueueClass(d, id) === wantClass;
+      });
+    }
+    const cap = recruitQueueMaxProbe(col, townId, unitId);
+    const len = cap.domLen != null && Number.isFinite(+cap.domLen) ? +cap.domLen : models.length;
+    if (cap.max == null) {
+      const key = `recruit-qcap-${townId}-${wantClass}`;
+      let hints = '';
+      try {
+        const keys = Object.keys((col && (col.attributes || col)) || {}).filter(k => /(queue|order|max|slot)/i.test(k)).slice(0,12);
+        if (keys.length) hints = ` keys=${keys.join(',')}`;
+      } catch (_) {}
+      gbLogT(key, 120000, `recruit: queue capacity unreadable town=${townId} lane=${wantClass} len=${len}; proceeding blind (server authoritative).${hints}`);
+    }
+    return { known:true, len, max:cap.max, models, queueClass:wantClass, capacitySource:cap.source };
   }
   function recruitQueuedAmount(townId, unit) {
     const q = recruitQueueInfo(townId);
@@ -341,116 +554,87 @@
     for (const m of q.models || []) {
       const a = m.attributes || {};
       const uid = a.unit_type || a.unit_id || a.type;
-      // Same contract as txUnitStatus: gbNum keeps unreadable null, the sweep
-      // skips that order, and an unknown shape never reads as "0 queued".
-      if (String(uid) === String(unit)) { const q = gbNum(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)); if (q != null) queued += q; }
+      if (String(uid) === String(unit)) queued += +(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)) || 0;
     }
     return queued;
   }
-  function recruitQueueHasSpace(townId, unitId) {
+  function recruitQueueSpace(townId, unitId) {
     const q = recruitQueueInfo(townId, unitId);
-    // Unreadable ≠ full. A wrong "full" read stranded hydra at waiting-slot
-    // while docks showed 0/7 — hard-rule: unread/untrusted → allow, server judges.
-    if (!q.known) return true;
-    const max = q.max != null && q.max > 0 ? q.max : recruitQueueMax();
-    return q.len < max;
-  }
-  // Re-label FIFO heads stuck on waiting-slot without posting. Runs even when
-  // farmFirstHold / captcha blocks the send path, so the panel cannot keep a
-  // pre-upgrade "cola real llena" forever.
-  function recruitRefreshWaitingSlotJobs() {
-    const root = nativeQueueRoot();
-    for (const tid of Object.keys(root.towns || {})) {
-      for (const lane of NATIVE_RECRUIT_LANES) {
-        const job = nativeQueueList(tid, lane, false)[0];
-        if (!job || job.status !== 'waiting-slot' || !job.unit) continue;
-        if (job.inflight || job.manualReview) continue;
-        const q = recruitQueueInfo(tid, job.unit);
-        const max = (q.max != null && q.max > 0) ? q.max : recruitQueueMax();
-        if (!q.known || q.len < max) {
-          delete job.slotRetryAt;
-          nativeQueueSetJobState(job, 'pending', 'cola liberada / re-chequeo');
-          continue;
-        }
-        // Client says full: leave the label alone. nativeQueueRecruitHead owns
-        // the wake decision (post anyway, server judges) — re-marking here set
-        // waiting-slot while the send path flipped it back to pending in the
-        // same scan, so the label flapped and the job posted anyway.
-      }
+    if (!q.known) return { ok:false, full:null, blind:true, why:'queue-unknown', q };
+    if (q.max != null) {
+      const full = q.len >= q.max;
+      return { ok:!full, full, blind:false, why:full?'queue-full':'queue-space', q };
     }
+    return { ok:true, full:null, blind:true, why:'queue-capacity-unreadable', q };
   }
-  // Live client multiplies wood/stone/iron by GeneralModifications
-  // .getUnitBuildResourcesModification (mathematics, nereids, …). Raw
-  // GameData costs made hydra look unaffordable while the docks UI (exact
-  // match) said buildable. Pop + favor stay unscaled — same as GameDataUnits.getMaxBuild.
-  function recruitResourceFactor(townId, def) {
-    try {
-      const uw = gameUw();
-      const GM = uw.GeneralModifications;
-      if (!GM || typeof GM.getUnitBuildResourcesModification !== 'function' || !def) return 1;
-      // Hydra often lacks is_naval in GameData; mathematics/nereids key off it.
-      // Pass a shallow copy with is_naval forced when recruitIsNaval says so.
-      let unitDef = def;
-      if (def.id && recruitIsNaval(def.id) && !def.is_naval && !def.naval) {
-        unitDef = Object.assign({}, def, { is_naval: true });
+  function recruitQueueHasSpace(townId,unitId) {
+    return recruitQueueSpace(townId,unitId).ok;
+  }
+  function recruitAffordability(townId, unit, want) {
+    const def = gbGameDataLookup('units', unit), desired = Math.max(0, Math.floor(+want || 0));
+    if (!def || !def.resources || !(desired > 0)) return { amount:0, desired, why:'unit-cost-unreadable', blind:['unit-cost-unreadable'], limits:{} };
+    const ec = recruitEffectiveUnitCost(townId, unit);
+    const maxNow = recruitRuntimeMaxAmount(townId, unit);
+    const res = recruitLiveResources(townId);
+    const pop = recruitLivePopulation(townId);
+    let amount = maxNow.known ? Math.min(desired, maxNow.amount) : desired;
+    const blind = [], limits = {};
+    if (!maxNow.known) blind.push('max-recruitable-unreadable');
+    const apply = (name, have, cost, unreadableTag) => {
+      if (!(cost > 0)) return;
+      if (have == null || !Number.isFinite(+have)) { blind.push(unreadableTag); return; }
+      const lim = Math.max(0, Math.floor(+have / cost));
+      limits[name] = { have:+have, cost, max:lim };
+      amount = Math.min(amount, lim);
+    };
+    for (const k of ['wood','stone','iron']) {
+      if (recruitCostFieldKnown(ec, k)) apply(k, res[k], +ec[k], 'resources-unreadable:' + k);
+      else blind.push('effective-cost-unreadable:' + k);
+    }
+    if (recruitCostFieldKnown(ec, 'population')) apply('population', pop.value, +ec.population, 'population-unreadable');
+    else blind.push('effective-cost-unreadable:population');
+    let favor = null;
+    const baseFavor = gbNum(def.favor ?? (def.resources && def.resources.favor));
+    if (baseFavor != null && baseFavor > 0) {
+      const god = (def.god && String(def.god).toLowerCase()) || mythicalUnitGod(unit);
+      if (!god) blind.push('favor-unreadable:god');
+      else if (recruitCostFieldKnown(ec, 'favor')) {
+        favor = recruitFavorRead(townId, god);
+        apply('favor', favor.value, +ec.favor, 'favor-unreadable:' + god);
+      } else blind.push('effective-cost-unreadable:favor');
+    }
+    amount = Math.max(0, Math.floor(amount));
+    let limiting = null;
+    if (amount < desired) {
+      for (const k of ['wood','stone','iron','population','favor']) {
+        if (limits[k] && limits[k].max === amount) { limiting = k; break; }
       }
-      const f = gbNum(GM.getUnitBuildResourcesModification(+townId, unitDef));
-      if (f != null && f > 0) return f;
-    } catch (_) {}
-    return 1;
+      if (!limiting && maxNow.known && maxNow.amount === amount) limiting = 'runtime-max';
+    }
+    const why = limiting === 'population' ? 'waiting-population'
+      : limiting === 'runtime-max' ? 'waiting-runtime-max'
+      : limiting ? ('waiting-' + limiting)
+      : (blind.length ? blind[0] : 'ready');
+    return { amount, desired, why, limiting, blind:[...new Set(blind)], limits, resources:res, population:pop, favor, effectiveCost:ec, maxRecruitable:maxNow };
   }
   function recruitAffordableAmount(townId, unit, want) {
-    const def = gbGameDataLookup("units", unit), t = gbTownModel(townId);
-    if (!def || !t || !def.resources) return 0;
-    try {
-      const r = t.resources && t.resources();
-      // gbNum rejects null / '' / [] / false instead of coercing them to 0;
-      // the legacy `+t.getAvailablePopulation()` collapsed +null onto 0 and
-      // let recruitAffordableAmount return a positive amount against a town
-      // whose population read was unreadable.
-      const pop = t.getAvailablePopulation && gbNum(t.getAvailablePopulation());
-      if (!r || pop == null) return 0;
-      const factor = recruitResourceFactor(townId, Object.assign({ id: unit }, def));
-      const rw = (gbNum(def.resources.wood) || 0) * factor;
-      const rs = (gbNum(def.resources.stone) || 0) * factor;
-      const ri = (gbNum(def.resources.iron) || 0) * factor;
-      const rp = gbNum(def.population) || 0;
-      let amount = Math.max(0, gbNum(want) || 0);
-      const rWood = gbNum(r.wood), rStone = gbNum(r.stone), rIron = gbNum(r.iron);
-      if (rw > 0 && rWood != null) amount = Math.min(amount, Math.floor(rWood / rw));
-      if (rs > 0 && rStone != null) amount = Math.min(amount, Math.floor(rStone / rs));
-      if (ri > 0 && rIron != null) amount = Math.min(amount, Math.floor(rIron / ri));
-      if (rp > 0) amount = Math.min(amount, Math.floor(pop / rp));
-      const favorCost = gbNum(def.favor ?? def.resources.favor) || 0;
-      if (favorCost > 0) {
-        // Same naval-mythical fallback as recruitCanBuild: GameData may omit
-        // `def.god` (and only set `god_id`) for hydra, so fall back to
-        // MYTHICAL_UNIT_GOD before the pool clamp. Favor is irreversible, so an
-        // unknown god still hard-stops the amount at 0 — never spend against a guess.
-        let god = (def.god || def.god_id) && String(def.god || def.god_id).toLowerCase();
-        if (!god && typeof mythicalUnitGod === 'function') god = mythicalUnitGod(unit);
-        const fav = favorCurrent();
-        const have = god ? favorForGod(fav, god) : null;
-        if (have == null) return 0;
-        amount = Math.min(amount, Math.floor(have / favorCost));
-      }
-      return Math.max(0, Math.floor(amount));
-    } catch (_) { return 0; }
+    return recruitAffordability(townId, unit, want).amount;
   }
   function recruitValidateJob(job) {
-    if (!recruitCanBuild(job.townId, job.unit)) return { ok: false, why: 'requirements' };
-    // Deliberately no recruitQueueHasSpace here: client lane-length reads have
-    // falsely reported "full" against docks 0/7. Server rejects a real full lane.
-    const amount = recruitAffordableAmount(job.townId, job.unit, job.amount);
-    if (!(amount > 0)) return { ok: false, why: 'resources/pop/favor' };
-    return { ok: true, amount: Math.min(amount, job.amount) };
+    if (!recruitCanBuild(job.townId, job.unit)) return { ok:false, why:'requirements' };
+    const qs = recruitQueueSpace(job.townId, job.unit);
+    if (!qs.ok) return { ok:false, why:qs.why, queue:qs.q, blind:qs.blind };
+    const af = recruitAffordability(job.townId, job.unit, job.amount);
+    if (!(af.amount > 0)) return { ok:false, why:af.why || 'resources-unavailable', affordability:af, queue:qs.q };
+    return { ok:true, amount:Math.min(af.amount, job.amount), why:af.why, affordability:af, queue:qs.q, blind:qs.blind || af.blind.length > 0 };
   }
   let recruitNativeCursor=0,recruitLegacyCursor=0;
   function recruitRotate(ids,cursor){if(!ids.length)return ids;const at=Math.max(0,cursor%ids.length);return ids.slice(at).concat(ids.slice(0,at))}
-  // Per-scan tick memo on the back-model + god read. gbTownModel is not
-  // memoized in bridge.js, so a 20-town × 5-unit scan was burning 100+
-  // unsafeWindow ITowns lookups per tick; the god read repeats inside
-  // recruitCanBuild AND recruitSpellGateOk for the same town.
+  function recruitLockName(townId, unit) {
+    const lane = nativeRecruitLane(unit);
+    return `recruit:${String(townId)}:${lane === 'recruitNaval' ? 'docks' : 'barracks'}`;
+  }
+
   let recruitScanGodCache = null;
   function recruitScanResetMemo() {
     recruitScanGodCache = new Map();
@@ -463,54 +647,18 @@
     return g;
   }
   function recruitScan(reason) {
-    const nativePending = nativeRecruitPending();
-    if (!hostEnabled() || (!state.autoRecruit && !nativePending) || captchaPaused('recruit')) return;
-    // Always re-label stale waiting-slot rows first — even when a later hold
-    // blocks the actual post (farm-first / lock / captcha). Otherwise the panel
-    // keeps a pre-upgrade "cola real llena" forever while docks shows 0/7.
-    try { recruitRefreshWaitingSlotJobs(); } catch (_) {}
+    const nativePending = nativeRecruitPending(), cdPending = cityDesignerHasExecutableWork('recruit');
+    if (!hostEnabled() || (!state.autoRecruit && !nativePending && !cdPending) || captchaPaused('recruit')) return;
     if (automationPaused({})) return;
-    if (gbLocked('recruit')) return;
-    // Farm-first holds LEGACY goal recruit. Native FIFO is player-armed and may
-    // still run — but never when farm claims already own the request budget
-    // (claim lock / soft ceiling). v5.10.48 let hydra post through claim
-    // batches and starved village/Recoger posts with skip:budget.
-    const farmHold = typeof farmClaimPending === 'function' && !!state.autoFarm
-      && !captchaPaused('farm') && farmClaimPending();
-    if (farmHold && !nativePending) {
-      gbLogT('farm-first-recruit', 300000, 'recruit: held - farming village claim pending (farm-first)');
-      return;
-    }
-    let nativeFarmBudgetHold = false;
-    if (farmHold && nativePending) {
-      const claimBusy = typeof gbLocked === 'function' && gbLocked('claim');
-      let softMs = 0;
-      try { softMs = typeof reqBudgetSoftDelayMs === 'function' ? gbNum(reqBudgetSoftDelayMs()) || 0 : 0; } catch (_) {}
-      let used = 0, cap = 0;
-      try {
-        used = typeof reqBudgetUsed === 'function' ? gbNum(reqBudgetUsed('action')) || 0 : 0;
-        cap = typeof reqBudgetCap === 'function' ? gbNum(reqBudgetCap('action')) || 0 : 0;
-      } catch (_) {}
-      // Keep ~25% of the action pool for in-flight / upcoming farm claims.
-      const budgetTight = softMs > 0 || (cap > 0 && used >= Math.floor(cap * 0.75));
-      nativeFarmBudgetHold = !!(claimBusy || budgetTight);
-      if (nativeFarmBudgetHold) {
-        gbLogT('farm-first-recruit-budget', 60000,
-          `recruit: native FIFO deferred — farm claim owns budget (claimLock=${claimBusy ? 1 : 0} softMs=${softMs} action=${used}/${cap})`);
-      } else {
-        gbLogT('farm-first-recruit-native', 300000,
-          'recruit: farm-first active — native FIFO still runs, legacy goals held');
-      }
-    }
+
+    // Recruitment is independent from farming. The old farm-first hard gate could
+    // starve recruitment indefinitely whenever any village claim remained pending.
     recruitScanResetMemo();
     const targets = goalEffectiveRecruitTargets();
+    for(const tid of Object.keys(targets))if(nativeQueuePlannerOwnsTown(tid))nativeQueueClearForPlanner(tid,'recruit-scan',true);
 
-    // Barracks and harbour are separate lanes, so a town can be FIFO for one
-    // hull type and still run the goal planner for the other. Both id lists can
-    // therefore name the same town — dedupe, the per-lane checks below decide
-    // what that town is actually allowed to post.
-    const explicitIds=Object.keys(nativeQueueRoot().towns).filter(id=>NATIVE_RECRUIT_LANES.some(l=>nativeQueueIsFifo(id,l)&&nativeQueueList(id,l,false).length));
-    const legacyIds=Object.keys(targets).filter(id=>!NATIVE_RECRUIT_LANES.every(l=>nativeQueueIsFifo(id,l)));
+    const explicitIds=Object.keys(nativeQueueRoot().towns).filter(id=>!nativeQueuePlannerOwnsTown(id)&&NATIVE_RECRUIT_LANES.some(l=>nativeQueueIsFifo(id,l)&&nativeQueueList(id,l,false).length));
+    const legacyIds=Object.keys(targets).filter(id=>(state.autoRecruit||cdIsProfile(goalTownCfg(id).profile))&&(nativeQueuePlannerOwnsTown(id)||!NATIVE_RECRUIT_LANES.every(l=>nativeQueueIsFifo(id,l))));
     const townIds=recruitRotate(explicitIds,recruitNativeCursor++).concat(recruitRotate(legacyIds,recruitLegacyCursor++)).filter((id,i,a)=>a.indexOf(id)===i);
     if (!townIds.length) {
       gbLogT('recruit-empty', 300000, 'recruit: no town targets configured');
@@ -520,40 +668,49 @@
     let job = null;
     for (const tid of townIds) {
       for (const lane of NATIVE_RECRUIT_LANES) {
-        if (!nativeQueueIsFifo(tid, lane)) continue;
-        const explicit = nativeQueueRecruitHead(tid, lane);
-        if (!explicit) continue;
-        // Client queue-length reads have lied (docks UI 0/7 while we set
-        // waiting-slot). Do NOT hard-block the native FIFO head on them —
-        // afford/canBuild still run; the server rejects a truly full lane.
-        const qInfo = recruitQueueInfo(tid, explicit.unit);
-        const qMax = (qInfo.max != null && qInfo.max > 0) ? qInfo.max : recruitQueueMax();
-        const clientSaidFull = qInfo.known && qInfo.len >= qMax;
-        if (clientSaidFull) {
-          gbLogT('recruit-slot-soft-' + tid, 60000,
-            `recruit: client says full ${qInfo.len}/${qMax} for ${explicit.unit} @${tid}; posting anyway, server judges`);
-        } else if (!qInfo.known) {
-          gbLogT('recruit-queue-blind-' + tid, 300000,
-            `recruit: unit queue unreadable in town ${tid}; ${explicit.unit} left to the server to judge`);
-        }
-        if (!recruitCanBuild(tid, explicit.unit) || !recruitControllerFor(explicit.unit)) {
-          nativeQueueSetJobState(explicit, 'blocked', 'requisitos/controlador'); continue;
-        }
-        const totalAmt = +explicit.amount || 0;
+        if (nativeQueuePlannerOwnsTown(tid) || !nativeQueueIsFifo(tid, lane)) continue;
+        const explicitJobs = nativeQueueRecruitCandidates(tid, lane);
+        for (const explicit of explicitJobs) {
+          const qspace = recruitQueueSpace(tid, explicit.unit);
+          if (!qspace.ok) {
+            nativeQueueSetJobState(explicit, qspace.full ? 'waiting-slot' : 'queue-unknown',
+              qspace.full ? `cola real llena (${qspace.q.len}/${qspace.q.max})` : 'cola real no legible');
+            // Queue capacity is shared by every job in this land/naval lane.
+            if (qspace.full) break;
+            continue;
+          }
+          if (!recruitCanBuild(tid, explicit.unit) || !recruitControllerFor(explicit.unit)) {
+            nativeQueueSetJobState(explicit, 'blocked', 'requisitos/controlador'); continue;
+          }
+          const totalAmt = +explicit.amount || 0;
+          if (!(totalAmt > 0)) { nativeQueueSetJobState(explicit, 'blocked', 'cantidad inválida'); continue; }
 
-        const cs = +explicit.chunkSize || 0;
-        const postAmt = cs > 0 && cs < totalAmt ? cs : totalAmt;
+          const cs = +explicit.chunkSize || 0;
+          const postAmt = cs > 0 && cs < totalAmt ? cs : totalAmt;
 
-        const affordable = recruitAffordableAmount(tid, explicit.unit, postAmt);
-        if (affordable < postAmt) { nativeQueueSetJobState(explicit, 'waiting-resources', 'recursos/población/favor'); continue; }
-        nativeQueueSetJobState(explicit, 'ready', nativeFarmBudgetHold ? 'listo (espera aldeas)' : 'listo');
-        // Farm claim batch / tight budget: keep UI status fresh but do not post.
-        if (nativeFarmBudgetHold) continue;
-        job = { kind:'build', townId:tid, unit:explicit.unit, amount:postAmt, nativeJobId:explicit.id, nativeLane:lane, nativeChunkSize: cs, clientSaidFull: clientSaidFull || undefined };
-        break;
+          const afford = recruitAffordability(tid, explicit.unit, postAmt);
+          if (afford.amount < postAmt) {
+            nativeQueueSetJobState(explicit, afford.why || 'waiting-resources',
+              `${afford.why || 'waiting-resources'}: ${afford.amount}/${postAmt}`);
+            // Work-conserving queue: this job reserves nothing.  Try the next
+            // queued troop immediately; a cheaper/different unit may be payable.
+            continue;
+          }
+          const blindBits = [];
+          if (qspace.blind) blindBits.push(`queue ${qspace.q.len}/?`);
+          if (afford.blind.length) blindBits.push(afford.blind.join(','));
+          nativeQueueSetJobState(explicit, 'ready', blindBits.length ? ('listo; precheck ciego ' + blindBits.join(' | ')) : 'listo');
+          job = { kind:'build', townId:tid, unit:explicit.unit, amount:postAmt, nativeJobId:explicit.id, nativeLane:lane, nativeChunkSize: cs };
+          break;
+        }
+        if (job) break;
       }
       if (job) break;
-      if (farmHold) continue;
+      // City Designer owns composition for its towns. Until development
+      // buildings are complete, suppress its dynamic recruit targets so units
+      // cannot consume population required by future building levels. Explicit
+      // native FIFO jobs above remain user-authoritative and are not removed.
+      if(cdIsProfile(goalTownCfg(tid).profile)&&(!cdBuildDone(tid)||!cdCompositionResearchReady(tid)))continue;
       const want = targets[tid];
       if (!want || typeof want !== 'object') continue;
       let t = null;
@@ -564,45 +721,23 @@
         const tgt = +want[unit] || 0;
         if (!(tgt > 0)) continue;
 
-        // A lane the player drives by hand (FIFO) is never topped up by the
-        // goal planner, even when the other hull type still is.
-        if (nativeQueueIsFifo(tid, nativeRecruitLane(unit))) continue;
+        const dynLane=nativeRecruitLane(unit);if(nativeQueuePlannerOwnsTown(tid)){if(nativeQueuePlannerLaneBlocked(tid,dynLane))continue}else if(nativeQueueIsFifo(tid,dynLane))continue;
         if (!recruitCanBuild(tid, unit)) continue;
         if (!recruitControllerFor(unit)) continue;
-        // Deliberately still trusts the client lane read, unlike the native
-        // FIFO path above: a wrong "full" here only SKIPS a cycle (retried
-        // next scan), never posts into a server rejection. Conservative
-        // direction is under-recruit, and unreadable already returns true.
         if (!recruitQueueHasSpace(tid,unit)) continue;
         const cur = +have[unit] || 0;
         const queued = recruitQueuedAmount(tid, unit);
         const need = tgt - cur - queued;
         if (need <= 0) continue;
-        let amount = recruitAffordableAmount(tid, unit, need);
-        if (!(amount > 0)) continue;
-
-        // A spell is an optional accelerator, never a reason to spend favor when
-        // no affordable recruitment can immediately follow it, or to block
-        // normal recruiting in SAFE MODE.
-        if (state.recruitSpells && !state.safeMode) {
-
-          // Power ids are compared case-sensitively against RECRUIT_SPELLS, and
-          // an imported config can carry mixed case - without the normalise the
-          // spell scan idles forever with no trace.
-          const rawPower = (state.favorCfg && state.favorCfg.recruitPower) || null;
-          const wantPower = rawPower ? String(rawPower).trim().toLowerCase() : null;
-          if (wantPower && !RECRUIT_SPELLS.includes(wantPower)) {
-            gbLogT('recruit-badpower', 600000, `recruit: unknown spell power id "${rawPower}" - spells idle`);
-          }
-          if (wantPower && RECRUIT_SPELLS.includes(wantPower) && !recruitHasSpell(tid, wantPower)
-              && !captchaPausedAny('recruit', 'spell') && recruitSpellGateOk(tid, wantPower).ok
-              && !recruitSpellCooldown(tid, wantPower)) {
-            job = { kind:'spell', townId:tid, power:wantPower };
-            break;
-          }
+        const affordGoal = recruitAffordability(tid, unit, need);
+        let amount = affordGoal.amount;
+        if (!(amount > 0)) {
+          gbLogT(`recruit-wait-${tid}-${unit}`, 60000, `recruit: town ${tid} ${unit} ${affordGoal.why || 'resources-unavailable'}`);
+          continue;
         }
+
         amount = Math.min(amount, 50);
-        job = { kind: 'build', townId: tid, unit, amount };
+        job = { kind: 'build', townId: tid, unit, amount, cdRevision:cdIsProfile(goalTownCfg(tid).profile)?cdProfileRevision(tid):null };
         break;
       }
       if (job) break;
@@ -611,99 +746,96 @@
       gbLogT('recruit-idle', 180000, `recruit: idle (${scanReason(reason)})`);
       return;
     }
-    const lockToken = gbLock('recruit');
-    if (!lockToken) return;
-    if (job.kind === 'spell') {
-      recruitCastSpell(job.townId, job.power, (err) => {
-        gbUnlock('recruit', lockToken);
-        if (!err) gbLog(`spell: ${job.power} on ${job.townId}`);
-        else if (err === 'timeout_unknown' || err === 'pending') {
-          recruitSpellCooldownStamp(job.townId, job.power);
-          gbLog(`spell: outcome unknown (${err}); cooldown 30min — favor is irreversible, manual review required`);
-        } else gbLogT('spell-err', 60000, `spell err ${err}`);
+    if(job.cdRevision!=null&&+job.cdRevision!==cdProfileRevision(job.townId)){gbLogT('recruit-cd-stale-'+job.townId,60000,'recruit: city-designer revision changed; stale job dropped');return}
+    // Universal spell preflight for native FIFO and legacy recruitment.
+    // It never reserves resources: if the buff cannot be cast, recruitment proceeds.
+    const spellDecision = recruitAutoSpellDecision(job.townId, job.unit);
+    if (spellDecision.action === 'cast') {
+      const spellLockName = `recruit:${String(job.townId)}:spell`;
+      const spellLock = gbLock(spellLockName, 120000);
+      if (!spellLock) return;
+      recruitCastSpell(job.townId, spellDecision.power, (err) => {
+        gbUnlock(spellLockName, spellLock);
+        if (!err) {
+          recruitSpellCooldownStamp(job.townId, spellDecision.power, 60000);
+          gbLog(`recruit spell: ${spellDecision.power} on ${job.townId}; recruit on next scan`);
+        } else if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {
+          recruitSpellCooldownStamp(job.townId, spellDecision.power);
+          gbLog(`recruit spell: outcome unknown (${err}); next scan recruits without recasting`);
+        } else {
+          recruitSpellCooldownStamp(job.townId, spellDecision.power, 60000);
+          gbLogT('spell-err', 60000, `recruit spell unavailable (${err}); next scan recruits normally`);
+        }
+        gbTimeout(() => { try { recruitScan('spell-fallback'); } catch (_) {} }, 900);
       });
       return;
     }
+    const lockName = recruitLockName(job.townId, job.unit);
+    const lockToken = gbLock(lockName, 120000);
+    if (!lockToken) return;
     const valid = recruitValidateJob(job);
-    if (!valid.ok) { gbUnlock('recruit', lockToken); gbLogT('recruit-stale-' + job.townId, 60000, `recruit: final precheck blocked (${valid.why})`); return; }
+    if (!valid.ok) { gbUnlock(lockName, lockToken); gbLogT('recruit-stale-' + job.townId, 60000, `recruit: final precheck blocked (${valid.why})`); return; }
     if (job.nativeJobId && valid.amount < job.amount) {
-      const head = nativeQueueList(job.townId, job.nativeLane, false)[0];
-      nativeQueueSetJobState(head, 'waiting-resources', 'cantidad completa no asequible');
-      gbUnlock('recruit', lockToken); return;
+      const head = nativeQueueList(job.townId, job.nativeLane, false).find(j=>j&&j.id===job.nativeJobId);
+      const why = (valid.affordability && valid.affordability.why) || 'waiting-resources';
+      nativeQueueSetJobState(head, why, `${why}: ${valid.amount}/${job.amount}`);
+      gbUnlock(lockName, lockToken); return;
     }
     job.amount = valid.amount;
     if (job.nativeJobId) {
-      const head = nativeQueueList(job.townId, job.nativeLane, false)[0];
-      if (!head || head.id !== job.nativeJobId) { gbUnlock('recruit', lockToken); return; }
+      const head = nativeQueueList(job.townId, job.nativeLane, false).find(j=>j&&j.id===job.nativeJobId);
+      if (!head) { gbUnlock(lockName, lockToken); return; }
       head.manualReview=false;
 
-      // queuedBefore is the baseline nativeQueueReconcileRecruit compares the
-      // live unit queue against; token makes the apply idempotent across the
-      // callback and the reconciler.
       job.nativeToken = nativeQueueId('f');
       head.inflight = { amount:job.amount, at:Date.now(), unit:job.unit, queuedBefore:recruitQueuedAmount(job.townId, job.unit), token:job.nativeToken };
       nativeQueueSave();
     }
     recruitBuild(job.townId, job.unit, job.amount, (err) => {
-      gbUnlock('recruit', lockToken);
+      gbUnlock(lockName, lockToken);
       if (!err) {
-        gbLog(`recruit: town ${job.townId} ${job.amount}× ${job.unit}`);
+        gbLog(`recruit: town ${job.townId} ${job.amount}\u00d7 ${job.unit}`);
         if (job.nativeJobId) nativeQueueRecruitApplied(job.townId, job.nativeLane, job.nativeJobId, job.amount, job.nativeToken);
       } else {
         if (job.nativeJobId) {
-          const head = nativeQueueList(job.townId, job.nativeLane, false)[0];
-          if (head && head.id === job.nativeJobId) {
-            head.inflight = null;
-            const ambiguous=err === 'pending' || err === 'timeout_unknown';head.manualReview=ambiguous;
-            nativeQueueSetJobState(head, ambiguous ? 'unknown' : 'blocked', ambiguous?'resultado desconocido; comprobar la cola real':String(err));
-            // Client said full and the server rejected: that is a REAL full
-            // lane, not a lie. Without a backoff the next cadence re-posts
-            // into the rejection — budget slot + decision-memory strike each
-            // tick until 3 hard errors open the 5/15/60min skip window.
-            if (!ambiguous && job.clientSaidFull) {
-              head.slotRetryAt = Date.now() + 300000;
-              nativeQueueSetJobState(head, 'waiting-slot', 'servidor confirma cola llena — reintento 5min');
-            }
+          const head = nativeQueueList(job.townId, job.nativeLane, false).find(j=>j&&j.id===job.nativeJobId);
+          if (head) {
+            const ambiguous=err === 'pending' || err === 'timeout_unknown';
+            const expectedWait=gbExpectedServerReject('recruit', err);
+            // Server says the lane is full while the client said it had room:
+            // back the head off instead of burning a budget slot and stacking
+            // decision-memory strikes every cadence.
+            if (!ambiguous && expectedWait === 'waiting-queue-full') head.slotRetryAt = Date.now() + 300000;
+            if(ambiguous&&head.inflight)head.reconcile=Object.assign({},head.inflight);
+            head.inflight = null;head.manualReview=ambiguous;
+            nativeQueueSetJobState(head,
+              ambiguous ? 'unknown' : (expectedWait || 'blocked'),
+              ambiguous ? 'resultado desconocido; se reconciliará sin bloquear otras unidades' : (expectedWait ? (expectedWait + ': ' + String(err)) : String(err)));
           }
         }
         gbLogT('recruit-err', 60000, `recruit err ${err}`);
       }
     });
   }
-  // ---------- village recruit (HIGH-RISK, default OFF) ----------
-  // The "Aceptar unidades de los aldeanos" button on each farming village's
-  // info panel converts idle villagers into military when the village cannot
-  // accept more resources (warehouse saturated). The bot learns the bridge
-  // payload once via sniffBridgeBody() when the player hand-clicks Aceptar;
-  // until then this scan stays a no-op (state.acceptUnitsTpl is null).
-  //
-  // Pair heuristic (villagePairPick below): sword+archer vs hoplite+slinger,
-  // pick the higher-sum pair, then the lower-count unit inside it. Cheap,
-  // deterministic, no per-village config required.
+
   const VILLAGE_RECRUIT_UNITS = ['sword', 'archer', 'hoplite', 'slinger'];
   const VILLAGE_PAIR_LOW = ['sword', 'archer'];
   const VILLAGE_PAIR_HIGH = ['hoplite', 'slinger'];
   const VILLAGE_RECRUIT_STREAK_TRIP = 2;
   function villagePairPick(unitCounts) {
-    // unitCounts shape: {sword:N, archer:N, hoplite:N, slinger:N} — any missing
-    // entry is treated as 0, which can NEVER mis-route to a wrong unit because
-    // the lower-of-pair comparator needs a finite number on both sides.
+
     if (!unitCounts || typeof unitCounts !== 'object') return null;
     const a = (Number.isFinite(+unitCounts.sword) ? +unitCounts.sword : 0)
             + (Number.isFinite(+unitCounts.archer) ? +unitCounts.archer : 0);
     const b = (Number.isFinite(+unitCounts.hoplite) ? +unitCounts.hoplite : 0)
             + (Number.isFinite(+unitCounts.slinger) ? +unitCounts.slinger : 0);
-    // Tie-break to the cheaper pair (sword/archer) — overspending on hoplites
-    // is the irreversible mistake we want to make least often.
+
     const pair = a >= b ? VILLAGE_PAIR_LOW : VILLAGE_PAIR_HIGH;
     const lo = Number.isFinite(+unitCounts[pair[0]]) ? +unitCounts[pair[0]] : 0;
     const hi = Number.isFinite(+unitCounts[pair[1]]) ? +unitCounts[pair[1]] : 0;
     return lo <= hi ? pair[0] : pair[1];
   }
-  // Read village unit counts defensively. Farm villages DO carry a small
-  // garrison (the screenshot shows 12-16 of each unit at farm lvl 5), but the
-  // attribute name is not in the captures — probe a few likely names and a
-  // method-style fallback, then return {known:false} if nothing reads.
+
   function villageUnitCounts(villId) {
     if (villId == null || villId === '') return { known: false };
     try {
@@ -722,14 +854,14 @@
         for (const { m, a } of relModels) {
           const bag = a.units || a.unit_count || a.garrison || a.unitCount;
           if (bag && typeof bag === 'object') {
-            // Direct object map: {sword:N, archer:N, hoplite:N, slinger:N}
+
             const units = {};
             for (const u of VILLAGE_RECRUIT_UNITS) units[u] = +bag[u];
             const known = VILLAGE_RECRUIT_UNITS.some(u => Number.isFinite(units[u]) && units[u] >= 0);
             if (known) return { known: true, units, relId: (m && m.id) != null ? m.id : (a && a.id) };
           }
           if (typeof bag === 'number' || Array.isArray(bag)) {
-            // Array form (positional, 4 slots) — order is the VILLAGE_RECRUIT_UNITS order
+
             const arr = Array.isArray(bag) ? bag : [bag];
             const units = {};
             VILLAGE_RECRUIT_UNITS.forEach((u, i) => { units[u] = +arr[i] || 0; });
@@ -748,9 +880,7 @@
       return { known: false };
     } catch (_) { return { known: false }; }
   }
-  // Track consecutive saturated scrapes per village. Trigger fires when
-  // streak >= VILLAGE_RECRUIT_STREAK_TRIP — one stale reading can't trigger
-  // a post. Reset on any reading below threshold.
+
   function villageSaturationStreak(villId) {
     if (!state.farmResources || !state.farmResources[villId]) return 0;
     const r = state.farmResources[villId];
@@ -767,10 +897,7 @@
     streaks[villId] = next;
     return next;
   }
-  // Post a single accept-units bridge call. Payload reuses the learned
-  // template's action_name + base arguments; we overlay farm_town_id, unit_id
-  // and amount at post time so the same template serves every village and
-  // every unit.
+
   function villageAcceptUnits(farm, unitId, amount, onDone) {
     const tpl = state.acceptUnitsTpl || null;
     const actionName = (tpl && tpl.action_name) || 'accept_units';
@@ -788,17 +915,14 @@
       town_id: +farm.owning_town_id || 0,
     }, onDone);
   }
+  let villageRecruitCursor = 0;
   function villageRecruitScan(reason) {
     if (!hostEnabled() || !state.autoVillageRecruit) return;
     if (automationPaused({})) return;
     if (captchaPaused('villrecruit')) return;
-    if (gbLocked('village-recruit')) return;
-    // Same hard rule: accepting units from a village never outranks claiming
-    // its resources, even though this loop only fires on a saturated village.
-    if (farmFirstHold('villrecruit')) return;
 
-    // Template must be learned from a hand-click before any post. Log once
-    // per world per 10min so the player knows what to do.
+    // Independent mode: village-unit recruitment is not blocked by resource claims.
+
     if (!state.acceptUnitsTpl || !state.acceptUnitsTpl.action_name) {
       gbLogT('villrecruit-tpl', 600000, 'village recruit: abre una aldea, pulsa Aceptar una vez a mano para ensenar al bot el payload del puente');
       return;
@@ -806,12 +930,13 @@
 
     const list = state.farmsParsed || [];
     if (!list.length) return;
+    const start = Math.max(0, villageRecruitCursor % list.length);
 
-    for (const farm of list) {
+    for (let step = 0; step < list.length; step++) {
+      const idx = (start + step) % list.length;
+      const farm = list[idx];
       if (!farm || !farm.vill_id) continue;
 
-      // Skip if this village belongs to a farm relation the player doesn't own
-      // (manual textarea entries can sneak in relations of other players).
       if (farm._rel && typeof farmBelongsToPlayer === 'function') {
         const a = farm._attrs || {};
         if (!farmBelongsToPlayer(farm._rel, a)) continue;
@@ -826,17 +951,24 @@
       const unit = villagePairPick(counts.units);
       if (!unit) continue;
 
-      const owning = typeof townIdForFarm === 'function' ? townIdForFarm(farm) : null;
-      if (!owning) continue;
-      farm.owning_town_id = owning;
+      const islandMap = islandTownMap();
+      const ctx = farmIslandContext(farm, islandMap);
+      if (!ctx.known) continue;
+      const unitBeneficiary = resolveIslandUnitBeneficiary(ctx.key, ctx.ids);
+      if (!unitBeneficiary.known || !unitBeneficiary.enabled || !unitBeneficiary.townId) continue;
+      farm.owning_town_id = String(unitBeneficiary.townId);
 
       const amount = Math.max(1, Math.min(20, +state.villageRecruitAmount || 1));
-      const lockToken = gbLock('village-recruit', 60000);
-      if (!lockToken) return;
+      const lockName = `village-recruit:${farm.vill_id}`;
+      const lockToken = gbLock(lockName, 60000);
+      if (!lockToken) continue;
+      // Always advance before dispatch. A pending/unknown TX for one village can
+      // no longer keep every later village from getting a turn.
+      villageRecruitCursor = (idx + 1) % list.length;
 
-      gbLog(`village recruit: vill ${farm.vill_id} -> ${amount}x ${unit} (streak ${streak}, town ${owning})`);
+      gbLog(`village recruit: vill ${farm.vill_id} -> ${amount}x ${unit} (streak ${streak}, town ${farm.owning_town_id})`);
       villageAcceptUnits(farm, unit, amount, (err) => {
-        gbUnlock('village-recruit', lockToken);
+        gbUnlock(lockName, lockToken);
         if (!err) {
           gbLog(`village recruit: vill ${farm.vill_id} +${amount} ${unit}`);
           flash(`aldea ${farm.name || farm.vill_id}: +${amount} ${unit}`);
@@ -845,25 +977,15 @@
         }
       });
 
-      // one village per tick; the orch will pick this up again next due window
       return;
     }
   }
   function batchRecruitNormLists() {
-    let root = state.batchRecruitLists;
-    if (!root || typeof root !== 'object' || Array.isArray(root)) root = state.batchRecruitLists = { towns: {} };
-    if (!root.towns || typeof root.towns !== 'object' || Array.isArray(root.towns)) root.towns = {};
-
-    try {
-      const known = new Set();
-      try { Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}).forEach(id => known.add(String(id))); } catch (_) {}
-      try { (state.towns || []).forEach(t => t && t.id != null && known.add(String(t.id))); } catch (_) {}
-      let pruned = 0;
-      for (const id of Object.keys(root.towns)) {
-        if (!known.has(String(id))) { delete root.towns[id]; pruned++; }
-      }
-      if (pruned) gbLog(`batch recruit: ${pruned} lista(s) huérfana(s) eliminada(s)`);
-    } catch (_) {}
+    let root=state.batchRecruitLists;
+    if(!root||typeof root!=='object'||Array.isArray(root))root=state.batchRecruitLists={towns:{}};
+    if(!root.towns||typeof root.towns!=='object'||Array.isArray(root.towns))root.towns={};
+    // Never delete a persisted town merely because ITowns/state.towns is still
+    // loading. Unknown/partial discovery is not proof that a town is orphaned.
     return root;
   }
   function batchRecruitTownList(townId) {
@@ -917,85 +1039,138 @@
     const t = (typeof gbTownModel === 'function') ? gbTownModel(townId) : null;
     const list = Array.isArray(rows) ? rows : batchRecruitTownList(townId);
     let wood = 0, stone = 0, iron = 0, pop = 0, favor = 0;
-    const missing = [];
+    const missing = [], advisory = [];
     for (const r of list) {
-      const def = gbGameDataLookup('units', r.unit);
-      if (!def) { missing.push(r.unit); continue; }
+      const def = gbGameDataLookup('units', r.unit), ec = recruitEffectiveUnitCost(townId, r.unit);
+      if (!def || !ec) { missing.push(r.unit); continue; }
       const a = +r.amount || 0;
-      const res = def.resources || {};
-      wood += (+res.wood || 0) * a;
-      stone += (+res.stone || 0) * a;
-      iron += (+res.iron || 0) * a;
-      pop += (+def.population || 0) * a;
-      const fv = +(def.favor ?? res.favor) || 0;
-      if (fv > 0) favor += fv * a;
+      for (const [k, bucket] of [['wood','wood'],['stone','stone'],['iron','iron'],['population','pop'],['favor','favor']]) {
+        const v = recruitDisplayCost(ec, k);
+        if (v == null) { missing.push(r.unit + ':' + k); continue; }
+        if (!recruitCostFieldKnown(ec, k)) advisory.push(r.unit + ':' + k);
+        if (bucket === 'wood') wood += v*a;
+        else if (bucket === 'stone') stone += v*a;
+        else if (bucket === 'iron') iron += v*a;
+        else if (bucket === 'pop') pop += v*a;
+        else if (v > 0) favor += v*a;
+      }
     }
     const rs = t && t.resources && t.resources();
-    const haveWood = rs ? +rs.wood : null;
-    const haveStone = rs ? +rs.stone : null;
-    const haveIron = rs ? +rs.iron : null;
-    const havePop = (t && typeof t.getAvailablePopulation === 'function') ? +t.getAvailablePopulation() : null;
-    const fits = !(missing.length) && wood <= (haveWood == null ? Infinity : haveWood)
-      && stone <= (haveStone == null ? Infinity : haveStone)
-      && iron <= (haveIron == null ? Infinity : haveIron)
-      && pop <= (havePop == null ? Infinity : havePop);
-    return { wood, stone, iron, pop, favor, haveWood, haveStone, haveIron, havePop, fits, missing };
+    const haveWood = rs && Number.isFinite(+rs.wood) ? +rs.wood : null;
+    const haveStone = rs && Number.isFinite(+rs.stone) ? +rs.stone : null;
+    const haveIron = rs && Number.isFinite(+rs.iron) ? +rs.iron : null;
+    const havePop = (t && typeof t.getAvailablePopulation === 'function' && Number.isFinite(+t.getAvailablePopulation())) ? +t.getAvailablePopulation() : null;
+    const authoritative = !missing.length && !advisory.length;
+    const fits = authoritative && haveWood != null && haveStone != null && haveIron != null && havePop != null
+      ? wood <= haveWood && stone <= haveStone && iron <= haveIron && pop <= havePop : null;
+    return { wood, stone, iron, pop, favor, haveWood, haveStone, haveIron, havePop, fits, missing, advisory:[...new Set(advisory)] };
   }
   const _batchRecruitBlind = new Set();
   function batchRecruitAtomicAfford(townId) {
     const list = batchRecruitTownList(townId);
-    if (!list.length) return { ok: false, why: 'empty' };
+    if (!list.length) return { ok:false, why:'empty' };
     const t = gbTownModel(townId);
-    if (!t) {
-      const k = String(townId) + '|town';
-      if (!_batchRecruitBlind.has(k)) { _batchRecruitBlind.add(k); gbLogT('batch-recruit-blind-' + townId, 300000, `batch recruit: town ${townId} model unreadable - blind precheck, server judges`); }
-      return { ok: false, why: 'blind-town' };
-    }
+    if (!t) return { ok:false, why:'blind-town' };
+    const res = recruitLiveResources(townId), pop = recruitLivePopulation(townId);
+    const need = { wood:0, stone:0, iron:0, pop:0 };
+    const known = { wood:true, stone:true, iron:true, pop:true };
+    const favorNeed = Object.create(null), laneRows = { land:[], naval:[] }, blind = [];
     for (let i = 0; i < list.length; i++) {
-      const r = list[i];
-      const unit = r && r.unit;
-      const amount = +r.amount || 0;
+      const r = list[i], unit = r && r.unit, amount = +r.amount || 0;
       if (!unit || !(amount > 0)) continue;
-      if (!recruitControllerFor(unit)) return { ok: false, why: 'no-controller', rowIdx: i, unit };
-      if (!recruitCanBuild(townId, unit)) return { ok: false, why: 'requirements', rowIdx: i, unit };
-      if (!recruitQueueHasSpace(townId, unit)) return { ok: false, why: 'queue', rowIdx: i, unit };
-      const afford = recruitAffordableAmount(townId, unit, amount);
-      if (afford < amount) return { ok: false, why: 'resources/pop/favor', rowIdx: i, unit };
+      const def = gbGameDataLookup('units', unit);
+      if (!def || !recruitControllerFor(unit)) return { ok:false, why:'no-controller', rowIdx:i, unit };
+      if (!recruitCanBuild(townId, unit)) return { ok:false, why:'requirements', rowIdx:i, unit };
+      const maxNow = recruitRuntimeMaxAmount(townId, unit);
+      if (maxNow.known && maxNow.amount < amount) return { ok:false, why:'waiting-runtime-max', rowIdx:i, unit, have:maxNow.amount, need:amount };
+      if (!maxNow.known) blind.push('max-recruitable-unreadable:' + unit);
+      const ec = recruitEffectiveUnitCost(townId, unit);
+      if (!ec) { blind.push('unit-cost-unreadable:' + unit); continue; }
+      for (const k of ['wood','stone','iron']) {
+        if (recruitCostFieldKnown(ec,k)) need[k] += +ec[k] * amount;
+        else { known[k] = false; blind.push('effective-cost-unreadable:' + unit + ':' + k); }
+      }
+      if (recruitCostFieldKnown(ec,'population')) need.pop += +ec.population * amount;
+      else { known.pop = false; blind.push('effective-cost-unreadable:' + unit + ':population'); }
+      const baseFavor = gbNum(def.favor ?? (def.resources && def.resources.favor));
+      if (baseFavor != null && baseFavor > 0) {
+        const god = (def.god && String(def.god).toLowerCase()) || mythicalUnitGod(unit);
+        if (!god || !recruitCostFieldKnown(ec,'favor')) blind.push('effective-cost-unreadable:' + unit + ':favor');
+        else favorNeed[god] = (favorNeed[god] || 0) + (+ec.favor * amount);
+      }
+      laneRows[recruitIsNaval(unit)?'naval':'land'].push({i,unit});
     }
-    return { ok: true };
+    for (const k of ['wood','stone','iron']) {
+      if (!known[k]) continue;
+      if (res[k] == null) { blind.push('resources-unreadable:' + k); continue; }
+      if (+res[k] < need[k]) return { ok:false, why:'waiting-' + k, aggregate:true, need, have:+res[k] };
+    }
+    if (known.pop && need.pop > 0) {
+      if (pop.value == null) blind.push('population-unreadable');
+      else if (pop.value < need.pop) return { ok:false, why:'waiting-population', aggregate:true, need, havePop:pop.value };
+    }
+    for (const [god, n] of Object.entries(favorNeed)) {
+      const fr = recruitFavorRead(townId, god);
+      if (fr.value == null) { blind.push('favor-unreadable:' + god); continue; }
+      if (fr.value < n) return { ok:false, why:'waiting-favor', aggregate:true, god, needFavor:n, haveFavor:fr.value };
+    }
+    for (const kind of ['land','naval']) {
+      const rows = laneRows[kind];
+      if (!rows.length) continue;
+      const qs = recruitQueueSpace(townId, rows[0].unit);
+      if (!qs.ok) return { ok:false, why:qs.why, rowIdx:rows[0].i, unit:rows[0].unit };
+      if (qs.q.max != null && qs.q.len + rows.length > qs.q.max) return { ok:false, why:'queue-full', rowIdx:rows[0].i, unit:rows[0].unit };
+      if (qs.blind) blind.push(`queue-${kind}-capacity-unreadable`);
+    }
+    return { ok:true, aggregate:need, aggregateKnown:known, favorNeed, blind:[...new Set(blind)] };
   }
   function batchRecruitFire(townId) {
-    const list = batchRecruitTownList(townId);
+    const list = batchRecruitTownList(townId).map(r => ({ unit:String(r.unit), amount:+r.amount||0 }));
     if (!list.length) return;
-    const lockToken = gbLock('recruit', 120000);
-    if (!lockToken) return;
     let idx = 0;
     let stopped = false;
     const fireOne = () => {
-      if (stopped || idx >= list.length) {
-        gbUnlock('recruit', lockToken);
-        return;
-      }
-
-      const r = list[idx++];
+      if (stopped || idx >= list.length) return;
+      const r = list[idx];
       const unit = r.unit, amount = +r.amount || 0;
-
-      const validated = recruitValidateJob({ townId, unit, amount });
-      if (!validated.ok) {
-        stopped = true;
-        gbLogT(`batch-recruit-pre-${townId}`, 60000, `batch recruit: ${validated.why} @ ${unit} (row ${idx}/${list.length})`);
-        gbUnlock('recruit', lockToken);
+      const spellDecision = recruitAutoSpellDecision(townId, unit);
+      if (spellDecision.action === 'cast') {
+        const spellLockName = `recruit:${String(townId)}:spell`;
+        const spellLock = gbLock(spellLockName, 120000);
+        if (!spellLock) { gbTimeout(fireOne, 500); return; }
+        recruitCastSpell(townId, spellDecision.power, (err) => {
+          gbUnlock(spellLockName, spellLock);
+          recruitSpellCooldownStamp(townId, spellDecision.power,
+            (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') ? undefined : 60000);
+          if (err) gbLogT(`batch-recruit-spell-${townId}`, 60000,
+            `batch recruit: spell ${spellDecision.power} unavailable (${err}); recruiting normally`);
+          else gbLog(`batch recruit: spell ${spellDecision.power} on ${townId}; row waits for next pass`);
+          gbTimeout(fireOne, 900);
+        });
         return;
       }
-      recruitBuild(townId, unit, validated.amount, (err) => {
+      const lockName = recruitLockName(townId, unit);
+      const lockToken = gbLock(lockName, 120000);
+      if (!lockToken) { gbTimeout(fireOne, 500); return; }
+      idx++;
+
+      // Re-read live resources/queue immediately before each POST. The aggregate
+      // preflight only decides whether to start the batch; it is not a reserve.
+      const validated = recruitValidateJob({ townId, unit, amount });
+      if (!validated.ok || validated.amount < amount) {
+        stopped = true;
+        gbUnlock(lockName, lockToken);
+        gbLogT(`batch-recruit-pre-${townId}`, 60000, `batch recruit: ${validated.why || 'partial-afford'} @ ${unit} (row ${idx}/${list.length})`);
+        return;
+      }
+      recruitBuild(townId, unit, amount, (err) => {
+        gbUnlock(lockName, lockToken);
         if (err) {
           stopped = true;
           gbLogT(`batch-recruit-partial-${townId}`, 60000, `batch recruit: stopped at row ${idx}/${list.length} (${err})`);
-          gbUnlock('recruit', lockToken);
           return;
         }
-        gbLog(`batch recruit: town ${townId} ${validated.amount}× ${unit} (row ${idx}/${list.length})`);
-
+        gbLog(`batch recruit: town ${townId} ${amount}× ${unit} (row ${idx}/${list.length})`);
         gbTimeout(fireOne, 450);
       });
     };
@@ -1032,22 +1207,13 @@
     return out;
   }
   function batchRecruitUiTownIds() {
-    const out = [];
-    try {
-      const uw = gameUw();
-      const ts = (uw && uw.ITowns && uw.ITowns.towns) || {};
-      Object.keys(ts).forEach(id => out.push(String(id)));
-    } catch (_) {}
-    if (!out.length) {
-      try { (state.towns || []).forEach(t => t && t.id != null && out.push(String(t.id))); } catch (_) {}
-    }
-
-    try {
-      const root = batchRecruitNormLists();
-      for (const id of Object.keys(root.towns || {})) {
-        if (!out.includes(String(id))) { delete root.towns[id]; batchRecruitListSave(); }
-      }
-    } catch (_) {}
+    const out=[];
+    const add=id=>{id=String(id==null?'':id);if(id&&!out.includes(id))out.push(id)};
+    try{Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{}).forEach(add)}catch(_){}
+    try{(state.towns||[]).forEach(t=>t&&t.id!=null&&add(t.id))}catch(_){}
+    // Preserve configured lists even if live town discovery is temporarily
+    // incomplete. They remain visible so the user can remove them explicitly.
+    try{Object.keys((batchRecruitNormLists().towns)||{}).forEach(add)}catch(_){}
     return out;
   }
   function batchRecruitUiTownName(id) {
@@ -1087,7 +1253,7 @@
     townSel.replaceChildren();
     if (!ids.length) {
       const opt = document.createElement('option');
-      opt.value = ''; opt.textContent = '— sin ciudades —';
+      opt.value = ''; opt.textContent = '\u2014 sin ciudades \u2014';
       townSel.appendChild(opt); townSel.disabled = true;
     } else {
       townSel.disabled = false;
@@ -1109,7 +1275,7 @@
     if (!list.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#888;font-size:10px;padding:4px 0';
-      e.textContent = 'lista vacía — añade una línea y elige unidad + cantidad';
+      e.textContent = 'lista vac\u00eda \u2014 a\u00f1ade una l\u00ednea y elige unidad + cantidad';
       rowsHost.appendChild(e);
     } else {
       const units = batchRecruitUiAllUnits();
@@ -1133,7 +1299,7 @@
         costSpan.style.cssText = 'color:#aab2bd;flex:1;font-size:10px';
         costSpan.textContent = cost;
         const trash = document.createElement('button');
-        trash.textContent = '🗑'; trash.title = 'quitar línea';
+        trash.textContent = '\ud83d\uddd1'; trash.title = 'quitar l\u00ednea';
         trash.className = 'gb-cfg-btn danger';
         trash.style.cssText = 'padding:2px 6px';
         trash.addEventListener('click', () => {
@@ -1174,19 +1340,19 @@
       if (preview.haveIron != null) have.push(`pla ${preview.haveIron}`);
       if (preview.havePop != null) have.push(`pop libre ${preview.havePop}`);
       const tag = preview.missing && preview.missing.length
-        ? ` (falta información de: ${preview.missing.join(', ')})`
-        : (preview.fits ? ' → cabe ✓' : ' → falta');
+        ? ` (falta informaci\u00f3n de: ${preview.missing.join(', ')})`
+        : (preview.fits ? ' \u2192 cabe \u2713' : ' \u2192 falta');
       const color = preview.fits ? '#7ddd96' : '#e5bf70';
       sumHost.innerHTML = '';
       const a = document.createElement('div');
       a.style.cssText = `color:${color};font-size:10px`;
-      a.textContent = `total: ${totals || '0'} · ciudad ahora: ${have.join(' / ') || '—'}${tag}`;
+      a.textContent = `total: ${totals || '0'} \u00b7 ciudad ahora: ${have.join(' / ') || '\u2014'}${tag}`;
       sumHost.appendChild(a);
     }
   }
   function batchRecruitUiRowCost(row) {
     const def = gbGameDataLookup('units', row && row.unit);
-    if (!def) return '— desconocida —';
+    if (!def) return '\u2014 desconocida \u2014';
     const r = def.resources || {};
     const parts = [];
     const a = +row.amount || 0;
@@ -1203,7 +1369,7 @@
     if (!sec) return;
     const townSel = sec.querySelector('[data-cfg=batch-recruit-town]');
     const townId = townSel && townSel.value;
-    if (!townId) { flash('elige una ciudad antes de añadir línea'); return; }
+    if (!townId) { flash('elige una ciudad antes de a\u00f1adir l\u00ednea'); return; }
     const units = batchRecruitUiAllUnits();
     const pick = units.includes('sword') ? 'sword' : (units[0] || 'sword');
     batchRecruitAddRow(townId, pick, 10);
@@ -1220,7 +1386,7 @@
     flash(`lote de la ciudad ${townId} vaciado`);
   }
   function batchRecruitUiArm() {
-    if (captchaPaused('recruit')) { flash('captcha activa — espera'); return; }
+    if (captchaPaused('recruit')) { flash('captcha activa \u2014 espera'); return; }
     if (!batchRecruitHasAnyTown()) { flash('no hay listas armadas'); return; }
     batchRecruitScan('manual');
   }
@@ -1387,18 +1553,18 @@
       const towns = recruitTargetTownCount();
       st.textContent = towns
         ? `${towns} ciudad(es) con objetivos`
-        : 'sin objetivos — el reclutamiento automatico no tiene nada que reponer';
+        : 'sin objetivos \u2014 el reclutamiento automatico no tiene nada que reponer';
     }
   }
   function trainTargetRowText(townId, unit, tgt) {
     let have = null, queued = null;
     try { const counts = goalUnitCounts(townId); have = counts && Object.prototype.hasOwnProperty.call(counts, unit) ? +counts[unit] || 0 : (counts ? 0 : null); } catch (_) {}
     try { const q = recruitQueuedAmount(townId, unit); queued = Number.isFinite(+q) ? +q : null; } catch (_) {}
-    const haveTxt = have == null ? '—' : String(have);
-    const qTxt = queued == null ? '—' : String(queued);
+    const haveTxt = have == null ? '\u2014' : String(have);
+    const qTxt = queued == null ? '\u2014' : String(queued);
     const missing = (have == null || queued == null) ? null : Math.max(0, tgt - have - queued);
-    const missTxt = missing == null ? 'falta —' : (missing > 0 ? `faltan ${missing}` : 'completo ✓');
-    return { text: `tiene ${haveTxt} · en cola ${qTxt} · ${missTxt}`, done: missing === 0 };
+    const missTxt = missing == null ? 'falta \u2014' : (missing > 0 ? `faltan ${missing}` : 'completo \u2713');
+    return { text: `tiene ${haveTxt} \u00b7 en cola ${qTxt} \u00b7 ${missTxt}`, done: missing === 0 };
   }
   function renderTrain() {
     const sec = trainSection();
@@ -1414,7 +1580,7 @@
     townSel.replaceChildren();
     if (!ids.length) {
       const opt = document.createElement('option');
-      opt.value = ''; opt.textContent = '— sin ciudades —';
+      opt.value = ''; opt.textContent = '\u2014 sin ciudades \u2014';
       townSel.appendChild(opt); townSel.disabled = true;
     } else {
       townSel.disabled = false;
@@ -1432,7 +1598,7 @@
     unitSel.replaceChildren();
     if (!units.length) {
       const opt = document.createElement('option');
-      opt.value = ''; opt.textContent = '— GameData no legible —';
+      opt.value = ''; opt.textContent = '\u2014 GameData no legible \u2014';
       unitSel.appendChild(opt); unitSel.disabled = true;
     } else {
       unitSel.disabled = false;
@@ -1450,7 +1616,7 @@
     if (!townId || !keys.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#888;font-size:10px;padding:4px 0';
-      e.textContent = 'sin objetivos en esta ciudad — elige unidad, cantidad y pulsa Fijar';
+      e.textContent = 'sin objetivos en esta ciudad \u2014 elige unidad, cantidad y pulsa Fijar';
       rowsHost.appendChild(e);
     } else {
       keys.sort().forEach(unit => {
@@ -1475,7 +1641,7 @@
         st.textContent = info.text;
         const del = document.createElement('button');
         del.type = 'button';
-        del.textContent = '🗑'; del.title = 'quitar objetivo';
+        del.textContent = '\ud83d\uddd1'; del.title = 'quitar objetivo';
         del.addEventListener('click', () => { recruitTargetSet(townId, unit, 0); renderTrain(); });
         line.appendChild(name); line.appendChild(qty); line.appendChild(st); line.appendChild(del);
         rowsHost.appendChild(line);
@@ -1507,7 +1673,7 @@
     packSel.replaceChildren();
     if (!names.length) {
       const opt = document.createElement('option');
-      opt.value = ''; opt.textContent = '— sin packs —';
+      opt.value = ''; opt.textContent = '\u2014 sin packs \u2014';
       packSel.appendChild(opt); packSel.disabled = true;
     } else {
       packSel.disabled = false;
@@ -1524,7 +1690,7 @@
     unitSel.replaceChildren();
     if (!units.length) {
       const opt = document.createElement('option');
-      opt.value = ''; opt.textContent = '— GameData no legible —';
+      opt.value = ''; opt.textContent = '\u2014 GameData no legible \u2014';
       unitSel.appendChild(opt); unitSel.disabled = true;
     } else {
       unitSel.disabled = false;
@@ -1556,12 +1722,12 @@
     if (!name) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#888;font-size:10px;padding:4px 0';
-      e.textContent = 'escribe un nombre y pulsa Nuevo — luego añade espada, arquero, birreme… al pack';
+      e.textContent = 'escribe un nombre y pulsa Nuevo \u2014 luego a\u00f1ade espada, arquero, birreme\u2026 al pack';
       rowsHost.appendChild(e);
     } else if (!rows.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#888;font-size:10px;padding:4px 0';
-      e.textContent = 'pack vacío — elige unidad + cantidad y pulsa "+ unidad"';
+      e.textContent = 'pack vac\u00edo \u2014 elige unidad + cantidad y pulsa "+ unidad"';
       rowsHost.appendChild(e);
     } else {
       rows.forEach((row, idx) => {
@@ -1584,7 +1750,7 @@
         cost.textContent = batchRecruitUiRowCost(row);
         const del = document.createElement('button');
         del.type = 'button';
-        del.textContent = '🗑'; del.title = 'quitar del pack';
+        del.textContent = '\ud83d\uddd1'; del.title = 'quitar del pack';
         del.addEventListener('click', () => { recruitPackRemoveRow(name, idx); renderTrain(); });
         line.appendChild(nm); line.appendChild(qty); line.appendChild(cost); line.appendChild(del);
         rowsHost.appendChild(line);
@@ -1601,9 +1767,9 @@
       if (preview.iron) parts.push(`pla ${preview.iron}`);
       if (preview.pop) parts.push(`pop ${preview.pop}`);
       if (preview.favor) parts.push(`favor ${preview.favor}`);
-      let txt = `pack "${name}": ${rows.length} unidad(es) · ${parts.join(' / ') || 'gratis'}`;
-      if (preview.missing && preview.missing.length) txt += ` (falta información de: ${preview.missing.join(', ')})`;
-      else if (target !== '__all__') txt += preview.fits ? ' → cabe ahora ✓' : ' → no cabe todavía';
+      let txt = `pack "${name}": ${rows.length} unidad(es) \u00b7 ${parts.join(' / ') || 'gratis'}`;
+      if (preview.missing && preview.missing.length) txt += ` (falta informaci\u00f3n de: ${preview.missing.join(', ')})`;
+      else if (target !== '__all__') txt += preview.fits ? ' \u2192 cabe ahora \u2713' : ' \u2192 no cabe todav\u00eda';
       note.textContent = txt;
       note.style.color = (target !== '__all__' && !(preview.missing || []).length)
         ? (preview.fits ? '#7ddd96' : '#e5bf70') : '#888';
@@ -1661,7 +1827,7 @@
       const raw = packVal('[data-tr=pack-name]');
       if (!raw) { flash('escribe un nombre para el pack'); return; }
       const name = recruitPackCreate(raw);
-      if (!name) { flash('nombre no válido'); return; }
+      if (!name) { flash('nombre no v\u00e1lido'); return; }
       const nameEl = sec.querySelector('[data-tr=pack-name]');
       if (nameEl) nameEl.value = '';
       renderTrain();
@@ -1675,7 +1841,7 @@
       if (!raw) { flash('escribe un nombre para el pack'); return; }
       const townId = sec.querySelector('[data-cfg=batch-recruit-town]')?.value || '';
       if (!townId) { flash('elige una ciudad en el lote'); return; }
-      if (!recruitPackFromTown(raw, townId)) { flash('el lote de esa ciudad está vacío'); return; }
+      if (!recruitPackFromTown(raw, townId)) { flash('el lote de esa ciudad est\u00e1 vac\u00edo'); return; }
       const nameEl = sec.querySelector('[data-tr=pack-name]');
       if (nameEl) nameEl.value = '';
       renderTrain();
@@ -1687,7 +1853,7 @@
       e.preventDefault();
       const name = trainSelectedPack(sec);
       if (!name) return;
-      if (!confirm(`¿Borrar el pack "${name}"? Los lotes ya aplicados a las ciudades no se tocan.`)) return;
+      if (!confirm(`\u00bfBorrar el pack "${name}"? Los lotes ya aplicados a las ciudades no se tocan.`)) return;
       recruitPackDelete(name);
       renderTrain();
       flash(`pack "${name}" borrado`);
@@ -1706,7 +1872,7 @@
       e.preventDefault();
       const name = trainSelectedPack(sec);
       if (!name) { flash('no hay pack seleccionado'); return; }
-      if (!recruitPackRows(name).length) { flash('el pack está vacío'); return; }
+      if (!recruitPackRows(name).length) { flash('el pack est\u00e1 vac\u00edo'); return; }
       const mode = packVal('[data-tr=pack-mode]') === 'append' ? 'append' : 'replace';
       const target = sec.querySelector('[data-tr=pack-town]')?.value || '';
       if (target === '__all__') {
@@ -1718,7 +1884,7 @@
         const n = recruitPackApply(name, target, mode);
         if (n < 0) { flash('elige una ciudad'); return; }
         gbLog(`recruit pack: "${name}" -> town ${target} (${mode}, ${n} row(s))`);
-        flash(`pack "${name}" aplicado (${n} línea(s))`);
+        flash(`pack "${name}" aplicado (${n} l\u00ednea(s))`);
       }
       renderTrain();
       if (!state.batchRecruit) flash('activa "Lote recurrente" para que se entrene solo');
@@ -1732,14 +1898,13 @@
     if (!hostEnabled() || !state.batchRecruit) return;
     if (automationPaused({})) return;
     if (captchaPaused('recruit')) return;
-    if (gbLocked('recruit')) return;
     let anyTown = false;
     try {
       const tlists = batchRecruitNormLists().towns || {};
       for (const townId of Object.keys(tlists)) {
         if (batchRecruitTownList(townId).length) { anyTown = true; break; }
       }
-    } catch (e) { gbLogT('batch-recruit-probe-err', 60000, 'batch recruit probe failed: ' + String(e).slice(0, 120)); }
+    } catch (_) {}
     if (!anyTown) {
       gbLogT('batch-recruit-empty', 180000, `batch recruit: idle (${scanReason(reason)})`);
       return;
@@ -1760,6 +1925,12 @@
         batchRecruitFire(townId);
         count++;
       }
-    } catch (e) { gbLogT('batch-recruit-fire-err', 60000, 'batch recruit fire loop threw: ' + String(e).slice(0, 120)); }
+    } catch (_) {}
     if (!count) gbLogT('batch-recruit-idle', 180000, `batch recruit: idle (${scanReason(reason)})`);
+  }
+  const GB_WIDGET_DEFAULT_POS = { left: '8px', top: '60px' };
+  const gbWidgets = Object.create(null);
+  function gbWidgetGeom() {
+    if (!state.widgetGeom || typeof state.widgetGeom !== 'object' || Array.isArray(state.widgetGeom)) state.widgetGeom = {};
+    return state.widgetGeom;
   }

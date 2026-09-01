@@ -1,28 +1,8 @@
-  function tradeTownRes(townId) {
-    const uw = gameUw();
-    try {
-      const t = gbTownModel(townId);
-      if (!t) return null;
-      const r = t.resources && t.resources();
-      let cap = null, tradeCap = null, pop = null, small = false;
-      // townResState is the ONE warehouse-capacity definition (3s memo); the
-      // direct getter is the fallback, not the primary, or trade sizes its
-      // sends against a capacity the rest of the bot disagrees with.
-      const shared = townResState(townId);
-      if (shared && shared.cap > 0) cap = shared.cap;
-      if (!(cap > 0)) { try { if (t.getStorageCapacity) cap = +t.getStorageCapacity(); } catch (_) {} }
-      try { if (t.getAvailableTradeCapacity) tradeCap = +t.getAvailableTradeCapacity(); } catch (_) {}
-      try { if (t.getAvailablePopulation) pop = +t.getAvailablePopulation(); } catch (_) {}
-      try {
-        const a = t.attributes || (t.get && t.get('on_small_island') != null ? { on_small_island: t.get('on_small_island') } : {});
-        small = !!(a.on_small_island || (t.isOnSmallIsland && t.isOnSmallIsland()));
-      } catch (_) {}
-      return {
-        id: +townId,
-        wood: r && +r.wood || 0, stone: r && +r.stone || 0, iron: r && +r.iron || 0,
-        cap: cap || 0, tradeCap: tradeCap || 0, pop: pop || 0, small,
-      };
-    } catch (_) { return null; }
+  function setTradeTownEnabled(townId, on) {
+    const id = String(townId);
+    if (!state.tradeTowns || typeof state.tradeTowns !== 'object' || Array.isArray(state.tradeTowns)) state.tradeTowns = {};
+    state.tradeTowns[id] = !!on;
+    save(STORE.TRADE_TOWNS, state.tradeTowns);
   }
   function tradeListTowns() {
     const ids = [];
@@ -37,6 +17,63 @@
       } catch (_) {}
     }
     return ids.map(tradeTownRes).filter(Boolean);
+  }
+  function tradeAutoTowns(towns) {
+    return (Array.isArray(towns) ? towns : tradeListTowns()).filter(t => t && tradeTownEnabled(t.id));
+  }
+  function renderTradeTowns() {
+    const box = panel && panel.querySelector('.trade-towns');
+    if (!box) return;
+    const ids = caveListTownIds();
+    box.replaceChildren();
+    if (!ids.length) {
+      const e = document.createElement('div');
+      e.style.cssText = 'color:#888;font-size:10px';
+      e.textContent = 'sin ciudades cargadas';
+      box.appendChild(e);
+      return;
+    }
+    const tools = document.createElement('div');
+    tools.className = 'trade-towns-tools';
+    tools.style.cssText = 'display:flex;align-items:center;gap:5px;margin:0 0 2px 12px;font-size:9px;color:#888';
+    const mk = (txt, on) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = txt;
+      b.style.cssText = 'font-size:9px;padding:1px 6px';
+      b.addEventListener('click', () => {
+        ids.forEach(id => setTradeTownEnabled(id, on));
+        renderTradeTowns();
+        gbLog('trade towns', on ? 'ALL' : 'NONE');
+        if (state.autoTrade || state.autoTransport || state.autoDump || state.islandShip) tradeScan('town-filter');
+      });
+      return b;
+    };
+    tools.appendChild(mk('Todas', true));
+    tools.appendChild(mk('Ninguna', false));
+    const count = document.createElement('span');
+    count.textContent = `${ids.filter(tradeTownEnabled).length}/${ids.length} activas`;
+    tools.appendChild(count);
+    box.appendChild(tools);
+
+    const names = Object.create(null);
+    try { (townsFromGame() || []).forEach(t => { if (t.id != null && t.name) names[String(t.id)] = t.name; }); } catch (_) {}
+    ids.forEach(id => {
+      const label = document.createElement('label');
+      label.dataset.tradeTown = String(id);
+      label.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;font-size:10px;margin-left:12px';
+      gbTip(label, 'Permite que esta ciudad participe en el comercio automatico calculado por el bot');
+      const chk = document.createElement('input');
+      chk.type = 'checkbox'; chk.checked = tradeTownEnabled(id);
+      chk.addEventListener('change', () => {
+        setTradeTownEnabled(id, chk.checked);
+        gbLog(`trade town ${id}`, chk.checked ? 'ON' : 'OFF');
+        renderTradeTowns();
+        if (state.autoTrade || state.autoTransport || state.autoDump || state.islandShip) tradeScan('town-filter');
+      });
+      const span = document.createElement('span');
+      span.textContent = `${names[String(id)] || id} (#${id})`;
+      label.appendChild(chk); label.appendChild(span); box.appendChild(label);
+    });
   }
   function tradeSend(fromId, toId, wood, stone, iron, onDone) {
     gameAjaxPost('trade', 'town_info', 'trade', {
@@ -55,8 +92,18 @@
     const addModel=m=>{if(m&&!seenModels.has(m)){seenModels.add(m);models.push(m)}};
     const addCollection=c=>{if(Array.isArray(c))c.forEach(addCollection);else if(c&&Array.isArray(c.models))c.models.forEach(addModel)};
     try{const maps=uw.MM&&uw.MM.getModels&&uw.MM.getModels();if(maps&&Object.prototype.hasOwnProperty.call(maps,'Trade')){known=true;const m=maps.Trade;if(Array.isArray(m))m.forEach(addModel);else if(m&&typeof m==='object')Object.values(m).forEach(addModel)}}catch(_){}
-    try{const c=uw.MM&&uw.MM.getOnlyCollectionByName&&uw.MM.getOnlyCollectionByName('Trade');if(c){known=true;addCollection(c)}for(const name of ['Trades','TradeMovement','TradeMovements','TownTrade','TownTrades','Transport','Transports'])addCollection(uw.MM&&uw.MM.getOnlyCollectionByName&&uw.MM.getOnlyCollectionByName(name))}catch(_){}
-    try{const all=uw.MM&&uw.MM.getCollections&&uw.MM.getCollections()||{};if(Object.prototype.hasOwnProperty.call(all,'Trade'))known=true;for(const [name,c] of Object.entries(all))if(/trade|transport/i.test(name))addCollection(c)}catch(_){}
+    try{
+      const c=uw.MM&&uw.MM.getOnlyCollectionByName&&uw.MM.getOnlyCollectionByName('Trade');if(c){known=true;addCollection(c)}
+      for(const name of ['Trades','TradeMovement','TradeMovements','TownTrade','TownTrades','Transport','Transports']){
+        const alt=uw.MM&&uw.MM.getOnlyCollectionByName&&uw.MM.getOnlyCollectionByName(name);
+        if(alt){if(/trade/i.test(name))known=true;addCollection(alt)}
+      }
+    }catch(_){}
+    try{
+      const all=uw.MM&&uw.MM.getCollections&&uw.MM.getCollections()||{};
+      if(Object.prototype.hasOwnProperty.call(all,'Trade'))known=true;
+      for(const [name,c] of Object.entries(all))if(/trade|transport/i.test(name)){if(/trade/i.test(name))known=true;addCollection(c)}
+    }catch(_){}
     const own=new Set(Object.keys(uw.ITowns&&uw.ITowns.towns||{}).map(String)),seenRows=new Set(),now=gameNow();
     for(const m of models){try{
       const a=m.attributes||m,status=String(a.status||a.state||'').toLowerCase();if(/cancel|complete|arrived|finished|deleted/.test(status))continue;
@@ -73,10 +120,11 @@
   function tradeLedger(towns) {
     const incomingState=tradeIncomingByTown();if(!incomingState.known)return null;const L = Object.create(null),incoming=incomingState.byTown;
     for (const t of towns) {
-      const mov=incoming[String(t.id)]||{},pending=plannerSnapshot(t.id)?.incoming||{};
+      const mov=incoming[String(t.id)]||{};
+      let pending;
+      try { pending=plannerPendingForTown(t.id).incoming||{}; } catch (_) { return null; }
       L[t.id] = {
-        // Counting both visible movements and short-lived transaction holds can
-        // temporarily double count, which is intentionally safer than overfill.
+
         wood: t.wood+(+mov.wood||0)+(+pending.wood||0), stone: t.stone+(+mov.stone||0)+(+pending.stone||0), iron: t.iron+(+mov.iron||0)+(+pending.iron||0),
         cap: t.cap, tradeCap: t.tradeCap, small: t.small,
       };
@@ -90,53 +138,81 @@
     src.tradeCap = Math.max(0, src.tradeCap - (job.wood + job.stone + job.iron));
     tgt.wood += job.wood; tgt.stone += job.stone; tgt.iron += job.iron;
   }
-  // Deadlock mode: every town is pinned, so nobody passes the "target is 25%
-  // empty" rule and normal fill-storage produces zero jobs. Ship only the
-  // resource that is actually pinned at the source, and only into a town with
-  // real headroom in that same resource - anything looser is freighter burn
-  // between two full warehouses.
-  function tradeDeadlockJobs(towns, L) {
-    const ledger = L || tradeLedger(towns);
+  function tradeOverflowPct() { return Math.max(95, Math.min(100, gbCfgNum(state.tradeOverflowPct, 100))) / 100; }
+  function tradeTransferPct() { return Math.max(1, Math.min(100, gbCfgNum(state.tradeTransferPct, 10))) / 100; }
+  function tradeReceiverPct() { return Math.max(0, Math.min(80, gbCfgNum(state.tradeReceiverPct, 80))) / 100; }
+  const tradeDecisionDiagnostics = Object.create(null);
+  function tradeDiagnosticPut(townId, resource, patch) {
+    const key = String(townId) + '|' + String(resource);
+    tradeDecisionDiagnostics[key] = Object.assign({}, tradeDecisionDiagnostics[key] || {}, patch, { ts:Date.now() });
+    const keys = Object.keys(tradeDecisionDiagnostics);
+    if (keys.length > 100) delete tradeDecisionDiagnostics[keys[0]];
+  }
+  function tradeDiagnosticsSnapshot() {
+    return JSON.parse(JSON.stringify(tradeDecisionDiagnostics));
+  }
+  function tradeOverflowDecision(towns, resource, trigger, transfer, receiver) {
+    const rows = Array.isArray(towns) ? towns : [];
+    const source = rows[0];
+    const threshold = Number.isFinite(+trigger) ? +trigger : 1;
+    const transferPct = Number.isFinite(+transfer) ? +transfer : .1;
+    const receiverPct = Number.isFinite(+receiver) ? +receiver : .8;
+    if (!source || !GB_RES_KEYS.includes(resource)) return { ok:false, reason:'town-state-unreadable' };
+    const amount = source[resource], cap = +source.cap, tradeCap = +source.tradeCap;
+    const live = { amount, cap, fill:amount == null || !(cap > 0) ? null : amount / cap, tradeCap };
+    if (amount == null || !(cap > 0)) { tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, action:'none', reason:'source-state-unreadable' }); return { ok:false, reason:'source-state-unreadable' }; }
+    if (amount / cap < threshold) { tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, action:'none', reason:'not-overflowing' }); return { ok:false, reason:'not-overflowing' }; }
+    if (tradeCap == null) { tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, action:'none', reason:'trade-capacity-unreadable' }); return { ok:false, reason:'trade-capacity-unreadable' }; }
+    const candidates = rows.slice(1).map(t => {
+      const value = t[resource], targetCap = +t.cap;
+      if (value == null || !(targetCap > 0)) return null;
+      const fill = value / targetCap;
+      const free = Number.isFinite(+t.free) ? +t.free : targetCap-value;
+      return fill <= receiverPct ? { id:String(t.id), fill, free, t } : null;
+    }).filter(Boolean).sort((a,b) => a.fill-b.fill || b.free-a.free || a.id.localeCompare(b.id, undefined, {numeric:true}));
+    const target = candidates[0];
+    if (!target) { tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, intercity:null, action:'none', reason:'no-intercity-destination-under-80' }); return { ok:false, reason:'no-intercity-destination-under-80' }; }
+    const executable = Math.floor(Math.min(cap * transferPct, amount, tradeCap, target.free));
+    if (!(executable > 0)) { const reason = tradeCap <= 0 ? 'trade-capacity-zero' : 'destination-space-zero'; tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, intercity:{ destination:target.id, fill:target.fill, free:target.free, executable:0 }, action:'none', reason }); return { ok:false, reason, target }; }
+    tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, intercity:{ destination:target.id, fill:target.fill, free:target.free, executable }, action:'intercity', reason:'ready-intercity' });
+    return { ok:true, source:String(source.id), target:target.id, resource, amount:executable, destinationFill:target.fill, destinationFree:target.free };
+  }
+  function tradeOverflowJobs(towns, L, blockedPairs) {
+    const rawRows = Array.isArray(towns) ? towns : [];
+    const rawById = Object.create(null);
+    rawRows.forEach(t => { if (t && t.id != null) rawById[String(t.id)] = t; });
+    const ledger = L || tradeLedger(rawRows);
     if (!ledger) return [];
-    const minBatch = gbCfgClamp(state.tradeMinBatch, 100, Infinity, 1000);
-    const RES = ['wood', 'stone', 'iron'];
-    const jobs = [];
-    const ids = towns.map(t => t.id);
-    for (const srcId of ids) {
-      const src = ledger[srcId];
-      if (!src || !(src.cap > 0) || src.tradeCap < minBatch) continue;
-      for (const res of RES) {
-        if (src[res] / src.cap < 0.97) continue;
-        // Pick the target with the most headroom in this resource, instead of
-        // the first pushable one — the inner `break` after `jobs.push` was
-        // capping per (src, res) at 1 anyway, but it was the wrong 1.
-        let best = null;
-        for (const tgtId of ids) {
-          if (tgtId === srcId) continue;
-          const tgt = ledger[tgtId];
-          if (!tgt || !(tgt.cap > 0)) continue;
-          const headroom = tgt.cap - tgt[res];
-          if (headroom < minBatch) continue;
-          const amount = Math.floor(Math.min(headroom, src.tradeCap, src[res] * 0.5));
-          if (amount < minBatch) continue;
-          if (!best || headroom > best.headroom) {
-            best = { tgtId, amount, headroom };
-          }
-        }
-        if (best) {
-          const job = { from: srcId, to: best.tgtId, wood: 0, stone: 0, iron: 0, deadlock: true };
-          job[res] = best.amount;
-          jobs.push(job);
-          tradeApplyJob(ledger, job);
-          if (jobs.length >= 4) return jobs;
-        }
+    const attackState = tradeTownsUnderAttack();
+    if (!attackState.known) return [];
+    const blocked = blockedPairs instanceof Set ? blockedPairs : new Set();
+    const jobs = [], ids = rawRows.map(t => String(t.id)).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    for (const sourceId of ids) {
+      const rawSource = rawById[sourceId], projectedSource = ledger[sourceId];
+      if (!rawSource || !projectedSource || !(rawSource.cap > 0)) continue;
+      for (const resource of GB_RES_KEYS) {
+        if (blocked.has(sourceId + '|' + resource)) continue;
+        // Source overflow is based only on resources already in the city. Future
+        // incoming trades may constrain receivers but can never create a source overflow.
+        const source = Object.assign({}, rawSource, { tradeCap:projectedSource.tradeCap });
+        const destRows = ids.filter(id => id !== sourceId && !(attackState.value && attackState.value.has(id))).map(id => {
+          const raw = rawById[id], projected = ledger[id];
+          if (!raw || !projected || !(raw.cap > 0) || projected[resource] == null) return null;
+          return Object.assign({}, raw, {
+            [resource]:projected[resource],
+            free:Math.max(0, raw.cap - projected[resource]),
+          });
+        }).filter(Boolean);
+        const decision = tradeOverflowDecision([source].concat(destRows), resource, tradeOverflowPct(), tradeTransferPct(), tradeReceiverPct());
+        if (!decision.ok) { gbLogT(`trade-overflow-${sourceId}-${resource}`, 180000, `trade: ${decision.reason}`); continue; }
+        const job = { from: sourceId, to: decision.target, wood: 0, stone: 0, iron: 0, overflow: true, overflowResource: resource, destinationFill: decision.destinationFill, destinationFree: decision.destinationFree };
+        job[resource] = decision.amount; jobs.push(job); tradeApplyJob(ledger, job);
+        if (jobs.length >= 6) return jobs;
       }
-    }
-    if (!jobs.length && typeof orchDeadlockNoteStuck === 'function') {
-      orchDeadlockNoteStuck('no town has headroom in the pinned resource');
     }
     return jobs;
   }
+
   function tradeFillStorageJobs(towns, L) {
     const ledger = L || tradeLedger(towns);
     if(!ledger)return [];
@@ -216,22 +292,15 @@
     }
     return jobs;
   }
-  // Free warehouse space for one resource. null = capacity unreadable (blind, NOT "full").
+
   function tradeFreeSpace(tgt, res) {
     if (!tgt || !(tgt.cap > 0)) return null;
     return Math.max(0, tgt.cap - (+tgt[res] || 0));
   }
   function tradeGoalDeficit(townId, preset) {
 
-    // → {wood,stone,iron} | null (blind / nothing)
     if (preset === 'party') {
-      if (typeof ironReservedForCave === 'function') {
-        const r = ironReservedForCave(townId);
-        if (r && r.reserved) {
-          gbLogT('trade-party-cave-' + townId, 120000, `trade party: skip town ${townId} - iron reserved for cave`);
-          return { wood: 0, stone: 0, iron: 0 };
-        }
-      }
+      // Independent mode: do not reserve iron for a future cave action.
       const types = state.cultureTypes || {};
       const order = ['festival', 'theater', 'procession'];
       let ctype = null;
@@ -242,9 +311,6 @@
         break;
       }
 
-      // No resource-priced celebration enabled = the preset has no goal at all.
-      // Returning a zero deficit made that look like "already satisfied", which
-      // is indistinguishable from a healthy town in the Log. Log + skip.
       if (!ctype || !CULTURE_COSTS[ctype]) {
         gbLogT('trade-party-notype', 300000, 'trade party: no resource-priced culture type enabled - skipping preset');
         return null;
@@ -259,7 +325,6 @@
     if (preset === 'unit') {
       const want = (state.recruitTargets || {})[townId] || (state.recruitTargets || {})[String(townId)];
 
-      // No recruit target for this town = no goal, not a satisfied one.
       if (!want || typeof want !== 'object') {
         gbLogT('trade-unit-notarget-' + townId, 300000, `trade unit: town ${townId} has no recruit target - skipping preset`);
         return null;
@@ -268,15 +333,15 @@
       for (const unit of Object.keys(want)) {
         const count = +want[unit] || 0;
         if (!(count > 0)) continue;
-        let def = null;
-        try { def = gbGameDataLookup("units", unit); } catch (_) {}
-        if (!def || !def.resources) {
-          gbLogT('trade-unit-nocost-' + unit, 120000, `trade unit: unknown cost for ${unit} - town ${townId} blind`);
+        let ec = null;
+        try { ec = recruitEffectiveUnitCost(townId, unit); } catch (_) {}
+        if (!ec || !['wood','stone','iron'].every(k => recruitCostFieldKnown(ec,k))) {
+          gbLogT('trade-unit-nocost-' + unit, 120000, `trade unit: authoritative effective cost unreadable for ${unit} - town ${townId} blind`);
           return null;
         }
-        wood += (+def.resources.wood || 0) * count;
-        stone += (+def.resources.stone || 0) * count;
-        iron += (+def.resources.iron || 0) * count;
+        wood += +ec.wood * count;
+        stone += +ec.stone * count;
+        iron += +ec.iron * count;
       }
       return { wood, stone, iron };
     }
@@ -302,7 +367,6 @@
       const needTotal = deficit.wood + deficit.stone + deficit.iron;
       if (needTotal < minBatch) continue;
 
-      // Prefer donor with largest surplus of the scarcest needed resource
       const needKey = ['wood', 'stone', 'iron'].sort((a, b) => deficit[b] - deficit[a])[0];
       const donors = towns.filter(s => s.id !== tgt.id).map(s => {
         const src = ledger[s.id];
@@ -317,8 +381,6 @@
         if (jobs.length >= 6) return jobs;
         const src = d.src;
 
-        // Goal presets are deficit-driven, so the half-gap rule does not apply, but the
-        // free-space cap does: a haul over the target warehouse is lost on arrival.
         const room = {
           wood: tradeFreeSpace(cur, 'wood'), stone: tradeFreeSpace(cur, 'stone'), iron: tradeFreeSpace(cur, 'iron'),
         };
@@ -353,23 +415,13 @@
     }
     return jobs;
   }
-  // ===== Trade route manager (v4 plan 3.1) ===================================
-  // A route is a stored user rule: "from town A to town B, these amounts, while
-  // this trigger holds". Routes run as a tradeScan sub-planner on the SAME
-  // ledger every other sub-planner mutates, so a route that claims headroom is
-  // visible to fill-storage in the same scan and neither can over-plan the
-  // other's target. No new orch key, no new lock, no new captcha key: a captcha
-  // on the trade queue must pause routes too, or a route burns budget against a
-  // paused queue.
+
   const TRADE_ROUTE_THROTTLE_MS = 60000;
   const TRADE_ROUTE_MAX_JOBS = 4;
   const TRADE_ROUTE_TRIGGERS = ['always', 'belowPct', 'abovePct'];
-  // lastFiredAt is in-memory on purpose: a 1-minute throttle that survived a
-  // reload would skip a real opportunity for a user who reloaded five minutes
-  // ago, and it is not worth a storage write per fire.
+
   const tradeRouteRuntime = Object.create(null);
-  // Sanitise one route. Returns null when the shape cannot be trusted - an
-  // invalid route must never be coerced into a valid-looking one that posts.
+
   function tradeRouteClean(raw, idx) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
     const from = String(raw.from == null ? '' : raw.from);
@@ -385,9 +437,7 @@
     const mode = TRADE_ROUTE_TRIGGERS.includes(t.mode) ? t.mode : 'always';
     const resource = GB_RES_KEYS.includes(t.resource) ? t.resource : 'wood';
     const value = Math.max(0, Math.min(100, Number.isFinite(+t.value) ? +t.value : 0));
-    // The fallback id must be STABLE: a timestamp would mint a fresh id on
-    // every scan, miss the runtime throttle map, and let the route fire every
-    // tick while leaking one stale entry per scan.
+
     const id = /^[A-Za-z0-9_:-]{1,32}$/.test(String(raw.id || '')) ? String(raw.id)
       : ('r_' + from + '_' + to + (idx == null ? '' : '_' + idx));
     return {
@@ -408,8 +458,7 @@
     save(STORE.TRADE_ROUTES, out);
     return out;
   }
-  // true = fire, false = do not, null = BLIND (unreadable). Blind is not "no":
-  // it idles this scan and logs once, it never silently disables the route.
+
   function tradeRouteTriggerOk(route, tgtLive) {
     const mode = route.trigger && route.trigger.mode;
     if (mode === 'always' || !mode) return true;
@@ -429,14 +478,12 @@
     const reserve = Math.min(80, Math.max(0, gbCfgNum(state.tradeReservePct, 20))) / 100;
     const stored = (state.tradeRoutes && typeof state.tradeRoutes === 'object' && !Array.isArray(state.tradeRoutes)) ? state.tradeRoutes : {};
     const liveIds = new Set(Object.keys(stored));
-    // Drop runtime rows for routes the user deleted, or the map grows for the
-    // life of the page across route edits.
+
     for (const k of Object.keys(tradeRouteRuntime)) if (!liveIds.has(k)) delete tradeRouteRuntime[k];
     for (const [key, raw] of Object.entries(stored)) {
       const route = tradeRouteClean(raw, null);
       if (!route || !route.enabled) continue;
-      // The STORAGE key is the identity, not whatever id the payload carries:
-      // that is what keeps the throttle attached to the route the user edited.
+
       route.id = key;
       const rt = tradeRouteRuntime[key] || (tradeRouteRuntime[key] = { lastFiredAt: 0, lastSent: null });
       if (now - rt.lastFiredAt < TRADE_ROUTE_THROTTLE_MS) continue;
@@ -445,10 +492,7 @@
         gbLogT('trade-route-blind-' + route.id, 600000, `trade route ${route.id}: ${route.from}->${route.to} town state unreadable - idling`);
         continue;
       }
-      // The trigger reads the LEDGER, which already carries in-flight arrivals.
-      // Reading the live warehouse instead would let a 'below 60%' route re-fire
-      // on every scan until the first haul physically lands, stacking several
-      // shipments for a target that is already on its way to being full.
+
       const fire = tradeRouteTriggerOk(route, tgt);
       if (fire === null) {
         gbLogT('trade-route-blind-' + route.id, 600000, `trade route ${route.id}: trigger resource unreadable on ${route.to} - idling`);
@@ -456,23 +500,11 @@
       }
       if (!fire) continue;
       const keep = Math.floor(src.cap * reserve);
-      let ironKeep = keep;
-      if (route.iron > 0) {
-        try {
-          const r = ironReservedForCave(route.from);
-          if (r && r.reserved) {
-            const thresh = gbCfgClamp(state.caveThreshPct, 50, 99, 90) / 100;
-            ironKeep = Math.max(keep, Math.ceil(src.cap * thresh));
-            gbLogT('trade-route-iron-reserved-' + route.id, 600000, `trade route ${route.id}: iron held for cave on ${route.from}`);
-          }
-        } catch (_) {}
-      }
       const send = {};
       for (const k of GB_RES_KEYS) {
         const want = +route[k] || 0;
         if (!(want > 0)) { send[k] = 0; continue; }
-        const k2 = k === 'iron' ? ironKeep : keep;
-        send[k] = Math.max(0, Math.min(want, src[k] - k2, src.tradeCap, tgt.cap - tgt[k]));
+        send[k] = Math.max(0, Math.min(want, src[k] - keep, src.tradeCap, tgt.cap - tgt[k]));
       }
       let total = send.wood + send.stone + send.iron;
       if (route.maxPerCycle > 0 && total > route.maxPerCycle) {
@@ -495,15 +527,57 @@
     }
     return jobs;
   }
+  function tradeValidateOverflowJob(job, src, tgt) {
+    const resource = job.overflowResource;
+    if (!resource || !GB_RES_KEYS.includes(resource)) return { ok:true };
+    const incomingState = tradeIncomingByTown();
+    if (!incomingState.known) return { ok:false, why:'incoming-trades-unreadable' };
+    const attackState = tradeTownsUnderAttack();
+    if (!attackState.known) return { ok:false, why:'incoming-attacks-unreadable' };
+    const liveDestinations = tradeAutoTowns(tradeListTowns()).filter(t => String(t.id) !== String(src.id));
+    const projected = [];
+    for (const t of liveDestinations) {
+      const id = String(t.id);
+      if (attackState.value && attackState.value.has(id)) continue;
+      if (!(t.cap > 0) || t[resource] == null) continue;
+      const mov = incomingState.byTown[id] || {};
+      let pending;
+      try { pending = plannerPendingForTown(id).incoming || {}; } catch (_) { return { ok:false, why:'planner-incoming-unreadable' }; }
+      const value = +t[resource] + (+mov[resource] || 0) + (+pending[resource] || 0);
+      if (!Number.isFinite(value)) continue;
+      projected.push(Object.assign({}, t, {
+        [resource]:value,
+        free:Math.max(0, +t.cap - value),
+      }));
+    }
+    if (!projected.length) return { ok:false, why:'no-intercity-destination-under-80' };
+    const decision = tradeOverflowDecision([src].concat(projected), resource, tradeOverflowPct(), tradeTransferPct(), tradeReceiverPct());
+    if (!decision.ok) return { ok:false, why:decision.reason };
+    if (String(decision.target) !== String(job.to)) {
+      job.to = decision.target;
+      job.wood = 0; job.stone = 0; job.iron = 0;
+    }
+    job[resource] = decision.amount;
+    job.destinationFill = decision.destinationFill;
+    job.destinationFree = decision.destinationFree;
+    return { ok:true };
+  }
   function tradeValidateJob(job) {
-    const src = tradeTownRes(job.from), tgt = tradeTownRes(job.to);
+    const src = tradeTownRes(job.from);
+    let tgt = tradeTownRes(job.to);
     if (!src || !tgt || !(src.cap > 0) || !(tgt.cap > 0)) return { ok: false, why: 'town-state-unreadable' };
+    const overflowCheck = tradeValidateOverflowJob(job, src, tgt);
+    if (!overflowCheck.ok) return overflowCheck;
+    if (job.overflowResource) {
+      tgt = tradeTownRes(job.to);
+      if (!tgt || !(tgt.cap > 0)) return { ok:false, why:'town-state-unreadable' };
+    }
     const reserveN = Number(state.tradeReservePct);
     const reservePct = Math.min(80, Math.max(0, Number.isFinite(reserveN) ? reserveN : 20)) / 100;
     const keep = Math.floor(src.cap * reservePct);
     const total = (+job.wood || 0) + (+job.stone || 0) + (+job.iron || 0);
     const pav = plannerAvailable(job.from, {allowSoft:false});
-    const incomingState=tradeIncomingByTown();if(!incomingState.known)return {ok:false,why:'incoming-trades-unreadable'};const mov=incomingState.byTown[String(job.to)]||{},pending=plannerSnapshot(job.to)?.incoming||{};
+    const incomingState=tradeIncomingByTown();if(!incomingState.known)return {ok:false,why:'incoming-trades-unreadable'};const mov=incomingState.byTown[String(job.to)]||{};let pending={};try{pending=plannerPendingForTown(job.to).incoming||{}}catch(_){}
     if (!pav) return { ok:false, why:'planner-unreadable' };
 
     const num = (v) => (Number.isFinite(+v) ? +v : null);
@@ -518,16 +592,20 @@
     }
     return { ok: true };
   }
-  // Towns with at least one hostile incoming movement. Returns null when the
-  // MovementsUnits model is unreadable — a blind set is not "no one is
-  // attacked", and a trade scan that ships to a town we cannot read is the
-  // exact loss this gate exists to prevent.
+
   let tradeUnderAttackCache = { at: 0, known: false, value: null };
   function tradeTownsUnderAttack() {
     if (Date.now() - tradeUnderAttackCache.at < 1000) return { known: tradeUnderAttackCache.known, value: tradeUnderAttackCache.value };
     let value = null, known = false;
     try {
-      if (typeof dodgeIncomingMovements === 'function') {
+      if (typeof dodgeIncomingSnapshot === 'function') {
+        const snap = dodgeIncomingSnapshot();
+        if (snap && snap.known === true && Array.isArray(snap.moves)) {
+          const set = new Set();
+          for (const m of snap.moves) { if (m && m.dest != null) set.add(String(m.dest)); }
+          value = set; known = true;
+        }
+      } else if (typeof dodgeIncomingMovements === 'function') {
         const moves = dodgeIncomingMovements();
         if (Array.isArray(moves)) {
           const set = new Set();
@@ -539,67 +617,48 @@
     tradeUnderAttackCache = { at: Date.now(), known, value };
     return { known, value };
   }
-  function tradeScan(reason) {
+  function tradeTownUnderAttack(townId) {
+    const u = tradeTownsUnderAttack();
+    if (!u.known || !u.value) return false;
+    return u.value.has(String(townId));
+  }
+  function tradeScan(reason, opts) {
+    const o = opts || {};
     if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes && !state.autoDump) || captchaPaused('trade')) return;
     if (automationPaused({})) return;
-    if (gbLocked('trade')) return;
     const towns = tradeListTowns();
     if (towns.length < 2) { gbLogT('trade-towns', 180000, 'trade: need ≥2 towns'); return; }
+    const autoTowns = tradeAutoTowns(towns);
+    const autoPairOk = autoTowns.length >= 2;
     const ledger = tradeLedger(towns);
     if(!ledger){gbLogT('trade-incoming-unreadable',180000,'trade: incoming movements unavailable — fail closed');return}
     let jobs = [];
-    const preset = state.tradePreset || 'storage';
 
-    // User-defined routes are explicit intent, so they claim headroom before
-    // anything automatic. The shared tradeApplyJob ledger means a later
-    // sub-planner cannot over-plan a target these already filled.
-    if (state.autoTradeRoutes) jobs = jobs.concat(tradeRouteJobs(towns, ledger));
-    if (state.autoTransport) jobs = jobs.concat(transportBalanceJobs(towns, ledger));
+    if (!o.overflowOnly) {
+      // Saved routes are explicit from/to rules, so they intentionally ignore the
+      // automatic-town selector. All calculated inter-city movement respects it.
+      if (state.autoTradeRoutes) jobs = jobs.concat(tradeRouteJobs(towns, ledger));
+      if (!autoPairOk && (state.autoTrade || state.autoTransport || state.autoDump || state.islandShip)) {
+        gbLogT('trade-town-filter', 180000, `trade: only ${autoTowns.length} automatic town(s) enabled - need ≥2`);
+      }
+      if (state.autoTransport && autoPairOk) jobs = jobs.concat(transportBalanceJobs(autoTowns, ledger));
+      if (state.autoDump && autoPairOk) jobs = jobs.concat(dumpJobs(autoTowns, ledger));
+    }
 
-    // Dump is explicit user policy, so it outranks the heuristic cascade below
-    // but yields to the routes above it.
-    if (state.autoDump) jobs = jobs.concat(dumpJobs(towns, ledger));
-
-    if (state.autoTrade && preset === 'storage') {
-      jobs = jobs.concat(tradeFillStorageJobs(towns, ledger));
-
-      // Only when the normal rule produced nothing SENDABLE and a deadlock is
-      // open: the default 25%-empty target rule exists to stop pointless
-      // shuffling and must stay as-is for every other tick.
-      //
-      // `!jobs.length` was the wrong test. Every job is re-checked by
-      // tradeValidateJob at send time, so a planner can hand back four jobs that
-      // all die there (`merchant-capacity`, `source-wood`, `target-*-capacity`)
-      // and the tick still sends nothing - while the non-empty list suppressed
-      // the one path that could have drained the pinned warehouse. Validation is
-      // a pure read over memoised state, so pre-flighting it here costs nothing.
-      if (typeof orchDeadlockOpen === 'function' && orchDeadlockOpen()) {
-        const dead = jobs.length > 0 && !jobs.some(j => tradeValidateJob(j).ok);
-        if (!jobs.length || dead) {
-
-          // Fresh ledger: the jobs above already debited it through
-          // tradeApplyJob, so the pinned source can read below the 0.97 gate on
-          // the mutated one. Rebuilding is only correct because every planned
-          // job here is known-unsendable.
-          const dl = tradeDeadlockJobs(towns, dead ? tradeLedger(towns) : ledger);
-          if (dl.length) {
-            gbLog(`trade: deadlock drain - ${dl.length} job(s) on the pinned resource${dead ? ` (replaced ${jobs.length} job(s) the validator rejects)` : ''}`);
-            if (dead) jobs = [];
-            jobs = jobs.concat(dl);
-          }
+    if (state.autoTrade && autoPairOk) {
+      let ruralPairs = new Set();
+      if (!o.skipRural && state.autoRuralTrade) {
+        ruralPairs = ruralExecutableOverflowPairSet(autoTowns);
+        if (ruralPairs.size) {
+          const rr = ruralTradeScan('trade-coordinator') || {};
+          gbLogT('trade-rural-first', 60000, `trade: ${ruralPairs.size} town/resource rural-first pair(s); unrelated intercity remains eligible`);
+          if (rr.reason === 'locked') ruralCoordinatorScheduleRetry();
         }
       }
-    } else if (state.autoTrade && (preset === 'party' || preset === 'unit')) {
-      jobs = jobs.concat(tradeGoalJobs(towns, ledger, preset));
+      jobs = jobs.concat(tradeOverflowJobs(autoTowns, ledger, ruralPairs));
     }
-    if (state.islandShip) jobs = jobs.concat(tradeIslandShipJobs(towns, ledger));
+    if (!o.overflowOnly && state.islandShip && autoPairOk) jobs = jobs.concat(tradeIslandShipJobs(autoTowns, ledger));
 
-    // Block every shipment to a town with an incoming hostile movement.
-    // Routes, fill-storage, deadlock, island, dump and goal presets all flow
-    // through this single gate so the user-visible rule — "do not feed a city
-    // that is about to be hit" — is enforced regardless of which sub-planner
-    // produced the job. Blind incoming = fail closed for the same reason the
-    // incoming-trades gate above does.
     const underAttack = tradeTownsUnderAttack();
     if (!underAttack.known) {
       gbLogT('trade-incoming-unreadable', 180000, 'trade: incoming attacks unreadable — fail closed');
@@ -615,30 +674,34 @@
       gbLogT('trade-idle', 180000, `trade: nothing to send (${scanReason(reason)})`);
       return;
     }
-    const lockToken = gbLock('trade');
-    if (!lockToken) return;
-    let i = 0, done = 0;
+    let i = 0, done = 0, stopped = false;
     (function next() {
-      if (!gbLockTouch('trade', lockToken)) return;
+      if(stopped)return;
       if (i >= jobs.length) {
-        gbUnlock('trade', lockToken);
         if (done) gbLog(`trade: sent ${done}/${jobs.length}`);
         return;
       }
-      const j = jobs[i++];
-      const valid = tradeValidateJob(j);
-      if (!valid.ok) {
-        gbLogT('trade-stale-' + j.from + '-' + j.to, 60000, `trade: stale job ${j.from}→${j.to} skipped (${valid.why})`);
-        gbTimeout(next, 100);
-        return;
+      const j=jobs[i++];
+      const lockName=`trade:${String(j.from)}`;
+      const lockToken=gbLock(lockName,120000);
+      if(!lockToken){gbTimeout(next,100);return}
+      const valid=tradeValidateJob(j);
+      if(!valid.ok){
+        gbUnlock(lockName,lockToken);
+        gbLogT('trade-stale-'+j.from+'-'+j.to,60000,`trade: stale job ${j.from}→${j.to} skipped (${valid.why})`);
+        gbTimeout(next,100);return;
       }
-      tradeSend(j.from, j.to, j.wood, j.stone, j.iron, (err) => {
-        if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('trade', lockToken); return; }
-        if (!err) {
-          done++;
-          gbLog(`trade: ${j.from}→${j.to} w${j.wood}/s${j.stone}/i${j.iron}`);
-        } else gbLogT('trade-err', 60000, `trade err ${err}`);
-        gbTimeout(next, 800 + Math.random() * 600);
+      tradeSend(j.from,j.to,j.wood,j.stone,j.iron,(err)=>{
+        gbUnlock(lockName,lockToken);
+        if(err==='captcha'||err==='captcha-pause'){stopped=true;return}
+        if(!err){done++;gbLog(`trade: ${j.from}→${j.to} w${j.wood}/s${j.stone}/i${j.iron}`)}
+        else gbLogT('trade-err',60000,`trade err ${err}`);
+        gbTimeout(next,800+Math.random()*600);
       });
     })();
   }
+
+  const TRANSPORT_MAX_JOBS = 4;
+  const TRANSPORT_SRC_FILL = 0.85;
+  const TRANSPORT_TGT_FILL = 0.25;
+  const TRANSPORT_ETA_MAX_MS = 24 * 3600 * 1000;

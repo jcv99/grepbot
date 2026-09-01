@@ -1,33 +1,3 @@
-  // ===== Espionaje: manual spy sender (Militar > Espionaje) ==================
-  // Two modes, both driven by hand from the panel:
-  //   rapido (rapid fire) - send `chunk` silver (default 1000) per wave, up to
-  //                         `waves` times and/or until the cave is empty.
-  //   masivo (bulk)       - one send of ALL the cave silver, or of an exact
-  //                         amount the operator typed.
-  //
-  // THE ROUTE IS CANONICAL, NOT GUESSED. The client's own espionage button is
-  //   gpAjax.ajaxPost('town_info','spy',{id:<target>,espionage_iron:<n>})
-  // (archive/captures/grepo-dump/js/game.min.js, the espionage_spy_button
-  // handler), the same controller attack.js posts send_units to. town_id is
-  // added explicitly instead of leaning on gpAjax's Game.townId default,
-  // because the silver leaves the CAVE OF THE SOURCE TOWN and the panel lets
-  // the operator pick a town that is not the one currently open.
-  //
-  // The response carries the authoritative post-send cave balance
-  // (`{stored_iron: n}` in the same handler), so rapid fire steps on the
-  // server's number, not on a local subtraction. When that field is
-  // unreadable the run falls back to caveTownInfo(); when THAT is unreadable
-  // too the balance is `blind` and the rapid-fire "until empty" path refuses
-  // to derive a wave count from a number it never read - the loop is bounded
-  // by `SPS_MAX_WAVES` on every other path, never by a fabricated 0.
-  //
-  // This module does NOT touch spyTpl or spyCycle. The auto-spy scheduler in
-  // spy.js keeps its own learned-template discipline; nothing here changes
-  // when or whether it runs.
-  const SPS_MAX_WAVES = 100;
-  const SPS_HISTORY_MAX = 40;
-  const SPS_DEFAULT_CHUNK = 1000;
-  let spsStopFlag = false;
   function spsCfg() {
     const c = (state.spySendCfg && typeof state.spySendCfg === 'object' && !Array.isArray(state.spySendCfg)) ? state.spySendCfg : {};
     return {
@@ -56,7 +26,7 @@
     if (h.length > SPS_HISTORY_MAX) h.length = SPS_HISTORY_MAX;
     save(STORE.SPY_SEND_HISTORY, h);
   }
-  // Cave silver of the SOURCE town. null means unreadable (blind), never 0.
+
   function spsCaveSilver(townId) {
     let info = null;
     try { info = caveTownInfo(townId); } catch (_) { info = null; }
@@ -64,7 +34,7 @@
     const stored = Number.isFinite(+info.stored) && +info.stored >= 0 ? +info.stored : null;
     return { stored, hideLvl: Number.isFinite(+info.hideLvl) ? +info.hideLvl : null, unlimited: !!info.unlimited };
   }
-  // The server's own post-send balance, when it sent one.
+
   function spsStoredFromResponse(res) {
     if (!res || typeof res !== 'object') return null;
     const probe = [res, res.json, res.data, res.response];
@@ -102,8 +72,7 @@
     else gbLog(`spy ajax: town_info/spy town ${srcTownId} -> ${targetId} (${Math.floor(+amount)} plata)`);
     gameAjaxPost('spy', 'town_info', 'spy', params, onDone);
   }
-  // Everything the run needs, resolved and validated BEFORE the confirm dialog
-  // so the operator confirms the real numbers and not an intention.
+
   function spsPlan() {
     const cfg = spsCfg();
     const src = spsSourceTownId(cfg);
@@ -128,8 +97,7 @@
       out.total = out.amount;
       return out;
     }
-    // Rapid fire. A wave count of 0 means "until the cave is empty", which is
-    // only answerable against a READABLE balance.
+
     const chunk = cfg.chunk;
     if (cave.stored != null && !(cave.stored > 0)) return Object.assign(out, { error: 'la cueva no tiene plata' });
     let waves = cfg.waves;
@@ -156,8 +124,7 @@
     lines.push('Enviar?');
     return lines.join('\n');
   }
-  // Runs off the 'spy' lock, not a module-local boolean: the lock is the one
-  // fact that survives a reload and is also what the run button reads.
+
   function spsStop() {
     if (!gbLocked('spy')) { flash('espionaje: no hay rafaga en curso'); return; }
     spsStopFlag = true;
@@ -180,8 +147,6 @@
     try { ok = gameUw().confirm(spsPlanText(plan)); } catch (_) { ok = false; }
     if (!ok) { gbLog('spy: confirm declined'); return; }
 
-    // The auto-spy cycle takes the same lock, so a manual burst and the
-    // scheduler can never interleave two spies out of one cave.
     const token = gbLock('spy');
     if (!token) { flash('espionaje ocupado (otro envio en curso)'); return; }
     spsStopFlag = false;
@@ -191,11 +156,6 @@
     const finish = () => {
       gbUnlock('spy', token);
 
-      // ONE cadence stamp for the whole burst, written at the end. Stamping per
-      // wave meant N bare save() calls inside a per-item sweep; the value is
-      // identical either way, since spyRankTargets only reads the newest one.
-      // Dry run never stamps - nothing left the cave, so the auto scheduler
-      // must not treat the target as freshly spied.
       if (anyReal) { try { spyLastSpy()[plan.target] = Date.now(); spyHistorySave(); } catch (_) {} }
       const msg = `espionaje: ${sentWaves} envio(s), ${spent} plata (${stopWhy})${anyDry ? ' [simulacion]' : ''}`;
       gbLog('spy: ' + msg);
@@ -209,7 +169,7 @@
       renderSpySend();
     };
     const step = () => {
-      if (!gbLockTouch('spy', token)) return;
+      gbLockTouch('spy', token);
       if (spsStopFlag) { stopWhy = 'parado'; return finish(); }
       if (wave >= plan.waves) { stopWhy = 'rafagas completadas'; return finish(); }
       if (remaining != null && remaining <= 0) { stopWhy = 'cueva vacia'; return finish(); }
@@ -223,13 +183,8 @@
       spsPost(plan.src, plan.target, amount, (err, res) => {
         if (err) {
 
-          // Any hard error stops the burst: repeating a rejected spy just
-          // burns request budget and decision-memory strikes.
           if (err === 'dryrun') {
 
-            // Nothing left the cave, so the balance never moves. Drain the
-            // LOCAL counter anyway or the loop would replay wave 1 forever and
-            // the operator would never see the later payloads.
             anyDry = true;
             sentWaves++;
             if (remaining != null) remaining = Math.max(0, remaining - amount);
@@ -238,13 +193,6 @@
             return;
           }
 
-          // Nothing leaves the cave, so every wave rebuilds the exact intent of
-          // wave 1: same amount, same target, same snapshot balance. In dry run
-          // txActionGate short-circuits at the 'dryrun' gate BEFORE tx dedup, so
-          // the waves above keep flowing; a real burst can still collide here
-          // when the client model has not refreshed stored_iron yet between
-          // waves. Either way it is the dedup doing its job, not a failure
-          // worth an error badge.
           if (err === 'pending') {
             stopWhy = state.dryRun
               ? 'simulacion: intento duplicado (la plata no baja en simulacion)'
@@ -385,7 +333,7 @@
       const src = spsSourceTownId(cfg);
       const cave = src ? spsCaveSilver(src) : { stored: null, hideLvl: null };
 
-      caveEl.textContent = `cueva: ${cave.stored == null ? '—' : cave.stored + ' plata'}${cave.hideLvl != null ? ` | nivel ${cave.hideLvl}` : ''}${cave.unlimited ? ' | ilimitada' : ''}`;
+      caveEl.textContent = `cueva: ${cave.stored == null ? '\u2014' : cave.stored + ' plata'}${cave.hideLvl != null ? ` | nivel ${cave.hideLvl}` : ''}${cave.unlimited ? ' | ilimitada' : ''}`;
       caveEl.style.color = cave.stored == null ? '#f96' : '#6dda7e';
     }
     const preview = sec.querySelector('#gb-sp-plan');
@@ -407,11 +355,7 @@
     if (!sec || sec.dataset.bound) return;
     sec.dataset.bound = '1';
     const sync = () => { spsReadForm(); renderSpySend(); };
-    // [data-sp=pick] is deliberately excluded: it is not a form field, it is a
-    // "copy this known target into targetId" control with its own handler.
-    // Wiring it here too made every pick run spsReadForm() first, which reads
-    // the target INPUT the pick has not written yet - the old value went back
-    // into the cfg and the picked one was only restored one repaint later.
+
     sec.querySelectorAll('[data-sp]:not([data-sp=pick])').forEach(el => {
       el.addEventListener('change', sync);
     });
@@ -429,3 +373,6 @@
       renderSpySend();
     });
   }
+
+  const SNAPSHOT_SLOTS = 6;
+  const SNAPSHOT_INTERVAL_MS = 300000;

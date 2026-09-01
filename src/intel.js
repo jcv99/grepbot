@@ -1,19 +1,3 @@
-  function intelPlayerKey(p) {
-    if (p == null) return null;
-    if (typeof p === 'string') return p.trim() || null;
-    if (typeof p === 'object') {
-      if (p.id != null) return 'id:' + p.id;
-      if (p.name) return String(p.name);
-      if (p.player_name) return String(p.player_name);
-    }
-    return null;
-  }
-  function intelPlayerLabel(p, key) {
-    if (p && typeof p === 'object' && (p.name || p.player_name)) return p.name || p.player_name;
-    if (typeof p === 'string') return p;
-    if (key && key.indexOf('id:') === 0) return key.slice(3);
-    return key || 'unknown';
-  }
   function intelMyIdentity() {
     try {
       const uw = gameUw();
@@ -64,8 +48,7 @@
       if (raw && typeof raw === 'object' && (raw.town_id != null || raw.town_name)) d.towns.push({ id: raw.town_id, name: raw.town_name });
       else if (f.town && (f.town.id != null || f.town.name)) d.towns.push(f.town);
       if (f.wall != null) d.walls.push(f.wall);
-      // Latest-wins by report timestamp, so a stale spy cannot overwrite a
-      // fresher one just by arriving later in the ring buffer.
+
       if (f.buildings && Object.keys(f.buildings).length && (+f.ts || 0) >= (d.buildingsAt || 0)) {
         d.buildings = f.buildings; d.buildingsAt = +f.ts || 0;
       }
@@ -78,31 +61,21 @@
         d.allianceNote = state.allianceNotes[f.alliance];
       }
     }
-    // Plan 2.5 work item 2: the battle profile rides on the dossier entry so
-    // any dossier consumer gets it without recomputing the aggregate.
+
     try {
       const loss = intelLossRatio(state.findings || []);
       for (const d of Object.values(byPlayer)) if (loss.has(d.key)) d.loss = loss.get(d.key);
     } catch (_) {}
     return Object.values(byPlayer).sort((a, b) => b.last - a.last);
   }
-  // ===== Battle report analyzer (v4 plan 2.5) ================================
-  // DELIBERATE DEVIATION from plan 2.5 section 3: it asks for popLost/popKilled.
-  // parseReport exposes no per-unit casualty field - `units` is the roster the
-  // report showed, not a loss count - so a "losses" number could only be
-  // invented. This analyzer reports what it can actually read: the outcome-based
-  // win rate (plan 2.1 normalised `outcome`) and the pop-weighted force each
-  // side is recorded as having committed. Unknown or naval units are skipped,
-  // never estimated (the wonder.js defenseLocalStrength precedent).
+
   const INTEL_LOSS_TOP = 5;
   const INTEL_FARM_TOP = 20;
-  // Naval is deliberately excluded (the wonder.js defenseLocalStrength
-  // precedent) but that is a FILTER, not an unknown - keeping the two counters
-  // apart is what makes the diagnostic readable.
+
   function intelUnitPop(bag) {
     let pop = 0, known = 0, unknown = 0, naval = 0;
     for (const [id, n0] of Object.entries(bag || {})) {
-      const n = gbNum(n0) || 0;
+      const n = +n0 || 0;
       if (!(n > 0)) continue;
       const m = unitMeta(id);
       if (!m) { unknown += n; continue; }
@@ -127,8 +100,6 @@
       if (!f || !f.outcome) continue;
       const atk = f.attacker, def = f.defender;
 
-      // The subject is the OTHER player: a report about my own attack is scored
-      // against the defender, and vice versa.
       let subject = null, subjectIsAttacker = false;
       if (intelActorIsMe(atk, me) && def) { subject = def; subjectIsAttacker = false; }
       else if (intelActorIsMe(def, me) && atk) { subject = atk; subjectIsAttacker = true; }
@@ -140,9 +111,6 @@
       r.battles++;
       r.asAttacker += subjectIsAttacker ? 1 : 0;
 
-      // Counted exactly as the report recorded it. The client never states
-      // whose point of view `outcome` belongs to, so flipping it per side would
-      // be a guess - the column is labelled as the report's own verdict.
       if (f.outcome === 'win') r.wins++;
       else if (f.outcome === 'lose') r.losses++;
       else r.draws++;
@@ -164,10 +132,7 @@
     const mineKnown = own.id != null || own.name != null;
     for (const f of (findings || [])) {
       if (!f || f.vill_id == null || f.vill_id === '') continue;
-      // When identity is unreadable every raid counts - degrade to "show
-      // everything", never to a silent empty table. But once identity IS known,
-      // a raid with no attacker on record is not provably yours either, so it
-      // must not be attributed to your haul.
+
       if (mineKnown && !intelActorIsMe(f.attacker, own)) continue;
       const key = String(f.vill_id);
       let r = byVill.get(key);
@@ -182,8 +147,7 @@
         if (!Number.isFinite(n)) continue;
         sum += n; any = true;
       }
-      // A raid whose loot was never reported is not a zero-loot raid; it is
-      // excluded from the success denominator rather than counted as a failure.
+
       if (!any) continue;
       r.hauledKnown++;
       r.haul += sum;
@@ -191,9 +155,7 @@
     }
     return Array.from(byVill.values())
       .map(r => Object.assign({}, r, {
-        // Divide by the raids whose loot was actually reported: raids with no
-        // loot data are excluded from the numerator, so counting them in the
-        // denominator would understate a farm that simply reports sparsely.
+
         perRaid: r.hauledKnown ? r.haul / r.hauledKnown : 0,
         successRate: r.hauledKnown ? r.hauls / r.hauledKnown : null,
       }))
@@ -203,25 +165,14 @@
   function intelThreatBoard() {
     return (typeof dodgeIncomingMovements === 'function') ? dodgeIncomingMovements() : [];
   }
-  // ===== Enemy city timeline (v4 plan 2.2) ===================================
-  // One retention policy shared by the read trio 2.2 / 2.3 / 2.4. Findings
-  // themselves are bounded by the 500-row ring in spy.js; this is the read-time
-  // soft cap, matching the journal's own 7d window.
+
   const INTEL_HISTORY_TTL_MS = 7 * 86400000;
   const INTEL_TIMELINE_PER_TOWN = 8;
   const INTEL_TIMELINE_MAX_TOWNS = 30;
-  // 3d per the Grepolis vacation-cap norm: a player who takes time off is
-  // usually gone 3-7 days, so anything quieter than that is the actionable
-  // signal rather than ordinary silence.
+
   const GHOST_STALE_MS = 3 * 86400000;
   const GHOST_MAX_ROWS = 30;
-  // 5d = typical Grepolis vacation cap floor, the point where a re-spy starts
-  // paying off; 14d = likely abandoned, where re-spying is wasted.
-  // DELIBERATE DEVIATION from plan 2.4 section 3: the inactivity scan uses its
-  // OWN 14d window, not the shared 7d INTEL_HISTORY_TTL_MS. Inside a 7d window
-  // ageMs can never reach 14d, so 'desaparecido' would be a branch that cannot
-  // fire. 2.2 and 2.3 keep the 7d policy; only this axis needs the longer view,
-  // because its whole point is measuring absence.
+
   const PLAYER_INACTIVE_MS = 5 * 86400000;
   const PLAYER_DISAPPEARED_MS = 14 * 86400000;
   const PLAYER_HISTORY_MS = PLAYER_DISAPPEARED_MS;
@@ -239,13 +190,9 @@
     }
     return key;
   }
-  // Unknown is rendered '?', never 0. A finding that never carried a wall level
-  // must not read as "the wall was torn down".
+
   function intelDiffNum(prev, cur, unit) {
 
-    // `== null` on purpose: Number(null) is 0, so a `prev && prev.wall` that
-    // collapsed to null would fabricate a 0 baseline and print "+18 muro
-    // (0->18)" on the very first row of every town.
     if (cur == null) return '?';
     const b = Number(cur);
     if (!Number.isFinite(b)) return '?';
@@ -255,7 +202,7 @@
     if (!Number.isFinite(a)) return String(b) + suffix;
     const d = b - a;
     if (d === 0) return 'sin cambio';
-    return (d > 0 ? '+' : '') + d + suffix + ` (${a}→${b})`;
+    return (d > 0 ? '+' : '') + d + suffix + ` (${a}\u2192${b})`;
   }
   function intelDiffUnits(prev, cur) {
     if (!cur || !Object.keys(cur).length) return 'unidades:?';
@@ -264,13 +211,11 @@
     for (const k of Array.from(keys).sort()) {
       const a = +(prev || {})[k] || 0, b = +cur[k] || 0;
       if (!prev) { if (b) parts.push(`${k}:${b}`); continue; }
-      if (a !== b) parts.push(`${k} ${a}→${b}`);
+      if (a !== b) parts.push(`${k} ${a}\u2192${b}`);
     }
     return parts.length ? parts.join(', ') : 'sin cambio';
   }
-  // extractResources writes null for every unknown and Number(null) is 0, so a
-  // defense report carrying no loot must be skipped, not printed as W0 S0 I0.
-  // Labels follow the Spanish client (iron = plata).
+
   const INTEL_RES_ES = { wood: 'mad', stone: 'pie', iron: 'pla' };
   function intelDiffRes(prev, cur) {
     const c = cur || {}, p = prev || {};
@@ -285,7 +230,7 @@
     }
     return parts.length ? parts.join(' ') : '?';
   }
-  // Pure: no state read, no log.
+
   function intelDiffPair(prev, cur) {
     const p = prev || null;
     const boolLabel = v => (v == null ? null : (v ? 'ON' : 'OFF'));
@@ -293,30 +238,26 @@
     const pName = p && p.town && p.town.name, cName = cur && cur.town && cur.town.name;
     const pAlly = p && p.alliance, cAlly = cur && cur.alliance;
 
-    // buildings/hero come from plan 2.1. When a report predates it the fields
-    // are absent and the column stays '—' rather than claiming a change.
     const pB = (p && p.buildings) || null, cB = (cur && cur.buildings) || null;
-    let deep = '—';
+    let deep = '\u2014';
     if (cB && Object.keys(cB).length) {
       const keys = Object.keys(cB).sort();
 
-      // A key missing from the previous bag is UNKNOWN (parseBuildings drops
-      // unreadable entries), so it renders "?→12", never "0→12".
       const changed = pB ? keys.filter(k => pB[k] == null || +cB[k] !== +pB[k]) : keys;
       deep = changed.length
-        ? changed.slice(0, 3).map(k => `${k} ${pB ? (pB[k] == null ? '?' : +pB[k]) + '→' : ''}${cB[k]}`).join(', ') + (changed.length > 3 ? ' …' : '')
+        ? changed.slice(0, 3).map(k => `${k} ${pB ? (pB[k] == null ? '?' : +pB[k]) + '\u2192' : ''}${cB[k]}`).join(', ') + (changed.length > 3 ? ' \u2026' : '')
         : 'sin cambio';
     }
     if (cur && cur.hero) {
       const h = [cur.hero.name, cur.hero.level != null ? 'lv' + cur.hero.level : null].filter(Boolean).join(' ');
-      deep = (deep === '—' ? '' : deep + ' | ') + 'heroe ' + (h || '?');
+      deep = (deep === '\u2014' ? '' : deep + ' | ') + 'heroe ' + (h || '?');
     }
     return {
       wall: intelDiffNum(p && p.wall, cur && cur.wall, 'muro'),
       units: intelDiffUnits(p && p.units, cur && cur.units),
       res: intelDiffRes(p && p.resources, cur && cur.resources),
-      name: (cName && pName && cName !== pName) ? `nombre: ${pName} → ${cName}` : (cName || '?'),
-      alliance: (cAlly && pAlly && cAlly !== pAlly) ? `alianza: ${pAlly} → ${cAlly}` : (cAlly || '?'),
+      name: (cName && pName && cName !== pName) ? `nombre: ${pName} \u2192 ${cName}` : (cName || '?'),
+      alliance: (cAlly && pAlly && cAlly !== pAlly) ? `alianza: ${pAlly} \u2192 ${cAlly}` : (cAlly || '?'),
       vacation: (cv == null) ? '?' : (pv != null && pv !== cv ? `vacaciones ${cv}` : cv),
       deep,
     };
@@ -369,9 +310,7 @@
     const table = tableShell(list, ['Ciudad', 'Fecha', 'Muro', 'Unidades', 'Recursos', 'Nombre', 'Alianza', 'Vac.', 'Edificios / heroe'], 'intel-timeline');
     const tbody = table.querySelector('tbody');
     const wanted = [];
-    // Index-suffixed: two reports on the same town can share a timestamp, and a
-    // duplicate data-key made the set comparison never match (full rebuild + a
-    // lost sort on every 15s render).
+
     for (const g of groups) g.rows.forEach((r, i) => wanted.push(g.townKey + '@' + r.ts + '#' + i));
     const have = new Set(Array.from(tbody.children).map(tr => tr.dataset.key));
     const sameSet = have.size === wanted.length && wanted.every(k => have.has(k));
@@ -399,20 +338,16 @@
           tbody.appendChild(tr);
         }
         patchCells(tr, cells);
-        // Unknown wall sorts as '' (string compare), not 0 - ranking an
-        // unspied town as the weakest one is exactly the wrong answer.
-        const wRaw = r.cur && gbNum(r.cur.wall);
-        const wallRaw = wRaw != null ? String(wRaw) : '';
+
+        const wallRaw = (r.cur && r.cur.wall != null && Number.isFinite(+r.cur.wall)) ? String(+r.cur.wall) : '';
         tr.dataset.sort = [g.label, String(r.ts), wallRaw, d.units, d.res, d.name, d.alliance, d.vacation, d.deep].join('\t');
       });
     }
     sortApplySaved(table);
   }
-  // ===== Ghost town detector (v4 plan 2.3) ===================================
-  // Own ladder, not fmtSec: fmtSec tops out at minutes, so a 4-day-quiet town
-  // would read "5760m".
+
   function ghostAgeLabel(ageMs) {
-    const s = Math.max(0, Math.round((gbNum(ageMs) || 0) / 1000));
+    const s = Math.max(0, Math.round((+ageMs || 0) / 1000));
     if (s >= 86400) return Math.floor(s / 86400) + 'd';
     if (s >= 3600) return Math.floor(s / 3600) + 'h';
     return Math.floor(s / 60) + 'm';
@@ -432,8 +367,7 @@
     for (const [key, last] of latest) {
       const ageMs = now - (+last.ts || 0);
       const vacation = (last.defender && last.defender.vacation === true) || last.vacation === true;
-      // Defenderless is only claimed when a defender block exists but carries no
-      // name. A finding with no defender at all is an unknown, not an abandon.
+
       const abandoned = !!(last.defender && !last.defender.name);
       const reasons = [];
       if (ageMs >= GHOST_STALE_MS) reasons.push('sin actividad 3d');
@@ -447,7 +381,7 @@
         ageMs,
         vacation,
         abandoned,
-        wall: gbNum(last.wall),
+        wall: (last.wall != null && Number.isFinite(+last.wall)) ? +last.wall : null,
         alliance: last.alliance || null,
         reasons,
       });
@@ -464,7 +398,7 @@
     if (sec && sec.hidden) return;
     const rows = intelGhostTowns();
     if (!rows.length) { placeholder(list, 'sin pueblos fantasma (7d)'); return; }
-    const table = tableShell(list, ['Ciudad', 'Última', 'Edad', 'Muro', 'Alianza', 'Razón'], 'intel-ghost');
+    const table = tableShell(list, ['Ciudad', '\u00daltima', 'Edad', 'Muro', 'Alianza', 'Raz\u00f3n'], 'intel-ghost');
     const tbody = table.querySelector('tbody');
     const wanted = rows.map(r => r.townKey);
     const have = new Set(Array.from(tbody.children).map(tr => tr.dataset.key));
@@ -488,13 +422,11 @@
       }
       patchCells(tr, cells);
 
-      // Age sorts on the raw ms, not the humanised label ("2d" vs "20h").
-      // Unknown wall sorts as '' so it is not ranked as level 0.
       tr.dataset.sort = [r.label, String(r.lastTs), String(r.ageMs), r.wall == null ? '' : String(r.wall), r.alliance || '', ghostReasonText(r)].join('\t');
     }
     sortApplySaved(table);
   }
-  // ===== Player inactivity tracker (v4 plan 2.4) =============================
+
   const inactiveAgeLabel = ghostAgeLabel;
   function inactiveStatusLabel(row) {
     if (!row) return '';
@@ -508,8 +440,7 @@
     const fresh = (state.findings || []).filter(f => f && +f.ts >= now - PLAYER_HISTORY_MS);
     const maps = { attackers: new Map(), defenders: new Map() };
     const bump = (which, actor) => {
-      // A blind identity makes intelActorIsMe false for everything, so the rule
-      // degrades to "show everything" rather than silently dropping rows.
+
       if (!actor || intelActorIsMe(actor, me)) return;
       const key = intelPlayerKey(actor);
       if (!key || key === 'unknown') return;
@@ -525,8 +456,7 @@
         if ((+f.ts || 0) > hit.cur.lastTs) {
           hit.cur.lastTs = +f.ts || 0;
           const noteKey = (actor && typeof actor === 'object' && actor.name) ? actor.name : hit.cur.player;
-          // Guard, do not assign: a newer finding whose name misses the note map
-          // must not erase a note an earlier finding already resolved.
+
           if (state.playerNotes && state.playerNotes[noteKey]) hit.cur.note = state.playerNotes[noteKey];
         }
         hit.m.set(hit.key, hit.cur);
@@ -554,7 +484,7 @@
     const list = panel && panel.querySelector(cls);
     if (!list) return;
     if (!rows.length) { placeholder(list, emptyText); return; }
-    const table = tableShell(list, ['Jugador', 'Última', 'Edad', 'Informes', 'Estado', 'Nota'], sortKey);
+    const table = tableShell(list, ['Jugador', '\u00daltima', 'Edad', 'Informes', 'Estado', 'Nota'], sortKey);
     const tbody = table.querySelector('tbody');
     const wanted = rows.map(r => r.key);
     const have = new Set(Array.from(tbody.children).map(tr => tr.dataset.key));
@@ -580,7 +510,6 @@
       }
       patchCells(tr, cells);
 
-      // Age sorts on raw ms, not the humanised label ("2d" vs "20h").
       tr.dataset.sort = [r.player, String(r.lastTs), String(r.ageMs), String(r.n), status, r.note || ''].join('\t');
     }
     sortApplySaved(table);
@@ -605,14 +534,12 @@
       try { out = VIEWS[intelView](); } catch (e) { out = ['vista no disponible: ' + String(e).slice(0, 60)]; }
       box.textContent = out.join('\n');
 
-      // Orthogonal to the view: the pattern scan still runs in either branch.
       try { intelPatternScan(); } catch (_) {}
       try { renderIntelTimeline(); } catch (_) {}
       return;
     }
     const threats = intelThreatBoard();
 
-    // v4 plan 3.3: same label in both tabs, computed once for the whole loop.
     const colonyKind = {};
     try { for (const c of militaryColonyThreats()) colonyKind[String(c.mov.id)] = c.kind; } catch (_) {}
     let csTrains = [];
@@ -627,7 +554,7 @@
         const sup = da.supports.length
           ? `${da.supports.length} (${da.supports.map(s => fmtSec(Math.round(s.travel))).slice(0, 2).join('-')})`
           : '0';
-        html += `${t.hasCs ? '[CS] ' : ''}${t.type || 'atk'} → ${t.dest} from ${t.origin || '?'}` +
+        html += `${t.hasCs ? '[CS] ' : ''}${t.type || 'atk'} \u2192 ${t.dest} from ${t.origin || '?'}` +
           (t.arrival ? ` @${t.arrival}` : '') +
           ` | riesgo ${da.band} ${da.risk} (${defenseFactorText(da.factors)})` +
           ` | ETA ${da.eta==null?'?':fmtSec(da.eta)} | simult ${da.simultaneous}` +
@@ -640,7 +567,7 @@
     html += '\n=== Fichas ===\n';
     dossiers.forEach(d => {
       html += `${d.player}: ${d.reports} informes${d.status ? ' ' + NAP_BADGE[d.status] : ''}` +
-        (d.note ? ` — ${d.note}` : '') +
+        (d.note ? ` \u2014 ${d.note}` : '') +
         (d.allianceNote ? ` [aliado: ${d.allianceNote}]` : '') + '\n';
     });
     if (state.watchlist && state.watchlist.length) {
@@ -694,15 +621,14 @@
       const findings = state.findings || [];
       const loss = Array.from(intelLossRatio(findings).values())
 
-        // Loss RATE first: 1 loss in 1 battle should not outrank 1 loss in 100.
         .sort((a, b) => ((b.lossRate || 0) - (a.lossRate || 0)) || (b.losses - a.losses) || (b.battles - a.battles))
         .slice(0, INTEL_LOSS_TOP);
-      html += '\n=== Pérdidas (verdicto del informe) ===\n';
+      html += '\n=== P\u00e9rdidas (verdicto del informe) ===\n';
       if (!loss.length) html += '(sin informes con resultado)\n';
       else loss.forEach(r => {
         const wr = r.winRate == null ? '?' : Math.round(r.winRate * 100) + '%';
         html += `${r.player}: ${r.battles} batallas (${r.asAttacker} como atacante) | ` +
-          `${r.wins}G/${r.losses}P/${r.draws}E · exito ${wr} | pob atac ${Math.round(r.popAtk)} def ${Math.round(r.popDef)}` +
+          `${r.wins}G/${r.losses}P/${r.draws}E \u00b7 exito ${wr} | pob atac ${Math.round(r.popAtk)} def ${Math.round(r.popDef)}` +
           (r.unknownUnits ? ` | ${r.unknownUnits} sin metadatos` : '') + (r.navalUnits ? ` | ${r.navalUnits} navales excluidas` : '') + '\n';
       });
       const farms = intelFarmProfitability(findings);
@@ -710,7 +636,7 @@
       if (!farms.length) html += '(sin incursiones a aldeas)\n';
       else farms.forEach(r => {
         const sr = r.successRate == null ? '?' : Math.round(r.successRate * 100) + '%';
-        html += `${r.name || r.vill_id}: ${Math.round(r.perRaid)}/incursion · ${r.raids} incursiones · botin ${Math.round(r.haul)} · exito ${sr}\n`;
+        html += `${r.name || r.vill_id}: ${Math.round(r.perRaid)}/incursion \u00b7 ${r.raids} incursiones \u00b7 botin ${Math.round(r.haul)} \u00b7 exito ${sr}\n`;
       });
     }
     box.textContent = html;
@@ -725,9 +651,7 @@
     else state.playerNotes[player] = String(note).slice(0, 200);
     save(STORE.PLAYER_NOTES, state.playerNotes);
   }
-  // state.allianceNotes was read in three places (dossiers, the Intel dump and
-  // the export redactor) but nothing could ever write it - there was no setter
-  // at all, so the feature was unreachable.
+
   function intelSetAllianceNote(alliance, note) {
     const key = String(alliance || '').trim();
     if (!key) return false;
@@ -767,9 +691,7 @@
         const c = entry.coords || (entry.x + ' ' + entry.y);
         const fx = finding.town && finding.town.x;
         const fy = finding.town && finding.town.y;
-        // Token-compare on whitespace-split coords: indexOf would match "100 50"
-        // against x=10 (substring) and x=100 against x=10 (prefix), making every
-        // town whose x starts with "1" trip a watch at (x=100, y=50).
+
         if (fx != null && fy != null) {
           const cTokens = String(c).split(/\s+/).filter(Boolean).map(String);
           if (cTokens.indexOf(String(fx)) >= 0 && cTokens.indexOf(String(fy)) >= 0) {
@@ -784,7 +706,7 @@
       if (entry.alliance && finding.alliance && String(finding.alliance).toLowerCase() === String(entry.alliance).toLowerCase()) {
         hits.push({ kind: 'alliance', rule: String(entry.alliance), specificity: 1 });
       }
-      // bare id string fallback (legacy)
+
       if (typeof w !== 'object') {
         const id = String(w);
         if (String(tid) === id || String(vid) === id || String(finding.town_id) === id) {
@@ -816,13 +738,7 @@
       break;
     }
   }
-  // ===== Counter-intel detection (v4 plan 4.2) ===============================
-  // POLICY BOUNDARY: plan 27 section 0 bans anti-pattern detection, i.e.
-  // profiling how other players dodge the bot. This is the INVERSE direction -
-  // it only groups spy reports whose defender resolves to ME, a signal the game
-  // itself delivers as a report. No posts, no probing, no behavioural model of
-  // anyone else. Widening this to predict what the watcher will DO is a new
-  // plan and must be re-checked against section 0 first.
+
   const COUNTER_INTEL_WINDOW_MS = 24 * 3600000;
   function counterIntelThreshold() {
     const n = +((state.defenseCfg || {}).counterIntelMin);
@@ -837,13 +753,9 @@
     const by = {};
     for (const f of (state.findings || [])) {
       if (!f || !(+f.ts >= cut)) continue;
-      // Raw type read, no regex classification: a client that renames spy to
-      // something else should break THIS filter loudly, not silently
-      // reclassify attacks as spying.
+
       if (String(f.type || '').toLowerCase() !== 'spy') continue;
-      // Never infer identity from a missing field. The defender block is the
-      // primary signal; when it is absent entirely, a town id that is provably
-      // one of mine is an equally hard fact, so the report still counts.
+
       let mine = intelActorIsMe(f.defender, me);
       if (!mine && !f.defender && f.town && f.town.id != null) mine = ownTownIds.has(String(f.town.id));
       if (!mine) continue;
@@ -856,9 +768,7 @@
       b.first = Math.min(b.first, +f.ts);
       const tid = f.town && (f.town.id != null ? f.town.id : f.town.name);
       if (tid != null) {
-        // The DISPLAY list is capped at 8; the distinct count is not. Deriving
-        // the count from the capped array made a watcher hitting 12 towns
-        // report 8, which is a number that is simply wrong.
+
         b.seen.add(String(tid));
         if (b.towns.indexOf(String(tid)) < 0 && b.towns.length < 8) b.towns.push(String(tid));
       }
@@ -887,23 +797,19 @@
     });
     return rows;
   }
-  // ===== Alliance intel heatmap (v4 plan 6.13) ===============================
-  // Read-only. Which alliance has been touching which of MY towns, over a 7-day
-  // window. It is also the plan that creates the [data-intel="view"] selector
-  // plans 7.2 / 7.3 / 7.6 hang their own views off.
+
   const INTEL_MATRIX_WINDOW_MS = 7 * 86400000;
   const INTEL_MATRIX_ROWS = 12;
   let intelView = 'summary';
   function intelAllianceName(v) {
     if (typeof v !== 'string') return null;
     const n = v.trim();
-    // Drop the client's placeholders and anything too long to be a real tag -
-    // an unlabelled row is noise, not intel.
+
     if (!n || n === '?' || n === '-' || n.length > 40) return null;
     return n;
   }
   function intelAllianceMatrix(windowMs) {
-    const win = gbNum(windowMs) != null ? gbNum(windowMs) : INTEL_MATRIX_WINDOW_MS;
+    const win = Number.isFinite(+windowMs) ? +windowMs : INTEL_MATRIX_WINDOW_MS;
     const cutoffTs = Date.now() - win;
     const out = { alliances: [], towns: [], totalForAlliance: {}, totalForTown: {}, cells: {}, windowMs: win, cutoffTs };
     const me = intelMyIdentity();
@@ -915,11 +821,9 @@
       const ally = intelAllianceName(f.alliance);
       if (!ally) continue;
       const tid = f.town && f.town.id != null ? String(f.town.id) : null;
-      // Column must be a town of MINE. Anything else is somebody else's
-      // business and does not belong in my own exposure matrix.
+
       if (!tid || !own.has(tid)) continue;
-      // And the alliance must be on the OTHER side: an attack by my own
-      // alliance-mate on my town is not incoming pressure from them.
+
       if (intelActorIsMe(f.attacker, me)) continue;
       const key = ally + '::' + tid;
       out.cells[key] = (out.cells[key] || 0) + 1;
@@ -931,7 +835,7 @@
     out.towns = Object.keys(out.totalForTown).sort((a, b) => String(a).localeCompare(String(b)));
     return out;
   }
-  const INTEL_HEAT = [' ', '·', '░', '▒', '▓', '█'];
+  const INTEL_HEAT = [' ', '\u00b7', '\u2591', '\u2592', '\u2593', '\u2588'];
   function intelHeatChar(n, max) {
     if (!n) return INTEL_HEAT[0];
     if (!(max > 0)) return INTEL_HEAT[1];
@@ -957,10 +861,7 @@
     lines.push('  ' + 'total'.padEnd(18) + m.towns.map(t => String(m.totalForTown[t]).padStart(4)).join(''));
     return lines;
   }
-  // ===== NAP / war tracking (v4 plan 7.5) ====================================
-  // A four-value ENUM, not free text: a diplomatic marker that could hold
-  // arbitrary strings would end up rendered into the panel unescaped and
-  // exported to webhooks.
+
   const NAP_STATUSES = ['war', 'ally', 'nap', 'neutral'];
   const NAP_RANK = { war: 4, ally: 3, nap: 2, neutral: 1 };
   const NAP_BADGE = { war: '[WAR]', ally: '[ALLY]', nap: '[NAP]', neutral: '[NEUTRAL]' };
@@ -990,8 +891,7 @@
     napSave();
     return true;
   }
-  // The STRONGER of the two wins, so an explicit war with one member is not
-  // hidden by a blanket NAP with their alliance.
+
   function intelStatusFor(player, alliance) {
     const st = napStore();
     const pk = intelPlayerKey(player);
@@ -1002,7 +902,7 @@
     if (a) return { status: a, source: 'alliance' };
     return { status: null, source: null };
   }
-  // ===== Defense coordination board (v4 plan 7.2) ============================
+
   function intelDefenseBoard(threats) {
     const byDest = new Map();
     for (const t of (threats || [])) {
@@ -1044,24 +944,20 @@
     }
     return lines;
   }
-  // ===== Alliance resource pool (v4 plan 7.3) ================================
-  // Alliance-wide resources for OTHER members are NOT readable - there is no
-  // Alliance collection in this client. This reports what genuinely can be
-  // read: my own towns, and the last spied stock of towns I have reports for.
-  // It never presents a spied number as current.
+
   function intelPoolByAlliance() {
     const et = () => ({ wood: 0, stone: 0, iron: 0 });
     const own = { alliance: '(mis ciudades)', totals: et(), towns: 0, spied: false, lastTs: 0 };
     for (const t of (state.towns || [])) {
       const r = (state.townResources || {})[t.id];
       if (!r || !r.ok) continue;
-      for (const k of GB_RES_KEYS) { const v = gbNum(r[k]); if (v != null) own.totals[k] += v; }
+      for (const k of GB_RES_KEYS) if (Number.isFinite(+r[k])) own.totals[k] += +r[k];
       own.towns++;
       if (+r.ts > own.lastTs) own.lastTs = +r.ts;
     }
     const byAlly = new Map();
     const seenTown = new Set();
-    // Newest report per town wins; older ones are strictly worse information.
+
     const sorted = (state.findings || []).slice().sort((a, b) => (+b.ts || 0) - (+a.ts || 0));
     for (const f of sorted) {
       const a = intelAllianceName(f && f.alliance);
@@ -1098,11 +994,11 @@
     }
     return lines;
   }
-  // ===== Alliance member activity (v4 plan 7.6) ==============================
+
   function intelMemberActivity(opts) {
     const o = opts || {};
     const filter = String(o.alliance || '').trim().toLowerCase();
-    const cut = Date.now() - ((gbNum(o.windowHours) != null ? gbNum(o.windowHours) : 24 * 7) * 3600000);
+    const cut = Date.now() - ((Number.isFinite(+o.windowHours) ? +o.windowHours : 24 * 7) * 3600000);
     const me = intelMyIdentity();
     const byPlayer = {};
     for (const f of (state.findings || [])) {
@@ -1159,7 +1055,7 @@
     });
     const hits = Object.values(by).filter(b => b.n >= 3);
     state.attackPatternNote = hits.length
-      ? hits.map(h => `${h.name}×${h.n}/24h`).join(', ')
+      ? hits.map(h => `${h.name}\u00d7${h.n}/24h`).join(', ')
       : '';
     hits.forEach(h => {
       const bucket = Math.floor(now / windowMs);
@@ -1175,12 +1071,10 @@
         towns: (h.towns || []).slice(0, 8).map(t => state.exportRedact !== false ? String(t).slice(0, 2) + '***' : t),
         first: h.first, last: h.last,
       };
-      gbLog(`pattern: ${h.name} hit ${h.n}× in 24h`);
+      gbLog(`pattern: ${h.name} hit ${h.n}\u00d7 in 24h`);
       try { alertWebhook('pattern', payload); } catch (_) {}
     });
     return hits;
   }
   const QUEST_SCAN_MS = 12000;
   const QUEST_HISTORY_MAX = 100;
-  let questMo = null;
-  let questMoContainer = null;

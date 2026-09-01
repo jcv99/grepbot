@@ -1,10 +1,3 @@
-  function ruralRelModels() {
-    try {
-      const uw = gameUw();
-      const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('FarmTownPlayerRelation');
-      return (col && col.models) || [];
-    } catch (_) { return []; }
-  }
   function ruralFarmModels() {
     try {
       const uw = gameUw();
@@ -15,16 +8,17 @@
   function ruralTownIslandXY(townId) {
     const uw = gameUw();
     try {
-      const t = gbTownModel(townId);
+      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
       if (!t) return null;
-      return { x: t.getIslandCoordinateX && t.getIslandCoordinateX(), y: t.getIslandCoordinateY && t.getIslandCoordinateY(), t };
+      const islandId = typeof t.getIslandId === 'function' ? t.getIslandId() : (t.attributes && t.attributes.island_id);
+      return { id: islandId != null ? String(islandId) : null, x: t.getIslandCoordinateX && t.getIslandCoordinateX(), y: t.getIslandCoordinateY && t.getIslandCoordinateY(), t };
     } catch (_) { return null; }
   }
   function ruralTradePost(relationId, farmTownId, amount, townId, onDone) {
     bridgePost('ruraltrade', {
       model_url: `FarmTownPlayerRelation/${relationId}`,
       action_name: 'trade',
-      arguments: { farm_town_id: +farmTownId, amount: Math.min(3000, Math.max(100, +amount)) },
+      arguments: { farm_town_id: +farmTownId, amount: Math.max(0, Math.floor(+amount)) },
       town_id: +townId,
     }, onDone);
   }
@@ -44,286 +38,514 @@
       town_id: +townId,
     }, onDone);
   }
-  // Normalize to SECONDS: gameNow() is a second epoch, so a client that reports
-  // one of these fields in MILLIS made `readyAt > gameNow()` permanently true
-  // and the relation self-skipped every cadence, forever.
-  const RURAL_MS_EPOCH_FLOOR = 1e12;
-  function ruralTradeReadyAt(a) {
-    let v = gbProbeAttr(a, ['trade_at', 'tradeable_at', 'next_trade_at', 'lootable_at']);
-    if (v == null || !(v > 0)) return null;
-    if (v >= RURAL_MS_EPOCH_FLOOR) v = Math.floor(v / 1000);
-    return v;
-  }
-  // Parity-mode selection: each town trades farms that offer its LOWEST wood/stone/iron
-  // resource, so the warehouse evens out across the three. The Grepolis backend
-  // decides which warehouse resource to deduct from the farm's resource_offer +
-  // current_trade_ratio, so the bot's only lever is the farm filter + amount.
-  // Multiple farms offering the same resource are sorted by ratio desc (ties by
-  // relation id, stable), so the best trade always wins within a cycle.
-  const RES_KEYS = ['wood', 'stone', 'iron'];
-  function ruralTradeScan(reason) {
-    if (!hostEnabled() || !state.autoRuralTrade || captchaPaused('ruraltrade')) return;
-    if (automationPaused({})) return;
-    if (gbLocked('rural-trade')) return;
 
-    // Read-side clamp: the UI input floors at 1.0, but an imported config can
-    // carry a lower value and `ratio >= 0.5` trades at a loss every cadence.
-    const minRatio = Math.max(1, gbNum(state.ruralTradeRatio) || 1.1);
+  const RURAL_MS_EPOCH_FLOOR = 1e12;
+  function ruralTradeCooldownState(rel) {
+    const a = rel && (rel.attributes || rel);
+    if (!a) return { known:false, ready:null, readyAt:null, source:'rural-cooldown-unreadable' };
+    for (const key of ['can_trade','tradeable','is_tradeable','trade_ready']) {
+      if (!Object.prototype.hasOwnProperty.call(a, key)) continue;
+      const raw = a[key];
+      if (typeof raw === 'boolean') return { known:true, ready:raw, readyAt:raw ? gameNow() : null, source:key };
+      if (raw === 0 || raw === 1 || raw === '0' || raw === '1') return { known:true, ready:+raw === 1, readyAt:+raw === 1 ? gameNow() : null, source:key };
+    }
+    for (const key of ['trade_at','tradeable_at','next_trade_at','trade_cooldown_until','trade_available_at']) {
+      if (!Object.prototype.hasOwnProperty.call(a, key)) continue;
+      let v = Number(a[key]);
+      if (!Number.isFinite(v)) return { known:false, ready:null, readyAt:null, source:key + ':invalid' };
+      if (v >= RURAL_MS_EPOCH_FLOOR) v = Math.floor(v / 1000);
+      return { known:true, ready:v <= 0 || v <= gameNow(), readyAt:v, source:key };
+    }
+    return { known:false, ready:null, readyAt:null, source:'rural-cooldown-unreadable' };
+  }
+  function ruralTradeReadyAt(rel) {
+    const st = ruralTradeCooldownState(rel);
+    return st.known ? st.readyAt : null;
+  }
+  function ruralBeneficiaryTown(islandKey, towns) {
+    const r = resolveIslandResourceBeneficiary(islandKey, (towns || []).map(t => String(t.id)));
+    return r.known ? r.townId : null;
+  }
+  function ruralTradeDecision(candidates) {
+    return (Array.isArray(candidates) ? candidates : []).filter(c => c && c.ratio != null && +c.ratio >= 1 && c.returnedFill != null && +c.returnedFill <= tradeReceiverPct() && +c.amount > 0)
+      .sort((a,b) => +a.returnedFill - +b.returnedFill || +b.ratio - +a.ratio || +b.amount - +a.amount || String(a.village).localeCompare(String(b.village), undefined, {numeric:true}))[0] || null;
+  }
+  function ruralOfferData(rel, farm) {
+    const rm = rel || null, fm = farm || null;
+    const a = rm && (rm.attributes || rm) || {};
+    const f = fm && (fm.attributes || fm) || {};
+    const firstString = (obj, keys) => {
+      for (const key of keys) {
+        const v = obj && obj[key];
+        if (v != null && String(v) !== '') return String(v);
+      }
+      return null;
+    };
+    const firstNumber = (obj, keys) => {
+      for (const key of keys) {
+        if (!obj || !Object.prototype.hasOwnProperty.call(obj, key)) continue;
+        const n = Number(obj[key]);
+        if (Number.isFinite(n)) return { value:n, source:key };
+      }
+      return null;
+    };
+    const callNumber = (obj, names) => {
+      for (const name of names) {
+        try {
+          if (!obj || typeof obj[name] !== 'function') continue;
+          const n = Number(obj[name]());
+          if (Number.isFinite(n)) return { value:n, source:name + '()' };
+        } catch (_) {}
+      }
+      return null;
+    };
+    const give = firstString(a, ['resource_offer','resource_give','give_resource']) || firstString(f, ['resource_offer','resource_give','give_resource']);
+    const receive = firstString(a, ['resource_receive','resource_demand','receive_resource']) || firstString(f, ['resource_receive','resource_demand','receive_resource']);
+    const ratioHit = callNumber(rm, ['getCurrentTradeRatio','getTradeRatio']) || firstNumber(a, ['current_trade_ratio','trade_ratio','ratio']) || firstNumber(f, ['current_trade_ratio','trade_ratio']);
+    const limitHit = callNumber(rm, ['getAvailableTradeCapacity','getTradeCapacity','getMaxTradeAmount','getTradeAmountLimit'])
+      || firstNumber(a, ['available_trade_capacity','trade_capacity','max_trade_amount','amount_limit','trade_amount_limit'])
+      || callNumber(fm, ['getAvailableTradeCapacity','getTradeCapacity','getMaxTradeAmount'])
+      || firstNumber(f, ['available_trade_capacity','trade_capacity','max_trade_amount','amount_limit','trade_amount_limit']);
+    const multiplierHit = callNumber(rm, ['getReceiveMultiplier','getOutputPerInput'])
+      || firstNumber(a, ['receive_multiplier','return_multiplier','output_per_input','amount_received_per_input'])
+      || firstNumber(f, ['receive_multiplier','return_multiplier','output_per_input','amount_received_per_input']);
+    const ratio = ratioHit && ratioHit.value > 0 ? ratioHit.value : null;
+    const limit = limitHit && limitHit.value >= 0 ? limitHit.value : null;
+    // Grepolis' named trade ratio is the exchange output/input ratio. Prefer an
+    // explicit output multiplier when exposed, otherwise use that authoritative ratio.
+    const returnedMultiplier = multiplierHit && multiplierHit.value > 0 ? multiplierHit.value : ratio;
+    return {
+      give:GB_RES_KEYS.includes(String(give)) ? String(give) : null,
+      receive:GB_RES_KEYS.includes(String(receive)) ? String(receive) : null,
+      ratio, limit, returnedMultiplier,
+      source:{ ratio:ratioHit && ratioHit.source || null, limit:limitHit && limitHit.source || null, multiplier:multiplierHit && multiplierHit.source || (ratio != null ? 'trade-ratio' : null) },
+    };
+  }
+  function ruralSameIslandTowns(townId, liveTowns) {
+    const src = ruralTownIslandXY(townId);
+    if (!src) return { known:false, key:null, towns:[], ids:[], reason:'town-island-unreadable' };
+    const key = src.id || resolveIslandIdByCoords(src.x, src.y);
+    const rows = (liveTowns || []).filter(t => {
+      const p = ruralTownIslandXY(t.id);
+      if (!p) return false;
+      if (key && p.id) return String(p.id) === String(key);
+      return String(p.x) === String(src.x) && String(p.y) === String(src.y);
+    });
+    const ids = rows.map(t => String(t.id));
+    if (!ids.length) return { known:false, key:key || null, towns:[], ids:[], reason:'same-island-towns-unreadable' };
+    if (!key && Object.keys(state.islandBeneficiaries || {}).length) return { known:false, key:null, towns:rows, ids, reason:'canonical-island-unreadable' };
+    return { known:true, key:key || null, towns:rows, ids, reason:'' };
+  }
+  function ruralCandidateRowsForTown(townId, liveTowns, relations, farmById) {
+    const live = tradeTownRes(townId);
+    if (!live || !(live.cap > 0) || live.tradeCap == null) return [];
+    const island = ruralSameIslandTowns(townId, liveTowns);
+    if (!island.known) return [];
+    const beneficiary = resolveIslandResourceBeneficiary(island.key, island.ids);
+    if (!beneficiary.known || String(beneficiary.townId) !== String(townId)) return [];
+    const xy = ruralTownIslandXY(townId);
+    if (!xy) return [];
+    const now = gameNow();
+    const candidates = [];
+    for (const resource of GB_RES_KEYS) {
+      if (live[resource] == null || live[resource] / live.cap < tradeOverflowPct()) continue;
+      for (const rel of relations || []) {
+        const a = rel.attributes || rel || {};
+        const farm = farmById[String(a.farm_town_id)];
+        const f = farm && (farm.attributes || farm) || {};
+        if (+a.relation_status !== 1 || !farm || String(f.island_x) !== String(xy.x) || String(f.island_y) !== String(xy.y)) continue;
+        const cooldown = ruralTradeCooldownState(rel);
+        if (!cooldown.known) {
+          gbLogT('rural-cooldown-unreadable-' + String(a.farm_town_id), 180000, `rural-trade: village ${a.farm_town_id} cooldown unreadable`);
+          continue;
+        }
+        if (!cooldown.ready) continue;
+        const offer = ruralOfferData(rel, farm);
+        if (offer.give !== resource || !offer.receive || offer.receive === resource || offer.ratio == null || offer.ratio < 1) continue;
+        if (offer.limit == null) {
+          gbLogT('rural-limit-unreadable-' + String(a.farm_town_id), 180000, `rural-trade: village ${a.farm_town_id} trade limit unreadable`);
+          continue;
+        }
+        if (!(offer.limit > 0) || !(offer.returnedMultiplier > 0)) continue;
+        if (live[offer.receive] == null) continue;
+        const returnedFill = live[offer.receive] / live.cap;
+        if (returnedFill > tradeReceiverPct()) continue;
+        const headroom = Math.max(0, live.cap - live[offer.receive]);
+        const amount = Math.floor(Math.min(live.cap * tradeTransferPct(), live[resource], live.tradeCap, offer.limit, headroom / offer.returnedMultiplier));
+        if (!(amount > 0)) continue;
+        candidates.push({
+          village:String(a.farm_town_id), relId:String(a.id ?? rel.id), farmId:String(a.farm_town_id), townId:String(townId),
+          amount, give:resource, receive:offer.receive, ratio:offer.ratio, returnedFill, returnedMultiplier:offer.returnedMultiplier,
+          islandKey:island.key, cooldownSource:cooldown.source, limitSource:offer.source && offer.source.limit,
+        });
+      }
+    }
+    return candidates;
+  }
+  function ruralExecutableOverflowCandidates(towns) {
+    const relations = ruralRelModels(), farms = ruralFarmModels(), farmById = Object.create(null);
+    farms.forEach(f => { const a=f.attributes||{}; if (a.id != null) farmById[String(a.id)] = f; });
+    // The passed set limits which towns may donate inter-city overflow, but AUTO
+    // island-beneficiary resolution must see the full own-island town set. This
+    // keeps the coordinator and rural executor on exactly the same resolver input.
+    const eligible = new Set((towns || []).map(t => String(t.id)));
+    const liveTowns = tradeListTowns().map(t => tradeTownRes(t.id)).filter(Boolean);
+    const out = [];
+    for (const town of liveTowns) {
+      if (!eligible.has(String(town.id))) continue;
+      const chosen = ruralTradeDecision(ruralCandidateRowsForTown(town.id, liveTowns, relations, farmById));
+      if (chosen) out.push(chosen);
+    }
+    return out;
+  }
+  function ruralExecutableOverflowPairSet(towns) {
+    const relations = ruralRelModels(), farms = ruralFarmModels(), farmById = Object.create(null);
+    farms.forEach(f => { const a=f.attributes||{}; if (a.id != null) farmById[String(a.id)] = f; });
+    const eligible = new Set((towns || []).map(t => String(t.id)));
+    const liveTowns = tradeListTowns().map(t => tradeTownRes(t.id)).filter(Boolean);
+    const out = new Set();
+    for (const town of liveTowns) {
+      if (!eligible.has(String(town.id))) continue;
+      for (const c of ruralCandidateRowsForTown(town.id, liveTowns, relations, farmById)) {
+        if (c && c.townId != null && GB_RES_KEYS.includes(c.give)) out.add(String(c.townId) + '|' + String(c.give));
+      }
+    }
+    return out;
+  }
+  function ruralValidateJob(j) {
+    const rel = ruralRelModels().find(r => String(r.id ?? (r.attributes || {}).id) === String(j.relId));
+    const farm = ruralFarmModels().find(f => String(f.id ?? (f.attributes || {}).id) === String(j.farmId));
+    const town = tradeTownRes(j.townId);
+    if (!rel || !farm || !town) { tradeDiagnosticPut(j.townId, j.give, { rural:null, action:'none', reason:'rural-state-unreadable' }); return { ok:false, why:'rural-state-unreadable' }; }
+    const a = rel.attributes || {}, f = farm.attributes || farm;
+    if (+a.relation_status !== 1) return { ok:false, why:'rural-state-changed' };
+    const allTowns = tradeListTowns().map(t => tradeTownRes(t.id)).filter(Boolean);
+    const island = ruralSameIslandTowns(j.townId, allTowns);
+    if (!island.known) return { ok:false, why:island.reason || 'island-unreadable' };
+    const beneficiary = resolveIslandResourceBeneficiary(island.key, island.ids);
+    if (!beneficiary.known || String(beneficiary.townId) !== String(j.townId)) return { ok:false, why:'beneficiary-invalid' };
+    const xy = ruralTownIslandXY(j.townId);
+    if (!xy || String(f.island_x) !== String(xy.x) || String(f.island_y) !== String(xy.y)) return { ok:false, why:'rural-island-changed' };
+    const offer = ruralOfferData(rel, farm);
+    if (offer.give !== j.give || offer.receive !== j.receive) return { ok:false, why:'rural-offer-changed' };
+    if (offer.ratio == null || offer.ratio < 1) return { ok:false, why:offer.ratio != null ? 'rural-ratio-below-1' : 'rural-ratio-unreadable' };
+    if (offer.limit == null) return { ok:false, why:'rural-limit-unreadable' };
+    if (!(offer.limit > 0) || !(offer.returnedMultiplier > 0)) return { ok:false, why:'rural-capacity-zero' };
+    const cooldown = ruralTradeCooldownState(rel);
+    if (!cooldown.known) return { ok:false, why:'rural-cooldown-unreadable' };
+    if (!cooldown.ready) return { ok:false, why:'rural-cooldown' };
+    if (town[j.give] == null || town[j.receive] == null || !(town.cap > 0)) return { ok:false, why:'live-state-unreadable' };
+    if (town[j.give] / town.cap < tradeOverflowPct() || town[j.receive] / town.cap > tradeReceiverPct()) return { ok:false, why:'live-state-changed' };
+    if (town.tradeCap == null || !(town.tradeCap > 0)) return { ok:false, why:'rural-trade-capacity-unreadable' };
+    const headroom = Math.max(0, town.cap - town[j.receive]);
+    const amount = Math.floor(Math.min(town.cap * tradeTransferPct(), town[j.give], town.tradeCap, offer.limit, headroom / offer.returnedMultiplier));
+    if (!(amount > 0)) return { ok:false, why:'rural-headroom-zero' };
+    j.amount = amount; j.ratio = offer.ratio; j.returnedMultiplier = offer.returnedMultiplier; j.islandKey = island.key;
+    tradeDiagnosticPut(j.townId, j.give, { rural:{ give:j.give, receive:j.receive, ratio:j.ratio, limit:offer.limit, executable:amount }, finalValidation:'ok', action:'rural', reason:'ready-rural' });
+    return { ok:true, cooldown, offer };
+  }
+  function ruralReconcileTrade(j, before, onDone) {
+    const giveBefore = before && Number.isFinite(+before[j.give]) ? +before[j.give] : null;
+    const receiveBefore = before && Number.isFinite(+before[j.receive]) ? +before[j.receive] : null;
+    if (giveBefore == null || receiveBefore == null || !(+j.amount > 0)) return onDone(false, 'rural-reconcile-pre-unreadable');
+    let attempt = 0;
+    const check = () => {
+      const cur = tradeTownRes(j.townId);
+      let resourcesProve = false;
+      if (cur && Number.isFinite(+cur[j.give]) && Number.isFinite(+cur[j.receive])) {
+        const giveDelta = giveBefore - +cur[j.give];
+        const receiveDelta = +cur[j.receive] - receiveBefore;
+        resourcesProve = giveDelta >= +j.amount && receiveDelta > 0;
+      }
+      let cooldownProves = false;
+      try {
+        const rel = ruralRelModels().find(r => String(r.id ?? (r.attributes || {}).id) === String(j.relId));
+        const cd = rel ? ruralTradeCooldownState(rel) : { known:false };
+        cooldownProves = !!(cd.known && cd.ready === false);
+      } catch (_) {}
+      // Require the source deduction plus either the corresponding received-resource
+      // increase or the relation entering its authoritative post-trade cooldown.
+      const sourceDeducted = cur && Number.isFinite(+cur[j.give]) && (giveBefore - +cur[j.give] >= +j.amount);
+      if (resourcesProve || (sourceDeducted && cooldownProves)) return onDone(true, resourcesProve ? 'resources-updated' : 'source-and-cooldown-updated');
+      if (++attempt >= 7) return onDone(false, 'rural-reconcile-timeout');
+      gbTimeout(check, 200 + attempt * 250);
+    };
+    gbTimeout(check, 150);
+  }
+  let ruralCoordinatorRetryTimer = 0;
+  const ruralTradeActivePairs = new Set();
+  function ruralCoordinatorScheduleRetry() {
+    if (ruralCoordinatorRetryTimer) return;
+    ruralCoordinatorRetryTimer = gbTimeout(() => {
+      ruralCoordinatorRetryTimer = 0;
+      try { tradeScan('rural-lock-retry'); } catch (_) {}
+    }, 1500);
+  }
+  function ruralTradeScan(reason, onSettled) {
+    const settle = (info) => { try { if (onSettled) onSettled(info || {}); } catch (_) {} };
+    if (!hostEnabled() || !state.autoRuralTrade || captchaPaused('ruraltrade') || automationPaused({})) {
+      const info = {ran:false, started:false, reason:'disabled-or-paused'};
+      settle(info); return info;
+    }
+    if (gbLocked('rural-trade')) {
+      const info = {ran:false, started:false, reason:'locked', activePairs:[...ruralTradeActivePairs]};
+      settle(info); return info;
+    }
     const relations = ruralRelModels();
     const farms = ruralFarmModels();
-    const farmById = {};
-    farms.forEach(f => { const a = f.attributes || {}; if (a.id != null) farmById[a.id] = a; });
+    const farmById = Object.create(null);
+    farms.forEach(f => { const a = f.attributes || {}; if (a.id != null) farmById[String(a.id)] = f; });
+    // "Ciudades para comercio automatico" applies to rural trade as well. The
+    // beneficiary resolver still receives the full own-island set internally.
+    const allLiveTowns = tradeListTowns();
+    const enabledLiveTowns = tradeAutoTowns(allLiveTowns);
+    const townIds = enabledLiveTowns.map(t => String(t.id));
     const jobs = [];
-    const capLeft = Object.create(null);
-    let townIds = [];
-    try {
-      const uw = gameUw();
-      townIds = Object.keys((uw.ITowns && uw.ITowns.towns) || {});
-    } catch (_) {}
-    const now = gameNow();
     for (const tid of townIds) {
-      const xy = ruralTownIslandXY(tid);
-      if (!xy || xy.x == null) continue;
-      let tradeCap = 0;
-      try { tradeCap = +xy.t.getAvailableTradeCapacity(); } catch (_) {}
-      if (tradeCap < 500) continue;
-      capLeft[tid] = tradeCap;
-
-      const st = townResState(tid);
-      if (!st || !st.cap) {
-        gbLogT('ruraltrade-blind-' + tid, 300000,
-          `rural-trade: town ${tid} warehouse unreadable — skip`);
-        continue;
-      }
-
-      // Pick the lowest of wood/stone/iron, but skip any that are already
-      // near-cap (full[r] true) — the trade would have nowhere to land.
-      // gbNum keeps an unreadable resource out of the running: townResState
-      // can ship NaN for a single resource on a partial read, and NaN || 0
-      // would make a resource we never read always win as "lowest".
-      let deficit = null, deficitAmt = Infinity;
-      for (const r of RES_KEYS) {
-        const amt = gbNum(st[r]);
-        if (amt == null) continue;
-        if (st.full && st.full[r]) continue;
-        if (amt < deficitAmt) { deficitAmt = amt; deficit = r; }
-      }
-      if (!deficit) continue;
-
-      // Room guard (v1.5.4 regression class): a trade that arrives with no
-      // warehouse room left evaporates the haul. Received ≈ amount × ratio,
-      // so each job reserves amount × its own farm ratio against roomLeft.
-      let roomLeft = Math.max(0, st.cap - deficitAmt);
-      if (roomLeft < 500) {
-        gbLogT('ruraltrade-noroom-' + tid, 300000,
-          `rural-trade: town ${tid} no room for ${deficit} — skip`);
-        continue;
-      }
-
-      // Collect same-island farms offering `deficit` with ratio ≥ minRatio.
-      const candidates = [];
-      for (const rel of relations) {
-        const a = rel.attributes || {};
-        if (+a.relation_status !== 1) continue;
-        const readyAt = ruralTradeReadyAt(a);
-        if (readyAt != null && readyAt > now) continue;
-        const ft = farmById[a.farm_town_id];
-        if (!ft) continue;
-        if (ft.island_x !== xy.x || ft.island_y !== xy.y) continue;
-        if (ft.resource_offer !== deficit) continue;
-        const ratio = +a.current_trade_ratio;
-        if (!(ratio >= minRatio)) continue;
-        candidates.push({ relId: a.id || rel.id, farmId: a.farm_town_id, ratio });
-      }
-      candidates.sort((x, y) => (y.ratio - x.ratio) ||
-        (x.relId > y.relId ? 1 : (x.relId < y.relId ? -1 : 0)));
-
-      for (const c of candidates) {
-        if ((capLeft[tid] || 0) < 500 || roomLeft < 500) break;
-        const amount = Math.min(3000, capLeft[tid], Math.floor(roomLeft / c.ratio));
-        if (amount < 100) break;
-        jobs.push({ relId: c.relId, farmId: c.farmId, townId: tid, amount, deficit });
-        capLeft[tid] -= amount;
-        roomLeft -= amount * c.ratio;
-        if (jobs.length >= 6) break;
-      }
+      const chosen = ruralTradeDecision(ruralCandidateRowsForTown(tid, allLiveTowns, relations, farmById));
+      if (chosen) jobs.push(chosen);
       if (jobs.length >= 6) break;
     }
     if (!jobs.length) {
       gbLogT('ruraltrade-idle', 180000, `rural-trade: idle (${scanReason(reason)})`);
-      return;
+      const info = {ran:true, started:false, jobs:0, done:0, reason:'no-executable-rural'};
+      settle(info);
+      if (String(reason || '').includes('trade-coordinator')) gbTimeout(() => { try { tradeScan('rural-fallback-empty', { skipRural:true, overflowOnly:true }); } catch (_) {} }, 0);
+      return info;
     }
     const ruralTradeLock = gbLock('rural-trade', Math.max(180000, jobs.length * 30000));
-    if (!ruralTradeLock) return;
-    let i = 0, done = 0;
-    (function next() {
-      if (i >= jobs.length) {
-        gbUnlock('rural-trade', ruralTradeLock);
-        if (done) gbLog(`rural-trade: ${done}/${jobs.length}`);
-        return;
+    if (!ruralTradeLock) {
+      const info = {ran:false, started:false, reason:'lock-race', activePairs:[...ruralTradeActivePairs]};
+      settle(info); return info;
+    }
+    ruralTradeActivePairs.clear();
+    jobs.forEach(j => ruralTradeActivePairs.add(String(j.townId) + '|' + String(j.give)));
+    let i = 0, done = 0, validationFailed = 0, postFailed = 0, ambiguousPost = 0, reconcileFailed = 0;
+    const finish = () => {
+      gbUnlock('rural-trade', ruralTradeLock);
+      ruralTradeActivePairs.clear();
+      if (done) gbLog(`rural-trade: ${done}/${jobs.length} reconciled`);
+      const info = { ran:true, started:true, jobs:jobs.length, done, validationFailed, postFailed, ambiguousPost, reconcileFailed };
+      settle(info);
+      if (reconcileFailed || ambiguousPost) return;
+      if (done > 0) gbTimeout(() => { try { tradeScan('rural-reconciled'); } catch (_) {} }, 0);
+      else if (String(reason || '').includes('trade-coordinator') && (validationFailed || postFailed)) {
+        gbTimeout(() => { try { tradeScan('rural-fallback', { skipRural:true, overflowOnly:true }); } catch (_) {} }, 0);
       }
+    };
+    (function next() {
+      if (i >= jobs.length) return finish();
       const j = jobs[i++];
-      if (!gbLockTouch('rural-trade', ruralTradeLock)) return;
+      gbLockTouch('rural-trade', ruralTradeLock);
+      // Share the same per-source transactional lock as city->city trade. Rural
+      // and intercity may run independently for unrelated towns/resources, but two
+      // posts from the same source cannot both validate the same merchant capacity.
+      const townTradeLockName = `trade:${String(j.townId)}`;
+      const townTradeToken = gbLock(townTradeLockName, 30000);
+      if (!townTradeToken) { i--; return gbTimeout(next, 100); }
+      const validation = ruralValidateJob(j);
+      if (!validation.ok) {
+        gbUnlock(townTradeLockName, townTradeToken);
+        validationFailed++;
+        gbLogT('ruraltrade-live-change', 60000, `rural-trade: ${validation.why}`);
+        return gbTimeout(next, 100);
+      }
+      const before = tradeTownRes(j.townId);
+      if (!before || before[j.give] == null) { gbUnlock(townTradeLockName, townTradeToken); validationFailed++; return gbTimeout(next, 100); }
       ruralTradePost(j.relId, j.farmId, j.amount, j.townId, (err) => {
-        if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('rural-trade', ruralTradeLock); return; }
-        if (!err) {
-          done++;
-          gbLog(`rural-trade: town ${j.townId} farm ${j.farmId} res ${j.deficit} amt ${j.amount} (≥${minRatio})`);
+        if (err === 'captcha' || err === 'captcha-pause') {
+          gbUnlock(townTradeLockName, townTradeToken);
+          gbUnlock('rural-trade', ruralTradeLock);
+          ruralTradeActivePairs.clear();
+          settle({ran:true, started:true, captcha:true, done});
+          return;
         }
-        gbTimeout(next, 700 + Math.random() * 400);
+        if (err === 'pending' || err === 'timeout_unknown') {
+          // Ambiguous outcome: never fall through to city->city. Try a rural-specific
+          // reconciliation once more; if it still cannot be proven, leave the TX
+          // unknown and skip intercity for this pair/cycle.
+          return ruralReconcileTrade(j, before, (ok, why) => {
+            gbUnlock(townTradeLockName, townTradeToken);
+            if (ok) {
+              done++;
+              gbLog(`rural-trade: ambiguous ${err} reconciled for town ${j.townId} farm ${j.farmId}`);
+            } else {
+              ambiguousPost++;
+              gbLogT('ruraltrade-ambiguous-' + j.farmId, 60000, `rural-trade: ${err} + ${why}; intercity blocked this cycle`);
+            }
+            gbTimeout(next, 250);
+          });
+        }
+        if (err) {
+          gbUnlock(townTradeLockName, townTradeToken);
+          postFailed++; gbLogT('ruraltrade-post-' + j.farmId, 60000, `rural-trade: post failed ${err}`);
+          return gbTimeout(next, 150);
+        }
+        ruralReconcileTrade(j, before, (ok, why) => {
+          gbUnlock(townTradeLockName, townTradeToken);
+          if (!ok) {
+            reconcileFailed++;
+            gbLogT('ruraltrade-reconcile-' + j.farmId, 60000, `rural-trade: ${why}; intercity skipped this cycle`);
+          } else {
+            done++;
+            gbLog(`rural-trade: town ${j.townId} farm ${j.farmId} amt ${j.amount} (ratio ${j.ratio}) reconciled`);
+          }
+          gbTimeout(next, 250);
+        });
       });
     })();
+    return { ran:true, started:true, jobs:jobs.length, activePairs:[...ruralTradeActivePairs] };
   }
   function ruralKillpoints() {
     try {
       const uw = gameUw();
-      const kp = uw.MM.getModelByNameAndPlayerId('PlayerKillpoints');
-      const a = kp && kp.attributes;
-      return a ? (+a.att || 0) + (+a.def || 0) - (+a.used || 0) : 0;
-    } catch (_) { return 0; }
+      const kp = uw.MM && uw.MM.getModelByNameAndPlayerId && uw.MM.getModelByNameAndPlayerId('PlayerKillpoints');
+      if (!kp) return null;
+      for (const name of ['getAvailableKillpoints','getAvailablePoints','getSpendablePoints','getUnusedPoints']) {
+        try {
+          if (typeof kp[name] !== 'function') continue;
+          const n = Number(kp[name]());
+          if (Number.isFinite(n) && n >= 0) return n;
+        } catch (_) {}
+      }
+      const a = kp.attributes || kp;
+      for (const key of ['available_killpoints','available_points','spendable_points','unused_points','available']) {
+        if (!Object.prototype.hasOwnProperty.call(a, key)) continue;
+        const n = Number(a[key]);
+        if (Number.isFinite(n) && n >= 0) return n;
+      }
+    } catch (_) {}
+    return null;
   }
-  const KP_UNLOCK_MIN = 100;
+  function ruralLevelCostInfo(rel, farm, kind) {
+    const rm = rel || null, fm = farm || null;
+    const a = rm && (rm.attributes || rm) || {};
+    const f = fm && (fm.attributes || fm) || {};
+    const methodNames = kind === 'unlock'
+      ? ['getUnlockCost','getNextUnlockCost','getUnlockPrice','getCostToUnlock']
+      : ['getUpgradeCost','getNextUpgradeCost','getExpansionCost','getNextExpansionCost','getCostToUpgrade'];
+    const attrNames = kind === 'unlock'
+      ? ['next_unlock_cost','unlock_cost','unlock_price','cost_to_unlock']
+      : ['next_upgrade_cost','upgrade_cost','next_expansion_cost','expansion_cost','upgrade_price','cost_to_upgrade'];
+    for (const obj of [rm, fm]) {
+      for (const name of methodNames) {
+        try {
+          if (!obj || typeof obj[name] !== 'function') continue;
+          let raw;
+          try { raw = obj[name](); } catch (_) { raw = obj[name](a.farm_town_id); }
+          const n = Number(raw && typeof raw === 'object' ? (raw.amount ?? raw.cost ?? raw.value) : raw);
+          if (Number.isFinite(n) && n >= 0) return { known:true, cost:n, source:name + '()' };
+        } catch (_) {}
+      }
+    }
+    for (const [obj, prefix] of [[a,'relation'],[f,'farm']]) {
+      for (const key of attrNames) {
+        if (!obj || !Object.prototype.hasOwnProperty.call(obj, key)) continue;
+        const raw = obj[key];
+        const n = Number(raw && typeof raw === 'object' ? (raw.amount ?? raw.cost ?? raw.value) : raw);
+        if (Number.isFinite(n) && n >= 0) return { known:true, cost:n, source:prefix + '.' + key };
+      }
+    }
+    return { known:false, cost:null, source:'cost-unreadable' };
+  }
+  function ruralLevelTownForFarm(farm, townIds) {
+    const f = farm && (farm.attributes || farm) || {};
+    const matches = (townIds || []).filter(tid => {
+      const p = ruralTownIslandXY(tid);
+      return p && String(p.x) === String(f.island_x) && String(p.y) === String(f.island_y);
+    }).map(String);
+    if (!matches.length) return null;
+    const key = resolveIslandIdByCoords(f.island_x, f.island_y);
+    const r = resolveIslandResourceBeneficiary(key, matches);
+    return r.known && r.townId ? r.townId : matches[0];
+  }
   function ruralLevelScan(reason) {
     if (!hostEnabled() || !state.autoRuralLevel || captchaPaused('rurallevel')) return;
-    if (automationPaused({})) return;
-    if (gbLocked('rural-level')) return;
+    if (automationPaused({}) || gbLocked('rural-level')) return;
+    const available = ruralKillpoints();
+    if (available == null) {
+      gbLogT('rurallevel-kp-unreadable', 180000, 'rural-level: killpoints-unreadable; no POST');
+      return;
+    }
     const maxLvl = Math.min(6, Math.max(1, +state.ruralLevelMax || 3));
     const relations = ruralRelModels();
     const farms = ruralFarmModels();
-    const farmById = {};
-    farms.forEach(f => { const a = f.attributes || {}; if (a.id != null) farmById[a.id] = a; });
-    let available = ruralKillpoints();
-    const unlockCosts = [2, 8, 10, 30, 50, 100];
-    const levelCosts = [1, 5, 25, 50, 100];
+    const farmById = Object.create(null);
+    farms.forEach(f => { const a=f.attributes||{}; if (a.id != null) farmById[String(a.id)] = f; });
     let townIds = [];
-    try {
-      const uw = gameUw();
-      const seenIslands = new Set();
-      for (const id of Object.keys((uw.ITowns && uw.ITowns.towns) || {})) {
-        const t = uw.ITowns.towns[id];
-        try {
-          if (t.attributes && t.attributes.on_small_island) continue;
-          const iid = t.getIslandId ? t.getIslandId() : (t.attributes && t.attributes.island_id);
-          if (iid != null && seenIslands.has(iid)) continue;
-          if (iid != null) seenIslands.add(iid);
-          townIds.push(id);
-        } catch (_) { townIds.push(id); }
-      }
-    } catch (_) {}
-    const locked = relations.filter(r => +((r.attributes || {}).relation_status) === 0);
+    try { townIds = Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}); } catch (_) {}
+    let job = null, sawUnreadableCost = false;
 
-    // Phase gate: while any village world-wide is still locked, only unlock.
-    // Upgrades resume once locked.length === 0 (user policy: unlock everything first).
-    const jobQueue = [];
-    if (locked.length > 0) {
-
-      // KP gate: hold off unlocks when KP has dropped to ≤ KP_UNLOCK_MIN.
-      // 6th+ unlock costs 100 KP, so this is the natural threshold below which no new unlock fires.
-      if (available > KP_UNLOCK_MIN) {
-        const startUnlocked = relations.length - locked.length;
-
-        // Queue every locked village across every own-town island. Per-fire KP re-check
-        // (below) stops the batch if KP drains mid-queue or another post fails.
-        for (const tid of townIds) {
-          const xy = ruralTownIslandXY(tid);
-          if (!xy) continue;
-          for (const rel of locked) {
-            const a = rel.attributes || {};
-            const ft = farmById[a.farm_town_id];
-            if (!ft || ft.island_x !== xy.x || ft.island_y !== xy.y) continue;
-            jobQueue.push({ kind: 'unlock', relId: a.id || rel.id, farmId: a.farm_town_id, townId: tid });
-          }
-        }
-        if (!jobQueue.length) {
-          gbLogT('rurallevel-no-island-match', 180000, 'rural-level: locked villages exist but none match own-town islands');
-          return;
-        }
-
-        // Locked-attached metadata: cost steps up per successful unlock in this pass.
-        jobQueue._startUnlocked = startUnlocked;
-      } else {
-        gbLogT('rurallevel-kp-low', 180000, `rural-level: ${locked.length} locked village(s) waiting; KP ${available} ≤ ${KP_UNLOCK_MIN} — upgrades only after unlock phase drains`);
-        return;
-      }
-    } else {
-
-      // UPGRADE PHASE: world-wide locked.length === 0, so upgrades are safe to fire.
-      // Walk every own-island relation once per upgrade step (level - 1 → level);
-      // each relation advances at most one step per pass, so maxLvl-1 logical
-      // upgrades cost maxLvl-1 KP steps, not (maxLvl-1)*(maxLvl-1)/2.
-      for (let level = 1; level <= maxLvl; level++) {
-        const cost = levelCosts[level - 1] || 100;
-        if (available < cost) break;
-        for (const tid of townIds) {
-          const xy = ruralTownIslandXY(tid);
-          if (!xy) continue;
-          for (const rel of relations) {
-            const a = rel.attributes || {};
-            if (+a.relation_status !== 1) continue;
-            if (a.expansion_at) continue;
-            const stage = +a.expansion_stage || 0;
-
-            // Relation is exactly one step behind `level`; not "stage <= level"
-            // (which re-pushed the same relation up to maxLvl-1 times while
-            // debiting `available` on every push).
-            if (stage !== level - 1) continue;
-            if (stage >= maxLvl) continue;
-            const ft = farmById[a.farm_town_id];
-            if (!ft || ft.island_x !== xy.x || ft.island_y !== xy.y) continue;
-            jobQueue.push({ kind: 'upgrade', relId: a.id || rel.id, farmId: a.farm_town_id, townId: tid, stage, cost });
-            available -= cost;
-          }
-        }
-      }
+    // Unlock phase: Grepolis' current relation cost is authoritative. Execute at
+    // most one action per scan because the next cost may change after a POST.
+    for (const rel of relations) {
+      const a = rel.attributes || {};
+      if (+a.relation_status !== 0) continue;
+      const farm = farmById[String(a.farm_town_id)];
+      if (!farm) continue;
+      const tid = ruralLevelTownForFarm(farm, townIds);
+      if (!tid) continue;
+      const cost = ruralLevelCostInfo(rel, farm, 'unlock');
+      if (!cost.known) { sawUnreadableCost = true; gbLogT('rurallevel-unlock-cost-' + String(a.farm_town_id), 180000, `rural-level: unlock cost-unreadable village=${a.farm_town_id}`); continue; }
+      if (available < cost.cost) continue;
+      job = { kind:'unlock', relId:String(a.id ?? rel.id), farmId:String(a.farm_town_id), townId:String(tid), cost:cost.cost, costSource:cost.source, stage:+a.expansion_stage || 0 };
+      break;
     }
 
-    if (!jobQueue.length) {
-      gbLogT('rurallevel-idle', 180000, `rural-level: idle (${scanReason(reason)})`);
+    if (!job) {
+      for (const rel of relations) {
+        const a = rel.attributes || {};
+        if (+a.relation_status !== 1 || a.expansion_at) continue;
+        const stage = Number(a.expansion_stage);
+        if (!Number.isFinite(stage) || stage >= maxLvl) continue;
+        const farm = farmById[String(a.farm_town_id)];
+        if (!farm) continue;
+        const tid = ruralLevelTownForFarm(farm, townIds);
+        if (!tid) continue;
+        const cost = ruralLevelCostInfo(rel, farm, 'upgrade');
+        if (!cost.known) { sawUnreadableCost = true; gbLogT('rurallevel-upgrade-cost-' + String(a.farm_town_id), 180000, `rural-level: upgrade cost-unreadable village=${a.farm_town_id} stage=${stage}`); continue; }
+        if (available < cost.cost) continue;
+        job = { kind:'upgrade', relId:String(a.id ?? rel.id), farmId:String(a.farm_town_id), townId:String(tid), cost:cost.cost, costSource:cost.source, stage };
+        break;
+      }
+    }
+    if (!job) {
+      gbLogT('rurallevel-idle', 180000, `rural-level: idle (${scanReason(reason)})${sawUnreadableCost ? ' · cost-unreadable candidates skipped' : ''}`);
       return;
     }
 
-    // Batch dispatch: a single lock guards the whole queue so the orch tick can't
-    // double-fire. Lock TTL scales with queue length (≈1s/job, cap 10min).
-    const lockTtl = Math.min(600000, Math.max(180000, jobQueue.length * 1500));
-    const ruralLevelLock = gbLock('rural-level', lockTtl);
-    if (!ruralLevelLock) return;
-    let i = 0, done = 0, stopped = '';
-    const startUnlocked = jobQueue._startUnlocked || 0;
-    (function next() {
-      if (i >= jobQueue.length || stopped) {
-        gbUnlock('rural-level', ruralLevelLock);
-        if (done) gbLog(`rural-level: ${done}/${jobQueue.length}${stopped ? ' (stopped: ' + stopped + ')' : ''} — phase: ${locked.length ? 'unlock' : 'upgrade'}`);
-        return;
-      }
-      const j = jobQueue[i++];
-
-      // Pre-fire KP gate: only matters for unlock; stops the batch mid-queue.
-      if (j.kind === 'unlock') {
-        const cur = ruralKillpoints();
-        if (cur <= KP_UNLOCK_MIN) { stopped = 'kp-low'; return next(); }
-        const idx = startUnlocked + done;
-        const need = idx < unlockCosts.length ? unlockCosts[idx] : 100;
-        if (cur < need) { stopped = 'kp-short(need ' + need + ')'; return next(); }
-      }
-      if (!gbLockTouch('rural-level', ruralLevelLock)) return;
-      const fire = j.kind === 'unlock' ? ruralUnlock : ruralUpgrade;
-      fire(j.relId, j.farmId, j.townId, (err) => {
-        if (err === 'captcha' || err === 'captcha-pause') {
-          stopped = err;
-          gbUnlock('rural-level', ruralLevelLock);
-          gbLogT('rurallevel-pause', 60000, `rural-level paused: ${err}`);
-          return;
-        }
-        if (!err) {
-          done++;
-        } else if (j.kind === 'unlock') {
-
-          // One bad unlock stops the batch — server already charged KP; firing the next one
-          // would compound the loss. Upgrades resume next pass.
-          stopped = 'unlock-err:' + err;
-        }
-        gbTimeout(next, 700 + Math.random() * 400);
-      });
-    })();
+    const lockToken = gbLock('rural-level', 180000);
+    if (!lockToken) return;
+    const relNow = ruralRelModels().find(r => String((r.attributes || {}).id ?? r.id) === String(job.relId));
+    const farmNow = ruralFarmModels().find(f => String((f.attributes || {}).id ?? f.id) === String(job.farmId));
+    const kpNow = ruralKillpoints();
+    if (!relNow || !farmNow || kpNow == null) {
+      gbUnlock('rural-level', lockToken);
+      gbLogT('rurallevel-live-unreadable', 60000, 'rural-level: final state unreadable; no POST');
+      return;
+    }
+    const aNow = relNow.attributes || {};
+    if ((job.kind === 'unlock' && +aNow.relation_status !== 0) || (job.kind === 'upgrade' && (+aNow.relation_status !== 1 || aNow.expansion_at || +aNow.expansion_stage !== +job.stage))) {
+      gbUnlock('rural-level', lockToken); return;
+    }
+    const costNow = ruralLevelCostInfo(relNow, farmNow, job.kind);
+    if (!costNow.known) {
+      gbUnlock('rural-level', lockToken);
+      gbLogT('rurallevel-cost-final', 60000, `rural-level: ${job.kind} cost-unreadable at final check; no POST`);
+      return;
+    }
+    if (kpNow < costNow.cost) {
+      gbUnlock('rural-level', lockToken);
+      gbLogT('rurallevel-kp-short', 60000, `rural-level: ${kpNow}/${costNow.cost} killpoints; waiting`);
+      return;
+    }
+    job.cost = costNow.cost; job.costSource = costNow.source;
+    gbLockTouch('rural-level', lockToken);
+    const fire = job.kind === 'unlock' ? ruralUnlock : ruralUpgrade;
+    fire(job.relId, job.farmId, job.townId, (err) => {
+      gbUnlock('rural-level', lockToken);
+      if (err === 'captcha' || err === 'captcha-pause') return;
+      if (!err) gbLog(`rural-level: ${job.kind} village ${job.farmId} cost=${job.cost} source=${job.costSource}`);
+      else gbLogT('rurallevel-err-' + job.farmId, 60000, `rural-level ${job.kind} error: ${err}`);
+    });
   }
-  const RESEARCH_CS_FAST = ['booty', 'ceramics', 'architecture', 'crane', 'shipwright', 'colonize_ship', 'mathematics'];

@@ -1,14 +1,49 @@
-  // A resource shortage is live state, not a structural failure: it clears as soon
-  // as production ticks, a trade lands or a planner reservation is released. If it
-  // journals as a hard error, three shortages in a row open a decision-memory skip
-  // window and the action stays frozen long after it became affordable.
-  // Every planner verdict is live state, never a structural failure:
-  // `planner-<res>:have/need` is a shortage, `planner-cost-unknown` /
-  // `planner-live-unreadable` / `planner-town-missing` are read failures. Same
-  // for `safe-mode-*`, which is our own switch and not the server's answer.
+  const JRN_DEDUP_MS = 10 * 60 * 1000;
+  const JRN_SAVE_MS = 5000;
+  const JRN_FAIL_TRIP = 3;
+  const JRN_BACKOFF = [5, 15, 60];
+
+  const JRN_SKIP_ERRS = {
+    disabled: 1, paused: 1, 'captcha-pause': 1, budget: 1, noajax: 1, remembered: 1, dryrun: 1,
+    disposed: 1, 'tpl-stale': 1, 'circuit-open': 1,
+    'safe-mode-high-impact': 1, 'safe-mode-premium': 1,
+  };
+
+  if (!Array.isArray(state.decisions)) state.decisions = [];
+  if (!state.decisionSkips || typeof state.decisionSkips !== 'object') state.decisionSkips = {};
+
   function jrnTransientDynamicResult(r) {
     const s = String(r || '');
     return /^planner-/i.test(s) || /^safe-mode-/i.test(s);
+  }
+
+  // Expected server-side capacity/resource rejections are normal scheduling
+  // outcomes, not module failures.  They must not poison diagnostics, trip
+  // template health, or turn an otherwise valid FIFO job into a permanent block.
+  function gbExpectedServerReject(feature, err) {
+    if (!err) return null;
+    let s = String(err).toLowerCase();
+    try { s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (_) {}
+    const f = String(feature || '').toLowerCase();
+    if (f === 'recruit') {
+      if (/no hay suficientes recursos|no hay suficiente(?:s)? recursos|not enough resources|insufficient resources/.test(s)) return 'waiting-resources';
+      if (/no hay suficiente favor|not enough favor|insufficient favor/.test(s)) return 'waiting-favor';
+      if (/no hay suficiente poblacion|poblacion libre|not enough population|insufficient population|free population/.test(s)) return 'waiting-population';
+      if (/no puedes (?:reclutar|construir) mas de\s+\d+|cannot (?:recruit|build) more than\s+\d+|can(?:not|'t) (?:recruit|build) more than\s+\d+/.test(s)) return 'waiting-runtime-max';
+      if (/^(?:la cola de construccion esta llena|the (?:building|construction) queue is full)[.!]?\s*$/.test(s)) return 'waiting-queue-full';
+    }
+    if (f === 'farm') {
+      if (/cantidad diaria maxima de recursos|daily maximum (?:amount )?of resources|maximum daily (?:amount )?of resources|daily resource (?:limit|cap)/.test(s)) return 'farm-daily-cap';
+      if (/^(?:tu peticion no esta lista aun|(?:your )?(?:request|claim) is not ready yet)[.!]?\s*$/.test(s)) return 'waiting-not-ready';
+    }
+    if (f === 'culture') {
+      if (/^(?:no se ha podido organizar ningun festival|no festival could be organized)[.!]?\s*$/.test(s)) return 'waiting-culture-capacity';
+    }
+    if (f === 'bandit') {
+      // A full reward inventory is a normal capacity wait, not a technical failure.
+      if (/^(?:tu inventario esta lleno|your inventory is full)\b/.test(s)) return 'waiting-inventory-full';
+    }
+    return null;
   }
   function jrnResult(err) {
     if (!err) return 'ok';
@@ -26,8 +61,7 @@
       && !jrnPendingResult(s) && s.slice(0, 5) !== 'skip:';
   }
   function jrnId(tag) { return tag.f + '|' + tag.a + '|' + tag.k; }
-  // Journal keys are world-scoped: a town/village id means nothing on another
-  // world, so an unscoped journal would skip valid targets after a world switch.
+
   let jrnHost = location.hostname;
   function jrnSaveForHost(host) {
     jrnPrune();
@@ -36,12 +70,9 @@
   }
   function jrnCheckHost() {
     if (location.hostname === jrnHost) return;
-    // Flush what is still in memory under the world it belongs to. jrnFlush()
-    // saves through wkey(), which already reads the NEW hostname — the pending
-    // batch would have been written to the new world's key, importing another
-    // world's skip windows and town ids wholesale.
+
     jrnSaveQueued = false;
-    try { jrnSaveForHost(jrnHost); } catch (e) { gbLog('journal save-for-host failed (previous world decisions may be lost): ' + String(e).slice(0, 120)); }
+    try { jrnSaveForHost(jrnHost); } catch (_) {}
     jrnHost = location.hostname;
     const next = load(wkey(STORE.DECISIONS), []);
     state.decisions = Array.isArray(next) ? next : [];
@@ -53,11 +84,7 @@
     const tag = jrnTag(feature, payload);
     return jrnSkipped(tag) ? (jrnWhy(tag) || 'remembered') : '';
   }
-  // Pre-filter for WRITE features. txRun keys the journal (and therefore the
-  // skip window) by {feature, endpoint, txIntent} — jrnTag builds a different
-  // key entirely (t<town>:<target>), so a module that pre-filtered with
-  // gbSkipActive() was reading a key the trip path never writes: the filter was
-  // dead and the loop kept re-announcing an action that txRun then refused.
+
   function gbSkipActiveWrite(feature, transport, endpoint, data, snap) {
     if (!TX_WRITE_FEATURES.has(feature)) return gbSkipActive(feature, data);
     const tag = {
@@ -112,8 +139,7 @@
     jrnCheckHost();
     const list = state.decisions;
     const now = Date.now();
-    // A transaction has one journal row whose provisional result can later be
-    // reconciled. Replacing timeout -> ok avoids counting one SEND twice.
+
     if (txId != null && txId !== '') {
       const id = String(txId).slice(0, 120);
       const provisional = result === 'timeout' || jrnPendingResult(result);
@@ -127,8 +153,7 @@
           jrnNote(tag, result); jrnSave();
           return r;
         }
-        // Remove the provisional row; the terminal result continues through the
-        // normal compacting path so repeated successful transactions still use n.
+
         list.splice(i, 1);
         break;
       }
@@ -139,17 +164,9 @@
         return rec;
       }
     }
-    for (let i = list.length - 1; i >= 0; i--) {
+    for (let i = list.length - 1, seen = 0; i >= 0 && seen < 40; i--, seen++) {
       const r = list[i];
       if (r.f !== tag.f || r.a !== tag.a || r.k !== tag.k) continue;
-      // Non-provisional rows are keyed by their txId (r.x): two distinct
-      // transactions for the same (f,a,k) with the same result must not
-      // coalesce, or the counter gets shared across unrelated tx ids. Also
-      // walk the full list (capped by JRN_MAX storage below) instead of an
-      // arbitrary 40-row window: a burst tick (bandit+spy+send same second)
-      // can push the same tag past 40 entries and produce a second counter
-      // that should have been one.
-      if (r.x != null && id != null && r.x !== id) break;
       if (r.r === result && now - r.ts < JRN_DEDUP_MS) {
         r.n = (r.n || 1) + 1;
         r.ts = now;
@@ -193,21 +210,18 @@
     const prev = state.decisionSkips[key] || { trips: 0 };
     if (prev.until && Date.now() < prev.until) return;
     const trips = Math.min((prev.trips || 0) + 1, JRN_BACKOFF.length);
-    const mins = backoffFor(trips, JRN_BACKOFF);
+    const mins = JRN_BACKOFF[trips - 1];
     state.decisionSkips[key] = { trips, until: Date.now() + mins * 60000, r: result };
     gbLog(`memory: ${tag.f} ${tag.a} ${tag.k} failed ${JRN_FAIL_TRIP}x (${result}) - skipping ${mins}m`);
     jrnSave(true);
   }
   function jrnSkipped(tag) {
     jrnCheckHost();
-    // Recording always runs; only the SKIPPING stands down.
-    if (gbNeverStop()) return false;
     if (state.decisionMemory === false) return false;
     const key = jrnId(tag);
     const s = state.decisionSkips[key];
     if (!s || !s.until) return false;
-    // Repair windows persisted before jrnTransientDynamicResult existed — a live
-    // resource shortage must be re-decided by the precheck, never remembered.
+
     if (jrnTransientDynamicResult(s.r)) {
       delete state.decisionSkips[key];
       jrnSave();
@@ -233,9 +247,7 @@
       .filter(([, s]) => s && s.until && s.until > now)
       .map(([k, s]) => ({ key: k, until: s.until, trips: s.trips, r: s.r }));
   }
-  // ===== Replay (v4 plan 8.5) ================================================
-  // Read-only slice of the decision ring, oldest first - the opposite order to
-  // the live log - so a wave can be walked forward in the order it happened.
+
   function jrnSlice(opts) {
     const o = opts || {};
     const since = Number.isFinite(+o.since) ? +o.since : 0;
@@ -251,7 +263,7 @@
     }
     return out.sort((a, b) => a.ts - b.ts);
   }
-  // The skip window a row belongs to, if one is open. Pure lookup, no I/O.
+
   function jrnWindowOf(row) {
     if (!row) return null;
     const key = jrnId({ f: row.f, a: row.a, k: row.k });
@@ -327,3 +339,8 @@
 
   gbListen(window, 'pagehide', jrnFlush);
   gbListen(document, 'visibilitychange', () => { if (document.hidden) jrnFlush(); });
+
+  const seenThisRun = new Set();
+
+  function seenKey(id) { return String(id); }
+

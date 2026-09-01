@@ -1,3 +1,10 @@
+  const ATTACK_HISTORY_MAX = 50;
+  const ATTACK_ROLE_OFFENSE = '__attack_offense';
+  const ATTACK_ROLE_DEFENSE = '__attack_defense';
+  const HARASS_CAPS = { '1sling': 1, '5sling': 5, light: 8 };
+  const HARASS_PREF = ['slinger', 'rider', 'archer', 'hoplite', 'sword'];
+  let attackArmed = null;
+  let attackPreviewRows = [];
   function serverNow() {
     const uw = gameUw();
     try {
@@ -141,8 +148,7 @@
   function classifyUnitFn(id) {
     const m = unitMeta(id);
     if (!m) return 'unknown';
-    // A hoplite remains available to defensive plans, but it must not disappear
-    // from an offensive composition merely because a world labels it defensive.
+
     if (id === 'hoplite') return 'both';
     const f = m.unit_function;
     if (f === 'function_off' || f === 'off') return 'offense';
@@ -202,9 +208,7 @@
     return out;
   }
   function defaultAttackPlan() {
-    // v4 plan 7.1: staged shared-plan candidates. Never auto-armed.
 
-    // v4 plan 7.1: staged shared-plan candidates. Never auto-armed.
     return {
       targetId: '',
       targetType: 'town',
@@ -353,7 +357,7 @@
     if (!id) return null;
     const explicitType = String(plan.targetType || '').toLowerCase().trim();
     if ((explicitType === 'town' || explicitType === 'player_town') && !/^\d+$/.test(id)) {
-      gbLogT('atk-target-id', 30000, `attack: town target id must be numeric (${id.slice(0, 40)}) — blocked`);
+      gbLogT('atk-target-id', 30000, `attack: town target id must be numeric (${id.slice(0, 40)}) \u2014 blocked`);
       return null;
     }
     let x = plan.targetX, y = plan.targetY, island = null;
@@ -383,7 +387,7 @@
     }
 
     if (!kind) {
-      gbLogT('atk-target', 30000, `attack: id ${id} has no canonical type — blocked`);
+      gbLogT('atk-target', 30000, `attack: id ${id} has no canonical type \u2014 blocked`);
       return null;
     }
     if (kind === 'farm_town' || kind === 'farm' || kind === 'village') {
@@ -467,7 +471,7 @@
     if (!ATTACK_GENERIC_MISSIONS.has(String(plan.mission || 'attack').toLowerCase())) plan.mission = 'attack';
     saveAttackPlan();
     gbLog('attack: harass preset ' + plan.harassPreset);
-    flash('preset de acoso: ' + plan.harassPreset + ' (sigue haciendo falta confirmacion manual)');
+    flash('preset de acoso: ' + plan.harassPreset + ' (manual confirmation still required)');
     return plan;
   }
   function buildAttackSchedule(plan) {
@@ -491,7 +495,7 @@
       } else if (plan.timingMode === 'send_now') {
         sendAt = now + (idx * (plan.staggerMs || 0)) / 1000;
       }
-      const unitCount = countUnits(units);
+      const unitCount = Object.values(units).reduce((a, b) => a + (+b || 0), 0);
       let status = 'ok';
       if (!unitCount) status = 'no-units';
       else if (!boats.ok) status = boats.reason;
@@ -504,16 +508,13 @@
     return { target, rows, now, skew };
   }
   const ATTACK_GENERIC_MISSIONS = new Set(['attack', 'support', 'revolt']);
-  // requestContentGet("town_info", <action>, {id:<target>}) is how the client
-  // opens the attack/support dialog for a town, and the dialog posts back to
-  // the same controller. Villages use farm_town_info and are refused upstream
-  // by attackSendAllowed(), so this constant is town-only on purpose.
+
   const ATTACK_CONTROLLER = 'town_info';
   function sendAttackViaBridge(target, srcTownId, units, mission, onDone) {
     if (!hostEnabled()) { flash('bot desactivado en este servidor'); return onDone && onDone('disabled'); }
     const safeMission = String(mission || 'attack').toLowerCase();
     if (!ATTACK_GENERIC_MISSIONS.has(safeMission)) {
-      gbLog(`attack: mission ${safeMission} requires a dedicated canonical handler — blocked`);
+      gbLog(`attack: mission ${safeMission} requires a dedicated canonical handler \u2014 blocked`);
       return onDone && onDone('unsupported-mission');
     }
     if (captchaPaused('attack')) { flash('ataque pausado (captcha)'); return onDone && onDone('captcha'); }
@@ -523,11 +524,6 @@
       return onDone && onDone('bad-target');
     }
 
-    // resolveTarget() resolves OWN towns to kind 'town' (that is how a support
-    // run addresses them), so nothing downstream stopped an attack/revolt on a
-    // town we already hold: a guaranteed server rejection that still costs a
-    // request budget slot and a decision-memory strike. Sending to yourself is
-    // refused outright for every mission.
     if (String(target.town_id) === String(srcTownId)) {
       flash('ataque bloqueado: origen y destino son la misma ciudad');
       gbLog('attack: refuse self-target town ' + srcTownId);
@@ -559,19 +555,6 @@
       if (onDone) onDone(null, data);
     };
 
-    // Canonical transport. The game client does NOT send a town attack through
-    // frontend_bridge: TownAttack.prototype.sendUnits builds
-    //   u = {<unit>:n, …, id:<target town>, type:'attack'|'support'|'revolt'}
-    // and posts `this.wnd.ajaxRequestPost(controller_type, 'send_units', u)`,
-    // which is gpAjax.ajaxPost(controller, action, params) with town_id
-    // defaulted to Game.townId (archive/captures/grepo-dump/js/game.min.js).
-    // controller_type is 'town_info' for a town target — the same controller
-    // trade.js already posts to. Because that post never touches the bridge,
-    // sniffBridgeBody could never learn `attackTpl` from a hand-sent attack, so
-    // the old bridge-only path was permanently stuck on "template NOT learned"
-    // and the templateless payload it built earned an internal server error.
-    // attackTpl stays supported as an explicit override for a world whose
-    // client really does route sendUnits through the bridge.
     if (!tpl) {
       const params = Object.assign({}, sendUnits, {
         id: destId, type: safeMission, town_id: +srcTownId,
@@ -586,8 +569,6 @@
     for (const k of Object.keys(tplArgs)) {
       if (k === 'id' || k === 'town_id') continue;
 
-      // A learned request may contain old unit counts as strings. Never carry
-      // those into a new composition; only send the freshly selected units.
       if (k === 'militia' || unitMeta(k)) continue;
       const v = tplArgs[k];
       if (typeof v === 'string' || typeof v === 'boolean') args[k] = v;
@@ -605,13 +586,9 @@
       town_id: +srcTownId,
     };
 
-    // Summary by default. The full payload carries the learned template verbatim
-    // (target ids, unit composition) and the Log tab is what users copy into
-    // issues; the raw dump is available with the same redaction switch that
-    // guards Copy/Export.
     const unitCount = Object.values(sendUnits).reduce((a, b) => a + (+b || 0), 0);
     if (state.exportRedact === false) gbLog('attack bridge:', JSON.stringify(payload));
-    else gbLog(`attack bridge: ${payload.action_name} town ${srcTownId} → ${destId} (${args.type || '?'}, ${Object.keys(sendUnits).length} tipos / ${unitCount} unidades)`);
+    else gbLog(`attack bridge: ${payload.action_name} town ${srcTownId} \u2192 ${destId} (${args.type || '?'}, ${Object.keys(sendUnits).length} tipos / ${unitCount} unidades)`);
     bridgePost('attack', payload, settle);
   }
   function pushAttackHistory(entry) {
@@ -649,7 +626,7 @@
     const target = resolveTarget(plan);
     if (!target || !attackSendAllowed(target)) {
       flash('no se puede armar: objetivo no resuelto o no es una ciudad');
-      gbLog('attack: arm blocked — need canonical town target (villages unsupported)');
+      gbLog('attack: arm blocked \u2014 need canonical town target (villages unsupported)');
       return;
     }
     const timers = [];
@@ -682,7 +659,7 @@
         return;
       }
       if (delayMs > ATTACK_ARM_MAX_MS) {
-        gbLog(`attack: ${row.townId} delay ${Math.round(delayMs)}ms > ${ATTACK_ARM_MAX_MS}ms — not arming (re-arm closer to send)`);
+        gbLog(`attack: ${row.townId} delay ${Math.round(delayMs)}ms > ${ATTACK_ARM_MAX_MS}ms \u2014 not arming (re-arm closer to send)`);
         row.fireStatus = 'too-far';
         return;
       }
@@ -717,7 +694,7 @@
           const freshTravel = computeTravelSeconds(row.townId, liveTarget, freshUnits, true);
           if (freshTravel == null || row.travel == null || Math.abs(freshTravel - row.travel) > 1) {
             row.fireStatus = 'travel-changed';
-            gbLog(`attack: abort ${row.townId}; canonical travel changed ${row.travel}→${freshTravel}`);
+            gbLog(`attack: abort ${row.townId}; canonical travel changed ${row.travel}\u2192${freshTravel}`);
             patchAttackFireStatus();
             return;
           }
@@ -823,9 +800,7 @@
     } else {
       const wanted = rows.map(r => String(r.townId));
       const have = Array.from(table.querySelectorAll('div[data-town]')).map(d => d.dataset.town);
-      // Membership, not order — the v1.4.0 keyed-row rule. Comparing positions
-      // means the first column-sort handler added to this table would wipe the
-      // rows (and the user's sort) on every repaint.
+
       const wantedSet = new Set(wanted);
       const sameSet = !table.dataset.empty && have.length === wanted.length && have.every(k => wantedSet.has(k));
       if (!sameSet) {
@@ -833,8 +808,7 @@
         delete table.dataset.empty;
         const hdr = document.createElement('div');
         hdr.style.cssText = 'display:grid;grid-template-columns:1.2fr .7fr .9fr .7fr .8fr;gap:4px;color:#888;font-size:9px;margin-bottom:2px';
-        // LITERAL ONLY - no interpolation. Town names reach this table through
-        // textContent on the row cells, never through the header string.
+
         hdr.innerHTML = '<span>town</span><span>travel</span><span>sendAt</span><span>boats</span><span>status</span>';
         table.appendChild(hdr);
       }
@@ -1004,36 +978,4 @@
     renderCompositionAdvisor(sec);
     renderColonyThreats(sec);
     renderSharedPlan(sec);
-  }
-  function readAttackForm() {
-    const sec = panel && panel.querySelector('section[data-tab=attack]');
-    const plan = ensureAttackPlan();
-    if (!sec) return plan;
-    plan.targetId = sec.querySelector('[data-atk=target]')?.value?.trim() || '';
-    plan.targetType = sec.querySelector('[data-atk=target-type]')?.value || 'town';
-    const xv = sec.querySelector('[data-atk=x]')?.value;
-    const yv = sec.querySelector('[data-atk=y]')?.value;
-    plan.targetX = xv === '' || xv == null ? null : +xv;
-    plan.targetY = yv === '' || yv == null ? null : +yv;
-    plan.mission = sec.querySelector('[data-atk=mission]')?.value || 'attack';
-    plan.timingMode = sec.querySelector('[data-atk=timing]')?.value || 'send_now';
-    plan.latencyPadMs = +(sec.querySelector('[data-atk=pad]')?.value || 200);
-    plan.troopMode = sec.querySelector('[data-atk=troop]')?.value || 'offense';
-    if (plan.troopMode === 'harass' && !plan.harassPreset) plan.harassPreset = 'light';
-    plan.unitType = sec.querySelector('[data-atk=unit-type]')?.value || 'sword';
-    const arr = sec.querySelector('[data-atk=arrival]')?.value;
-    if (arr) {
-      const ms = Date.parse(arr);
-      if (!isNaN(ms)) plan.arrivalUnix = Math.floor((ms - clientServerSkewMs()) / 1000);
-    }
-    const srcBox = sec.querySelector('.atk-sources');
-    if (srcBox) {
-      plan.sourceTownIds = Array.from(srcBox.querySelectorAll('input:checked')).map(c => c.dataset.id);
-    }
-    saveAttackPlan();
-    return plan;
-  }
-  function townNameById(id) {
-    const t = (state.towns || []).find(x => String(x.id) === String(id));
-    return (t && t.name) || String(id || '-');
   }

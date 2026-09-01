@@ -1,27 +1,45 @@
-  // ===== Shared attack planner v2 (v4 plan 7.1) ==============================
-  // IMPORT ONLY, and paste only. It parses a plan another player exported and
-  // stages it as candidate targets; it never sends anything and never arms an
-  // attack by itself.
-  //
-  // NO NETWORK FETCH. Plan 7.1 sketches an opt-in URL mode, but the userscript
-  // sandbox only permits the hosts already in @connect, and pulling a plan from
-  // a Discord channel would need a token this script must never hold. Fetching
-  // an attack plan from a URL also means a third party can change what your bot
-  // targets after you approved it. Paste is the honest surface: the operator
-  // sees exactly the bytes they are admitting.
-  //
-  // A target is only STAGED. Firing still goes through the existing attack
-  // planner, its confirm gate and its arm window - this module adds no post.
+  function readAttackForm() {
+    const sec = panel && panel.querySelector('section[data-tab=attack]');
+    const plan = ensureAttackPlan();
+    if (!sec) return plan;
+    plan.targetId = sec.querySelector('[data-atk=target]')?.value?.trim() || '';
+    plan.targetType = sec.querySelector('[data-atk=target-type]')?.value || 'town';
+    const xv = sec.querySelector('[data-atk=x]')?.value;
+    const yv = sec.querySelector('[data-atk=y]')?.value;
+    plan.targetX = xv === '' || xv == null ? null : +xv;
+    plan.targetY = yv === '' || yv == null ? null : +yv;
+    plan.mission = sec.querySelector('[data-atk=mission]')?.value || 'attack';
+    plan.timingMode = sec.querySelector('[data-atk=timing]')?.value || 'send_now';
+    plan.latencyPadMs = +(sec.querySelector('[data-atk=pad]')?.value || 200);
+    plan.troopMode = sec.querySelector('[data-atk=troop]')?.value || 'offense';
+    if (plan.troopMode === 'harass' && !plan.harassPreset) plan.harassPreset = 'light';
+    plan.unitType = sec.querySelector('[data-atk=unit-type]')?.value || 'sword';
+    const arr = sec.querySelector('[data-atk=arrival]')?.value;
+    if (arr) {
+      const ms = Date.parse(arr);
+      if (!isNaN(ms)) plan.arrivalUnix = Math.floor((ms - clientServerSkewMs()) / 1000);
+    }
+    const srcBox = sec.querySelector('.atk-sources');
+    if (srcBox) {
+      plan.sourceTownIds = Array.from(srcBox.querySelectorAll('input:checked')).map(c => c.dataset.id);
+    }
+    saveAttackPlan();
+    return plan;
+  }
+  function townNameById(id) {
+    const t = (state.towns || []).find(x => String(x.id) === String(id));
+    return (t && t.name) || String(id || '-');
+  }
+
   const SHARED_PLAN_MAX_TARGETS = 40;
   const SHARED_PLAN_VERSION = 1;
-  // {ok, targets, rejected, errors}. Rejects rather than repairs: a malformed
-  // target in a plan from a stranger is exactly the thing not to coerce.
+
   function sharedPlanValidate(plan) {
     const errors = [], targets = [], rejected = [];
     if (!plan || typeof plan !== 'object' || Array.isArray(plan)) return { ok: false, targets, rejected, errors: ['no es un plan'] };
     if (+plan.v !== SHARED_PLAN_VERSION) errors.push(`version ${plan.v} no soportada (esperada ${SHARED_PLAN_VERSION})`);
     const host = plan.author && plan.author.host;
-    // A plan for another world names town ids that mean nothing here.
+
     if (host && String(host) !== String(location.host)) errors.push(`mundo distinto: ${host} != ${location.host}`);
     const list = Array.isArray(plan.targets) ? plan.targets : [];
     if (!list.length) errors.push('sin objetivos');
@@ -32,7 +50,7 @@
       const intent = (t.intent === 'support') ? 'support' : 'attack';
       const num = v => (Number.isFinite(+v) ? +v : null);
       const arriveAt = t.window && Number.isFinite(+t.window.arriveAt) ? +t.window.arriveAt : null;
-      // An arrival already in the past is not a plan, it is a stale file.
+
       if (arriveAt != null && arriveAt * (arriveAt > 1e12 ? 0.001 : 1) < gameNow()) {
         rejected.push(`${id}: ventana ya pasada`);
         continue;
@@ -56,9 +74,7 @@
     }
     return sharedPlanValidate(parsed);
   }
-  // Stages the targets on the existing attack plan. It does NOT set targetId:
-  // the operator still picks which one to arm, so an imported plan can never
-  // silently become the live target.
+
   function sharedPlanApplyToAttackPlan(result) {
     if (!result || !result.ok) return 0;
     const plan = ensureAttackPlan();
@@ -79,9 +95,7 @@
     plan.targets = [];
     saveAttackPlan();
   }
-  // Export the CURRENT single target as a shareable plan. Deliberately minimal:
-  // it carries no player name, no alliance and no note, so sharing a plan does
-  // not leak the sender's own intel.
+
   function sharedPlanExport() {
     const plan = ensureAttackPlan();
     const staged = Array.isArray(plan.targets) ? plan.targets.slice() : [];
@@ -97,6 +111,10 @@
         intent: t.intent || 'attack',
       })),
     };
+  }
+  function sharedPlanTargetIds() {
+    const plan = ensureAttackPlan();
+    return (Array.isArray(plan.targets) ? plan.targets : []).map(t => String(t.id));
   }
   function renderSharedPlan(sec) {
     const box = sec && sec.querySelector('.atk-shared');
@@ -124,4 +142,83 @@
       row.append(lab, use);
       box.appendChild(row);
     }
+  }
+  function militaryMovementsUnitsModels() {
+    const uw = gameUw();
+    const models = [], seen = new Set();
+    const push = (m) => {
+      if (!m) return;
+      const a = m.attributes || {};
+      const id = (typeof m.getCommandId === 'function' && m.getCommandId()) || a.command_id || a.id || m.id;
+      const k = String(id == null ? '' : id);
+      if (k && seen.has(k)) return;
+      if (k) seen.add(k);
+      models.push(m);
+    };
+
+    try { mmModelsAll('MovementsUnits').forEach(push); } catch (_) {}
+    try { const c = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits'); if (c && c.models) c.models.forEach(push); } catch (_) {}
+    try { const cs = uw.MM && uw.MM.getCollections && uw.MM.getCollections().MovementsUnits; (Array.isArray(cs) ? cs : (cs ? [cs] : [])).forEach(c => { if (c && c.models) c.models.forEach(push); }); } catch (_) {}
+    return models;
+  }
+  function militaryOutgoingMovements() {
+    const uw = gameUw();
+    const out = [];
+    const myTowns = new Set(Object.keys((uw.ITowns && uw.ITowns.towns) || {}).map(String));
+    const now = gameNow();
+    militaryMovementsUnitsModels().forEach(m => {
+      try {
+        const a = m.attributes || {};
+        const home = String((typeof m.getHomeTownId === 'function' && m.getHomeTownId()) || a.home_town_id || a.origin_town_id || '');
+        if (!myTowns.has(home)) return;
+        const target = String((typeof m.getTargetTownId === 'function' && m.getTargetTownId()) || a.target_town_id || a.destination_town_id || '');
+        const incoming = typeof m.isIncomingMovement === 'function' ? !!m.isIncomingMovement() : (myTowns.has(target) && home !== target);
+        if (incoming) return;
+        let cancelable = null;
+        try { if (typeof m.isCancelable === 'function') cancelable = !!m.isCancelable(); } catch (_) {}
+        if (cancelable == null && a.cancelable != null) cancelable = a.cancelable === true || a.cancelable === 1;
+        const until = +(typeof m.getCancelableUntil === 'function' ? m.getCancelableUntil() : a.cancelable_until) || 0;
+        if (until > 0 && until <= now) cancelable = false;
+        if (cancelable !== true) return;
+        const commandId = (typeof m.getCommandId === 'function' && m.getCommandId()) || a.command_id || a.id || m.id;
+        if (commandId == null) return;
+        const type = String((typeof m.getType === 'function' && m.getType()) || a.type || a.command_name || a.movement_type || '').toLowerCase();
+        const arrival = +(typeof m.getArrivalAt === 'function' && m.getArrivalAt()) || +a.arrival_at || +a.arrived_at || 0;
+        out.push({ commandId, home, target, type, arrival, until, cancelLeft: until > 0 ? Math.max(0, until - now) : null });
+      } catch (_) {}
+    });
+    return out.sort((a, b) => (a.arrival || 0) - (b.arrival || 0));
+  }
+  function militaryCancelCommand(commandId, opts, onDone) {
+    if (!opts || !opts.confirmed) return onDone && onDone('need-confirm');
+    if (!hostEnabled() || automationPaused({})) return onDone && onDone('paused');
+    if (captchaPausedAny('cancel', 'attack')) return onDone && onDone('captcha');
+    const cmdId = commandId == null ? '' : String(commandId);
+    if (!cmdId) return onDone && onDone('no-id');
+    const live = militaryOutgoingMovements().find(m => String(m.commandId) === cmdId);
+    if (!live) return onDone && onDone('not-cancelable');
+    const tpl = state.cancelTpl;
+    if (!tpl || !tpl.model_url || !tpl.action_name || !/cancel/i.test(String(tpl.action_name))) {
+      gbLogT('cancel-template', 60000, 'cancel: no learned canonical template; cancel one command manually first');
+      return onDone && onDone('template-required');
+    }
+    if (txRecentlyCommitted('cancel:' + cmdId, 120000)) return onDone && onDone('already-committed');
+    const lockToken = gbLock('cancel');
+    if (!lockToken) return onDone && onDone('busy');
+    const args = {};
+    for (const [k, v] of Object.entries(tpl.arguments || {})) if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') args[k] = v;
+    args.id = /^\d+$/.test(cmdId) ? +cmdId : cmdId;
+    const payload = { model_url: tpl.model_url, action_name: tpl.action_name, arguments: args, town_id: +live.home || undefined };
+    bridgePost('cancel', payload, (err, data) => {
+      gbUnlock('cancel', lockToken);
+      if (!err) gbLog(`cancel: command ${cmdId} OK`); else gbLog(`cancel: command ${cmdId} err ${err}`);
+      if (onDone) onDone(err, data);
+    });
+  }
+  function heroesEnabled() {
+    try {
+      const uw = gameUw();
+      if (uw.GameDataHeroes && typeof uw.GameDataHeroes.areHeroesEnabled === 'function') return !!uw.GameDataHeroes.areHeroesEnabled();
+      return !!(uw.Game && uw.Game.features && uw.Game.features.heroes_enabled);
+    } catch (_) { return false; }
   }

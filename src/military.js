@@ -1,72 +1,3 @@
-  function militaryMovementsUnitsModels() {
-    // mmModelsAll('MovementsUnits') already walks every collection source the
-    // game exposes (getOnlyCollectionByName + getCollections() +
-    // getFirstTownAgnosticCollectionByName) with ref + id dedup. The previous
-    // inline version added two extra walkers that duplicated the same data.
-    // OPEN-PLAN 2.10.
-    try { return mmModelsAll('MovementsUnits'); } catch (_) { return []; }
-  }
-  function militaryOutgoingMovements() {
-    const uw = gameUw();
-    const out = [];
-    const myTowns = new Set(Object.keys((uw.ITowns && uw.ITowns.towns) || {}).map(String));
-    const now = gameNow();
-    militaryMovementsUnitsModels().forEach(m => {
-      try {
-        const a = m.attributes || {};
-        const home = String((typeof m.getHomeTownId === 'function' && m.getHomeTownId()) || a.home_town_id || a.origin_town_id || '');
-        if (!myTowns.has(home)) return;
-        const target = String((typeof m.getTargetTownId === 'function' && m.getTargetTownId()) || a.target_town_id || a.destination_town_id || '');
-        const incoming = typeof m.isIncomingMovement === 'function' ? !!m.isIncomingMovement() : (myTowns.has(target) && home !== target);
-        if (incoming) return;
-        let cancelable = null;
-        try { if (typeof m.isCancelable === 'function') cancelable = !!m.isCancelable(); } catch (_) {}
-        if (cancelable == null && a.cancelable != null) cancelable = a.cancelable === true || a.cancelable === 1;
-        const until = +(typeof m.getCancelableUntil === 'function' ? m.getCancelableUntil() : a.cancelable_until) || 0;
-        if (until > 0 && until <= now) cancelable = false;
-        if (cancelable !== true) return;
-        const commandId = (typeof m.getCommandId === 'function' && m.getCommandId()) || a.command_id || a.id || m.id;
-        if (commandId == null) return;
-        const type = String((typeof m.getType === 'function' && m.getType()) || a.type || a.command_name || a.movement_type || '').toLowerCase();
-        const arrival = +(typeof m.getArrivalAt === 'function' && m.getArrivalAt()) || +a.arrival_at || +a.arrived_at || 0;
-        out.push({ commandId, home, target, type, arrival, until, cancelLeft: until > 0 ? Math.max(0, until - now) : null });
-      } catch (_) {}
-    });
-    return out.sort((a, b) => (a.arrival || 0) - (b.arrival || 0));
-  }
-  function militaryCancelCommand(commandId, opts, onDone) {
-    if (!opts || !opts.confirmed) return onDone && onDone('need-confirm');
-    if (!hostEnabled() || automationPaused({})) return onDone && onDone('paused');
-    if (captchaPausedAny('cancel', 'attack')) return onDone && onDone('captcha');
-    const cmdId = commandId == null ? '' : String(commandId);
-    if (!cmdId) return onDone && onDone('no-id');
-    const live = militaryOutgoingMovements().find(m => String(m.commandId) === cmdId);
-    if (!live) return onDone && onDone('not-cancelable');
-    const tpl = state.cancelTpl;
-    if (!tpl || !tpl.model_url || !tpl.action_name || !/cancel/i.test(String(tpl.action_name))) {
-      gbLogT('cancel-template', 60000, 'cancel: no learned canonical template; cancel one command manually first');
-      return onDone && onDone('template-required');
-    }
-    if (txRecentlyCommitted('cancel:' + cmdId, 120000)) return onDone && onDone('already-committed');
-    const lockToken = gbLock('cancel');
-    if (!lockToken) return onDone && onDone('busy');
-    const args = {};
-    for (const [k, v] of Object.entries(tpl.arguments || {})) if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') args[k] = v;
-    args.id = /^\d+$/.test(cmdId) ? +cmdId : cmdId;
-    const payload = { model_url: tpl.model_url, action_name: tpl.action_name, arguments: args, town_id: +live.home || undefined };
-    bridgePost('cancel', payload, (err, data) => {
-      gbUnlock('cancel', lockToken);
-      if (!err) gbLog(`cancel: command ${cmdId} OK`); else gbLog(`cancel: command ${cmdId} err ${err}`);
-      if (onDone) onDone(err, data);
-    });
-  }
-  function heroesEnabled() {
-    try {
-      const uw = gameUw();
-      if (uw.GameDataHeroes && typeof uw.GameDataHeroes.areHeroesEnabled === 'function') return !!uw.GameDataHeroes.areHeroesEnabled();
-      return !!(uw.Game && uw.Game.features && uw.Game.features.heroes_enabled);
-    } catch (_) { return false; }
-  }
   function playerHeroModels() {
     const out = [], seen = new Set();
     const push = (m) => {
@@ -97,18 +28,7 @@
       return { type: String(type), name: String(name), home, origin, arrival, traveling, injured, attacking, assigned, status, level: +(typeof m.getLevel === 'function' && m.getLevel()) || +a.level || 0 };
     }).filter(h => h.type);
   }
-  // ===== Hero manager (v4 plan 4.3) ==========================================
-  // Stamina / mana / equipment attribute names are NOT known for this client.
-  // These are probe candidates, not assumptions: every one missing is the
-  // expected outcome and the reader returns null, which renders '?' and makes
-  // the equipment heuristic propose nothing. Never substitute a guess.
-  //
-  // Checked against the captured client bundle (archive/captures/grepo-dump):
-  // GameModels.PlayerHero declares level / experience_points / home_town_id /
-  // origin_town_* / target_town_* / cured_at / assignment_type /
-  // is_attacking_attack_spot / type - no stamina, no mana, no equipment. So on
-  // THIS client every probe below is expected to miss; the names stay in case a
-  // world ships a build that has them.
+
   const HERO_STAMINA_FNS = ['getStamina', 'getCurrentStamina', 'getEnergy'];
   const HERO_STAMINA_ATTRS = ['stamina', 'current_stamina', 'energy'];
   const HERO_STAMINA_MAX_FNS = ['getMaxStamina', 'getStaminaMax', 'getMaxEnergy'];
@@ -131,8 +51,7 @@
     for (const k of HERO_EQUIP_ATTRS) {
       const v = a[k];
       if (v && typeof v === 'object') {
-        // Slot map vs flat bag: keep whichever shape the client actually uses,
-        // verbatim. Nothing here interprets item ids.
+
         if (Array.isArray(v)) return { slots: null, items: v.slice(0, 40) };
         return { slots: Object.assign({}, v), items: null };
       }
@@ -144,8 +63,7 @@
     return Math.round(pair.current / pair.max * 100);
   }
   let _heroListMemo = { at: 0, v: null };
-  // Any hero post changes assignment/status, so the 60s memo must not outlive
-  // it or the panel reports the old state for up to a minute.
+
   function heroListInvalidate() { _heroListMemo = { at: 0, v: null }; }
   const HERO_LIST_MEMO_MS = 60000;
   function playerHeroesListCached() {
@@ -170,9 +88,7 @@
     return out;
   }
   function heroLowStaminaPct() {
-    // null must NOT count as 0 (which would be a tight throttle). Treat only
-    // null/undefined as "unset" and fall through to the default 20, matching
-    // every other knob's `== null` semantics.
+
     const raw = state.heroLowStaminaPct;
     if (raw == null) return 20;
     const n = +raw;
@@ -183,8 +99,7 @@
     gbLogT(key, 1800000, `hero ${event}: ${hero.name} (${hero.type})` + (extra ? ' ' + extra : ''));
     try { alertWebhook('hero', Object.assign({ id: hero.type, event, name: hero.name, level: hero.level }, extra || {})); } catch (_) {}
   }
-  // Proposals only. It never moves an item, never posts, and never proposes a
-  // destination it cannot name - there is no known equip endpoint in this tree.
+
   function heroEquipmentSuggest() {
     const heroes = playerHeroesListCached();
     const out = [];
@@ -193,8 +108,7 @@
       const free = heroes.filter(o => o.type !== h.type && o.status === 'free' && o.equipment && o.equipment.slots);
       if (!h.equipment.slots) continue;
       for (const [slot, val] of Object.entries(h.equipment.slots)) {
-        // Only compare values that are both readable NUMBERS. An item id that
-        // is a string tells us nothing about tier and must not be ranked.
+
         const mine = +val;
         if (!Number.isFinite(mine)) continue;
         for (const o of free) {
@@ -205,8 +119,7 @@
         }
       }
     }
-    // Persist: the panel would otherwise show nothing after a reload until the
-    // next 5-minute scan. Signature-compared so a steady state costs no write.
+
     const sig = JSON.stringify(out);
     if (JSON.stringify(state.heroEquipSuggest || []) !== sig) {
       state.heroEquipSuggest = out;
@@ -220,8 +133,7 @@
     const lowPct = heroLowStaminaPct();
     for (const h of heroes) {
       const pct = heroPct(h.stamina);
-      // null means the attribute was not readable on this client - that is
-      // not "stamina is zero" and must never fire an alert.
+
       if (pct != null && pct <= lowPct) heroNotify('low-stamina', h, { staminaPct: pct });
       if (h.injured) heroNotify('injured', h, null);
     }
@@ -235,8 +147,7 @@
     }
     const idle = heroes.filter(h => h.status === 'free');
     if (!idle.length) return;
-    // Propose only. The post itself still needs {confirmed:true}, which only
-    // the panel button supplies - auto-assign never fires unattended.
+
     const towns = (state.towns || []).map(t => String(t.id)).filter(id => !heroTownOccupied(id, null));
     if (!towns.length) return;
     heroNotify('auto-assign-proposed', idle[0], { town: towns[0] });
@@ -271,8 +182,7 @@
     const payload = { model_url: tpl.model_url, action_name: tpl.action_name, arguments: args, town_id: targetTownId != null ? +targetTownId : tpl.town_id };
     bridgePost('hero', payload, (err, data) => {
       gbUnlock('hero', lockToken);
-      // Any hero post changes assignment/status; the 60s list memo must not
-      // outlive it or the panel reports the old state for up to a minute.
+
       try { heroListInvalidate(); } catch (_) {}
       if (!err) gbLog(`hero: ${action} ${type} -> ${targetTownId || '-'} OK`); else gbLog(`hero: ${action} ${type} err ${err}`);
       if (onDone) onDone(err, data);
@@ -313,49 +223,40 @@
       else rows.forEach(r => {
         const row = document.createElement('div'); row.style.cssText = 'display:grid;grid-template-columns:1fr .7fr .6fr auto;gap:4px;font-size:10px;border-bottom:1px solid #2a2a2a;padding:2px 0;align-items:center';
         gbTip(row, `Movimiento saliente #${r.commandId}`);
-        const c1 = document.createElement('span'); c1.textContent = `${townNameById(r.home)} -> ${r.target}`; c1.title = `comando ${r.commandId}`; gbTip(c1, 'Origen -> destino del movimiento');
+        const c1 = document.createElement('span'); c1.textContent = `${townNameById(r.home)} -> ${r.target}`; c1.title = `command ${r.commandId}`; gbTip(c1, 'Origen -> destino del movimiento');
         const c2 = document.createElement('span'); c2.textContent = r.type || 'move'; gbTip(c2, 'Tipo de movimiento (ataque / apoyo / colonizacion...)');
         const c3 = document.createElement('span'); c3.textContent = r.cancelLeft != null ? `${Math.round(r.cancelLeft)}s` : 'ok'; c3.style.color = '#888'; gbTip(c3, 'Tiempo restante en el que se puede cancelar');
-        const b = gbButton({
-          text: 'Cancelar',
-          disabled: !state.cancelTpl,
-          title: state.cancelTpl ? 'Cancelar este movimiento' : 'Cancela un movimiento a mano una vez para aprender la accion canonica',
-          onClick: () => { if (!confirm(`Cancelar ${r.type || 'comando'} ${r.commandId}?`)) return; militaryCancelCommand(r.commandId, { confirmed: true }, err => { flash(err ? 'fallo al cancelar: ' + err : 'comando cancelado'); renderAttack(); }); },
-        });
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Cancel'; b.disabled = !state.cancelTpl; b.title = state.cancelTpl ? 'Cancel this movement' : 'Cancel one movement manually once to learn the canonical action';
+        b.addEventListener('click', () => { if (!confirm(`Cancelar ${r.type || 'comando'} ${r.commandId}?`)) return; militaryCancelCommand(r.commandId, { confirmed: true }, err => { flash(err ? 'cancel failed: ' + err : 'command cancelled'); renderAttack(); }); });
         row.append(c1,c2,c3,b); box.appendChild(row);
       });
     }
     const hbox = sec && sec.querySelector('.atk-heroes');
     if (!hbox) return;
     hbox.replaceChildren();
-    if (!heroesEnabled()) { const e = document.createElement('div'); e.textContent = 'Heroes desactivados en este mundo'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
+    if (!heroesEnabled()) { const e = document.createElement('div'); e.textContent = 'Heroes disabled on this world'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
     const heroes = playerHeroesListCached();
-    if (!heroes.length) { const e = document.createElement('div'); e.textContent = 'No hay modelos PlayerHero legibles'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
+    if (!heroes.length) { const e = document.createElement('div'); e.textContent = 'No readable PlayerHero models'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
     const townSel = document.createElement('select'); townSel.style.cssText = 'background:#111;color:#cfc;border:1px solid #333;font-size:10px;margin-bottom:4px';
-    gbTip(townSel, 'Ciudad de destino al pulsar Asignar');
+    gbTip(townSel, 'Ciudad de destino al pulsar Assign');
     (state.towns || []).forEach(t => { const o = document.createElement('option'); o.value = t.id; o.textContent = t.name || t.id; townSel.appendChild(o); }); hbox.appendChild(townSel);
     heroes.forEach(h => {
       const row = document.createElement('div'); row.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:10px;border-bottom:1px solid #2a2a2a;padding:3px 0';
       const lab = document.createElement('span'); lab.style.flex = '1';
       const st = heroPct(h.stamina), mn = heroPct(h.mana);
 
-      // '?' means the attribute is not readable on this client build, which is
-      // the expected result until someone captures the real names.
       lab.textContent = `${h.name} Lv${h.level} | ${h.status}${h.home ? ' @' + townNameById(h.home) : ''}` +
         ` | vigor ${st == null ? '?' : st + '%'} | mana ${mn == null ? '?' : mn + '%'}`;
-      gbTip(lab, 'Estado del heroe: nombre · nivel · estado · ciudad · vigor · mana');
+      gbTip(lab, 'Estado del heroe: nombre \u00b7 nivel \u00b7 estado \u00b7 ciudad \u00b7 vigor \u00b7 mana');
       if (st != null && st <= heroLowStaminaPct()) lab.style.color = '#f66';
       row.appendChild(lab);
-      const addBtn = (text, action, color, fn, hint) => { const b=document.createElement('button'); b.type='button'; b.textContent=text; b.style.color=color; b.disabled=!(state.heroTpl && state.heroTpl[action]); b.title=b.disabled?`Haz ${action} a mano una vez para aprender la plantilla`:(hint||''); b.addEventListener('click',fn); row.appendChild(b); };
-      if (h.traveling) addBtn('Cancelar viaje','cancelTownTravel','#fc6',()=>{ if(confirm(`Cancelar traslado de ${h.name}?`)) heroCancelTravel(h.type,{confirmed:true},err=>{flash(err?'fallo al cancelar el viaje: '+err:'viaje del heroe cancelado');renderAttack();}); }, 'Cancelar el traslado en curso del heroe');
-      else if (h.assigned || h.attacking) addBtn('Desasignar','unassignFromTown','#f96',()=>{ if(confirm(`Desasignar ${h.name}?`)) heroUnassign(h.type,{confirmed:true},err=>{flash(err?'fallo al desasignar: '+err:'heroe desasignado');renderAttack();}); }, 'Quitar al heroe de su ciudad actual');
-      if (!h.injured && !h.attacking && !h.traveling) addBtn('Asignar','assignToTown','#6cf',()=>{ const tid=townSel.value; if(tid&&confirm(`Asignar ${h.name} -> ${townNameById(tid)}?`)) heroAssignToTown(h.type,tid,{confirmed:true},err=>{flash(err?'fallo al asignar: '+err:'traslado del heroe iniciado');renderAttack();}); }, 'Asignar el heroe a la ciudad seleccionada');
+      const addBtn = (text, action, color, fn, hint) => { const b=document.createElement('button'); b.type='button'; b.textContent=text; b.style.color=color; b.disabled=!(state.heroTpl && state.heroTpl[action]); b.title=b.disabled?`Perform ${action} manually once to learn template`:(hint||''); b.addEventListener('click',fn); row.appendChild(b); };
+      if (h.traveling) addBtn('Cancel travel','cancelTownTravel','#fc6',()=>{ if(confirm(`Cancelar traslado de ${h.name}?`)) heroCancelTravel(h.type,{confirmed:true},err=>{flash(err?'hero cancel failed: '+err:'hero travel cancelled');renderAttack();}); }, 'Cancelar el traslado en curso del heroe');
+      else if (h.assigned || h.attacking) addBtn('Unassign','unassignFromTown','#f96',()=>{ if(confirm(`Desasignar ${h.name}?`)) heroUnassign(h.type,{confirmed:true},err=>{flash(err?'hero unassign failed: '+err:'hero unassigned');renderAttack();}); }, 'Quitar al heroe de su ciudad actual');
+      if (!h.injured && !h.attacking && !h.traveling) addBtn('Assign','assignToTown','#6cf',()=>{ const tid=townSel.value; if(tid&&confirm(`Asignar ${h.name} -> ${townNameById(tid)}?`)) heroAssignToTown(h.type,tid,{confirmed:true},err=>{flash(err?'hero assign failed: '+err:'hero transfer started');renderAttack();}); }, 'Asignar el heroe a la ciudad seleccionada');
       hbox.appendChild(row);
     });
 
-    // Equipment proposals: read-only. There is no known equip endpoint in this
-    // tree, so this names a better item another free hero is holding and stops
-    // there - it never moves anything.
     const sug = (state.heroEquipSuggest || []);
     if (sug.length) {
       const s0 = document.createElement('div');
@@ -388,10 +289,7 @@
     ctl.append(auto, lowLab);
     hbox.appendChild(ctl);
   }
-  // ===== Colony / revolt tracker (v4 plan 3.3) ===============================
-  // Read + UI glue only. The recall CTA posts through the SAME
-  // militaryCancelCommand the Attack tab's Cancel button already uses, with the
-  // same confirmed gate - this plan adds no post surface of its own.
+
   const COLONY_KINDS = {
     revolt: 'revuelta',
     colonize: 'colonizacion',
@@ -403,10 +301,7 @@
   function militaryColonyKind(mov) {
     const t = String((mov && mov.type) || '');
     if (Object.prototype.hasOwnProperty.call(COLONY_KINDS, t) && t !== 'cs-sighted') return t;
-    // Fallback to the unit breakdown, the same signal dodge derives hasCs from.
-    // Whether the server exposes the attacker's units on an INCOMING movement
-    // is not verifiable from this tree, so this is a bonus path, never the
-    // primary one: an unfamiliar type simply does not classify.
+
     const u = (mov && mov.units) || {};
     if (u.colonize_ship || u.colony_ship) return 'cs-sighted';
     return null;
@@ -422,11 +317,7 @@
       const kind = militaryColonyKind(mov);
       if (!kind) continue;
       const eta = (typeof dodgeEtaSec === 'function') ? dodgeEtaSec(mov) : null;
-      // Only REINFORCEMENT is recallable here. Matching every outgoing command
-      // to that town would offer to cancel an attack the player launched
-      // against it, which is a different decision entirely. A command this bot
-      // sent (present in state.dodgeReturns) also qualifies even if its type
-      // string is unfamiliar on this world.
+
       const returns = state.dodgeReturns || {};
       const recallCandidates = outs
         .filter(r => String(r.target) === String(mov.dest))
@@ -460,8 +351,7 @@
       c2.title = `desde ${r.mov.origin || '?'}`;
       gbTip(c2, 'Ciudad destino del incidente + origen');
       const c3 = document.createElement('span');
-      // ETA unknown renders '?', never 0 - a movement whose arrival could not
-      // be read is not an imminent one.
+
       c3.textContent = r.etaKnown ? fmtSec(r.eta) : '?';
       c3.style.color = r.etaKnown ? '#fc6' : '#888';
       gbTip(c3, 'ETA hasta la llegada (? = no legible)');
@@ -494,17 +384,12 @@
       box.appendChild(row);
     }
   }
-  // ===== Unit composition advisor (v4 plan 2.11) =============================
-  // Pure read. Never changes recruitScan and never posts: auto-recruit stays
-  // HIGH-RISK default OFF. Every verdict below is the one the recruit scan's
-  // own helpers returned - this view reports them, it does not re-derive them.
+
   const COMP_MAX_SHORTAGE = 8;
   const COMP_CACHE_MS = 10000;
   let compCache = Object.create(null);
   function militaryCompositionInvalidate() { compCache = Object.create(null); }
-  // "No units" and "cannot read the units" are different answers and the whole
-  // shortage column is untrustworthy in the second case, so probe the model
-  // rather than inferring readability from an empty bag.
+
   function militaryUnitsReadable(townId) {
     try {
       const t = gbTownModel(townId);
@@ -528,9 +413,7 @@
       const m = unitMeta(u);
       if (!m) { gbLogT('comp-meta-unknown-' + u, 600000, `composition: unit ${u} has no GameData entry - excluded`); continue; }
       const pop = n * Math.max(1, +m.population || 1);
-      // `mythical` is an OVERLAY, not a sibling bucket: a mythical hoplite-class
-      // unit still belongs to its offense/defense split. The renderer labels it
-      // as a subset so the four splits still add up.
+
       if (m.god || m.mythical || m.is_mythical) byFunction.mythical += pop;
       const fn = (typeof classifyUnitFn === 'function') ? classifyUnitFn(u) : 'unknown';
       if (byFunction[fn] == null) byFunction.unknown += pop; else byFunction[fn] += pop;
@@ -545,7 +428,7 @@
       if (!(want > 0)) continue;
       if (!unitMeta(u)) { gbLogT('comp-meta-unknown-' + u, 600000, `composition: unit ${u} has no GameData entry - excluded`); continue; }
       const h = +have[u] || 0;
-      // One queue read for the whole town, not two per unit.
+
       let queued = 0;
       for (const m of (qinfo.models || [])) {
         const a = m.attributes || {};
@@ -556,16 +439,15 @@
       const gap = want - h - queued;
       if (gap <= 0) continue;
       let status, why;
-      // An unreadable garrison is BLIND, not "you have zero" - the whole gap
-      // number is untrustworthy in that case and must say so.
+
       if (!haveKnown || !queueKnown) { status = 'blind'; why = !haveKnown ? 'guarnicion no legible' : 'cola no legible'; blind++; }
       else if (!recruitCanBuild(townId, u)) { status = 'requirements'; why = 'requisitos'; }
       else if (!recruitQueueHasSpace(townId, u)) { status = 'queue-full'; why = 'cola llena'; }
       else {
-        const max = recruitAffordableAmount(townId, u, gap);
-        buildableToday.push({ id: u, maxAmount: max, blind: false });
-        if (max > 0) { status = 'ready'; why = max < gap ? `solo ${max} ahora` : ''; }
-        else { status = 'short'; why = 'recursos/poblacion/favor'; }
+        const af = recruitAffordability(townId, u, gap), max = af.amount;
+        buildableToday.push({ id: u, maxAmount: max, blind: af.blind.length > 0 });
+        if (max > 0) { status = af.blind.length ? 'ready-blind' : 'ready'; why = max < gap ? `${af.why}: solo ${max} ahora` : (af.blind.length ? af.blind.join(',') : ''); }
+        else { status = 'short'; why = af.why || 'resources-unavailable'; }
       }
       shortage.push({ id: u, want, have: h, queued, gap, status, why });
     }
@@ -582,8 +464,7 @@
     };
   }
   function militaryCompositionAll() {
-    // Hoisted: goalEffectiveRecruitTargets() walks every town, so calling it
-    // once per town made the advisor O(towns^2).
+
     let all = {};
     try { all = goalEffectiveRecruitTargets() || {}; } catch (_) {}
     const ids = new Set((state.towns || []).map(t => String(t.id)));
@@ -618,12 +499,12 @@
       sum.style.cssText = 'font-size:10px;cursor:pointer';
       const pct = r.progress;
       const pctColor = pct == null ? '#888' : (pct >= 75 ? '#6c6' : (pct >= 40 ? '#fc6' : '#f66'));
-      sum.textContent = `${townNameById(r.townId)} · ${pct == null ? '?' : pct}%` +
-        ` · def ${Math.round(r.byFunction.defense)} / ofe ${Math.round(r.byFunction.offense)}` +
+      sum.textContent = `${townNameById(r.townId)} \u00b7 ${pct == null ? '?' : pct}%` +
+        ` \u00b7 def ${Math.round(r.byFunction.defense)} / ofe ${Math.round(r.byFunction.offense)}` +
         ` / amb ${Math.round(r.byFunction.both)} / nav ${Math.round(r.byFunction.naval)}` +
         (r.byFunction.mythical ? ` (de ellas ${Math.round(r.byFunction.mythical)} miticas)` : '') +
-        (r.shortageTotal ? ` · ${r.shortageTotal} faltan` : ' · objetivos cubiertos') +
-        (r.blind ? ' · ciego' : '');
+        (r.shortageTotal ? ` \u00b7 ${r.shortageTotal} faltan` : ' \u00b7 objetivos cubiertos') +
+        (r.blind ? ' \u00b7 ciego' : '');
       sum.style.color = pctColor;
       d.appendChild(sum);
       if (!r.haveKnown) {
@@ -639,7 +520,7 @@
         for (const s of r.shortage) {
           const li = document.createElement('li');
           li.style.color = COLOR[s.status] || '#ccc';
-          li.textContent = `${s.id}: faltan ${s.gap} (obj ${s.want}, tienes ${s.have}, en cola ${s.queued}) · ${s.status}${s.why ? ' · ' + s.why : ''}`;
+          li.textContent = `${s.id}: faltan ${s.gap} (obj ${s.want}, tienes ${s.have}, en cola ${s.queued}) \u00b7 ${s.status}${s.why ? ' \u00b7 ' + s.why : ''}`;
           ol.appendChild(li);
         }
         d.appendChild(ol);
@@ -713,3 +594,5 @@
   }
   const STATS_WINDOWS = { '1h': 3600000, '24h': 86400000, '7d': 604800000 };
   let statsWindow = '24h';
+
+  const SUPPORT_LEDGER_GRACE_MS = 600000;

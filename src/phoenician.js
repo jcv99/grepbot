@@ -1,17 +1,3 @@
-  // ---------- Phoenician salesman resource exchange (ratio pump) ----------
-  // The merchant ship's resource offers open at ratio 0.5:1 and every executed
-  // trade bumps the ratio +0.1, so five 1-unit trades lift the offer to 1:1 and
-  // only then is the bulk trade worth sending.
-  //
-  // The salesman window is server-rendered (WndHandlerPhoenicianSalesman does
-  // requestContentGet('phoenician_salesman','index',{town_id})) - there is no
-  // backbone collection carrying offers or ratios. So:
-  //   * offers/ratios are READ from the open window's DOM, or from the view URL
-  //     the player's own client already requested (learned, never guessed);
-  //   * the trade payload is LEARNED from one hand-clicked trade, exactly like
-  //     claimTpl / attackTpl. No template -> this feature posts nothing.
-  const PT_VIEW_TTL_MS = 30000;
-  const PT_RES = ['wood', 'stone', 'iron'];
   let ptViewCache = null;
   function ptCfg() {
     const c = state.ptCfg || {};
@@ -24,9 +10,7 @@
       wantRes: c.wantRes && typeof c.wantRes === 'object' ? c.wantRes : { wood: true, stone: true, iron: false },
     };
   }
-  // ---------- presence ----------
-  // Which town the ship is sitting in. Unreadable -> null -> feature idles;
-  // a guessed town would trade from the wrong warehouse.
+
   function ptSalesmanTown() {
     const uw = gameUw();
     let m = null;
@@ -39,11 +23,11 @@
     if (!m) return null;
     const a = m.attributes || m;
     const tid = gbProbeAttr(a, ['town_id', 'current_town_id', 'in_town_id']);
-    if (tid != null && gbNum(tid) > 0) return gbNum(tid);
-    // Some builds only expose "is it here" - fall back to the current town.
+    if (tid != null && +tid > 0) return +tid;
+
     try {
       if (typeof m.isInCurrentTown === 'function' && m.isInCurrentTown()) {
-        return gbNum(uw.Game && uw.Game.townId);
+        return +(uw.Game && uw.Game.townId) || null;
       }
     } catch (_) {}
     return null;
@@ -151,9 +135,7 @@
     });
     return offers.length ? offers : null;
   }
-  // Parse offer rows out of the salesman markup. Class names differ per client
-  // build, so match loosely and REFUSE on a miss - an invented ratio would send
-  // the bulk trade at 0.5:1.
+
   function ptParseOffers(root) {
     if (!root) return null;
     let blob = null;
@@ -171,7 +153,6 @@
   }
   function ptWindowRoot() {
 
-    // The open salesman window, if the player has it up.
     try {
       const sel = '[class*="phoenician"],[class*="salesman"],#ph_offers,#ph_trader';
       const nodes = Array.from(document.querySelectorAll(sel));
@@ -182,8 +163,7 @@
     } catch (_) {}
     return null;
   }
-  // The view URL is learned from the client's own request (ptLearnViewUrl in
-  // spy.js) - never guessed, so a renamed controller degrades to "window only".
+
   function ptViewUrlFor(townId) {
     const learned = state.ptViewUrl;
     if (!learned) return null;
@@ -202,7 +182,6 @@
       return;
     }
     gbXhr({
-      feature: 'pt-trade-view',
       method: 'GET', url,
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
       onload(res) {
@@ -240,10 +219,7 @@
       cb(offers, src);
     });
   }
-  // ---------- learned view URL + trade payload ----------
-  // Both come from the player's own client traffic. Nothing here is guessed: a
-  // renamed controller degrades to "window only" / "posts nothing", never to a
-  // blind post against an endpoint we invented.
+
   function ptParseParams(url, body) {
     const args = {};
     const take = (sp) => {
@@ -287,8 +263,7 @@
       return;
     }
     if (!/trade|exchange|swap/i.test(action)) return;
-    // Our own posts run under the pt-trade lock - never re-learn from those, or
-    // a pump amount of 1 would overwrite the player's real template.
+
     if (gbLocked('pt-trade')) return;
     const args = ptParseParams(url, body);
     const townId = args.town_id != null ? +args.town_id : null;
@@ -356,7 +331,7 @@
     if (townId != null) data.town_id = +townId;
     gameAjaxPost(feat, 'phoenician_salesman', canon.action, data, onDone);
   }
-  // ---------- preconditions ----------
+
   function ptTownCaps(townId) {
     const uw = gameUw();
     let t = null;
@@ -366,7 +341,7 @@
     const st = townResState(townId);
     return { tradeCap: Number.isFinite(tradeCap) ? tradeCap : null, res: st };
   }
-  // How much of `give` may leave, and how much of `get` still fits.
+
   function ptRoom(townId, give, get) {
     const caps = ptTownCaps(townId);
     const cfg = ptCfg();
@@ -382,14 +357,7 @@
     }
     return { out, room, tradeCap: caps.tradeCap };
   }
-  // ---------- scan ----------
-  // Single-shot, NOT a pump: this picks the best offer already at or above
-  // targetRatio and sends exactly one trade sized by stock / warehouse room /
-  // trade capacity / resources on hand -- whichever is smallest, and only when
-  // at least one of them is readable. There is no ratio-pumping loop; an earlier
-  // comment here promised one and none was ever implemented, which made this
-  // read as if it burned minimum trades to move the ratio. It does not: an
-  // offer below targetRatio is skipped, not pumped.
+
   function ptTradeScan(reason) {
     if (!hostEnabled() || !state.autoPtTrade || captchaPaused('pttrade')) return;
     if (automationPaused({})) return;
@@ -468,4 +436,18 @@
     const tpl = state.ptTradeTpl ? 'payload aprendido' : 'ruta canonica trade_resources';
     const view = state.ptViewUrl ? 'vista aprendida' : 'solo ventana abierta';
     return (townId == null ? 'sin barco' : `barco en la ciudad ${townId}`) + `  |  ${tpl}  |  ${view}`;
+  }
+
+  const FAVOR_TEMPLE_PLUNDER = /temple_plunder|plunder_temple|templeplunder|saqueo.?templo|plunderung.?tempel/i;
+  const favorOwnMoves = Object.create(null);
+
+  const FAVOR_AUTOMATION_ENABLED = false;
+  function favorCurrent() {
+    try {
+      const uw = gameUw();
+      const gods = (uw.Game && uw.Game.gods) || (uw.MM && uw.MM.getModelByNameAndPlayerId && uw.MM.getModelByNameAndPlayerId('PlayerGods'));
+      if (!gods) return {};
+      const a = gods.attributes || gods;
+      return a;
+    } catch (_) { return {}; }
   }

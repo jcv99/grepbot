@@ -1,31 +1,10 @@
-  // ===== Divine spell automation (v4 plan 4.4) ===============================
-  // HIGH-RISK. Favor is irreversible once spent, so every gate here fails
-  // CLOSED and the loop is off until the operator names an explicit power id.
-  //
-  // NEVER DEFAULT A POWER ID. CLAUDE.md is explicit about this, and the reason
-  // is concrete: defaulting to call_of_the_ocean would spend a temple's favor
-  // on a recruit accelerator the user never asked for. An empty or unrecognised
-  // id logs once and casts nothing.
-  //
-  // The non-recruit power ids (meteor and friends) are NOT known to this tree.
-  // The gate reports blind for them and the server decides; nothing invents an
-  // id, and godSpellScan still refuses to cast one the user did not type.
-  //
-  // The cooldown registry is SHARED with recruit.js (same STORE.SPELL_COOLDOWN,
-  // same 30-minute window), so a recruit cast and a god cast on the same town
-  // cannot double-charge the same favor pool.
-  const GODSPELL_DEFAULT_COOLDOWN_MS = 30 * 60 * 1000;
-  function godSpellCooldown(townId, powerId) {
-    return recruitSpellCooldown(townId, powerId);
-  }
   function godSpellCooldownStamp(townId, powerId, ms) {
     return recruitSpellCooldownStamp(townId, powerId, ms || GODSPELL_DEFAULT_COOLDOWN_MS);
   }
   function godSpellHasCast(townId, powerId) {
     return recruitHasSpell(townId, powerId);
   }
-  // {ok, blind, why}. A power this tree has no god mapping for is BLIND, not
-  // rejected: the server is the authority for ids we have never seen.
+
   function godSpellGateOk(townId, powerId) {
     if (!powerId) return { ok: false, blind: false, why: 'no-power' };
     const academy = gbBuildingLevel(townId, 'academy');
@@ -42,9 +21,6 @@
 
     spellCastPost(townId, powerId, (err, data) => {
 
-      // An unknown outcome stamps the cooldown anyway: favor may already be
-      // gone, and re-casting on an unresolved post is the irreversible
-      // double-spend the persisted window exists to prevent.
       if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {
         godSpellCooldownStamp(townId, powerId);
       }
@@ -55,8 +31,7 @@
     const n = +((state.favorCfg || {}).spellReserve);
     return Number.isFinite(n) ? Math.max(0, Math.min(95, n)) : 50;
   }
-  // Maximum favor for a god, or null when the client does not expose it. Never
-  // substituted with a constant - see the reserve comment in godSpellScan.
+
   function godSpellFavorMax(god) {
     const f = favorCurrent() || {};
     for (const k of ['max_' + god, god + '_max', 'max_favor', 'favor_max']) {
@@ -72,14 +47,9 @@
   }
   function godSpellScan(reason) {
 
-    // autoFavor is the user's mental model for "let the bot spend favor".
     if (!state.autoFavor) return;
     if (!hostEnabled() || automationPaused({})) return;
-    // The captcha breaker is keyed by the feature bridgePost was called with,
-    // and every cast goes out through spellCastPost as 'spell' (recruit.js).
-    // 'godspell' is this module's LOCK name, not a breaker key -- gating on it
-    // meant a captcha on a cast never backed this scan off at all.
-    if (captchaPaused('spell')) return;
+    if (captchaPaused('godspell')) return;
     if (gbLocked('godspell')) return;
     const cfg = state.favorCfg || {};
     const power = cfg.spellPower ? String(cfg.spellPower) : '';
@@ -92,15 +62,6 @@
       return;
     }
 
-    // THE TARGETED-CAST PAYLOAD IS UNKNOWN. The only cast shape proven in this
-    // tree is the recruit self-buff, {power_id, town_id}, which addresses the
-    // CASTING town and carries no target field. Sending that for a spell that
-    // needs a target would land it on the wrong town or be rejected outright,
-    // and inventing a target field is exactly what CLAUDE.md forbids.
-    //
-    // So: if the operator has configured a target, refuse and say why. Casting
-    // resumes only for self-shaped powers, or once a hand-cast teaches the
-    // targeted payload.
     if (cfg.targetId) {
       gbLogT('godspell-target-unknown', 600000,
         'godspell: a target is configured but the targeted-cast payload is not known on this client - refusing rather than casting at the wrong town');
@@ -123,8 +84,6 @@
       if (need) {
         const have = godSpellFavorFor(need);
 
-        // Unreadable favor is UNKNOWN, not zero, and not "plenty": refuse
-        // rather than spend a pool we could not measure.
         if (have == null) {
           gbLogT('godspell-favor-blind-' + townId, 600000, `godspell: ${need} favor unreadable - not casting`);
           continue;
@@ -132,11 +91,6 @@
         const cost = +cfg.spellCost;
         if (Number.isFinite(cost) && cost > 0) {
 
-          // The reserve is a percentage of the READ maximum, never of a guessed
-          // pool size. The temple cap varies with level and research, so a
-          // hardcoded 500 would either block safe casts or permit an overspend.
-          // Unreadable maximum falls back to an absolute floor the operator can
-          // reason about: keep at least one more cast in the bank.
           const max = godSpellFavorMax(need);
           const reserve = max != null
             ? Math.ceil(max * godSpellReservePct() / 100)
@@ -159,4 +113,13 @@
       return;
     }
     gbLogT('godspell-idle', 600000, `godspell: nothing to cast (${scanReason(reason)})`);
+  }
+  function wonderLoadSpent() {
+    const day = gbServerDay();
+    const saved = load(STORE.WONDER_SPENT, null);
+    if (saved && saved.day === day) return { day, amount: +saved.amount || 0 };
+    return { day, amount: 0 };
+  }
+  function wonderSaveSpent(spent) {
+    save(STORE.WONDER_SPENT, { day: spent.day, amount: spent.amount });
   }

@@ -1,19 +1,3 @@
-  function plannerZero() { return { wood:0, stone:0, iron:0, population:0, tradeCap:0 }; }
-  function plannerNormCost(v) {
-    if (!v || typeof v !== 'object') return null;
-    const out = plannerZero();
-    let known = false;
-    // gbNum rejects null / '' / [] / false instead of coercing to 0; a
-    // malformed cost shape can no longer satisfy the `known` flag with all
-    // zeros and slip through the dry-run gate as "affordable".
-    for (const k of PLANNER_KEYS) {
-      const n = gbNum(v[k]);
-      if (n != null && n >= 0) { out[k] = n; known = true; }
-    }
-    const tc = gbNum(v.tradeCap);
-    if (tc != null && tc >= 0) { out.tradeCap = tc; known = true; }
-    return known ? out : null;
-  }
   function plannerCfgRoot() {
     if (!state.plannerCfg || typeof state.plannerCfg !== 'object' || Array.isArray(state.plannerCfg)) state.plannerCfg = {};
     if (!state.plannerCfg.global || typeof state.plannerCfg.global !== 'object') state.plannerCfg.global = {};
@@ -26,18 +10,10 @@
   }
   function plannerSaveCfg() { plannerCfgRoot(); save(STORE.PLANNER_CFG, state.plannerCfg); }
   function plannerReservePolicy(townId) {
-    const cfg = plannerCfgRoot();
-    const tc = cfg.towns[String(townId)] || {};
-    const out = { hard: plannerZero(), soft: plannerZero() };
-    for (const mode of ['hard','soft']) {
-      const g = cfg.global[mode] || {}, t = tc[mode] || {};
-      for (const k of PLANNER_KEYS) out[mode][k] = Math.max(0, +(g[k] || 0), +(t[k] || 0));
-    }
-    try {
-      const gr = goalReservePolicy(townId);
-      if (gr) for (const mode of ['hard','soft']) for (const k of PLANNER_KEYS) out[mode][k] = Math.max(out[mode][k], +(gr[mode] && gr[mode][k] || 0));
-    } catch (_) {}
-    return out;
+    // v5.9 independent scheduler: no module reserves resources for future work.
+    // The live transaction ledger still holds resources only while a request is
+    // actually in flight, preventing double-spends without creating priorities.
+    return { hard: plannerZero(), soft: plannerZero() };
   }
   function plannerLive(townId) {
     const st = townResState(townId);
@@ -50,7 +26,7 @@
   }
   function plannerReservationActive(tx) {
     if (!tx || !tx.reservation || tx.reservation.state === 'released') return false;
-    if (/^(planned|precheck|sending|confirming|reconciling|unknown)$/.test(tx.state || '')) return true;
+    if (/^(planned|precheck|sending|confirming|reconciling)$/.test(tx.state || '')) return true;
     if (tx.state === 'committed' && +(tx.reservation.holdUntil || 0) > Date.now()) return true;
     return false;
   }
@@ -118,29 +94,31 @@
     const inc = (tid,c) => { const n=plannerNormCost(c); if(n) effects.push({townId:String(tid),direction:'in',cost:n}); };
     try {
       if (feature === 'build' && a.building_id && a.order_id == null) {
+        // Demolition is not a build purchase. Never fabricate an outgoing
+        // resource/population hold from the next build-up cost for tearDown.
+        // Population released by demolition is consumed only after the live
+        // town model confirms the lower building level.
+        if (transport === 'bridge' && String(d.action_name || '') === 'tearDown') return [];
         const c = abBuildingCost(townId, a.building_id); if (!c) return null; out(townId,c);
       } else if (feature === 'research') {
         const tech=a.id||a.research_id||a.research||a.research_type, c=researchCost(tech,townId); if(!c) return null; out(townId,c);
       } else if (feature === 'recruit') {
-        const unit=a.unit_id||a.unit_type, n=+a.amount||0, def=gbGameDataLookup("units", unit); if(!def||!def.resources||!(n>0)) return null;
-        // Match docks UI / recruitAffordableAmount: wood/stone/iron scaled by
-        // GeneralModifications.getUnitBuildResourcesModification. Raw GameData
-        // costs blocked hydra when the player had exact discounted stock.
-        const factor = (typeof recruitResourceFactor === 'function')
-          ? recruitResourceFactor(townId, Object.assign({ id: unit }, def)) : 1;
-        // gbNum, never +x: GameData shipping null for a cost line used to
-        // coerce onto 0 and the planner marked the unit free.
-        out(townId,{
-          wood:(gbNum(def.resources.wood)||0)*factor*n,
-          stone:(gbNum(def.resources.stone)||0)*factor*n,
-          iron:(gbNum(def.resources.iron)||0)*factor*n,
-          population:(gbNum(def.population)||0)*n
-        });
+        const unit=a.unit_id||a.unit_type, n=+a.amount||0, ec=recruitEffectiveUnitCost(townId, unit); if(!(n>0)) return null;
+        if (!ec) return [];
+        const c={};
+        for (const k of ['wood','stone','iron','population']) if (recruitCostFieldKnown(ec,k)) c[k]=+ec[k]*n;
+        if (Object.keys(c).length) out(townId,c);
       } else if (feature === 'trade') {
         const c={wood:+a.wood||0,stone:+a.stone||0,iron:+a.iron||0,tradeCap:(+a.wood||0)+(+a.stone||0)+(+a.iron||0)};
         out(townId,c); if(a.id!=null) inc(a.id,c);
       } else if (feature === 'wonder') {
         out(townId,{wood:+a.wood||0,stone:+a.stone||0,iron:+a.iron||0,tradeCap:(+a.wood||0)+(+a.stone||0)+(+a.iron||0)});
+      } else if (feature === 'culture') {
+        const type = String(a.celebration_type || '');
+        if (type === 'party' || type === 'theater') {
+          const c = CULTURE_COSTS[type];
+          out(townId,{wood:+c.wood||0,stone:+c.stone||0,iron:+c.iron||0});
+        }
       } else if (feature === 'cave') {
         out(townId,{iron:+a.iron_to_store||0});
       } else return [];
@@ -171,7 +149,7 @@
     setReserve(townId, mode, values){ const cfg=plannerCfgRoot(); const root=townId==null?cfg.global:(cfg.towns[String(townId)]||(cfg.towns[String(townId)]={})); root[mode==='soft'?'soft':'hard']=Object.assign({},root[mode==='soft'?'soft':'hard']||{},values||{}); plannerSaveCfg(); },
   };
   try { GB_ROOT.__grepbotPlanner = planner; } catch (_) {}
-  // ===== Client fingerprint + Safe Mode (v2.0) ================================
+
   function clientFingerprintNow() {
     const uw=gameUw(), bs=gameBridgeStatus(); let cols=[];
     try{const c=uw.MM&&uw.MM.getCollections&&uw.MM.getCollections();if(c)cols=Object.keys(c).sort().filter(k=>/Town|Order|Movement|Research|Quest|Hero|Farm/i.test(k)).slice(0,80)}catch(_){}
@@ -180,7 +158,7 @@
   }
   function clientFingerprintCompatible(prev,cur){if(!cur)return{ok:false,why:'fingerprint-unreadable'};for(const k of ['MM','gpAjax','ITowns','GameData'])if(!cur.required[k])return{ok:false,why:`missing-${k}`};if(!prev)return{ok:true,first:true};for(const k of ['MM','gpAjax','ITowns','GameData'])if(prev.required&&prev.required[k]&&!cur.required[k])return{ok:false,why:`lost-${k}`};for(const k of ['units','buildings']){const a=+(prev.counts&&prev.counts[k]||0),b=+(cur.counts&&cur.counts[k]||0);if(a>0&&b>0&&Math.abs(b-a)/a>0.45)return{ok:false,why:`${k}-shape-changed:${a}->${b}`}}return{ok:true}}
   function clientFingerprintCheck() {const cur=clientFingerprintNow(),cmp=clientFingerprintCompatible(state.clientFingerprint,cur);if(!cmp.ok){state.safeMode=true;save(STORE.SAFE_MODE,true);gbLog(`SAFE MODE: Grepolis client compatibility check failed (${cmp.why})`);whyNote('system','client fingerprint','blocked',cmp.why);}else if(!state.clientFingerprint){state.clientFingerprint=cur;save(STORE.CLIENT_FP,cur);}else{state.clientFingerprint=cur;save(STORE.CLIENT_FP,cur);}return{current:cur,check:cmp}}
-  function safeModeBlock(feature,transport,endpoint,data){if(gbNeverStop())return null;if(!state.safeMode)return null;const f=String(feature||'');if(['attack','support','spy','favor','wonder','rurallevel','merchant','spell','airaw'].includes(f))return 'safe-mode-high-impact';if(f==='culture'){const a=transport==='bridge'?(data&&data.arguments||{}):(data||{});if(/olympic/i.test(String(a.celebration_type||endpoint||'')))return 'safe-mode-premium';}return null}
+  function safeModeBlock(feature,transport,endpoint,data){if(!state.safeMode)return null;const f=String(feature||'');if(['attack','support','spy','favor','wonder','rurallevel','merchant','spell','airaw'].includes(f))return 'safe-mode-high-impact';if(f==='culture'){const a=transport==='bridge'?(data&&data.arguments||{}):(data||{});if(/olympic/i.test(String(a.celebration_type||endpoint||'')))return 'safe-mode-premium';}return null}
   const CIRCUIT_TRIP = 3;
   const CIRCUIT_STRUCTURAL_RE = /unknown.?action|invalid.?action|unknown.?model|model.?not.?found|unknown.?controller|controller.?not.?found|no.?such.?action|does.?not.?exist|unsupported.?action|invalid.?model|endpoint.?not.?found/i;
   function circuitSave() { save(STORE.CIRCUITS, state.circuits || {}); }
@@ -188,12 +166,7 @@
     if (!state.circuits || typeof state.circuits !== 'object') state.circuits = {};
     return state.circuits[feature] || null;
   }
-  // ===== Circuit half-open recovery (v4 plan 8.1) ============================
-  // The breaker used to open permanently until a hand-clear. It now cools down
-  // and HALF-OPENS: the next attempt becomes a probe, a success closes it, and
-  // a failure re-opens with a doubled cooldown up to an hour. That is the whole
-  // difference between "a dead endpoint stops the bot forever" and "a transient
-  // outage costs one cooldown".
+
   const CIRCUIT_COOLDOWN_BASE_MS = 15 * 60 * 1000;
   const CIRCUIT_COOLDOWN_MAX_MS = 60 * 60 * 1000;
   function circuitCooldownMs(c) {
@@ -201,13 +174,10 @@
     return Math.max(60000, Math.min(CIRCUIT_COOLDOWN_MAX_MS, n));
   }
   function circuitOpen(feature) {
-    if (gbNeverStop()) return false;
     const c = circuitState(feature);
     if (!c || !c.open) return false;
     if (state.circuitAutoClear === false) return true;
-    // Elapsed cooldown does not CLOSE the breaker - it lets exactly one probe
-    // through. Closing on a timer alone would forget that the endpoint was
-    // broken without ever testing it.
+
     if (c.halfOpen) return false;
     if (+c.openedAt && Date.now() - +c.openedAt >= circuitCooldownMs(c)) {
       c.halfOpen = true;
@@ -226,8 +196,7 @@
     c.lastError = msg.slice(0, 160);
     c.lastAt = Date.now();
     if (c.halfOpen) {
-      // The probe failed: re-open and back off, so a genuinely dead endpoint is
-      // retried ever less often instead of every cooldown.
+
       c.halfOpen = false;
       c.cooldownMs = Math.min(CIRCUIT_COOLDOWN_MAX_MS, circuitCooldownMs(c) * 2);
       c.open = true;
@@ -250,9 +219,7 @@
   function circuitSuccess(feature) {
     const c = circuitState(feature);
     if (!c) return;
-    // A HALF-OPEN breaker whose probe succeeded must close. The old guard bailed
-    // on `c.open`, so once tripped the breaker could only ever be cleared by
-    // hand - the recovery half of the state machine never ran.
+
     if (c.halfOpen || c.open) {
       delete state.circuits[feature];
       circuitSave();
@@ -277,77 +244,5 @@
 
     'support', 'spy',
 
-    // emergency.js posts caveStoreIron under its OWN feature key so its captcha
-    // ladder and circuit are separate from routine cave stashing. Unlisted, it
-    // took the READ path and skipped dry run, the breaker, safe mode, dedup,
-    // the planner and the budget on an irreversible resource move.
-    'cave-emergency',
-
-    // Raw passthrough. Its producer (relay.js) was removed; the entry stays
-    // because it MUST be in the write set: txRun only applies dry-run, the
-    // circuit breaker, safe mode, template health, tx dedup and the planner to
-    // features listed here. An unlisted feature silently takes the READ path
-    // and skips all of it -- which for an arbitrary raw payload is the whole
-    // guard.
     'airaw'
   ]);
-  const TX_TERMINAL_TTL = 30 * 60 * 1000;
-  const TX_INSTANT_TOMBSTONE_TTL = 24 * 60 * 60 * 1000;
-  const TX_UNKNOWN_RECHECK_MS = 60 * 1000;
-  const TX_UNKNOWN_MAX_MS = 6 * 60 * 60 * 1000;
-  // Runtime expiry for wedged in-flight states; txLoadNormalize covers reload,
-  // txPrune covers the live session. Worst legit window is BRIDGE_TIMEOUT_MS
-  // plus the longest reconcile ladder (~30s), so 10min cannot clobber a live
-  // cross-tab post.
-  const TX_INFLIGHT_MAX_MS = 10 * 60 * 1000;
-  // manual-review is the only state nothing ever prunes - by design, it is a
-  // blocking tombstone waiting on a human. Left completely unbounded it also
-  // grew without limit (a live account reached 213 of them, each still carrying
-  // its full reconciliation snapshot, and every Preflight shouted about all of
-  // them). So: strip the payload the moment reconciliation is abandoned, and
-  // cap how many whole tombstones are kept - dropping only ones older than
-  // TX_REVIEW_MIN_AGE_MS, oldest first, with a log line. Nothing here is
-  // silent, and nothing younger than a week can be dropped.
-  const TX_REVIEW_MAX = 100;
-  const TX_REVIEW_MIN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-  let txSeq = 0;
-  if (!state.txState || typeof state.txState !== 'object' || Array.isArray(state.txState)) state.txState = {};
-  (function txLoadNormalize() {
-    const now = Date.now();
-    // Two passes on purpose. One pass could take an entry sending -> unknown ->
-    // manual-review in a single go (an entry carrying an old unknownAt from an
-    // earlier episode skips the whole 6h ambiguity window), which turns a plain
-    // reload into a tombstone nobody can clear except by hand.
-    const justUnknown = new Set();
-    for (const key of Object.keys(state.txState)) {
-      const t = state.txState[key];
-      if (!t || typeof t !== 'object') { delete state.txState[key]; continue; }
-      if (t.state === 'sending' || t.state === 'confirming' || t.state === 'reconciling') {
-        t.state = 'unknown';
-        t.unknownAt = now;
-        t.detail = 'reloaded while in-flight';
-        justUnknown.add(key);
-      }
-    }
-    for (const key of Object.keys(state.txState)) {
-      const t = state.txState[key];
-      if (!t) continue;
-      const terminal = /^(committed|failed|aborted|dryrun)$/.test(t.state || '');
-      const terminalTtl=t.state==='committed'&&t.snapshot&&t.snapshot.kind==='instant'?TX_INSTANT_TOMBSTONE_TTL:TX_TERMINAL_TTL;
-      if (terminal && now - (+t.updatedAt || +t.createdAt || 0) > terminalTtl) { delete state.txState[key]; continue; }
-      if (justUnknown.has(key)) continue;
-      if (t.state === 'unknown' && now - (+t.unknownAt || +t.updatedAt || 0) > TX_UNKNOWN_MAX_MS) {
-        // Never silently retry an ancient ambiguous write. Keep a blocking
-        // tombstone until the user explicitly clears it — but DO drop the
-        // planner reservation: plannerReservationActive() already reports
-        // manual-review as inactive, so leaving reservation.state held made the
-        // budget and the reservation ledger disagree for as long as the
-        // tombstone lived.
-        t.state = 'manual-review';
-        t.detail = 'unknown outcome expired; manual review required';
-        t.updatedAt = now;
-        plannerRelease(t, 'manual-review');
-      }
-    }
-    save(STORE.TX_STATE, state.txState);
-  })();

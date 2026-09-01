@@ -1,14 +1,72 @@
+  const ORCH_JITTER = 0.2;
+  const ORCH_CADENCE = {
+    culture: 90000,
+    cave: 30000,
+    build: 30000,
+    research: 45000,
+    trade: 120000,
+    farm: 60000,
+    ruraltrade: 90000,
+    rurallevel: 120000,
+    recruit: 30000,
+    villrecruit: 300000,
+
+    batchrecruit: 30000,
+    merchant: 45000,
+    pttrade: 120000,
+    favor: 60000,
+    wonder: 180000,
+    spy: 1800000,
+    hero: 300000,
+    godspell: 180000,
+  };
+  const ORCH_CAPTCHA = {
+    culture: 'culture', cave: 'cave', build: 'build', research: 'research',
+    trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
+    recruit: 'recruit', villrecruit: 'villageRecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
+  };
+  const ORCH_JRN = {
+    culture: 'culture', cave: 'cave', build: 'build', research: 'research',
+    trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
+    recruit: 'recruit', villrecruit: 'villageRecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
+  };
+  const ORCH_IDLE_TRIP = 4;
+  const ORCH_IDLE_MAX = 8;
+  const orchLastRun = {};
+  const orchIdle = {};
+  const orchJrnMark = {};
+  function orchSafe(key,fn){try{return fn()}catch(e){const msg=String(e&&e.stack||e).slice(0,220);gbLog(`orch ${key} exception: ${msg}`);markModuleHealth(key,'err',{error:msg});whyNote(key,'orchestrator','error',msg);orchIdle[key]=0;return null}}
+  const ORCH_HANDLERS = {
+    culture:()=>orchSafe('culture',()=>profTime('orch:culture',()=>cultureScan('orch'))),
+    cave:()=>orchSafe('cave',()=>profTime('orch:cave',()=>caveScan('orch'))),
+    build:()=>orchSafe('build',()=>profTime('orch:build',()=>{abEnsureTargets();abScan('orch')})),
+    research:()=>orchSafe('research',()=>profTime('orch:research',()=>researchScan('orch'))),
+    trade:()=>orchSafe('trade',()=>profTime('orch:trade',()=>tradeScan('orch'))),
+    farm:()=>orchSafe('farm',()=>profTime('orch:farm',()=>autoClaimFarms('orch'))),
+    ruraltrade:()=>orchSafe('ruraltrade',()=>profTime('orch:ruraltrade',()=>ruralTradeScan('orch'))),
+    rurallevel:()=>orchSafe('rurallevel',()=>profTime('orch:rurallevel',()=>ruralLevelScan('orch'))),
+    recruit:()=>orchSafe('recruit',()=>profTime('orch:recruit',()=>recruitScan('orch'))),
+    villrecruit:()=>orchSafe('villrecruit',()=>profTime('orch:villrecruit',()=>villageRecruitScan('orch'))),
+    batchrecruit:()=>orchSafe('batchrecruit',()=>profTime('orch:batchrecruit',()=>batchRecruitScan('orch'))),
+    merchant:()=>orchSafe('merchant',()=>profTime('orch:merchant',()=>merchantScan('orch'))),
+    pttrade:()=>orchSafe('pttrade',()=>profTime('orch:pttrade',()=>ptTradeScan('orch'))),
+    favor:()=>orchSafe('favor',()=>profTime('orch:favor',()=>favorScan('orch'))),
+    wonder:()=>orchSafe('wonder',()=>profTime('orch:wonder',()=>{wonderScan('orch');wonderFavorScan('orch')})),
+    spy:()=>orchSafe('spy',()=>profTime('orch:spy',()=>spyCycle('orch'))),
+    hero:()=>orchSafe('hero',()=>profTime('orch:hero',()=>heroScan('orch'))),
+    godspell:()=>orchSafe('godspell',()=>profTime('orch:godspell',()=>godSpellScan('orch'))),
+  };
   function orchFeatureEnabled(key) {
     return {
       culture: state.autoCulture,
       cave: state.autoCave,
-      build: state.abAuto || nativeQueueHasPending('build'),
-      research: state.autoResearch || nativeQueueHasPending('research'),
+      build: state.abAuto || nativeQueueHasPending('build') || cityDesignerHasExecutableWork('build'),
+      research: state.autoResearch || nativeQueueHasPending('research') || cityDesignerHasExecutableWork('research'),
       trade: state.autoTrade || state.islandShip || state.autoTransport || state.autoTradeRoutes || state.autoDump,
       farm: state.autoFarm,
       ruraltrade: state.autoRuralTrade,
       rurallevel: state.autoRuralLevel,
-      recruit: state.autoRecruit || nativeRecruitPending(),
+      recruit: state.autoRecruit || nativeRecruitPending() || cityDesignerHasExecutableWork('recruit'),
       villrecruit: state.autoVillageRecruit,
 
       batchrecruit: state.batchRecruit && batchRecruitHasAnyTown(),
@@ -16,27 +74,22 @@
       pttrade: state.autoPtTrade,
       favor: state.autoFavor,
 
-      // Same toggle as favor: the user's mental model is one 'spend my favor'
-      // switch. The spell loop still refuses without an explicit power id.
       godspell: state.autoFavor,
       wonder: state.autoWonder,
       spy: state.spyEnabled,
 
-      // Dispatch only where the world actually has heroes. The pass itself is
-      // read-only (stamina alerts + equipment proposals); auto-assign is gated
-      // separately inside heroScan and still needs a confirmed post to fire.
       hero: (typeof heroesEnabled === 'function') ? heroesEnabled() : false,
     }[key];
   }
   function orchDefaultOrder() {
-    return PRIORITY_ORDER_DEFAULT.slice();
+    const out=[];
+    for(const k of ORCH_ORDER_DEFAULT)if(ORCH_HANDLERS[k]&&!out.includes(k))out.push(k);
+    // Registry is the source of truth. New handlers cannot silently miss a
+    // timer merely because a second static list was not updated.
+    for(const k of Object.keys(ORCH_HANDLERS))if(!out.includes(k))out.push(k);
+    return out;
   }
-  // "Did this feature act since we dispatched it" must be answered from a TIME
-  // window, not from a running total. state.decisions is a pruned ring (400
-  // rows / 7 days), so an absolute count can shrink between two samples: a
-  // feature that acted once while three old rows aged out looked idle and got
-  // its cadence doubled. Rows are ordered oldest-first, so the scan stops at
-  // the first row older than the mark.
+
   function orchJrnOkSince(key, since) {
     const f = ORCH_JRN[key];
     if (!f || !(since > 0)) return 0;
@@ -49,206 +102,97 @@
     }
     return n;
   }
-  // ---------- warehouse deadlock ----------
-  // A pinned warehouse looks exactly like "nothing to do" from the journal:
-  // farm claims land nowhere, cave only drains iron, trade finds no target below
-  // its 25%-empty rule, so all three go idle and the adaptive backoff widens
-  // their cadence up to 8x. The bot goes quietest precisely when it must act.
-  // The resolver only changes ORDER and suppresses that widening; it never adds
-  // a scheduler, a post class, or budget.
-  const ORCH_PIN_RATIO = 0.97;
-  const ORCH_DRAIN_KEYS = ['cave', 'trade', 'ruraltrade'];
-  // Farm-first (hard rule): unit production never takes a dispatch slot while a
-  // farming-village claim is still possible. Order override + eligibility gate
-  // only - no new scheduler, no new post class. recruitScan and
-  // villageRecruitScan enforce the same rule at the post site.
-  const ORCH_UNIT_KEYS = ['recruit', 'villrecruit'];
-  function orchFarmFirst() {
-    try { return typeof farmClaimPending === 'function' && farmClaimPending(); }
-    catch (_) { return false; }
-  }
-  const ORCH_DEADLOCK_FARM_IDLE = 2;
-  let orchDeadlock = { open: false, towns: [], at: 0, stuckLoggedAt: 0 };
-  function orchTownIds() {
-    const ids = [];
-    try {
-      const from = (typeof townsFromGame === 'function') ? townsFromGame() : null;
-      if (from) from.forEach(t => ids.push(String(t.id)));
-    } catch (_) {}
-    if (!ids.length) {
-      try { Object.keys((uwCached().ITowns && uwCached().ITowns.towns) || {}).forEach(id => ids.push(String(id))); } catch (_) {}
-    }
-    return ids;
-  }
-  function orchPinnedTowns() {
-    const pinned = [];
-    let blind = 0;
-    for (const id of orchTownIds()) {
-      const rs = (typeof townResState === 'function') ? townResState(id) : null;
-      // Unreadable capacity is unknown, never "full" - a blind read may not
-      // fabricate a deadlock and reorder the whole economy behind it.
-      if (!rs || !(rs.cap > 0)) { blind++; continue; }
-      if (Math.max(rs.wood, rs.stone, rs.iron) / rs.cap >= ORCH_PIN_RATIO) pinned.push(id);
-    }
-    if (blind && !pinned.length) {
-      gbLogT('orch-deadlock-blind', 600000, `orch: ${blind} town(s) with unreadable capacity - deadlock check skipped for them`);
-    }
-    return pinned;
-  }
-  function orchDeadlockEval() {
-    const off = state.orchDeadlockResolve === false;
-    const pinned = off ? [] : orchPinnedTowns();
-    const farmStuck = !!state.autoFarm && (orchIdle.farm || 0) >= ORCH_DEADLOCK_FARM_IDLE;
-    const open = !off && pinned.length > 0 && farmStuck;
-    if (open !== orchDeadlock.open) {
-      orchDeadlock = { open, towns: pinned, at: Date.now(), stuckLoggedAt: 0 };
-      gbLog(open
-        ? `orch: warehouse deadlock in town(s) ${pinned.join(',')} - forcing ${ORCH_DRAIN_KEYS.join('/')} ahead of farm`
-        : 'orch: warehouse deadlock cleared - normal priority order restored');
-      try { updateStatus(); } catch (_) {}
-    } else if (open) {
-      orchDeadlock.towns = pinned;
-    }
-    return orchDeadlock.open;
-  }
-  function orchDeadlockOpen() { return !!orchDeadlock.open; }
-  function orchDeadlockState() { return { open: !!orchDeadlock.open, towns: (orchDeadlock.towns || []).slice(), since: orchDeadlock.at || 0 }; }
-  // Nothing left to drain: one line, then silence. This is a "go spend
-  // resources" signal for the human, not something to spin on.
-  function orchDeadlockNoteStuck(why) {
-    if (!orchDeadlock.open) return;
-    const now = Date.now();
-    if (now - (orchDeadlock.stuckLoggedAt || 0) < 3600000) return;
-    orchDeadlock.stuckLoggedAt = now;
-    gbLog(`orch: deadlock cannot drain (${why}) - spend resources by hand (build/recruit/culture)`);
-  }
+
   function orchIdleFactor(key) {
-    if (gbNeverStop()) return 1;
-    if (state.orchAdaptive === false) return 1;
-    // The drain path must not be slowed by the very idleness the deadlock causes.
-    if (orchDeadlock.open && ORCH_DRAIN_KEYS.includes(key)) return 1;
-    // A ready village is known work, not idleness. Widening farm's cadence to
-    // 8x while units are held behind it would stall both.
-    if (key === 'farm' && orchFarmFirst()) return 1;
-    const streak = orchIdle[key] || 0;
-    if (streak < ORCH_IDLE_TRIP) return 1;
-    return Math.min(ORCH_IDLE_MAX, 1 << Math.min(3, streak - ORCH_IDLE_TRIP + 1));
+    // v5.9: fixed independent cadences. An idle module never slows another one
+    // and never puts itself to sleep for 2x/4x/8x intervals.
+    return 1;
   }
   function orchCadence(key) {
-    const base = (ORCH_CADENCE[key] || ORCH_MS) * orchIdleFactor(key);
-    const jitter = 1 + (Math.random() * 2 - 1) * ORCH_JITTER;
-    return Math.round(base * jitter);
+    return ORCH_CADENCE[key] || ORCH_MS;
   }
   function orchNoteResult(key) {
     const since = orchJrnMark[key];
     if (!(since > 0)) return;
-    if (orchJrnOkSince(key, since) > 0) {
-      if (orchIdle[key]) {
-        gbLogT('orch-wake-' + key, 300000, `orch: ${key} acted, cadence back to normal`);
-      }
-      orchIdle[key] = 0;
-      return;
-    }
-    orchIdle[key] = (orchIdle[key] || 0) + 1;
-    if (orchIdle[key] === ORCH_IDLE_TRIP) {
-      gbLog(`orch: ${key} idle ${ORCH_IDLE_TRIP}x - widening cadence (adaptive)`);
-    }
+    if (orchJrnOkSince(key, since) > 0) orchIdle[key] = 0;
+    else orchIdle[key] = (orchIdle[key] || 0) + 1;
   }
   function orchStatus() {
     const now = Date.now();
     return orchDefaultOrder().map(key => ({
       key,
       on: !!orchFeatureEnabled(key),
-      cadenceMs: (ORCH_CADENCE[key] || ORCH_MS) * orchIdleFactor(key),
+      cadenceMs: ORCH_CADENCE[key] || ORCH_MS,
       idle: orchIdle[key] || 0,
       captcha: captchaPaused(ORCH_CAPTCHA[key] || key),
-      dueInMs: Math.max(0, ((orchLastRun[key] || 0) + (ORCH_CADENCE[key] || ORCH_MS) * orchIdleFactor(key)) - now),
+      dueInMs: Math.max(0, ((orchLastRun[key] || 0) + (ORCH_CADENCE[key] || ORCH_MS)) - now),
     }));
   }
-  function orchTick() {
+  function orchHousekeepingTick() {
     if (!hostEnabled()) return;
-    // v4 plan 7.4: cadence flush rides this tick; no scheduler of its own.
     try { intelDigestTick(); } catch (_) {}
-    // Read-only pre-warn pass, ABOVE the pause gate on purpose: a warehouse
-    // still fills during night pause, and silencing the warning is exactly when
-    // the user most needs it. It posts nothing to the game.
-    // It lives here rather than in cultureScan (plan 2.8 work item 2) because
-    // cultureScan returns early unless autoCulture is ON, and that defaults OFF.
     try { townCapWatcher(); } catch (_) {}
+    // Telegram monitoring is read-only and intentionally keeps running even when
+    // automation writes are paused by CAPTCHA/server cooldown.
+    try { telegramMonitorTick(); } catch (_) {}
+  }
+  function orchModuleTick(key, reason) {
+    if (!hostEnabled()) return;
     if (automationPaused({})) return;
-    const configured = (state.priorityOrder && state.priorityOrder.length)
-      ? state.priorityOrder : orchDefaultOrder();
+    if (!ORCH_HANDLERS[key] || !orchFeatureEnabled(key)) return;
+    const cap = ORCH_CAPTCHA[key];
+    if (cap && captchaPaused(cap)) return;
 
-    const mandatory = goalMandatoryModules();
-    // Set-dedupe the whole priority list: a configured entry the operator
-    // reordered twice, or any entry also in the mandatory/default list, would
-    // otherwise pass through every filter and add a second cadence to the
-    // due list, firing the feature twice per orchTick.
-    let order = [...new Set(mandatory.concat(configured, orchDefaultOrder()))];
-    // Sort override, not a second scheduler: while a warehouse is pinned the
-    // drain features jump the user's priorityOrder (visibly - see the log line
-    // and the footer badge) so farm is not fed a town that cannot store loot.
-    if (orchDeadlockEval()) {
-      const drain = ORCH_DRAIN_KEYS.filter(k => order.includes(k));
-      order = drain.concat(order.filter(k => !drain.includes(k)));
+    // Each handler owns its own gbLock and final affordability checks. No module
+    // can suppress another module here. The tx planner only protects an action
+    // already in flight; it does not reserve resources for future actions.
+    orchNoteResult(key);
+    orchLastRun[key] = Date.now();
+    orchJrnMark[key] = Date.now();
+    ORCH_HANDLERS[key]();
+  }
+  function orchTick() {
+    // Wake/manual poke: launch every enabled module independently. Staggering is
+    // only to avoid a burst of HTTP requests; it is not a priority mechanism.
+    orchHousekeepingTick();
+    if (automationPaused({})) return;
+    let idx = 0;
+    for (const key of orchDefaultOrder()) {
+      if (!ORCH_HANDLERS[key] || !orchFeatureEnabled(key)) continue;
+      const delay = idx++ * 120;
+      gbTimeout(() => orchModuleTick(key, 'poke'), delay);
     }
-    const farmFirst = orchFarmFirst();
-    if (farmFirst && order.includes('farm')) order = ['farm'].concat(order.filter(k => k !== 'farm'));
-    const now = Date.now();
-    const due = [];
-    for (let i = 0; i < order.length; i++) {
-      const key = order[i];
-      if (!ORCH_HANDLERS[key]) continue;
-      if (!orchFeatureEnabled(key)) continue;
-      if (farmFirst && ORCH_UNIT_KEYS.includes(key)) {
-        // Player-armed native FIFO may run alongside farm-first (else hydra
-        // sat pending for whole claim batches). Legacy goals still blocked.
-        // Budget gate inside recruitScan defers the actual post when claims
-        // already own the request pool.
-        if (!(key === 'recruit' && typeof nativeRecruitPending === 'function' && nativeRecruitPending())) continue;
+  }
+  const orchTimerIds=Object.create(null),orchBootTimerIds=Object.create(null);
+  function orchStartIndependentTimers() {
+    let idx=0,created=0;
+    for(const key of orchDefaultOrder()){
+      if(!ORCH_HANDLERS[key])continue;
+      const cadence=ORCH_CADENCE[key]||ORCH_MS;
+      if(!orchBootTimerIds[key]){
+        orchBootTimerIds[key]=gbTimeout(()=>{orchBootTimerIds[key]=0;orchModuleTick(key,'boot')},500+(idx*120));
       }
-      const cap = ORCH_CAPTCHA[key];
-      if (cap && captchaPaused(cap)) continue;
-      const cadence = orchCadence(key);
-      const last = orchLastRun[key] || 0;
-      const overdue = now - last - cadence;
-      if (overdue < 0) continue;
-      due.push({ key, rank: i, overdue, cadence });
+      if(!orchTimerIds[key]){
+        orchTimerIds[key]=gbInterval(()=>orchModuleTick(key,'timer'),cadence);
+        created++;
+      }
+      idx++;
     }
-    if (!due.length) return;
-
-    due.sort((a, b) => {
-      // Farm-first is a hard order override: a recruit that was blocked for
-      // minutes accrues huge overdue and must not jump ahead of a due farm
-      // claim (v5.10.48 native exemption + overdue sort starved recolecta).
-      if (farmFirst) {
-        if (a.key === 'farm' && b.key !== 'farm') return -1;
-        if (b.key === 'farm' && a.key !== 'farm') return 1;
-      }
-      const gap = b.overdue - a.overdue;
-      // Tie-break band scales with the slower of the two features' cadences
-      // (capped at 2x base) so a 300s feature and a 20s feature can never
-      // tie-break off a single overdue tick, but a 20s vs 60s run still
-      // breaks cleanly within one base band.
-      const band = Math.max(a.cadence, b.cadence, ORCH_MS) * 2;
-      if (Math.abs(gap) > band) return gap;
-      return a.rank - b.rank;
-    });
-    const run = due.slice(0, ORCH_MAX_PER_TICK);
-    run.forEach((item, idx) => {
-      const fire = () => {
-
-        if (automationPaused({})) return;
-        if (ORCH_CAPTCHA[item.key] && captchaPaused(ORCH_CAPTCHA[item.key])) return;
-        // Judge the previous run only when this feature is about to run again. That gives
-        // the entire cadence window to asynchronous/batched transactions instead of sampling
-        // a few seconds after dispatch and misclassifying slow success as idle.
-        orchNoteResult(item.key);
-        orchLastRun[item.key] = Date.now();
-        orchJrnMark[item.key] = Date.now();
-        ORCH_HANDLERS[item.key]();
-      };
-      if (idx === 0) fire();
-      else gbTimeout(fire, idx * ORCH_SPACING_MS + Math.floor(Math.random() * 200));
-    });
+    return created;
+  }
+  function intelPlayerKey(p) {
+    if (p == null) return null;
+    if (typeof p === 'string') return p.trim() || null;
+    if (typeof p === 'object') {
+      if (p.id != null) return 'id:' + p.id;
+      if (p.name) return String(p.name);
+      if (p.player_name) return String(p.player_name);
+    }
+    return null;
+  }
+  function intelPlayerLabel(p, key) {
+    if (p && typeof p === 'object' && (p.name || p.player_name)) return p.name || p.player_name;
+    if (typeof p === 'string') return p;
+    if (key && key.indexOf('id:') === 0) return key.slice(3);
+    return key || 'unknown';
   }

@@ -1,17 +1,3 @@
-  // ===== Support / reinforcement auto-send (v4 plan 3.2) =====================
-  // This module spends real troops irreversibly, so it runs full HIGH-RISK
-  // discipline even at Med risk class: default OFF, its own learned template,
-  // a confirm gate per destination window, its own lock and captcha key, and
-  // the dry-run gate every write feature already inherits from txActionGate.
-  //
-  // It adds NO scheduler. The driver is the existing 5s dodgeScan loop, and it
-  // only arms for movements dodge did not already act on.
-  //
-  // supportTpl is DELIBERATELY separate from attackTpl even though the payload
-  // signature is the same Town/<id>|sendUnits. Sharing it would recreate the
-  // v2.5.7 favor-vs-attack poisoning: one server rejection on type:'support'
-  // would invalidate attackTpl and block live attacks too.
-  const SUPPORT_LEDGER_GRACE_MS = 600000;
   const SUPPORT_LEDGER_PRUNE_MS = 3600000;
   const SUPPORT_BANDS = ['high', 'cs'];
   function supportCfg() {
@@ -42,8 +28,7 @@
     }
     if (changed) supportLedgerSave();
   }
-  // The learned Town/<id>|sendUnits payload for type:'support'. Learned from
-  // the player's own hand-sent support, never guessed.
+
   function supportLearnTemplate(j) {
     if (!j || !j.model_url || !j.action_name) return;
     const args = j.arguments || {};
@@ -57,8 +42,7 @@
     gbLog('learned support template: ' + j.action_name);
     try { tplHealthMarkLearned('supportTpl'); } catch (_) {}
   }
-  // No fallback to attackTpl and no hardcoded action name: an unlearned
-  // template refuses the post rather than guessing the action the world uses.
+
   function supportBridgePost(fromTownId, destTownId, units, onDone) {
     const tpl = state.supportTpl;
     if (!tpl || !tpl.model_url || !tpl.action_name) {
@@ -73,7 +57,7 @@
     };
     bridgePost('support', payload, onDone);
   }
-  // Defense-class units this donor can spare, after the home floor.
+
   function supportSelectUnits(fromTownId) {
     const cfg = supportCfg();
     const floor = cfg.shareDodgeFloor ? Math.max(0, +state.dodgeFloor || 0) : cfg.homeFloor;
@@ -92,7 +76,7 @@
     }
     return out;
   }
-  // Is a friendly support already going to land in time?
+
   function supportAlreadyCovered(destId, arrivalSec) {
     let outs = [];
     try { outs = militaryOutgoingMovements() || []; } catch (_) { return false; }
@@ -122,8 +106,7 @@
           `support: donor ${d.from} rejected (${valid.why})`);
         continue;
       }
-      // Re-probe travel with the ACTUAL composition: defenseSupportOptions
-      // measured a different unit mix, and a slower unit changes the answer.
+
       let travel = null;
       try {
         travel = computeTravelSeconds(d.from, { town_id: +mov.dest, id: +mov.dest, kind: 'town', ...townCoords(mov.dest) }, units, true);
@@ -164,8 +147,7 @@
     };
     supportLedgerSave();
   }
-  // Best effort: the server may already have absorbed the support, in which
-  // case militaryCancelCommand answers 'not-cancelable' and we stop.
+
   function supportRecallWindow(movId) {
     const L = supportLedger();
     const e = L[String(movId)];
@@ -207,8 +189,7 @@
     let assess = null;
     try { assess = defenseAssessment(mov); } catch (_) { return; }
     if (!assess) return;
-    // The ONE threshold this module reads. A 'med' band is advisory only; the
-    // score itself is plan 5.3's, never re-derived here.
+
     if (!SUPPORT_BANDS.includes(assess.band)) {
       if (assess.band === 'med') gbLogT('support-advice-' + movId, 600000, `support: ${mov.dest} band med - advisory only, no arm`);
       return;
@@ -226,20 +207,16 @@
       try { ok = gameUw().confirm(supportConfirmText(mov, assess, donors, total)); } catch (_) { ok = false; }
       if (!ok) {
         gbLog(`support: confirm declined for window ${mov.dest}`);
-        // No post means no flap risk, so the anti-flap ledger is NOT stamped.
+
         return;
       }
     }
     const lockToken = gbLock('support');
-    // No self-retry timer: the 5s dodgeScan loop is already the retry driver,
-    // and adding one here would double-drive the same movement.
+
     if (!lockToken) { gbLogT('support-busy', 60000, 'support: another burst in flight - will retry on the next pass'); return; }
     let i = 0, sent = 0;
     const slowest = donors.reduce((m, d) => Math.max(m, d.travel), 0);
-    // Function declaration, NOT a named IIFE — the IIFE form bound `next` only
-    // inside the function body, so supportStep's `gbTimeout(next, ...)` calls
-    // threw ReferenceError on every stale donor / callback and the outer
-    // try/catch then aborted the whole burst.
+
     function next() {
       try { supportStep(); } catch (e) {
         gbUnlock('support', lockToken);
@@ -248,7 +225,7 @@
     }
     next();
     function supportStep() {
-      if (!gbLockTouch('support', lockToken)) return;
+      gbLockTouch('support', lockToken);
       if (i >= donors.length) {
         gbUnlock('support', lockToken);
         if (sent) {
@@ -258,8 +235,7 @@
         return;
       }
       const d = donors[i++];
-      // Re-validate immediately before the post: the garrison may have moved
-      // while an earlier donor in this same burst was in flight.
+
       const valid = dodgeSupportValidate(d.from, mov.dest, d.units);
       if (!valid.ok) {
         gbLogT('support-stale-' + d.from, 60000, `support: donor ${d.from} stale (${valid.why})`);
@@ -278,8 +254,7 @@
     supportLedgerPrune();
     if (!supportCfg().auto) return;
     if (!hostEnabled() || automationPaused({})) return;
-    // Recall pass: a burst whose target movement is gone (attack cancelled or
-    // already landed) should not keep troops walking into an empty window.
+
     let live = new Set();
     try { live = new Set((dodgeIncomingMovements() || []).map(m => String(m.id))); } catch (_) { return; }
     for (const [movId, e] of Object.entries(supportLedger())) {
@@ -288,3 +263,7 @@
       supportRecallWindow(movId);
     }
   }
+
+  const RF_ARM_MAX_MS = 90000;
+  const RF_HISTORY_MAX = 50;
+  const RF_HELP_MODES = new Set(['land', 'naval', 'both', 'all_of_type', 'per_town']);

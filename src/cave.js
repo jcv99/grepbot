@@ -1,3 +1,4 @@
+  const CAVE_MIN_STORE = 100;
   function caveTownEnabled(townId) {
     const id = String(townId);
     const map = state.caveTowns || {};
@@ -15,7 +16,7 @@
   const CAVE_STORED_FNS = ['getEspionageStorage', 'getHideStorage', 'getEspionageStore',
     'getStoredIron', 'getHideIron'];
   function caveCapacityFromLevel(level) {
-    // Grepolis rule: levels 1-9 store 1,000 silver per level; level 10 is unlimited.
+
     const n = Math.max(0, Math.floor(+level || 0));
     if (n === 10) return { capacity: null, unlimited: true };
     return { capacity: n > 0 && n < 10 ? n * 1000 : null, unlimited: false };
@@ -24,22 +25,19 @@
     const uw = uwCached();
     let t = null;
     try {
-      t = gbTownModel(townId);
+      t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
     } catch (_) {}
     if (!t) return null;
     let hideLvl = 0;
     try {
-      // gbNum rejects null/''/[]/false; +getBuildings().get('hide') || 0
-      // collapsed every falsy reading onto hide level 0, which collides with
-      // the level-0 → -1 sentinel below and silently disabled the cave.
-      if (t.getBuildings) { const h = gbNum(t.getBuildings().get('hide')); if (h != null) hideLvl = h; }
-      else if (t.buildings) { const h = gbNum((t.buildings().attributes || {}).hide); if (h != null) hideLvl = h; }
+      if (t.getBuildings) hideLvl = +t.getBuildings().get('hide') || 0;
+      else if (t.buildings) hideLvl = +(t.buildings().attributes || {}).hide || 0;
     } catch (_) {}
     let iron = null, cap = null, resStorage = null;
     try {
       const r = t.resources && t.resources();
-      if (r && r.iron != null) iron = gbNum(r.iron);
-      if (r && r.storage != null) resStorage = gbNum(r.storage);
+      if (r && r.iron != null) iron = +r.iron;
+      if (r && r.storage != null) resStorage = +r.storage;
     } catch (_) {}
 
     const shared = townResState(townId);
@@ -73,8 +71,8 @@
       const gd = uw.GameData && uw.GameData.buildings && uw.GameData.buildings.hide;
       if (hideCap == null && gd && gd.storage != null) {
         const s = gd.storage;
-        const v = gbNum(Array.isArray(s) || typeof s === 'object' ? s[hideLvl] : s);
-        if (v != null && v > 0) hideCap = v;
+        const v = +(Array.isArray(s) || typeof s === 'object' ? s[hideLvl] : s);
+        if (isFinite(v) && v > 0) hideCap = v;
       }
       const maxHide = gd && gd.max_level;
       if (maxHide != null && +maxHide > 0 && hideLvl === +maxHide) unlimited = true;
@@ -84,10 +82,7 @@
         if (Number.isFinite(unlimitedLevel) && unlimitedLevel > 0 && hideLvl === unlimitedLevel) unlimited = true;
       }
     } catch (_) {}
-    // -1 is the client's UNLIMITED sentinel, not a capacity. Promoting it only
-    // inside the level-10 branch left every other path treating -1 as finite, so
-    // `stored >= hideCap` was true for any stored value and the town was skipped
-    // as "hide full".
+
     if (hideCap != null && hideCap < 0) { unlimited = true; hideCap = null; }
     if (stored != null && stored < 0) stored = null;
     const levelCapacity = caveCapacityFromLevel(hideLvl);
@@ -126,9 +121,7 @@
     if (excess < CAVE_MIN_STORE) return 0;
 
     if (!info.unlimited && (info.hideCap == null || info.stored == null)) {
-      // Deliberate: no blind stash. But it used to be a silent `return 0`, so a
-      // renamed capacity/stored getter switched auto-cave off with nothing in
-      // the Log to say why.
+
       const tid = (info.town && (info.town.id || (info.town.attributes && info.town.attributes.id))) || '?';
       const what = [info.hideCap == null ? 'capacidad' : null, info.stored == null ? 'almacenado' : null].filter(Boolean).join('+');
       gbLogT('cave-unreadable-' + tid, 300000, `cave: town ${tid} hide ${what} unreadable - skipping (no blind stash)`);
@@ -141,8 +134,7 @@
     }
     return excess >= CAVE_MIN_STORE ? excess : 0;
   }
-  // `feature` lets the emergency path (v4 plan 3.5) post the same hardcoded
-  // payload under its own breaker key without duplicating the payload.
+
   function caveStoreIron(townId, amount, onDone, feature) {
     bridgePost(feature || 'cave', {
       model_url: 'BuildingHide',
@@ -176,7 +168,6 @@
   }
   function caveScan(reason) {
     if (!hostEnabled() || !state.autoCave || captchaPaused('cave')) return;
-    if (gbLocked('cave')) { gbLogT('cave-inflight', 30000, 'cave: skipped (in flight)'); return; }
     if (!gameBridgeReady()) { gbLogT('cave-nobridge', 60000, 'cave: bridge not ready'); return; }
     const ids = caveListTownIds();
     if (!ids.length) { gbLogT('cave-notowns', 120000, 'cave: no towns'); return; }
@@ -201,36 +192,27 @@
       gbLogT('cave-idle', 120000, `cave: nothing to stash (${scanReason(reason)})`);
       return;
     }
-    const lockToken = gbLock('cave');
-    if (!lockToken) return;
-    let i = 0, done = 0, captcha = false;
-    (function next() {
-      if (!gbLockTouch('cave', lockToken)) return;
-      if (i >= jobs.length || captcha) {
-        gbUnlock('cave', lockToken);
-        if (done) gbLog(`cave: stashed ${done}/${jobs.length} town(s)${captcha ? ' (captcha abort)' : ''}`);
-        renderCaveTowns();
-        return;
+    let i=0,done=0,captcha=false;
+    (function next(){
+      if(i>=jobs.length||captcha){
+        if(done)gbLog(`cave: stashed ${done}/${jobs.length} town(s)${captcha?' (captcha abort)':''}`);
+        renderCaveTowns();return;
       }
-      const job = jobs[i++];
-      const fresh = caveTownInfo(job.id);
-      const freshAmt = caveExcessAmount(fresh);
-      if (!fresh || freshAmt < CAVE_MIN_STORE) {
-        gbLogT('cave-stale-' + job.id, 60000, `cave: town ${job.id} changed before send — skipped`);
-        gbTimeout(next, 150);
-        return;
+      const job=jobs[i++];
+      const lockName=`cave:${String(job.id)}`,lockToken=gbLock(lockName,120000);
+      if(!lockToken){gbTimeout(next,100);return}
+      const fresh=caveTownInfo(job.id),freshAmt=caveExcessAmount(fresh);
+      if(!fresh||freshAmt<CAVE_MIN_STORE){
+        gbUnlock(lockName,lockToken);
+        gbLogT('cave-stale-'+job.id,60000,`cave: town ${job.id} changed before send — skipped`);
+        gbTimeout(next,150);return;
       }
-      caveStoreIron(job.id, Math.min(job.amt, freshAmt), (err) => {
-        if (err === 'captcha' || err === 'captcha-pause') {
-          captcha = true;
-          i = jobs.length;
-        } else if (!err) {
-          done++;
-          gbLog(`cave: town ${job.id} stored ${job.amt} iron (was ${job.iron}/${job.cap})`);
-        } else {
-          gbLogT('cave-err-' + job.id, 60000, `cave: town ${job.id} err ${err}`);
-        }
-        gbTimeout(next, 500 + Math.random() * 400);
+      caveStoreIron(job.id,Math.min(job.amt,freshAmt),(err)=>{
+        gbUnlock(lockName,lockToken);
+        if(err==='captcha'||err==='captcha-pause'){captcha=true;i=jobs.length}
+        else if(!err){done++;gbLog(`cave: town ${job.id} stored ${Math.min(job.amt,freshAmt)} iron (was ${job.iron}/${job.cap})`)}
+        else gbLogT('cave-err-'+job.id,60000,`cave: town ${job.id} err ${err}`);
+        gbTimeout(next,500+Math.random()*400);
       });
     })();
   }
@@ -250,21 +232,21 @@
       const cave = info.unlimited ? 'inf'
         : (info.stored != null && info.hideCap != null ? `${info.stored}/${info.hideCap}`
           : (info.hideCap != null ? `?/${info.hideCap}` : 'n/a'));
-      extra = ` — hide${info.hideLvl} iron ${pct}% cave ${cave}`;
+      extra = ` \u2014 hide${info.hideLvl} iron ${pct}% cave ${cave}`;
       if (pct === '?' || (!info.unlimited && info.hideCap == null)) {
         gbLogT('cave-unknown-' + id, 300000,
-          `cave: town ${id} unread fields (iron=${info.iron} cap=${info.cap} hideCap=${info.hideCap} stored=${info.stored}) — run caveDiag()`);
+          `cave: town ${id} unread fields (iron=${info.iron} cap=${info.cap} hideCap=${info.hideCap} stored=${info.stored}) \u2014 run caveDiag()`);
       }
     }
     return `${name} (#${id})${extra}`;
   }
-  // Repaint every 10s off boot.js while the Config tab is open, so the iron %
-  // is live instead of frozen at whatever it was when the tab was first built.
+
   function caveTownsTick() {
     const sec = panel && panel.querySelector('section[data-tab=config]');
     if (!sec || sec.hidden || panel.classList.contains('collapsed')) return;
     if (document.hidden) return;
     renderCaveTowns();
+    renderTradeTowns();
   }
   function renderCaveTowns() {
     const box = panel && panel.querySelector('.cave-towns');
@@ -279,8 +261,7 @@
       box.appendChild(e);
       return;
     }
-    // Keyed rows (v1.4.0 convention): rebuild only when the id SET changes, so a
-    // 10s repaint cannot fight a checkbox the user is clicking.
+
     const have = [...box.querySelectorAll('label[data-cave-town]')];
     const haveIds = have.map(l => l.dataset.caveTown);
     const sameSet = haveIds.length === ids.length && ids.every(id => haveIds.includes(String(id)));
@@ -329,11 +310,3 @@
       box.appendChild(label);
     });
   }
-  const CULTURE_COSTS = {
-    party: { wood: 15000, stone: 18000, iron: 15000, academy: 30 },
-    triumph: { killpoints: 300 },
-    theater: { wood: 10000, stone: 12000, iron: 10000, theater: 1, academy: 30 },
-    olympic: { gold: 50, academy: 30 },
-  };
-  const OLYMPIC_GOLD = 50;
-  let cultureLast = null;
