@@ -1,4 +1,4 @@
-  const GB_RELEASE = '6.0.15-rc4-dev7';
+  const GB_RELEASE = '6.0.15-rc4-dev8';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -886,7 +886,15 @@ const STORE = {
     ibFreeThresh: load(STORE.IB_FREE_THRESH, 300),
     ibAction:   load(STORE.IB_ACTION, null) || 'buyInstant',
     ibResearch: load(STORE.IB_RESEARCH, false),
-    farmOptionMap: load(STORE.FARM_OPTION_MAP, null) || { 300: 1 },
+    farmOptionMap: (() => {
+      const m = load(STORE.FARM_OPTION_MAP, null);
+      if (m && typeof m === 'object' && !Array.isArray(m)
+          && Object.keys(m).some(k => m[k] != null && Number.isFinite(+m[k]))) return m;
+      // Provisional seed only: option 1 is the shortest offer in both
+      // documented sets (5min base / 10min Booty), so a wrong seed never
+      // over-gathers and the post-claim verify corrects it after one batch.
+      return { 600: 1 };
+    })(),
     farmLongClaims: load(STORE.FARM_LONG_CLAIMS, true),
     farmLoyaltyTech: load(STORE.FARM_LOYALTY_TECH, '') || '',
     farmProfit: load(STORE.FARM_PROFIT, {}),

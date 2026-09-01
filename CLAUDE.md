@@ -10,7 +10,7 @@ into `grepbot.user.js`. **ToS-breaking** — runs against any `*.grepolis.com`
 world; ban risk is user-accepted. HIGH-RISK toggles (recruit, dodge auto, favor,
 god spells, support send, resource dump, emergency cave) default OFF.
 
-Current: **v6.0.15-rc4-dev7**, 53 modules, ~1.5 MB artifact. `src/` reproduces
+Current: **v6.0.15-rc4-dev8**, 53 modules, ~1.5 MB artifact. `src/` reproduces
 the artifact exactly again: the externally built v5.8.0 drop-in was reconciled
 back into `src/` (v5.8.2), and the second external drop-in — the parallel
 **6.x line** (`grepbot_v6.0.15-rc4-dev6.user.js`, Telegram alerts, city

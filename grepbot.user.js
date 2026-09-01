@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.15-rc4-dev7
+// @version      6.0.15-rc4-dev8
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -21,7 +21,7 @@
 
 (function () {
   'use strict';
-  const GB_RELEASE = '6.0.15-rc4-dev7';
+  const GB_RELEASE = '6.0.15-rc4-dev8';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -888,7 +888,13 @@ const STORE = {
     ibFreeThresh: load(STORE.IB_FREE_THRESH, 300),
     ibAction:   load(STORE.IB_ACTION, null) || 'buyInstant',
     ibResearch: load(STORE.IB_RESEARCH, false),
-    farmOptionMap: load(STORE.FARM_OPTION_MAP, null) || { 300: 1 },
+    farmOptionMap: (() => {
+      const m = load(STORE.FARM_OPTION_MAP, null);
+      if (m && typeof m === 'object' && !Array.isArray(m)
+          && Object.keys(m).some(k => m[k] != null && Number.isFinite(+m[k]))) return m;
+
+      return { 600: 1 };
+    })(),
     farmLongClaims: load(STORE.FARM_LONG_CLAIMS, true),
     farmLoyaltyTech: load(STORE.FARM_LOYALTY_TECH, '') || '',
     farmProfit: load(STORE.FARM_PROFIT, {}),
@@ -3047,7 +3053,13 @@ const STORE = {
   function txFarmStatus(farmId) {
     try {
       const f = (farmsFromGame() || []).find(x => String(x.vill_id) === String(farmId));
-      return f ? { lootableAt: f.lootable_at == null ? null : +f.lootable_at } : null;
+      if (!f) return null;
+      const at = f.lootable_at == null ? null : +f.lootable_at;
+
+      let lootableNow = null;
+      if (f._rel) { try { lootableNow = !!farmIsLootable(f._rel, f._attrs || {}); } catch (_) {} }
+      else if (at != null) lootableNow = gameNow() >= at;
+      return { lootableAt: at, lootableNow };
     } catch (_) { return null; }
   }
   function txMovementCount(origin, dest, mission) {
@@ -3377,8 +3389,11 @@ const STORE = {
       }
       if (s.kind === 'farm') {
         const cur = txFarmStatus(s.farmId);
-        if (!cur || !s.status || cur.lootableAt == null || s.status.lootableAt == null) return 'unknown';
-        return cur.lootableAt > s.status.lootableAt ? 'applied' : 'unchanged';
+        if (!cur) return 'unknown';
+
+        if (cur.lootableNow === false) return 'applied';
+        if (cur.lootableNow === true) return 'unchanged';
+        return 'unknown';
       }
       if (s.kind === 'trade' || s.kind === 'collect' || s.kind === 'wonder' || s.kind === 'ruraltrade') {
         const before = s.kind === 'trade' ? s.source : s.before;
@@ -3648,13 +3663,25 @@ const STORE = {
           if (onDone) onDone(null, { reconciled: true, duplicate: true });
           return;
         }
-        if (r === 'unchanged') {
-          existing.state = 'failed'; existing.updatedAt = Date.now(); existing.detail = 'reconciled not applied; retry allowed'; plannerRelease(existing, 'reconciled-unchanged'); txSave();
+        if (r === 'unchanged' && feature === 'farm') {
 
-          return gbTimeout(() => txRun(feature, transport, endpoint, data, rawSend, onDone), 250);
+          delete state.txState[intent]; plannerRelease(existing, 'reconciled-unchanged'); txSave();
+          jrnPush(jtag, 'unknown', 'reconcile-not-applied-retry', existing.id);
+          return txRun(feature, transport, endpoint, data, rawSend, onDone);
         }
-        existing.state = 'unknown'; existing.unknownAt = existing.unknownAt || Date.now(); existing.updatedAt = Date.now(); plannerRelease(existing, 'unknown-unresolved'); txSave();
-        return bail('timeout_unknown', 'unknown outcome still unresolved');
+        if (r === 'unchanged') {
+
+          existing.state = 'unknown'; existing.unknownAt = Date.now(); existing.updatedAt = Date.now(); existing.detail = 'reconciled not applied; next cadence re-evaluates'; plannerRelease(existing, 'reconciled-unchanged'); txSave();
+          jrnPush(jtag, 'unknown', 'reconciled-unchanged', existing.id);
+          markModuleHealth(feature, 'err');
+          if (onDone) onDone('unknown', null);
+          return;
+        }
+
+        existing.state = 'unknown'; existing.unknownAt = existing.unknownAt || Date.now(); existing.updatedAt = Date.now(); existing.detail = 'reconcile inconclusive; next cadence re-evaluates'; plannerRelease(existing, 'unknown-unresolved'); txSave();
+        jrnPush(jtag, 'unknown', 'reconcile-inconclusive', existing.id);
+        markModuleHealth(feature, 'err');
+        if (onDone) onDone('unknown', null);
       });
     }
 
@@ -6092,7 +6119,12 @@ const STORE = {
       return tid != null && townWarehouseBlocks(tid);
     } catch (_) { return false; }
   }
-  const FARM_DURATIONS = [300, 600, 1200, 2400, 5400, 10800, 14400, 28800];
+
+  const FARM_DURATIONS = [300, 600, 1200, 2400, 5400, 7200, 10800, 14400, 18000, 28800, 36000];
+  const FARM_SET_BASE = [300, 1200, 7200, 18000];
+  const FARM_SET_BOOTY = [600, 2400, 14400, 36000];
+
+  let farmPostedOpts = Object.create(null);
   function farmDurLabel(sec) {
     if (sec >= 3600) return (sec / 3600) + 'h';
     return Math.round(sec / 60) + 'min';
@@ -6174,6 +6206,37 @@ const STORE = {
         gbLog(`farm: learned claim option ${opt} = ${farmDurLabel(sec)} (map: ${farmOptionMapText()})`);
       }, 4000);
     } catch (_) {}
+  }
+
+  function farmOptionMapLearn(sec, opt, src) {
+    if (!(opt >= 1 && opt <= 4) || !(sec > 0)) return false;
+    const map = Object.assign({}, state.farmOptionMap || {});
+    if (+map[String(sec)] === opt) return false;
+    Object.keys(map).forEach(k => { if (k !== String(sec) && +map[k] === opt) delete map[k]; });
+    map[String(sec)] = opt;
+    state.farmOptionMap = map;
+    save(wkey(STORE.FARM_OPTION_MAP), map);
+    gbLog(`farm: learned claim option ${opt} = ${farmDurLabel(sec)} (${src}; map: ${farmOptionMapText()})`);
+    return true;
+  }
+
+  function farmOptionSetDerive(sec, opt) {
+    const sets = { base: FARM_SET_BASE, booty: FARM_SET_BOOTY };
+    let hit = null;
+    Object.keys(sets).forEach(name => {
+      if (sets[name][opt - 1] === sec) hit = hit ? 'ambiguous' : name;
+    });
+    if (!hit || hit === 'ambiguous') return false;
+    const map = {};
+    sets[hit].forEach((s, i) => { map[String(s)] = i + 1; });
+    const cur = state.farmOptionMap || {};
+    const same = Object.keys(map).length === Object.keys(cur).length
+      && Object.keys(map).every(k => +cur[k] === map[k]);
+    if (same) return false;
+    state.farmOptionMap = map;
+    save(wkey(STORE.FARM_OPTION_MAP), map);
+    gbLog(`farm: offer set identified (${hit}) from ${farmDurLabel(sec)}=opt${opt} \u2014 derived map: ${farmOptionMapText()}`);
+    return true;
   }
   const FARM_LOYALTY_IDS = ['rural_loyalty', 'loyalty', 'villagers_loyalty', 'villager_loyalty'];
   const FARM_LOYALTY_RE = /loyal(?:ty)?|lealtad|treue|fidel(?:ity|idad)|villager.{0,12}loyal|aldean.{0,12}leal/i;
@@ -6600,6 +6663,7 @@ const STORE = {
         `farm claim: option index for ${farmDurLabel(wantSec)} unknown - using learned ${farmDurLabel(shortest)} option`);
       option = fallback;
     }
+    farmPostedOpts[String(farm.vill_id)] = { opt: option, want: wantSec != null && Number.isFinite(+wantSec) ? +wantSec : null };
 
     const args = Object.assign({}, tplArgs, { type: 'resources', option, farm_town_id: +farm.vill_id });
     bridgePost('farm', {
@@ -6741,6 +6805,7 @@ const STORE = {
     }
     const claimLockToken = gbLock('claim', Math.max(180000, work.length * 20000));
     if (!claimLockToken) return;
+    farmPostedOpts = Object.create(null);
     const unitCount = work.filter(f => farmClaimTypeFor(f, islandMap) === 'units').length;
     gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${work.length}/${farms.length} ready${work.length !== ready.length ? ` (${ready.length - work.length} filtered)` : ''}${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}${unitCount ? ` (${unitCount} as units)` : ''}`);
     const before = {};
@@ -6866,6 +6931,20 @@ const STORE = {
     autoClaimFarms('long claim ' + farmDurLabel(sec), sec, onDone);
     return true;
   }
+
+  function farmVerifyLearnMap(f, now) {
+    const posted = farmPostedOpts[String(f.vill_id)];
+    if (!posted) return;
+    const remaining = +f.lootable_at - now;
+    if (!(remaining > 30)) return;
+    const sec = farmSnapDuration(remaining);
+    if (sec == null) return;
+    const changed = farmOptionMapLearn(sec, posted.opt, 'verify');
+    farmOptionSetDerive(sec, posted.opt);
+    if (changed && posted.want && sec !== posted.want) {
+      gbLog(`farm: wanted ${farmDurLabel(posted.want)} but option ${posted.opt} gathered ${farmDurLabel(sec)} \u2014 map corrected`);
+    }
+  }
   function verifyClaims(before, attempted) {
     const farms = farmsFromGame();
     if (!farms) return 0;
@@ -6876,7 +6955,10 @@ const STORE = {
 
       if (!Object.prototype.hasOwnProperty.call(before, f.vill_id)) return;
       if (only && !only.has(String(f.vill_id))) return;
-      if (f.lootable_at != null && f.lootable_at > now && before[f.vill_id] !== f.lootable_at) updated++;
+      if (f.lootable_at != null && f.lootable_at > now && before[f.vill_id] !== f.lootable_at) {
+        updated++;
+        farmVerifyLearnMap(f, now);
+      }
     });
     gbLog(`farm claim verify: ${updated} village(s) now gathering${updated ? '' : ' - claims did NOT land (open Senado once, click Recoger manually, then paste me the Log tab)'}`);
     return updated;

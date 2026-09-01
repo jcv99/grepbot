@@ -352,7 +352,17 @@
       return tid != null && townWarehouseBlocks(tid);
     } catch (_) { return false; }
   }
-  const FARM_DURATIONS = [300, 600, 1200, 2400, 5400, 10800, 14400, 28800];
+  // Snap targets: union of both documented offer sets (wiki Farming: base
+  // 5/20/120/300min, Booty/Botin doubles to 10/40/240/600min) plus legacy
+  // 90m/3h/8h entries older hand-taught maps may still carry. The two sets
+  // are disjoint, so one confirmed (option, duration) observation identifies
+  // the active set.
+  const FARM_DURATIONS = [300, 600, 1200, 2400, 5400, 7200, 10800, 14400, 18000, 28800, 36000];
+  const FARM_SET_BASE = [300, 1200, 7200, 18000];
+  const FARM_SET_BOOTY = [600, 2400, 14400, 36000];
+  // Posted option per village for the in-flight batch; verifyClaims reads it
+  // back to learn the server's real gather duration per option.
+  let farmPostedOpts = Object.create(null);
   function farmDurLabel(sec) {
     if (sec >= 3600) return (sec / 3600) + 'h';
     return Math.round(sec / 60) + 'min';
@@ -434,6 +444,41 @@
         gbLog(`farm: learned claim option ${opt} = ${farmDurLabel(sec)} (map: ${farmOptionMapText()})`);
       }, 4000);
     } catch (_) {}
+  }
+  // Shared map write used by both the claim sniffer and the post-batch verify:
+  // one option indexes one duration, so relearning evicts the stale duration.
+  function farmOptionMapLearn(sec, opt, src) {
+    if (!(opt >= 1 && opt <= 4) || !(sec > 0)) return false;
+    const map = Object.assign({}, state.farmOptionMap || {});
+    if (+map[String(sec)] === opt) return false;
+    Object.keys(map).forEach(k => { if (k !== String(sec) && +map[k] === opt) delete map[k]; });
+    map[String(sec)] = opt;
+    state.farmOptionMap = map;
+    save(wkey(STORE.FARM_OPTION_MAP), map);
+    gbLog(`farm: learned claim option ${opt} = ${farmDurLabel(sec)} (${src}; map: ${farmOptionMapText()})`);
+    return true;
+  }
+  // One confirmed observation pins the whole offer set when it matches exactly
+  // one documented set at that position (the sets are disjoint). Derived
+  // entries confirm through the same verify path on their next claim, so a
+  // wrong derive dies on first use instead of looping.
+  function farmOptionSetDerive(sec, opt) {
+    const sets = { base: FARM_SET_BASE, booty: FARM_SET_BOOTY };
+    let hit = null;
+    Object.keys(sets).forEach(name => {
+      if (sets[name][opt - 1] === sec) hit = hit ? 'ambiguous' : name;
+    });
+    if (!hit || hit === 'ambiguous') return false;
+    const map = {};
+    sets[hit].forEach((s, i) => { map[String(s)] = i + 1; });
+    const cur = state.farmOptionMap || {};
+    const same = Object.keys(map).length === Object.keys(cur).length
+      && Object.keys(map).every(k => +cur[k] === map[k]);
+    if (same) return false;
+    state.farmOptionMap = map;
+    save(wkey(STORE.FARM_OPTION_MAP), map);
+    gbLog(`farm: offer set identified (${hit}) from ${farmDurLabel(sec)}=opt${opt} — derived map: ${farmOptionMapText()}`);
+    return true;
   }
   const FARM_LOYALTY_IDS = ['rural_loyalty', 'loyalty', 'villagers_loyalty', 'villager_loyalty'];
   const FARM_LOYALTY_RE = /loyal(?:ty)?|lealtad|treue|fidel(?:ity|idad)|villager.{0,12}loyal|aldean.{0,12}leal/i;
@@ -863,6 +908,7 @@
         `farm claim: option index for ${farmDurLabel(wantSec)} unknown - using learned ${farmDurLabel(shortest)} option`);
       option = fallback;
     }
+    farmPostedOpts[String(farm.vill_id)] = { opt: option, want: wantSec != null && Number.isFinite(+wantSec) ? +wantSec : null };
 
     const args = Object.assign({}, tplArgs, { type: 'resources', option, farm_town_id: +farm.vill_id });
     bridgePost('farm', {
@@ -1004,6 +1050,7 @@
     }
     const claimLockToken = gbLock('claim', Math.max(180000, work.length * 20000));
     if (!claimLockToken) return;
+    farmPostedOpts = Object.create(null);
     const unitCount = work.filter(f => farmClaimTypeFor(f, islandMap) === 'units').length;
     gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${work.length}/${farms.length} ready${work.length !== ready.length ? ` (${ready.length - work.length} filtered)` : ''}${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}${unitCount ? ` (${unitCount} as units)` : ''}`);
     const before = {};
@@ -1129,6 +1176,24 @@
     autoClaimFarms('long claim ' + farmDurLabel(sec), sec, onDone);
     return true;
   }
+  // A village whose deadline moved proves the claim landed; the new
+  // lootable_at is the server's own gather duration for the option posted.
+  // Learn it, and when it contradicts what the map promised, say so once —
+  // that mismatch is how the shipped 10min=2 default was caught gathering
+  // 40min on a Booty world (v5.10.64).
+  function farmVerifyLearnMap(f, now) {
+    const posted = farmPostedOpts[String(f.vill_id)];
+    if (!posted) return;
+    const remaining = +f.lootable_at - now;
+    if (!(remaining > 30)) return;
+    const sec = farmSnapDuration(remaining);
+    if (sec == null) return;
+    const changed = farmOptionMapLearn(sec, posted.opt, 'verify');
+    farmOptionSetDerive(sec, posted.opt);
+    if (changed && posted.want && sec !== posted.want) {
+      gbLog(`farm: wanted ${farmDurLabel(posted.want)} but option ${posted.opt} gathered ${farmDurLabel(sec)} — map corrected`);
+    }
+  }
   function verifyClaims(before, attempted) {
     const farms = farmsFromGame();
     if (!farms) return 0;
@@ -1139,7 +1204,10 @@
 
       if (!Object.prototype.hasOwnProperty.call(before, f.vill_id)) return;
       if (only && !only.has(String(f.vill_id))) return;
-      if (f.lootable_at != null && f.lootable_at > now && before[f.vill_id] !== f.lootable_at) updated++;
+      if (f.lootable_at != null && f.lootable_at > now && before[f.vill_id] !== f.lootable_at) {
+        updated++;
+        farmVerifyLearnMap(f, now);
+      }
     });
     gbLog(`farm claim verify: ${updated} village(s) now gathering${updated ? '' : ' - claims did NOT land (open Senado once, click Recoger manually, then paste me the Log tab)'}`);
     return updated;
