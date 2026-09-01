@@ -971,14 +971,17 @@
   }
 
   const FARM_PENDING_MEMO_MS = 3000;
-  let farmPendingMemo = { at: 0, val: false };
+  let farmPendingMemo = { at: 0, val: false, locked: 0 };
   function farmClaimPending() {
     if (!state.autoFarm || !hostEnabled()) return false;
     if (captchaPaused('farm')) return false;
 
     if (gbLocked('claim')) return true;
     const stamp = Date.now();
-    if (stamp - farmPendingMemo.at < FARM_PENDING_MEMO_MS) return farmPendingMemo.val;
+    // The memo's lock state must match the current lock state, otherwise the
+    // cached val survives a lock-release and post-batch callers (orchFarmFirst)
+    // see stale "true" for up to 3s past the actual unlock. OPEN-PLAN 1.6.
+    if (stamp - farmPendingMemo.at < FARM_PENDING_MEMO_MS && !farmPendingMemo.locked) return farmPendingMemo.val;
     let val = false;
     try {
       const farms = farmsFromGame();
@@ -1006,7 +1009,7 @@
         }
       }
     } catch (_) { val = false; }
-    farmPendingMemo = { at: stamp, val };
+    farmPendingMemo = { at: stamp, val, locked: 0 };
     return val;
   }
 
