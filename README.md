@@ -4,6 +4,10 @@ Tampermonkey userscript that automates [Grepolis](https://www.grepolis.com):
 farming villages, resource collection, building/research queues, trade,
 culture, espionage, scouting, and opt-in military helpers.
 
+**100% AI-generated.** Every line of this project — source modules, build
+script, documentation and this README — was written by AI agents (Claude
+Code). No human hand-wrote the code. Review it yourself before trusting it.
+
 **ToS-breaking.** Grepolis prohibits automation. Using this script can get
 your account banned. You accept that risk by installing it.
 
