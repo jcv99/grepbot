@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.17
+// @version      6.0.18
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -27970,7 +27970,7 @@ const STORE = {
       ${gbSection('Recursos y reservas', '<div class="planner-controls" style="font-size:10px;display:flex;gap:5px;flex-wrap:wrap;align-items:center"></div><div class="planner-panel" style="font-size:10px;max-height:240px;overflow:auto;margin-top:6px"></div>')}
       ${gbSection('Simulaci\u00f3n y motivos', '<div style="display:flex;gap:5px;align-items:center;margin-bottom:5px"><label data-gb-tip="Horas a simular (1-168)">Horizonte <input id="gb-sim-hours" type="number" min="1" max="168" value="24" style="width:55px;background:#111;color:#cfc;border:1px solid #444;border-radius:4px;padding:3px"/> h</label><button id="gb-sim-run" class="gb-action" data-gb-tip="Correr la simulacion con el horizonte indicado">Simular</button></div><pre class="sim-panel" style="font-size:10px;white-space:pre-wrap;margin:0 0 6px;max-height:160px;overflow:auto"></pre><pre class="why-panel" style="font-size:10px;white-space:pre-wrap;margin:0;max-height:130px;overflow:auto;color:#bbb"></pre>')}
       ${gbSection('Salud del sistema', '<div class="health-panel" style="font-size:10px;max-height:220px;overflow:auto"></div>')}
-      ${gbSection('Plantillas y copia de seguridad', '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="gb-tpl-name" placeholder="nombre de plantilla" style="width:130px;background:#111;color:#cfc;border:1px solid #444;border-radius:4px;padding:4px;font-size:11px" data-gb-tip="Nombre para guardar o aplicar una plantilla de configuracion"/><button id="gb-tpl-save" class="gb-action" data-gb-tip="Guardar la configuracion actual con el nombre indicado">Guardar plantilla</button><button id="gb-tpl-apply" class="gb-action" data-gb-tip="Aplicar la plantilla cuyo nombre escribiste arriba">Aplicar plantilla</button><button id="gb-cfg-export" class="gb-action" data-gb-tip="Exportar la configuracion completa al portapapeles">Exportar configuraci\u00f3n</button><button id="gb-cfg-import" class="gb-action" data-gb-tip="Pegar e importar una configuracion previamente exportada">Importar configuraci\u00f3n</button><button id="gb-cfg-undo" class="gb-action" title="Deshacer el ultimo cambio de configuracion">Deshacer</button><button id="gb-cfg-redo" class="gb-action" title="Rehacer">Rehacer</button><span id="gb-cfg-hist" style="font-size:10px;color:#888"></span></div>')}
+      ${gbSection('Plantillas y copia de seguridad', '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="gb-tpl-name" placeholder="nombre de plantilla" style="width:130px;background:#111;color:#cfc;border:1px solid #444;border-radius:4px;padding:4px;font-size:11px" data-gb-tip="Nombre para guardar o aplicar una plantilla de configuracion"/><button id="gb-tpl-save" class="gb-action" data-gb-tip="Guardar la configuracion actual con el nombre indicado">Guardar plantilla</button><button id="gb-tpl-apply" class="gb-action" data-gb-tip="Aplicar la plantilla cuyo nombre escribiste arriba">Aplicar plantilla</button><button id="gb-cfg-export" class="gb-action" data-gb-tip="Exportar la configuracion completa al portapapeles">Exportar configuraci\u00f3n</button><button id="gb-cfg-import" class="gb-action" data-gb-tip="Pegar e importar una configuracion previamente exportada">Importar configuraci\u00f3n</button><button id="gb-cfg-download" class="gb-action" data-gb-tip="Descargar la configuracion completa como archivo .json">Descargar</button><button id="gb-cfg-upload" class="gb-action" data-gb-tip="Subir e importar una configuracion desde un archivo .json">Subir</button><input type="file" id="gb-cfg-file" accept=".json,application/json" hidden/><button id="gb-cfg-undo" class="gb-action" title="Deshacer el ultimo cambio de configuracion">Deshacer</button><button id="gb-cfg-redo" class="gb-action" title="Rehacer">Rehacer</button><span id="gb-cfg-hist" style="font-size:10px;color:#888"></span></div>')}
     </section>
     <section data-tab="intel" hidden>
       <div style="font-size:11px;color:#f5a623;margin-bottom:4px">Intel / amenazas</div>
@@ -28506,6 +28506,10 @@ const STORE = {
       'Copiala para hacer copia de seguridad, o pega otra y acepta para validarla antes de aplicar.',
       JSON.stringify(dump, null, 2));
     if (raw == null) return;
+    applyConfigText(raw, 'wizard');
+  }
+
+  function applyConfigText(raw, source) {
     const prep = qolPrepareConfigImport(raw);
     if (!prep.ok) {
       alert('No se aplica nada.\n\n' + (prep.errors.length ? prep.errors.join('\n') : 'ninguna seccion valida') +
@@ -28519,7 +28523,7 @@ const STORE = {
       (prep.ignored.length ? `Ignoradas (no reconocidas): ${prep.ignored.join(', ')}\n` : '') +
       `\nAplicar? Se podra deshacer.`;
     if (!confirm(summary)) return;
-    if (qolImportConfig(prep.candidate, { source: 'wizard' })) {
+    if (qolImportConfig(prep.candidate, { source })) {
       flash(`configuracion importada (${changed.length} cambios)`);
       bindConfig(); renderCaveTowns(); updateStatus(); renderConfigHistoryButtons();
     } else flash('importacion fallida');
@@ -28529,6 +28533,30 @@ const STORE = {
     navigator.clipboard.writeText(text).then(() => flash('configuracion copiada')).catch(() => flash('fallo al copiar'));
   });
   panel.querySelector('#gb-cfg-import')?.addEventListener('click', openConfigWizard);
+  panel.querySelector('#gb-cfg-download')?.addEventListener('click', () => {
+    const dump = qolExportConfigForUi();
+    if (!dump) { flash('fallo al exportar'); return; }
+    try {
+      const url = URL.createObjectURL(new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `grepbot-config-${location.host}-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      gbTimeout(() => URL.revokeObjectURL(url), 1000);
+      flash('configuracion descargada');
+    } catch (_) { flash('fallo al descargar'); }
+  });
+  const cfgFile = panel.querySelector('#gb-cfg-file');
+  panel.querySelector('#gb-cfg-upload')?.addEventListener('click', () => cfgFile?.click());
+  cfgFile?.addEventListener('change', () => {
+    const f = cfgFile.files && cfgFile.files[0];
+    cfgFile.value = '';
+    if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => applyConfigText(String(rd.result || ''), 'file');
+    rd.onerror = () => flash('fallo al leer el archivo');
+    rd.readAsText(f);
+  });
   panel.querySelector('#gb-cfg-undo')?.addEventListener('click', () => {
     if (!qolHistoryUndo()) { flash('nada que deshacer'); return; }
     flash('cambio deshecho'); bindConfig(); renderCaveTowns(); updateStatus(); renderConfigHistoryButtons();
