@@ -1144,6 +1144,28 @@
     const cut = Date.now() - 3600000;
     return farmPressure.some(p => p.kind === 'captcha' && p.at >= cut);
   }
+  // Captcha-scoped claim ring. farmClaimsToday counts every claim for the
+  // calendar day; the captcha-hot filter at farmApplyDropPolicies only wants
+  // the ones that landed during a captcha-hot streak so that villages whose
+  // 5h/8h timer expired mid-day are not skipped for the rest of the day
+  // after the captcha ladder cools. OPEN-PLAN 1.1 / 8/23 audit #12.
+  const FARM_CAPTCHA_CLAIMS_TTL_MS = 3600000;
+  const FARM_CAPTCHA_CLAIMS_MAX = 200;
+  const farmCaptchaClaims = [];
+  function farmCaptchaClaimsPrune() {
+    const cut = Date.now() - FARM_CAPTCHA_CLAIMS_TTL_MS;
+    while (farmCaptchaClaims.length && farmCaptchaClaims[0].at < cut) farmCaptchaClaims.shift();
+    while (farmCaptchaClaims.length > FARM_CAPTCHA_CLAIMS_MAX) farmCaptchaClaims.shift();
+  }
+  function farmCaptchaClaimNote(villId) {
+    farmCaptchaClaimsPrune();
+    farmCaptchaClaims.push({ villId: String(villId), at: Date.now() });
+  }
+  function farmCaptchaClaimsRecent(villId) {
+    farmCaptchaClaimsPrune();
+    const id = String(villId);
+    return farmCaptchaClaims.some(e => e.villId === id);
+  }
   function farmDayKey() {
     const serverDay = String(gbServerDay() || '');
     const parts = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(serverDay);
@@ -1167,13 +1189,49 @@
     c[String(villId)] = (+c[String(villId)] || 0) + 1;
 
     saveSoon(STORE.FARM_CLAIMS_TODAY, c);
+    farmCaptchaClaimNote(villId);
   }
   function farmProfitScoreOf(villId) {
     const p = (state.farmProfit || {})[String(villId)];
     return p && p.score != null ? +p.score : null;
   }
 
-  function farmApplyDropPolicies(ready) { return Array.isArray(ready) ? ready.slice() : []; }
+  function farmApplyDropPolicies(ready) {
+    if (!state.adaptiveFarm) return Array.isArray(ready) ? ready.slice() : [];
+    farmPressureTick();
+    const pressure = farmPressureOn();
+    let work = ready.slice();
+    if (pressure) {
+      // An unranked village is UNKNOWN, not worthless - it is only dropped
+      // while under pressure, and the log says how many so the operator can
+      // tell "trimmed" from "broken".
+      const known = work.filter(f => farmProfitScoreOf(f.vill_id) != null);
+      const dropped = work.length - known.length;
+      if (known.length) {
+        work = known;
+        if (dropped) gbLogT('farm-adaptive-unranked', 300000, `adaptive farm: pressure - dropped ${dropped} unranked village(s)`);
+      }
+    }
+    if (pressure && work.length >= 4) {
+      const pct = Math.max(0, Math.min(90, gbCfgNum(state.farmDropPressurePct, 25)));
+      work.sort((a, b) => (farmProfitScoreOf(b.vill_id) ?? -Infinity) - (farmProfitScoreOf(a.vill_id) ?? -Infinity));
+      const keep = Math.max(1, Math.ceil(work.length * (100 - pct) / 100));
+      if (keep < work.length) {
+        gbLogT('farm-adaptive-trim', 300000, `adaptive farm: pressure - claiming top ${keep}/${work.length} by yield`);
+        work = work.slice(0, keep);
+      }
+    }
+    if (farmCaptchaHot()) {
+      const before = work.length;
+      work = work.filter(f => !farmCaptchaClaimsRecent(f.vill_id));
+      if (work.length < before) {
+        gbLogT('farm-adaptive-daily', 300000, `adaptive farm: captcha hot - skipped ${before - work.length} village(s) claimed in this captcha window`);
+      }
+    }
+    // Highest yield first even without pressure: same set, better order.
+    work.sort((a, b) => (farmProfitScoreOf(b.vill_id) ?? -Infinity) - (farmProfitScoreOf(a.vill_id) ?? -Infinity));
+    return work;
+  }
   function farmLongClaimNow(reason, onDone) {
     const sec = farmLongClaimDuration();
     if (farmOptionFor(sec) == null) {

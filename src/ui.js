@@ -1370,6 +1370,8 @@
             <input class="gb-cfg-input" data-cfg="farm-loyalty-tech" placeholder="auto (id del servidor o etiqueta)" title="Id de investigacion del servidor (p.ej. rural_loyalty) o el nombre localizado de la academia. La pestana Registro vuelca los pares id(etiqueta) cuando la deteccion automatica falla." style="width:190px"/>
           </label>
           <label class="gb-cfg-num gb-cfg-sub" title="Segundos de marcha por unidad de coordenada de isla. El juego no expone la formula de marcha, asi que 0 (por defecto) deja el ranking res/min independiente de la distancia.">Segundos de marcha por unidad de isla <input class="gb-cfg-input" type="number" data-cfg="farm-travel" min="0" max="600" step="0.5" style="width:60px"/></label>
+          <label class="gb-cfg-row gb-cfg-sub" title="Bajo presion (captcha, enfriamiento del servidor o presupuesto justo) recorta la lista de aldeas en vez de ampliar la cadencia, y reclama primero las mas rentables."><input type="checkbox" data-cfg="adaptive-farm"/> Recoleccion adaptativa bajo presion</label>
+          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Porcentaje de aldeas a descartar bajo presion (de menos rentable a mas)">Descartar bajo presion <input class="gb-cfg-input" type="number" data-cfg="farm-drop-pct" min="0" max="90" style="width:45px"/> %</label>
           <div id="gb-farm-optmap" class="gb-cfg-note" data-gb-tip="Mapa aprendido: opcion de cobro de 10 min en este mundo"></div>
           <button data-cfg="farm-forget-options" class="gb-cfg-btn gb-cfg-sub" title="Borra el mapa de opciones aprendido (recursos y unidades) y reactiva la plantilla de cobro. Usalo si los cobros fallan seguido: vuelve a pulsar una recogida de 10 minutos a mano para reaprenderla.">Olvidar opciones de cobro aprendidas</button>
           <label class="gb-cfg-row" title="Lee los recursos de cada aldea por HTTP. Solo funciona en mundos cuyo cliente responde a una accion farm_town_*. Si no, cada barrido gasta el presupuesto de peticiones sin devolver nada y se apaga solo. Cadencia fija: 10 min + 1-2 min aleatorios."><input type="checkbox" data-cfg="farm-scrape"/> Escanear recursos de aldeas (HTTP)</label>
@@ -2408,6 +2410,8 @@
     setNum('[data-cfg=ib-free-thresh]', state.ibFreeThresh);
     setNum('[data-cfg=collect-max-min]', state.collectMaxMin);
     setNum('[data-cfg=farm-travel]', state.farmTravelSecPerUnit || 0);
+    setChk('[data-cfg=adaptive-farm]', state.adaptiveFarm);
+    setNum('[data-cfg=farm-drop-pct]', gbCfgNum(state.farmDropPressurePct, 25));
     setNum('[data-cfg=town-min]', Math.round(state.townMinMs / 60000));
     setNum('[data-cfg=town-max]', Math.round(state.townMaxMs / 60000));
     setNum('[data-cfg=posts-soft-pct]', state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60);
@@ -3054,6 +3058,15 @@
 
       // Force-recompute: the 5min memo would otherwise hide the change.
       try { farmProfitInvalidate(); farmProfitRefresh(true); renderFarms(); } catch (_) {}
+    });
+    onCfg('[data-cfg=adaptive-farm]', 'change', e => {
+      state.adaptiveFarm = !!e.target.checked;
+      save(STORE.ADAPTIVE_FARM, state.adaptiveFarm);
+      gbLog('adaptive farm ' + (state.adaptiveFarm ? 'ON - trims the claim set under pressure' : 'OFF'));
+    });
+    saveNum('[data-cfg=farm-drop-pct]', v => {
+      state.farmDropPressurePct = Math.max(0, Math.min(90, +v || 0));
+      save(STORE.FARM_DROP_PCT, state.farmDropPressurePct);
     });
     saveNum('[data-cfg=ib-free-thresh]', v => { state.ibFreeThresh = Math.max(60,Math.min(300,+v||300)); save(STORE.IB_FREE_THRESH, state.ibFreeThresh); });
     saveNum('[data-cfg=collect-max-min]', v => { state.collectMaxMin = v; save(STORE.COLLECT_MAX_MIN, v); });

@@ -72,6 +72,8 @@ const STORE = {
     FARM_LONG_CLAIMS: 'grepbot:farm-long-claims',
     FARM_LOYALTY_TECH: 'grepbot:farm-loyalty-tech',
     FARM_PROFIT: 'grepbot:farm-profit',
+    ADAPTIVE_FARM: 'grepbot:adaptive-farm',
+    FARM_DROP_PCT: 'grepbot:farm-drop-pressure-pct',
     FARM_CLAIMS_TODAY: 'grepbot:farm-claims-today',
     FARM_CLAIMS_DAY: 'grepbot:farm-claims-day',
     FARM_UNITS_MODE: 'grepbot:farm-units-mode',
@@ -900,6 +902,8 @@ const STORE = {
     farmLongClaims: load(STORE.FARM_LONG_CLAIMS, true),
     farmLoyaltyTech: load(STORE.FARM_LOYALTY_TECH, '') || '',
     farmProfit: load(STORE.FARM_PROFIT, {}),
+    adaptiveFarm: load(STORE.ADAPTIVE_FARM, false),
+    farmDropPressurePct: load(STORE.FARM_DROP_PCT, 25),
 
     farmClaimsToday: load(STORE.FARM_CLAIMS_TODAY, {}) || {},
     farmClaimsDay: load(STORE.FARM_CLAIMS_DAY, '') || '',
