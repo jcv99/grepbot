@@ -340,15 +340,35 @@
     })();
   }
 
+  // Shared bridge-template learn: sniffer sites differ only in arg
+  // stripping, key scoping and log/health detail. Templates stay
+  // per-feature — never share one storeKey between features.
+  function learnTemplate(stateKey, storeKey, j, opts) {
+    opts = opts || {};
+    if (!j || !j.action_name) return false;
+    if (!opts.modelUrlFallback && !j.model_url) return false;
+    if (typeof isSelfBridge === 'function' && isSelfBridge(j)) return false;
+    const args = opts.fixedArgs
+      ? Object.assign({}, opts.fixedArgs)
+      : Object.assign({}, j.arguments || {});
+    (opts.stripArgs || []).forEach(k => { delete args[k]; });
+    const tpl = {
+      model_url: j.model_url || opts.modelUrlFallback, action_name: j.action_name,
+      arguments: args, town_id: j.town_id, version: 1, learned_at: Date.now(),
+    };
+    if (opts.mapByAction) {
+      if (!state[stateKey] || typeof state[stateKey] !== 'object') state[stateKey] = {};
+      state[stateKey][j.action_name] = tpl;
+    } else state[stateKey] = tpl;
+    save(opts.wscoped === false ? storeKey : wkey(storeKey), state[stateKey]);
+    gbLog(`learned ${opts.label || stateKey} template:`,
+      opts.logJson ? JSON.stringify(opts.mapByAction ? state[stateKey][j.action_name] : tpl).slice(0, opts.logJson) : j.action_name);
+    if (opts.health !== false) { try { tplHealthMarkLearned(opts.healthKey || stateKey); } catch (_) {} }
+    return true;
+  }
+
   function spyLearnTemplate(j) {
-    if (!j || !j.model_url || !j.action_name) return;
-    if (typeof isSelfBridge === 'function' && isSelfBridge(j)) return;
-    const args = Object.assign({}, j.arguments || {});
-    delete args.id;
-    state.spyTpl = { model_url: j.model_url, action_name: j.action_name, arguments: args, town_id: j.town_id, version: 1, learned_at: Date.now() };
-    save(wkey(STORE.SPY_TPL), state.spyTpl);
-    gbLog('learned spy template: ' + j.action_name);
-    try { tplHealthMarkLearned('spyTpl'); } catch (_) {}
+    learnTemplate('spyTpl', STORE.SPY_TPL, j, { stripArgs: ['id'], label: 'spy' });
   }
 
   function nameOf(p) {
@@ -594,28 +614,13 @@
         gbLog('sniffed farm bridge call:', body.slice(0, 300));
         const j = parseBodyLoose(body);
         if (j && j.model_url && /claim/i.test(j.action_name || '')) {
-          state.claimTpl = {
-            model_url: j.model_url, action_name: j.action_name,
-            arguments: j.arguments || {}, town_id: j.town_id,
-            version: 1, learned_at: Date.now(),
-          };
-          save(wkey(STORE.CLAIM_TPL), state.claimTpl);
-          gbLog('learned claim template:', JSON.stringify(state.claimTpl).slice(0, 200));
-          try { tplHealthMarkLearned('claimTpl'); } catch (_) {}
-
-          if (!isSelfBridge(j)) farmLearnFromClaim(j);
+          if (learnTemplate('claimTpl', STORE.CLAIM_TPL, j, { label: 'claim', logJson: 200 })) {
+            farmLearnFromClaim(j);
+          }
         } else if (j && j.model_url && !/claim|trade|unlock|upgrade/i.test(j.action_name || '')
                    && /sword|archer|hoplite|slinger/i.test(body)) {
 
-          if (isSelfBridge(j)) return;
-          state.acceptUnitsTpl = {
-            model_url: j.model_url, action_name: j.action_name,
-            arguments: j.arguments || {}, town_id: j.town_id,
-            version: 1, learned_at: Date.now(),
-          };
-          save(wkey(STORE.ACCEPT_UNITS_TPL), state.acceptUnitsTpl);
-          gbLog('learned accept-units template:', JSON.stringify(state.acceptUnitsTpl).slice(0, 220));
-          try { tplHealthMarkLearned('acceptUnitsTpl'); } catch (_) {}
+          learnTemplate('acceptUnitsTpl', STORE.ACCEPT_UNITS_TPL, j, { label: 'accept-units', logJson: 220 });
         }
       } else if (/PlayerAttackSpot/.test(body)) {
         gbLog('sniffed bandit bridge call:', body.slice(0, 300));
@@ -652,17 +657,11 @@
 
         if (j && j.arguments && String(j.arguments.type || '') === 'support') { supportLearnTemplate(j); return; }
         if (j && j.model_url && /attack|sendUnits/i.test(j.action_name || '')) {
-          state.attackTpl = {
-            model_url: j.model_url, action_name: j.action_name,
-            arguments: j.arguments || {}, town_id: j.town_id,
-            version: 1, learned_at: Date.now(),
-          };
-          save(wkey(STORE.ATTACK_TPL), state.attackTpl);
-          gbLog('learned attack template:', JSON.stringify(state.attackTpl).slice(0, 200));
-          try { tplHealthMarkLearned('attackTpl'); } catch (_) {}
-          const destId = j.arguments && j.arguments.id;
-          if (destId != null && typeof attackRememberTarget === 'function') {
-            attackRememberTarget(destId, { src: 'manual-attack' });
+          if (learnTemplate('attackTpl', STORE.ATTACK_TPL, j, { label: 'attack', logJson: 200 })) {
+            const destId = j.arguments && j.arguments.id;
+            if (destId != null && typeof attackRememberTarget === 'function') {
+              attackRememberTarget(destId, { src: 'manual-attack' });
+            }
           }
         }
       } else if (/spy|espionage|espia/i.test(body) && /model_url/.test(body)) {
@@ -671,36 +670,18 @@
         if (j && j.action_name && /spy|espionage/i.test(String(j.action_name))) spyLearnTemplate(j);
       } else if (/Command/.test(body) && /cancelCommand|cancel_command/i.test(body)) {
         const j = parseBodyLoose(body);
-        if (j && j.action_name && /cancelCommand|cancel_command/i.test(j.action_name) && !isSelfBridge(j)) {
-          state.cancelTpl = {
-            model_url: j.model_url || 'Command', action_name: j.action_name,
-            arguments: j.arguments || {}, town_id: j.town_id, version: 1, learned_at: Date.now(),
-          };
-          save(STORE.CANCEL_TPL, state.cancelTpl);
-          gbLog('learned cancel template:', JSON.stringify(state.cancelTpl).slice(0, 200));
+        if (j && j.action_name && /cancelCommand|cancel_command/i.test(j.action_name)) {
+          learnTemplate('cancelTpl', STORE.CANCEL_TPL, j, { modelUrlFallback: 'Command', wscoped: false, health: false, label: 'cancel', logJson: 200 });
         }
       } else if (/Wonder|wonder/i.test(body) && /cast|devote|contribute|favor/i.test(body) && /power|cast/i.test(body)) {
         const j = parseBodyLoose(body);
-        if (j && j.action_name && !isSelfBridge(j)) {
-          state.wonderFavorTpl = {
-            model_url: j.model_url, action_name: j.action_name,
-            arguments: j.arguments || {}, town_id: j.town_id,
-            version: 1, learned_at: Date.now(),
-          };
-          save(wkey(STORE.WONDER_FAVOR_TPL), state.wonderFavorTpl);
-          gbLog('learned wonder favor template:', j.action_name);
-          try { tplHealthMarkLearned('wonderFavorTpl'); } catch (_) {}
+        if (j && j.action_name) {
+          learnTemplate('wonderFavorTpl', STORE.WONDER_FAVOR_TPL, j, { label: 'wonder favor' });
         }
       } else if (/PlayerHero/.test(body) && /assignToTown|unassignFromTown|cancelTownTravel/i.test(body)) {
         const j = parseBodyLoose(body);
-        if (j && j.action_name && !isSelfBridge(j)) {
-          if (!state.heroTpl || typeof state.heroTpl !== 'object') state.heroTpl = {};
-          state.heroTpl[j.action_name] = {
-            model_url: j.model_url || 'PlayerHero', action_name: j.action_name,
-            arguments: j.arguments || {}, town_id: j.town_id, version: 1, learned_at: Date.now(),
-          };
-          save(STORE.HERO_TPL, state.heroTpl);
-          gbLog('learned hero template:', j.action_name, JSON.stringify(state.heroTpl[j.action_name]).slice(0, 160));
+        if (j && j.action_name) {
+          learnTemplate('heroTpl', STORE.HERO_TPL, j, { mapByAction: true, modelUrlFallback: 'PlayerHero', wscoped: false, health: false, label: 'hero', logJson: 160 });
         }
       } else if (/IslandQuest|Progressable|claimReward|island_quest/i.test(body)) {
         const j = parseBodyLoose(body);

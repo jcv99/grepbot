@@ -30,17 +30,9 @@
   }
 
   function supportLearnTemplate(j) {
-    if (!j || !j.model_url || !j.action_name) return;
-    const args = j.arguments || {};
+    const args = (j && j.arguments) || {};
     if (String(args.type || '') !== 'support') return;
-    if (typeof isSelfBridge === 'function' && isSelfBridge(j)) return;
-    state.supportTpl = {
-      model_url: j.model_url, action_name: j.action_name,
-      arguments: { type: 'support' }, version: 1, learned_at: Date.now(),
-    };
-    save(wkey(STORE.SUPPORT_TEMPLATE), state.supportTpl);
-    gbLog('learned support template: ' + j.action_name);
-    try { tplHealthMarkLearned('supportTpl'); } catch (_) {}
+    learnTemplate('supportTpl', STORE.SUPPORT_TEMPLATE, j, { fixedArgs: { type: 'support' }, label: 'support' });
   }
 
   function supportBridgePost(fromTownId, destTownId, units, onDone) {
