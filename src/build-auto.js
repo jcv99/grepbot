@@ -198,6 +198,42 @@
     }
     return { building, reason: 'priority target' };
   }
+  // Random fallback: plan exhausted, queue has room. Core 13 buildings only
+  // (AB_CS_FAST keys) — special-group exclusivity is not modeled, so specials
+  // stay out. Pick is persisted per town so abFinalValidate's recompute of
+  // abPickNextFromLevels returns the same building instead of re-rolling.
+  function abPickRandom(townId, levels) {
+    if (!state.abRandom || !levels) return null;
+    const candidates = AB_BUILDINGS.filter(b => AB_CS_FAST[b] != null).filter(b => {
+      if (goalQueueSuppressed(townId, 'build', b)) return false;
+      const max = abMaxLevel(b);
+      if (max == null || +(levels[b] || 0) >= max) return false;
+      const req = abRequirementMap(townId, b);
+      if (req == null) return false;
+      for (const [dep, need] of Object.entries(req)) if (+(levels[dep] || 0) < +need) return false;
+      return abCanAfford(townId, b).ok;
+    });
+    if (!candidates.length) return null;
+    const id = String(townId);
+    if (!state.abRandomPick || typeof state.abRandomPick !== 'object') state.abRandomPick = {};
+    const stored = state.abRandomPick[id];
+    let pick = stored && candidates.includes(stored.building) ? stored.building : null;
+    if (!pick) {
+      pick = candidates[Math.floor(Math.random() * candidates.length)];
+      state.abRandomPick[id] = { building: pick, at: Date.now() };
+      save(STORE.AB_RANDOM_PICK, state.abRandomPick);
+      gbLog(`auto-queue: random fallback picked ${AB_LABELS[pick] || pick} @${townId}`);
+    }
+    return { building: pick, forTarget: pick, reason: 'random fallback', cost: abBuildingCost(townId, pick) };
+  }
+  function abRandomPickClear(townId, plan) {
+    if (!plan || plan.reason !== 'random fallback') return;
+    const id = String(townId);
+    if (state.abRandomPick && state.abRandomPick[id] && state.abRandomPick[id].building === plan.building) {
+      delete state.abRandomPick[id];
+      save(STORE.AB_RANDOM_PICK, state.abRandomPick);
+    }
+  }
   function abPickNextFromLevels(townId, levels) {
     if (!levels) return null;
     const explicit=nativeQueueBuildPlan(townId,levels);
@@ -228,7 +264,7 @@
       const out={ building: resolved.building, forTarget: target, reason: resolved.reason, cost: aff.need };if(cdIsProfile(goalTownCfg(townId).profile))out.cdRevision=cdProfileRevision(townId);return out;
     }
     const demo=cdNextDemolition(townId,levels);if(demo)return demo;
-    return null;
+    return abPickRandom(townId, levels);
   }
   function abPickNext(townId) { return abPickNextFromLevels(townId, abCurrentLevels(townId)); }
   function abFinalValidate(townId, plan) {
@@ -387,7 +423,7 @@
       const handleResult=res=>{
         if(opSettled||!gbInstanceAlive())return;
         opSettled=true;gbClearTimeout(watchdog);release();
-        if(res==='ok'){done++;nativeQueueBuildApplied(id,plan);gbTimeout(step,AB_SEND_SPACING_MS+Math.random()*350);return}
+        if(res==='ok'){done++;abRandomPickClear(id,plan);nativeQueueBuildApplied(id,plan);gbTimeout(step,AB_SEND_SPACING_MS+Math.random()*350);return}
         if(res==='accepted'){done++;return nextTown()}
         if(res==='captcha'){noteBlocked(id,'pausado por captcha');captcha=true;return finish()}
         const cur=plan.nativeJobId?nativeQueueList(id,'build',false).find(j=>j&&j.id===plan.nativeJobId):null;

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.22
+// @version      6.0.23
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -82,6 +82,8 @@ const STORE = {
     AUTO_WALL_REPAIR: 'grepbot:auto-wall-repair',
     POP_RESCUE_FARM: 'grepbot:pop-rescue-farm',
     AB_TARGETS: 'grepbot:ab-targets',
+    AB_RANDOM: 'grepbot:ab-random',
+    AB_RANDOM_PICK: 'grepbot:ab-random-pick',
     AUTO_CAVE: 'grepbot:auto-cave',
     CAVE_THRESH: 'grepbot:cave-thresh',
     CAVE_TOWNS: 'grepbot:cave-towns',
@@ -283,7 +285,7 @@ const STORE = {
     STORE.FARM_UNITS_OPTION, STORE.FARM_RES_DRY, STORE.FARM_RES_DRY_DAY,
     STORE.QUEST_REWARDS, STORE.QUEST_HISTORY,
     STORE.ATTACK_TPL, STORE.CANCEL_TPL, STORE.HERO_TPL, STORE.HERO_EQUIP_SUGGEST, STORE.ATTACK_PLAN, STORE.ATTACK_HISTORY, STORE.ATTACK_RECENT, STORE.CAPTCHA,
-    STORE.AB_TARGETS, STORE.CAVE_TOWNS, STORE.EMERGENCY_LAST,
+    STORE.AB_TARGETS, STORE.AB_RANDOM_PICK, STORE.CAVE_TOWNS, STORE.EMERGENCY_LAST,
     STORE.RESEARCH_TARGETS, STORE.CITY_TEMPLATES, STORE.TOWN_GROUPS, STORE.DUMP_SINKS,
     STORE.MERCHANT_WISH, STORE.FAVOR_CFG, STORE.WONDER_CFG, STORE.WONDER_SPENT,
     STORE.CULTURE_GOLD_SPENT,
@@ -971,6 +973,8 @@ const STORE = {
     farmFullMode: load(STORE.FARM_FULL_MODE, 'any'),
     abAuto: load(STORE.AB_AUTO, false),
     abTargets: load(STORE.AB_TARGETS, null),
+    abRandom: load(STORE.AB_RANDOM, false),
+    abRandomPick: load(STORE.AB_RANDOM_PICK, {}),
     autoCave: load(STORE.AUTO_CAVE, false),
     caveThreshPct: load(STORE.CAVE_THRESH, 90),
 
@@ -4461,7 +4465,7 @@ const STORE = {
       ['autoCollect',STORE.AUTO_COLLECT],['collectAll',STORE.COLLECT_ALL],['autoBandit',STORE.AUTO_BANDIT],['banditCfg',STORE.BANDIT_CFG],
       ['autoFarm',STORE.AUTO_FARM],['farmScrape',STORE.FARM_SCRAPE],['farmOptionMap',STORE.FARM_OPTION_MAP],['farmLongClaims',STORE.FARM_LONG_CLAIMS],
       ['ibAuto',STORE.IB_AUTO],['ibResearch',STORE.IB_RESEARCH],['questAutoBuild',STORE.QUEST_AUTO_BUILD],['questAutoRes',STORE.QUEST_AUTO_RES],
-      ['abAuto',STORE.AB_AUTO],['abTargets',STORE.AB_TARGETS],['abOrder',STORE.AB_ORDER],['autoWallRepair',STORE.AUTO_WALL_REPAIR],['popRescueFarm',STORE.POP_RESCUE_FARM],['buildSwapThresholdMin',STORE.BUILD_SWAP_MIN],['buildSwapIgnore',STORE.BUILD_SWAP_IGNORE],
+      ['abAuto',STORE.AB_AUTO],['abRandom',STORE.AB_RANDOM],['abTargets',STORE.AB_TARGETS],['abOrder',STORE.AB_ORDER],['autoWallRepair',STORE.AUTO_WALL_REPAIR],['popRescueFarm',STORE.POP_RESCUE_FARM],['buildSwapThresholdMin',STORE.BUILD_SWAP_MIN],['buildSwapIgnore',STORE.BUILD_SWAP_IGNORE],
       ['autoResearch',STORE.AUTO_RESEARCH],['researchTargets',STORE.RESEARCH_TARGETS],
       ['autoRecruit',STORE.AUTO_RECRUIT],['recruitTargets',STORE.RECRUIT_TARGETS],['recruitSpells',STORE.RECRUIT_SPELLS],['batchRecruit',STORE.BATCH_RECRUIT],['batchRecruitLists',STORE.BATCH_RECRUIT_LISTS],['recruitPacks',STORE.RECRUIT_PACKS],['autoVillageRecruit',STORE.AUTO_VILLAGE_RECRUIT],['villageRecruitFillPct',STORE.VILLAGE_RECRUIT_FILL],['villageRecruitAmount',STORE.VILLAGE_RECRUIT_AMOUNT],
       ['autoCave',STORE.AUTO_CAVE],['caveThreshPct',STORE.CAVE_THRESH],['caveTowns',STORE.CAVE_TOWNS],['emergencyCaveAuto',STORE.EMERGENCY_CAVE_AUTO],['emergencyCaveConfirm',STORE.EMERGENCY_CAVE_CONFIRM],['emergencyCaveMinIron',STORE.EMERGENCY_CAVE_MIN],
@@ -10831,6 +10835,39 @@ const STORE = {
     }
     return { building, reason: 'priority target' };
   }
+
+  function abPickRandom(townId, levels) {
+    if (!state.abRandom || !levels) return null;
+    const candidates = AB_BUILDINGS.filter(b => AB_CS_FAST[b] != null).filter(b => {
+      if (goalQueueSuppressed(townId, 'build', b)) return false;
+      const max = abMaxLevel(b);
+      if (max == null || +(levels[b] || 0) >= max) return false;
+      const req = abRequirementMap(townId, b);
+      if (req == null) return false;
+      for (const [dep, need] of Object.entries(req)) if (+(levels[dep] || 0) < +need) return false;
+      return abCanAfford(townId, b).ok;
+    });
+    if (!candidates.length) return null;
+    const id = String(townId);
+    if (!state.abRandomPick || typeof state.abRandomPick !== 'object') state.abRandomPick = {};
+    const stored = state.abRandomPick[id];
+    let pick = stored && candidates.includes(stored.building) ? stored.building : null;
+    if (!pick) {
+      pick = candidates[Math.floor(Math.random() * candidates.length)];
+      state.abRandomPick[id] = { building: pick, at: Date.now() };
+      save(STORE.AB_RANDOM_PICK, state.abRandomPick);
+      gbLog(`auto-queue: random fallback picked ${AB_LABELS[pick] || pick} @${townId}`);
+    }
+    return { building: pick, forTarget: pick, reason: 'random fallback', cost: abBuildingCost(townId, pick) };
+  }
+  function abRandomPickClear(townId, plan) {
+    if (!plan || plan.reason !== 'random fallback') return;
+    const id = String(townId);
+    if (state.abRandomPick && state.abRandomPick[id] && state.abRandomPick[id].building === plan.building) {
+      delete state.abRandomPick[id];
+      save(STORE.AB_RANDOM_PICK, state.abRandomPick);
+    }
+  }
   function abPickNextFromLevels(townId, levels) {
     if (!levels) return null;
     const explicit=nativeQueueBuildPlan(townId,levels);
@@ -10861,7 +10898,7 @@ const STORE = {
       const out={ building: resolved.building, forTarget: target, reason: resolved.reason, cost: aff.need };if(cdIsProfile(goalTownCfg(townId).profile))out.cdRevision=cdProfileRevision(townId);return out;
     }
     const demo=cdNextDemolition(townId,levels);if(demo)return demo;
-    return null;
+    return abPickRandom(townId, levels);
   }
   function abPickNext(townId) { return abPickNextFromLevels(townId, abCurrentLevels(townId)); }
   function abFinalValidate(townId, plan) {
@@ -11015,7 +11052,7 @@ const STORE = {
       const handleResult=res=>{
         if(opSettled||!gbInstanceAlive())return;
         opSettled=true;gbClearTimeout(watchdog);release();
-        if(res==='ok'){done++;nativeQueueBuildApplied(id,plan);gbTimeout(step,AB_SEND_SPACING_MS+Math.random()*350);return}
+        if(res==='ok'){done++;abRandomPickClear(id,plan);nativeQueueBuildApplied(id,plan);gbTimeout(step,AB_SEND_SPACING_MS+Math.random()*350);return}
         if(res==='accepted'){done++;return nextTown()}
         if(res==='captcha'){noteBlocked(id,'pausado por captcha');captcha=true;return finish()}
         const cur=plan.nativeJobId?nativeQueueList(id,'build',false).find(j=>j&&j.id===plan.nativeJobId):null;
@@ -28029,6 +28066,7 @@ const STORE = {
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Segundos antes de acabar para considerarlo gratis (max 290)">Umbral de instantanea gratis (s, tope de seguridad 290) <input class="gb-cfg-input" type="number" data-cfg="ib-free-thresh" min="60" max="300" style="width:70px"/></label>
           <label class="gb-cfg-row" data-gb-tip="Anadir automaticamente el siguiente edificio del plan a la cola"><input type="checkbox" data-cfg="auto-queue"/> Cola de construccion automatica</label>
           <label class="gb-cfg-row gb-cfg-sub" title="Si el coste de poblacion de la siguiente construccion supera la poblacion libre de la ciudad, mete 2 niveles de granja al principio de la cola. Antes comprueba lo que ya se esta construyendo (cola real + cola virtual); si la granja ya esta en marcha o al maximo, no hace nada."><input type="checkbox" data-cfg="pop-rescue-farm"/> Granja automatica si falta poblacion</label>
+          <label class="gb-cfg-row gb-cfg-sub" title="Cuando el plan de construccion esta agotado (todos los objetivos cumplidos) y la cola real tiene hueco, encola un edificio basico aleatorio que se pueda pagar y cumpla requisitos. Solo los 13 edificios basicos; nunca edificios especiales. Por defecto OFF."><input type="checkbox" data-cfg="ab-random"/> Construccion aleatoria al agotar el plan</label>
           <label class="gb-cfg-row gb-cfg-sub" title="Un muro danado conserva su nivel, asi que el planificador no lo ve. Con esto activado el nivel efectivo baja segun el dano y la cola lo reconstruye. Gasta recursos: por defecto OFF."><input type="checkbox" data-cfg="auto-wall-repair"/> Reparar muralla danada</label>
           <label class="gb-cfg-num gb-cfg-sub" title="Si la cabeza de la cola lleva bloqueada por recursos mas de estos minutos, Colas > Construccion ofrece ascender la siguiente orden que SI se puede pagar. Solo sugerencia: nunca reordena solo. 0 = desactivado.">Sugerir adelanto tras <input class="gb-cfg-input" type="number" data-cfg="build-swap-min" min="0" max="120" style="width:45px"/> min bloqueada</label>
           <label class="gb-cfg-row gb-cfg-sub" title="Muestra en Colas > Construccion una secuencia aconsejada. Solo consejo: la cola FIFO manda y nada se envia sin pulsar el boton."><input type="checkbox" data-cfg="ab-optimal-order"/> Secuencia optima de construccion (consejo)</label>
@@ -28983,6 +29021,7 @@ const STORE = {
     setChk('[data-cfg=auto-build]', state.ibAuto);
     setChk('[data-cfg=instant-research]', state.ibResearch);
     setChk('[data-cfg=auto-queue]', state.abAuto);
+    setChk('[data-cfg=ab-random]', !!state.abRandom);
     setChk('[data-cfg=auto-wall-repair]', !!state.autoWallRepair);
     setChk('[data-cfg=pop-rescue-farm]', !!state.popRescueFarm);
     setNum('[data-cfg=build-swap-min]', gbCfgNum(state.buildSwapThresholdMin, 5));
@@ -29089,6 +29128,12 @@ const STORE = {
       state.autoWallRepair = !!e.target.checked;
       save(STORE.AUTO_WALL_REPAIR, state.autoWallRepair);
       gbLog('wall repair ' + (state.autoWallRepair ? 'ON - damaged walls count as below target' : 'OFF'));
+      try { abScan('toggle'); } catch (_) {}
+    });
+    onCfg('[data-cfg=ab-random]', 'change', e => {
+      state.abRandom = !!e.target.checked;
+      save(STORE.AB_RANDOM, state.abRandom);
+      gbLog('random build fallback ' + (state.abRandom ? 'ON - random building when plan exhausted' : 'OFF'));
       try { abScan('toggle'); } catch (_) {}
     });
     onCfg('[data-cfg=auto-queue]', 'change', e => {
