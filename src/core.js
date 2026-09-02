@@ -184,6 +184,8 @@ const STORE = {
     DECISION_SKIPS: 'grepbot:decision-skips',
     DECISION_MEM: 'grepbot:decision-memory',
     DRY_RUN: 'grepbot:dry-run',
+    FIRST_POST_CONFIRM: 'grepbot:first-post-confirm',
+    FIRST_POST_LIVE: 'grepbot:first-post-live',
     EXPORT_REDACT: 'grepbot:export-redact',
     SERVER_COOLDOWN: 'grepbot:server-cooldown',
     QUEST_CLAIM_FAIL: 'grepbot:quest-claim-fail',
@@ -279,6 +281,7 @@ const STORE = {
 
     STORE.FARM_SCRAPE, STORE.FARM_SCRAPE_STATE, STORE.TOWN_ACTION, STORE.TOWN_LIST_ACTION,
     STORE.PT_TRADE_TPL, STORE.PT_VIEW_URL,
+    STORE.FIRST_POST_LIVE,
     STORE.WEBHOOK_RATELIMIT, STORE.WEBHOOK_PENDING, STORE.TELEGRAM_CAPTCHA_STATE, STORE.TELEGRAM_MONITOR_STATE, STORE.TELEGRAM_DIAG_STATE,
   ]);
   function wkey(base) { return base + '@' + location.hostname; }
@@ -989,7 +992,18 @@ const STORE = {
     emergencyLastStash: load(STORE.EMERGENCY_LAST, {}) || {},
     caveTowns: load(STORE.CAVE_TOWNS, {}),
     autoCulture: load(STORE.AUTO_CULTURE, false),
-    cultureTypes: load(STORE.CULTURE_TYPES, { festival: true, procession: false, theater: false, olympic: false }),
+    cultureTypes: (() => {
+      const d = { festival: true, procession: false, theater: false, olympic: false };
+      const raw = load(STORE.CULTURE_TYPES, d);
+      if (!raw || typeof raw !== 'object') return d;
+      // Match Config UI: festival defaults ON unless explicitly false.
+      return {
+        festival: raw.festival !== false,
+        procession: !!raw.procession,
+        theater: !!raw.theater,
+        olympic: !!raw.olympic,
+      };
+    })(),
     allowPremiumCulture: load(STORE.ALLOW_PREMIUM_CULTURE, false),
     cultureGoldBudget: load(STORE.CULTURE_GOLD_BUDGET, 0),
     autoTrade: load(STORE.AUTO_TRADE, false),
@@ -1086,6 +1100,8 @@ const STORE = {
     decisionSkips: load(STORE.DECISION_SKIPS, {}),
     decisionMemory: load(STORE.DECISION_MEM, true),
     dryRun: load(STORE.DRY_RUN, false),
+    firstPostConfirm: load(STORE.FIRST_POST_CONFIRM, true),
+    firstPostLive: load(wkey(STORE.FIRST_POST_LIVE), {}),
     intelBattleStats: load(STORE.INTEL_BATTLE_STATS, true),
     exportRedact: load(STORE.EXPORT_REDACT, true),
     txState: load(STORE.TX_STATE, {}),

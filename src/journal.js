@@ -5,6 +5,7 @@
 
   const JRN_SKIP_ERRS = {
     disabled: 1, paused: 1, 'captcha-pause': 1, budget: 1, noajax: 1, remembered: 1, dryrun: 1,
+    'first-post-confirm': 1,
     disposed: 1, 'tpl-stale': 1, 'circuit-open': 1,
     'safe-mode-high-impact': 1, 'safe-mode-premium': 1,
   };

@@ -397,6 +397,39 @@
         detail: `${readable}/${ids.length} towns readable, ${withHide} with a hide`,
       };
     }));
+    out.push(preflightProbe('culture', () => {
+      const on = !!state.autoCulture;
+      const enabled = (typeof cultureEnabledTypes === 'function') ? cultureEnabledTypes() : [];
+      const ids = (typeof caveListTownIds === 'function') ? (caveListTownIds() || []) : [];
+      const parts = [
+        `auto ${on ? 'ON' : 'OFF'}`,
+        `types ${enabled.length ? enabled.join('+') : 'none'}`,
+      ];
+      if (cultureTypeEnabled && cultureTypeEnabled('olympic') && !state.allowPremiumCulture) {
+        parts.push('olympic blocked (premium OFF)');
+      }
+      if (!ids.length) return { ok: false, warn: on, detail: parts.join(', ') + ', no towns readable' };
+      const tid = ids[0];
+      const info = researchTownTechs(tid);
+      if (!info || info.academy == null) parts.push(`town ${tid} academy UNREADABLE`);
+      else parts.push(`town ${tid} academy ${info.academy}`);
+      const ledger = { killpoints: cultureKillpointsAvailable(), goldSpent: cultureGoldSpentLoad().amount, playerGold: culturePlayerGold(), res: {} };
+      try {
+        const t = gbTownModel(tid);
+        if (t && t.resources) ledger.res[tid] = Object.assign({}, t.resources());
+      } catch (_) {}
+      let ready = 0;
+      for (const ui of enabled) {
+        const ctype = ({ festival: 'party', procession: 'triumph', theater: 'theater', olympic: 'olympic' })[ui] || ui;
+        if (cultureCanAfford(tid, ctype, ledger)) ready++;
+      }
+      parts.push(`${ready}/${enabled.length} affordable on sample town`);
+      return {
+        ok: !on || (enabled.length > 0 && ready > 0),
+        warn: on && (enabled.length === 0 || ready === 0),
+        detail: parts.join(', '),
+      };
+    }));
     out.push(preflightProbe('trade', () => {
       const t = tradeListTowns() || [];
       const cap = t.filter(x => x.cap > 0).length;

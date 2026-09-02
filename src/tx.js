@@ -716,6 +716,29 @@
     });
     return n;
   }
+  function firstPostLiveOk(feature) {
+    if (!state.firstPostConfirm) return true;
+    const m = state.firstPostLive;
+    return !!(m && m[String(feature)]);
+  }
+  function firstPostLiveAuthorize(feature) {
+    if (!feature) return false;
+    if (!state.firstPostLive || typeof state.firstPostLive !== 'object') state.firstPostLive = {};
+    state.firstPostLive[String(feature)] = Date.now();
+    save(wkey(STORE.FIRST_POST_LIVE), state.firstPostLive);
+    gbLog('first-post-live: authorized ' + feature);
+    return true;
+  }
+  function firstPostLiveAuthorizeAll() {
+    const pending = firstPostLivePendingFeatures();
+    pending.forEach(f => firstPostLiveAuthorize(f));
+    return pending.length;
+  }
+  function firstPostLivePendingFeatures() {
+    if (!state.firstPostConfirm) return [];
+    const m = state.firstPostLive || {};
+    return [...TX_WRITE_FEATURES].filter(f => !m[f]).sort();
+  }
   function txActionGate(feature, write, jtag) {
     if (!gbInstanceAlive()) return 'disposed';
     if (!hostEnabled()) return 'disabled';
@@ -725,6 +748,7 @@
     if (write && circuitOpen(feature)) return 'circuit-open';
     if (jtag && jrnSkipped(jtag)) return 'remembered';
     if (write && state.dryRun) return 'dryrun';
+    if (write && !state.dryRun && state.firstPostConfirm && !firstPostLiveOk(feature)) return 'first-post-confirm';
 
     if (!reqBudgetOk(write ? 'action' : 'read')) return 'budget';
     return null;

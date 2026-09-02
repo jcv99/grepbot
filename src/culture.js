@@ -4,7 +4,20 @@
     theater: { wood: 10000, stone: 12000, iron: 10000, theater: 1, academy: 30 },
     olympic: { gold: 50, academy: 30 },
   };
+  const CULTURE_UI_TYPES = ['festival', 'procession', 'theater', 'olympic'];
   const OLYMPIC_GOLD = 50;
+  function cultureTypeEnabled(key) {
+    const ct = state.cultureTypes || {};
+    if (key === 'festival') return ct.festival !== false;
+    return !!ct[key];
+  }
+  function cultureEnabledTypes() {
+    return CULTURE_UI_TYPES.filter(k => {
+      if (!cultureTypeEnabled(k)) return false;
+      if (k === 'olympic' && !state.allowPremiumCulture) return false;
+      return true;
+    });
+  }
   let cultureLast = null;
   function cultureGoldSpentLoad() {
     const day = gbServerDay();
@@ -46,9 +59,10 @@
       `culture: ${type} @${townId} ${what} unreadable - letting the server decide`);
     return true;
   }
-  function cultureCanAfford(townId, type, ledger) {
+  function cultureCanAfford(townId, type, ledger, opts) {
     const cost = CULTURE_COSTS[type];
     if (!cost) return false;
+    const blindOk = !!(opts && opts.blind);
     if (type === 'olympic') {
 
       if (!state.allowPremiumCulture) return false;
@@ -57,39 +71,45 @@
 
       if (!(budget >= OLYMPIC_GOLD) || spent + OLYMPIC_GOLD > budget) return false;
       const gold = ledger && ledger.playerGold != null ? ledger.playerGold : culturePlayerGold();
-      if (gold == null) return cultureBlind('gold', townId, type);
+      if (gold == null) return blindOk ? cultureBlind('gold', townId, type) : false;
       if (gold < OLYMPIC_GOLD) return false;
     }
     if (cost.killpoints) {
       const kp = ledger && ledger.killpoints != null ? ledger.killpoints : cultureKillpointsAvailable();
-      if (kp == null) return cultureBlind('killpoints', townId, type);
+      if (kp == null) return false;
       return kp >= cost.killpoints;
     }
-    const t = gbTownModel(townId);
-    if (!t) return cultureBlind('town-model', townId, type);
+    if (!gbTownModel(townId)) return blindOk ? cultureBlind('town-model', townId, type) : false;
     try {
       if (cost.academy) {
-        const acad = gbBuildingLevel(townId, 'academy');
-        if (acad == null) return cultureBlind('academy', townId, type);
+        const info = researchTownTechs(townId);
+        const acad = info && info.academy;
+        if (acad == null) return blindOk ? cultureBlind('academy', townId, type) : false;
         if (acad < cost.academy) return false;
       }
       if (cost.theater) {
         const th = gbBuildingLevel(townId, 'theater');
-        if (th == null) return cultureBlind('theater', townId, type);
+        if (th == null) return blindOk ? cultureBlind('theater', townId, type) : false;
         if (th < cost.theater) return false;
       }
       if (cost.gold) return true;
-      const r = (ledger && ledger.res && ledger.res[townId]) || (t.resources && t.resources());
-      if (!r) return cultureBlind('resources', townId, type);
-      for (const k of GB_RES_KEYS) {
-        const need = +cost[k] || 0;
-        if (need <= 0) continue;
-
-        if (r[k] == null || !isFinite(+r[k])) return cultureBlind(k, townId, type);
-        if (+r[k] < need) return false;
-      }
-      return true;
-    } catch (_) { return cultureBlind('read-error', townId, type); }
+      const aff = gbAfford(townId, cost);
+      if (aff.blind) return blindOk ? cultureBlind('resources', townId, type) : false;
+      return aff.ok;
+    } catch (_) { return blindOk ? cultureBlind('read-error', townId, type) : false; }
+  }
+  function cultureIdleHint(ids, enabled, ledger) {
+    if (!ids.length) return 'no towns';
+    const id = ids[0];
+    const bits = [];
+    for (const ui of enabled) {
+      const ctype = ({ festival: 'party', procession: 'triumph', theater: 'theater', olympic: 'olympic' })[ui] || ui;
+      const busy = cultureBusyTowns(ctype);
+      if (busy.has(+id)) { bits.push(`${ui}:busy`); continue; }
+      if (!cultureCanAfford(id, ctype, ledger)) bits.push(`${ui}:cant-afford`);
+      else bits.push(`${ui}:ready`);
+    }
+    return `town ${id}: ${bits.join(', ')}`;
   }
   function cultureStart(type, townId, onDone) {
 
@@ -117,17 +137,16 @@
   function cultureScan(reason) {
     if (!hostEnabled() || !state.autoCulture || captchaPaused('culture')) return;
     if (automationPaused({})) return;
-    const types = state.cultureTypes || {};
+    if (!gameBridgeReady()) { gbLogT('culture-nobridge', 60000, 'culture: game bridge not ready'); return; }
 
-    const enabled = Object.keys(types).filter(k => {
-      if (!types[k]) return false;
-      if (k === 'olympic' && !state.allowPremiumCulture) {
-        gbLogT('culture-olympic-block', 300000, 'culture: olympic ignored (allowPremiumCulture OFF)');
-        return false;
-      }
-      return true;
-    });
-    if (!enabled.length) return;
+    const enabled = cultureEnabledTypes();
+    if (cultureTypeEnabled('olympic') && !state.allowPremiumCulture) {
+      gbLogT('culture-olympic-block', 300000, 'culture: olympic ignored (allowPremiumCulture OFF)');
+    }
+    if (!enabled.length) {
+      gbLogT('culture-notypes', 300000, 'culture: no celebration types enabled in Config');
+      return;
+    }
     const ids = (typeof caveListTownIds === 'function') ? caveListTownIds() : [];
     if (!ids.length) {
       try {
@@ -184,7 +203,7 @@
       if (jobs.length >= 8) break;
     }
     if (!jobs.length) {
-      gbLogT('culture-idle', 180000, `culture: nothing to start (${scanReason(reason)})`);
+      gbLogT('culture-idle', 180000, `culture: nothing to start (${scanReason(reason)}) — ${cultureIdleHint(ids, enabled, ledger)}`);
       return;
     }
     let i=0,done=0,stopped=false;
@@ -203,7 +222,7 @@
         held.push({name,token:tok});
       }
       const release=()=>{for(const h of held)gbUnlock(h.name,h.token)};
-      if(!cultureCanAfford(job.id,job.ctype)){
+      if(!cultureCanAfford(job.id,job.ctype,null,{blind:true})){
         release();gbTimeout(next,200);return;
       }
       cultureStart(job.type,job.id,(err)=>{

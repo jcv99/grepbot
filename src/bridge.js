@@ -513,16 +513,16 @@
     if (!t) return null;
     try {
       if (t.getBuildings) {
-        const v = +t.getBuildings().get(building);
-        if (isFinite(v)) return v;
+        const v = gbNum(t.getBuildings().get(building));
+        if (v != null) return v;
       }
     } catch (_) {}
     try {
       const a = (t.buildings && t.buildings().attributes) || {};
 
       if (a[building] != null) {
-        const v = +a[building];
-        if (Number.isFinite(v)) return v;
+        const v = gbNum(a[building]);
+        if (v != null) return v;
       }
     } catch (_) {}
     return null;
@@ -615,7 +615,7 @@
     // source of truth; current in-memory values are only fallbacks if a key is
     // missing, never replacements after a read error.
     const reloadFields = [
-      ['configVer',STORE.CONFIG_VER],['dryRun',STORE.DRY_RUN],['safeMode',STORE.SAFE_MODE],
+      ['configVer',STORE.CONFIG_VER],['dryRun',STORE.DRY_RUN],['firstPostConfirm',STORE.FIRST_POST_CONFIRM],['safeMode',STORE.SAFE_MODE],
       ['autoCollect',STORE.AUTO_COLLECT],['collectAll',STORE.COLLECT_ALL],['autoBandit',STORE.AUTO_BANDIT],['banditCfg',STORE.BANDIT_CFG],
       ['autoFarm',STORE.AUTO_FARM],['farmScrape',STORE.FARM_SCRAPE],['farmOptionMap',STORE.FARM_OPTION_MAP],['farmLongClaims',STORE.FARM_LONG_CLAIMS],
       ['ibAuto',STORE.IB_AUTO],['ibResearch',STORE.IB_RESEARCH],['questAutoBuild',STORE.QUEST_AUTO_BUILD],['questAutoRes',STORE.QUEST_AUTO_RES],

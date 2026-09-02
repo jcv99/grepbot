@@ -300,11 +300,10 @@
 
     if (preset === 'party') {
       // Independent mode: do not reserve iron for a future cave action.
-      const types = state.cultureTypes || {};
       const order = ['festival', 'theater', 'procession'];
       let ctype = null;
       for (const ui of order) {
-        if (!types[ui]) continue;
+        if (!cultureTypeEnabled(ui)) continue;
         ctype = ({ festival: 'party', procession: 'triumph', theater: 'theater' })[ui] || ui;
         if (ctype === 'triumph') continue;
         break;

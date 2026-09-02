@@ -1330,6 +1330,7 @@
           <label class="gb-cfg-row" data-gb-tip="Activar el bot solo en este dominio (marcado por mundo)"><input type="checkbox" data-cfg="enabled-host"/> Activar en <span class="cfg-host"></span></label>
           <label class="gb-cfg-row gb-cfg-warn" data-gb-tip="Bloquea premium, ataques, favor, puntos y donaciones"><input type="checkbox" data-cfg="safe-mode"/> MODO SEGURO (bloquea premium/ataques/favor/puntos/donaciones)</label>
           <label class="gb-cfg-row" title="Registra cada payload que el bot enviaria y no envia nada. Sirve para comparar el payload del bot con una accion pulsada a mano antes de activar algo arriesgado."><input type="checkbox" data-cfg="dry-run"/> <b class="gb-cfg-accent">Simulacion (registra payloads, no envia nada)</b></label>
+          <label class="gb-cfg-row" title="Con la simulacion OFF, pide autorizar una vez cada modulo de escritura en este mundo antes del primer envio real."><input type="checkbox" data-cfg="first-post-confirm"/> Confirmar primer envio en vivo por modulo</label>
           <label class="gb-cfg-row" data-gb-tip="Apagado global de captcha: cualquier captcha detiene todo el bot"><input type="checkbox" data-cfg="captcha-global"/> Interruptor global de captcha</label>
           <label class="gb-cfg-row" title="Salta una accion que fallo igual 3 veces seguidas (5/15/60 min de espera). La bitacora sigue registrando en ambos casos."><input type="checkbox" data-cfg="decision-memory"/> Memoria de decisiones (salta fallos repetidos)</label>
           <label class="gb-cfg-num" data-gb-tip="Numero maximo de envios al servidor por minuto (presupuesto duro)">Presupuesto de peticiones / min <input class="gb-cfg-input" type="number" data-cfg="req-budget" min="5" max="120" style="width:50px"/></label>
@@ -1662,6 +1663,7 @@
           <button type="button" data-act="evidence" title="Instantanea de solo lectura y anonimizada para las validaciones de TASKS. Copia JSON. No envia nada.">Evidencia</button>
           <button type="button" data-act="clear" data-gb-tip="Borrar los hallazgos de inteligencia almacenados">Limpiar hallazgos</button>
           <div class="gb-menu-h">Diagnóstico</div>
+          <button type="button" data-act="first-post-live" title="Autoriza el primer envio real de cada modulo de escritura en este mundo. Solo se pide una vez por modulo.">Autorizar envios en vivo</button>
           <button type="button" data-act="diag" data-gb-tip="Volcar diagnostico de bridge y estado de partidas">Diagnóstico del puente</button>
           <button type="button" data-act="diag-farms" title="Vuelca en el Registro, por aldea: cupo diario restante, marca de agotado, tipo de cobro elegido y la carta de unidad. Solo lectura, no envia nada.">Diagnóstico de aldeas</button>
           <div class="gb-menu-h">Ventana</div>
@@ -2201,6 +2203,16 @@
     showTab('stats');
     preflightRunAndRender();
   });
+  panel.querySelector('footer button[data-act=first-post-live]')?.addEventListener('click', () => {
+    if (!state.firstPostConfirm) { flash('Confirmacion de primer envio desactivada en Ajustes'); return; }
+    const pending = firstPostLivePendingFeatures();
+    if (!pending.length) { flash('Todos los modulos ya autorizados para envio en vivo'); return; }
+    const preview = pending.slice(0, 14).join(', ') + (pending.length > 14 ? '…' : '');
+    if (!confirm(`Autorizar el primer envio en vivo de estos modulos en este mundo?\n\n${preview}\n\nSolo se pide una vez por modulo y mundo.`)) return;
+    const n = firstPostLiveAuthorizeAll();
+    flash(`Autorizados ${n} modulo(s) para envio en vivo`);
+    gbLog(`first-post-live: authorized ${n} module(s)`);
+  });
   panel.querySelector('footer button[data-act=scrape-farms]').addEventListener('click', () => {
     flash('farm scrape...');
     gbLog('manual: Farms now pressed');
@@ -2609,6 +2621,7 @@
     setChk('[data-cfg=captcha-global]', state.captchaGlobalKill !== false);
     setChk('[data-cfg=decision-memory]', state.decisionMemory !== false);
     setChk('[data-cfg=dry-run]', !!state.dryRun);
+    setChk('[data-cfg=first-post-confirm]', state.firstPostConfirm !== false);
 
     // safe-mode had a change listener but no value-set, so the box always
     // rendered UNCHECKED while state.safeMode was true - the panel and
@@ -2786,7 +2799,14 @@
         }
         if (swept) { txSave(); gbLog(`dry-run OFF: swept ${swept} stale txState entries`); }
       }
+      if (!state.dryRun && state.firstPostConfirm) {
+        const pending = firstPostLivePendingFeatures();
+        if (pending.length) {
+          flash(`Confirmacion de primer envio: ${pending.length} modulo(s) pendientes. Acciones > Autorizar envios en vivo.`);
+        }
+      }
     });
+    bindToggle('[data-cfg=first-post-confirm]', 'firstPostConfirm', STORE.FIRST_POST_CONFIRM);
     bindToggle('[data-cfg=auto-merchant]', 'autoMerchant', STORE.AUTO_MERCHANT, () => merchantScan('toggle'));
     bindToggle('[data-cfg=auto-pt-trade]', 'autoPtTrade', STORE.AUTO_PT_TRADE, () => ptTradeScan('toggle'));
     bindToggle('[data-cfg=auto-wonder-favor]', 'autoWonderFavor', STORE.AUTO_WONDER_FAVOR);
@@ -2847,6 +2867,7 @@
         olympic: !!sec.querySelector('[data-cfg=cult-olympic]')?.checked,
       };
       save(STORE.CULTURE_TYPES, state.cultureTypes);
+      try { cultureScan('cfg'); } catch (_) {}
     };
     ['cult-festival', 'cult-procession', 'cult-theater', 'cult-olympic'].forEach(k => {
       onCfg('[data-cfg=' + k + ']', 'change', saveCult);

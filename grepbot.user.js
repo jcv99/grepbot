@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.26
+// @version      6.0.29
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -207,6 +207,8 @@ const STORE = {
     DECISION_SKIPS: 'grepbot:decision-skips',
     DECISION_MEM: 'grepbot:decision-memory',
     DRY_RUN: 'grepbot:dry-run',
+    FIRST_POST_CONFIRM: 'grepbot:first-post-confirm',
+    FIRST_POST_LIVE: 'grepbot:first-post-live',
     EXPORT_REDACT: 'grepbot:export-redact',
     SERVER_COOLDOWN: 'grepbot:server-cooldown',
     QUEST_CLAIM_FAIL: 'grepbot:quest-claim-fail',
@@ -302,6 +304,7 @@ const STORE = {
 
     STORE.FARM_SCRAPE, STORE.FARM_SCRAPE_STATE, STORE.TOWN_ACTION, STORE.TOWN_LIST_ACTION,
     STORE.PT_TRADE_TPL, STORE.PT_VIEW_URL,
+    STORE.FIRST_POST_LIVE,
     STORE.WEBHOOK_RATELIMIT, STORE.WEBHOOK_PENDING, STORE.TELEGRAM_CAPTCHA_STATE, STORE.TELEGRAM_MONITOR_STATE, STORE.TELEGRAM_DIAG_STATE,
   ]);
   function wkey(base) { return base + '@' + location.hostname; }
@@ -986,7 +989,18 @@ const STORE = {
     emergencyLastStash: load(STORE.EMERGENCY_LAST, {}) || {},
     caveTowns: load(STORE.CAVE_TOWNS, {}),
     autoCulture: load(STORE.AUTO_CULTURE, false),
-    cultureTypes: load(STORE.CULTURE_TYPES, { festival: true, procession: false, theater: false, olympic: false }),
+    cultureTypes: (() => {
+      const d = { festival: true, procession: false, theater: false, olympic: false };
+      const raw = load(STORE.CULTURE_TYPES, d);
+      if (!raw || typeof raw !== 'object') return d;
+
+      return {
+        festival: raw.festival !== false,
+        procession: !!raw.procession,
+        theater: !!raw.theater,
+        olympic: !!raw.olympic,
+      };
+    })(),
     allowPremiumCulture: load(STORE.ALLOW_PREMIUM_CULTURE, false),
     cultureGoldBudget: load(STORE.CULTURE_GOLD_BUDGET, 0),
     autoTrade: load(STORE.AUTO_TRADE, false),
@@ -1083,6 +1097,8 @@ const STORE = {
     decisionSkips: load(STORE.DECISION_SKIPS, {}),
     decisionMemory: load(STORE.DECISION_MEM, true),
     dryRun: load(STORE.DRY_RUN, false),
+    firstPostConfirm: load(STORE.FIRST_POST_CONFIRM, true),
+    firstPostLive: load(wkey(STORE.FIRST_POST_LIVE), {}),
     intelBattleStats: load(STORE.INTEL_BATTLE_STATS, true),
     exportRedact: load(STORE.EXPORT_REDACT, true),
     txState: load(STORE.TX_STATE, {}),
@@ -3600,6 +3616,29 @@ const STORE = {
     });
     return n;
   }
+  function firstPostLiveOk(feature) {
+    if (!state.firstPostConfirm) return true;
+    const m = state.firstPostLive;
+    return !!(m && m[String(feature)]);
+  }
+  function firstPostLiveAuthorize(feature) {
+    if (!feature) return false;
+    if (!state.firstPostLive || typeof state.firstPostLive !== 'object') state.firstPostLive = {};
+    state.firstPostLive[String(feature)] = Date.now();
+    save(wkey(STORE.FIRST_POST_LIVE), state.firstPostLive);
+    gbLog('first-post-live: authorized ' + feature);
+    return true;
+  }
+  function firstPostLiveAuthorizeAll() {
+    const pending = firstPostLivePendingFeatures();
+    pending.forEach(f => firstPostLiveAuthorize(f));
+    return pending.length;
+  }
+  function firstPostLivePendingFeatures() {
+    if (!state.firstPostConfirm) return [];
+    const m = state.firstPostLive || {};
+    return [...TX_WRITE_FEATURES].filter(f => !m[f]).sort();
+  }
   function txActionGate(feature, write, jtag) {
     if (!gbInstanceAlive()) return 'disposed';
     if (!hostEnabled()) return 'disabled';
@@ -3609,6 +3648,7 @@ const STORE = {
     if (write && circuitOpen(feature)) return 'circuit-open';
     if (jtag && jrnSkipped(jtag)) return 'remembered';
     if (write && state.dryRun) return 'dryrun';
+    if (write && !state.dryRun && state.firstPostConfirm && !firstPostLiveOk(feature)) return 'first-post-confirm';
 
     if (!reqBudgetOk(write ? 'action' : 'read')) return 'budget';
     return null;
@@ -4352,16 +4392,16 @@ const STORE = {
     if (!t) return null;
     try {
       if (t.getBuildings) {
-        const v = +t.getBuildings().get(building);
-        if (isFinite(v)) return v;
+        const v = gbNum(t.getBuildings().get(building));
+        if (v != null) return v;
       }
     } catch (_) {}
     try {
       const a = (t.buildings && t.buildings().attributes) || {};
 
       if (a[building] != null) {
-        const v = +a[building];
-        if (Number.isFinite(v)) return v;
+        const v = gbNum(a[building]);
+        if (v != null) return v;
       }
     } catch (_) {}
     return null;
@@ -4446,7 +4486,7 @@ const STORE = {
     if(skips)state.decisionSkips=skips;
 
     const reloadFields = [
-      ['configVer',STORE.CONFIG_VER],['dryRun',STORE.DRY_RUN],['safeMode',STORE.SAFE_MODE],
+      ['configVer',STORE.CONFIG_VER],['dryRun',STORE.DRY_RUN],['firstPostConfirm',STORE.FIRST_POST_CONFIRM],['safeMode',STORE.SAFE_MODE],
       ['autoCollect',STORE.AUTO_COLLECT],['collectAll',STORE.COLLECT_ALL],['autoBandit',STORE.AUTO_BANDIT],['banditCfg',STORE.BANDIT_CFG],
       ['autoFarm',STORE.AUTO_FARM],['farmScrape',STORE.FARM_SCRAPE],['farmOptionMap',STORE.FARM_OPTION_MAP],['farmLongClaims',STORE.FARM_LONG_CLAIMS],
       ['ibAuto',STORE.IB_AUTO],['ibResearch',STORE.IB_RESEARCH],['questAutoBuild',STORE.QUEST_AUTO_BUILD],['questAutoRes',STORE.QUEST_AUTO_RES],
@@ -4567,6 +4607,7 @@ const STORE = {
 
   const JRN_SKIP_ERRS = {
     disabled: 1, paused: 1, 'captcha-pause': 1, budget: 1, noajax: 1, remembered: 1, dryrun: 1,
+    'first-post-confirm': 1,
     disposed: 1, 'tpl-stale': 1, 'circuit-open': 1,
     'safe-mode-high-impact': 1, 'safe-mode-premium': 1,
   };
@@ -11449,7 +11490,20 @@ const STORE = {
     theater: { wood: 10000, stone: 12000, iron: 10000, theater: 1, academy: 30 },
     olympic: { gold: 50, academy: 30 },
   };
+  const CULTURE_UI_TYPES = ['festival', 'procession', 'theater', 'olympic'];
   const OLYMPIC_GOLD = 50;
+  function cultureTypeEnabled(key) {
+    const ct = state.cultureTypes || {};
+    if (key === 'festival') return ct.festival !== false;
+    return !!ct[key];
+  }
+  function cultureEnabledTypes() {
+    return CULTURE_UI_TYPES.filter(k => {
+      if (!cultureTypeEnabled(k)) return false;
+      if (k === 'olympic' && !state.allowPremiumCulture) return false;
+      return true;
+    });
+  }
   let cultureLast = null;
   function cultureGoldSpentLoad() {
     const day = gbServerDay();
@@ -11491,9 +11545,10 @@ const STORE = {
       `culture: ${type} @${townId} ${what} unreadable - letting the server decide`);
     return true;
   }
-  function cultureCanAfford(townId, type, ledger) {
+  function cultureCanAfford(townId, type, ledger, opts) {
     const cost = CULTURE_COSTS[type];
     if (!cost) return false;
+    const blindOk = !!(opts && opts.blind);
     if (type === 'olympic') {
 
       if (!state.allowPremiumCulture) return false;
@@ -11502,39 +11557,45 @@ const STORE = {
 
       if (!(budget >= OLYMPIC_GOLD) || spent + OLYMPIC_GOLD > budget) return false;
       const gold = ledger && ledger.playerGold != null ? ledger.playerGold : culturePlayerGold();
-      if (gold == null) return cultureBlind('gold', townId, type);
+      if (gold == null) return blindOk ? cultureBlind('gold', townId, type) : false;
       if (gold < OLYMPIC_GOLD) return false;
     }
     if (cost.killpoints) {
       const kp = ledger && ledger.killpoints != null ? ledger.killpoints : cultureKillpointsAvailable();
-      if (kp == null) return cultureBlind('killpoints', townId, type);
+      if (kp == null) return false;
       return kp >= cost.killpoints;
     }
-    const t = gbTownModel(townId);
-    if (!t) return cultureBlind('town-model', townId, type);
+    if (!gbTownModel(townId)) return blindOk ? cultureBlind('town-model', townId, type) : false;
     try {
       if (cost.academy) {
-        const acad = gbBuildingLevel(townId, 'academy');
-        if (acad == null) return cultureBlind('academy', townId, type);
+        const info = researchTownTechs(townId);
+        const acad = info && info.academy;
+        if (acad == null) return blindOk ? cultureBlind('academy', townId, type) : false;
         if (acad < cost.academy) return false;
       }
       if (cost.theater) {
         const th = gbBuildingLevel(townId, 'theater');
-        if (th == null) return cultureBlind('theater', townId, type);
+        if (th == null) return blindOk ? cultureBlind('theater', townId, type) : false;
         if (th < cost.theater) return false;
       }
       if (cost.gold) return true;
-      const r = (ledger && ledger.res && ledger.res[townId]) || (t.resources && t.resources());
-      if (!r) return cultureBlind('resources', townId, type);
-      for (const k of GB_RES_KEYS) {
-        const need = +cost[k] || 0;
-        if (need <= 0) continue;
-
-        if (r[k] == null || !isFinite(+r[k])) return cultureBlind(k, townId, type);
-        if (+r[k] < need) return false;
-      }
-      return true;
-    } catch (_) { return cultureBlind('read-error', townId, type); }
+      const aff = gbAfford(townId, cost);
+      if (aff.blind) return blindOk ? cultureBlind('resources', townId, type) : false;
+      return aff.ok;
+    } catch (_) { return blindOk ? cultureBlind('read-error', townId, type) : false; }
+  }
+  function cultureIdleHint(ids, enabled, ledger) {
+    if (!ids.length) return 'no towns';
+    const id = ids[0];
+    const bits = [];
+    for (const ui of enabled) {
+      const ctype = ({ festival: 'party', procession: 'triumph', theater: 'theater', olympic: 'olympic' })[ui] || ui;
+      const busy = cultureBusyTowns(ctype);
+      if (busy.has(+id)) { bits.push(`${ui}:busy`); continue; }
+      if (!cultureCanAfford(id, ctype, ledger)) bits.push(`${ui}:cant-afford`);
+      else bits.push(`${ui}:ready`);
+    }
+    return `town ${id}: ${bits.join(', ')}`;
   }
   function cultureStart(type, townId, onDone) {
 
@@ -11562,17 +11623,16 @@ const STORE = {
   function cultureScan(reason) {
     if (!hostEnabled() || !state.autoCulture || captchaPaused('culture')) return;
     if (automationPaused({})) return;
-    const types = state.cultureTypes || {};
+    if (!gameBridgeReady()) { gbLogT('culture-nobridge', 60000, 'culture: game bridge not ready'); return; }
 
-    const enabled = Object.keys(types).filter(k => {
-      if (!types[k]) return false;
-      if (k === 'olympic' && !state.allowPremiumCulture) {
-        gbLogT('culture-olympic-block', 300000, 'culture: olympic ignored (allowPremiumCulture OFF)');
-        return false;
-      }
-      return true;
-    });
-    if (!enabled.length) return;
+    const enabled = cultureEnabledTypes();
+    if (cultureTypeEnabled('olympic') && !state.allowPremiumCulture) {
+      gbLogT('culture-olympic-block', 300000, 'culture: olympic ignored (allowPremiumCulture OFF)');
+    }
+    if (!enabled.length) {
+      gbLogT('culture-notypes', 300000, 'culture: no celebration types enabled in Config');
+      return;
+    }
     const ids = (typeof caveListTownIds === 'function') ? caveListTownIds() : [];
     if (!ids.length) {
       try {
@@ -11629,7 +11689,7 @@ const STORE = {
       if (jobs.length >= 8) break;
     }
     if (!jobs.length) {
-      gbLogT('culture-idle', 180000, `culture: nothing to start (${scanReason(reason)})`);
+      gbLogT('culture-idle', 180000, `culture: nothing to start (${scanReason(reason)}) \u2014 ${cultureIdleHint(ids, enabled, ledger)}`);
       return;
     }
     let i=0,done=0,stopped=false;
@@ -11648,7 +11708,7 @@ const STORE = {
         held.push({name,token:tok});
       }
       const release=()=>{for(const h of held)gbUnlock(h.name,h.token)};
-      if(!cultureCanAfford(job.id,job.ctype)){
+      if(!cultureCanAfford(job.id,job.ctype,null,{blind:true})){
         release();gbTimeout(next,200);return;
       }
       cultureStart(job.type,job.id,(err)=>{
@@ -12223,11 +12283,10 @@ const STORE = {
 
     if (preset === 'party') {
 
-      const types = state.cultureTypes || {};
       const order = ['festival', 'theater', 'procession'];
       let ctype = null;
       for (const ui of order) {
-        if (!types[ui]) continue;
+        if (!cultureTypeEnabled(ui)) continue;
         ctype = ({ festival: 'party', procession: 'triumph', theater: 'theater' })[ui] || ui;
         if (ctype === 'triumph') continue;
         break;
@@ -24936,6 +24995,39 @@ const STORE = {
         detail: `${readable}/${ids.length} towns readable, ${withHide} with a hide`,
       };
     }));
+    out.push(preflightProbe('culture', () => {
+      const on = !!state.autoCulture;
+      const enabled = (typeof cultureEnabledTypes === 'function') ? cultureEnabledTypes() : [];
+      const ids = (typeof caveListTownIds === 'function') ? (caveListTownIds() || []) : [];
+      const parts = [
+        `auto ${on ? 'ON' : 'OFF'}`,
+        `types ${enabled.length ? enabled.join('+') : 'none'}`,
+      ];
+      if (cultureTypeEnabled && cultureTypeEnabled('olympic') && !state.allowPremiumCulture) {
+        parts.push('olympic blocked (premium OFF)');
+      }
+      if (!ids.length) return { ok: false, warn: on, detail: parts.join(', ') + ', no towns readable' };
+      const tid = ids[0];
+      const info = researchTownTechs(tid);
+      if (!info || info.academy == null) parts.push(`town ${tid} academy UNREADABLE`);
+      else parts.push(`town ${tid} academy ${info.academy}`);
+      const ledger = { killpoints: cultureKillpointsAvailable(), goldSpent: cultureGoldSpentLoad().amount, playerGold: culturePlayerGold(), res: {} };
+      try {
+        const t = gbTownModel(tid);
+        if (t && t.resources) ledger.res[tid] = Object.assign({}, t.resources());
+      } catch (_) {}
+      let ready = 0;
+      for (const ui of enabled) {
+        const ctype = ({ festival: 'party', procession: 'triumph', theater: 'theater', olympic: 'olympic' })[ui] || ui;
+        if (cultureCanAfford(tid, ctype, ledger)) ready++;
+      }
+      parts.push(`${ready}/${enabled.length} affordable on sample town`);
+      return {
+        ok: !on || (enabled.length > 0 && ready > 0),
+        warn: on && (enabled.length === 0 || ready === 0),
+        detail: parts.join(', '),
+      };
+    }));
     out.push(preflightProbe('trade', () => {
       const t = tradeListTowns() || [];
       const cap = t.filter(x => x.cap > 0).length;
@@ -27926,6 +28018,7 @@ const STORE = {
           <label class="gb-cfg-row" data-gb-tip="Activar el bot solo en este dominio (marcado por mundo)"><input type="checkbox" data-cfg="enabled-host"/> Activar en <span class="cfg-host"></span></label>
           <label class="gb-cfg-row gb-cfg-warn" data-gb-tip="Bloquea premium, ataques, favor, puntos y donaciones"><input type="checkbox" data-cfg="safe-mode"/> MODO SEGURO (bloquea premium/ataques/favor/puntos/donaciones)</label>
           <label class="gb-cfg-row" title="Registra cada payload que el bot enviaria y no envia nada. Sirve para comparar el payload del bot con una accion pulsada a mano antes de activar algo arriesgado."><input type="checkbox" data-cfg="dry-run"/> <b class="gb-cfg-accent">Simulacion (registra payloads, no envia nada)</b></label>
+          <label class="gb-cfg-row" title="Con la simulacion OFF, pide autorizar una vez cada modulo de escritura en este mundo antes del primer envio real."><input type="checkbox" data-cfg="first-post-confirm"/> Confirmar primer envio en vivo por modulo</label>
           <label class="gb-cfg-row" data-gb-tip="Apagado global de captcha: cualquier captcha detiene todo el bot"><input type="checkbox" data-cfg="captcha-global"/> Interruptor global de captcha</label>
           <label class="gb-cfg-row" title="Salta una accion que fallo igual 3 veces seguidas (5/15/60 min de espera). La bitacora sigue registrando en ambos casos."><input type="checkbox" data-cfg="decision-memory"/> Memoria de decisiones (salta fallos repetidos)</label>
           <label class="gb-cfg-num" data-gb-tip="Numero maximo de envios al servidor por minuto (presupuesto duro)">Presupuesto de peticiones / min <input class="gb-cfg-input" type="number" data-cfg="req-budget" min="5" max="120" style="width:50px"/></label>
@@ -28258,6 +28351,7 @@ const STORE = {
           <button type="button" data-act="evidence" title="Instantanea de solo lectura y anonimizada para las validaciones de TASKS. Copia JSON. No envia nada.">Evidencia</button>
           <button type="button" data-act="clear" data-gb-tip="Borrar los hallazgos de inteligencia almacenados">Limpiar hallazgos</button>
           <div class="gb-menu-h">Diagn\u00f3stico</div>
+          <button type="button" data-act="first-post-live" title="Autoriza el primer envio real de cada modulo de escritura en este mundo. Solo se pide una vez por modulo.">Autorizar envios en vivo</button>
           <button type="button" data-act="diag" data-gb-tip="Volcar diagnostico de bridge y estado de partidas">Diagn\u00f3stico del puente</button>
           <button type="button" data-act="diag-farms" title="Vuelca en el Registro, por aldea: cupo diario restante, marca de agotado, tipo de cobro elegido y la carta de unidad. Solo lectura, no envia nada.">Diagn\u00f3stico de aldeas</button>
           <div class="gb-menu-h">Ventana</div>
@@ -28757,6 +28851,16 @@ const STORE = {
     showTab('stats');
     preflightRunAndRender();
   });
+  panel.querySelector('footer button[data-act=first-post-live]')?.addEventListener('click', () => {
+    if (!state.firstPostConfirm) { flash('Confirmacion de primer envio desactivada en Ajustes'); return; }
+    const pending = firstPostLivePendingFeatures();
+    if (!pending.length) { flash('Todos los modulos ya autorizados para envio en vivo'); return; }
+    const preview = pending.slice(0, 14).join(', ') + (pending.length > 14 ? '\u2026' : '');
+    if (!confirm(`Autorizar el primer envio en vivo de estos modulos en este mundo?\n\n${preview}\n\nSolo se pide una vez por modulo y mundo.`)) return;
+    const n = firstPostLiveAuthorizeAll();
+    flash(`Autorizados ${n} modulo(s) para envio en vivo`);
+    gbLog(`first-post-live: authorized ${n} module(s)`);
+  });
   panel.querySelector('footer button[data-act=scrape-farms]').addEventListener('click', () => {
     flash('farm scrape...');
     gbLog('manual: Farms now pressed');
@@ -29113,6 +29217,7 @@ const STORE = {
     setChk('[data-cfg=captcha-global]', state.captchaGlobalKill !== false);
     setChk('[data-cfg=decision-memory]', state.decisionMemory !== false);
     setChk('[data-cfg=dry-run]', !!state.dryRun);
+    setChk('[data-cfg=first-post-confirm]', state.firstPostConfirm !== false);
 
     setChk('[data-cfg=safe-mode]', !!state.safeMode);
     setChk('[data-cfg=export-redact]', state.exportRedact !== false);
@@ -29279,7 +29384,14 @@ const STORE = {
         }
         if (swept) { txSave(); gbLog(`dry-run OFF: swept ${swept} stale txState entries`); }
       }
+      if (!state.dryRun && state.firstPostConfirm) {
+        const pending = firstPostLivePendingFeatures();
+        if (pending.length) {
+          flash(`Confirmacion de primer envio: ${pending.length} modulo(s) pendientes. Acciones > Autorizar envios en vivo.`);
+        }
+      }
     });
+    bindToggle('[data-cfg=first-post-confirm]', 'firstPostConfirm', STORE.FIRST_POST_CONFIRM);
     bindToggle('[data-cfg=auto-merchant]', 'autoMerchant', STORE.AUTO_MERCHANT, () => merchantScan('toggle'));
     bindToggle('[data-cfg=auto-pt-trade]', 'autoPtTrade', STORE.AUTO_PT_TRADE, () => ptTradeScan('toggle'));
     bindToggle('[data-cfg=auto-wonder-favor]', 'autoWonderFavor', STORE.AUTO_WONDER_FAVOR);
@@ -29340,6 +29452,7 @@ const STORE = {
         olympic: !!sec.querySelector('[data-cfg=cult-olympic]')?.checked,
       };
       save(STORE.CULTURE_TYPES, state.cultureTypes);
+      try { cultureScan('cfg'); } catch (_) {}
     };
     ['cult-festival', 'cult-procession', 'cult-theater', 'cult-olympic'].forEach(k => {
       onCfg('[data-cfg=' + k + ']', 'change', saveCult);
@@ -30773,6 +30886,11 @@ const STORE = {
       dodgeScan,
       orchTick,
       orchFeatureEnabled,
+      farmTick,
+      firstPostLiveOk,
+      firstPostLiveAuthorize,
+      firstPostLiveAuthorizeAll,
+      firstPostLivePendingFeatures,
       dodgeIncomingSnapshot,
       alertWebhook,
       telegramTokenLooksValid,
