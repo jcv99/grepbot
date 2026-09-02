@@ -95,17 +95,8 @@
       if (Array.isArray(col.models)) { known = true; col.models.forEach(push); }
     };
 
-    try { const all = mmModelsAll('MovementsUnits'); if (all.length) addCollection(all); } catch (_) {}
-    try { addCollection(uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits')); } catch (_) {}
-    try {
-      const cols = uw.MM && uw.MM.getCollections && uw.MM.getCollections().MovementsUnits;
-      (Array.isArray(cols) ? cols : (cols ? [cols] : [])).forEach(addCollection);
-    } catch (_) {}
-    try {
-      const map = uw.MM && uw.MM.getModels && uw.MM.getModels().MovementsUnits;
-      if (Array.isArray(map)) addCollection(map);
-      else if (map && typeof map === 'object') { known = true; Object.keys(map).forEach(k => push(map[k])); }
-    } catch (_) {}
+    try { const all = movementModels(); if (all.length) addCollection(all); } catch (_) {}
+    try { if (mmCol('MovementsUnits')) known = true; } catch (_) {}
     const facts = new Map();
     models.forEach((mov, index) => {
       const a = (mov && mov.attributes) || {};

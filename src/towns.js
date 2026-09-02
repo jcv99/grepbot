@@ -20,15 +20,7 @@
   }
   const TOWN_LIST_GUESSES = ['get_towns', 'towns_overview', 'get_owned_towns', 'overview_towns', 'town_list'];
 
-  function townLadder(guesses, learned) {
-    const g = guesses.slice();
-    if (learned) {
-      const i = g.indexOf(learned);
-      if (i >= 0) g.splice(i, 1);
-      g.unshift(learned);
-    }
-    return g;
-  }
+  function townLadder(guesses, learned) { return xhrGuessLadder(guesses, learned); }
   function townLearnAction(key, storeKey, action) {
     if (!action || state[key] === action) return;
     const had = state[key];

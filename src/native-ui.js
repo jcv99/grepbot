@@ -52,6 +52,10 @@
     }
   }
   function nativeQueueList(townId,lane,create){const t=nativeQueueTown(townId,create);return t&&Array.isArray(t[lane])?t[lane]:[];}
+  function nativeQueueLaneMeta(townId, lane) {
+    const list = nativeQueueList(townId, lane, false);
+    return { list, fifo: nativeQueueIsFifo(townId, lane), paused: nativeQueuePaused(townId, lane), frozen: list.some(j => j && j.inflight) };
+  }
 
   // Any non-custom goal profile is planner-owned. Manual FIFO is deliberately
   // available only in Personalizado. Switching to a planner profile discards

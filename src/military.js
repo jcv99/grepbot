@@ -390,6 +390,103 @@
   let compCache = Object.create(null);
   function militaryCompositionInvalidate() { compCache = Object.create(null); }
 
+  function waveArmCore(cfg) {
+    const {
+      tag, maxArmMs, rows, plan, setArmed, getArmed, cancelArmed,
+      resolveTarget, validateTarget, prepareFire, sendFire, pushHistory,
+      patchStatus, renderPanel, lockToken, onExpire,
+    } = cfg;
+    cancelArmed();
+    const target = resolveTarget(plan);
+    if (!validateTarget(target)) return false;
+    const timers = [];
+    const delays = [];
+    const armedAt = Date.now();
+    setArmed({ timers, rows, plan, cancel: cancelArmed, armedAt, token: lockToken || null });
+    gbLog(`${tag}: armed ${rows.length} towns mode=${plan.timingMode} skew=${Math.round(clientServerSkewMs())}ms (max window ${maxArmMs}ms)`);
+    flash('Los timers del navegador no son precisos para uso militar - esperas largas no se dispararan solas');
+    rows.forEach((row, idx) => {
+      if (!row.unitCount || !row.boats.ok || row.status === 'past' || row.status === 'no-travel') {
+        gbLog(`${tag}: skip ${row.townId} status=${row.status}`);
+        return;
+      }
+      let delayMs;
+      if (plan.timingMode === 'arrive_at' && row.sendAt != null) {
+        delayMs = row.sendAt * 1000 + clientServerSkewMs() - Date.now();
+      } else {
+        delayMs = idx * (plan.staggerMs || 0);
+      }
+      if (delayMs < 0) {
+        gbLog(`${tag}: past send window for ${row.townId}${delayMs ? ` (${Math.round(delayMs)}ms)` : ''}`);
+        row.fireStatus = 'past';
+        return;
+      }
+      if (delayMs > maxArmMs) {
+        gbLog(`${tag}: ${row.townId} delay ${Math.round(delayMs)}ms > ${maxArmMs}ms - not arming (re-arm closer to send)`);
+        row.fireStatus = 'too-far';
+        return;
+      }
+      delays.push(delayMs);
+      const expectedFire = Date.now() + delayMs;
+      const tid = gbTimeout(() => {
+        if (lockToken) gbLockTouch('support', lockToken);
+        const late = Date.now() - expectedFire;
+        if (late > 5000) {
+          gbLog(`${tag}: refuse overdue fire for ${row.townId} (late ${Math.round(late)}ms)`);
+          row.fireStatus = 'overdue';
+          patchStatus();
+          return;
+        }
+        const liveTarget = resolveTarget(plan);
+        if (!validateTarget(liveTarget)) {
+          row.fireStatus = 'bad-target';
+          patchStatus();
+          return;
+        }
+        const prep = prepareFire(row, liveTarget, plan);
+        if (!prep.ok) {
+          row.fireStatus = prep.status;
+          patchStatus();
+          return;
+        }
+        row.fireStatus = 'firing';
+        patchStatus();
+        sendFire(liveTarget, row, prep.units, plan, (err) => {
+          row.fireStatus = err ? 'err:' + err : 'sent';
+          patchStatus();
+        });
+      }, delayMs);
+      timers.push(tid);
+      row.fireStatus = 'armed+' + Math.round(delayMs) + 'ms';
+    });
+    pushHistory(armedAt, plan, rows);
+    const maxDelay = delays.length ? Math.max(0, ...delays) : 0;
+    timers.push(gbTimeout(() => {
+      if (onExpire) onExpire(timers, lockToken);
+      const armed = getArmed && getArmed();
+      if (armed && armed.timers === timers) setArmed(null);
+      patchStatus();
+    }, maxDelay + 5000));
+    if (renderPanel) renderPanel();
+    return true;
+  }
+  function wavePrepareMilitaryFire(row, liveTarget, plan, unitsFn, tag) {
+    const freshUnits = unitsFn(row.townId, liveTarget, plan);
+    const freshCount = countUnits(freshUnits);
+    const freshBoats = boatCapacityCheck(freshUnits, isSameIsland(row.townId, liveTarget));
+    if (!freshCount || !freshBoats.ok) {
+      return { ok: false, status: !freshCount ? 'no-units' : 'boats-changed' };
+    }
+    if (plan.timingMode === 'arrive_at') {
+      const freshTravel = computeTravelSeconds(row.townId, liveTarget, freshUnits, true);
+      if (freshTravel == null || row.travel == null || Math.abs(freshTravel - row.travel) > 1) {
+        gbLog(`${tag}: abort ${row.townId}; canonical travel changed ${row.travel} -> ${freshTravel}`);
+        return { ok: false, status: 'travel-changed' };
+      }
+    }
+    return { ok: true, units: freshUnits };
+  }
+
   function militaryUnitsReadable(townId) {
     try {
       const t = gbTownModel(townId);

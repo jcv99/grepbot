@@ -826,7 +826,7 @@
 
       let total = 0, dropped = [];
       try {
-        const models = mmModelsAll('MovementsUnits');
+        const models = movementModels();
         total = models.length;
         const mine = new Set(Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}).map(String));
         const kept = new Set(mv.map(x => String(x.id)));

@@ -2132,8 +2132,33 @@ const STORE = {
     _mmModelsAllCache[name] = out;
     return out.slice();
   }
+  function movementModels() { return mmModelsAll('MovementsUnits'); }
+  function countUnits(units) {
+    if (!units || typeof units !== 'object') return 0;
+    return Object.values(units).reduce((n, v) => n + (gbNum(v) || 0), 0);
+  }
+  function backoffFor(streak, ladder) {
+    const n = Math.max(0, Math.floor(+streak) || 0);
+    if (!n || !ladder || !ladder.length) return 0;
+    return ladder[Math.min(n - 1, ladder.length - 1)];
+  }
+  function xhrGuessLadder(guesses, learned) {
+    const g = (guesses || []).slice();
+    if (learned) {
+      const i = g.indexOf(learned);
+      if (i >= 0) g.splice(i, 1);
+      g.unshift(learned);
+    }
+    return g;
+  }
+  function gbTry(fn, fallback, tag) {
+    try { return fn(); } catch (e) {
+      if (tag) gbLogT('gbtry-' + tag, 60000, tag + ': ' + String(e && e.message || e).slice(0, 80));
+      return fallback;
+    }
+  }
   function gameBridgeStatus() {
-    const uw = gameUw();
+    const uw = uwCached();
     const s = { uw: !!uw, Game: false, MM: false, gpAjax: false, ITowns: false, GameData: false, farmRel: false, farmTown: false, townCol: false, attackSpot: false };
     try {
       s.Game = !!uw.Game;

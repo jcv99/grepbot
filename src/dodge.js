@@ -246,27 +246,12 @@
     let models = [];
     let collectionKnown = false;
     try {
-      models = mmModelsAll('MovementsUnits') || [];
+      models = movementModels() || [];
       if (models.length) collectionKnown = true;
       if (!collectionKnown && mmCol('MovementsUnits')) collectionKnown = true;
       if (!collectionKnown && uw.MM && typeof uw.MM.getCollections === 'function') {
         const cols = uw.MM.getCollections();
         if (cols && Object.prototype.hasOwnProperty.call(cols, 'MovementsUnits')) collectionKnown = true;
-      }
-      // A few Grepolis client builds expose fragments in ways that are easier to
-      // enumerate through the military helper. Merge it as a second read source.
-      if (typeof militaryMovementsUnitsModels === 'function') {
-        const extra = militaryMovementsUnitsModels() || [];
-        if (extra.length) collectionKnown = true;
-        if (extra.length) {
-          const seen = new Set(models.map(m => String((m && ((m.attributes || {}).id ?? m.id)) ?? '')));
-          for (const m of extra) {
-            const id = String((m && ((m.attributes || {}).id ?? m.id)) ?? '');
-            if (id && seen.has(id)) continue;
-            if (id) seen.add(id);
-            models.push(m);
-          }
-        }
       }
     } catch (_) {}
     if (!collectionKnown) {
@@ -567,7 +552,7 @@
     if (!valid.ok) {
       entry.state = 'pending';
       entry.tries = (entry.tries || 0) + 1;
-      const bo = DODGE_FAIL_BACKOFF[Math.min(entry.tries - 1, DODGE_FAIL_BACKOFF.length - 1)];
+      const bo = backoffFor(entry.tries, DODGE_FAIL_BACKOFF);
       entry.nextAt = Date.now() + bo;
       gbLogT('dodge-nousable', 30000, `dodge: cannot evacuate ${mov.dest} (${valid.why}); retry later`);
       return;
@@ -590,7 +575,7 @@
           gbLog(`dodge: outcome unknown (${err}); bounded recheck in ${Math.round(TX_UNKNOWN_RECHECK_MS/1000)}s \u2014 units may have already left`);
         } else {
           entry.state = 'failed';
-          const bo = DODGE_FAIL_BACKOFF[Math.min(entry.tries - 1, DODGE_FAIL_BACKOFF.length - 1)];
+          const bo = backoffFor(entry.tries, DODGE_FAIL_BACKOFF);
           entry.nextAt = Date.now() + bo;
           gbLog(`dodge: send failed ${err} (retry in ${Math.round(bo / 1000)}s)`);
         }

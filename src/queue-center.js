@@ -195,8 +195,7 @@
   }
 
   function queueCenterPlanCard(body, townId, lane, title, pauseNoun) {
-    const list = nativeQueueList(townId, lane, false);
-    const fifo = nativeQueueIsFifo(townId, lane), paused = nativeQueuePaused(townId, lane);
+    const { list, fifo, paused } = nativeQueueLaneMeta(townId, lane);
     const plan = queueCenterCard(title,
       fifo ? (paused ? 'FIFO pausada' : 'FIFO activa') : 'Objetivos autom\u00e1ticos',
       fifo ? (paused ? 'Cola FIFO en pausa - el plan automatico no actua' : 'Cola FIFO activa - gestionas las ordenes manualmente') : 'El plan automatico es el due\u00f1o de esta cola');

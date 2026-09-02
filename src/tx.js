@@ -229,7 +229,7 @@
   function txMovementCount(origin, dest, mission) {
     try {
 
-      const models = mmModelsAll('MovementsUnits');
+      const models = movementModels();
 
       if (!models.length && !mmCol('MovementsUnits')) return null;
       let n = 0;
@@ -262,15 +262,7 @@
         if (!key || seen.has(key)) return;
         seen.add(key); models.push(m);
       };
-      try { mmModelsAll('MovementsUnits').forEach(push); } catch (_) {}
-      try {
-        const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits');
-        if (col && col.models) col.models.forEach(push);
-      } catch (_) {}
-      try {
-        const cols = uw.MM && uw.MM.getCollections && uw.MM.getCollections().MovementsUnits;
-        (Array.isArray(cols) ? cols : (cols ? [cols] : [])).forEach(c => { if (c && c.models) c.models.forEach(push); });
-      } catch (_) {}
+      try { movementModels().forEach(push); } catch (_) {}
       const hit = models.find(m => {
         const a = m.attributes || {};
         const mid = (typeof m.getCommandId === 'function' && m.getCommandId()) || a.command_id || a.id || m.id;

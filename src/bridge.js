@@ -163,64 +163,7 @@
       for(const k of ['json','data','result','response'])if(d[k]!=null)queue.push(d[k]);
     }return null;
   }
-  function bridgeRaw(feature, payload, done) {
-    const uw = gameUw();
-    if (!(uw.gpAjax && uw.gpAjax.ajaxPost)) return done('noajax');
-    let settled = false;
-    let watchEntry = null;
-    const finish = (err, data) => {
-      if (settled || !gbInstanceAlive()) return;
-      settled = true;
-      gbClearTimeout(timer);
-      gbAjaxDrop(watchEntry);
-      done(err, data);
-    };
-    const timer = gbTimeout(() => {
-      gbLogT('bridge-timeout-' + feature, 30000, feature + ': bridge timeout ' + BRIDGE_TIMEOUT_MS + 'ms');
-      noteTransportTimeout(feature);
-      finish('timeout');
-    }, BRIDGE_TIMEOUT_MS);
-    selfBridgeNote(payload);
-    const classify = (data) => {
-      if (settled || !gbInstanceAlive()) return;
-      try {
-        noteTransportSuccess();
-        if (responseIsCaptcha(data)) {
-          captchaTrip(feature, JSON.stringify(data).slice(0, 120));
-          return finish('captcha');
-        }
-        const e=responseServerError(data);
-        if (e) {
-          const msg = typeof e === 'string' ? e : (e.message || e.msg || 'error');
-          if (/csrf|token|unauthorized|login|session/i.test(String(msg))) { try { csrfForceHunt(); } catch (_) {} }
-          noteServerPressure(msg);
-          return finish(msg, data);
-        }
-        captchaClear(feature);
-        finish(null, data);
-      } catch (e) { finish(String(e)); }
-    };
-
-    watchEntry = gbAjaxWatch(
-      'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
-      gbAjaxBridgeFp(payload),
-      (status, raw) => {
-        if (settled) return;
-        if (!status) return finish('neterr');
-        if (status < 200 || status >= 300) {
-          noteServerPressure('http ' + status);
-          return finish('http_' + status);
-        }
-        noteTransportSuccess();
-        classify(gbAjaxUnwrap(raw));
-      }
-    );
-    try {
-
-      uw.gpAjax.ajaxPost('frontend_bridge', 'execute', payload, false, (data) => classify(data));
-    } catch (e) { finish(String(e)); }
-  }
-  function gameAjaxRaw(feature, controller, action, data, done) {
+  function ajaxTransportRaw(feature, opts, done) {
     const uw = gameUw();
     if (!(uw.gpAjax && uw.gpAjax.ajaxPost)) return done('noajax');
     let settled = false;
@@ -232,9 +175,8 @@
       gbAjaxDrop(watchEntry);
       done(err, res);
     };
-
     const timer = gbTimeout(() => {
-      gbLogT('ajax-timeout-' + feature, 30000, `${feature}: ajax timeout ${BRIDGE_TIMEOUT_MS}ms (${controller}/${action})`);
+      gbLogT(opts.timeoutKey || ('transport-timeout-' + feature), 30000, opts.timeoutMsg || (feature + ': timeout ' + BRIDGE_TIMEOUT_MS + 'ms'));
       noteTransportTimeout(feature);
       finish('timeout');
     }, BRIDGE_TIMEOUT_MS);
@@ -242,10 +184,14 @@
       if (settled || !gbInstanceAlive()) return;
       try {
         noteTransportSuccess();
-        if (responseIsCaptcha(res)) { captchaTrip(feature, JSON.stringify(res).slice(0, 120)); return finish('captcha'); }
-        const e=responseServerError(res);
+        if (responseIsCaptcha(res)) {
+          captchaTrip(feature, JSON.stringify(res).slice(0, 120));
+          return finish('captcha');
+        }
+        const e = responseServerError(res);
         if (e) {
           const msg = typeof e === 'string' ? e : (e.message || e.msg || 'error');
+          if (opts.authCsrf && /csrf|token|unauthorized|login|session/i.test(String(msg))) { try { csrfForceHunt(); } catch (_) {} }
           noteServerPressure(msg);
           return finish(msg, res);
         }
@@ -253,9 +199,8 @@
         finish(null, res);
       } catch (e) { finish(String(e)); }
     };
-    watchEntry = gbAjaxWatch('ajax:' + controller + '/' + action, gbAjaxFp(data), (status, raw) => {
+    watchEntry = gbAjaxWatch(opts.watchKey, opts.watchFp, (status, raw) => {
       if (settled) return;
-
       if (!status) return finish('neterr');
       if (status === 429 || status === 503) {
         try {
@@ -270,24 +215,39 @@
         return finish('http_' + status);
       }
       noteTransportSuccess();
-
-      // The XHR hook already parses responseText before handing it to this watcher.
-      // In 6.0.6 we looked for responseText/json *inside that parsed object*, so a
-      // perfectly normal JSON response was misclassified as "soft-empty".  If the
-      // hook has a parsed body, classify it directly.  If it saw an actually empty
-      // 2xx body, wait for gpAjax's canonical callback (or timeout+reconciliation)
-      // instead of inventing an application error.
       if (raw == null) {
-        gbLogT('ajax-empty-watch-' + feature, 60000,
-          `${feature}: HTTP ${status} watcher without parseable body; waiting for gpAjax callback`);
-        return;
+        if (opts.emptyBodyWait) {
+          gbLogT(opts.emptyBodyLogKey || ('empty-watch-' + feature), 60000,
+            opts.emptyBodyLogMsg || (`${feature}: HTTP ${status} watcher without parseable body; waiting for gpAjax callback`));
+          return;
+        }
+        return finish('empty');
       }
       classify(gbAjaxUnwrap(raw));
     });
-    try {
-
-      uw.gpAjax.ajaxPost(controller, action, data, false, (res) => classify(res));
-    } catch (e) { finish(String(e)); }
+    try { opts.send(uw, classify); } catch (e) { finish(String(e)); }
+  }
+  function bridgeRaw(feature, payload, done) {
+    selfBridgeNote(payload);
+    ajaxTransportRaw(feature, {
+      timeoutKey: 'bridge-timeout-' + feature,
+      timeoutMsg: feature + ': bridge timeout ' + BRIDGE_TIMEOUT_MS + 'ms',
+      watchKey: 'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
+      watchFp: gbAjaxBridgeFp(payload),
+      authCsrf: true,
+      send: (uw, classify) => uw.gpAjax.ajaxPost('frontend_bridge', 'execute', payload, false, classify),
+    }, done);
+  }
+  function gameAjaxRaw(feature, controller, action, data, done) {
+    ajaxTransportRaw(feature, {
+      timeoutKey: 'ajax-timeout-' + feature,
+      timeoutMsg: `${feature}: ajax timeout ${BRIDGE_TIMEOUT_MS}ms (${controller}/${action})`,
+      watchKey: 'ajax:' + controller + '/' + action,
+      watchFp: gbAjaxFp(data),
+      emptyBodyWait: true,
+      emptyBodyLogKey: 'ajax-empty-watch-' + feature,
+      send: (uw, classify) => uw.gpAjax.ajaxPost(controller, action, data, false, classify),
+    }, done);
   }
   function bridgePost(feature, payload, onDone) {
     const endpoint = String(payload && payload.model_url || '') + '/' + String(payload && payload.action_name || '');

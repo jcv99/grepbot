@@ -1343,16 +1343,7 @@
   const ACTION_GUESSES = ['farm_town_info', 'get_farm_towns', 'farm_town_overview'];
   const FARM_ACTION_OK = /^(farm_town_|get_farm|farm_info|island_farm)/;
   const FARM_ACTION_BAD = /farm_remove|village_attack|attack_log|farm_town_lock/;
-  function farmGuesses() {
-    const g = ACTION_GUESSES.slice();
-    const a = state.farmAction;
-    if (a) {
-      const i = g.indexOf(a);
-      if (i >= 0) g.splice(i, 1);
-      g.unshift(a);
-    }
-    return g;
-  }
+  function farmGuesses() { return xhrGuessLadder(ACTION_GUESSES, state.farmAction); }
   function learnFarmAction(u) {
     const m = String(u || '').match(/[?&]action=([a-z0-9_]+)/i);
     if (!m) return;

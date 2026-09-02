@@ -74,16 +74,16 @@
   // Dedicated out-of-band Telegram heartbeat. This is intentionally independent
   // from the automation/server pause scheduler; the ephemeral monitor Web Lock
   // prevents duplicate sends across tabs.
-  gbTimeout(() => { try { telegramMonitorTick(); } catch (_) {} }, 3000);
-  gbInterval(() => { try { telegramMonitorTick(); } catch (_) {} }, TELEGRAM_MONITOR_POLL_MS);
-  gbListen(window, 'focus', () => { try { telegramMonitorTick(); } catch (_) {} });
-  gbListen(window, 'online', () => { try { telegramMonitorTick(); } catch (_) {} });
+  gbTimeout(() => { gbTry(() => telegramMonitorTick()); }, 3000);
+  gbInterval(() => { gbTry(() => telegramMonitorTick()); }, TELEGRAM_MONITOR_POLL_MS);
+  gbListen(window, 'focus', () => { gbTry(() => telegramMonitorTick()); });
+  gbListen(window, 'online', () => { gbTry(() => telegramMonitorTick()); });
 
   gbListen(document, 'visibilitychange', () => {
     if (document.hidden) return;
     try { gbWakeMarkResume('visible'); } catch (e) { gbLogT('boot-wake-visible', 60000, 'wake visible: ' + String(e?.message || e).slice(0, 80)); }
-    try { gbTryAcquireTabLeader(); orchStartIndependentTimers(); } catch (_) {}
-    try { telegramMonitorTick(); } catch (_) {}
+    gbTry(() => { gbTryAcquireTabLeader(); orchStartIndependentTimers(); });
+    gbTry(() => telegramMonitorTick());
     farmTick();
     try { reportCatchUpEnqueue(); } catch (e) { gbLogT('boot-catchup', 60000, 'catchup: ' + String(e?.message || e).slice(0, 80)); }
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (e) { gbLogT('boot-wake-ib', 60000, 'wake ibScan: ' + String(e?.message || e).slice(0, 80)); }
@@ -97,8 +97,8 @@
 
     releaseLocksAt = 0;
     try { gbWakeMarkResume('bfcache'); } catch (e) { gbLogT('boot-wake-bfcache', 60000, 'wake bfcache: ' + String(e?.message || e).slice(0, 80)); }
-    try { gbTryAcquireTabLeader(); orchStartIndependentTimers(); } catch (_) {}
-    try { telegramMonitorTick(); } catch (_) {}
+    gbTry(() => { gbTryAcquireTabLeader(); orchStartIndependentTimers(); });
+    gbTry(() => telegramMonitorTick());
     farmTick();
     try { reportCatchUpEnqueue(); } catch (e) { gbLogT('boot-catchup', 60000, 'catchup: ' + String(e?.message || e).slice(0, 80)); }
     try { bindQuestObserver(); } catch (e) { gbLogT('boot-quest-obs', 60000, 'quest observer: ' + String(e?.message || e).slice(0, 80)); }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.25
+// @version      6.0.26
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -2108,8 +2108,33 @@ const STORE = {
     _mmModelsAllCache[name] = out;
     return out.slice();
   }
+  function movementModels() { return mmModelsAll('MovementsUnits'); }
+  function countUnits(units) {
+    if (!units || typeof units !== 'object') return 0;
+    return Object.values(units).reduce((n, v) => n + (gbNum(v) || 0), 0);
+  }
+  function backoffFor(streak, ladder) {
+    const n = Math.max(0, Math.floor(+streak) || 0);
+    if (!n || !ladder || !ladder.length) return 0;
+    return ladder[Math.min(n - 1, ladder.length - 1)];
+  }
+  function xhrGuessLadder(guesses, learned) {
+    const g = (guesses || []).slice();
+    if (learned) {
+      const i = g.indexOf(learned);
+      if (i >= 0) g.splice(i, 1);
+      g.unshift(learned);
+    }
+    return g;
+  }
+  function gbTry(fn, fallback, tag) {
+    try { return fn(); } catch (e) {
+      if (tag) gbLogT('gbtry-' + tag, 60000, tag + ': ' + String(e && e.message || e).slice(0, 80));
+      return fallback;
+    }
+  }
   function gameBridgeStatus() {
-    const uw = gameUw();
+    const uw = uwCached();
     const s = { uw: !!uw, Game: false, MM: false, gpAjax: false, ITowns: false, GameData: false, farmRel: false, farmTown: false, townCol: false, attackSpot: false };
     try {
       s.Game = !!uw.Game;
@@ -3098,7 +3123,7 @@ const STORE = {
   function txMovementCount(origin, dest, mission) {
     try {
 
-      const models = mmModelsAll('MovementsUnits');
+      const models = movementModels();
 
       if (!models.length && !mmCol('MovementsUnits')) return null;
       let n = 0;
@@ -3131,15 +3156,7 @@ const STORE = {
         if (!key || seen.has(key)) return;
         seen.add(key); models.push(m);
       };
-      try { mmModelsAll('MovementsUnits').forEach(push); } catch (_) {}
-      try {
-        const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits');
-        if (col && col.models) col.models.forEach(push);
-      } catch (_) {}
-      try {
-        const cols = uw.MM && uw.MM.getCollections && uw.MM.getCollections().MovementsUnits;
-        (Array.isArray(cols) ? cols : (cols ? [cols] : [])).forEach(c => { if (c && c.models) c.models.forEach(push); });
-      } catch (_) {}
+      try { movementModels().forEach(push); } catch (_) {}
       const hit = models.find(m => {
         const a = m.attributes || {};
         const mid = (typeof m.getCommandId === 'function' && m.getCommandId()) || a.command_id || a.id || m.id;
@@ -3985,64 +4002,7 @@ const STORE = {
       for(const k of ['json','data','result','response'])if(d[k]!=null)queue.push(d[k]);
     }return null;
   }
-  function bridgeRaw(feature, payload, done) {
-    const uw = gameUw();
-    if (!(uw.gpAjax && uw.gpAjax.ajaxPost)) return done('noajax');
-    let settled = false;
-    let watchEntry = null;
-    const finish = (err, data) => {
-      if (settled || !gbInstanceAlive()) return;
-      settled = true;
-      gbClearTimeout(timer);
-      gbAjaxDrop(watchEntry);
-      done(err, data);
-    };
-    const timer = gbTimeout(() => {
-      gbLogT('bridge-timeout-' + feature, 30000, feature + ': bridge timeout ' + BRIDGE_TIMEOUT_MS + 'ms');
-      noteTransportTimeout(feature);
-      finish('timeout');
-    }, BRIDGE_TIMEOUT_MS);
-    selfBridgeNote(payload);
-    const classify = (data) => {
-      if (settled || !gbInstanceAlive()) return;
-      try {
-        noteTransportSuccess();
-        if (responseIsCaptcha(data)) {
-          captchaTrip(feature, JSON.stringify(data).slice(0, 120));
-          return finish('captcha');
-        }
-        const e=responseServerError(data);
-        if (e) {
-          const msg = typeof e === 'string' ? e : (e.message || e.msg || 'error');
-          if (/csrf|token|unauthorized|login|session/i.test(String(msg))) { try { csrfForceHunt(); } catch (_) {} }
-          noteServerPressure(msg);
-          return finish(msg, data);
-        }
-        captchaClear(feature);
-        finish(null, data);
-      } catch (e) { finish(String(e)); }
-    };
-
-    watchEntry = gbAjaxWatch(
-      'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
-      gbAjaxBridgeFp(payload),
-      (status, raw) => {
-        if (settled) return;
-        if (!status) return finish('neterr');
-        if (status < 200 || status >= 300) {
-          noteServerPressure('http ' + status);
-          return finish('http_' + status);
-        }
-        noteTransportSuccess();
-        classify(gbAjaxUnwrap(raw));
-      }
-    );
-    try {
-
-      uw.gpAjax.ajaxPost('frontend_bridge', 'execute', payload, false, (data) => classify(data));
-    } catch (e) { finish(String(e)); }
-  }
-  function gameAjaxRaw(feature, controller, action, data, done) {
+  function ajaxTransportRaw(feature, opts, done) {
     const uw = gameUw();
     if (!(uw.gpAjax && uw.gpAjax.ajaxPost)) return done('noajax');
     let settled = false;
@@ -4054,9 +4014,8 @@ const STORE = {
       gbAjaxDrop(watchEntry);
       done(err, res);
     };
-
     const timer = gbTimeout(() => {
-      gbLogT('ajax-timeout-' + feature, 30000, `${feature}: ajax timeout ${BRIDGE_TIMEOUT_MS}ms (${controller}/${action})`);
+      gbLogT(opts.timeoutKey || ('transport-timeout-' + feature), 30000, opts.timeoutMsg || (feature + ': timeout ' + BRIDGE_TIMEOUT_MS + 'ms'));
       noteTransportTimeout(feature);
       finish('timeout');
     }, BRIDGE_TIMEOUT_MS);
@@ -4064,10 +4023,14 @@ const STORE = {
       if (settled || !gbInstanceAlive()) return;
       try {
         noteTransportSuccess();
-        if (responseIsCaptcha(res)) { captchaTrip(feature, JSON.stringify(res).slice(0, 120)); return finish('captcha'); }
-        const e=responseServerError(res);
+        if (responseIsCaptcha(res)) {
+          captchaTrip(feature, JSON.stringify(res).slice(0, 120));
+          return finish('captcha');
+        }
+        const e = responseServerError(res);
         if (e) {
           const msg = typeof e === 'string' ? e : (e.message || e.msg || 'error');
+          if (opts.authCsrf && /csrf|token|unauthorized|login|session/i.test(String(msg))) { try { csrfForceHunt(); } catch (_) {} }
           noteServerPressure(msg);
           return finish(msg, res);
         }
@@ -4075,9 +4038,8 @@ const STORE = {
         finish(null, res);
       } catch (e) { finish(String(e)); }
     };
-    watchEntry = gbAjaxWatch('ajax:' + controller + '/' + action, gbAjaxFp(data), (status, raw) => {
+    watchEntry = gbAjaxWatch(opts.watchKey, opts.watchFp, (status, raw) => {
       if (settled) return;
-
       if (!status) return finish('neterr');
       if (status === 429 || status === 503) {
         try {
@@ -4092,18 +4054,39 @@ const STORE = {
         return finish('http_' + status);
       }
       noteTransportSuccess();
-
       if (raw == null) {
-        gbLogT('ajax-empty-watch-' + feature, 60000,
-          `${feature}: HTTP ${status} watcher without parseable body; waiting for gpAjax callback`);
-        return;
+        if (opts.emptyBodyWait) {
+          gbLogT(opts.emptyBodyLogKey || ('empty-watch-' + feature), 60000,
+            opts.emptyBodyLogMsg || (`${feature}: HTTP ${status} watcher without parseable body; waiting for gpAjax callback`));
+          return;
+        }
+        return finish('empty');
       }
       classify(gbAjaxUnwrap(raw));
     });
-    try {
-
-      uw.gpAjax.ajaxPost(controller, action, data, false, (res) => classify(res));
-    } catch (e) { finish(String(e)); }
+    try { opts.send(uw, classify); } catch (e) { finish(String(e)); }
+  }
+  function bridgeRaw(feature, payload, done) {
+    selfBridgeNote(payload);
+    ajaxTransportRaw(feature, {
+      timeoutKey: 'bridge-timeout-' + feature,
+      timeoutMsg: feature + ': bridge timeout ' + BRIDGE_TIMEOUT_MS + 'ms',
+      watchKey: 'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
+      watchFp: gbAjaxBridgeFp(payload),
+      authCsrf: true,
+      send: (uw, classify) => uw.gpAjax.ajaxPost('frontend_bridge', 'execute', payload, false, classify),
+    }, done);
+  }
+  function gameAjaxRaw(feature, controller, action, data, done) {
+    ajaxTransportRaw(feature, {
+      timeoutKey: 'ajax-timeout-' + feature,
+      timeoutMsg: `${feature}: ajax timeout ${BRIDGE_TIMEOUT_MS}ms (${controller}/${action})`,
+      watchKey: 'ajax:' + controller + '/' + action,
+      watchFp: gbAjaxFp(data),
+      emptyBodyWait: true,
+      emptyBodyLogKey: 'ajax-empty-watch-' + feature,
+      send: (uw, classify) => uw.gpAjax.ajaxPost(controller, action, data, false, classify),
+    }, done);
   }
   function bridgePost(feature, payload, onDone) {
     const endpoint = String(payload && payload.model_url || '') + '/' + String(payload && payload.action_name || '');
@@ -7088,16 +7071,7 @@ const STORE = {
   const ACTION_GUESSES = ['farm_town_info', 'get_farm_towns', 'farm_town_overview'];
   const FARM_ACTION_OK = /^(farm_town_|get_farm|farm_info|island_farm)/;
   const FARM_ACTION_BAD = /farm_remove|village_attack|attack_log|farm_town_lock/;
-  function farmGuesses() {
-    const g = ACTION_GUESSES.slice();
-    const a = state.farmAction;
-    if (a) {
-      const i = g.indexOf(a);
-      if (i >= 0) g.splice(i, 1);
-      g.unshift(a);
-    }
-    return g;
-  }
+  function farmGuesses() { return xhrGuessLadder(ACTION_GUESSES, state.farmAction); }
   function learnFarmAction(u) {
     const m = String(u || '').match(/[?&]action=([a-z0-9_]+)/i);
     if (!m) return;
@@ -7419,15 +7393,7 @@ const STORE = {
   }
   const TOWN_LIST_GUESSES = ['get_towns', 'towns_overview', 'get_owned_towns', 'overview_towns', 'town_list'];
 
-  function townLadder(guesses, learned) {
-    const g = guesses.slice();
-    if (learned) {
-      const i = g.indexOf(learned);
-      if (i >= 0) g.splice(i, 1);
-      g.unshift(learned);
-    }
-    return g;
-  }
+  function townLadder(guesses, learned) { return xhrGuessLadder(guesses, learned); }
   function townLearnAction(key, storeKey, action) {
     if (!action || state[key] === action) return;
     const had = state[key];
@@ -7955,17 +7921,8 @@ const STORE = {
       if (Array.isArray(col.models)) { known = true; col.models.forEach(push); }
     };
 
-    try { const all = mmModelsAll('MovementsUnits'); if (all.length) addCollection(all); } catch (_) {}
-    try { addCollection(uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits')); } catch (_) {}
-    try {
-      const cols = uw.MM && uw.MM.getCollections && uw.MM.getCollections().MovementsUnits;
-      (Array.isArray(cols) ? cols : (cols ? [cols] : [])).forEach(addCollection);
-    } catch (_) {}
-    try {
-      const map = uw.MM && uw.MM.getModels && uw.MM.getModels().MovementsUnits;
-      if (Array.isArray(map)) addCollection(map);
-      else if (map && typeof map === 'object') { known = true; Object.keys(map).forEach(k => push(map[k])); }
-    } catch (_) {}
+    try { const all = movementModels(); if (all.length) addCollection(all); } catch (_) {}
+    try { if (mmCol('MovementsUnits')) known = true; } catch (_) {}
     const facts = new Map();
     models.forEach((mov, index) => {
       const a = (mov && mov.attributes) || {};
@@ -9327,6 +9284,10 @@ const STORE = {
     }
   }
   function nativeQueueList(townId,lane,create){const t=nativeQueueTown(townId,create);return t&&Array.isArray(t[lane])?t[lane]:[];}
+  function nativeQueueLaneMeta(townId, lane) {
+    const list = nativeQueueList(townId, lane, false);
+    return { list, fifo: nativeQueueIsFifo(townId, lane), paused: nativeQueuePaused(townId, lane), frozen: list.some(j => j && j.inflight) };
+  }
 
   function nativeQueuePlannerOwnsTown(townId){return String((goalTownCfg(townId)||{}).profile||'custom')!=='custom'}
   function nativeQueueManualAllowed(townId){return !nativeQueuePlannerOwnsTown(townId)}
@@ -16570,26 +16531,12 @@ const STORE = {
     let models = [];
     let collectionKnown = false;
     try {
-      models = mmModelsAll('MovementsUnits') || [];
+      models = movementModels() || [];
       if (models.length) collectionKnown = true;
       if (!collectionKnown && mmCol('MovementsUnits')) collectionKnown = true;
       if (!collectionKnown && uw.MM && typeof uw.MM.getCollections === 'function') {
         const cols = uw.MM.getCollections();
         if (cols && Object.prototype.hasOwnProperty.call(cols, 'MovementsUnits')) collectionKnown = true;
-      }
-
-      if (typeof militaryMovementsUnitsModels === 'function') {
-        const extra = militaryMovementsUnitsModels() || [];
-        if (extra.length) collectionKnown = true;
-        if (extra.length) {
-          const seen = new Set(models.map(m => String((m && ((m.attributes || {}).id ?? m.id)) ?? '')));
-          for (const m of extra) {
-            const id = String((m && ((m.attributes || {}).id ?? m.id)) ?? '');
-            if (id && seen.has(id)) continue;
-            if (id) seen.add(id);
-            models.push(m);
-          }
-        }
       }
     } catch (_) {}
     if (!collectionKnown) {
@@ -16887,7 +16834,7 @@ const STORE = {
     if (!valid.ok) {
       entry.state = 'pending';
       entry.tries = (entry.tries || 0) + 1;
-      const bo = DODGE_FAIL_BACKOFF[Math.min(entry.tries - 1, DODGE_FAIL_BACKOFF.length - 1)];
+      const bo = backoffFor(entry.tries, DODGE_FAIL_BACKOFF);
       entry.nextAt = Date.now() + bo;
       gbLogT('dodge-nousable', 30000, `dodge: cannot evacuate ${mov.dest} (${valid.why}); retry later`);
       return;
@@ -16910,7 +16857,7 @@ const STORE = {
           gbLog(`dodge: outcome unknown (${err}); bounded recheck in ${Math.round(TX_UNKNOWN_RECHECK_MS/1000)}s \u2014 units may have already left`);
         } else {
           entry.state = 'failed';
-          const bo = DODGE_FAIL_BACKOFF[Math.min(entry.tries - 1, DODGE_FAIL_BACKOFF.length - 1)];
+          const bo = backoffFor(entry.tries, DODGE_FAIL_BACKOFF);
           entry.nextAt = Date.now() + bo;
           gbLog(`dodge: send failed ${err} (retry in ${Math.round(bo / 1000)}s)`);
         }
@@ -20964,7 +20911,7 @@ const STORE = {
   function questClaimFailed(id, err) {
     const f = questClaimFail[id] || (questClaimFail[id] = { n: 0, until: 0 });
     f.n++;
-    const wait = QUEST_FAIL_BACKOFF_MS[Math.min(f.n - 1, QUEST_FAIL_BACKOFF_MS.length - 1)];
+    const wait = backoffFor(f.n, QUEST_FAIL_BACKOFF_MS);
     f.until = Date.now() + wait;
     questClaimFailSave();
     gbLog('quest: claim backoff', id, 'fail #' + f.n, Math.round(wait / 60000) + 'min', String(err || ''));
@@ -22001,7 +21948,7 @@ const STORE = {
       } else if (plan.timingMode === 'send_now') {
         sendAt = now + (idx * (plan.staggerMs || 0)) / 1000;
       }
-      const unitCount = Object.values(units).reduce((a, b) => a + (+b || 0), 0);
+      const unitCount = countUnits(units);
       let status = 'ok';
       if (!unitCount) status = 'no-units';
       else if (!boats.ok) status = boats.reason;
@@ -22065,7 +22012,7 @@ const STORE = {
       const params = Object.assign({}, sendUnits, {
         id: destId, type: safeMission, town_id: +srcTownId,
       });
-      const n = Object.values(sendUnits).reduce((a, b) => a + (+b || 0), 0);
+      const n = countUnits(sendUnits);
       if (state.exportRedact === false) gbLog('attack ajax:', JSON.stringify(params));
       else gbLog(`attack ajax: ${ATTACK_CONTROLLER}/send_units town ${srcTownId} -> ${destId} (${safeMission}, ${Object.keys(sendUnits).length} tipos / ${n} unidades)`);
       return gameAjaxPost('attack', ATTACK_CONTROLLER, 'send_units', params, settle);
@@ -22092,7 +22039,7 @@ const STORE = {
       town_id: +srcTownId,
     };
 
-    const unitCount = Object.values(sendUnits).reduce((a, b) => a + (+b || 0), 0);
+    const unitCount = countUnits(sendUnits);
     if (state.exportRedact === false) gbLog('attack bridge:', JSON.stringify(payload));
     else gbLog(`attack bridge: ${payload.action_name} town ${srcTownId} \u2192 ${destId} (${args.type || '?'}, ${Object.keys(sendUnits).length} tipos / ${unitCount} unidades)`);
     bridgePost('attack', payload, settle);
@@ -22128,103 +22075,28 @@ const STORE = {
   }
   const ATTACK_ARM_MAX_MS = 90000;
   function armAttackWave(plan, rows) {
-    cancelArmedAttack();
-    const target = resolveTarget(plan);
-    if (!target || !attackSendAllowed(target)) {
+    const ok = waveArmCore({
+      tag: 'attack',
+      maxArmMs: ATTACK_ARM_MAX_MS,
+      rows, plan,
+      setArmed: v => { attackArmed = v; },
+      getArmed: () => attackArmed,
+      cancelArmed: cancelArmedAttack,
+      resolveTarget: resolveTarget,
+      validateTarget: t => !!(t && attackSendAllowed(t)),
+      prepareFire: (row, liveTarget, plan) => wavePrepareMilitaryFire(row, liveTarget, plan, attackUnitsForTarget, 'attack'),
+      sendFire: (liveTarget, row, units, plan, cb) => sendAttackViaBridge(liveTarget, row.townId, units, plan.mission, cb),
+      pushHistory: (armedAt, plan, rows) => pushAttackHistory({
+        ts: armedAt, mode: plan.timingMode, targetId: plan.targetId,
+        towns: rows.map(r => ({ id: r.townId, sendAt: r.sendAt, travel: r.travel, status: r.status })),
+      }),
+      patchStatus: patchAttackFireStatus,
+      renderPanel: () => renderAttack(),
+    });
+    if (!ok) {
       flash('no se puede armar: objetivo no resuelto o no es una ciudad');
       gbLog('attack: arm blocked \u2014 need canonical town target (villages unsupported)');
-      return;
     }
-    const timers = [];
-    const delays = [];
-    const armedAt = Date.now();
-    attackArmed = { timers, rows, plan, cancel: cancelArmedAttack, armedAt };
-    const skew0 = clientServerSkewMs();
-    gbLog(`attack: armed ${rows.length} towns mode=${plan.timingMode} skew=${Math.round(skew0)}ms (max window ${ATTACK_ARM_MAX_MS}ms)`);
-    flash('Los timers del navegador no son precisos para uso militar - esperas largas no se dispararan solas');
-    rows.forEach((row, idx) => {
-      if (!row.unitCount || !row.boats.ok) {
-        gbLog(`attack: skip ${row.townId} status=${row.status}`);
-        return;
-      }
-      if (row.status === 'past' || row.status === 'no-travel') {
-        gbLog(`attack: skip ${row.townId} status=${row.status}`);
-        return;
-      }
-      let delayMs;
-      if (plan.timingMode === 'arrive_at' && row.sendAt != null) {
-        const skew = clientServerSkewMs();
-        const clientSendMs = row.sendAt * 1000 + skew;
-        delayMs = clientSendMs - Date.now();
-      } else {
-        delayMs = idx * (plan.staggerMs || 0);
-      }
-      if (delayMs < 0) {
-        gbLog(`attack: past send window for ${row.townId} (${Math.round(delayMs)}ms)`);
-        row.fireStatus = 'past';
-        return;
-      }
-      if (delayMs > ATTACK_ARM_MAX_MS) {
-        gbLog(`attack: ${row.townId} delay ${Math.round(delayMs)}ms > ${ATTACK_ARM_MAX_MS}ms \u2014 not arming (re-arm closer to send)`);
-        row.fireStatus = 'too-far';
-        return;
-      }
-      delays.push(delayMs);
-      const expectedFire = Date.now() + delayMs;
-      const tid = gbTimeout(() => {
-
-        const late = Date.now() - expectedFire;
-        if (late > 5000) {
-          gbLog(`attack: refuse overdue fire for ${row.townId} (late ${Math.round(late)}ms)`);
-          row.fireStatus = 'overdue';
-          patchAttackFireStatus();
-          return;
-        }
-
-        const liveTarget = resolveTarget(plan);
-        if (!liveTarget || !attackSendAllowed(liveTarget)) {
-          row.fireStatus = 'bad-target';
-          patchAttackFireStatus();
-          return;
-        }
-        const freshUnits = attackUnitsForTarget(row.townId, liveTarget, plan);
-        const freshCount = Object.values(freshUnits).reduce((a, b) => a + (+b || 0), 0);
-        const freshSame = isSameIsland(row.townId, liveTarget);
-        const freshBoats = boatCapacityCheck(freshUnits, freshSame);
-        if (!freshCount || !freshBoats.ok) {
-          row.fireStatus = !freshCount ? 'no-units' : 'boats-changed';
-          patchAttackFireStatus();
-          return;
-        }
-        if (plan.timingMode === 'arrive_at') {
-          const freshTravel = computeTravelSeconds(row.townId, liveTarget, freshUnits, true);
-          if (freshTravel == null || row.travel == null || Math.abs(freshTravel - row.travel) > 1) {
-            row.fireStatus = 'travel-changed';
-            gbLog(`attack: abort ${row.townId}; canonical travel changed ${row.travel}\u2192${freshTravel}`);
-            patchAttackFireStatus();
-            return;
-          }
-        }
-        row.fireStatus = 'firing';
-        patchAttackFireStatus();
-        sendAttackViaBridge(liveTarget, row.townId, freshUnits, plan.mission, (err) => {
-          row.fireStatus = err ? 'err:' + err : 'sent';
-          patchAttackFireStatus();
-        });
-      }, delayMs);
-      timers.push(tid);
-      row.fireStatus = 'armed+' + Math.round(delayMs) + 'ms';
-    });
-    pushAttackHistory({
-      ts: armedAt, mode: plan.timingMode, targetId: plan.targetId,
-      towns: rows.map(r => ({ id: r.townId, sendAt: r.sendAt, travel: r.travel, status: r.status })),
-    });
-    const maxDelay = delays.length ? Math.max(0, ...delays) : 0;
-    timers.push(gbTimeout(() => {
-      if (attackArmed && attackArmed.timers === timers) attackArmed = null;
-      patchAttackFireStatus();
-    }, maxDelay + 5000));
-    renderAttack();
   }
   function fireAttackNow(plan, rows) {
     const target = resolveTarget(plan);
@@ -22243,7 +22115,7 @@ const STORE = {
       }
       const row = okRows[i++];
       const freshUnits = attackUnitsForTarget(row.townId, target, plan);
-      const freshCount = Object.values(freshUnits).reduce((a, b) => a + (+b || 0), 0);
+      const freshCount = countUnits(freshUnits);
       const freshBoats = boatCapacityCheck(freshUnits, isSameIsland(row.townId, target));
       if (!freshCount || !freshBoats.ok) {
         gbLog(`attack: skip ${row.townId} at fire time (${!freshCount ? 'no-units' : freshBoats.reason})`);
@@ -22630,24 +22502,7 @@ const STORE = {
       box.appendChild(row);
     }
   }
-  function militaryMovementsUnitsModels() {
-    const uw = gameUw();
-    const models = [], seen = new Set();
-    const push = (m) => {
-      if (!m) return;
-      const a = m.attributes || {};
-      const id = (typeof m.getCommandId === 'function' && m.getCommandId()) || a.command_id || a.id || m.id;
-      const k = String(id == null ? '' : id);
-      if (k && seen.has(k)) return;
-      if (k) seen.add(k);
-      models.push(m);
-    };
-
-    try { mmModelsAll('MovementsUnits').forEach(push); } catch (_) {}
-    try { const c = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('MovementsUnits'); if (c && c.models) c.models.forEach(push); } catch (_) {}
-    try { const cs = uw.MM && uw.MM.getCollections && uw.MM.getCollections().MovementsUnits; (Array.isArray(cs) ? cs : (cs ? [cs] : [])).forEach(c => { if (c && c.models) c.models.forEach(push); }); } catch (_) {}
-    return models;
-  }
+  function militaryMovementsUnitsModels() { return movementModels(); }
   function militaryOutgoingMovements() {
     const uw = gameUw();
     const out = [];
@@ -23100,6 +22955,103 @@ const STORE = {
   const COMP_CACHE_MS = 10000;
   let compCache = Object.create(null);
   function militaryCompositionInvalidate() { compCache = Object.create(null); }
+
+  function waveArmCore(cfg) {
+    const {
+      tag, maxArmMs, rows, plan, setArmed, getArmed, cancelArmed,
+      resolveTarget, validateTarget, prepareFire, sendFire, pushHistory,
+      patchStatus, renderPanel, lockToken, onExpire,
+    } = cfg;
+    cancelArmed();
+    const target = resolveTarget(plan);
+    if (!validateTarget(target)) return false;
+    const timers = [];
+    const delays = [];
+    const armedAt = Date.now();
+    setArmed({ timers, rows, plan, cancel: cancelArmed, armedAt, token: lockToken || null });
+    gbLog(`${tag}: armed ${rows.length} towns mode=${plan.timingMode} skew=${Math.round(clientServerSkewMs())}ms (max window ${maxArmMs}ms)`);
+    flash('Los timers del navegador no son precisos para uso militar - esperas largas no se dispararan solas');
+    rows.forEach((row, idx) => {
+      if (!row.unitCount || !row.boats.ok || row.status === 'past' || row.status === 'no-travel') {
+        gbLog(`${tag}: skip ${row.townId} status=${row.status}`);
+        return;
+      }
+      let delayMs;
+      if (plan.timingMode === 'arrive_at' && row.sendAt != null) {
+        delayMs = row.sendAt * 1000 + clientServerSkewMs() - Date.now();
+      } else {
+        delayMs = idx * (plan.staggerMs || 0);
+      }
+      if (delayMs < 0) {
+        gbLog(`${tag}: past send window for ${row.townId}${delayMs ? ` (${Math.round(delayMs)}ms)` : ''}`);
+        row.fireStatus = 'past';
+        return;
+      }
+      if (delayMs > maxArmMs) {
+        gbLog(`${tag}: ${row.townId} delay ${Math.round(delayMs)}ms > ${maxArmMs}ms - not arming (re-arm closer to send)`);
+        row.fireStatus = 'too-far';
+        return;
+      }
+      delays.push(delayMs);
+      const expectedFire = Date.now() + delayMs;
+      const tid = gbTimeout(() => {
+        if (lockToken) gbLockTouch('support', lockToken);
+        const late = Date.now() - expectedFire;
+        if (late > 5000) {
+          gbLog(`${tag}: refuse overdue fire for ${row.townId} (late ${Math.round(late)}ms)`);
+          row.fireStatus = 'overdue';
+          patchStatus();
+          return;
+        }
+        const liveTarget = resolveTarget(plan);
+        if (!validateTarget(liveTarget)) {
+          row.fireStatus = 'bad-target';
+          patchStatus();
+          return;
+        }
+        const prep = prepareFire(row, liveTarget, plan);
+        if (!prep.ok) {
+          row.fireStatus = prep.status;
+          patchStatus();
+          return;
+        }
+        row.fireStatus = 'firing';
+        patchStatus();
+        sendFire(liveTarget, row, prep.units, plan, (err) => {
+          row.fireStatus = err ? 'err:' + err : 'sent';
+          patchStatus();
+        });
+      }, delayMs);
+      timers.push(tid);
+      row.fireStatus = 'armed+' + Math.round(delayMs) + 'ms';
+    });
+    pushHistory(armedAt, plan, rows);
+    const maxDelay = delays.length ? Math.max(0, ...delays) : 0;
+    timers.push(gbTimeout(() => {
+      if (onExpire) onExpire(timers, lockToken);
+      const armed = getArmed && getArmed();
+      if (armed && armed.timers === timers) setArmed(null);
+      patchStatus();
+    }, maxDelay + 5000));
+    if (renderPanel) renderPanel();
+    return true;
+  }
+  function wavePrepareMilitaryFire(row, liveTarget, plan, unitsFn, tag) {
+    const freshUnits = unitsFn(row.townId, liveTarget, plan);
+    const freshCount = countUnits(freshUnits);
+    const freshBoats = boatCapacityCheck(freshUnits, isSameIsland(row.townId, liveTarget));
+    if (!freshCount || !freshBoats.ok) {
+      return { ok: false, status: !freshCount ? 'no-units' : 'boats-changed' };
+    }
+    if (plan.timingMode === 'arrive_at') {
+      const freshTravel = computeTravelSeconds(row.townId, liveTarget, freshUnits, true);
+      if (freshTravel == null || row.travel == null || Math.abs(freshTravel - row.travel) > 1) {
+        gbLog(`${tag}: abort ${row.townId}; canonical travel changed ${row.travel} -> ${freshTravel}`);
+        return { ok: false, status: 'travel-changed' };
+      }
+    }
+    return { ok: true, units: freshUnits };
+  }
 
   function militaryUnitsReadable(townId) {
     try {
@@ -23732,7 +23684,7 @@ const STORE = {
       } else if (plan.timingMode === 'send_now') {
         sendAt = now + (idx * (plan.staggerMs || 0)) / 1000;
       }
-      const unitCount = Object.values(units).reduce((a, b) => a + (+b || 0), 0);
+      const unitCount = countUnits(units);
       let status = 'ok';
       if (!unitCount) status = 'no-units';
       else if (!boats.ok) status = boats.reason;
@@ -23763,7 +23715,7 @@ const STORE = {
     delete sendUnits.militia;
     if (!Object.keys(sendUnits).length) return onDone && onDone('no-units');
     const destId = +target.town_id;
-    const count = Object.values(sendUnits).reduce((a, b) => a + (+b || 0), 0);
+    const count = countUnits(sendUnits);
     const settle = (err, data) => {
       if (err) { flash('refuerzo fallido: ' + err); return onDone && onDone(err); }
       flash('refuerzo enviado #' + srcTownId);
@@ -23834,89 +23786,35 @@ const STORE = {
     if (armed) armed.textContent = rfArmed ? `ARMADO (${rfArmed.rows.length})` : '';
   }
   function rfArmWave(plan, rows) {
-    rfCancelArmed();
-    const target = rfResolveTarget(plan);
-    if (!target) { flash('no se puede armar: destino no resuelto'); return; }
     const token = gbLock('support');
     if (!token) {
       gbLogT('rf-arm-busy', 60000, 'refuerzo: support lock held (apoyo automatico) - not arming');
       flash('refuerzos ocupados: hay un apoyo en curso');
       return;
     }
-    const timers = [];
-    const delays = [];
-    const armedAt = Date.now();
-    rfArmed = { timers, rows, plan, cancel: rfCancelArmed, armedAt, token };
-    gbLog(`refuerzo: armed ${rows.length} towns mode=${plan.timingMode} skew=${Math.round(clientServerSkewMs())}ms (max window ${RF_ARM_MAX_MS}ms)`);
-    flash('Los timers del navegador no son precisos para uso militar - esperas largas no se dispararan solas');
-    rows.forEach((row, idx) => {
-      if (!row.unitCount || !row.boats.ok || row.status === 'past' || row.status === 'no-travel') {
-        gbLog(`refuerzo: skip ${row.townId} status=${row.status}`);
-        return;
-      }
-      let delayMs;
-      if (plan.timingMode === 'arrive_at' && row.sendAt != null) {
-        delayMs = row.sendAt * 1000 + clientServerSkewMs() - Date.now();
-      } else {
-        delayMs = idx * (plan.staggerMs || 0);
-      }
-      if (delayMs < 0) { row.fireStatus = 'past'; gbLog(`refuerzo: past send window for ${row.townId}`); return; }
-      if (delayMs > RF_ARM_MAX_MS) {
-        gbLog(`refuerzo: ${row.townId} delay ${Math.round(delayMs)}ms > ${RF_ARM_MAX_MS}ms - not arming (re-arm closer to send)`);
-        row.fireStatus = 'too-far';
-        return;
-      }
-      delays.push(delayMs);
-      const expectedFire = Date.now() + delayMs;
-      const tid = gbTimeout(() => {
-        gbLockTouch('support', token);
-        const late = Date.now() - expectedFire;
-        if (late > 5000) {
-          gbLog(`refuerzo: refuse overdue fire for ${row.townId} (late ${Math.round(late)}ms)`);
-          row.fireStatus = 'overdue';
-          rfPatchFireStatus();
-          return;
-        }
-        const liveTarget = rfResolveTarget(plan);
-        if (!liveTarget) { row.fireStatus = 'bad-target'; rfPatchFireStatus(); return; }
-        const freshUnits = rfUnitsForTarget(row.townId, liveTarget, plan);
-        const freshCount = Object.values(freshUnits).reduce((a, b) => a + (+b || 0), 0);
-        const freshBoats = boatCapacityCheck(freshUnits, isSameIsland(row.townId, liveTarget));
-        if (!freshCount || !freshBoats.ok) {
-          row.fireStatus = !freshCount ? 'no-units' : 'boats-changed';
-          rfPatchFireStatus();
-          return;
-        }
-        if (plan.timingMode === 'arrive_at') {
-          const freshTravel = computeTravelSeconds(row.townId, liveTarget, freshUnits, true);
-          if (freshTravel == null || row.travel == null || Math.abs(freshTravel - row.travel) > 1) {
-            row.fireStatus = 'travel-changed';
-            gbLog(`refuerzo: abort ${row.townId}; canonical travel changed ${row.travel} -> ${freshTravel}`);
-            rfPatchFireStatus();
-            return;
-          }
-        }
-        row.fireStatus = 'firing';
-        rfPatchFireStatus();
-        rfSend(liveTarget, row.townId, freshUnits, (err) => {
-          row.fireStatus = err ? 'err:' + err : 'sent';
-          rfPatchFireStatus();
-        });
-      }, delayMs);
-      timers.push(tid);
-      row.fireStatus = 'armed+' + Math.round(delayMs) + 'ms';
+    const ok = waveArmCore({
+      tag: 'refuerzo',
+      maxArmMs: RF_ARM_MAX_MS,
+      rows, plan, lockToken: token,
+      setArmed: v => { rfArmed = v; },
+      getArmed: () => rfArmed,
+      cancelArmed: rfCancelArmed,
+      resolveTarget: rfResolveTarget,
+      validateTarget: t => !!t,
+      prepareFire: (row, liveTarget, plan) => wavePrepareMilitaryFire(row, liveTarget, plan, rfUnitsForTarget, 'refuerzo'),
+      sendFire: (liveTarget, row, units, plan, cb) => rfSend(liveTarget, row.townId, units, cb),
+      pushHistory: (armedAt, plan, rows) => rfPushHistory({
+        ts: armedAt, mode: plan.timingMode, helpMode: plan.helpMode, targetId: plan.targetId,
+        towns: rows.map(r => ({ id: r.townId, sendAt: r.sendAt, travel: r.travel, status: r.status })),
+      }),
+      patchStatus: rfPatchFireStatus,
+      renderPanel: () => renderReinforce(),
+      onExpire: (_timers, tok) => { if (tok) rfReleaseLock(tok); },
     });
-    rfPushHistory({
-      ts: armedAt, mode: plan.timingMode, helpMode: plan.helpMode, targetId: plan.targetId,
-      towns: rows.map(r => ({ id: r.townId, sendAt: r.sendAt, travel: r.travel, status: r.status })),
-    });
-    const maxDelay = delays.length ? Math.max(0, ...delays) : 0;
-    timers.push(gbTimeout(() => {
+    if (!ok) {
       rfReleaseLock(token);
-      if (rfArmed && rfArmed.timers === timers) rfArmed = null;
-      rfPatchFireStatus();
-    }, maxDelay + 5000));
-    renderReinforce();
+      flash('no se puede armar: destino no resuelto');
+    }
   }
   function rfFireNow(plan, rows) {
     const target = rfResolveTarget(plan);
@@ -23944,7 +23842,7 @@ const STORE = {
       }
       const row = okRows[i++];
       const freshUnits = rfUnitsForTarget(row.townId, target, plan);
-      const freshCount = Object.values(freshUnits).reduce((a, b) => a + (+b || 0), 0);
+      const freshCount = countUnits(freshUnits);
       const freshBoats = boatCapacityCheck(freshUnits, isSameIsland(row.townId, target));
       if (!freshCount || !freshBoats.ok) {
         gbLog(`refuerzo: skip ${row.townId} at fire time (${!freshCount ? 'no-units' : freshBoats.reason})`);
@@ -25467,7 +25365,7 @@ const STORE = {
 
       let total = 0, dropped = [];
       try {
-        const models = mmModelsAll('MovementsUnits');
+        const models = movementModels();
         total = models.length;
         const mine = new Set(Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {}).map(String));
         const kept = new Set(mv.map(x => String(x.id)));
@@ -26360,8 +26258,7 @@ const STORE = {
   }
 
   function queueCenterPlanCard(body, townId, lane, title, pauseNoun) {
-    const list = nativeQueueList(townId, lane, false);
-    const fifo = nativeQueueIsFifo(townId, lane), paused = nativeQueuePaused(townId, lane);
+    const { list, fifo, paused } = nativeQueueLaneMeta(townId, lane);
     const plan = queueCenterCard(title,
       fifo ? (paused ? 'FIFO pausada' : 'FIFO activa') : 'Objetivos autom\u00e1ticos',
       fifo ? (paused ? 'Cola FIFO en pausa - el plan automatico no actua' : 'Cola FIFO activa - gestionas las ordenes manualmente') : 'El plan automatico es el due\u00f1o de esta cola');
@@ -30543,16 +30440,16 @@ const STORE = {
   gbInterval(farmTick, BOOT_TIMING.FARM_TICK_MS);
   gbTimeout(() => { if (state.autoFarm) farmScheduleClaimWake(null, 'boot', true); }, BOOT_TIMING.FARM_WAKE_MS);
 
-  gbTimeout(() => { try { telegramMonitorTick(); } catch (_) {} }, 3000);
-  gbInterval(() => { try { telegramMonitorTick(); } catch (_) {} }, TELEGRAM_MONITOR_POLL_MS);
-  gbListen(window, 'focus', () => { try { telegramMonitorTick(); } catch (_) {} });
-  gbListen(window, 'online', () => { try { telegramMonitorTick(); } catch (_) {} });
+  gbTimeout(() => { gbTry(() => telegramMonitorTick()); }, 3000);
+  gbInterval(() => { gbTry(() => telegramMonitorTick()); }, TELEGRAM_MONITOR_POLL_MS);
+  gbListen(window, 'focus', () => { gbTry(() => telegramMonitorTick()); });
+  gbListen(window, 'online', () => { gbTry(() => telegramMonitorTick()); });
 
   gbListen(document, 'visibilitychange', () => {
     if (document.hidden) return;
     try { gbWakeMarkResume('visible'); } catch (e) { gbLogT('boot-wake-visible', 60000, 'wake visible: ' + String(e?.message || e).slice(0, 80)); }
-    try { gbTryAcquireTabLeader(); orchStartIndependentTimers(); } catch (_) {}
-    try { telegramMonitorTick(); } catch (_) {}
+    gbTry(() => { gbTryAcquireTabLeader(); orchStartIndependentTimers(); });
+    gbTry(() => telegramMonitorTick());
     farmTick();
     try { reportCatchUpEnqueue(); } catch (e) { gbLogT('boot-catchup', 60000, 'catchup: ' + String(e?.message || e).slice(0, 80)); }
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (e) { gbLogT('boot-wake-ib', 60000, 'wake ibScan: ' + String(e?.message || e).slice(0, 80)); }
@@ -30566,8 +30463,8 @@ const STORE = {
 
     releaseLocksAt = 0;
     try { gbWakeMarkResume('bfcache'); } catch (e) { gbLogT('boot-wake-bfcache', 60000, 'wake bfcache: ' + String(e?.message || e).slice(0, 80)); }
-    try { gbTryAcquireTabLeader(); orchStartIndependentTimers(); } catch (_) {}
-    try { telegramMonitorTick(); } catch (_) {}
+    gbTry(() => { gbTryAcquireTabLeader(); orchStartIndependentTimers(); });
+    gbTry(() => telegramMonitorTick());
     farmTick();
     try { reportCatchUpEnqueue(); } catch (e) { gbLogT('boot-catchup', 60000, 'catchup: ' + String(e?.message || e).slice(0, 80)); }
     try { bindQuestObserver(); } catch (e) { gbLogT('boot-quest-obs', 60000, 'quest observer: ' + String(e?.message || e).slice(0, 80)); }

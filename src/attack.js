@@ -495,7 +495,7 @@
       } else if (plan.timingMode === 'send_now') {
         sendAt = now + (idx * (plan.staggerMs || 0)) / 1000;
       }
-      const unitCount = Object.values(units).reduce((a, b) => a + (+b || 0), 0);
+      const unitCount = countUnits(units);
       let status = 'ok';
       if (!unitCount) status = 'no-units';
       else if (!boats.ok) status = boats.reason;
@@ -559,7 +559,7 @@
       const params = Object.assign({}, sendUnits, {
         id: destId, type: safeMission, town_id: +srcTownId,
       });
-      const n = Object.values(sendUnits).reduce((a, b) => a + (+b || 0), 0);
+      const n = countUnits(sendUnits);
       if (state.exportRedact === false) gbLog('attack ajax:', JSON.stringify(params));
       else gbLog(`attack ajax: ${ATTACK_CONTROLLER}/send_units town ${srcTownId} -> ${destId} (${safeMission}, ${Object.keys(sendUnits).length} tipos / ${n} unidades)`);
       return gameAjaxPost('attack', ATTACK_CONTROLLER, 'send_units', params, settle);
@@ -586,7 +586,7 @@
       town_id: +srcTownId,
     };
 
-    const unitCount = Object.values(sendUnits).reduce((a, b) => a + (+b || 0), 0);
+    const unitCount = countUnits(sendUnits);
     if (state.exportRedact === false) gbLog('attack bridge:', JSON.stringify(payload));
     else gbLog(`attack bridge: ${payload.action_name} town ${srcTownId} \u2192 ${destId} (${args.type || '?'}, ${Object.keys(sendUnits).length} tipos / ${unitCount} unidades)`);
     bridgePost('attack', payload, settle);
@@ -622,103 +622,28 @@
   }
   const ATTACK_ARM_MAX_MS = 90000;
   function armAttackWave(plan, rows) {
-    cancelArmedAttack();
-    const target = resolveTarget(plan);
-    if (!target || !attackSendAllowed(target)) {
+    const ok = waveArmCore({
+      tag: 'attack',
+      maxArmMs: ATTACK_ARM_MAX_MS,
+      rows, plan,
+      setArmed: v => { attackArmed = v; },
+      getArmed: () => attackArmed,
+      cancelArmed: cancelArmedAttack,
+      resolveTarget: resolveTarget,
+      validateTarget: t => !!(t && attackSendAllowed(t)),
+      prepareFire: (row, liveTarget, plan) => wavePrepareMilitaryFire(row, liveTarget, plan, attackUnitsForTarget, 'attack'),
+      sendFire: (liveTarget, row, units, plan, cb) => sendAttackViaBridge(liveTarget, row.townId, units, plan.mission, cb),
+      pushHistory: (armedAt, plan, rows) => pushAttackHistory({
+        ts: armedAt, mode: plan.timingMode, targetId: plan.targetId,
+        towns: rows.map(r => ({ id: r.townId, sendAt: r.sendAt, travel: r.travel, status: r.status })),
+      }),
+      patchStatus: patchAttackFireStatus,
+      renderPanel: () => renderAttack(),
+    });
+    if (!ok) {
       flash('no se puede armar: objetivo no resuelto o no es una ciudad');
       gbLog('attack: arm blocked \u2014 need canonical town target (villages unsupported)');
-      return;
     }
-    const timers = [];
-    const delays = [];
-    const armedAt = Date.now();
-    attackArmed = { timers, rows, plan, cancel: cancelArmedAttack, armedAt };
-    const skew0 = clientServerSkewMs();
-    gbLog(`attack: armed ${rows.length} towns mode=${plan.timingMode} skew=${Math.round(skew0)}ms (max window ${ATTACK_ARM_MAX_MS}ms)`);
-    flash('Los timers del navegador no son precisos para uso militar - esperas largas no se dispararan solas');
-    rows.forEach((row, idx) => {
-      if (!row.unitCount || !row.boats.ok) {
-        gbLog(`attack: skip ${row.townId} status=${row.status}`);
-        return;
-      }
-      if (row.status === 'past' || row.status === 'no-travel') {
-        gbLog(`attack: skip ${row.townId} status=${row.status}`);
-        return;
-      }
-      let delayMs;
-      if (plan.timingMode === 'arrive_at' && row.sendAt != null) {
-        const skew = clientServerSkewMs();
-        const clientSendMs = row.sendAt * 1000 + skew;
-        delayMs = clientSendMs - Date.now();
-      } else {
-        delayMs = idx * (plan.staggerMs || 0);
-      }
-      if (delayMs < 0) {
-        gbLog(`attack: past send window for ${row.townId} (${Math.round(delayMs)}ms)`);
-        row.fireStatus = 'past';
-        return;
-      }
-      if (delayMs > ATTACK_ARM_MAX_MS) {
-        gbLog(`attack: ${row.townId} delay ${Math.round(delayMs)}ms > ${ATTACK_ARM_MAX_MS}ms \u2014 not arming (re-arm closer to send)`);
-        row.fireStatus = 'too-far';
-        return;
-      }
-      delays.push(delayMs);
-      const expectedFire = Date.now() + delayMs;
-      const tid = gbTimeout(() => {
-
-        const late = Date.now() - expectedFire;
-        if (late > 5000) {
-          gbLog(`attack: refuse overdue fire for ${row.townId} (late ${Math.round(late)}ms)`);
-          row.fireStatus = 'overdue';
-          patchAttackFireStatus();
-          return;
-        }
-
-        const liveTarget = resolveTarget(plan);
-        if (!liveTarget || !attackSendAllowed(liveTarget)) {
-          row.fireStatus = 'bad-target';
-          patchAttackFireStatus();
-          return;
-        }
-        const freshUnits = attackUnitsForTarget(row.townId, liveTarget, plan);
-        const freshCount = Object.values(freshUnits).reduce((a, b) => a + (+b || 0), 0);
-        const freshSame = isSameIsland(row.townId, liveTarget);
-        const freshBoats = boatCapacityCheck(freshUnits, freshSame);
-        if (!freshCount || !freshBoats.ok) {
-          row.fireStatus = !freshCount ? 'no-units' : 'boats-changed';
-          patchAttackFireStatus();
-          return;
-        }
-        if (plan.timingMode === 'arrive_at') {
-          const freshTravel = computeTravelSeconds(row.townId, liveTarget, freshUnits, true);
-          if (freshTravel == null || row.travel == null || Math.abs(freshTravel - row.travel) > 1) {
-            row.fireStatus = 'travel-changed';
-            gbLog(`attack: abort ${row.townId}; canonical travel changed ${row.travel}\u2192${freshTravel}`);
-            patchAttackFireStatus();
-            return;
-          }
-        }
-        row.fireStatus = 'firing';
-        patchAttackFireStatus();
-        sendAttackViaBridge(liveTarget, row.townId, freshUnits, plan.mission, (err) => {
-          row.fireStatus = err ? 'err:' + err : 'sent';
-          patchAttackFireStatus();
-        });
-      }, delayMs);
-      timers.push(tid);
-      row.fireStatus = 'armed+' + Math.round(delayMs) + 'ms';
-    });
-    pushAttackHistory({
-      ts: armedAt, mode: plan.timingMode, targetId: plan.targetId,
-      towns: rows.map(r => ({ id: r.townId, sendAt: r.sendAt, travel: r.travel, status: r.status })),
-    });
-    const maxDelay = delays.length ? Math.max(0, ...delays) : 0;
-    timers.push(gbTimeout(() => {
-      if (attackArmed && attackArmed.timers === timers) attackArmed = null;
-      patchAttackFireStatus();
-    }, maxDelay + 5000));
-    renderAttack();
   }
   function fireAttackNow(plan, rows) {
     const target = resolveTarget(plan);
@@ -737,7 +662,7 @@
       }
       const row = okRows[i++];
       const freshUnits = attackUnitsForTarget(row.townId, target, plan);
-      const freshCount = Object.values(freshUnits).reduce((a, b) => a + (+b || 0), 0);
+      const freshCount = countUnits(freshUnits);
       const freshBoats = boatCapacityCheck(freshUnits, isSameIsland(row.townId, target));
       if (!freshCount || !freshBoats.ok) {
         gbLog(`attack: skip ${row.townId} at fire time (${!freshCount ? 'no-units' : freshBoats.reason})`);

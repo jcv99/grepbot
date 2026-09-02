@@ -162,7 +162,7 @@
       } else if (plan.timingMode === 'send_now') {
         sendAt = now + (idx * (plan.staggerMs || 0)) / 1000;
       }
-      const unitCount = Object.values(units).reduce((a, b) => a + (+b || 0), 0);
+      const unitCount = countUnits(units);
       let status = 'ok';
       if (!unitCount) status = 'no-units';
       else if (!boats.ok) status = boats.reason;
@@ -193,7 +193,7 @@
     delete sendUnits.militia;
     if (!Object.keys(sendUnits).length) return onDone && onDone('no-units');
     const destId = +target.town_id;
-    const count = Object.values(sendUnits).reduce((a, b) => a + (+b || 0), 0);
+    const count = countUnits(sendUnits);
     const settle = (err, data) => {
       if (err) { flash('refuerzo fallido: ' + err); return onDone && onDone(err); }
       flash('refuerzo enviado #' + srcTownId);
@@ -264,89 +264,35 @@
     if (armed) armed.textContent = rfArmed ? `ARMADO (${rfArmed.rows.length})` : '';
   }
   function rfArmWave(plan, rows) {
-    rfCancelArmed();
-    const target = rfResolveTarget(plan);
-    if (!target) { flash('no se puede armar: destino no resuelto'); return; }
     const token = gbLock('support');
     if (!token) {
       gbLogT('rf-arm-busy', 60000, 'refuerzo: support lock held (apoyo automatico) - not arming');
       flash('refuerzos ocupados: hay un apoyo en curso');
       return;
     }
-    const timers = [];
-    const delays = [];
-    const armedAt = Date.now();
-    rfArmed = { timers, rows, plan, cancel: rfCancelArmed, armedAt, token };
-    gbLog(`refuerzo: armed ${rows.length} towns mode=${plan.timingMode} skew=${Math.round(clientServerSkewMs())}ms (max window ${RF_ARM_MAX_MS}ms)`);
-    flash('Los timers del navegador no son precisos para uso militar - esperas largas no se dispararan solas');
-    rows.forEach((row, idx) => {
-      if (!row.unitCount || !row.boats.ok || row.status === 'past' || row.status === 'no-travel') {
-        gbLog(`refuerzo: skip ${row.townId} status=${row.status}`);
-        return;
-      }
-      let delayMs;
-      if (plan.timingMode === 'arrive_at' && row.sendAt != null) {
-        delayMs = row.sendAt * 1000 + clientServerSkewMs() - Date.now();
-      } else {
-        delayMs = idx * (plan.staggerMs || 0);
-      }
-      if (delayMs < 0) { row.fireStatus = 'past'; gbLog(`refuerzo: past send window for ${row.townId}`); return; }
-      if (delayMs > RF_ARM_MAX_MS) {
-        gbLog(`refuerzo: ${row.townId} delay ${Math.round(delayMs)}ms > ${RF_ARM_MAX_MS}ms - not arming (re-arm closer to send)`);
-        row.fireStatus = 'too-far';
-        return;
-      }
-      delays.push(delayMs);
-      const expectedFire = Date.now() + delayMs;
-      const tid = gbTimeout(() => {
-        gbLockTouch('support', token);
-        const late = Date.now() - expectedFire;
-        if (late > 5000) {
-          gbLog(`refuerzo: refuse overdue fire for ${row.townId} (late ${Math.round(late)}ms)`);
-          row.fireStatus = 'overdue';
-          rfPatchFireStatus();
-          return;
-        }
-        const liveTarget = rfResolveTarget(plan);
-        if (!liveTarget) { row.fireStatus = 'bad-target'; rfPatchFireStatus(); return; }
-        const freshUnits = rfUnitsForTarget(row.townId, liveTarget, plan);
-        const freshCount = Object.values(freshUnits).reduce((a, b) => a + (+b || 0), 0);
-        const freshBoats = boatCapacityCheck(freshUnits, isSameIsland(row.townId, liveTarget));
-        if (!freshCount || !freshBoats.ok) {
-          row.fireStatus = !freshCount ? 'no-units' : 'boats-changed';
-          rfPatchFireStatus();
-          return;
-        }
-        if (plan.timingMode === 'arrive_at') {
-          const freshTravel = computeTravelSeconds(row.townId, liveTarget, freshUnits, true);
-          if (freshTravel == null || row.travel == null || Math.abs(freshTravel - row.travel) > 1) {
-            row.fireStatus = 'travel-changed';
-            gbLog(`refuerzo: abort ${row.townId}; canonical travel changed ${row.travel} -> ${freshTravel}`);
-            rfPatchFireStatus();
-            return;
-          }
-        }
-        row.fireStatus = 'firing';
-        rfPatchFireStatus();
-        rfSend(liveTarget, row.townId, freshUnits, (err) => {
-          row.fireStatus = err ? 'err:' + err : 'sent';
-          rfPatchFireStatus();
-        });
-      }, delayMs);
-      timers.push(tid);
-      row.fireStatus = 'armed+' + Math.round(delayMs) + 'ms';
+    const ok = waveArmCore({
+      tag: 'refuerzo',
+      maxArmMs: RF_ARM_MAX_MS,
+      rows, plan, lockToken: token,
+      setArmed: v => { rfArmed = v; },
+      getArmed: () => rfArmed,
+      cancelArmed: rfCancelArmed,
+      resolveTarget: rfResolveTarget,
+      validateTarget: t => !!t,
+      prepareFire: (row, liveTarget, plan) => wavePrepareMilitaryFire(row, liveTarget, plan, rfUnitsForTarget, 'refuerzo'),
+      sendFire: (liveTarget, row, units, plan, cb) => rfSend(liveTarget, row.townId, units, cb),
+      pushHistory: (armedAt, plan, rows) => rfPushHistory({
+        ts: armedAt, mode: plan.timingMode, helpMode: plan.helpMode, targetId: plan.targetId,
+        towns: rows.map(r => ({ id: r.townId, sendAt: r.sendAt, travel: r.travel, status: r.status })),
+      }),
+      patchStatus: rfPatchFireStatus,
+      renderPanel: () => renderReinforce(),
+      onExpire: (_timers, tok) => { if (tok) rfReleaseLock(tok); },
     });
-    rfPushHistory({
-      ts: armedAt, mode: plan.timingMode, helpMode: plan.helpMode, targetId: plan.targetId,
-      towns: rows.map(r => ({ id: r.townId, sendAt: r.sendAt, travel: r.travel, status: r.status })),
-    });
-    const maxDelay = delays.length ? Math.max(0, ...delays) : 0;
-    timers.push(gbTimeout(() => {
+    if (!ok) {
       rfReleaseLock(token);
-      if (rfArmed && rfArmed.timers === timers) rfArmed = null;
-      rfPatchFireStatus();
-    }, maxDelay + 5000));
-    renderReinforce();
+      flash('no se puede armar: destino no resuelto');
+    }
   }
   function rfFireNow(plan, rows) {
     const target = rfResolveTarget(plan);
@@ -374,7 +320,7 @@
       }
       const row = okRows[i++];
       const freshUnits = rfUnitsForTarget(row.townId, target, plan);
-      const freshCount = Object.values(freshUnits).reduce((a, b) => a + (+b || 0), 0);
+      const freshCount = countUnits(freshUnits);
       const freshBoats = boatCapacityCheck(freshUnits, isSameIsland(row.townId, target));
       if (!freshCount || !freshBoats.ok) {
         gbLog(`refuerzo: skip ${row.townId} at fire time (${!freshCount ? 'no-units' : freshBoats.reason})`);
