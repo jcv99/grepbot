@@ -353,7 +353,7 @@
   let abBlockedLogAt = 0;
   function abScan(reason) {
     const nativePending=nativeQueueHasPending('build'), cdPending=cityDesignerHasExecutableWork('build');
-    if(!hostEnabled()||(!state.abAuto&&!nativePending&&!cdPending&&reason!=='manual')||captchaPaused('build')||circuitOpen('build'))return;
+    if(!hostEnabled()||(!state.abAuto&&!nativePending&&!cdPending&&reason!=='manual')||captchaPausedAny('build','instant-build','instant-research')||circuitOpen('build'))return;
     if(automationPaused({}))return;
     const ids=abTownIds();
     if(!ids.length){gbLogT('ab-notowns',120000,'auto-queue: no towns');return}
@@ -379,7 +379,8 @@
           gbLog(`${prefix} — ${shown}${blocked.length>3?`; +${blocked.length-3} más`:''}`);
         }
       }else gbLogT('ab-finish',30000,prefix);
-      renderAbQueue();gbTimeout(ibScan,1500);
+      renderAbQueue();
+      if (state.ibAuto) gbTimeout(ibScan, 1500);
     };
     const nextTown=()=>{townIndex++;gbTimeout(step,150)};
     const step=()=>{

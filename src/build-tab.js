@@ -48,6 +48,42 @@
     return gbSkipActiveWrite(ibFeatureFor(order.kind || 'build'), 'bridge', endpoint, payload);
   }
 
+  const ibBackoff = Object.create(null);
+  const IB_BACKOFF_MS = [300000, 900000, 3600000];
+  function ibBackoffKey(order) { return (order.kind || 'build') + ':' + order.id; }
+  function ibBackoffEntry(order) { return ibBackoff[ibBackoffKey(order)] || null; }
+  function ibBackoffActive(order) {
+    const e = ibBackoffEntry(order);
+    return !!(e && Date.now() < e.until);
+  }
+  function ibBackoffNote(order, why) {
+    const k = ibBackoffKey(order);
+    const prev = ibBackoff[k] || { n: 0 };
+    const n = Math.min(prev.n + 1, IB_BACKOFF_MS.length);
+    ibBackoff[k] = { n, until: Date.now() + IB_BACKOFF_MS[n - 1], why: String(why || prev.why || 'retry') };
+  }
+  function ibBackoffClear(order) { delete ibBackoff[ibBackoffKey(order)]; }
+  function ibInstantBlockedWhy(kind) {
+    if (!hostEnabled()) return gbTabLeader ? 'host-disabled' : 'not-leader';
+    const tag = ibFeatureFor(kind || 'build');
+    if (captchaPaused(tag)) return 'captcha:' + tag;
+    if (captchaPaused('build')) return 'captcha:build';
+    if (state.firstPostConfirm && !state.dryRun && !firstPostLiveOk(tag)) return 'first-post-confirm:' + tag;
+    const pauseInfo = {};
+    if (automationPaused(pauseInfo)) return 'paused:' + (pauseInfo.reason || 'activity');
+    return null;
+  }
+  function ibStaleWhy(live, kind, instantLeft) {
+    const positionAllowed = kind === 'build' || (live && live.isHead === true);
+    if (!live) return 'stale:missing';
+    if (!positionAllowed) return 'stale:not-head';
+    if (!live.isFree) return 'stale:not-free';
+    if (live.gold !== 0) return 'stale:gold=' + (live.gold == null ? '?' : live.gold);
+    if (!(instantLeft > 0)) return 'stale:expired';
+    if (instantLeft > ibSafeFreeThresh()) return 'stale:over-thresh';
+    return null;
+  }
+
   const ibFreeTimers = Object.create(null);
   function ibClearArmed(townKey) {
     if (townKey == null) {
@@ -256,15 +292,17 @@
     return new Promise(resolve => {
       const kind = order.kind || 'build';
       const tag = kind === 'research' ? 'instant-research' : 'instant-build';
-      if (!hostEnabled() || captchaPaused(tag)) { resolve('pause'); return; }
+      const blocked = ibInstantBlockedWhy(kind);
+      if (blocked) { resolve({ res: 'pause', why: blocked }); return; }
 
       const live = ibFindLiveOrder(order.id, kind);
       const instantLeft = live && Number.isFinite(+live.instantLeft) ? +live.instantLeft : +(live && live.timeLeft);
 
-      const positionAllowed = kind === 'build' || (live && live.isHead === true);
-      if (!live || !positionAllowed || !live.isFree || live.gold !== 0 || !(instantLeft > 0) || instantLeft > ibSafeFreeThresh()) {
-        gbLogT('ib-stale', 30000, `${tag}: #${order.id} no longer safely free (instantLeft=${instantLeft}, queueLeft=${live&&live.timeLeft}, head=${live&&live.isHead}, gold=${live&&live.gold})`);
-        resolve('skip');
+      const staleWhy = ibStaleWhy(live, kind, instantLeft);
+      if (staleWhy) {
+        gbLogT('ib-stale-' + kind + '-' + order.id, 30000,
+          `${tag}: #${order.id} no longer safely free (${staleWhy}; instantLeft=${instantLeft}, queueLeft=${live && live.timeLeft}, head=${live && live.isHead}, gold=${live && live.gold})`);
+        resolve({ res: 'skip', why: staleWhy });
         return;
       }
       const modelUrl = live.modelUrl || order.modelUrl || ('BuildingOrder/' + order.id);
@@ -272,13 +310,13 @@
       const intent=`instant:${live.town_id}:${kind}:${order.id}`;
       if(state.txState&&state.txState[intent]&&state.txState[intent].state==='committed'){
         gbLogT('ib-recent-'+kind+'-'+order.id,30000,`${tag}: #${order.id} already accepted; waiting for model update`);
-        resolve('accepted');return;
+        resolve({ res: 'accepted' });return;
       }
       const finishOk = () => {
         const waits=[0,150,500,1200,2500];let i=0;
         const check=()=>{
-          if(!ibOrderStillPresent(order.id,kind)){gbLog(`${tag}: ${live.type} #${order.id} OK`);resolve('ok');return}
-          if(i>=waits.length){gbLog(`${tag}: ${live.type} #${order.id} accepted; model update pending`);resolve('accepted');return}
+          if(!ibOrderStillPresent(order.id,kind)){gbLog(`${tag}: ${live.type} #${order.id} OK`);resolve({ res: 'ok' });return}
+          if(i>=waits.length){gbLog(`${tag}: ${live.type} #${order.id} accepted; model update pending`);resolve({ res: 'accepted' });return}
           gbTimeout(check,waits[i++]);
         };check();
       };
@@ -291,34 +329,38 @@
           town_id: live.town_id,
           nl_init: true,
         }, (err, data) => {
-          if (err === 'captcha' || err === 'captcha-pause') { resolve('captcha'); return; }
+          if (err === 'captcha' || err === 'captcha-pause') { resolve({ res: 'captcha', why: String(err) }); return; }
           if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {
             if (!ibOrderStillPresent(order.id,kind)) {
               gbLog(`${tag}: #${order.id} timeout but order gone \u2014 treating as OK`);
-              resolve('ok');
+              resolve({ res: 'ok' });
             } else {
               gbLog(`${tag}: #${order.id} timeout_unknown \u2014 no retry`);
-              resolve('unknown');
+              resolve({ res: 'unknown', why: String(err) });
             }
             return;
           }
 
           if (err === 'tpl-stale' || err === 'budget' || err === 'disabled' || err === 'dryrun'
-              || err === 'remembered' || err === 'circuit-open') {
+              || err === 'remembered' || err === 'circuit-open' || err === 'first-post-confirm') {
             gbLogT('ib-gate-' + err, 60000, `${tag}: #${order.id} not sent (${err})`);
-            resolve('skip');
+            resolve({ res: 'skip', why: String(err) });
+            return;
+          }
+          if (err && String(err).indexOf('paused:') === 0) {
+            resolve({ res: 'pause', why: String(err) });
             return;
           }
           if (err) {
             ibResetLearnedAction(kind, err);
             gbLog(tag + ' complete error: ' + err);
-            resolve('err');
+            resolve({ res: 'err', why: String(err) });
             return;
           }
           const e = data && data.error;
           if (e) {
             gbLog(`${tag}: ${live.type} #${order.id} ERR ` + JSON.stringify(data).slice(0, 120));
-            resolve('err');
+            resolve({ res: 'err', why: 'server-error' });
             return;
           }
           finishOk();
@@ -327,14 +369,16 @@
       postFree();
     });
   }
-  function ibCompleteAll(orders) {
+  function ibCompleteAll(orders, opts) {
     if (gbLocked('ib')) return;
+    const auto = !!(opts && opts.auto);
     const free = (orders || ibOrders()).filter(o => o.isFree);
     if (!free.length) return;
     const ibLockToken = gbLock('ib', Math.max(300000, free.length * (BRIDGE_TIMEOUT_MS + 5000)));
     if (!ibLockToken) return;
     renderBuild();
     let i = 0, done = 0, captcha = false;
+    const skips = Object.create(null);
     const unlock = () => { gbUnlock('ib', ibLockToken); };
 
     const watchdog = gbTimeout(unlock, Math.max(30000, free.length * (BRIDGE_TIMEOUT_MS + 5000)));
@@ -343,13 +387,33 @@
       if (i >= free.length || captcha) {
         try { gbClearTimeout(watchdog); } catch (_) {}
         unlock();
-        gbLog(`instant: completed ${done}/${free.length}${captcha ? ' (captcha abort)' : ''}`);
+        let suffix = '';
+        if (done < free.length && Object.keys(skips).length) {
+          suffix = ' \u2014 ' + Object.keys(skips).map(w => `${w} x${skips[w]}`).join(', ');
+        }
+        gbLog(`instant: completed ${done}/${free.length}${captcha ? ' (captcha abort)' : ''}${suffix}`);
         if (done) flash(`instant x${done}`);
-        gbTimeout(ibScan, 3000);
+        if (auto || state.ibAuto) {
+          let delay = 3000;
+          if (auto && done === 0 && free.length) {
+            const bo = ibBackoffEntry(free[0]);
+            const n = bo && bo.n ? bo.n : 1;
+            delay = Math.min(90000, 3000 * Math.pow(2, Math.min(5, n)));
+          }
+          gbTimeout(ibScan, delay);
+        }
         return;
       }
-      ibComplete(free[i]).then(res => {
-        if (res === 'ok' || res === 'accepted') done++;
+      ibComplete(free[i]).then(result => {
+        const res = result && result.res ? result.res : result;
+        const why = result && result.why ? result.why : '';
+        if (res === 'ok' || res === 'accepted') {
+          done++;
+          ibBackoffClear(free[i]);
+        } else {
+          if (why) skips[why] = (skips[why] || 0) + 1;
+          if (auto && why && (res === 'skip' || res === 'pause' || res === 'err' || res === 'unknown')) ibBackoffNote(free[i], why);
+        }
         if (res === 'captcha') captcha = true;
         i++;
         gbTimeout(next, 400 + Math.random() * 200);
@@ -364,7 +428,19 @@
     const free = orders.filter(o => o.isFree);
     if (!free.length) return;
 
+    const blockedWhy = ibInstantBlockedWhy(free[0].kind || 'build');
+    if (blockedWhy) {
+      gbLogT('ib-auto-pause', 60000, `instant: auto-complete blocked (${blockedWhy})`);
+      return;
+    }
+
     const live = free.filter(o => {
+      if (ibBackoffActive(o)) {
+        const e = ibBackoffEntry(o);
+        gbLogT('ib-backoff-' + o.town_id + '-' + o.id, 60000,
+          `instant: #${o.id} backoff ${fmtSec(Math.max(0, (e.until - Date.now()) / 1000))} (${e.why})`);
+        return false;
+      }
       const why = ibSkipWhy(o);
       if (!why) return true;
       gbLogT('ib-mem-' + o.town_id + '-' + o.id, 60000, `instant: #${o.id} skipped from memory (${why})`);
@@ -372,7 +448,7 @@
     });
     if (!live.length) return;
     gbLog(`instant: ${live.length} free order(s), auto-completing`);
-    ibCompleteAll(live);
+    ibCompleteAll(live, { auto: true });
   }
   function renderBuild(cached) {
     const sec = panel && panel.querySelector('section[data-tab=build]');
