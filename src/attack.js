@@ -42,7 +42,7 @@
   function townLiveUnits(townId) {
     const uw = gameUw();
     try {
-      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      const t = gbTownModel(townId);
       if (!t || !t.units) return {};
       return Object.assign({}, t.units());
     } catch (_) { return {}; }

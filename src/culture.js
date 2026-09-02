@@ -146,7 +146,7 @@
     try {
       const uw = gameUw();
       ids.forEach(id => {
-        const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(id) : uw.ITowns.towns[id]);
+        const t = gbTownModel(id);
         if (t && t.resources) ledger.res[id] = Object.assign({}, t.resources());
       });
     } catch (_) {}

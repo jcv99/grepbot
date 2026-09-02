@@ -21,6 +21,7 @@ const STORE = {
     CLAIM_TPL:  'grepbot:claim-tpl',
     IB_AUTO:   'grepbot:ib-auto',
     IB_FREE_THRESH: 'grepbot:ib-free-thresh',
+    ORCH_CADENCE_SCALE: 'grepbot:orch-cadence-scale',
     QUEST_REWARDS: 'grepbot:quest-rewards',
     QUEST_AUTO_BUILD: 'grepbot:quest-auto-build',
     QUEST_AUTO_RES: 'grepbot:quest-auto-res',
@@ -929,6 +930,7 @@ const STORE = {
     farmProfit: load(STORE.FARM_PROFIT, {}),
     adaptiveFarm: load(STORE.ADAPTIVE_FARM, false),
     farmDropPressurePct: load(STORE.FARM_DROP_PCT, 25),
+    orchCadenceScale: load(STORE.ORCH_CADENCE_SCALE, 1) || 1,
 
     farmClaimsToday: load(STORE.FARM_CLAIMS_TODAY, {}) || {},
     farmClaimsDay: load(STORE.FARM_CLAIMS_DAY, '') || '',
@@ -1708,7 +1710,7 @@ const STORE = {
     let ironPerSec = null;
     try {
       const uw = gameUw();
-      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      const t = gbTownModel(townId);
       if (t) {
         const p = t.getProduction ? t.getProduction() : (t.production && t.production());
         if (p && p.iron != null && p.iron > 100) ironPerSec = +p.iron / 3600;

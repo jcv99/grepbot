@@ -108,8 +108,21 @@
     // and never puts itself to sleep for 2x/4x/8x intervals.
     return 1;
   }
+  // v6.0.22: user-tunable orch cadence multiplier. Excludes trade/recruit/build
+  // families because their cost is request-budget or capacity bound and a
+  // tighter cadence burns the captcha ladder. Floor prevents a 0-scale slider
+  // from collapsing every module into a single tick.
+  const ORCH_CADENCE_FLOOR_MS = 5000;
+  const ORCH_SCALE_EXCLUDE = new Set([
+    'trade', 'pttrade', 'ruraltrade', 'rurallevel',
+    'recruit', 'batchrecruit', 'villrecruit',
+    'build',
+  ]);
   function orchCadence(key) {
-    return ORCH_CADENCE[key] || ORCH_MS;
+    const base = ORCH_CADENCE[key] || ORCH_MS;
+    if (ORCH_SCALE_EXCLUDE.has(key)) return base;
+    const scale = (state && state.orchCadenceScale > 0) ? state.orchCadenceScale : 1;
+    return Math.max(ORCH_CADENCE_FLOOR_MS, Math.round(base * scale));
   }
   function orchNoteResult(key) {
     const since = orchJrnMark[key];
@@ -122,10 +135,10 @@
     return orchDefaultOrder().map(key => ({
       key,
       on: !!orchFeatureEnabled(key),
-      cadenceMs: ORCH_CADENCE[key] || ORCH_MS,
+      cadenceMs: orchCadence(key),
       idle: orchIdle[key] || 0,
       captcha: captchaPaused(ORCH_CAPTCHA[key] || key),
-      dueInMs: Math.max(0, ((orchLastRun[key] || 0) + (ORCH_CADENCE[key] || ORCH_MS)) - now),
+      dueInMs: Math.max(0, ((orchLastRun[key] || 0) + orchCadence(key)) - now),
     }));
   }
   function orchHousekeepingTick() {
@@ -168,7 +181,7 @@
     let idx=0,created=0;
     for(const key of orchDefaultOrder()){
       if(!ORCH_HANDLERS[key])continue;
-      const cadence=ORCH_CADENCE[key]||ORCH_MS;
+      const cadence=orchCadence(key);
       if(!orchBootTimerIds[key]){
         orchBootTimerIds[key]=gbTimeout(()=>{orchBootTimerIds[key]=0;orchModuleTick(key,'boot')},500+(idx*120));
       }
@@ -179,6 +192,16 @@
       idx++;
     }
     return created;
+  }
+  // v6.0.22: re-register every interval after a scale change. gbInterval cadence
+  // is fixed at creation time, so a slider tweak has to clear + recreate.
+  function orchRestartTimers() {
+    for (const key of Object.keys(orchTimerIds)) {
+      const id = orchTimerIds[key];
+      if (id) { try { gbClearInterval(id); } catch (_) {} }
+      orchTimerIds[key] = 0;
+    }
+    orchStartIndependentTimers();
   }
   function intelPlayerKey(p) {
     if (p == null) return null;

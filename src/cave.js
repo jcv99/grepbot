@@ -25,7 +25,7 @@
     const uw = uwCached();
     let t = null;
     try {
-      t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      t = gbTownModel(townId);
     } catch (_) {}
     if (!t) return null;
     let hideLvl = 0;
@@ -95,7 +95,7 @@
     const id = townId != null ? townId : (caveListTownIds()[0]);
     let t = null;
     try {
-      t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(id) : uw.ITowns.towns[id]);
+      t = gbTownModel(id);
     } catch (_) {}
     if (!t) { gbLog('cave diag: no town model'); return null; }
     const keys = new Set();
@@ -220,7 +220,7 @@
     let name = nameById[String(id)] || id;
     if (name === id) {
       try {
-        const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(id) : uw.ITowns.towns[id]);
+        const t = gbTownModel(id);
         if (t && t.getName) name = t.getName();
         else if (t && t.name) name = t.name;
       } catch (_) {}

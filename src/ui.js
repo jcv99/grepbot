@@ -1454,6 +1454,14 @@
             <input class="gb-cfg-input" type="number" data-cfg="culture-gold-budget" min="0" max="500" step="50" style="width:60px"/>
           </label>
         `)}
+        ${gbCfgGroup('Ritmo y pausas', `
+          <label class="gb-cfg-num" data-gb-tip="Multiplicador de la cadencia de los modulos NO excluido (1.0 = sin cambios, 0.25 = 4x mas rapido, minimo 5s por modulo). Aldeas, reclutar, construir y los modulos de comercio/intercambio/rural NO se ven afectados: su cadencia depende de presupuesto o capacidad y bajarla solo quemaria captcha.">
+            Escala de cadencia
+            <input class="gb-cfg-input" type="range" data-cfg="orch-cadence-scale" min="0.25" max="1" step="0.05" style="width:140px"/>
+            <span data-cfg-out="orch-cadence-scale" style="display:inline-block;min-width:36px;font-variant-numeric:tabular-nums">1.00x</span>
+          </label>
+          <div class="gb-cfg-note" data-gb-tip="Aplica a: cultura, cueva, investigacion, mercader, favor, prodigio, espionaje, heroe, conjuro divino, reclutamiento de aldea, reclutamiento por lotes. Excluido: aldeas, reclutar, reclutar lotes, reclutar aldea, construir, comercio, pt-trade, comercio rural, nivel rural.">Modulos a los que NO aplica (costo = presupuesto/captcha): aldeas, reclutar, reclutar lotes, reclutar aldea, construir, comercio, pt-trade, comercio rural, nivel rural.</div>
+        `)}
         ${gbCfgGroup('Interfaz', `
           <label class="gb-cfg-num" data-gb-tip="Tema visual del panel">Tema
             <select class="gb-cfg-input" data-cfg="theme" data-gb-tip="Tema visual del panel">
@@ -2444,6 +2452,11 @@
     setNum('[data-cfg=farm-travel]', state.farmTravelSecPerUnit || 0);
     setChk('[data-cfg=adaptive-farm]', state.adaptiveFarm);
     setNum('[data-cfg=farm-drop-pct]', gbCfgNum(state.farmDropPressurePct, 25));
+    setNum('[data-cfg=orch-cadence-scale]', gbCfgNum(state.orchCadenceScale, 1));
+    {
+      const out = sec.querySelector('[data-cfg-out=orch-cadence-scale]');
+      if (out) out.textContent = (gbCfgNum(state.orchCadenceScale, 1)).toFixed(2) + 'x';
+    }
     setNum('[data-cfg=town-min]', Math.round(state.townMinMs / 60000));
     setNum('[data-cfg=town-max]', Math.round(state.townMaxMs / 60000));
     setNum('[data-cfg=posts-soft-pct]', state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60);
@@ -3082,6 +3095,20 @@
       save(STORE.FARM_DROP_PCT, state.farmDropPressurePct);
     });
     saveNum('[data-cfg=ib-free-thresh]', v => { state.ibFreeThresh = Math.max(60,Math.min(300,+v||300)); save(STORE.IB_FREE_THRESH, state.ibFreeThresh); });
+    cfgBindNumber('[data-cfg=orch-cadence-scale]', 'orchCadenceScale', STORE.ORCH_CADENCE_SCALE, v => {
+      // Clamp into the documented 0.25–1.0 band even if the input step is widened
+      // later; orchCadence() also enforces a 5s floor on the result.
+      state.orchCadenceScale = Math.max(0.25, Math.min(1, +v || 1));
+      save(STORE.ORCH_CADENCE_SCALE, state.orchCadenceScale);
+      try { orchRestartTimers(); } catch (_) {}
+      gbLog('orch cadence scale', state.orchCadenceScale.toFixed(2) + 'x');
+    });
+    // Live readout while dragging the slider. cfgBindNumber above only fires on
+    // 'change' (release); this gives the user a number under their thumb.
+    onCfg('[data-cfg=orch-cadence-scale]', 'input', e => {
+      const out = e.target.parentElement.querySelector('[data-cfg-out=orch-cadence-scale]');
+      if (out) out.textContent = (+e.target.value || 1).toFixed(2) + 'x';
+    });
     cfgBindNumber('[data-cfg=collect-max-min]', 'collectMaxMin', STORE.COLLECT_MAX_MIN);
     saveNum('[data-cfg=town-min]', v => { state.townMinMs = v * 60000; save(STORE.TOWN_MIN, state.townMinMs); });
     saveNum('[data-cfg=town-max]', v => { state.townMaxMs = v * 60000; save(STORE.TOWN_MAX, state.townMaxMs); });

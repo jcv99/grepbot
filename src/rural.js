@@ -8,7 +8,7 @@
   function ruralTownIslandXY(townId) {
     const uw = gameUw();
     try {
-      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      const t = gbTownModel(townId);
       if (!t) return null;
       const islandId = typeof t.getIslandId === 'function' ? t.getIslandId() : (t.attributes && t.attributes.island_id);
       return { id: islandId != null ? String(islandId) : null, x: t.getIslandCoordinateX && t.getIslandCoordinateX(), y: t.getIslandCoordinateY && t.getIslandCoordinateY(), t };

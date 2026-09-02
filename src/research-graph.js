@@ -145,7 +145,7 @@
   function researchTownTechs(townId) {
     const uw = gameUw();
     try {
-      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      const t = gbTownModel(townId);
       if (!t) return null;
       let res = null, techsKnown = false;
       try { const rm=t.researches&&t.researches();const attrs=rm&&(rm.attributes||rm);if(attrs&&typeof attrs==='object'){res=attrs;techsKnown=true} } catch (_) {}

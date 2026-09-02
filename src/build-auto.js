@@ -1,8 +1,4 @@
-  function abGetTown(townId) {
-    const uw = gameUw();
-    try { return uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]); }
-    catch (_) { return null; }
-  }
+  function abGetTown(townId) { return gbTownModel(townId); }
 
   const WALL_DAMAGE_FNS = ['getWallDamage', 'getDamagePercentForBuilding', 'getDamagePercentage', 'getWallDamagePercent'];
   const WALL_DAMAGE_ATTRS = ['wall_damage', 'wallDamage', 'damage_percent', 'wall_damage_percent'];

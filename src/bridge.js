@@ -340,7 +340,7 @@
     const uw = gameUw();
     let t = null;
     try {
-      t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      t = gbTownModel(townId);
     } catch (_) {}
     let out = null;
     if (t) {

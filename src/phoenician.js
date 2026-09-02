@@ -335,7 +335,7 @@
   function ptTownCaps(townId) {
     const uw = gameUw();
     let t = null;
-    try { t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]); } catch (_) {}
+    try { t = gbTownModel(townId); } catch (_) {}
     let tradeCap = null;
     try { if (t && t.getAvailableTradeCapacity) tradeCap = +t.getAvailableTradeCapacity(); } catch (_) {}
     const st = townResState(townId);

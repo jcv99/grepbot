@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.23
+// @version      6.0.25
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -44,6 +44,7 @@ const STORE = {
     CLAIM_TPL:  'grepbot:claim-tpl',
     IB_AUTO:   'grepbot:ib-auto',
     IB_FREE_THRESH: 'grepbot:ib-free-thresh',
+    ORCH_CADENCE_SCALE: 'grepbot:orch-cadence-scale',
     QUEST_REWARDS: 'grepbot:quest-rewards',
     QUEST_AUTO_BUILD: 'grepbot:quest-auto-build',
     QUEST_AUTO_RES: 'grepbot:quest-auto-res',
@@ -926,6 +927,7 @@ const STORE = {
     farmProfit: load(STORE.FARM_PROFIT, {}),
     adaptiveFarm: load(STORE.ADAPTIVE_FARM, false),
     farmDropPressurePct: load(STORE.FARM_DROP_PCT, 25),
+    orchCadenceScale: load(STORE.ORCH_CADENCE_SCALE, 1) || 1,
 
     farmClaimsToday: load(STORE.FARM_CLAIMS_TODAY, {}) || {},
     farmClaimsDay: load(STORE.FARM_CLAIMS_DAY, '') || '',
@@ -1690,7 +1692,7 @@ const STORE = {
     let ironPerSec = null;
     try {
       const uw = gameUw();
-      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      const t = gbTownModel(townId);
       if (t) {
         const p = t.getProduction ? t.getProduction() : (t.production && t.production());
         if (p && p.iron != null && p.iron > 100) ironPerSec = +p.iron / 3600;
@@ -4154,7 +4156,7 @@ const STORE = {
     const uw = gameUw();
     let t = null;
     try {
-      t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      t = gbTownModel(townId);
     } catch (_) {}
     let out = null;
     if (t) {
@@ -7408,7 +7410,7 @@ const STORE = {
   function townResourcesFromGame(id) {
     const uw = gameUw();
     try {
-      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(id) : uw.ITowns.towns[id]);
+      const t = gbTownModel(id);
       if (!t || !t.resources) return null;
       const r = t.resources();
       if (!r || r.wood == null) return null;
@@ -10636,11 +10638,7 @@ const STORE = {
     gbLog('auto-queue: loaded CS-fast targets + default priority');
     renderAbQueue();
   }
-  function abGetTown(townId) {
-    const uw = gameUw();
-    try { return uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]); }
-    catch (_) { return null; }
-  }
+  function abGetTown(townId) { return gbTownModel(townId); }
 
   const WALL_DAMAGE_FNS = ['getWallDamage', 'getDamagePercentForBuilding', 'getDamagePercentage', 'getWallDamagePercent'];
   const WALL_DAMAGE_ATTRS = ['wall_damage', 'wallDamage', 'damage_percent', 'wall_damage_percent'];
@@ -11199,7 +11197,7 @@ const STORE = {
     const uw = uwCached();
     let t = null;
     try {
-      t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      t = gbTownModel(townId);
     } catch (_) {}
     if (!t) return null;
     let hideLvl = 0;
@@ -11269,7 +11267,7 @@ const STORE = {
     const id = townId != null ? townId : (caveListTownIds()[0]);
     let t = null;
     try {
-      t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(id) : uw.ITowns.towns[id]);
+      t = gbTownModel(id);
     } catch (_) {}
     if (!t) { gbLog('cave diag: no town model'); return null; }
     const keys = new Set();
@@ -11394,7 +11392,7 @@ const STORE = {
     let name = nameById[String(id)] || id;
     if (name === id) {
       try {
-        const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(id) : uw.ITowns.towns[id]);
+        const t = gbTownModel(id);
         if (t && t.getName) name = t.getName();
         else if (t && t.name) name = t.name;
       } catch (_) {}
@@ -11632,7 +11630,7 @@ const STORE = {
     try {
       const uw = gameUw();
       ids.forEach(id => {
-        const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(id) : uw.ITowns.towns[id]);
+        const t = gbTownModel(id);
         if (t && t.resources) ledger.res[id] = Object.assign({}, t.resources());
       });
     } catch (_) {}
@@ -11936,7 +11934,7 @@ const STORE = {
   function tradeTownRes(townId) {
     const uw = gameUw();
     try {
-      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      const t = gbTownModel(townId);
       if (!t) return null;
       const r = t.resources && t.resources();
       let cap = null, tradeCap = null, pop = null, small = false;
@@ -12678,7 +12676,7 @@ const STORE = {
     let t = null;
     try {
       const uw = gameUw();
-      t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      t = gbTownModel(townId);
     } catch (_) {}
     if (!t) return null;
     let p = null;
@@ -12959,7 +12957,7 @@ const STORE = {
   function ruralTownIslandXY(townId) {
     const uw = gameUw();
     try {
-      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      const t = gbTownModel(townId);
       if (!t) return null;
       const islandId = typeof t.getIslandId === 'function' ? t.getIslandId() : (t.attributes && t.attributes.island_id);
       return { id: islandId != null ? String(islandId) : null, x: t.getIslandCoordinateX && t.getIslandCoordinateX(), y: t.getIslandCoordinateY && t.getIslandCoordinateY(), t };
@@ -13636,7 +13634,7 @@ const STORE = {
   function researchTownTechs(townId) {
     const uw = gameUw();
     try {
-      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      const t = gbTownModel(townId);
       if (!t) return null;
       let res = null, techsKnown = false;
       try { const rm=t.researches&&t.researches();const attrs=rm&&(rm.attributes||rm);if(attrs&&typeof attrs==='object'){res=attrs;techsKnown=true} } catch (_) {}
@@ -15824,7 +15822,7 @@ const STORE = {
   function ptTownCaps(townId) {
     const uw = gameUw();
     let t = null;
-    try { t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]); } catch (_) {}
+    try { t = gbTownModel(townId); } catch (_) {}
     let tradeCap = null;
     try { if (t && t.getAvailableTradeCapacity) tradeCap = +t.getAvailableTradeCapacity(); } catch (_) {}
     const st = townResState(townId);
@@ -19751,8 +19749,18 @@ const STORE = {
 
     return 1;
   }
+
+  const ORCH_CADENCE_FLOOR_MS = 5000;
+  const ORCH_SCALE_EXCLUDE = new Set([
+    'trade', 'pttrade', 'ruraltrade', 'rurallevel',
+    'recruit', 'batchrecruit', 'villrecruit',
+    'build',
+  ]);
   function orchCadence(key) {
-    return ORCH_CADENCE[key] || ORCH_MS;
+    const base = ORCH_CADENCE[key] || ORCH_MS;
+    if (ORCH_SCALE_EXCLUDE.has(key)) return base;
+    const scale = (state && state.orchCadenceScale > 0) ? state.orchCadenceScale : 1;
+    return Math.max(ORCH_CADENCE_FLOOR_MS, Math.round(base * scale));
   }
   function orchNoteResult(key) {
     const since = orchJrnMark[key];
@@ -19765,10 +19773,10 @@ const STORE = {
     return orchDefaultOrder().map(key => ({
       key,
       on: !!orchFeatureEnabled(key),
-      cadenceMs: ORCH_CADENCE[key] || ORCH_MS,
+      cadenceMs: orchCadence(key),
       idle: orchIdle[key] || 0,
       captcha: captchaPaused(ORCH_CAPTCHA[key] || key),
-      dueInMs: Math.max(0, ((orchLastRun[key] || 0) + (ORCH_CADENCE[key] || ORCH_MS)) - now),
+      dueInMs: Math.max(0, ((orchLastRun[key] || 0) + orchCadence(key)) - now),
     }));
   }
   function orchHousekeepingTick() {
@@ -19806,7 +19814,7 @@ const STORE = {
     let idx=0,created=0;
     for(const key of orchDefaultOrder()){
       if(!ORCH_HANDLERS[key])continue;
-      const cadence=ORCH_CADENCE[key]||ORCH_MS;
+      const cadence=orchCadence(key);
       if(!orchBootTimerIds[key]){
         orchBootTimerIds[key]=gbTimeout(()=>{orchBootTimerIds[key]=0;orchModuleTick(key,'boot')},500+(idx*120));
       }
@@ -19817,6 +19825,15 @@ const STORE = {
       idx++;
     }
     return created;
+  }
+
+  function orchRestartTimers() {
+    for (const key of Object.keys(orchTimerIds)) {
+      const id = orchTimerIds[key];
+      if (id) { try { gbClearInterval(id); } catch (_) {} }
+      orchTimerIds[key] = 0;
+    }
+    orchStartIndependentTimers();
   }
   function intelPlayerKey(p) {
     if (p == null) return null;
@@ -21531,7 +21548,7 @@ const STORE = {
   function townLiveUnits(townId) {
     const uw = gameUw();
     try {
-      const t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      const t = gbTownModel(townId);
       if (!t || !t.units) return {};
       return Object.assign({}, t.units());
     } catch (_) { return {}; }
@@ -28136,6 +28153,14 @@ const STORE = {
             <input class="gb-cfg-input" type="number" data-cfg="culture-gold-budget" min="0" max="500" step="50" style="width:60px"/>
           </label>
         `)}
+        ${gbCfgGroup('Ritmo y pausas', `
+          <label class="gb-cfg-num" data-gb-tip="Multiplicador de la cadencia de los modulos NO excluido (1.0 = sin cambios, 0.25 = 4x mas rapido, minimo 5s por modulo). Aldeas, reclutar, construir y los modulos de comercio/intercambio/rural NO se ven afectados: su cadencia depende de presupuesto o capacidad y bajarla solo quemaria captcha.">
+            Escala de cadencia
+            <input class="gb-cfg-input" type="range" data-cfg="orch-cadence-scale" min="0.25" max="1" step="0.05" style="width:140px"/>
+            <span data-cfg-out="orch-cadence-scale" style="display:inline-block;min-width:36px;font-variant-numeric:tabular-nums">1.00x</span>
+          </label>
+          <div class="gb-cfg-note" data-gb-tip="Aplica a: cultura, cueva, investigacion, mercader, favor, prodigio, espionaje, heroe, conjuro divino, reclutamiento de aldea, reclutamiento por lotes. Excluido: aldeas, reclutar, reclutar lotes, reclutar aldea, construir, comercio, pt-trade, comercio rural, nivel rural.">Modulos a los que NO aplica (costo = presupuesto/captcha): aldeas, reclutar, reclutar lotes, reclutar aldea, construir, comercio, pt-trade, comercio rural, nivel rural.</div>
+        `)}
         ${gbCfgGroup('Interfaz', `
           <label class="gb-cfg-num" data-gb-tip="Tema visual del panel">Tema
             <select class="gb-cfg-input" data-cfg="theme" data-gb-tip="Tema visual del panel">
@@ -29034,6 +29059,11 @@ const STORE = {
     setNum('[data-cfg=farm-travel]', state.farmTravelSecPerUnit || 0);
     setChk('[data-cfg=adaptive-farm]', state.adaptiveFarm);
     setNum('[data-cfg=farm-drop-pct]', gbCfgNum(state.farmDropPressurePct, 25));
+    setNum('[data-cfg=orch-cadence-scale]', gbCfgNum(state.orchCadenceScale, 1));
+    {
+      const out = sec.querySelector('[data-cfg-out=orch-cadence-scale]');
+      if (out) out.textContent = (gbCfgNum(state.orchCadenceScale, 1)).toFixed(2) + 'x';
+    }
     setNum('[data-cfg=town-min]', Math.round(state.townMinMs / 60000));
     setNum('[data-cfg=town-max]', Math.round(state.townMaxMs / 60000));
     setNum('[data-cfg=posts-soft-pct]', state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60);
@@ -29652,6 +29682,18 @@ const STORE = {
       save(STORE.FARM_DROP_PCT, state.farmDropPressurePct);
     });
     saveNum('[data-cfg=ib-free-thresh]', v => { state.ibFreeThresh = Math.max(60,Math.min(300,+v||300)); save(STORE.IB_FREE_THRESH, state.ibFreeThresh); });
+    cfgBindNumber('[data-cfg=orch-cadence-scale]', 'orchCadenceScale', STORE.ORCH_CADENCE_SCALE, v => {
+
+      state.orchCadenceScale = Math.max(0.25, Math.min(1, +v || 1));
+      save(STORE.ORCH_CADENCE_SCALE, state.orchCadenceScale);
+      try { orchRestartTimers(); } catch (_) {}
+      gbLog('orch cadence scale', state.orchCadenceScale.toFixed(2) + 'x');
+    });
+
+    onCfg('[data-cfg=orch-cadence-scale]', 'input', e => {
+      const out = e.target.parentElement.querySelector('[data-cfg-out=orch-cadence-scale]');
+      if (out) out.textContent = (+e.target.value || 1).toFixed(2) + 'x';
+    });
     cfgBindNumber('[data-cfg=collect-max-min]', 'collectMaxMin', STORE.COLLECT_MAX_MIN);
     saveNum('[data-cfg=town-min]', v => { state.townMinMs = v * 60000; save(STORE.TOWN_MIN, state.townMinMs); });
     saveNum('[data-cfg=town-max]', v => { state.townMaxMs = v * 60000; save(STORE.TOWN_MAX, state.townMaxMs); });

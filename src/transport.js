@@ -9,7 +9,7 @@
     let t = null;
     try {
       const uw = gameUw();
-      t = uw.ITowns && (uw.ITowns.getTown ? uw.ITowns.getTown(townId) : uw.ITowns.towns[townId]);
+      t = gbTownModel(townId);
     } catch (_) {}
     if (!t) return null;
     let p = null;
