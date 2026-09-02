@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.20
+// @version      6.0.21
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -26326,38 +26326,60 @@ const STORE = {
     }
     return nativeQueueRemove(townId, lane, job.id, { force: true });
   }
-  function renderQueueCenterBuild(body, townId) {
-    const q = abQueueInfo(townId);
-    const live = queueCenterCard('Cola real de construcci\u00f3n', q.known ? `${q.len}/${q.max}` : 'estado no legible', 'Numero de ordenes reales en la cola del juego');
+
+  function queueCenterLiveCard(body, title, sub, tip, rows, emptyText) {
+    const live = queueCenterCard(title, sub, tip);
     body.appendChild(live.box);
-    if (q.known && q.orders.length) {
-      q.orders.forEach((o, i) => {
-        const left = o.to_be_completed_at ? Math.max(0, +o.to_be_completed_at - gameNow()) : o.building_time;
-        live.box.appendChild(queueCenterLiveRow(i + 1, nativeBuildLabel(o.building_type), left));
-      });
-    } else live.box.appendChild(queueCenterEmpty(q.known ? 'Sin construcciones reales' : 'No se puede leer la cola real'));
+    if (rows.length) rows.forEach((r, i) => live.box.appendChild(queueCenterLiveRow(i + 1, r.label, r.sec, r.numTitle)));
+    else live.box.appendChild(queueCenterEmpty(emptyText));
+    return live;
+  }
 
-    const list = nativeQueueList(townId, 'build', false), fifo = nativeQueueIsFifo(townId, 'build'), paused = nativeQueuePaused(townId, 'build');
-    const plan = queueCenterCard('Plan GrepBot \u00b7 Construcci\u00f3n', fifo ? (paused ? 'FIFO pausada' : 'FIFO activa') : 'Objetivos autom\u00e1ticos', fifo ? (paused ? 'Cola FIFO en pausa - el plan automatico no actua' : 'Cola FIFO activa - gestionas las ordenes manualmente') : 'El plan automatico es el due\u00f1o de esta cola');
+  function queueCenterPlanCard(body, townId, lane, title, pauseNoun) {
+    const list = nativeQueueList(townId, lane, false);
+    const fifo = nativeQueueIsFifo(townId, lane), paused = nativeQueuePaused(townId, lane);
+    const plan = queueCenterCard(title,
+      fifo ? (paused ? 'FIFO pausada' : 'FIFO activa') : 'Objetivos autom\u00e1ticos',
+      fifo ? (paused ? 'Cola FIFO en pausa - el plan automatico no actua' : 'Cola FIFO activa - gestionas las ordenes manualmente') : 'El plan automatico es el due\u00f1o de esta cola');
     body.appendChild(plan.box);
-    plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? 'Reanudar cola' : 'Pausar cola', () => nativeQueueTogglePaused(townId, 'build')));
-    if (!list.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador autom\u00e1tico', () => nativeQueueUseLegacy(townId, 'build')));
+    plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? `Reanudar ${pauseNoun}` : `Pausar ${pauseNoun}`, () => nativeQueueTogglePaused(townId, lane)));
+    if (!list.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador autom\u00e1tico', () => nativeQueueUseLegacy(townId, lane)));
+    return { plan, list, fifo, paused };
+  }
 
-    if (!list.length) { plan.box.appendChild(queueCenterEmpty(fifo ? 'Cola FIFO vac\u00eda. A\u00f1ade edificios con + desde el Senado.' : 'Esta ciudad usa el planificador de objetivos.')); renderQueueCenterOptimal(body, townId); return; }
-    plan.box.appendChild(queueCenterSequence('Orden FIFO', list.map((j, i) => ({
-      text: `#${i + 1} ${nativeBuildLabel(j.building)}`,
-      title: `${nativeBuildLabel(j.building)} ${j.fromLevel}\u2192${j.toLevel}${j.reason ? ' \u00b7 ' + j.reason : ''}`,
-    }))));
+  function queueCenterFifoSection(plan, townId, lane, list, fifo, opts) {
+    if (!list.length) {
+      plan.box.appendChild(queueCenterEmpty(fifo ? opts.emptyFifo : opts.emptyLegacy));
+      return false;
+    }
+    plan.box.appendChild(queueCenterSequence(opts.seqTitle, list.map((j, i) => opts.seqEntry(j, i))));
     const frozen = list.some(j => j && j.inflight);
     list.forEach((j, i) => {
-      plan.box.appendChild(queueCenterJobRow(
-        i + 1,
-        `${nativeBuildLabel(j.building)} ${j.fromLevel}\u2192${j.toLevel}`,
-        queueCenterStatusBadge(j.status, j.reason),
-        'build', townId, j, frozen, i, list,
-      ));
+      plan.box.appendChild(queueCenterJobRow(i + 1, opts.rowDesc(j), queueCenterStatusBadge(j.status, j.reason), lane, townId, j, frozen, i, list));
     });
-    renderQueueCenterSwap(body, townId);
+    return true;
+  }
+
+  function renderQueueCenterBuild(body, townId) {
+    const q = abQueueInfo(townId);
+    const liveRows = q.known ? q.orders.map(o => ({
+      label: nativeBuildLabel(o.building_type),
+      sec: o.to_be_completed_at ? Math.max(0, +o.to_be_completed_at - gameNow()) : o.building_time,
+    })) : [];
+    queueCenterLiveCard(body, 'Cola real de construcci\u00f3n', q.known ? `${q.len}/${q.max}` : 'estado no legible', 'Numero de ordenes reales en la cola del juego', liveRows, q.known ? 'Sin construcciones reales' : 'No se puede leer la cola real');
+
+    const { plan, list, fifo } = queueCenterPlanCard(body, townId, 'build', 'Plan GrepBot \u00b7 Construcci\u00f3n', 'cola');
+    const hasJobs = queueCenterFifoSection(plan, townId, 'build', list, fifo, {
+      emptyFifo: 'Cola FIFO vac\u00eda. A\u00f1ade edificios con + desde el Senado.',
+      emptyLegacy: 'Esta ciudad usa el planificador de objetivos.',
+      seqTitle: 'Orden FIFO',
+      seqEntry: (j, i) => ({
+        text: `#${i + 1} ${nativeBuildLabel(j.building)}`,
+        title: `${nativeBuildLabel(j.building)} ${j.fromLevel}\u2192${j.toLevel}${j.reason ? ' \u00b7 ' + j.reason : ''}`,
+      }),
+      rowDesc: j => `${nativeBuildLabel(j.building)} ${j.fromLevel}\u2192${j.toLevel}`,
+    });
+    if (hasJobs) renderQueueCenterSwap(body, townId);
     renderQueueCenterOptimal(body, townId);
   }
 
@@ -26461,38 +26483,25 @@ const STORE = {
     const liveSub = !info ? 'estado no legible'
       : (info.ordersKnown ? `${orders.length}/${researchQueueMax()} \u00b7 Academia ${info.academy || 0}`
         : `cola real ilegible \u00b7 Academia ${info.academy || 0}`);
-    const live = queueCenterCard('Cola real de investigaci\u00f3n', liveSub, 'Estado actual de la cola de investigacion real');
-    body.appendChild(live.box);
-    if (orders.length) {
-      orders.forEach((o, i) => {
+    queueCenterLiveCard(body, 'Cola real de investigaci\u00f3n', liveSub, 'Estado actual de la cola de investigacion real',
+      orders.map(o => {
         const id = researchOrderTechId(o);
-        live.box.appendChild(queueCenterLiveRow(i + 1, researchLabel(id) || String(id || '?'), queueCenterTimeLeft(o)));
-      });
-    } else live.box.appendChild(queueCenterEmpty(info ? 'Sin investigaciones en curso' : 'No se puede leer la Academia'));
+        return { label: researchLabel(id) || String(id || '?'), sec: queueCenterTimeLeft(o) };
+      }),
+      info ? 'Sin investigaciones en curso' : 'No se puede leer la Academia');
 
-    const list = nativeQueueList(townId, 'research', false), fifo = nativeQueueIsFifo(townId, 'research'), paused = nativeQueuePaused(townId, 'research');
-    const plan = queueCenterCard('Plan GrepBot \u00b7 Investigaci\u00f3n', fifo ? (paused ? 'FIFO pausada' : 'FIFO activa') : 'Objetivos autom\u00e1ticos', fifo ? (paused ? 'Cola FIFO en pausa - el plan automatico no actua' : 'Cola FIFO activa - gestionas las ordenes manualmente') : 'El plan automatico es el due\u00f1o de esta cola');
-    body.appendChild(plan.box);
-    plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? 'Reanudar cola' : 'Pausar cola', () => nativeQueueTogglePaused(townId, 'research')));
-    if (!list.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador autom\u00e1tico', () => nativeQueueUseLegacy(townId, 'research')));
+    const { plan, list, fifo } = queueCenterPlanCard(body, townId, 'research', 'Plan GrepBot \u00b7 Investigaci\u00f3n', 'cola');
     plan.box.appendChild(queueCenterResearchPicker(townId, info));
-    if (!list.length) {
-      plan.box.appendChild(queueCenterEmpty(fifo ? 'Cola FIFO vac\u00eda. A\u00f1ade investigaciones arriba o con + desde la Academia.' : 'Esta ciudad usa el planificador de objetivos.'));
-    } else {
-      plan.box.appendChild(queueCenterSequence('Orden FIFO', list.map((j, i) => ({
+    queueCenterFifoSection(plan, townId, 'research', list, fifo, {
+      emptyFifo: 'Cola FIFO vac\u00eda. A\u00f1ade investigaciones arriba o con + desde la Academia.',
+      emptyLegacy: 'Esta ciudad usa el planificador de objetivos.',
+      seqTitle: 'Orden FIFO',
+      seqEntry: (j, i) => ({
         text: `#${i + 1} ${nativeResearchLabel(j.tech)}`,
         title: j.reason || nativeResearchLabel(j.tech),
-      }))));
-      const frozen = list.some(j => j && j.inflight);
-      list.forEach((j, i) => {
-        plan.box.appendChild(queueCenterJobRow(
-          i + 1,
-          nativeResearchLabel(j.tech),
-          queueCenterStatusBadge(j.status, j.reason),
-          'research', townId, j, frozen, i, list,
-        ));
-      });
-    }
+      }),
+      rowDesc: j => nativeResearchLabel(j.tech),
+    });
 
     const targets = goalEffectiveResearchTargets(townId, researchEnsureTargets());
     const planned = queueCenterCard('Pr\u00f3ximas investigaciones', fifo && list.length ? 'planificador autom\u00e1tico (en pausa: manda la cola FIFO)' : 'orden del planificador', 'Cola del planificador automatico: lo siguiente que investigara si no tienes FIFO activa');
@@ -26529,30 +26538,22 @@ const STORE = {
     const allModels = q.models || [];
     const liveModels = allModels.filter(m => queueCenterUnitIsNaval(queueCenterUnitId(m)) === wantNaval);
     const unclassified = allModels.filter(m => queueCenterUnitIsNaval(queueCenterUnitId(m)) == null);
-    const live = queueCenterCard(`Cola real \u00b7 ${label}`, q.known ? `${liveModels.length}${q.max != null ? ' / ' + q.max : ''}` : 'estado no legible', 'Numero de ordenes reales en la cola del cuartel/puerto');
-    body.appendChild(live.box);
-    if (liveModels.length) {
-      liveModels.forEach((m, i) => {
+    const live = queueCenterLiveCard(body, `Cola real \u00b7 ${label}`, q.known ? `${liveModels.length}${q.max != null ? ' / ' + q.max : ''}` : 'estado no legible', 'Numero de ordenes reales en la cola del cuartel/puerto',
+      liveModels.map(m => {
         const id = queueCenterUnitId(m);
-        live.box.appendChild(queueCenterLiveRow(
-          i + 1,
-          `${queueCenterUnitAmount(m)}\u00d7 ${nativeUnitLabel(id)}`,
-          queueCenterTimeLeft(m),
-          `posici\u00f3n en la cola real de ${label.toLowerCase()}`,
-        ));
-      });
-    } else live.box.appendChild(queueCenterEmpty(q.known ? `Sin \u00f3rdenes en ${label.toLowerCase()}` : 'No se puede leer la cola real'));
+        return {
+          label: `${queueCenterUnitAmount(m)}\u00d7 ${nativeUnitLabel(id)}`,
+          sec: queueCenterTimeLeft(m),
+          numTitle: `posici\u00f3n en la cola real de ${label.toLowerCase()}`,
+        };
+      }),
+      q.known ? `Sin \u00f3rdenes en ${label.toLowerCase()}` : 'No se puede leer la cola real');
 
     if (unclassified.length) {
       live.box.appendChild(queueCenterEmpty(`${unclassified.length} orden(es) con tipo de unidad no legible \u2014 sin clasificar`));
     }
 
-    const list = nativeQueueList(townId, lane, false);
-    const fifo = nativeQueueIsFifo(townId, lane), paused = nativeQueuePaused(townId, lane);
-    const plan = queueCenterCard(`Plan GrepBot \u00b7 ${label}`, fifo ? (paused ? 'FIFO pausada' : 'FIFO activa') : 'Objetivos autom\u00e1ticos', fifo ? (paused ? 'Cola FIFO en pausa - el plan automatico no actua' : 'Cola FIFO activa - gestionas las ordenes manualmente') : 'El plan automatico es el due\u00f1o de esta cola');
-    body.appendChild(plan.box);
-    plan.head.appendChild(queueCenterButton(paused ? '> Reanudar' : '|| Pausar', paused ? `Reanudar ${label.toLowerCase()}` : `Pausar ${label.toLowerCase()}`, () => nativeQueueTogglePaused(townId, lane)));
-    if (!list.length && fifo) plan.head.appendChild(queueCenterButton('Objetivos', 'Volver al planificador autom\u00e1tico', () => nativeQueueUseLegacy(townId, lane)));
+    const { plan, list, fifo } = queueCenterPlanCard(body, townId, lane, `Plan GrepBot \u00b7 ${label}`, label.toLowerCase());
     if (list.length >= 2) plan.head.appendChild(queueCenterButton('Compactar', 'Fusionar entradas adyacentes del mismo tipo en la cola virtual', () => {
       const n = nativeQueueCompactRecruit(townId, lane);
       flash(n ? `Compactadas ${n} entradas en ${label.toLowerCase()}` : 'No hay entradas adyacentes iguales para fusionar');
@@ -26571,19 +26572,15 @@ const STORE = {
       const wrap = document.createElement('span'); wrap.className = 'gb-qc-batch'; wrap.append(totalInp, sep, chunkInp, lotBtn);
       plan.head.appendChild(wrap);
     }
-    if (!list.length) { plan.box.appendChild(queueCenterEmpty(fifo ? `No hay \u00f3rdenes ${wantNaval ? 'navales' : 'terrestres'} pendientes. A\u00f1\u00e1delas con + desde ${label}.` : 'Esta ciudad usa objetivos autom\u00e1ticos.')); return; }
-    plan.box.appendChild(queueCenterSequence(`Orden FIFO \u00b7 ${label}`, list.map((j, i) => ({
-      text: `#${i + 1} ${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`,
-      title: j.reason || nativeUnitLabel(j.unit),
-    }))));
-    const frozen = list.some(j => j && j.inflight);
-    list.forEach((j, i) => {
-      plan.box.appendChild(queueCenterJobRow(
-        i + 1,
-        `${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`,
-        queueCenterStatusBadge(j.status, j.reason),
-        lane, townId, j, frozen, i, list,
-      ));
+    queueCenterFifoSection(plan, townId, lane, list, fifo, {
+      emptyFifo: `No hay \u00f3rdenes ${wantNaval ? 'navales' : 'terrestres'} pendientes. A\u00f1\u00e1delas con + desde ${label}.`,
+      emptyLegacy: 'Esta ciudad usa objetivos autom\u00e1ticos.',
+      seqTitle: `Orden FIFO \u00b7 ${label}`,
+      seqEntry: (j, i) => ({
+        text: `#${i + 1} ${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`,
+        title: j.reason || nativeUnitLabel(j.unit),
+      }),
+      rowDesc: j => `${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`,
     });
   }
 
