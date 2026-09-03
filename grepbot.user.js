@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.33
+// @version      6.0.34
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -2880,6 +2880,8 @@ const STORE = {
       if (feature === 'build' && a.building_id && a.order_id == null) {
 
         if (transport === 'bridge' && String(d.action_name || '') === 'tearDown') return [];
+
+        if (typeof abUpgradeClickable === 'function' && abUpgradeClickable(townId, a.building_id) !== false) return [];
         const c = abBuildingCost(townId, a.building_id); if (!c) return null; out(townId,c);
       } else if (feature === 'research') {
         const tech=a.id||a.research_id||a.research||a.research_type, c=researchCost(tech,townId); if(!c) return null; out(townId,c);
@@ -11165,6 +11167,15 @@ const STORE = {
     const pop = popBlind ? 0 : popRaw;
     return { wood: +need.wood || 0, stone: +need.stone || 0, iron: +need.iron || 0, pop, population: pop, popBlind };
   }
+
+  function abUpgradeClickable(townId, building) {
+    const bd = abBuildDataEntry(townId, building);
+    if (!bd || typeof bd !== 'object' || !Object.prototype.hasOwnProperty.call(bd, 'can_upgrade')) return null;
+    const v = bd.can_upgrade;
+    if (v === true || v === 1) return true;
+    if (v === false || v === 0) return false;
+    return null;
+  }
   function abRequirementMap(townId, building) {
     const def = abBuildingDef(building);
     if (!def) return null;
@@ -11199,23 +11210,24 @@ const STORE = {
     const t = abGetTown(townId);
     if (!t) return { ok: false, why: 'town unreadable' };
     const need = abBuildingCost(townId, building);
-    if (!need) return { ok: false, why: 'cost unreadable' };
+    const clickable = abUpgradeClickable(townId, building);
     let res = null, pop = null;
     try { res = t.resources && t.resources(); } catch (_) {}
     try { pop = t.getAvailablePopulation ? +t.getAvailablePopulation() : (res && res.population != null ? +res.population : null); } catch (_) {}
-    if (!res || res.wood == null || res.stone == null || res.iron == null || pop == null) return { ok: false, why: 'resources/pop unreadable' };
-
+    const have = (res && res.wood != null && res.stone != null && res.iron != null)
+      ? { wood:+res.wood, stone:+res.stone, iron:+res.iron, population:pop }
+      : null;
     const margin = 0;
-    const have = { wood:+res.wood, stone:+res.stone, iron:+res.iron, population:pop };
+    const popShort = !!(need && need.pop > 0 && pop != null && pop < need.pop);
 
-    if (need.popBlind) {
-      gbLogT('ab-pop-blind-' + building, 900000, `build: population cost for ${building} unreadable - population check is blind, server decides`);
+    if (clickable === true) return { ok: true, need, have, margin, popShort: false };
+    if (clickable == null) {
+      gbLogT('ab-upgrade-flag-' + townId + '-' + building, 600000,
+        `build: can_upgrade unreadable for ${building} @${townId} \u2014 not blocking on DIY cost`);
+      return { ok: true, need, have, margin, popShort: false };
     }
-
-    const popShort = need.pop > 0 && pop < need.pop;
-    if (have.wood < need.wood + margin || have.stone < need.stone + margin || have.iron < need.iron + margin) return { ok: false, why: 'resources', need, have, margin, popShort };
     if (popShort) return { ok: false, why: 'population', need, have, margin, popShort };
-    return { ok: true, need, popShort: false };
+    return { ok: false, why: 'resources', need, have, margin, popShort };
   }
   function abAffordReason(aff) {
     if (!aff) return 'datos de coste ilegibles';
