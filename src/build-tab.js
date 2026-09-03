@@ -429,6 +429,7 @@
     if (!free.length) return;
 
     const blockedWhy = ibInstantBlockedWhy(free[0].kind || 'build');
+    if (blockedWhy === 'host-disabled' || blockedWhy === 'not-leader') return;
     if (blockedWhy) {
       gbLogT('ib-auto-pause', 60000, `instant: auto-complete blocked (${blockedWhy})`);
       return;

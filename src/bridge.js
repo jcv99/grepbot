@@ -564,7 +564,16 @@
     const h=location.host;
     const directKey=STORE.ENABLED_HOSTS+'@host:'+h;
     const direct=load(directKey,null);
-    if(typeof direct==='boolean'){state.enabledHosts[h]=direct;return direct}
+    if(typeof direct==='boolean'){
+      // Checkbox used to write only the shared map. @host:false then won on
+      // every reload and froze ibAuto / auto-queue as "host-disabled".
+      if(direct===false && state.enabledHosts[h]===true){
+        save(directKey,true);
+        gbLog('host '+h+' enable key repaired from shared map');
+        return true;
+      }
+      state.enabledHosts[h]=direct;return direct;
+    }
     // New Spanish worlds inherit ONLY the user's decision to enable GrepBot
     // from an already-enabled Spanish world. All queues, towns, templates, TX,
     // farm state, health and other runtime data remain hostname-scoped and clean.
@@ -592,6 +601,7 @@
   function setHostEnabled(host,on) {
     const h=String(host||location.host),v=!!on;
     state.enabledHosts[h]=v;
+    save(STORE.ENABLED_HOSTS,state.enabledHosts);
     return save(STORE.ENABLED_HOSTS+'@host:'+h,v);
   }
   function gbReloadSharedRuntimeState(reason) {

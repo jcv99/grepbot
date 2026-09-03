@@ -16,10 +16,11 @@
   const CAVE_STORED_FNS = ['getEspionageStorage', 'getHideStorage', 'getEspionageStore',
     'getStoredIron', 'getHideIron'];
   function caveCapacityFromLevel(level) {
-
-    const n = Math.max(0, Math.floor(+level || 0));
-    if (n === 10) return { capacity: null, unlimited: true };
-    return { capacity: n > 0 && n < 10 ? n * 1000 : null, unlimited: false };
+    const n = gbNum(level);
+    if (n == null) return { capacity: null, unlimited: false };
+    const lvl = Math.max(0, Math.floor(n));
+    if (lvl === 10) return { capacity: null, unlimited: true };
+    return { capacity: lvl > 0 && lvl < 10 ? lvl * 1000 : null, unlimited: false };
   }
   function caveTownInfo(townId) {
     const uw = uwCached();
@@ -28,11 +29,7 @@
       t = gbTownModel(townId);
     } catch (_) {}
     if (!t) return null;
-    let hideLvl = 0;
-    try {
-      if (t.getBuildings) hideLvl = +t.getBuildings().get('hide') || 0;
-      else if (t.buildings) hideLvl = +(t.buildings().attributes || {}).hide || 0;
-    } catch (_) {}
+    let hideLvl = gbBuildingLevel(townId, 'hide');
     let iron = null, cap = null, resStorage = null;
     try {
       const r = t.resources && t.resources();
@@ -67,27 +64,29 @@
     } catch (_) {}
     try {
       const gdb = uw.GameDataBuildings;
-      if (hideCap == null && gdb) hideCap = gbProbeNum(gdb, ['getHideStorageCapacity', 'getEspionageStorage'], [hideLvl]);
+      if (hideCap == null && gdb && hideLvl != null) hideCap = gbProbeNum(gdb, ['getHideStorageCapacity', 'getEspionageStorage'], [hideLvl]);
       const gd = uw.GameData && uw.GameData.buildings && uw.GameData.buildings.hide;
-      if (hideCap == null && gd && gd.storage != null) {
+      if (hideCap == null && gd && gd.storage != null && hideLvl != null) {
         const s = gd.storage;
-        const v = +(Array.isArray(s) || typeof s === 'object' ? s[hideLvl] : s);
-        if (isFinite(v) && v > 0) hideCap = v;
+        const v = gbNum(Array.isArray(s) || typeof s === 'object' ? s[hideLvl] : s);
+        if (v != null && v > 0) hideCap = v;
       }
-      const maxHide = gd && gd.max_level;
-      if (maxHide != null && +maxHide > 0 && hideLvl === +maxHide) unlimited = true;
+      const maxHide = gbNum(gd && gd.max_level);
+      if (maxHide != null && maxHide > 0 && hideLvl === maxHide) unlimited = true;
       const unlimFn = gdb && gdb.getHideStorageLevelUnlimited;
       if (typeof unlimFn === 'function') {
-        const unlimitedLevel = +unlimFn.call(gdb);
-        if (Number.isFinite(unlimitedLevel) && unlimitedLevel > 0 && hideLvl === unlimitedLevel) unlimited = true;
+        const unlimitedLevel = gbNum(unlimFn.call(gdb));
+        if (unlimitedLevel != null && unlimitedLevel > 0 && hideLvl === unlimitedLevel) unlimited = true;
       }
     } catch (_) {}
 
     if (hideCap != null && hideCap < 0) { unlimited = true; hideCap = null; }
     if (stored != null && stored < 0) stored = null;
-    const levelCapacity = caveCapacityFromLevel(hideLvl);
-    if (levelCapacity.unlimited) unlimited = true;
-    else if (hideCap == null) hideCap = levelCapacity.capacity;
+    if (hideLvl != null) {
+      const levelCapacity = caveCapacityFromLevel(hideLvl);
+      if (levelCapacity.unlimited) unlimited = true;
+      else if (hideCap == null) hideCap = levelCapacity.capacity;
+    }
     return { town: t, hideLvl, iron, cap, hideCap, stored, unlimited };
   }
   function caveDiag(townId) {

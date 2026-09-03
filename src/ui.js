@@ -2496,8 +2496,7 @@
     saveNum('[data-cfg=night-start]', v => { state.nightStart = Math.max(0, Math.min(23, Math.floor(+v || 0))); save(STORE.NIGHT_START, state.nightStart); });
     saveNum('[data-cfg=night-end]', v => { state.nightEnd = Math.max(0, Math.min(23, Math.floor(+v || 0))); save(STORE.NIGHT_END, state.nightEnd); });
     onCfg('[data-cfg=enabled-host]', 'change', e => {
-      state.enabledHosts[location.host] = e.target.checked;
-      save(STORE.ENABLED_HOSTS, state.enabledHosts);
+      setHostEnabled(location.host, e.target.checked);
       flash(e.target.checked ? 'enabled on ' + location.host : 'disabled on ' + location.host);
     });
     onCfg('[data-cfg=auto-collect]', 'change', e => {

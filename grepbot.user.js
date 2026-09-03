@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.35
+// @version      6.0.36
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1179,6 +1179,10 @@ const STORE = {
     webhookRatelimit: load(STORE.WEBHOOK_RATELIMIT, {}) || {},
     webhookPending: load(STORE.WEBHOOK_PENDING, {}) || {},
   };
+  if (state.firstPostConfirm && (!state.firstPostLive || typeof state.firstPostLive !== 'object' || !Object.keys(state.firstPostLive).length)) {
+    state.firstPostConfirm = false;
+    save(STORE.FIRST_POST_CONFIRM, false);
+  }
 
   let telegramBotToken = load(STORE.TELEGRAM_BOT_TOKEN, '') || '';
   let panel = null;
@@ -4601,7 +4605,15 @@ const STORE = {
     const h=location.host;
     const directKey=STORE.ENABLED_HOSTS+'@host:'+h;
     const direct=load(directKey,null);
-    if(typeof direct==='boolean'){state.enabledHosts[h]=direct;return direct}
+    if(typeof direct==='boolean'){
+
+      if(direct===false && state.enabledHosts[h]===true){
+        save(directKey,true);
+        gbLog('host '+h+' enable key repaired from shared map');
+        return true;
+      }
+      state.enabledHosts[h]=direct;return direct;
+    }
 
     const spanishSibling=gbFindEnabledSpanishSibling(h);
     if(spanishSibling){
@@ -4626,6 +4638,7 @@ const STORE = {
   function setHostEnabled(host,on) {
     const h=String(host||location.host),v=!!on;
     state.enabledHosts[h]=v;
+    save(STORE.ENABLED_HOSTS,state.enabledHosts);
     return save(STORE.ENABLED_HOSTS+'@host:'+h,v);
   }
   function gbReloadSharedRuntimeState(reason) {
@@ -8900,6 +8913,7 @@ const STORE = {
     if (!free.length) return;
 
     const blockedWhy = ibInstantBlockedWhy(free[0].kind || 'build');
+    if (blockedWhy === 'host-disabled' || blockedWhy === 'not-leader') return;
     if (blockedWhy) {
       gbLogT('ib-auto-pause', 60000, `instant: auto-complete blocked (${blockedWhy})`);
       return;
@@ -11659,10 +11673,11 @@ const STORE = {
   const CAVE_STORED_FNS = ['getEspionageStorage', 'getHideStorage', 'getEspionageStore',
     'getStoredIron', 'getHideIron'];
   function caveCapacityFromLevel(level) {
-
-    const n = Math.max(0, Math.floor(+level || 0));
-    if (n === 10) return { capacity: null, unlimited: true };
-    return { capacity: n > 0 && n < 10 ? n * 1000 : null, unlimited: false };
+    const n = gbNum(level);
+    if (n == null) return { capacity: null, unlimited: false };
+    const lvl = Math.max(0, Math.floor(n));
+    if (lvl === 10) return { capacity: null, unlimited: true };
+    return { capacity: lvl > 0 && lvl < 10 ? lvl * 1000 : null, unlimited: false };
   }
   function caveTownInfo(townId) {
     const uw = uwCached();
@@ -11671,11 +11686,7 @@ const STORE = {
       t = gbTownModel(townId);
     } catch (_) {}
     if (!t) return null;
-    let hideLvl = 0;
-    try {
-      if (t.getBuildings) hideLvl = +t.getBuildings().get('hide') || 0;
-      else if (t.buildings) hideLvl = +(t.buildings().attributes || {}).hide || 0;
-    } catch (_) {}
+    let hideLvl = gbBuildingLevel(townId, 'hide');
     let iron = null, cap = null, resStorage = null;
     try {
       const r = t.resources && t.resources();
@@ -11710,27 +11721,29 @@ const STORE = {
     } catch (_) {}
     try {
       const gdb = uw.GameDataBuildings;
-      if (hideCap == null && gdb) hideCap = gbProbeNum(gdb, ['getHideStorageCapacity', 'getEspionageStorage'], [hideLvl]);
+      if (hideCap == null && gdb && hideLvl != null) hideCap = gbProbeNum(gdb, ['getHideStorageCapacity', 'getEspionageStorage'], [hideLvl]);
       const gd = uw.GameData && uw.GameData.buildings && uw.GameData.buildings.hide;
-      if (hideCap == null && gd && gd.storage != null) {
+      if (hideCap == null && gd && gd.storage != null && hideLvl != null) {
         const s = gd.storage;
-        const v = +(Array.isArray(s) || typeof s === 'object' ? s[hideLvl] : s);
-        if (isFinite(v) && v > 0) hideCap = v;
+        const v = gbNum(Array.isArray(s) || typeof s === 'object' ? s[hideLvl] : s);
+        if (v != null && v > 0) hideCap = v;
       }
-      const maxHide = gd && gd.max_level;
-      if (maxHide != null && +maxHide > 0 && hideLvl === +maxHide) unlimited = true;
+      const maxHide = gbNum(gd && gd.max_level);
+      if (maxHide != null && maxHide > 0 && hideLvl === maxHide) unlimited = true;
       const unlimFn = gdb && gdb.getHideStorageLevelUnlimited;
       if (typeof unlimFn === 'function') {
-        const unlimitedLevel = +unlimFn.call(gdb);
-        if (Number.isFinite(unlimitedLevel) && unlimitedLevel > 0 && hideLvl === unlimitedLevel) unlimited = true;
+        const unlimitedLevel = gbNum(unlimFn.call(gdb));
+        if (unlimitedLevel != null && unlimitedLevel > 0 && hideLvl === unlimitedLevel) unlimited = true;
       }
     } catch (_) {}
 
     if (hideCap != null && hideCap < 0) { unlimited = true; hideCap = null; }
     if (stored != null && stored < 0) stored = null;
-    const levelCapacity = caveCapacityFromLevel(hideLvl);
-    if (levelCapacity.unlimited) unlimited = true;
-    else if (hideCap == null) hideCap = levelCapacity.capacity;
+    if (hideLvl != null) {
+      const levelCapacity = caveCapacityFromLevel(hideLvl);
+      if (levelCapacity.unlimited) unlimited = true;
+      else if (hideCap == null) hideCap = levelCapacity.capacity;
+    }
     return { town: t, hideLvl, iron, cap, hideCap, stored, unlimited };
   }
   function caveDiag(townId) {
@@ -30017,8 +30030,7 @@ const STORE = {
     saveNum('[data-cfg=night-start]', v => { state.nightStart = Math.max(0, Math.min(23, Math.floor(+v || 0))); save(STORE.NIGHT_START, state.nightStart); });
     saveNum('[data-cfg=night-end]', v => { state.nightEnd = Math.max(0, Math.min(23, Math.floor(+v || 0))); save(STORE.NIGHT_END, state.nightEnd); });
     onCfg('[data-cfg=enabled-host]', 'change', e => {
-      state.enabledHosts[location.host] = e.target.checked;
-      save(STORE.ENABLED_HOSTS, state.enabledHosts);
+      setHostEnabled(location.host, e.target.checked);
       flash(e.target.checked ? 'enabled on ' + location.host : 'disabled on ' + location.host);
     });
     onCfg('[data-cfg=auto-collect]', 'change', e => {
