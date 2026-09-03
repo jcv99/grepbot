@@ -598,8 +598,15 @@
     nativeQueueReconcileBuild(townId);
     nativeQueueRebaseBuild(townId);
     const list=nativeQueueList(townId,'build',false);
-    if(nativeQueuePlannerOwnsTown(townId)){const blocked=nativeQueuePlannerLaneBlocked(townId,'build');return {hasJob:blocked,plan:null,why:blocked?'planner-awaiting-reconcile':null}}
-    if(!list.length)return {hasJob:nativeQueueIsFifo(townId,'build'),plan:null};
+    // 5.10.64: a live FIFO is the job list. Do not discard it because a
+    // City Designer profile is assigned — that left the senate queue idle.
+    if(!list.length){
+      if(nativeQueuePlannerOwnsTown(townId)){
+        const blocked=nativeQueuePlannerLaneBlocked(townId,'build');
+        return {hasJob:blocked,plan:null,why:blocked?'planner-awaiting-reconcile':null};
+      }
+      return {hasJob:nativeQueueIsFifo(townId,'build'),plan:null};
+    }
     if(nativeQueuePaused(townId,'build')){
       const first=list.find(Boolean);if(first)nativeQueueSetJobState(first,'paused','cola pausada');
       return {hasJob:true,plan:null,why:'paused'};

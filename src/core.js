@@ -1119,7 +1119,7 @@ const STORE = {
     decisionSkips: load(STORE.DECISION_SKIPS, {}),
     decisionMemory: load(STORE.DECISION_MEM, true),
     dryRun: load(STORE.DRY_RUN, false),
-    firstPostConfirm: load(STORE.FIRST_POST_CONFIRM, true),
+    firstPostConfirm: load(STORE.FIRST_POST_CONFIRM, false),
     firstPostLive: load(wkey(STORE.FIRST_POST_LIVE), {}),
     intelBattleStats: load(STORE.INTEL_BATTLE_STATS, true),
     exportRedact: load(STORE.EXPORT_REDACT, true),
@@ -1182,6 +1182,10 @@ const STORE = {
     webhookRatelimit: load(STORE.WEBHOOK_RATELIMIT, {}) || {},
     webhookPending: load(STORE.WEBHOOK_PENDING, {}) || {},
   };
+  if (state.firstPostConfirm && (!state.firstPostLive || typeof state.firstPostLive !== 'object' || !Object.keys(state.firstPostLive).length)) {
+    state.firstPostConfirm = false;
+    save(STORE.FIRST_POST_CONFIRM, false);
+  }
   // Keep the Telegram bot credential outside the generic state object so it
   // cannot appear in state-oriented diagnostics/test bridges by accident.
   let telegramBotToken = load(STORE.TELEGRAM_BOT_TOKEN, '') || '';

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.34
+// @version      6.0.35
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1116,7 +1116,7 @@ const STORE = {
     decisionSkips: load(STORE.DECISION_SKIPS, {}),
     decisionMemory: load(STORE.DECISION_MEM, true),
     dryRun: load(STORE.DRY_RUN, false),
-    firstPostConfirm: load(STORE.FIRST_POST_CONFIRM, true),
+    firstPostConfirm: load(STORE.FIRST_POST_CONFIRM, false),
     firstPostLive: load(wkey(STORE.FIRST_POST_LIVE), {}),
     intelBattleStats: load(STORE.INTEL_BATTLE_STATS, true),
     exportRedact: load(STORE.EXPORT_REDACT, true),
@@ -2881,7 +2881,7 @@ const STORE = {
 
         if (transport === 'bridge' && String(d.action_name || '') === 'tearDown') return [];
 
-        if (typeof abUpgradeClickable === 'function' && abUpgradeClickable(townId, a.building_id) !== false) return [];
+        if (typeof abUpgradeClickable === 'function' && abUpgradeClickable(townId, a.building_id) === true) return [];
         const c = abBuildingCost(townId, a.building_id); if (!c) return null; out(townId,c);
       } else if (feature === 'research') {
         const tech=a.id||a.research_id||a.research||a.research_type, c=researchCost(tech,townId); if(!c) return null; out(townId,c);
@@ -10182,8 +10182,14 @@ const STORE = {
     nativeQueueReconcileBuild(townId);
     nativeQueueRebaseBuild(townId);
     const list=nativeQueueList(townId,'build',false);
-    if(nativeQueuePlannerOwnsTown(townId)){const blocked=nativeQueuePlannerLaneBlocked(townId,'build');return {hasJob:blocked,plan:null,why:blocked?'planner-awaiting-reconcile':null}}
-    if(!list.length)return {hasJob:nativeQueueIsFifo(townId,'build'),plan:null};
+
+    if(!list.length){
+      if(nativeQueuePlannerOwnsTown(townId)){
+        const blocked=nativeQueuePlannerLaneBlocked(townId,'build');
+        return {hasJob:blocked,plan:null,why:blocked?'planner-awaiting-reconcile':null};
+      }
+      return {hasJob:nativeQueueIsFifo(townId,'build'),plan:null};
+    }
     if(nativeQueuePaused(townId,'build')){
       const first=list.find(Boolean);if(first)nativeQueueSetJobState(first,'paused','cola pausada');
       return {hasJob:true,plan:null,why:'paused'};
@@ -11209,25 +11215,34 @@ const STORE = {
   function abCanAfford(townId, building) {
     const t = abGetTown(townId);
     if (!t) return { ok: false, why: 'town unreadable' };
-    const need = abBuildingCost(townId, building);
     const clickable = abUpgradeClickable(townId, building);
+    const need = abBuildingCost(townId, building);
     let res = null, pop = null;
     try { res = t.resources && t.resources(); } catch (_) {}
-    try { pop = t.getAvailablePopulation ? +t.getAvailablePopulation() : (res && res.population != null ? +res.population : null); } catch (_) {}
-    const have = (res && res.wood != null && res.stone != null && res.iron != null)
-      ? { wood:+res.wood, stone:+res.stone, iron:+res.iron, population:pop }
+    try { pop = t.getAvailablePopulation ? +t.getAvailablePopulation() : (res && res.population != null ? gbNum(res.population) : null); } catch (_) {}
+    const wood = res ? gbNum(res.wood) : null, stone = res ? gbNum(res.stone) : null, iron = res ? gbNum(res.iron) : null;
+    const have = (wood != null && stone != null && iron != null)
+      ? { wood, stone, iron, population: pop }
       : null;
     const margin = 0;
     const popShort = !!(need && need.pop > 0 && pop != null && pop < need.pop);
 
     if (clickable === true) return { ok: true, need, have, margin, popShort: false };
-    if (clickable == null) {
-      gbLogT('ab-upgrade-flag-' + townId + '-' + building, 600000,
-        `build: can_upgrade unreadable for ${building} @${townId} \u2014 not blocking on DIY cost`);
-      return { ok: true, need, have, margin, popShort: false };
+    if (clickable === false) {
+      if (popShort) return { ok: false, why: 'population', need, have, margin, popShort };
+      return { ok: false, why: 'resources', need, have, margin, popShort };
+    }
+
+    if (!need) return { ok: false, why: 'cost unreadable' };
+    if (!have || pop == null) return { ok: false, why: 'resources/pop unreadable' };
+    if (need.popBlind) {
+      gbLogT('ab-pop-blind-' + building, 900000, `build: population cost for ${building} unreadable - population check is blind, server decides`);
+    }
+    if (have.wood < need.wood + margin || have.stone < need.stone + margin || have.iron < need.iron + margin) {
+      return { ok: false, why: 'resources', need, have, margin, popShort };
     }
     if (popShort) return { ok: false, why: 'population', need, have, margin, popShort };
-    return { ok: false, why: 'resources', need, have, margin, popShort };
+    return { ok: true, need, have, margin, popShort: false };
   }
   function abAffordReason(aff) {
     if (!aff) return 'datos de coste ilegibles';
@@ -11474,7 +11489,6 @@ const STORE = {
       const id=ids[townIndex];
       try { abScriptTick(id); } catch (_) {}
       nativeQueueReconcileBuild(id);
-      if(nativeQueuePlannerOwnsTown(id))nativeQueueClearForPlanner(id,'build-scan',true);
       const list=nativeQueueList(id,'build',false);
       const first=list.find(Boolean);
       if(!first&&!state.abAuto&&!cdIsProfile(goalTownCfg(id).profile))return nextTown();

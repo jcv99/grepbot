@@ -101,7 +101,7 @@
         if (transport === 'bridge' && String(d.action_name || '') === 'tearDown') return [];
         // Senate Ampliación uses can_upgrade. resources_for is often the
         // unreduced table and would skip a clickable upgrade (Architecture).
-        if (typeof abUpgradeClickable === 'function' && abUpgradeClickable(townId, a.building_id) !== false) return [];
+        if (typeof abUpgradeClickable === 'function' && abUpgradeClickable(townId, a.building_id) === true) return [];
         const c = abBuildingCost(townId, a.building_id); if (!c) return null; out(townId,c);
       } else if (feature === 'research') {
         const tech=a.id||a.research_id||a.research||a.research_type, c=researchCost(tech,townId); if(!c) return null; out(townId,c);

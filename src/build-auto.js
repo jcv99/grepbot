@@ -211,25 +211,35 @@
   function abCanAfford(townId, building) {
     const t = abGetTown(townId);
     if (!t) return { ok: false, why: 'town unreadable' };
-    const need = abBuildingCost(townId, building);
     const clickable = abUpgradeClickable(townId, building);
+    const need = abBuildingCost(townId, building);
     let res = null, pop = null;
     try { res = t.resources && t.resources(); } catch (_) {}
-    try { pop = t.getAvailablePopulation ? +t.getAvailablePopulation() : (res && res.population != null ? +res.population : null); } catch (_) {}
-    const have = (res && res.wood != null && res.stone != null && res.iron != null)
-      ? { wood:+res.wood, stone:+res.stone, iron:+res.iron, population:pop }
+    try { pop = t.getAvailablePopulation ? +t.getAvailablePopulation() : (res && res.population != null ? gbNum(res.population) : null); } catch (_) {}
+    const wood = res ? gbNum(res.wood) : null, stone = res ? gbNum(res.stone) : null, iron = res ? gbNum(res.iron) : null;
+    const have = (wood != null && stone != null && iron != null)
+      ? { wood, stone, iron, population: pop }
       : null;
     const margin = 0;
     const popShort = !!(need && need.pop > 0 && pop != null && pop < need.pop);
 
+    // Blue Ampliación button. Do not second-guess with resources_for.
     if (clickable === true) return { ok: true, need, have, margin, popShort: false };
-    if (clickable == null) {
-      gbLogT('ab-upgrade-flag-' + townId + '-' + building, 600000,
-        `build: can_upgrade unreadable for ${building} @${townId} — not blocking on DIY cost`);
-      return { ok: true, need, have, margin, popShort: false };
+    if (clickable === false) {
+      if (popShort) return { ok: false, why: 'population', need, have, margin, popShort };
+      return { ok: false, why: 'resources', need, have, margin, popShort };
+    }
+    // Flag missing (other towns / senate closed): same as 5.10.64 — live stock vs cost.
+    if (!need) return { ok: false, why: 'cost unreadable' };
+    if (!have || pop == null) return { ok: false, why: 'resources/pop unreadable' };
+    if (need.popBlind) {
+      gbLogT('ab-pop-blind-' + building, 900000, `build: population cost for ${building} unreadable - population check is blind, server decides`);
+    }
+    if (have.wood < need.wood + margin || have.stone < need.stone + margin || have.iron < need.iron + margin) {
+      return { ok: false, why: 'resources', need, have, margin, popShort };
     }
     if (popShort) return { ok: false, why: 'population', need, have, margin, popShort };
-    return { ok: false, why: 'resources', need, have, margin, popShort };
+    return { ok: true, need, have, margin, popShort: false };
   }
   function abAffordReason(aff) {
     if (!aff) return 'datos de coste ilegibles';
@@ -486,7 +496,6 @@
       const id=ids[townIndex];
       try { abScriptTick(id); } catch (_) {}
       nativeQueueReconcileBuild(id);
-      if(nativeQueuePlannerOwnsTown(id))nativeQueueClearForPlanner(id,'build-scan',true);
       const list=nativeQueueList(id,'build',false);
       const first=list.find(Boolean);
       if(!first&&!state.abAuto&&!cdIsProfile(goalTownCfg(id).profile))return nextTown();
