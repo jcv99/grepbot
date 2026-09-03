@@ -163,13 +163,17 @@
     gbTip(main, 'Descripcion de la orden virtual');
     descEl.append(main, badge);
     const acts = document.createElement('div'); acts.className = 'gb-qc-acts';
+    const top = queueCenterButton('\u2191\u2191', 'Saltar al inicio de la cola', () => nativeQueueMove(townId, lane, job.id, -i));
     const up = queueCenterButton('\u2191', 'Subir', () => nativeQueueMove(townId, lane, job.id, -1));
     const dn = queueCenterButton('\u2193', 'Bajar', () => nativeQueueMove(townId, lane, job.id, 1));
+    const bot = queueCenterButton('\u2193\u2193', 'Saltar al final de la cola', () => nativeQueueMove(townId, lane, job.id, list.length - 1 - i));
     const del = queueCenterButton('\u00d7', 'Eliminar', () => queueCenterRemove(townId, lane, job, frozen), 'danger');
+    top.disabled = frozen || i === 0;
     up.disabled = frozen || i === 0;
     dn.disabled = frozen || i === list.length - 1;
+    bot.disabled = frozen || i === list.length - 1;
     del.disabled = !!job.inflight;
-    acts.append(up, dn, del); r.append(numEl, descEl, acts); return r;
+    acts.append(top, up, dn, bot, del); r.append(numEl, descEl, acts); return r;
   }
 
   function queueCenterRemove(townId, lane, job, frozen) {
