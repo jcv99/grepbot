@@ -1,4 +1,58 @@
   const ORCH_JITTER = 0.2;
+  const ORCH_DEADLOCK_FARM_IDLE = 2;
+  const ORCH_DRAIN_KEYS = ['cave', 'trade', 'ruraltrade'];
+  const ORCH_PIN_RATIO = 0.97;
+  const ORCH_UNIT_KEYS = ['recruit', 'villrecruit'];
+  let orchDeadlock = { open: false, towns: [], at: 0, stuckLoggedAt: 0 };
+  function orchTownIds() {
+    const ids = [];
+    try {
+      const from = (typeof townsFromGame === 'function') ? townsFromGame() : null;
+      if (from) from.forEach(t => ids.push(String(t.id)));
+    } catch (_) {}
+    if (!ids.length) {
+      try { Object.keys((uwCached().ITowns && uwCached().ITowns.towns) || {}).forEach(id => ids.push(String(id))); } catch (_) {}
+    }
+    return ids;
+  }
+  function orchPinnedTowns() {
+    const pinned = [];
+    let blind = 0;
+    for (const id of orchTownIds()) {
+      const rs = (typeof townResState === 'function') ? townResState(id) : null;
+      if (!rs || !(rs.cap > 0)) { blind++; continue; }
+      if (Math.max(rs.wood, rs.stone, rs.iron) / rs.cap >= ORCH_PIN_RATIO) pinned.push(id);
+    }
+    if (blind && !pinned.length) {
+      gbLogT('orch-deadlock-blind', 600000, `orch: ${blind} town(s) with unreadable capacity - deadlock check skipped for them`);
+    }
+    return pinned;
+  }
+  function orchDeadlockOpen() { return !!orchDeadlock.open; }
+  function orchDeadlockState() { return { open: !!orchDeadlock.open, towns: (orchDeadlock.towns || []).slice(), since: orchDeadlock.at || 0 }; }
+  function orchDeadlockNoteStuck(why) {
+    if (!orchDeadlock.open) return;
+    const now = Date.now();
+    if (now - (orchDeadlock.stuckLoggedAt || 0) < 3600000) return;
+    orchDeadlock.stuckLoggedAt = now;
+    gbLog(`orch: deadlock cannot drain (${why}) - spend resources by hand (build/recruit/culture)`);
+  }
+  function orchDeadlockEval() {
+    const off = state.orchDeadlockResolve === false;
+    const pinned = off ? [] : orchPinnedTowns();
+    const farmStuck = !!state.autoFarm && (orchIdle.farm || 0) >= ORCH_DEADLOCK_FARM_IDLE;
+    const open = !off && pinned.length > 0 && farmStuck;
+    if (open !== orchDeadlock.open) {
+      orchDeadlock = { open, towns: pinned, at: Date.now(), stuckLoggedAt: 0 };
+      gbLog(open
+        ? `orch: warehouse deadlock in town(s) ${pinned.join(',')} - forcing ${ORCH_DRAIN_KEYS.join('/')} ahead of farm`
+        : 'orch: warehouse deadlock cleared - normal priority order restored');
+      try { updateStatus(); } catch (_) {}
+    } else if (open) {
+      orchDeadlock.towns = pinned;
+    }
+    return orchDeadlock.open;
+  }
   const ORCH_CADENCE = {
     culture: 90000,
     cave: 30000,
@@ -143,6 +197,7 @@
   }
   function orchHousekeepingTick() {
     if (!hostEnabled()) return;
+    try { orchDeadlockEval(); } catch (_) {}
     try { intelDigestTick(); } catch (_) {}
     try { townCapWatcher(); } catch (_) {}
     // Telegram monitoring is read-only and intentionally keeps running even when

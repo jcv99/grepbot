@@ -169,7 +169,7 @@
   const FAVOR_HUD_GODS = ['zeus', 'poseidon', 'hera', 'athena', 'hades', 'ares', 'artemis', 'aphrodite'];
   const favorRateSamples = Object.create(null);
   function favorHudGods(fav) {
-
+    if (typeof favorGodsList === 'function') return favorGodsList(fav);
     const seen = new Set();
     for (const k of Object.keys(fav || {})) {
       const m = String(k).match(/^(?:favor_)?([a-z]+)(?:_max)?$/i);
@@ -178,14 +178,19 @@
     return seen.size ? Array.from(seen) : FAVOR_HUD_GODS;
   }
   function favorHudRead(fav, god) {
-    const cur = +(fav[god] != null ? fav[god] : fav['favor_' + god]);
-    const maxRaw = fav['max_favor_' + god] != null ? fav['max_favor_' + god]
-      : (fav['favor_' + god + '_max'] != null ? fav['favor_' + god + '_max'] : fav['max_' + god]);
-    const max = +maxRaw;
-    return {
-      cur: Number.isFinite(cur) ? cur : null,
-      max: Number.isFinite(max) && max > 0 ? max : null,
-    };
+    let cur = typeof favorForGod === 'function' ? favorForGod(fav, god) : null;
+    if (cur == null) {
+      const raw = +(fav[god] != null ? fav[god] : fav['favor_' + god]);
+      cur = Number.isFinite(raw) ? raw : null;
+    }
+    let max = typeof favorMaxPool === 'function' ? favorMaxPool(fav) : null;
+    if (max == null) {
+      const maxRaw = fav['max_favor_' + god] != null ? fav['max_favor_' + god]
+        : (fav['favor_' + god + '_max'] != null ? fav['favor_' + god + '_max'] : fav['max_' + god]);
+      const m = +maxRaw;
+      max = Number.isFinite(m) && m > 0 ? m : null;
+    }
+    return { cur, max };
   }
   function favorHudRate(god, cur) {
     const now = Date.now();

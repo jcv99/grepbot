@@ -59,6 +59,7 @@
     gbListen(window, 'hashchange', () => gbTimeout(ensurePanelMounted, 50));
   }
   hookSpaNav();
+  try { qolBindActivityPause(); } catch (_) {}
 
   gbInterval(scrapeInboxDom, BOOT_TIMING.INBOX_SCRAPE_MS);
   refreshFarmsParsed();

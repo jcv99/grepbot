@@ -110,11 +110,27 @@
     if (src.tradeCap < minBatch) return false;
     const keep = Math.floor(src.cap * reserve);
 
+    let ironKeep = keep;
+    try {
+      const r = ironReservedForCave(srcId);
+      if (r && r.reserved) {
+        const rawThresh = (state.caveThreshPct == null) ? 90 : +state.caveThreshPct;
+        const thresh = gbCfgClamp(rawThresh, 50, 99, 90) / 100;
+        ironKeep = Math.max(keep, Math.ceil(src.cap * thresh));
+        gbLogT('transport-iron-reserved-' + srcId, 600000,
+          `transport: town ${srcId} iron held for cave (keep ${ironKeep})`);
+      } else if (r && r.blind) {
+        gbLogT('transport-iron-blind-' + srcId, 600000,
+          `transport: town ${srcId} cave reserve unreadable - no iron deduction`);
+      }
+    } catch (_) {}
+
     for (const res of GB_RES_KEYS) {
 
       if (src.tradeCap < minBatch) return false;
       if (src[res] / src.cap < TRANSPORT_SRC_FILL) continue;
-      const surplus = Math.max(0, src[res] - keep);
+      const srcKeep = res === 'iron' ? ironKeep : keep;
+      const surplus = Math.max(0, src[res] - srcKeep);
       if (surplus < minBatch) continue;
 
       if (transportBias(srcId, res) > 0) continue;

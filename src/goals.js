@@ -35,6 +35,8 @@
   function goalEffectiveBuildTargets(townId) {
     const cfg=goalTownCfg(townId), e=goalEffective(townId), base=abEnsureTargets();
     const out=cdIsProfile(cfg.profile)?Object.assign({},cdBuildTargets(townId)):(cfg.profile && cfg.profile!=='custom')?Object.assign({},e.build||{}):goalMergeMap(base,cfg.build||{});
+    const scripted = typeof abScriptEffectiveTargets === 'function' ? abScriptEffectiveTargets(townId) : null;
+    if (scripted) for (const k of Object.keys(scripted)) out[k] = scripted[k];
     for(const id of Object.keys(out))if(goalQueueSuppressed(townId,'build',id))delete out[id];
     return out;
   }

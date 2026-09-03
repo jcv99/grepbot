@@ -394,11 +394,11 @@
         gbLog(`instant: completed ${done}/${free.length}${captcha ? ' (captcha abort)' : ''}${suffix}`);
         if (done) flash(`instant x${done}`);
         if (auto || state.ibAuto) {
-          let delay = 3000;
+          let delay = IB_RESCAN_AFTER_MS;
           if (auto && done === 0 && free.length) {
             const bo = ibBackoffEntry(free[0]);
             const n = bo && bo.n ? bo.n : 1;
-            delay = Math.min(90000, 3000 * Math.pow(2, Math.min(5, n)));
+            delay = Math.min(90000, IB_RESCAN_AFTER_MS * Math.pow(2, Math.min(5, n)));
           }
           gbTimeout(ibScan, delay);
         }

@@ -62,6 +62,8 @@
     if (farmClaimWakeTimer && farmClaimWakeAt && farmClaimWakeAt <= targetMs + 1000) return farmClaimWakeAt;
     farmCancelClaimWake();
     farmClaimWakeAt = targetMs;
+    state.nextFarmClaim = targetMs;
+    try { save(STORE.NEXT_FARM_CLAIM, state.nextFarmClaim); } catch (_) {}
     const delay = Math.max(250, targetMs - Date.now());
     farmClaimWakeTimer = gbTimeout(() => {
       farmClaimWakeTimer = 0; farmClaimWakeAt = 0;
@@ -358,6 +360,10 @@
   // are disjoint, so one confirmed (option, duration) observation identifies
   // the active set.
   const FARM_DURATIONS = [300, 600, 1200, 2400, 5400, 7200, 10800, 14400, 18000, 28800, 36000];
+  const FARM_CLAIM_BASE_MS = 10 * 60 * 1000;
+  const FARM_CLAIM_JITTER_MIN_MS = 1 * 60 * 1000;
+  const FARM_CLAIM_JITTER_MAX_MS = 3 * 60 * 1000;
+  const FARM_CLAIM_DURATION_SEC = 600;
   const FARM_SET_BASE = [300, 1200, 7200, 18000];
   const FARM_SET_BOOTY = [600, 2400, 14400, 36000];
   // Posted option per village for the in-flight batch; verifyClaims reads it
@@ -371,6 +377,54 @@
     const m = state.farmOptionMap || {};
     const v = m[String(sec)];
     return v == null ? null : +v;
+  }
+  function farmOptionMapEnsure() {
+    let m = state.farmOptionMap;
+    if (!m || typeof m !== 'object' || Array.isArray(m)) m = {};
+    const has = Object.keys(m).some(k => m[k] != null && Number.isFinite(+m[k]));
+    if (has) {
+      state.farmOptionMap = m;
+      return m;
+    }
+    m = { 600: 1 };
+    state.farmOptionMap = m;
+    save(wkey(STORE.FARM_OPTION_MAP), m);
+    gbLogT('farm-opt-default', 600000, 'farm: empty option map \u2014 restored default 10min=2');
+    return m;
+  }
+  function farmOptionResolve(wantSec) {
+    const want = +wantSec;
+    const exact = Number.isFinite(want) ? farmOptionFor(want) : null;
+    if (exact != null) return { option: exact, sec: want, how: 'exact' };
+    const m = farmOptionMapEnsure();
+    let floorOpt = null, floorSec = -1;
+    let shortOpt = null, shortSec = Infinity;
+    for (const sec of FARM_DURATIONS) {
+      const v = m[String(sec)];
+      const opt = +v;
+      if (v == null || !(opt >= 1 && opt <= 4)) continue;
+      if (Number.isFinite(want) && sec <= want && sec > floorSec) { floorSec = sec; floorOpt = opt; }
+      if (sec < shortSec) { shortSec = sec; shortOpt = opt; }
+    }
+    if (floorOpt != null) return { option: floorOpt, sec: floorSec, how: 'floor' };
+    if (shortOpt != null) return { option: shortOpt, sec: shortSec, how: 'shortest' };
+    return null;
+  }
+  function farmClaimIntervalMs() {
+    return FARM_CLAIM_BASE_MS + FARM_CLAIM_JITTER_MIN_MS
+      + Math.random() * (FARM_CLAIM_JITTER_MAX_MS - FARM_CLAIM_JITTER_MIN_MS);
+  }
+  function farmStampNextClaim(reason) {
+    const wait = farmClaimIntervalMs();
+    state.nextFarmClaim = Date.now() + wait;
+    save(STORE.NEXT_FARM_CLAIM, state.nextFarmClaim);
+    try { renderTimers(); } catch (_) {}
+    gbLogT('farm-claim-cadence', 60000,
+      `farm claim: next in ${fmtSec(Math.round(wait / 1000))}${reason ? ' (' + reason + ')' : ''}`);
+    return state.nextFarmClaim;
+  }
+  function farmClaimDue() {
+    return Date.now() >= (gbNum(state.nextFarmClaim) || 0);
   }
   function farmOptionMapText() {
     const m = state.farmOptionMap || {};
@@ -916,15 +970,22 @@
     }
     let option = farmOptionFor(wantSec);
     if (option == null) {
-      const fallback = farmOptionFor(shortest);
-      if (fallback == null) {
+      const resolved = farmOptionResolve(wantSec);
+      if (resolved && resolved.option != null) {
+        option = resolved.option;
         gbLogT('farm-opt-' + wantSec, 900000,
-          `farm claim: option index for ${farmDurLabel(wantSec)} unknown and no learned ${farmDurLabel(shortest)} index - claim ${farmDurLabel(shortest)} once by hand in game to teach it`);
-        return done('skip');
+          `farm claim: option index for ${farmDurLabel(wantSec)} unknown - using ${resolved.how} ${farmDurLabel(resolved.sec)} option`);
+      } else {
+        const fallback = farmOptionFor(shortest);
+        if (fallback == null) {
+          gbLogT('farm-opt-' + wantSec, 900000,
+            `farm claim: option index for ${farmDurLabel(wantSec)} unknown and no learned ${farmDurLabel(shortest)} index - claim ${farmDurLabel(shortest)} once by hand in game to teach it`);
+          return done('skip');
+        }
+        gbLogT('farm-opt-' + wantSec, 900000,
+          `farm claim: option index for ${farmDurLabel(wantSec)} unknown - using learned ${farmDurLabel(shortest)} option`);
+        option = fallback;
       }
-      gbLogT('farm-opt-' + wantSec, 900000,
-        `farm claim: option index for ${farmDurLabel(wantSec)} unknown - using learned ${farmDurLabel(shortest)} option`);
-      option = fallback;
     }
     farmPostedOpts[String(farm.vill_id)] = { opt: option, want: wantSec != null && Number.isFinite(+wantSec) ? +wantSec : null };
 

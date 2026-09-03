@@ -22,8 +22,8 @@
       town_id: (p && p.town_id) != null ? p.town_id : null,
     });
   }
-  function gbAjaxWatch(sig, fp, settle) {
-    const entry = { sig, fp: fp || '', at: Date.now(), settle };
+  function gbAjaxWatch(sig, fp, settle, feature) {
+    const entry = { sig, fp: fp || '', at: Date.now(), settle, feature: (typeof feature === 'string' && feature) ? feature : null };
     gbAjaxPending.push(entry);
 
     const now = Date.now();
@@ -199,6 +199,11 @@
         finish(null, res);
       } catch (e) { finish(String(e)); }
     };
+    const cancel = () => {
+      if (settled) return;
+      gbLogT('ajax-cancel-' + feature, 30000, feature + ': post cancelled (feature toggle / abort)');
+      finish('cancelled');
+    };
     watchEntry = gbAjaxWatch(opts.watchKey, opts.watchFp, (status, raw) => {
       if (settled) return;
       if (!status) return finish('neterr');
@@ -224,7 +229,8 @@
         return finish('empty');
       }
       classify(gbAjaxUnwrap(raw));
-    });
+    }, feature);
+    watchEntry.cancel = cancel;
     try { opts.send(uw, classify); } catch (e) { finish(String(e)); }
   }
   function bridgeRaw(feature, payload, done) {

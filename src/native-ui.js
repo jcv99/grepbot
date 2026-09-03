@@ -314,6 +314,25 @@
     gbLog(`cola nativa: ${summary}`);
     gbTimeout(() => abScan('native'), 80); return true;
   }
+  function nativeQueueFillToMax(townId, building) {
+    if (!AB_BUILDINGS.includes(building)) return 0;
+    const max = abMaxLevel(building);
+    if (max == null) { flash('No se puede leer el nivel máximo'); return 0; }
+    let projected = nativeQueueProjectedBuildLevel(townId, building);
+    if (projected == null) { flash('No se puede leer el nivel actual'); return 0; }
+    if (projected >= max) { flash(`${nativeBuildLabel(building)} ya está al máximo (${max})`); return 0; }
+    let added = 0;
+    while (projected < max) {
+      const ok = nativeQueueAddBuild(townId, building);
+      if (!ok) break;
+      added++;
+      const next = nativeQueueProjectedBuildLevel(townId, building);
+      if (next == null || next <= projected) break;
+      projected = next;
+    }
+    if (added) flash(`Encoladas ${added} mejoras de ${nativeBuildLabel(building)} hasta nivel ${projected}`);
+    return added;
+  }
 
   const POP_RESCUE_FARM_LEVELS = 2;
   function nativeFarmPendingLevels(townId) {
@@ -385,7 +404,10 @@
       list.splice(i,1);nativeQueueRebaseBuild(townId);nativeQueueSave();return true}}
     return false;
   }
+  const NATIVE_UNIT_STEPS = { sword:50, slinger:50, archer:50, hoplite:50, rider:30, chariot:30 };
   function nativeUnitStep(unit) {
+    const stepped = NATIVE_UNIT_STEPS[String(unit || '')];
+    if (stepped) return stepped;
     try{const d=gbGameDataLookup("units", unit)||{};const pop=+d.population||0,freight=+(d.favor??(d.resources&&d.resources.favor))||0;if(d.is_naval||d.naval||d.mythical||d.is_mythical||d.god||pop>=8||freight>0)return 1}catch(_){}
     return 10;
   }
@@ -1120,8 +1142,10 @@
     if(!jobs.length){
 
       const plus=nativeQButton('+',`A\u00f1adir ${nativeBuildLabel(building)} +1 al final de la cola virtual`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueAddBuild(townId,building)));
+      const fill=nativeQButton('++',`Encolar ${nativeBuildLabel(building)} desde el nivel ${projected} hasta el m\u00e1ximo (${max})`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueFillToMax(townId,building)));
       nativeApplyPlusBlock(plus,nativeBuildPlusBlock(building,projected,max,special));
-      ctl.append(plus);nativeQctlHitCheck(ctl,building);return;
+      nativeApplyPlusBlock(fill,nativeBuildPlusBlock(building,projected,max,special));
+      ctl.append(plus,fill);nativeQctlHitCheck(ctl,building);return;
     }
 
     const minus=nativeQButton('-','Quitar la \u00faltima mejora virtual',nativeTileAction(root,townId,tile,'build',building,()=>{if(!nativeQueueRemoveLastBuild(townId,building))flash('No hay mejora virtual que quitar')}));minus.disabled=!jobs.some(j=>j&&!j.inflight&&!j.manualReview);
@@ -1130,8 +1154,10 @@
     if(head&&head.reason)count.title=head.reason;
     if(head){if(head.status==='ready')count.classList.add('ready');else if(/blocked|unknown/.test(head.status||''))count.classList.add('blocked');else count.classList.add('waiting')}
     const plus=nativeQButton('+',`A\u00f1adir ${nativeBuildLabel(building)} +1 al final de la cola`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueAddBuild(townId,building)));
+    const fill=nativeQButton('++',`Encolar ${nativeBuildLabel(building)} desde el nivel ${projected} hasta el m\u00e1ximo (${max})`,nativeTileAction(root,townId,tile,'build',building,()=>nativeQueueFillToMax(townId,building)));
     nativeApplyPlusBlock(plus,nativeBuildPlusBlock(building,projected,max,special));
-    ctl.append(minus,count,plus);nativeQctlHitCheck(ctl,building);
+    nativeApplyPlusBlock(fill,nativeBuildPlusBlock(building,projected,max,special));
+    ctl.append(minus,count,plus,fill);nativeQctlHitCheck(ctl,building);
   }
   function nativeMountRecruitControl(root,tile,townId,unit) {
 
@@ -1294,6 +1320,18 @@
       const head=document.createElement('div');head.className='gb-native-panel-head';const title=document.createElement('span');title.textContent=lane==='build'?'Cola GrepBot \u00b7 Construcci\u00f3n':(lane==='research'?'Cola GrepBot \u00b7 Investigaci\u00f3n':(lane==='recruitNaval'?'Cola GrepBot \u00b7 Puerto':'Cola GrepBot \u00b7 Cuartel'));gbTip(title, 'Cola virtual de GrepBot para esta ciudad y tipo de edificio/unidad');head.appendChild(title);
       const paused=nativeQueuePaused(townId,lane),pause=nativeQButton(paused?'>':'||',paused?'Reanudar esta cola':'Pausar esta cola',nativeTownAction(root,townId,()=>nativeQueueTogglePaused(townId,lane)));head.appendChild(pause);
       if(!list.length&&nativeQueueIsFifo(townId,lane)){const legacy=nativeQButton('Objetivos','Volver al planificador de objetivos',nativeTownAction(root,townId,()=>nativeQueueUseLegacy(townId,lane)));head.appendChild(legacy)}
+      if (lane === 'build') {
+        const scriptActive = abScriptActive();
+        const phase = scriptActive ? abScriptCurrentPhase(townId) : null;
+        const scriptLbl = scriptActive ? (phase ? `CS: ${phase.label}` : 'CS: calculando\u2026') : 'Plan CS';
+        const scriptBtn = nativeQButton(scriptActive ? '\u23f9' : '\u25b6', scriptActive ? `Detener ${scriptLbl}` : 'Activar plan CS (Senado 24 \u2192 Academia 7 \u2192 Teatro \u2192 Academia 30 \u2192 M\u00e1x)', nativeTownAction(root,townId,() => {
+          if (abScriptActive() && !confirm('\u00bfDetener el plan CS y volver a los objetivos compartidos?')) return;
+          abScriptToggle();
+          try { abScan('manual'); } catch (_) {}
+        }));
+        scriptBtn.style.color = scriptActive ? '#ffb060' : '#9bd';
+        head.appendChild(scriptBtn);
+      }
       head.appendChild(nativeQButton(collapsed?'\u25b8':'\u25be',collapsed?'Desplegar este panel':'Plegar este panel',nativePanelAction(townId,()=>{nativeQPanelCollapsed[ckey]=!collapsed;scheduleNativeUiScan()})));
       stage.appendChild(head);
       if(collapsed){

@@ -340,16 +340,20 @@
     const def = gbGameDataLookup('units', unitId);
     if (!def || !def.resources) return null;
     const rr = def.resources || {};
+    const factor = (typeof recruitResourceFactor === 'function')
+      ? recruitResourceFactor(townId, Object.assign({ id: unitId }, def)) : 1;
+    const scale = (v) => (v == null ? null : v * factor);
     const base = {
-      wood:gbNum(rr.wood),
-      stone:gbNum(rr.stone),
-      iron:gbNum(rr.iron),
-      population:gbNum(def.population),
-      favor:gbNum(def.favor ?? rr.favor),
+      wood: scale(gbNum(rr.wood)),
+      stone: scale(gbNum(rr.stone)),
+      iron: scale(gbNum(rr.iron)),
+      population: gbNum(def.population),
+      favor: gbNum(def.favor ?? rr.favor),
     };
     const runtime = recruitRuntimeEffectiveCost(townId, unitId, def);
     if (runtime) {
       runtime.base = base;
+      runtime.modifier = factor;
       return runtime;
     }
     // GameData is retained as base/reference metadata only. It is not labelled
@@ -358,7 +362,7 @@
     return {
       wood:base.wood, stone:base.stone, iron:base.iron, population:base.population, favor:base.favor,
       fieldKnown:{ wood:false, stone:false, iron:false, population:false, favor:false },
-      authoritative:false, effective:false, base, modifier:null, source:'gamedata-base-advisory',
+      authoritative:false, effective:false, base, modifier:factor, source:'gamedata-base-advisory',
     };
   }
   function recruitCostFieldKnown(cost, key) {
@@ -537,6 +541,51 @@
     try { save(wkey(STORE.RECRUIT_QCAP), state.recruitQueueCap); } catch (_) {}
     gbLog(`recruit: learned queue cap ${cap} for town ${townId} ${queueClass} lane (server full at ${n})`);
   }
+  function recruitQueueMax() {
+    try {
+      const uw = gameUw();
+      const q = uw.GameDataConstructionQueue;
+      if (q && typeof q.getUnitOrdersQueueLength === 'function') {
+        const n = +q.getUnitOrdersQueueLength();
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+    } catch (_) {}
+    return 7;
+  }
+  function recruitQueueBuilding(unitId) {
+    return recruitIsNaval(unitId) ? 'docks' : 'barracks';
+  }
+  function recruitResourceFactor(townId, def) {
+    try {
+      const uw = gameUw();
+      const GM = uw.GeneralModifications;
+      if (!GM || typeof GM.getUnitBuildResourcesModification !== 'function' || !def) return 1;
+      let unitDef = def;
+      if (def.id && recruitIsNaval(def.id) && !def.is_naval && !def.naval) {
+        unitDef = Object.assign({}, def, { is_naval: true });
+      }
+      const f = gbNum(GM.getUnitBuildResourcesModification(+townId, unitDef));
+      if (f != null && f > 0) return f;
+    } catch (_) {}
+    return 1;
+  }
+  function recruitRefreshWaitingSlotJobs() {
+    const root = nativeQueueRoot();
+    for (const tid of Object.keys(root.towns || {})) {
+      for (const lane of NATIVE_RECRUIT_LANES) {
+        const job = nativeQueueList(tid, lane, false)[0];
+        if (!job || job.status !== 'waiting-slot' || !job.unit) continue;
+        if (job.inflight || job.manualReview) continue;
+        const q = recruitQueueInfo(tid, job.unit);
+        const max = (q.max != null && q.max > 0) ? q.max : recruitQueueMax();
+        if (!q.known || q.len < max) {
+          delete job.slotRetryAt;
+          nativeQueueSetJobState(job, 'pending', 'cola liberada / re-chequeo');
+          continue;
+        }
+      }
+    }
+  }
   function recruitQueueInfo(townId,unitId) {
     const t = gbTownModel(townId);
     if (!t) return { known:false, len:0, max:null, models:[], queueClass:'unknown', capacitySource:'town-unreadable' };
@@ -670,6 +719,7 @@
   function recruitScan(reason) {
     const nativePending = nativeRecruitPending(), cdPending = cityDesignerHasExecutableWork('recruit');
     if (!hostEnabled() || (!state.autoRecruit && !nativePending && !cdPending) || captchaPaused('recruit')) return;
+    try { recruitRefreshWaitingSlotJobs(); } catch (_) {}
     if (automationPaused({})) return;
 
     // Recruitment is independent from farming. The old farm-first hard gate could

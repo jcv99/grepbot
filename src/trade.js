@@ -498,11 +498,24 @@
       }
       if (!fire) continue;
       const keep = Math.floor(src.cap * reserve);
+      let ironKeep = keep;
+      if (route.iron > 0) {
+        try {
+          const r = ironReservedForCave(route.from);
+          if (r && r.reserved) {
+            const thresh = gbCfgClamp(state.caveThreshPct, 50, 99, 90) / 100;
+            ironKeep = Math.max(keep, Math.ceil(src.cap * thresh));
+            gbLogT('trade-route-iron-reserved-' + route.id, 600000,
+              `trade route ${route.id}: iron held for cave on ${route.from}`);
+          }
+        } catch (_) {}
+      }
       const send = {};
       for (const k of GB_RES_KEYS) {
         const want = +route[k] || 0;
         if (!(want > 0)) { send[k] = 0; continue; }
-        send[k] = Math.max(0, Math.min(want, src[k] - keep, src.tradeCap, tgt.cap - tgt[k]));
+        const k2 = k === 'iron' ? ironKeep : keep;
+        send[k] = Math.max(0, Math.min(want, src[k] - k2, src.tradeCap, tgt.cap - tgt[k]));
       }
       let total = send.wood + send.stone + send.iron;
       if (route.maxPerCycle > 0 && total > route.maxPerCycle) {
@@ -559,6 +572,45 @@
     job.destinationFill = decision.destinationFill;
     job.destinationFree = decision.destinationFree;
     return { ok:true };
+  }
+  function tradeDeadlockJobs(towns, L) {
+    const ledger = L || tradeLedger(towns);
+    if (!ledger) return [];
+    const minBatch = gbCfgClamp(state.tradeMinBatch, 100, Infinity, 1000);
+    const RES = ['wood', 'stone', 'iron'];
+    const jobs = [];
+    const ids = towns.map(t => t.id);
+    for (const srcId of ids) {
+      const src = ledger[srcId];
+      if (!src || !(src.cap > 0) || src.tradeCap < minBatch) continue;
+      for (const res of RES) {
+        if (src[res] / src.cap < 0.97) continue;
+        let best = null;
+        for (const tgtId of ids) {
+          if (tgtId === srcId) continue;
+          const tgt = ledger[tgtId];
+          if (!tgt || !(tgt.cap > 0)) continue;
+          const headroom = tgt.cap - tgt[res];
+          if (headroom < minBatch) continue;
+          const amount = Math.floor(Math.min(headroom, src.tradeCap, src[res] * 0.5));
+          if (amount < minBatch) continue;
+          if (!best || headroom > best.headroom) {
+            best = { tgtId, amount, headroom };
+          }
+        }
+        if (best) {
+          const job = { from: srcId, to: best.tgtId, wood: 0, stone: 0, iron: 0, deadlock: true };
+          job[res] = best.amount;
+          jobs.push(job);
+          tradeApplyJob(ledger, job);
+          if (jobs.length >= 4) return jobs;
+        }
+      }
+    }
+    if (!jobs.length && typeof orchDeadlockNoteStuck === 'function') {
+      orchDeadlockNoteStuck('no town has headroom in the pinned resource');
+    }
+    return jobs;
   }
   function tradeValidateJob(job) {
     const src = tradeTownRes(job.from);
@@ -654,6 +706,17 @@
         }
       }
       jobs = jobs.concat(tradeOverflowJobs(autoTowns, ledger, ruralPairs));
+      if (typeof orchDeadlockOpen === 'function' && orchDeadlockOpen()) {
+        const dead = jobs.length > 0 && !jobs.some(j => tradeValidateJob(j).ok);
+        if (!jobs.length || dead) {
+          const dl = tradeDeadlockJobs(autoTowns, dead ? tradeLedger(autoTowns) : ledger);
+          if (dl.length) {
+            gbLog(`trade: deadlock drain - ${dl.length} job(s) on the pinned resource${dead ? ` (replaced ${jobs.length} job(s) the validator rejects)` : ''}`);
+            if (dead) jobs = [];
+            jobs = jobs.concat(dl);
+          }
+        }
+      }
     }
     if (!o.overflowOnly && state.islandShip && autoPairOk) jobs = jobs.concat(tradeIslandShipJobs(autoTowns, ledger));
 

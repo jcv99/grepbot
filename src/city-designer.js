@@ -182,9 +182,27 @@
     return true;
   }
   const CD_CORE_BUILDINGS=Object.freeze(['main','storage','farm','academy','temple','barracks','docks','market','hide','lumber','stoner','ironer','wall']);
+  // Authoritative building levels for auto-build + CD. Missing specials
+  // (theater/thermal/…) are normal — GameData attrs often omit unbuilt specials —
+  // so only CD_CORE_BUILDINGS fail closed. The old `(max>0) → null` path made
+  // abCurrentLevels return null for every town that lacked one special key, which
+  // silently killed automatic construction after the 6.x merge.
   function abActualLevels(townId){
-    try{const t=abGetTown(townId);if(!t)return null;const b=t&&(t.getBuildings?t.getBuildings():(t.buildings&&t.buildings()));const a=b&&(b.attributes||b);if(!a||typeof a!=='object')return null;const out={};
-      for(const id of AB_BUILDINGS){if(Object.prototype.hasOwnProperty.call(a,id)){const n=+a[id];if(!Number.isFinite(n)||n<0)return null;out[id]=n;continue}const max=abMaxLevel(id);if(CD_CORE_BUILDINGS.includes(id)||(max!=null&&max>0))return null;out[id]=0}
+    try{
+      const t=abGetTown(townId);if(!t)return null;
+      const b=t&&(t.getBuildings?t.getBuildings():(t.buildings&&t.buildings()));
+      const a=b&&(b.attributes||b);if(!a||typeof a!=='object')return null;
+      const out={};
+      for(const id of AB_BUILDINGS){
+        let n=null;
+        if(Object.prototype.hasOwnProperty.call(a,id)) n=gbNum(a[id]);
+        if(n==null&&b&&typeof b.get==='function'){
+          try{n=gbNum(b.get(id))}catch(_){}
+        }
+        if(n!=null&&n>=0){out[id]=n;continue}
+        if(CD_CORE_BUILDINGS.includes(id))return null;
+        out[id]=0;
+      }
       return out;
     }catch(_){return null}
   }

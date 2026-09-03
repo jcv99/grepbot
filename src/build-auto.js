@@ -1,5 +1,89 @@
   function abGetTown(townId) { return gbTownModel(townId); }
 
+  const AB_OP_WATCHDOG_MS = 90000;
+  const AB_SCRIPT_PHASES = [
+    { id:'tube', label:'Tubo (Senado 24 + Almac\u00e9n 30)',
+      gate:(l)=>(+l.main||0) < 24,
+      targets:(l)=>({ main:24, storage:Math.max(30, +l.storage||0) }) },
+    { id:'academy7', label:'Academia 7',
+      gate:(l)=>(+l.main||0) >= 24 && (+l.academy||0) < 7,
+      targets:(l)=>({ main:24, storage:Math.max(30, +l.storage||0), academy:Math.max(7, +l.academy||0) }) },
+    { id:'theater', label:'Requisitos para Teatro',
+      gate:(l)=>(+l.academy||0) >= 7 && (+l.theater||0) < 1,
+      targets:(l)=>({ main:24, storage:Math.max(30, +l.storage||0), academy:Math.max(7, +l.academy||0), theater:1 }) },
+    { id:'academy30', label:'Academia 30',
+      gate:(l)=>(+l.theater||0) >= 1 && (+l.academy||0) < 30,
+      targets:(l)=>({ main:24, storage:Math.max(30, +l.storage||0), academy:30, theater:1 }) },
+    { id:'maxall', label:'Todo al m\u00e1ximo',
+      gate:()=>false,
+      targets:(l)=>abScriptMaxTargets(l) },
+  ];
+  function abScriptMaxTargets(levels) {
+    const out = {};
+    for (const b of AB_BUILDINGS) {
+      const max = abMaxLevel(b);
+      if (max == null) continue;
+      const cur = +(levels && levels[b]) || 0;
+      if (cur >= max) continue;
+      out[b] = max;
+    }
+    return out;
+  }
+  function abScriptEnsure() {
+    if (!state.abScript || typeof state.abScript !== 'object') state.abScript = { active:false, startedAt:0, perTown:{} };
+    if (!state.abScript.perTown || typeof state.abScript.perTown !== 'object' || Array.isArray(state.abScript.perTown)) state.abScript.perTown = {};
+    if (!state.abScript.active) state.abScript.perTown = {};
+    return state.abScript;
+  }
+  function abScriptActive() { return !!(state.abScript && state.abScript.active); }
+  function abScriptEffectiveTargets(townId) {
+    if (!abScriptActive()) return null;
+    const p = state.abScript.perTown && state.abScript.perTown[String(townId)];
+    return p && p.targets ? Object.assign({}, p.targets) : null;
+  }
+  function abScriptCurrentPhase(townId) {
+    if (!abScriptActive()) return null;
+    const id = String(townId);
+    const p = state.abScript.perTown && state.abScript.perTown[id];
+    if (!p) return null;
+    const def = AB_SCRIPT_PHASES.find(x => x.id === p.phase);
+    return def || null;
+  }
+  function abScriptToggle() {
+    if (abScriptActive()) {
+      state.abScript = { active:false, startedAt:0, perTown:{} };
+      save(STORE.AB_SCRIPT, state.abScript);
+      gbLog('script CS: desactivado - objetivos vuelven a los valores compartidos');
+      try { renderAbQueue(); } catch (_) {}
+      return false;
+    }
+    state.abScript = { active:true, startedAt:Date.now(), perTown:{} };
+    save(STORE.AB_SCRIPT, state.abScript);
+    if (!state.abAuto) { state.abAuto = true; save(STORE.AB_AUTO, true); }
+    gbLog('script CS: activado - Senado 24 \u2192 Academia 7 \u2192 Teatro \u2192 Academia 30 \u2192 M\u00e1x');
+    try { renderAbQueue(); } catch (_) {}
+    return true;
+  }
+  function abScriptTick(townId) {
+    if (!abScriptActive()) return null;
+    const id = String(townId);
+    const levels = abCurrentLevels(townId);
+    if (!levels) return null;
+    let chosen = null;
+    for (const p of AB_SCRIPT_PHASES) { if (p.gate(levels)) { chosen = p; break; } }
+    if (!chosen) return null;
+    const cur = state.abScript.perTown[id];
+    const fresh = chosen.targets(levels);
+    if (!cur || cur.phase !== chosen.id) {
+      state.abScript.perTown[id] = { phase:chosen.id, targets:fresh };
+      save(STORE.AB_SCRIPT, state.abScript);
+      gbLog(`script CS: ciudad ${townNameById(id) || id} entra en fase "${chosen.label}"`);
+    } else {
+      state.abScript.perTown[id].targets = fresh;
+    }
+    return state.abScript.perTown[id];
+  }
+
   const WALL_DAMAGE_FNS = ['getWallDamage', 'getDamagePercentForBuilding', 'getDamagePercentage', 'getWallDamagePercent'];
   const WALL_DAMAGE_ATTRS = ['wall_damage', 'wallDamage', 'damage_percent', 'wall_damage_percent'];
   function abWallDamage(townId) {
@@ -353,7 +437,10 @@
   let abBlockedLogAt = 0;
   function abScan(reason) {
     const nativePending=nativeQueueHasPending('build'), cdPending=cityDesignerHasExecutableWork('build');
-    if(!hostEnabled()||(!state.abAuto&&!nativePending&&!cdPending&&reason!=='manual')||captchaPausedAny('build','instant-build','instant-research')||circuitOpen('build'))return;
+    // Only the build captcha breaker gates auto-queue. Instant-build/research
+    // have their own scan + breaker; coupling them (v6.0.30) stopped construction
+    // whenever free-instant tripped captcha.
+    if(!hostEnabled()||(!state.abAuto&&!nativePending&&!cdPending&&reason!=='manual')||captchaPaused('build')||circuitOpen('build'))return;
     if(automationPaused({}))return;
     const ids=abTownIds();
     if(!ids.length){gbLogT('ab-notowns',120000,'auto-queue: no towns');return}
@@ -386,6 +473,7 @@
     const step=()=>{
       if(!gbInstanceAlive()||captcha||operations>=maxOps||townIndex>=ids.length)return finish();
       const id=ids[townIndex];
+      try { abScriptTick(id); } catch (_) {}
       nativeQueueReconcileBuild(id);
       if(nativeQueuePlannerOwnsTown(id))nativeQueueClearForPlanner(id,'build-scan',true);
       const list=nativeQueueList(id,'build',false);
@@ -416,7 +504,7 @@
         opSettled=true;markOperationUnknown('operación sin respuesta; comprobar la cola real');release();
         noteBlocked(id,'operación sin respuesta; comprobar la cola real');
         gbLogT('ab-operation-watchdog-'+id,60000,`auto-queue: watchdog @${id}; moving on without retry`);nextTown();
-      },90000);
+      }, AB_OP_WATCHDOG_MS);
       const handleResult=res=>{
         if(opSettled||!gbInstanceAlive())return;
         opSettled=true;gbClearTimeout(watchdog);release();

@@ -1,4 +1,76 @@
   let preflightLast = null;
+  const PF_ES = {
+    'bridge': 'Puente con el juego',
+    'csrf': 'Token de sesión',
+    'towns': 'Ciudades',
+    'farm claims': 'Cobro de aldeas',
+    'farm unit claims': 'Cobro de unidades en aldeas',
+    'farm resource scrape': 'Lectura de recursos de aldeas',
+    'instant build': 'Terminar construcción gratis',
+    'instant research': 'Terminar investigación gratis',
+    'cave': 'Cueva',
+    'trade': 'Comercio',
+    'research': 'Investigación',
+    'academy read path': 'Academia',
+    'village recruit': 'Reclutar en aldeas',
+    'tx registry': 'Registro de transacciones',
+    'phoenician': 'Comercio fenicio',
+    'native queue': 'Colas del juego',
+    'snapshots': 'Instantáneas',
+    'profiler': 'Perfilador',
+    'memory probe': 'Memoria',
+  };
+  function renderPreflightBoard(sec) {
+    const when = sec.querySelector('#gb-pf-when');
+    const list = sec.querySelector('.gb-pf-list');
+    if (!list) return;
+    if (!preflightLast) {
+      if (when) when.textContent = 'Lee todos los módulos sin enviar nada al juego. Todavía no se ha ejecutado.';
+      list.replaceChildren();
+      return;
+    }
+    const rows = preflightLast.rows || [];
+    const bad = rows.filter(r => !r.ok);
+    const warn = rows.filter(r => r.ok && r.warn);
+    const okN = rows.length - bad.length - warn.length;
+    if (when) {
+      when.textContent = `${new Date(preflightLast.at).toLocaleTimeString()} · ${okN} bien`
+        + (warn.length ? ` · ${warn.length} aviso(s)` : '')
+        + (bad.length ? ` · ${bad.length} fallo(s)` : '');
+    }
+    const show = bad.concat(warn);
+    gbPaint(list, stage => {
+      show.forEach(r => {
+        const row = document.createElement('div');
+        row.className = 'gb-pf-row';
+        const ico = typeof gbIcon === 'function' ? gbIcon(r.ok ? 'info' : 'alert', 14, r.ok ? '#ffd27a' : '#ff9aa3') : null;
+        if (ico) { ico.style.flex = '0 0 auto'; ico.style.marginTop = '1px'; row.appendChild(ico); }
+        const mid = document.createElement('div');
+        mid.style.cssText = 'flex:1;min-width:0';
+        const t = document.createElement('div');
+        t.className = 'gb-pf-t ' + (r.ok ? 'warn' : 'bad');
+        t.textContent = PF_ES[r.name] || r.name;
+        const d = document.createElement('div');
+        d.className = 'gb-pf-s';
+        d.textContent = r.detail;
+        mid.append(t, d);
+        row.appendChild(mid);
+        stage.appendChild(row);
+      });
+      if (!okN) return;
+      const sum = document.createElement('div');
+      sum.className = 'gb-pf-row';
+      const ico = typeof gbIcon === 'function' ? gbIcon('check', 14, '#6dda7e') : null;
+      if (ico) { ico.style.flex = '0 0 auto'; ico.style.marginTop = '1px'; sum.appendChild(ico); }
+      const st = document.createElement('div');
+      st.className = 'gb-pf-t';
+      st.textContent = !show.length
+        ? (okN === 1 ? 'El único módulo probado lee bien' : `Los ${okN} módulos leen bien`)
+        : (okN === 1 ? 'Otro módulo lee bien' : `Otros ${okN} módulos leen bien`);
+      sum.appendChild(st);
+      stage.appendChild(sum);
+    }, { key: show.map(r => r.name + (r.ok ? 'w' : 'x')).join('|') + '#' + okN });
+  }
   function preflightRunAndRender() {
     preflightLast = { at: Date.now(), rows: preflightRun() };
     const bad = preflightLast.rows.filter(r => !r.ok).length;
@@ -97,6 +169,7 @@
       });
     }
     box.textContent = lines.join('\n');
+    try { renderPreflightBoard(sec); } catch (_) {}
   }
 
   function evidenceTplShape(v) {

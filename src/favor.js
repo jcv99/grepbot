@@ -1,3 +1,38 @@
+  const FAVOR_GODS = ['zeus', 'poseidon', 'hera', 'athena', 'hades', 'ares', 'artemis', 'aphrodite'];
+  function favorForGod(fav, god) {
+    if (!fav || !god) return null;
+    const g = String(god).toLowerCase();
+    let v = gbNum(fav[g + '_favor']);
+    if (v != null) return v;
+    const ov = fav.production_overview;
+    if (ov && ov[g]) { v = gbNum(ov[g].current); if (v != null) return v; }
+    v = gbNum(fav[g]);
+    if (v != null) return v;
+    return gbNum(fav['favor_' + g]);
+  }
+  function favorGodsList(fav) {
+    const seen = new Set();
+    const ov = fav && fav.production_overview;
+    if (ov && typeof ov === 'object') {
+      Object.keys(ov).forEach(k => { const g = String(k).toLowerCase(); if (FAVOR_GODS.includes(g)) seen.add(g); });
+    }
+    for (const k of Object.keys(fav || {})) {
+      const m = String(k).match(/^([a-z]+)_favor$/i);
+      if (m && FAVOR_GODS.includes(m[1].toLowerCase())) seen.add(m[1].toLowerCase());
+    }
+    return seen.size ? Array.from(seen) : FAVOR_GODS.slice();
+  }
+  function favorMaxPool(fav) {
+    if (!fav) return null;
+    const v = gbNum(fav.max_favor);
+    return v != null && v > 0 ? v : null;
+  }
+  function favorProdPerHour(fav, god) {
+    if (!fav || !god) return null;
+    const ov = fav.production_overview;
+    const row = ov && ov[String(god).toLowerCase()];
+    return row ? gbNum(row.production) : null;
+  }
   function favorHasTemplePlunder(townId) {
     try {
       const info = typeof researchTownTechs === 'function' ? researchTownTechs(townId) : null;
@@ -48,9 +83,8 @@
     const fav = favorCurrent();
     const god = cfg.god || 'athena';
 
-    const raw = fav[god] != null ? fav[god] : fav['favor_' + god];
-    const cur = Number(raw);
-    if (!Number.isFinite(cur)) {
+    const cur = favorForGod(fav, god);
+    if (cur == null) {
       gbLogT('favor-unreadable', 300000, `favor: ${god} pool unreadable \u2014 no send`);
       return;
     }

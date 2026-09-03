@@ -396,6 +396,7 @@
     })();
     return { ran:true, started:true, jobs:jobs.length, activePairs:[...ruralTradeActivePairs] };
   }
+  const KP_UNLOCK_MIN = 100;
   function ruralKillpoints() {
     try {
       const uw = gameUw();
@@ -478,9 +479,13 @@
 
     // Unlock phase: Grepolis' current relation cost is authoritative. Execute at
     // most one action per scan because the next cost may change after a POST.
+    // Prefer unlocks while KP remains above KP_UNLOCK_MIN so locked villages drain first.
+    let lockedWaiting = 0;
     for (const rel of relations) {
       const a = rel.attributes || {};
       if (+a.relation_status !== 0) continue;
+      lockedWaiting++;
+      if (available <= KP_UNLOCK_MIN) continue;
       const farm = farmById[String(a.farm_town_id)];
       if (!farm) continue;
       const tid = ruralLevelTownForFarm(farm, townIds);
@@ -490,6 +495,9 @@
       if (available < cost.cost) continue;
       job = { kind:'unlock', relId:String(a.id ?? rel.id), farmId:String(a.farm_town_id), townId:String(tid), cost:cost.cost, costSource:cost.source, stage:+a.expansion_stage || 0 };
       break;
+    }
+    if (!job && lockedWaiting && available <= KP_UNLOCK_MIN) {
+      gbLogT('rurallevel-kp-low', 180000, `rural-level: ${lockedWaiting} locked village(s) waiting; KP ${available} \u2264 ${KP_UNLOCK_MIN} \u2014 upgrades only after unlock phase drains`);
     }
 
     if (!job) {

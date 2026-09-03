@@ -365,16 +365,30 @@
     const sec=panel&&panel.querySelector('section[data-tab=overview]');
     if(!sec||sec.hidden)return;
     const sum=sec.querySelector('.dashboard-summary'),time=sec.querySelector('.timeline-panel'),sim=sec.querySelector('.sim-panel'),cards=sec.querySelector('.gb-dashboard-cards');
+    const attBox=sec.querySelector('.gb-attention');
     if(!sum||!time||!sim)return;
     let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){}
     const threats=dodgeIncomingMovements();
     const unknown=Object.values(state.txState||{}).filter(t=>t&&/^(unknown|manual-review)$/.test(t.state||'')).length;
     const circuits=Object.keys(state.circuits||{}).filter(k=>state.circuits[k]&&state.circuits[k].open);
+    const captchaKeys=Object.keys(state.captchaBreakers||{}).filter(k=>captchaPaused(k));
     const fps=clientFingerprintNow();
     const compatible=Object.values(fps.required).every(Boolean);
     const activeGoals=ids.filter(id=>(goalPlanTown(id).actions||[]).length).length;
     const avgProgress=ids.length?Math.round(ids.reduce((n,id)=>n+goalProgress(id),0)/ids.length):100;
     const pauseInfo={}; const paused=automationPaused(pauseInfo);
+    const overflow=[];
+    for(const id of ids){
+      const f=economyForecast(id);
+      if(f&&Object.values(f.overflow||{}).some(Boolean)){
+        let name=id;try{name=gbTownModel(id).getName()||id}catch(_){}
+        overflow.push(name+': '+Object.entries(f.overflow).filter(([,v])=>v).map(([k])=>k).join('/'));
+      }
+    }
+    if(attBox){
+      const items=gbAttentionItems({threats,unknown,circuits,captchaKeys,compatible,fps,overflow});
+      gbPaint(attBox, stage => { items.forEach(it => stage.appendChild(gbAttentionEl(it))); }, { key: items.map(i => i.title).join('|') });
+    }
     sum.textContent=`towns ${ids.length} \u00b7 progress ${avgProgress}% \u00b7 ${activeGoals} objetivo(s) activos \u00b7 ${unknown} transacci\u00f3n(es) pendientes de revisar \u00b7 ${circuits.length} circuit breaker abierto(s)`;
     if(cards){
       cards.replaceChildren();
@@ -684,3 +698,122 @@
   const ORCH_MS = 20000;
   const ORCH_MAX_PER_TICK = 3;
   const ORCH_SPACING_MS = 450;
+
+  function qolBindActivityPause() {
+    if (qolBindActivityPause._bound) return;
+    qolBindActivityPause._bound = true;
+    const bump = () => bumpUserActivity();
+    ['mousemove', 'keydown', 'mousedown', 'touchstart'].forEach(ev => {
+      gbListen(document, ev, bump, { passive: true });
+    });
+    gbListen(document, 'visibilitychange', () => {
+      if (!document.hidden) bumpUserActivity();
+    });
+  }
+
+  const GB_KIND_ES = { build: 'Construir', research: 'Investigar', recruit: 'Reclutar' };
+  const GB_RES_ES = { wood: 'madera', stone: 'piedra', iron: 'plata', population: 'población', pop: 'población' };
+  function gbWhyEs(why) {
+    const w = String(why == null ? '' : why).trim();
+    if (!w) return '';
+    const m = w.match(/^(wood|stone|iron|population|pop)\s+(\d+)\/(\d+)$/);
+    if (m) return `faltan ${Math.max(0, +m[3] - +m[2])} de ${GB_RES_ES[m[1]]}`;
+    if (w === 'cost-unreadable') return 'no se puede leer el coste';
+    if (w === 'dependency') return 'falta un requisito';
+    if (w === 'blocked by user') return 'bloqueado por ti';
+    if (/^research:/.test(w)) return 'falta una investigación previa';
+    return w;
+  }
+  function gbAttentionEl(item) {
+    const box = document.createElement('div');
+    box.className = 'gb-att ' + (item.tone || 'warn');
+    box.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:6px 8px;border-radius:6px;margin:4px 0;background:rgba(0,0,0,.25)';
+    const ico = typeof gbIcon === 'function' ? gbIcon(item.tone === 'bad' ? 'alert' : 'info', 15, item.tone === 'bad' ? '#ff9aa3' : '#ffd27a') : null;
+    if (ico) { ico.style.flex = '0 0 auto'; ico.style.marginTop = '1px'; box.appendChild(ico); }
+    const mid = document.createElement('div');
+    mid.style.cssText = 'flex:1;min-width:0';
+    const t = document.createElement('div');
+    t.className = 'gb-att-t';
+    t.textContent = item.title;
+    mid.appendChild(t);
+    if (item.sub) {
+      const sb = document.createElement('div');
+      sb.className = 'gb-att-s';
+      sb.textContent = item.sub;
+      mid.appendChild(sb);
+    }
+    box.appendChild(mid);
+    if (item.action) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'gb-action';
+      b.textContent = item.action;
+      b.addEventListener('click', item.onClick);
+      box.appendChild(b);
+    }
+    return box;
+  }
+  function gbAttentionItems(ctx) {
+    const items = [];
+    (ctx.threats || []).slice(0, 3).forEach(m => {
+      const eta = (typeof dodgeEtaSec === 'function') ? dodgeEtaSec(m) : null;
+      const when = eta == null ? 'no se puede leer la llegada' : 'llega en ' + fmtSec(eta);
+      let name = String(m.dest);
+      try { name = gbTownModel(m.dest).getName() || name; } catch (_) {}
+      const mode = state.dodgeMode === 'auto' ? 'El esquive automático está activo.' : 'El esquive esta en "solo avisar": el bot no moverá tropas.';
+      items.push({
+        tone: 'bad',
+        title: `Ataque a ${name}, ${when}`,
+        sub: mode + (m.hasCs ? ' Lleva barco de conquista.' : ''),
+        action: 'Ver',
+        onClick: () => showTab('intel'),
+      });
+    });
+    if (ctx.unknown) {
+      items.push({
+        tone: 'bad',
+        title: ctx.unknown === 1 ? 'Un envío quedó sin confirmar' : `${ctx.unknown} envíos quedaron sin confirmar`,
+        sub: 'Se acabó el tiempo antes de saber si llegaron al servidor. Compruébalos antes de repetirlos.',
+        action: 'Revisar',
+        onClick: () => { showTab('log'); const b = panel.querySelector('[data-logsub=pending]'); if (b) b.click(); },
+      });
+    }
+    if (ctx.circuits.length) {
+      items.push({
+        tone: 'warn',
+        title: ctx.circuits.length === 1 ? 'Un módulo está parado por errores repetidos' : `${ctx.circuits.length} módulos están parados por errores repetidos`,
+        sub: 'Sin enviar nada más hasta que se revise: ' + ctx.circuits.slice(0, 4).join(', '),
+        action: 'Ver',
+        onClick: () => showTab('stats'),
+      });
+    }
+    if (ctx.captchaKeys.length) {
+      items.push({
+        tone: 'warn',
+        title: 'El juego pidió un captcha',
+        sub: 'En pausa hasta que lo resuelvas: ' + ctx.captchaKeys.slice(0, 4).join(', '),
+        action: 'Ver',
+        onClick: () => showTab('stats'),
+      });
+    }
+    if (!ctx.compatible) {
+      const miss = Object.entries(ctx.fps.required || {}).filter(([, v]) => !v).map(([k]) => k);
+      items.push({
+        tone: 'bad',
+        title: 'El bot no reconoce esta versión del juego',
+        sub: 'No puede leer: ' + (miss.length ? miss.join(', ') : 'la huella del cliente') + '. Recarga la página antes de fiarte de nada.',
+        action: 'Comprobar',
+        onClick: () => { preflightRunAndRender(); showTab('stats'); },
+      });
+    }
+    if (ctx.overflow.length) {
+      items.push({
+        tone: 'warn',
+        title: ctx.overflow.length === 1 ? 'Un almacén se va a llenar' : `${ctx.overflow.length} almacenes se van a llenar`,
+        sub: ctx.overflow.slice(0, 3).join(' · ') + '. Lo que sobre se pierde.',
+        action: 'Ver',
+        onClick: () => showTab('overview'),
+      });
+    }
+    return items;
+  }

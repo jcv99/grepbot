@@ -15,7 +15,16 @@ const STORE = {
     BANDIT_CFG: 'grepbot:bandit-cfg',
     BANDIT_LOG:  'grepbot:bandit-log',
     NEXT_FARM:  'grepbot:next-farm',
+    NEXT_FARM_CLAIM: 'grepbot:next-farm-claim',
     NEXT_TOWNS: 'grepbot:next-towns',
+    AB_SCRIPT:  'grepbot:ab-script',
+    PAUSE_ON_ACTIVITY: 'grepbot:pause-on-activity',
+    PAUSE_ACTIVITY_MS: 'grepbot:pause-activity-ms',
+    NIGHT_PAUSE: 'grepbot:night-pause',
+    NIGHT_START: 'grepbot:night-start',
+    NIGHT_END: 'grepbot:night-end',
+    NEVER_STOP: 'grepbot:never-stop',
+    ORCH_DEADLOCK: 'grepbot:orch-deadlock',
     FARM_ACTION: 'grepbot:farm-action',
     AUTO_FARM:  'grepbot:auto-farm',
     CLAIM_TPL:  'grepbot:claim-tpl',
@@ -259,7 +268,8 @@ const STORE = {
   const WORLD_SCOPED_BASES = new Set([
     STORE.FINDINGS, STORE.FARMS, STORE.FARMS_PARSED, STORE.FARM_RES, STORE.SEEN,
     STORE.TOWNS, STORE.TOWN_RES, STORE.TOWN_GROWTH_HIST, STORE.THRESH, STORE.ALERTED,
-    STORE.NEXT_FARM, STORE.NEXT_TOWNS, STORE.BANDIT_LOG,
+    STORE.NEXT_FARM, STORE.NEXT_FARM_CLAIM, STORE.NEXT_TOWNS, STORE.BANDIT_LOG,
+    STORE.AB_SCRIPT,
     STORE.CSRF, STORE.FARM_ACTION, STORE.COLLECT_TPL, STORE.CLAIM_TPL, STORE.ACCEPT_UNITS_TPL,
     STORE.IB_ACTION, STORE.IB_ACTION_R, STORE.FARM_OPTION_MAP, STORE.FARM_LOYALTY_TECH, STORE.FARM_PROFIT, STORE.FARM_TRAVEL, STORE.FARM_CLAIMS_TODAY, STORE.FARM_CLAIMS_DAY,
     STORE.FARM_UNITS_OPTION, STORE.FARM_RES_DRY, STORE.FARM_RES_DRY_DAY,
@@ -898,7 +908,16 @@ const STORE = {
     alerted:  load(STORE.ALERTED, {}),
     csrf:     load(STORE.CSRF, null),
     nextFarmScrape: load(STORE.NEXT_FARM, 0),
+    nextFarmClaim: load(STORE.NEXT_FARM_CLAIM, 0),
     nextTownsScrape: load(STORE.NEXT_TOWNS, 0),
+    abScript: load(STORE.AB_SCRIPT, null),
+    pauseOnActivity: load(STORE.PAUSE_ON_ACTIVITY, false),
+    pauseActivityMs: load(STORE.PAUSE_ACTIVITY_MS, 3 * 60 * 1000),
+    nightPause: load(STORE.NIGHT_PAUSE, false),
+    nightStart: load(STORE.NIGHT_START, 0),
+    nightEnd: load(STORE.NIGHT_END, 7),
+    neverStop: load(STORE.NEVER_STOP, true),
+    orchDeadlockResolve: load(STORE.ORCH_DEADLOCK, true),
     farmAction: load(STORE.FARM_ACTION, null),
 
     farmScrape: load(STORE.FARM_SCRAPE, false),
@@ -1171,7 +1190,14 @@ const STORE = {
   const GB_PANIC_GRACE_MS = 30000;
   let panicUntil = 0;
   let panicNeedsClear = false;
+  let userPausedUntil = 0;
   let captchaGlobalUntil = +load(STORE.CAPTCHA_GLOBAL_UNTIL, 0) || 0;
+  function gbNeverStop() { return state.neverStop !== false; }
+  function gbSafeModeOn() { return !!state.safeMode && !gbNeverStop(); }
+  function bumpUserActivity() {
+    if (!state.pauseOnActivity) return;
+    userPausedUntil = Date.now() + (state.pauseActivityMs || 180000);
+  }
   const moduleHealth = (state.health && typeof state.health === 'object') ? state.health : {};
   const reqBudgetWindow = [];
   function saveCaptchaGlobalUntil() {
@@ -1597,11 +1623,12 @@ const STORE = {
     return { ok: true, reason: stillPaused ? (info.reason || '?') : '' };
   }
   function automationPaused(reasonOut) {
-    if (panicUntil && Date.now() < panicUntil) {
+    const never = gbNeverStop();
+    if (!never && panicUntil && Date.now() < panicUntil) {
       if (reasonOut) reasonOut.reason = 'panic';
       return true;
     }
-    if (panicNeedsClear) {
+    if (!never && panicNeedsClear) {
       if (reasonOut) reasonOut.reason = 'panic-grace';
       return true;
     }
@@ -1612,6 +1639,20 @@ const STORE = {
     if (gbServerPaused()) {
       if (reasonOut) reasonOut.reason = 'server';
       return true;
+    }
+    if (!never && state.pauseOnActivity && Date.now() < userPausedUntil) {
+      if (reasonOut) reasonOut.reason = 'user';
+      return true;
+    }
+    if (!never && state.nightPause) {
+      const h = new Date().getHours();
+      const a = Number.isFinite(+state.nightStart) ? +state.nightStart : 0;
+      const b = Number.isFinite(+state.nightEnd) ? +state.nightEnd : 7;
+      const inNight = a === b ? false : (a < b ? (h >= a && h < b) : (h >= a || h < b));
+      if (inNight) {
+        if (reasonOut) reasonOut.reason = 'night';
+        return true;
+      }
     }
     return false;
   }
@@ -2028,6 +2069,7 @@ const STORE = {
     return n;
   }
   let logRenderQueued = false;
+  const LOG_VIEW_MAX = 2000;
   function renderLog() {
     const sec = panel && panel.querySelector('section[data-tab=log]');
     const list = sec && sec.querySelector('.log-list');
@@ -2038,7 +2080,9 @@ const STORE = {
     const flush = () => {
       logRenderQueued = false;
       if (sec.hidden || list.hidden) return;
-      const start = Math.max(logHead, logBuf.length - 80);
+      const avail = logBuf.length - logHead;
+      const take = Math.min(avail, LOG_VIEW_MAX, Math.max(80, avail));
+      const start = Math.max(logHead, logBuf.length - take);
       const lines = logBuf.slice(start);
       list.textContent = lines.map(l => new Date(l.ts).toLocaleTimeString() + ' ' + l.msg).join('\n');
       list.scrollTop = list.scrollHeight;
@@ -2300,6 +2344,10 @@ const STORE = {
     } catch (_) { return 'invalid'; }
     return 'valid';
   }
+  function loadValueOk(v, key) {
+    if (v === null || v === undefined) return true;
+    return loadValueStatus(v, key) === 'valid';
+  }
   function storageRawSet(k, val) {
     if (gbStorageReadFailed(k)) return false;
     try { GM_setValue(k, val); return true; } catch (_) { return false; }
@@ -2541,13 +2589,70 @@ const STORE = {
           if (typeof opts.onabort === 'function') opts.onabort(e);
         },
       }));
-      if (handle) gbXhrBag.push(handle);
+      if (handle) {
+        handle.feature = (typeof opts.feature === 'string' && opts.feature) ? opts.feature : null;
+        gbXhrBag.push(handle);
+      }
       return handle;
     } catch (e) {
       drop();
       if (userOnerror && gbInstanceAlive()) userOnerror({ error: String(e) });
       return null;
     }
+  }
+  function gbAjaxCancelFeature(feature) {
+    if (!feature) return 0;
+    let n = 0;
+    const tag = String(feature);
+    for (const e of gbAjaxPending.slice()) {
+      if (e && e.feature === tag && typeof e.cancel === 'function') {
+        try { e.cancel(); n++; } catch (_) {}
+      }
+    }
+    return n;
+  }
+  function gbAbortFeature(feature) {
+    if (!feature) return 0;
+    let n = 0;
+    for (const h of gbXhrBag.slice()) {
+      if (h && h.feature === feature && typeof h.abort === 'function') {
+        try { h.abort(); n++; } catch (_) {}
+      }
+    }
+    try {
+      const m = (typeof gbAjaxCancelFeature === 'function') ? gbAjaxCancelFeature(feature) : 0;
+      n += m;
+    } catch (_) {}
+    return n;
+  }
+  function xhrLadder(guesses, opts) {
+    return xhrGuessLadder(guesses, opts && opts.learned);
+  }
+  let _gbEvents = null;
+  function gbEventsChannel() {
+    // Lazy-init BroadcastChannel. (5.10 had inverted null check — dead code.)
+    if (_gbEvents != null) return _gbEvents;
+    try {
+      _gbEvents = new BroadcastChannel('grepbot:events');
+      _gbEvents.addEventListener('message', (e) => {
+        if (!gbInstanceAlive()) return;
+        const d = e && e.data;
+        if (!d || d.from === GB_INSTANCE_ID) return;
+        if (d.kind === 'captcha' && typeof captchaTrip === 'function') {
+          const feat = d.payload && d.payload.feature;
+          if (typeof feat !== 'string' || !feat) return;
+          if (captchaPausedPure(feat)) return;
+          captchaTrip(feat, d.payload && d.payload.detail);
+        }
+      });
+    } catch (_) { _gbEvents = false; }
+    return _gbEvents || null;
+  }
+  function gbEventsEmit(kind, payload) {
+    try {
+      const ch = gbEventsChannel();
+      if (ch) ch.postMessage({ kind, payload: payload || null, ts: Date.now(), from: GB_INSTANCE_ID });
+    } catch (_) {}
   }
   function runningVersion() {
     try { return (GM_info && GM_info.script && GM_info.script.version) || '0.0.0'; }
@@ -2584,19 +2689,25 @@ const STORE = {
   function i18n(key) { return (marketLocale()[key] || I18N.en[key] || key); }
   const BRIDGE_TIMEOUT_MS = 15000;
   function saveCaptcha() { save(wkey(STORE.CAPTCHA), state.captchaBreakers); }
-  function captchaPaused(feature) {
+  function captchaPausedPure(feature) {
     const b = state.captchaBreakers[feature];
     if (!b || !b.until) return false;
-    if (Date.now() >= b.until) {
-
-      if ((b.trips || 0) > 0) {
-        b.trips = Math.max(0, (b.trips || 1) - 1);
-        delete b.until;
-        saveSoon(wkey(STORE.CAPTCHA), state.captchaBreakers);
-      }
-      return false;
+    return Date.now() < b.until;
+  }
+  function captchaExpireSweep(feature) {
+    const b = state.captchaBreakers[feature];
+    if (!b || !b.until) return;
+    if (Date.now() < b.until) return;
+    if ((b.trips || 0) > 0) {
+      b.trips = Math.max(0, (b.trips || 1) - 1);
+      delete b.until;
+      saveSoon(wkey(STORE.CAPTCHA), state.captchaBreakers);
     }
-    return true;
+  }
+  function captchaPaused(feature) {
+    const paused = captchaPausedPure(feature);
+    if (!paused) captchaExpireSweep(feature);
+    return captchaPausedPure(feature);
   }
   function captchaPausedAny(...features) {
     for (let i = 0; i < features.length; i++) {
@@ -2627,6 +2738,8 @@ const STORE = {
     flash(`captcha: ${feature} paused ${mins}m`);
     try { telegramCaptchaTripNotify(feature, mins); } catch (_) {}
     try { if (typeof alertWebhook === 'function') alertWebhook('captcha', { feature, mins, detail }); } catch (_) {}
+    try { gbEventsEmit('captcha', { feature, mins, detail }); } catch (_) {}
+    try { gbAbortFeature(feature); } catch (_) {}
     updateStatus();
   }
   function captchaClear(feature) {

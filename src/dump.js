@@ -79,8 +79,28 @@
         if (src.tradeCap <= 0) break;
 
         if (perTown >= 1) break;
-        const fillPct = Math.round((+src[res] || 0) / src.cap * 100);
+        const have = gbNum(src[res]);
+        if (have == null) continue;
+        const fillPct = Math.round(have / src.cap * 100);
         if (fillPct < dumpThresholdFor(res)) continue;
+        if (res === 'iron' && typeof caveHasHeadroom === 'function' && caveHasHeadroom(id)) {
+          gbLogT('dump-cave-' + id, 600000, `dump: town ${id} iron held - cave still has headroom`);
+          continue;
+        }
+        if (res === 'iron') {
+          let caveSkip = false;
+          try {
+            const r = ironReservedForCave(id);
+            if (r && r.reserved) {
+              gbLogT('dump-cave-res-' + id, 600000, `dump: town ${id} iron reserved for cave`);
+              caveSkip = true;
+            }
+          } catch (e) {
+            gbLogT('dump-cave-err-' + id, 60000, 'dump: ironReservedForCave threw: ' + String(e).slice(0, 120));
+            caveSkip = true;
+          }
+          if (caveSkip) continue;
+        }
         const keep = Math.floor(src.cap * dumpKeepPctFor(res) / 100);
         const surplus = Math.max(0, (+src[res] || 0) - keep);
 

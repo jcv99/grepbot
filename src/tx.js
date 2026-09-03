@@ -3,6 +3,9 @@
   const TX_PRE_SEND_STALE_MS = 60 * 1000;
   const TX_UNKNOWN_RECHECK_MS = 30 * 1000;
   const TX_UNKNOWN_MAX_MS = 10 * 60 * 1000;
+  const TX_INFLIGHT_MAX_MS = 10 * 60 * 1000;
+  const TX_REVIEW_MAX = 100;
+  const TX_REVIEW_MIN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
   const TX_MANUAL_REVIEW_TTL_MS = 30 * 60 * 1000;
   const TX_PERSISTENT_MANUAL_REVIEW_FEATURES = new Set([
     'attack', 'support', 'spy', 'cancel',
@@ -84,6 +87,37 @@
     if (!gbTabLeader) return false;
     return save(STORE.TX_STATE, state.txState);
   }
+  function txCompactReview(t) {
+    if (!t || !t.snapshot) return false;
+    const s = t.snapshot;
+    const keys = Object.keys(s);
+    if (keys.length <= 2 && !keys.some(k => k !== 'kind' && k !== 'qid')) return false;
+    const lean = {};
+    if (s.kind != null) lean.kind = s.kind;
+    if (s.qid != null) lean.qid = s.qid;
+    t.snapshot = lean;
+    return true;
+  }
+  function txCapReview() {
+    const rows = [];
+    for (const key of Object.keys(state.txState || {})) {
+      const t = state.txState[key];
+      if (t && t.state === 'manual-review') rows.push({ key, at: +t.updatedAt || +t.unknownAt || +t.createdAt || 0 });
+    }
+    if (rows.length <= TX_REVIEW_MAX) return false;
+    rows.sort((a, b) => a.at - b.at);
+    const cut = Date.now() - TX_REVIEW_MIN_AGE_MS;
+    let drop = rows.length - TX_REVIEW_MAX;
+    let dropped = 0;
+    for (const r of rows) {
+      if (drop <= 0) break;
+      if (r.at > cut) break;
+      delete state.txState[r.key];
+      dropped++; drop--;
+    }
+    if (dropped) gbLog(`tx: dropped ${dropped} manual-review tombstone(s) older than 7d (cap ${TX_REVIEW_MAX}, ${rows.length} held)`);
+    return dropped > 0;
+  }
   function txRecentlyCommitted(intent, maxAgeMs) {
     const t = state.txState && state.txState[intent];
     return !!(t && t.state === 'committed' && Date.now() - (+t.updatedAt || +t.createdAt || 0) < Math.max(1000, +maxAgeMs || 60000));
@@ -97,15 +131,25 @@
       if (/^(planned|precheck)$/.test(t.state || '') && now - (+t.updatedAt || +t.createdAt || 0) > TX_PRE_SEND_STALE_MS) {
         t.state='aborted';t.detail='stale pre-send transaction cleared';t.updatedAt=now;plannerRelease(t,'stale-pre-send');changed=true;continue;
       }
+      if (/^(sending|confirming|reconciling)$/.test(t.state || '') && now - (+t.updatedAt || +t.createdAt || 0) > TX_INFLIGHT_MAX_MS) {
+        const stuck = t.state;
+        t.state = 'unknown'; t.unknownAt = now; t.updatedAt = now;
+        t.detail = 'in-flight state expired; treating as unknown';
+        plannerRelease(t, 'inflight-expired');
+        gbLogT('tx-inflight-expired', 300000, `tx: ${key} stuck in ${stuck} > ${TX_INFLIGHT_MAX_MS}ms - marked unknown`);
+        changed = true; continue;
+      }
       if (t.state==='unknown' && now-(+t.unknownAt||+t.updatedAt||0)>TX_UNKNOWN_MAX_MS) {
         t.state='manual-review';t.detail='unknown outcome expired; bounded manual-review tombstone';t.updatedAt=now;plannerRelease(t,'manual-review');changed=true;continue;
       }
+      if (t.state === 'manual-review' && txCompactReview(t)) changed = true;
       if (t.state==='manual-review' && !txManualReviewPermanent(t) && now-(+t.updatedAt||+t.unknownAt||+t.createdAt||0)>TX_MANUAL_REVIEW_TTL_MS) {
         t.state='failed';t.detail='manual-review tombstone expired; retry allowed';t.updatedAt=now;plannerRelease(t,'manual-review-expired');changed=true;continue;
       }
       const terminalTtl=t.state==='committed'&&t.snapshot&&t.snapshot.kind==='instant'?TX_INSTANT_TOMBSTONE_TTL:TX_TERMINAL_TTL;
       if (/^(committed|failed|aborted|dryrun)$/.test(t.state || '') && now - (+t.updatedAt || +t.createdAt || 0) > terminalTtl) { delete state.txState[key]; changed = true; }
     }
+    if (txCapReview()) changed = true;
     if (changed) txSave();
     return changed;
   }

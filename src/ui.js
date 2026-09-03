@@ -1328,6 +1328,7 @@
         <div class="gb-cfg-panes">
         ${gbCfgGroup('General y seguridad', `
           <label class="gb-cfg-row" data-gb-tip="Activar el bot solo en este dominio (marcado por mundo)"><input type="checkbox" data-cfg="enabled-host"/> Activar en <span class="cfg-host"></span></label>
+          <label class="gb-cfg-row" title="El unico freno pasa a ser el interruptor de arriba. Desactiva panico, cortacircuitos, memoria de decisiones, modo seguro, salud de plantillas, pausa nocturna, pausa por actividad y el frenado adaptativo del orquestador. El cortacircuitos de captcha y el enfriamiento por presion del servidor siguen activos: ahi el servidor ya esta rechazando el envio."><input type="checkbox" data-cfg="never-stop"/> <b class="gb-cfg-accent">No parar nunca (solo para con el interruptor de arriba)</b></label>
           <label class="gb-cfg-row gb-cfg-warn" data-gb-tip="Bloquea premium, ataques, favor, puntos y donaciones"><input type="checkbox" data-cfg="safe-mode"/> MODO SEGURO (bloquea premium/ataques/favor/puntos/donaciones)</label>
           <label class="gb-cfg-row" title="Registra cada payload que el bot enviaria y no envia nada. Sirve para comparar el payload del bot con una accion pulsada a mano antes de activar algo arriesgado."><input type="checkbox" data-cfg="dry-run"/> <b class="gb-cfg-accent">Simulacion (registra payloads, no envia nada)</b></label>
           <label class="gb-cfg-row" title="Con la simulacion OFF, pide autorizar una vez cada modulo de escritura en este mundo antes del primer envio real."><input type="checkbox" data-cfg="first-post-confirm"/> Confirmar primer envio en vivo por modulo</label>
@@ -1456,6 +1457,11 @@
           </label>
         `)}
         ${gbCfgGroup('Ritmo y pausas', `
+          <label class="gb-cfg-row" data-gb-tip="Detectar actividad del usuario (movimientos del raton) y pausar el bot"><input type="checkbox" data-cfg="pause-activity"/> Pausar cuando estoy activo</label>
+          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Minutos de pausa tras detectar actividad">Minutos de pausa <input class="gb-cfg-input" type="number" data-cfg="pause-ms" min="1" max="60" style="width:40px"/></label>
+          <label class="gb-cfg-row" data-gb-tip="Pausar el bot durante la noche"><input type="checkbox" data-cfg="night-pause"/> Pausa nocturna</label>
+          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Rango horario (formato 24h) en que se aplica la pausa nocturna">Horas <input class="gb-cfg-input" type="number" data-cfg="night-start" min="0" max="23" style="width:40px"/>-<input class="gb-cfg-input" type="number" data-cfg="night-end" min="0" max="23" style="width:40px"/></label>
+          <label class="gb-cfg-row" title="Si un almacen se llena y la recoleccion deja de rendir, cueva/comercio/aldeas pasan por delante de la recoleccion y no se les aplica el frenado por inactividad. Solo cambia el ORDEN, nunca el presupuesto."><input type="checkbox" data-cfg="orch-deadlock"/> Resolver atasco de almacen (prioriza vaciado)</label>
           <label class="gb-cfg-num" data-gb-tip="Multiplicador de la cadencia de los modulos NO excluido (1.0 = sin cambios, 0.25 = 4x mas rapido, minimo 5s por modulo). Aldeas, reclutar, construir y los modulos de comercio/intercambio/rural NO se ven afectados: su cadencia depende de presupuesto o capacidad y bajarla solo quemaria captcha.">
             Escala de cadencia
             <input class="gb-cfg-input" type="range" data-cfg="orch-cadence-scale" min="0.25" max="1" step="0.05" style="width:140px"/>
@@ -2474,7 +2480,21 @@
     setNum('[data-cfg=posts-soft-pct]', state.postsPerMinSoftPct != null ? state.postsPerMinSoftPct : 60);
     const cl = sec.querySelector('[data-cfg=captcha-ladder]');
     if (cl) cl.value = (Array.isArray(state.captchaLadder) && state.captchaLadder.length ? state.captchaLadder : [5, 15, 60]).join(',');
+    cfgBindBool('[data-cfg=never-stop]', 'neverStop', STORE.NEVER_STOP, v => { gbLog('neverStop', v); updateStatus(); });
     cfgBindBool('[data-cfg=safe-mode]', 'safeMode', STORE.SAFE_MODE, v => { gbLog('safeMode', v); updateStatus(); });
+    cfgBindBool('[data-cfg=pause-activity]', 'pauseOnActivity', STORE.PAUSE_ON_ACTIVITY, v => { gbLog('pauseOnActivity', v); updateStatus(); });
+    cfgBindBool('[data-cfg=night-pause]', 'nightPause', STORE.NIGHT_PAUSE, v => { gbLog('nightPause', v); updateStatus(); });
+    cfgBindBool('[data-cfg=orch-deadlock]', 'orchDeadlockResolve', STORE.ORCH_DEADLOCK, v => { gbLog('orchDeadlockResolve', v); updateStatus(); });
+    setChk('[data-cfg=never-stop]', state.neverStop !== false);
+    setChk('[data-cfg=pause-activity]', state.pauseOnActivity);
+    setChk('[data-cfg=night-pause]', state.nightPause);
+    setChk('[data-cfg=orch-deadlock]', state.orchDeadlockResolve !== false);
+    setNum('[data-cfg=pause-ms]', Math.round((state.pauseActivityMs || 180000) / 60000));
+    setNum('[data-cfg=night-start]', state.nightStart);
+    setNum('[data-cfg=night-end]', state.nightEnd);
+    saveNum('[data-cfg=pause-ms]', v => { state.pauseActivityMs = Math.max(1, v) * 60000; save(STORE.PAUSE_ACTIVITY_MS, state.pauseActivityMs); });
+    saveNum('[data-cfg=night-start]', v => { state.nightStart = Math.max(0, Math.min(23, Math.floor(+v || 0))); save(STORE.NIGHT_START, state.nightStart); });
+    saveNum('[data-cfg=night-end]', v => { state.nightEnd = Math.max(0, Math.min(23, Math.floor(+v || 0))); save(STORE.NIGHT_END, state.nightEnd); });
     onCfg('[data-cfg=enabled-host]', 'change', e => {
       state.enabledHosts[location.host] = e.target.checked;
       save(STORE.ENABLED_HOSTS, state.enabledHosts);
@@ -2729,6 +2749,7 @@
         state[key] = next; save(store, state[key]);
         gbLog(key, next ? 'ON' : 'OFF');
         if (next && onOn) onOn();
+        else if (!next && prev) { try { gbAbortFeature(key); } catch (_) {} }
       });
     };
     bindToggle('[data-cfg=auto-culture]', 'autoCulture', STORE.AUTO_CULTURE, () => cultureScan('toggle'));
