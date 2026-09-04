@@ -376,6 +376,20 @@
     const b = cost.base ? gbNum(cost.base[key]) : null;
     return b;
   }
+  // Mythical favor cost for local gates. Prefer runtime authoritative favor;
+  // otherwise enforce GameData base. Wood/stone/iron stay advisory-only because
+  // modifiers make GameData lie; favor is stable enough that "blind → post →
+  // server ribbon" every cadence is worse than a slightly conservative block.
+  // Favor *pool* still unreadable → do not block (server judges).
+  function recruitFavorUnitCost(ec, def) {
+    if (recruitCostFieldKnown(ec, 'favor')) {
+      return { cost: +ec.favor, source: 'authoritative' };
+    }
+    const advisory = recruitDisplayCost(ec, 'favor')
+      ?? gbNum(def && (def.favor ?? (def.resources && def.resources.favor)));
+    if (advisory != null && advisory >= 0) return { cost: advisory, source: 'advisory' };
+    return { cost: null, source: 'unreadable' };
+  }
   try { GB_ROOT.__grepbotRecruitEffectiveCost = recruitEffectiveUnitCost; } catch (_) {}
   function recruitCanBuild(townId, unitId) {
     const def = gbGameDataLookup("units", unitId);
@@ -420,18 +434,17 @@
         const templeNeed = +(def.temple_level ?? def.required_temple_level ?? 1);
         if (+(buildings.temple || 0) < (Number.isFinite(templeNeed) ? templeNeed : 1)) return false;
         const ec = recruitEffectiveUnitCost(townId, unitId);
-        const baseFavor = gbNum(def.favor ?? (def.resources && def.resources.favor));
-        if (baseFavor != null && baseFavor > 0) {
+        const fc = recruitFavorUnitCost(ec, def);
+        if (fc.cost != null && fc.cost > 0) {
           if (!requiredGod) return false;
-          if (recruitCostFieldKnown(ec, 'favor')) {
-            const favorCost = +ec.favor;
-            const fr = recruitFavorRead(townId, requiredGod);
-            if (fr.value != null && fr.value < favorCost) return false;
-            if (fr.value == null) gbLogT('recruit-favor-blind-' + townId + '-' + requiredGod, 120000,
+          const fr = recruitFavorRead(townId, requiredGod);
+          if (fr.value != null && fr.value < fc.cost) return false;
+          if (fr.value == null) {
+            gbLogT('recruit-favor-blind-' + townId + '-' + requiredGod, 120000,
               `recruit: ${requiredGod} favor balance unreadable for ${unitId}; server judges`);
-          } else {
-            gbLogT('recruit-favor-cost-blind-' + townId + '-' + unitId, 120000,
-              `recruit: effective favor cost unreadable for ${unitId}; UNKNOWN, server authoritative`);
+          } else if (fc.source === 'advisory') {
+            gbLogT('recruit-favor-cost-advisory-' + townId + '-' + unitId, 300000,
+              `recruit: ${unitId} favor cost ${fc.cost} from GameData advisory (runtime effective unreadable)`);
           }
         }
       }
@@ -667,10 +680,12 @@
     const baseFavor = gbNum(def.favor ?? (def.resources && def.resources.favor));
     if (baseFavor != null && baseFavor > 0) {
       const god = (def.god && String(def.god).toLowerCase()) || mythicalUnitGod(unit);
+      const fc = recruitFavorUnitCost(ec, def);
       if (!god) blind.push('favor-unreadable:god');
-      else if (recruitCostFieldKnown(ec, 'favor')) {
+      else if (fc.cost != null && fc.cost > 0) {
         favor = recruitFavorRead(townId, god);
-        apply('favor', favor.value, +ec.favor, 'favor-unreadable:' + god);
+        apply('favor', favor.value, fc.cost, 'favor-unreadable:' + god);
+        if (fc.source === 'advisory') blind.push('favor-cost-advisory');
       } else blind.push('effective-cost-unreadable:favor');
     }
     amount = Math.max(0, Math.floor(amount));
@@ -1172,8 +1187,12 @@
       const baseFavor = gbNum(def.favor ?? (def.resources && def.resources.favor));
       if (baseFavor != null && baseFavor > 0) {
         const god = (def.god && String(def.god).toLowerCase()) || mythicalUnitGod(unit);
-        if (!god || !recruitCostFieldKnown(ec,'favor')) blind.push('effective-cost-unreadable:' + unit + ':favor');
-        else favorNeed[god] = (favorNeed[god] || 0) + (+ec.favor * amount);
+        const fc = recruitFavorUnitCost(ec, def);
+        if (!god || fc.cost == null || !(fc.cost > 0)) blind.push('effective-cost-unreadable:' + unit + ':favor');
+        else {
+          favorNeed[god] = (favorNeed[god] || 0) + (fc.cost * amount);
+          if (fc.source === 'advisory') blind.push('favor-cost-advisory:' + unit);
+        }
       }
       laneRows[recruitIsNaval(unit)?'naval':'land'].push({i,unit});
     }
