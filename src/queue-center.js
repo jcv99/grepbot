@@ -423,15 +423,20 @@
 
     if (list[0] && list[0].unit) {
       const headUnit = list[0].unit;
-      const totalInp = document.createElement('input'); totalInp.type = 'number'; totalInp.min = '1'; totalInp.value = '200'; totalInp.title = `Total de unidades a encolar (${nativeUnitLabel(headUnit)})`; totalInp.className = 'gb-native-qinp';
+      const totalInp = document.createElement('input'); totalInp.type = 'number'; totalInp.min = '1'; totalInp.value = '200'; totalInp.title = `Total de unidades a encolar (${nativeUnitLabel(headUnit)}); >${NATIVE_RECRUIT_INF_THRESH} se convierte en \u221e`; totalInp.className = 'gb-native-qinp';
       const sep = document.createElement('span'); sep.textContent = '/'; sep.style.color = '#666';
       const chunkInp = document.createElement('input'); chunkInp.type = 'number'; chunkInp.min = '1'; chunkInp.value = '50'; chunkInp.title = 'Tama\u00f1o de cada lote al servidor'; chunkInp.className = 'gb-native-qinp';
       const lotBtn = queueCenterButton('+Lote', `Encolar el total en lotes del tama\u00f1o indicado; la fila se quita sola al agotarse`, () => {
         const r = nativeQueueAddRecruitBatch(townId, headUnit, +totalInp.value || 0, +chunkInp.value || 0);
-        if (r && r.ok) flash(`Lote encolado en ${label.toLowerCase()}: ${r.total} en ${r.lotes} env\u00edo(s) de ${r.chunk}`);
+        if (r && r.ok) flash(r.infinite ? `Cola \u221e encolada en ${label.toLowerCase()}: lotes de ${r.chunk}` : `Lote encolado en ${label.toLowerCase()}: ${r.total} en ${r.lotes} env\u00edo(s) de ${r.chunk}`);
         else flash((r && r.why) || 'no se pudo encolar el lote');
       });
-      const wrap = document.createElement('span'); wrap.className = 'gb-qc-batch'; wrap.append(totalInp, sep, chunkInp, lotBtn);
+      const infBtn = queueCenterButton('+\u221e', `Encolar \u221e ${nativeUnitLabel(headUnit)} en lotes del tama\u00f1o indicado`, () => {
+        const r = nativeQueueAddRecruitInfinite(townId, headUnit, +chunkInp.value || 50);
+        if (r && r.ok) flash(`Cola \u221e encolada en ${label.toLowerCase()}: lotes de ${r.chunk}`);
+        else flash((r && r.why) || 'no se pudo encolar \u221e');
+      });
+      const wrap = document.createElement('span'); wrap.className = 'gb-qc-batch'; wrap.append(totalInp, sep, chunkInp, lotBtn, infBtn);
       plan.head.appendChild(wrap);
     }
     queueCenterFifoSection(plan, townId, lane, list, fifo, {
@@ -439,10 +444,10 @@
       emptyLegacy: 'Esta ciudad usa objetivos autom\u00e1ticos.',
       seqTitle: `Orden FIFO \u00b7 ${label}`,
       seqEntry: (j, i) => ({
-        text: `#${i + 1} ${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`,
+        text: `#${i + 1} ${nativeQueueRecruitAmountText(j)}`,
         title: j.reason || nativeUnitLabel(j.unit),
       }),
-      rowDesc: j => `${j.amount}\u00d7 ${nativeUnitLabel(j.unit)}`,
+      rowDesc: j => nativeQueueRecruitAmountText(j),
     });
   }
 

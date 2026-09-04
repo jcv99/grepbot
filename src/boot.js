@@ -346,6 +346,7 @@
       nativeQueueRemoveLastBuild,
       nativeQueueAddRecruit,
       nativeQueueAddRecruitBatch,
+      nativeQueueAddRecruitInfinite,
       nativeQueueCompactRecruit,
       nativeQueueRemoveLastRecruit,
       nativeQueueAddResearch,
