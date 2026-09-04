@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.40
+// @version      6.0.41
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -6010,6 +6010,10 @@ const STORE = {
   const FARM_CLAIM_READY_WAKE_MS = 750;
   const FARM_CLAIM_READY_RETRY_MS = 5000;
   const FARM_NOT_READY_RETRY_MS = 30000;
+
+  const FARM_CLAIM_SPACING_MS = 1500;
+  const FARM_CLAIM_CAPTCHA_WAIT_MS = 2000;
+  const FARM_CLAIM_VERIFY_MS = 3000;
   let farmClaimWakeTimer = 0, farmClaimWakeAt = 0;
   function farmClaimTiming(farmsArg) {
     const farms = Array.isArray(farmsArg) ? farmsArg : (farmsFromGame() || []);
@@ -6068,7 +6072,7 @@ const STORE = {
   function farmScheduleNotReadyWake(farm) {
     const now = gameNow();
     const candidates = [];
-    const add = value => { const n=+value; if(Number.isFinite(n)&&n>now)candidates.push(n); };
+    const add = value => { const n=gbNum(value); if(n!=null&&n>now)candidates.push(n); };
     try { add(farm && farm.lootable_at); } catch (_) {}
     try { add(farm && farm._rel && farm._rel.attributes && farm._rel.attributes.lootable_at); } catch (_) {}
     try { const live=txFarmStatus(farm && farm.vill_id); add(live && live.lootableAt); } catch (_) {}
@@ -6374,17 +6378,17 @@ const STORE = {
     return m;
   }
   function farmOptionResolve(wantSec) {
-    const want = +wantSec;
-    const exact = Number.isFinite(want) ? farmOptionFor(want) : null;
+    const want = gbNum(wantSec);
+    const exact = want != null ? farmOptionFor(want) : null;
     if (exact != null) return { option: exact, sec: want, how: 'exact' };
     const m = farmOptionMapEnsure();
     let floorOpt = null, floorSec = -1;
     let shortOpt = null, shortSec = Infinity;
     for (const sec of FARM_DURATIONS) {
       const v = m[String(sec)];
-      const opt = +v;
-      if (v == null || !(opt >= 1 && opt <= 4)) continue;
-      if (Number.isFinite(want) && sec <= want && sec > floorSec) { floorSec = sec; floorOpt = opt; }
+      const opt = gbNum(v);
+      if (v == null || opt == null || !(opt >= 1 && opt <= 4)) continue;
+      if (want != null && sec <= want && sec > floorSec) { floorSec = sec; floorOpt = opt; }
       if (sec < shortSec) { shortSec = sec; shortOpt = opt; }
     }
     if (floorOpt != null) return { option: floorOpt, sec: floorSec, how: 'floor' };
@@ -6668,7 +6672,10 @@ const STORE = {
   function farmProfitInvalidate() { for (const k of Object.keys(farmProfitCache)) delete farmProfitCache[k]; farmProfitRefreshAt = 0; }
 
   const FARM_UNIT_ORDER = ['sword', 'slinger', 'archer', 'hoplite'];
-  function farmUnitIdFor(option) { return FARM_UNIT_ORDER[(+option || 0) - 1] || null; }
+  function farmUnitIdFor(option) {
+    const o = gbNum(option);
+    return o != null ? (FARM_UNIT_ORDER[o - 1] || null) : null;
+  }
   function farmVillageLevel(farm) {
     const rel = farm && farm._rel;
     const a = (farm && farm._attrs) || {};
@@ -6711,14 +6718,17 @@ const STORE = {
     let best = null;
     for (let opt = 1; opt <= FARM_UNIT_ORDER.length; opt++) {
       const unit = FARM_UNIT_ORDER[opt - 1];
-      const amount = +table[unit];
-      if (!Number.isFinite(amount) || amount <= 0) continue;
+      const amount = gbNum(table[unit]);
+      if (amount == null || amount <= 0) continue;
       if (townId != null && farmUnitsClaimBlocked(farm, townId, opt)) continue;
       const def = gbGameDataLookup('units', unit);
       const res = (def && def.resources) || null;
 
-      const cost = res ? (+res.wood || 0) + (+res.stone || 0) + (+res.iron || 0) : 0;
-      const score = amount * (cost > 0 ? cost : 1);
+      const cost = res ? (() => {
+        const w = gbNum(res.wood), s = gbNum(res.stone), i = gbNum(res.iron);
+        return (w != null && s != null && i != null) ? w + s + i : null;
+      })() : null;
+      const score = amount * (cost != null && cost > 0 ? cost : 1);
       if (!best || score > best.score) best = { opt, score };
     }
     return best ? best.opt : null;
@@ -6749,8 +6759,8 @@ const STORE = {
     if (!table) return 'unit-table-unreadable';
     if (table[unit] == null) return 'unit-not-offered';
     let amount = null;
-    const n = +table[unit];
-    if (Number.isFinite(n)) {
+    const n = gbNum(table[unit]);
+    if (n != null) {
       if (!(n > 0)) return 'unit-amount-0';
       amount = n;
     }
@@ -6903,8 +6913,8 @@ const STORE = {
     if (captchaPaused('farm')) return done('captcha');
     const claimType = farmClaimTypeFor(farm, islandMap);
     const target = claimType === 'units' ? townIdForFarmUnits(farm, islandMap) : townIdForFarm(farm, islandMap);
-    const tid = target == null ? null : +target;
-    if (!tid) {
+    const tid = gbNum(target);
+    if (tid == null) {
       gbLogT('claim-no-town', 60000, `farm claim skip ${farm.vill_id}: ${claimType === 'units' ? 'no configured unit beneficiary' : 'no readable resource beneficiary'}`);
       return done('skip');
     }
@@ -7098,57 +7108,86 @@ const STORE = {
       if (onBatchDone) onBatchDone({ done: 0, attempted: 0, captcha: false });
       return;
     }
-    const claimLockToken = gbLock('claim', Math.max(180000, work.length * 20000));
+
+    const claimLockToken = gbLock('claim', Math.max(180000, work.length * (FARM_CLAIM_SPACING_MS + 500) + 120000));
     if (!claimLockToken) return;
     farmPostedOpts = Object.create(null);
     const unitCount = work.filter(f => farmClaimTypeFor(f, islandMap) === 'units').length;
-    gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${work.length}/${farms.length} ready${work.length !== ready.length ? ` (${ready.length - work.length} filtered)` : ''}${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}${unitCount ? ` (${unitCount} as units)` : ''}`);
+    gbLog(`farm claim${reason ? ' (' + reason + ')' : ''}: ${work.length}/${farms.length} ready${work.length !== ready.length ? ` (${ready.length - work.length} filtered)` : ''}${skippedFull ? ` (${skippedFull} warehouse-full)` : ''}${unitCount ? ` (${unitCount} as units)` : ''} @${FARM_CLAIM_SPACING_MS}ms`);
     const before = {};
     farms.forEach(f => { before[f.vill_id] = f.lootable_at; });
     flash(`farm claim x${work.length}`);
 
     const outcome = Object.create(null);
-    let i = 0, done = 0, captcha = false;
-    const claimSpacingMs=Math.max(700,Math.ceil(60000/Math.max(5,(+state.reqBudgetPerMin||40)-4)));
+    let i = 0, done = 0, captchaHits = 0;
+    function farmClaimFinishBatch(captcha) {
+      const tally = Object.keys(outcome).map(k => `${k}x${outcome[k]}`).join(' ');
+      if (tally) gbLog(`  claim outcomes: ${tally}`);
+      gbTimeout(() => {
+        try {
+          const flipped = verifyClaims(before, work);
+          farmScheduleClaimWake(null, 'post-claim', true);
+          if (onBatchDone) onBatchDone({
+            done: flipped,
+            attempted: work.length,
+            captcha,
+            bridgeOk: done,
+          });
+        } finally { gbUnlock('claim', claimLockToken); }
+      }, FARM_CLAIM_VERIFY_MS);
+    }
     (function next() {
       gbLockTouch('claim', claimLockToken);
-      if (i >= work.length || captcha || captchaPaused('farm')) {
-        const tally = Object.keys(outcome).map(k => `${k}x${outcome[k]}`).join(' ');
-        if (tally) gbLog(`  claim outcomes: ${tally}`);
-        gbTimeout(() => {
-          try {
-            const flipped = verifyClaims(before, work);
-
-            farmScheduleClaimWake(null, 'post-claim', true);
-
-            if (onBatchDone) onBatchDone({
-              done: flipped,
-              attempted: work.length,
-              captcha,
-              bridgeOk: done,
-            });
-          } finally { gbUnlock('claim', claimLockToken); }
-        }, 10000);
+      if (i >= work.length) {
+        farmClaimFinishBatch(captchaHits > 0);
         return;
       }
-      const f = work[i++];
+
+      const pauseInfo = {};
+      const capPaused = captchaPaused('farm');
+      const autoPaused = automationPaused(pauseInfo);
+      if (capPaused || autoPaused) {
+        const why = capPaused ? 'captcha' : (pauseInfo.reason || 'pause');
+        if (why === 'captcha' || why === 'captcha-global' || why === 'server') {
+          gbLogT('claim-wait-pause', 10000,
+            `farm claim: waiting (${why}) \u2014 ${work.length - i}/${work.length} villages left in this sweep`);
+          gbTimeout(next, FARM_CLAIM_CAPTCHA_WAIT_MS);
+          return;
+        }
+        gbLog(`farm claim: aborting remaining ${work.length - i} (${why})`);
+        farmClaimFinishBatch(captchaHits > 0);
+        return;
+      }
+      const f = work[i];
       try {
         claimFarm(f, islandMap, whCache, durOverride, (err) => {
           const key = String(err || 'ok').slice(0, 24);
           outcome[key] = (outcome[key] || 0) + 1;
-          if (err === 'captcha' || err === 'captcha-pause') { captcha = true; farmPressureNote('captcha'); }
-          else if (!err) {
-            done++;
+          if (err === 'captcha' || err === 'captcha-pause') {
+            captchaHits++;
+            farmPressureNote('captcha');
 
+            gbTimeout(next, FARM_CLAIM_CAPTCHA_WAIT_MS);
+            return;
+          }
+          if (err === 'budget') {
+
+            gbLogT('claim-budget-retry', 15000, `farm claim: budget hit on ${f.vill_id} \u2014 retrying`);
+            gbTimeout(next, FARM_CLAIM_SPACING_MS);
+            return;
+          }
+          i++;
+          if (!err) {
+            done++;
             try { farmClaimCount(f.vill_id); } catch (_) {}
             gbLog(`  claimed ${f.name || f.vill_id} (rel ${f.relation_id})`);
           }
-
-          gbTimeout(next, claimSpacingMs);
+          gbTimeout(next, FARM_CLAIM_SPACING_MS);
         });
       } catch (e) {
         gbLog('  claim FAIL', f.vill_id, String(e));
-        gbTimeout(next, claimSpacingMs);
+        i++;
+        gbTimeout(next, FARM_CLAIM_SPACING_MS);
       }
     })();
   }
