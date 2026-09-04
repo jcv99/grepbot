@@ -41,10 +41,15 @@
       gbLogT('support-template', 60000, 'support: no learned template - send one support by hand once');
       return onDone && onDone('template-required');
     }
+    const destId = gbNum(destTownId);
+    if (destId == null) {
+      gbLogT('support-dest-id', 60000, 'support: dest town id unreadable - no post');
+      return onDone && onDone('bad-target');
+    }
     const payload = {
       model_url: 'Town/' + fromTownId,
       action_name: tpl.action_name,
-      arguments: Object.assign({ id: +destTownId, type: 'support' }, units),
+      arguments: Object.assign({ id: destId, type: 'support' }, units),
       town_id: +fromTownId,
     };
     bridgePost('support', payload, onDone);
@@ -57,8 +62,8 @@
     let live = {};
     try { live = townLiveUnits(fromTownId) || {}; } catch (_) { live = {}; }
     for (const [u, n0] of Object.entries(live)) {
-      const n = +n0 || 0;
-      if (!(n > 0) || u === 'militia') continue;
+      const n = gbNum(n0);
+      if (n == null || !(n > 0) || u === 'militia') continue;
       const m = unitMeta(u);
       if (!m || m.is_naval) continue;
       const fn = classifyUnitFn(u);
@@ -76,8 +81,8 @@
     for (const m of outs) {
       if (String(m.target) !== String(destId)) continue;
       if (!/^(support|support_sea)$/.test(String(m.type || ''))) continue;
-      const arr = +m.arrival || 0;
-      if (!arr) continue;
+      const arr = gbNum(m.arrival);
+      if (arr == null) continue;
       const a = arr > 1e12 ? Math.floor(arr / 1000) : arr;
       if (a <= arrivalSec - cfg.overlapSec) return true;
     }

@@ -608,8 +608,15 @@
         let pending={};
         try { pending=plannerPendingForTown(id).incoming||{}; } catch (_) { d.reason='reservas entrantes del planificador ilegibles'; d.intercity.known=false; return d; }
         if (t[resource] == null || !(t.cap > 0)) continue;
-        const projected = +t[resource] + (+mov[resource] || 0) + (+pending[resource] || 0), fill=projected/+t.cap, free=Math.max(0,+t.cap-projected);
-        ranked.push({id,fill,free,projected,cap:+t.cap});
+        const resVal = gbNum(t[resource]);
+        const capVal = gbNum(t.cap);
+        const movVal = gbNum(mov[resource]);
+        const pendVal = gbNum(pending[resource]);
+        if (resVal == null || capVal == null || !(capVal > 0)) continue;
+        const projected = resVal + (movVal != null ? movVal : 0) + (pendVal != null ? pendVal : 0);
+        const fill = projected / capVal;
+        const free = Math.max(0, capVal - projected);
+        ranked.push({ id, fill, free, projected, cap: capVal });
         if (fill <= tradeReceiverPct()) d.intercity.eligible++;
       }
       ranked.sort((a,b)=>a.fill-b.fill || b.free-a.free || a.id.localeCompare(b.id,undefined,{numeric:true}));
@@ -643,7 +650,9 @@
       if (!t || !(t.cap > 0)) continue;
       for (const resource of GB_RES_KEYS) {
         if (t[resource] == null) continue;
-        const fill = +t[resource] / +t.cap;
+        const stock = gbNum(t[resource]), cap = gbNum(t.cap);
+        if (stock == null || cap == null || !(cap > 0)) continue;
+        const fill = stock / cap;
         const key = String(t.id) + '|' + resource;
         if (fill < threshold) { if (root.warehouses[key]) { delete root.warehouses[key]; } continue; }
         liveKeys.add(key);
@@ -856,7 +865,10 @@
   // state before deciding what is due, so a follower cannot act on stale dedup data.
   const TELEGRAM_MONITOR_POLL_MS = 15000;
   const telegramMonitorLockName = 'grepbot-telegram-monitor:' + location.hostname;
-  let telegramMonitorLockPending = false;
+  // Re-entrancy guard only: navigator.locks.request is async; block duplicate
+  // in-flight requests from the same tick. Cross-tab serialization is handled
+  // by the Web Lock itself — this is NOT a substitute for gbLock.
+  let telegramMonitorAsyncLockPending = false;
   function telegramReloadSharedMonitorState() {
     try {
       const mon = load(STORE.TELEGRAM_MONITOR_STATE, null);
@@ -890,17 +902,17 @@
       if (!gbTabLeader) return false;
       run(); return true;
     }
-    if (telegramMonitorLockPending) return false;
-    telegramMonitorLockPending = true;
+    if (telegramMonitorAsyncLockPending) return false;
+    telegramMonitorAsyncLockPending = true;
     try {
       navigator.locks.request(telegramMonitorLockName, { mode:'exclusive', ifAvailable:true }, lock => {
-        telegramMonitorLockPending = false;
+        telegramMonitorAsyncLockPending = false;
         if (!gbInstanceAlive() || !lock) return;
         run();
-      }).catch(() => { telegramMonitorLockPending = false; });
+      }).catch(() => { telegramMonitorAsyncLockPending = false; });
       return true;
     } catch (_) {
-      telegramMonitorLockPending = false;
+      telegramMonitorAsyncLockPending = false;
       if (gbTabLeader) { run(); return true; }
       return false;
     }

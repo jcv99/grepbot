@@ -310,21 +310,22 @@
     } catch (_) {}
     let out = null;
     if (t) {
-      let wood, stone, iron, resStorage = null;
+      let wood = null, stone = null, iron = null, resStorage = null;
       try {
         const r = t.resources && t.resources();
-        if (r && r.wood != null) {
-          wood = +r.wood; stone = +r.stone; iron = +r.iron;
-          if (r.storage != null) resStorage = +r.storage;
+        if (r) {
+          if (r.wood != null) wood = gbNum(r.wood);
+          if (r.stone != null) stone = gbNum(r.stone);
+          if (r.iron != null) iron = gbNum(r.iron);
+          if (r.storage != null) resStorage = gbNum(r.storage);
         }
       } catch (_) {}
-      if (wood != null) {
-
+      if (wood != null && stone != null && iron != null) {
         let cap = null;
-        try { if (t.getStorageCapacity) cap = +t.getStorageCapacity(); } catch (_) {}
-        try { if (!(cap > 0) && t.storage && t.storage.getCapacity) cap = +t.storage.getCapacity(); } catch (_) {}
-        if (!(cap > 0) && resStorage > 100) cap = resStorage;
-        if (cap > 0) {
+        try { if (t.getStorageCapacity) cap = gbNum(t.getStorageCapacity()); } catch (_) {}
+        try { if (!(cap > 0) && t.storage && t.storage.getCapacity) cap = gbNum(t.storage.getCapacity()); } catch (_) {}
+        if (!(cap > 0) && resStorage != null && resStorage > 100) cap = resStorage;
+        if (cap != null && cap > 0) {
           const isFull = (v) => v >= cap || v / cap >= 0.99;
           const full = { wood: isFull(wood), stone: isFull(stone), iron: isFull(iron) };
 
@@ -333,6 +334,13 @@
           const fillPct = Math.round(Math.max(wood, stone, iron) / cap * 100);
           out = { cap, wood, stone, iron, full, n, fillPct };
         }
+      } else {
+        try {
+          const r = t.resources && t.resources();
+          if (r && (r.wood != null || r.stone != null || r.iron != null)) {
+            gbLogT('town-res-blind-' + key, 300000, `townResState: town ${key} wood/stone/iron incomplete or unreadable`);
+          }
+        } catch (_) {}
       }
     }
     _townResCache[key] = { at: now, v: out };
@@ -386,7 +394,8 @@
       const units = ctx.units || {};
       let total = 0, unknown = 0;
       for (const [u, n0] of Object.entries(units)) {
-        const n = +n0 || 0;
+        const n = gbNum(n0);
+        if (n == null) { unknown += 1; continue; }
         if (!(n > 0)) continue;
         const carry = gbUnitCarry(u);
         if (carry == null) { unknown += n; continue; }

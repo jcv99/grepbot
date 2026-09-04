@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.42
+// @version      6.0.43
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -4358,21 +4358,22 @@ const STORE = {
     } catch (_) {}
     let out = null;
     if (t) {
-      let wood, stone, iron, resStorage = null;
+      let wood = null, stone = null, iron = null, resStorage = null;
       try {
         const r = t.resources && t.resources();
-        if (r && r.wood != null) {
-          wood = +r.wood; stone = +r.stone; iron = +r.iron;
-          if (r.storage != null) resStorage = +r.storage;
+        if (r) {
+          if (r.wood != null) wood = gbNum(r.wood);
+          if (r.stone != null) stone = gbNum(r.stone);
+          if (r.iron != null) iron = gbNum(r.iron);
+          if (r.storage != null) resStorage = gbNum(r.storage);
         }
       } catch (_) {}
-      if (wood != null) {
-
+      if (wood != null && stone != null && iron != null) {
         let cap = null;
-        try { if (t.getStorageCapacity) cap = +t.getStorageCapacity(); } catch (_) {}
-        try { if (!(cap > 0) && t.storage && t.storage.getCapacity) cap = +t.storage.getCapacity(); } catch (_) {}
-        if (!(cap > 0) && resStorage > 100) cap = resStorage;
-        if (cap > 0) {
+        try { if (t.getStorageCapacity) cap = gbNum(t.getStorageCapacity()); } catch (_) {}
+        try { if (!(cap > 0) && t.storage && t.storage.getCapacity) cap = gbNum(t.storage.getCapacity()); } catch (_) {}
+        if (!(cap > 0) && resStorage != null && resStorage > 100) cap = resStorage;
+        if (cap != null && cap > 0) {
           const isFull = (v) => v >= cap || v / cap >= 0.99;
           const full = { wood: isFull(wood), stone: isFull(stone), iron: isFull(iron) };
 
@@ -4381,6 +4382,13 @@ const STORE = {
           const fillPct = Math.round(Math.max(wood, stone, iron) / cap * 100);
           out = { cap, wood, stone, iron, full, n, fillPct };
         }
+      } else {
+        try {
+          const r = t.resources && t.resources();
+          if (r && (r.wood != null || r.stone != null || r.iron != null)) {
+            gbLogT('town-res-blind-' + key, 300000, `townResState: town ${key} wood/stone/iron incomplete or unreadable`);
+          }
+        } catch (_) {}
       }
     }
     _townResCache[key] = { at: now, v: out };
@@ -4434,7 +4442,8 @@ const STORE = {
       const units = ctx.units || {};
       let total = 0, unknown = 0;
       for (const [u, n0] of Object.entries(units)) {
-        const n = +n0 || 0;
+        const n = gbNum(n0);
+        if (n == null) { unknown += 1; continue; }
         if (!(n > 0)) continue;
         const carry = gbUnitCarry(u);
         if (carry == null) { unknown += n; continue; }
@@ -15740,8 +15749,15 @@ const STORE = {
         let pending={};
         try { pending=plannerPendingForTown(id).incoming||{}; } catch (_) { d.reason='reservas entrantes del planificador ilegibles'; d.intercity.known=false; return d; }
         if (t[resource] == null || !(t.cap > 0)) continue;
-        const projected = +t[resource] + (+mov[resource] || 0) + (+pending[resource] || 0), fill=projected/+t.cap, free=Math.max(0,+t.cap-projected);
-        ranked.push({id,fill,free,projected,cap:+t.cap});
+        const resVal = gbNum(t[resource]);
+        const capVal = gbNum(t.cap);
+        const movVal = gbNum(mov[resource]);
+        const pendVal = gbNum(pending[resource]);
+        if (resVal == null || capVal == null || !(capVal > 0)) continue;
+        const projected = resVal + (movVal != null ? movVal : 0) + (pendVal != null ? pendVal : 0);
+        const fill = projected / capVal;
+        const free = Math.max(0, capVal - projected);
+        ranked.push({ id, fill, free, projected, cap: capVal });
         if (fill <= tradeReceiverPct()) d.intercity.eligible++;
       }
       ranked.sort((a,b)=>a.fill-b.fill || b.free-a.free || a.id.localeCompare(b.id,undefined,{numeric:true}));
@@ -15775,7 +15791,9 @@ const STORE = {
       if (!t || !(t.cap > 0)) continue;
       for (const resource of GB_RES_KEYS) {
         if (t[resource] == null) continue;
-        const fill = +t[resource] / +t.cap;
+        const stock = gbNum(t[resource]), cap = gbNum(t.cap);
+        if (stock == null || cap == null || !(cap > 0)) continue;
+        const fill = stock / cap;
         const key = String(t.id) + '|' + resource;
         if (fill < threshold) { if (root.warehouses[key]) { delete root.warehouses[key]; } continue; }
         liveKeys.add(key);
@@ -15982,7 +16000,8 @@ const STORE = {
 
   const TELEGRAM_MONITOR_POLL_MS = 15000;
   const telegramMonitorLockName = 'grepbot-telegram-monitor:' + location.hostname;
-  let telegramMonitorLockPending = false;
+
+  let telegramMonitorAsyncLockPending = false;
   function telegramReloadSharedMonitorState() {
     try {
       const mon = load(STORE.TELEGRAM_MONITOR_STATE, null);
@@ -16016,17 +16035,17 @@ const STORE = {
       if (!gbTabLeader) return false;
       run(); return true;
     }
-    if (telegramMonitorLockPending) return false;
-    telegramMonitorLockPending = true;
+    if (telegramMonitorAsyncLockPending) return false;
+    telegramMonitorAsyncLockPending = true;
     try {
       navigator.locks.request(telegramMonitorLockName, { mode:'exclusive', ifAvailable:true }, lock => {
-        telegramMonitorLockPending = false;
+        telegramMonitorAsyncLockPending = false;
         if (!gbInstanceAlive() || !lock) return;
         run();
-      }).catch(() => { telegramMonitorLockPending = false; });
+      }).catch(() => { telegramMonitorAsyncLockPending = false; });
       return true;
     } catch (_) {
-      telegramMonitorLockPending = false;
+      telegramMonitorAsyncLockPending = false;
       if (gbTabLeader) { run(); return true; }
       return false;
     }
@@ -24646,10 +24665,15 @@ const STORE = {
       gbLogT('support-template', 60000, 'support: no learned template - send one support by hand once');
       return onDone && onDone('template-required');
     }
+    const destId = gbNum(destTownId);
+    if (destId == null) {
+      gbLogT('support-dest-id', 60000, 'support: dest town id unreadable - no post');
+      return onDone && onDone('bad-target');
+    }
     const payload = {
       model_url: 'Town/' + fromTownId,
       action_name: tpl.action_name,
-      arguments: Object.assign({ id: +destTownId, type: 'support' }, units),
+      arguments: Object.assign({ id: destId, type: 'support' }, units),
       town_id: +fromTownId,
     };
     bridgePost('support', payload, onDone);
@@ -24662,8 +24686,8 @@ const STORE = {
     let live = {};
     try { live = townLiveUnits(fromTownId) || {}; } catch (_) { live = {}; }
     for (const [u, n0] of Object.entries(live)) {
-      const n = +n0 || 0;
-      if (!(n > 0) || u === 'militia') continue;
+      const n = gbNum(n0);
+      if (n == null || !(n > 0) || u === 'militia') continue;
       const m = unitMeta(u);
       if (!m || m.is_naval) continue;
       const fn = classifyUnitFn(u);
@@ -24681,8 +24705,8 @@ const STORE = {
     for (const m of outs) {
       if (String(m.target) !== String(destId)) continue;
       if (!/^(support|support_sea)$/.test(String(m.type || ''))) continue;
-      const arr = +m.arrival || 0;
-      if (!arr) continue;
+      const arr = gbNum(m.arrival);
+      if (arr == null) continue;
       const a = arr > 1e12 ? Math.floor(arr / 1000) : arr;
       if (a <= arrivalSec - cfg.overlapSec) return true;
     }
