@@ -75,8 +75,8 @@
   function intelUnitPop(bag) {
     let pop = 0, known = 0, unknown = 0, naval = 0;
     for (const [id, n0] of Object.entries(bag || {})) {
-      const n = +n0 || 0;
-      if (!(n > 0)) continue;
+      const n = gbNum(n0);
+      if (n == null || !(n > 0)) continue;
       const m = unitMeta(id);
       if (!m) { unknown += n; continue; }
       if (m.is_naval) { naval += n; continue; }

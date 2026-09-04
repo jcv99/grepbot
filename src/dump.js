@@ -37,7 +37,9 @@
     const roomOf = id => {
       const l = ledger[id] || ledger[+id];
       if (!l || !(l.cap > 0)) return null;
-      return Math.max(0, l.cap - (+l[res] || 0));
+      const have = gbNum(l[res]);
+      if (have == null) return null;
+      return Math.max(0, l.cap - have);
     };
     const sinks = dumpSinkList().filter(id => ids.includes(id));
     if (sinks.length) {
@@ -58,7 +60,11 @@
       for (const [k, v] of Object.entries(ledger)) probe[k] = structuredClone(v);
       jobs = transportBalanceJobs(towns, probe) || [];
     } catch (e) { jobs = []; gbLogT('dump-balance-err', 60000, 'dump: transportBalanceJobs threw: ' + String(e).slice(0, 120)); }
-    const hit = jobs.find(j => String(j.from) === from && (+j[res] || 0) > 0);
+    const hit = jobs.find(j => {
+      if (String(j.from) !== from) return false;
+      const n = gbNum(j[res]);
+      return n != null && n > 0;
+    });
     return hit ? String(hit.to) : null;
   }
   function dumpJobs(towns, L) {
@@ -102,7 +108,7 @@
           if (caveSkip) continue;
         }
         const keep = Math.floor(src.cap * dumpKeepPctFor(res) / 100);
-        const surplus = Math.max(0, (+src[res] || 0) - keep);
+        const surplus = Math.max(0, have - keep);
 
         let amount = Math.floor(surplus * DUMP_SURPLUS_SHARE);
         if (amount <= 0) continue;
@@ -113,7 +119,9 @@
         }
         const tgt = ledger[to] || ledger[+to];
         if (!tgt || !(tgt.cap > 0)) continue;
-        amount = Math.floor(Math.min(amount, src.tradeCap, Math.max(0, tgt.cap - (+tgt[res] || 0))));
+        const tgtHave = gbNum(tgt[res]);
+        if (tgtHave == null) continue;
+        amount = Math.floor(Math.min(amount, src.tradeCap, Math.max(0, tgt.cap - tgtHave)));
         const minBatch = gbCfgClamp(state.tradeMinBatch, 100, Infinity, 1000);
         if (amount < minBatch) continue;
         const job = { from: id, to, wood: 0, stone: 0, iron: 0, dump: res };

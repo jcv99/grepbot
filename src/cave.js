@@ -33,8 +33,8 @@
     let iron = null, cap = null, resStorage = null;
     try {
       const r = t.resources && t.resources();
-      if (r && r.iron != null) iron = +r.iron;
-      if (r && r.storage != null) resStorage = +r.storage;
+      if (r && r.iron != null) iron = gbNum(r.iron);
+      if (r && r.storage != null) resStorage = gbNum(r.storage);
     } catch (_) {}
 
     const shared = townResState(townId);
@@ -45,7 +45,7 @@
     if (!(cap > 0)) cap = gbProbeNum(t, ['getStorageCapacity', 'getStorage', 'getResourceCapacity']);
     if (!(cap > 0)) cap = gbProbeNum(t.storage, ['getCapacity']);
 
-    if (!(cap > 0) && resStorage > 100) cap = resStorage;
+    if (!(cap > 0) && resStorage != null && resStorage > 100) cap = resStorage;
     if (!(cap > 0)) cap = null;
 
     let hideCap = null, stored = null, unlimited = false;
@@ -135,10 +135,16 @@
   }
 
   function caveStoreIron(townId, amount, onDone, feature) {
+    const amt = gbNum(amount);
+    if (amt == null || amt <= 0) {
+      gbLogT('cave-bad-amount-' + townId, 60000, `cave: town ${townId} storeIron skipped — unreadable or non-positive amount (${amount})`);
+      if (onDone) onDone('skip:bad-amount');
+      return;
+    }
     bridgePost(feature || 'cave', {
       model_url: 'BuildingHide',
       action_name: 'storeIron',
-      arguments: { iron_to_store: +amount },
+      arguments: { iron_to_store: amt },
       town_id: +townId,
     }, onDone);
   }

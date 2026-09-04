@@ -100,7 +100,8 @@
       if(tech==='__cdUnresolved'||!v||!v.tgt||info.techs[tech]||queued.has(String(tech)))continue;
       const pts=researchPointCost(tech);if(pts==null)return {known:false,feasible:false,why:'target-points-unreadable'};missing+=pts;
     }
-    const required=spent+missing,maxCapacity=Math.max(0,+max||0)*per+lib;
+    const maxN = gbNum(max);
+    const required=spent+missing,maxCapacity=Math.max(0,maxN!=null?maxN:0)*per+lib;
     return {known:true,feasible:required<=maxCapacity,required,maxCapacity,spent,missing,queued:queued.size,why:required<=maxCapacity?'ok':`research-points:${required}/${maxCapacity}`};
   }
   function cdAcademyTarget(townId,targets){
@@ -217,7 +218,7 @@
   function cdAcademyDemolitionSafe(townId,targetLevel){
     const info=researchTownTechs(townId);if(!info||info.academy==null||!info.techs||!info.ordersKnown)return {ok:false,why:'research-points-unreadable'};
     const per=researchConstant('points_per_academy_level'),spent=researchPointsSpent(info);if(per==null||!(per>0)||spent==null)return {ok:false,why:'research-points-unreadable'};
-    let cap=Math.max(0,+targetLevel||0)*per;if(info.library==null)return {ok:false,why:'library-unreadable'};if(info.library===1){const lib=researchConstant('points_per_library_level');if(lib==null)return {ok:false,why:'library-points-unreadable'};cap+=lib}
+    const tl=gbNum(targetLevel);if(tl==null)return {ok:false,why:'target-level-unreadable'};let cap=Math.max(0,tl)*per;if(info.library==null)return {ok:false,why:'library-unreadable'};if(info.library===1){const lib=researchConstant('points_per_library_level');if(lib==null)return {ok:false,why:'library-points-unreadable'};cap+=lib}
     return spent<=cap?{ok:true,freeAfter:cap-spent}:{ok:false,why:`research-points:${spent}/${cap}`};
   }
   function cdDemolitionCandidate(townId,levelsIgnored){
@@ -228,7 +229,7 @@
     const q=abQueueInfo(townId);if(!q.known||q.len!==0)return null;const levels=abActualLevels(townId);if(!levels)return null;
     const gate=cdCanStartStrip(townId);if(!gate.ok)return null;const final=cdStripBuild(g.profile,townId);
     for(const id of ['main','wall','barracks','docks','academy','market','temple','lumber','stoner','ironer']){
-      const want=+final[id]||0,have=+(levels[id]||0);if(have<=want)continue;const targetLevel=have-1;
+      const want=gbNum(final[id]),have=gbNum(levels[id]);if(want==null||have==null)continue;if(have<=want)continue;const targetLevel=have-1;
       if(id==='academy'&&!cdAcademyDemolitionSafe(townId,targetLevel).ok)continue;
       return {mode:'teardown',building:id,forTarget:id,targetLevel,cdRevision:cdProfileRevision(townId),reason:'city-designer strip'};
     }

@@ -23,11 +23,13 @@
     if (!m) return null;
     const a = m.attributes || m;
     const tid = gbProbeAttr(a, ['town_id', 'current_town_id', 'in_town_id']);
-    if (tid != null && +tid > 0) return +tid;
+    const townId = gbNum(tid);
+    if (townId != null && townId > 0) return townId;
 
     try {
       if (typeof m.isInCurrentTown === 'function' && m.isInCurrentTown()) {
-        return +(uw.Game && uw.Game.townId) || null;
+        const cur = gbNum(uw.Game && uw.Game.townId);
+        return cur != null && cur > 0 ? cur : null;
       }
     } catch (_) {}
     return null;
@@ -290,8 +292,8 @@
     if (named) return named;
     let best = null, bestVal = -1;
     Object.keys(args).forEach(k => {
-      const v = +args[k];
-      if (Number.isFinite(v) && v > bestVal) { bestVal = v; best = k; }
+      const v = gbNum(args[k]);
+      if (v != null && v > bestVal) { bestVal = v; best = k; }
     });
     return best;
   }
@@ -310,7 +312,8 @@
       const key = ptAmountKey(tpl);
       const data = Object.assign({}, tpl.arguments || {});
       data[key] = Math.max(1, Math.floor(amount));
-      if (townId != null) data.town_id = +townId;
+      const tid = gbNum(townId);
+      if (tid != null && tid > 0) data.town_id = tid;
 
       if (offer && offer.name) {
         Object.keys(data).forEach(k => {
@@ -328,7 +331,8 @@
       return;
     }
     const data = Object.assign({}, canon.data);
-    if (townId != null) data.town_id = +townId;
+    const tid = gbNum(townId);
+    if (tid != null && tid > 0) data.town_id = tid;
     gameAjaxPost(feat, 'phoenician_salesman', canon.action, data, onDone);
   }
 
@@ -337,9 +341,9 @@
     let t = null;
     try { t = gbTownModel(townId); } catch (_) {}
     let tradeCap = null;
-    try { if (t && t.getAvailableTradeCapacity) tradeCap = +t.getAvailableTradeCapacity(); } catch (_) {}
+    try { if (t && t.getAvailableTradeCapacity) tradeCap = gbNum(t.getAvailableTradeCapacity()); } catch (_) {}
     const st = townResState(townId);
-    return { tradeCap: Number.isFinite(tradeCap) ? tradeCap : null, res: st };
+    return { tradeCap, res: st };
   }
 
   function ptRoom(townId, give, get) {
@@ -348,12 +352,12 @@
     const st = caps.res;
     let out = null, room = null;
     if (st) {
-      const cap = +st.cap || 0;
-      const keep = Math.floor(cap * (cfg.reservePct / 100));
-      const have = +st[give];
-      if (Number.isFinite(have)) out = Math.max(0, have - keep);
-      const cur = +st[get];
-      if (cap > 0 && Number.isFinite(cur)) room = Math.max(0, cap - cur);
+      const cap = gbNum(st.cap);
+      const keep = cap != null ? Math.floor(cap * (cfg.reservePct / 100)) : null;
+      const have = gbNum(st[give]);
+      if (have != null && keep != null) out = Math.max(0, have - keep);
+      const cur = gbNum(st[get]);
+      if (cap != null && cap > 0 && cur != null) room = Math.max(0, cap - cur);
     }
     return { out, room, tradeCap: caps.tradeCap };
   }

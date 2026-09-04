@@ -19,8 +19,8 @@
       const d = gbGameDataLookup("researches", tech);
       if (d) {
         for (const k of ['research_points', 'researchPoints', 'points', 'cost_points']) {
-          const n = +d[k];
-          if (Number.isFinite(n) && n > 0) { cost = n; break; }
+          const n = gbNum(d[k]);
+          if (n != null && n > 0) { cost = n; break; }
         }
       }
     } catch (_) {}
@@ -120,8 +120,8 @@
       const uw = gameUw();
       const g = uw.GeneralModifications;
       if (!(g && g.getResearchResourcesModification)) return null;
-      const v = +g.getResearchResourcesModification(townId != null ? townId : (uw.Game && uw.Game.townId));
-      return isFinite(v) && v > 0 ? v : null;
+      const v = gbNum(g.getResearchResourcesModification(townId != null ? townId : (uw.Game && uw.Game.townId)));
+      return v != null && v > 0 ? v : null;
     } catch (_) { return null; }
   }
   function researchCost(tech, townId) {
@@ -129,10 +129,11 @@
     if (!d) return null;
     const src = d.resources || d.costs || d.cost || d;
     const cost = {
-      wood: +src.wood || 0,
-      stone: +src.stone || 0,
-      iron: +src.iron || 0,
+      wood: gbNum(src.wood),
+      stone: gbNum(src.stone),
+      iron: gbNum(src.iron),
     };
+    if (cost.wood == null || cost.stone == null || cost.iron == null) return null;
     if (!(cost.wood || cost.stone || cost.iron)) return null;
 
     const mod = researchResMod(townId);
@@ -250,11 +251,13 @@
   }
 
   function researchPayload(townId, techId) {
+    const tid = gbNum(townId);
+    if (tid == null) return null;
     return {
       model_url: 'ResearchOrder',
       action_name: 'research',
       arguments: { id: String(techId) },
-      town_id: +townId,
+      town_id: tid,
     };
   }
 
@@ -264,7 +267,9 @@
     return gbSkipActiveWrite('research', 'bridge', RESEARCH_ENDPOINT, researchPayload(townId, tech));
   }
   function researchPost(townId, techId, onDone) {
-    bridgePost('research', researchPayload(townId, techId), onDone);
+    const payload = researchPayload(townId, techId);
+    if (!payload) return onDone && onDone('town-unreadable');
+    bridgePost('research', payload, onDone);
   }
   function researchOrderTechId(order) {
     try {

@@ -19,8 +19,8 @@
     const out = {};
     let any = false;
     for (const k of GB_RES_KEYS) {
-      const raw = +p[k];
-      if (!Number.isFinite(raw) || raw < 0) { out[k] = null; continue; }
+      const raw = gbNum(p[k]);
+      if (raw == null || raw < 0) { out[k] = null; continue; }
       out[k] = raw > 100 ? raw / 3600 : raw;
       any = true;
     }
@@ -35,9 +35,11 @@
     const fillPct = {};
     const eta = {};
     for (const k of GB_RES_KEYS) {
-      fillPct[k] = base.cap > 0 ? Math.max(0, Math.min(1, (+base[k] || 0) / base.cap)) : null;
+      const have = gbNum(base[k]);
+      fillPct[k] = base.cap > 0 && have != null ? Math.max(0, Math.min(1, have / base.cap)) : null;
       if (!(base.cap > 0)) { eta[k] = null; continue; }
-      const room = base.cap - (+base[k] || 0);
+      if (have == null) { eta[k] = null; continue; }
+      const room = base.cap - have;
       if (room <= 0) { eta[k] = 0; continue; }
       const rate = prod ? prod[k] : null;
       eta[k] = rate > 0 ? (room / rate) * 1000 : null;
@@ -68,7 +70,10 @@
       const rate = st.production ? st.production[k] : null;
       if (rate == null) { out[k + 'Free'] = null; out.blind = true; continue; }
       const grown = rate * (ms / 1000);
-      const projected = (+st[k] || 0) + (+mov[k] || 0) + grown;
+      const live = gbNum(st[k]);
+      const incoming = gbNum(mov[k]);
+      if (live == null || incoming == null) { out[k + 'Free'] = null; out.blind = true; continue; }
+      const projected = live + incoming + grown;
       out[k + 'Free'] = Math.max(0, st.cap - projected);
     }
     return { woodFree: out.woodFree, stoneFree: out.stoneFree, ironFree: out.ironFree, blind: out.blind };
@@ -79,7 +84,9 @@
     const st = transportTownRes(townId);
     if (!st || !(st.cap > 0)) return { ms: null, blind: true };
     if (!st.production || st.production[resource] == null) return { ms: null, blind: true };
-    const want = Math.max(0, Math.min(1, +targetFillPct || 0)) * st.cap;
+    const wantPct = gbNum(targetFillPct);
+    if (wantPct == null) return { ms: null, blind: true };
+    const want = Math.max(0, Math.min(1, wantPct)) * st.cap;
     const key = resource + 'Free';
 
     let delta = TRANSPORT_ETA_MAX_MS / 128;
@@ -95,8 +102,8 @@
   function transportBias(townId, res) {
     let p = null;
     try { p = goalEffective(townId); } catch (_) {}
-    const v = p && p.resource ? +p.resource[res] : 0;
-    return Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0;
+    const v = p && p.resource ? gbNum(p.resource[res]) : null;
+    return v != null ? Math.max(-1, Math.min(1, v)) : 0;
   }
 
   function transportBalanceSourceTown(srcId, ids, ledger, jobs) {

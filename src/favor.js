@@ -77,7 +77,8 @@
     if (automationPaused({})) return;
     if (gbLocked('favor')) return;
     const cfg = state.favorCfg || {};
-    const thresh = +cfg.thresh || 200;
+    const threshN = gbNum(cfg.thresh);
+    const thresh = threshN != null ? threshN : 200;
     const unit = cfg.unit || 'harpy';
     const maxC = Math.min(8, Math.max(1, +cfg.maxConcurrent || 2));
     const fav = favorCurrent();
@@ -127,7 +128,11 @@
         if (!favorHasTemplePlunder(id)) continue;
         const t = uw.ITowns.towns[id];
         const u = Object.assign({}, t.units && t.units());
-        const n = +u[unit] || 0;
+        const n = gbNum(u[unit]);
+        if (n == null) {
+          gbLogT('favor-unit-unreadable', 180000, `favor: ${unit} count unreadable in town ${id}`);
+          continue;
+        }
         const floor = +state.dodgeFloor || 0;
         if (n <= floor) continue;
         const send = {};
@@ -142,13 +147,18 @@
       gbLogT('favor-nounits', 180000, `favor: no ${unit} with temple_plunder above floor`);
       return;
     }
+    const destId = gbNum(targetId);
+    if (destId == null) {
+      gbLogT('favor-target-id', 60000, 'favor: target id unreadable - no post');
+      return;
+    }
     const favorLock = gbLock('favor', 180000);
     if (!favorLock) return;
     const tpl = state.attackTpl;
     const payload = {
       model_url: (tpl && tpl.model_url) || ('Town/' + townId),
       action_name: (tpl && tpl.action_name) || 'sendUnits',
-      arguments: Object.assign({ id: +targetId, type: 'attack' }, units),
+      arguments: Object.assign({ id: destId, type: 'attack' }, units),
       town_id: +townId,
     };
     payload.model_url = String(payload.model_url).replace(/Town\/\d+/, 'Town/' + townId);

@@ -79,7 +79,9 @@
   function goalUnitCountsState(townId) {
     const out={};let t=null;try{t=gbTownModel(townId)}catch(_){return {known:false,counts:{},why:'town-unreadable'}}if(!t||typeof t.units!=='function'||typeof t.unitsOuter!=='function')return {known:false,counts:{},why:'unit-model-unreadable'};
     let local,outer;try{local=t.units();outer=t.unitsOuter()}catch(_){return {known:false,counts:{},why:'unit-read-failed'}}if(!local||typeof local!=='object'||!outer||typeof outer!=='object')return {known:false,counts:{},why:'unit-state-unreadable'};
-    for(const[k,n]of Object.entries(local))out[k]=(+out[k]||0)+(+n||0);for(const[k,n]of Object.entries(outer))out[k]=(+out[k]||0)+(+n||0);return {known:true,counts:out,why:'ok'};
+    for(const[k,n]of Object.entries(local)){const v=gbNum(n);if(v!=null)out[k]=(gbNum(out[k])||0)+v}
+    for(const[k,n]of Object.entries(outer)){const v=gbNum(n);if(v!=null)out[k]=(gbNum(out[k])||0)+v}
+    return {known:true,counts:out,why:'ok'};
   }
   function goalUnitCounts(townId) {const st=goalUnitCountsState(townId);return st.known?st.counts:{}}
   function goalPlanTown(townId) {
@@ -104,16 +106,18 @@
     }
     if(cdIsProfile(e.profile)){const realBuild=abPickNext(townId);if(realBuild&&realBuild.mode==='teardown'){actions.push({kind:'demolish',id:realBuild.building,building:realBuild.building,mode:'teardown',level:realBuild.targetLevel,status:'planned',why:realBuild.reason||'city-designer strip',cdRevision:realBuild.cdRevision})}}
     let info=null; try{info=researchTownTechs(townId)}catch(_){}
-    for(const [tech,on] of Object.entries(e.research||{})){if(!+on)continue;if(info&&info.techs&&info.techs[tech])continue;if(info&&(info.orders||[]).some(o=>String(researchOrderTechId(o))===String(tech)))continue;
+    for(const [tech,on] of Object.entries(e.research||{})){const onN=gbNum(on);if(onN==null||!onN)continue;if(info&&info.techs&&info.techs[tech])continue;if(info&&(info.orders||[]).some(o=>String(researchOrderTechId(o))===String(tech)))continue;
       const dep=goalResearchDependencies(townId,tech);let status=dep.ok?'planned':'blocked',why=dep.why||'';
       if(dep.ok){for(const b of dep.build)if(+(sim[b.id]||0)<b.level){status='waiting-dependency';why=`${b.id} ${sim[b.id]||0}/${b.level}`;break} for(const r of dep.research)if(!(info&&info.techs&&info.techs[r])){status='waiting-dependency';why=`research:${r}`;break}}
       const cost=researchCost(tech,townId);if(!cost){status='blocked';why='cost-unreadable'}
       actions.push({kind:'research',id:tech,cost,status,why});
     }
     let t=null;try{t=gbTownModel(townId)}catch(_){}; const have=goalUnitCounts(townId);
-    for(const [unit,target] of Object.entries(e.units||{})){const tgt=+target||0;if(!(tgt>0))continue;let queued=0;try{const c=t.getUnitOrdersCollection&&t.getUnitOrdersCollection();for(const m of((c&&c.models)||[])){const a=m.attributes||{};if(String(a.unit_type||a.unit_id||a.type)===unit)queued+=+(a.count||a.amount||0)}}catch(_){}
-      const need=tgt-(+have[unit]||0)-queued;if(need<=0)continue;const dep=goalUnitDependencies(unit);let status=dep.ok?'planned':'blocked',why=dep.why||'';if(dep.ok){for(const b of dep.build)if(+(sim[b.id]||0)<b.level){status='waiting-dependency';why=`${b.id}`;break}}
-      const ec=recruitEffectiveUnitCost(townId, unit);let cost=null;if(ec){cost={};for(const k of ['wood','stone','iron','population']){const v=recruitDisplayCost(ec,k);cost[k]=v==null?null:v*need}if(ec.authoritative!==true){status=status==='planned'?'planned-cost-advisory':status;why=why||'effective-cost-unreadable; GameData shown for reference'}}else{status='blocked';why='cost-unreadable'}
+    for(const [unit,target] of Object.entries(e.units||{})){const tgt=gbNum(target);if(tgt==null||!(tgt>0))continue;let queued=0,queuedKnown=true;try{const c=t&&t.getUnitOrdersCollection&&t.getUnitOrdersCollection();for(const m of((c&&c.models)||[])){const a=m.attributes||{};if(String(a.unit_type||a.unit_id||a.type)===unit){const qn=gbNum(a.count!=null?a.count:a.amount);if(qn==null){queuedKnown=false;break}queued+=qn}}}catch(_){queuedKnown=false}
+      if(!queuedKnown){actions.push({kind:'recruit',id:unit,amount:null,cost:null,status:'blocked',why:'queue-unreadable'});continue}
+      const cur=gbNum(have[unit]);if(cur==null){actions.push({kind:'recruit',id:unit,amount:null,cost:null,status:'blocked',why:'unit-count-unreadable'});continue}
+      const need=tgt-cur-queued;if(need<=0)continue;const dep=goalUnitDependencies(unit);let status=dep.ok?'planned':'blocked',why=dep.why||'';if(dep.ok){for(const b of dep.build)if(+(sim[b.id]||0)<b.level){status='waiting-dependency';why=`${b.id}`;break}}
+      const ec=recruitEffectiveUnitCost(townId, unit);let cost=null;if(ec){cost={};let costBlind=false;for(const k of ['wood','stone','iron','population']){const v=recruitDisplayCost(ec,k);if(need>0&&v==null)costBlind=true;cost[k]=v==null?null:v*need}if(costBlind){status='blocked';why=why||'cost-unreadable'}else if(ec.authoritative!==true){status=status==='planned'?'planned-cost-advisory':status;why=why||'effective-cost-unreadable; GameData shown for reference'}}else{status='blocked';why='cost-unreadable'}
       actions.push({kind:'recruit',id:unit,amount:need,cost,status,why});
     }
     const decorated=goalQueueDecorate(townId,actions.slice(0,maxActions));
@@ -193,10 +197,16 @@
         else if (!ledger) { status = 'waiting-resources'; why = 'planner-unreadable'; }
         else if (costExact) {
           for (const k of PLANNER_KEYS) {
-            const n = +cost[k] || 0;
-            if (n > +(ledger[k] || 0)) { status = 'waiting-resources'; why = `${k} ${Math.floor(ledger[k] || 0)}/${n}`; break; }
+            const n = gbNum(cost[k]);
+            const stock = gbNum(ledger[k]);
+            if (n == null || stock == null) { status = 'waiting-resources'; why = `${k} unreadable`; break; }
+            if (n > stock) { status = 'waiting-resources'; why = `${k} ${Math.floor(stock)}/${n}`; break; }
           }
-          if (status === 'planned') for (const k of PLANNER_KEYS) ledger[k] -= +cost[k] || 0;
+          if (status === 'planned') for (const k of PLANNER_KEYS) {
+            const n = gbNum(cost[k]);
+            const stock = gbNum(ledger[k]);
+            if (n != null && stock != null) ledger[k] = stock - n;
+          }
         } else { status = 'planned-recalc'; why = why || 'future level cost recalculated after prior build'; }
         actions.push({ building: b, forTarget: t.b, level: next, cost, etaMs: abOptBuildTimeMs(townId, b), status, why });
         sim[b] = next; added = true; break;
@@ -283,7 +293,7 @@
 
     if(obj.resource!==undefined){const r={};if(obj.resource&&typeof obj.resource==='object'&&!Array.isArray(obj.resource))for(const k of GB_RES_KEYS){const n=+obj.resource[k];if(Number.isFinite(n))r[k]=Math.max(-1,Math.min(1,n))}g.resource=r;}
     cdPersistTownGoal(townId);goalPlanTown(townId);return true;}
-  function goalProgress(townId){const e=goalEffective(townId),parts=[];const levels=abCurrentLevels(townId)||{};for(const[id,t]of Object.entries(e.build||{})){const tgt=+t||0;if(tgt>0)parts.push(Math.min(1,(+(levels[id]||0))/tgt))}let info=null;try{info=researchTownTechs(townId)}catch(_){};for(const[id,on]of Object.entries(e.research||{}))if(+on)parts.push(info&&info.techs&&info.techs[id]?1:0);const units=goalUnitCounts(townId);for(const[id,t]of Object.entries(e.units||{})){const tgt=+t||0;if(tgt>0)parts.push(Math.min(1,(+(units[id]||0))/tgt))}return parts.length?Math.round(parts.reduce((a,b)=>a+b,0)/parts.length*100):100;}
+  function goalProgress(townId){const e=goalEffective(townId),parts=[];const levels=abCurrentLevels(townId)||{};for(const[id,t]of Object.entries(e.build||{})){const tgt=+t||0;if(tgt>0)parts.push(Math.min(1,(+(levels[id]||0))/tgt))}let info=null;try{info=researchTownTechs(townId)}catch(_){};for(const[id,on]of Object.entries(e.research||{})){const onN=gbNum(on);if(onN==null||!onN)continue;parts.push(info&&info.techs&&info.techs[id]?1:0)}const units=goalUnitCounts(townId);for(const[id,t]of Object.entries(e.units||{})){const tgt=+t||0;if(tgt>0)parts.push(Math.min(1,(+(units[id]||0))/tgt))}return parts.length?Math.round(parts.reduce((a,b)=>a+b,0)/parts.length*100):100;}
   function goalMandatoryModules(){const out=[];for(const [tid,q] of Object.entries(state.virtualQueueOverrides||{})){if(!q||!q.mandatory)continue;for(const key of Object.keys(q.mandatory)){if(!q.mandatory[key]||q.blocked&&q.blocked[key]||q.hidden&&q.hidden[key])continue;const kind=String(key).split(':')[0],mod=kind==='build'?'build':kind==='research'?'research':kind==='recruit'?'recruit':null;if(mod&&!out.includes(mod))out.push(mod)}}return out;}
   const AB_BUILDINGS = ['main', 'storage', 'farm', 'academy', 'temple', 'barracks', 'docks', 'market', 'hide', 'lumber', 'stoner', 'ironer', 'wall',
     'theater', 'thermal', 'library', 'lighthouse', 'tower', 'statue', 'oracle', 'trade_office'];

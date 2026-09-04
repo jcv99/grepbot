@@ -215,7 +215,7 @@
     let tradeCap = null;
     try {
       const t = gbTownModel(townId);
-      if (t && t.getAvailableTradeCapacity) tradeCap = +t.getAvailableTradeCapacity();
+      if (t && t.getAvailableTradeCapacity) tradeCap = gbNum(t.getAvailableTradeCapacity());
     } catch (_) {}
     return st ? { wood: st.wood, stone: st.stone, iron: st.iron, cap: st.cap, tradeCap } : null;
   }
@@ -563,8 +563,9 @@
       if (s.kind === 'build') {
         const cur = txBuildStatus(meta.townId, s.building);
         if (!cur || s.targetLevel == null) return 'unknown';
-        const dir=+s.direction||1;
-        if (dir<0) return cur.projectedLevel<=s.targetLevel?'applied':'unchanged';
+        const dir = gbNum(s.direction);
+        if (dir == null) return 'unknown';
+        if (dir < 0) return cur.projectedLevel <= s.targetLevel ? 'applied' : 'unchanged';
         if (cur.projectedLevel >= s.targetLevel) return 'applied';
         return 'unchanged';
       }
@@ -584,10 +585,13 @@
       }
       if (s.kind === 'villrecruit') {
         const counts = villageUnitCounts(s.farmId);
-        if (!counts || !counts.known || !counts.units || s.beforeCount == null || !Number.isFinite(+counts.units[s.unit])) return 'unknown';
-        const cur = +counts.units[s.unit];
-        if (cur >= +s.beforeCount + Math.max(1, +s.amount || 0)) return 'applied';
-        return cur === +s.beforeCount ? 'unchanged' : 'unknown';
+        if (!counts || !counts.known || !counts.units || s.beforeCount == null) return 'unknown';
+        const cur = gbNum(counts.units[s.unit]);
+        const before = gbNum(s.beforeCount);
+        const amt = gbNum(s.amount);
+        if (cur == null || before == null) return 'unknown';
+        if (cur >= before + Math.max(1, amt != null ? amt : 0)) return 'applied';
+        return cur === before ? 'unchanged' : 'unknown';
       }
       if (s.kind === 'farm') {
         const cur = txFarmStatus(s.farmId);
@@ -794,7 +798,11 @@
     if (write && state.dryRun) return 'dryrun';
     if (write && !state.dryRun && state.firstPostConfirm && !firstPostLiveOk(feature)) return 'first-post-confirm';
 
-    if (!reqBudgetOk(write ? 'action' : 'read')) return 'budget';
+    // Farm claim bursts hold gbLock('claim') and must finish every ready
+    // village in one sweep. Shared req budget (~40/min) otherwise killed the
+    // second half of large accounts mid-batch.
+    const farmBurst = write && feature === 'farm' && typeof gbLocked === 'function' && gbLocked('claim');
+    if (!farmBurst && !reqBudgetOk(write ? 'action' : 'read')) return 'budget';
     return null;
   }
   function txFindExistingIntent(intent, feature, snapshot, townId) {
@@ -854,7 +862,8 @@
         return bail('tpl-stale');
       }
 
-      const softMs = reqBudgetSoftDelayMs();
+      const farmBurst = feature === 'farm' && typeof gbLocked === 'function' && gbLocked('claim');
+      const softMs = farmBurst ? 0 : reqBudgetSoftDelayMs();
       if (softMs > 0) {
         gbLogT('req-soft-' + feature, 30000, `${feature}: soft ceiling - delaying ${softMs}ms`);
         gbTimeout(() => txRun(feature, transport, endpoint, data, rawSend, onDone), softMs);

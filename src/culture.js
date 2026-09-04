@@ -37,7 +37,10 @@
       if (!models) return out;
       Object.values(models).forEach(c => {
         const a = (c && c.attributes) || {};
-        if (a.celebration_type === type && a.town_id != null) out.add(+a.town_id);
+        if (a.celebration_type === type && a.town_id != null) {
+          const tid = gbNum(a.town_id);
+          if (tid != null) out.add(tid);
+        }
       });
     } catch (_) {}
     return out;
@@ -50,7 +53,9 @@
       if (!kp || !kp.attributes) return null;
       const a = kp.attributes;
       if (a.att == null && a.def == null) return null;
-      return (+a.att || 0) + (+a.def || 0) - (+a.used || 0);
+      const att = gbNum(a.att), def = gbNum(a.def), used = gbNum(a.used);
+      if (att == null || def == null || used == null) return null;
+      return att + def - used;
     } catch (_) { return null; }
   }
 
@@ -105,7 +110,8 @@
     for (const ui of enabled) {
       const ctype = ({ festival: 'party', procession: 'triumph', theater: 'theater', olympic: 'olympic' })[ui] || ui;
       const busy = cultureBusyTowns(ctype);
-      if (busy.has(+id)) { bits.push(`${ui}:busy`); continue; }
+      const tid = gbNum(id);
+      if (tid != null && busy.has(tid)) { bits.push(`${ui}:busy`); continue; }
       if (!cultureCanAfford(id, ctype, ledger)) bits.push(`${ui}:cant-afford`);
       else bits.push(`${ui}:ready`);
     }
@@ -122,14 +128,18 @@
     let curTown = null;
     try { const g = gameUw().Game; curTown = g && g.townId != null ? String(g.townId) : null; } catch (_) {}
     if (curTown != null && String(townId) === curTown) {
+      const tid = gbNum(townId);
+      if (tid == null) return onDone && onDone('town-unreadable');
       gameAjaxPost('culture', 'building_place', 'start_celebration', {
         celebration_type: ctype,
-        town_id: +townId,
+        town_id: tid,
       }, onDone);
       return;
     }
+    const tid = gbNum(townId);
+    if (tid == null) return onDone && onDone('town-unreadable');
     gameAjaxPost('culture', 'town_overviews', 'start_celebration', {
-      town_id: +townId,
+      town_id: tid,
       celebration_type: ctype,
       no_bar: 1,
     }, onDone);
@@ -177,7 +187,8 @@
       const ctype = ({ festival: 'party', procession: 'triumph', theater: 'theater', olympic: 'olympic' })[type] || type;
       const busy = cultureBusyTowns(ctype);
       for (const id of ids) {
-        if (busy.has(+id)) continue;
+        const tid = gbNum(id);
+        if (tid != null && busy.has(tid)) continue;
         if (townHasJob.has(String(id))) continue;
         if (cultureShouldDeferForCave(id)) continue;
         if (!cultureCanAfford(id, ctype, ledger)) continue;
@@ -248,9 +259,9 @@
     try { if(typeof t.getProduction==='function') p=t.getProduction(); } catch(_){}
     try { if(!p && typeof t.getResourceProduction==='function') p=t.getResourceProduction(); } catch(_){}
     try { if(!p){const r=t.resources&&t.resources(); if(r) p={wood:r.wood_production??r.production_wood,stone:r.stone_production??r.production_stone,iron:r.iron_production??r.production_iron};} } catch(_){}
-    if(!p||[p.wood,p.stone,p.iron].some(v=>v==null||!Number.isFinite(+v))) return null;
-
-    return {wood:+p.wood,stone:+p.stone,iron:+p.iron};
+    const wood = p ? gbNum(p.wood) : null, stone = p ? gbNum(p.stone) : null, iron = p ? gbNum(p.iron) : null;
+    if (!p || wood == null || stone == null || iron == null) return null;
+    return { wood, stone, iron };
   }
   function economyPlannedCost(townId, maxActions) {
     let plan=state.virtualQueue&&state.virtualQueue[String(townId)]; if(!plan||Date.now()-(+plan.generatedAt||0)>60000)try{plan=goalPlanTown(townId)}catch(_){}

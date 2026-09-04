@@ -204,8 +204,8 @@
           state: a.state || a.status || '',
           fromGame: true,
           modelName: name,
-          islandX:islandX==null?null:+islandX,
-          islandY:islandY==null?null:+islandY,
+          islandX:islandX==null?null:gbNum(islandX),
+          islandY:islandY==null?null:gbNum(islandY),
         });
       });
     });
@@ -230,7 +230,7 @@
     const incomingCanClaim = incomingKnown ? !!entry.canClaim : !!prev.canClaim;
     const reviewReconciled = !!prev.claimReview && incomingKnown && entry.canClaim === false;
     const nextClaimReview = reviewReconciled ? false : !!prev.claimReview;
-    const nextClaimedAt = +prev.claimedAt || (reviewReconciled ? Date.now() : 0);
+    const nextClaimedAt = gbNum(prev.claimedAt) || (reviewReconciled ? Date.now() : 0);
     const nextCanClaim = (nextClaimReview || nextClaimedAt) ? false : incomingCanClaim;
     const nextTitle = entry.title != null ? entry.title : prev.title;
     const nextName = entry.name != null ? entry.name : prev.name;
@@ -332,11 +332,13 @@
     if (!pid || !(uw.gpAjax && uw.gpAjax.ajaxPost)) return onDone && onDone('noajax');
     if(!/^\d+$/.test(String(pid)))return onDone&&onDone('no-numeric-id');
     const townId=questResolveTownId(entry);if(!townId)return onDone&&onDone('town-unknown');
+    const tid = gbNum(townId);
+    if (tid == null) return onDone && onDone('town-unreadable');
     const payload = {
       model_url: 'IslandQuests',
       action_name: 'claimReward',
       arguments: { reward_action:'stash',state:'closed',progressable_id:+pid },
-      town_id: +townId,
+      town_id: tid,
       nl_init:true,
     };
     gbLog('quest bridge claim:', JSON.stringify(payload).slice(0, 200));
@@ -421,9 +423,9 @@
     entry.safeAuto = entry.rewards.length > 0 && entry.rewards.every(isSafeQuestReward);
 
     const ds = (typeof row?.dataset === 'object' && row.dataset) || {};
-    const ix = +ds.islandX || +ds.island_x || null;
-    const iy = +ds.islandY || +ds.island_y || null;
-    if (Number.isFinite(ix) && Number.isFinite(iy)) {
+    const ix = gbNum(ds.islandX) ?? gbNum(ds.island_x);
+    const iy = gbNum(ds.islandY) ?? gbNum(ds.island_y);
+    if (ix != null && iy != null) {
       entry.islandX = ix;
       entry.islandY = iy;
       entry.townEvidence = 'dom-island';

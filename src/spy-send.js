@@ -67,9 +67,13 @@
     return towns.length ? String(towns[0].id) : '';
   }
   function spsPost(srcTownId, targetId, amount, onDone) {
-    const params = { id: +targetId, espionage_iron: Math.floor(+amount), town_id: +srcTownId };
+    const srcId = gbNum(srcTownId);
+    const tgtId = gbNum(targetId);
+    const silver = gbNum(amount);
+    if (srcId == null || tgtId == null || silver == null || !(silver > 0)) return onDone && onDone('params-unreadable');
+    const params = { id: tgtId, espionage_iron: Math.floor(silver), town_id: srcId };
     if (state.exportRedact === false) gbLog('spy ajax:', JSON.stringify(params));
-    else gbLog(`spy ajax: town_info/spy town ${srcTownId} -> ${targetId} (${Math.floor(+amount)} plata)`);
+    else gbLog(`spy ajax: town_info/spy town ${srcTownId} -> ${targetId} (${Math.floor(silver)} plata)`);
     gameAjaxPost('spy', 'town_info', 'spy', params, onDone);
   }
 

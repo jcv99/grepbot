@@ -46,9 +46,13 @@
   }
 
   function rfTake(live, id, floor, want) {
-    const have = +live[id] || 0;
+    const have = gbNum(live[id]);
+    if (have == null) return 0;
     const spare = Math.max(0, have - Math.max(0, floor));
-    const n = want == null ? spare : Math.min(spare, Math.max(0, want));
+    if (want == null) return spare > 0 ? spare : 0;
+    const wantN = gbNum(want);
+    if (wantN == null) return 0;
+    const n = Math.min(spare, Math.max(0, wantN));
     return n > 0 ? n : 0;
   }
   function rfSelectUnits(townId, plan) {
@@ -59,7 +63,9 @@
       const custom = (plan.perTownUnits && plan.perTownUnits[townId]) || {};
       for (const [k, v] of Object.entries(custom)) {
         if (k === 'militia') continue;
-        const n = rfTake(live, k, floor, +v || 0);
+        const wantN = gbNum(v);
+        if (wantN == null) continue;
+        const n = rfTake(live, k, floor, wantN);
         if (n > 0) out[k] = n;
       }
       return out;
@@ -186,13 +192,18 @@
     const live = townLiveUnits(srcTownId);
     const sendUnits = {};
     for (const k of Object.keys(units || {})) {
-      const want = +units[k] || 0;
-      const have = +live[k] || 0;
+      const want = gbNum(units[k]);
+      const have = gbNum(live[k]);
+      if (want == null || have == null) continue;
       if (want > 0 && have > 0) sendUnits[k] = Math.min(want, have);
     }
     delete sendUnits.militia;
     if (!Object.keys(sendUnits).length) return onDone && onDone('no-units');
-    const destId = +target.town_id;
+    const destId = gbNum(target.town_id);
+    if (destId == null) {
+      gbLog('refuerzo: dest town id unreadable');
+      return onDone && onDone('bad-target');
+    }
     const count = countUnits(sendUnits);
     const settle = (err, data) => {
       if (err) { flash('refuerzo fallido: ' + err); return onDone && onDone(err); }
@@ -415,27 +426,38 @@
     if (!per) return;
     per.hidden = plan.helpMode !== 'per_town';
     if (plan.helpMode !== 'per_town') return;
-    per.replaceChildren();
     const ids = Array.isArray(plan.sourceTownIds) ? plan.sourceTownIds : (state.towns || []).map(t => String(t.id));
-    for (const tid of ids) {
-      const town = (state.towns || []).find(t => String(t.id) === String(tid)) || { id: tid, name: tid };
-      const wrap = document.createElement('div');
-      wrap.style.cssText = 'margin-bottom:4px';
-      const lab = document.createElement('div');
-      lab.style.cssText = 'color:#888;font-size:9px';
-      lab.textContent = town.name || tid;
-      const ta = document.createElement('textarea');
-      ta.style.cssText = 'width:100%;height:40px;background:#111;color:#cfc;border:1px solid #333;font:10px monospace';
-      gbTip(ta, 'Unidades exactas que envia esta ciudad. Formato: unidad:cantidad por linea');
-      ta.value = unitsToArea(plan.perTownUnits[tid] || rfSelectUnits(tid, Object.assign({}, plan, { helpMode: 'both' })));
-      ta.addEventListener('change', () => {
-        plan.perTownUnits[tid] = parseUnitsArea(ta.value);
-        rfSavePlan();
-      });
-      wrap.appendChild(lab);
-      wrap.appendChild(ta);
-      per.appendChild(wrap);
-    }
+    const idSet = ids.map(String);
+    // Membership-only rebuild — never wipe focused textarea mid-type.
+    const sig = idSet.join('|') + '|' + idSet.map(tid => {
+      const town = (state.towns || []).find(t => String(t.id) === String(tid));
+      return town ? (town.name || '') : '';
+    }).join('/');
+    if (per.dataset.sig === sig) return;
+    per.dataset.sig = sig;
+    gbPaint(per, (host) => {
+      for (const tid of ids) {
+        const town = (state.towns || []).find(t => String(t.id) === String(tid)) || { id: tid, name: tid };
+        const wrap = document.createElement('div');
+        wrap.dataset.town = String(tid);
+        wrap.style.cssText = 'margin-bottom:4px';
+        const lab = document.createElement('div');
+        lab.style.cssText = 'color:#888;font-size:9px';
+        lab.textContent = town.name || tid;
+        const ta = document.createElement('textarea');
+        ta.id = 'gb-rf-pt-' + String(tid);
+        ta.style.cssText = 'width:100%;height:40px;background:#111;color:#cfc;border:1px solid #333;font:10px monospace';
+        gbTip(ta, 'Unidades exactas que envia esta ciudad. Formato: unidad:cantidad por linea');
+        ta.value = unitsToArea(plan.perTownUnits[tid] || rfSelectUnits(tid, Object.assign({}, plan, { helpMode: 'both' })));
+        ta.addEventListener('change', () => {
+          plan.perTownUnits[tid] = parseUnitsArea(ta.value);
+          rfSavePlan();
+        });
+        wrap.appendChild(lab);
+        wrap.appendChild(ta);
+        host.appendChild(wrap);
+      }
+    }, { key: 'rf-pertown:' + sig });
   }
   function rfRenderSchedule(sec) {
     const table = sec.querySelector('.rf-sched');

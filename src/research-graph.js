@@ -157,14 +157,14 @@
 
       let acad = null;
       try {
-        if (t.getBuildings) { const v = +t.getBuildings().get('academy'); if (isFinite(v)) acad = v; }
-        if (acad == null && buildings && buildings.academy != null) { const v = +buildings.academy; if (isFinite(v)) acad = v; }
+        acad = gbBuildingLevel(townId, 'academy');
+        if (acad == null && buildings && buildings.academy != null) acad = gbNum(buildings.academy);
       } catch (_) {}
 
       let library = null;
       try {
-        if (t.getBuildings) { const v = +t.getBuildings().get('library'); if (isFinite(v)) library = v; }
-        if (library == null && buildings && buildings.library != null) library = +buildings.library || 0;
+        library = gbBuildingLevel(townId, 'library');
+        if (library == null && buildings && buildings.library != null) library = gbNum(buildings.library);
       } catch (_) {}
 
       let smallIsland = null;
@@ -200,8 +200,8 @@
       const uw = gameUw();
       const q = uw.GameDataConstructionQueue;
       if (q && q.getResearchOrdersQueueLength) {
-        const n = +q.getResearchOrdersQueueLength();
-        if (Number.isFinite(n) && n > 0) return n;
+        const n = gbNum(q.getResearchOrdersQueueLength());
+        if (n != null && n > 0) return n;
       }
       const p = uw.GameDataPremium;
       if (p && p.hasCurator && p.hasCurator()) return 7;

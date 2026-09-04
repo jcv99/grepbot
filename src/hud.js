@@ -44,8 +44,9 @@
       let soonest = null;
       for (const k of GB_RES_KEYS) {
         if (!rs || !(rs.cap > 0)) { row.appendChild(hudCell('\u2014', 'var(--gb-fg-mute)')); continue; }
-        const cur = +rs[k] || 0;
-        const perH = rate ? +rate[k] : null;
+        const cur = gbNum(rs[k]);
+        if (cur == null) { row.appendChild(hudCell('\u2014', 'var(--gb-fg-mute)')); continue; }
+        const perH = rate ? gbNum(rate[k]) : null;
         const pct = Math.round(cur / rs.cap * 100);
         row.appendChild(hudCell(`${fmt(cur)} ${perH == null ? '\u2014' : '+' + Math.round(perH) + '/h'}`,
           pct >= 97 ? 'var(--gb-err-3)' : (pct >= 85 ? 'var(--gb-warn-2)' : null)));
@@ -83,9 +84,20 @@
       row.appendChild(hudCell('de ' + (m.origin || '?'), 'var(--gb-fg-mute)'));
 
       if (m.hasCs) row.appendChild(hudCell('[CS]', 'var(--gb-err-3)'));
-      let n = 0;
-      try { n = Object.values(m.units || {}).reduce((a, b) => a + (+b || 0), 0); } catch (_) {}
-      if (n > 0) row.appendChild(hudCell(n + ' u.', 'var(--gb-fg-mute)'));
+      let unitLabel = null;
+      try {
+        const vals = Object.values(m.units || {});
+        if (vals.length) {
+          let sum = 0, blind = false;
+          for (const b of vals) {
+            const v = gbNum(b);
+            if (v == null) { blind = true; break; }
+            sum += v;
+          }
+          unitLabel = blind ? '\u2014' : (sum > 0 ? sum + ' u.' : null);
+        }
+      } catch (_) { unitLabel = '\u2014'; }
+      if (unitLabel) row.appendChild(hudCell(unitLabel, 'var(--gb-fg-mute)'));
       body.appendChild(row);
     }
   }

@@ -157,13 +157,17 @@
     const transferPct = Number.isFinite(+transfer) ? +transfer : .1;
     const receiverPct = Number.isFinite(+receiver) ? +receiver : .8;
     if (!source || !GB_RES_KEYS.includes(resource)) return { ok:false, reason:'town-state-unreadable' };
-    const amount = source[resource], cap = +source.cap, tradeCap = +source.tradeCap;
+    const amount = source[resource], cap = gbNum(source.cap), tradeCap = gbNum(source.tradeCap);
     const live = { amount, cap, fill:amount == null || !(cap > 0) ? null : amount / cap, tradeCap };
     if (amount == null || !(cap > 0)) { tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, action:'none', reason:'source-state-unreadable' }); return { ok:false, reason:'source-state-unreadable' }; }
     if (amount / cap < threshold) { tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, action:'none', reason:'not-overflowing' }); return { ok:false, reason:'not-overflowing' }; }
-    if (tradeCap == null) { tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, action:'none', reason:'trade-capacity-unreadable' }); return { ok:false, reason:'trade-capacity-unreadable' }; }
+    if (tradeCap == null) {
+      gbLogT('trade-cap-blind-' + source.id, 180000, `trade: tradeCap unreadable on town ${source.id} — skip overflow`);
+      tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, action:'none', reason:'trade-capacity-unreadable' });
+      return { ok:false, reason:'trade-capacity-unreadable' };
+    }
     const candidates = rows.slice(1).map(t => {
-      const value = t[resource], targetCap = +t.cap;
+      const value = t[resource], targetCap = gbNum(t.cap);
       if (value == null || !(targetCap > 0)) return null;
       const fill = value / targetCap;
       const free = Number.isFinite(+t.free) ? +t.free : targetCap-value;
@@ -329,8 +333,8 @@
       }
       let wood = 0, stone = 0, iron = 0;
       for (const unit of Object.keys(want)) {
-        const count = +want[unit] || 0;
-        if (!(count > 0)) continue;
+        const count = gbNum(want[unit]);
+        if (count == null || !(count > 0)) continue;
         let ec = null;
         try { ec = recruitEffectiveUnitCost(townId, unit); } catch (_) {}
         if (!ec || !['wood','stone','iron'].every(k => recruitCostFieldKnown(ec,k))) {
@@ -462,8 +466,8 @@
     if (mode === 'always' || !mode) return true;
     if (!tgtLive || !(tgtLive.cap > 0)) return null;
     const res = route.trigger.resource;
-    const have = +tgtLive[res];
-    if (!Number.isFinite(have)) return null;
+    const have = gbNum(tgtLive[res]);
+    if (have == null) return null;
     const pct = have / tgtLive.cap * 100;
     return mode === 'belowPct' ? pct < route.trigger.value : pct > route.trigger.value;
   }
@@ -512,8 +516,8 @@
       }
       const send = {};
       for (const k of GB_RES_KEYS) {
-        const want = +route[k] || 0;
-        if (!(want > 0)) { send[k] = 0; continue; }
+        const want = gbNum(route[k]);
+        if (want == null || !(want > 0)) { send[k] = 0; continue; }
         const k2 = k === 'iron' ? ironKeep : keep;
         send[k] = Math.max(0, Math.min(want, src[k] - k2, src.tradeCap, tgt.cap - tgt[k]));
       }
@@ -554,7 +558,11 @@
       const mov = incomingState.byTown[id] || {};
       let pending;
       try { pending = plannerPendingForTown(id).incoming || {}; } catch (_) { return { ok:false, why:'planner-incoming-unreadable' }; }
-      const value = +t[resource] + (+mov[resource] || 0) + (+pending[resource] || 0);
+      const base = gbNum(t[resource]);
+      const movN = gbNum(mov[resource]);
+      const pendN = gbNum(pending[resource]);
+      if (base == null) continue;
+      const value = base + (movN != null ? movN : 0) + (pendN != null ? pendN : 0);
       if (!Number.isFinite(value)) continue;
       projected.push(Object.assign({}, t, {
         [resource]:value,
@@ -630,15 +638,17 @@
     const incomingState=tradeIncomingByTown();if(!incomingState.known)return {ok:false,why:'incoming-trades-unreadable'};const mov=incomingState.byTown[String(job.to)]||{};let pending={};try{pending=plannerPendingForTown(job.to).incoming||{}}catch(_){}
     if (!pav) return { ok:false, why:'planner-unreadable' };
 
-    const num = (v) => (Number.isFinite(+v) ? +v : null);
+    const num = (v) => gbNum(v);
     const srcCap = num(src.tradeCap), pavCap = num(pav.tradeCap);
     if (!(total > 0) || srcCap == null || srcCap < total || pav.tradeCap == null || pavCap == null || pavCap < total) return { ok: false, why: 'merchant-capacity' };
     for (const k of ['wood','stone','iron']) {
-      const n = +job[k] || 0;
+      const n = gbNum(job[k]);
+      if (n == null) continue;
       const have = num(src[k]), avail = num(pav[k]), dest = num(tgt[k]), destCap = num(tgt.cap);
       if (have == null || avail == null || dest == null || destCap == null) return { ok: false, why: `unreadable-${k}` };
       if (n < 0 || have - n < keep || avail < n) return { ok: false, why: `source-${k}` };
-      if (dest + (+mov[k]||0) + (+pending[k]||0) + n > destCap) return { ok: false, why: `target-${k}-capacity` };
+      const movN = gbNum(mov[k]), pendN = gbNum(pending[k]);
+      if (dest + (movN != null ? movN : 0) + (pendN != null ? pendN : 0) + n > destCap) return { ok: false, why: `target-${k}-capacity` };
     }
     return { ok: true };
   }

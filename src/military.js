@@ -109,11 +109,11 @@
       if (!h.equipment.slots) continue;
       for (const [slot, val] of Object.entries(h.equipment.slots)) {
 
-        const mine = +val;
-        if (!Number.isFinite(mine)) continue;
+        const mine = gbNum(val);
+        if (mine == null) continue;
         for (const o of free) {
-          const theirs = +o.equipment.slots[slot];
-          if (!Number.isFinite(theirs) || theirs <= mine) continue;
+          const theirs = gbNum(o.equipment.slots[slot]);
+          if (theirs == null || theirs <= mine) continue;
           out.push({ slot, to: h.type, from: o.type, fromValue: theirs, toValue: mine });
           break;
         }
@@ -153,8 +153,9 @@
     heroNotify('auto-assign-proposed', idle[0], { town: towns[0] });
   }
   function heroTownOccupied(townId, exceptType) {
-    const tid = +townId;
-    return playerHeroesList().some(h => h.type !== exceptType && ((h.assigned && +h.home === tid) || (h.traveling && +h.home === tid)));
+    const tid = gbNum(townId);
+    if (tid == null) return false;
+    return playerHeroesList().some(h => h.type !== exceptType && ((h.assigned && gbNum(h.home) === tid) || (h.traveling && gbNum(h.home) === tid)));
   }
   function heroBridgePost(action, heroType, targetTownId, onDone) {
     if (!heroesEnabled()) return onDone && onDone('heroes-off');
@@ -176,10 +177,15 @@
     if (targetTownId != null) {
       const townKey = Object.prototype.hasOwnProperty.call(src, 'target_town_id') ? 'target_town_id' : (Object.prototype.hasOwnProperty.call(src, 'town_id') ? 'town_id' : null);
       if (action === 'assignToTown' && !townKey) return onDone && onDone('template-shape');
-      if (townKey) args[townKey] = +targetTownId;
+      if (townKey) {
+        const tid = gbNum(targetTownId);
+        if (tid == null) return onDone && onDone('town-unreadable');
+        args[townKey] = tid;
+      }
     }
     const lockToken = gbLock('hero'); if (!lockToken) return onDone && onDone('busy');
-    const payload = { model_url: tpl.model_url, action_name: tpl.action_name, arguments: args, town_id: targetTownId != null ? +targetTownId : tpl.town_id };
+    const payloadTown = targetTownId != null ? gbNum(targetTownId) : tpl.town_id;
+    const payload = { model_url: tpl.model_url, action_name: tpl.action_name, arguments: args, town_id: payloadTown != null ? payloadTown : undefined };
     bridgePost('hero', payload, (err, data) => {
       gbUnlock('hero', lockToken);
 
@@ -190,11 +196,11 @@
   }
   function heroAssignToTown(heroType, targetTownId, opts, onDone) {
     if (!opts || !opts.confirmed) return onDone && onDone('need-confirm');
-    const tid = +targetTownId; if (!tid) return onDone && onDone('no-town');
+    const tid = gbNum(targetTownId); if (tid == null) return onDone && onDone('no-town');
     const hero = playerHeroesList().find(h => h.type === String(heroType));
     if (!hero) return onDone && onDone('missing');
     if (hero.injured || hero.attacking || hero.traveling) return onDone && onDone(hero.injured ? 'injured' : (hero.attacking ? 'attacking' : 'transferring'));
-    if (hero.assigned && +hero.home === tid) return onDone && onDone('already');
+    if (hero.assigned && gbNum(hero.home) === tid) return onDone && onDone('already');
     if (heroTownOccupied(tid, hero.type)) return onDone && onDone('town-occupied');
     return heroBridgePost('assignToTown', heroType, tid, onDone);
   }
@@ -505,11 +511,12 @@
     } catch (_) { tgt = {}; }
     const byFunction = { offense: 0, defense: 0, both: 0, naval: 0, mythical: 0, militia: 0, unknown: 0 };
     for (const [u, n0] of Object.entries(have)) {
-      const n = +n0 || 0;
-      if (!(n > 0)) continue;
+      const n = gbNum(n0);
+      if (n == null || !(n > 0)) continue;
       const m = unitMeta(u);
       if (!m) { gbLogT('comp-meta-unknown-' + u, 600000, `composition: unit ${u} has no GameData entry - excluded`); continue; }
-      const pop = n * Math.max(1, +m.population || 1);
+      const popN = gbNum(m.population);
+      const pop = n * Math.max(1, popN != null ? popN : 1);
 
       if (m.god || m.mythical || m.is_mythical) byFunction.mythical += pop;
       const fn = (typeof classifyUnitFn === 'function') ? classifyUnitFn(u) : 'unknown';
@@ -521,23 +528,32 @@
     let qinfo = { known: false, models: [] };
     try { qinfo = recruitQueueInfo(townId); } catch (_) {}
     for (const [u, want0] of Object.entries(tgt)) {
-      const want = +want0 || 0;
-      if (!(want > 0)) continue;
+      const want = gbNum(want0);
+      if (want == null || !(want > 0)) continue;
       if (!unitMeta(u)) { gbLogT('comp-meta-unknown-' + u, 600000, `composition: unit ${u} has no GameData entry - excluded`); continue; }
-      const h = +have[u] || 0;
+      const h = gbNum(have[u]);
+      if (h == null) {
+        blind++;
+        shortage.push({ id: u, want, have: null, queued: null, gap: want, status: 'blind', why: 'unidad no legible' });
+        continue;
+      }
 
       let queued = 0;
       for (const m of (qinfo.models || [])) {
         const a = m.attributes || {};
         const uid = a.unit_type || a.unit_id || a.type;
-        if (String(uid) === String(u)) queued += +(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)) || 0;
+        if (String(uid) === String(u)) {
+          const qn = gbNum(a.count != null ? a.count : (a.amount != null ? a.amount : a.units));
+          if (qn == null) { queued = null; break; }
+          queued += qn;
+        }
       }
-      const queueKnown = qinfo.known;
-      const gap = want - h - queued;
+      const queueKnown = qinfo.known && queued != null;
+      const gap = queued == null ? want - h : want - h - queued;
       if (gap <= 0) continue;
       let status, why;
 
-      if (!haveKnown || !queueKnown) { status = 'blind'; why = !haveKnown ? 'guarnicion no legible' : 'cola no legible'; blind++; }
+      if (!haveKnown || !queueKnown || queued == null) { status = 'blind'; why = !haveKnown ? 'guarnicion no legible' : 'cola no legible'; blind++; }
       else if (!recruitCanBuild(townId, u)) { status = 'requirements'; why = 'requisitos'; }
       else if (!recruitQueueHasSpace(townId, u)) { status = 'queue-full'; why = 'cola llena'; }
       else {

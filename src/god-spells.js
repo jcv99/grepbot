@@ -7,10 +7,11 @@
 
   function godSpellGateOk(townId, powerId) {
     if (!powerId) return { ok: false, blind: false, why: 'no-power' };
+    if (!RECRUIT_SPELLS.includes(powerId)) return { ok: false, blind: false, why: 'power-not-allowlisted' };
     const academy = gbBuildingLevel(townId, 'academy');
     if (academy != null && academy < 1) return { ok: false, blind: false, why: 'no-academy' };
     const need = RECRUIT_SPELL_GODS[powerId];
-    if (!need) return { ok: true, blind: true, why: 'unknown-power-id' };
+    if (!need) return { ok: false, blind: true, why: 'power-god-unmapped' };
     const god = recruitTownGod(townId);
     if (god == null) return { ok: true, blind: true, why: 'god-unreadable' };
     if (god !== need) return { ok: false, blind: false, why: `god-mismatch:${god}!=${need}` };
@@ -35,15 +36,15 @@
   function godSpellFavorMax(god) {
     const f = favorCurrent() || {};
     for (const k of ['max_' + god, god + '_max', 'max_favor', 'favor_max']) {
-      const v = +f[k];
-      if (Number.isFinite(v) && v > 0) return v;
+      const v = gbNum(f[k]);
+      if (v != null && v > 0) return v;
     }
     return null;
   }
   function godSpellFavorFor(god) {
     const f = favorCurrent() || {};
-    const v = +(f[god] != null ? f[god] : f['favor_' + god]);
-    return Number.isFinite(v) ? v : null;
+    const v = gbNum(f[god] != null ? f[god] : f['favor_' + god]);
+    return v;
   }
   function godSpellScan(reason) {
 
@@ -88,8 +89,8 @@
           gbLogT('godspell-favor-blind-' + townId, 600000, `godspell: ${need} favor unreadable - not casting`);
           continue;
         }
-        const cost = +cfg.spellCost;
-        if (Number.isFinite(cost) && cost > 0) {
+        const cost = gbNum(cfg.spellCost);
+        if (cost != null && cost > 0) {
 
           const max = godSpellFavorMax(need);
           const reserve = max != null

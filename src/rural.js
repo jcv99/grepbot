@@ -15,11 +15,18 @@
     } catch (_) { return null; }
   }
   function ruralTradePost(relationId, farmTownId, amount, townId, onDone) {
+    const fid = gbNum(farmTownId);
+    const amt = gbNum(amount);
+    const tid = gbNum(townId);
+    if (fid == null || tid == null || amt == null || !(amt > 0)) {
+      if (typeof onDone === 'function') onDone('invalid-args');
+      return;
+    }
     bridgePost('ruraltrade', {
       model_url: `FarmTownPlayerRelation/${relationId}`,
       action_name: 'trade',
-      arguments: { farm_town_id: +farmTownId, amount: Math.max(0, Math.floor(+amount)) },
-      town_id: +townId,
+      arguments: { farm_town_id: fid, amount: Math.floor(amt) },
+      town_id: tid,
     }, onDone);
   }
   function ruralUnlock(relationId, farmTownId, townId, onDone) {
@@ -51,8 +58,8 @@
     }
     for (const key of ['trade_at','tradeable_at','next_trade_at','trade_cooldown_until','trade_available_at']) {
       if (!Object.prototype.hasOwnProperty.call(a, key)) continue;
-      let v = Number(a[key]);
-      if (!Number.isFinite(v)) return { known:false, ready:null, readyAt:null, source:key + ':invalid' };
+      let v = gbNum(a[key]);
+      if (v == null) return { known:false, ready:null, readyAt:null, source:key + ':invalid' };
       if (v >= RURAL_MS_EPOCH_FLOOR) v = Math.floor(v / 1000);
       return { known:true, ready:v <= 0 || v <= gameNow(), readyAt:v, source:key };
     }
@@ -84,8 +91,8 @@
     const firstNumber = (obj, keys) => {
       for (const key of keys) {
         if (!obj || !Object.prototype.hasOwnProperty.call(obj, key)) continue;
-        const n = Number(obj[key]);
-        if (Number.isFinite(n)) return { value:n, source:key };
+        const n = gbNum(obj[key]);
+        if (n != null) return { value:n, source:key };
       }
       return null;
     };
@@ -93,8 +100,8 @@
       for (const name of names) {
         try {
           if (!obj || typeof obj[name] !== 'function') continue;
-          const n = Number(obj[name]());
-          if (Number.isFinite(n)) return { value:n, source:name + '()' };
+          const n = gbNum(obj[name]());
+          if (n != null) return { value:n, source:name + '()' };
         } catch (_) {}
       }
       return null;
@@ -153,7 +160,7 @@
         const a = rel.attributes || rel || {};
         const farm = farmById[String(a.farm_town_id)];
         const f = farm && (farm.attributes || farm) || {};
-        if (+a.relation_status !== 1 || !farm || String(f.island_x) !== String(xy.x) || String(f.island_y) !== String(xy.y)) continue;
+        if (gbNum(a.relation_status) !== 1 || !farm || String(f.island_x) !== String(xy.x) || String(f.island_y) !== String(xy.y)) continue;
         const cooldown = ruralTradeCooldownState(rel);
         if (!cooldown.known) {
           gbLogT('rural-cooldown-unreadable-' + String(a.farm_town_id), 180000, `rural-trade: village ${a.farm_town_id} cooldown unreadable`);
@@ -218,7 +225,7 @@
     const town = tradeTownRes(j.townId);
     if (!rel || !farm || !town) { tradeDiagnosticPut(j.townId, j.give, { rural:null, action:'none', reason:'rural-state-unreadable' }); return { ok:false, why:'rural-state-unreadable' }; }
     const a = rel.attributes || {}, f = farm.attributes || farm;
-    if (+a.relation_status !== 1) return { ok:false, why:'rural-state-changed' };
+    if (gbNum(a.relation_status) !== 1) return { ok:false, why:'rural-state-changed' };
     const allTowns = tradeListTowns().map(t => tradeTownRes(t.id)).filter(Boolean);
     const island = ruralSameIslandTowns(j.townId, allTowns);
     if (!island.known) return { ok:false, why:island.reason || 'island-unreadable' };
@@ -245,17 +252,20 @@
     return { ok:true, cooldown, offer };
   }
   function ruralReconcileTrade(j, before, onDone) {
-    const giveBefore = before && Number.isFinite(+before[j.give]) ? +before[j.give] : null;
-    const receiveBefore = before && Number.isFinite(+before[j.receive]) ? +before[j.receive] : null;
-    if (giveBefore == null || receiveBefore == null || !(+j.amount > 0)) return onDone(false, 'rural-reconcile-pre-unreadable');
+    const giveBefore = before ? gbNum(before[j.give]) : null;
+    const receiveBefore = before ? gbNum(before[j.receive]) : null;
+    const jobAmt = gbNum(j.amount);
+    if (giveBefore == null || receiveBefore == null || jobAmt == null || !(jobAmt > 0)) return onDone(false, 'rural-reconcile-pre-unreadable');
     let attempt = 0;
     const check = () => {
       const cur = tradeTownRes(j.townId);
       let resourcesProve = false;
-      if (cur && Number.isFinite(+cur[j.give]) && Number.isFinite(+cur[j.receive])) {
-        const giveDelta = giveBefore - +cur[j.give];
-        const receiveDelta = +cur[j.receive] - receiveBefore;
-        resourcesProve = giveDelta >= +j.amount && receiveDelta > 0;
+      const curGive = cur ? gbNum(cur[j.give]) : null;
+      const curReceive = cur ? gbNum(cur[j.receive]) : null;
+      if (curGive != null && curReceive != null) {
+        const giveDelta = giveBefore - curGive;
+        const receiveDelta = curReceive - receiveBefore;
+        resourcesProve = giveDelta >= jobAmt && receiveDelta > 0;
       }
       let cooldownProves = false;
       try {
@@ -265,7 +275,7 @@
       } catch (_) {}
       // Require the source deduction plus either the corresponding received-resource
       // increase or the relation entering its authoritative post-trade cooldown.
-      const sourceDeducted = cur && Number.isFinite(+cur[j.give]) && (giveBefore - +cur[j.give] >= +j.amount);
+      const sourceDeducted = curGive != null && (giveBefore - curGive >= jobAmt);
       if (resourcesProve || (sourceDeducted && cooldownProves)) return onDone(true, resourcesProve ? 'resources-updated' : 'source-and-cooldown-updated');
       if (++attempt >= 7) return onDone(false, 'rural-reconcile-timeout');
       gbTimeout(check, 200 + attempt * 250);
@@ -405,15 +415,15 @@
       for (const name of ['getAvailableKillpoints','getAvailablePoints','getSpendablePoints','getUnusedPoints']) {
         try {
           if (typeof kp[name] !== 'function') continue;
-          const n = Number(kp[name]());
-          if (Number.isFinite(n) && n >= 0) return n;
+          const n = gbNum(kp[name]());
+          if (n != null && n >= 0) return n;
         } catch (_) {}
       }
       const a = kp.attributes || kp;
       for (const key of ['available_killpoints','available_points','spendable_points','unused_points','available']) {
         if (!Object.prototype.hasOwnProperty.call(a, key)) continue;
-        const n = Number(a[key]);
-        if (Number.isFinite(n) && n >= 0) return n;
+        const n = gbNum(a[key]);
+        if (n != null && n >= 0) return n;
       }
     } catch (_) {}
     return null;
@@ -483,7 +493,7 @@
     let lockedWaiting = 0;
     for (const rel of relations) {
       const a = rel.attributes || {};
-      if (+a.relation_status !== 0) continue;
+      if (gbNum(a.relation_status) !== 0) continue;
       lockedWaiting++;
       if (available <= KP_UNLOCK_MIN) continue;
       const farm = farmById[String(a.farm_town_id)];
@@ -493,7 +503,9 @@
       const cost = ruralLevelCostInfo(rel, farm, 'unlock');
       if (!cost.known) { sawUnreadableCost = true; gbLogT('rurallevel-unlock-cost-' + String(a.farm_town_id), 180000, `rural-level: unlock cost-unreadable village=${a.farm_town_id}`); continue; }
       if (available < cost.cost) continue;
-      job = { kind:'unlock', relId:String(a.id ?? rel.id), farmId:String(a.farm_town_id), townId:String(tid), cost:cost.cost, costSource:cost.source, stage:+a.expansion_stage || 0 };
+      const unlockStage = gbNum(a.expansion_stage);
+      if (unlockStage == null) continue;
+      job = { kind:'unlock', relId:String(a.id ?? rel.id), farmId:String(a.farm_town_id), townId:String(tid), cost:cost.cost, costSource:cost.source, stage:unlockStage };
       break;
     }
     if (!job && lockedWaiting && available <= KP_UNLOCK_MIN) {
@@ -503,9 +515,9 @@
     if (!job) {
       for (const rel of relations) {
         const a = rel.attributes || {};
-        if (+a.relation_status !== 1 || a.expansion_at) continue;
-        const stage = Number(a.expansion_stage);
-        if (!Number.isFinite(stage) || stage >= maxLvl) continue;
+        if (gbNum(a.relation_status) !== 1 || a.expansion_at) continue;
+        const stage = gbNum(a.expansion_stage);
+        if (stage == null || stage >= maxLvl) continue;
         const farm = farmById[String(a.farm_town_id)];
         if (!farm) continue;
         const tid = ruralLevelTownForFarm(farm, townIds);
@@ -533,7 +545,9 @@
       return;
     }
     const aNow = relNow.attributes || {};
-    if ((job.kind === 'unlock' && +aNow.relation_status !== 0) || (job.kind === 'upgrade' && (+aNow.relation_status !== 1 || aNow.expansion_at || +aNow.expansion_stage !== +job.stage))) {
+    const relStatusNow = gbNum(aNow.relation_status);
+    const stageNow = gbNum(aNow.expansion_stage);
+    if ((job.kind === 'unlock' && relStatusNow !== 0) || (job.kind === 'upgrade' && (relStatusNow !== 1 || aNow.expansion_at || stageNow !== job.stage))) {
       gbUnlock('rural-level', lockToken); return;
     }
     const costNow = ruralLevelCostInfo(relNow, farmNow, job.kind);

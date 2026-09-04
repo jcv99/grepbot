@@ -1,6 +1,5 @@
   const RECRUIT_AUTO_SPELL_BY_CONTROLLER = {
     building_barracks: 'fertility_improvement',
-    building_docks: 'call_of_the_ocean',
   };
   function recruitControllerFor(unitId) {
     const def = gbGameDataLookup("units", unitId);
@@ -44,9 +43,11 @@
     return st.known && st.active;
   }
   function recruitSpellCooldown(townId, powerId) {
-    const map = state.spellCooldown || (state.spellCooldown = {});
-    const t = map[String(townId)] || (map[String(townId)] = {});
-    const until = +t[powerId] || 0;
+    const map = state.spellCooldown || {};
+    const t = map[String(townId)];
+    if (!t || !Object.prototype.hasOwnProperty.call(t, powerId)) return 0;
+    const until = gbNum(t[powerId]);
+    if (until == null) return Infinity;
     return until > Date.now() ? until - Date.now() : 0;
   }
   function recruitSpellCooldownStamp(townId, powerId, ms) {
@@ -82,7 +83,8 @@
     if (left > 0) return { action:'proceed', power, why:'spell-cooldown', left };
     const god = RECRUIT_SPELL_GODS[power];
     const favor = recruitFavorRead(townId, god);
-    const cost = +RECRUIT_SPELL_COSTS[power] || 0;
+    const cost = gbNum(RECRUIT_SPELL_COSTS[power]);
+    if (cost == null) return { action:'proceed', power, why:'spell-cost-unreadable' };
     if (favor.value == null) return { action:'proceed', power, why:'favor-unreadable', cost };
     if (favor.value < cost) return { action:'proceed', power, why:'insufficient-favor', favor:favor.value, cost };
     return { action:'cast', power, god, favor:favor.value, cost };
@@ -102,6 +104,13 @@
     if (pre.blind) gbLogT('spell-precond-blind-' + townId, 300000, 'spell: god unreadable; blind precheck, server is the authority');
     const left = recruitSpellCooldown(townId, powerId);
     if (left > 0) { gbLogT('spell-cooldown-' + townId, 60000, `spell: cooldown ${Math.ceil(left/1000)}s left`); return onDone && onDone('skip:cooldown'); }
+    const spellCost = gbNum(RECRUIT_SPELL_COSTS[powerId]);
+    if (spellCost == null) { gbLogT('spell-cost-blind-' + townId, 300000, `spell: ${powerId} favor cost unreadable — cast blocked`); return onDone && onDone('skip:spell-cost-unreadable'); }
+    const spellGod = RECRUIT_SPELL_GODS[powerId];
+    if (spellGod) {
+      const fr = recruitFavorRead(townId, spellGod);
+      if (fr.value != null && fr.value < spellCost) return onDone && onDone('skip:insufficient-favor');
+    }
     spellCastPost(townId, powerId, onDone);
   }
   function recruitBuild(townId, unitId, amount, onDone) {
@@ -297,8 +306,8 @@
         for (const key of [k, k + '_cost', 'effective_' + k]) {
           if (!Object.prototype.hasOwnProperty.call(a, key)) continue;
           present = true;
-          const n = Number(a[key]);
-          if (Number.isFinite(n) && n >= 0) value = n;
+          const n = gbNum(a[key]);
+          if (n != null && n >= 0) value = n;
           break;
         }
         out.fieldKnown[k] = present && value != null;
@@ -415,14 +424,20 @@
         return true;
       }
       const bdeps = recruitRequiredBuildings(def);
-      for (const [bid, lvl] of Object.entries(bdeps)) if (+(buildings[bid] || 0) < +lvl) return false;
+      for (const [bid, lvl] of Object.entries(bdeps)) {
+        const need = gbNum(lvl);
+        const have = gbNum(buildings[bid]);
+        if (need == null || have == null || have < need) return false;
+      }
       const isMythical = !!(def.god || def.mythical || def.is_mythical || mythicalUnitGod(unitId));
       if (recruitIsNaval(unitId)) {
-        const docksNeed = +(def.docks_level ?? def.harbor_level ?? def.required_docks_level ?? 1);
-        if (+(buildings.docks || 0) < (Number.isFinite(docksNeed) ? docksNeed : 1)) return false;
+        const docksNeed = gbNum(def.docks_level ?? def.harbor_level ?? def.required_docks_level) ?? 1;
+        const docksHave = gbNum(buildings.docks);
+        if (docksHave == null || docksHave < docksNeed) return false;
       } else {
-        const barracksNeed = +(def.barracks_level ?? def.required_barracks_level ?? 1);
-        if (+(buildings.barracks || 0) < (Number.isFinite(barracksNeed) ? barracksNeed : 1)) return false;
+        const barracksNeed = gbNum(def.barracks_level ?? def.required_barracks_level) ?? 1;
+        const barracksHave = gbNum(buildings.barracks);
+        if (barracksHave == null || barracksHave < barracksNeed) return false;
       }
       if (isMythical) {
         const requiredGod = (def.god ? String(def.god).toLowerCase() : null) || mythicalUnitGod(unitId);
@@ -431,8 +446,9 @@
         if (requiredGod && !townGod2) {
           gbLogT('recruit-god-blind-' + townId, 300000, `recruit: town ${townId} god unreadable; ${unitId} left to the server to judge`);
         }
-        const templeNeed = +(def.temple_level ?? def.required_temple_level ?? 1);
-        if (+(buildings.temple || 0) < (Number.isFinite(templeNeed) ? templeNeed : 1)) return false;
+        const templeNeed = gbNum(def.temple_level ?? def.required_temple_level) ?? 1;
+        const templeHave = gbNum(buildings.temple);
+        if (templeHave == null || templeHave < templeNeed) return false;
         const ec = recruitEffectiveUnitCost(townId, unitId);
         const fc = recruitFavorUnitCost(ec, def);
         if (fc.cost != null && fc.cost > 0) {
@@ -559,8 +575,9 @@
       const uw = gameUw();
       const q = uw.GameDataConstructionQueue;
       if (q && typeof q.getUnitOrdersQueueLength === 'function') {
-        const n = +q.getUnitOrdersQueueLength();
-        if (Number.isFinite(n) && n > 0) return n;
+        const n = gbNum(q.getUnitOrdersQueueLength());
+        if (n != null && n > 0) return n;
+        gbLogT('recruit-qmax-unreadable', 300000, 'recruit: unit queue max unreadable; fallback 7');
       }
     } catch (_) {}
     return 7;
@@ -654,7 +671,10 @@
     return recruitQueueSpace(townId,unitId).ok;
   }
   function recruitAffordability(townId, unit, want) {
-    const def = gbGameDataLookup('units', unit), desired = Math.max(0, Math.floor(+want || 0));
+    const def = gbGameDataLookup('units', unit);
+    const wantN = gbNum(want);
+    const desired = wantN != null ? Math.max(0, Math.floor(wantN)) : 0;
+    if (wantN == null) return { ok:false, why:'want-unreadable', limits:{}, blind:['want'] };
     if (!def || !def.resources || !(desired > 0)) return { amount:0, desired, why:'unit-cost-unreadable', blind:['unit-cost-unreadable'], limits:{} };
     const ec = recruitEffectiveUnitCost(townId, unit);
     const maxNow = recruitRuntimeMaxAmount(townId, unit);
@@ -768,11 +788,22 @@
           if (!recruitCanBuild(tid, explicit.unit) || !recruitControllerFor(explicit.unit)) {
             nativeQueueSetJobState(explicit, 'blocked', 'requisitos/controlador'); continue;
           }
-          const totalAmt = +explicit.amount || 0;
-          if (!(totalAmt > 0)) { nativeQueueSetJobState(explicit, 'blocked', 'cantidad inválida'); continue; }
-
-          const cs = +explicit.chunkSize || 0;
-          const postAmt = cs > 0 && cs < totalAmt ? cs : totalAmt;
+          const totalAmt = gbNum(explicit.amount);
+          if (totalAmt == null) {
+            nativeQueueSetJobState(explicit, 'amount-unreadable', 'cantidad no legible');
+            continue;
+          }
+          const infinite = nativeQueueRecruitIsInfinite(explicit);
+          const csRaw = gbNum(explicit.chunkSize);
+          const cs = csRaw != null && csRaw > 0 ? csRaw : 0;
+          let postAmt;
+          if (infinite) {
+            if (!(cs > 0)) { nativeQueueSetJobState(explicit, 'blocked', 'lote infinito inválido'); continue; }
+            postAmt = cs;
+          } else {
+            if (!(totalAmt > 0)) { nativeQueueSetJobState(explicit, 'blocked', 'cantidad inválida'); continue; }
+            postAmt = cs > 0 && cs < totalAmt ? cs : totalAmt;
+          }
 
           const afford = recruitAffordability(tid, explicit.unit, postAmt);
           if (afford.amount < postAmt) {
@@ -786,7 +817,7 @@
           if (qspace.blind) blindBits.push(`queue ${qspace.q.len}/?`);
           if (afford.blind.length) blindBits.push(afford.blind.join(','));
           nativeQueueSetJobState(explicit, 'ready', blindBits.length ? ('listo; precheck ciego ' + blindBits.join(' | ')) : 'listo');
-          job = { kind:'build', townId:tid, unit:explicit.unit, amount:postAmt, nativeJobId:explicit.id, nativeLane:lane, nativeChunkSize: cs };
+          job = { kind:'build', townId:tid, unit:explicit.unit, amount:postAmt, nativeJobId:explicit.id, nativeLane:lane, nativeChunkSize: cs, nativeInfinite: infinite };
           break;
         }
         if (job) break;
@@ -804,14 +835,15 @@
       if (!t) continue;
       const have = goalUnitCounts(tid);
       for (const unit of Object.keys(want)) {
-        const tgt = +want[unit] || 0;
-        if (!(tgt > 0)) continue;
+        const tgt = gbNum(want[unit]);
+        if (tgt == null || !(tgt > 0)) continue;
 
         const dynLane=nativeRecruitLane(unit);if(nativeQueuePlannerOwnsTown(tid)){if(nativeQueuePlannerLaneBlocked(tid,dynLane))continue}else if(nativeQueueIsFifo(tid,dynLane))continue;
         if (!recruitCanBuild(tid, unit)) continue;
         if (!recruitControllerFor(unit)) continue;
         if (!recruitQueueHasSpace(tid,unit)) continue;
-        const cur = +have[unit] || 0;
+        const cur = gbNum(have[unit]);
+        if (cur == null) continue;
         const queued = recruitQueuedAmount(tid, unit);
         const need = tgt - cur - queued;
         if (need <= 0) continue;
@@ -948,22 +980,28 @@
           if (bag && typeof bag === 'object') {
 
             const units = {};
-            for (const u of VILLAGE_RECRUIT_UNITS) units[u] = +bag[u];
-            const known = VILLAGE_RECRUIT_UNITS.some(u => Number.isFinite(units[u]) && units[u] >= 0);
+            for (const u of VILLAGE_RECRUIT_UNITS) {
+              const n = gbNum(bag[u]);
+              if (n != null && n >= 0) units[u] = n;
+            }
+            const known = VILLAGE_RECRUIT_UNITS.some(u => Object.prototype.hasOwnProperty.call(units, u));
             if (known) return { known: true, units, relId: (m && m.id) != null ? m.id : (a && a.id) };
           }
           if (typeof bag === 'number' || Array.isArray(bag)) {
 
             const arr = Array.isArray(bag) ? bag : [bag];
             const units = {};
-            VILLAGE_RECRUIT_UNITS.forEach((u, i) => { units[u] = +arr[i] || 0; });
-            return { known: true, units, relId: (m && m.id) != null ? m.id : (a && a.id) };
+            VILLAGE_RECRUIT_UNITS.forEach((u, i) => {
+              const n = gbNum(arr[i]);
+              if (n != null && n >= 0) units[u] = n;
+            });
+            if (Object.keys(units).length) return { known: true, units, relId: (m && m.id) != null ? m.id : (a && a.id) };
           }
           if (typeof m.getUnitCount === 'function') {
             const units = {};
             for (const u of VILLAGE_RECRUIT_UNITS) {
-              const n = +m.getUnitCount(u);
-              if (Number.isFinite(n) && n >= 0) units[u] = n;
+              const n = gbNum(m.getUnitCount(u));
+              if (n != null && n >= 0) units[u] = n;
             }
             if (Object.keys(units).length) return { known: true, units, relId: m.id };
           }
@@ -976,16 +1014,18 @@
   function villageSaturationStreak(villId) {
     if (!state.farmResources || !state.farmResources[villId]) return 0;
     const r = state.farmResources[villId];
-    if (!r.ok || !(r.cap > 0)) return 0;
-    const sum = (Number.isFinite(+r.wood) ? +r.wood : 0)
-               + (Number.isFinite(+r.stone) ? +r.stone : 0)
-               + (Number.isFinite(+r.iron) ? +r.iron : 0)
-               + (Number.isFinite(+r.pop) ? +r.pop : 0);
-    const fill = sum / r.cap;
-    const thresh = Math.max(0.5, Math.min(1, (+state.villageRecruitFillPct || 90) / 100));
+    const cap = gbNum(r.cap);
+    if (!r.ok || cap == null || !(cap > 0)) return 0;
+    const wood = gbNum(r.wood), stone = gbNum(r.stone), iron = gbNum(r.iron), pop = gbNum(r.pop);
+    // Unreadable stock → blind: do not invent fill=0 or bump/reset streak.
+    if (wood == null || stone == null || iron == null || pop == null) return 0;
+    const fill = (wood + stone + iron + pop) / cap;
+    const threshPct = gbNum(state.villageRecruitFillPct);
+    const thresh = Math.max(0.5, Math.min(1, (threshPct != null ? threshPct : 90) / 100));
     const streaks = state.villageRecruitStreaks || (state.villageRecruitStreaks = {});
-    const prev = +streaks[villId] || 0;
-    const next = fill >= thresh ? prev + 1 : 0;
+    const prev = gbNum(streaks[villId]);
+    const prevN = prev != null && prev >= 0 ? prev : 0;
+    const next = fill >= thresh ? prevN + 1 : 0;
     streaks[villId] = next;
     return next;
   }
@@ -1135,7 +1175,8 @@
     for (const r of list) {
       const def = gbGameDataLookup('units', r.unit), ec = recruitEffectiveUnitCost(townId, r.unit);
       if (!def || !ec) { missing.push(r.unit); continue; }
-      const a = +r.amount || 0;
+      const a = gbNum(r.amount);
+      if (a == null || !(a > 0)) continue;
       for (const [k, bucket] of [['wood','wood'],['stone','stone'],['iron','iron'],['population','pop'],['favor','favor']]) {
         const v = recruitDisplayCost(ec, k);
         if (v == null) { missing.push(r.unit + ':' + k); continue; }
@@ -1456,13 +1497,14 @@
     if (!def) return '\u2014 desconocida \u2014';
     const r = def.resources || {};
     const parts = [];
-    const a = +row.amount || 0;
-    if (+r.wood) parts.push(`mad ${(+r.wood) * a}`);
-    if (+r.stone) parts.push(`pie ${(+r.stone) * a}`);
-    if (+r.iron) parts.push(`pla ${(+r.iron) * a}`);
-    if (+def.population) parts.push(`pop ${(+def.population) * a}`);
-    const fav = +(def.favor || (r && r.favor) || 0);
-    if (fav) parts.push(`favor ${fav * a}`);
+    const a = gbNum(row && row.amount);
+    if (a == null || !(a > 0)) return '\u2014';
+    if (gbNum(r.wood)) parts.push(`mad ${gbNum(r.wood) * a}`);
+    if (gbNum(r.stone)) parts.push(`pie ${gbNum(r.stone) * a}`);
+    if (gbNum(r.iron)) parts.push(`pla ${gbNum(r.iron) * a}`);
+    if (gbNum(def.population)) parts.push(`pop ${gbNum(def.population) * a}`);
+    const fav = gbNum(def.favor != null ? def.favor : (r && r.favor));
+    if (fav != null && fav > 0) parts.push(`favor ${fav * a}`);
     return parts.join(' / ') || 'gratis';
   }
   function batchRecruitUiAdd() {
@@ -1615,7 +1657,8 @@
   function recruitTargetSet(townId, unit, amount) {
     const id = String(townId == null ? '' : townId);
     if (!id || !unit || !gbGameDataLookup('units', unit)) return false;
-    const n = Math.max(0, Math.floor(+amount || 0));
+    const n0 = gbNum(amount);
+    const n = n0 == null ? 0 : Math.max(0, Math.floor(n0));
     const map = recruitTargetTownMap(id, n > 0);
     if (n > 0) map[String(unit)] = n; else delete map[String(unit)];
     if (!Object.keys(map).length) delete recruitTargetsRoot()[id];
@@ -1721,7 +1764,8 @@
       rowsHost.appendChild(e);
     } else {
       keys.sort().forEach(unit => {
-        const tgt = +map[unit] || 0;
+        const tgt = gbNum(map[unit]);
+        if (tgt == null || !(tgt > 0)) return;
         const line = document.createElement('div');
         line.style.cssText = 'display:flex;gap:6px;align-items:center;padding:2px 0;font-size:11px;border-bottom:1px solid var(--gb-rule)';
         const name = document.createElement('span');

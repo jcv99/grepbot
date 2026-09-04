@@ -5,12 +5,15 @@
       const gdi = uw.GameDataInstantBuy;
       if (!gdi || typeof gdi.getPriceForType !== 'function') return null;
       const type = kind === 'research' ? 'research' : 'building';
-      const price = gdi.getPriceForType(type, Math.max(0, +seconds || 0));
+      const sec = gbNum(seconds);
+      if (sec == null) return null;
+      const price = gdi.getPriceForType(type, Math.max(0, sec));
       return gbNum(price);
     } catch (_) { return null; }
   }
   function ibIsFreeOrder(timeLeft, gold) {
-    return Number.isFinite(+timeLeft) && +timeLeft > 0 && +timeLeft <= ibSafeFreeThresh() && gold === 0;
+    const left = gbNum(timeLeft);
+    return left != null && left > 0 && left <= ibSafeFreeThresh() && gold === 0;
   }
   function ibOrderStillPresent(orderId,kind) {
     return ibOrders(true).some(o => String(o.id) === String(orderId) && (kind==null||o.kind===kind));
@@ -184,8 +187,9 @@
         const r = model.attributes || model;
         const rid=String(r.id==null?'':r.id);if (!rid || !r.town_id || seenIds.has(rid)) return;
         seenIds.add(rid);
-        const doneAt = r.to_be_completed_at || r.toBeCompletedAt || r.completed_at || 0;
-        const timeLeft = doneAt ? Math.max(0, doneAt - now) : (r.research_time || 0);
+        const doneAt = gbNum(r.to_be_completed_at ?? r.toBeCompletedAt ?? r.completed_at);
+        const rawTime = gbNum(r.research_time);
+        const timeLeft = doneAt != null ? Math.max(0, doneAt - now) : rawTime;
         const isFirst = headIds.get(String(r.town_id)) === String(r.id);
         const display = isFirst ? timeLeft : (r.research_time || 0);
         const gold = ibGoldCost('research', display);
@@ -245,8 +249,9 @@
         const rid=String(r.id==null?'':r.id);if (!rid || !r.town_id || seenIds.has(rid)) return;
         seenIds.add(rid);
 
-        const doneAt = r.to_be_completed_at || r.toBeCompletedAt || r.completed_at || 0;
-        const timeLeft = doneAt ? Math.max(0, doneAt - now) : (r.building_time || 0);
+        const doneAt = gbNum(r.to_be_completed_at ?? r.toBeCompletedAt ?? r.completed_at);
+        const rawTime = gbNum(r.building_time);
+        const timeLeft = doneAt != null ? Math.max(0, doneAt - now) : rawTime;
         const isFirst = headIds.get(String(r.town_id)) === String(r.id);
 
         const display = isFirst ? timeLeft : (r.building_time || 0);
@@ -296,7 +301,7 @@
       if (blocked) { resolve({ res: 'pause', why: blocked }); return; }
 
       const live = ibFindLiveOrder(order.id, kind);
-      const instantLeft = live && Number.isFinite(+live.instantLeft) ? +live.instantLeft : +(live && live.timeLeft);
+      const instantLeft = live ? (gbNum(live.instantLeft) ?? gbNum(live.timeLeft)) : null;
 
       const staleWhy = ibStaleWhy(live, kind, instantLeft);
       if (staleWhy) {

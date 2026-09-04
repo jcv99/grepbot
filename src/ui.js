@@ -1344,7 +1344,7 @@
           <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Recoger aunque el tiempo mostrado sea mayor que el umbral"><input type="checkbox" data-cfg="collect-all"/> Recoger todo (ignora el tope de tiempo)</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Minutos maximos mostrados para que el bot recoja sin forzar">Minutos maximos para recoger <input class="gb-cfg-input" type="number" data-cfg="collect-max-min" min="1" max="120" style="width:70px"/></label>
           <label class="gb-cfg-row" data-gb-tip="Atacar campamentos bandidos automaticamente"><input type="checkbox" data-cfg="auto-bandit"/> Campamento bandido automatico</label>
-          <label class="gb-cfg-row" data-gb-tip="Cobrar aldeas propias cada 10 minutos + 1-2 min aleatorios (siempre opcion de 10 min)"><input type="checkbox" data-cfg="auto-farm"/> Recoleccion automatica de aldeas</label>
+          <label class="gb-cfg-row" data-gb-tip="Cuando hay aldeas listas, barre TODAS las ciudades a 1.5 s/aldea (sin cortar por presupuesto). Espera captcha y sigue; no posta encima del captcha."><input type="checkbox" data-cfg="auto-farm"/> Recoleccion automatica de aldeas</label>
           <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Saltar aldeas/bandido si el almacen de la ciudad esta demasiado lleno"><input type="checkbox" data-cfg="farm-skip-full"/> Saltar aldeas/bandido con el almacen lleno</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Cuando considerar el almacen lleno: 1 recurso o los 3">Criterio de almacen lleno
             <select class="gb-cfg-input" data-cfg="farm-full-mode" data-gb-tip="Cuando considerar el almacen lleno">

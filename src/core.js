@@ -1753,18 +1753,18 @@ const STORE = {
       gbLogT('cave-res-blind-' + townId, 300000, 'ironReservedForCave: blind - culture proceeds');
       return { reserved: false, etaMs: null, blind: true };
     }
-    let hideLvl = 0, hideFull = false;
+    let hideLvl = null, hideFull = false;
     try {
       if (typeof caveTownInfo === 'function') {
         const info = caveTownInfo(townId);
         if (info) {
-          hideLvl = +info.hideLvl || 0;
+          hideLvl = gbNum(info.hideLvl);
           if (info.unlimited) hideFull = false;
           else if (info.hideCap > 0 && info.stored != null && info.stored >= info.hideCap) hideFull = true;
         }
       }
     } catch (_) {}
-    if (!(hideLvl > 0) || hideFull) return { reserved: false, etaMs: null, blind: false };
+    if (hideLvl == null || !(hideLvl > 0) || hideFull) return { reserved: false, etaMs: null, blind: false };
     const thresh = gbCfgClamp(state.caveThreshPct, 50, 99, 90) / 100;
     const need = Math.ceil(st.cap * thresh);
     if (st.iron >= need) return { reserved: true, etaMs: 0, blind: false };

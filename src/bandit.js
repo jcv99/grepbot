@@ -37,7 +37,9 @@
       const d = uw.GameData && uw.GameData.units && uw.GameData.units[unit];
       const r = d && (d.resources || d.costs || d.cost);
       if (!r) return null;
-      const n = (+r.wood || 0) + (+r.stone || 0) + (+r.iron || 0);
+      const w = gbNum(r.wood), s = gbNum(r.stone), i = gbNum(r.iron);
+      if (w == null || s == null || i == null) return null;
+      const n = w + s + i;
       return n > 0 ? n : null;
     } catch (_) { return null; }
   }
@@ -237,8 +239,8 @@
       }
 
       let cd = 0;
-      const cdRaw = (typeof m.getCooldownDuration === 'function') ? +m.getCooldownDuration() : NaN;
-      if (Number.isFinite(cdRaw)) cd = cdRaw;
+      const cdRaw = (typeof m.getCooldownDuration === 'function') ? gbNum(m.getCooldownDuration()) : null;
+      if (cdRaw != null) cd = cdRaw;
       else {
         gbLogT('bandit-cd-blind', 300000, 'bandit: cooldown unreadable (getCooldownDuration) - blind, server decides');
         banditIdle(60000);

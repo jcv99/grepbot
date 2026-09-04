@@ -141,7 +141,7 @@
       if (!t) return null;
       const r = t.resources && t.resources();
       let cap = null, tradeCap = null, pop = null, small = false;
-      try { if (t.getStorageCapacity) cap = +t.getStorageCapacity(); } catch (_) {}
+      try { if (t.getStorageCapacity) cap = gbNum(t.getStorageCapacity()); } catch (_) {}
       if (!(cap > 0)) { const shared = townResState(townId); if (shared) cap = shared.cap; }
       try { if (t.getAvailableTradeCapacity) tradeCap = gbNum(t.getAvailableTradeCapacity()); } catch (_) {}
       try { if (t.getAvailablePopulation) pop = gbNum(t.getAvailablePopulation()); } catch (_) {}

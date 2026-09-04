@@ -346,11 +346,14 @@
     gameAjaxPost('militia', 'building_farm', 'request_militia', { town_id: +townId }, onDone);
   }
   function dodgeSendOut(townId, units, safeId, onDone) {
+    const destId = gbNum(safeId);
+    const srcId = gbNum(townId);
+    if (destId == null || srcId == null) return onDone && onDone('town-unreadable');
     const payload = {
       model_url: 'Town/' + townId,
       action_name: (state.attackTpl && state.attackTpl.action_name) || 'sendUnits',
-      arguments: Object.assign({ id: +safeId, type: 'support' }, units),
-      town_id: +townId,
+      arguments: Object.assign({ id: destId, type: 'support' }, units),
+      town_id: srcId,
     };
     bridgePost('dodge', payload, onDone);
   }
@@ -375,8 +378,15 @@
   function dodgeSupportValidate(fromTownId, safeTownId, units) {
     if (!safeTownId || !units || !Object.keys(units).length) return { ok: false, why: 'no-destination-or-units' };
     const live = dodgeTownUnits(fromTownId);
-    for (const [u, n] of Object.entries(units)) if ((+live[u] || 0) < (+n || 0)) return { ok: false, why: `units-changed:${u}` };
-    const same = isSameIsland(fromTownId, { town_id: +safeTownId, id: +safeTownId, kind: 'town', ...townCoords(safeTownId) });
+    for (const [u, n] of Object.entries(units)) {
+      const liveN = gbNum(live[u]);
+      const needN = gbNum(n);
+      if (liveN == null || needN == null) return { ok: false, why: `units-unreadable:${u}` };
+      if (liveN < needN) return { ok: false, why: `units-changed:${u}` };
+    }
+    const safeId = gbNum(safeTownId);
+    if (safeId == null) return { ok: false, why: 'destination-unreadable' };
+    const same = isSameIsland(fromTownId, { town_id: safeId, id: safeId, kind: 'town', ...townCoords(safeTownId) });
     const boats = boatCapacityCheck(units, same);
     if (!boats.ok) return { ok: false, why: boats.reason || 'transport-capacity' };
     const destGod = recruitTownGod(safeTownId);
@@ -669,6 +679,7 @@
     dodgeQueueSave();
   }
 
+  // Allowlist for recruit/god spells — explicit operator id only; never default to RECRUIT_SPELLS[0].
   const RECRUIT_SPELLS = ['call_of_the_ocean', 'spartan_training', 'fertility_improvement'];
   const RECRUIT_SPELL_GODS = {
     call_of_the_ocean: 'poseidon',

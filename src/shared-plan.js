@@ -48,7 +48,7 @@
       const id = String(t.id == null ? '' : t.id).trim();
       if (!/^\d{1,12}$/.test(id)) { rejected.push(`id no numerico: ${String(t.id).slice(0, 12)}`); continue; }
       const intent = (t.intent === 'support') ? 'support' : 'attack';
-      const num = v => (Number.isFinite(+v) ? +v : null);
+      const num = v => gbNum(v);
       const arriveAt = t.window && Number.isFinite(+t.window.arriveAt) ? +t.window.arriveAt : null;
 
       if (arriveAt != null && arriveAt * (arriveAt > 1e12 ? 0.001 : 1) < gameNow()) {

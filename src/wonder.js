@@ -42,8 +42,8 @@
     let job = null;
     for (const t of towns) {
 
-      const cap = +t.tradeCap || 0;
-      if (cap <= 0) continue;
+      const cap = gbNum(t.tradeCap);
+      if (cap == null || cap <= 0) continue;
       let send = {
         wood: Math.max(0, Math.min(want.wood, t.wood - reserve)),
         stone: Math.max(0, Math.min(want.stone, t.stone - reserve)),

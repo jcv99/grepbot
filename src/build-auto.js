@@ -245,11 +245,29 @@
     if (!aff) return 'datos de coste ilegibles';
     if (aff.why === 'resources' && aff.need && aff.have) {
       const miss = [['madera','wood'],['piedra','stone'],['plata','iron']]
-        .filter(([,k]) => +aff.have[k] < (+aff.need[k] || 0) + (+aff.margin || 0))
-        .map(([label,k]) => `${label} ${Math.floor(+aff.have[k]||0)} (coste ${Math.ceil(+aff.need[k]||0)}${+aff.margin ? ` + reserva ${+aff.margin}` : ''})`);
+        .filter(([,k]) => {
+          const have = gbNum(aff.have[k]);
+          const need = gbNum(aff.need[k]);
+          const margin = gbNum(aff.margin) ?? 0;
+          return have == null || need == null || have < need + margin;
+        })
+        .map(([label,k]) => {
+          const have = gbNum(aff.have[k]);
+          const need = gbNum(aff.need[k]);
+          const margin = gbNum(aff.margin) ?? 0;
+          const haveStr = have != null ? Math.floor(have) : '\u2014';
+          const needStr = need != null ? Math.ceil(need) : '\u2014';
+          return `${label} ${haveStr} (coste ${needStr}${margin ? ` + reserva ${margin}` : ''})`;
+        });
       return `esperando recursos${miss.length ? ': '+miss.join(', ') : ''}`;
     }
-    if (aff.why === 'population' && aff.need && aff.have) return `esperando poblaci\u00f3n ${Math.floor(+aff.have.population||0)}/${Math.ceil(+aff.need.pop||0)}`;
+    if (aff.why === 'population' && aff.need && aff.have) {
+      const pop = gbNum(aff.have.population);
+      const needPop = gbNum(aff.need.pop);
+      const popStr = pop != null ? Math.floor(pop) : '\u2014';
+      const needStr = needPop != null ? Math.ceil(needPop) : '\u2014';
+      return `esperando poblaci\u00f3n ${popStr}/${needStr}`;
+    }
     const labels = {'town unreadable':'ciudad ilegible','cost unreadable':'coste ilegible','resources/pop unreadable':'recursos o poblaci\u00f3n ilegibles'};
     return labels[aff.why] || String(aff.why || 'bloqueado');
   }
@@ -288,14 +306,17 @@
     const req = abRequirementMap(townId, building);
     if (req == null) return { error: 'requirements-unreadable' };
     for (const dep of AB_BUILDINGS) {
-      const need = +req[dep] || 0;
-      if (!need || +(levels[dep] || 0) >= need) continue;
+      const need = gbNum(req[dep]);
+      if (need == null || need <= 0) continue;
+      const have = gbNum(levels[dep]);
+      if (have == null || have < need) {
       const max = abMaxLevel(dep);
-      if (max == null || levels[dep] >= max) return { error: `dependency-blocked:${dep}` };
+      if (max == null || (have != null && have >= max)) return { error: `dependency-blocked:${dep}` };
       const nested = abResolvePrerequisite(townId, dep, levels, new Set(visited));
       if (nested && nested.building) return nested;
       if (nested && nested.error) return nested;
       return { building: dep, reason: `prerequisite for ${building}` };
+      }
     }
     return { building, reason: 'priority target' };
   }
@@ -311,7 +332,11 @@
       if (max == null || +(levels[b] || 0) >= max) return false;
       const req = abRequirementMap(townId, b);
       if (req == null) return false;
-      for (const [dep, need] of Object.entries(req)) if (+(levels[dep] || 0) < +need) return false;
+      for (const [dep, needRaw] of Object.entries(req)) {
+        const need = gbNum(needRaw);
+        const have = gbNum(levels[dep]);
+        if (need == null || have == null || have < need) return false;
+      }
       return abCanAfford(townId, b).ok;
     });
     if (!candidates.length) return null;
@@ -343,9 +368,13 @@
     for (const target of goalBuildOrder(townId,Object.keys(targets))) {
       const max = abMaxLevel(target);
       if (max == null) { gbLogT('ab-max-' + target, 300000, `auto-queue: max level unreadable for ${target} \u2014 fail closed`); continue; }
-      const want = Math.min(+targets[target] || 0, max);
+      const wantRaw = gbNum(targets[target]);
+      if (wantRaw == null) { gbLogT('ab-want-' + target, 300000, `auto-queue: target unreadable for ${target} \u2014 fail closed`); continue; }
+      const want = Math.min(wantRaw, max);
 
-      const have = target === 'wall' ? abWallEffectiveLevel(townId, +(levels.wall || 0)) : +(levels[target] || 0);
+      const haveLvl = gbNum(levels[target]);
+      if (haveLvl == null) { gbLogT('ab-level-' + townId + '-' + target, 300000, `auto-queue: level unreadable for ${target} \u2014 fail closed`); continue; }
+      const have = target === 'wall' ? abWallEffectiveLevel(townId, haveLvl) : haveLvl;
       if (want <= 0 || have >= want) continue;
       const resolved = abResolvePrerequisite(townId, target, levels);
       if (resolved && resolved.building && goalQueueSuppressed(townId,'build',resolved.building)) {
@@ -390,7 +419,13 @@
     if (max == null || +(levels[fresh.building] || 0) >= max) return { ok: false, why: 'max-level' };
     const req = abRequirementMap(townId, fresh.building);
     if (req == null) return { ok: false, why: 'requirements-unreadable' };
-    for (const [dep, need] of Object.entries(req)) if (+(levels[dep] || 0) < +need) return { ok: false, why: `missing:${dep}:${levels[dep] || 0}/${need}` };
+    for (const [dep, needRaw] of Object.entries(req)) {
+      const need = gbNum(needRaw);
+      const have = gbNum(levels[dep]);
+      if (need == null || have == null || have < need) {
+        return { ok: false, why: `missing:${dep}:${have != null ? have : '\u2014'}/${need != null ? need : '\u2014'}` };
+      }
+    }
     const aff = abCanAfford(townId, fresh.building);
     if (!aff.ok) {
 
