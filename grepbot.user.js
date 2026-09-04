@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.41
+// @version      6.0.42
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -23179,20 +23179,29 @@ const STORE = {
     } catch (_) {}
     return false;
   }
+  function attackLiveUnitsAllUnreadable(live, unitIds) {
+    const ids = unitIds && unitIds.length ? unitIds : Object.keys(live || {});
+    if (!ids.length) return false;
+    return ids.every(id => gbNum(live[id]) == null);
+  }
   function selectHarassmentUnits(townId, preset) {
     const live = townLiveUnits(townId);
     const out = {};
     const key = String(preset || 'light');
     const cap = HARASS_CAPS[key] != null ? HARASS_CAPS[key] : Math.max(1, Math.floor(+preset || 5));
     if (key === '1sling' || key === '5sling') {
-      const have = +live.slinger || 0;
+      if (attackLiveUnitsAllUnreadable(live, ['slinger'])) return {};
+      const have = gbNum(live.slinger);
+      if (have == null) return {};
       if (have > 0) out.slinger = Math.min(have, cap);
       return out;
     }
+    if (attackLiveUnitsAllUnreadable(live, HARASS_PREF)) return {};
     let left = cap;
     for (const id of HARASS_PREF) {
       if (left <= 0) break;
-      const have = +live[id] || 0;
+      const have = gbNum(live[id]);
+      if (have == null) continue;
       if (!(have > 0)) continue;
       const n = Math.min(have, left); out[id] = n; left -= n;
     }
@@ -23202,23 +23211,31 @@ const STORE = {
     const out = Object.assign({}, units || {});
     let need = 0;
     for (const [id, raw] of Object.entries(out)) {
-      const n = +raw || 0;
+      const n = gbNum(raw);
       const m = unitMeta(id);
-      if (!n || !m || m.is_naval || id === 'militia') continue;
-      need += (+m.population || 1) * n;
+      if (n == null || !(n > 0) || !m || m.is_naval || id === 'militia') continue;
+      const pop = gbNum(m.population);
+      if (pop == null) continue;
+      need += Math.max(1, pop) * n;
     }
     if (!(need > 0)) return out;
     const live = townLiveUnits(townId);
-    const choices = Object.keys(live).map(id => ({ id, n: +live[id] || 0, m: unitMeta(id) }))
-      .filter(x => x.n > 0 && x.m && +x.m.capacity > 0)
-      .sort((a, b) => (+b.m.capacity || 0) - (+a.m.capacity || 0));
+    const choices = Object.keys(live).map(id => {
+      const n = gbNum(live[id]);
+      const m = unitMeta(id);
+      const cap = m ? gbNum(m.capacity) : null;
+      return { id, n, m, cap };
+    })
+      .filter(x => x.n != null && x.n > 0 && x.m && x.cap != null && x.cap > 0)
+      .sort((a, b) => b.cap - a.cap);
     let cap = 0;
     for (const x of choices) {
       if (cap >= need) break;
-      const per = +x.m.capacity || 0;
-      if (!(per > 0)) continue;
+      const per = x.cap;
+      if (per == null || !(per > 0)) continue;
       const take = Math.min(x.n, Math.max(1, Math.ceil((need - cap) / per)));
-      out[x.id] = (out[x.id] || 0) + take;
+      const cur = gbNum(out[x.id]);
+      out[x.id] = (cur != null ? cur : 0) + take;
       cap += take * per;
     }
     return out;
