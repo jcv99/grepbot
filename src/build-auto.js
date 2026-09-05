@@ -507,7 +507,15 @@
       const head=list.find(j=>j&&!j.manualReview)||list.find(Boolean);
       const townName=townNameById(townId),townLabel=townName===String(townId)?String(townId):`${townName} [${townId}]`;
       if(head){if(blocked.some(x=>x.townId===String(townId)))return;const detail=String(why||head.reason||head.status||'sin acción ejecutable'),stableDetail=/^waiting-(?:resources|population)$/.test(head.status||'')?detail.replace(/\d+(?:[.,]\d+)?/g,'#'):detail;blocked.push({townId:String(townId),sig:[townId,head.id,head.status,stableDetail].join('|'),text:`ciudad ${townLabel} · ${nativeBuildLabel(head.building)} ${head.fromLevel}→${head.toLevel} · ${detail}`});return}
-      if(blocked.some(x=>x.townId===String(townId))||!nativeQueuePlannerOwnsTown(townId))return;const info=abPlannerBlockedInfo(townId,abCurrentLevels(townId));if(!info)return;const detail=String(why||info.detail||'sin acción ejecutable'),stableDetail=detail.replace(/\d+(?:[.,]\d+)?/g,'#');blocked.push({townId:String(townId),sig:[townId,'planner',info.building,stableDetail].join('|'),text:`ciudad ${townLabel} · ${nativeBuildLabel(info.building)} ${info.fromLevel}→${info.toLevel} · ${detail}`});
+      if(blocked.some(x=>x.townId===String(townId)))return;
+      if(!nativeQueuePlannerOwnsTown(townId)){
+        const levels=abCurrentLevels(townId);
+        const noTargets=!levels||Object.keys(goalEffectiveBuildTargets(townId)||{}).length===0;
+        const whyTxt=why?String(why):(noTargets?'sin objetivos de construcción - asigna targets en Ajustes o un perfil CD':'objetivos cumplidos - nada que encolar');
+        blocked.push({townId:String(townId),sig:[townId,'no-plan',whyTxt].join('|'),text:`ciudad ${townLabel} · ${whyTxt}`});
+        return;
+      }
+      const info=abPlannerBlockedInfo(townId,abCurrentLevels(townId));if(!info)return;const detail=String(why||info.detail||'sin acción ejecutable'),stableDetail=detail.replace(/\d+(?:[.,]\d+)?/g,'#');blocked.push({townId:String(townId),sig:[townId,'planner',info.building,stableDetail].join('|'),text:`ciudad ${townLabel} · ${nativeBuildLabel(info.building)} ${info.fromLevel}→${info.toLevel} · ${detail}`});
     };
     const maxOps=Math.max(1,ids.length*7);
     const finish=()=>{

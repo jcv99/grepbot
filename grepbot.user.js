@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.44
+// @version      6.0.45
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -11733,7 +11733,15 @@ const STORE = {
       const head=list.find(j=>j&&!j.manualReview)||list.find(Boolean);
       const townName=townNameById(townId),townLabel=townName===String(townId)?String(townId):`${townName} [${townId}]`;
       if(head){if(blocked.some(x=>x.townId===String(townId)))return;const detail=String(why||head.reason||head.status||'sin acci\u00f3n ejecutable'),stableDetail=/^waiting-(?:resources|population)$/.test(head.status||'')?detail.replace(/\d+(?:[.,]\d+)?/g,'#'):detail;blocked.push({townId:String(townId),sig:[townId,head.id,head.status,stableDetail].join('|'),text:`ciudad ${townLabel} \u00b7 ${nativeBuildLabel(head.building)} ${head.fromLevel}\u2192${head.toLevel} \u00b7 ${detail}`});return}
-      if(blocked.some(x=>x.townId===String(townId))||!nativeQueuePlannerOwnsTown(townId))return;const info=abPlannerBlockedInfo(townId,abCurrentLevels(townId));if(!info)return;const detail=String(why||info.detail||'sin acci\u00f3n ejecutable'),stableDetail=detail.replace(/\d+(?:[.,]\d+)?/g,'#');blocked.push({townId:String(townId),sig:[townId,'planner',info.building,stableDetail].join('|'),text:`ciudad ${townLabel} \u00b7 ${nativeBuildLabel(info.building)} ${info.fromLevel}\u2192${info.toLevel} \u00b7 ${detail}`});
+      if(blocked.some(x=>x.townId===String(townId)))return;
+      if(!nativeQueuePlannerOwnsTown(townId)){
+        const levels=abCurrentLevels(townId);
+        const noTargets=!levels||Object.keys(goalEffectiveBuildTargets(townId)||{}).length===0;
+        const whyTxt=why?String(why):(noTargets?'sin objetivos de construcci\u00f3n - asigna targets en Ajustes o un perfil CD':'objetivos cumplidos - nada que encolar');
+        blocked.push({townId:String(townId),sig:[townId,'no-plan',whyTxt].join('|'),text:`ciudad ${townLabel} \u00b7 ${whyTxt}`});
+        return;
+      }
+      const info=abPlannerBlockedInfo(townId,abCurrentLevels(townId));if(!info)return;const detail=String(why||info.detail||'sin acci\u00f3n ejecutable'),stableDetail=detail.replace(/\d+(?:[.,]\d+)?/g,'#');blocked.push({townId:String(townId),sig:[townId,'planner',info.building,stableDetail].join('|'),text:`ciudad ${townLabel} \u00b7 ${nativeBuildLabel(info.building)} ${info.fromLevel}\u2192${info.toLevel} \u00b7 ${detail}`});
     };
     const maxOps=Math.max(1,ids.length*7);
     const finish=()=>{
