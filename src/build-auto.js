@@ -533,7 +533,10 @@
       nativeQueueReconcileBuild(id);
       const list=nativeQueueList(id,'build',false);
       const first=list.find(Boolean);
-      if(!first&&!state.abAuto&&!cdIsProfile(goalTownCfg(id).profile))return nextTown();
+      if(!first&&!state.abAuto&&!cdIsProfile(goalTownCfg(id).profile)){
+        gbLogT('ab-skip-silent-'+id,120000,`auto-queue: town ${id} sin trabajo pendiente (abAuto off, sin perfil CD) - habilita Auto-queue o asigna un perfil de planificador`);
+        return nextTown();
+      }
       if(first&&nativeQueuePaused(id,'build')){nativeQueueSetJobState(first,'paused','cola pausada');noteBlocked(id,'cola pausada');return nextTown()}
       const active=list.find(j=>j&&j.inflight);
       if(active){noteBlocked(id,active.reason||'envío en curso');return nextTown()}
