@@ -94,13 +94,19 @@
     }
     const lockToken = gbLock('wonder');
     if (!lockToken) return;
+    const tid = gbNum(job.townId);
+    if (tid == null) {
+      gbUnlock('wonder', lockToken);
+      gbLogT('wonder-town-id', 60000, `wonder: townId unreadable — no post`);
+      return;
+    }
     gameAjaxPost('wonder', 'wonders', 'send_resources', {
       wood: job.send.wood,
       stone: job.send.stone,
       iron: job.send.iron,
       island_x: coords.x,
       island_y: coords.y,
-      town_id: +job.townId,
+      town_id: tid,
     }, (err) => {
       gbUnlock('wonder', lockToken);
       if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {

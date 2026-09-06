@@ -386,8 +386,8 @@
       }
       if (!model) return { exists: false, gold: gbPlayerGold(), price: null };
       const a = model.attributes || model;
-      const price = Number(a.price != null ? a.price : a.gold);
-      return { exists: true, gold: gbPlayerGold(), price: Number.isFinite(price) ? price : null };
+      const price = gbNum(a.price != null ? a.price : a.gold);
+      return { exists: true, gold: gbPlayerGold(), price };
     } catch (_) { return null; }
   }
   function txPtTradeStatus(townId, offerId) {
@@ -408,12 +408,12 @@
       }
       const before = txTownResourceSnap(townId);
       const tradeCap = (function () {
-        try { const t = gbTownModel(townId); return t && t.getAvailableTradeCapacity ? +t.getAvailableTradeCapacity() : null; } catch (_) { return null; }
+        try { const t = gbTownModel(townId); return t && t.getAvailableTradeCapacity ? gbNum(t.getAvailableTradeCapacity()) : null; } catch (_) { return null; }
       })();
       if (!model) return { exists: false, tradeCap, res: before };
       const a = model.attributes || model;
-      const amount = Number(a.amount != null ? a.amount : a.trade_amount != null ? a.trade_amount : a.current_amount);
-      return { exists: true, tradeCap, res: before, amount: Number.isFinite(amount) ? amount : null };
+      const amount = gbNum(a.amount != null ? a.amount : a.trade_amount != null ? a.trade_amount : a.current_amount);
+      return { exists: true, tradeCap, res: before, amount };
     } catch (_) { return null; }
   }
   function txCapture(feature, transport, endpoint, data) {
@@ -434,13 +434,13 @@
         }
       }
       if (feature === 'research') return { kind: 'research', tech: a.id || a.research_id || a.research || a.research_type, status: txResearchStatus(townId, a.id || a.research_id || a.research || a.research_type) };
-      if (feature === 'recruit') return { kind: 'recruit', unit: a.unit_id || a.unit_type, amount: +a.amount || 0, status: txUnitStatus(townId, a.unit_id || a.unit_type) };
+      if (feature === 'recruit') return { kind: 'recruit', unit: a.unit_id || a.unit_type, amount: gbNum(a.amount), status: txUnitStatus(townId, a.unit_id || a.unit_type) };
       if (feature === 'villrecruit') {
         const unit = a.unit_id || a.unit_type;
         const farmId = a.farm_town_id;
         const counts = villageUnitCounts(farmId);
-        const beforeCount = counts && counts.known && counts.units && Number.isFinite(+counts.units[unit]) ? +counts.units[unit] : null;
-        return { kind:'villrecruit', farmId, unit, amount:+a.amount||0, beforeCount };
+        const beforeCount = counts && counts.known && counts.units ? gbNum(counts.units[unit]) : null;
+        return { kind:'villrecruit', farmId, unit, amount: gbNum(a.amount), beforeCount };
       }
       if (feature === 'farm') return { kind: 'farm', farmId: a.farm_town_id, status: txFarmStatus(a.farm_town_id) };
       if (feature === 'trade') return { kind: 'trade', source: txTownResourceSnap(townId), target: txTownResourceSnap(a.id), total: (+a.wood || 0) + (+a.stone || 0) + (+a.iron || 0) };
@@ -666,7 +666,9 @@
         if (!cur || !s.before || cur.exists === false) return 'unknown';
         const action = String(s.action || '').toLowerCase();
         if (/assigntotown/.test(action) && !/unassign/.test(action)) {
-          if (s.targetTownId != null && +cur.home === +s.targetTownId && (cur.assigned || cur.traveling)) return 'applied';
+          const homeN = gbNum(cur.home);
+          const tgtN = gbNum(s.targetTownId);
+          if (homeN != null && tgtN != null && homeN === tgtN && (cur.assigned || cur.traveling)) return 'applied';
         } else if (/unassignfromtown/.test(action)) {
           if (s.before.assigned && !cur.assigned && !cur.attacking) return 'applied';
         } else if (/canceltowntravel/.test(action)) {

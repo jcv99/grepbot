@@ -154,14 +154,19 @@
     }
     const favorLock = gbLock('favor', 180000);
     if (!favorLock) return;
-    const tpl = state.attackTpl;
+    // Canonical Town/sendUnits only — never borrow attackTpl (per-feature templates).
+    const srcId = gbNum(townId);
+    if (srcId == null) {
+      gbUnlock('favor', favorLock);
+      gbLogT('favor-town-id', 60000, 'favor: townId unreadable — no post');
+      return;
+    }
     const payload = {
-      model_url: (tpl && tpl.model_url) || ('Town/' + townId),
-      action_name: (tpl && tpl.action_name) || 'sendUnits',
+      model_url: 'Town/' + srcId,
+      action_name: 'sendUnits',
       arguments: Object.assign({ id: destId, type: 'attack' }, units),
-      town_id: +townId,
+      town_id: srcId,
     };
-    payload.model_url = String(payload.model_url).replace(/Town\/\d+/, 'Town/' + townId);
     bridgePost('favor', payload, (err, data) => {
       gbUnlock('favor', favorLock);
       if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {

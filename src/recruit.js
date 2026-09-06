@@ -1,6 +1,5 @@
-  const RECRUIT_AUTO_SPELL_BY_CONTROLLER = {
-    building_barracks: 'fertility_improvement',
-  };
+  // Never default a divine power id. Recruit auto-cast needs an operator-typed
+  // id in favorCfg.recruitSpellPower (same allowlist as god spells).
   function recruitControllerFor(unitId) {
     const def = gbGameDataLookup("units", unitId);
     if (!def) return null;
@@ -64,9 +63,15 @@
     if (need && god !== need) return { ok:false, blind:false, why:`god-mismatch:${god}!=${need}` };
     return { ok:true, blind:false, why:null };
   }
-  function recruitAutoSpellForUnit(unitId) {
-    const ctrl = recruitControllerFor(unitId);
-    return ctrl ? (RECRUIT_AUTO_SPELL_BY_CONTROLLER[ctrl.controller] || null) : null;
+  function recruitAutoSpellForUnit(_unitId) {
+    const raw = (state.favorCfg && state.favorCfg.recruitSpellPower) || '';
+    const power = String(raw || '').trim();
+    if (!power) return null;
+    if (!RECRUIT_SPELLS.includes(power)) {
+      gbLogT('recruit-spell-badpower', 600000, `recruit: recruitSpellPower "${power.slice(0, 24)}" not allowlisted — no auto-cast`);
+      return null;
+    }
+    return power;
   }
   // active => recruit now; absent+castable => cast first; unavailable => recruit now.
   function recruitAutoSpellDecision(townId, unitId) {
@@ -90,11 +95,16 @@
     return { action:'cast', power, god, favor:favor.value, cost };
   }
   function spellCastPost(townId, powerId, onDone) {
+    const tid = gbNum(townId);
+    if (tid == null) {
+      gbLogT('spell-town-id', 60000, 'spell: townId unreadable — no post');
+      return onDone && onDone('town-unreadable');
+    }
     return bridgePost('spell', {
       model_url: 'CastedPowers',
       action_name: 'cast',
-      arguments: { power_id: powerId, target_id: +townId },
-      town_id: +townId,
+      arguments: { power_id: powerId, target_id: tid },
+      town_id: tid,
     }, onDone);
   }
   function recruitCastSpell(townId, powerId, onDone) {
@@ -116,10 +126,20 @@
   function recruitBuild(townId, unitId, amount, onDone) {
     const ctrl = recruitControllerFor(unitId);
     if (!ctrl) return onDone && onDone('unknown-unit');
+    const tid = gbNum(townId);
+    const amt = gbNum(amount);
+    if (tid == null) {
+      gbLogT('recruit-town-id', 60000, 'recruit: townId unreadable — no post');
+      return onDone && onDone('town-unreadable');
+    }
+    if (amt == null || !(amt > 0)) {
+      gbLogT('recruit-amount', 60000, 'recruit: amount unreadable — no post');
+      return onDone && onDone('amount-unreadable');
+    }
     gameAjaxPost('recruit', ctrl.controller, 'build', {
       unit_id: unitId,
-      amount: +amount,
-      town_id: +townId,
+      amount: amt,
+      town_id: tid,
     }, onDone);
   }
   function recruitRequiredBuildings(def) {
@@ -339,8 +359,8 @@
       try {
         if (!t || typeof t[name] !== 'function') continue;
         const raw = t[name](unitId);
-        const n = Number(raw && typeof raw === 'object' ? (raw.amount ?? raw.max ?? raw.value) : raw);
-        if (Number.isFinite(n) && n >= 0) return { known:true, amount:Math.floor(n), source:name + '()' };
+        const n = gbNum(raw && typeof raw === 'object' ? (raw.amount ?? raw.max ?? raw.value) : raw);
+        if (n != null && n >= 0) return { known:true, amount:Math.floor(n), source:name + '()' };
       } catch (_) {}
     }
     return { known:false, amount:null, source:'max-recruitable-unreadable' };
@@ -949,14 +969,18 @@
   function villagePairPick(unitCounts) {
 
     if (!unitCounts || typeof unitCounts !== 'object') return null;
-    const a = (Number.isFinite(+unitCounts.sword) ? +unitCounts.sword : 0)
-            + (Number.isFinite(+unitCounts.archer) ? +unitCounts.archer : 0);
-    const b = (Number.isFinite(+unitCounts.hoplite) ? +unitCounts.hoplite : 0)
-            + (Number.isFinite(+unitCounts.slinger) ? +unitCounts.slinger : 0);
+    const g = (id) => gbNum(unitCounts[id]);
+    const sword = g('sword'), archer = g('archer'), hoplite = g('hoplite'), slinger = g('slinger');
+    // Any listed unit present-but-unreadable ⇒ blind; do not invent 0.
+    for (const [id, n] of [['sword',sword],['archer',archer],['hoplite',hoplite],['slinger',slinger]]) {
+      if (Object.prototype.hasOwnProperty.call(unitCounts, id) && n == null) return null;
+    }
+    const a = (sword || 0) + (archer || 0);
+    const b = (hoplite || 0) + (slinger || 0);
 
     const pair = a >= b ? VILLAGE_PAIR_LOW : VILLAGE_PAIR_HIGH;
-    const lo = Number.isFinite(+unitCounts[pair[0]]) ? +unitCounts[pair[0]] : 0;
-    const hi = Number.isFinite(+unitCounts[pair[1]]) ? +unitCounts[pair[1]] : 0;
+    const lo = g(pair[0]) || 0;
+    const hi = g(pair[1]) || 0;
     return lo <= hi ? pair[0] : pair[1];
   }
 
@@ -1034,17 +1058,32 @@
     const tpl = state.acceptUnitsTpl || null;
     const actionName = (tpl && tpl.action_name) || 'accept_units';
     const baseArgs = (tpl && tpl.arguments) || {};
+    const farmId = gbNum(farm && farm.vill_id);
+    const amt = gbNum(amount);
+    const tid = gbNum(farm && farm.owning_town_id);
+    if (farmId == null) {
+      gbLogT('villrecruit-farm-id', 60000, 'village recruit: farm_town_id unreadable — no post');
+      return onDone && onDone('farm-unreadable');
+    }
+    if (amt == null || !(amt > 0)) {
+      gbLogT('villrecruit-amount', 60000, 'village recruit: amount unreadable — no post');
+      return onDone && onDone('amount-unreadable');
+    }
+    if (tid == null) {
+      gbLogT('villrecruit-town-id', 60000, 'village recruit: owning_town_id unreadable — no post');
+      return onDone && onDone('town-unreadable');
+    }
     const args = Object.assign({}, baseArgs, {
-      farm_town_id: +farm.vill_id,
+      farm_town_id: farmId,
       unit_id: String(unitId),
-      amount: +amount,
+      amount: amt,
     });
     const modelUrl = (tpl && tpl.model_url) || ('FarmTownPlayerRelation/' + (farm.relation_id || ''));
     bridgePost('villrecruit', {
       model_url: modelUrl,
       action_name: actionName,
       arguments: args,
-      town_id: +farm.owning_town_id || 0,
+      town_id: tid,
     }, onDone);
   }
   let villageRecruitCursor = 0;
@@ -1240,7 +1279,9 @@
     for (const k of ['wood','stone','iron']) {
       if (!known[k]) continue;
       if (res[k] == null) { blind.push('resources-unreadable:' + k); continue; }
-      if (+res[k] < need[k]) return { ok:false, why:'waiting-' + k, aggregate:true, need, have:+res[k] };
+      const have = gbNum(res[k]);
+      if (have == null) { blind.push('resources-unreadable:' + k); continue; }
+      if (have < need[k]) return { ok:false, why:'waiting-' + k, aggregate:true, need, have };
     }
     if (known.pop && need.pop > 0) {
       if (pop.value == null) blind.push('population-unreadable');

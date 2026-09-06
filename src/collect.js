@@ -166,7 +166,13 @@
           finish();
           return;
         }
-        gameAjaxPost('collect', collectCtrl, collectAction, { town_id: +t.id }, (err, res) => {
+        const tid = gbNum(t.id);
+        if (tid == null) {
+          gbLogT('bg-collect-id-' + t.id, 120000, `bg-collect: skip town ${t.id} (id unreadable)`);
+          finish();
+          return;
+        }
+        gameAjaxPost('collect', collectCtrl, collectAction, { town_id: tid }, (err, res) => {
 
           if (err && !JRN_SKIP_ERRS[err] && err !== 'captcha') {
             errors++;

@@ -1552,7 +1552,10 @@
             <label data-gb-tip="Ver el payload antes de enviar (no envia nada)"><input type="checkbox" data-cfg="spy-dry"/> Simulacion</label>
           </label>
           <label class="gb-cfg-row" data-gb-tip="Reclutar tropas automaticamente en cuarteles/puerto"><input type="checkbox" data-cfg="auto-recruit"/> Reclutamiento automatico</label>
-          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Lanzar hechizos de reclutamiento antes de reclutar"><input type="checkbox" data-cfg="recruit-spells"/> Lanzar antes los hechizos de reclutamiento</label>
+          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Lanzar hechizos de reclutamiento antes de reclutar. Requiere un id de poder explicito abajo; nunca se elige uno por defecto."><input type="checkbox" data-cfg="recruit-spells"/> Lanzar antes los hechizos de reclutamiento</label>
+          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Id de poder permitido (call_of_the_ocean / fertility_improvement / spartan_training). Vacio = no se lanza nada.">poder recluta
+            <input class="gb-cfg-input" type="text" data-cfg="recruit-spell-power" placeholder="(ninguno)" style="width:160px" data-gb-tip="Id exacto del poder; vacio = no auto-cast"/>
+          </label>
           <label class="gb-cfg-row gb-cfg-sub gb-cfg-risk" title="Convierte aldeanos en unidades cuando la aldea no admite mas recursos. Recompute: compara espada+arquero vs hoplita+hondero, elige la pareja con mas tropas y dentro de ella la unidad con menos. Requiere abrir la aldea y pulsar Aceptar una vez a mano la primera vez."><input type="checkbox" data-cfg="village-recruit"/> Reclutar en aldeas saturadas</label>
           <label class="gb-cfg-num gb-cfg-sub" style="margin-left:28px" data-gb-tip="% de llenado y cantidad a reclutar por tick">% llenado aldea
             <input class="gb-cfg-input" type="number" data-cfg="village-recruit-fill" min="50" max="99" style="width:50px" data-gb-tip="% minimo de llenado de la aldea para reclutar"/>
@@ -2693,6 +2696,9 @@
     setChk('[data-cfg=auto-dodge]', state.autoDodge);
     setChk('[data-cfg=auto-recruit]', state.autoRecruit);
     setChk('[data-cfg=recruit-spells]', state.recruitSpells);
+    { const fc = state.favorCfg || {};
+      const rsp = sec.querySelector('[data-cfg=recruit-spell-power]');
+      if (rsp) rsp.value = fc.recruitSpellPower || ''; }
     setChk('[data-cfg=village-recruit]', state.autoVillageRecruit);
     setNum('[data-cfg=village-recruit-fill]', state.villageRecruitFillPct);
     setNum('[data-cfg=village-recruit-amount]', state.villageRecruitAmount);
@@ -2934,6 +2940,11 @@
       // nothing", which is the default and the safe state.
       saveFavorCfg('spellPower', raw);
       gbLog('godspell power ' + (raw ? 'set to ' + raw : 'cleared - nothing will be cast'));
+    });
+    onCfg('[data-cfg=recruit-spell-power]', 'change', e => {
+      const raw = String(e.target.value || '').trim();
+      saveFavorCfg('recruitSpellPower', raw);
+      gbLog('recruit spell power ' + (raw ? 'set to ' + raw : 'cleared - no auto-cast'));
     });
     saveNum('[data-cfg=godspell-cost]', v => saveFavorCfg('spellCost', Math.max(0, Math.min(500, +v || 0))));
     saveNum('[data-cfg=godspell-reserve]', v => saveFavorCfg('spellReserve', Math.max(0, Math.min(95, +v || 50))));

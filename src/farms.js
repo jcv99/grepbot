@@ -1001,7 +1001,12 @@
     }
     farmPostedOpts[String(farm.vill_id)] = { opt: option, want: wantSec != null && Number.isFinite(+wantSec) ? +wantSec : null };
 
-    const args = Object.assign({}, tplArgs, { type: 'resources', option, farm_town_id: +farm.vill_id });
+    const farmId = gbNum(farm.vill_id);
+    if (farmId == null) {
+      gbLogT('farm-vill-id', 60000, 'farm claim: vill_id unreadable — no post');
+      return done('skip');
+    }
+    const args = Object.assign({}, tplArgs, { type: 'resources', option, farm_town_id: farmId });
     bridgePost('farm', {
       model_url: `FarmTownPlayerRelation/${farm.relation_id}`,
       action_name: (state.claimTpl && state.claimTpl.action_name) || 'claim',
@@ -1041,7 +1046,12 @@
         `farm units claim skip town ${tid} vill ${farm.vill_id}: ${why}`);
       return done('skip');
     }
-    const args = Object.assign({}, tplArgs, { type: 'units', option, farm_town_id: +farm.vill_id });
+    const farmIdU = gbNum(farm.vill_id);
+    if (farmIdU == null) {
+      gbLogT('farm-vill-id', 60000, 'farm units claim: vill_id unreadable — no post');
+      return done('skip');
+    }
+    const args = Object.assign({}, tplArgs, { type: 'units', option, farm_town_id: farmIdU });
     bridgePost('farm', {
       model_url: `FarmTownPlayerRelation/${farm.relation_id}`,
       action_name: (state.claimTpl && state.claimTpl.action_name) || 'claim',

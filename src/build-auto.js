@@ -127,8 +127,9 @@
       const uw = gameUw();
       if (uw.GameDataPremium && uw.GameDataPremium.isAdvisorActivated && uw.GameDataPremium.isAdvisorActivated('curator')) return 7;
       if (uw.GameDataConstructionQueue && uw.GameDataConstructionQueue.getBuildingOrdersQueueLength) {
-        const n = +uw.GameDataConstructionQueue.getBuildingOrdersQueueLength();
-        if (Number.isFinite(n) && n > 0) return n;
+        const n = gbNum(uw.GameDataConstructionQueue.getBuildingOrdersQueueLength());
+        if (n != null && n > 0) return n;
+        if (n == null) gbLogT('ab-queue-max-blind', 300000, 'auto-queue: getBuildingOrdersQueueLength unreadable — using fallback 2');
       }
     } catch (_) {}
     return 2;
@@ -160,12 +161,13 @@
     const bd = abBuildDataEntry(townId, building);
     if (!bd) return null;
     const need = bd.resources_for || bd.resources || bd.costs;
-    if (!need || need.wood == null || need.stone == null || need.iron == null) return null;
-    const popRaw = bd.population_for != null ? +bd.population_for : (bd.population != null ? +bd.population : NaN);
-
-    const popBlind = !Number.isFinite(popRaw);
+    if (!need) return null;
+    const wood = gbNum(need.wood), stone = gbNum(need.stone), iron = gbNum(need.iron);
+    if (wood == null || stone == null || iron == null) return null;
+    const popRaw = bd.population_for != null ? gbNum(bd.population_for) : (bd.population != null ? gbNum(bd.population) : null);
+    const popBlind = popRaw == null;
     const pop = popBlind ? 0 : popRaw;
-    return { wood: +need.wood || 0, stone: +need.stone || 0, iron: +need.iron || 0, pop, population: pop, popBlind };
+    return { wood, stone, iron, pop, population: pop, popBlind };
   }
   // Same flag the senate uses to enable the Ampliación button
   // (`toggleClass("disabled", !can_upgrade)`). true = clickable, false = grey,
@@ -215,7 +217,7 @@
     const need = abBuildingCost(townId, building);
     let res = null, pop = null;
     try { res = t.resources && t.resources(); } catch (_) {}
-    try { pop = t.getAvailablePopulation ? +t.getAvailablePopulation() : (res && res.population != null ? gbNum(res.population) : null); } catch (_) {}
+    try { pop = t.getAvailablePopulation ? gbNum(t.getAvailablePopulation()) : (res && res.population != null ? gbNum(res.population) : null); } catch (_) {}
     const wood = res ? gbNum(res.wood) : null, stone = res ? gbNum(res.stone) : null, iron = res ? gbNum(res.iron) : null;
     const have = (wood != null && stone != null && iron != null)
       ? { wood, stone, iron, population: pop }
@@ -329,7 +331,9 @@
     const candidates = AB_BUILDINGS.filter(b => AB_CS_FAST[b] != null).filter(b => {
       if (goalQueueSuppressed(townId, 'build', b)) return false;
       const max = abMaxLevel(b);
-      if (max == null || +(levels[b] || 0) >= max) return false;
+      if (max == null) return false;
+      const lvl = gbNum(levels[b]);
+      if (lvl == null || lvl >= max) return false;
       const req = abRequirementMap(townId, b);
       if (req == null) return false;
       for (const [dep, needRaw] of Object.entries(req)) {
@@ -416,7 +420,8 @@
     const targetLevel=+(levels[fresh.building]||0)+1;
     if(txRecentlyCommitted(`build:${townId}:${fresh.building}:${targetLevel}`,60000))return {ok:false,why:'recently-accepted-waiting-model'};
     const max = abMaxLevel(fresh.building);
-    if (max == null || +(levels[fresh.building] || 0) >= max) return { ok: false, why: 'max-level' };
+    const curLvl = gbNum(levels[fresh.building]);
+    if (max == null || curLvl == null || curLvl >= max) return { ok: false, why: curLvl == null ? 'levels-unreadable' : 'max-level' };
     const req = abRequirementMap(townId, fresh.building);
     if (req == null) return { ok: false, why: 'requirements-unreadable' };
     for (const [dep, needRaw] of Object.entries(req)) {
@@ -457,8 +462,15 @@
       if(nativeId&&!nativeQueueMarkBuild(townId,nativeId,{inflight:{building,targetLevel:check.plan.targetLevel,at:Date.now()},manualReview:false,status:'sending',reason:`enviando ${nativeBuildLabel(building)}`})){resolve('replan');return}
       const nativeFail=(status,reason,manualReview)=>{if(!nativeId)return;const cur=nativeQueueList(townId,'build',false).find(j=>j&&j.id===nativeId),reconcile=manualReview&&cur&&cur.inflight?Object.assign({},cur.inflight):null;nativeQueueMarkBuild(townId,nativeId,{inflight:null,reconcile,manualReview:!!manualReview,status,reason})};
       const buildAction=check.plan.mode==='teardown'?'tearDown':'buildUp';
+      const tid = gbNum(townId);
+      if (tid == null) {
+        if(provisionalStrip)cdRollbackProvisionalStrip(townId,stripStateRef);
+        nativeFail('blocked','townId unreadable',false);
+        gbLogT('ab-town-id', 60000, `auto-queue: townId unreadable — no post`);
+        resolve('err'); return;
+      }
       bridgePost('build', {
-        model_url: 'BuildingOrder', action_name: buildAction, arguments: { building_id: building }, town_id: +townId,
+        model_url: 'BuildingOrder', action_name: buildAction, arguments: { building_id: building }, town_id: tid,
       }, (err) => {
         if (err === 'captcha' || err === 'captcha-pause') { if(provisionalStrip)cdRollbackProvisionalStrip(townId,stripStateRef);nativeFail('waiting','pausado por captcha',false);resolve('captcha'); return; }
         if (err === 'timeout_unknown' || err === 'pending') { if(provisionalStrip)cdPersistTownGoal(townId);nativeFail('unknown','resultado desconocido; comprobar la cola real',true);gbLog(`auto-queue: ${building} @${townId} outcome unknown/pending \u2014 no retry`); resolve('unknown'); return; }

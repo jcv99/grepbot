@@ -31,8 +31,13 @@
     let info = null;
     try { info = caveTownInfo(townId); } catch (_) { info = null; }
     if (!info) return { stored: null, hideLvl: null, unlimited: false };
-    const stored = Number.isFinite(+info.stored) && +info.stored >= 0 ? +info.stored : null;
-    return { stored, hideLvl: Number.isFinite(+info.hideLvl) ? +info.hideLvl : null, unlimited: !!info.unlimited };
+    const stored = gbNum(info.stored);
+    const hideLvl = gbNum(info.hideLvl);
+    return {
+      stored: stored != null && stored >= 0 ? stored : null,
+      hideLvl: hideLvl != null ? hideLvl : null,
+      unlimited: !!info.unlimited,
+    };
   }
 
   function spsStoredFromResponse(res) {
@@ -41,7 +46,10 @@
     for (const o of probe) {
       if (!o || typeof o !== 'object') continue;
       const v = o.stored_iron != null ? o.stored_iron : (o.espionage_storage != null ? o.espionage_storage : null);
-      if (v != null && Number.isFinite(+v) && +v >= 0) return +v;
+      if (v != null) {
+        const n = gbNum(v);
+        if (n != null && n >= 0) return n;
+      }
     }
     return null;
   }

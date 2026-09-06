@@ -509,14 +509,16 @@
     const short = [];
     let blind = false;
     for (const k of GB_RES_KEYS) {
-      const need = +normalized[k] || 0;
+      const need = gbNum(normalized[k]);
+      if (need == null) { blind = true; short.push(`${k} cost unreadable`); continue; }
       if (need <= 0) continue;
       const have = av ? av[k] : (st && st[k]);
       if (have == null) { blind = true; short.push(`${k} unreadable`); continue; }
       if (have < need + margin) short.push(`${k} ${Math.floor(have)}/${Math.ceil(need + margin)}`);
     }
-    const needPop = +normalized.population || 0;
-    if (needPop > 0) {
+    const needPop = gbNum(normalized.population);
+    if (needPop == null && normalized.population != null) { blind = true; short.push('population cost unreadable'); }
+    else if (needPop != null && needPop > 0) {
       const pop = av ? av.population : gbTownPop(townId);
       if (pop == null) { blind = true; short.push('population unreadable'); }
       else if (pop < needPop) short.push(`pop ${Math.floor(pop)}/${Math.ceil(needPop)}`);

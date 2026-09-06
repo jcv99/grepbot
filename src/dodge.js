@@ -96,10 +96,10 @@
   }
   function defenseShouldDodge(mov,incoming){const mode=defenseMode(),a=defenseAssessment(mov,incoming);if(mode==='notify')return{yes:false,assessment:a,why:'notify'};if(mode==='safe')return{yes:true,assessment:a,why:'safe'};return{yes:false,assessment:a,why:'defend/observe'}}
   function dodgeReturnSave(){save(STORE.DODGE_RETURNS,state.dodgeReturns||{})}
-  function dodgeReturnRecord(mov,from,dest,data){const id=String((data&&(data.command_id||data.commandId||data.movement_id||data.id))||'');if(!id)return;const arrival=+(mov&&mov.arrival)||0,margin=Math.max(0,+((state.defenseCfg&&state.defenseCfg.returnMarginSec)||120));
+  function dodgeReturnRecord(mov,from,dest,data){const id=String((data&&(data.command_id||data.commandId||data.movement_id||data.id))||'');if(!id)return;const arrival=gbNum(mov&&mov.arrival);const margin=Math.max(0,gbNum((state.defenseCfg&&state.defenseCfg.returnMarginSec))||120);
 
     let due=0;
-    if (Number.isFinite(arrival) && arrival > 0) {
+    if (arrival != null && arrival > 0) {
       due = (arrival > 1e12 ? arrival : arrival * 1000) + margin * 1000;
     }
     if (!due) due = Date.now() + margin * 1000;
@@ -330,10 +330,12 @@
       const uw = gameUw();
       const t = uw.ITowns && uw.ITowns.towns && uw.ITowns.towns[townId];
       const u = (t && t.units && t.units()) || null;
-      if (u && +u.militia > 0) return { ok: false, why: 'militia already standing' };
+      const mil = u ? gbNum(u.militia) : null;
+      if (mil != null && mil > 0) return { ok: false, why: 'militia already standing' };
+      if (u && mil == null) return { ok: false, why: 'militia-unreadable' };
 
-      const avail = t && t.getAvailablePopulation && +t.getAvailablePopulation();
-      if (avail != null && Number.isFinite(avail) && avail <= 0) return { ok: false, why: 'no free population' };
+      const avail = t && t.getAvailablePopulation ? gbNum(t.getAvailablePopulation()) : null;
+      if (avail != null && avail <= 0) return { ok: false, why: 'no free population' };
     } catch (_) {}
     return { ok: true, why: null };
   }
@@ -343,7 +345,12 @@
       gbLogT('militia-skip-' + townId, 120000, `militia: town ${townId} skipped (${can.why})`);
       return onDone && onDone('skip:' + can.why);
     }
-    gameAjaxPost('militia', 'building_farm', 'request_militia', { town_id: +townId }, onDone);
+    const milTown = gbNum(townId);
+    if (milTown == null) {
+      gbLogT('militia-town-id', 60000, 'militia: townId unreadable — no post');
+      return onDone && onDone('town-unreadable');
+    }
+    gameAjaxPost('militia', 'building_farm', 'request_militia', { town_id: milTown }, onDone);
   }
   function dodgeSendOut(townId, units, safeId, onDone) {
     const destId = gbNum(safeId);
@@ -351,7 +358,7 @@
     if (destId == null || srcId == null) return onDone && onDone('town-unreadable');
     const payload = {
       model_url: 'Town/' + townId,
-      action_name: (state.attackTpl && state.attackTpl.action_name) || 'sendUnits',
+      action_name: (state.supportTpl && state.supportTpl.action_name) || 'sendUnits',
       arguments: Object.assign({ id: destId, type: 'support' }, units),
       town_id: srcId,
     };
@@ -371,7 +378,11 @@
           else delete u[k];
         });
       }
-      Object.keys(u).forEach(k => { if (!(+u[k] > 0)) delete u[k]; });
+      Object.keys(u).forEach(k => {
+        const n = gbNum(u[k]);
+        if (n == null || !(n > 0)) delete u[k];
+        else u[k] = n;
+      });
       return u;
     } catch (_) { return {}; }
   }
@@ -402,8 +413,8 @@
   }
 
   function dodgeArrivalSec(mov) {
-    let a = +(mov && mov.arrival);
-    if (!Number.isFinite(a) || a <= 0) return null;
+    let a = gbNum(mov && mov.arrival);
+    if (a == null || a <= 0) return null;
     return a > 1e12 ? Math.floor(a / 1000) : a;
   }
   function dodgeEtaSec(mov) {

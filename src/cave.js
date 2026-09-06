@@ -116,7 +116,14 @@
     const keep = Math.floor(info.cap * (pct / 100));
     if (info.iron < keep) return 0;
     let excess = Math.floor(info.iron - keep);
-    try { const av = plannerAvailable(info.town && (info.town.id || (info.town.attributes && info.town.attributes.id))); if (av && Number.isFinite(av.iron)) excess = Math.min(excess, Math.floor(av.iron)); } catch (_) {}
+    try {
+      const av = plannerAvailable(info.town && (info.town.id || (info.town.attributes && info.town.attributes.id)));
+      if (av) {
+        const avIron = gbNum(av.iron);
+        if (avIron == null) return 0;
+        excess = Math.min(excess, Math.floor(avIron));
+      }
+    } catch (_) {}
     if (excess < CAVE_MIN_STORE) return 0;
 
     if (!info.unlimited && (info.hideCap == null || info.stored == null)) {
@@ -141,11 +148,17 @@
       if (onDone) onDone('skip:bad-amount');
       return;
     }
+    const tid = gbNum(townId);
+    if (tid == null) {
+      gbLogT('cave-town-id', 60000, `cave: town id unreadable — no post`);
+      if (onDone) onDone('skip:town-unreadable');
+      return;
+    }
     bridgePost(feature || 'cave', {
       model_url: 'BuildingHide',
       action_name: 'storeIron',
       arguments: { iron_to_store: amt },
-      town_id: +townId,
+      town_id: tid,
     }, onDone);
   }
   function caveListTownIds() {

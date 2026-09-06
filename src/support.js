@@ -46,11 +46,16 @@
       gbLogT('support-dest-id', 60000, 'support: dest town id unreadable - no post');
       return onDone && onDone('bad-target');
     }
+    const fromId = gbNum(fromTownId);
+    if (fromId == null) {
+      gbLogT('support-from-id', 60000, 'support: from town id unreadable - no post');
+      return onDone && onDone('bad-source');
+    }
     const payload = {
-      model_url: 'Town/' + fromTownId,
+      model_url: 'Town/' + fromId,
       action_name: tpl.action_name,
       arguments: Object.assign({ id: destId, type: 'support' }, units),
-      town_id: +fromTownId,
+      town_id: fromId,
     };
     bridgePost('support', payload, onDone);
   }
@@ -106,7 +111,9 @@
 
       let travel = null;
       try {
-        travel = computeTravelSeconds(d.from, { town_id: +mov.dest, id: +mov.dest, kind: 'town', ...townCoords(mov.dest) }, units, true);
+        const destId = gbNum(mov.dest);
+        if (destId == null) throw new Error('dest-unreadable');
+        travel = computeTravelSeconds(d.from, { town_id: destId, id: destId, kind: 'town', ...townCoords(mov.dest) }, units, true);
       } catch (_) {}
       if (travel == null) {
         gbLogT('support-travel-' + d.from, 600000, `support: travel time unreadable from ${d.from} - donor skipped`);

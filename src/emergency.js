@@ -34,7 +34,11 @@
     try {
       const tid = info.town && (info.town.id || (info.town.attributes && info.town.attributes.id));
       const av = tid != null ? plannerAvailable(tid) : null;
-      if (av && Number.isFinite(av.iron)) amount = Math.min(amount, Math.floor(av.iron));
+      if (av) {
+        const avIron = gbNum(av.iron);
+        if (avIron == null) return 0;
+        amount = Math.min(amount, Math.floor(avIron));
+      }
     } catch (_) {}
     if (!info.unlimited) {
 

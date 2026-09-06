@@ -319,17 +319,14 @@
         town_id: tpl.town_id,
       };
 
-      if (cfg.dryRun) {
-        gbLog(`DRY-RUN spy: ${JSON.stringify(payload).slice(0, 200)}`);
-        spyLastSpy()[t.id] = Date.now();
-        spyHistorySave();
-        gbTimeout(next, 400);
-        return;
-      }
       spyInFlightAdd(t.id);
       bridgePost('spy', payload, (err) => {
         spyInFlightDone(t.id);
         if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('spy', lockToken); return; }
+        if (err === 'dryrun') {
+          gbTimeout(next, 400);
+          return;
+        }
         if (!err) {
           spyLastSpy()[t.id] = Date.now();
           spyHistorySave();

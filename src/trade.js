@@ -75,12 +75,18 @@
     });
   }
   function tradeSend(fromId, toId, wood, stone, iron, onDone) {
+    const to = gbNum(toId);
+    const from = gbNum(fromId);
+    if (to == null || from == null) {
+      gbLogT('trade-town-id', 60000, 'trade: from/to town id unreadable — no post');
+      return onDone && onDone('town-unreadable');
+    }
     gameAjaxPost('trade', 'town_info', 'trade', {
-      id: +toId,
+      id: to,
       wood: Math.max(0, Math.floor(wood)),
       stone: Math.max(0, Math.floor(stone)),
       iron: Math.max(0, Math.floor(iron)),
-      town_id: +fromId,
+      town_id: from,
       nl_init: true,
     }, onDone);
   }
@@ -110,7 +116,10 @@
       dest=dest??a.destination_town_id??a.target_town_id??a.receiving_town_id??a.receiver_town_id??a.to_town_id??null;if(dest==null||!/^\d+$/.test(String(dest))||!own.has(String(dest)))continue;
       const eta=a.arrival_at??a.arrival_time??a.arrives_at??a.to_be_completed_at??a.end_at??null;if(eta!=null&&Number.isFinite(+eta)){const t=+eta>1e12?+eta/1000:+eta;if(t<=0||(t>1e9&&t<=now))continue}
       let res=a.resources||a.resource||a.payload||null;try{if(!res&&typeof m.getResources==='function')res=m.getResources()}catch(_){}res=res&&res.attributes||res||{};
-      const wood=Math.max(0,+(a.wood??res.wood)||0),stone=Math.max(0,+(a.stone??res.stone)||0),iron=Math.max(0,+(a.iron??res.iron??res.silver)||0);if(!(wood+stone+iron>0))continue;
+      const woodN = gbNum(a.wood ?? res.wood), stoneN = gbNum(a.stone ?? res.stone), ironN = gbNum(a.iron ?? res.iron ?? res.silver);
+      if (woodN == null && stoneN == null && ironN == null) continue;
+      const wood = Math.max(0, woodN || 0), stone = Math.max(0, stoneN || 0), iron = Math.max(0, ironN || 0);
+      if (!(wood + stone + iron > 0)) continue;
       const rawId=a.id??m.id??'',rid=rawId===''?'':String(rawId)+'|'+String(dest);if(rid&&seenRows.has(rid))continue;if(rid)seenRows.add(rid);
       const row=out[String(dest)]||(out[String(dest)]={wood:0,stone:0,iron:0});row.wood+=wood;row.stone+=stone;row.iron+=iron;
     }catch(_){}}

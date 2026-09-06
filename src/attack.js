@@ -116,9 +116,11 @@
     const boats = {};
     let needPop = 0;
     let cap = 0;
+    let blind = false;
     Object.keys(units || {}).forEach(id => {
-      const n = +units[id] || 0;
-      if (!n) return;
+      const n = gbNum(units[id]);
+      if (n == null) { blind = true; return; }
+      if (!(n > 0)) return;
       const m = unitMeta(id);
       if (!m) return;
       if (m.is_naval || (m.capacity != null && m.capacity > 0 && !m.population)) {
@@ -130,6 +132,7 @@
         needPop += (m.population || 1) * n;
       }
     });
+    if (blind) return { ok: false, need: 0, cap: 0, sameIsland: !!sameIsland, reason: 'units-unreadable', blind: true };
     if (!Object.keys(land).length) return { ok: true, need: 0, cap, sameIsland: !!sameIsland, reason: 'naval-only' };
     if (sameIsland && !Object.keys(boats).length) return { ok: true, need: needPop, cap: 0, sameIsland: true, reason: 'same-island' };
     try {
@@ -167,27 +170,40 @@
     if (troopMode === 'per_town') {
       const custom = (perTownMap && perTownMap[townId]) || {};
       Object.keys(custom).forEach(k => {
-        const want = +custom[k] || 0;
-        const have = +live[k] || 0;
+        const want = gbNum(custom[k]);
+        const have = gbNum(live[k]);
+        if (want == null || have == null) {
+          gbLogT('attack-units-blind-' + townId, 120000, `attack: unit ${k} count unreadable in town ${townId}`);
+          return;
+        }
         if (want > 0 && have > 0) out[k] = Math.min(want, have);
       });
       return out;
     }
     if (troopMode === 'all_of_type' && unitType) {
-      const have = +live[unitType] || 0;
+      const have = gbNum(live[unitType]);
+      if (have == null) {
+        gbLogT('attack-units-blind-' + townId, 120000, `attack: unit ${unitType} count unreadable in town ${townId}`);
+        return out;
+      }
       if (have > 0) out[unitType] = have;
 
       const m = unitMeta(unitType);
       if (m && !m.is_naval) {
         Object.keys(live).forEach(id => {
           const um = unitMeta(id);
-          if (um && um.capacity > 0 && live[id] > 0) out[id] = live[id];
+          const n = gbNum(live[id]);
+          if (um && um.capacity > 0 && n != null && n > 0) out[id] = n;
         });
       }
       return out;
     }
     Object.keys(live).forEach(id => {
-      const n = +live[id] || 0;
+      const n = gbNum(live[id]);
+      if (n == null) {
+        gbLogT('attack-units-blind-' + townId, 120000, `attack: unit ${id} count unreadable in town ${townId}`);
+        return;
+      }
       if (!n) return;
       if (id === 'militia') return;
       const m = unitMeta(id);
@@ -281,8 +297,8 @@
     const plan = ensureAttackPlan();
     plan.targetId = String(t.id);
     plan.targetType = 'town';
-    if (t.x != null && Number.isFinite(+t.x)) plan.targetX = +t.x;
-    if (t.y != null && Number.isFinite(+t.y)) plan.targetY = +t.y;
+    const tx = gbNum(t.x); if (tx != null) plan.targetX = tx;
+    const ty = gbNum(t.y); if (ty != null) plan.targetY = ty;
     attackRememberTarget(t.id, { name: t.name || null, x: t.x, y: t.y, src: t.src || 'picker' });
     saveAttackPlan();
     renderAttack();
@@ -554,14 +570,25 @@
 
     const live = townLiveUnits(srcTownId);
     const sendUnits = {};
+    let unitsBlind = false;
     Object.keys(units || {}).forEach(k => {
-      const want = +units[k] || 0;
-      const have = +live[k] || 0;
+      const want = gbNum(units[k]);
+      const have = gbNum(live[k]);
+      if (want == null || have == null) {
+        unitsBlind = true;
+        gbLogT('attack-send-units-blind', 60000, `attack: unit ${k} count unreadable — abort send`);
+        return;
+      }
       if (want > 0 && have > 0) sendUnits[k] = Math.min(want, have);
     });
     delete sendUnits.militia;
+    if (unitsBlind) return onDone && onDone('units-unreadable');
     if (!Object.keys(sendUnits).length) return onDone && onDone('no-units');
-    const destId = +target.town_id;
+    const destId = gbNum(target.town_id);
+    if (destId == null) {
+      gbLogT('attack-dest-id', 60000, 'attack: target town_id unreadable — no post');
+      return onDone && onDone('bad-target');
+    }
     const tpl = state.attackTpl;
     const settle = (err, data) => {
       if (err) { flash('ataque fallido: ' + err); return onDone && onDone(err); }
@@ -572,9 +599,14 @@
       if (onDone) onDone(null, data);
     };
 
+    const srcId = gbNum(srcTownId);
+    if (srcId == null) {
+      gbLogT('attack-src-id', 60000, 'attack: srcTownId unreadable — no post');
+      return onDone && onDone('town-unreadable');
+    }
     if (!tpl) {
       const params = Object.assign({}, sendUnits, {
-        id: destId, type: safeMission, town_id: +srcTownId,
+        id: destId, type: safeMission, town_id: srcId,
       });
       const n = countUnits(sendUnits);
       if (state.exportRedact === false) gbLog('attack ajax:', JSON.stringify(params));
@@ -600,7 +632,7 @@
       model_url: modelUrl,
       action_name: (tpl && tpl.action_name) || 'sendUnits',
       arguments: args,
-      town_id: +srcTownId,
+      town_id: srcId,
     };
 
     const unitCount = countUnits(sendUnits);

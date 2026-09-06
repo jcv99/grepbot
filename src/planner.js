@@ -19,10 +19,11 @@
     const st = townResState(townId);
     const pop = gbTownPop(townId);
     let tradeCap = null;
-    try { const t = gbTownModel(townId); if (t && t.getAvailableTradeCapacity) tradeCap = +t.getAvailableTradeCapacity(); } catch (_) {}
+    try { const t = gbTownModel(townId); if (t && t.getAvailableTradeCapacity) tradeCap = gbNum(t.getAvailableTradeCapacity()); } catch (_) {}
     if (!st || st.wood == null || st.stone == null || st.iron == null || pop == null) return null;
-    return { wood:+st.wood, stone:+st.stone, iron:+st.iron, population:+pop, cap:+st.cap || 0,
-      tradeCap:Number.isFinite(tradeCap) ? tradeCap : null };
+    const capN = gbNum(st.cap);
+    return { wood:+st.wood, stone:+st.stone, iron:+st.iron, population:+pop, cap: capN == null ? 0 : capN,
+      tradeCap: tradeCap };
   }
   function plannerReservationActive(tx) {
     if (!tx || !tx.reservation || tx.reservation.state === 'released') return false;

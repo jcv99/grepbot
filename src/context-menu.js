@@ -67,9 +67,11 @@
     head.textContent = `GrepBot \u00b7 ciudad ${townId}`;
     m.appendChild(head);
     m.appendChild(ctxItem('Atacar', 'Fija esta ciudad como objetivo del planificador de ataque', () => {
-      applyAttackTarget({ id: +townId, town_id: +townId, kind: 'town' });
+      const tid = gbNum(townId);
+      if (tid == null) { flash('id de ciudad ilegible'); return; }
+      applyAttackTarget({ id: tid, town_id: tid, kind: 'town' });
       showTab('attack');
-      flash('objetivo fijado: ' + townId);
+      flash('objetivo fijado: ' + tid);
     }));
     m.appendChild(ctxItem('A la lista de vigilancia', 'Anade esta ciudad a la lista de vigilancia', () => {
       if (!Array.isArray(state.watchlist)) state.watchlist = [];

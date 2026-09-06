@@ -12,7 +12,7 @@
       profiled = !!(e && e.research && +e.research[tech] > 0);
     } catch (_) {}
     let points = null;
-    try { const n = researchPointsAvailable(townId, info); if (Number.isFinite(n)) points = n; } catch (_) {}
+    try { const n = researchPointsAvailable(townId, info); if (n != null) points = n; } catch (_) {}
 
     let cost = null;
     try {
@@ -153,8 +153,8 @@
   function researchConstant(name) {
     try {
       const c = gameUw().Game && gameUw().Game.constants && gameUw().Game.constants.academy;
-      const v = c ? +c[name] : NaN;
-      return isFinite(v) ? v : null;
+      const v = c ? gbNum(c[name]) : null;
+      return v;
     } catch (_) { return null; }
   }
 
@@ -205,8 +205,8 @@
     const perAcademy = researchConstant('points_per_academy_level');
     if (perAcademy == null) return null;
     if (info.academy == null) return null;
-    const acad = +info.academy;
-    if (!isFinite(acad) || acad < 0) return null;
+    const acad = gbNum(info.academy);
+    if (acad == null || acad < 0) return null;
     const level = researchAcademyTearingDown(townId) === true ? Math.max(0, acad - 1) : acad;
     let current = level * perAcademy;
     if (info.library == null) return null;

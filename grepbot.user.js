@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.45
+// @version      6.0.46
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -2807,10 +2807,11 @@ const STORE = {
     const st = townResState(townId);
     const pop = gbTownPop(townId);
     let tradeCap = null;
-    try { const t = gbTownModel(townId); if (t && t.getAvailableTradeCapacity) tradeCap = +t.getAvailableTradeCapacity(); } catch (_) {}
+    try { const t = gbTownModel(townId); if (t && t.getAvailableTradeCapacity) tradeCap = gbNum(t.getAvailableTradeCapacity()); } catch (_) {}
     if (!st || st.wood == null || st.stone == null || st.iron == null || pop == null) return null;
-    return { wood:+st.wood, stone:+st.stone, iron:+st.iron, population:+pop, cap:+st.cap || 0,
-      tradeCap:Number.isFinite(tradeCap) ? tradeCap : null };
+    const capN = gbNum(st.cap);
+    return { wood:+st.wood, stone:+st.stone, iron:+st.iron, population:+pop, cap: capN == null ? 0 : capN,
+      tradeCap: tradeCap };
   }
   function plannerReservationActive(tx) {
     if (!tx || !tx.reservation || tx.reservation.state === 'released') return false;
@@ -3415,8 +3416,8 @@ const STORE = {
       }
       if (!model) return { exists: false, gold: gbPlayerGold(), price: null };
       const a = model.attributes || model;
-      const price = Number(a.price != null ? a.price : a.gold);
-      return { exists: true, gold: gbPlayerGold(), price: Number.isFinite(price) ? price : null };
+      const price = gbNum(a.price != null ? a.price : a.gold);
+      return { exists: true, gold: gbPlayerGold(), price };
     } catch (_) { return null; }
   }
   function txPtTradeStatus(townId, offerId) {
@@ -3437,12 +3438,12 @@ const STORE = {
       }
       const before = txTownResourceSnap(townId);
       const tradeCap = (function () {
-        try { const t = gbTownModel(townId); return t && t.getAvailableTradeCapacity ? +t.getAvailableTradeCapacity() : null; } catch (_) { return null; }
+        try { const t = gbTownModel(townId); return t && t.getAvailableTradeCapacity ? gbNum(t.getAvailableTradeCapacity()) : null; } catch (_) { return null; }
       })();
       if (!model) return { exists: false, tradeCap, res: before };
       const a = model.attributes || model;
-      const amount = Number(a.amount != null ? a.amount : a.trade_amount != null ? a.trade_amount : a.current_amount);
-      return { exists: true, tradeCap, res: before, amount: Number.isFinite(amount) ? amount : null };
+      const amount = gbNum(a.amount != null ? a.amount : a.trade_amount != null ? a.trade_amount : a.current_amount);
+      return { exists: true, tradeCap, res: before, amount };
     } catch (_) { return null; }
   }
   function txCapture(feature, transport, endpoint, data) {
@@ -3463,13 +3464,13 @@ const STORE = {
         }
       }
       if (feature === 'research') return { kind: 'research', tech: a.id || a.research_id || a.research || a.research_type, status: txResearchStatus(townId, a.id || a.research_id || a.research || a.research_type) };
-      if (feature === 'recruit') return { kind: 'recruit', unit: a.unit_id || a.unit_type, amount: +a.amount || 0, status: txUnitStatus(townId, a.unit_id || a.unit_type) };
+      if (feature === 'recruit') return { kind: 'recruit', unit: a.unit_id || a.unit_type, amount: gbNum(a.amount), status: txUnitStatus(townId, a.unit_id || a.unit_type) };
       if (feature === 'villrecruit') {
         const unit = a.unit_id || a.unit_type;
         const farmId = a.farm_town_id;
         const counts = villageUnitCounts(farmId);
-        const beforeCount = counts && counts.known && counts.units && Number.isFinite(+counts.units[unit]) ? +counts.units[unit] : null;
-        return { kind:'villrecruit', farmId, unit, amount:+a.amount||0, beforeCount };
+        const beforeCount = counts && counts.known && counts.units ? gbNum(counts.units[unit]) : null;
+        return { kind:'villrecruit', farmId, unit, amount: gbNum(a.amount), beforeCount };
       }
       if (feature === 'farm') return { kind: 'farm', farmId: a.farm_town_id, status: txFarmStatus(a.farm_town_id) };
       if (feature === 'trade') return { kind: 'trade', source: txTownResourceSnap(townId), target: txTownResourceSnap(a.id), total: (+a.wood || 0) + (+a.stone || 0) + (+a.iron || 0) };
@@ -3685,7 +3686,9 @@ const STORE = {
         if (!cur || !s.before || cur.exists === false) return 'unknown';
         const action = String(s.action || '').toLowerCase();
         if (/assigntotown/.test(action) && !/unassign/.test(action)) {
-          if (s.targetTownId != null && +cur.home === +s.targetTownId && (cur.assigned || cur.traveling)) return 'applied';
+          const homeN = gbNum(cur.home);
+          const tgtN = gbNum(s.targetTownId);
+          if (homeN != null && tgtN != null && homeN === tgtN && (cur.assigned || cur.traveling)) return 'applied';
         } else if (/unassignfromtown/.test(action)) {
           if (s.before.assigned && !cur.assigned && !cur.attacking) return 'applied';
         } else if (/canceltowntravel/.test(action)) {
@@ -4557,14 +4560,16 @@ const STORE = {
     const short = [];
     let blind = false;
     for (const k of GB_RES_KEYS) {
-      const need = +normalized[k] || 0;
+      const need = gbNum(normalized[k]);
+      if (need == null) { blind = true; short.push(`${k} cost unreadable`); continue; }
       if (need <= 0) continue;
       const have = av ? av[k] : (st && st[k]);
       if (have == null) { blind = true; short.push(`${k} unreadable`); continue; }
       if (have < need + margin) short.push(`${k} ${Math.floor(have)}/${Math.ceil(need + margin)}`);
     }
-    const needPop = +normalized.population || 0;
-    if (needPop > 0) {
+    const needPop = gbNum(normalized.population);
+    if (needPop == null && normalized.population != null) { blind = true; short.push('population cost unreadable'); }
+    else if (needPop != null && needPop > 0) {
       const pop = av ? av.population : gbTownPop(townId);
       if (pop == null) { blind = true; short.push('population unreadable'); }
       else if (pop < needPop) short.push(`pop ${Math.floor(pop)}/${Math.ceil(needPop)}`);
@@ -5625,17 +5630,14 @@ const STORE = {
         town_id: tpl.town_id,
       };
 
-      if (cfg.dryRun) {
-        gbLog(`DRY-RUN spy: ${JSON.stringify(payload).slice(0, 200)}`);
-        spyLastSpy()[t.id] = Date.now();
-        spyHistorySave();
-        gbTimeout(next, 400);
-        return;
-      }
       spyInFlightAdd(t.id);
       bridgePost('spy', payload, (err) => {
         spyInFlightDone(t.id);
         if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('spy', lockToken); return; }
+        if (err === 'dryrun') {
+          gbTimeout(next, 400);
+          return;
+        }
         if (!err) {
           spyLastSpy()[t.id] = Date.now();
           spyHistorySave();
@@ -6978,7 +6980,12 @@ const STORE = {
     }
     farmPostedOpts[String(farm.vill_id)] = { opt: option, want: wantSec != null && Number.isFinite(+wantSec) ? +wantSec : null };
 
-    const args = Object.assign({}, tplArgs, { type: 'resources', option, farm_town_id: +farm.vill_id });
+    const farmId = gbNum(farm.vill_id);
+    if (farmId == null) {
+      gbLogT('farm-vill-id', 60000, 'farm claim: vill_id unreadable \u2014 no post');
+      return done('skip');
+    }
+    const args = Object.assign({}, tplArgs, { type: 'resources', option, farm_town_id: farmId });
     bridgePost('farm', {
       model_url: `FarmTownPlayerRelation/${farm.relation_id}`,
       action_name: (state.claimTpl && state.claimTpl.action_name) || 'claim',
@@ -7018,7 +7025,12 @@ const STORE = {
         `farm units claim skip town ${tid} vill ${farm.vill_id}: ${why}`);
       return done('skip');
     }
-    const args = Object.assign({}, tplArgs, { type: 'units', option, farm_town_id: +farm.vill_id });
+    const farmIdU = gbNum(farm.vill_id);
+    if (farmIdU == null) {
+      gbLogT('farm-vill-id', 60000, 'farm units claim: vill_id unreadable \u2014 no post');
+      return done('skip');
+    }
+    const args = Object.assign({}, tplArgs, { type: 'units', option, farm_town_id: farmIdU });
     bridgePost('farm', {
       model_url: `FarmTownPlayerRelation/${farm.relation_id}`,
       action_name: (state.claimTpl && state.claimTpl.action_name) || 'claim',
@@ -8093,7 +8105,13 @@ const STORE = {
           finish();
           return;
         }
-        gameAjaxPost('collect', collectCtrl, collectAction, { town_id: +t.id }, (err, res) => {
+        const tid = gbNum(t.id);
+        if (tid == null) {
+          gbLogT('bg-collect-id-' + t.id, 120000, `bg-collect: skip town ${t.id} (id unreadable)`);
+          finish();
+          return;
+        }
+        gameAjaxPost('collect', collectCtrl, collectAction, { town_id: tid }, (err, res) => {
 
           if (err && !JRN_SKIP_ERRS[err] && err !== 'captcha') {
             errors++;
@@ -8292,14 +8310,19 @@ const STORE = {
     if (!at || Date.now() - at > BANDIT_TX_EVIDENCE_MAX_MS) return 'unknown';
     const s = (tx && tx.snapshot) || {};
     const scopedTx = tx && tx.meta && tx.meta.townId != null && Object.prototype.hasOwnProperty.call(s,'beforeTownMovementCount');
-    const unscoped = evidence.unscopedCount != null ? +evidence.unscopedCount || 0 : (!evidence.townKnown ? +evidence.count || 0 : 0);
+    const unscopedN = evidence.unscopedCount != null ? gbNum(evidence.unscopedCount) : null;
+    const unscoped = unscopedN != null ? unscopedN : (!evidence.townKnown ? (gbNum(evidence.count) || 0) : 0);
     if (scopedTx && unscoped > 0) return 'unknown';
     const useTown = !!evidence.townKnown;
-    const current = useTown ? +evidence.townCount || 0 : +evidence.count || 0;
+    const currentN = useTown ? gbNum(evidence.townCount) : gbNum(evidence.count);
+    if (currentN == null) return 'unknown';
+    const current = currentN;
     let before = useTown ? s.beforeTownMovementCount : s.beforeMovementCount;
 
-    if (before == null && useTown && +s.beforeMovementCount === 0) before = 0;
-    if (before != null && Number.isFinite(+before)) return current > +before ? 'applied' : 'unchanged';
+    const beforeFall = gbNum(s.beforeMovementCount);
+    if (before == null && useTown && beforeFall === 0) before = 0;
+    const beforeN = gbNum(before);
+    if (beforeN != null) return current > beforeN ? 'applied' : 'unchanged';
 
     return 'unknown';
   }
@@ -11366,8 +11389,9 @@ const STORE = {
       const uw = gameUw();
       if (uw.GameDataPremium && uw.GameDataPremium.isAdvisorActivated && uw.GameDataPremium.isAdvisorActivated('curator')) return 7;
       if (uw.GameDataConstructionQueue && uw.GameDataConstructionQueue.getBuildingOrdersQueueLength) {
-        const n = +uw.GameDataConstructionQueue.getBuildingOrdersQueueLength();
-        if (Number.isFinite(n) && n > 0) return n;
+        const n = gbNum(uw.GameDataConstructionQueue.getBuildingOrdersQueueLength());
+        if (n != null && n > 0) return n;
+        if (n == null) gbLogT('ab-queue-max-blind', 300000, 'auto-queue: getBuildingOrdersQueueLength unreadable \u2014 using fallback 2');
       }
     } catch (_) {}
     return 2;
@@ -11399,12 +11423,13 @@ const STORE = {
     const bd = abBuildDataEntry(townId, building);
     if (!bd) return null;
     const need = bd.resources_for || bd.resources || bd.costs;
-    if (!need || need.wood == null || need.stone == null || need.iron == null) return null;
-    const popRaw = bd.population_for != null ? +bd.population_for : (bd.population != null ? +bd.population : NaN);
-
-    const popBlind = !Number.isFinite(popRaw);
+    if (!need) return null;
+    const wood = gbNum(need.wood), stone = gbNum(need.stone), iron = gbNum(need.iron);
+    if (wood == null || stone == null || iron == null) return null;
+    const popRaw = bd.population_for != null ? gbNum(bd.population_for) : (bd.population != null ? gbNum(bd.population) : null);
+    const popBlind = popRaw == null;
     const pop = popBlind ? 0 : popRaw;
-    return { wood: +need.wood || 0, stone: +need.stone || 0, iron: +need.iron || 0, pop, population: pop, popBlind };
+    return { wood, stone, iron, pop, population: pop, popBlind };
   }
 
   function abUpgradeClickable(townId, building) {
@@ -11452,7 +11477,7 @@ const STORE = {
     const need = abBuildingCost(townId, building);
     let res = null, pop = null;
     try { res = t.resources && t.resources(); } catch (_) {}
-    try { pop = t.getAvailablePopulation ? +t.getAvailablePopulation() : (res && res.population != null ? gbNum(res.population) : null); } catch (_) {}
+    try { pop = t.getAvailablePopulation ? gbNum(t.getAvailablePopulation()) : (res && res.population != null ? gbNum(res.population) : null); } catch (_) {}
     const wood = res ? gbNum(res.wood) : null, stone = res ? gbNum(res.stone) : null, iron = res ? gbNum(res.iron) : null;
     const have = (wood != null && stone != null && iron != null)
       ? { wood, stone, iron, population: pop }
@@ -11562,7 +11587,9 @@ const STORE = {
     const candidates = AB_BUILDINGS.filter(b => AB_CS_FAST[b] != null).filter(b => {
       if (goalQueueSuppressed(townId, 'build', b)) return false;
       const max = abMaxLevel(b);
-      if (max == null || +(levels[b] || 0) >= max) return false;
+      if (max == null) return false;
+      const lvl = gbNum(levels[b]);
+      if (lvl == null || lvl >= max) return false;
       const req = abRequirementMap(townId, b);
       if (req == null) return false;
       for (const [dep, needRaw] of Object.entries(req)) {
@@ -11647,7 +11674,8 @@ const STORE = {
     const targetLevel=+(levels[fresh.building]||0)+1;
     if(txRecentlyCommitted(`build:${townId}:${fresh.building}:${targetLevel}`,60000))return {ok:false,why:'recently-accepted-waiting-model'};
     const max = abMaxLevel(fresh.building);
-    if (max == null || +(levels[fresh.building] || 0) >= max) return { ok: false, why: 'max-level' };
+    const curLvl = gbNum(levels[fresh.building]);
+    if (max == null || curLvl == null || curLvl >= max) return { ok: false, why: curLvl == null ? 'levels-unreadable' : 'max-level' };
     const req = abRequirementMap(townId, fresh.building);
     if (req == null) return { ok: false, why: 'requirements-unreadable' };
     for (const [dep, needRaw] of Object.entries(req)) {
@@ -11688,8 +11716,15 @@ const STORE = {
       if(nativeId&&!nativeQueueMarkBuild(townId,nativeId,{inflight:{building,targetLevel:check.plan.targetLevel,at:Date.now()},manualReview:false,status:'sending',reason:`enviando ${nativeBuildLabel(building)}`})){resolve('replan');return}
       const nativeFail=(status,reason,manualReview)=>{if(!nativeId)return;const cur=nativeQueueList(townId,'build',false).find(j=>j&&j.id===nativeId),reconcile=manualReview&&cur&&cur.inflight?Object.assign({},cur.inflight):null;nativeQueueMarkBuild(townId,nativeId,{inflight:null,reconcile,manualReview:!!manualReview,status,reason})};
       const buildAction=check.plan.mode==='teardown'?'tearDown':'buildUp';
+      const tid = gbNum(townId);
+      if (tid == null) {
+        if(provisionalStrip)cdRollbackProvisionalStrip(townId,stripStateRef);
+        nativeFail('blocked','townId unreadable',false);
+        gbLogT('ab-town-id', 60000, `auto-queue: townId unreadable \u2014 no post`);
+        resolve('err'); return;
+      }
       bridgePost('build', {
-        model_url: 'BuildingOrder', action_name: buildAction, arguments: { building_id: building }, town_id: +townId,
+        model_url: 'BuildingOrder', action_name: buildAction, arguments: { building_id: building }, town_id: tid,
       }, (err) => {
         if (err === 'captcha' || err === 'captcha-pause') { if(provisionalStrip)cdRollbackProvisionalStrip(townId,stripStateRef);nativeFail('waiting','pausado por captcha',false);resolve('captcha'); return; }
         if (err === 'timeout_unknown' || err === 'pending') { if(provisionalStrip)cdPersistTownGoal(townId);nativeFail('unknown','resultado desconocido; comprobar la cola real',true);gbLog(`auto-queue: ${building} @${townId} outcome unknown/pending \u2014 no retry`); resolve('unknown'); return; }
@@ -12038,7 +12073,14 @@ const STORE = {
     const keep = Math.floor(info.cap * (pct / 100));
     if (info.iron < keep) return 0;
     let excess = Math.floor(info.iron - keep);
-    try { const av = plannerAvailable(info.town && (info.town.id || (info.town.attributes && info.town.attributes.id))); if (av && Number.isFinite(av.iron)) excess = Math.min(excess, Math.floor(av.iron)); } catch (_) {}
+    try {
+      const av = plannerAvailable(info.town && (info.town.id || (info.town.attributes && info.town.attributes.id)));
+      if (av) {
+        const avIron = gbNum(av.iron);
+        if (avIron == null) return 0;
+        excess = Math.min(excess, Math.floor(avIron));
+      }
+    } catch (_) {}
     if (excess < CAVE_MIN_STORE) return 0;
 
     if (!info.unlimited && (info.hideCap == null || info.stored == null)) {
@@ -12063,11 +12105,17 @@ const STORE = {
       if (onDone) onDone('skip:bad-amount');
       return;
     }
+    const tid = gbNum(townId);
+    if (tid == null) {
+      gbLogT('cave-town-id', 60000, `cave: town id unreadable \u2014 no post`);
+      if (onDone) onDone('skip:town-unreadable');
+      return;
+    }
     bridgePost(feature || 'cave', {
       model_url: 'BuildingHide',
       action_name: 'storeIron',
       arguments: { iron_to_store: amt },
-      town_id: +townId,
+      town_id: tid,
     }, onDone);
   }
   function caveListTownIds() {
@@ -12616,7 +12664,11 @@ const STORE = {
     try {
       const tid = info.town && (info.town.id || (info.town.attributes && info.town.attributes.id));
       const av = tid != null ? plannerAvailable(tid) : null;
-      if (av && Number.isFinite(av.iron)) amount = Math.min(amount, Math.floor(av.iron));
+      if (av) {
+        const avIron = gbNum(av.iron);
+        if (avIron == null) return 0;
+        amount = Math.min(amount, Math.floor(avIron));
+      }
     } catch (_) {}
     if (!info.unlimited) {
 
@@ -12823,12 +12875,18 @@ const STORE = {
     });
   }
   function tradeSend(fromId, toId, wood, stone, iron, onDone) {
+    const to = gbNum(toId);
+    const from = gbNum(fromId);
+    if (to == null || from == null) {
+      gbLogT('trade-town-id', 60000, 'trade: from/to town id unreadable \u2014 no post');
+      return onDone && onDone('town-unreadable');
+    }
     gameAjaxPost('trade', 'town_info', 'trade', {
-      id: +toId,
+      id: to,
       wood: Math.max(0, Math.floor(wood)),
       stone: Math.max(0, Math.floor(stone)),
       iron: Math.max(0, Math.floor(iron)),
-      town_id: +fromId,
+      town_id: from,
       nl_init: true,
     }, onDone);
   }
@@ -12858,7 +12916,10 @@ const STORE = {
       dest=dest??a.destination_town_id??a.target_town_id??a.receiving_town_id??a.receiver_town_id??a.to_town_id??null;if(dest==null||!/^\d+$/.test(String(dest))||!own.has(String(dest)))continue;
       const eta=a.arrival_at??a.arrival_time??a.arrives_at??a.to_be_completed_at??a.end_at??null;if(eta!=null&&Number.isFinite(+eta)){const t=+eta>1e12?+eta/1000:+eta;if(t<=0||(t>1e9&&t<=now))continue}
       let res=a.resources||a.resource||a.payload||null;try{if(!res&&typeof m.getResources==='function')res=m.getResources()}catch(_){}res=res&&res.attributes||res||{};
-      const wood=Math.max(0,+(a.wood??res.wood)||0),stone=Math.max(0,+(a.stone??res.stone)||0),iron=Math.max(0,+(a.iron??res.iron??res.silver)||0);if(!(wood+stone+iron>0))continue;
+      const woodN = gbNum(a.wood ?? res.wood), stoneN = gbNum(a.stone ?? res.stone), ironN = gbNum(a.iron ?? res.iron ?? res.silver);
+      if (woodN == null && stoneN == null && ironN == null) continue;
+      const wood = Math.max(0, woodN || 0), stone = Math.max(0, stoneN || 0), iron = Math.max(0, ironN || 0);
+      if (!(wood + stone + iron > 0)) continue;
       const rawId=a.id??m.id??'',rid=rawId===''?'':String(rawId)+'|'+String(dest);if(rid&&seenRows.has(rid))continue;if(rid)seenRows.add(rid);
       const row=out[String(dest)]||(out[String(dest)]={wood:0,stone:0,iron:0});row.wood+=wood;row.stone+=stone;row.iron+=iron;
     }catch(_){}}
@@ -13887,19 +13948,31 @@ const STORE = {
     }, onDone);
   }
   function ruralUnlock(relationId, farmTownId, townId, onDone) {
+    const fid = gbNum(farmTownId);
+    const tid = gbNum(townId);
+    if (fid == null || tid == null) {
+      gbLogT('rural-unlock-id', 60000, 'rural unlock: farm/town id unreadable \u2014 no post');
+      return onDone && onDone('id-unreadable');
+    }
     bridgePost('rurallevel', {
       model_url: `FarmTownPlayerRelation/${relationId}`,
       action_name: 'unlock',
-      arguments: { farm_town_id: +farmTownId },
-      town_id: +townId,
+      arguments: { farm_town_id: fid },
+      town_id: tid,
     }, onDone);
   }
   function ruralUpgrade(relationId, farmTownId, townId, onDone) {
+    const fid = gbNum(farmTownId);
+    const tid = gbNum(townId);
+    if (fid == null || tid == null) {
+      gbLogT('rural-upgrade-id', 60000, 'rural upgrade: farm/town id unreadable \u2014 no post');
+      return onDone && onDone('id-unreadable');
+    }
     bridgePost('rurallevel', {
       model_url: `FarmTownPlayerRelation/${relationId}`,
       action_name: 'upgrade',
-      arguments: { farm_town_id: +farmTownId },
-      town_id: +townId,
+      arguments: { farm_town_id: fid },
+      town_id: tid,
     }, onDone);
   }
 
@@ -14650,7 +14723,7 @@ const STORE = {
       profiled = !!(e && e.research && +e.research[tech] > 0);
     } catch (_) {}
     let points = null;
-    try { const n = researchPointsAvailable(townId, info); if (Number.isFinite(n)) points = n; } catch (_) {}
+    try { const n = researchPointsAvailable(townId, info); if (n != null) points = n; } catch (_) {}
 
     let cost = null;
     try {
@@ -14791,8 +14864,8 @@ const STORE = {
   function researchConstant(name) {
     try {
       const c = gameUw().Game && gameUw().Game.constants && gameUw().Game.constants.academy;
-      const v = c ? +c[name] : NaN;
-      return isFinite(v) ? v : null;
+      const v = c ? gbNum(c[name]) : null;
+      return v;
     } catch (_) { return null; }
   }
 
@@ -14843,8 +14916,8 @@ const STORE = {
     const perAcademy = researchConstant('points_per_academy_level');
     if (perAcademy == null) return null;
     if (info.academy == null) return null;
-    const acad = +info.academy;
-    if (!isFinite(acad) || acad < 0) return null;
+    const acad = gbNum(info.academy);
+    if (acad == null || acad < 0) return null;
     const level = researchAcademyTearingDown(townId) === true ? Math.max(0, acad - 1) : acad;
     let current = level * perAcademy;
     if (info.library == null) return null;
@@ -17042,14 +17115,19 @@ const STORE = {
     }
     const favorLock = gbLock('favor', 180000);
     if (!favorLock) return;
-    const tpl = state.attackTpl;
+
+    const srcId = gbNum(townId);
+    if (srcId == null) {
+      gbUnlock('favor', favorLock);
+      gbLogT('favor-town-id', 60000, 'favor: townId unreadable \u2014 no post');
+      return;
+    }
     const payload = {
-      model_url: (tpl && tpl.model_url) || ('Town/' + townId),
-      action_name: (tpl && tpl.action_name) || 'sendUnits',
+      model_url: 'Town/' + srcId,
+      action_name: 'sendUnits',
       arguments: Object.assign({ id: destId, type: 'attack' }, units),
-      town_id: +townId,
+      town_id: srcId,
     };
-    payload.model_url = String(payload.model_url).replace(/Town\/\d+/, 'Town/' + townId);
     bridgePost('favor', payload, (err, data) => {
       gbUnlock('favor', favorLock);
       if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {
@@ -17290,13 +17368,19 @@ const STORE = {
     }
     const lockToken = gbLock('wonder');
     if (!lockToken) return;
+    const tid = gbNum(job.townId);
+    if (tid == null) {
+      gbUnlock('wonder', lockToken);
+      gbLogT('wonder-town-id', 60000, `wonder: townId unreadable \u2014 no post`);
+      return;
+    }
     gameAjaxPost('wonder', 'wonders', 'send_resources', {
       wood: job.send.wood,
       stone: job.send.stone,
       iron: job.send.iron,
       island_x: coords.x,
       island_y: coords.y,
-      town_id: +job.townId,
+      town_id: tid,
     }, (err) => {
       gbUnlock('wonder', lockToken);
       if (err === 'timeout' || err === 'timeout_unknown' || err === 'pending') {
@@ -17413,10 +17497,10 @@ const STORE = {
   }
   function defenseShouldDodge(mov,incoming){const mode=defenseMode(),a=defenseAssessment(mov,incoming);if(mode==='notify')return{yes:false,assessment:a,why:'notify'};if(mode==='safe')return{yes:true,assessment:a,why:'safe'};return{yes:false,assessment:a,why:'defend/observe'}}
   function dodgeReturnSave(){save(STORE.DODGE_RETURNS,state.dodgeReturns||{})}
-  function dodgeReturnRecord(mov,from,dest,data){const id=String((data&&(data.command_id||data.commandId||data.movement_id||data.id))||'');if(!id)return;const arrival=+(mov&&mov.arrival)||0,margin=Math.max(0,+((state.defenseCfg&&state.defenseCfg.returnMarginSec)||120));
+  function dodgeReturnRecord(mov,from,dest,data){const id=String((data&&(data.command_id||data.commandId||data.movement_id||data.id))||'');if(!id)return;const arrival=gbNum(mov&&mov.arrival);const margin=Math.max(0,gbNum((state.defenseCfg&&state.defenseCfg.returnMarginSec))||120);
 
     let due=0;
-    if (Number.isFinite(arrival) && arrival > 0) {
+    if (arrival != null && arrival > 0) {
       due = (arrival > 1e12 ? arrival : arrival * 1000) + margin * 1000;
     }
     if (!due) due = Date.now() + margin * 1000;
@@ -17644,10 +17728,12 @@ const STORE = {
       const uw = gameUw();
       const t = uw.ITowns && uw.ITowns.towns && uw.ITowns.towns[townId];
       const u = (t && t.units && t.units()) || null;
-      if (u && +u.militia > 0) return { ok: false, why: 'militia already standing' };
+      const mil = u ? gbNum(u.militia) : null;
+      if (mil != null && mil > 0) return { ok: false, why: 'militia already standing' };
+      if (u && mil == null) return { ok: false, why: 'militia-unreadable' };
 
-      const avail = t && t.getAvailablePopulation && +t.getAvailablePopulation();
-      if (avail != null && Number.isFinite(avail) && avail <= 0) return { ok: false, why: 'no free population' };
+      const avail = t && t.getAvailablePopulation ? gbNum(t.getAvailablePopulation()) : null;
+      if (avail != null && avail <= 0) return { ok: false, why: 'no free population' };
     } catch (_) {}
     return { ok: true, why: null };
   }
@@ -17657,7 +17743,12 @@ const STORE = {
       gbLogT('militia-skip-' + townId, 120000, `militia: town ${townId} skipped (${can.why})`);
       return onDone && onDone('skip:' + can.why);
     }
-    gameAjaxPost('militia', 'building_farm', 'request_militia', { town_id: +townId }, onDone);
+    const milTown = gbNum(townId);
+    if (milTown == null) {
+      gbLogT('militia-town-id', 60000, 'militia: townId unreadable \u2014 no post');
+      return onDone && onDone('town-unreadable');
+    }
+    gameAjaxPost('militia', 'building_farm', 'request_militia', { town_id: milTown }, onDone);
   }
   function dodgeSendOut(townId, units, safeId, onDone) {
     const destId = gbNum(safeId);
@@ -17665,7 +17756,7 @@ const STORE = {
     if (destId == null || srcId == null) return onDone && onDone('town-unreadable');
     const payload = {
       model_url: 'Town/' + townId,
-      action_name: (state.attackTpl && state.attackTpl.action_name) || 'sendUnits',
+      action_name: (state.supportTpl && state.supportTpl.action_name) || 'sendUnits',
       arguments: Object.assign({ id: destId, type: 'support' }, units),
       town_id: srcId,
     };
@@ -17685,7 +17776,11 @@ const STORE = {
           else delete u[k];
         });
       }
-      Object.keys(u).forEach(k => { if (!(+u[k] > 0)) delete u[k]; });
+      Object.keys(u).forEach(k => {
+        const n = gbNum(u[k]);
+        if (n == null || !(n > 0)) delete u[k];
+        else u[k] = n;
+      });
       return u;
     } catch (_) { return {}; }
   }
@@ -17716,8 +17811,8 @@ const STORE = {
   }
 
   function dodgeArrivalSec(mov) {
-    let a = +(mov && mov.arrival);
-    if (!Number.isFinite(a) || a <= 0) return null;
+    let a = gbNum(mov && mov.arrival);
+    if (a == null || a <= 0) return null;
     return a > 1e12 ? Math.floor(a / 1000) : a;
   }
   function dodgeEtaSec(mov) {
@@ -18003,9 +18098,7 @@ const STORE = {
     fertility_improvement: 80,
     spartan_training: 80,
   };
-  const RECRUIT_AUTO_SPELL_BY_CONTROLLER = {
-    building_barracks: 'fertility_improvement',
-  };
+
   function recruitControllerFor(unitId) {
     const def = gbGameDataLookup("units", unitId);
     if (!def) return null;
@@ -18068,9 +18161,15 @@ const STORE = {
     if (need && god !== need) return { ok:false, blind:false, why:`god-mismatch:${god}!=${need}` };
     return { ok:true, blind:false, why:null };
   }
-  function recruitAutoSpellForUnit(unitId) {
-    const ctrl = recruitControllerFor(unitId);
-    return ctrl ? (RECRUIT_AUTO_SPELL_BY_CONTROLLER[ctrl.controller] || null) : null;
+  function recruitAutoSpellForUnit(_unitId) {
+    const raw = (state.favorCfg && state.favorCfg.recruitSpellPower) || '';
+    const power = String(raw || '').trim();
+    if (!power) return null;
+    if (!RECRUIT_SPELLS.includes(power)) {
+      gbLogT('recruit-spell-badpower', 600000, `recruit: recruitSpellPower "${power.slice(0, 24)}" not allowlisted \u2014 no auto-cast`);
+      return null;
+    }
+    return power;
   }
 
   function recruitAutoSpellDecision(townId, unitId) {
@@ -18094,11 +18193,16 @@ const STORE = {
     return { action:'cast', power, god, favor:favor.value, cost };
   }
   function spellCastPost(townId, powerId, onDone) {
+    const tid = gbNum(townId);
+    if (tid == null) {
+      gbLogT('spell-town-id', 60000, 'spell: townId unreadable \u2014 no post');
+      return onDone && onDone('town-unreadable');
+    }
     return bridgePost('spell', {
       model_url: 'CastedPowers',
       action_name: 'cast',
-      arguments: { power_id: powerId, target_id: +townId },
-      town_id: +townId,
+      arguments: { power_id: powerId, target_id: tid },
+      town_id: tid,
     }, onDone);
   }
   function recruitCastSpell(townId, powerId, onDone) {
@@ -18120,10 +18224,20 @@ const STORE = {
   function recruitBuild(townId, unitId, amount, onDone) {
     const ctrl = recruitControllerFor(unitId);
     if (!ctrl) return onDone && onDone('unknown-unit');
+    const tid = gbNum(townId);
+    const amt = gbNum(amount);
+    if (tid == null) {
+      gbLogT('recruit-town-id', 60000, 'recruit: townId unreadable \u2014 no post');
+      return onDone && onDone('town-unreadable');
+    }
+    if (amt == null || !(amt > 0)) {
+      gbLogT('recruit-amount', 60000, 'recruit: amount unreadable \u2014 no post');
+      return onDone && onDone('amount-unreadable');
+    }
     gameAjaxPost('recruit', ctrl.controller, 'build', {
       unit_id: unitId,
-      amount: +amount,
-      town_id: +townId,
+      amount: amt,
+      town_id: tid,
     }, onDone);
   }
   function recruitRequiredBuildings(def) {
@@ -18342,8 +18456,8 @@ const STORE = {
       try {
         if (!t || typeof t[name] !== 'function') continue;
         const raw = t[name](unitId);
-        const n = Number(raw && typeof raw === 'object' ? (raw.amount ?? raw.max ?? raw.value) : raw);
-        if (Number.isFinite(n) && n >= 0) return { known:true, amount:Math.floor(n), source:name + '()' };
+        const n = gbNum(raw && typeof raw === 'object' ? (raw.amount ?? raw.max ?? raw.value) : raw);
+        if (n != null && n >= 0) return { known:true, amount:Math.floor(n), source:name + '()' };
       } catch (_) {}
     }
     return { known:false, amount:null, source:'max-recruitable-unreadable' };
@@ -18930,14 +19044,18 @@ const STORE = {
   function villagePairPick(unitCounts) {
 
     if (!unitCounts || typeof unitCounts !== 'object') return null;
-    const a = (Number.isFinite(+unitCounts.sword) ? +unitCounts.sword : 0)
-            + (Number.isFinite(+unitCounts.archer) ? +unitCounts.archer : 0);
-    const b = (Number.isFinite(+unitCounts.hoplite) ? +unitCounts.hoplite : 0)
-            + (Number.isFinite(+unitCounts.slinger) ? +unitCounts.slinger : 0);
+    const g = (id) => gbNum(unitCounts[id]);
+    const sword = g('sword'), archer = g('archer'), hoplite = g('hoplite'), slinger = g('slinger');
+
+    for (const [id, n] of [['sword',sword],['archer',archer],['hoplite',hoplite],['slinger',slinger]]) {
+      if (Object.prototype.hasOwnProperty.call(unitCounts, id) && n == null) return null;
+    }
+    const a = (sword || 0) + (archer || 0);
+    const b = (hoplite || 0) + (slinger || 0);
 
     const pair = a >= b ? VILLAGE_PAIR_LOW : VILLAGE_PAIR_HIGH;
-    const lo = Number.isFinite(+unitCounts[pair[0]]) ? +unitCounts[pair[0]] : 0;
-    const hi = Number.isFinite(+unitCounts[pair[1]]) ? +unitCounts[pair[1]] : 0;
+    const lo = g(pair[0]) || 0;
+    const hi = g(pair[1]) || 0;
     return lo <= hi ? pair[0] : pair[1];
   }
 
@@ -19015,17 +19133,32 @@ const STORE = {
     const tpl = state.acceptUnitsTpl || null;
     const actionName = (tpl && tpl.action_name) || 'accept_units';
     const baseArgs = (tpl && tpl.arguments) || {};
+    const farmId = gbNum(farm && farm.vill_id);
+    const amt = gbNum(amount);
+    const tid = gbNum(farm && farm.owning_town_id);
+    if (farmId == null) {
+      gbLogT('villrecruit-farm-id', 60000, 'village recruit: farm_town_id unreadable \u2014 no post');
+      return onDone && onDone('farm-unreadable');
+    }
+    if (amt == null || !(amt > 0)) {
+      gbLogT('villrecruit-amount', 60000, 'village recruit: amount unreadable \u2014 no post');
+      return onDone && onDone('amount-unreadable');
+    }
+    if (tid == null) {
+      gbLogT('villrecruit-town-id', 60000, 'village recruit: owning_town_id unreadable \u2014 no post');
+      return onDone && onDone('town-unreadable');
+    }
     const args = Object.assign({}, baseArgs, {
-      farm_town_id: +farm.vill_id,
+      farm_town_id: farmId,
       unit_id: String(unitId),
-      amount: +amount,
+      amount: amt,
     });
     const modelUrl = (tpl && tpl.model_url) || ('FarmTownPlayerRelation/' + (farm.relation_id || ''));
     bridgePost('villrecruit', {
       model_url: modelUrl,
       action_name: actionName,
       arguments: args,
-      town_id: +farm.owning_town_id || 0,
+      town_id: tid,
     }, onDone);
   }
   let villageRecruitCursor = 0;
@@ -19217,7 +19350,9 @@ const STORE = {
     for (const k of ['wood','stone','iron']) {
       if (!known[k]) continue;
       if (res[k] == null) { blind.push('resources-unreadable:' + k); continue; }
-      if (+res[k] < need[k]) return { ok:false, why:'waiting-' + k, aggregate:true, need, have:+res[k] };
+      const have = gbNum(res[k]);
+      if (have == null) { blind.push('resources-unreadable:' + k); continue; }
+      if (have < need[k]) return { ok:false, why:'waiting-' + k, aggregate:true, need, have };
     }
     if (known.pop && need.pop > 0) {
       if (pop.value == null) blind.push('population-unreadable');
@@ -22910,9 +23045,11 @@ const STORE = {
     const boats = {};
     let needPop = 0;
     let cap = 0;
+    let blind = false;
     Object.keys(units || {}).forEach(id => {
-      const n = +units[id] || 0;
-      if (!n) return;
+      const n = gbNum(units[id]);
+      if (n == null) { blind = true; return; }
+      if (!(n > 0)) return;
       const m = unitMeta(id);
       if (!m) return;
       if (m.is_naval || (m.capacity != null && m.capacity > 0 && !m.population)) {
@@ -22924,6 +23061,7 @@ const STORE = {
         needPop += (m.population || 1) * n;
       }
     });
+    if (blind) return { ok: false, need: 0, cap: 0, sameIsland: !!sameIsland, reason: 'units-unreadable', blind: true };
     if (!Object.keys(land).length) return { ok: true, need: 0, cap, sameIsland: !!sameIsland, reason: 'naval-only' };
     if (sameIsland && !Object.keys(boats).length) return { ok: true, need: needPop, cap: 0, sameIsland: true, reason: 'same-island' };
     try {
@@ -22961,27 +23099,40 @@ const STORE = {
     if (troopMode === 'per_town') {
       const custom = (perTownMap && perTownMap[townId]) || {};
       Object.keys(custom).forEach(k => {
-        const want = +custom[k] || 0;
-        const have = +live[k] || 0;
+        const want = gbNum(custom[k]);
+        const have = gbNum(live[k]);
+        if (want == null || have == null) {
+          gbLogT('attack-units-blind-' + townId, 120000, `attack: unit ${k} count unreadable in town ${townId}`);
+          return;
+        }
         if (want > 0 && have > 0) out[k] = Math.min(want, have);
       });
       return out;
     }
     if (troopMode === 'all_of_type' && unitType) {
-      const have = +live[unitType] || 0;
+      const have = gbNum(live[unitType]);
+      if (have == null) {
+        gbLogT('attack-units-blind-' + townId, 120000, `attack: unit ${unitType} count unreadable in town ${townId}`);
+        return out;
+      }
       if (have > 0) out[unitType] = have;
 
       const m = unitMeta(unitType);
       if (m && !m.is_naval) {
         Object.keys(live).forEach(id => {
           const um = unitMeta(id);
-          if (um && um.capacity > 0 && live[id] > 0) out[id] = live[id];
+          const n = gbNum(live[id]);
+          if (um && um.capacity > 0 && n != null && n > 0) out[id] = n;
         });
       }
       return out;
     }
     Object.keys(live).forEach(id => {
-      const n = +live[id] || 0;
+      const n = gbNum(live[id]);
+      if (n == null) {
+        gbLogT('attack-units-blind-' + townId, 120000, `attack: unit ${id} count unreadable in town ${townId}`);
+        return;
+      }
       if (!n) return;
       if (id === 'militia') return;
       const m = unitMeta(id);
@@ -23075,8 +23226,8 @@ const STORE = {
     const plan = ensureAttackPlan();
     plan.targetId = String(t.id);
     plan.targetType = 'town';
-    if (t.x != null && Number.isFinite(+t.x)) plan.targetX = +t.x;
-    if (t.y != null && Number.isFinite(+t.y)) plan.targetY = +t.y;
+    const tx = gbNum(t.x); if (tx != null) plan.targetX = tx;
+    const ty = gbNum(t.y); if (ty != null) plan.targetY = ty;
     attackRememberTarget(t.id, { name: t.name || null, x: t.x, y: t.y, src: t.src || 'picker' });
     saveAttackPlan();
     renderAttack();
@@ -23348,14 +23499,25 @@ const STORE = {
 
     const live = townLiveUnits(srcTownId);
     const sendUnits = {};
+    let unitsBlind = false;
     Object.keys(units || {}).forEach(k => {
-      const want = +units[k] || 0;
-      const have = +live[k] || 0;
+      const want = gbNum(units[k]);
+      const have = gbNum(live[k]);
+      if (want == null || have == null) {
+        unitsBlind = true;
+        gbLogT('attack-send-units-blind', 60000, `attack: unit ${k} count unreadable \u2014 abort send`);
+        return;
+      }
       if (want > 0 && have > 0) sendUnits[k] = Math.min(want, have);
     });
     delete sendUnits.militia;
+    if (unitsBlind) return onDone && onDone('units-unreadable');
     if (!Object.keys(sendUnits).length) return onDone && onDone('no-units');
-    const destId = +target.town_id;
+    const destId = gbNum(target.town_id);
+    if (destId == null) {
+      gbLogT('attack-dest-id', 60000, 'attack: target town_id unreadable \u2014 no post');
+      return onDone && onDone('bad-target');
+    }
     const tpl = state.attackTpl;
     const settle = (err, data) => {
       if (err) { flash('ataque fallido: ' + err); return onDone && onDone(err); }
@@ -23366,9 +23528,14 @@ const STORE = {
       if (onDone) onDone(null, data);
     };
 
+    const srcId = gbNum(srcTownId);
+    if (srcId == null) {
+      gbLogT('attack-src-id', 60000, 'attack: srcTownId unreadable \u2014 no post');
+      return onDone && onDone('town-unreadable');
+    }
     if (!tpl) {
       const params = Object.assign({}, sendUnits, {
-        id: destId, type: safeMission, town_id: +srcTownId,
+        id: destId, type: safeMission, town_id: srcId,
       });
       const n = countUnits(sendUnits);
       if (state.exportRedact === false) gbLog('attack ajax:', JSON.stringify(params));
@@ -23394,7 +23561,7 @@ const STORE = {
       model_url: modelUrl,
       action_name: (tpl && tpl.action_name) || 'sendUnits',
       arguments: args,
-      town_id: +srcTownId,
+      town_id: srcId,
     };
 
     const unitCount = countUnits(sendUnits);
@@ -23908,7 +24075,8 @@ const STORE = {
     const args = {};
     for (const [k, v] of Object.entries(tpl.arguments || {})) if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') args[k] = v;
     args.id = /^\d+$/.test(cmdId) ? +cmdId : cmdId;
-    const payload = { model_url: tpl.model_url, action_name: tpl.action_name, arguments: args, town_id: +live.home || undefined };
+    const homeId = gbNum(live.home);
+    const payload = { model_url: tpl.model_url, action_name: tpl.action_name, arguments: args, town_id: homeId == null ? undefined : homeId };
     bridgePost('cancel', payload, (err, data) => {
       gbUnlock('cancel', lockToken);
       if (!err) gbLog(`cancel: command ${cmdId} OK`); else gbLog(`cancel: command ${cmdId} err ${err}`);
@@ -24681,11 +24849,16 @@ const STORE = {
       gbLogT('support-dest-id', 60000, 'support: dest town id unreadable - no post');
       return onDone && onDone('bad-target');
     }
+    const fromId = gbNum(fromTownId);
+    if (fromId == null) {
+      gbLogT('support-from-id', 60000, 'support: from town id unreadable - no post');
+      return onDone && onDone('bad-source');
+    }
     const payload = {
-      model_url: 'Town/' + fromTownId,
+      model_url: 'Town/' + fromId,
       action_name: tpl.action_name,
       arguments: Object.assign({ id: destId, type: 'support' }, units),
-      town_id: +fromTownId,
+      town_id: fromId,
     };
     bridgePost('support', payload, onDone);
   }
@@ -24741,7 +24914,9 @@ const STORE = {
 
       let travel = null;
       try {
-        travel = computeTravelSeconds(d.from, { town_id: +mov.dest, id: +mov.dest, kind: 'town', ...townCoords(mov.dest) }, units, true);
+        const destId = gbNum(mov.dest);
+        if (destId == null) throw new Error('dest-unreadable');
+        travel = computeTravelSeconds(d.from, { town_id: destId, id: destId, kind: 'town', ...townCoords(mov.dest) }, units, true);
       } catch (_) {}
       if (travel == null) {
         gbLogT('support-travel-' + d.from, 600000, `support: travel time unreadable from ${d.from} - donor skipped`);
@@ -25039,8 +25214,8 @@ const STORE = {
     if (!t || t.id == null || !/^\d+$/.test(String(t.id))) return false;
     const plan = rfPlan();
     plan.targetId = String(t.id);
-    if (t.x != null && Number.isFinite(+t.x)) plan.targetX = +t.x;
-    if (t.y != null && Number.isFinite(+t.y)) plan.targetY = +t.y;
+    const tx = gbNum(t.x); if (tx != null) plan.targetX = tx;
+    const ty = gbNum(t.y); if (ty != null) plan.targetY = ty;
     rfSavePlan();
     renderReinforce();
     flash('destino -> ' + (t.name ? `${t.name} (#${t.id})` : String(t.id)));
@@ -25126,17 +25301,27 @@ const STORE = {
       gbLogT('rf-tpl-model-url', 120000, `refuerzo: supportTpl model_url sin segmento Town/<id> (${String(tpl.model_url).slice(0, 40)}) - ruta canonica`);
     }
     if (tpl && tplModelUrl && tpl.action_name) {
+      const srcId = gbNum(srcTownId);
+      if (srcId == null) {
+        gbLogT('rf-town-id', 60000, 'refuerzo: srcTownId unreadable \u2014 no post');
+        return onDone && onDone('town-unreadable');
+      }
       const payload = {
         model_url: tplModelUrl,
         action_name: tpl.action_name,
         arguments: Object.assign({ id: destId, type: 'support' }, sendUnits),
-        town_id: +srcTownId,
+        town_id: srcId,
       };
       if (state.exportRedact === false) gbLog('support bridge:', JSON.stringify(payload));
       else gbLog(`support bridge: ${payload.action_name} town ${srcTownId} -> ${destId} (support, ${Object.keys(sendUnits).length} tipos / ${count} unidades)`);
       return bridgePost('support', payload, settle);
     }
-    const params = Object.assign({}, sendUnits, { id: destId, type: 'support', town_id: +srcTownId });
+    const srcIdAjax = gbNum(srcTownId);
+    if (srcIdAjax == null) {
+      gbLogT('rf-town-id', 60000, 'refuerzo: srcTownId unreadable \u2014 no post');
+      return onDone && onDone('town-unreadable');
+    }
+    const params = Object.assign({}, sendUnits, { id: destId, type: 'support', town_id: srcIdAjax });
     if (state.exportRedact === false) gbLog('support ajax:', JSON.stringify(params));
     else gbLog(`support ajax: town_info/send_units town ${srcTownId} -> ${destId} (support, ${Object.keys(sendUnits).length} tipos / ${count} unidades)`);
     gameAjaxPost('support', 'town_info', 'send_units', params, settle);
@@ -25593,8 +25778,13 @@ const STORE = {
     let info = null;
     try { info = caveTownInfo(townId); } catch (_) { info = null; }
     if (!info) return { stored: null, hideLvl: null, unlimited: false };
-    const stored = Number.isFinite(+info.stored) && +info.stored >= 0 ? +info.stored : null;
-    return { stored, hideLvl: Number.isFinite(+info.hideLvl) ? +info.hideLvl : null, unlimited: !!info.unlimited };
+    const stored = gbNum(info.stored);
+    const hideLvl = gbNum(info.hideLvl);
+    return {
+      stored: stored != null && stored >= 0 ? stored : null,
+      hideLvl: hideLvl != null ? hideLvl : null,
+      unlimited: !!info.unlimited,
+    };
   }
 
   function spsStoredFromResponse(res) {
@@ -25603,7 +25793,10 @@ const STORE = {
     for (const o of probe) {
       if (!o || typeof o !== 'object') continue;
       const v = o.stored_iron != null ? o.stored_iron : (o.espionage_storage != null ? o.espionage_storage : null);
-      if (v != null && Number.isFinite(+v) && +v >= 0) return +v;
+      if (v != null) {
+        const n = gbNum(v);
+        if (n != null && n >= 0) return n;
+      }
     }
     return null;
   }
@@ -27373,9 +27566,11 @@ const STORE = {
     head.textContent = `GrepBot \u00b7 ciudad ${townId}`;
     m.appendChild(head);
     m.appendChild(ctxItem('Atacar', 'Fija esta ciudad como objetivo del planificador de ataque', () => {
-      applyAttackTarget({ id: +townId, town_id: +townId, kind: 'town' });
+      const tid = gbNum(townId);
+      if (tid == null) { flash('id de ciudad ilegible'); return; }
+      applyAttackTarget({ id: tid, town_id: tid, kind: 'town' });
       showTab('attack');
-      flash('objetivo fijado: ' + townId);
+      flash('objetivo fijado: ' + tid);
     }));
     m.appendChild(ctxItem('A la lista de vigilancia', 'Anade esta ciudad a la lista de vigilancia', () => {
       if (!Array.isArray(state.watchlist)) state.watchlist = [];
@@ -29685,7 +29880,10 @@ const STORE = {
             <label data-gb-tip="Ver el payload antes de enviar (no envia nada)"><input type="checkbox" data-cfg="spy-dry"/> Simulacion</label>
           </label>
           <label class="gb-cfg-row" data-gb-tip="Reclutar tropas automaticamente en cuarteles/puerto"><input type="checkbox" data-cfg="auto-recruit"/> Reclutamiento automatico</label>
-          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Lanzar hechizos de reclutamiento antes de reclutar"><input type="checkbox" data-cfg="recruit-spells"/> Lanzar antes los hechizos de reclutamiento</label>
+          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Lanzar hechizos de reclutamiento antes de reclutar. Requiere un id de poder explicito abajo; nunca se elige uno por defecto."><input type="checkbox" data-cfg="recruit-spells"/> Lanzar antes los hechizos de reclutamiento</label>
+          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Id de poder permitido (call_of_the_ocean / fertility_improvement / spartan_training). Vacio = no se lanza nada.">poder recluta
+            <input class="gb-cfg-input" type="text" data-cfg="recruit-spell-power" placeholder="(ninguno)" style="width:160px" data-gb-tip="Id exacto del poder; vacio = no auto-cast"/>
+          </label>
           <label class="gb-cfg-row gb-cfg-sub gb-cfg-risk" title="Convierte aldeanos en unidades cuando la aldea no admite mas recursos. Recompute: compara espada+arquero vs hoplita+hondero, elige la pareja con mas tropas y dentro de ella la unidad con menos. Requiere abrir la aldea y pulsar Aceptar una vez a mano la primera vez."><input type="checkbox" data-cfg="village-recruit"/> Reclutar en aldeas saturadas</label>
           <label class="gb-cfg-num gb-cfg-sub" style="margin-left:28px" data-gb-tip="% de llenado y cantidad a reclutar por tick">% llenado aldea
             <input class="gb-cfg-input" type="number" data-cfg="village-recruit-fill" min="50" max="99" style="width:50px" data-gb-tip="% minimo de llenado de la aldea para reclutar"/>
@@ -30729,6 +30927,9 @@ const STORE = {
     setChk('[data-cfg=auto-dodge]', state.autoDodge);
     setChk('[data-cfg=auto-recruit]', state.autoRecruit);
     setChk('[data-cfg=recruit-spells]', state.recruitSpells);
+    { const fc = state.favorCfg || {};
+      const rsp = sec.querySelector('[data-cfg=recruit-spell-power]');
+      if (rsp) rsp.value = fc.recruitSpellPower || ''; }
     setChk('[data-cfg=village-recruit]', state.autoVillageRecruit);
     setNum('[data-cfg=village-recruit-fill]', state.villageRecruitFillPct);
     setNum('[data-cfg=village-recruit-amount]', state.villageRecruitAmount);
@@ -30961,6 +31162,11 @@ const STORE = {
 
       saveFavorCfg('spellPower', raw);
       gbLog('godspell power ' + (raw ? 'set to ' + raw : 'cleared - nothing will be cast'));
+    });
+    onCfg('[data-cfg=recruit-spell-power]', 'change', e => {
+      const raw = String(e.target.value || '').trim();
+      saveFavorCfg('recruitSpellPower', raw);
+      gbLog('recruit spell power ' + (raw ? 'set to ' + raw : 'cleared - no auto-cast'));
     });
     saveNum('[data-cfg=godspell-cost]', v => saveFavorCfg('spellCost', Math.max(0, Math.min(500, +v || 0))));
     saveNum('[data-cfg=godspell-reserve]', v => saveFavorCfg('spellReserve', Math.max(0, Math.min(95, +v || 50))));

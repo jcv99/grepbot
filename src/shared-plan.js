@@ -191,7 +191,8 @@
     const args = {};
     for (const [k, v] of Object.entries(tpl.arguments || {})) if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') args[k] = v;
     args.id = /^\d+$/.test(cmdId) ? +cmdId : cmdId;
-    const payload = { model_url: tpl.model_url, action_name: tpl.action_name, arguments: args, town_id: +live.home || undefined };
+    const homeId = gbNum(live.home);
+    const payload = { model_url: tpl.model_url, action_name: tpl.action_name, arguments: args, town_id: homeId == null ? undefined : homeId };
     bridgePost('cancel', payload, (err, data) => {
       gbUnlock('cancel', lockToken);
       if (!err) gbLog(`cancel: command ${cmdId} OK`); else gbLog(`cancel: command ${cmdId} err ${err}`);

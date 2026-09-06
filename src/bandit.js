@@ -132,14 +132,19 @@
     if (!at || Date.now() - at > BANDIT_TX_EVIDENCE_MAX_MS) return 'unknown';
     const s = (tx && tx.snapshot) || {};
     const scopedTx = tx && tx.meta && tx.meta.townId != null && Object.prototype.hasOwnProperty.call(s,'beforeTownMovementCount');
-    const unscoped = evidence.unscopedCount != null ? +evidence.unscopedCount || 0 : (!evidence.townKnown ? +evidence.count || 0 : 0);
+    const unscopedN = evidence.unscopedCount != null ? gbNum(evidence.unscopedCount) : null;
+    const unscoped = unscopedN != null ? unscopedN : (!evidence.townKnown ? (gbNum(evidence.count) || 0) : 0);
     if (scopedTx && unscoped > 0) return 'unknown';
     const useTown = !!evidence.townKnown;
-    const current = useTown ? +evidence.townCount || 0 : +evidence.count || 0;
+    const currentN = useTown ? gbNum(evidence.townCount) : gbNum(evidence.count);
+    if (currentN == null) return 'unknown';
+    const current = currentN;
     let before = useTown ? s.beforeTownMovementCount : s.beforeMovementCount;
 
-    if (before == null && useTown && +s.beforeMovementCount === 0) before = 0;
-    if (before != null && Number.isFinite(+before)) return current > +before ? 'applied' : 'unchanged';
+    const beforeFall = gbNum(s.beforeMovementCount);
+    if (before == null && useTown && beforeFall === 0) before = 0;
+    const beforeN = gbNum(before);
+    if (beforeN != null) return current > beforeN ? 'applied' : 'unchanged';
 
     return 'unknown';
   }

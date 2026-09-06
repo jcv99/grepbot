@@ -30,19 +30,31 @@
     }, onDone);
   }
   function ruralUnlock(relationId, farmTownId, townId, onDone) {
+    const fid = gbNum(farmTownId);
+    const tid = gbNum(townId);
+    if (fid == null || tid == null) {
+      gbLogT('rural-unlock-id', 60000, 'rural unlock: farm/town id unreadable — no post');
+      return onDone && onDone('id-unreadable');
+    }
     bridgePost('rurallevel', {
       model_url: `FarmTownPlayerRelation/${relationId}`,
       action_name: 'unlock',
-      arguments: { farm_town_id: +farmTownId },
-      town_id: +townId,
+      arguments: { farm_town_id: fid },
+      town_id: tid,
     }, onDone);
   }
   function ruralUpgrade(relationId, farmTownId, townId, onDone) {
+    const fid = gbNum(farmTownId);
+    const tid = gbNum(townId);
+    if (fid == null || tid == null) {
+      gbLogT('rural-upgrade-id', 60000, 'rural upgrade: farm/town id unreadable — no post');
+      return onDone && onDone('id-unreadable');
+    }
     bridgePost('rurallevel', {
       model_url: `FarmTownPlayerRelation/${relationId}`,
       action_name: 'upgrade',
-      arguments: { farm_town_id: +farmTownId },
-      town_id: +townId,
+      arguments: { farm_town_id: fid },
+      town_id: tid,
     }, onDone);
   }
 

@@ -138,8 +138,8 @@
     if (!t || t.id == null || !/^\d+$/.test(String(t.id))) return false;
     const plan = rfPlan();
     plan.targetId = String(t.id);
-    if (t.x != null && Number.isFinite(+t.x)) plan.targetX = +t.x;
-    if (t.y != null && Number.isFinite(+t.y)) plan.targetY = +t.y;
+    const tx = gbNum(t.x); if (tx != null) plan.targetX = tx;
+    const ty = gbNum(t.y); if (ty != null) plan.targetY = ty;
     rfSavePlan();
     renderReinforce();
     flash('destino -> ' + (t.name ? `${t.name} (#${t.id})` : String(t.id)));
@@ -225,17 +225,27 @@
       gbLogT('rf-tpl-model-url', 120000, `refuerzo: supportTpl model_url sin segmento Town/<id> (${String(tpl.model_url).slice(0, 40)}) - ruta canonica`);
     }
     if (tpl && tplModelUrl && tpl.action_name) {
+      const srcId = gbNum(srcTownId);
+      if (srcId == null) {
+        gbLogT('rf-town-id', 60000, 'refuerzo: srcTownId unreadable — no post');
+        return onDone && onDone('town-unreadable');
+      }
       const payload = {
         model_url: tplModelUrl,
         action_name: tpl.action_name,
         arguments: Object.assign({ id: destId, type: 'support' }, sendUnits),
-        town_id: +srcTownId,
+        town_id: srcId,
       };
       if (state.exportRedact === false) gbLog('support bridge:', JSON.stringify(payload));
       else gbLog(`support bridge: ${payload.action_name} town ${srcTownId} -> ${destId} (support, ${Object.keys(sendUnits).length} tipos / ${count} unidades)`);
       return bridgePost('support', payload, settle);
     }
-    const params = Object.assign({}, sendUnits, { id: destId, type: 'support', town_id: +srcTownId });
+    const srcIdAjax = gbNum(srcTownId);
+    if (srcIdAjax == null) {
+      gbLogT('rf-town-id', 60000, 'refuerzo: srcTownId unreadable — no post');
+      return onDone && onDone('town-unreadable');
+    }
+    const params = Object.assign({}, sendUnits, { id: destId, type: 'support', town_id: srcIdAjax });
     if (state.exportRedact === false) gbLog('support ajax:', JSON.stringify(params));
     else gbLog(`support ajax: town_info/send_units town ${srcTownId} -> ${destId} (support, ${Object.keys(sendUnits).length} tipos / ${count} unidades)`);
     gameAjaxPost('support', 'town_info', 'send_units', params, settle);
