@@ -12,22 +12,12 @@
       overlapSec: gbCfgClamp(c.overlapSec, 0, 3600, 30),
     };
   }
-  function supportLedger() {
-    if (!state.supportLastSend || typeof state.supportLastSend !== 'object' || Array.isArray(state.supportLastSend)) {
-      state.supportLastSend = {};
-    }
-    return state.supportLastSend;
-  }
-  function supportLedgerSave() { save(STORE.SUPPORT_LAST_SEND, supportLedger()); }
-  function supportLedgerPrune() {
-    const L = supportLedger();
-    const cut = Date.now() - SUPPORT_LEDGER_PRUNE_MS;
-    let changed = false;
-    for (const [k, e] of Object.entries(L)) {
-      if (!e || +(e.expires || 0) < cut) { delete L[k]; changed = true; }
-    }
-    if (changed) supportLedgerSave();
-  }
+  const SUPPORT_LEDGER = boundedLedger({
+    stateKey: 'supportLastSend',
+    storeKey: STORE.SUPPORT_LAST_SEND,
+    pruneField: 'expires',
+    pruneMs: SUPPORT_LEDGER_PRUNE_MS,
+  });
 
   function supportLearnTemplate(j) {
     const args = (j && j.arguments) || {};
@@ -142,18 +132,18 @@
     return lines.join('\n');
   }
   function supportRecordSend(movId, donors, arrivalMs) {
-    const L = supportLedger();
+    const L = SUPPORT_LEDGER.ensure();
     L[String(movId)] = {
       ts: Date.now(),
       expires: arrivalMs + SUPPORT_LEDGER_GRACE_MS,
       donorIds: donors.map(d => String(d.from)),
       state: 'sent',
     };
-    supportLedgerSave();
+    SUPPORT_LEDGER.save();
   }
 
   function supportRecallWindow(movId) {
-    const L = supportLedger();
+    const L = SUPPORT_LEDGER.ensure();
     const e = L[String(movId)];
     if (!e || e.state !== 'sent') return;
     if (!state.cancelTpl) {
@@ -163,8 +153,8 @@
     let outs = [];
     try { outs = militaryOutgoingMovements() || []; } catch (_) { return; }
     const mine = outs.filter(m => /^(support|support_sea)$/.test(String(m.type || '')) && e.donorIds.includes(String(m.home)));
-    if (!mine.length) { e.state = 'done'; supportLedgerSave(); return; }
-    e.state = 'recalling'; supportLedgerSave();
+    if (!mine.length) { e.state = 'done'; SUPPORT_LEDGER.save(); return; }
+    e.state = 'recalling'; SUPPORT_LEDGER.save();
     for (const m of mine) {
       militaryCancelCommand(m.commandId, { confirmed: true, automation: true }, (err) => {
         if (!err) gbLog(`support: recalled ${m.commandId} from ${m.home}`);
@@ -180,7 +170,7 @@
     if (captchaPausedAny('support', 'dodge')) return;
     if (!mov || mov.id == null) return;
     const movId = String(mov.id);
-    const L = supportLedger();
+    const L = SUPPORT_LEDGER.ensure();
     const prev = L[movId];
     if (prev && +(prev.expires || 0) > Date.now()) {
       gbLogT('support-flap-' + movId, 300000, `support: already-sent for ${movId}`);
@@ -255,13 +245,13 @@
     }
   }
   function supportScan(reason) {
-    supportLedgerPrune();
+    SUPPORT_LEDGER.prune(Date.now());
     if (!supportCfg().auto) return;
     if (!hostEnabled() || automationPaused({})) return;
 
     let live = new Set();
     try { live = new Set((dodgeIncomingMovements() || []).map(m => String(m.id))); } catch (_) { return; }
-    for (const [movId, e] of Object.entries(supportLedger())) {
+    for (const [movId, e] of Object.entries(SUPPORT_LEDGER.ensure())) {
       if (!e || e.state !== 'sent') continue;
       if (live.has(movId)) continue;
       supportRecallWindow(movId);

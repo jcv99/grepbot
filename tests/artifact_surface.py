@@ -86,14 +86,16 @@ def _check(name, ok, detail=''):
 def main():
     if not OUT.exists():
         raise SystemExit(f'error: artifact not found at {OUT}; run python3 build.py first')
-    if not BASELINE.exists():
-        raise SystemExit(f'error: baseline not found at {BASELINE}; run '
-                         f'python3 tests/snapshot.py write first')
 
-    baseline = json.loads(BASELINE.read_text(encoding='utf-8'))
+    # Compare against LIVE src/ snapshot, not the committed baseline.
+    # The baseline is for diffing across refactors (REDESIGN §5.1 L1);
+    # the artifact surface check (L3) just needs to confirm the build
+    # reflects what's currently in src/. Stale baseline would mask real
+    # extras as if they were renames.
+    live = snap_mod.snapshot()
     body = _artifact_body(OUT)
     artifact_decls = _artifact_decls(body)
-    src_decl_names = {d['name'] for f in baseline['files'].values() for d in f['decls']}
+    src_decl_names = {d['name'] for f in live['files'].values() for d in f['decls']}
     artifact_decl_names = {n for n, _, _ in artifact_decls}
 
     failures = []

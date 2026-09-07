@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.51
+// @version      6.0.52
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1477,6 +1477,7 @@ const STORE = {
     }
     function save() { save(storeKey, ensure()); }
     function prune(now) {
+      if (!(pruneMs > 0)) return false;
       const L = ensure();
       const cut = (now || Date.now()) - pruneMs;
       let changed = false;
@@ -19499,22 +19500,18 @@ const STORE = {
     batchRecruitScan('manual');
   }
   const RECRUIT_PACK_NAME_MAX = 40;
-  function recruitPacksRoot() {
-    if (!state.recruitPacks || typeof state.recruitPacks !== 'object' || Array.isArray(state.recruitPacks)) {
-      state.recruitPacks = {};
-    }
-    return state.recruitPacks;
-  }
-  function recruitPacksSave() {
-    try { save(STORE.RECRUIT_PACKS, recruitPacksRoot()); } catch (_) {}
-  }
+  const RECRUIT_PACKS_LEDGER = boundedLedger({
+    stateKey: 'recruitPacks',
+    storeKey: STORE.RECRUIT_PACKS,
+    pruneMs: 0,
+  });
   function recruitPackNames() {
-    return Object.keys(recruitPacksRoot()).sort((a, b) => a.localeCompare(b));
+    return Object.keys(RECRUIT_PACKS_LEDGER.ensure()).sort((a, b) => a.localeCompare(b));
   }
   function recruitPackRows(name) {
     const key = String(name == null ? '' : name);
     if (!key) return [];
-    const root = recruitPacksRoot();
+    const root = RECRUIT_PACKS_LEDGER.ensure();
     let arr = root[key];
     if (!Array.isArray(arr)) arr = root[key] = [];
     for (let i = arr.length - 1; i >= 0; i--) {
@@ -19528,17 +19525,17 @@ const STORE = {
   function recruitPackCreate(name) {
     const key = String(name == null ? '' : name).trim().slice(0, RECRUIT_PACK_NAME_MAX);
     if (!key) return '';
-    const root = recruitPacksRoot();
+    const root = RECRUIT_PACKS_LEDGER.ensure();
     if (!Array.isArray(root[key])) root[key] = [];
-    recruitPacksSave();
+    RECRUIT_PACKS_LEDGER.save();
     return key;
   }
   function recruitPackDelete(name) {
     const key = String(name == null ? '' : name);
-    const root = recruitPacksRoot();
+    const root = RECRUIT_PACKS_LEDGER.ensure();
     if (!key || !root[key]) return false;
     delete root[key];
-    recruitPacksSave();
+    RECRUIT_PACKS_LEDGER.save();
     return true;
   }
   function recruitPackAddRow(name, unit, amount) {
@@ -19549,14 +19546,14 @@ const STORE = {
     const rows = recruitPackRows(key);
     const hit = rows.find(r => r.unit === String(unit));
     if (hit) hit.amount = a; else rows.push({ unit: String(unit), amount: a });
-    recruitPacksSave();
+    RECRUIT_PACKS_LEDGER.save();
     return true;
   }
   function recruitPackRemoveRow(name, idx) {
     const rows = recruitPackRows(name);
     if (idx < 0 || idx >= rows.length) return false;
     rows.splice(idx, 1);
-    recruitPacksSave();
+    RECRUIT_PACKS_LEDGER.save();
     return true;
   }
   function recruitPackFromTown(name, townId) {
@@ -19564,8 +19561,8 @@ const STORE = {
     if (!key) return false;
     const src = batchRecruitTownList(townId);
     if (!src.length) return false;
-    recruitPacksRoot()[key] = src.map(r => ({ unit: r.unit, amount: +r.amount || 0 }));
-    recruitPacksSave();
+    RECRUIT_PACKS_LEDGER.ensure()[key] = src.map(r => ({ unit: r.unit, amount: +r.amount || 0 }));
+    RECRUIT_PACKS_LEDGER.save();
     return true;
   }
   function recruitPackApply(name, townId, mode) {
@@ -19592,17 +19589,13 @@ const STORE = {
   function trainSection() {
     return panel && panel.querySelector('section[data-tab=train]');
   }
-  function recruitTargetsRoot() {
-    if (!state.recruitTargets || typeof state.recruitTargets !== 'object' || Array.isArray(state.recruitTargets)) {
-      state.recruitTargets = {};
-    }
-    return state.recruitTargets;
-  }
-  function recruitTargetsSave() {
-    try { save(STORE.RECRUIT_TARGETS, recruitTargetsRoot()); } catch (_) {}
-  }
+  const RECRUIT_TARGETS_LEDGER = boundedLedger({
+    stateKey: 'recruitTargets',
+    storeKey: STORE.RECRUIT_TARGETS,
+    pruneMs: 0,
+  });
   function recruitTargetTownMap(townId, create) {
-    const root = recruitTargetsRoot();
+    const root = RECRUIT_TARGETS_LEDGER.ensure();
     const id = String(townId == null ? '' : townId);
     if (!id) return {};
     const cur = root[id];
@@ -19613,7 +19606,7 @@ const STORE = {
     return root[id];
   }
   function recruitTargetTownCount() {
-    const root = recruitTargetsRoot();
+    const root = RECRUIT_TARGETS_LEDGER.ensure();
     return Object.keys(root).filter(id => {
       const m = root[id];
       return m && typeof m === 'object' && !Array.isArray(m) && Object.keys(m).length;
@@ -19626,16 +19619,16 @@ const STORE = {
     const n = n0 == null ? 0 : Math.max(0, Math.floor(n0));
     const map = recruitTargetTownMap(id, n > 0);
     if (n > 0) map[String(unit)] = n; else delete map[String(unit)];
-    if (!Object.keys(map).length) delete recruitTargetsRoot()[id];
-    recruitTargetsSave();
+    if (!Object.keys(map).length) delete RECRUIT_TARGETS_LEDGER.ensure()[id];
+    RECRUIT_TARGETS_LEDGER.save();
     return true;
   }
   function recruitTargetClearTown(townId) {
     const id = String(townId == null ? '' : townId);
-    const root = recruitTargetsRoot();
+    const root = RECRUIT_TARGETS_LEDGER.ensure();
     if (!id || !root[id]) return false;
     delete root[id];
-    recruitTargetsSave();
+    RECRUIT_TARGETS_LEDGER.save();
     return true;
   }
   function trainSelectedTown() {
@@ -19768,7 +19761,7 @@ const STORE = {
   function trainSelectedPack(sec) {
     const sel = sec && sec.querySelector('[data-tr=pack]');
     const cur = sel && sel.value ? String(sel.value) : '';
-    if (cur && recruitPacksRoot()[cur]) return cur;
+    if (cur && RECRUIT_PACKS_LEDGER.ensure()[cur]) return cur;
     return recruitPackNames()[0] || '';
   }
   function renderTrainPacks(sec) {
@@ -24671,22 +24664,12 @@ const STORE = {
       overlapSec: gbCfgClamp(c.overlapSec, 0, 3600, 30),
     };
   }
-  function supportLedger() {
-    if (!state.supportLastSend || typeof state.supportLastSend !== 'object' || Array.isArray(state.supportLastSend)) {
-      state.supportLastSend = {};
-    }
-    return state.supportLastSend;
-  }
-  function supportLedgerSave() { save(STORE.SUPPORT_LAST_SEND, supportLedger()); }
-  function supportLedgerPrune() {
-    const L = supportLedger();
-    const cut = Date.now() - SUPPORT_LEDGER_PRUNE_MS;
-    let changed = false;
-    for (const [k, e] of Object.entries(L)) {
-      if (!e || +(e.expires || 0) < cut) { delete L[k]; changed = true; }
-    }
-    if (changed) supportLedgerSave();
-  }
+  const SUPPORT_LEDGER = boundedLedger({
+    stateKey: 'supportLastSend',
+    storeKey: STORE.SUPPORT_LAST_SEND,
+    pruneField: 'expires',
+    pruneMs: SUPPORT_LEDGER_PRUNE_MS,
+  });
 
   function supportLearnTemplate(j) {
     const args = (j && j.arguments) || {};
@@ -24801,18 +24784,18 @@ const STORE = {
     return lines.join('\n');
   }
   function supportRecordSend(movId, donors, arrivalMs) {
-    const L = supportLedger();
+    const L = SUPPORT_LEDGER.ensure();
     L[String(movId)] = {
       ts: Date.now(),
       expires: arrivalMs + SUPPORT_LEDGER_GRACE_MS,
       donorIds: donors.map(d => String(d.from)),
       state: 'sent',
     };
-    supportLedgerSave();
+    SUPPORT_LEDGER.save();
   }
 
   function supportRecallWindow(movId) {
-    const L = supportLedger();
+    const L = SUPPORT_LEDGER.ensure();
     const e = L[String(movId)];
     if (!e || e.state !== 'sent') return;
     if (!state.cancelTpl) {
@@ -24822,8 +24805,8 @@ const STORE = {
     let outs = [];
     try { outs = militaryOutgoingMovements() || []; } catch (_) { return; }
     const mine = outs.filter(m => /^(support|support_sea)$/.test(String(m.type || '')) && e.donorIds.includes(String(m.home)));
-    if (!mine.length) { e.state = 'done'; supportLedgerSave(); return; }
-    e.state = 'recalling'; supportLedgerSave();
+    if (!mine.length) { e.state = 'done'; SUPPORT_LEDGER.save(); return; }
+    e.state = 'recalling'; SUPPORT_LEDGER.save();
     for (const m of mine) {
       militaryCancelCommand(m.commandId, { confirmed: true, automation: true }, (err) => {
         if (!err) gbLog(`support: recalled ${m.commandId} from ${m.home}`);
@@ -24839,7 +24822,7 @@ const STORE = {
     if (captchaPausedAny('support', 'dodge')) return;
     if (!mov || mov.id == null) return;
     const movId = String(mov.id);
-    const L = supportLedger();
+    const L = SUPPORT_LEDGER.ensure();
     const prev = L[movId];
     if (prev && +(prev.expires || 0) > Date.now()) {
       gbLogT('support-flap-' + movId, 300000, `support: already-sent for ${movId}`);
@@ -24914,13 +24897,13 @@ const STORE = {
     }
   }
   function supportScan(reason) {
-    supportLedgerPrune();
+    SUPPORT_LEDGER.prune(Date.now());
     if (!supportCfg().auto) return;
     if (!hostEnabled() || automationPaused({})) return;
 
     let live = new Set();
     try { live = new Set((dodgeIncomingMovements() || []).map(m => String(m.id))); } catch (_) { return; }
-    for (const [movId, e] of Object.entries(supportLedger())) {
+    for (const [movId, e] of Object.entries(SUPPORT_LEDGER.ensure())) {
       if (!e || e.state !== 'sent') continue;
       if (live.has(movId)) continue;
       supportRecallWindow(movId);

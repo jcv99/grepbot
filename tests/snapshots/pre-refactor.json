@@ -3794,731 +3794,731 @@
         {
           "arity": 0,
           "kind": "function",
-          "line": 1512,
+          "line": 1513,
           "name": "noteTransportSuccess"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1519,
+          "line": 1520,
           "name": "noteTransportTimeout"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1536,
+          "line": 1537,
           "name": "gbPanicActive"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1537,
+          "line": 1538,
           "name": "gbPanicPending"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1538,
+          "line": 1539,
           "name": "gbPanicLeftMs"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1540,
+          "line": 1541,
           "name": "gbPanicActivate"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1551,
+          "line": 1552,
           "name": "gbPanicRecover"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1569,
+          "line": 1570,
           "name": "automationPaused"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 1603,
+          "line": 1604,
           "name": "reqBudgetHead"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 1605,
+          "line": 1606,
           "name": "REQ_SCOPE_FRACTION"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1606,
+          "line": 1607,
           "name": "reqBudgetPool"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1607,
+          "line": 1608,
           "name": "reqBudgetCap"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1611,
+          "line": 1612,
           "name": "reqBudgetOk"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 1622,
+          "line": 1623,
           "name": "WAKE_SPACING_MS"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 1623,
+          "line": 1624,
           "name": "gbWakeQueue"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 1624,
+          "line": 1625,
           "name": "gbWakeDraining"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 1625,
+          "line": 1626,
           "name": "gbWakeLastTickAt"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 1626,
+          "line": 1627,
           "name": "gbWakeBurstUntil"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1627,
+          "line": 1628,
           "name": "gbWakeDepth"
         },
         {
           "arity": 3,
           "kind": "function",
-          "line": 1628,
+          "line": 1629,
           "name": "gbWake"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1641,
+          "line": 1642,
           "name": "gbWakeDrain"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1664,
+          "line": 1665,
           "name": "gbWakeMarkResume"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1668,
+          "line": 1669,
           "name": "gbInWakeBurst"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1670,
+          "line": 1671,
           "name": "gbWakeGapTick"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 1687,
+          "line": 1688,
           "name": "CAVE_SOON_MS"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 1688,
+          "line": 1689,
           "name": "cultureCaveDeferCount"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1689,
+          "line": 1690,
           "name": "ironReservedForCave"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1727,
+          "line": 1728,
           "name": "cultureShouldDeferForCave"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1733,
+          "line": 1734,
           "name": "reqBudgetMark"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1736,
+          "line": 1737,
           "name": "reqBudgetUsed"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1747,
+          "line": 1748,
           "name": "reqBudgetByScope"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1753,
+          "line": 1754,
           "name": "reqBudgetSoftDelayMs"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 1762,
+          "line": 1763,
           "name": "TPL_HEALTH_FAILS"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 1763,
+          "line": 1764,
           "name": "TPL_HEALTH_STALE_MS"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 1764,
+          "line": 1765,
           "name": "TPL_FEATURE_MAP"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 1777,
+          "line": 1778,
           "name": "tplNameFor"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 1785,
+          "line": 1786,
           "name": "TPL_DEFAULTS"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1786,
+          "line": 1787,
           "name": "tplLearned"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1793,
+          "line": 1794,
           "name": "tplHealthSave"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1794,
+          "line": 1795,
           "name": "tplHealthEnsure"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1801,
+          "line": 1802,
           "name": "tplHealthMarkLearned"
         },
         {
           "arity": 3,
           "kind": "function",
-          "line": 1810,
+          "line": 1811,
           "name": "tplHealthNote"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 1813,
+          "line": 1814,
           "name": "tplHealthNoteName"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1835,
+          "line": 1836,
           "name": "tplHealthOk"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1877,
+          "line": 1878,
           "name": "tplHealthBannerText"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 1884,
+          "line": 1885,
           "name": "gbGameDataLookup"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1891,
+          "line": 1892,
           "name": "scanReason"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1892,
+          "line": 1893,
           "name": "captchaLadder"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 1900,
+          "line": 1901,
           "name": "logBuf"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 1901,
+          "line": 1902,
           "name": "logHead"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 1902,
+          "line": 1903,
           "name": "logThrottle"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 1903,
+          "line": 1904,
           "name": "LOG_MAX"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1904,
+          "line": 1905,
           "name": "gbLog"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1916,
+          "line": 1917,
           "name": "gbLogDump"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1920,
+          "line": 1921,
           "name": "gbLogDumpText"
         },
         {
           "arity": 3,
           "kind": "function",
-          "line": 1923,
+          "line": 1924,
           "name": "gbLogT"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 1944,
+          "line": 1945,
           "name": "seenCount"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1963,
+          "line": 1964,
           "name": "rememberSeen"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 1976,
+          "line": 1977,
           "name": "pruneMapsToIds"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1984,
+          "line": 1985,
           "name": "gameUw"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1995,
+          "line": 1996,
           "name": "gbLit"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2000,
+          "line": 2001,
           "name": "_uwCache"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2001,
+          "line": 2002,
           "name": "UW_CACHE_MS"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 2002,
+          "line": 2003,
           "name": "uwCached"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2009,
+          "line": 2010,
           "name": "_mmColCache"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2010,
+          "line": 2011,
           "name": "_mmColCacheAt"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2011,
+          "line": 2012,
           "name": "MM_MODELS_CACHE_MS"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2012,
+          "line": 2013,
           "name": "_mmModelsAllCache"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2013,
+          "line": 2014,
           "name": "_mmModelsAllCacheAt"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2014,
+          "line": 2015,
           "name": "mmCol"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2033,
+          "line": 2034,
           "name": "gbMovementType"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2041,
+          "line": 2042,
           "name": "mmModelsAll"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 2085,
+          "line": 2086,
           "name": "movementModels"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2086,
+          "line": 2087,
           "name": "countUnits"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 2090,
+          "line": 2091,
           "name": "backoffFor"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 2095,
+          "line": 2096,
           "name": "xhrGuessLadder"
         },
         {
           "arity": 3,
           "kind": "function",
-          "line": 2104,
+          "line": 2105,
           "name": "gbTry"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 2110,
+          "line": 2111,
           "name": "gameBridgeStatus"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 2128,
+          "line": 2129,
           "name": "gameBridgeReady"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 2132,
+          "line": 2133,
           "name": "gameNow"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2148,
+          "line": 2149,
           "name": "SYNC"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 2155,
+          "line": 2156,
           "name": "islandBeneficiaryWorldIndex"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2178,
+          "line": 2179,
           "name": "normalizeIslandBeneficiaryConfig"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2198,
+          "line": 2199,
           "name": "islandBeneficiaryConfigValid"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 2201,
+          "line": 2202,
           "name": "load"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2219,
+          "line": 2220,
           "name": "storageWarnUntil"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2220,
+          "line": 2221,
           "name": "storageWarnMsg"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2221,
+          "line": 2222,
           "name": "storagePruneBusy"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 2222,
+          "line": 2223,
           "name": "loadValueStatus"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 2237,
+          "line": 2238,
           "name": "loadValueOk"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 2241,
+          "line": 2242,
           "name": "storageRawSet"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2246,
+          "line": 2247,
           "name": "pruneBytesOf"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 2250,
+          "line": 2251,
           "name": "storagePruneForQuota"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2345,
+          "line": 2346,
           "name": "gbMigrationActive"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2346,
+          "line": 2347,
           "name": "gbMigrationWriteFailed"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 2347,
+          "line": 2348,
           "name": "save"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2391,
+          "line": 2392,
           "name": "SAVE_SOON_MS"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2392,
+          "line": 2393,
           "name": "saveSoonPending"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2393,
+          "line": 2394,
           "name": "saveSoonTimer"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 2394,
+          "line": 2395,
           "name": "saveFlush"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 2404,
+          "line": 2405,
           "name": "saveSoon"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2409,
+          "line": 2410,
           "name": "GM_XHR_DEFAULT_TIMEOUT"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2410,
+          "line": 2411,
           "name": "gbXhr"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2493,
+          "line": 2494,
           "name": "gbAjaxCancelFeature"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2504,
+          "line": 2505,
           "name": "gbAbortFeature"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 2518,
+          "line": 2519,
           "name": "xhrLadder"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2521,
+          "line": 2522,
           "name": "_gbEvents"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 2522,
+          "line": 2523,
           "name": "gbEventsChannel"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 2541,
+          "line": 2542,
           "name": "gbEventsEmit"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2547,
+          "line": 2548,
           "name": "BRIDGE_TIMEOUT_MS"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 2548,
+          "line": 2549,
           "name": "saveCaptcha"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2549,
+          "line": 2550,
           "name": "captchaPausedPure"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2554,
+          "line": 2555,
           "name": "captchaExpireSweep"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2564,
+          "line": 2565,
           "name": "captchaPaused"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2569,
+          "line": 2570,
           "name": "captchaPausedAny"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 2576,
+          "line": 2577,
           "name": "captchaTrip"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2602,
+          "line": 2603,
           "name": "captchaClear"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2624,
+          "line": 2625,
           "name": "CAPTCHA_TEXT_RE"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2625,
+          "line": 2626,
           "name": "responseIsCaptcha"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2657,
+          "line": 2658,
           "name": "PLANNER_KEYS"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2658,
+          "line": 2659,
           "name": "PLANNER_COMMIT_HOLD_MS"
         }
       ],
-      "lines": 2659,
+      "lines": 2660,
       "sentinels": {
         "BOOT_TIMING.": 0,
         "STORE.": 463,
@@ -4537,7 +4537,7 @@
         "saveSoon(": 3,
         "txRun(": 0
       },
-      "sha256": "99f404d67a624aac730269b8d07be7758403edadc9f3121d3705f31772aef4ff"
+      "sha256": "118d69d6d7b0257e09f1f324fed7982aec896c03ae8d712f1edefda85f953cc5"
     },
     "culture.js": {
       "complexity_hotspots": {},
@@ -7120,7 +7120,7 @@
         "saveSoon(": 0,
         "txRun(": 0
       },
-      "sha256": "1698e011527c5612c8033be1c9a3f39239f99340b5ce037da2e9fe082c599728"
+      "sha256": "c1c2693869aefff18fc69a706e1ae4c2105eab9931c13d6665b04a795201b373"
     },
     "hud.js": {
       "complexity_hotspots": {},
@@ -11450,187 +11450,175 @@
           "name": "RECRUIT_PACK_NAME_MAX"
         },
         {
-          "arity": 0,
-          "kind": "function",
+          "arity": null,
+          "kind": "const",
           "line": 1578,
-          "name": "recruitPacksRoot"
+          "name": "RECRUIT_PACKS_LEDGER"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1584,
-          "name": "recruitPacksSave"
-        },
-        {
-          "arity": 0,
-          "kind": "function",
-          "line": 1587,
+          "line": 1583,
           "name": "recruitPackNames"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1590,
+          "line": 1586,
           "name": "recruitPackRows"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1604,
+          "line": 1600,
           "name": "recruitPackCreate"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1612,
+          "line": 1608,
           "name": "recruitPackDelete"
         },
         {
           "arity": 3,
           "kind": "function",
-          "line": 1620,
+          "line": 1616,
           "name": "recruitPackAddRow"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 1631,
+          "line": 1627,
           "name": "recruitPackRemoveRow"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 1638,
+          "line": 1634,
           "name": "recruitPackFromTown"
         },
         {
           "arity": 3,
           "kind": "function",
-          "line": 1647,
+          "line": 1643,
           "name": "recruitPackApply"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 1662,
+          "line": 1658,
           "name": "recruitPackApplyAll"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1668,
+          "line": 1664,
           "name": "trainSection"
         },
         {
-          "arity": 0,
-          "kind": "function",
-          "line": 1671,
-          "name": "recruitTargetsRoot"
-        },
-        {
-          "arity": 0,
-          "kind": "function",
-          "line": 1677,
-          "name": "recruitTargetsSave"
+          "arity": null,
+          "kind": "const",
+          "line": 1667,
+          "name": "RECRUIT_TARGETS_LEDGER"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 1680,
+          "line": 1672,
           "name": "recruitTargetTownMap"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1691,
+          "line": 1683,
           "name": "recruitTargetTownCount"
         },
         {
           "arity": 3,
           "kind": "function",
-          "line": 1698,
+          "line": 1690,
           "name": "recruitTargetSet"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1709,
+          "line": 1701,
           "name": "recruitTargetClearTown"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1717,
+          "line": 1709,
           "name": "trainSelectedTown"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1725,
+          "line": 1717,
           "name": "trainToggleButtons"
         },
         {
           "arity": 3,
           "kind": "function",
-          "line": 1744,
+          "line": 1736,
           "name": "trainTargetRowText"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1754,
+          "line": 1746,
           "name": "renderTrain"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1844,
+          "line": 1836,
           "name": "trainSelectedPack"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 1850,
+          "line": 1842,
           "name": "renderTrainPacks"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 1964,
+          "line": 1956,
           "name": "trainBound"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 1965,
+          "line": 1957,
           "name": "bindTrainTab"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2083,
+          "line": 2075,
           "name": "batchRecruitScan"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2117,
+          "line": 2109,
           "name": "GB_WIDGET_DEFAULT_POS"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2118,
+          "line": 2110,
           "name": "gbWidgets"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 2119,
+          "line": 2111,
           "name": "gbWidgetGeom"
         }
       ],
-      "lines": 2123,
+      "lines": 2115,
       "sentinels": {
         "BOOT_TIMING.": 0,
         "STORE.": 7,
@@ -11649,7 +11637,7 @@
         "saveSoon(": 1,
         "txRun(": 0
       },
-      "sha256": "9e472b5c1b0366e2ed4da694f482304c9cef6f01436d109dbe0ddd2e8d2e57b7"
+      "sha256": "4f060b3eb0610bada991c53880c3a6188ad1e0706ead6e6ba05a6c85bc2d1231"
     },
     "reinforce.js": {
       "complexity_hotspots": {},
@@ -12857,109 +12845,97 @@
           "name": "supportCfg"
         },
         {
-          "arity": 0,
-          "kind": "function",
+          "arity": null,
+          "kind": "const",
           "line": 15,
-          "name": "supportLedger"
-        },
-        {
-          "arity": 0,
-          "kind": "function",
-          "line": 21,
-          "name": "supportLedgerSave"
-        },
-        {
-          "arity": 0,
-          "kind": "function",
-          "line": 22,
-          "name": "supportLedgerPrune"
+          "name": "SUPPORT_LEDGER"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 32,
+          "line": 22,
           "name": "supportLearnTemplate"
         },
         {
           "arity": 4,
           "kind": "function",
-          "line": 38,
+          "line": 28,
           "name": "supportBridgePost"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 63,
+          "line": 53,
           "name": "supportSelectUnits"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 82,
+          "line": 72,
           "name": "supportAlreadyCovered"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 96,
+          "line": 86,
           "name": "supportDonorLabel"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 99,
+          "line": 89,
           "name": "supportComposeBurst"
         },
         {
           "arity": 4,
           "kind": "function",
-          "line": 128,
+          "line": 118,
           "name": "supportConfirmText"
         },
         {
           "arity": 3,
           "kind": "function",
-          "line": 144,
+          "line": 134,
           "name": "supportRecordSend"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 155,
+          "line": 145,
           "name": "supportRecallWindow"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 176,
+          "line": 166,
           "name": "supportTryBurst"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 257,
+          "line": 247,
           "name": "supportScan"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 271,
+          "line": 261,
           "name": "RF_ARM_MAX_MS"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 272,
+          "line": 262,
           "name": "RF_HISTORY_MAX"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 273,
+          "line": 263,
           "name": "RF_HELP_MODES"
         }
       ],
-      "lines": 274,
+      "lines": 264,
       "sentinels": {
         "BOOT_TIMING.": 0,
         "STORE.": 2,
@@ -12978,7 +12954,7 @@
         "saveSoon(": 0,
         "txRun(": 0
       },
-      "sha256": "8aa8ab8c10b9fe31de64a58cad46152605f23148bf72abd6dd7f4e9137aa6b56"
+      "sha256": "17a90352b758831e815b1d3e71cfb8cbceb00c8a62385acc1f1d83da1949d3e0"
     },
     "telegram.js": {
       "complexity_hotspots": {},

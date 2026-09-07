@@ -1498,6 +1498,7 @@ const STORE = {
     }
     function save() { save(storeKey, ensure()); }
     function prune(now) {
+      if (!(pruneMs > 0)) return false;
       const L = ensure();
       const cut = (now || Date.now()) - pruneMs;
       let changed = false;
