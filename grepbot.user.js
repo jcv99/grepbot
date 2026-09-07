@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.49
+// @version      6.0.50
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1830,26 +1830,6 @@ const STORE = {
     return 'Plantilla obsoleta: ' + bad.join(', ') + ' \u2014 haz un clic manual para reaprenderla';
   }
 
-  function gbCfgNum(v, fallback) {
-    const n = +v;
-    return Number.isFinite(n) ? n : fallback;
-  }
-
-  function gbCfgClamp(v, lo, hi, fallback) {
-    const n = +v;
-    return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : fallback;
-  }
-
-  function gbServerDay() {
-    try {
-      const now = gameNow();
-      const d = new Date(now * 1000);
-      return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
-    } catch (_) {
-      return new Date().toISOString().slice(0, 10);
-    }
-  }
-
   function gbGameDataLookup(table, key) {
     try {
       const uw = gameUw();
@@ -2620,17 +2600,6 @@ const STORE = {
 
   const PLANNER_KEYS = ['wood', 'stone', 'iron', 'population'];
   const PLANNER_COMMIT_HOLD_MS = 15000;
-  function plannerZero() { return { wood:0, stone:0, iron:0, population:0, tradeCap:0 }; }
-  function plannerNormCost(v) {
-    if (!v || typeof v !== 'object') return null;
-    const out = plannerZero();
-    let known = false;
-    for (const k of PLANNER_KEYS) {
-      if (v[k] != null && Number.isFinite(+v[k]) && +v[k] >= 0) { out[k] = +v[k]; known = true; }
-    }
-    if (v.tradeCap != null && Number.isFinite(+v.tradeCap) && +v.tradeCap >= 0) { out.tradeCap = +v.tradeCap; known = true; }
-    return known ? out : null;
-  }
   function plannerCfgRoot() {
     if (!state.plannerCfg || typeof state.plannerCfg !== 'object' || Array.isArray(state.plannerCfg)) state.plannerCfg = {};
     if (!state.plannerCfg.global || typeof state.plannerCfg.global !== 'object') state.plannerCfg.global = {};
@@ -2877,6 +2846,35 @@ const STORE = {
 
     'airaw'
   ]);
+
+  function gbCfgNum(v, fallback) {
+    const n = +v;
+    return Number.isFinite(n) ? n : fallback;
+  }
+  function gbCfgClamp(v, lo, hi, fallback) {
+    const n = +v;
+    return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : fallback;
+  }
+  function gbServerDay() {
+    try {
+      const now = gameNow();
+      const d = new Date(now * 1000);
+      return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+    } catch (_) {
+      return new Date().toISOString().slice(0, 10);
+    }
+  }
+  function plannerZero() { return { wood:0, stone:0, iron:0, population:0, tradeCap:0 }; }
+  function plannerNormCost(v) {
+    if (!v || typeof v !== 'object') return null;
+    const out = plannerZero();
+    let known = false;
+    for (const k of PLANNER_KEYS) {
+      if (v[k] != null && Number.isFinite(+v[k]) && +v[k] >= 0) { out[k] = +v[k]; known = true; }
+    }
+    if (v.tradeCap != null && Number.isFinite(+v.tradeCap) && +v.tradeCap >= 0) { out.tradeCap = +v.tradeCap; known = true; }
+    return known ? out : null;
+  }
   const TX_TERMINAL_TTL = 30 * 60 * 1000;
   const TX_INSTANT_TOMBSTONE_TTL = 24 * 60 * 60 * 1000;
   const TX_PRE_SEND_STALE_MS = 60 * 1000;

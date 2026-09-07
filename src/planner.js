@@ -250,3 +250,34 @@
 
     'airaw'
   ]);
+
+  // ===== Planner internals (moved from core.js in v6.0.50, REDESIGN §4.1 R3) =====
+  function gbCfgNum(v, fallback) {
+    const n = +v;
+    return Number.isFinite(n) ? n : fallback;
+  }
+  function gbCfgClamp(v, lo, hi, fallback) {
+    const n = +v;
+    return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : fallback;
+  }
+  function gbServerDay() {
+    try {
+      const now = gameNow();
+      const d = new Date(now * 1000);
+      return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+    } catch (_) {
+      return new Date().toISOString().slice(0, 10);
+    }
+  }
+  function plannerZero() { return { wood:0, stone:0, iron:0, population:0, tradeCap:0 }; }
+  function plannerNormCost(v) {
+    if (!v || typeof v !== 'object') return null;
+    const out = plannerZero();
+    let known = false;
+    for (const k of PLANNER_KEYS) {
+      if (v[k] != null && Number.isFinite(+v[k]) && +v[k] >= 0) { out[k] = +v[k]; known = true; }
+    }
+    if (v.tradeCap != null && Number.isFinite(+v.tradeCap) && +v.tradeCap >= 0) { out.tradeCap = +v.tradeCap; known = true; }
+    return known ? out : null;
+  }
+
