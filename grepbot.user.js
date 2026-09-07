@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.50
+// @version      6.0.51
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1462,6 +1462,31 @@ const STORE = {
   function gbTransportPrune(now) {
     const cut = now - GB_TRANSPORT_TIMEOUT_WINDOW_MS;
     while (gbTransportTimeouts.length && gbTransportTimeouts[0].ts < cut) gbTransportTimeouts.shift();
+  }
+
+  function boundedLedger(opts) {
+    const stateKey = opts.stateKey;
+    const storeKey = opts.storeKey;
+    const pruneField = opts.pruneField || 'expires';
+    const pruneMs = +opts.pruneMs || 0;
+    function ensure() {
+      if (!state[stateKey] || typeof state[stateKey] !== 'object' || Array.isArray(state[stateKey])) {
+        state[stateKey] = {};
+      }
+      return state[stateKey];
+    }
+    function save() { save(storeKey, ensure()); }
+    function prune(now) {
+      const L = ensure();
+      const cut = (now || Date.now()) - pruneMs;
+      let changed = false;
+      for (const [k, e] of Object.entries(L)) {
+        if (!e || +(e[pruneField] || 0) < cut) { delete L[k]; changed = true; }
+      }
+      if (changed) save();
+      return changed;
+    }
+    return { ensure, save, prune };
   }
   function noteTransportSuccess() {
     const now = Date.now();
@@ -12480,22 +12505,12 @@ const STORE = {
     const n = +state.emergencyCaveConfirm;
     return Number.isFinite(n) ? Math.max(0, Math.min(1000000, n)) : 1000;
   }
-  function emergencyLedger() {
-    if (!state.emergencyLastStash || typeof state.emergencyLastStash !== 'object' || Array.isArray(state.emergencyLastStash)) {
-      state.emergencyLastStash = {};
-    }
-    return state.emergencyLastStash;
-  }
-  function emergencyLedgerSave() { save(STORE.EMERGENCY_LAST, emergencyLedger()); }
-  function emergencyLastStashPrune() {
-    const L = emergencyLedger();
-    const cut = Date.now() - EMERGENCY_LEDGER_PRUNE_MS;
-    let changed = false;
-    for (const [k, e] of Object.entries(L)) {
-      if (!e || +(e.expires || 0) < cut) { delete L[k]; changed = true; }
-    }
-    if (changed) emergencyLedgerSave();
-  }
+  const EMERGENCY_LEDGER = boundedLedger({
+    stateKey: 'emergencyLastStash',
+    storeKey: STORE.EMERGENCY_LAST,
+    pruneField: 'expires',
+    pruneMs: EMERGENCY_LEDGER_PRUNE_MS,
+  });
 
   function emergencyStashAmount(info) {
     if (!info || info.iron == null) return 0;
@@ -12554,7 +12569,7 @@ const STORE = {
   }
 
   function emergencyScan(reason) {
-    emergencyLastStashPrune();
+    EMERGENCY_LEDGER.prune(Date.now());
     if (!state.emergencyCaveAuto) return;
     if (!hostEnabled() || automationPaused({})) return;
     if (captchaPausedAny('cave', 'cave-emergency', 'dodge')) return;
@@ -12564,7 +12579,7 @@ const STORE = {
       return;
     }
     if (!incoming.length) return;
-    const L = emergencyLedger();
+    const L = EMERGENCY_LEDGER.ensure();
     const now = Date.now();
     for (const mov of incoming) {
       if (!mov || mov.id == null) continue;
@@ -12586,7 +12601,7 @@ const STORE = {
         if (!err) {
           const at=Date.now();
           L[key] = { townId: String(mov.dest), ts: at, expires: at + Math.max(0, eta) * 1000 + EMERGENCY_LEDGER_GRACE_MS };
-          emergencyLedgerSave();
+          EMERGENCY_LEDGER.save();
         } else {
           gbLogT('cave-emergency-retry-'+key,30000,`cave-emergency: ${mov.dest} not committed (${err}); next scan may retry`);
         }

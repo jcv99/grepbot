@@ -1476,6 +1476,39 @@ const STORE = {
     const cut = now - GB_TRANSPORT_TIMEOUT_WINDOW_MS;
     while (gbTransportTimeouts.length && gbTransportTimeouts[0].ts < cut) gbTransportTimeouts.shift();
   }
+
+  // boundedLedger (REDESIGN §4.2 / DEDUP_MAP item L): single helper for the
+  // per-feature "ensure+save+prune-by-expiry" pattern that previously lived
+  // as parallel implementations in emergency/recruit/support/culture/wonder.
+  // - stateKey: state.<stateKey> holds the map (auto-initialised to {})
+  // - storeKey: passed to save() when the map changes
+  // - pruneField: entry[pruneField] is the cutoff ms; entries with value < now-pruneMs get dropped
+  // - pruneMs: how long entries live past pruneField
+  // Caller writes through ensure(); mutations need save() to persist.
+  function boundedLedger(opts) {
+    const stateKey = opts.stateKey;
+    const storeKey = opts.storeKey;
+    const pruneField = opts.pruneField || 'expires';
+    const pruneMs = +opts.pruneMs || 0;
+    function ensure() {
+      if (!state[stateKey] || typeof state[stateKey] !== 'object' || Array.isArray(state[stateKey])) {
+        state[stateKey] = {};
+      }
+      return state[stateKey];
+    }
+    function save() { save(storeKey, ensure()); }
+    function prune(now) {
+      const L = ensure();
+      const cut = (now || Date.now()) - pruneMs;
+      let changed = false;
+      for (const [k, e] of Object.entries(L)) {
+        if (!e || +(e[pruneField] || 0) < cut) { delete L[k]; changed = true; }
+      }
+      if (changed) save();
+      return changed;
+    }
+    return { ensure, save, prune };
+  }
   function noteTransportSuccess() {
     const now = Date.now();
     gbTransportLastOkAt = now;
