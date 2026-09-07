@@ -17,6 +17,9 @@
 !src/**
 !tests/
 !tests/**
+# ...but the whitelist above re-includes python caches under tests/; drop them again.
+tests/**/__pycache__/
+tests/**/*.pyc
 !.claude/skills/run-grepbot/driver.mjs
 !.claude/skills/run-grepbot/smoke.html
 !.claude/skills/run-grepbot/SKILL.md

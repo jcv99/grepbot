@@ -3978,3 +3978,156 @@
     flash(`revisadas ${unknown.length} tx desconocidas`);
     updateStatus();
   });
+
+  // ===== UI helper cluster (moved from core.js in v6.0.48, REDESIGN §4.1 R1) =====
+  // Pure DOM/locale/log helpers that ui.js is the right owner for. The
+  // boot path still works because top-level function declarations hoist
+  // across module boundaries inside the single IIFE.
+  function gbTip(el, text) {
+    if (!el || !text) return el;
+    el.title = String(text);
+    el.setAttribute('aria-label', String(text));
+    return el;
+  }
+  function gbTipWalk(root) {
+    if (!root || typeof root.querySelectorAll !== 'function') return 0;
+    const nodes = root.querySelectorAll('[data-gb-tip]');
+    let n = 0;
+    for (const el of nodes) {
+      const t = el.getAttribute('data-gb-tip');
+      if (!t) continue;
+      el.title = t;
+      el.setAttribute('aria-label', t);
+      el.removeAttribute('data-gb-tip');
+      n++;
+    }
+    return n;
+  }
+  // Shared DOM primitives (DEDUP PR 2). Presentation only — no game reads,
+  // no write state. Sites with extra semantics keep their own factory
+  // (queueCenterButton: leader check + rerender; nativeQButton: event guards).
+  function gbButton(label, opts) {
+    const o = opts || {};
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    if (o.className) b.className = o.className;
+    if (o.style) b.style.cssText = o.style;
+    if (o.title) gbTip(b, o.title);
+    if (o.disabled) b.disabled = true;
+    if (typeof o.onClick === 'function') b.addEventListener('click', o.onClick);
+    return b;
+  }
+  function gbEmptyState(text, className) {
+    const el = document.createElement('div');
+    el.className = className || 'gb-qc-empty';
+    el.textContent = text;
+    return el;
+  }
+  function gbUnregisterMenus() {
+    for (const id of gbMenuCmds) {
+      try { if (typeof GM_unregisterMenuCommand === 'function') GM_unregisterMenuCommand(id); } catch (_) {}
+    }
+    gbMenuCmds.length = 0;
+  }
+  function gbMenu(label, fn) {
+    try {
+      const id = GM_registerMenuCommand(label, () => { if (gbInstanceAlive()) fn(); });
+      if (id != null) gbMenuCmds.push(id);
+    } catch (_) {
+      try { GM_registerMenuCommand(label, () => { if (gbInstanceAlive()) fn(); }); } catch (__) {}
+    }
+  }
+  function gbAddStyle(name, css) {
+    try {
+      document.querySelectorAll('style[data-grepbot-style="' + name + '"]').forEach(el => el.remove());
+    } catch (_) {}
+    let before = null;
+    try { before = new Set(document.querySelectorAll('style')); } catch (_) {}
+    let el = null;
+    try { el = GM_addStyle(css); } catch (_) { return null; }
+    if (!el || typeof el.setAttribute !== 'function') {
+      el = null;
+      try {
+        for (const s of document.querySelectorAll('style')) {
+          if (!before || !before.has(s)) { el = s; break; }
+        }
+      } catch (_) {}
+    }
+    try {
+      if (el && typeof el.setAttribute === 'function') {
+        el.setAttribute('data-grepbot-style', name);
+        gbStyleBag.push(el);
+      }
+    } catch (_) {}
+    return el;
+  }
+  function gbRemoveStyles() {
+    for (const el of gbStyleBag.slice()) {
+      try { el.remove(); } catch (_) {}
+    }
+    gbStyleBag.length = 0;
+    try { document.querySelectorAll('style[data-grepbot-style]').forEach(el => el.remove()); } catch (_) {}
+  }
+  function gbDomClick(el, feature) {
+    if (!el) return false;
+    if (state.dryRun) {
+      const tag = el.tagName || '?';
+      const hint = el.className ? String(el.className).split(/\s+/)[0] : '';
+      gbLog(`DRY-RUN ${feature || 'dom'}: click blocked (${tag}${hint ? '.' + hint : ''})`);
+      return false;
+    }
+    el.click();
+    return true;
+  }
+  let logRenderQueued = false;
+  const LOG_VIEW_MAX = 2000;
+  function renderLog() {
+    const sec = panel && panel.querySelector('section[data-tab=log]');
+    const list = sec && sec.querySelector('.log-list');
+    if (!list || sec.hidden || list.hidden || logRenderQueued) return;
+    logRenderQueued = true;
+    const flush = () => {
+      logRenderQueued = false;
+      if (sec.hidden || list.hidden) return;
+      const avail = logBuf.length - logHead;
+      const take = Math.min(avail, LOG_VIEW_MAX, Math.max(80, avail));
+      const start = Math.max(logHead, logBuf.length - take);
+      const lines = logBuf.slice(start);
+      list.textContent = lines.map(l => new Date(l.ts).toLocaleTimeString() + ' ' + l.msg).join('\n');
+      list.scrollTop = list.scrollHeight;
+    };
+    if (document.hidden) gbTimeout(flush, 250);
+    else if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
+    else gbTimeout(flush, 250);
+  }
+  function fmtHMS(sec) {
+    sec = Math.max(0, Math.floor(+sec || 0));
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    const p = n => String(n).padStart(2, '0');
+    return h > 0 ? `${h}:${p(m)}:${p(s)}` : `${m}:${p(s)}`;
+  }
+  function fmtSec(s) {
+    s = Math.max(0, Math.floor(+s || 0));
+    if (s < 60) return s + 's';
+    const m = Math.floor(s / 60), r = s % 60;
+    return r ? `${m}m${r}s` : `${m}m`;
+  }
+  const I18N = {
+    es: { collect: 'Recoger', selectAll: 'Seleccionar todas las unidades', cooldown: 'tiempo de espera' },
+    en: { collect: 'Collect', selectAll: 'Select all units', cooldown: 'cooldown' },
+    de: { collect: 'Sammeln', selectAll: 'Alle Einheiten auswählen', cooldown: 'Abklingzeit' },
+    fr: { collect: 'Collecter', selectAll: 'Sélectionner toutes les unités', cooldown: 'temps d\'attente' },
+    it: { collect: 'Raccogli', selectAll: 'Seleziona tutte le unità', cooldown: 'tempo di attesa' },
+    pt: { collect: 'Recolher', selectAll: 'Selecionar todas as unidades', cooldown: 'tempo de espera' },
+  };
+  function marketLocale() {
+    const uw = gameUw();
+    const m = (uw.Game && uw.Game.market_id) || (uw.Game && uw.Game.market) || '';
+    const lang = String(m).slice(0, 2).toLowerCase();
+    return I18N[lang] || I18N.en;
+  }
+  function i18n(key) { return (marketLocale()[key] || I18N.en[key] || key); }
+
