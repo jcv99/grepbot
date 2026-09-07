@@ -4,6 +4,9 @@
 # the documented driver infra (cdp smoke + REPL + fixture command used by
 # the REDESIGN §5.2 test net); other .claude/ files (agent settings,
 # keybindings, sandbox config) stay local.
+# docs/ tracked because CLAUDE.md, REDESIGN.md, REGRESSIONS.md,
+# DEDUP_MAP.md, OPEN-PLAN.md, INDEX.md are reference material shipped
+# with the source (consumed by agents and humans working the repo).
 *
 !.gitignore
 !README.md
@@ -17,3 +20,5 @@
 !.claude/skills/run-grepbot/driver.mjs
 !.claude/skills/run-grepbot/smoke.html
 !.claude/skills/run-grepbot/SKILL.md
+!docs/
+!docs/**
