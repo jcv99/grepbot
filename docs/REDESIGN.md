@@ -447,20 +447,43 @@ Every step is **independent**, **single-purpose**, **buildable**, and
 "Module change protocol" + "Hard rules" — gates 1, 2, 4 still fatal.
 **Gates 5 (snapshot diff) added in R0a.**
 
-| # | Step | LOC delta | Risk | Smoke | Reference |
+| # | Step | LOC delta (planned → actual) | Risk | Status | Reference |
 |---|---|---|---|---|---|
-| **R0** | Read **only** + sign-off on this document | 0 | none | n/a | this file |
-| **R1** | Move UI helper cluster from `core.js` to `ui.js`: `gbTip`, `gbTipWalk`, `gbButton`, `gbEmptyState`, `gbAddStyle`, `gbRemoveStyles`, `fmtHMS`, `fmtSec`, `gbMenu`, `gbUnregisterMenus`, `gbDomClick`, `renderLog`, `i18n`, `marketLocale` | core -350 / ui +350 | LOW | snapshot diff + 5 fixtures + artifact surface | §4.1 (re-scoped) |
-| **R2** | Move `runningVersion` from `core.js` to `boot.js` | core -5 / boot +5 | LOW | snapshot diff + fixture PASS | §4.1 |
-| **R3** | Move planner internals (`plannerZero`, `plannerNormCost`, `gbCfgNum`, `gbCfgClamp`, `gbServerDay`) from `core.js` to `planner.js` | core -50 / planner +50 | LOW-MED | snapshot diff + preflight fixture PASS | §4.1 |
-| **R4** | Introduce `boundedLedger({key, ttl, cap, saveKey, pruneKey})` in `core.js`; migrate `emergencyLedger` / `emergencyLastStashPrune` first (read-only call sites only) | core +30, emergency -15 | LOW-MED | CDP preflight + 1 emergency cycle | §4.2, DEDUP_MAP item L |
-| **R5** | Migrate remaining ledger sites: `recruitPacksRoot` / `recruitTargetsRoot`, `supportLedger`, `cultureGoldSpentLoad`, `wonderLoadSpent` | net -40 | LOW-MED | CDP per-feature toggle cycle | §4.2 |
-| **R6** | Add loop registry `LOOPS = [{name, fn, ms, enabledIf?}]` in `boot.js`; replace `gbInterval` literal calls in `boot.js` (only) | boot ±10 | LOW | CDP boot (0 page errors) | OPEN-PLAN § 5.6 |
-| **R7** | Bridge `bridgeRaw` / `gameAjaxRaw` skeleton merge (already a thin wrapper pair; unify only the `gbAjaxWatch`+`settled`-dedupe path) | bridge -60 | yes-adj | CDP dry-run post + in-game dry run of one attack wave | DEDUP_MAP item F |
-| **R8** | (DEFERRED) `townEcon(townId)` superset reader | -120 over many | MED | full in-game (per-feature reader parity) | OPEN-PLAN § 5.5 |
-| **R9** | (DEFERRED) `txRun` → `txPrepare` / `txDispatch` / `txReconcileLoop` + feature registry `txBatch` / `txOnce` / `txOnCaptcha` / `txLogErr`. Guard order **unchanged**. | tx -50 | HIGH | CDP full pass + per-feature dry run + decision journal assert | OPEN-PLAN § 5.3, 5.4 |
-| **R10** | (GATED, OWN SESSION) `attack.js` ↔ `reinforce.js` wave-planner merge | -250 | HIGH | per-feature in-game on es146 | DEDUP_MAP item N, OPEN-PLAN § 2.6 |
-| **R11** | (PARKED) Add mechanical checks (`jscpd`, minimal `eslint`, `BOOT_TIMING` drift detector) to `build.py` | build +100 | none | dev-only first, gate in step 7.5/7.6 | OPEN-PLAN § 7 |
+| **R0** | Read **only** + sign-off on this document | 0 / 0 | none | DONE | this file |
+| **R1** | Move UI helper cluster from `core.js` to `ui.js`: `gbTip`, `gbTipWalk`, `gbButton`, `gbEmptyState`, `gbAddStyle`, `gbRemoveStyles`, `fmtHMS`, `fmtSec`, `gbMenu`, `gbUnregisterMenus`, `gbDomClick`, `renderLog`, `i18n`, `marketLocale` | core -350 / ui +350 → core **-156** / ui **+153** | LOW | DONE v6.0.48 | §4.1 (re-scoped) |
+| **R2** | Move `runningVersion` from `core.js` to `boot.js` | core -5 / boot +5 → core **-5** / boot **+5** | LOW | DONE v6.0.49 | §4.1 |
+| **R3** | Move planner internals (`plannerZero`, `plannerNormCost`, `gbCfgNum`, `gbCfgClamp`, `gbServerDay`) from `core.js` to `planner.js` | core -50 / planner +50 → core **-15** / planner **+12** (PLANNER_KEYS stays in core.js; 5 helper fns moved) | LOW-MED | DONE v6.0.50 | §4.1 |
+| **R4** | Introduce `boundedLedger({stateKey, storeKey, pruneField, pruneMs})` in `core.js`; migrate `emergencyLedger` / `emergencyLastStashPrune` first | core +30, emergency -15 → core **+30**, emergency **-9** | LOW-MED | DONE v6.0.51 | §4.2, DEDUP_MAP item L |
+| **R5** | Migrate remaining ledger sites: `supportLedger`, `recruitPacksRoot`, `recruitTargetsRoot`. SKIPPED: `cultureGoldSpentLoad` + `wonderLoadSpent` (different shape, see §4.2 caveat) | net -40 → **net -20** (3 sites migrated, 2 skipped because they don't fit the ledger pattern) | LOW-MED | DONE v6.0.52 | §4.2 |
+| **R6** | Add loop registry `BOOT_LOOPS = [{name, fn, ms, enabledIf?}]` + `bootLoop`/`bootStartLoops` helpers in `boot.js`. 6 simple intervals migrated (scrapeInboxDom, farmTick, checkThresholds, renderTimers, updateStatus, dodgeReturnTick). Complex loops stay inline. | boot ±10 → boot **+19** (registry + helpers offset the per-call LOC saved; small underdelivery vs ±10 target) | LOW | DONE v6.0.53 | OPEN-PLAN § 5.6 |
+| **R7** | Bridge `bridgeRaw` / `gameAjaxRaw` skeleton consolidation. Added `gbAjaxTimeoutKey(kind, feature)` helper. | bridge -60 → bridge **+2** (MASSIVE under-delivery; ajaxTransportRaw shared skeleton was already extracted in earlier work; remaining duplication was the timeout-key formatting pattern alone) | yes-adj | DONE v6.0.54 | DEDUP_MAP item F |
+| **R8** | (DEFERRED) `townEcon(townId)` superset reader | -120 over many | MED | not started | OPEN-PLAN § 5.5 |
+| **R9** | (DEFERRED) `txRun` → `txPrepare` / `txDispatch` / `txReconcileLoop` + feature registry `txBatch` / `txOnce` / `txOnCaptcha` / `txLogErr`. Guard order **unchanged**. | tx -50 | HIGH | not started | OPEN-PLAN § 5.3, 5.4 |
+| **R10** | (GATED, OWN SESSION) `attack.js` ↔ `reinforce.js` wave-planner merge | -250 | HIGH | not started | DEDUP_MAP item N, OPEN-PLAN § 2.6 |
+| **R11** | (PARKED) Add mechanical checks (`jscpd`, minimal `eslint`, `BOOT_TIMING` drift detector) to `build.py` | build +100 | none | not started | OPEN-PLAN § 7 |
+
+**Audit corrections** (after R1-R7 land):
+
+- **R3 estimate was wrong by direction**: planned -50/+50 LOC, actual -15/+12. The 5 planner helpers are small (5-8 LOC each); the 50-LOC target assumed bulky wrappers. PLANNER_KEYS stays in core.js because it's referenced by core.js code outside the planner.
+- **R5 partial**: 3 of 5 sites migrated. `cultureGoldSpentLoad` + `wonderLoadSpent` are single-record `{day, amount}` readers, NOT ledger maps. Original audit misclassified; flag for future cleanup as their own R-step (different shape → different helper).
+- **R6 modest under-delivery**: ±10 target vs +19 actual. The 6 simple migrations save ~6 LOC; the registry + helpers add ~25. Net positive on readability (one place to read every boot interval) even though LOC went up slightly. The complex-loop follow-on (compositions, conditions, boot delays) is open scope for a future R-step.
+- **R7 massive under-delivery**: -60 target vs +2 actual. The shared skeleton (`ajaxTransportRaw`) was already extracted in earlier work — what remained was the timeout-key formatting pattern. Other potential extractions (bridgePost/gameAjaxPost merge, watch-key formatting helpers) were rejected: net negative LOC, or inlining ajaxTransportRaw into the two Raw wrappers would lose the abstraction for ~60 LOC of tightly-coupled code. The honest read: **R7 was already done**; this R-step just documented it and extracted one small helper.
+- **Helper additions that are net-positive even when LOC went up**:
+  - `boundedLedger` (R4): consolidates 5+ ensure/save/prune triplets into one config; net LOC negative once ≥2 sites migrate; for R4+R5 alone: -8 net.
+  - `bootLoop`/`bootStartLoops` (R6): single place to read every boot interval, uniform error wrapping, `enabledIf` plumbing for future econ-gating.
+  - `gbAjaxTimeoutKey` (R7): tiny but eliminates a hand-rolled string pattern at 2 sites.
+
+**§4.5 R6 follow-on scope** (when the registry pattern proves itself further):
+
+- Compositions: `gbInterval(() => { gbLockSweep(); diagnosticsTick(); })` at `boot.js:173` — register the pair or split into two entries.
+- Conditional bodies: `gbInterval(() => { if (queueCenterVisible() || ...) renderQueueCenter(); }, QUEUE_CENTER_PAINT_MS)` at `boot.js:142-149` — works as-is with `enabledIf` if the conditional is extracted.
+- Boot delays: `gbTimeout(() => { if (state.autoFarm) farmScheduleClaimWake(...); }, FARM_WAKE_MS)` — `bootTimeout` helper if a third one appears.
+- Telegram heartbeat (`gbInterval` at `boot.js:83`) — out-of-band; stays inline until it's no longer one-off.
+
+**REDESIGN §4.1 status** (after R1-R3 land):
+
+- core.js: 2816 → ~2640 LOC (-176, -6.2%). Target was ~2400 LOC (-15%); missed by ~240 LOC because the REDESIGN §4.1 first-pass audit over-counted what was still in core.js. The remaining fat in core.js is `plannerZero`/`plannerNormCost`-class functions (moved in R3), `gbWake*` (transport infra, stays), `healthSaveSoon`/`markModuleHealth` (module-health infra, stays), and the `tplHealth*` cluster (template-health infra, stays).
+- Further core.js compression is bounded by what qualifies as "platform primitive" vs "feature internals." A clean second pass could move `plannerCfgRoot`-class state-shape helpers into planner.js and `reqBudget*` ladder helpers into a new `budget.js`, but those are independent R-steps not in this plan.
 
 Each R-step is one commit + one `@version` bump + build + CDP smoke +
 annotated tag. R0 alone is review; user approval gates R1 onward.
