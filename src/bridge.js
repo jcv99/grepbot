@@ -233,10 +233,14 @@
     watchEntry.cancel = cancel;
     try { opts.send(uw, classify); } catch (e) { finish(String(e)); }
   }
+  // Shared key builders used by both bridgeRaw and gameAjaxRaw. The bridge
+  // skeleton itself (ajaxTransportRaw) is already shared; these helpers
+  // collapse the duplicated timeout/watch-key formatting (REDESIGN §6 R7).
+  function gbAjaxTimeoutKey(kind, feature) { return kind + '-timeout-' + feature; }
   function bridgeRaw(feature, payload, done) {
     selfBridgeNote(payload);
     ajaxTransportRaw(feature, {
-      timeoutKey: 'bridge-timeout-' + feature,
+      timeoutKey: gbAjaxTimeoutKey('bridge', feature),
       timeoutMsg: feature + ': bridge timeout ' + BRIDGE_TIMEOUT_MS + 'ms',
       watchKey: 'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
       watchFp: gbAjaxBridgeFp(payload),
@@ -246,7 +250,7 @@
   }
   function gameAjaxRaw(feature, controller, action, data, done) {
     ajaxTransportRaw(feature, {
-      timeoutKey: 'ajax-timeout-' + feature,
+      timeoutKey: gbAjaxTimeoutKey('ajax', feature),
       timeoutMsg: `${feature}: ajax timeout ${BRIDGE_TIMEOUT_MS}ms (${controller}/${action})`,
       watchKey: 'ajax:' + controller + '/' + action,
       watchFp: gbAjaxFp(data),

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.53
+// @version      6.0.54
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -4151,10 +4151,12 @@ const STORE = {
     watchEntry.cancel = cancel;
     try { opts.send(uw, classify); } catch (e) { finish(String(e)); }
   }
+
+  function gbAjaxTimeoutKey(kind, feature) { return kind + '-timeout-' + feature; }
   function bridgeRaw(feature, payload, done) {
     selfBridgeNote(payload);
     ajaxTransportRaw(feature, {
-      timeoutKey: 'bridge-timeout-' + feature,
+      timeoutKey: gbAjaxTimeoutKey('bridge', feature),
       timeoutMsg: feature + ': bridge timeout ' + BRIDGE_TIMEOUT_MS + 'ms',
       watchKey: 'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
       watchFp: gbAjaxBridgeFp(payload),
@@ -4164,7 +4166,7 @@ const STORE = {
   }
   function gameAjaxRaw(feature, controller, action, data, done) {
     ajaxTransportRaw(feature, {
-      timeoutKey: 'ajax-timeout-' + feature,
+      timeoutKey: gbAjaxTimeoutKey('ajax', feature),
       timeoutMsg: `${feature}: ajax timeout ${BRIDGE_TIMEOUT_MS}ms (${controller}/${action})`,
       watchKey: 'ajax:' + controller + '/' + action,
       watchFp: gbAjaxFp(data),

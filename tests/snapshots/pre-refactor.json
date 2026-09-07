@@ -1586,283 +1586,289 @@
           "name": "ajaxTransportRaw"
         },
         {
+          "arity": 2,
+          "kind": "function",
+          "line": 239,
+          "name": "gbAjaxTimeoutKey"
+        },
+        {
           "arity": 3,
           "kind": "function",
-          "line": 236,
+          "line": 240,
           "name": "bridgeRaw"
         },
         {
           "arity": 5,
           "kind": "function",
-          "line": 247,
+          "line": 251,
           "name": "gameAjaxRaw"
         },
         {
           "arity": 3,
           "kind": "function",
-          "line": 258,
+          "line": 262,
           "name": "bridgePost"
         },
         {
           "arity": 5,
           "kind": "function",
-          "line": 262,
+          "line": 266,
           "name": "gameAjaxPost"
         },
         {
           "arity": 6,
           "kind": "function",
-          "line": 266,
+          "line": 270,
           "name": "txDomWrite"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 282,
+          "line": 286,
           "name": "dryRunFmt"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 288,
+          "line": 292,
           "name": "httpRetryAfterMs"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 298,
+          "line": 302,
           "name": "_townResCache"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 299,
+          "line": 303,
           "name": "TOWN_RES_CACHE_MS"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 300,
+          "line": 304,
           "name": "townResState"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 350,
+          "line": 354,
           "name": "LOOT_RATE_PER_HOUR"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 351,
+          "line": 355,
           "name": "LOOT_SAFE_FILL_PCT"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 353,
+          "line": 357,
           "name": "LOOT_CARRY_ATTRS"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 354,
+          "line": 358,
           "name": "gbUnitCarry"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 362,
+          "line": 366,
           "name": "gbLootSplit"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 367,
+          "line": 371,
           "name": "gbLootBlind"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 370,
+          "line": 374,
           "name": "gbLootEstimate"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 413,
+          "line": 417,
           "name": "_townPopCache"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 414,
+          "line": 418,
           "name": "POP_WARN_PCT"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 415,
+          "line": 419,
           "name": "POP_NEAR_PCT"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 417,
+          "line": 421,
           "name": "townPopState"
         },
         {
           "arity": 3,
           "kind": "function",
-          "line": 451,
+          "line": 455,
           "name": "gbProbeNum"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 462,
+          "line": 466,
           "name": "gbProbeAttr"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 473,
+          "line": 477,
           "name": "gbTownModel"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 479,
+          "line": 483,
           "name": "gbTownPop"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 490,
+          "line": 494,
           "name": "gbPlayerGold"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 500,
+          "line": 504,
           "name": "GB_RES_KEYS"
         },
         {
           "arity": 3,
           "kind": "function",
-          "line": 501,
+          "line": 505,
           "name": "gbAfford"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 528,
+          "line": 532,
           "name": "gbBuildingLevel"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 547,
+          "line": 551,
           "name": "hostEnabled"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 550,
+          "line": 554,
           "name": "gbSpanishWorldNumber"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 554,
+          "line": 558,
           "name": "gbFindEnabledSpanishSibling"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 574,
+          "line": 578,
           "name": "ensureHostDefault"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 612,
+          "line": 616,
           "name": "setHostEnabled"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 618,
+          "line": 622,
           "name": "gbReloadSharedRuntimeState"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 682,
+          "line": 686,
           "name": "gbHandleLeadershipAcquired"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 694,
+          "line": 698,
           "name": "CSRF_TOK16"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 695,
+          "line": 699,
           "name": "CSRF_TOK32"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 696,
+          "line": 700,
           "name": "CSRF_COOKIE_H"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 697,
+          "line": 701,
           "name": "CSRF_COOKIE_C"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 698,
+          "line": 702,
           "name": "csrfIsTok"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 702,
+          "line": 706,
           "name": "CSRF_PROBES"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 726,
+          "line": 730,
           "name": "huntCsrf"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 736,
+          "line": 740,
           "name": "csrfForceHunt"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 757,
+          "line": 761,
           "name": "JRN_MAX"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 758,
+          "line": 762,
           "name": "JRN_TTL_MS"
         }
       ],
-      "lines": 759,
+      "lines": 763,
       "sentinels": {
         "BOOT_TIMING.": 0,
         "STORE.": 99,
@@ -1881,7 +1887,7 @@
         "saveSoon(": 0,
         "txRun(": 3
       },
-      "sha256": "0b6ac685f877f23297902ff4bc2b280d07508c0a083e627750d9f59f1b67eff0"
+      "sha256": "db0bd3949eef5a5e89a17953d8f3e602c9880aa9321727cc6f89f9edefd48c01"
     },
     "build-auto.js": {
       "complexity_hotspots": {
@@ -7138,7 +7144,7 @@
         "saveSoon(": 0,
         "txRun(": 0
       },
-      "sha256": "bed3b45f5eda747108a10a3e052bc8a9e75ccbb441555209bbba39f491af9a57"
+      "sha256": "e0f8a8809f99adab8eea611336997c777d3a65c14b6fc92678d0debaa7f9dbec"
     },
     "hud.js": {
       "complexity_hotspots": {},
