@@ -8,3 +8,5 @@
 !grepbot.user.js
 !src/
 !src/**
+!tests/
+!tests/**

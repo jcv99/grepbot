@@ -27,6 +27,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(ROOT, 'src')
 OUT = os.path.join(ROOT, 'grepbot.user.js')
 STAMP = os.path.join(ROOT, '.build-stamp.json')
+BASELINE = os.path.join(ROOT, 'tests', 'snapshots', 'pre-refactor.json')
 
 MODULES = [
     'header.js',
@@ -656,6 +657,39 @@ def newer_artifact_gate(dest, version):
     return False
 
 
+def snapshot_diff_gate():
+    """Gate 5 (REDESIGN §5.1): tests/diff.py against the committed baseline.
+
+    R0a first run has no baseline yet — skip with a note. From R0b onward
+    the baseline exists; the gate runs --warn-only until R1 ships, then
+    fatal. `--no-snapshot` on the build command skips the gate entirely
+    (escape hatch for one-off forensic builds).
+    """
+    if '--no-snapshot' in sys.argv:
+        print('snapshot diff gate: skipped (--no-snapshot)')
+        return True
+    if not os.path.exists(BASELINE):
+        print(f'snapshot diff gate: no baseline at {BASELINE}; '
+              f'run `python3 tests/snapshot.py write` to capture one '
+              f'(R0a bootstrap, not yet fatal).')
+        return True
+    res = subprocess.run(
+        [sys.executable, os.path.join(ROOT, 'tests', 'diff.py'),
+         BASELINE, '--warn-only'],
+        capture_output=True, text=True,
+    )
+    if res.stdout:
+        print(res.stdout.rstrip())
+    if res.returncode != 0 and '--warn-only' not in sys.argv:
+        if res.stderr:
+            print(res.stderr.rstrip())
+        print('snapshot diff gate: FAIL — src/ drifted from baseline. '
+              'Inspect tests/snapshots/pre-refactor.json and run '
+              '`python3 tests/snapshot.py write` only if the change is intentional.')
+        return False
+    return True
+
+
 def build():
     parts = read_modules()
     dupes = check_duplicate_decls(parts)
@@ -689,6 +723,9 @@ def build():
         os.remove(tmp)
         raise SystemExit(1)
     version = version_of(parts)
+    if not snapshot_diff_gate():
+        os.remove(tmp)
+        raise SystemExit(1)
     if not version_gate(parts, version):
         os.remove(tmp)
         raise SystemExit(1)
