@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.52
+// @version      6.0.53
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -32164,6 +32164,25 @@ const STORE = {
     ORCH_FIRST_TICK_MS: 15000,
     IB_CLICK_HOOK_MS: 2000,
   });
+
+  const BOOT_LOOPS = [
+    { name: 'scrapeInboxDom',  fn: scrapeInboxDom,  ms: BOOT_TIMING.INBOX_SCRAPE_MS },
+    { name: 'farmTick',        fn: farmTick,        ms: BOOT_TIMING.FARM_TICK_MS },
+    { name: 'checkThresholds', fn: checkThresholds, ms: BOOT_TIMING.THRESHOLD_CHECK_MS },
+    { name: 'renderTimers',    fn: renderTimers,    ms: BOOT_TIMING.TIMERS_RENDER_MS },
+    { name: 'updateStatus',    fn: updateStatus,    ms: BOOT_TIMING.STATUS_UPDATE_MS },
+    { name: 'dodgeReturnTick', fn: dodgeReturnTick, ms: BOOT_TIMING.DODGE_RETURN_MS },
+  ];
+  function bootLoop(entry) {
+    const fn = entry.enabledIf ? () => { if (entry.enabledIf()) entry.fn(); } : entry.fn;
+    gbInterval(() => {
+      try { fn(); }
+      catch (e) { gbLogT('boot-' + entry.name, 60000, entry.name + ': ' + String(e?.message || e).slice(0, 80)); }
+    }, entry.ms);
+  }
+  function bootStartLoops() {
+    for (const L of BOOT_LOOPS) bootLoop(L);
+  }
   function ensurePanelMounted() {
     if (!panel) return;
     if (!document.body.contains(panel)) {
@@ -32203,7 +32222,7 @@ const STORE = {
   hookSpaNav();
   try { qolBindActivityPause(); } catch (_) {}
 
-  gbInterval(scrapeInboxDom, BOOT_TIMING.INBOX_SCRAPE_MS);
+  bootStartLoops();
   refreshFarmsParsed();
   renderFarms();
   renderTimers();
@@ -32211,7 +32230,6 @@ const STORE = {
 
   if (!state.nextFarmScrape) { state.nextFarmScrape = Date.now() + BOOT_TIMING.FIRST_FARM_DEADLINE_MS; save(STORE.NEXT_FARM, state.nextFarmScrape); }
   if (!state.nextTownsScrape) { state.nextTownsScrape = Date.now() + BOOT_TIMING.FIRST_TOWNS_DEADLINE_MS; save(STORE.NEXT_TOWNS, state.nextTownsScrape); }
-  gbInterval(farmTick, BOOT_TIMING.FARM_TICK_MS);
   gbTimeout(() => { if (state.autoFarm) farmScheduleClaimWake(null, 'boot', true); }, BOOT_TIMING.FARM_WAKE_MS);
 
   gbTimeout(() => { gbTry(() => telegramMonitorTick()); }, 3000);
@@ -32247,9 +32265,6 @@ const STORE = {
     try { nativeQueueSweep('bfcache'); } catch (e) { gbLogT('boot-nqs-bfcache', 60000, 'nqs bfcache: ' + String(e?.message || e).slice(0, 80)); }
     try { renderTimers(); renderFarms(); renderWorld(); updateStatus(); } catch (e) { gbLogT('boot-repaint-bfcache', 60000, 'repaint bfcache: ' + String(e?.message || e).slice(0, 80)); }
   });
-  gbInterval(checkThresholds, BOOT_TIMING.THRESHOLD_CHECK_MS);
-  gbInterval(renderTimers, BOOT_TIMING.TIMERS_RENDER_MS);
-  gbInterval(updateStatus, BOOT_TIMING.STATUS_UPDATE_MS);
   gbInterval(() => { try { renderTownSwitch(); } catch (e) { gbLogT('boot-town-switch', 60000, 'town switch: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.TOWN_SWITCH_MS);
   gbInterval(() => { try { caveTownsTick(); } catch (e) { gbLogT('boot-cave-tick', 60000, 'cave tick: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.CAVE_TICK_MS);
 
@@ -32286,7 +32301,6 @@ const STORE = {
   gbTimeout(() => { try { nativeQueueSweep('boot'); } catch (e) { gbLogT('boot-nqs-boot', 60000, 'native queue boot: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.NATIVE_QUEUE_BOOT_MS);
   gbInterval(() => { try { nativeQueueSweep('loop'); } catch (e) { gbLogT('boot-nqs-loop', 60000, 'native queue loop: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.NATIVE_QUEUE_LOOP_MS);
   gbInterval(() => dodgeScan('loop'), DODGE_CHECK_MS);
-  gbInterval(dodgeReturnTick, BOOT_TIMING.DODGE_RETURN_MS);
 
   orchStartIndependentTimers();
   gbTimeout(() => { orchStartIndependentTimers(); if(hostEnabled())orchTick(); }, BOOT_TIMING.ORCH_FIRST_TICK_MS);

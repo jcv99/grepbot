@@ -26,6 +26,31 @@
     ORCH_FIRST_TICK_MS: 15000,
     IB_CLICK_HOOK_MS: 2000,
   });
+
+  // Loop registry (REDESIGN §4.5 / §6 R6). Boot-time intervals listed once;
+  // bootStartLoops() walks the array, wraps each fn with try/catch + the
+  // standard 'boot-<name>' gbLogT error key, and starts the gbInterval.
+  // Complex loops (compositions, conditions, boot delays) stay inline -
+  // the registry is for the simple, repeated pattern. Complex migrations
+  // follow once the pattern is proven.
+  const BOOT_LOOPS = [
+    { name: 'scrapeInboxDom',  fn: scrapeInboxDom,  ms: BOOT_TIMING.INBOX_SCRAPE_MS },
+    { name: 'farmTick',        fn: farmTick,        ms: BOOT_TIMING.FARM_TICK_MS },
+    { name: 'checkThresholds', fn: checkThresholds, ms: BOOT_TIMING.THRESHOLD_CHECK_MS },
+    { name: 'renderTimers',    fn: renderTimers,    ms: BOOT_TIMING.TIMERS_RENDER_MS },
+    { name: 'updateStatus',    fn: updateStatus,    ms: BOOT_TIMING.STATUS_UPDATE_MS },
+    { name: 'dodgeReturnTick', fn: dodgeReturnTick, ms: BOOT_TIMING.DODGE_RETURN_MS },
+  ];
+  function bootLoop(entry) {
+    const fn = entry.enabledIf ? () => { if (entry.enabledIf()) entry.fn(); } : entry.fn;
+    gbInterval(() => {
+      try { fn(); }
+      catch (e) { gbLogT('boot-' + entry.name, 60000, entry.name + ': ' + String(e?.message || e).slice(0, 80)); }
+    }, entry.ms);
+  }
+  function bootStartLoops() {
+    for (const L of BOOT_LOOPS) bootLoop(L);
+  }
   function ensurePanelMounted() {
     if (!panel) return;
     if (!document.body.contains(panel)) {
@@ -65,7 +90,7 @@
   hookSpaNav();
   try { qolBindActivityPause(); } catch (_) {}
 
-  gbInterval(scrapeInboxDom, BOOT_TIMING.INBOX_SCRAPE_MS);
+  bootStartLoops();
   refreshFarmsParsed();
   renderFarms();
   renderTimers();
@@ -73,7 +98,6 @@
 
   if (!state.nextFarmScrape) { state.nextFarmScrape = Date.now() + BOOT_TIMING.FIRST_FARM_DEADLINE_MS; save(STORE.NEXT_FARM, state.nextFarmScrape); }
   if (!state.nextTownsScrape) { state.nextTownsScrape = Date.now() + BOOT_TIMING.FIRST_TOWNS_DEADLINE_MS; save(STORE.NEXT_TOWNS, state.nextTownsScrape); }
-  gbInterval(farmTick, BOOT_TIMING.FARM_TICK_MS);
   gbTimeout(() => { if (state.autoFarm) farmScheduleClaimWake(null, 'boot', true); }, BOOT_TIMING.FARM_WAKE_MS);
 
   // Dedicated out-of-band Telegram heartbeat. This is intentionally independent
@@ -112,9 +136,6 @@
     try { nativeQueueSweep('bfcache'); } catch (e) { gbLogT('boot-nqs-bfcache', 60000, 'nqs bfcache: ' + String(e?.message || e).slice(0, 80)); }
     try { renderTimers(); renderFarms(); renderWorld(); updateStatus(); } catch (e) { gbLogT('boot-repaint-bfcache', 60000, 'repaint bfcache: ' + String(e?.message || e).slice(0, 80)); }
   });
-  gbInterval(checkThresholds, BOOT_TIMING.THRESHOLD_CHECK_MS);
-  gbInterval(renderTimers, BOOT_TIMING.TIMERS_RENDER_MS);
-  gbInterval(updateStatus, BOOT_TIMING.STATUS_UPDATE_MS);
   gbInterval(() => { try { renderTownSwitch(); } catch (e) { gbLogT('boot-town-switch', 60000, 'town switch: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.TOWN_SWITCH_MS);
   gbInterval(() => { try { caveTownsTick(); } catch (e) { gbLogT('boot-cave-tick', 60000, 'cave tick: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.CAVE_TICK_MS);
 
@@ -151,7 +172,6 @@
   gbTimeout(() => { try { nativeQueueSweep('boot'); } catch (e) { gbLogT('boot-nqs-boot', 60000, 'native queue boot: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.NATIVE_QUEUE_BOOT_MS);
   gbInterval(() => { try { nativeQueueSweep('loop'); } catch (e) { gbLogT('boot-nqs-loop', 60000, 'native queue loop: ' + String(e?.message || e).slice(0, 80)); } }, BOOT_TIMING.NATIVE_QUEUE_LOOP_MS);
   gbInterval(() => dodgeScan('loop'), DODGE_CHECK_MS);
-  gbInterval(dodgeReturnTick, BOOT_TIMING.DODGE_RETURN_MS);
 
   // Create module timers unconditionally; each tick gates on hostEnabled().
   // This makes scheduler installation independent of the exact leader state at boot.

@@ -1387,43 +1387,61 @@
           "name": "BOOT_TIMING"
         },
         {
+          "arity": null,
+          "kind": "const",
+          "line": 36,
+          "name": "BOOT_LOOPS"
+        },
+        {
+          "arity": 1,
+          "kind": "function",
+          "line": 44,
+          "name": "bootLoop"
+        },
+        {
           "arity": 0,
           "kind": "function",
-          "line": 29,
+          "line": 51,
+          "name": "bootStartLoops"
+        },
+        {
+          "arity": 0,
+          "kind": "function",
+          "line": 54,
           "name": "ensurePanelMounted"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 37,
+          "line": 62,
           "name": "runningVersion"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 41,
+          "line": 66,
           "name": "hookSpaNav"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 174,
+          "line": 194,
           "name": "releaseLocksAt"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 175,
+          "line": 195,
           "name": "RELEASE_DEDUP_MS"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 176,
+          "line": 196,
           "name": "releaseLocks"
         }
       ],
-      "lines": 475,
+      "lines": 495,
       "sentinels": {
         "BOOT_TIMING.": 23,
         "STORE.": 2,
@@ -1434,7 +1452,7 @@
         "gbLit(": 0,
         "gbLock(": 0,
         "gbLog(": 0,
-        "gbLogT(": 31,
+        "gbLogT(": 32,
         "gbNum(": 0,
         "gbPaint(": 0,
         "gbUnlock(": 0,
@@ -1442,7 +1460,7 @@
         "saveSoon(": 0,
         "txRun(": 0
       },
-      "sha256": "5fb46580d6602bd95cefade18d67cf2488e660e866803f9aabca3665d41f5e70"
+      "sha256": "f18dfb9dc258dde4539e6bebb825e120ca5ac1c7e5970eb659ee422fccfe7d83"
     },
     "bridge.js": {
       "complexity_hotspots": {},
@@ -7120,7 +7138,7 @@
         "saveSoon(": 0,
         "txRun(": 0
       },
-      "sha256": "c1c2693869aefff18fc69a706e1ae4c2105eab9931c13d6665b04a795201b373"
+      "sha256": "bed3b45f5eda747108a10a3e052bc8a9e75ccbb441555209bbba39f491af9a57"
     },
     "hud.js": {
       "complexity_hotspots": {},
@@ -14900,7 +14918,7 @@
     "gbLit(": 3,
     "gbLock(": 40,
     "gbLog(": 321,
-    "gbLogT(": 461,
+    "gbLogT(": 462,
     "gbNum(": 409,
     "gbPaint(": 10,
     "gbUnlock(": 66,
