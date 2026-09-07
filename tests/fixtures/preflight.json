@@ -1,0 +1,7 @@
+{
+  "name": "preflight",
+  "description": "Preflight walks every read path; 0 FAIL rows is the smoke invariant. WARN rows can drift ±2 across stub randomness but the overall row count + 0-FAIL assertion stays. A probe moved to the wrong module surfaces as 'UNREADABLE' or a new FAIL.",
+  "commands": [
+    {"cmd": "preflight"}
+  ]
+}

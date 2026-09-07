@@ -1,0 +1,30 @@
+{
+  "name": "core-primitives",
+  "description": "Every gb* platform helper from snapshot.py GB_HELPERS must resolve to 'function'. Also checks state, STORE, BOOT_TIMING objects exist. A move that drops a helper from the IIFE surfaces as 'undefined' here.",
+  "commands": [
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.gbNum"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.gbLit"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.gbPaint"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.gbLock"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.gbUnlock"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.gbLocked"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.gbListen"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.save"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.saveSoon"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.saveFlush"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.bridgePost"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.gameAjaxPost"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.txRun"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.gameUw"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.gbTownModel"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.gbBuildingLevel"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.gbAfford"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.gbProbeNum"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.gbProbeAttr"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.gbLog"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.gbLogT"},
+    {"cmd": "eval", "arg": "typeof window.__grepbotTest.uwCached"},
+    {"cmd": "eval", "arg": "Object.keys(window.__grepbotTest.state).length"},
+    {"cmd": "eval", "arg": "Object.keys(window.__grepbotTest.STORE).length"}
+  ]
+}

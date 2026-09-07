@@ -1,0 +1,12 @@
+{
+  "name": "queue-center",
+  "description": "Open Queue Center and walk all 4 lanes. Empty state is a pass (stub has no towns). A move that breaks nativeQueueList access from QC's paint path surfaces as a thrown paint error or a missing lane render.",
+  "commands": [
+    {"cmd": "tab", "arg": "overview"},
+    {"cmd": "queues"},
+    {"cmd": "queues", "arg": "build"},
+    {"cmd": "queues", "arg": "research"},
+    {"cmd": "queues", "arg": "barracks"},
+    {"cmd": "queues", "arg": "docks"}
+  ]
+}

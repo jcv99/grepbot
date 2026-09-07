@@ -1417,7 +1417,7 @@
           "name": "releaseLocks"
         }
       ],
-      "lines": 470,
+      "lines": 471,
       "sentinels": {
         "BOOT_TIMING.": 23,
         "STORE.": 2,
@@ -1436,7 +1436,7 @@
         "saveSoon(": 0,
         "txRun(": 0
       },
-      "sha256": "6a2760b20c01335d31dffc6f3e95a7aab06b8dda20092b4ce6fedc134fe23405"
+      "sha256": "ca964819a4008d627b83de8039b5bb9e3b75d048f72f4be18361f47a12ef1e7d"
     },
     "bridge.js": {
       "complexity_hotspots": {},
@@ -7258,7 +7258,7 @@
         "saveSoon(": 0,
         "txRun(": 0
       },
-      "sha256": "6fe6a038f6d8798c6b20c6894ec0d4bc73123bc6ba908c39efef738560ceeb25"
+      "sha256": "675c0a7adfb09d2f73099e820696e177acb4582a21e0c26057b484d169c2bc53"
     },
     "hud.js": {
       "complexity_hotspots": {},

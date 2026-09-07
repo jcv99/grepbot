@@ -1,0 +1,8 @@
+{
+  "name": "tx-write-features",
+  "description": "TX_WRITE_FEATURES set membership is the hard-rule guard: a new write feature MUST register, or it takes the READ path and skips every guard. A move that loses the set, misnames it, or accidentally drops an entry fails here.",
+  "commands": [
+    {"cmd": "call", "arg": "TX_WRITE_FEATURES.length"},
+    {"cmd": "call", "arg": "Array.from(TX_WRITE_FEATURES).sort().join(',')"}
+  ]
+}

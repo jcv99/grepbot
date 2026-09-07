@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<!--
+  GrepBot smoke harness — NOT a real game. Stubs the backbone models
+  and bridge just enough to let src/core.js boot without throwing.
+  The bot's loops will spin and find nothing; we only verify that
+  init does not error. Driver reads document.title after settle.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>SMOKE_PENDING</title>
+<style>
+  body { font: 13px monospace; background: #1a1d23; color: #ddd; margin: 0; padding: 8px; }
+  #log { white-space: pre-wrap; max-height: 90vh; overflow: auto; }
+</style>
+</head>
+<body>
+<div id="ui_box"></div>
+<div id="gp_window_mgr"></div>
+<pre id="log"></pre>
+
+<script>
+// ---- error capture ----
+window.__SMOKE_ERRORS__ = [];
+window.addEventListener('error', (e) => {
+  window.__SMOKE_ERRORS__.push({
+    where: 'window.error',
+    msg: e.message,
+    src: e.filename,
+    line: e.lineno,
+    col: e.colno,
+    stack: e.error && e.error.stack
+  });
+});
+window.addEventListener('unhandledrejection', (e) => {
+  window.__SMOKE_ERRORS__.push({
+    where: 'unhandledrejection',
+    reason: String(e.reason && (e.reason.stack || e.reason.message || e.reason))
+  });
+});
+const origConsoleError = console.error;
+console.error = function (...a) {
+  window.__SMOKE_ERRORS__.push({ where: 'console.error', args: a.map(x => {
+    try { return typeof x === 'string' ? x : JSON.stringify(x).slice(0, 400); }
+    catch (_) { return String(x); }
+  })});
+  origConsoleError.apply(console, a);
+};
+
+// ---- minimal game stub ----
+// Rich enough that Preflight's read-path probes pass: two towns with
+// resources/buildings/research, one lootable farm village, csrf, GameData
+// units/buildings/researches, PlayerAttackSpot, Player gold, PlayerGods
+// favor. Shapes mirror what src/ readers probe (gbProbeNum/gbProbeAttr/
+// mmCol/ITowns.getTown). Extend when a probe gains a new read.
+const nowSec = Math.floor(Date.now() / 1000);
+const CSRF = '0123456789abcdef0123456789abcdef';
+
+function mkTown(id, over) {
+  over = over || {};
+  // abActualLevels() returns null unless every CD_CORE_BUILDINGS key is an
+  // own property of the buildings attributes — list all AB_BUILDINGS.
+  const buildings = Object.assign(
+    { main: 20, storage: 25, farm: 22, academy: 30, temple: 15, barracks: 10,
+      docks: 5, market: 10, hide: 10, lumber: 15, stoner: 15, ironer: 15, wall: 5,
+      theater: 0, thermal: 0, library: 1, lighthouse: 0, tower: 0, statue: 0,
+      oracle: 0, trade_office: 0 },
+    over.buildings || {});
+  const res = Object.assign(
+    { wood: 12000, stone: 9000, iron: 7000, storage: 21000, population: 120 },
+    over.resources || {});
+  return {
+    id, id_: id, name: 'Town ' + id, player_id: 1,
+    attributes: { id, name: 'Town ' + id, on_small_island: false },
+    get: (k) => ({ on_small_island: false })[k],
+    resources: () => res,
+    getStorageCapacity: () => 21000,
+    getAvailablePopulation: () => 120,
+    getAvailableTradeCapacity: () => 1500,
+    getAvailableResearchPoints: () => 12,
+    getBuildings: () => ({ get: (k) => (buildings[k] != null ? buildings[k] : 0), attributes: buildings }),
+    researches: () => ({ attributes: { booty: true } }),
+    units: {}
+  };
+}
+const TOWNS = { 7: mkTown(7), 8: mkTown(8) };
+
+// Collections. getCollections() must be BOTH iterable (villageUnitCounts
+// does `for (const col of cols)`) and keyed (mmCol fallback `cols[name][0]`,
+// clientFingerprint Object.keys) — an array with named props is both.
+const colTown = { models: [
+  { id: 7, attributes: { id: 7, name: 'Town 7', island_x: 11, island_y: 22, island_id: 101 } },
+  { id: 8, attributes: { id: 8, name: 'Town 8', island_x: 11, island_y: 22, island_id: 101 } }
+] };
+const colFarmRel = { models: [
+  { id: 1, attributes: {
+    id: 1, farm_town_id: 4242, town_id: 7,
+    relation_status: 1, lootable_at: nowSec - 10,
+    units: { sword: 5, archer: 2, hoplite: 1, slinger: 0 }
+  } }
+] };
+const colFarmTown = { models: [
+  { id: 4242, attributes: { id: 4242, island_x: 11, island_y: 22, island_id: 101, name: 'Aldea 1' } }
+] };
+const colEmpty = { models: [] };
+const colsArr = [colTown, colFarmRel, colFarmTown];
+colsArr.Town = [colTown];
+colsArr.FarmTownPlayerRelation = [colFarmRel];
+colsArr.FarmTown = [colFarmTown];
+colsArr.BuildingOrder = [colEmpty];
+
+const GODS = { zeus: 12, poseidon: 5, athena: 8, max_zeus: 500, max_poseidon: 500, max_athena: 500 };
+
+window.MM = {
+  getModels: () => ({
+    ResearchOrder: [],
+    BuildingOrder: [],
+    BuildingBuildData: {
+      7: { attributes: { building_data: {
+        main: { resources_for: { wood: 1000, stone: 800, iron: 600 }, population_for: 20 }
+      } } }
+    }
+  }),
+  getOnlyCollectionByName: (name) => ({
+    Town: colTown, FarmTownPlayerRelation: colFarmRel, FarmTown: colFarmTown
+  }[name] || colEmpty),
+  getCollections: () => colsArr,
+  getFirstTownAgnosticCollectionByName: () => ({ getFragment: () => ({ models: [] }) }),
+  getModelByNameAndPlayerId: (name) => {
+    if (name === 'PlayerAttackSpot') return { getLevel: () => 1, hasReward: () => false, getCooldownDuration: () => 3600 };
+    if (name === 'Player') return { attributes: { gold: 42 } };
+    if (name === 'PlayerGods') return { attributes: GODS };
+    return null;
+  }
+};
+window.ITowns = {
+  towns: TOWNS,
+  getTown: (id) => TOWNS[id] || TOWNS[String(id)] || null
+};
+window.__SMOKE_AJAX_POSTS__ = 0;
+window.gpAjax = {
+  ajaxPost: (url, action, data, cb) => {
+    window.__SMOKE_AJAX_POSTS__ = (window.__SMOKE_AJAX_POSTS__ || 0) + 1;
+    setTimeout(() => cb && cb({ success: true, error: false }), 30);
+  }
+};
+window.Game = {
+  market_id: 'es',
+  csrfToken: CSRF,
+  playerId: 1,
+  player_id: 1,
+  townId: 7,
+  player_gold: 42,
+  gods: GODS,
+  features: { endpoint: 'frontend_bridge', heroes_enabled: false },
+  constants: { academy: { points_per_academy_level: 4, points_per_library_level: 2 } }
+};
+window.GameData = {
+  units: {
+    sword: { resources: { wood: 95, stone: 0, iron: 85 } },
+    archer: { resources: { wood: 120, stone: 0, iron: 75 } },
+    hoplite: { resources: { wood: 0, stone: 75, iron: 150 } },
+    slinger: { resources: { wood: 55, stone: 0, iron: 40 } }
+  },
+  // farmClaimUnitsTable() reads this for the unit-claim probe.
+  farm_town: { claim_units: { sword: 3, archer: 2, hoplite: 1, slinger: 4 } },
+  buildings: { main: {}, academy: {}, hide: { max_level: 10 } },
+  researches: {
+    booty: { dependencies: [], resources: { wood: 500, stone: 400, iron: 300 }, research_points: 4 },
+    ceramics: { dependencies: ['booty'], resources: { wood: 800, stone: 600, iron: 200 }, research_points: 2 },
+    architecture: { dependencies: [], resources: { wood: 600, stone: 900, iron: 400 }, research_points: 3 }
+  }
+};
+window.csrfToken = CSRF;
+window.GPWindowMgr = { _collections: { BuildingOrder: [] } };
+window.Movements = { models: [] };
+window.unsafeWindow = window;
+// NOTE: do NOT add window.<fn> stubs for helpers the bot defines itself
+// (scrapeInboxDom, refreshFarmsParsed, renderTimers, diagRun, ...). The
+// whole bot lives in one IIFE, so a `window.foo` assignment cannot shadow
+// a missing inner declaration anyway -- it would only hide the real
+// ReferenceError from the panel's own paths, never fix it.
+window.GM_xmlhttpRequest = (opts) => {
+  // no-op in smoke; bot only calls it from real-game paths
+};
+window.GM_setValue = (k, v) => { window.localStorage.setItem('gb:' + k, JSON.stringify(v)); };
+window.GM_getValue = (k, def) => {
+  const raw = window.localStorage.getItem('gb:' + k);
+  return raw == null ? def : JSON.parse(raw);
+};
+window.GM_addStyle = (css) => {
+  const s = document.createElement('style');
+  s.textContent = css;
+  document.head.appendChild(s);
+};
+window.GM_registerMenuCommand = () => {};
+// boot.js only publishes window.__grepbotTest (state, bridgePost, txRun,
+// planner, every *Scan, ...) when this is === true BEFORE the IIFE runs.
+// It is the only handle on the bot's internals -- everything else lives in
+// one sealed IIFE. Never true under Tampermonkey. Disable with ?notest.
+window.__grepbotTestMode = !location.search.includes('notest');
+// runningVersion() in src/core.js reads GM_info.script.version; without
+// this the panel header renders "GrepBot v0.0.0" and the driver's
+// stale-artifact check can never fire. Real version is patched in below,
+// after the artifact header is read.
+window.GM_info = { script: { version: '0.0.0', name: 'GrepBot' } };
+window.$ = () => ({
+  on: () => {}, off: () => {}, click: () => {}, append: () => {},
+  find: () => ({ on: () => {} }), html: () => {}, text: () => {},
+  attr: () => {}, val: () => {}, css: () => {}, hide: () => {}, show: () => {}
+});
+
+// ---- load the built userscript ----
+// Fetched first (not just <script src>) so the @version in the metadata
+// block can be fed to the GM_info stub before the IIFE evaluates.
+// Requires chromium's --allow-file-access-from-files.
+const ART = '../../../grepbot.user.js';
+fetch(ART).then(r => r.text()).then(src => {
+  const m = src.slice(0, 600).match(/@version\s+(\d+\.\d+\.\d+)/);
+  if (m) window.GM_info.script.version = m[1];
+  const script = document.createElement('script');
+  script.src = ART;   // load by src so throws carry a real filename/line
+  script.onerror = () => {
+    window.__SMOKE_ERRORS__.push({ where: 'load', msg: 'failed to load grepbot.user.js' });
+  };
+  document.head.appendChild(script);
+}).catch(e => {
+  window.__SMOKE_ERRORS__.push({ where: 'load', msg: 'fetch ' + ART + ' failed: ' + e.message });
+});
+
+// ---- settle, then report ----
+setTimeout(() => {
+  const ok = window.__SMOKE_ERRORS__.length === 0;
+  document.title = ok
+    ? 'SMOKE_OK errors=0'
+    : 'SMOKE_FAIL errors=' + window.__SMOKE_ERRORS__.length + ' first='
+        + (window.__SMOKE_ERRORS__[0].msg || window.__SMOKE_ERRORS__[0].reason || '?');
+  document.getElementById('log').textContent =
+    JSON.stringify(window.__SMOKE_ERRORS__, null, 2);
+}, 3000);
+</script>
+</body>
+</html>

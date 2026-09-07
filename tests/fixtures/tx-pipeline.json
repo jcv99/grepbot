@@ -1,0 +1,10 @@
+{
+  "name": "tx-pipeline",
+  "description": "End-to-end tx pipeline: arm enables host + dry run, post a farm payload, journal records skip:dryrun. Every write path must still resolve through txRun; gate order invariant. A guard reordering or planner skip surfaces as a different result code.",
+  "commands": [
+    {"cmd": "arm"},
+    {"cmd": "post", "arg": "farm { town_id: 7, x: 1 }"},
+    {"cmd": "wait", "arg": "500"},
+    {"cmd": "journal", "arg": "1"}
+  ]
+}

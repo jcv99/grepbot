@@ -194,6 +194,7 @@
       instanceId: GB_INSTANCE_ID,
       state,
       STORE,
+      TX_WRITE_FEATURES,
       load,
       save,
       saveFlush,

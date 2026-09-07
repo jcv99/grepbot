@@ -1,5 +1,9 @@
 # Whitelist mode: GitHub carries only the buildable source + artifact.
 # Everything else (docs, archive, agent configs, caches, local data) stays local.
+# The .claude/skills/run-grepbot/ entries are tracked because SKILL.md is
+# the documented driver infra (cdp smoke + REPL + fixture command used by
+# the REDESIGN §5.2 test net); other .claude/ files (agent settings,
+# keybindings, sandbox config) stay local.
 *
 !.gitignore
 !README.md
@@ -10,3 +14,6 @@
 !src/**
 !tests/
 !tests/**
+!.claude/skills/run-grepbot/driver.mjs
+!.claude/skills/run-grepbot/smoke.html
+!.claude/skills/run-grepbot/SKILL.md
