@@ -1396,28 +1396,34 @@
           "arity": 0,
           "kind": "function",
           "line": 37,
+          "name": "runningVersion"
+        },
+        {
+          "arity": 0,
+          "kind": "function",
+          "line": 41,
           "name": "hookSpaNav"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 170,
+          "line": 174,
           "name": "releaseLocksAt"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 171,
+          "line": 175,
           "name": "RELEASE_DEDUP_MS"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 172,
+          "line": 176,
           "name": "releaseLocks"
         }
       ],
-      "lines": 471,
+      "lines": 475,
       "sentinels": {
         "BOOT_TIMING.": 23,
         "STORE.": 2,
@@ -1436,7 +1442,7 @@
         "saveSoon(": 0,
         "txRun(": 0
       },
-      "sha256": "ca964819a4008d627b83de8039b5bb9e3b75d048f72f4be18361f47a12ef1e7d"
+      "sha256": "5fb46580d6602bd95cefade18d67cf2488e660e866803f9aabca3665d41f5e70"
     },
     "bridge.js": {
       "complexity_hotspots": {},
@@ -4452,97 +4458,91 @@
           "name": "gbEventsEmit"
         },
         {
-          "arity": 0,
-          "kind": "function",
-          "line": 2534,
-          "name": "runningVersion"
-        },
-        {
           "arity": null,
           "kind": "const",
-          "line": 2538,
+          "line": 2534,
           "name": "BRIDGE_TIMEOUT_MS"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 2539,
+          "line": 2535,
           "name": "saveCaptcha"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2540,
+          "line": 2536,
           "name": "captchaPausedPure"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2545,
+          "line": 2541,
           "name": "captchaExpireSweep"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2555,
+          "line": 2551,
           "name": "captchaPaused"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2560,
+          "line": 2556,
           "name": "captchaPausedAny"
         },
         {
           "arity": 2,
           "kind": "function",
-          "line": 2567,
+          "line": 2563,
           "name": "captchaTrip"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2593,
+          "line": 2589,
           "name": "captchaClear"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2615,
+          "line": 2611,
           "name": "CAPTCHA_TEXT_RE"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2616,
+          "line": 2612,
           "name": "responseIsCaptcha"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2648,
+          "line": 2644,
           "name": "PLANNER_KEYS"
         },
         {
           "arity": null,
           "kind": "const",
-          "line": 2649,
+          "line": 2645,
           "name": "PLANNER_COMMIT_HOLD_MS"
         },
         {
           "arity": 0,
           "kind": "function",
-          "line": 2650,
+          "line": 2646,
           "name": "plannerZero"
         },
         {
           "arity": 1,
           "kind": "function",
-          "line": 2651,
+          "line": 2647,
           "name": "plannerNormCost"
         }
       ],
-      "lines": 2661,
+      "lines": 2657,
       "sentinels": {
         "BOOT_TIMING.": 0,
         "STORE.": 463,
@@ -4561,7 +4561,7 @@
         "saveSoon(": 3,
         "txRun(": 0
       },
-      "sha256": "b0e53873703f0a1789678c23447e84df6a0e5b4d4a877768882df1847826d488"
+      "sha256": "ee8369a7f3e4bf28e5ffcfe5c91544f8b0082a5007d9218929b4b1c67cd02d55"
     },
     "culture.js": {
       "complexity_hotspots": {},
@@ -7156,7 +7156,7 @@
         "saveSoon(": 0,
         "txRun(": 0
       },
-      "sha256": "ece711479bbfc7cc6187558680c7708b20dec9b0f9751e577048de6a9535e199"
+      "sha256": "661281545d390339048c181302d633214a7a8841c13fc2f18b865ca4be9d4983"
     },
     "hud.js": {
       "complexity_hotspots": {},

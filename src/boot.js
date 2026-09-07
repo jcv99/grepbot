@@ -34,6 +34,10 @@
     }
     try { ensureDomObserver(); } catch (_) {}
   }
+  function runningVersion() {
+    try { return (GM_info && GM_info.script && GM_info.script.version) || '0.0.0'; }
+    catch (_) { return '0.0.0'; }
+  }
   function hookSpaNav() {
     const wrap = (name, origKey) => {
 

@@ -2531,10 +2531,6 @@ const STORE = {
       if (ch) ch.postMessage({ kind, payload: payload || null, ts: Date.now(), from: GB_INSTANCE_ID });
     } catch (_) {}
   }
-  function runningVersion() {
-    try { return (GM_info && GM_info.script && GM_info.script.version) || '0.0.0'; }
-    catch (_) { return '0.0.0'; }
-  }
   const BRIDGE_TIMEOUT_MS = 15000;
   function saveCaptcha() { save(wkey(STORE.CAPTCHA), state.captchaBreakers); }
   function captchaPausedPure(feature) {
