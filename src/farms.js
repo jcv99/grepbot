@@ -973,11 +973,26 @@
     }
     const tplArgs = (state.claimTpl && state.claimTpl.arguments) || {};
     if (claimType === 'units') return claimFarmUnits(farm, tid, tplArgs, done);
+    if (!state.claimTpl) {
+      gbLogT('farm-no-tpl-' + tid, 86400000,
+        `farm claim: no claimTpl learned for town ${tid} — open Senado once and click Recoger by hand to seed the template`);
+    }
     const wantSec = durOverride != null ? durOverride : farmDesiredDuration(tid);
     const shortest = farmShortestClaimDuration(tid);
     if (wantSec == null) {
+      let detail = '';
+      try {
+        const st = townResState(tid);
+        if (st) {
+          const full = [];
+          if (st.full && st.full.wood) full.push(`wood ${st.wood}/${st.cap}`);
+          if (st.full && st.full.stone) full.push(`stone ${st.stone}/${st.cap}`);
+          if (st.full && st.full.iron) full.push(`iron ${st.iron}/${st.cap}`);
+          if (full.length) detail = ` (full: ${full.join(', ')})`;
+        }
+      } catch (_) {}
       gbLogT('farm-no-fit-' + tid, 60000,
-        `farm claim: shortest available ${farmDurLabel(shortest)} would not fit current warehouse headroom - waiting`);
+        `farm claim: shortest available ${farmDurLabel(shortest)} would not fit current warehouse headroom - waiting town ${tid}${detail}`);
       return done('skip');
     }
     let option = farmOptionFor(wantSec);
