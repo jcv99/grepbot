@@ -14,8 +14,9 @@
       if (typeof r.isLootable === 'function') return !!r.isLootable();
     } catch (_) {}
     const at = attrs && attrs.lootable_at;
-    if (at == null) return true;
-    return gameNow() >= at;
+    const atN = gbNum(at);
+    if (atN == null) return false;
+    return gameNow() >= atN;
   }
 
   const FARM_CLAIM_WAKE_GRACE_MS = 1500;
@@ -35,14 +36,14 @@
     let ready = 0, nextAt = Infinity, expiredModelWait = 0;
     for (const f of farms) {
       if (!f) continue;
-      const at = f.lootable_at == null ? null : +f.lootable_at;
+      const at = gbNum(f.lootable_at);
       let modelReady = null;
       if (f._rel) {
         try { if (typeof f._rel.isLootable === 'function') modelReady = !!f._rel.isLootable(); } catch (_) {}
       }
-      if (modelReady === true || (modelReady == null && (at == null || at <= now))) ready++;
-      if (Number.isFinite(at) && at > now) nextAt = Math.min(nextAt, at);
-      else if (Number.isFinite(at) && at <= now && modelReady === false) expiredModelWait++;
+      if (modelReady === true || (modelReady == null && at != null && at <= now)) ready++;
+      if (at != null && at > now) nextAt = Math.min(nextAt, at);
+      else if (at != null && at <= now && modelReady === false) expiredModelWait++;
     }
     return { now, ready, nextAt, expiredModelWait, total: farms.length };
   }
@@ -58,7 +59,7 @@
     if (allowExpiredRetry && t.ready > 0) {
       const delay = gbLocked('claim') || reason === 'post-claim' ? FARM_CLAIM_READY_RETRY_MS : FARM_CLAIM_READY_WAKE_MS;
       targetMs = Date.now() + delay;
-    } else if (Number.isFinite(t.nextAt)) {
+    } else if (t.nextAt !== Infinity) {
       targetMs = Date.now() + Math.max(0, (t.nextAt - t.now) * 1000) + FARM_CLAIM_WAKE_GRACE_MS;
     } else if (allowExpiredRetry && t.expiredModelWait > 0) {
       targetMs = Date.now() + FARM_CLAIM_READY_RETRY_MS;
@@ -382,12 +383,12 @@
   function farmOptionFor(sec) {
     const m = state.farmOptionMap || {};
     const v = m[String(sec)];
-    return v == null ? null : +v;
+    return gbNum(v);
   }
   function farmOptionMapEnsure() {
     let m = state.farmOptionMap;
     if (!m || typeof m !== 'object' || Array.isArray(m)) m = {};
-    const has = Object.keys(m).some(k => m[k] != null && Number.isFinite(+m[k]));
+    const has = Object.keys(m).some(k => gbNum(m[k]) != null);
     if (has) {
       state.farmOptionMap = m;
       return m;
@@ -591,6 +592,11 @@
     return r.val;
   }
   function farmLongClaimDuration() {
+    // 8h card floods every lootable village in one batch; gate the 28800 pick
+    // behind the explicit `farmLongClaims` opt-in (default ON via afk/farming
+    // presets, also user-toggleable in Ajustes). Without this guard a single
+    // REPL or stray call posted 8h across every town on world start.
+    if (!state.farmLongClaims) return 14400;
     return farmOptionFor(28800) != null ? 28800 : 14400;
   }
 
@@ -631,8 +637,8 @@
   const FARM_PROFIT_BLIND_TTL_MS = 20000;
   const farmProfitCache = Object.create(null);
   function farmTravelSecPerUnit() {
-    const n = +state.farmTravelSecPerUnit;
-    return Number.isFinite(n) && n >= 0 ? n : 0;
+    const n = gbNum(state.farmTravelSecPerUnit);
+    return n != null && n >= 0 ? n : 0;
   }
   function farmProfitScore(farm, islandMap) {
     const id = farm && farm.vill_id != null ? String(farm.vill_id) : null;
@@ -662,10 +668,11 @@
     let distance = null;
     try {
       const t = uwCached().ITowns && uwCached().ITowns.towns[tid];
-      const tx = t && t.getIslandCoordinateX ? +t.getIslandCoordinateX() : null;
-      const ty = t && t.getIslandCoordinateY ? +t.getIslandCoordinateY() : null;
-      if (Number.isFinite(tx) && Number.isFinite(ty) && Number.isFinite(+farm.x) && Number.isFinite(+farm.y)) {
-        distance = Math.sqrt(Math.pow(tx - +farm.x, 2) + Math.pow(ty - +farm.y, 2));
+      const tx = t && t.getIslandCoordinateX ? gbNum(t.getIslandCoordinateX()) : null;
+      const ty = t && t.getIslandCoordinateY ? gbNum(t.getIslandCoordinateY()) : null;
+      const fx = gbNum(farm.x), fy = gbNum(farm.y);
+      if (tx != null && ty != null && fx != null && fy != null) {
+        distance = Math.sqrt(Math.pow(tx - fx, 2) + Math.pow(ty - fy, 2));
       }
     } catch (_) {}
     const travel = distance != null ? distance * farmTravelSecPerUnit() : 0;
@@ -712,7 +719,7 @@
     const a = (farm && farm._attrs) || {};
     let level = null;
     try { if (rel && typeof rel.getLevel === 'function') level = gbNum(rel.getLevel()); } catch (_) {}
-    if (Number.isFinite(level)) return level;
+    if (level != null) return level;
     const status = gbNum(a.relation_status);
     if (status === 0) return 0;
     return gbNum(a.expansion_stage);
@@ -771,15 +778,15 @@
     const level = farmVillageLevel(farm);
     if (!Number.isFinite(level)) return null;
     const table = gbGameDataLookup('farm_town', 'max_resources_per_day');
-    const perDay = table ? +table[level] : NaN;
-    if (!Number.isFinite(perDay) || perDay <= 0) return null;
+    const perDay = table ? gbNum(table[level]) : null;
+    if (perDay == null || perDay <= 0) return null;
     let speed = null;
-    try { speed = +(gameUw().Game && gameUw().Game.game_speed); } catch (_) {}
-    if (!Number.isFinite(speed) || speed <= 0) return null;
+    try { speed = gbNum(gameUw().Game && gameUw().Game.game_speed); } catch (_) {}
+    if (speed == null || speed <= 0) return null;
     let loot = null;
-    try { if (rel && typeof rel.getLoot === 'function') loot = +rel.getLoot(); } catch (_) {}
-    if (!Number.isFinite(loot)) loot = +a.loot;
-    if (!Number.isFinite(loot)) return null;
+    try { if (rel && typeof rel.getLoot === 'function') loot = gbNum(rel.getLoot()); } catch (_) {}
+    if (loot == null) loot = gbNum(a.loot);
+    if (loot == null) return null;
     return Math.max(0, perDay * speed - loot);
   }
   function farmUnitsClaimBlocked(farm, townId, option) {
@@ -796,9 +803,9 @@
       amount = n;
     }
     const def = gbGameDataLookup('units', unit);
-    const popEach = def && def.population != null ? +def.population : null;
+    const popEach = def ? gbNum(def.population) : null;
     const free = gbTownPop(townId);
-    if (amount != null && Number.isFinite(popEach) && popEach > 0 && free != null && free < amount * popEach) {
+    if (amount != null && popEach != null && popEach > 0 && free != null && free < amount * popEach) {
       return `pop ${free}/${amount * popEach}`;
     }
     try {
@@ -820,12 +827,12 @@
       } catch (_) { vals = null; }
     }
     if (vals == null || typeof vals !== 'object') return null;
-    const len = +vals.length;
-    if (!Number.isFinite(len) || len <= 0) return null;
+    const len = gbNum(vals.length);
+    if (len == null || len <= 0) return null;
     const nums = [];
     for (let i = 0; i < len; i++) {
-      const n = +vals[i];
-      if (!Number.isFinite(n)) return null;
+      const n = gbNum(vals[i]);
+      if (n == null) return null;
       nums.push(n);
     }
     return nums.every(n => n <= 0);
@@ -1014,7 +1021,7 @@
         option = fallback;
       }
     }
-    farmPostedOpts[String(farm.vill_id)] = { opt: option, want: wantSec != null && Number.isFinite(+wantSec) ? +wantSec : null };
+    farmPostedOpts[String(farm.vill_id)] = { opt: option, want: gbNum(wantSec) };
 
     const farmId = gbNum(farm.vill_id);
     if (farmId == null) {
@@ -1369,6 +1376,15 @@
     return work;
   }
   function farmLongClaimNow(reason, onDone) {
+    // Mirror the farmLongClaims gate even at the entry: a future caller that
+    // bypasses farmLongClaimDuration (or runs while the toggle is mid-flush)
+    // must still surface a refusal rather than silently flood 8h claims.
+    if (!state.farmLongClaims) {
+      gbLog('long farm claim: farmLongClaims OFF - refusing, max 4h applies');
+      flash('claim largo: claims largos APAGADOS (max 4h). Activalo en Ajustes > Recoleccion y aldeas');
+      if (onDone) onDone(null);
+      return false;
+    }
     const sec = farmLongClaimDuration();
     if (farmOptionFor(sec) == null) {
       gbLog(`long farm claim: ${farmDurLabel(sec)} option not learned yet - teach this Grepolis claim duration once by hand`);

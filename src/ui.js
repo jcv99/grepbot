@@ -1374,6 +1374,7 @@
           </label>
           <label class="gb-cfg-num gb-cfg-sub" title="Segundos de marcha por unidad de coordenada de isla. El juego no expone la formula de marcha, asi que 0 (por defecto) deja el ranking res/min independiente de la distancia.">Segundos de marcha por unidad de isla <input class="gb-cfg-input" type="number" data-cfg="farm-travel" min="0" max="600" step="0.5" style="width:60px"/></label>
           <label class="gb-cfg-row gb-cfg-sub" title="Bajo presion (captcha, enfriamiento del servidor o presupuesto justo) recorta la lista de aldeas en vez de ampliar la cadencia, y reclama primero las mas rentables."><input type="checkbox" data-cfg="adaptive-farm"/> Recoleccion adaptativa bajo presion</label>
+          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Permite que el barrido automatico y el boton 'Reclamo largo' usen la carta de 8h. APAGADO = maximo 4h. Default ON via perfiles afk/farming; apaga aqui para noquear la inundacion de 8h sobre todas las aldeas"><input type="checkbox" data-cfg="farm-long-claims"/> Permitir carta de cobro de 8 h (max 4 h si APAGADO)</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Porcentaje de aldeas a descartar bajo presion (de menos rentable a mas)">Descartar bajo presion <input class="gb-cfg-input" type="number" data-cfg="farm-drop-pct" min="0" max="90" style="width:45px"/> %</label>
           <div id="gb-farm-optmap" class="gb-cfg-note" data-gb-tip="Mapa aprendido: opcion de cobro de 10 min en este mundo"></div>
           <button data-cfg="farm-forget-options" class="gb-cfg-btn gb-cfg-sub" title="Borra el mapa de opciones aprendido (recursos y unidades) y reactiva la plantilla de cobro. Usalo si los cobros fallan seguido: vuelve a pulsar una recogida de 10 minutos a mano para reaprenderla.">Olvidar opciones de cobro aprendidas</button>
@@ -2455,6 +2456,7 @@
     setChk('[data-cfg=auto-farm]', state.autoFarm);
     setChk('[data-cfg=farm-skip-full]', state.farmSkipFull);
     setChk('[data-cfg=farm-scrape]', state.farmScrape);
+setChk('[data-cfg=farm-long-claims]', state.farmLongClaims);
     const fm0 = sec.querySelector('[data-cfg=farm-full-mode]'); if (fm0) fm0.value = state.farmFullMode || 'any';
     syncFarmTimingCfg(sec);
     setChk('[data-cfg=auto-build]', state.ibAuto);
@@ -2558,6 +2560,11 @@
       else farmScrapeClearErrors();
       gbLog('farm resource scrape', state.farmScrape ? 'ON' : 'OFF');
       updateStatus();
+    });
+    onCfg('[data-cfg=farm-long-claims]', 'change', e => {
+      state.farmLongClaims = e.target.checked;
+      save(STORE.FARM_LONG_CLAIMS, state.farmLongClaims);
+      gbLog('farm long claims (8h card)', state.farmLongClaims ? 'ON (8h permitido)' : 'OFF (max 4h)');
     });
     onCfg('[data-cfg=farm-loyalty-tech]', 'change', e => {
       state.farmLoyaltyTech = String(e.target.value || '').trim();
