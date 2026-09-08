@@ -1,0 +1,1295 @@
+## audit-findings-2026-08-06.md
+
+# GrepBot audit — compacted + verified 2026-08-06
+
+> **CLOSED (2026-08-07).** C1–C7 and I8–I15 are fixed in `src/` as of v1.5.13+.
+> Per-item OPEN/PARTIAL labels below are historical and **must not** drive new
+> work. Evidence: [`docs/plans/00-reconciliation.md`](. /plans/00-reconciliation.md).
+> Archived from `docs/` so the live backlog stays truthful.
+
+Source: critical review + future backlog. **Verified against `src/` @ v1.4.0**
+(`python3` static checks + spot Read). Old wave P0–P15 (boot-missing fns,
+reinject interval stack, `gameUw` fallback) largely shipped in v1.0–1.4 —
+do not re-open unless reintroduced.
+
+Status legend (historical): **OPEN** · **PARTIAL** · **FIXED** · **N/A**.
+
+**Coded in v1.5.0 (2026-08-06):** C1–C7, I8–I15, Incomplete table.
+Future § + Major optimizations backlog → see `docs/plans/` (not this file).
+
+Repair order (still valid): 
+1 safe defaults + no credential logs → 2 orch migrate → 3 world-isolate →
+4 dispose/hooks → 5 dodge queue → 6 parse/trade/wonder/captcha → 7 storage/render.
+
+---
+
+## Critical (reliability / safety)
+
+### C1 Orchestrator starves modules — PARTIAL (v1.4.0)
+
+- **Was:** `priorityOrder` default 6 keys; one feature/20s tick → rural*/recruit/
+merchant/favor/wonder never re-ran after checkbox kick; `CAVE_CHECK_MS` etc unused.
+- **Now:** `orchDefaultOrder()` has all 12; tick appends unranked after configured;
+overdue sort + `ORCH_MAX_PER_TICK=3` + adaptive idle cadence (`orchestrate.js`).
+- **Still open:** `state.priorityOrder` **load default still 6** (`core.js`);
+stored old lists never migrated. Leftover `*_CHECK_MS` in `cave.js` /
+ `trade.js` / `recruit.js` / `wonder.js` unused (dead constants).
+- **Fix left:** migrate `PRIORITY_ORDER` → full 12; drop or wire dead cadence consts;
+TASKS gate: Stats scheduler shows every ON feature getting turns.
+
+### C2 Dispose incomplete — OPEN
+
+`__grepbotDispose` clears `gbTimerBag` / `gbListenerBag` / `gbDomObserver` /
+panel — **does not restore**:
+
+| Patch | Where | On dispose |
+|---|---|---|
+| `unsafeWindow.fetch` | `spy.js` `hookFetch` | no orig restore; `_grepbot` flag only skips rewrap |
+| `XHR open/send` | `spy.js` `hookXhr` | same |
+| `history.pushState/replaceState` | `boot.js` `hookSpaNav` | wrapper keeps remounting **old** panel ref |
+| `questMo` | `quests.js` | never disconnected |
+| `GM_registerMenuCommand` | `boot.js` | stacks on reinject |
+| GM XHR handles | farms/towns/collect/spy | not aborted |
+
+Worst: SPA nav after reinject → dual panels / dual state; old fetch/XHR still
+call previous-instance closures.
+
+**Fix:** save originals; restore in dispose; `questMo.disconnect`; abort GM
+handles; replaceable global dispatcher for hooks; register drag/resize via
+`gbListen` only.
+
+### C3 World state not isolated — OPEN (majority)
+
+`wkey()` used for: csrf, claim/attack/collect/ib templates, farmAction,
+farmOptionMap, loyalty, sleepDay, captchaBreakers, decisions/skips.
+
+**Still global** (cross-world leak risk): findings, seen, farms*, towns*,
+thresholds, alerted, attackPlan/history, questRewards/history, abTargets,
+caveTowns, cityTemplates, townGroups, notes/watchlist, wonderCfg,
+nextFarm/Towns scrape, research/recruit targets, priorityOrder, …
+
+**Fix:** prefs global; all id-bearing maps/lists under `wkey()`. Migrate on
+`configVer` bump.
+
+### C4 Auto-dodge drops simultaneous attacks — OPEN
+
+`dodge.js`: `dodgeSeen[key]=now` **before** act; single `gbLock('dodge')`.
+2nd/3rd incoming marked seen → never retried; no-safe-town / no-units also
+permanently skipped until 1h prune.
+
+**Fix:** queue + states `notified|pending|sent|failed`; mark complete only after
+send cb; retry failed with backoff.
+
+### C5 `intelDossiers()` throws — OPEN
+
+`intel.js`: key = `f.attacker` object → `"[object Object]"`; no `units:[]` but
+`d.units.push` → `TypeError` on first report with units → Intel panel dies.
+
+**Fix:** Map by `id` or `name` string; init `units:[]`, `towns:[]`.
+
+### C6 Diag / `@connect` credentials — PARTIAL
+
+- Diag no longer dumps full csrf/`document.cookie` (footer/preflight: present /
+6-char prefix only) — **FIXED vs review claim**.
+- `@connect *` still in `header.js` — **OPEN**; tighten to grepolis + webhook
+host pattern.
+
+### C7 Auto-on without consent — OPEN
+
+`ensureHostDefault` → `enabledHosts[h]=true`; defaults `autoFarm`/`ibAuto`/
+`ibResearch`/`questAutoBuild`/`questAutoRes` = **true**.
+
+**Safe defaults:** host OFF; those five OFF; explicit per-world enable.
+
+---
+
+## Important
+
+### I8 `parseReport` too permissive — OPEN
+
+Always returns object (`type:'unknown'`); never `null` though `ingestReport`
+expects null. `data.json` string not unwrapped. `outcome: r.outcome || r.win`
+loses `win===false` (use `??`). `nameOf` ignores bare string names.
+
+### I9 Trade over-allocates — OPEN
+
+`tradeFillStorageJobs` / `tradeIslandShipJobs`: jobs from original balances;
+no deduct of src stock / tradeCap / tgt deficit → multi-job same origin or
+multi-origin same tgt overbook. Fill path scales one job to `tradeCap` but
+still no mutable ledger across jobs.
+
+### I10 Wonder donations — OPEN
+
+Per-resource `Math.min(..., t.tradeCap || want.X)` → 3× capacity; `tradeCap===0`
+falls through to want. Need `wood+stone+iron ≤ tradeCap`. `wonderSpentToday`
+memory-only → reload resets daily budget.
+
+### I11 Global captcha lost on reload — OPEN
+
+`captchaGlobalUntil` RAM-only; per-feature breakers persisted. Many
+`GM_xmlhttpRequest` paths skip `responseIsCaptcha` → HTML captcha = "bad
+endpoint", other modules keep posting.
+
+**Fix:** persist `wkey(CAPTCHA_GLOBAL_UNTIL)`; central captcha check on all HTTP.
+
+### I12 GM XHR no timeout — OPEN
+
+farms/towns/collect/(spy HTTP): no `timeout`/`ontimeout` →
+`farmScrapeInFlight` / `collectBgInFlight` can stick forever. No abort on dispose.
+
+### I13 Decision journal order — OPEN
+
+Dedup bumps `r.ts=now` in place (`journal.js`); array order stale →
+`jrnPrune` / `gbFailStreak` / `gbRecall` / UI wrong.
+
+**Fix:** splice + push on dedup hit.
+
+### I14 Findings cap ↔ seen churn — OPEN
+
+Trim >500 findings also `delete state.seen[id]` → inbox re-fetch loop.
+
+**Fix:** seen independent of visible findings (`SEEN_MAX` already 2000 — stop
+deleting on findings trim).
+
+### I15 HTML injection — OPEN (quests)
+
+`quests.js` row `innerHTML` with `q.title` / `q.questId`. Attack rows mostly
+`textContent` now. Use `createElement` + `textContent`.
+
+---
+
+## Incomplete / disconnected
+
+| Item | Status |
+|---|---|
+| `tradePreset` loaded, never read | OPEN |
+| `tradeReservePct` / `tradeMinBatch` used in trade logic but weak/no Config UI | PARTIAL |
+| `webhookEvents` queried, no panel edit/save | OPEN |
+| `allianceNotes` loaded unused | OPEN |
+| Webhook Discord-only payload (comment mentions Telegram) | OPEN |
+| `CONFIG_VER` no migrations | OPEN |
+| `qolApplyTemplate` assigns targets by reference | OPEN (`ab`/`research`; recruit group path clones) |
+| Overview health: `'Health: '+…join() \|\| '(none yet)'` never shows empty | OPEN |
+
+---
+
+## Major optimizations (backlog, not bugs)
+
+- Drop `raw:r` from findings (GM write weight).
+- Batch farm save + table render (avoid per-farm full rewrite).
+- XHR hook: early URL filter; `{once:true}` where safe.
+- `gbTimeout` real cancel (entries linger until dispose).
+- Module split already under `src/` — keep concat; add unit tests for
+parseReport, trade plan, orch pick, journal dedup, dodge queue.
+
+Security note: no eval / remote code / hidden exfil seen; traffic = Grepolis +
+optional webhook. Reliability blockers = C1–C5, C7, I8–I14.
+
+---
+
+## Future — highest value next
+
+### Reliability / ops
+
+1. Evidence dump (Log → Evidence): last-OK, last-skip, captcha windows, orch
+queue, learned templates — shrink TASKS gate to paste Diag+Evidence.
+2. Orch warehouse deadlock: full WH + farm paused + cave/trade idle → force
+trade/cave/rural before farm.
+3. Resume-burst serializer: single wake queue (tab focus ≠ farm+ib+bandit+collect
+same second) — audit P6 leftover / main captcha trip vector.
+4. Learned-payload health: age + last-success on claimTpl/ibAction/quest/attack;
+invalidate after N hard fails.
+
+### Economy smarts
+
+5. Build-phase planner v2 — resource-aware next building; “next 3” on Build.
+6. Farm option auto-teach after loyalty research flips.
+7. Island-aware trade graph — refuse freighter-burning cross-island.
+8. Culture budget — skip festival if iron needed for cave thresh &lt;N min.
+
+### Military (deferred / HIGH-RISK)
+
+9. Cancel/recall helper (confirm) — lower risk than auto-dodge.
+10. Support ETA on Intel threat board.
+11. Hero transfer gate after sniff.
+12. Harassment presets — confirm-send only.
+
+### Intel moat
+
+13. Attack pattern alerts (same attacker 3×/24h).
+14. Offline report catch-up bounded by lastSeenTs.
+15. Watchlist “why” (coords / player / alliance).
+
+### UX
+
+16. Per-tab sticky filters + footer last-action chip.
+17. Config presets: AFK overnight / Active / War (HIGH-RISK stays OFF).
+18. Diff-render World/Build/Attack rows (audit P8 open).
+
+### Hardening (no ToS escalation)
+
+19. Humanization jitter + soft posts/min ceiling.
+20. Captcha trip → editable backoff UI; reset after clean hour.
+21. Storage quota alarm before GM 5MB; prune seen/alerted with UI.
+
+---
+
+## Old audit waves (v0.6 era) — disposition
+
+| Block | Disposition @ v1.4.0 |
+|---|---|
+| P0 missing boot fns | FIXED (functions exist) |
+| P1 gameUw / bridge contracts | mostly FIXED; sniff still owns live action names |
+| P2 stuck InFlight | FIXED → `gbLocks` + TTL sweeper |
+| P3 host leaks | PARTIAL — templates/csrf wkey'd; see **C3** |
+| P4 reinject interval stack | PARTIAL — timer registry yes; hooks **C2** |
+| P5 429/503 | PARTIAL — some GM paths honor Retry-After |
+| P6 SPA remount | PARTIAL — hook exists; dispose **C2** |
+| P7–P8 UX/perf | PARTIAL — some DONE notes in history; diff-render open |
+| P9 races | PARTIAL — locks help; dodge **C4**; resume burst open |
+| P10–P14 persistence/parse/captcha/privacy | mix; see **I*** / **C6** |
+
+---
+
+## Verify commands (re-run after fixes)
+
+```sh
+# syntax + smoke (skill)
+python3 build.py && node --check grepbot.user.js
+
+# claim status smoke (edit expected after each fix)
+rg -n "ORCH_MAX_PER_TICK|orchDefaultOrder|priorityOrder:" src/
+rg -n "dodgeSeen\[key\]|units\.push|tradeCap \|\| want|wonderSpentToday|captchaGlobalUntil|r\.ts = now|delete state\.seen" src/
+rg -n "autoFarm:.*true|enabledHosts\[h\] = true|@connect" src/
+```
+
+---
+
+## AUDITS.md
+
+
+---
+
+## FINAL_AUDIT_GrepBot_1.5.8_100pct.txt
+
+> **ARCHIVED / STALE (2026-08-07).** Written against GrepBot 1.5.8. Spot-check vs v1.5.14: P0-01 dry-run DOM (`gbDomClick`), P0-02 `autoCollect` toggle, P0-03 `sourceTownIds` null-vs-[] are fixed in tree. Do not re-implement from this file — verify each claim with grep first. Live work: `docs/plans/`.
+
+# FINAL AUDIT — GrepBot 1.5.8
+
+**Audited file:** `grepbot (1).user(1).js` 
+**SHA-256:** `b2c0e820d0e1678eefa5d87aada1071fc1e9f6464fc0960ff61c0a2bd6ed904d` 
+**Size:** 9,771 lines / 413,958 bytes 
+**Syntax:** `node --check` = OK 
+**Isolated startup test:** Headless Chromium, no JS exceptions in a minimal environment. 
+**Re-injection test:** 2 injections → 1 panel; 4 old commands unregistered before registering new ones. 
+**Dry-run test:** FAIL: with `dryRun=true` and host enabled, a test `Collect` button received a real click.
+
+## Scope and limits of the word “100%”
+**entire source** has been traversed and all modules and side-effect paths reviewed. This cannot equate to certifying 100% of Grepolis internal API behavior without a real account/world: model names, actions, fields, and rules that only the client/server reveal are marked as **LIVE VALIDATION** and are not accepted as correct based on appearance alone.
+
+## Verdict
+
+**NOT YET SUITABLE for unattended automation.** Version 1.5.8 fixes serious 1.5.0 issues (instant-buy premium, dodge filtering, recruit routing, persistence), but retains functional safety blockers: false dry-run, implicit auto-collect, empty military selection → all towns, partially inoperable attack planner, favor farm incorrectly modeled, and auto-build does not meet the requested specification.
+
+### Count
+
+| Severity | # | Criterion |
+|---|---:|---|
+| P0 | 7 | Blocker / action contrary to intent / fundamentally broken module |
+| P1 | 59 | High: duplicates, improper spend/movement, fail-open, incorrect planner |
+| P2 | 44 | Medium: reliability, incomplete validation, partially broken feature |
+| P3 | 10 | Low: maintainability/compatibility/privacy |
+| LIVE | 17 | Requires capture/validation on a real world |
+
+## P0 — Findings
+
+### P0-01 — Dry-run is not truly non-destructive
+- **Module:** core
+- **Lines:** 2767-2834, 3108-3183, 6387-6394, 8653
+- **Confidence:** Confirmed + dynamic test
+- **Problem:** `state.dryRun` only blocks `bridgePost/gameAjaxPost`; DOM paths call `.click()` directly. In isolated Chromium with dry-run=true, 1 real Collect click occurred.
+- **Required fix:** Centralize ALL actions in an `actionGate()`; in dry-run, no `.click()`, submit, gpAjax, mutating GM-XHR, or external action. Add test that instruments `HTMLElement.prototype.click`.
+
+### P0-02 — Enabling the host activates auto-collect even when the user does not enable a collection module
+- **Module:** collect
+- **Lines:** 2767-2845, 2940-2953, 3226, 8579-8585
+- **Confidence:** Confirmed
+- **Problem:** `autoCollectResources()` only requires `hostEnabled()` and is scheduled every 5 s + MutationObserver. `collectAll` only modifies the time limit; it is not an auto-collect toggle.
+- **Required fix:** Create separate `AUTO_COLLECT`, default false. interval/observer must exit if that toggle is OFF.
+
+### P0-03 — Unchecking all source cities means ALL cities
+- **Module:** attack
+- **Lines:** 7165-7177, 7246-7252, 7588-7590
+- **Confidence:** Confirmed
+- **Problem:** `sourceTownIds=[]` is interpreted as fallback to all cities. UI can save [] when the user unchecks all. In a military action this inverts explicit intent.
+- **Required fix:** Distinguish `null/undefined = default` from `[] = none`. If [] block with `no source towns`.
+
+### P0-04 — The planner cannot resolve a normal enemy target entered by ID
+- **Module:** attack
+- **Lines:** 7197-7237, 8497-8500
+- **Confidence:** Confirmed
+- **Problem:** `resolveTarget()` only recognizes own city, known village, or `plan.targetType`; the UI has no `targetType`. normal enemy ID ends up `kind=null` and is blocked.
+- **Required fix:** Resolve enemy city from real model/map or add explicit type selector + canonical resolution. Do not allow send until a valid destination entity is obtained.
+
+### P0-05 — Farms ATK button prepares a target that the planner itself forbids
+- **Module:** attack
+- **Lines:** 7228-7243, 7460-7470, 8118
+- **Confidence:** Confirmed
+- **Problem:** `prepareAttack(f)` receives a farm village, but `attackSendAllowed()` returns false for `farm_town`. It is a broken end-to-end UI path.
+- **Required fix:** Remove ATK from farms or implement village-specific endpoint/action; never reuse Town/sendUnits for farm_town.
+
+### P0-06 — Favor farm is conceptually wired to `farm_town` with Town/sendUnits
+- **Module:** favor
+- **Lines:** 5290-5375
+- **Confidence:** Confirmed from code; gameplay incompatibility
+- **Problem:** The module requires `targetType=farm_town` and then builds `Town/{origin}` + `sendUnits` attack type against that id. For temple looting/favor the target must be validated as a compatible enemy city, not a generic farm village.
+- **Required fix:** Disable module until rewritten with canonical enemy city target, research, god/unit, and full requirements.
+
+### P0-07 — The build queue does not meet the requested specification: does not always fill, has no configurable order, and does not validate generic prerequisites
+- **Module:** build
+- **Lines:** 3545-3915
+- **Confidence:** Confirmed / requirement regression
+- **Problem:** Uses fixed `AB_PHASES`, waits for <=1 order, and also arms `half-build+5m+jitter`. UI only changes target levels. No generic prerequisite tree exists.
+- **Required fix:** Replace `AB_PHASES` with editable per-city priority queue; project real+bot queue; resolve dependencies from GameData; revalidate cost/population/slot before each build.
+
+## P1 — Findings
+
+### P1-01 — Locks without ownership token: an old callback can release the lock of a new operation
+- **Module:** core
+- **Lines:** 254-300
+- **Confidence:** Confirmed
+- **Problem:** The lock is timestamp-only; when it expires by TTL another job can acquire it and the old job's callback runs `gbUnlock(name)` clearing the new lock.
+- **Required fix:** Use lease `{token, acquiredAt}` and `unlock(name, token)`; never release a foreign lease.
+
+### P1-02 — Fixed TTL can expire during legitimate batches
+- **Module:** core
+- **Lines:** 254-300, 2283-2338, 3812-3888
+- **Confidence:** Confirmed
+- **Problem:** Several batches are sequential and can last >120 s; the sweeper can release exclusion while still active.
+- **Required fix:** Renew lease on progress or use per-operation calculated TTL + token ownership.
+
+### P1-03 — gpAjax callbacks from a discarded instance can remain alive after re-injection
+- **Module:** core
+- **Lines:** 164-251, 928-1047
+- **Confidence:** Confirmed by architecture
+- **Problem:** Dispose cancels registered timers/GM XHR but gpAjax is not abortable and callbacks do not verify generation/disposed. old callback can mutate state or schedule new timers.
+- **Required fix:** Add `instanceGeneration`/`disposed`; all callbacks and `gbTimeout` must abort if generation is no longer active.
+
+### P1-04 — Double request budget on HTTP report and bypass in gbXhr
+- **Module:** network
+- **Lines:** 519-535, 732-797, 1706-1721
+- **Confidence:** Confirmed
+- **Problem:** `fetchReportHttp` calls `reqBudgetMark()` and `gbXhr()` marks again; `gbXhr()` does not run `reqBudgetOk()`, so other callers do not respect the limit.
+- **Required fix:** A single `requestGate` layer must check+mark exactly once per real request.
+
+### P1-05 — External webhooks share Grepolis traffic budget/captcha
+- **Module:** network
+- **Lines:** 732-797, 5065-5134
+- **Confidence:** Confirmed
+- **Problem:** Discord/Telegram go through `gbXhr`, consume req budget, and the HTML detector can trigger `captchaTrip(http)` and pause automation due to an external response.
+- **Required fix:** Separate `gameHttp()` and `externalHttp()`; never apply Grepolis captcha/cooldown to webhooks.
+
+### P1-06 — Legacy fallback can mix data from different worlds even after migration
+- **Module:** storage
+- **Lines:** 145-160, 426-445, 710-730
+- **Confidence:** Confirmed
+- **Problem:** `load(base)` looks up the legacy global key if the world-key does not exist. `CONFIG_VER` is global and legacy is not deleted; another world can inherit IDs/plans from the first.
+- **Required fix:** Per-world migration; once migrated do not use global fallback. Delete/mark legacy keys and version by hostname.
+
+### P1-07 — The sniffer saves templates generated by the bot itself
+- **Module:** templates
+- **Lines:** 922-926, 1933-1990
+- **Confidence:** Confirmed
+- **Problem:** On claim and attack, template is saved before/without `isSelfBridge`. invented payload can become the new “learned template” and self-reinforce.
+- **Required fix:** Parse first; if `isSelfBridge(j)` exit BEFORE saving any template. Use signature with nonce/request id, not model+action 5 s.
+
+### P1-08 — Report scanner interprets any nested `id` from a reportish response as report_id
+- **Module:** reports
+- **Lines:** 1560-1601
+- **Confidence:** Confirmed
+- **Problem:** In a report response there can be player/city/entity IDs; all are queued if `reportish`.
+- **Required fix:** Accept only `report_id` or `reports[].id` on known schema paths; no generic `id` recursion.
+
+### P1-09 — The parser and Intel consumers do not share a schema
+- **Module:** intel
+- **Lines:** 1778-1862, 6290-6420
+- **Confidence:** Confirmed
+- **Problem:** `parseReport` does not produce wall/alliance/vill_id/vacation, while Intel tries to consume several of those fields; features end up empty or misleading.
+- **Required fix:** Define single versioned schema and parser→intel contract tests; or remove unsupported fields.
+
+### P1-10 — Dossier picks attacker first, not “opponent relative to the player”
+- **Module:** intel
+- **Lines:** ~6320-6380
+- **Confidence:** Confirmed
+- **Problem:** In reports with attacker+defender, attacker is indexed first. If the player was the attacker, they may dossier themselves and lose the defender.
+- **Required fix:** Resolve `myPlayerId/name`; pick the counterpart according to the player's role.
+
+### P1-11 — Villagers Loyalty detector includes unrelated technologies
+- **Module:** farm
+- **Lines:** 2140-2190
+- **Confidence:** Confirmed from code; gameplay incompatibility
+- **Problem:** `FARM_LOYALTY_IDS` includes `diplomacy` and `conscription` and regex accepts `diplom|conscript`; can activate long timers without the correct research.
+- **Required fix:** Use real canonical ID learned from GameData; no heuristic by names of other researches.
+
+### P1-12 — The 3-hour timer is missing from the farming map
+- **Module:** farm
+- **Lines:** 2141-2143, 2164-2172
+- **Confidence:** Confirmed from code; gameplay incompatibility
+- **Problem:** List: 5m,10m,20m,40m,90m,4h,8h. No 3h exists; the 20% snap also cannot map 3h→4h.
+- **Required fix:** Include 10800 s and learn option index from manual click/canonical data.
+
+### P1-13 — Warehouse guard freezes during a claim batch
+- **Module:** farm
+- **Lines:** 2238-2338
+- **Confidence:** Confirmed
+- **Problem:** `whCache[tid]` is calculated once; after successful claims loot is not projected nor refreshed. batch can keep claiming even when the warehouse fills.
+- **Required fix:** Re-read/project resources after each confirmed claim; reserve capacity before sending the next.
+
+### P1-14 — Sleep auto marks the day as used before knowing if the claim succeeded
+- **Module:** farm
+- **Lines:** 2340-2410
+- **Confidence:** Confirmed
+- **Problem:** `farmSleepDay` is persisted before calling the claim route. block/captcha/error immediately after can cancel the action but prevent retry for the whole day.
+- **Required fix:** Persist day only after confirmation/reconciliation of sufficient claims.
+
+### P1-15 — Timeout can duplicate Bandit Camp attack
+- **Module:** bandit
+- **Lines:** 3038-3100
+- **Confidence:** Confirmed
+- **Problem:** Guard is set when posting, but callback `err` (including timeout) resets it to 0; if server accepted and movement model is slow, scan can resend.
+- **Required fix:** Transactional pending/unknown state; after timeout reconcile movement/cooldown before allowing retry.
+
+### P1-16 — DOM fallback registers success without confirmation
+- **Module:** bandit
+- **Lines:** 3108-3185
+- **Confidence:** Confirmed
+- **Problem:** Reward/attack DOM are logged as success immediately after `.click()`.
+- **Required fix:** After click verify model/reward/cooldown/movement; if outcome unknown do not retry blindly.
+
+### P1-17 — With premium queue of 7 and empty queue, max batch 6 leaves a gap and then does not fill it
+- **Module:** build
+- **Lines:** 3568-3572, 3812-3843
+- **Confidence:** Confirmed
+- **Problem:** `AB_FILL_BATCH=6`; from q=0/max=7 adds 6. On later scans q.len>1 => return, so the seventh slot stays empty until it drops to 1.
+- **Required fix:** Batch = available slots or iterate until `q.max`; do not use fixed 6 if goal is to fill.
+
+### P1-18 — Projected cost of multiple levels of the same building is incorrect
+- **Module:** build
+- **Lines:** 3688-3785
+- **Confidence:** Confirmed
+- **Problem:** `abBuildingCost(townId,b)` reads live BuildData without simulating level. If batch picks same building multiple times, it debits the cost of the current “next level” repeatedly.
+- **Required fix:** Calculate cost for `projectedLevel+1` from formula/GameData or replan after each server confirmation.
+
+### P1-19 — No generic building prerequisite validation
+- **Module:** build
+- **Lines:** 3545-3808
+- **Confidence:** Confirmed
+- **Problem:** Selector only looks at phases, target, max and cost; does not consult dependency graph. Custom targets can select blocked buildings.
+- **Required fix:** Resolve requirements from GameData at projected levels (current + game queue + bot queue).
+
+### P1-20 — No final resource/population/slot revalidation before each build
+- **Module:** build
+- **Lines:** 3787-3888
+- **Confidence:** Confirmed
+- **Problem:** Jobs are calculated at the start; other modules/user can spend between jobs. `abBuildUp` only checks host/captcha.
+- **Required fix:** Before POST: refresh queue, level, prereqs, cost, population and resources; abort/replan if changed.
+
+### P1-21 — Fallback max level=40 can produce impossible targets
+- **Module:** build
+- **Lines:** 3582-3597
+- **Confidence:** Confirmed
+- **Problem:** When GameData is missing, all buildings are treated max40. Some do not reach 40.
+- **Required fix:** Fail closed if max unknown or canonical table per building/feature flag; never generic 40.
+
+### P1-22 — “Fill queue now” button permanently turns on auto-queue
+- **Module:** build
+- **Lines:** 8866-8880
+- **Confidence:** Confirmed
+- **Problem:** If `state.abAuto` was OFF, the handler saves true and the `if (!was) { }` block restores nothing.
+- **Required fix:** Manual fill must not mutate the toggle; pass `force=true` to scan without touching persistent state.
+
+### P1-23 — Unknown cave capacity fails open
+- **Module:** cave
+- **Lines:** 4068-4103
+- **Confidence:** Confirmed
+- **Problem:** If not unlimited and `hideCap/stored` are null, `caveExcessAmount` returns full excess and can send iron without knowing space.
+- **Required fix:** Fail closed unless game confirms unlimited; if capacity/stored unknown, do not send.
+
+### P1-24 — Reserve 0% cannot be used even though the UI allows it
+- **Module:** trade
+- **Lines:** 4517-4566, 8636, 9220-9222
+- **Confidence:** Confirmed
+- **Problem:** `+state.tradeReservePct || 20` turns 0 into 20.
+- **Required fix:** Use nullish/Number.isFinite: `state.tradeReservePct ?? 20`.
+
+### P1-25 — Island ship does not limit by destination free capacity
+- **Module:** trade
+- **Lines:** 4557-4590
+- **Confidence:** Confirmed
+- **Problem:** Calculates only origin surplus/capacity; `tgt.cap - tgt.resource` is not used. `tradeApplyJob` can project above cap.
+- **Required fix:** Clamp by free capacity of each destination resource and by goods in transit.
+
+### P1-26 — Jobs are not revalidated before send
+- **Module:** trade
+- **Lines:** 4592-4640
+- **Confidence:** Confirmed
+- **Problem:** Initial ledger can become stale due to build/recruit/culture/user.
+- **Required fix:** Re-read origin/destination and merchant capacity before each `tradeSend`; replan job.
+
+### P1-27 — Research queue parser omits `research_type`
+- **Module:** research
+- **Lines:** 4968-4972, 3310-3335
+- **Confidence:** Confirmed
+- **Problem:** Instant parser uses `r.research_type || r.research_id`; autoResearch uses `research_id || research || type || id`. May not recognize a tech already in queue.
+- **Required fix:** Support the same canonical keys and tests with real models.
+
+### P1-28 — Dependencies fail open if GameData missing or exception
+- **Module:** research
+- **Lines:** 4974-5005
+- **Confidence:** Confirmed
+- **Problem:** `if (!def) return true` and catch→true.
+- **Required fix:** For auto-send, unknown = not executable. Log “validation unavailable”.
+
+### P1-29 — Unknown costs/points fail open
+- **Module:** research
+- **Lines:** 4890-4960
+- **Confidence:** Confirmed
+- **Problem:** Without cost data returns ok; if available points are null it also does not block.
+- **Required fix:** Require cost+research-point availability known; fail closed.
+
+### P1-30 — Unlock Academy level per tech is not reliably validated
+- **Module:** research
+- **Lines:** 4974-5042
+- **Confidence:** Confirmed by absence in code
+- **Problem:** Only requires Academy>0 and declared dependencies. No explicit check of definition's `academy_level/level`.
+- **Required fix:** Read requirement from GameData and require sufficient projected Academy.
+
+### P1-31 — No final revalidation before research POST
+- **Module:** research
+- **Lines:** 5010-5055
+- **Confidence:** Confirmed
+- **Problem:** Job is selected and then sent; points/resources/queue/deps are not rechecked.
+- **Required fix:** Revalidate immediately in execution callback.
+
+### P1-32 — Decision-memory key does not always include source city
+- **Module:** journal
+- **Lines:** 1280-1440, 999-1001
+- **Confidence:** Confirmed
+- **Problem:** For build/research the key prioritizes building/research id and omits town_id. Three Academy errors in one city can block Academy in all.
+- **Required fix:** Logical ID must include feature + action + sourceTown + target + level/intent.
+
+### P1-33 — Attack deduplication is global per event and can lose simultaneous alerts
+- **Module:** webhook
+- **Lines:** 5065-5134
+- **Confidence:** Confirmed
+- **Problem:** `alertLastSent[event]` blocks all `attack` events for 5 min after one success.
+- **Required fix:** Dedup by movement id/town/type; separate global rate limit from semantic dedup.
+
+### P1-34 — CS can cause double webhook for the same movement
+- **Module:** webhook
+- **Lines:** 5660-5680, 5065-5134
+- **Confidence:** Confirmed
+- **Problem:** `dodgeNotify` calls `attack` once and again with `{cs:true}`; timestamp is set only after async success, so both can go out.
+- **Required fix:** Single enriched message or event key `cs:<movementId>` with atomic dedup before send.
+
+### P1-35 — Budget=0 becomes 50000
+- **Module:** wonder
+- **Lines:** 5408-5412
+- **Confidence:** Confirmed
+- **Problem:** `const budget = +cfg.budget || 50000`. intentional 0 does not disable spending.
+- **Required fix:** Use `cfg.budget ?? default`; 0 must block everything.
+
+### P1-36 — Reserve=0 becomes 5000
+- **Module:** wonder
+- **Lines:** 5413-5416
+- **Confidence:** Confirmed
+- **Problem:** Same `||` pattern.
+- **Required fix:** Preserve 0 with nullish/range validation.
+
+### P1-37 — Config 0/0/0 silently becomes 2000/2000/2000
+- **Module:** wonder
+- **Lines:** 5417-5424
+- **Confidence:** Confirmed
+- **Problem:** No “do not donate” semantics; enabling module with zero amounts invents balanced send.
+- **Required fix:** Do not invent amounts in high-risk module. Require explicit configuration >0.
+
+### P1-38 — Does not revalidate stock/capacity before donating
+- **Module:** wonder
+- **Lines:** 5425-5504
+- **Confidence:** Confirmed
+- **Problem:** Selects job from snapshot and posts later; other modules can consume resources.
+- **Required fix:** Revalidate reserve, stock, capacity and budget before POST.
+
+### P1-39 — Militia is incorrectly blocked if free population=0
+- **Module:** dodge
+- **Lines:** 5604-5625
+- **Confidence:** Confirmed from code; gameplay incompatibility
+- **Problem:** `dodgeCanRaiseMilitia` uses `gbTownPop<=0` as block even though militia does not consume normal population.
+- **Required fix:** Remove that condition; validate only real farm/militia availability/cooldown/state.
+
+### P1-40 — “Safe town” deliberately falls back to a city also under threat
+- **Module:** dodge
+- **Lines:** 5585-5602
+- **Confidence:** Confirmed
+- **Problem:** If all alternatives have incoming, returns `ids[0]` instead of null.
+- **Required fix:** Do not call it safe. Score threat/ETA or return null and do not evacuate.
+
+### P1-41 — Auto-dodge does not validate transport capacity or support restrictions
+- **Module:** dodge
+- **Lines:** 5626-5705
+- **Confidence:** Confirmed
+- **Problem:** Takes almost all units and uses generic support; does not use `boatCapacityCheck` nor destination-specific mythic/god unit validation.
+- **Required fix:** Build support with common military validator: transports, destination constraints, unit eligibility, fresh units.
+
+### P1-42 — Auto-militia triggers on any hostile incoming without ETA/threat
+- **Module:** dodge
+- **Lines:** 5660-5682
+- **Confidence:** Confirmed
+- **Problem:** A single hostile detection can activate militia immediately.
+- **Required fix:** Add ETA window, attack type, cooldown and configurable policy; do not activate on low-confidence signals.
+
+### P1-43 — Research requirement fails open if researches cannot be read
+- **Module:** recruit
+- **Lines:** 5803-5815
+- **Confidence:** Confirmed
+- **Problem:** Condition only fails if `info && info.techs`; if info is null, requirement is considered met.
+- **Required fix:** If unit declares research and cannot be proven, skip.
+
+### P1-44 — Only validates Barracks/Docks >0, not required level per unit
+- **Module:** recruit
+- **Lines:** 5816-5832
+- **Confidence:** Confirmed
+- **Problem:** No comparison with required building level from GameData.
+- **Required fix:** Read building requirement per unit and require current/projected level.
+
+### P1-45 — Mythic units do not validate worshipped god, temple level, or favor/cost
+- **Module:** recruit
+- **Lines:** 5803-5832, 5888-5914
+- **Confidence:** Confirmed by absence
+- **Problem:** `def.god` only requires temple>0; affordability only uses wood/stone/iron/pop.
+- **Required fix:** Validate deity, temple level, current favor and favor cost; correct controller per version.
+
+### P1-46 — Queued amount only recognizes `unit_type`, not `unit_id`
+- **Module:** recruit
+- **Lines:** 5878-5887
+- **Confidence:** Confirmed
+- **Problem:** If model uses `unit_id`, queued=0 and target can be exceeded.
+- **Required fix:** Canonical UnitOrder parser with unit_type/unit_id/type and amount/count.
+
+### P1-47 — Queue max hardcoded 7
+- **Module:** recruit
+- **Lines:** 5868-5877
+- **Confidence:** Confirmed
+- **Problem:** Does not use real building/advisor/world capacity.
+- **Required fix:** Read queue length/capability from model; if unknown, conservative mode 1 or do not act.
+
+### P1-48 — Recruit timeout is not reconciled and can duplicate queue
+- **Module:** recruit
+- **Lines:** 5915-5935, 999-1047
+- **Confidence:** Confirmed
+- **Problem:** Timeout callback releases lock; next scan can see model not yet updated and send again.
+- **Required fix:** Intent id + UnitOrder/stock reconciliation before retry.
+
+### P1-49 — Config import does not validate schema/types/ranges or host
+- **Module:** config
+- **Lines:** 6060-6120
+- **Confidence:** Confirmed
+- **Problem:** Assigns external objects directly and uses `obj.ver` as configVer; malformed priorityOrder/targets can disable or corrupt planners.
+- **Required fix:** Schema validator, clamps, host/world confirmation, ignore imported migration version, deep clone.
+
+### P1-50 — Adaptive cadence considers “new journal record” as action even if error/skip
+- **Module:** scheduler
+- **Lines:** 6170-6265
+- **Confidence:** Confirmed
+- **Problem:** `orchJrnCount` counts records per feature; does not verify result=ok. Errors can reset idle.
+- **Required fix:** Measure confirmed `ok` actions, not generic records.
+
+### P1-51 — Journal dedup `r.n` does not count for orch activity
+- **Module:** scheduler
+- **Lines:** ~6180-6225, 1340-1385
+- **Confidence:** Confirmed
+- **Problem:** A repeated action can increment `n` without creating new record; `orchJrnCount` counts elements.
+- **Required fix:** Count sum of n for `ok` or use monotonic counter per feature.
+
+### P1-52 — Fixed 4 s sample misses slow callbacks
+- **Module:** scheduler
+- **Lines:** ~6230-6265
+- **Confidence:** Confirmed
+- **Problem:** `orchNoteResult` runs 4 s later even though bridge timeout is 15 s.
+- **Required fix:** Handler must return Promise/result and scheduler must record result on completion.
+
+### P1-53 — Observer is not rebound if quests container is replaced
+- **Module:** quests
+- **Lines:** 6420-6960
+- **Confidence:** Confirmed by lifecycle
+- **Problem:** `questMo` is not nulled/rebound automatically when observed node is replaced; polling continues, reactivity is lost.
+- **Required fix:** Detect `isConnected`, observe stable root or rebind after SPA mutation.
+
+### P1-54 — Mission `scout` is sent as Town/sendUnits
+- **Module:** attack
+- **Lines:** 7280-7305, 8500
+- **Confidence:** Confirmed from code; gameplay incompatibility
+- **Problem:** Selector includes scout, but `sendAttackViaBridge` only generates sendUnits with troops. Espionage is a different mechanic.
+- **Required fix:** Remove scout from generic sender and implement specific espionage/cave silver handler.
+
+### P1-55 — Mission `portal`/Olympus is treated as generic sendUnits without specific validation
+- **Module:** attack
+- **Lines:** 7280-7305, 8500
+- **Confidence:** Confirmed from code; exact endpoint requires live validation
+- **Problem:** No special handler exists; limited to `args.type=portal`.
+- **Required fix:** Block until canonical learned/validated model/action exists.
+
+### P1-56 — When firing a wave, units are refreshed but not travel/boats/sendAt
+- **Module:** attack
+- **Lines:** 7360-7425
+- **Confidence:** Confirmed
+- **Problem:** Composition can change between arm and fire; freshUnits are recalculated, but not ETA nor transport capacity.
+- **Required fix:** Recalculate units+capacity+travel immediately before send; if it alters arrival beyond tolerance, abort that row.
+
+### P1-57 — Travel time fallback is heuristic but can feed `arrive_at`
+- **Module:** attack
+- **Lines:** 7010-7043, 7245-7275
+- **Confidence:** Confirmed
+- **Problem:** If game helpers missing, uses `dist*50/speed + setup`; no guarantee of world/bonus precision.
+- **Required fix:** For military sync fail closed if no official/canonical runtime helper; fallback preview only with warning.
+
+### P1-58 — Preflight claims “DRY-RUN nothing sent” even though it is false
+- **Module:** preflight
+- **Lines:** 7860-7905, 8653
+- **Confidence:** Confirmed + dynamic test
+- **Problem:** Security diagnostic gives incorrect guarantee.
+- **Required fix:** Fix dry-run first; then automated test proving zero side effects.
+
+### P1-59 — Research probe counts wrapper keys, not techs
+- **Module:** preflight
+- **Lines:** 7860-7880
+- **Confidence:** Confirmed
+- **Problem:** `researchTownTechs()` returns `{town,techs,academy,orders}`; preflight does `Object.keys(techs).length`, so typically gets 4 and says “techs readable”.
+- **Required fix:** Use `Object.keys(info.techs||{}).length`.
+
+## P2 — Findings
+
+### P2-01 — DOM collect selector is too broad
+- **Module:** collect
+- **Lines:** 2770-2834
+- **Confidence:** Confirmed
+- **Problem:** Includes `button[data-action*="claim"]`; text filter reduces risk but still depends on translation/UI.
+- **Required fix:** Prefer exact learned action/model; DOM fallback only specific selector and explicit allow.
+
+### P2-02 — Marks `grepbotClicked` before checking result
+- **Module:** collect
+- **Lines:** 2815-2834
+- **Confidence:** Confirmed
+- **Problem:** A click that does not trigger action stays blocked until DOM rebuilds.
+- **Required fix:** Mark pending; clear flag if model/DOM does not change within timeout.
+
+### P2-03 — Background collect only replays controller/action + town_id
+- **Module:** collect
+- **Lines:** 2850-2925
+- **Confidence:** Confirmed
+- **Problem:** Learns a URL, not full payload. If action needs additional arguments, replay is incomplete.
+- **Required fix:** Sniff full request body and whitelist stable fields.
+
+### P2-04 — Dry-run blocks report reads via gpAjax
+- **Module:** collect
+- **Lines:** 1680-1705, 999-1014
+- **Confidence:** Confirmed
+- **Problem:** `report/view` goes through gameAjaxPost and receives `dryrun`, even though it is a read.
+- **Required fix:** Classify requests read/write; dry-run must allow reads.
+
+### P2-05 — Farm resource HTTP cap uses max population as `cap`
+- **Module:** farm
+- **Lines:** 1915-1931, 2460-2525
+- **Confidence:** Confirmed
+- **Problem:** `parseResourceJson` returns `cap: pop.max/pop.cap`; that is not necessarily warehouse capacity.
+- **Required fix:** Rename populationCap and do not mix with warehouse storage.
+
+### P2-06 — HTTP “farm resources” seems to treat vill_id as town_id
+- **Module:** farm
+- **Lines:** 2450-2525
+- **Confidence:** Needs live validation
+- **Problem:** `params.set(town_id, entry.vill_id)` against guessed endpoints. Village semantics likely do not match own city.
+- **Required fix:** Remove if no real demonstrated endpoint; prefer FarmTown/Relation models.
+
+### P2-07 — Endpoint guessing generates load and can break with new client
+- **Module:** farm
+- **Lines:** 2430-2770
+- **Confidence:** Confirmed by design
+- **Problem:** Tries multiple `/index.php?action=...` without contract.
+- **Required fix:** Prefer MM/ITowns/gpAjax canonical; guesses only manual diagnostic with rate limit.
+
+### P2-08 — Town scrape lock is released by timer, not real completion
+- **Module:** towns
+- **Lines:** 2730-2765
+- **Confidence:** Confirmed
+- **Problem:** HTTP can last/retry longer than `towns*700ms`; another scrape can overlap.
+- **Required fix:** Promise request counter or lease until all complete.
+
+### P2-09 — fetchOwnedTowns/fetchTownResources internal retry does not revalidate host/pause
+- **Module:** towns
+- **Lines:** 2585-2725
+- **Confidence:** Confirmed
+- **Problem:** An already started chain can continue after disabling host.
+- **Required fix:** Gate at start of each retry/attempt.
+
+### P2-10 — Farm sleep uses local day; culture/wonder use server UTC day
+- **Module:** farm
+- **Lines:** 2338-2410, 4250-4270, 5380-5405
+- **Confidence:** Confirmed
+- **Problem:** Daily states can reset at different times.
+- **Required fix:** Use common `serverDay()` based on Game timezone/rules.
+
+### P2-11 — Wrong-island check fails open if island cannot be read
+- **Module:** bandit
+- **Lines:** 2984-3004
+- **Confidence:** Confirmed
+- **Problem:** `townIsland==null` returns false (not wrong), allowing attack.
+- **Required fix:** For automatic action, unknown island = skip.
+
+### P2-12 — Offense classification keeps ID heuristics
+- **Module:** bandit
+- **Lines:** 2952-2970
+- **Confidence:** Confirmed
+- **Problem:** Unknown/both units can be excluded; classification changes with new units.
+- **Required fix:** Use GameData unit_function and live list; heuristic read-only fallback only.
+
+### P2-13 — Queue timing half-build+5m+jitter leaves capacity idle by design
+- **Module:** build
+- **Lines:** 3675-3890
+- **Confidence:** Confirmed
+- **Problem:** Even if not the new spec, deliberately reduces queue utilization.
+- **Required fix:** If goal is continuity, remove deadline and review slots on each scan/event.
+
+### P2-14 — Tear-down is projected as -1 but no dependency validation after demolition
+- **Module:** build
+- **Lines:** 3610-3640
+- **Confidence:** Confirmed
+- **Problem:** Planner can take reduced projected levels without checking consequences.
+- **Required fix:** Exclude teardown from auto planner or resolve bidirectional dependencies.
+
+### P2-15 — No final recheck of iron/cap/hide before each store
+- **Module:** cave
+- **Lines:** 4125-4185
+- **Confidence:** Confirmed
+- **Problem:** Jobs use snapshot; another process can change values.
+- **Required fix:** Recalculate `caveTownInfo` before POST.
+
+### P2-16 — Storage planner ignores existing incoming merchants
+- **Module:** trade
+- **Lines:** 4510-4595
+- **Confidence:** Confirmed by absence
+- **Problem:** Can fill to cap without reserving resources already in transit.
+- **Required fix:** Read trade movements/incoming resources and add to target ledger.
+
+### P2-17 — Party/unit presets are exposed but not implemented
+- **Module:** trade
+- **Lines:** 4595-4620, 8631-8635
+- **Confidence:** Confirmed
+- **Problem:** UI offers options that only log “unimplemented”.
+- **Required fix:** Hide/disable them or implement real planner.
+
+### P2-18 — Unknown cooldown is interpreted as ready
+- **Module:** ruraltrade
+- **Lines:** 4660-4750
+- **Confidence:** Confirmed
+- **Problem:** Only skip if `readyAt != null && >now`; null continues.
+- **Required fix:** Unknown cooldown = no auto action.
+
+### P2-19 — No final recheck of ratio/cooldown/capacity before POST
+- **Module:** ruraltrade
+- **Lines:** 4685-4750
+- **Confidence:** Confirmed
+- **Problem:** Jobs are planned in batch.
+- **Required fix:** Re-read relation/town state per job.
+
+### P2-20 — Unlock/upgrade costs hardcoded
+- **Module:** rurallevel
+- **Lines:** 4760-4855
+- **Confidence:** Needs live validation
+- **Problem:** Local arrays fix costs; can vary by system/world/version.
+- **Required fix:** Read cost from model/GameData or validate canonical before acting.
+
+### P2-21 — Does not handle Discord/Telegram-specific Retry-After/429
+- **Module:** webhook
+- **Lines:** 5065-5134
+- **Confidence:** Confirmed
+- **Problem:** Only logs status>=300.
+- **Required fix:** Implement external backoff per provider, without affecting game cooldown.
+
+### P2-22 — No cumulative gold budget
+- **Module:** merchant
+- **Lines:** 5135-5240
+- **Confidence:** Confirmed by absence
+- **Problem:** Persistent wishlist can buy repeatedly on every valid offer until gold runs out, even though maxPrice limits unit price.
+- **Required fix:** Daily/total budget + max purchases per item + explicit opt-in.
+
+### P2-23 — Fallback collections may not match purchase model_url
+- **Module:** merchant
+- **Lines:** 5150-5238
+- **Confidence:** Needs live validation
+- **Problem:** May read `MerchantOffer/PremiumExchangeOffer` but try `PhoenicianSalesmanOffer/{id}`.
+- **Required fix:** Dispatch controller/model according to real offer type; do not mix collections.
+
+### P2-24 — Default `athena + harpy` self-invalidates
+- **Module:** favor
+- **Lines:** 386-398, 5280-5308
+- **Confidence:** Confirmed
+- **Problem:** `favorUnitOk` requires def.god to match; Harpy is not an Athena unit. With defaults, module only logs incompatibility.
+- **Required fix:** Coherent default or mandatory configuration without executable defaults.
+
+### P2-25 — Concurrent counter is lost on reload/reinject
+- **Module:** favor
+- **Lines:** 5245-5375
+- **Confidence:** Confirmed
+- **Problem:** `favorOwnMoves` is volatile memory; movements remain alive in game.
+- **Required fix:** Reconstruct from MovementsUnits with marker/source+unit+target.
+
+### P2-26 — Does not validate era/ownership/World Wonder state before send
+- **Module:** wonder
+- **Lines:** 5398-5504
+- **Confidence:** Confirmed by absence; gameplay depends on world
+- **Problem:** Server is the only validation.
+- **Required fix:** Resolve Wonder model, alliance ownership, phase and remaining resources; unknown = skip.
+
+### P2-27 — `dodgeFloor` only protects sword/hoplite/archer
+- **Module:** dodge
+- **Lines:** 5630-5655
+- **Confidence:** Confirmed
+- **Problem:** Name “Floor” suggests general reserve, but other defense/naval/mythic units are fully evacuated.
+- **Required fix:** Reserve by unit/class or town profile policy.
+
+### P2-28 — CS detection depends on visible units
+- **Module:** dodge
+- **Lines:** 5557-5583
+- **Confidence:** Limitation
+- **Problem:** `hasCs` only looks at `a.units`; hidden incoming does not allow CS inference.
+- **Required fix:** Do not present absence of [CS] as guarantee; use command type/icon/model metadata if available.
+
+### P2-29 — Mythic classification inconsistent between controller and barracks gate
+- **Module:** recruit
+- **Lines:** 5760-5832
+- **Confidence:** Confirmed
+- **Problem:** Controller recognizes `is_mythical`; barracks branch excludes only `def.god && def.mythical`, not `is_mythical`.
+- **Required fix:** Single `isMythic(def)` helper used everywhere.
+
+### P2-30 — Recruit spells do not validate favor/god/cost/applicability before cast
+- **Module:** recruit
+- **Lines:** 5770-5802, 5840-5865
+- **Confidence:** Confirmed by absence
+- **Problem:** Can make repeated invalid request.
+- **Required fix:** Preflight power definition, god, favor, active status and target.
+
+### P2-31 — Jitter is recalculated each tick instead of storing nextDue
+- **Module:** scheduler
+- **Lines:** ~6140-6265
+- **Confidence:** Confirmed
+- **Problem:** Due boundary moves randomly on each poll.
+- **Required fix:** At end of run, calculate and persist/stash `nextDue = now+cadence*jitter`.
+
+### P2-32 — lastRun is marked before knowing if handler executed
+- **Module:** scheduler
+- **Lines:** ~6230-6265
+- **Confidence:** Confirmed
+- **Problem:** Handler can exit on lock/no data and still gets delayed one cadence.
+- **Required fix:** Handler returns status; only update lastRun/nextDue when attempting or define separate `lastChecked`.
+
+### P2-33 — Up to 3 econ modules can compete for the same resources
+- **Module:** scheduler
+- **Lines:** 6130-6265
+- **Confidence:** Confirmed by architecture
+- **Problem:** Each module has local ledger, no global reservations.
+- **Required fix:** Central ResourcePlanner/reservation bus.
+
+### P2-34 — Watchlist can re-alert old findings
+- **Module:** intel
+- **Lines:** ~6380-6420
+- **Confidence:** Confirmed by absence of per-finding sent set
+- **Problem:** Periodic scan has no hit mark per finding; webhook event cooldown only postpones repetition.
+- **Required fix:** Persist `watchlistSeen[findingId:rule]`.
+
+### P2-35 — Grepodata assist clicks externally even in dry-run
+- **Module:** intel
+- **Lines:** 6385-6395
+- **Confidence:** Confirmed
+- **Problem:** Another side effect outside actionGate.
+- **Required fix:** Put under dry-run gate and manual confirmation.
+
+### P2-36 — Claimability based on reward truthiness requires validating model semantics
+- **Module:** quests
+- **Lines:** 6420-6670
+- **Confidence:** Needs live validation
+- **Problem:** `getReward/hasReward` may mean “there is a reward”, not necessarily “claimable”.
+- **Required fix:** Use canonical state/canClaim or model enabled button/action.
+
+### P2-37 — After OK response requires immediate model change; async refresh can produce false unconfirmed
+- **Module:** quests
+- **Lines:** ~6690-6840
+- **Confidence:** Confirmed by architecture
+- **Problem:** Immediate reconciliation can run before Backbone update.
+- **Required fix:** Wait for event/model change or brief polling before classifying unknown.
+
+### P2-38 — Learner can create pseudo-ID `xhr-<timestamp>`
+- **Module:** quests
+- **Lines:** ~6500-6660
+- **Confidence:** Confirmed
+- **Problem:** Payload with rewards without quest id contaminates reward map/history.
+- **Required fix:** Do not persist rewards without canonical quest/progressable id.
+
+### P2-39 — Does not explicitly block source==destination/own target for attack
+- **Module:** attack
+- **Lines:** 7197-7305
+- **Confidence:** Confirmed by absence
+- **Problem:** Own towns resolve as valid target. Server will reject or give undesired behavior.
+- **Required fix:** Mission-aware validator: attack/revolt/siege not own town; separate support rules.
+
+### P2-40 — `fireAttackNow` reports xN planned, not N confirmed
+- **Module:** attack
+- **Lines:** 7440-7455
+- **Confidence:** Confirmed
+- **Problem:** History/flash written when iteration ends even though callbacks can fail.
+- **Required fix:** Count successes/errors and save outcome per row.
+
+### P2-41 — Preflight “read-only” does not cover DOM side effects nor validate mutating endpoints
+- **Module:** preflight
+- **Lines:** 7790-7910, 8720
+- **Confidence:** Confirmed
+- **Problem:** It is mainly introspection; does not test actionGate, idempotency nor payload contracts.
+- **Required fix:** Add real isolated test suite; rename preflight as “model availability” if not.
+
+### P2-42 — Diag executes network fetch
+- **Module:** diag
+- **Lines:** ~9660-9740
+- **Confidence:** Confirmed
+- **Problem:** `diagRun()` ends up calling `fetchFarmResources(first,...)`. Not local inspection only.
+- **Required fix:** Separate local diag vs explicit network probe.
+
+### P2-43 — Night end 0 becomes 7
+- **Module:** config
+- **Lines:** 503-507
+- **Confidence:** Confirmed
+- **Problem:** `b = +state.nightEnd || 7`. UI allows 0.
+- **Required fix:** Preserve 0 with nullish/finite check.
+
+### P2-44 — Overview can show “Automation: active” with host disabled
+- **Module:** overview
+- **Lines:** ~5988-6055
+- **Confidence:** Confirmed
+- **Problem:** `qolOverviewData` uses automationPaused(), which does not include hostEnabled.
+- **Required fix:** Include host status separately; “disabled” if host not opt-in.
+
+## P3 — Findings
+
+### P3-01 — Raw bridge timeout is not in timer registry
+- **Module:** core
+- **Lines:** 968, 1028
+- **Confidence:** Confirmed
+- **Problem:** Dispose does not clearTimeout those timers; `settled` callbacks can run after even though gpAjax still pending.
+- **Required fix:** Use gbTimeout with cancellable entry + disposed generation.
+
+### P3-02 — gbDebounce uses direct setTimeout
+- **Module:** core
+- **Lines:** 9340-9352
+- **Confidence:** Confirmed
+- **Problem:** Can execute old callback after re-injection.
+- **Required fix:** Use gbTimeout or register/cancel debounce timer.
+
+### P3-03 — Dead/unwired functions indicate incomplete features
+- **Module:** core
+- **Lines:** 296,1108,1388,1399,1406,2005,2793,3675,5982,5987,6380,7726
+- **Confidence:** Confirmed statically
+- **Problem:** Helpers defined without references: lock age, recall APIs, groups apply, alliance note, defense pull, etc.
+- **Required fix:** Remove or wire with tests; reduces audited surface.
+
+### P3-04 — extractUnits ignores numeric quantities as string
+- **Module:** reports
+- **Lines:** 1820-1835
+- **Confidence:** Confirmed
+- **Problem:** `typeof v === number` only.
+- **Required fix:** Accept finite numeric strings, normalize to integer.
+
+### P3-05 — Seen retry cap lives in memory only
+- **Module:** reports
+- **Lines:** 1605-1670
+- **Confidence:** Confirmed
+- **Problem:** After 3 failures report stays blocked this session; reload resets.
+- **Required fix:** Persist retry/backoff or failure TTL, not implicit session block.
+
+### P3-06 — HTTP Retry-After only interprets integer seconds
+- **Module:** network
+- **Lines:** 1056-1064
+- **Confidence:** Confirmed
+- **Problem:** Ignores valid HTTP date.
+- **Required fix:** Parse delta-seconds or HTTP-date.
+
+### P3-07 — @grant does not declare unsafeWindow/GM_info explicitly
+- **Module:** security
+- **Lines:** 1-19, 165, 799
+- **Confidence:** Compatibility
+- **Problem:** Tampermonkey usually exposes them, other managers may not.
+- **Required fix:** Declare grants/use standard GM API or document supported manager.
+
+### P3-08 — Export object URL is not revoked
+- **Module:** ui
+- **Lines:** 8897-8904
+- **Confidence:** Confirmed
+- **Problem:** Small leak per repeated export.
+- **Required fix:** `URL.revokeObjectURL` after click.
+
+### P3-09 — Many panel element listeners do not use registry
+- **Module:** ui
+- **Lines:** 8750-9365
+- **Confidence:** Low impact
+- **Problem:** Panel is removed on dispose and GC normally collects them, but formal lifecycle is harder.
+- **Required fix:** Event delegation or scoped helper; not critical.
+
+### P3-10 — Export/diag/webhook contain sensitive operational data by design
+- **Module:** security
+- **Lines:** ~6020-6120, 5065-5134, ~9660-9740
+- **Confidence:** Privacy risk
+- **Problem:** IDs, cities, reports/attacks can leave the account if shared or webhook configured.
+- **Required fix:** Extended redaction, warning and minimal export. No hidden exfiltration detected.
+
+## LIVE VALIDATION — do not certify without testing against Grepolis
+
+- **LIVE-01 · Instant free:** Confirm on a real world the action_name `completeInstant/finishInstantly`, Order model and `GameDataInstantBuy` price. Code does block gold!=0.
+- **LIVE-02 · Farming:** Capture a manual claim of each duration and verify option indices per world/feature.
+- **LIVE-03 · Farm HTTP:** Demonstrate whether guessed endpoints `/index.php?action=farm_town_*` return useful resource/threshold data.
+- **LIVE-04 · Bandit:** Validate PlayerAttackSpot actions `attack/useReward/stashReward` and movement markers.
+- **LIVE-05 · Build:** Identify BuildingBuildData schema, queue capacity API and exact dependency graph.
+- **LIVE-06 · Cave:** Verify BuildingHide/storeIron and capacity/stored fields at levels 1-10.
+- **LIVE-07 · Culture:** Verify controller/action start_celebration and celebration_type on target world.
+- **LIVE-08 · Trade:** Verify town_info/trade payload and whether `getAvailableTradeCapacity` already discounts merchants in transit.
+- **LIVE-09 · Rural:** Verify trade/unlock/upgrade payloads, cooldown fields and costs of current village system.
+- **LIVE-10 · Research:** Capture GameData research schema: level requirement, resources, points, deps, order field `research_type`.
+- **LIVE-11 · Merchant:** Confirm exact collection and model/controller of Phoenician salesman vs other offers.
+- **LIVE-12 · Favor:** Do not validate until target semantics rewritten; then capture manual Temple Looting and deity/unit constraints.
+- **LIVE-13 · Wonder:** Verify wonder controller/model, phase, alliance ownership and server response reconciliation.
+- **LIVE-14 · Dodge:** Capture incoming movement types of attack/support/spy/revolt/CS and support payload with transports/mythics.
+- **LIVE-15 · Recruit:** Capture UnitOrder schema, queue capacity, building levels, mythic favor costs and power casts.
+- **LIVE-16 · Quests:** Capture Progressable/IslandQuest claimability and claimReward response/update timing.
+- **LIVE-17 · Attack:** Resolve enemy town canonical model, travel helper and mission-specific payloads. Do not use heuristic arrival for synchronization.
+
+## Coverage by module
+
+- [x] metadata/storage/reinject
+- [x] captcha/server pressure/request budget
+- [x] journal/decision-memory
+- [x] AJAX spies/report parser
+- [x] farming villages
+- [x] town scraping
+- [x] foreground/background collect
+- [x] Bandit Camp
+- [x] instant free completion
+- [x] auto-build
+- [x] cave
+- [x] culture
+- [x] inter-city trade
+- [x] rural trade/upgrade
+- [x] research
+- [x] webhooks
+- [x] merchant
+- [x] favor
+- [x] world wonders
+- [x] incoming/dodge/militia
+- [x] recruit/spells
+- [x] QoL/config import/export
+- [x] scheduler
+- [x] intel/watchlist/Grepodata
+- [x] quests
+- [x] attack sync/defense pull
+- [x] UI/preflight/diag/startup
+
+## Things that are working / improvements over previous versions
+
+- Host opt-in is OFF by default.
+- `node --check` passes; no `eval`, `new Function` or remote code loading detected.
+- `@connect` is limited to Grepolis, Discord and Telegram.
+- Instant completion requires calculated price `gold === 0`, rejects `buyInstant` and reconciles timeout by order presence.
+- Dodge has explicit friendly/hostile filter and persistent queue.
+- Recruit routes naval to docks and mythics to building_place when GameData identifies them.
+- Build batch already uses local resource ledger, though multi-level cost is still incorrect.
+- Culture premium requires explicit toggle + budget and verifies gold.
+- Wonder already avoids fallback after unknown timeout.
+- Basic re-injection restores hooks, clears registered timers, GM XHR, menus and panel; double injection smoke test produced no errors.
+
+## Improvements applicable after fixing bugs
+
+- **M01 · Central ActionGate:** Single API for side effects with dry-run, host, pause, captcha, budget, idempotency and audit log.
+- **M02 · Intent/transaction engine:** PRECHECK → RESERVE → SEND → CONFIRM → RECONCILE; never automatic retry of unknown outcome.
+- **M03 · Global ResourcePlanner:** Reservations across build/research/recruit/culture/trade/wonder to avoid races.
+- **M04 · City profiles:** Offensive/defensive/naval/CS/etc profile coordinating buildings+research+units+reserves.
+- **M05 · Build dependency planner:** Editable order + prereq DAG + projected costs per level + current/bot queue.
+- **M06 · Stable scheduler nextDue:** Promises/results, stable nextDue with jitter and do not infer “acted” from journal.
+- **M07 · Canonical schema adapters:** Versioned adapters for BuildingOrder, ResearchOrder, UnitOrder, MovementsUnits and reports.
+- **M08 · Capability registry:** Detect which APIs/models exist at boot; unsupported modules stay OFF, do not attempt guesses.
+- **M09 · Health circuit breaker:** 3 schema/action mismatches → BROKEN until intervention; separate from captcha breaker.
+- **M10 · Global safe mode:** Never gold/favor/killpoints/troops/donations; only reads and explicitly allowed econ actions.
+- **M11 · Threat engine:** Dodge/militia by ETA, attack class, CS confidence, city defense and return plan.
+- **M12 · Dodge return ledger:** Record exactly what was evacuated and return when threat passes, with idempotency.
+- **M13 · Trade optimizer:** Global matrix of surplus/deficit/in-transit/reservations/merchant cap.
+- **M14 · 24h simulation:** Predictive dry-run showing actions, resources, queues and blocks without side effects.
+- **M15 · Config schema/migrations:** JSON schema, version per world, idempotent migrations and import preview diff.
+
+## Mandatory fix order for Claude
+
+1. **Do not add features.** Fix all P0 and add regression tests.
+2. Create `ActionGate` and convert ALL side effects (DOM click, gpAjax, mutating GM-XHR, webhook/external).
+3. Introduce intents/idempotency/reconciliation before touching more econ/military modules.
+4. Fix storage world migration and lock ownership/generation.
+5. Repair build/research/recruit planners for fail-closed and final precheck.
+6. Disable Favor, Scout/Portal and any unvalidated LIVE route until equivalent manual action is captured.
+7. Fix trade/wonder/dodge and notification dedup.
+8. Fix reports/intel/quests/config import/scheduler.
+9. Run unit tests + browser harness + dry-run side-effect assertion.
+10. Only then, validation on a test world with modules enabled one at a time.
+
+## Minimum acceptance tests
+
+- T01 dryRun=true: monkeypatch `HTMLElement.prototype.click`, gpAjax, mutating GM_xmlhttpRequest; total side effect counter must be 0.
+- T02 host enabled + all auto toggles OFF: 60 s → 0 actions, including Collect DOM.
+- T03 attack sources=[] → error and 0 sends; never fallback to all.
+- T04 valid enemy ID selected by UI → canonical target; unresolved ID → block.
+- T05 farm ATK must not produce target that sender rejects.
+- T06 lock A expires, lock B acquires; callback A cannot release B.
+- T07 re-injection while gpAjax pending: old callback must not mutate state nor send next action.
+- T08 request budget: each game request counts exactly 1; webhook counts 0 in game budget.
+- T09 legacy world A does not appear in world B after migration.
+- T10 self bridge payload does not change claimTpl/attackTpl.
+- T11 report scanner with nested player.id/town.id only queues real report_id.
+- T12 farming: 3h option learnable; diplomacy/conscription do not activate Loyalty.
+- T13 sleep claim failure does not consume daily marker.
+- T14 Bandit timeout accepted-late does not cause second attack.
+- T15 curator/queue max7 from empty fills 7/7 when resources available.
+- T16 build multi-level batch debits cost of each distinct projected level.
+- T17 building with missing prereq inserts prereq or skips; server never receives invalid build.
+- T18 reservePct=0 stays 0.
+- T19 island ship does not project target > warehouse cap including incoming trades.
+- T20 queued ResearchOrder with research_type does not duplicate tech.
+- T21 research GameData/cost/points unknown → 0 POST.
+- T22 same building/tech failure in town A does not suppress town B.
+- T23 two incoming attacks within 5min → two distinct alerts; one CS → one alert, no duplicate.
+- T24 wonder budget=0 → 0 donations; wood=stone=iron=0 → 0 donations.
+- T25 militia can raise with free population 0 if game model says available.
+- T26 all dodge destinations threatened → no support sent unless explicit policy says otherwise.
+- T27 recruit tech info missing → skip; unit required level unmet → skip; mythical insufficient favor/wrong god → skip.
+- T28 recruit timeout with order appearing late → no duplicate.
+- T29 malformed config import rejected atomically; configVer not taken from user JSON.
+- T30 scheduler handler error/skip does not count as acted; slow success >4s does count.
+- T31 quest container replace → observer rebinds.
+- T32 scout/portal cannot pass generic sendUnits path.
+- T33 armed wave changed units → recompute boats+ETA or abort.
+- T34 preflight research counts inner techs; dry-run claim true only after T01.
+- T35 Node check + browser boot/reinject smoke → no page errors.
+
+## Summary prompt for Claude
+
+```text
+Fix GrepBot 1.5.8 using this audit as acceptance list. Do not declare any finding resolved without a test. Prioritize P0→P1→P2. Every action must go through ActionGate and be idempotent/reconcilable. Unknown state/cost/prerequisite/capacity = fail closed. Do not use premium fallback. Do not retry timeout of mutating actions until game state is reconciled. Keep LIVE modules disabled until equivalent manual payload is captured/validated. At the end deliver: userscript, diff, test report and audit→commit/test matrix.
+```
+
+## Final note
+
+This audit certifies static and logic coverage of the delivered source, not absolute compatibility with a Grepolis backend/client that was not executed here. Any fix that “guesses” endpoints or internal fields without real capture must remain marked as unvalidated.
+
+---
+
