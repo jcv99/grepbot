@@ -542,7 +542,6 @@
   }
   const ATTACK_GENERIC_MISSIONS = new Set(['attack', 'support', 'revolt']);
 
-  const ATTACK_CONTROLLER = 'town_info';
   function sendAttackViaBridge(target, srcTownId, units, mission, onDone) {
     if (!hostEnabled()) { flash('bot desactivado en este servidor'); return onDone && onDone('disabled'); }
     const safeMission = String(mission || 'attack').toLowerCase();
@@ -605,14 +604,10 @@
       gbLogT('attack-src-id', 60000, 'attack: srcTownId unreadable — no post');
       return onDone && onDone('town-unreadable');
     }
-    if (!tpl) {
-      const params = Object.assign({}, sendUnits, {
-        id: destId, type: safeMission, town_id: srcId,
-      });
-      const n = countUnits(sendUnits);
-      if (state.exportRedact === false) gbLog('attack ajax:', JSON.stringify(params));
-      else gbLog(`attack ajax: ${ATTACK_CONTROLLER}/send_units town ${srcTownId} -> ${destId} (${safeMission}, ${Object.keys(sendUnits).length} tipos / ${n} unidades)`);
-      return gameAjaxPost(feature, ATTACK_CONTROLLER, 'send_units', params, settle);
+    if (!tpl || !tpl.action_name || !/Town\/\d+/.test(String(tpl.model_url || ''))) {
+      gbLogT('attack-tpl-unlearned-' + feature, 60000,
+        `${feature}: plantilla de envio no aprendida o incompleta - envia una orden ${safeMission} a mano primero`);
+      return onDone && onDone('tpl-unlearned');
     }
     const tplArgs = (tpl && tpl.arguments) || {};
     const args = {};
@@ -627,11 +622,11 @@
     else if (!args.type && tplArgs.type) args.type = tplArgs.type;
     args.id = destId;
     Object.assign(args, sendUnits);
-    let modelUrl = (tpl && tpl.model_url) || ('Town/' + srcTownId);
+    let modelUrl = tpl.model_url;
     modelUrl = String(modelUrl).replace(/Town\/\d+/, 'Town/' + srcTownId);
     const payload = {
       model_url: modelUrl,
-      action_name: (tpl && tpl.action_name) || 'sendUnits',
+      action_name: tpl.action_name,
       arguments: args,
       town_id: srcId,
     };
@@ -784,7 +779,7 @@
         table.dataset.empty = '1';
         const e = document.createElement('div');
         e.style.cssText = 'color:#888;padding:6px 0;font-size:11px';
-        e.textContent = 'Preview to compute travel / sendAt / boats';
+        e.textContent = 'Previsualiza para calcular viaje, envio y barcos';
         table.appendChild(e);
       }
     } else {
@@ -799,7 +794,7 @@
         const hdr = document.createElement('div');
         hdr.style.cssText = 'display:grid;grid-template-columns:1.2fr .7fr .9fr .7fr .8fr;gap:4px;color:#888;font-size:9px;margin-bottom:2px';
 
-        hdr.innerHTML = gbLit('<span>town</span><span>travel</span><span>sendAt</span><span>boats</span><span>status</span>');
+        hdr.innerHTML = gbLit('<span>ciudad</span><span>viaje</span><span>envio</span><span>barcos</span><span>estado</span>');
         table.appendChild(hdr);
       }
       rows.forEach(r => {
@@ -834,7 +829,7 @@
       });
     }
     const armed = sec.querySelector('#gb-atk-armed');
-    if (armed) armed.textContent = attackArmed ? `ARMED (${attackArmed.rows.length})` : '';
+    if (armed) armed.textContent = attackArmed ? `ARMADO (${attackArmed.rows.length})` : '';
 
     const tid = sec.querySelector('[data-atk=target]');
     if (tid && document.activeElement !== tid) tid.value = plan.targetId || '';
@@ -846,7 +841,7 @@
       const sig = targets.map(t => t.id + ':' + (t.name || '') + ':' + (t.x ?? '') + ':' + (t.y ?? '')).join('|');
       if (pick.dataset.sig !== sig) {
         pick.dataset.sig = sig; pick.replaceChildren();
-        const first = document.createElement('option'); first.value = ''; first.textContent = targets.length ? `known targets (${targets.length})...` : 'no known targets'; pick.appendChild(first);
+        const first = document.createElement('option'); first.value = ''; first.textContent = targets.length ? `objetivos conocidos (${targets.length})...` : 'sin objetivos conocidos'; pick.appendChild(first);
         targets.forEach(t => {
           const o = document.createElement('option'); o.value = t.id;
           const coord = t.x != null && t.y != null ? ` ${t.x}|${t.y}` : '';

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.60
+// @version      6.0.68
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -21,7 +21,7 @@
 
 (function () {
   'use strict';
-  const GB_RELEASE = '6.0.15-rc4-dev8';
+  const GB_RELEASE = '6.0.68';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -286,7 +286,7 @@ const STORE = {
 
   const ORCH_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
     'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'batchrecruit', 'merchant', 'pttrade', 'favor', 'wonder', 'hero', 'godspell', 'spy'];
-  const CONFIG_VER_CURRENT = 16;
+  const CONFIG_VER_CURRENT = 17;
   const GLOBAL_CONFIG_VER_CURRENT = 1;
   const WORLD_SCOPED_BASES = new Set([
     STORE.FINDINGS, STORE.FARMS, STORE.FARMS_PARSED, STORE.FARM_RES, STORE.SEEN,
@@ -732,6 +732,7 @@ const STORE = {
     hero: 180000,
     'collect-bg': 300000,
     'bandit-reward': 120000,
+    'telegram-monitor': 60000,
     militia: 60000,
     'pt-trade': 180000,
     'report-catchup': 300000,
@@ -853,7 +854,7 @@ const STORE = {
     claimTpl:   load(STORE.CLAIM_TPL, null),
     ibAuto:     load(STORE.IB_AUTO, false),
     ibFreeThresh: load(STORE.IB_FREE_THRESH, 300),
-    ibAction:   load(STORE.IB_ACTION, null) || 'buyInstant',
+    ibAction:   load(STORE.IB_ACTION, null),
     ibResearch: load(STORE.IB_RESEARCH, false),
     farmOptionMap: (() => {
       const m = load(STORE.FARM_OPTION_MAP, null);
@@ -877,7 +878,7 @@ const STORE = {
     farmResDry: load(STORE.FARM_RES_DRY, {}) || {},
     farmResDryDay: load(STORE.FARM_RES_DRY_DAY, '') || '',
     farmTravelSecPerUnit: load(STORE.FARM_TRAVEL, 0),
-    ibActionR:  load(STORE.IB_ACTION_R, null) || 'buyInstant',
+    ibActionR:  load(STORE.IB_ACTION_R, null),
     questRewards: load(STORE.QUEST_REWARDS, {}),
     questAutoBuild: load(STORE.QUEST_AUTO_BUILD, false),
     questAutoRes: load(STORE.QUEST_AUTO_RES, false),
@@ -1234,8 +1235,8 @@ const STORE = {
       state.nativeQueue.seq = Math.max(0, +state.nativeQueue.seq || 0);
       save(STORE.NATIVE_QUEUE, state.nativeQueue);
 
-      if (!/^buyInstant$/i.test(String(state.ibAction || ''))) state.ibAction = 'buyInstant';
-      if (!/^buyInstant$/i.test(String(state.ibActionR || ''))) state.ibActionR = 'buyInstant';
+      if (!/^buyInstant$/i.test(String(state.ibAction || ''))) state.ibAction = null;
+      if (!/^buyInstant$/i.test(String(state.ibActionR || ''))) state.ibActionR = null;
       save(STORE.IB_ACTION, state.ibAction); save(STORE.IB_ACTION_R, state.ibActionR);
       const buildCircuit=state.circuits&&state.circuits.build;
       if(buildCircuit&&/completeInstant|finishInstantly/i.test(String(buildCircuit.lastError||'')))delete state.circuits.build;
@@ -1350,6 +1351,14 @@ const STORE = {
     if (ver < 16) {
 
       ver = 16;
+    }
+    if (ver < 17) {
+
+      state.ibAction = null;
+      state.ibActionR = null;
+      save(STORE.IB_ACTION, null);
+      save(STORE.IB_ACTION_R, null);
+      ver = 17;
     }
     gbMigrationActive = false;
     if (gbMigrationWriteFailed) {
@@ -1553,7 +1562,7 @@ const STORE = {
     try { updateStatus(); } catch (_) {}
     return { ok: true, reason: stillPaused ? (info.reason || '?') : '' };
   }
-  function automationPaused(reasonOut) {
+  function automationPaused(reasonOut, opts) {
     const never = gbNeverStop();
     if (!never && panicUntil && Date.now() < panicUntil) {
       if (reasonOut) reasonOut.reason = 'panic';
@@ -1563,7 +1572,7 @@ const STORE = {
       if (reasonOut) reasonOut.reason = 'panic-grace';
       return true;
     }
-    if (captchaGlobalUntil && Date.now() < captchaGlobalUntil) {
+    if (!(opts && opts.ignoreCaptchaGlobal) && captchaGlobalUntil && Date.now() < captchaGlobalUntil) {
       if (reasonOut) reasonOut.reason = 'captcha-global';
       return true;
     }
@@ -1767,13 +1776,10 @@ const STORE = {
     return /^ResearchOrder/.test(String((payload && payload.model_url) || '')) ? 'ibActionR' : 'ibAction';
   }
 
-  const TPL_DEFAULTS = { ibAction: 'buyInstant', ibActionR: 'buyInstant' };
   function tplLearned(name) {
     if (!name) return false;
     const v = state[name];
-    if (!v) return false;
-    const def = TPL_DEFAULTS[name];
-    return !def || String(v) !== def;
+    return !!v;
   }
   function tplHealthSave() { save(STORE.TPL_HEALTH, state.tplHealth || {}); }
   function tplHealthEnsure(name) {
@@ -1825,7 +1831,7 @@ const STORE = {
     if (!tplLearned(name)) {
       h.invalidated = false;
       h.hardFails = 0;
-      gbLog('tpl: ' + name + ' is the built-in default, not a learned payload - unblocking');
+      gbLog('tpl: ' + name + ' has no learned payload - clearing stale health state');
       tplHealthSave();
       return true;
     }
@@ -2601,6 +2607,17 @@ const STORE = {
   }
 
   const CAPTCHA_TEXT_RE = /["']?captcha(?:_required)?["']?\s*[:=]\s*(?:true\b|1\b|["'][^"']+["'])/i;
+  function captchaSafeMerge(...sources) {
+    const out = {};
+    for (const source of sources) {
+      if (!source || typeof source !== 'object') continue;
+      for (const key of Object.keys(source)) {
+        if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+        out[key] = source[key];
+      }
+    }
+    return out;
+  }
   function responseIsCaptcha(data) {
     if (!data) return false;
 
@@ -2611,9 +2628,9 @@ const STORE = {
     }
     if (!d || typeof d !== 'object') return false;
     if (typeof d.json === 'string') {
-      try { d = Object.assign({}, d, JSON.parse(d.json)); } catch (_) {}
+      try { d = captchaSafeMerge(d, JSON.parse(d.json)); } catch (_) {}
     } else if (d.json && typeof d.json === 'object') {
-      d = Object.assign({}, d, d.json);
+      d = captchaSafeMerge(d, d.json);
     }
     if (d.captcha === true || d.captcha === 1) return true;
     if (typeof d.captcha === 'string' && d.captcha.length) return true;
@@ -2726,51 +2743,71 @@ const STORE = {
     const d = data || {}, a = transport === 'bridge' ? (d.arguments || {}) : d;
     const townId = d.town_id != null ? d.town_id : a.town_id;
     const effects = [];
-    const out = (tid,c) => { const n=plannerNormCost(c); if(n) effects.push({townId:String(tid),direction:'out',cost:n}); };
-    const inc = (tid,c) => { const n=plannerNormCost(c); if(n) effects.push({townId:String(tid),direction:'in',cost:n}); };
+    let invalid = false;
+    const push = (tid, direction, c) => {
+      const id = gbNum(tid), n = plannerNormCost(c);
+      if (id == null || !n) { invalid = true; return; }
+      effects.push({ townId:String(id), direction, cost:n });
+    };
+    const out = (tid,c) => push(tid, 'out', c);
+    const inc = (tid,c) => push(tid, 'in', c);
+    const wireResources = source => {
+      const c = {};
+      for (const key of ['wood','stone','iron']) {
+        const raw = Object.prototype.hasOwnProperty.call(source || {}, key) ? source[key] : 0;
+        const n = gbNum(raw);
+        if (n == null || n < 0) return null;
+        c[key] = n;
+      }
+      c.tradeCap = c.wood + c.stone + c.iron;
+      return c;
+    };
     try {
       if (feature === 'build' && a.building_id && a.order_id == null) {
 
         if (transport === 'bridge' && String(d.action_name || '') === 'tearDown') return [];
-
-        if (typeof abUpgradeClickable === 'function' && abUpgradeClickable(townId, a.building_id) === true) return [];
         const c = abBuildingCost(townId, a.building_id);
-        if (!c) {
+        if (!c || c.popBlind) {
           gbLogT(`planner-build-cost-blind-${townId}-${a.building_id}`, 60000,
-            `planner: build cost unreadable for ${a.building_id}; server will validate`);
-          return [];
+            `planner: build cost unreadable for ${a.building_id}; post blocked`);
+          return null;
         }
         out(townId,c);
       } else if (feature === 'research') {
         const tech=a.id||a.research_id||a.research||a.research_type, c=researchCost(tech,townId);
         if(!c) {
           gbLogT(`planner-research-cost-blind-${townId}-${tech}`, 60000,
-            `planner: research cost unreadable for ${tech}; server will validate`);
-          return [];
+            `planner: research cost unreadable for ${tech}; post blocked`);
+          return null;
         }
         out(townId,c);
       } else if (feature === 'recruit') {
-        const unit=a.unit_id||a.unit_type, n=+a.amount||0, ec=recruitEffectiveUnitCost(townId, unit); if(!(n>0)) return null;
-        if (!ec) return [];
+        const unit=a.unit_id||a.unit_type, n=gbNum(a.amount), ec=recruitEffectiveUnitCost(townId, unit); if(n==null||!(n>0)) return null;
+        if (!ec) return null;
         const c={};
-        for (const k of ['wood','stone','iron','population']) if (recruitCostFieldKnown(ec,k)) c[k]=+ec[k]*n;
-        if (Object.keys(c).length) out(townId,c);
+        for (const k of ['wood','stone','iron','population']) {
+          if (!recruitCostFieldKnown(ec,k)) return null;
+          const cost = gbNum(ec[k]);
+          if (cost == null || cost < 0) return null;
+          c[k] = cost * n;
+        }
+        out(townId,c);
       } else if (feature === 'trade') {
-        const c={wood:+a.wood||0,stone:+a.stone||0,iron:+a.iron||0,tradeCap:(+a.wood||0)+(+a.stone||0)+(+a.iron||0)};
+        const c=wireResources(a); if(!c || !(c.tradeCap > 0)) return null;
         out(townId,c); if(a.id!=null) inc(a.id,c);
       } else if (feature === 'wonder') {
-        out(townId,{wood:+a.wood||0,stone:+a.stone||0,iron:+a.iron||0,tradeCap:(+a.wood||0)+(+a.stone||0)+(+a.iron||0)});
+        const c=wireResources(a); if(!c || !(c.tradeCap > 0)) return null; out(townId,c);
       } else if (feature === 'culture') {
         const type = String(a.celebration_type || '');
         if (type === 'party' || type === 'theater') {
           const c = CULTURE_COSTS[type];
-          out(townId,{wood:+c.wood||0,stone:+c.stone||0,iron:+c.iron||0});
+          const cost=wireResources(c); if(!cost) return null; delete cost.tradeCap; out(townId,cost);
         }
       } else if (feature === 'cave' || feature === 'cave-emergency') {
-        out(townId,{iron:+a.iron_to_store||0});
+        const iron=gbNum(a.iron_to_store); if(iron==null||!(iron>0)) return null; out(townId,{iron});
       } else return [];
     } catch (_) { return null; }
-    return effects;
+    return invalid ? null : effects;
   }
   function plannerHold(tx, effects) {
     if (!tx) return {ok:false,why:'no-tx'};
@@ -3681,15 +3718,15 @@ const STORE = {
     if (!gbInstanceAlive()) return 'disposed';
     if (!hostEnabled()) return 'disabled';
     const pauseInfo = {};
-    if (automationPaused(pauseInfo)) return 'paused:' + pauseInfo.reason;
+    if (automationPaused(pauseInfo, write ? { ignoreCaptchaGlobal:true } : null)) return 'paused:' + pauseInfo.reason;
+    if (write) {
+      if (state.dryRun) return 'dryrun';
+      if (circuitOpen(feature)) return 'circuit-open';
+      return null;
+    }
     if (captchaPaused(feature) || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return 'captcha-pause';
-    if (write && circuitOpen(feature)) return 'circuit-open';
     if (jtag && jrnSkipped(jtag)) return 'remembered';
-    if (write && state.dryRun) return 'dryrun';
-    if (write && !state.dryRun && state.firstPostConfirm && !firstPostLiveOk(feature)) return 'first-post-confirm';
-
-    const farmBurst = write && feature === 'farm' && typeof gbLocked === 'function' && gbLocked('claim');
-    if (!farmBurst && !reqBudgetOk(write ? 'action' : 'read')) return 'budget';
+    if (!reqBudgetOk('read')) return 'budget';
     return null;
   }
   function txFindExistingIntent(intent, feature, snapshot, townId) {
@@ -3725,6 +3762,7 @@ const STORE = {
     };
     let gate = txActionGate(feature, write, jtag);
     if (!gate && write) gate = safeModeBlock(feature, transport, endpoint, data);
+    if (!gate && write && state.firstPostConfirm && !firstPostLiveOk(feature)) gate = 'first-post-confirm';
     if (gate) {
       if (gate === 'dryrun') {
         gbLog(`DRY-RUN ${feature}: ${endpoint} ${dryRunFmt(data)}`);
@@ -3747,13 +3785,9 @@ const STORE = {
         whyNote(feature, endpoint, 'blocked', 'tpl-stale');
         return bail('tpl-stale');
       }
-
-      const farmBurst = feature === 'farm' && typeof gbLocked === 'function' && gbLocked('claim');
-      const softMs = farmBurst ? 0 : reqBudgetSoftDelayMs();
-      if (softMs > 0) {
-        gbLogT('req-soft-' + feature, 30000, `${feature}: soft ceiling - delaying ${softMs}ms`);
-        gbTimeout(() => txRun(feature, transport, endpoint, data, rawSend, onDone), softMs);
-        return;
+      if (jtag && jrnSkipped(jtag)) {
+        whyNote(feature, endpoint, 'blocked', 'remembered');
+        return bail('remembered', 'remembered');
       }
     }
     if (!write) {
@@ -3838,7 +3872,21 @@ const STORE = {
       }
     }
 
-    if (!reqBudgetOk('action')) { tx.state = 'aborted'; tx.detail = 'budget'; tx.updatedAt = Date.now(); plannerRelease(tx, 'budget'); txSave(); return bail('budget'); }
+    const farmBurst = feature === 'farm' && typeof gbLocked === 'function' && gbLocked('claim');
+    const softMs = farmBurst ? 0 : reqBudgetSoftDelayMs();
+    if (softMs > 0) {
+      tx.state = 'aborted'; tx.detail = 'soft-budget-delay'; tx.updatedAt = Date.now(); plannerRelease(tx, 'soft-budget-delay'); txSave();
+      gbLogT('req-soft-' + feature, 30000, `${feature}: soft ceiling - delaying ${softMs}ms`);
+      gbTimeout(() => txRun(feature, transport, endpoint, data, rawSend, onDone), softMs);
+      return;
+    }
+    if (!farmBurst && !reqBudgetOk('action')) { tx.state = 'aborted'; tx.detail = 'budget'; tx.updatedAt = Date.now(); plannerRelease(tx, 'budget'); txSave(); return bail('budget'); }
+
+    if (captchaPaused(feature) || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) {
+      tx.state = 'aborted'; tx.detail = 'captcha-pause'; tx.updatedAt = Date.now(); plannerRelease(tx, 'captcha-pause'); txSave();
+      whyNote(feature, endpoint, 'blocked', 'captcha-pause');
+      return bail('captcha', 'captcha-pause');
+    }
     reqBudgetMark('action');
     tx.state = 'sending'; tx.sentAt = Date.now(); tx.updatedAt = Date.now(); txSave();
     rawSend((err, result) => {
@@ -3897,24 +3945,6 @@ const STORE = {
     });
   }
 
-  function txRunAsync(feature, transport, endpoint, data, rawSend, opts) {
-    const sig = opts && opts.signal;
-    return new Promise((resolve, reject) => {
-      if (sig && sig.aborted) return reject(new DOMException('aborted', 'AbortError'));
-      const onAbort = () => reject(new DOMException('aborted', 'AbortError'));
-      if (sig) sig.addEventListener('abort', onAbort, { once: true });
-      try {
-        txRun(feature, transport, endpoint, data, rawSend, (err, result) => {
-          if (sig) sig.removeEventListener('abort', onAbort);
-          if (err) reject(err instanceof Error ? err : new Error(String(err)));
-          else resolve(result);
-        });
-      } catch (e) {
-        if (sig) sig.removeEventListener('abort', onAbort);
-        reject(e);
-      }
-    });
-  }
   const SELF_BRIDGE_MAX = 12;
   const SELF_BRIDGE_TTL_MS = 10000;
   const selfBridgeLog = [];
@@ -4019,6 +4049,17 @@ const STORE = {
   const GB_CAPTCHA_FLAGS = ['captcha', 'captcha_required'];
 
   const GB_AJSON_PARSE_MAX = 256 * 1024;
+  function gbAjaxSafeMerge(...sources) {
+    const out = {};
+    for (const source of sources) {
+      if (!source || typeof source !== 'object') continue;
+      for (const key of Object.keys(source)) {
+        if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+        out[key] = source[key];
+      }
+    }
+    return out;
+  }
   function gbAjaxUnwrap(raw) {
     if (!raw || typeof raw !== 'object') return null;
     let d = Object.prototype.hasOwnProperty.call(raw, 'json') ? raw.json : raw;
@@ -4030,7 +4071,7 @@ const STORE = {
     if (d == null) d = {};
     else if (typeof d !== 'object') d = { data: d };
     if (raw.plain && typeof raw.plain === 'object') {
-      const merged = Object.assign({}, d, raw.plain);
+      const merged = gbAjaxSafeMerge(d, raw.plain);
 
       for (const k of GB_CAPTCHA_FLAGS) {
         const a = d[k], b = raw.plain[k];
@@ -4660,6 +4701,8 @@ const STORE = {
   const JRN_SAVE_MS = 5000;
   const JRN_FAIL_TRIP = 3;
   const JRN_BACKOFF = [5, 15, 60];
+  const JRN_SKIP_MAX = 400;
+  const JRN_SKIP_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
   const JRN_SKIP_ERRS = {
     disabled: 1, paused: 1, 'captcha-pause': 1, budget: 1, noajax: 1, remembered: 1, dryrun: 1,
@@ -4771,12 +4814,31 @@ const STORE = {
     return { f: feature, a: String(action || 'post').slice(0, 48), k: key.slice(0, 72) };
   }
   function jrnPrune() {
-    const cut = Date.now() - JRN_TTL_MS;
+    const now = Date.now();
+    const cut = now - JRN_TTL_MS;
     const list = state.decisions;
     let i = 0;
     while (i < list.length && list[i].ts < cut) i++;
     if (i) list.splice(0, i);
     while (list.length > JRN_MAX) list.shift();
+    const skips = state.decisionSkips || {};
+    for (const [key, rec] of Object.entries(skips)) {
+      if (!rec || typeof rec !== 'object') { delete skips[key]; continue; }
+      const at = gbNum(rec.at);
+      const until = gbNum(rec.until);
+      if (at == null && until != null) rec.at = Math.min(now, until);
+      if (!(until > now) && (at == null || at < now - JRN_SKIP_TTL_MS)) delete skips[key];
+    }
+    const entries = Object.entries(skips);
+    if (entries.length > JRN_SKIP_MAX) {
+      entries.sort((a, b) => {
+        const aa = a[1] || {}, bb = b[1] || {};
+        const aActive = gbNum(aa.until) > now ? 1 : 0;
+        const bActive = gbNum(bb.until) > now ? 1 : 0;
+        return aActive - bActive || (gbNum(aa.at) || 0) - (gbNum(bb.at) || 0);
+      });
+      for (let n = 0; n < entries.length - JRN_SKIP_MAX; n++) delete skips[entries[n][0]];
+    }
   }
   let jrnSaveQueued = false;
   function jrnSave(immediate) {
@@ -4868,7 +4930,7 @@ const STORE = {
     if (prev.until && Date.now() < prev.until) return;
     const trips = Math.min((prev.trips || 0) + 1, JRN_BACKOFF.length);
     const mins = JRN_BACKOFF[trips - 1];
-    state.decisionSkips[key] = { trips, until: Date.now() + mins * 60000, r: result };
+    state.decisionSkips[key] = { trips, until: Date.now() + mins * 60000, at: Date.now(), r: result };
     gbLog(`memory: ${tag.f} ${tag.a} ${tag.k} failed ${JRN_FAIL_TRIP}x (${result}) - skipping ${mins}m`);
     jrnSave(true);
   }
@@ -4888,6 +4950,8 @@ const STORE = {
     if (Date.now() >= s.until) {
       s.trips = Math.max(0, (s.trips || 1) - 1);
       delete s.until;
+      s.at = Date.now();
+      if (!s.trips) delete state.decisionSkips[key];
       jrnSave();
       return false;
     }
@@ -6732,12 +6796,14 @@ const STORE = {
         return done('skip');
       }
     }
-    const tplArgs = (state.claimTpl && state.claimTpl.arguments) || {};
-    if (claimType === 'units') return claimFarmUnits(farm, tid, tplArgs, done);
-    if (!state.claimTpl) {
+    const tpl = state.claimTpl;
+    if (!tpl || !tpl.action_name) {
       gbLogT('farm-no-tpl-' + tid, 86400000,
-        `farm claim: no claimTpl learned for town ${tid} \u2014 open Senado once and click Recoger by hand to seed the template`);
+        `farm claim: no claimTpl action learned for town ${tid} - open Senado once and click Recoger by hand to seed the template`);
+      return done('tpl-unlearned');
     }
+    const tplArgs = (tpl && tpl.arguments) || {};
+    if (claimType === 'units') return claimFarmUnits(farm, tid, tplArgs, done);
     const wantSec = FARM_CLAIM_DURATION_SEC;
     const option = farmOptionFor(wantSec);
     if (option == null) {
@@ -6755,7 +6821,7 @@ const STORE = {
     const args = Object.assign({}, tplArgs, { type: 'resources', option, farm_town_id: farmId });
     bridgePost('farm', {
       model_url: `FarmTownPlayerRelation/${farm.relation_id}`,
-      action_name: (state.claimTpl && state.claimTpl.action_name) || 'claim',
+      action_name: tpl.action_name,
       arguments: args,
       town_id: tid,
     }, (err) => {
@@ -6800,7 +6866,7 @@ const STORE = {
     const args = Object.assign({}, tplArgs, { type: 'units', option, farm_town_id: farmIdU });
     bridgePost('farm', {
       model_url: `FarmTownPlayerRelation/${farm.relation_id}`,
-      action_name: (state.claimTpl && state.claimTpl.action_name) || 'claim',
+      action_name: state.claimTpl.action_name,
       arguments: args,
       town_id: tid,
     }, (err) => done(err || null));
@@ -8155,13 +8221,13 @@ const STORE = {
         return true;
       }
 
-      let cd = 0;
       const cdRaw = (typeof m.getCooldownDuration === 'function') ? gbNum(m.getCooldownDuration()) : null;
-      if (cdRaw != null) cd = cdRaw;
-      else {
-        gbLogT('bandit-cd-blind', 300000, 'bandit: cooldown unreadable (getCooldownDuration) - blind, server decides');
+      if (cdRaw == null) {
+        gbLogT('bandit-cd-blind', 300000, 'bandit: cooldown unreadable (getCooldownDuration) - waiting for a readable model');
         banditIdle(60000);
+        return true;
       }
+      const cd = cdRaw;
       if (cd > 0) {
         gbLogT('bandit-cd', 60000, `bandit: cooldown ${Math.floor(cd / 60)}m${cd % 60}s left`);
         banditIdle(cd * 1000);
@@ -8341,6 +8407,7 @@ const STORE = {
   function ibFeatureFor(kind) { return kind === 'research' ? 'instant-research' : 'instant-build'; }
 
   function ibSkipWhy(order) {
+    if (!ibActionFor(order.kind || 'build')) return 'action-unlearned';
     const payload = ibJrnPayload(order);
     const endpoint = String(payload.model_url) + '/' + String(payload.action_name);
     return gbSkipActiveWrite(ibFeatureFor(order.kind || 'build'), 'bridge', endpoint, payload);
@@ -8575,10 +8642,8 @@ const STORE = {
     return out.concat(research);
   }
   function ibActionFor(kind) {
-    const raw = kind === 'research'
-      ? (state.ibActionR || 'buyInstant')
-      : (state.ibAction || 'buyInstant');
-    return IB_FREE_ACTIONS.has(String(raw))?String(raw):'buyInstant';
+    const raw = kind === 'research' ? state.ibActionR : state.ibAction;
+    return IB_FREE_ACTIONS.has(String(raw)) ? String(raw) : null;
   }
   function ibLearnAction(kind, action) {
     if (!IB_FREE_ACTIONS.has(String(action))) {
@@ -8587,6 +8652,7 @@ const STORE = {
     }
     if (kind === 'research') { state.ibActionR = action; save(wkey(STORE.IB_ACTION_R), action); }
     else { state.ibAction = action; save(wkey(STORE.IB_ACTION), action); }
+    try { tplHealthMarkLearned(kind === 'research' ? 'ibActionR' : 'ibAction'); } catch (_) {}
   }
   function ibComplete(order) {
     return new Promise(resolve => {
@@ -8607,6 +8673,12 @@ const STORE = {
       }
       const modelUrl = live.modelUrl || order.modelUrl || ('BuildingOrder/' + order.id);
       const action = ibActionFor(kind);
+      if (!action) {
+        gbLogT('ib-action-unlearned-' + kind, 60000,
+          `${tag}: accion de finalizacion no aprendida - completa una gratis a mano para ensenarla`);
+        resolve({ res: 'skip', why: 'action-unlearned' });
+        return;
+      }
       const intent=`instant:${live.town_id}:${kind}:${order.id}`;
       if(state.txState&&state.txState[intent]&&state.txState[intent].state==='committed'){
         gbLogT('ib-recent-'+kind+'-'+order.id,30000,`${tag}: #${order.id} already accepted; waiting for model update`);
@@ -8744,7 +8816,8 @@ const STORE = {
       }
       const why = ibSkipWhy(o);
       if (!why) return true;
-      gbLogT('ib-mem-' + o.town_id + '-' + o.id, 60000, `instant: #${o.id} skipped from memory (${why})`);
+      const source = why === 'action-unlearned' ? 'blocked until a free manual completion teaches the action' : 'skipped from memory';
+      gbLogT('ib-mem-' + o.town_id + '-' + o.id, 60000, `instant: #${o.id} ${source} (${why})`);
       return false;
     });
     if (!live.length) return;
@@ -10581,18 +10654,23 @@ const STORE = {
   }
 
   let nativeUnitMatcherCache = null;
+  const NATIVE_UNIT_ID_SUFFIX_DELIMITERS='_:-';
   function nativeUnitMatchers() {
     let keys=[];try{keys=Object.keys((gameUw().GameData&&gameUw().GameData.units)||{})}catch(_){}
     const sig=keys.length+':'+keys.join(',');
     if(nativeUnitMatcherCache&&nativeUnitMatcherCache.sig===sig)return nativeUnitMatcherCache.list;
     const list=keys.slice().sort((a,b)=>b.length-a.length)
-      .map(id=>({id,re:new RegExp(`(?:^|[_:-])${id.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,'i')}));
+      .map(id=>({id,suffix:String(id).toLowerCase()}));
     nativeUnitMatcherCache={sig,list};
     return list;
   }
+  function nativeUnitIdSuffixMatch(raw,suffix) {
+    const value=String(raw||'').toLowerCase(),start=value.length-suffix.length;
+    return !!suffix&&start>=0&&value.endsWith(suffix)&&(start===0||NATIVE_UNIT_ID_SUFFIX_DELIMITERS.includes(value[start]));
+  }
   function nativeUnitId(node) {
     if(!node)return null;const child=node.querySelector&&node.querySelector('[data-unit_id],[data-unit-id],[data-unit_type],[data-unit-type]');const vals=[node.getAttribute('data-unit_id'),node.getAttribute('data-unit-id'),node.getAttribute('data-unit_type'),node.getAttribute('data-unit-type'),child&&(child.getAttribute('data-unit_id')||child.getAttribute('data-unit-id')||child.getAttribute('data-unit_type')||child.getAttribute('data-unit-type')),node.id].filter(Boolean).map(String);
-    const ids=new Set();for(const id of vals)if(gbGameDataLookup("units", id))ids.add(id);const matchers=nativeUnitMatchers();for(const raw of vals)for(const m of matchers)if(m.re.test(raw))ids.add(m.id);return ids.size===1?[...ids][0]:null;
+    const ids=new Set();for(const id of vals)if(gbGameDataLookup("units", id))ids.add(id);const matchers=nativeUnitMatchers();for(const raw of vals)for(const m of matchers)if(nativeUnitIdSuffixMatch(raw,m.suffix))ids.add(m.id);return ids.size===1?[...ids][0]:null;
   }
 
   const NATIVE_RESEARCH_SEL='[data-research_id],[data-research-id],[data-research_type],[data-research-type]';
@@ -11986,18 +12064,20 @@ const STORE = {
     if (!box) return;
     const ids = caveListTownIds();
     if (!ids.length) {
-      box.replaceChildren();
-      const e = document.createElement('div');
-      e.style.cssText = 'color:#888;font-size:10px';
-      e.textContent = 'no towns loaded yet';
-      gbTip(e, 'No hay ciudades cargadas todavia - pulsa Refrescar ciudades');
-      box.appendChild(e);
+      gbPaint(box, stage => {
+        const e = document.createElement('div');
+        e.style.cssText = 'color:#888;font-size:10px';
+        e.textContent = 'todavia no hay ciudades cargadas';
+        gbTip(e, 'No hay ciudades cargadas todavia - pulsa Refrescar ciudades');
+        stage.appendChild(e);
+      }, { key:'cave-towns:empty' });
       return;
     }
 
     const have = [...box.querySelectorAll('label[data-cave-town]')];
     const haveIds = have.map(l => l.dataset.caveTown);
-    const sameSet = haveIds.length === ids.length && ids.every(id => haveIds.includes(String(id)));
+    const haveSet = new Set(haveIds);
+    const sameSet = haveIds.length === ids.length && ids.every(id => haveSet.has(String(id)));
     if (sameSet) {
       const uwc = uwCached();
       const names = Object.create(null);
@@ -12016,32 +12096,33 @@ const STORE = {
       });
       return;
     }
-    box.replaceChildren();
     const uw = uwCached();
     const nameById = Object.create(null);
     try {
       (townsFromGame() || []).forEach(t => { if (t.id != null && t.name) nameById[String(t.id)] = t.name; });
     } catch (_) {}
-    ids.forEach(id => {
-      const label = document.createElement('label');
-      label.dataset.caveTown = String(id);
-      label.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;font-size:10px;margin-left:12px';
-      gbTip(label, 'Habilita la cueva automatica en esta ciudad (sin marca = se salta)');
-      const chk = document.createElement('input');
-      chk.type = 'checkbox';
-      chk.checked = caveTownEnabled(id);
-      gbTip(chk, 'Marca para guardar plata automaticamente en la cueva de esta ciudad');
-      chk.addEventListener('change', () => {
-        setCaveTownEnabled(id, chk.checked);
-        gbLog(`cave town ${id}`, chk.checked ? 'ON' : 'OFF');
+    gbPaint(box, stage => {
+      ids.forEach(id => {
+        const label = document.createElement('label');
+        label.dataset.caveTown = String(id);
+        label.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;font-size:10px;margin-left:12px';
+        gbTip(label, 'Habilita la cueva automatica en esta ciudad (sin marca = se salta)');
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.checked = caveTownEnabled(id);
+        gbTip(chk, 'Marca para guardar plata automaticamente en la cueva de esta ciudad');
+        chk.addEventListener('change', () => {
+          setCaveTownEnabled(id, chk.checked);
+          gbLog(`cave town ${id}`, chk.checked ? 'ON' : 'OFF');
+        });
+        const span = document.createElement('span');
+        span.textContent = caveTownRowText(id, nameById, uw);
+        gbTip(span, 'Estado de la cueva: plata actual, capacidad, nivel del edificio');
+        label.appendChild(chk);
+        label.appendChild(span);
+        stage.appendChild(label);
       });
-      const span = document.createElement('span');
-      span.textContent = caveTownRowText(id, nameById, uw);
-      gbTip(span, 'Estado de la cueva: plata actual, capacidad, nivel del edificio');
-      label.appendChild(chk);
-      label.appendChild(span);
-      box.appendChild(label);
-    });
+    }, { key:'cave-towns:' + ids.map(String).sort().join(',') });
   }
   const CULTURE_COSTS = {
     party: { wood: 15000, stone: 18000, iron: 15000, academy: 30 },
@@ -15829,8 +15910,6 @@ const STORE = {
 
   const TELEGRAM_MONITOR_POLL_MS = 15000;
   const telegramMonitorLockName = 'grepbot-telegram-monitor:' + location.hostname;
-
-  let telegramMonitorAsyncLockPending = false;
   function telegramReloadSharedMonitorState() {
     try {
       const mon = load(STORE.TELEGRAM_MONITOR_STATE, null);
@@ -15864,17 +15943,20 @@ const STORE = {
       if (!gbTabLeader) return false;
       run(); return true;
     }
-    if (telegramMonitorAsyncLockPending) return false;
-    telegramMonitorAsyncLockPending = true;
+    if (gbLocked('telegram-monitor')) return false;
+    const localToken = gbLock('telegram-monitor');
+    if (!localToken) return false;
     try {
-      navigator.locks.request(telegramMonitorLockName, { mode:'exclusive', ifAvailable:true }, lock => {
-        telegramMonitorAsyncLockPending = false;
+      const request = navigator.locks.request(telegramMonitorLockName, { mode:'exclusive', ifAvailable:true }, lock => {
         if (!gbInstanceAlive() || !lock) return;
         run();
-      }).catch(() => { telegramMonitorAsyncLockPending = false; });
+      });
+      Promise.resolve(request)
+        .catch(() => {})
+        .finally(() => { gbUnlock('telegram-monitor', localToken); });
       return true;
     } catch (_) {
-      telegramMonitorAsyncLockPending = false;
+      gbUnlock('telegram-monitor', localToken);
       if (gbTabLeader) { run(); return true; }
       return false;
     }
@@ -17509,9 +17591,15 @@ const STORE = {
     const destId = gbNum(safeId);
     const srcId = gbNum(townId);
     if (destId == null || srcId == null) return onDone && onDone('town-unreadable');
+    const tpl = state.supportTpl;
+    if (!tpl || !tpl.action_name || !/Town\/\d+/.test(String(tpl.model_url || ''))) {
+      gbLogT('dodge-tpl-unlearned', 60000,
+        'dodge: support template not learned or incomplete - send support by hand before auto dodge');
+      return onDone && onDone('tpl-unlearned');
+    }
     const payload = {
-      model_url: 'Town/' + townId,
-      action_name: (state.supportTpl && state.supportTpl.action_name) || 'sendUnits',
+      model_url: String(tpl.model_url).replace(/Town\/\d+/, 'Town/' + srcId),
+      action_name: tpl.action_name,
       arguments: Object.assign({ id: destId, type: 'support' }, units),
       town_id: srcId,
     };
@@ -17972,7 +18060,12 @@ const STORE = {
     const spellGod = RECRUIT_SPELL_GODS[powerId];
     if (spellGod) {
       const fr = recruitFavorRead(townId, spellGod);
-      if (fr.value != null && fr.value < spellCost) return onDone && onDone('skip:insufficient-favor');
+      if (fr.value == null) {
+        gbLogT('spell-favor-blind-' + townId, 300000,
+          `spell: ${spellGod} favor balance unreadable - cast blocked`);
+        return onDone && onDone('skip:favor-unreadable');
+      }
+      if (fr.value < spellCost) return onDone && onDone('skip:insufficient-favor');
     }
     spellCastPost(townId, powerId, onDone);
   }
@@ -18273,8 +18366,8 @@ const STORE = {
         const info = typeof researchTownTechs === 'function' ? researchTownTechs(townId) : null;
         if (!info || !info.techs) {
           const k = townId + '|' + unitId + '|tech';
-          if (!_recruitBlindLog.has(k)) { _recruitBlindLog.add(k); gbLogT('recruit-blind-' + townId + '-' + unitId, 300000, 'recruit: ' + unitId + ' techs unreadable in town ' + townId + ' - blind precheck, server judges'); }
-          return true;
+          if (!_recruitBlindLog.has(k)) { _recruitBlindLog.add(k); gbLogT('recruit-blind-' + townId + '-' + unitId, 300000, 'recruit: ' + unitId + ' techs unreadable in town ' + townId + ' - post blocked'); }
+          return false;
         }
         for (const tech of rdeps) if (!info.techs[tech]) return false;
       }
@@ -18282,8 +18375,8 @@ const STORE = {
       try { const b = t.getBuildings ? t.getBuildings() : (t.buildings && t.buildings()); buildings = b && (b.attributes || b); } catch (_) {}
       if (!buildings) {
         const k = townId + '|' + unitId + '|bld';
-        if (!_recruitBlindLog.has(k)) { _recruitBlindLog.add(k); gbLogT('recruit-blind-' + townId + '-' + unitId, 300000, 'recruit: ' + unitId + ' buildings unreadable in town ' + townId + ' - blind precheck, server judges'); }
-        return true;
+        if (!_recruitBlindLog.has(k)) { _recruitBlindLog.add(k); gbLogT('recruit-blind-' + townId + '-' + unitId, 300000, 'recruit: ' + unitId + ' buildings unreadable in town ' + townId + ' - post blocked'); }
+        return false;
       }
       const bdeps = recruitRequiredBuildings(def);
       for (const [bid, lvl] of Object.entries(bdeps)) {
@@ -18306,20 +18399,27 @@ const STORE = {
         const townGod2 = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
         if (requiredGod && townGod2 && townGod2 !== requiredGod) return false;
         if (requiredGod && !townGod2) {
-          gbLogT('recruit-god-blind-' + townId, 300000, `recruit: town ${townId} god unreadable; ${unitId} left to the server to judge`);
+          gbLogT('recruit-god-blind-' + townId, 300000, `recruit: town ${townId} god unreadable; ${unitId} post blocked`);
+          return false;
         }
         const templeNeed = gbNum(def.temple_level ?? def.required_temple_level) ?? 1;
         const templeHave = gbNum(buildings.temple);
         if (templeHave == null || templeHave < templeNeed) return false;
         const ec = recruitEffectiveUnitCost(townId, unitId);
         const fc = recruitFavorUnitCost(ec, def);
+        if (fc.cost == null) {
+          gbLogT('recruit-favor-cost-blind-' + townId + '-' + unitId, 120000,
+            `recruit: favor cost unreadable for ${unitId}; post blocked`);
+          return false;
+        }
         if (fc.cost != null && fc.cost > 0) {
           if (!requiredGod) return false;
           const fr = recruitFavorRead(townId, requiredGod);
           if (fr.value != null && fr.value < fc.cost) return false;
           if (fr.value == null) {
             gbLogT('recruit-favor-blind-' + townId + '-' + requiredGod, 120000,
-              `recruit: ${requiredGod} favor balance unreadable for ${unitId}; server judges`);
+              `recruit: ${requiredGod} favor balance unreadable for ${unitId}; post blocked`);
+            return false;
           } else if (fc.source === 'advisory') {
             gbLogT('recruit-favor-cost-advisory-' + townId + '-' + unitId, 300000,
               `recruit: ${unitId} favor cost ${fc.cost} from GameData advisory (runtime effective unreadable)`);
@@ -20528,7 +20628,7 @@ const STORE = {
         clean.towns[townId]={build,recruit,recruitNaval,research,paused:{build:!!(t.paused&&t.paused.build),recruit:!!(t.paused&&t.paused.recruit),recruitNaval:!!(t.paused&&(t.paused.recruitNaval!=null?t.paused.recruitNaval:t.paused.recruit)),research:!!(t.paused&&t.paused.research)},mode:{build:build.length||t.mode&&t.mode.build==='fifo'?'fifo':'legacy',recruit:recruit.length||t.mode&&t.mode.recruit==='fifo'?'fifo':'legacy',recruitNaval:recruitNaval.length||t.mode&&(t.mode.recruitNaval==='fifo'||t.mode.recruitNaval==null&&t.mode.recruit==='fifo')?'fifo':'legacy',research:research.length||t.mode&&t.mode.research==='fifo'?'fifo':'legacy'}}
       }v=clean
     }else if(k==='watchlist')v=v.slice(0,500);else if(k==='merchantWish')v=v.slice(0,100).filter(x=>isObj(x)&&(x.item||x.id)&&num(x.maxPrice)!=null&&num(x.maxPrice)>0);state[k]=v;save(storeFor[k],v);applied++}
-    state.configVer=CONFIG_VER_CURRENT;save(STORE.CONFIG_VER,CONFIG_VER_CURRENT);if(state.autoFavor){state.autoFavor=false;save(STORE.AUTO_FAVOR,false)}goalPlanAll();
+    state.configVer=CONFIG_VER_CURRENT;save(STORE.CONFIG_VER,CONFIG_VER_CURRENT);goalPlanAll();
 
     if (applied > 0 && !(opts && opts.history === false)) qolHistoryPush(before, (opts && opts.source) || 'import');
     gbLog(`config imported: ${applied} validated section(s)`);return applied>0;
@@ -22556,8 +22656,11 @@ const STORE = {
     let rewards = questRewardsFromDom(root);
     const id = questKey(row);
 
-    const idStr=String(id),idRe=new RegExp(`(?:^|[^A-Za-z0-9])${idStr.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}(?:$|[^A-Za-z0-9])`);
-    const idMatch=v=>{const a=String(v==null?'':v);return a===idStr||idRe.test(a)};
+    const idStr=String(id);
+    const idMatch=v=>{
+      const a=String(v==null?'':v);if(!idStr)return false;if(a===idStr)return true;
+      let at=a.indexOf(idStr);while(at>=0){const before=at===0?'':a[at-1],after=at+idStr.length===a.length?'':a[at+idStr.length];if((!before||!/[A-Za-z0-9]/.test(before))&&(!after||!/[A-Za-z0-9]/.test(after)))return true;at=a.indexOf(idStr,at+idStr.length)}return false;
+    };
     const fromGame = questsFromGame().find(q => idMatch(q.questId) || idMatch(q.progressableId));
     if (fromGame && fromGame.rewards && fromGame.rewards.length) {
       rewards = fromGame.rewards;
@@ -23232,7 +23335,6 @@ const STORE = {
   }
   const ATTACK_GENERIC_MISSIONS = new Set(['attack', 'support', 'revolt']);
 
-  const ATTACK_CONTROLLER = 'town_info';
   function sendAttackViaBridge(target, srcTownId, units, mission, onDone) {
     if (!hostEnabled()) { flash('bot desactivado en este servidor'); return onDone && onDone('disabled'); }
     const safeMission = String(mission || 'attack').toLowerCase();
@@ -23295,14 +23397,10 @@ const STORE = {
       gbLogT('attack-src-id', 60000, 'attack: srcTownId unreadable \u2014 no post');
       return onDone && onDone('town-unreadable');
     }
-    if (!tpl) {
-      const params = Object.assign({}, sendUnits, {
-        id: destId, type: safeMission, town_id: srcId,
-      });
-      const n = countUnits(sendUnits);
-      if (state.exportRedact === false) gbLog('attack ajax:', JSON.stringify(params));
-      else gbLog(`attack ajax: ${ATTACK_CONTROLLER}/send_units town ${srcTownId} -> ${destId} (${safeMission}, ${Object.keys(sendUnits).length} tipos / ${n} unidades)`);
-      return gameAjaxPost(feature, ATTACK_CONTROLLER, 'send_units', params, settle);
+    if (!tpl || !tpl.action_name || !/Town\/\d+/.test(String(tpl.model_url || ''))) {
+      gbLogT('attack-tpl-unlearned-' + feature, 60000,
+        `${feature}: plantilla de envio no aprendida o incompleta - envia una orden ${safeMission} a mano primero`);
+      return onDone && onDone('tpl-unlearned');
     }
     const tplArgs = (tpl && tpl.arguments) || {};
     const args = {};
@@ -23317,11 +23415,11 @@ const STORE = {
     else if (!args.type && tplArgs.type) args.type = tplArgs.type;
     args.id = destId;
     Object.assign(args, sendUnits);
-    let modelUrl = (tpl && tpl.model_url) || ('Town/' + srcTownId);
+    let modelUrl = tpl.model_url;
     modelUrl = String(modelUrl).replace(/Town\/\d+/, 'Town/' + srcTownId);
     const payload = {
       model_url: modelUrl,
-      action_name: (tpl && tpl.action_name) || 'sendUnits',
+      action_name: tpl.action_name,
       arguments: args,
       town_id: srcId,
     };
@@ -23474,7 +23572,7 @@ const STORE = {
         table.dataset.empty = '1';
         const e = document.createElement('div');
         e.style.cssText = 'color:#888;padding:6px 0;font-size:11px';
-        e.textContent = 'Preview to compute travel / sendAt / boats';
+        e.textContent = 'Previsualiza para calcular viaje, envio y barcos';
         table.appendChild(e);
       }
     } else {
@@ -23489,7 +23587,7 @@ const STORE = {
         const hdr = document.createElement('div');
         hdr.style.cssText = 'display:grid;grid-template-columns:1.2fr .7fr .9fr .7fr .8fr;gap:4px;color:#888;font-size:9px;margin-bottom:2px';
 
-        hdr.innerHTML = gbLit('<span>town</span><span>travel</span><span>sendAt</span><span>boats</span><span>status</span>');
+        hdr.innerHTML = gbLit('<span>ciudad</span><span>viaje</span><span>envio</span><span>barcos</span><span>estado</span>');
         table.appendChild(hdr);
       }
       rows.forEach(r => {
@@ -23524,7 +23622,7 @@ const STORE = {
       });
     }
     const armed = sec.querySelector('#gb-atk-armed');
-    if (armed) armed.textContent = attackArmed ? `ARMED (${attackArmed.rows.length})` : '';
+    if (armed) armed.textContent = attackArmed ? `ARMADO (${attackArmed.rows.length})` : '';
 
     const tid = sec.querySelector('[data-atk=target]');
     if (tid && document.activeElement !== tid) tid.value = plan.targetId || '';
@@ -23536,7 +23634,7 @@ const STORE = {
       const sig = targets.map(t => t.id + ':' + (t.name || '') + ':' + (t.x ?? '') + ':' + (t.y ?? '')).join('|');
       if (pick.dataset.sig !== sig) {
         pick.dataset.sig = sig; pick.replaceChildren();
-        const first = document.createElement('option'); first.value = ''; first.textContent = targets.length ? `known targets (${targets.length})...` : 'no known targets'; pick.appendChild(first);
+        const first = document.createElement('option'); first.value = ''; first.textContent = targets.length ? `objetivos conocidos (${targets.length})...` : 'sin objetivos conocidos'; pick.appendChild(first);
         targets.forEach(t => {
           const o = document.createElement('option'); o.value = t.id;
           const coord = t.x != null && t.y != null ? ` ${t.x}|${t.y}` : '';
@@ -25088,15 +25186,9 @@ const STORE = {
       else gbLog(`support bridge: ${payload.action_name} town ${srcTownId} -> ${destId} (support, ${Object.keys(sendUnits).length} tipos / ${count} unidades)`);
       return bridgePost('support', payload, settle);
     }
-    const srcIdAjax = gbNum(srcTownId);
-    if (srcIdAjax == null) {
-      gbLogT('rf-town-id', 60000, 'refuerzo: srcTownId unreadable \u2014 no post');
-      return onDone && onDone('town-unreadable');
-    }
-    const params = Object.assign({}, sendUnits, { id: destId, type: 'support', town_id: srcIdAjax });
-    if (state.exportRedact === false) gbLog('support ajax:', JSON.stringify(params));
-    else gbLog(`support ajax: town_info/send_units town ${srcTownId} -> ${destId} (support, ${Object.keys(sendUnits).length} tipos / ${count} unidades)`);
-    gameAjaxPost('support', 'town_info', 'send_units', params, settle);
+    gbLogT('rf-tpl-unlearned', 60000,
+      'refuerzo: plantilla de apoyo no aprendida o incompleta - envia un apoyo a mano primero');
+    return onDone && onDone('tpl-unlearned');
   }
   function rfPushHistory(entry) {
     if (!Array.isArray(state.reinforceHistory)) state.reinforceHistory = [];
@@ -25459,7 +25551,7 @@ const STORE = {
     const tplNote = sec.querySelector('#gb-rf-tpl');
     if (tplNote) {
       const learned = !!(state.supportTpl && state.supportTpl.action_name);
-      tplNote.textContent = learned ? `plantilla de apoyo aprendida (${state.supportTpl.action_name})` : 'sin plantilla aprendida - se usa la ruta canonica town_info/send_units';
+      tplNote.textContent = learned ? `plantilla de apoyo aprendida (${state.supportTpl.action_name})` : 'sin plantilla aprendida - los envios estan bloqueados';
       tplNote.style.color = learned ? '#6dda7e' : '#888';
     }
     rfRenderSources(sec, plan);
@@ -26491,7 +26583,7 @@ const STORE = {
         ok: true,
         warn: !!plan.targetId && !target,
         detail: `ayuda ${RF_MODE_ES[plan.helpMode] || plan.helpMode}, destino ${plan.targetId ? (target ? '#' + target.town_id : 'NO resuelto') : 'sin fijar'}`
-          + `, ${sources} origen(es), ${ready} listo(s), ruta ${tpl ? 'plantilla ' + state.supportTpl.action_name : 'canonica town_info/send_units'}`,
+          + `, ${sources} origen(es), ${ready} listo(s), ruta ${tpl ? 'plantilla ' + state.supportTpl.action_name : 'BLOQUEADA hasta aprender plantilla'}`,
       };
     }));
     out.push(preflightProbe('espionaje: envio manual', () => {
@@ -26758,11 +26850,12 @@ const STORE = {
     out.push(preflightProbe('attack', () => {
 
       const ajax = (() => { try { return !!(gameUw().gpAjax && gameUw().gpAjax.ajaxPost); } catch (_) { return false; } })();
+      const tpl = !!(state.attackTpl && state.attackTpl.action_name && /Town\/\d+/.test(String(state.attackTpl.model_url || '')));
       return {
         ok: ajax,
-        warn: false,
-        detail: (ajax ? 'gpAjax ready, town_info/send_units' : 'gpAjax UNAVAILABLE (open the game tab)')
-          + (state.attackTpl ? ' + bridge template override learned' : ''),
+        warn: !tpl,
+        detail: (ajax ? 'gpAjax listo' : 'gpAjax NO DISPONIBLE (abre la pestana del juego)')
+          + (tpl ? ' + plantilla bridge aprendida' : ' + envio BLOQUEADO hasta aprender plantilla'),
       };
     }));
     out.push(preflightProbe('cancel', () => {
@@ -30516,7 +30609,7 @@ const STORE = {
     saveNum('[data-cfg=night-end]', v => { state.nightEnd = Math.max(0, Math.min(23, Math.floor(+v || 0))); save(STORE.NIGHT_END, state.nightEnd); });
     onCfg('[data-cfg=enabled-host]', 'change', e => {
       setHostEnabled(location.host, e.target.checked);
-      flash(e.target.checked ? 'enabled on ' + location.host : 'disabled on ' + location.host);
+      flash(e.target.checked ? 'activado en ' + location.host : 'desactivado en ' + location.host);
     });
     onCfg('[data-cfg=auto-collect]', 'change', e => {
       state.autoCollect = e.target.checked; save(STORE.AUTO_COLLECT, state.autoCollect);
@@ -30525,7 +30618,7 @@ const STORE = {
     });
     onCfg('[data-cfg=collect-all]', 'change', e => {
       state.collectAll = e.target.checked; save(STORE.COLLECT_ALL, state.collectAll);
-      flash(state.collectAll ? 'collect-all ON' : 'collect-all OFF');
+      flash(state.collectAll ? 'recoger todo ACTIVADO' : 'recoger todo DESACTIVADO');
       if (state.collectAll) collectAllBackground();
     });
     onCfg('[data-cfg=auto-bandit]', 'change', e => {
@@ -31329,7 +31422,7 @@ const STORE = {
     filt.className = 'findings-filter';
     filt.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap';
 
-    filt.innerHTML = gbLit('<input class="gb-cfg-input" data-f="type" placeholder="type filter" style="flex:1;min-width:60px;padding:2px 4px;font:11px monospace"/><input class="gb-cfg-input" data-f="attacker" placeholder="attacker filter" style="flex:1;min-width:60px;padding:2px 4px;font:11px monospace"/>');
+    filt.innerHTML = gbLit('<input class="gb-cfg-input" data-f="type" placeholder="filtrar por tipo" style="flex:1;min-width:60px;padding:2px 4px;font:11px monospace"/><input class="gb-cfg-input" data-f="attacker" placeholder="filtrar por atacante" style="flex:1;min-width:60px;padding:2px 4px;font:11px monospace"/>');
     filt.querySelectorAll('input').forEach(inp => {
       inp.value = state.findingsFilter[inp.dataset.f] || '';
       inp.addEventListener('input', () => {

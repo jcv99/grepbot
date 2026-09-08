@@ -906,12 +906,14 @@
         return done('skip');
       }
     }
-    const tplArgs = (state.claimTpl && state.claimTpl.arguments) || {};
-    if (claimType === 'units') return claimFarmUnits(farm, tid, tplArgs, done);
-    if (!state.claimTpl) {
+    const tpl = state.claimTpl;
+    if (!tpl || !tpl.action_name) {
       gbLogT('farm-no-tpl-' + tid, 86400000,
-        `farm claim: no claimTpl learned for town ${tid} — open Senado once and click Recoger by hand to seed the template`);
+        `farm claim: no claimTpl action learned for town ${tid} - open Senado once and click Recoger by hand to seed the template`);
+      return done('tpl-unlearned');
     }
+    const tplArgs = (tpl && tpl.arguments) || {};
+    if (claimType === 'units') return claimFarmUnits(farm, tid, tplArgs, done);
     const wantSec = FARM_CLAIM_DURATION_SEC;
     const option = farmOptionFor(wantSec);
     if (option == null) {
@@ -929,7 +931,7 @@
     const args = Object.assign({}, tplArgs, { type: 'resources', option, farm_town_id: farmId });
     bridgePost('farm', {
       model_url: `FarmTownPlayerRelation/${farm.relation_id}`,
-      action_name: (state.claimTpl && state.claimTpl.action_name) || 'claim',
+      action_name: tpl.action_name,
       arguments: args,
       town_id: tid,
     }, (err) => {
@@ -974,7 +976,7 @@
     const args = Object.assign({}, tplArgs, { type: 'units', option, farm_town_id: farmIdU });
     bridgePost('farm', {
       model_url: `FarmTownPlayerRelation/${farm.relation_id}`,
-      action_name: (state.claimTpl && state.claimTpl.action_name) || 'claim',
+      action_name: state.claimTpl.action_name,
       arguments: args,
       town_id: tid,
     }, (err) => done(err || null));

@@ -243,13 +243,13 @@
         return true;
       }
 
-      let cd = 0;
       const cdRaw = (typeof m.getCooldownDuration === 'function') ? gbNum(m.getCooldownDuration()) : null;
-      if (cdRaw != null) cd = cdRaw;
-      else {
-        gbLogT('bandit-cd-blind', 300000, 'bandit: cooldown unreadable (getCooldownDuration) - blind, server decides');
+      if (cdRaw == null) {
+        gbLogT('bandit-cd-blind', 300000, 'bandit: cooldown unreadable (getCooldownDuration) - waiting for a readable model');
         banditIdle(60000);
+        return true;
       }
+      const cd = cdRaw;
       if (cd > 0) {
         gbLogT('bandit-cd', 60000, `bandit: cooldown ${Math.floor(cd / 60)}m${cd % 60}s left`);
         banditIdle(cd * 1000);

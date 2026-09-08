@@ -1,4 +1,4 @@
-  const GB_RELEASE = '6.0.15-rc4-dev8';
+  const GB_RELEASE = '6.0.68';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -263,7 +263,7 @@ const STORE = {
   // Technical iteration order only. It never reserves resources or gives a module economic priority.
   const ORCH_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
     'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'batchrecruit', 'merchant', 'pttrade', 'favor', 'wonder', 'hero', 'godspell', 'spy'];
-  const CONFIG_VER_CURRENT = 16;
+  const CONFIG_VER_CURRENT = 17;
   const GLOBAL_CONFIG_VER_CURRENT = 1;
   const WORLD_SCOPED_BASES = new Set([
     STORE.FINDINGS, STORE.FARMS, STORE.FARMS_PARSED, STORE.FARM_RES, STORE.SEEN,
@@ -730,6 +730,7 @@ const STORE = {
     hero: 180000,
     'collect-bg': 300000,
     'bandit-reward': 120000,
+    'telegram-monitor': 60000,
     militia: 60000,
     'pt-trade': 180000,
     'report-catchup': 300000,
@@ -851,7 +852,7 @@ const STORE = {
     claimTpl:   load(STORE.CLAIM_TPL, null),
     ibAuto:     load(STORE.IB_AUTO, false),
     ibFreeThresh: load(STORE.IB_FREE_THRESH, 300),
-    ibAction:   load(STORE.IB_ACTION, null) || 'buyInstant',
+    ibAction:   load(STORE.IB_ACTION, null),
     ibResearch: load(STORE.IB_RESEARCH, false),
     farmOptionMap: (() => {
       const m = load(STORE.FARM_OPTION_MAP, null);
@@ -876,7 +877,7 @@ const STORE = {
     farmResDry: load(STORE.FARM_RES_DRY, {}) || {},
     farmResDryDay: load(STORE.FARM_RES_DRY_DAY, '') || '',
     farmTravelSecPerUnit: load(STORE.FARM_TRAVEL, 0),
-    ibActionR:  load(STORE.IB_ACTION_R, null) || 'buyInstant',
+    ibActionR:  load(STORE.IB_ACTION_R, null),
     questRewards: load(STORE.QUEST_REWARDS, {}),
     questAutoBuild: load(STORE.QUEST_AUTO_BUILD, false),
     questAutoRes: load(STORE.QUEST_AUTO_RES, false),
@@ -1236,8 +1237,8 @@ const STORE = {
       state.nativeQueue.seq = Math.max(0, +state.nativeQueue.seq || 0);
       save(STORE.NATIVE_QUEUE, state.nativeQueue);
 
-      if (!/^buyInstant$/i.test(String(state.ibAction || ''))) state.ibAction = 'buyInstant';
-      if (!/^buyInstant$/i.test(String(state.ibActionR || ''))) state.ibActionR = 'buyInstant';
+      if (!/^buyInstant$/i.test(String(state.ibAction || ''))) state.ibAction = null;
+      if (!/^buyInstant$/i.test(String(state.ibActionR || ''))) state.ibActionR = null;
       save(STORE.IB_ACTION, state.ibAction); save(STORE.IB_ACTION_R, state.ibActionR);
       const buildCircuit=state.circuits&&state.circuits.build;
       if(buildCircuit&&/completeInstant|finishInstantly/i.test(String(buildCircuit.lastError||'')))delete state.circuits.build;
@@ -1355,6 +1356,16 @@ const STORE = {
       // Recruitment-spell preference belongs to the global schema. A per-world
       // schema must never replay it over a manual choice.
       ver = 16;
+    }
+    if (ver < 17) {
+      // Older migrations stored buyInstant as a guessed default, so persisted
+      // data cannot prove that this action came from the player's own traffic.
+      // Reset both once and require a fresh hand-click before another post.
+      state.ibAction = null;
+      state.ibActionR = null;
+      save(STORE.IB_ACTION, null);
+      save(STORE.IB_ACTION_R, null);
+      ver = 17;
     }
     gbMigrationActive = false;
     if (gbMigrationWriteFailed) {
@@ -1573,7 +1584,7 @@ const STORE = {
     try { updateStatus(); } catch (_) {}
     return { ok: true, reason: stillPaused ? (info.reason || '?') : '' };
   }
-  function automationPaused(reasonOut) {
+  function automationPaused(reasonOut, opts) {
     const never = gbNeverStop();
     if (!never && panicUntil && Date.now() < panicUntil) {
       if (reasonOut) reasonOut.reason = 'panic';
@@ -1583,7 +1594,7 @@ const STORE = {
       if (reasonOut) reasonOut.reason = 'panic-grace';
       return true;
     }
-    if (captchaGlobalUntil && Date.now() < captchaGlobalUntil) {
+    if (!(opts && opts.ignoreCaptchaGlobal) && captchaGlobalUntil && Date.now() < captchaGlobalUntil) {
       if (reasonOut) reasonOut.reason = 'captcha-global';
       return true;
     }
@@ -1790,13 +1801,10 @@ const STORE = {
     return /^ResearchOrder/.test(String((payload && payload.model_url) || '')) ? 'ibActionR' : 'ibAction';
   }
 
-  const TPL_DEFAULTS = { ibAction: 'buyInstant', ibActionR: 'buyInstant' };
   function tplLearned(name) {
     if (!name) return false;
     const v = state[name];
-    if (!v) return false;
-    const def = TPL_DEFAULTS[name];
-    return !def || String(v) !== def;
+    return !!v;
   }
   function tplHealthSave() { save(STORE.TPL_HEALTH, state.tplHealth || {}); }
   function tplHealthEnsure(name) {
@@ -1848,7 +1856,7 @@ const STORE = {
     if (!tplLearned(name)) {
       h.invalidated = false;
       h.hardFails = 0;
-      gbLog('tpl: ' + name + ' is the built-in default, not a learned payload - unblocking');
+      gbLog('tpl: ' + name + ' has no learned payload - clearing stale health state');
       tplHealthSave();
       return true;
     }
@@ -2631,6 +2639,17 @@ const STORE = {
   }
 
   const CAPTCHA_TEXT_RE = /["']?captcha(?:_required)?["']?\s*[:=]\s*(?:true\b|1\b|["'][^"']+["'])/i;
+  function captchaSafeMerge(...sources) {
+    const out = {};
+    for (const source of sources) {
+      if (!source || typeof source !== 'object') continue;
+      for (const key of Object.keys(source)) {
+        if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+        out[key] = source[key];
+      }
+    }
+    return out;
+  }
   function responseIsCaptcha(data) {
     if (!data) return false;
 
@@ -2641,9 +2660,9 @@ const STORE = {
     }
     if (!d || typeof d !== 'object') return false;
     if (typeof d.json === 'string') {
-      try { d = Object.assign({}, d, JSON.parse(d.json)); } catch (_) {}
+      try { d = captchaSafeMerge(d, JSON.parse(d.json)); } catch (_) {}
     } else if (d.json && typeof d.json === 'object') {
-      d = Object.assign({}, d, d.json);
+      d = captchaSafeMerge(d, d.json);
     }
     if (d.captcha === true || d.captcha === 1) return true;
     if (typeof d.captcha === 'string' && d.captcha.length) return true;

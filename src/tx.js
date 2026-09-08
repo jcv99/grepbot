@@ -772,18 +772,15 @@
     if (!gbInstanceAlive()) return 'disposed';
     if (!hostEnabled()) return 'disabled';
     const pauseInfo = {};
-    if (automationPaused(pauseInfo)) return 'paused:' + pauseInfo.reason;
+    if (automationPaused(pauseInfo, write ? { ignoreCaptchaGlobal:true } : null)) return 'paused:' + pauseInfo.reason;
+    if (write) {
+      if (state.dryRun) return 'dryrun';
+      if (circuitOpen(feature)) return 'circuit-open';
+      return null;
+    }
     if (captchaPaused(feature) || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) return 'captcha-pause';
-    if (write && circuitOpen(feature)) return 'circuit-open';
     if (jtag && jrnSkipped(jtag)) return 'remembered';
-    if (write && state.dryRun) return 'dryrun';
-    if (write && !state.dryRun && state.firstPostConfirm && !firstPostLiveOk(feature)) return 'first-post-confirm';
-
-    // Farm claim bursts hold gbLock('claim') and must finish every ready
-    // village in one sweep. Shared req budget (~40/min) otherwise killed the
-    // second half of large accounts mid-batch.
-    const farmBurst = write && feature === 'farm' && typeof gbLocked === 'function' && gbLocked('claim');
-    if (!farmBurst && !reqBudgetOk(write ? 'action' : 'read')) return 'budget';
+    if (!reqBudgetOk('read')) return 'budget';
     return null;
   }
   function txFindExistingIntent(intent, feature, snapshot, townId) {
@@ -820,6 +817,7 @@
     };
     let gate = txActionGate(feature, write, jtag);
     if (!gate && write) gate = safeModeBlock(feature, transport, endpoint, data);
+    if (!gate && write && state.firstPostConfirm && !firstPostLiveOk(feature)) gate = 'first-post-confirm';
     if (gate) {
       if (gate === 'dryrun') {
         gbLog(`DRY-RUN ${feature}: ${endpoint} ${dryRunFmt(data)}`);
@@ -842,13 +840,9 @@
         whyNote(feature, endpoint, 'blocked', 'tpl-stale');
         return bail('tpl-stale');
       }
-
-      const farmBurst = feature === 'farm' && typeof gbLocked === 'function' && gbLocked('claim');
-      const softMs = farmBurst ? 0 : reqBudgetSoftDelayMs();
-      if (softMs > 0) {
-        gbLogT('req-soft-' + feature, 30000, `${feature}: soft ceiling - delaying ${softMs}ms`);
-        gbTimeout(() => txRun(feature, transport, endpoint, data, rawSend, onDone), softMs);
-        return;
+      if (jtag && jrnSkipped(jtag)) {
+        whyNote(feature, endpoint, 'blocked', 'remembered');
+        return bail('remembered', 'remembered');
       }
     }
     if (!write) {
@@ -953,8 +947,25 @@
         return bail('precheck', held.why);
       }
     }
-
-    if (!reqBudgetOk('action')) { tx.state = 'aborted'; tx.detail = 'budget'; tx.updatedAt = Date.now(); plannerRelease(tx, 'budget'); txSave(); return bail('budget'); }
+    // Farm claim bursts are already spaced at the configured request cadence;
+    // let a started sweep finish, while still recording its requests so other
+    // features observe the resulting pressure.
+    const farmBurst = feature === 'farm' && typeof gbLocked === 'function' && gbLocked('claim');
+    const softMs = farmBurst ? 0 : reqBudgetSoftDelayMs();
+    if (softMs > 0) {
+      tx.state = 'aborted'; tx.detail = 'soft-budget-delay'; tx.updatedAt = Date.now(); plannerRelease(tx, 'soft-budget-delay'); txSave();
+      gbLogT('req-soft-' + feature, 30000, `${feature}: soft ceiling - delaying ${softMs}ms`);
+      gbTimeout(() => txRun(feature, transport, endpoint, data, rawSend, onDone), softMs);
+      return;
+    }
+    if (!farmBurst && !reqBudgetOk('action')) { tx.state = 'aborted'; tx.detail = 'budget'; tx.updatedAt = Date.now(); plannerRelease(tx, 'budget'); txSave(); return bail('budget'); }
+    // Captcha is the last guard before the request. Re-read it here so a
+    // ladder that opened during planning still stops the send.
+    if (captchaPaused(feature) || (captchaGlobalUntil && Date.now() < captchaGlobalUntil)) {
+      tx.state = 'aborted'; tx.detail = 'captcha-pause'; tx.updatedAt = Date.now(); plannerRelease(tx, 'captcha-pause'); txSave();
+      whyNote(feature, endpoint, 'blocked', 'captcha-pause');
+      return bail('captcha', 'captcha-pause');
+    }
     reqBudgetMark('action');
     tx.state = 'sending'; tx.sentAt = Date.now(); tx.updatedAt = Date.now(); txSave();
     rawSend((err, result) => {
@@ -1013,23 +1024,5 @@
     });
   }
 
-  function txRunAsync(feature, transport, endpoint, data, rawSend, opts) {
-    const sig = opts && opts.signal;
-    return new Promise((resolve, reject) => {
-      if (sig && sig.aborted) return reject(new DOMException('aborted', 'AbortError'));
-      const onAbort = () => reject(new DOMException('aborted', 'AbortError'));
-      if (sig) sig.addEventListener('abort', onAbort, { once: true });
-      try {
-        txRun(feature, transport, endpoint, data, rawSend, (err, result) => {
-          if (sig) sig.removeEventListener('abort', onAbort);
-          if (err) reject(err instanceof Error ? err : new Error(String(err)));
-          else resolve(result);
-        });
-      } catch (e) {
-        if (sig) sig.removeEventListener('abort', onAbort);
-        reject(e);
-      }
-    });
-  }
   const SELF_BRIDGE_MAX = 12;
   const SELF_BRIDGE_TTL_MS = 10000;

@@ -1156,18 +1156,23 @@
   }
 
   let nativeUnitMatcherCache = null;
+  const NATIVE_UNIT_ID_SUFFIX_DELIMITERS='_:-';
   function nativeUnitMatchers() {
     let keys=[];try{keys=Object.keys((gameUw().GameData&&gameUw().GameData.units)||{})}catch(_){}
     const sig=keys.length+':'+keys.join(',');
     if(nativeUnitMatcherCache&&nativeUnitMatcherCache.sig===sig)return nativeUnitMatcherCache.list;
     const list=keys.slice().sort((a,b)=>b.length-a.length)
-      .map(id=>({id,re:new RegExp(`(?:^|[_:-])${id.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,'i')}));
+      .map(id=>({id,suffix:String(id).toLowerCase()}));
     nativeUnitMatcherCache={sig,list};
     return list;
   }
+  function nativeUnitIdSuffixMatch(raw,suffix) {
+    const value=String(raw||'').toLowerCase(),start=value.length-suffix.length;
+    return !!suffix&&start>=0&&value.endsWith(suffix)&&(start===0||NATIVE_UNIT_ID_SUFFIX_DELIMITERS.includes(value[start]));
+  }
   function nativeUnitId(node) {
     if(!node)return null;const child=node.querySelector&&node.querySelector('[data-unit_id],[data-unit-id],[data-unit_type],[data-unit-type]');const vals=[node.getAttribute('data-unit_id'),node.getAttribute('data-unit-id'),node.getAttribute('data-unit_type'),node.getAttribute('data-unit-type'),child&&(child.getAttribute('data-unit_id')||child.getAttribute('data-unit-id')||child.getAttribute('data-unit_type')||child.getAttribute('data-unit-type')),node.id].filter(Boolean).map(String);
-    const ids=new Set();for(const id of vals)if(gbGameDataLookup("units", id))ids.add(id);const matchers=nativeUnitMatchers();for(const raw of vals)for(const m of matchers)if(m.re.test(raw))ids.add(m.id);return ids.size===1?[...ids][0]:null;
+    const ids=new Set();for(const id of vals)if(gbGameDataLookup("units", id))ids.add(id);const matchers=nativeUnitMatchers();for(const raw of vals)for(const m of matchers)if(nativeUnitIdSuffixMatch(raw,m.suffix))ids.add(m.id);return ids.size===1?[...ids][0]:null;
   }
 
   const NATIVE_RESEARCH_SEL='[data-research_id],[data-research-id],[data-research_type],[data-research-type]';

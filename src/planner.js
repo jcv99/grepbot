@@ -91,8 +91,25 @@
     const d = data || {}, a = transport === 'bridge' ? (d.arguments || {}) : d;
     const townId = d.town_id != null ? d.town_id : a.town_id;
     const effects = [];
-    const out = (tid,c) => { const n=plannerNormCost(c); if(n) effects.push({townId:String(tid),direction:'out',cost:n}); };
-    const inc = (tid,c) => { const n=plannerNormCost(c); if(n) effects.push({townId:String(tid),direction:'in',cost:n}); };
+    let invalid = false;
+    const push = (tid, direction, c) => {
+      const id = gbNum(tid), n = plannerNormCost(c);
+      if (id == null || !n) { invalid = true; return; }
+      effects.push({ townId:String(id), direction, cost:n });
+    };
+    const out = (tid,c) => push(tid, 'out', c);
+    const inc = (tid,c) => push(tid, 'in', c);
+    const wireResources = source => {
+      const c = {};
+      for (const key of ['wood','stone','iron']) {
+        const raw = Object.prototype.hasOwnProperty.call(source || {}, key) ? source[key] : 0;
+        const n = gbNum(raw);
+        if (n == null || n < 0) return null;
+        c[key] = n;
+      }
+      c.tradeCap = c.wood + c.stone + c.iron;
+      return c;
+    };
     try {
       if (feature === 'build' && a.building_id && a.order_id == null) {
         // Demolition is not a build purchase. Never fabricate an outgoing
@@ -100,46 +117,48 @@
         // Population released by demolition is consumed only after the live
         // town model confirms the lower building level.
         if (transport === 'bridge' && String(d.action_name || '') === 'tearDown') return [];
-        // Senate Ampliación uses can_upgrade. resources_for is often the
-        // unreduced table and would skip a clickable upgrade (Architecture).
-        if (typeof abUpgradeClickable === 'function' && abUpgradeClickable(townId, a.building_id) === true) return [];
         const c = abBuildingCost(townId, a.building_id);
-        if (!c) {
+        if (!c || c.popBlind) {
           gbLogT(`planner-build-cost-blind-${townId}-${a.building_id}`, 60000,
-            `planner: build cost unreadable for ${a.building_id}; server will validate`);
-          return [];
+            `planner: build cost unreadable for ${a.building_id}; post blocked`);
+          return null;
         }
         out(townId,c);
       } else if (feature === 'research') {
         const tech=a.id||a.research_id||a.research||a.research_type, c=researchCost(tech,townId);
         if(!c) {
           gbLogT(`planner-research-cost-blind-${townId}-${tech}`, 60000,
-            `planner: research cost unreadable for ${tech}; server will validate`);
-          return [];
+            `planner: research cost unreadable for ${tech}; post blocked`);
+          return null;
         }
         out(townId,c);
       } else if (feature === 'recruit') {
-        const unit=a.unit_id||a.unit_type, n=+a.amount||0, ec=recruitEffectiveUnitCost(townId, unit); if(!(n>0)) return null;
-        if (!ec) return [];
+        const unit=a.unit_id||a.unit_type, n=gbNum(a.amount), ec=recruitEffectiveUnitCost(townId, unit); if(n==null||!(n>0)) return null;
+        if (!ec) return null;
         const c={};
-        for (const k of ['wood','stone','iron','population']) if (recruitCostFieldKnown(ec,k)) c[k]=+ec[k]*n;
-        if (Object.keys(c).length) out(townId,c);
+        for (const k of ['wood','stone','iron','population']) {
+          if (!recruitCostFieldKnown(ec,k)) return null;
+          const cost = gbNum(ec[k]);
+          if (cost == null || cost < 0) return null;
+          c[k] = cost * n;
+        }
+        out(townId,c);
       } else if (feature === 'trade') {
-        const c={wood:+a.wood||0,stone:+a.stone||0,iron:+a.iron||0,tradeCap:(+a.wood||0)+(+a.stone||0)+(+a.iron||0)};
+        const c=wireResources(a); if(!c || !(c.tradeCap > 0)) return null;
         out(townId,c); if(a.id!=null) inc(a.id,c);
       } else if (feature === 'wonder') {
-        out(townId,{wood:+a.wood||0,stone:+a.stone||0,iron:+a.iron||0,tradeCap:(+a.wood||0)+(+a.stone||0)+(+a.iron||0)});
+        const c=wireResources(a); if(!c || !(c.tradeCap > 0)) return null; out(townId,c);
       } else if (feature === 'culture') {
         const type = String(a.celebration_type || '');
         if (type === 'party' || type === 'theater') {
           const c = CULTURE_COSTS[type];
-          out(townId,{wood:+c.wood||0,stone:+c.stone||0,iron:+c.iron||0});
+          const cost=wireResources(c); if(!cost) return null; delete cost.tradeCap; out(townId,cost);
         }
       } else if (feature === 'cave' || feature === 'cave-emergency') {
-        out(townId,{iron:+a.iron_to_store||0});
+        const iron=gbNum(a.iron_to_store); if(iron==null||!(iron>0)) return null; out(townId,{iron});
       } else return [];
     } catch (_) { return null; }
-    return effects;
+    return invalid ? null : effects;
   }
   function plannerHold(tx, effects) {
     if (!tx) return {ok:false,why:'no-tx'};

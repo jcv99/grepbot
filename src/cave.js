@@ -271,18 +271,20 @@
     if (!box) return;
     const ids = caveListTownIds();
     if (!ids.length) {
-      box.replaceChildren();
-      const e = document.createElement('div');
-      e.style.cssText = 'color:#888;font-size:10px';
-      e.textContent = 'no towns loaded yet';
-      gbTip(e, 'No hay ciudades cargadas todavia - pulsa Refrescar ciudades');
-      box.appendChild(e);
+      gbPaint(box, stage => {
+        const e = document.createElement('div');
+        e.style.cssText = 'color:#888;font-size:10px';
+        e.textContent = 'todavia no hay ciudades cargadas';
+        gbTip(e, 'No hay ciudades cargadas todavia - pulsa Refrescar ciudades');
+        stage.appendChild(e);
+      }, { key:'cave-towns:empty' });
       return;
     }
 
     const have = [...box.querySelectorAll('label[data-cave-town]')];
     const haveIds = have.map(l => l.dataset.caveTown);
-    const sameSet = haveIds.length === ids.length && ids.every(id => haveIds.includes(String(id)));
+    const haveSet = new Set(haveIds);
+    const sameSet = haveIds.length === ids.length && ids.every(id => haveSet.has(String(id)));
     if (sameSet) {
       const uwc = uwCached();
       const names = Object.create(null);
@@ -301,30 +303,31 @@
       });
       return;
     }
-    box.replaceChildren();
     const uw = uwCached();
     const nameById = Object.create(null);
     try {
       (townsFromGame() || []).forEach(t => { if (t.id != null && t.name) nameById[String(t.id)] = t.name; });
     } catch (_) {}
-    ids.forEach(id => {
-      const label = document.createElement('label');
-      label.dataset.caveTown = String(id);
-      label.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;font-size:10px;margin-left:12px';
-      gbTip(label, 'Habilita la cueva automatica en esta ciudad (sin marca = se salta)');
-      const chk = document.createElement('input');
-      chk.type = 'checkbox';
-      chk.checked = caveTownEnabled(id);
-      gbTip(chk, 'Marca para guardar plata automaticamente en la cueva de esta ciudad');
-      chk.addEventListener('change', () => {
-        setCaveTownEnabled(id, chk.checked);
-        gbLog(`cave town ${id}`, chk.checked ? 'ON' : 'OFF');
+    gbPaint(box, stage => {
+      ids.forEach(id => {
+        const label = document.createElement('label');
+        label.dataset.caveTown = String(id);
+        label.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;font-size:10px;margin-left:12px';
+        gbTip(label, 'Habilita la cueva automatica en esta ciudad (sin marca = se salta)');
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.checked = caveTownEnabled(id);
+        gbTip(chk, 'Marca para guardar plata automaticamente en la cueva de esta ciudad');
+        chk.addEventListener('change', () => {
+          setCaveTownEnabled(id, chk.checked);
+          gbLog(`cave town ${id}`, chk.checked ? 'ON' : 'OFF');
+        });
+        const span = document.createElement('span');
+        span.textContent = caveTownRowText(id, nameById, uw);
+        gbTip(span, 'Estado de la cueva: plata actual, capacidad, nivel del edificio');
+        label.appendChild(chk);
+        label.appendChild(span);
+        stage.appendChild(label);
       });
-      const span = document.createElement('span');
-      span.textContent = caveTownRowText(id, nameById, uw);
-      gbTip(span, 'Estado de la cueva: plata actual, capacidad, nivel del edificio');
-      label.appendChild(chk);
-      label.appendChild(span);
-      box.appendChild(label);
-    });
+    }, { key:'cave-towns:' + ids.map(String).sort().join(',') });
   }

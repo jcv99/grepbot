@@ -2491,7 +2491,7 @@
     saveNum('[data-cfg=night-end]', v => { state.nightEnd = Math.max(0, Math.min(23, Math.floor(+v || 0))); save(STORE.NIGHT_END, state.nightEnd); });
     onCfg('[data-cfg=enabled-host]', 'change', e => {
       setHostEnabled(location.host, e.target.checked);
-      flash(e.target.checked ? 'enabled on ' + location.host : 'disabled on ' + location.host);
+      flash(e.target.checked ? 'activado en ' + location.host : 'desactivado en ' + location.host);
     });
     onCfg('[data-cfg=auto-collect]', 'change', e => {
       state.autoCollect = e.target.checked; save(STORE.AUTO_COLLECT, state.autoCollect);
@@ -2500,7 +2500,7 @@
     });
     onCfg('[data-cfg=collect-all]', 'change', e => {
       state.collectAll = e.target.checked; save(STORE.COLLECT_ALL, state.collectAll);
-      flash(state.collectAll ? 'collect-all ON' : 'collect-all OFF');
+      flash(state.collectAll ? 'recoger todo ACTIVADO' : 'recoger todo DESACTIVADO');
       if (state.collectAll) collectAllBackground();
     });
     onCfg('[data-cfg=auto-bandit]', 'change', e => {
@@ -3343,7 +3343,7 @@
     filt.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap';
     // LITERAL ONLY - no interpolation (the filter VALUES are read back off these
     // inputs; they are never written into this string).
-    filt.innerHTML = gbLit('<input class="gb-cfg-input" data-f="type" placeholder="type filter" style="flex:1;min-width:60px;padding:2px 4px;font:11px monospace"/><input class="gb-cfg-input" data-f="attacker" placeholder="attacker filter" style="flex:1;min-width:60px;padding:2px 4px;font:11px monospace"/>');
+    filt.innerHTML = gbLit('<input class="gb-cfg-input" data-f="type" placeholder="filtrar por tipo" style="flex:1;min-width:60px;padding:2px 4px;font:11px monospace"/><input class="gb-cfg-input" data-f="attacker" placeholder="filtrar por atacante" style="flex:1;min-width:60px;padding:2px 4px;font:11px monospace"/>');
     filt.querySelectorAll('input').forEach(inp => {
       inp.value = state.findingsFilter[inp.dataset.f] || '';
       inp.addEventListener('input', () => {

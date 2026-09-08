@@ -2,6 +2,8 @@
   const JRN_SAVE_MS = 5000;
   const JRN_FAIL_TRIP = 3;
   const JRN_BACKOFF = [5, 15, 60];
+  const JRN_SKIP_MAX = 400;
+  const JRN_SKIP_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
   const JRN_SKIP_ERRS = {
     disabled: 1, paused: 1, 'captcha-pause': 1, budget: 1, noajax: 1, remembered: 1, dryrun: 1,
@@ -116,12 +118,31 @@
     return { f: feature, a: String(action || 'post').slice(0, 48), k: key.slice(0, 72) };
   }
   function jrnPrune() {
-    const cut = Date.now() - JRN_TTL_MS;
+    const now = Date.now();
+    const cut = now - JRN_TTL_MS;
     const list = state.decisions;
     let i = 0;
     while (i < list.length && list[i].ts < cut) i++;
     if (i) list.splice(0, i);
     while (list.length > JRN_MAX) list.shift();
+    const skips = state.decisionSkips || {};
+    for (const [key, rec] of Object.entries(skips)) {
+      if (!rec || typeof rec !== 'object') { delete skips[key]; continue; }
+      const at = gbNum(rec.at);
+      const until = gbNum(rec.until);
+      if (at == null && until != null) rec.at = Math.min(now, until);
+      if (!(until > now) && (at == null || at < now - JRN_SKIP_TTL_MS)) delete skips[key];
+    }
+    const entries = Object.entries(skips);
+    if (entries.length > JRN_SKIP_MAX) {
+      entries.sort((a, b) => {
+        const aa = a[1] || {}, bb = b[1] || {};
+        const aActive = gbNum(aa.until) > now ? 1 : 0;
+        const bActive = gbNum(bb.until) > now ? 1 : 0;
+        return aActive - bActive || (gbNum(aa.at) || 0) - (gbNum(bb.at) || 0);
+      });
+      for (let n = 0; n < entries.length - JRN_SKIP_MAX; n++) delete skips[entries[n][0]];
+    }
   }
   let jrnSaveQueued = false;
   function jrnSave(immediate) {
@@ -213,7 +234,7 @@
     if (prev.until && Date.now() < prev.until) return;
     const trips = Math.min((prev.trips || 0) + 1, JRN_BACKOFF.length);
     const mins = JRN_BACKOFF[trips - 1];
-    state.decisionSkips[key] = { trips, until: Date.now() + mins * 60000, r: result };
+    state.decisionSkips[key] = { trips, until: Date.now() + mins * 60000, at: Date.now(), r: result };
     gbLog(`memory: ${tag.f} ${tag.a} ${tag.k} failed ${JRN_FAIL_TRIP}x (${result}) - skipping ${mins}m`);
     jrnSave(true);
   }
@@ -233,6 +254,8 @@
     if (Date.now() >= s.until) {
       s.trips = Math.max(0, (s.trips || 1) - 1);
       delete s.until;
+      s.at = Date.now();
+      if (!s.trips) delete state.decisionSkips[key];
       jrnSave();
       return false;
     }

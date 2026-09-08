@@ -240,15 +240,9 @@
       else gbLog(`support bridge: ${payload.action_name} town ${srcTownId} -> ${destId} (support, ${Object.keys(sendUnits).length} tipos / ${count} unidades)`);
       return bridgePost('support', payload, settle);
     }
-    const srcIdAjax = gbNum(srcTownId);
-    if (srcIdAjax == null) {
-      gbLogT('rf-town-id', 60000, 'refuerzo: srcTownId unreadable — no post');
-      return onDone && onDone('town-unreadable');
-    }
-    const params = Object.assign({}, sendUnits, { id: destId, type: 'support', town_id: srcIdAjax });
-    if (state.exportRedact === false) gbLog('support ajax:', JSON.stringify(params));
-    else gbLog(`support ajax: town_info/send_units town ${srcTownId} -> ${destId} (support, ${Object.keys(sendUnits).length} tipos / ${count} unidades)`);
-    gameAjaxPost('support', 'town_info', 'send_units', params, settle);
+    gbLogT('rf-tpl-unlearned', 60000,
+      'refuerzo: plantilla de apoyo no aprendida o incompleta - envia un apoyo a mano primero');
+    return onDone && onDone('tpl-unlearned');
   }
   function rfPushHistory(entry) {
     if (!Array.isArray(state.reinforceHistory)) state.reinforceHistory = [];
@@ -611,7 +605,7 @@
     const tplNote = sec.querySelector('#gb-rf-tpl');
     if (tplNote) {
       const learned = !!(state.supportTpl && state.supportTpl.action_name);
-      tplNote.textContent = learned ? `plantilla de apoyo aprendida (${state.supportTpl.action_name})` : 'sin plantilla aprendida - se usa la ruta canonica town_info/send_units';
+      tplNote.textContent = learned ? `plantilla de apoyo aprendida (${state.supportTpl.action_name})` : 'sin plantilla aprendida - los envios estan bloqueados';
       tplNote.style.color = learned ? '#6dda7e' : '#888';
     }
     rfRenderSources(sec, plan);

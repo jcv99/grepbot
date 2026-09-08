@@ -119,7 +119,12 @@
     const spellGod = RECRUIT_SPELL_GODS[powerId];
     if (spellGod) {
       const fr = recruitFavorRead(townId, spellGod);
-      if (fr.value != null && fr.value < spellCost) return onDone && onDone('skip:insufficient-favor');
+      if (fr.value == null) {
+        gbLogT('spell-favor-blind-' + townId, 300000,
+          `spell: ${spellGod} favor balance unreadable - cast blocked`);
+        return onDone && onDone('skip:favor-unreadable');
+      }
+      if (fr.value < spellCost) return onDone && onDone('skip:insufficient-favor');
     }
     spellCastPost(townId, powerId, onDone);
   }
@@ -405,7 +410,8 @@
   // otherwise enforce GameData base. Wood/stone/iron stay advisory-only because
   // modifiers make GameData lie; favor is stable enough that "blind → post →
   // server ribbon" every cadence is worse than a slightly conservative block.
-  // Favor *pool* still unreadable → do not block (server judges).
+  // Favor *pool* is a mandatory precondition for mythical recruitment; an
+  // unreadable balance blocks the post instead of fabricating eligibility.
   function recruitFavorUnitCost(ec, def) {
     if (recruitCostFieldKnown(ec, 'favor')) {
       return { cost: gbNum(ec.favor), source: 'authoritative' };
@@ -427,8 +433,8 @@
         const info = typeof researchTownTechs === 'function' ? researchTownTechs(townId) : null;
         if (!info || !info.techs) {
           const k = townId + '|' + unitId + '|tech';
-          if (!_recruitBlindLog.has(k)) { _recruitBlindLog.add(k); gbLogT('recruit-blind-' + townId + '-' + unitId, 300000, 'recruit: ' + unitId + ' techs unreadable in town ' + townId + ' - blind precheck, server judges'); }
-          return true;
+          if (!_recruitBlindLog.has(k)) { _recruitBlindLog.add(k); gbLogT('recruit-blind-' + townId + '-' + unitId, 300000, 'recruit: ' + unitId + ' techs unreadable in town ' + townId + ' - post blocked'); }
+          return false;
         }
         for (const tech of rdeps) if (!info.techs[tech]) return false;
       }
@@ -436,8 +442,8 @@
       try { const b = t.getBuildings ? t.getBuildings() : (t.buildings && t.buildings()); buildings = b && (b.attributes || b); } catch (_) {}
       if (!buildings) {
         const k = townId + '|' + unitId + '|bld';
-        if (!_recruitBlindLog.has(k)) { _recruitBlindLog.add(k); gbLogT('recruit-blind-' + townId + '-' + unitId, 300000, 'recruit: ' + unitId + ' buildings unreadable in town ' + townId + ' - blind precheck, server judges'); }
-        return true;
+        if (!_recruitBlindLog.has(k)) { _recruitBlindLog.add(k); gbLogT('recruit-blind-' + townId + '-' + unitId, 300000, 'recruit: ' + unitId + ' buildings unreadable in town ' + townId + ' - post blocked'); }
+        return false;
       }
       const bdeps = recruitRequiredBuildings(def);
       for (const [bid, lvl] of Object.entries(bdeps)) {
@@ -460,20 +466,27 @@
         const townGod2 = recruitScanGodCache ? recruitScanGod(townId) : recruitTownGod(townId);
         if (requiredGod && townGod2 && townGod2 !== requiredGod) return false;
         if (requiredGod && !townGod2) {
-          gbLogT('recruit-god-blind-' + townId, 300000, `recruit: town ${townId} god unreadable; ${unitId} left to the server to judge`);
+          gbLogT('recruit-god-blind-' + townId, 300000, `recruit: town ${townId} god unreadable; ${unitId} post blocked`);
+          return false;
         }
         const templeNeed = gbNum(def.temple_level ?? def.required_temple_level) ?? 1;
         const templeHave = gbNum(buildings.temple);
         if (templeHave == null || templeHave < templeNeed) return false;
         const ec = recruitEffectiveUnitCost(townId, unitId);
         const fc = recruitFavorUnitCost(ec, def);
+        if (fc.cost == null) {
+          gbLogT('recruit-favor-cost-blind-' + townId + '-' + unitId, 120000,
+            `recruit: favor cost unreadable for ${unitId}; post blocked`);
+          return false;
+        }
         if (fc.cost != null && fc.cost > 0) {
           if (!requiredGod) return false;
           const fr = recruitFavorRead(townId, requiredGod);
           if (fr.value != null && fr.value < fc.cost) return false;
           if (fr.value == null) {
             gbLogT('recruit-favor-blind-' + townId + '-' + requiredGod, 120000,
-              `recruit: ${requiredGod} favor balance unreadable for ${unitId}; server judges`);
+              `recruit: ${requiredGod} favor balance unreadable for ${unitId}; post blocked`);
+            return false;
           } else if (fc.source === 'advisory') {
             gbLogT('recruit-favor-cost-advisory-' + townId + '-' + unitId, 300000,
               `recruit: ${unitId} favor cost ${fc.cost} from GameData advisory (runtime effective unreadable)`);

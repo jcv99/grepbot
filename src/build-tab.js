@@ -46,6 +46,7 @@
   function ibFeatureFor(kind) { return kind === 'research' ? 'instant-research' : 'instant-build'; }
 
   function ibSkipWhy(order) {
+    if (!ibActionFor(order.kind || 'build')) return 'action-unlearned';
     const payload = ibJrnPayload(order);
     const endpoint = String(payload.model_url) + '/' + String(payload.action_name);
     return gbSkipActiveWrite(ibFeatureFor(order.kind || 'build'), 'bridge', endpoint, payload);
@@ -280,10 +281,8 @@
     return out.concat(research);
   }
   function ibActionFor(kind) {
-    const raw = kind === 'research'
-      ? (state.ibActionR || 'buyInstant')
-      : (state.ibAction || 'buyInstant');
-    return IB_FREE_ACTIONS.has(String(raw))?String(raw):'buyInstant';
+    const raw = kind === 'research' ? state.ibActionR : state.ibAction;
+    return IB_FREE_ACTIONS.has(String(raw)) ? String(raw) : null;
   }
   function ibLearnAction(kind, action) {
     if (!IB_FREE_ACTIONS.has(String(action))) {
@@ -292,6 +291,7 @@
     }
     if (kind === 'research') { state.ibActionR = action; save(wkey(STORE.IB_ACTION_R), action); }
     else { state.ibAction = action; save(wkey(STORE.IB_ACTION), action); }
+    try { tplHealthMarkLearned(kind === 'research' ? 'ibActionR' : 'ibAction'); } catch (_) {}
   }
   function ibComplete(order) {
     return new Promise(resolve => {
@@ -312,6 +312,12 @@
       }
       const modelUrl = live.modelUrl || order.modelUrl || ('BuildingOrder/' + order.id);
       const action = ibActionFor(kind);
+      if (!action) {
+        gbLogT('ib-action-unlearned-' + kind, 60000,
+          `${tag}: accion de finalizacion no aprendida - completa una gratis a mano para ensenarla`);
+        resolve({ res: 'skip', why: 'action-unlearned' });
+        return;
+      }
       const intent=`instant:${live.town_id}:${kind}:${order.id}`;
       if(state.txState&&state.txState[intent]&&state.txState[intent].state==='committed'){
         gbLogT('ib-recent-'+kind+'-'+order.id,30000,`${tag}: #${order.id} already accepted; waiting for model update`);
@@ -449,7 +455,8 @@
       }
       const why = ibSkipWhy(o);
       if (!why) return true;
-      gbLogT('ib-mem-' + o.town_id + '-' + o.id, 60000, `instant: #${o.id} skipped from memory (${why})`);
+      const source = why === 'action-unlearned' ? 'blocked until a free manual completion teaches the action' : 'skipped from memory';
+      gbLogT('ib-mem-' + o.town_id + '-' + o.id, 60000, `instant: #${o.id} ${source} (${why})`);
       return false;
     });
     if (!live.length) return;

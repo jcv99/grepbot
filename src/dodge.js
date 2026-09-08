@@ -356,9 +356,15 @@
     const destId = gbNum(safeId);
     const srcId = gbNum(townId);
     if (destId == null || srcId == null) return onDone && onDone('town-unreadable');
+    const tpl = state.supportTpl;
+    if (!tpl || !tpl.action_name || !/Town\/\d+/.test(String(tpl.model_url || ''))) {
+      gbLogT('dodge-tpl-unlearned', 60000,
+        'dodge: support template not learned or incomplete - send support by hand before auto dodge');
+      return onDone && onDone('tpl-unlearned');
+    }
     const payload = {
-      model_url: 'Town/' + townId,
-      action_name: (state.supportTpl && state.supportTpl.action_name) || 'sendUnits',
+      model_url: String(tpl.model_url).replace(/Town\/\d+/, 'Town/' + srcId),
+      action_name: tpl.action_name,
       arguments: Object.assign({ id: destId, type: 'support' }, units),
       town_id: srcId,
     };

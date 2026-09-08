@@ -584,7 +584,7 @@
         ok: true,
         warn: !!plan.targetId && !target,
         detail: `ayuda ${RF_MODE_ES[plan.helpMode] || plan.helpMode}, destino ${plan.targetId ? (target ? '#' + target.town_id : 'NO resuelto') : 'sin fijar'}`
-          + `, ${sources} origen(es), ${ready} listo(s), ruta ${tpl ? 'plantilla ' + state.supportTpl.action_name : 'canonica town_info/send_units'}`,
+          + `, ${sources} origen(es), ${ready} listo(s), ruta ${tpl ? 'plantilla ' + state.supportTpl.action_name : 'BLOQUEADA hasta aprender plantilla'}`,
       };
     }));
     out.push(preflightProbe('espionaje: envio manual', () => {
@@ -851,11 +851,12 @@
     out.push(preflightProbe('attack', () => {
 
       const ajax = (() => { try { return !!(gameUw().gpAjax && gameUw().gpAjax.ajaxPost); } catch (_) { return false; } })();
+      const tpl = !!(state.attackTpl && state.attackTpl.action_name && /Town\/\d+/.test(String(state.attackTpl.model_url || '')));
       return {
         ok: ajax,
-        warn: false,
-        detail: (ajax ? 'gpAjax ready, town_info/send_units' : 'gpAjax UNAVAILABLE (open the game tab)')
-          + (state.attackTpl ? ' + bridge template override learned' : ''),
+        warn: !tpl,
+        detail: (ajax ? 'gpAjax listo' : 'gpAjax NO DISPONIBLE (abre la pestana del juego)')
+          + (tpl ? ' + plantilla bridge aprendida' : ' + envio BLOQUEADO hasta aprender plantilla'),
       };
     }));
     out.push(preflightProbe('cancel', () => {

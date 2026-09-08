@@ -867,10 +867,6 @@
   // state before deciding what is due, so a follower cannot act on stale dedup data.
   const TELEGRAM_MONITOR_POLL_MS = 15000;
   const telegramMonitorLockName = 'grepbot-telegram-monitor:' + location.hostname;
-  // Re-entrancy guard only: navigator.locks.request is async; block duplicate
-  // in-flight requests from the same tick. Cross-tab serialization is handled
-  // by the Web Lock itself — this is NOT a substitute for gbLock.
-  let telegramMonitorAsyncLockPending = false;
   function telegramReloadSharedMonitorState() {
     try {
       const mon = load(STORE.TELEGRAM_MONITOR_STATE, null);
@@ -904,17 +900,20 @@
       if (!gbTabLeader) return false;
       run(); return true;
     }
-    if (telegramMonitorAsyncLockPending) return false;
-    telegramMonitorAsyncLockPending = true;
+    if (gbLocked('telegram-monitor')) return false;
+    const localToken = gbLock('telegram-monitor');
+    if (!localToken) return false;
     try {
-      navigator.locks.request(telegramMonitorLockName, { mode:'exclusive', ifAvailable:true }, lock => {
-        telegramMonitorAsyncLockPending = false;
+      const request = navigator.locks.request(telegramMonitorLockName, { mode:'exclusive', ifAvailable:true }, lock => {
         if (!gbInstanceAlive() || !lock) return;
         run();
-      }).catch(() => { telegramMonitorAsyncLockPending = false; });
+      });
+      Promise.resolve(request)
+        .catch(() => {})
+        .finally(() => { gbUnlock('telegram-monitor', localToken); });
       return true;
     } catch (_) {
-      telegramMonitorAsyncLockPending = false;
+      gbUnlock('telegram-monitor', localToken);
       if (gbTabLeader) { run(); return true; }
       return false;
     }

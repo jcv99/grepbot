@@ -100,6 +100,17 @@
   const GB_CAPTCHA_FLAGS = ['captcha', 'captcha_required'];
 
   const GB_AJSON_PARSE_MAX = 256 * 1024;
+  function gbAjaxSafeMerge(...sources) {
+    const out = {};
+    for (const source of sources) {
+      if (!source || typeof source !== 'object') continue;
+      for (const key of Object.keys(source)) {
+        if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+        out[key] = source[key];
+      }
+    }
+    return out;
+  }
   function gbAjaxUnwrap(raw) {
     if (!raw || typeof raw !== 'object') return null;
     let d = Object.prototype.hasOwnProperty.call(raw, 'json') ? raw.json : raw;
@@ -111,7 +122,7 @@
     if (d == null) d = {};
     else if (typeof d !== 'object') d = { data: d };
     if (raw.plain && typeof raw.plain === 'object') {
-      const merged = Object.assign({}, d, raw.plain);
+      const merged = gbAjaxSafeMerge(d, raw.plain);
 
       for (const k of GB_CAPTCHA_FLAGS) {
         const a = d[k], b = raw.plain[k];
