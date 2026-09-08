@@ -361,18 +361,12 @@
       return tid != null && townWarehouseBlocks(tid);
     } catch (_) { return false; }
   }
-  // Snap targets: union of both documented offer sets (wiki Farming: base
-  // 5/20/120/300min, Booty/Botin doubles to 10/40/240/600min) plus legacy
-  // 90m/3h/8h entries older hand-taught maps may still carry. The two sets
-  // are disjoint, so one confirmed (option, duration) observation identifies
-  // the active set.
-  const FARM_DURATIONS = [300, 600, 1200, 2400, 5400, 7200, 10800, 14400, 18000, 28800, 36000];
+  // Resource claims are permanently limited to this one card.
+  const FARM_DURATIONS = [600];
   const FARM_CLAIM_BASE_MS = 10 * 60 * 1000;
   const FARM_CLAIM_JITTER_MIN_MS = 1 * 60 * 1000;
   const FARM_CLAIM_JITTER_MAX_MS = 3 * 60 * 1000;
   const FARM_CLAIM_DURATION_SEC = 600;
-  const FARM_SET_BASE = [300, 1200, 7200, 18000];
-  const FARM_SET_BOOTY = [600, 2400, 14400, 36000];
   // Posted option per village for the in-flight batch; verifyClaims reads it
   // back to learn the server's real gather duration per option.
   let farmPostedOpts = Object.create(null);
@@ -381,41 +375,20 @@
     return Math.round(sec / 60) + 'min';
   }
   function farmOptionFor(sec) {
+    if (gbNum(sec) !== FARM_CLAIM_DURATION_SEC) return null;
     const m = state.farmOptionMap || {};
-    const v = m[String(sec)];
-    return gbNum(v);
+    const v = gbNum(m[String(FARM_CLAIM_DURATION_SEC)]);
+    return v != null && v >= 1 && v <= 4 ? v : null;
   }
   function farmOptionMapEnsure() {
-    let m = state.farmOptionMap;
-    if (!m || typeof m !== 'object' || Array.isArray(m)) m = {};
-    const has = Object.keys(m).some(k => gbNum(m[k]) != null);
-    if (has) {
-      state.farmOptionMap = m;
-      return m;
+    const option = farmOptionFor(FARM_CLAIM_DURATION_SEC);
+    const map = option == null ? {} : { [FARM_CLAIM_DURATION_SEC]: option };
+    if (JSON.stringify(state.farmOptionMap || {}) !== JSON.stringify(map)) {
+      state.farmOptionMap = map;
+      save(wkey(STORE.FARM_OPTION_MAP), map);
+      gbLog('farm: discarded non-10-minute resource claim options');
     }
-    m = { 600: 1 };
-    state.farmOptionMap = m;
-    save(wkey(STORE.FARM_OPTION_MAP), m);
-    gbLogT('farm-opt-default', 600000, 'farm: empty option map \u2014 restored default 10min=2');
-    return m;
-  }
-  function farmOptionResolve(wantSec) {
-    const want = gbNum(wantSec);
-    const exact = want != null ? farmOptionFor(want) : null;
-    if (exact != null) return { option: exact, sec: want, how: 'exact' };
-    const m = farmOptionMapEnsure();
-    let floorOpt = null, floorSec = -1;
-    let shortOpt = null, shortSec = Infinity;
-    for (const sec of FARM_DURATIONS) {
-      const v = m[String(sec)];
-      const opt = gbNum(v);
-      if (v == null || opt == null || !(opt >= 1 && opt <= 4)) continue;
-      if (want != null && sec <= want && sec > floorSec) { floorSec = sec; floorOpt = opt; }
-      if (sec < shortSec) { shortSec = sec; shortOpt = opt; }
-    }
-    if (floorOpt != null) return { option: floorOpt, sec: floorSec, how: 'floor' };
-    if (shortOpt != null) return { option: shortOpt, sec: shortSec, how: 'shortest' };
-    return null;
+    return map;
   }
   function farmClaimIntervalMs() {
     return FARM_CLAIM_BASE_MS + FARM_CLAIM_JITTER_MIN_MS
@@ -494,8 +467,8 @@
           return;
         }
         const sec = farmSnapDuration(remaining);
-        if (sec == null) return;
-        const map = Object.assign({}, state.farmOptionMap || {});
+        if (sec !== FARM_CLAIM_DURATION_SEC) return;
+        const map = {};
         if (+map[String(sec)] === opt) return;
 
         Object.keys(map).forEach(k => { if (k !== String(sec) && +map[k] === opt) delete map[k]; });
@@ -509,8 +482,8 @@
   // Shared map write used by both the claim sniffer and the post-batch verify:
   // one option indexes one duration, so relearning evicts the stale duration.
   function farmOptionMapLearn(sec, opt, src) {
-    if (!(opt >= 1 && opt <= 4) || !(sec > 0)) return false;
-    const map = Object.assign({}, state.farmOptionMap || {});
+    if (sec !== FARM_CLAIM_DURATION_SEC || !(opt >= 1 && opt <= 4)) return false;
+    const map = {};
     if (+map[String(sec)] === opt) return false;
     Object.keys(map).forEach(k => { if (k !== String(sec) && +map[k] === opt) delete map[k]; });
     map[String(sec)] = opt;
@@ -524,22 +497,7 @@
   // entries confirm through the same verify path on their next claim, so a
   // wrong derive dies on first use instead of looping.
   function farmOptionSetDerive(sec, opt) {
-    const sets = { base: FARM_SET_BASE, booty: FARM_SET_BOOTY };
-    let hit = null;
-    Object.keys(sets).forEach(name => {
-      if (sets[name][opt - 1] === sec) hit = hit ? 'ambiguous' : name;
-    });
-    if (!hit || hit === 'ambiguous') return false;
-    const map = {};
-    sets[hit].forEach((s, i) => { map[String(s)] = i + 1; });
-    const cur = state.farmOptionMap || {};
-    const same = Object.keys(map).length === Object.keys(cur).length
-      && Object.keys(map).every(k => +cur[k] === map[k]);
-    if (same) return false;
-    state.farmOptionMap = map;
-    save(wkey(STORE.FARM_OPTION_MAP), map);
-    gbLog(`farm: offer set identified (${hit}) from ${farmDurLabel(sec)}=opt${opt} — derived map: ${farmOptionMapText()}`);
-    return true;
+    return false;
   }
   const FARM_LOYALTY_IDS = ['rural_loyalty', 'loyalty', 'villagers_loyalty', 'villager_loyalty'];
   const FARM_LOYALTY_RE = /loyal(?:ty)?|lealtad|treue|fidel(?:ity|idad)|villager.{0,12}loyal|aldean.{0,12}leal/i;
@@ -592,44 +550,14 @@
     return r.val;
   }
   function farmLongClaimDuration() {
-    // 8h card floods every lootable village in one batch; gate the 28800 pick
-    // behind the explicit `farmLongClaims` opt-in (default ON via afk/farming
-    // presets, also user-toggleable in Ajustes). Without this guard a single
-    // REPL or stray call posted 8h across every town on world start.
-    if (!state.farmLongClaims) return 14400;
-    return farmOptionFor(28800) != null ? 28800 : 14400;
+    return FARM_CLAIM_DURATION_SEC;
   }
 
-  const FARM_PICK_MAX = 14400;
-  const FARM_PICK_LADDER = [600, 1200, 2400, 5400, 10800, FARM_PICK_MAX];
   function farmShortestClaimDuration(townId) {
-    // With village loyalty/Booty researched Grepolis replaces the 5 min card with 10 min.
-    // Prefer direct learned-card evidence too, so a temporarily unreadable research model cannot
-    // make us fall back to a non-existent 5 min option after 10 min has already been learned.
-    if (farmOptionFor(600) != null && farmOptionFor(300) == null) return 600;
-    if (state.farmLoyaltySeen && farmOptionFor(600) != null) return 600;
-    try { if (farmLoyaltyResearched(townId)) return 600; } catch (_) {}
-    return 300;
+    return FARM_CLAIM_DURATION_SEC;
   }
   function farmDurationPick(townId) {
-    const shortest = farmShortestClaimDuration(townId);
-    if (!state.farmLongClaims) return shortest;
-    const learned = FARM_PICK_LADDER.filter(sec => sec >= shortest && farmOptionFor(sec) != null);
-    if (!learned.length) return shortest;
-
-    const rs = (typeof townResState === 'function') ? townResState(townId) : null;
-    const headroom = rs && rs.cap > 0 ? Math.max(0, rs.cap - Math.max(rs.wood, rs.stone, rs.iron)) : null;
-
-    let best = null;
-    for (const sec of learned) {
-
-      const est = gbLootEstimate({ kind: 'farm-claim', durationSec: sec, loyalty: 1.0, headroom });
-      if (est.meta.fits === false) continue;
-      if (best == null || sec > best) best = sec;
-    }
-    // If loyalty is researched and even the shortest learned 10 min claim would not fit,
-    // wait instead of falling back to a non-existent 5 min card.
-    return best != null ? best : (shortest === 600 ? null : 300);
+    return FARM_CLAIM_DURATION_SEC;
   }
   function farmDesiredDuration(townId) { return farmDurationPick(townId); }
 
@@ -916,11 +844,11 @@
     const farms = farmsFromGame();
     if (!farms) { gbLog('farm diag: game collections not ready'); return; }
     const islandMap = islandTownMap();
-    const speed = (() => { try { return +(gameUw().Game && gameUw().Game.game_speed); } catch (_) { return null; } })();
+    const speed = (() => { try { return gbNum(gameUw().Game && gameUw().Game.game_speed); } catch (_) { return null; } })();
     const perDayTable = gbGameDataLookup('farm_town', 'max_resources_per_day');
     const unitTable = farmClaimUnitsTable(farms[0]);
     gbLog(`farm diag: mode=${state.farmUnitsMode || 'off'} pick=${state.farmUnitsPref || 'auto'} learnedUnitOpt=${state.farmUnitsOption == null ? '-' : state.farmUnitsOption}` +
-      ` game_speed=${Number.isFinite(speed) ? speed : 'UNREADABLE'}` +
+      ` game_speed=${speed != null ? speed : 'UNREADABLE'}` +
       ` max_resources_per_day=${perDayTable ? 'ok' : 'UNREADABLE'}` +
       ` claim_units=${unitTable ? JSON.stringify(unitTable).slice(0, 120) : 'UNREADABLE'}` +
       ` optionMap=${farmOptionMapText()}`);
@@ -984,42 +912,12 @@
       gbLogT('farm-no-tpl-' + tid, 86400000,
         `farm claim: no claimTpl learned for town ${tid} — open Senado once and click Recoger by hand to seed the template`);
     }
-    const wantSec = durOverride != null ? durOverride : farmDesiredDuration(tid);
-    const shortest = farmShortestClaimDuration(tid);
-    if (wantSec == null) {
-      let detail = '';
-      try {
-        const st = townResState(tid);
-        if (st) {
-          const full = [];
-          if (st.full && st.full.wood) full.push(`wood ${st.wood}/${st.cap}`);
-          if (st.full && st.full.stone) full.push(`stone ${st.stone}/${st.cap}`);
-          if (st.full && st.full.iron) full.push(`iron ${st.iron}/${st.cap}`);
-          if (full.length) detail = ` (full: ${full.join(', ')})`;
-        }
-      } catch (_) {}
-      gbLogT('farm-no-fit-' + tid, 60000,
-        `farm claim: shortest available ${farmDurLabel(shortest)} would not fit current warehouse headroom - waiting town ${tid}${detail}`);
-      return done('skip');
-    }
-    let option = farmOptionFor(wantSec);
+    const wantSec = FARM_CLAIM_DURATION_SEC;
+    const option = farmOptionFor(wantSec);
     if (option == null) {
-      const resolved = farmOptionResolve(wantSec);
-      if (resolved && resolved.option != null) {
-        option = resolved.option;
-        gbLogT('farm-opt-' + wantSec, 900000,
-          `farm claim: option index for ${farmDurLabel(wantSec)} unknown - using ${resolved.how} ${farmDurLabel(resolved.sec)} option`);
-      } else {
-        const fallback = farmOptionFor(shortest);
-        if (fallback == null) {
-          gbLogT('farm-opt-' + wantSec, 900000,
-            `farm claim: option index for ${farmDurLabel(wantSec)} unknown and no learned ${farmDurLabel(shortest)} index - claim ${farmDurLabel(shortest)} once by hand in game to teach it`);
-          return done('skip');
-        }
-        gbLogT('farm-opt-' + wantSec, 900000,
-          `farm claim: option index for ${farmDurLabel(wantSec)} unknown - using learned ${farmDurLabel(shortest)} option`);
-        option = fallback;
-      }
+      gbLogT('farm-opt-600', 900000,
+        'farm claim: 10min option index not learned - claim 10min once by hand; refusing every other card');
+      return done('skip');
     }
     farmPostedOpts[String(farm.vill_id)] = { opt: option, want: gbNum(wantSec) };
 
@@ -1376,15 +1274,8 @@
     return work;
   }
   function farmLongClaimNow(reason, onDone) {
-    // Mirror the farmLongClaims gate even at the entry: a future caller that
-    // bypasses farmLongClaimDuration (or runs while the toggle is mid-flush)
-    // must still surface a refusal rather than silently flood 8h claims.
-    if (!state.farmLongClaims) {
-      gbLog('long farm claim: farmLongClaims OFF - refusing, max 4h applies');
-      flash('claim largo: claims largos APAGADOS (max 4h). Activalo en Ajustes > Recoleccion y aldeas');
-      if (onDone) onDone(null);
-      return false;
-    }
+    // Kept as a compatibility entry point; it now runs the same 10-minute
+    // resource claim as every other farm path.
     const sec = farmLongClaimDuration();
     if (farmOptionFor(sec) == null) {
       gbLog(`long farm claim: ${farmDurLabel(sec)} option not learned yet - teach this Grepolis claim duration once by hand`);
@@ -1495,7 +1386,13 @@
     const a = m[1].toLowerCase();
     if (FARM_ACTION_BAD.test(a)) return;
     if (!FARM_ACTION_OK.test(a) && !(/^farm/.test(a) && /town|info|overview/.test(a))) return;
-    if (state.farmAction === a) return;
+    // A hand-open request is recovery evidence even when it repeats the
+    // already learned action.  Otherwise the dead-endpoint breaker cannot
+    // recover on worlds whose action name did not change.
+    if (state.farmAction === a) {
+      farmScrapeRevive('observed action ' + a);
+      return;
+    }
     state.farmAction = a;
     save(wkey(STORE.FARM_ACTION), a);
     gbLog('learned farm action', a);
@@ -1757,16 +1654,6 @@
     if (!flip && state.farmTeachBanner) return;
     state.farmLoyaltySeen = true;
     save(STORE.FARM_LOYALTY_SEEN, true);
-    const derived = farmTryDeriveOptionMap();
-    if (derived && derived['600'] != null) {
-
-      const map = Object.assign({}, state.farmOptionMap || {}, derived);
-      state.farmOptionMap = map;
-      save(wkey(STORE.FARM_OPTION_MAP), map);
-      gbLog(`farm: loyalty auto-teach provisional 10min option=${derived['600']} (confirm on next claim)`);
-      farmSetTeachBanner('');
-      return;
-    }
     farmSetTeachBanner('Investigacion de lealtad completada. Haz una recogida de 10 minutos a mano para ensenarselo al bot.');
     gbLog('farm: loyalty researched - 10min option unknown; hand-claim once to teach');
   }

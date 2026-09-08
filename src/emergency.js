@@ -2,12 +2,12 @@
   const EMERGENCY_LEDGER_GRACE_MS = 600000;
   const EMERGENCY_LEDGER_PRUNE_MS = 3600000;
   function emergencyMinIron() {
-    const n = +state.emergencyCaveMinIron;
-    return Number.isFinite(n) ? Math.max(1, Math.min(100000, n)) : 50;
+    const n = gbNum(state.emergencyCaveMinIron);
+    return n != null ? Math.max(1, Math.min(100000, n)) : 50;
   }
   function emergencyConfirmAt() {
-    const n = +state.emergencyCaveConfirm;
-    return Number.isFinite(n) ? Math.max(0, Math.min(1000000, n)) : 1000;
+    const n = gbNum(state.emergencyCaveConfirm);
+    return n != null ? Math.max(0, Math.min(1000000, n)) : 1000;
   }
   const EMERGENCY_LEDGER = boundedLedger({
     stateKey: 'emergencyLastStash',

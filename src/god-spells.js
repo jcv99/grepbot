@@ -29,8 +29,8 @@
     });
   }
   function godSpellReservePct() {
-    const n = +((state.favorCfg || {}).spellReserve);
-    return Number.isFinite(n) ? Math.max(0, Math.min(95, n)) : 50;
+    const n = gbNum((state.favorCfg || {}).spellReserve);
+    return n != null ? Math.max(0, Math.min(95, n)) : 50;
   }
 
   function godSpellFavorMax(god) {
@@ -86,11 +86,10 @@
         const have = godSpellFavorFor(need);
 
         if (have == null) {
-          gbLogT('godspell-favor-blind-' + townId, 600000, `godspell: ${need} favor unreadable - not casting`);
-          continue;
+          gbLogT('godspell-favor-blind-' + townId, 600000, `godspell: ${need} favor unreadable; server will validate`);
         }
         const cost = gbNum(cfg.spellCost);
-        if (cost != null && cost > 0) {
+        if (have != null && cost != null && cost > 0) {
 
           const max = godSpellFavorMax(need);
           const reserve = max != null

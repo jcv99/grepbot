@@ -217,7 +217,7 @@
         renderCaveTowns();return;
       }
       const job=jobs[i++];
-      const lockName=`cave:${String(job.id)}`,lockToken=gbLock(lockName,120000);
+      const lockName='cave',lockToken=gbLock(lockName,120000);
       if(!lockToken){gbTimeout(next,100);return}
       const fresh=caveTownInfo(job.id),freshAmt=caveExcessAmount(fresh);
       if(!fresh||freshAmt<CAVE_MIN_STORE){

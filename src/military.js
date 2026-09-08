@@ -25,7 +25,8 @@
       const attacking = typeof m.attacksTown === 'function' ? !!m.attacksTown() : a.assignment_type === 'command';
       const assigned = typeof m.isAssignedToTown === 'function' ? !!m.isAssignedToTown() : (home != null && a.assignment_type === 'town');
       let status = 'free'; if (injured) status = 'injured'; else if (attacking) status = 'attacking'; else if (traveling) status = 'transferring'; else if (assigned) status = 'assigned';
-      return { type: String(type), name: String(name), home, origin, arrival, traveling, injured, attacking, assigned, status, level: +(typeof m.getLevel === 'function' && m.getLevel()) || +a.level || 0 };
+      const level = gbNum(typeof m.getLevel === 'function' ? m.getLevel() : a.level);
+      return { type: String(type), name: String(name), home, origin, arrival, traveling, injured, attacking, assigned, status, level };
     }).filter(h => h.type);
   }
 
@@ -44,7 +45,7 @@
     const max = gbProbeNum(m, maxFns);
     const maxA = max == null ? gbProbeAttr(m, maxAttrs) : max;
     if (curA == null && maxA == null) return null;
-    return { current: curA, max: maxA };
+    return { current: gbNum(curA), max: gbNum(maxA) };
   }
   function heroEquipSnapshot(m) {
     const a = (m && m.attributes) || m || {};
@@ -91,8 +92,8 @@
 
     const raw = state.heroLowStaminaPct;
     if (raw == null) return 20;
-    const n = +raw;
-    return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 20;
+    const n = gbNum(raw);
+    return n != null ? Math.max(0, Math.min(100, n)) : 20;
   }
   function heroNotify(event, hero, extra) {
     const key = `hero:${event}:${hero.type}`;
@@ -223,8 +224,8 @@
     if (har) har.querySelectorAll('[data-harass]').forEach(btn => { const on = plan.troopMode === 'harass' && plan.harassPreset === btn.dataset.harass; btn.style.outline = on ? '1px solid #6cf' : ''; });
     const box = sec && sec.querySelector('.atk-cmds');
     if (box) {
-      box.replaceChildren();
       const rows = militaryOutgoingMovements();
+      gbPaint(box, box => {
       if (!rows.length) { const e = document.createElement('div'); e.textContent = 'No explicitly cancelable outgoing movements'; e.style.cssText = 'color:#666;font-size:10px'; box.appendChild(e); }
       else rows.forEach(r => {
         const row = document.createElement('div'); row.style.cssText = 'display:grid;grid-template-columns:1fr .7fr .6fr auto;gap:4px;font-size:10px;border-bottom:1px solid #2a2a2a;padding:2px 0;align-items:center';
@@ -236,23 +237,25 @@
         b.addEventListener('click', () => { if (!confirm(`Cancelar ${r.type || 'comando'} ${r.commandId}?`)) return; militaryCancelCommand(r.commandId, { confirmed: true }, err => { flash(err ? 'cancel failed: ' + err : 'command cancelled'); renderAttack(); }); });
         row.append(c1,c2,c3,b); box.appendChild(row);
       });
+      }, { key: rows.map(r=>r.commandId).join('|') });
     }
     const hbox = sec && sec.querySelector('.atk-heroes');
     if (!hbox) return;
-    hbox.replaceChildren();
+    const selectedTown = hbox.querySelector('select')?.value || '';
+    const heroes = heroesEnabled() ? playerHeroesListCached() : [];
+    gbPaint(hbox, hbox => {
     if (!heroesEnabled()) { const e = document.createElement('div'); e.textContent = 'Heroes disabled on this world'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
-    const heroes = playerHeroesListCached();
     if (!heroes.length) { const e = document.createElement('div'); e.textContent = 'No readable PlayerHero models'; e.style.cssText = 'color:#666;font-size:10px'; hbox.appendChild(e); return; }
     const townSel = document.createElement('select'); townSel.style.cssText = 'background:#111;color:#cfc;border:1px solid #333;font-size:10px;margin-bottom:4px';
     gbTip(townSel, 'Ciudad de destino al pulsar Assign');
-    (state.towns || []).forEach(t => { const o = document.createElement('option'); o.value = t.id; o.textContent = t.name || t.id; townSel.appendChild(o); }); hbox.appendChild(townSel);
+    (state.towns || []).forEach(t => { const o = document.createElement('option'); o.value = t.id; o.textContent = t.name || t.id; townSel.appendChild(o); }); if(selectedTown)townSel.value=selectedTown;hbox.appendChild(townSel);
     heroes.forEach(h => {
       const row = document.createElement('div'); row.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:10px;border-bottom:1px solid #2a2a2a;padding:3px 0';
       const lab = document.createElement('span'); lab.style.flex = '1';
       const st = heroPct(h.stamina), mn = heroPct(h.mana);
 
-      lab.textContent = `${h.name} Lv${h.level} | ${h.status}${h.home ? ' @' + townNameById(h.home) : ''}` +
-        ` | vigor ${st == null ? '?' : st + '%'} | mana ${mn == null ? '?' : mn + '%'}`;
+      lab.textContent = `${h.name} Lv${h.level == null ? '\u2014' : h.level} | ${h.status}${h.home ? ' @' + townNameById(h.home) : ''}` +
+        ` | vigor ${st == null ? '\u2014' : st + '%'} | mana ${mn == null ? '\u2014' : mn + '%'}`;
       gbTip(lab, 'Estado del heroe: nombre \u00b7 nivel \u00b7 estado \u00b7 ciudad \u00b7 vigor \u00b7 mana');
       if (st != null && st <= heroLowStaminaPct()) lab.style.color = '#f66';
       row.appendChild(lab);
@@ -294,6 +297,7 @@
     lowLab.append(document.createTextNode('Aviso vigor <='), low, document.createTextNode('%'));
     ctl.append(auto, lowLab);
     hbox.appendChild(ctl);
+    }, { key: heroes.map(h=>h.type).join('|')+'|'+(state.towns||[]).map(t=>t.id).join('|') });
   }
 
   const COLONY_KINDS = {
@@ -336,8 +340,8 @@
   function renderColonyThreats(sec) {
     const box = sec && sec.querySelector('.atk-colony');
     if (!box || sec.hidden) return;
-    box.replaceChildren();
     const rows = militaryColonyThreats();
+    gbPaint(box, box => {
     if (!rows.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#666;font-size:10px';
@@ -358,7 +362,7 @@
       gbTip(c2, 'Ciudad destino del incidente + origen');
       const c3 = document.createElement('span');
 
-      c3.textContent = r.etaKnown ? fmtSec(r.eta) : '?';
+      c3.textContent = r.etaKnown ? fmtSec(r.eta) : '\u2014';
       c3.style.color = r.etaKnown ? '#fc6' : '#888';
       gbTip(c3, 'ETA hasta la llegada (? = no legible)');
       const acts = document.createElement('span');
@@ -389,6 +393,7 @@
       row.append(c1, c2, c3, acts);
       box.appendChild(row);
     }
+    }, { key: rows.map(r=>`${r.kind}:${r.mov.id||r.mov.commandId||r.mov.dest}`).join('|') });
   }
 
   const COMP_MAX_SHORTAGE = 8;
@@ -400,7 +405,7 @@
     const {
       tag, maxArmMs, rows, plan, setArmed, getArmed, cancelArmed,
       resolveTarget, validateTarget, prepareFire, sendFire, pushHistory,
-      patchStatus, renderPanel, lockToken, onExpire,
+      patchStatus, renderPanel, lockName, lockToken, onExpire,
     } = cfg;
     cancelArmed();
     const target = resolveTarget(plan);
@@ -435,7 +440,7 @@
       delays.push(delayMs);
       const expectedFire = Date.now() + delayMs;
       const tid = gbTimeout(() => {
-        if (lockToken) gbLockTouch('support', lockToken);
+        if (lockName && lockToken) gbLockTouch(lockName, lockToken);
         const late = Date.now() - expectedFire;
         if (late > 5000) {
           gbLog(`${tag}: refuse overdue fire for ${row.townId} (late ${Math.round(late)}ms)`);
@@ -595,8 +600,8 @@
     const box = sec && sec.querySelector('.atk-comp');
     if (!box) return;
     if (sec.hidden) return;
-    box.replaceChildren();
     const rows = militaryCompositionAll();
+    gbPaint(box, box => {
     if (!rows.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#666;font-size:10px';
@@ -612,7 +617,7 @@
       sum.style.cssText = 'font-size:10px;cursor:pointer';
       const pct = r.progress;
       const pctColor = pct == null ? '#888' : (pct >= 75 ? '#6c6' : (pct >= 40 ? '#fc6' : '#f66'));
-      sum.textContent = `${townNameById(r.townId)} \u00b7 ${pct == null ? '?' : pct}%` +
+      sum.textContent = `${townNameById(r.townId)} \u00b7 ${pct == null ? '\u2014' : pct + '%'}` +
         ` \u00b7 def ${Math.round(r.byFunction.defense)} / ofe ${Math.round(r.byFunction.offense)}` +
         ` / amb ${Math.round(r.byFunction.both)} / nav ${Math.round(r.byFunction.naval)}` +
         (r.byFunction.mythical ? ` (de ellas ${Math.round(r.byFunction.mythical)} miticas)` : '') +
@@ -646,6 +651,7 @@
       }
       box.appendChild(d);
     }
+    }, { key: rows.map(r=>r.townId).join('|') });
   }
   function bindAttackTab() {
     const sec = panel && panel.querySelector('section[data-tab=attack]');

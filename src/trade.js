@@ -25,7 +25,7 @@
     const box = panel && panel.querySelector('.trade-towns');
     if (!box) return;
     const ids = caveListTownIds();
-    box.replaceChildren();
+    gbPaint(box, box => {
     if (!ids.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#888;font-size:10px';
@@ -73,6 +73,7 @@
       span.textContent = `${names[String(id)] || id} (#${id})`;
       label.appendChild(chk); label.appendChild(span); box.appendChild(label);
     });
+    }, { key: ids.join('|') });
   }
   function tradeSend(fromId, toId, wood, stone, iron, onDone) {
     const to = gbNum(toId);
@@ -114,7 +115,7 @@
       const a=m.attributes||m,status=String(a.status||a.state||'').toLowerCase();if(/cancel|complete|arrived|finished|deleted/.test(status))continue;
       let dest=null;for(const fn of ['getDestinationTownId','getTargetTownId','getReceivingTownId']){try{if(dest==null&&typeof m[fn]==='function')dest=m[fn]()}catch(_){}}
       dest=dest??a.destination_town_id??a.target_town_id??a.receiving_town_id??a.receiver_town_id??a.to_town_id??null;if(dest==null||!/^\d+$/.test(String(dest))||!own.has(String(dest)))continue;
-      const eta=a.arrival_at??a.arrival_time??a.arrives_at??a.to_be_completed_at??a.end_at??null;if(eta!=null&&Number.isFinite(+eta)){const t=+eta>1e12?+eta/1000:+eta;if(t<=0||(t>1e9&&t<=now))continue}
+      const eta=a.arrival_at??a.arrival_time??a.arrives_at??a.to_be_completed_at??a.end_at??null,etaN=gbNum(eta);if(etaN!=null){const t=etaN>1e12?etaN/1000:etaN;if(t<=0||(t>1e9&&t<=now))continue}
       let res=a.resources||a.resource||a.payload||null;try{if(!res&&typeof m.getResources==='function')res=m.getResources()}catch(_){}res=res&&res.attributes||res||{};
       const woodN = gbNum(a.wood ?? res.wood), stoneN = gbNum(a.stone ?? res.stone), ironN = gbNum(a.iron ?? res.iron ?? res.silver);
       if (woodN == null && stoneN == null && ironN == null) continue;
@@ -126,14 +127,15 @@
     tradeIncomingCache={at:Date.now(),known,value:out};return {known,byTown:out};
   }
   function tradeLedger(towns) {
-    const incomingState=tradeIncomingByTown();if(!incomingState.known)return null;const L = Object.create(null),incoming=incomingState.byTown;
+    const incomingState=tradeIncomingByTown();const L = Object.create(null),incoming=incomingState.byTown||{};
+    if(!incomingState.known)gbLogT('trade-ledger-incoming-blind',180000,'trade: incoming movements unreadable - planning from live stock; server remains authoritative');
     for (const t of towns) {
       const mov=incoming[String(t.id)]||{};
       let pending;
-      try { pending=plannerPendingForTown(t.id).incoming||{}; } catch (_) { return null; }
+      try { pending=plannerPendingForTown(t.id).incoming||{}; } catch (_) { pending={}; }
+      const projected=k=>{const base=gbNum(t[k]);if(base==null)return null;const movN=gbNum(mov[k]),pendingN=gbNum(pending[k]);return base+(movN==null?0:movN)+(pendingN==null?0:pendingN)};
       L[t.id] = {
-
-        wood: t.wood+(+mov.wood||0)+(+pending.wood||0), stone: t.stone+(+mov.stone||0)+(+pending.stone||0), iron: t.iron+(+mov.iron||0)+(+pending.iron||0),
+        wood: projected('wood'), stone: projected('stone'), iron: projected('iron'),
         cap: t.cap, tradeCap: t.tradeCap, small: t.small,
       };
     }
@@ -143,7 +145,7 @@
     const src = L[job.from], tgt = L[job.to];
     if (!src || !tgt) return;
     src.wood -= job.wood; src.stone -= job.stone; src.iron -= job.iron;
-    src.tradeCap = Math.max(0, src.tradeCap - (job.wood + job.stone + job.iron));
+    if (src.tradeCap != null) src.tradeCap = Math.max(0, src.tradeCap - (job.wood + job.stone + job.iron));
     tgt.wood += job.wood; tgt.stone += job.stone; tgt.iron += job.iron;
   }
   function tradeOverflowPct() { return Math.max(95, Math.min(100, gbCfgNum(state.tradeOverflowPct, 100))) / 100; }
@@ -162,30 +164,28 @@
   function tradeOverflowDecision(towns, resource, trigger, transfer, receiver) {
     const rows = Array.isArray(towns) ? towns : [];
     const source = rows[0];
-    const threshold = Number.isFinite(+trigger) ? +trigger : 1;
-    const transferPct = Number.isFinite(+transfer) ? +transfer : .1;
-    const receiverPct = Number.isFinite(+receiver) ? +receiver : .8;
+    const triggerN=gbNum(trigger),transferN=gbNum(transfer),receiverN=gbNum(receiver);
+    const threshold = triggerN != null ? triggerN : 1;
+    const transferPct = transferN != null ? transferN : .1;
+    const receiverPct = receiverN != null ? receiverN : .8;
     if (!source || !GB_RES_KEYS.includes(resource)) return { ok:false, reason:'town-state-unreadable' };
     const amount = source[resource], cap = gbNum(source.cap), tradeCap = gbNum(source.tradeCap);
     const live = { amount, cap, fill:amount == null || !(cap > 0) ? null : amount / cap, tradeCap };
     if (amount == null || !(cap > 0)) { tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, action:'none', reason:'source-state-unreadable' }); return { ok:false, reason:'source-state-unreadable' }; }
     if (amount / cap < threshold) { tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, action:'none', reason:'not-overflowing' }); return { ok:false, reason:'not-overflowing' }; }
-    if (tradeCap == null) {
-      gbLogT('trade-cap-blind-' + source.id, 180000, `trade: tradeCap unreadable on town ${source.id} — skip overflow`);
-      tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, action:'none', reason:'trade-capacity-unreadable' });
-      return { ok:false, reason:'trade-capacity-unreadable' };
-    }
+    if (tradeCap == null) gbLogT('trade-cap-blind-' + source.id, 180000, `trade: tradeCap unreadable on town ${source.id} - allowing server authority`);
     const candidates = rows.slice(1).map(t => {
       const value = t[resource], targetCap = gbNum(t.cap);
       if (value == null || !(targetCap > 0)) return null;
       const fill = value / targetCap;
-      const free = Number.isFinite(+t.free) ? +t.free : targetCap-value;
+      const freeN=gbNum(t.free),free=freeN!=null?freeN:targetCap-value;
       return fill <= receiverPct ? { id:String(t.id), fill, free, t } : null;
     }).filter(Boolean).sort((a,b) => a.fill-b.fill || b.free-a.free || a.id.localeCompare(b.id, undefined, {numeric:true}));
     const target = candidates[0];
     if (!target) { tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, intercity:null, action:'none', reason:'no-intercity-destination-under-80' }); return { ok:false, reason:'no-intercity-destination-under-80' }; }
-    const executable = Math.floor(Math.min(cap * transferPct, amount, tradeCap, target.free));
-    if (!(executable > 0)) { const reason = tradeCap <= 0 ? 'trade-capacity-zero' : 'destination-space-zero'; tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, intercity:{ destination:target.id, fill:target.fill, free:target.free, executable:0 }, action:'none', reason }); return { ok:false, reason, target }; }
+    const bounds=[cap*transferPct,amount,target.free];if(tradeCap!=null)bounds.push(tradeCap);
+    const executable = Math.floor(Math.min(...bounds));
+    if (!(executable > 0)) { const reason = tradeCap != null && tradeCap <= 0 ? 'trade-capacity-zero' : 'destination-space-zero'; tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, intercity:{ destination:target.id, fill:target.fill, free:target.free, executable:0 }, action:'none', reason }); return { ok:false, reason, target }; }
     tradeDiagnosticPut(source.id, resource, { live, overflowThreshold:threshold, intercity:{ destination:target.id, fill:target.fill, free:target.free, executable }, action:'intercity', reason:'ready-intercity' });
     return { ok:true, source:String(source.id), target:target.id, resource, amount:executable, destinationFill:target.fill, destinationFree:target.free };
   }
@@ -196,7 +196,7 @@
     const ledger = L || tradeLedger(rawRows);
     if (!ledger) return [];
     const attackState = tradeTownsUnderAttack();
-    if (!attackState.known) return [];
+    if (!attackState.known) gbLogT('trade-attacks-blind',180000,'trade: incoming attacks unreadable - candidate planning continues blind');
     const blocked = blockedPairs instanceof Set ? blockedPairs : new Set();
     const jobs = [], ids = rawRows.map(t => String(t.id)).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     for (const sourceId of ids) {
@@ -207,7 +207,7 @@
         // Source overflow is based only on resources already in the city. Future
         // incoming trades may constrain receivers but can never create a source overflow.
         const source = Object.assign({}, rawSource, { tradeCap:projectedSource.tradeCap });
-        const destRows = ids.filter(id => id !== sourceId && !(attackState.value && attackState.value.has(id))).map(id => {
+        const destRows = ids.filter(id => id !== sourceId && !(attackState.known && attackState.value && attackState.value.has(id))).map(id => {
           const raw = rawById[id], projected = ledger[id];
           if (!raw || !projected || !(raw.cap > 0) || projected[resource] == null) return null;
           return Object.assign({}, raw, {
@@ -228,8 +228,8 @@
   function tradeFillStorageJobs(towns, L) {
     const ledger = L || tradeLedger(towns);
     if(!ledger)return [];
-    const reserveN = Number(state.tradeReservePct);
-    const reserve = Math.min(80, Math.max(0, Number.isFinite(reserveN) ? reserveN : 20)) / 100;
+    const reserveN = gbNum(state.tradeReservePct);
+    const reserve = Math.min(80, Math.max(0, reserveN != null ? reserveN : 20)) / 100;
     const minBatch = gbCfgClamp(state.tradeMinBatch, 100, Infinity, 1000);
     const jobs = [];
     const ids = towns.map(t => t.id);
@@ -274,8 +274,8 @@
     if(!ledger)return [];
     const jobs = [];
     const minBatch = gbCfgClamp(state.tradeMinBatch, 100, Infinity, 1000);
-    const reserveN = Number(state.tradeReservePct);
-    const reservePct = Math.min(80, Math.max(0, Number.isFinite(reserveN) ? reserveN : 20)) / 100;
+    const reserveN = gbNum(state.tradeReservePct);
+    const reservePct = Math.min(80, Math.max(0, reserveN != null ? reserveN : 20)) / 100;
     const ids = towns.map(t => t.id);
     for (const tgtId of ids) {
       const tgt = ledger[tgtId];
@@ -307,7 +307,8 @@
 
   function tradeFreeSpace(tgt, res) {
     if (!tgt || !(tgt.cap > 0)) return null;
-    return Math.max(0, tgt.cap - (+tgt[res] || 0));
+    const value=gbNum(tgt[res]);
+    return value==null?null:Math.max(0,tgt.cap-value);
   }
   function tradeGoalDeficit(townId, preset) {
 
@@ -439,22 +440,23 @@
     const to = String(raw.to == null ? '' : raw.to);
     if (!from || !to || from === to) return null;
     const amt = k => {
-      const n = +raw[k];
-      return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+      const n = gbNum(raw[k]);
+      return n != null && n > 0 ? Math.floor(n) : 0;
     };
     const wood = amt('wood'), stone = amt('stone'), iron = amt('iron');
     if (!(wood + stone + iron > 0)) return null;
     const t = (raw.trigger && typeof raw.trigger === 'object') ? raw.trigger : {};
     const mode = TRADE_ROUTE_TRIGGERS.includes(t.mode) ? t.mode : 'always';
     const resource = GB_RES_KEYS.includes(t.resource) ? t.resource : 'wood';
-    const value = Math.max(0, Math.min(100, Number.isFinite(+t.value) ? +t.value : 0));
+    const valueN=gbNum(t.value),value=Math.max(0,Math.min(100,valueN==null?0:valueN));
+    const minBatchN=gbNum(raw.minBatch),maxPerCycleN=gbNum(raw.maxPerCycle);
 
     const id = /^[A-Za-z0-9_:-]{1,32}$/.test(String(raw.id || '')) ? String(raw.id)
       : ('r_' + from + '_' + to + (idx == null ? '' : '_' + idx));
     return {
       id, from, to, wood, stone, iron,
-      minBatch: Math.max(1, Number.isFinite(+raw.minBatch) ? Math.floor(+raw.minBatch) : 100),
-      maxPerCycle: Math.max(0, Number.isFinite(+raw.maxPerCycle) ? Math.floor(+raw.maxPerCycle) : 0),
+      minBatch: Math.max(1, minBatchN != null ? Math.floor(minBatchN) : 100),
+      maxPerCycle: Math.max(0, maxPerCycleN != null ? Math.floor(maxPerCycleN) : 0),
       trigger: { mode, resource, value },
       enabled: raw.enabled !== false,
     };
@@ -555,24 +557,23 @@
     const resource = job.overflowResource;
     if (!resource || !GB_RES_KEYS.includes(resource)) return { ok:true };
     const incomingState = tradeIncomingByTown();
-    if (!incomingState.known) return { ok:false, why:'incoming-trades-unreadable' };
+    if (!incomingState.known) gbLogT('trade-overflow-incoming-blind',180000,'trade: overflow validation continuing with incoming movements unreadable');
     const attackState = tradeTownsUnderAttack();
-    if (!attackState.known) return { ok:false, why:'incoming-attacks-unreadable' };
+    if (!attackState.known) gbLogT('trade-overflow-attacks-blind',180000,'trade: overflow validation continuing with incoming attacks unreadable');
     const liveDestinations = tradeAutoTowns(tradeListTowns()).filter(t => String(t.id) !== String(src.id));
     const projected = [];
     for (const t of liveDestinations) {
       const id = String(t.id);
-      if (attackState.value && attackState.value.has(id)) continue;
+      if (attackState.known && attackState.value && attackState.value.has(id)) continue;
       if (!(t.cap > 0) || t[resource] == null) continue;
       const mov = incomingState.byTown[id] || {};
       let pending;
-      try { pending = plannerPendingForTown(id).incoming || {}; } catch (_) { return { ok:false, why:'planner-incoming-unreadable' }; }
+      try { pending = plannerPendingForTown(id).incoming || {}; } catch (_) { pending={}; }
       const base = gbNum(t[resource]);
       const movN = gbNum(mov[resource]);
       const pendN = gbNum(pending[resource]);
       if (base == null) continue;
       const value = base + (movN != null ? movN : 0) + (pendN != null ? pendN : 0);
-      if (!Number.isFinite(value)) continue;
       projected.push(Object.assign({}, t, {
         [resource]:value,
         free:Math.max(0, +t.cap - value),
@@ -632,34 +633,40 @@
   function tradeValidateJob(job) {
     const src = tradeTownRes(job.from);
     let tgt = tradeTownRes(job.to);
-    if (!src || !tgt || !(src.cap > 0) || !(tgt.cap > 0)) return { ok: false, why: 'town-state-unreadable' };
-    const overflowCheck = tradeValidateOverflowJob(job, src, tgt);
+    const blind=[];
+    if (!src || !tgt) blind.push('town-state');
+    const overflowCheck = src&&tgt?tradeValidateOverflowJob(job, src, tgt):{ok:true};
     if (!overflowCheck.ok) return overflowCheck;
     if (job.overflowResource) {
       tgt = tradeTownRes(job.to);
-      if (!tgt || !(tgt.cap > 0)) return { ok:false, why:'town-state-unreadable' };
+      if (!tgt) blind.push('overflow-target');
     }
-    const reserveN = Number(state.tradeReservePct);
-    const reservePct = Math.min(80, Math.max(0, Number.isFinite(reserveN) ? reserveN : 20)) / 100;
-    const keep = Math.floor(src.cap * reservePct);
-    const total = (+job.wood || 0) + (+job.stone || 0) + (+job.iron || 0);
-    const pav = plannerAvailable(job.from, {allowSoft:false});
-    const incomingState=tradeIncomingByTown();if(!incomingState.known)return {ok:false,why:'incoming-trades-unreadable'};const mov=incomingState.byTown[String(job.to)]||{};let pending={};try{pending=plannerPendingForTown(job.to).incoming||{}}catch(_){}
-    if (!pav) return { ok:false, why:'planner-unreadable' };
+    const reserveN = gbNum(state.tradeReservePct);
+    const reservePct = Math.min(80, Math.max(0, reserveN != null ? reserveN : 20)) / 100;
+    const srcWarehouse=gbNum(src&&src.cap),keep=srcWarehouse==null?null:Math.floor(srcWarehouse*reservePct);
+    const amounts=['wood','stone','iron'].map(k=>gbNum(job[k]));
+    if(amounts.some(n=>n==null||n<0))return {ok:false,why:'job-amount-unreadable'};
+    const total=amounts.reduce((n,v)=>n+v,0);
+    let pav=null;try{pav=plannerAvailable(job.from,{allowSoft:false})}catch(_){}
+    const incomingState=tradeIncomingByTown();if(!incomingState.known)blind.push('incoming-trades');const mov=incomingState.byTown[String(job.to)]||{};let pending={};try{pending=plannerPendingForTown(job.to).incoming||{}}catch(_){blind.push('planner-incoming')}
+    if (!pav) blind.push('planner');
 
     const num = (v) => gbNum(v);
-    const srcCap = num(src.tradeCap), pavCap = num(pav.tradeCap);
-    if (!(total > 0) || srcCap == null || srcCap < total || pav.tradeCap == null || pavCap == null || pavCap < total) return { ok: false, why: 'merchant-capacity' };
+    const srcCap = num(src&&src.tradeCap), pavCap = num(pav&&pav.tradeCap);
+    if (!(total > 0)) return {ok:false,why:'empty-job'};
+    if ((srcCap!=null&&srcCap<total)||(pavCap!=null&&pavCap<total)) return { ok: false, why: 'merchant-capacity' };
+    if(srcCap==null)blind.push('merchant-capacity');if(pav&&pavCap==null)blind.push('planner-merchant-capacity');
     for (const k of ['wood','stone','iron']) {
       const n = gbNum(job[k]);
       if (n == null) continue;
-      const have = num(src[k]), avail = num(pav[k]), dest = num(tgt[k]), destCap = num(tgt.cap);
-      if (have == null || avail == null || dest == null || destCap == null) return { ok: false, why: `unreadable-${k}` };
-      if (n < 0 || have - n < keep || avail < n) return { ok: false, why: `source-${k}` };
+      const have = num(src&&src[k]), avail = num(pav&&pav[k]), dest = num(tgt&&tgt[k]), destCap = num(tgt&&tgt.cap);
+      if ((have!=null&&keep!=null&&have-n<keep)||(avail!=null&&avail<n)) return { ok: false, why: `source-${k}` };
       const movN = gbNum(mov[k]), pendN = gbNum(pending[k]);
-      if (dest + (movN != null ? movN : 0) + (pendN != null ? pendN : 0) + n > destCap) return { ok: false, why: `target-${k}-capacity` };
+      if (dest!=null&&destCap!=null&&dest+(movN!=null?movN:0)+(pendN!=null?pendN:0)+n>destCap) return { ok: false, why: `target-${k}-capacity` };
+      if(have==null||avail==null||dest==null||destCap==null)blind.push(k);
     }
-    return { ok: true };
+    if(blind.length)gbLogT('trade-validate-blind-'+job.from+'-'+job.to,180000,`trade: validation blind (${Array.from(new Set(blind)).join(',')}) - server authoritative`);
+    return { ok: true, blind };
   }
 
   let tradeUnderAttackCache = { at: 0, known: false, value: null };
@@ -700,7 +707,7 @@
     const autoTowns = tradeAutoTowns(towns);
     const autoPairOk = autoTowns.length >= 2;
     const ledger = tradeLedger(towns);
-    if(!ledger){gbLogT('trade-incoming-unreadable',180000,'trade: incoming movements unavailable — fail closed');return}
+    if(!ledger){gbLogT('trade-ledger-unreadable',180000,'trade: no usable ledger');return}
     let jobs = [];
 
     if (!o.overflowOnly) {
@@ -740,10 +747,7 @@
     if (!o.overflowOnly && state.islandShip && autoPairOk) jobs = jobs.concat(tradeIslandShipJobs(autoTowns, ledger));
 
     const underAttack = tradeTownsUnderAttack();
-    if (!underAttack.known) {
-      gbLogT('trade-incoming-unreadable', 180000, 'trade: incoming attacks unreadable — fail closed');
-      return;
-    }
+    if (!underAttack.known) gbLogT('trade-incoming-unreadable', 180000, 'trade: incoming attacks unreadable - continuing blind');
     if (underAttack.value && underAttack.value.size) {
       const before = jobs.length;
       jobs = jobs.filter(j => !underAttack.value.has(String(j.to)));
@@ -762,7 +766,7 @@
         return;
       }
       const j=jobs[i++];
-      const lockName=`trade:${String(j.from)}`;
+      const lockName='trade';
       const lockToken=gbLock(lockName,120000);
       if(!lockToken){gbTimeout(next,100);return}
       const valid=tradeValidateJob(j);

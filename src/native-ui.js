@@ -429,7 +429,7 @@
   function nativeUnitStep(unit) {
     const stepped = NATIVE_UNIT_STEPS[String(unit || '')];
     if (stepped) return stepped;
-    try{const d=gbGameDataLookup("units", unit)||{};const pop=+d.population||0,freight=+(d.favor??(d.resources&&d.resources.favor))||0;if(d.is_naval||d.naval||d.mythical||d.is_mythical||d.god||pop>=8||freight>0)return 1}catch(_){}
+    try{const d=gbGameDataLookup("units", unit);if(!d)return 1;const pop=gbNum(d.population),freight=gbNum(d.favor??(d.resources&&d.resources.favor));if(d.is_naval||d.naval||d.mythical||d.is_mythical||d.god||(pop!=null&&pop>=8)||(freight!=null&&freight>0)||pop==null&&freight==null)return 1}catch(_){}
     return 10;
   }
 
@@ -442,7 +442,7 @@
     return nativeUnitStep(unit || (job && job.unit));
   }
   function nativeQueueRecruitAmountText(job) {
-    if (!job) return '?';
+    if (!job) return '\u2014';
     if (nativeQueueRecruitIsInfinite(job)) {
       return `\u221e\u00d7 ${nativeUnitLabel(job.unit)} (lotes de ${nativeQueueRecruitChunkOf(job)})`;
     }
@@ -611,9 +611,9 @@
   const BUILD_SWAP_DEFAULT_MIN = 5;
   const BUILD_SWAP_IGNORE_MS = 600000;
   function buildSwapThresholdMs() {
-    const n = +state.buildSwapThresholdMin;
+    const n = gbNum(state.buildSwapThresholdMin);
     if (n === 0) return 0;
-    return (Number.isFinite(n) ? Math.max(1, Math.min(120, n)) : BUILD_SWAP_DEFAULT_MIN) * 60000;
+    return (n != null ? Math.max(1, Math.min(120, n)) : BUILD_SWAP_DEFAULT_MIN) * 60000;
   }
 
   function nativeQueueHeadBlockedFor(townId) {

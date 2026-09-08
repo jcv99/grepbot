@@ -7,21 +7,10 @@
   const TX_REVIEW_MAX = 100;
   const TX_REVIEW_MIN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
   const TX_MANUAL_REVIEW_TTL_MS = 30 * 60 * 1000;
-  const TX_PERSISTENT_MANUAL_REVIEW_FEATURES = new Set([
-    'attack', 'support', 'spy', 'cancel',
-    // Already classified as high-impact by safeModeBlock().
-    'favor', 'wonder', 'rurallevel', 'merchant', 'spell', 'airaw',
-    // A duplicate dodge can send another troop movement.
-    'dodge',
-  ]);
   let txSeq = 0;
   if (!state.txState || typeof state.txState !== 'object' || Array.isArray(state.txState)) state.txState = {};
   function txManualReviewPermanent(tx) {
-    if (!tx) return false;
-    const feature = String(tx.feature || '');
-    if (TX_PERSISTENT_MANUAL_REVIEW_FEATURES.has(feature)) return true;
-    // Olympic culture spends premium currency; other celebrations retain TTL.
-    return feature === 'culture' && /olympic/i.test(String((tx.snapshot && tx.snapshot.type) || tx.endpoint || ''));
+    return !!(tx && TX_WRITE_FEATURES.has(String(tx.feature || '')));
   }
   function txLoadNormalize(reason) {
     const now = Date.now();
@@ -66,15 +55,6 @@
         plannerRelease(t, 'manual-review');
         changed = true;
         continue;
-      }
-      // Only ambiguous high-impact/non-idempotent features retain a permanent
-      // per-intent tombstone. Low-risk reviews keep the bounded legacy policy.
-      if (t.state === 'manual-review' && !txManualReviewPermanent(t) && now - (+t.updatedAt || +t.unknownAt || +t.createdAt || 0) > TX_MANUAL_REVIEW_TTL_MS) {
-        t.state = 'failed';
-        t.detail = 'manual-review tombstone expired; retry allowed';
-        t.updatedAt = now;
-        plannerRelease(t, 'manual-review-expired');
-        changed = true;
       }
     }
     if (changed && gbTabLeader) save(STORE.TX_STATE, state.txState);
@@ -143,9 +123,6 @@
         t.state='manual-review';t.detail='unknown outcome expired; bounded manual-review tombstone';t.updatedAt=now;plannerRelease(t,'manual-review');changed=true;continue;
       }
       if (t.state === 'manual-review' && txCompactReview(t)) changed = true;
-      if (t.state==='manual-review' && !txManualReviewPermanent(t) && now-(+t.updatedAt||+t.unknownAt||+t.createdAt||0)>TX_MANUAL_REVIEW_TTL_MS) {
-        t.state='failed';t.detail='manual-review tombstone expired; retry allowed';t.updatedAt=now;plannerRelease(t,'manual-review-expired');changed=true;continue;
-      }
       const terminalTtl=t.state==='committed'&&t.snapshot&&t.snapshot.kind==='instant'?TX_INSTANT_TOMBSTONE_TTL:TX_TERMINAL_TTL;
       if (/^(committed|failed|aborted|dryrun)$/.test(t.state || '') && now - (+t.updatedAt || +t.createdAt || 0) > terminalTtl) { delete state.txState[key]; changed = true; }
     }
@@ -205,8 +182,8 @@
     const o = {};
     for (const k of Object.keys(args || {}).sort()) {
       if (skip.has(k)) continue;
-      const n = +(args[k]);
-      if (Number.isFinite(n) && n > 0) o[k] = n;
+      const n = gbNum(args[k]);
+      if (n != null && n > 0) o[k] = n;
     }
     return JSON.stringify(o);
   }
@@ -445,7 +422,7 @@
       if (feature === 'farm') return { kind: 'farm', farmId: a.farm_town_id, status: txFarmStatus(a.farm_town_id) };
       if (feature === 'trade') return { kind: 'trade', source: txTownResourceSnap(townId), target: txTownResourceSnap(a.id), total: (+a.wood || 0) + (+a.stone || 0) + (+a.iron || 0) };
       if (feature === 'collect') return { kind: 'collect', before: txTownResourceSnap(townId) };
-      if (feature === 'cave') return { kind: 'cave', before: txCaveStatus(townId), amount: +a.iron_to_store || 0 };
+      if (feature === 'cave' || feature === 'cave-emergency') return { kind: 'cave', before: txCaveStatus(townId), amount: gbNum(a.iron_to_store) };
       if (feature === 'militia') return { kind: 'militia', before: txMilitiaCount(townId) };
       if (feature === 'spell') return { kind: 'spell', powerId: a.power_id, before: txSpellPresent(townId, a.power_id) };
       if (feature === 'quest') return { kind: 'quest', qid: a.progressable_id || String(d.model_url || '').split('/').pop(), before: txQuestClaimable(a.progressable_id || String(d.model_url || '').split('/').pop()) };
@@ -492,7 +469,7 @@
         try {
           const rel = ruralRelModels().find(r => String((r.attributes || {}).id || r.id) === relId);
           const x = rel && (rel.attributes || {});
-          if (x) status = { relation: +x.relation_status || 0, stage: +x.expansion_stage || 0, expansionAt: x.expansion_at || null };
+          if (x) status = { relation: gbNum(x.relation_status), stage: gbNum(x.expansion_stage), expansionAt: x.expansion_at || null };
         } catch (_) {}
         return { kind: 'rurallevel', relId, status };
       }
@@ -622,7 +599,9 @@
         if (!cur || !s.before) return 'unknown';
         const stored = txNum(cur.stored), beforeStored = txNum(s.before.stored);
         if (stored == null || beforeStored == null) return 'unknown';
-        const need = Math.max(1, +s.amount || 0);
+        const amount = gbNum(s.amount);
+        if (amount == null || !(amount > 0)) return 'unknown';
+        const need = Math.max(1, amount);
         if (stored >= beforeStored + need) return 'applied';
         if (stored === beforeStored && txNum(cur.iron) != null && txNum(s.before.iron) != null
           && !txNe(cur.iron, s.before.iron)) return 'unchanged';
@@ -718,7 +697,7 @@
         try {
           const rel = ruralRelModels().find(r => String((r.attributes || {}).id || r.id) === String(s.relId));
           const x = rel && (rel.attributes || {});
-          if (x) cur = { relation: +x.relation_status || 0, stage: +x.expansion_stage || 0, expansionAt: x.expansion_at || null };
+          if (x) cur = { relation: gbNum(x.relation_status), stage: gbNum(x.expansion_stage), expansionAt: x.expansion_at || null };
         } catch (_) {}
         if (!cur || !s.status) return 'unknown';
         return JSON.stringify(cur) !== JSON.stringify(s.status) ? 'applied' : 'unchanged';
@@ -757,7 +736,7 @@
         txReconcile(tx, r => {
           if (!gbInstanceAlive() || !gbTabLeader) return;
           if (r === 'applied') { tx.state='committed'; tx.detail=`reconciled after leader acquire (${reason||'leader'})`; plannerRelease(tx,'leader-reconciled-applied'); }
-          else if (r === 'unchanged') { tx.state='failed'; tx.detail=`confirmed unchanged after leader acquire (${reason||'leader'}); retry allowed`; plannerRelease(tx,'leader-reconcile-unchanged'); }
+          else if (r === 'unchanged') { tx.state='unknown'; tx.unknownAt=tx.unknownAt||Date.now(); tx.detail=`unchanged after leader acquire (${reason||'leader'}); retry blocked`; plannerRelease(tx,'leader-reconcile-unchanged'); }
           else { tx.state='unknown'; tx.unknownAt=tx.unknownAt||Date.now(); tx.detail=`still unresolved after leader acquire (${reason||'leader'})`; plannerRelease(tx,'leader-reconcile-unknown'); }
           tx.updatedAt=Date.now(); txSave();
         });
@@ -993,7 +972,7 @@
             markModuleHealth(feature, 'ok', {latencyMs:Date.now()-tx.sentAt}); circuitSuccess(feature);
             if (onDone) onDone(null, Object.assign({ reconciled: true }, result || {}));
           } else if (r === 'unchanged') {
-            tx.state = 'failed'; tx.updatedAt = Date.now(); tx.detail = 'timeout; state remained unchanged after reconciliation; retry allowed'; plannerRelease(tx, 'timeout-unchanged'); txSave();
+            tx.state = 'unknown'; tx.unknownAt = tx.unknownAt || Date.now(); tx.updatedAt = Date.now(); tx.detail = 'timeout; state remained unchanged; retry blocked'; plannerRelease(tx, 'timeout-unchanged'); txSave();
             jrnPush(jtag, 'timeout', tx.detail, tx.id);
             if (onDone) onDone('timeout', result);
           } else {

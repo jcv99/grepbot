@@ -88,19 +88,20 @@
   }
   function queueCenterUnitAmount(model) {
     const a = (model && model.attributes) || model || {};
-    return +(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)) || 0;
+    return gbNum(a.count != null ? a.count : (a.amount != null ? a.amount : a.units));
   }
   function queueCenterTimeLeft(model) {
     const a = (model && model.attributes) || model || {};
     const now = gameNow();
-    const done = +(a.to_be_completed_at || a.completed_at || a.done_at || a.time_finished || 0);
-    if (done > 0) return Math.max(0, done - now);
-    const left = +(a.time_left || a.remaining_time || a.recruitment_time || a.research_time || a.building_time || 0);
-    return left > 0 ? left : null;
+    const done = gbNum(a.to_be_completed_at ?? a.completed_at ?? a.done_at ?? a.time_finished);
+    if (done != null && done > 0) return Math.max(0, done - now);
+    const left = gbNum(a.time_left ?? a.remaining_time ?? a.recruitment_time ?? a.research_time ?? a.building_time);
+    return left != null && left > 0 ? left : null;
   }
   function queueCenterFmt(sec) {
-    if (sec == null || !Number.isFinite(+sec)) return '';
-    sec = Math.max(0, Math.floor(+sec));
+    sec = gbNum(sec);
+    if (sec == null) return '\u2014';
+    sec = Math.max(0, Math.floor(sec));
     const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), ss = sec % 60;
     return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m ${String(ss).padStart(2, '0')}s`;
   }
@@ -150,7 +151,8 @@
     const nm = document.createElement('b'); nm.textContent = label;
 
     const t = document.createElement('span'); t.className = 'gb-qc-eta'; t.textContent = queueCenterFmt(sec);
-    if (sec != null && Number.isFinite(+sec)) { t.dataset.eta = String(Math.max(0, +sec)); t.dataset.t0 = String(Date.now()); }
+    const eta = gbNum(sec);
+    if (eta != null) { t.dataset.eta = String(Math.max(0, eta)); t.dataset.t0 = String(Date.now()); }
     r.append(n, nm, t); return r;
   }
 
@@ -403,8 +405,9 @@
     const live = queueCenterLiveCard(body, `Cola real \u00b7 ${label}`, q.known ? `${liveModels.length}${q.max != null ? ' / ' + q.max : ''}` : 'estado no legible', 'Numero de ordenes reales en la cola del cuartel/puerto',
       liveModels.map(m => {
         const id = queueCenterUnitId(m);
+        const amount = queueCenterUnitAmount(m);
         return {
-          label: `${queueCenterUnitAmount(m)}\u00d7 ${nativeUnitLabel(id)}`,
+          label: `${amount == null ? '\u2014' : amount + '\u00d7'} ${nativeUnitLabel(id)}`,
           sec: queueCenterTimeLeft(m),
           numTitle: `posici\u00f3n en la cola real de ${label.toLowerCase()}`,
         };
@@ -567,7 +570,7 @@
       const w = document.createElement('div');
       w.id = 'grepbot-queue-center';
 
-      w.innerHTML = `<header><b>Colas GrepBot</b><select class="gb-qc-town" title="Ciudad que est\u00e1s gestionando"></select><span class="gb-qc-spacer"></span><button class="gb-qc-refresh" title="Actualizar">\u21bb</button><button class="gb-qc-close" title="Cerrar">\u00d7</button></header><nav><button class="gb-qc-tab" data-qtab="build" data-gb-tip="Cola de construccion (edificios)">Construcci\u00f3n</button><button class="gb-qc-tab" data-qtab="research" data-gb-tip="Cola de investigacion (academia)">Investigaci\u00f3n</button><button class="gb-qc-tab" data-qtab="barracks" data-gb-tip="Cola de reclutamiento del cuartel">Cuartel</button><button class="gb-qc-tab" data-qtab="docks" data-gb-tip="Cola de reclutamiento del puerto">Puerto</button></nav><div class="gb-qc-body"></div>`;
+      w.innerHTML = gbLit('<header><b>Colas GrepBot</b><select class="gb-qc-town" title="Ciudad que est\u00e1s gestionando"></select><span class="gb-qc-spacer"></span><button class="gb-qc-refresh" title="Actualizar">\u21bb</button><button class="gb-qc-close" title="Cerrar">\u00d7</button></header><nav><button class="gb-qc-tab" data-qtab="build" data-gb-tip="Cola de construccion (edificios)">Construcci\u00f3n</button><button class="gb-qc-tab" data-qtab="research" data-gb-tip="Cola de investigacion (academia)">Investigaci\u00f3n</button><button class="gb-qc-tab" data-qtab="barracks" data-gb-tip="Cola de reclutamiento del cuartel">Cuartel</button><button class="gb-qc-tab" data-qtab="docks" data-gb-tip="Cola de reclutamiento del puerto">Puerto</button></nav><div class="gb-qc-body"></div>');
       document.body.appendChild(w);
       gbTipWalk(w);
       try { applyTheme(); } catch (_) {}
@@ -596,4 +599,3 @@
     queueCenterPaint(false);
     queueCenterStartTick();
   }
-

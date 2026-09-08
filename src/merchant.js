@@ -1,8 +1,8 @@
   function merchantRowPrice(w) {
     if (!w || typeof w !== 'object') return null;
     if (String(w.pricedIn || '') !== 'exchange') return null;
-    const n = +w.maxPrice;
-    return Number.isFinite(n) && n > 0 ? n : null;
+    const n = gbNum(w.maxPrice);
+    return n != null && n > 0 ? n : null;
   }
   function merchantScan(reason) {
     if (!hostEnabled() || !state.autoMerchant || captchaPaused('merchant')) return;
@@ -71,8 +71,9 @@
     const affordable = Math.floor(room.out / offer.costPer);
     const bounds = [affordable];
     if (offer.stock != null) bounds.push(offer.stock);
-    const want = Math.floor(+job.wish.amount);
-    if (Number.isFinite(want) && want > 0) bounds.push(want);
+    const wantRaw = gbNum(job.wish.amount);
+    const want = wantRaw == null ? null : Math.floor(wantRaw);
+    if (want != null && want > 0) bounds.push(want);
     const amount = Math.floor(Math.min.apply(null, bounds));
     if (!(amount > 0)) {
       gbLogT('merchant-poor', 300000,

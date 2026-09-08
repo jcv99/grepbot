@@ -203,8 +203,8 @@
     } catch (_) { return '#' + String(townId); }
   }
   function telegramCompactNumber(n) {
-    if (!Number.isFinite(+n)) return '?';
-    const v = +n;
+    const v = gbNum(n);
+    if (v == null) return '\u2014';
     if (Math.abs(v) >= 1000000) return (v / 1000000).toFixed(v >= 10000000 ? 0 : 1).replace(/\.0$/, '') + 'M';
     if (Math.abs(v) >= 1000) return (v / 1000).toFixed(v >= 100000 ? 0 : 1).replace(/\.0$/, '') + 'k';
     return String(Math.round(v));
@@ -353,8 +353,9 @@
   })();
 
   function telegramFmtClock(ts) {
-    if (!(+ts > 0)) return '?';
-    try { return new Date(+ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}); } catch (_) { return new Date(+ts).toISOString(); }
+    const n = gbNum(ts);
+    if (n == null || !(n > 0)) return '\u2014';
+    try { return new Date(n).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}); } catch (_) { return new Date(n).toISOString(); }
   }
   function telegramCriticalDetailedMessage(pending) {
     const lines = ['🛠️ GrepBot · diagnostico', 'Version: ' + GB_RELEASE, 'Mundo: ' + telegramWorldLabel(), 'Hora: ' + telegramFmtClock(Date.now())];
@@ -489,8 +490,9 @@
   function telegramMovementEtaText(m) {
     let eta = null;
     try { eta = dodgeEtaSec(m); } catch (_) {}
-    if (eta == null || !Number.isFinite(+eta)) return 'ETA ?';
-    eta = Math.max(0, +eta);
+    eta = gbNum(eta);
+    if (eta == null) return 'ETA \u2014';
+    eta = Math.max(0, eta);
     if (eta < 60) return 'ETA ' + Math.ceil(eta) + 's';
     if (eta < 3600) return 'ETA ' + Math.ceil(eta / 60) + 'm';
     return 'ETA ' + Math.floor(eta / 3600) + 'h ' + Math.ceil((eta % 3600) / 60) + 'm';
@@ -562,17 +564,17 @@
     return true;
   }
   function telegramWarehouseThresholdPct() {
-    const n = Number(state.telegramWarehousePct);
-    return Math.max(90, Math.min(100, Number.isFinite(n) ? n : 95));
+    const n = gbNum(state.telegramWarehousePct);
+    return Math.max(90, Math.min(100, n != null ? n : 95));
   }
   function telegramWarehouseDelayMs() {
-    const n = Number(state.telegramWarehouseMin);
-    return Math.max(1, Math.min(180, Number.isFinite(n) ? n : 15)) * 60000;
+    const n = gbNum(state.telegramWarehouseMin);
+    return Math.max(1, Math.min(180, n != null ? n : 15)) * 60000;
   }
   function telegramWarehouseDiagnostic(town, resource) {
     const d = { reason:'sin salida automatica ejecutable', townId:town&&String(town.id), resource:String(resource||''), amount:null, cap:null, fill:null, tradeCap:null, rural:{known:false,count:0,best:null}, intercity:{known:false,checked:0,eligible:0,best:null} };
     if (!town || !GB_RES_KEYS.includes(resource)) { d.reason='estado de ciudad ilegible'; return d; }
-    d.amount = town[resource] != null && Number.isFinite(+town[resource]) ? +town[resource] : null; d.cap=town.cap!=null&&Number.isFinite(+town.cap)?+town.cap:null; d.fill=d.amount!=null&&d.cap>0?d.amount/d.cap:null; d.tradeCap=town.tradeCap!=null&&Number.isFinite(+town.tradeCap)?+town.tradeCap:null;
+    d.amount=gbNum(town[resource]);d.cap=gbNum(town.cap);d.fill=d.amount!=null&&d.cap>0?d.amount/d.cap:null;d.tradeCap=gbNum(town.tradeCap);
     if (d.fill == null) { d.reason='nivel de almacen ilegible'; return d; }
     if (town.tradeCap == null) { d.reason='capacidad mercante ilegible'; return d; }
     if (!(town.tradeCap > 0)) { d.reason='sin capacidad mercante libre'; return d; }
@@ -630,13 +632,13 @@
   function telegramWarehouseDiagnosticLines(a) {
     const d=a.diag||telegramWarehouseDiagnostic(a.town,a.resource), lines=[];
     const id=telegramDiagErrorId('warehouse', a.resource, String(a.town&&a.town.id)+'|'+d.reason);
-    const amt=d.amount==null?'?':Math.round(d.amount), cap=d.cap==null?'?':Math.round(d.cap), pct=d.fill==null?'?':(d.fill*100).toFixed(1)+'%';
+    const amt=d.amount==null?'\u2014':Math.round(d.amount), cap=d.cap==null?'\u2014':Math.round(d.cap), pct=d.fill==null?'\u2014':(d.fill*100).toFixed(1)+'%';
     lines.push('• ' + telegramTownLabelById(a.town.id) + ' · ' + a.resource + ' ' + amt + '/' + cap + ' (' + pct + ') · ID ' + id);
-    lines.push('  Mercantes: ' + (d.tradeCap==null?'?':Math.round(d.tradeCap)) + ' · Rural: ' + (d.rural.known ? (d.rural.count + ' ejecutable(s)' + (d.rural.best?' · mejor ratio '+d.rural.best.ratio+' amt '+d.rural.best.amount:'')) : '?'));
+    lines.push('  Mercantes: ' + (d.tradeCap==null?'\u2014':Math.round(d.tradeCap)) + ' · Rural: ' + (d.rural.known ? (d.rural.count + ' ejecutable(s)' + (d.rural.best?' · mejor ratio '+d.rural.best.ratio+' amt '+d.rural.best.amount:'')) : '\u2014'));
     if (d.intercity.known) {
       const best=d.intercity.best;
       lines.push('  Ciudad→ciudad: ' + d.intercity.checked + ' analizada(s) · ' + d.intercity.eligible + ' elegible(s)' + (d.intercity.underAttack ? ' · ' + d.intercity.underAttack + ' bajo ataque' : '') + (best ? ' · mejor ' + telegramTownLabelById(best.id) + ' ' + (best.fill*100).toFixed(1) + '%' : ''));
-    } else lines.push('  Ciudad→ciudad: ?');
+    } else lines.push('  Ciudad→ciudad: \u2014');
     lines.push('  Motivo final: ' + d.reason);
     return lines;
   }
@@ -761,10 +763,10 @@
       const r=(state.townResources||{})[townId] || (state.townResources||{})[String(townId)];
       if (r && r.ok !== false) return {
         id:+townId,
-        wood:Number.isFinite(+r.wood)?+r.wood:null,
-        stone:Number.isFinite(+r.stone)?+r.stone:null,
-        iron:Number.isFinite(+r.iron)?+r.iron:null,
-        cap:Number.isFinite(+r.cap)&&+r.cap>0?+r.cap:null,
+        wood:gbNum(r.wood),
+        stone:gbNum(r.stone),
+        iron:gbNum(r.iron),
+        cap:(()=>{const n=gbNum(r.cap);return n!=null&&n>0?n:null})(),
       };
     } catch (_) {}
     return { id:+townId, wood:null, stone:null, iron:null, cap:null };
@@ -803,16 +805,16 @@
     const unknownTx = Object.values(state.txState || {}).filter(t => t && /^(unknown|manual-review)$/.test(String(t.state || ''))).length;
     const allResourcesUnreadable = townIds.length > 0 && GB_RES_KEYS.every(k => readable[k] === 0);
     const resourcesLine = allResourcesUnreadable
-      ? 'Recursos: ? (sin lectura actual)'
+      ? 'Recursos: \u2014 (sin lectura actual)'
       : 'Recursos: 🪵 ' + telegramCompactNumber(totals.wood) + ' · 🪨 ' + telegramCompactNumber(totals.stone) + ' · 🪙 ' + telegramCompactNumber(totals.iron);
     const lines = ['📊 GrepBot · resumen horario', 'Mundo: ' + telegramWorldLabel(),
       'Ciudades: ' + townIds.length,
       resourcesLine,
       'Colas activas: 🏗️ ' + buildActive + ' · 📚 ' + researchActive + ' · ⚔️ ' + recruitActive,
-      'Aldeas listas: ' + (farmReady == null ? '?' : String(farmReady)) + '/' + (farmTotal == null ? '?' : String(farmTotal)),
-      'Ataques entrantes: ' + (attacks == null ? '?' : String(attacks)),
+      'Aldeas listas: ' + (farmReady == null ? '\u2014' : String(farmReady)) + '/' + (farmTotal == null ? '\u2014' : String(farmTotal)),
+      'Ataques entrantes: ' + (attacks == null ? '\u2014' : String(attacks)),
       'Almacenes ≥95%: ' + (hot.length ? hot.slice(0,6).join(', ') + (hot.length > 6 ? ' +' + (hot.length - 6) : '') : 'ninguno'),
-      'Cueva: ' + (caveKnown ? telegramCompactNumber(caveStored) + ' plata guardada' : '?'),
+      'Cueva: ' + (caveKnown ? telegramCompactNumber(caveStored) + ' plata guardada' : '\u2014'),
       'Salud: ' + (recentErrors.length ? '⚠️ ' + recentErrors.slice(0,6).map(g => g.feature + '×' + g.count + (g.lastId ? ' [' + g.lastId + ']' : '')).join(' · ') : 'sin errores recientes') + (unknownTx ? ' · ' + unknownTx + ' tx por revisar' : '')
     ];
     const townsWithAnyUnreadable = towns.filter(t => GB_RES_KEYS.some(k => t[k] == null || !Number.isFinite(+t[k]))).length;

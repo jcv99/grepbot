@@ -39,7 +39,8 @@
       if (!Ctx) return;
       const ctx = new Ctx();
       const tones = CHIME_TONES[event] || CHIME_TONES._default;
-      const vol = Math.max(0, Math.min(1, Number.isFinite(+state.notifyVolume) ? +state.notifyVolume : 0.4));
+      const volume = gbNum(state.notifyVolume);
+      const vol = Math.max(0, Math.min(1, volume != null ? volume : 0.4));
       tones.forEach((hz, i) => {
         const o = ctx.createOscillator(), g = ctx.createGain();
         o.type = 'sine'; o.frequency.value = hz;

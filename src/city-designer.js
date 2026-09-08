@@ -8,7 +8,7 @@
   function cdCanonicalProfile(profile){const p=String(profile||'');return CD_PROFILE_ALIASES[p]||p}
   function cdIsProfile(profile){return !!CD_PROFILE_DEFAULTS[cdCanonicalProfile(profile)]}
   function cdGoalClone(v){try{return JSON.parse(JSON.stringify(v))}catch(_){return null}}
-  function cdGoalStamp(g){const c=g&&g.cd&&typeof g.cd==='object'?g.cd:{};return {revision:Number.isFinite(+c.revision)?+c.revision:0,at:Math.max(+c.lastRevisionAt||0,+c.changedAt||0,+c.stripStartedAt||0)}}
+  function cdGoalStamp(g){const c=g&&g.cd&&typeof g.cd==='object'?g.cd:{},revision=gbNum(c.revision);return {revision:revision!=null?revision:0,at:Math.max(gbNum(c.lastRevisionAt)||0,gbNum(c.changedAt)||0,gbNum(c.stripStartedAt)||0)}}
   const CD_OPTION_FIELDS=Object.freeze(['stripEnabled','safeBackline','breakthrough','wallMax']);
   const CD_OPTION_MISSING=Object.freeze({});
   function cdOptionStorageKey(townId,key){return `grepbot:cd-option-v1@${String(location.hostname||location.host||'')}:${String(townId)}:${String(key)}`}
@@ -29,7 +29,7 @@
   function cdTownState(townId){
     const g=goalTownCfg(townId); if(!g.cd||typeof g.cd!=='object'||Array.isArray(g.cd))g.cd={};
     const c=g.cd;
-    if(!Number.isFinite(+c.revision)||+c.revision<1)c.revision=1;else c.revision=Math.floor(+c.revision);
+    const revision=gbNum(c.revision);if(revision==null||revision<1)c.revision=1;else c.revision=Math.floor(revision);
     if(typeof c.stripEnabled!=='boolean')c.stripEnabled=false;
     if(typeof c.safeBackline!=='boolean')c.safeBackline=false;
     if(typeof c.breakthrough!=='boolean')c.breakthrough=false;
@@ -66,8 +66,8 @@
     const c={architecture:['architecture'],crane:['crane'],slinger:['slinger'],meteorology:['meteorology'],trainer:['trainer','instructor'],shipwright:['shipwright'],lightship:['attack_ship','light_ship'],conscription:['conscription','mandatory_military_service'],fast:['small_transporter','fast_transport_ship','small_transport'],plow:['plow'],bunks:['bunks','berth','berths'],phalanx:['phalanx'],mathematics:['mathematics'],ram:['ram'],cartography:['cartography'],bireme:['bireme'],trireme:['trireme'],archer:['archer'],hoplite:['hoplite'],breakthrough:['breakthrough','penetration']};
     return cdFindId('researches',c[role]||[role])
   }
-  function cdUnitPop(unit){const d=unit&&gbGameDataLookup('units',unit);const n=d&&+(d.population??d.pop);return Number.isFinite(n)&&n>0?n:null}
-  function cdResearchNeedAcademy(tech){const d=tech&&gbGameDataLookup('researches',tech);if(!d)return null;const n=+(d.academy_level??d.required_academy_level??d.building_level??d.level);return Number.isFinite(n)&&n>=0?n:0}
+  function cdUnitPop(unit){const d=unit&&gbGameDataLookup('units',unit),n=gbNum(d&&(d.population??d.pop));return n!=null&&n>0?n:null}
+  function cdResearchNeedAcademy(tech){const d=tech&&gbGameDataLookup('researches',tech);if(!d)return null;const n=gbNum(d.academy_level??d.required_academy_level??d.building_level??d.level);return n!=null&&n>=0?n:0}
   function cdResearchRoles(profile,townId){
     const canon=cdCanonicalProfile(profile), c=cdTownState(townId);let roles=['architecture','crane'];
     if(canon==='cd_slinger_50ls')roles=roles.concat(['slinger','meteorology','trainer','shipwright','lightship','conscription','fast','plow','bunks','phalanx','mathematics','ram','cartography']);
@@ -133,7 +133,7 @@
   function cdBuildTargets(townId){const g=goalTownCfg(townId);return cdFinalBuild(g.profile,townId)}
   function cdBuildOrder(townId){const canon=cdCanonicalProfile(goalTownCfg(townId).profile),wall=!!cdTownState(townId).wallMax;const common=['farm','storage','main','lumber','stoner','ironer','market','hide','academy','temple'];let out;if(canon==='cd_slinger_50ls')out=['farm','storage','main','lumber','stoner','ironer','barracks','academy','docks','market','hide','temple','thermal'];else if(canon==='cd_defense')out=['farm','storage','main','lumber','ironer','stoner','barracks','academy','docks','market','hide','temple','thermal','tower'];else out=['farm','storage','main','lumber','stoner','ironer','docks','academy','market','hide','temple','thermal','lighthouse'].filter(x=>common.includes(x)||['docks','thermal','lighthouse'].includes(x));if(wall&&!out.includes('wall'))out.unshift('wall');return out}
   function cdQueuedUnitAmount(townId,unit){try{return +recruitQueuedAmount(townId,unit)||0}catch(_){return 0}}
-  function cdAvailablePopulation(townId){try{const t=gbTownModel(townId);const n=t&&t.getAvailablePopulation&&+t.getAvailablePopulation();return Number.isFinite(n)?Math.max(0,n):null}catch(_){return null}}
+  function cdAvailablePopulation(townId){try{const t=gbTownModel(townId),n=t&&t.getAvailablePopulation?gbNum(t.getAvailablePopulation()):null;return n!=null?Math.max(0,n):null}catch(_){return null}}
   function cdCountsWithQueued(townId,units){const st=goalUnitCountsState(townId);if(!st.known)return null;const current=st.counts,out={};for(const u of units.filter(Boolean))out[u]=Math.max(0,+current[u]||0)+cdQueuedUnitAmount(townId,u);return out}
   function cdSolveLandBudget(budget,fixedShipCount,shipPop,mainPop,transportPop,capacity,minTransport){
     if(![budget,fixedShipCount,shipPop,mainPop,transportPop,capacity].every(Number.isFinite)||budget<0||mainPop<=0||transportPop<=0||capacity<=0)return {feasible:false};
@@ -144,8 +144,9 @@
     return {feasible:true,main,transport,fixed:fixedShipCount,used,free:budget-used,landPopulation};
   }
   function cdSolveDefenseBudget(budget,pops,transportPop,capacity,mins){
-    if(!Number.isFinite(budget)||budget<0)return {feasible:false};const den=+(pops&&pops.sword)+ +(pops&&pops.archer)+2*+(pops&&pops.hoplite);
-    if(!(den>0)||!Number.isFinite(transportPop)||transportPop<0||!Number.isFinite(capacity)||!(capacity>0))return {feasible:false};
+    const budgetN=gbNum(budget),swordPop=gbNum(pops&&pops.sword),archerPop=gbNum(pops&&pops.archer),hoplitePop=gbNum(pops&&pops.hoplite),transportPopN=gbNum(transportPop),capacityN=gbNum(capacity);
+    if(budgetN==null||budgetN<0||swordPop==null||archerPop==null||hoplitePop==null)return {feasible:false};const den=swordPop+archerPop+2*hoplitePop;
+    if(!(den>0)||transportPopN==null||transportPopN<0||capacityN==null||!(capacityN>0))return {feasible:false};budget=budgetN;transportPop=transportPopN;capacity=capacityN;pops={sword:swordPop,archer:archerPop,hoplite:hoplitePop};
     const m=mins||{},evalBlocks=blocks=>{const sword=Math.max(m.sword||0,blocks),archer=Math.max(m.archer||0,blocks),hoplite=Math.max(m.hoplite||0,2*blocks),landPopulation=sword*pops.sword+archer*pops.archer+hoplite*pops.hoplite,transport=Math.max(m.transport||0,Math.ceil(landPopulation/capacity)),used=landPopulation+transport*transportPop;return{sword,archer,hoplite,transport,landPopulation,used}};
     const zero=evalBlocks(0);if(zero.used>budget)return {feasible:false};let lo=0,hi=Math.floor(budget/den);while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(evalBlocks(mid).used<=budget)lo=mid;else hi=mid-1}
     const e=evalBlocks(lo);return {feasible:true,sword:e.sword,archer:e.archer,hoplite:e.hoplite,transport:e.transport,landPopulation:e.landPopulation,used:e.used,free:budget-e.used};
@@ -245,4 +246,4 @@
   function cdHasAnyTown(){let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){}return ids.some(id=>cdIsProfile(goalTownCfg(id).profile))}
   function cityDesignerHasExecutableWork(kind){if(!cdHasAnyTown())return false;let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){};for(const id of ids){if(!cdIsProfile(goalTownCfg(id).profile))continue;if(kind==='build'){const levels=abCurrentLevels(id);if(!levels)return true;const tar=cdBuildTargets(id);if(Object.entries(tar).some(([b,n])=>+n>0&&+(levels[b]||0)<+n))return true;if(cdDemolitionCandidate(id,levels))return true}else if(kind==='research'){if(cdResearchExecutable(id))return true}else if(kind==='recruit'){
         if(!cdBuildDone(id)||!cdCompositionResearchReady(id))continue;if(!cdArmyDone(id))return true}}return false}
-  function cdEffective(townId){const g=goalTownCfg(townId),canon=cdCanonicalProfile(g.profile),p=CD_PROFILE_DEFAULTS[canon]||{label:canon};const rt=cdResearchTargets(townId),research={};for(const [id,v] of Object.entries(rt))if(id!=='__cdUnresolved'&&v&&v.tgt)research[id]=1;const units=cdRecruitTargets(townId),clean={};for(const [u,n] of Object.entries(units||{}))if(!u.startsWith('__')&&Number.isFinite(+n)&&+n>=0)clean[u]=+n;return {profile:canon,label:p.label||canon,build:cdBuildTargets(townId),research,units:clean,reserve:{hard:{},soft:{}},defensive:canon==='cd_defense'?0.8:0.2,resource:{wood:0,stone:0,iron:0},cd:{revision:cdProfileRevision(townId),phase:cdPhase(townId),feasible:units&&units.__cdFeasible!==false,unresolvedResearch:rt.__cdUnresolved||[]}}}
+  function cdEffective(townId){const g=goalTownCfg(townId),canon=cdCanonicalProfile(g.profile),p=CD_PROFILE_DEFAULTS[canon]||{label:canon};const rt=cdResearchTargets(townId),research={};for(const [id,v] of Object.entries(rt))if(id!=='__cdUnresolved'&&v&&v.tgt)research[id]=1;const units=cdRecruitTargets(townId),clean={};for(const [u,n] of Object.entries(units||{})){const value=gbNum(n);if(!u.startsWith('__')&&value!=null&&value>=0)clean[u]=value}return {profile:canon,label:p.label||canon,build:cdBuildTargets(townId),research,units:clean,reserve:{hard:{},soft:{}},defensive:canon==='cd_defense'?0.8:0.2,resource:{wood:0,stone:0,iron:0},cd:{revision:cdProfileRevision(townId),phase:cdPhase(townId),feasible:units&&units.__cdFeasible!==false,unresolvedResearch:rt.__cdUnresolved||[]}}}

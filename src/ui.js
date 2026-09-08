@@ -297,14 +297,14 @@
   function popCell(ps, r) {
     const cap = (ps && ps.cap) ?? (r && r.cap);
     const used = (ps && ps.used != null) ? ps.used : (r && r.ok ? r.pop : null);
-    if (used == null && !(cap > 0)) return { cls: '', text: '-' };
-    const pctTxt = (ps && ps.usedPct != null) ? ` · ${ps.usedPct}%` : ' · -';
+    if (used == null && !(cap > 0)) return { cls: '', text: '\u2014' };
+    const pctTxt = (ps && ps.usedPct != null) ? ` · ${ps.usedPct}%` : ' · \u2014';
     const eta = (ps && ps.etaMs != null) ? ' · ' + fmtSec(Math.round(ps.etaMs / 1000)) : ' · —';
     const cls = ps && ps.warn ? 'pop-warn' : (ps && ps.near ? 'pop-near' : '');
     return { cls, text: `${fmt(used)}/${fmt(cap)}${pctTxt}${eta}` };
   }
   function fmt(n) {
-    if (n == null) return '-';
+    if (n == null) return '\u2014';
     if (n >= 1000000) return (n/1000000).toFixed(1) + 'M';
     if (n >= 1000) return Math.round(n/1000) + 'k';
     return String(n);
@@ -313,7 +313,7 @@
   // Stroke icons on a 24-unit grid, one visual family. LITERAL markup only -
   // these strings are assigned through gbLit, so nothing off the wire may ever
   // reach them (same rule as the panel template).
-  const GB_ICONS = {
+  const GB_ICONS = Object.freeze({
     home: '<path d="M3 11l9-7 9 7"></path><path d="M5 10v10h14V10"></path>',
     sword: '<path d="M4 20l7-7"></path><path d="M14 4l6 6-9 9H5v-6z"></path>',
     gear: '<circle cx="12" cy="12" r="3"></circle><path d="M19 12a7 7 0 0 0-.2-1.6l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2.8-1.6L13.4 2h-3.9l-.3 2.9a7 7 0 0 0-2.8 1.6l-2.3-1-2 3.4 2 1.5a7 7 0 0 0 0 3.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2.8 1.6l.3 2.9h3.9l.3-2.9a7 7 0 0 0 2.8-1.6l2.3 1 2-3.4-2-1.5c.1-.5.2-1 .2-1.6z"></path>',
@@ -328,7 +328,7 @@
     alert: '<path d="M12 3l9 16H3z"></path><path d="M12 9v5"></path><path d="M12 17h.01"></path>',
     info: '<circle cx="12" cy="12" r="9"></circle><path d="M12 8v5"></path><path d="M12 16h.01"></path>',
     check: '<circle cx="12" cy="12" r="9"></circle><path d="M8 12.5l2.5 2.5 5-5"></path>',
-  };
+  });
   function gbIcon(name, size, color) {
     const body = GB_ICONS[name];
     if (!body) return null;
@@ -342,7 +342,8 @@
     el.setAttribute('stroke-linecap', 'round');
     el.setAttribute('stroke-linejoin', 'round');
     el.setAttribute('aria-hidden', 'true');
-    el.innerHTML = gbLit(body);
+    const parsed = new DOMParser().parseFromString(`<svg xmlns="http://www.w3.org/2000/svg">${body}</svg>`, 'image/svg+xml');
+    Array.from(parsed.documentElement.children).forEach(child => el.appendChild(document.importNode(child, true)));
     return el;
   }
 
@@ -374,6 +375,10 @@
   const TAB_IDS = TAB_GROUPS.reduce((a, g) => { g.tabs.forEach(t => a.push(t.id)); return a; }, []);
   const _lastTabInGroup = {};
   let configBound = false;
+  // bindConfig() and the restored initial tab can log while this module is
+  // still evaluating. Keep this state initialized before either path runs.
+  let logRenderQueued = false;
+  const LOG_VIEW_MAX = 2000;
   let findingsFilterEl = null;
   function tabGroupOf(tabId) {
     for (const g of TAB_GROUPS) {
@@ -1003,25 +1008,11 @@
     fallback();
   }
 
-  function gbSection(title, body, open) {
-    return `<details class="gb-section"${open ? ' open' : ''}><summary>${title}</summary><div class="gb-section-body">${body}</div></details>`;
-  }
-  // Same block, for the Config tab. `tone` is a css class ('risk' paints the
-  // header orange). Every group is a plain <details> so the filter in
-  // bindConfig can open/close it and hide whole groups without touching the
-  // controls themselves - bindConfig still finds every control by
-  // `[data-cfg=...]`, so grouping is presentation only.
-  function gbCfgGroup(title, body, open, tone) {
-    return `<details class="gb-section gb-cfg-group${tone ? ' ' + tone : ''}"${open ? ' open' : ''}><summary>${title}</summary><div class="gb-section-body">${body}</div></details>`;
-  }
-
-  // LITERAL ONLY - no interpolation. The only `${}` allowed in this template are
-  // build-time constants (runningVersion()) and gbSection() calls whose bodies
-  // are themselves literal. Never interpolate a player name, town name, alliance
+  // LITERAL ONLY - no interpolation. Never interpolate a player name, town name, alliance
   // name, report field or anything else that came off the wire: this is the one
   // string in the panel big enough that an added `${x}` reads as harmless, and it
   // would be the repo's first XSS sink. Wire data goes through textContent.
-  panel.innerHTML = `
+  panel.innerHTML = gbLit(`
     <header><div class="gb-head-main"><b>GrepBot v<span id="gb-head-ver"></span></b><div class="gb-head-status"><span id="gb-head-mode" class="gb-pill" data-gb-tip="Perfil activo (AFK / recoleccion / guerra / personalizado)">...</span><span id="gb-head-health" class="gb-pill" data-gb-tip="Salud agregada del bot: OK / con errores / parado">...</span></div></div><div style="display:flex;gap:4px"><button data-act="queues" title="Abrir centro de colas">Colas</button><button data-act="toggle" title="Minimizar">_</button></div></header>
     <div class="gb-qat" role="toolbar" aria-label="GrepBot acciones rapidas">
       <select data-qs="town" title="Cambiar de ciudad" style="background:var(--gb-input-bg);color:var(--gb-input-fg);border:1px solid var(--gb-chrome);font-size:10px;max-width:150px"></select>
@@ -1286,11 +1277,11 @@
         <button id="gb-quick-sim" data-gb-tip="Simular 24 h para ver que haria el bot">Simular 24 h</button>
         <button id="gb-quick-config" data-gb-tip="Abrir la pestaña de configuracion (Ajustes)">Ajustes</button>
       </div>
-      ${gbSection('Objetivos y cola por ciudad', '<div class="goals-panel" style="font-size:10px;max-height:300px;overflow:auto"></div>', true)}
-      ${gbSection('Recursos y reservas', '<div class="planner-controls" style="font-size:10px;display:flex;gap:5px;flex-wrap:wrap;align-items:center"></div><div class="planner-panel" style="font-size:10px;max-height:240px;overflow:auto;margin-top:6px"></div>')}
-      ${gbSection('Simulación y motivos', '<div style="display:flex;gap:5px;align-items:center;margin-bottom:5px"><label data-gb-tip="Horas a simular (1-168)">Horizonte <input id="gb-sim-hours" type="number" min="1" max="168" value="24" style="width:55px;background:#111;color:#cfc;border:1px solid #444;border-radius:4px;padding:3px"/> h</label><button id="gb-sim-run" class="gb-action" data-gb-tip="Correr la simulacion con el horizonte indicado">Simular</button></div><pre class="sim-panel" style="font-size:10px;white-space:pre-wrap;margin:0 0 6px;max-height:160px;overflow:auto"></pre><pre class="why-panel" style="font-size:10px;white-space:pre-wrap;margin:0;max-height:130px;overflow:auto;color:#bbb"></pre>')}
-      ${gbSection('Salud del sistema', '<div class="health-panel" style="font-size:10px;max-height:220px;overflow:auto"></div>')}
-      ${gbSection('Plantillas y copia de seguridad', '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="gb-tpl-name" placeholder="nombre de plantilla" style="width:130px;background:#111;color:#cfc;border:1px solid #444;border-radius:4px;padding:4px;font-size:11px" data-gb-tip="Nombre para guardar o aplicar una plantilla de configuracion"/><button id="gb-tpl-save" class="gb-action" data-gb-tip="Guardar la configuracion actual con el nombre indicado">Guardar plantilla</button><button id="gb-tpl-apply" class="gb-action" data-gb-tip="Aplicar la plantilla cuyo nombre escribiste arriba">Aplicar plantilla</button><button id="gb-cfg-export" class="gb-action" data-gb-tip="Exportar la configuracion completa al portapapeles">Exportar configuración</button><button id="gb-cfg-import" class="gb-action" data-gb-tip="Pegar e importar una configuracion previamente exportada">Importar configuración</button><button id="gb-cfg-download" class="gb-action" data-gb-tip="Descargar la configuracion completa como archivo .json">Descargar</button><button id="gb-cfg-upload" class="gb-action" data-gb-tip="Subir e importar una configuracion desde un archivo .json">Subir</button><input type="file" id="gb-cfg-file" accept=".json,application/json" hidden/><button id="gb-cfg-undo" class="gb-action" title="Deshacer el ultimo cambio de configuracion">Deshacer</button><button id="gb-cfg-redo" class="gb-action" title="Rehacer">Rehacer</button><span id="gb-cfg-hist" style="font-size:10px;color:#888"></span></div>')}
+      <details class="gb-section" open><summary>Objetivos y cola por ciudad</summary><div class="gb-section-body"><div class="goals-panel" style="font-size:10px;max-height:300px;overflow:auto"></div></div></details>
+      <details class="gb-section"><summary>Recursos y reservas</summary><div class="gb-section-body"><div class="planner-controls" style="font-size:10px;display:flex;gap:5px;flex-wrap:wrap;align-items:center"></div><div class="planner-panel" style="font-size:10px;max-height:240px;overflow:auto;margin-top:6px"></div></div></details>
+      <details class="gb-section"><summary>Simulación y motivos</summary><div class="gb-section-body"><div style="display:flex;gap:5px;align-items:center;margin-bottom:5px"><label data-gb-tip="Horas a simular (1-168)">Horizonte <input id="gb-sim-hours" type="number" min="1" max="168" value="24" style="width:55px;background:#111;color:#cfc;border:1px solid #444;border-radius:4px;padding:3px"/> h</label><button id="gb-sim-run" class="gb-action" data-gb-tip="Correr la simulacion con el horizonte indicado">Simular</button></div><pre class="sim-panel" style="font-size:10px;white-space:pre-wrap;margin:0 0 6px;max-height:160px;overflow:auto"></pre><pre class="why-panel" style="font-size:10px;white-space:pre-wrap;margin:0;max-height:130px;overflow:auto;color:#bbb"></pre></div></details>
+      <details class="gb-section"><summary>Salud del sistema</summary><div class="gb-section-body"><div class="health-panel" style="font-size:10px;max-height:220px;overflow:auto"></div></div></details>
+      <details class="gb-section"><summary>Plantillas y copia de seguridad</summary><div class="gb-section-body"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="gb-tpl-name" placeholder="nombre de plantilla" style="width:130px;background:#111;color:#cfc;border:1px solid #444;border-radius:4px;padding:4px;font-size:11px" data-gb-tip="Nombre para guardar o aplicar una plantilla de configuracion"/><button id="gb-tpl-save" class="gb-action" data-gb-tip="Guardar la configuracion actual con el nombre indicado">Guardar plantilla</button><button id="gb-tpl-apply" class="gb-action" data-gb-tip="Aplicar la plantilla cuyo nombre escribiste arriba">Aplicar plantilla</button><button id="gb-cfg-export" class="gb-action" data-gb-tip="Exportar la configuracion completa al portapapeles">Exportar configuración</button><button id="gb-cfg-import" class="gb-action" data-gb-tip="Pegar e importar una configuracion previamente exportada">Importar configuración</button><button id="gb-cfg-download" class="gb-action" data-gb-tip="Descargar la configuracion completa como archivo .json">Descargar</button><button id="gb-cfg-upload" class="gb-action" data-gb-tip="Subir e importar una configuracion desde un archivo .json">Subir</button><input type="file" id="gb-cfg-file" accept=".json,application/json" hidden/><button id="gb-cfg-undo" class="gb-action" title="Deshacer el ultimo cambio de configuracion">Deshacer</button><button id="gb-cfg-redo" class="gb-action" title="Rehacer">Rehacer</button><span id="gb-cfg-hist" style="font-size:10px;color:#888"></span></div></div></details>
     </section>
     <section data-tab="intel" hidden>
       <div style="font-size:11px;color:#f5a623;margin-bottom:4px">Intel / amenazas</div>
@@ -1326,7 +1317,7 @@
         <div class="gb-cfg-split">
         <nav class="gb-cfg-rail" aria-label="Grupos de ajustes"></nav>
         <div class="gb-cfg-panes">
-        ${gbCfgGroup('General y seguridad', `
+        <details class="gb-section gb-cfg-group" open><summary>General y seguridad</summary><div class="gb-section-body">
           <label class="gb-cfg-row" data-gb-tip="Activar el bot solo en este dominio (marcado por mundo)"><input type="checkbox" data-cfg="enabled-host"/> Activar en <span class="cfg-host"></span></label>
           <label class="gb-cfg-row" title="El unico freno pasa a ser el interruptor de arriba. Desactiva panico, cortacircuitos, memoria de decisiones, modo seguro, salud de plantillas, pausa nocturna, pausa por actividad y el frenado adaptativo del orquestador. El cortacircuitos de captcha y el enfriamiento por presion del servidor siguen activos: ahi el servidor ya esta rechazando el envio."><input type="checkbox" data-cfg="never-stop"/> <b class="gb-cfg-accent">No parar nunca (solo para con el interruptor de arriba)</b></label>
           <label class="gb-cfg-row gb-cfg-warn" data-gb-tip="Bloquea premium, ataques, favor, puntos y donaciones"><input type="checkbox" data-cfg="safe-mode"/> MODO SEGURO (bloquea premium/ataques/favor/puntos/donaciones)</label>
@@ -1338,8 +1329,8 @@
           <label class="gb-cfg-num" title="Por debajo del presupuesto duro: al pasar este % los envios se retrasan en vez de descartarse. 60 = empieza a frenar en el 60% de las peticiones/min.">Freno suave de envios (% del presupuesto) <input class="gb-cfg-input" type="number" data-cfg="posts-soft-pct" min="10" max="100" style="width:60px"/></label>
           <label class="gb-cfg-num" title="Minutos de pausa tras el 1er, 2o, 3er... captcha del mismo modulo. Lista separada por comas, de 1 a 1440. Vacio = 5,15,60.">Escalera de captcha (min) <input class="gb-cfg-input" type="text" data-cfg="captcha-ladder" placeholder="5,15,60" style="width:110px"/></label>
           <button data-cfg="clear-captcha" class="gb-cfg-btn danger" data-gb-tip="Limpiar los cortacircuitos de captcha de todos los modulos">Limpiar cortacircuitos de captcha</button>
-        `, true)}
-        ${gbCfgGroup('Recolección y aldeas', `
+        </div></details>
+        <details class="gb-section gb-cfg-group" open><summary>Recolección y aldeas</summary><div class="gb-section-body">
           <label class="gb-cfg-row" data-gb-tip="Cobrar recompensas visibles (boton Recoger) automaticamente"><input type="checkbox" data-cfg="auto-collect"/> Recoger recompensas de recursos visibles</label>
           <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Recoger aunque el tiempo mostrado sea mayor que el umbral"><input type="checkbox" data-cfg="collect-all"/> Recoger todo (ignora el tope de tiempo)</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Minutos maximos mostrados para que el bot recoja sin forzar">Minutos maximos para recoger <input class="gb-cfg-input" type="number" data-cfg="collect-max-min" min="1" max="120" style="width:70px"/></label>
@@ -1374,14 +1365,13 @@
           </label>
           <label class="gb-cfg-num gb-cfg-sub" title="Segundos de marcha por unidad de coordenada de isla. El juego no expone la formula de marcha, asi que 0 (por defecto) deja el ranking res/min independiente de la distancia.">Segundos de marcha por unidad de isla <input class="gb-cfg-input" type="number" data-cfg="farm-travel" min="0" max="600" step="0.5" style="width:60px"/></label>
           <label class="gb-cfg-row gb-cfg-sub" title="Bajo presion (captcha, enfriamiento del servidor o presupuesto justo) recorta la lista de aldeas en vez de ampliar la cadencia, y reclama primero las mas rentables."><input type="checkbox" data-cfg="adaptive-farm"/> Recoleccion adaptativa bajo presion</label>
-          <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="Permite que el barrido automatico y el boton 'Reclamo largo' usen la carta de 8h. APAGADO = maximo 4h. Default ON via perfiles afk/farming; apaga aqui para noquear la inundacion de 8h sobre todas las aldeas"><input type="checkbox" data-cfg="farm-long-claims"/> Permitir carta de cobro de 8 h (max 4 h si APAGADO)</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Porcentaje de aldeas a descartar bajo presion (de menos rentable a mas)">Descartar bajo presion <input class="gb-cfg-input" type="number" data-cfg="farm-drop-pct" min="0" max="90" style="width:45px"/> %</label>
           <div id="gb-farm-optmap" class="gb-cfg-note" data-gb-tip="Mapa aprendido: opcion de cobro de 10 min en este mundo"></div>
           <button data-cfg="farm-forget-options" class="gb-cfg-btn gb-cfg-sub" title="Borra el mapa de opciones aprendido (recursos y unidades) y reactiva la plantilla de cobro. Usalo si los cobros fallan seguido: vuelve a pulsar una recogida de 10 minutos a mano para reaprenderla.">Olvidar opciones de cobro aprendidas</button>
           <label class="gb-cfg-row" title="Lee los recursos de cada aldea por HTTP. Solo funciona en mundos cuyo cliente responde a una accion farm_town_*. Si no, cada barrido gasta el presupuesto de peticiones sin devolver nada y se apaga solo. Cadencia fija: 10 min + 1-2 min aleatorios."><input type="checkbox" data-cfg="farm-scrape"/> Escanear recursos de aldeas (HTTP)</label>
           <label class="gb-cfg-num" data-gb-tip="Cadencia del escaneo de ciudades: minimo y maximo en minutos">Cadencia de ciudades min-max (min) <input class="gb-cfg-input" type="number" data-cfg="town-min" min="1" max="60" style="width:50px"/> - <input class="gb-cfg-input" type="number" data-cfg="town-max" min="1" max="60" style="width:50px"/></label>
-        `, true)}
-        ${gbCfgGroup('Construcción e investigación', `
+        </div></details>
+        <details class="gb-section gb-cfg-group" open><summary>Construcción e investigación</summary><div class="gb-section-body">
           <label class="gb-cfg-row" data-gb-tip="Completar gratis la construccion en cola cuando el tiempo restante esta dentro del umbral"><input type="checkbox" data-cfg="auto-build"/> Construccion instantanea gratis</label>
           <label class="gb-cfg-row" data-gb-tip="Completar gratis la investigacion en la academia cuando esta dentro del umbral"><input type="checkbox" data-cfg="instant-research"/> Investigacion instantanea gratis (academia)</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Segundos antes de acabar para considerarlo gratis (max 290)">Umbral de instantanea gratis (s, tope de seguridad 290) <input class="gb-cfg-input" type="number" data-cfg="ib-free-thresh" min="60" max="300" style="width:70px"/></label>
@@ -1396,8 +1386,8 @@
           <div class="research-path gb-cfg-note" data-gb-tip="Camino de investigacion calculado para CS-fast"></div>
           <label class="gb-cfg-row" data-gb-tip="Cobrar el descuento de construccion que otorgan las misiones"><input type="checkbox" data-cfg="auto-quest-build"/> Cobrar el descuento de construccion de las misiones</label>
           <label class="gb-cfg-row" data-gb-tip="Cobrar automaticamente las recompensas de recursos y favor de misiones"><input type="checkbox" data-cfg="auto-quest-res"/> Cobrar recursos/favor de las misiones</label>
-        `, true)}
-        ${gbCfgGroup('Almacén, cueva y comercio', `
+        </div></details>
+        <details class="gb-section gb-cfg-group"><summary>Almacén, cueva y comercio</summary><div class="gb-section-body">
           <label class="gb-cfg-row" data-gb-tip="Guardar plata sobrante en la cueva cuando supera el umbral"><input type="checkbox" data-cfg="auto-cave"/> Cueva automatica (guarda la plata sobrante)</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Porcentaje de llenado del almacen a partir del cual la plata se guarda">Guardar cuando la plata &ge; % del almacen
             <input class="gb-cfg-input" type="number" data-cfg="cave-thresh" min="50" max="99" style="width:50px"/>
@@ -1443,8 +1433,8 @@
           <label class="gb-cfg-row gb-cfg-sub" data-gb-tip="El bot elige el recurso mas bajo del almacen y busca granjas en la misma isla que lo ofrezcan">Modo: equilibrar los 3 recursos (el mas bajo)</label>
           <label class="gb-cfg-row" data-gb-tip="Mejorar aldeas propias automaticamente"><input type="checkbox" data-cfg="auto-rural-level"/> Mejora de aldeas</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Nivel maximo al que se permite mejorar aldeas">Nivel maximo <input class="gb-cfg-input" type="number" data-cfg="rural-level-max" min="1" max="6" style="width:40px"/></label>
-        `)}
-        ${gbCfgGroup('Cultura', `
+        </div></details>
+        <details class="gb-section gb-cfg-group"><summary>Cultura</summary><div class="gb-section-body">
           <label class="gb-cfg-row" data-gb-tip="Lanzar festividades y celebraciones automaticamente"><input type="checkbox" data-cfg="auto-culture"/> Cultura automatica</label>
           <label class="gb-cfg-num gb-cfg-sub">
             <label data-gb-tip="Permitir festival"><input type="checkbox" data-cfg="cult-festival"/> festival</label>
@@ -1456,8 +1446,8 @@
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Oro maximo que el bot gastara al dia en olimpiadas">Presupuesto diario de oro para la olimpiada
             <input class="gb-cfg-input" type="number" data-cfg="culture-gold-budget" min="0" max="500" step="50" style="width:60px"/>
           </label>
-        `)}
-        ${gbCfgGroup('Ritmo y pausas', `
+        </div></details>
+        <details class="gb-section gb-cfg-group"><summary>Ritmo y pausas</summary><div class="gb-section-body">
           <label class="gb-cfg-row" data-gb-tip="Detectar actividad del usuario (movimientos del raton) y pausar el bot"><input type="checkbox" data-cfg="pause-activity"/> Pausar cuando estoy activo</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Minutos de pausa tras detectar actividad">Minutos de pausa <input class="gb-cfg-input" type="number" data-cfg="pause-ms" min="1" max="60" style="width:40px"/></label>
           <label class="gb-cfg-row" data-gb-tip="Pausar el bot durante la noche"><input type="checkbox" data-cfg="night-pause"/> Pausa nocturna</label>
@@ -1469,8 +1459,8 @@
             <span data-cfg-out="orch-cadence-scale" style="display:inline-block;min-width:36px;font-variant-numeric:tabular-nums">1.00x</span>
           </label>
           <div class="gb-cfg-note" data-gb-tip="Aplica a: cultura, cueva, investigacion, mercader, favor, prodigio, espionaje, heroe, conjuro divino, reclutamiento de aldea, reclutamiento por lotes. Excluido: aldeas, reclutar, reclutar lotes, reclutar aldea, construir, comercio, pt-trade, comercio rural, nivel rural.">Modulos a los que NO aplica (costo = presupuesto/captcha): aldeas, reclutar, reclutar lotes, reclutar aldea, construir, comercio, pt-trade, comercio rural, nivel rural.</div>
-        `)}
-        ${gbCfgGroup('Interfaz', `
+        </div></details>
+        <details class="gb-section gb-cfg-group"><summary>Interfaz</summary><div class="gb-section-body">
           <label class="gb-cfg-num" data-gb-tip="Tema visual del panel">Tema
             <select class="gb-cfg-input" data-cfg="theme" data-gb-tip="Tema visual del panel">
               <option value="dark">oscuro</option>
@@ -1482,8 +1472,8 @@
           <div class="key-list gb-cfg-note" data-gb-tip="Lista de atajos de teclado activos"></div>
           <button data-cfg="keybindings-edit" class="gb-cfg-btn gb-cfg-sub" data-gb-tip="Editar las combinaciones de atajos de teclado">Reasignar atajos...</button>
           <label class="gb-cfg-row" title="Anade un menu GrepBot junto al popup de ciudad del juego. No intercepta ningun evento del juego: solo se monta al lado."><input type="checkbox" data-cfg="context-menu"/> Menu contextual junto al popup del juego</label>
-        `)}
-        ${gbCfgGroup('Avisos y notificaciones', `
+        </div></details>
+        <details class="gb-section gb-cfg-group"><summary>Avisos y notificaciones</summary><div class="gb-section-body">
           <label class="gb-cfg-num" data-gb-tip="URL del webhook (Discord o Telegram) al que enviar avisos">URL de webhook <input class="gb-cfg-input" type="text" data-cfg="webhook-url" placeholder="webhook de Discord o https://api.telegram.org/bot.../sendMessage" style="width:100%;font-size:10px"/></label>
           <label class="gb-cfg-num" data-gb-tip="Tipos de evento que disparan un aviso al webhook">Eventos
             <label data-gb-tip="Aviso cuando aparece un captcha"><input type="checkbox" data-cfg="wh-captcha"/> captcha</label>
@@ -1502,8 +1492,8 @@
             volumen <input class="gb-cfg-input" type="number" data-cfg="notify-volume" min="0" max="100" step="10" style="width:50px" data-gb-tip="Volumen del sonido (0-100)"/>%
             <button data-cfg="notify-test" class="gb-cfg-btn" data-gb-tip="Disparar una notificacion de prueba">Probar</button>
           </label>
-        `)}
-        ${gbCfgGroup('Diagnóstico y datos', `
+        </div></details>
+        <details class="gb-section gb-cfg-group"><summary>Diagnóstico y datos</summary><div class="gb-section-body">
           <label class="gb-cfg-row" title="Guarda cada 5 min una instantanea acotada de la configuracion y el estado de transacciones. No copia la bitacora ni los hallazgos."><input type="checkbox" data-cfg="snapshots-on"/> Instantaneas de estado</label>
           <button data-cfg="snapshot-restore" class="gb-cfg-btn gb-cfg-sub" data-gb-tip="Restaurar una instantanea guardada anteriormente">Restaurar instantanea...</button>
           <label class="gb-cfg-row" title="Mide ms por llamada de cada bucle. Muy barato, pero por defecto OFF."><input type="checkbox" data-cfg="profiler-on"/> Perfilador de rendimiento</label>
@@ -1511,8 +1501,8 @@
           <label class="gb-cfg-row" title="Copiar/Exportar sustituyen nombres e ids de jugador por hashes cortos. Desactivalo solo para depurar en local."><input type="checkbox" data-cfg="export-redact"/> Anonimizar nombres/ids en Copiar y Exportar</label>
           <label class="gb-cfg-row" title="Anade a la pestana Intel el resumen de batallas por jugador y el ranking de granjas por botin. Solo lectura, se recalcula en cada render."><input type="checkbox" data-cfg="intel-battle-stats"/> Estadisticas de batalla en Intel</label>
           <label class="gb-cfg-row" data-gb-tip="Asistencia Grepodata Index+ para cruzar espias con bases de datos externas"><input type="checkbox" data-cfg="grepodata"/> Asistencia Grepodata Index+</label>
-        `)}
-        ${gbCfgGroup('Defensa y militar (ALTO RIESGO)', `
+        </div></details>
+        <details class="gb-section gb-cfg-group risk"><summary>Defensa y militar (ALTO RIESGO)</summary><div class="gb-section-body">
           <label class="gb-cfg-row" data-gb-tip="Avisar cuando se detecte CS o entrantes hostiles"><input type="checkbox" data-cfg="cs-alert"/> Avisos de CS / entrantes</label>
           <label class="gb-cfg-row" data-gb-tip="Solicitar milicia automaticamente ante entrantes (gasta recursos)"><input type="checkbox" data-cfg="auto-militia"/> Milicia automatica ante entrantes</label>
           <label class="gb-cfg-row" data-gb-tip="Esquivar tropas automaticamente ante ataques (ALTO RIESGO)"><input type="checkbox" data-cfg="auto-dodge"/> Esquiva automatica</label>
@@ -1565,8 +1555,8 @@
           </label>
           <label class="gb-cfg-row gb-cfg-risk" data-gb-tip="Recluta todas las unidades de la lista de una sola vez. Solo se dispara cuando los recursos Y la poblacion cubren el lote entero a la vez (todo-o-nada). Si falta aunque sea una unidad, no se envia nada. Lista persistente por ciudad: el ciclo re-arms tras cada disparo."><input type="checkbox" data-cfg="batch-recruit"/> Lote de reclutamiento (todo-o-nada)</label>
           <div class="gb-cfg-note gb-cfg-sub">El editor por ciudad (objetivos permanentes y lineas del lote) vive en Militar &rarr; Entrenamiento.</div>
-        `, false, 'risk')}
-        ${gbCfgGroup('Premium y favor (ALTO RIESGO)', `
+        </div></details>
+        <details class="gb-section gb-cfg-group risk"><summary>Premium y favor (ALTO RIESGO)</summary><div class="gb-section-body">
           <label class="gb-cfg-row" data-gb-tip="Compra las UNIDADES del barco mercante que estan en la lista de deseos, al precio exacto o menor. Se paga con el recurso de cambio del barco (plata), no con oro."><input type="checkbox" data-cfg="auto-merchant"/> Francotirador del mercader (unidades)</label>
           <label class="gb-cfg-row" title="Cambia plata por madera/piedra en el barco mercante cuando el ratio de la visita llega al minimo pedido. El ratio de la visita es fijo: no hay bombeo."><input type="checkbox" data-cfg="auto-pt-trade"/> Cambio de recursos del barco mercante</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Parametros del cambio de recursos">ratio minimo <input class="gb-cfg-input" type="number" step="0.1" min="0.5" max="5" data-cfg="pt-ratio" style="width:52px" data-gb-tip="Recurso recibido por cada unidad de plata gastada. Por debajo de esto no se cambia nada."/>
@@ -1591,7 +1581,7 @@
           </label>
           <label class="gb-cfg-row" data-gb-tip="Donar recursos a la Maravilla del mundo"><input type="checkbox" data-cfg="auto-wonder"/> Donaciones a la Maravilla</label>
           <label class="gb-cfg-row" title="Gasta favor en la maravilla de la alianza. Requiere haber capturado wonderFavorTpl. Por defecto OFF."><input type="checkbox" data-cfg="auto-wonder-favor"/> Lanzar favor en la Maravilla (captura el poder antes)</label>
-        `, false, 'risk')}
+        </div></details>
         </div>
         </div>
       </div>
@@ -1612,7 +1602,7 @@
         <button data-stats="7d" data-gb-tip="Ver estadisticas de los ultimos 7 dias" style="background:#262626;border:1px solid #333;color:#aaa;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px">7d</button>
       </div>
       <pre class="stats-body" style="font-size:10px;white-space:pre-wrap;background:#111;padding:6px;border:1px solid #333;max-height:320px;overflow:auto;color:#cfc"></pre>
-      ${gbSection('Estado operativo (texto de máquina)', '<pre class="overview-panel" style="font-size:10px;white-space:pre-wrap;margin:0;max-height:180px;overflow:auto;color:#cfd6df"></pre>')}
+      <details class="gb-section"><summary>Estado operativo (texto de máquina)</summary><div class="gb-section-body"><pre class="overview-panel" style="font-size:10px;white-space:pre-wrap;margin:0;max-height:180px;overflow:auto;color:#cfd6df"></pre></div></details>
     </section>
     <section data-tab="log" hidden>
       <div class="gb-logsub">
@@ -1684,7 +1674,7 @@
         </div>
       </details>
     </footer>
-  `;
+  `);
   // The header template is literal-only on purpose (gbLit contract): the one
   // interpolated value used to be the version, written straight into innerHTML.
   // It is a local string, never a wire value, but the rule is "no ${} in an
@@ -2456,7 +2446,6 @@
     setChk('[data-cfg=auto-farm]', state.autoFarm);
     setChk('[data-cfg=farm-skip-full]', state.farmSkipFull);
     setChk('[data-cfg=farm-scrape]', state.farmScrape);
-setChk('[data-cfg=farm-long-claims]', state.farmLongClaims);
     const fm0 = sec.querySelector('[data-cfg=farm-full-mode]'); if (fm0) fm0.value = state.farmFullMode || 'any';
     syncFarmTimingCfg(sec);
     setChk('[data-cfg=auto-build]', state.ibAuto);
@@ -2560,11 +2549,6 @@ setChk('[data-cfg=farm-long-claims]', state.farmLongClaims);
       else farmScrapeClearErrors();
       gbLog('farm resource scrape', state.farmScrape ? 'ON' : 'OFF');
       updateStatus();
-    });
-    onCfg('[data-cfg=farm-long-claims]', 'change', e => {
-      state.farmLongClaims = e.target.checked;
-      save(STORE.FARM_LONG_CLAIMS, state.farmLongClaims);
-      gbLog('farm long claims (8h card)', state.farmLongClaims ? 'ON (8h permitido)' : 'OFF (max 4h)');
     });
     onCfg('[data-cfg=farm-loyalty-tech]', 'change', e => {
       state.farmLoyaltyTech = String(e.target.value || '').trim();
@@ -3189,7 +3173,7 @@ setChk('[data-cfg=farm-long-claims]', state.farmLongClaims);
     });
     onCfg('[data-cfg=farm-forget-options]', 'click', () => {
       if (!confirm('Olvidar las opciones de cobro aprendidas (recursos y unidades)?')) return;
-      state.farmOptionMap = { 600: 2 };
+      state.farmOptionMap = {};
       save(wkey(STORE.FARM_OPTION_MAP), state.farmOptionMap);
       state.farmUnitsOption = null;
       save(wkey(STORE.FARM_UNITS_OPTION), null);
@@ -3359,7 +3343,7 @@ setChk('[data-cfg=farm-long-claims]', state.farmLongClaims);
     filt.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap';
     // LITERAL ONLY - no interpolation (the filter VALUES are read back off these
     // inputs; they are never written into this string).
-    filt.innerHTML = '<input class="gb-cfg-input" data-f="type" placeholder="type filter" style="flex:1;min-width:60px;padding:2px 4px;font:11px monospace"/><input class="gb-cfg-input" data-f="attacker" placeholder="attacker filter" style="flex:1;min-width:60px;padding:2px 4px;font:11px monospace"/>';
+    filt.innerHTML = gbLit('<input class="gb-cfg-input" data-f="type" placeholder="type filter" style="flex:1;min-width:60px;padding:2px 4px;font:11px monospace"/><input class="gb-cfg-input" data-f="attacker" placeholder="attacker filter" style="flex:1;min-width:60px;padding:2px 4px;font:11px monospace"/>');
     filt.querySelectorAll('input').forEach(inp => {
       inp.value = state.findingsFilter[inp.dataset.f] || '';
       inp.addEventListener('input', () => {
@@ -4087,8 +4071,6 @@ setChk('[data-cfg=farm-long-claims]', state.farmLongClaims);
     el.click();
     return true;
   }
-  let logRenderQueued = false;
-  const LOG_VIEW_MAX = 2000;
   function renderLog() {
     const sec = panel && panel.querySelector('section[data-tab=log]');
     const list = sec && sec.querySelector('.log-list');
@@ -4137,4 +4119,3 @@ setChk('[data-cfg=farm-long-claims]', state.farmLongClaims);
     return I18N[lang] || I18N.en;
   }
   function i18n(key) { return (marketLocale()[key] || I18N.en[key] || key); }
-

@@ -157,7 +157,7 @@
   }
   function ruralCandidateRowsForTown(townId, liveTowns, relations, farmById) {
     const live = tradeTownRes(townId);
-    if (!live || !(live.cap > 0) || live.tradeCap == null) return [];
+    if (!live || !(live.cap > 0)) return [];
     const island = ruralSameIslandTowns(townId, liveTowns);
     if (!island.known) return [];
     const beneficiary = resolveIslandResourceBeneficiary(island.key, island.ids);
@@ -174,23 +174,18 @@
         const f = farm && (farm.attributes || farm) || {};
         if (gbNum(a.relation_status) !== 1 || !farm || String(f.island_x) !== String(xy.x) || String(f.island_y) !== String(xy.y)) continue;
         const cooldown = ruralTradeCooldownState(rel);
-        if (!cooldown.known) {
-          gbLogT('rural-cooldown-unreadable-' + String(a.farm_town_id), 180000, `rural-trade: village ${a.farm_town_id} cooldown unreadable`);
-          continue;
-        }
-        if (!cooldown.ready) continue;
+        if (!cooldown.known) gbLogT('rural-cooldown-unreadable-' + String(a.farm_town_id), 180000, `rural-trade: village ${a.farm_town_id} cooldown unreadable - server authoritative`);
+        if (cooldown.known && !cooldown.ready) continue;
         const offer = ruralOfferData(rel, farm);
         if (offer.give !== resource || !offer.receive || offer.receive === resource || offer.ratio == null || offer.ratio < 1) continue;
-        if (offer.limit == null) {
-          gbLogT('rural-limit-unreadable-' + String(a.farm_town_id), 180000, `rural-trade: village ${a.farm_town_id} trade limit unreadable`);
-          continue;
-        }
-        if (!(offer.limit > 0) || !(offer.returnedMultiplier > 0)) continue;
+        if (offer.limit == null) gbLogT('rural-limit-unreadable-' + String(a.farm_town_id), 180000, `rural-trade: village ${a.farm_town_id} trade limit unreadable - server authoritative`);
+        if ((offer.limit != null && !(offer.limit > 0)) || !(offer.returnedMultiplier > 0)) continue;
         if (live[offer.receive] == null) continue;
         const returnedFill = live[offer.receive] / live.cap;
         if (returnedFill > tradeReceiverPct()) continue;
         const headroom = Math.max(0, live.cap - live[offer.receive]);
-        const amount = Math.floor(Math.min(live.cap * tradeTransferPct(), live[resource], live.tradeCap, offer.limit, headroom / offer.returnedMultiplier));
+        const bounds=[live.cap*tradeTransferPct(),live[resource],headroom/offer.returnedMultiplier];if(live.tradeCap!=null)bounds.push(live.tradeCap);if(offer.limit!=null)bounds.push(offer.limit);
+        const amount = Math.floor(Math.min(...bounds));
         if (!(amount > 0)) continue;
         candidates.push({
           village:String(a.farm_town_id), relId:String(a.id ?? rel.id), farmId:String(a.farm_town_id), townId:String(townId),
@@ -235,7 +230,7 @@
     const rel = ruralRelModels().find(r => String(r.id ?? (r.attributes || {}).id) === String(j.relId));
     const farm = ruralFarmModels().find(f => String(f.id ?? (f.attributes || {}).id) === String(j.farmId));
     const town = tradeTownRes(j.townId);
-    if (!rel || !farm || !town) { tradeDiagnosticPut(j.townId, j.give, { rural:null, action:'none', reason:'rural-state-unreadable' }); return { ok:false, why:'rural-state-unreadable' }; }
+    if (!rel || !farm || !town) { gbLogT('rural-validate-blind-'+j.farmId,180000,'rural-trade: final state unreadable - server authoritative');return {ok:true,blind:['rural-state']}; }
     const a = rel.attributes || {}, f = farm.attributes || farm;
     if (gbNum(a.relation_status) !== 1) return { ok:false, why:'rural-state-changed' };
     const allTowns = tradeListTowns().map(t => tradeTownRes(t.id)).filter(Boolean);
@@ -248,16 +243,16 @@
     const offer = ruralOfferData(rel, farm);
     if (offer.give !== j.give || offer.receive !== j.receive) return { ok:false, why:'rural-offer-changed' };
     if (offer.ratio == null || offer.ratio < 1) return { ok:false, why:offer.ratio != null ? 'rural-ratio-below-1' : 'rural-ratio-unreadable' };
-    if (offer.limit == null) return { ok:false, why:'rural-limit-unreadable' };
-    if (!(offer.limit > 0) || !(offer.returnedMultiplier > 0)) return { ok:false, why:'rural-capacity-zero' };
+    if (offer.limit != null && !(offer.limit > 0)) return { ok:false, why:'rural-capacity-zero' };
+    if (!(offer.returnedMultiplier > 0)) return { ok:false, why:'rural-multiplier-unreadable' };
     const cooldown = ruralTradeCooldownState(rel);
-    if (!cooldown.known) return { ok:false, why:'rural-cooldown-unreadable' };
-    if (!cooldown.ready) return { ok:false, why:'rural-cooldown' };
-    if (town[j.give] == null || town[j.receive] == null || !(town.cap > 0)) return { ok:false, why:'live-state-unreadable' };
-    if (town[j.give] / town.cap < tradeOverflowPct() || town[j.receive] / town.cap > tradeReceiverPct()) return { ok:false, why:'live-state-changed' };
-    if (town.tradeCap == null || !(town.tradeCap > 0)) return { ok:false, why:'rural-trade-capacity-unreadable' };
-    const headroom = Math.max(0, town.cap - town[j.receive]);
-    const amount = Math.floor(Math.min(town.cap * tradeTransferPct(), town[j.give], town.tradeCap, offer.limit, headroom / offer.returnedMultiplier));
+    if (cooldown.known && !cooldown.ready) return { ok:false, why:'rural-cooldown' };
+    const give=gbNum(town[j.give]),receive=gbNum(town[j.receive]),cap=gbNum(town.cap),tradeCap=gbNum(town.tradeCap);
+    if(give!=null&&cap!=null&&cap>0&&give/cap<tradeOverflowPct())return {ok:false,why:'live-source-changed'};
+    if(receive!=null&&cap!=null&&cap>0&&receive/cap>tradeReceiverPct())return {ok:false,why:'live-target-changed'};
+    if(tradeCap!=null&&!(tradeCap>0))return {ok:false,why:'rural-trade-capacity-zero'};
+    const bounds=[gbNum(j.amount)];if(cap!=null&&cap>0)bounds.push(cap*tradeTransferPct());if(give!=null)bounds.push(give);if(tradeCap!=null)bounds.push(tradeCap);if(offer.limit!=null)bounds.push(offer.limit);if(cap!=null&&receive!=null)bounds.push(Math.max(0,cap-receive)/offer.returnedMultiplier);
+    const amount = Math.floor(Math.min(...bounds.filter(v=>v!=null)));
     if (!(amount > 0)) return { ok:false, why:'rural-headroom-zero' };
     j.amount = amount; j.ratio = offer.ratio; j.returnedMultiplier = offer.returnedMultiplier; j.islandKey = island.key;
     tradeDiagnosticPut(j.townId, j.give, { rural:{ give:j.give, receive:j.receive, ratio:j.ratio, limit:offer.limit, executable:amount }, finalValidation:'ok', action:'rural', reason:'ready-rural' });
@@ -362,7 +357,7 @@
       // Share the same per-source transactional lock as city->city trade. Rural
       // and intercity may run independently for unrelated towns/resources, but two
       // posts from the same source cannot both validate the same merchant capacity.
-      const townTradeLockName = `trade:${String(j.townId)}`;
+      const townTradeLockName = 'trade';
       const townTradeToken = gbLock(townTradeLockName, 30000);
       if (!townTradeToken) { i--; return gbTimeout(next, 100); }
       const validation = ruralValidateJob(j);
@@ -373,7 +368,7 @@
         return gbTimeout(next, 100);
       }
       const before = tradeTownRes(j.townId);
-      if (!before || before[j.give] == null) { gbUnlock(townTradeLockName, townTradeToken); validationFailed++; return gbTimeout(next, 100); }
+      if (!before || before[j.give] == null) gbLogT('ruraltrade-before-blind-'+j.farmId,180000,'rural-trade: pre-send stock unreadable - reconciliation may remain unknown');
       ruralTradePost(j.relId, j.farmId, j.amount, j.townId, (err) => {
         if (err === 'captcha' || err === 'captcha-pause') {
           gbUnlock(townTradeLockName, townTradeToken);
@@ -456,8 +451,8 @@
           if (!obj || typeof obj[name] !== 'function') continue;
           let raw;
           try { raw = obj[name](); } catch (_) { raw = obj[name](a.farm_town_id); }
-          const n = Number(raw && typeof raw === 'object' ? (raw.amount ?? raw.cost ?? raw.value) : raw);
-          if (Number.isFinite(n) && n >= 0) return { known:true, cost:n, source:name + '()' };
+          const n = gbNum(raw && typeof raw === 'object' ? (raw.amount ?? raw.cost ?? raw.value) : raw);
+          if (n != null && n >= 0) return { known:true, cost:n, source:name + '()' };
         } catch (_) {}
       }
     }
@@ -465,8 +460,8 @@
       for (const key of attrNames) {
         if (!obj || !Object.prototype.hasOwnProperty.call(obj, key)) continue;
         const raw = obj[key];
-        const n = Number(raw && typeof raw === 'object' ? (raw.amount ?? raw.cost ?? raw.value) : raw);
-        if (Number.isFinite(n) && n >= 0) return { known:true, cost:n, source:prefix + '.' + key };
+        const n = gbNum(raw && typeof raw === 'object' ? (raw.amount ?? raw.cost ?? raw.value) : raw);
+        if (n != null && n >= 0) return { known:true, cost:n, source:prefix + '.' + key };
       }
     }
     return { known:false, cost:null, source:'cost-unreadable' };
@@ -486,10 +481,7 @@
     if (!hostEnabled() || !state.autoRuralLevel || captchaPaused('rurallevel')) return;
     if (automationPaused({}) || gbLocked('rural-level')) return;
     const available = ruralKillpoints();
-    if (available == null) {
-      gbLogT('rurallevel-kp-unreadable', 180000, 'rural-level: killpoints-unreadable; no POST');
-      return;
-    }
+    if (available == null) gbLogT('rurallevel-kp-unreadable', 180000, 'rural-level: killpoints unreadable - server authoritative');
     const maxLvl = Math.min(6, Math.max(1, +state.ruralLevelMax || 3));
     const relations = ruralRelModels();
     const farms = ruralFarmModels();
@@ -507,20 +499,20 @@
       const a = rel.attributes || {};
       if (gbNum(a.relation_status) !== 0) continue;
       lockedWaiting++;
-      if (available <= KP_UNLOCK_MIN) continue;
+      if (available != null && available <= KP_UNLOCK_MIN) continue;
       const farm = farmById[String(a.farm_town_id)];
       if (!farm) continue;
       const tid = ruralLevelTownForFarm(farm, townIds);
       if (!tid) continue;
       const cost = ruralLevelCostInfo(rel, farm, 'unlock');
-      if (!cost.known) { sawUnreadableCost = true; gbLogT('rurallevel-unlock-cost-' + String(a.farm_town_id), 180000, `rural-level: unlock cost-unreadable village=${a.farm_town_id}`); continue; }
-      if (available < cost.cost) continue;
+      if (!cost.known) { sawUnreadableCost = true; gbLogT('rurallevel-unlock-cost-' + String(a.farm_town_id), 180000, `rural-level: unlock cost-unreadable village=${a.farm_town_id} - server authoritative`); }
+      if (available != null && cost.known && available < cost.cost) continue;
       const unlockStage = gbNum(a.expansion_stage);
       if (unlockStage == null) continue;
       job = { kind:'unlock', relId:String(a.id ?? rel.id), farmId:String(a.farm_town_id), townId:String(tid), cost:cost.cost, costSource:cost.source, stage:unlockStage };
       break;
     }
-    if (!job && lockedWaiting && available <= KP_UNLOCK_MIN) {
+    if (!job && lockedWaiting && available != null && available <= KP_UNLOCK_MIN) {
       gbLogT('rurallevel-kp-low', 180000, `rural-level: ${lockedWaiting} locked village(s) waiting; KP ${available} \u2264 ${KP_UNLOCK_MIN} \u2014 upgrades only after unlock phase drains`);
     }
 
@@ -535,8 +527,8 @@
         const tid = ruralLevelTownForFarm(farm, townIds);
         if (!tid) continue;
         const cost = ruralLevelCostInfo(rel, farm, 'upgrade');
-        if (!cost.known) { sawUnreadableCost = true; gbLogT('rurallevel-upgrade-cost-' + String(a.farm_town_id), 180000, `rural-level: upgrade cost-unreadable village=${a.farm_town_id} stage=${stage}`); continue; }
-        if (available < cost.cost) continue;
+        if (!cost.known) { sawUnreadableCost = true; gbLogT('rurallevel-upgrade-cost-' + String(a.farm_town_id), 180000, `rural-level: upgrade cost-unreadable village=${a.farm_town_id} stage=${stage} - server authoritative`); }
+        if (available != null && cost.known && available < cost.cost) continue;
         job = { kind:'upgrade', relId:String(a.id ?? rel.id), farmId:String(a.farm_town_id), townId:String(tid), cost:cost.cost, costSource:cost.source, stage };
         break;
       }
@@ -551,29 +543,21 @@
     const relNow = ruralRelModels().find(r => String((r.attributes || {}).id ?? r.id) === String(job.relId));
     const farmNow = ruralFarmModels().find(f => String((f.attributes || {}).id ?? f.id) === String(job.farmId));
     const kpNow = ruralKillpoints();
-    if (!relNow || !farmNow || kpNow == null) {
-      gbUnlock('rural-level', lockToken);
-      gbLogT('rurallevel-live-unreadable', 60000, 'rural-level: final state unreadable; no POST');
-      return;
-    }
-    const aNow = relNow.attributes || {};
+    if (!relNow || !farmNow || kpNow == null) gbLogT('rurallevel-live-unreadable', 60000, 'rural-level: final state partly unreadable - server authoritative');
+    const aNow = relNow && relNow.attributes || {};
     const relStatusNow = gbNum(aNow.relation_status);
     const stageNow = gbNum(aNow.expansion_stage);
-    if ((job.kind === 'unlock' && relStatusNow !== 0) || (job.kind === 'upgrade' && (relStatusNow !== 1 || aNow.expansion_at || stageNow !== job.stage))) {
+    if ((job.kind === 'unlock' && relStatusNow != null && relStatusNow !== 0) || (job.kind === 'upgrade' && ((relStatusNow != null && relStatusNow !== 1) || aNow.expansion_at || (stageNow != null && stageNow !== job.stage)))) {
       gbUnlock('rural-level', lockToken); return;
     }
     const costNow = ruralLevelCostInfo(relNow, farmNow, job.kind);
-    if (!costNow.known) {
-      gbUnlock('rural-level', lockToken);
-      gbLogT('rurallevel-cost-final', 60000, `rural-level: ${job.kind} cost-unreadable at final check; no POST`);
-      return;
-    }
-    if (kpNow < costNow.cost) {
+    if (!costNow.known) gbLogT('rurallevel-cost-final', 60000, `rural-level: ${job.kind} cost unreadable at final check - server authoritative`);
+    if (kpNow != null && costNow.known && kpNow < costNow.cost) {
       gbUnlock('rural-level', lockToken);
       gbLogT('rurallevel-kp-short', 60000, `rural-level: ${kpNow}/${costNow.cost} killpoints; waiting`);
       return;
     }
-    job.cost = costNow.cost; job.costSource = costNow.source;
+    if(costNow.known){job.cost=costNow.cost;job.costSource=costNow.source;}
     gbLockTouch('rural-level', lockToken);
     const fire = job.kind === 'unlock' ? ruralUnlock : ruralUpgrade;
     fire(job.relId, job.farmId, job.townId, (err) => {

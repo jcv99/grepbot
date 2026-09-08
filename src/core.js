@@ -586,9 +586,11 @@ const STORE = {
       if (a.tagName !== b.tagName) return false;
       const an = a.attributes, bn = b.attributes;
       for (let k = an.length - 1; k >= 0; k--) {
+        if (a.tagName === 'DETAILS' && an[k].name === 'open') continue;
         if (!b.hasAttribute(an[k].name)) { a.removeAttribute(an[k].name); wrote = 1; }
       }
       for (let k = 0; k < bn.length; k++) {
+        if (a.tagName === 'DETAILS' && bn[k].name === 'open') continue;
         if (a.getAttribute(bn[k].name) !== bn[k].value) { a.setAttribute(bn[k].name, bn[k].value); wrote = 1; }
       }
       const r = gbPaintPatch(a, b);
@@ -704,6 +706,7 @@ const STORE = {
     'town-scrape': 300000,
     ib: 300000,
     ab: 300000,
+    build: 300000,
     cave: 180000,
     'cave-emergency': 60000,
     culture: 180000,
@@ -718,8 +721,10 @@ const STORE = {
     'wonder-favor': 180000,
     dodge: 180000,
     spy: 180000,
+    attack: 180000,
     support: 180000,
     recruit: 180000,
+    'village-recruit': 180000,
     'defense-pull': 180000,
     cancel: 120000,
     hero: 180000,
@@ -730,15 +735,18 @@ const STORE = {
     'report-catchup': 300000,
     'quest-scan': 180000,
     'quest-auto': 180000,
-
-    airaw: 120000,
   };
   const GB_LOCK_DEFAULT_TTL = 180000;
   const gbLocks = Object.create(null);
   const gbLockExpired = Object.create(null);
   const GB_LOCK_EXPIRED_MEMORY_MS = 600000;
   let gbLockSeq = 0;
-  function gbLockTtl(name) { return GB_LOCK_TTL[name] || GB_LOCK_DEFAULT_TTL; }
+  function gbLockTtl(name) {
+    const key = String(name || '');
+    if (GB_LOCK_TTL[key]) return GB_LOCK_TTL[key];
+    const base = key.includes(':') ? key.slice(0, key.indexOf(':')) : key;
+    return GB_LOCK_TTL[base] || GB_LOCK_DEFAULT_TTL;
+  }
   function gbLockLease(name) {
     const L = gbLocks[name];
     if (!L) return null;
@@ -847,12 +855,10 @@ const STORE = {
     ibResearch: load(STORE.IB_RESEARCH, false),
     farmOptionMap: (() => {
       const m = load(STORE.FARM_OPTION_MAP, null);
-      if (m && typeof m === 'object' && !Array.isArray(m)
-          && Object.keys(m).some(k => m[k] != null && Number.isFinite(+m[k]))) return m;
-      // Provisional seed only: option 1 is the shortest offer in both
-      // documented sets (5min base / 10min Booty), so a wrong seed never
-      // over-gathers and the post-claim verify corrects it after one batch.
-      return { 600: 1 };
+      const option = m && typeof m === 'object' && !Array.isArray(m) ? +m[600] : NaN;
+      // Never guess or retain a legacy option: indices differ by world and can
+      // select an hours-long card.  The only accepted mapping is hand-taught 10m.
+      return Number.isFinite(option) && option >= 1 && option <= 4 ? { 600: option } : {};
     })(),
     farmLongClaims: load(STORE.FARM_LONG_CLAIMS, true),
     farmLoyaltyTech: load(STORE.FARM_LOYALTY_TECH, '') || '',
@@ -1768,6 +1774,7 @@ const STORE = {
     attack: 'attackTpl', cancel: 'cancelTpl', hero: 'heroTpl',
 
     support: 'supportTpl',
+    dodge: 'supportTpl',
     spy: 'spyTpl',
     collect: 'collectTpl',
     pttrade: 'ptTradeTpl',
@@ -1923,8 +1930,9 @@ const STORE = {
   }
   function gbLogT(key, ms, ...args) {
     const now = Date.now();
-    if ((logThrottle.get(key) || 0) + ms > now) return;
-    logThrottle.set(key, now);
+    const scopedKey = wkey('log-throttle:' + String(key));
+    if ((logThrottle.get(scopedKey) || 0) + ms > now) return;
+    logThrottle.set(scopedKey, now);
     if (logThrottle.size > LOG_THROTTLE_MAX) {
 
       const cutoff = now - 60000;

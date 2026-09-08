@@ -79,10 +79,14 @@
     const cfg = state.favorCfg || {};
     const threshN = gbNum(cfg.thresh);
     const thresh = threshN != null ? threshN : 200;
-    const unit = cfg.unit || 'harpy';
+    const unit = cfg.unit;
     const maxC = Math.min(8, Math.max(1, +cfg.maxConcurrent || 2));
     const fav = favorCurrent();
-    const god = cfg.god || 'athena';
+    const god = cfg.god;
+    if (!unit || !god) {
+      gbLogT('favor-config', 300000, 'favor: set explicit favorCfg.unit and favorCfg.god');
+      return;
+    }
 
     const cur = favorForGod(fav, god);
     if (cur == null) {
@@ -100,9 +104,9 @@
     }
 
     const targetId = cfg.targetId;
-    const targetType = cfg.targetType || 'farm_town';
-    if (!targetId) {
-      gbLogT('favor-notarget', 300000, 'favor: set favorCfg.targetId (farm town)');
+    const targetType = cfg.targetType;
+    if (!targetId || !targetType) {
+      gbLogT('favor-notarget', 300000, 'favor: set explicit favorCfg.targetId and favorCfg.targetType');
       return;
     }
     if (targetType !== 'farm_town' && targetType !== 'farm' && targetType !== 'village') {

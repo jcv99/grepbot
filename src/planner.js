@@ -103,9 +103,21 @@
         // Senate Ampliación uses can_upgrade. resources_for is often the
         // unreduced table and would skip a clickable upgrade (Architecture).
         if (typeof abUpgradeClickable === 'function' && abUpgradeClickable(townId, a.building_id) === true) return [];
-        const c = abBuildingCost(townId, a.building_id); if (!c) return null; out(townId,c);
+        const c = abBuildingCost(townId, a.building_id);
+        if (!c) {
+          gbLogT(`planner-build-cost-blind-${townId}-${a.building_id}`, 60000,
+            `planner: build cost unreadable for ${a.building_id}; server will validate`);
+          return [];
+        }
+        out(townId,c);
       } else if (feature === 'research') {
-        const tech=a.id||a.research_id||a.research||a.research_type, c=researchCost(tech,townId); if(!c) return null; out(townId,c);
+        const tech=a.id||a.research_id||a.research||a.research_type, c=researchCost(tech,townId);
+        if(!c) {
+          gbLogT(`planner-research-cost-blind-${townId}-${tech}`, 60000,
+            `planner: research cost unreadable for ${tech}; server will validate`);
+          return [];
+        }
+        out(townId,c);
       } else if (feature === 'recruit') {
         const unit=a.unit_id||a.unit_type, n=+a.amount||0, ec=recruitEffectiveUnitCost(townId, unit); if(!(n>0)) return null;
         if (!ec) return [];
@@ -162,7 +174,7 @@
   }
   function clientFingerprintCompatible(prev,cur){if(!cur)return{ok:false,why:'fingerprint-unreadable'};for(const k of ['MM','gpAjax','ITowns','GameData'])if(!cur.required[k])return{ok:false,why:`missing-${k}`};if(!prev)return{ok:true,first:true};for(const k of ['MM','gpAjax','ITowns','GameData'])if(prev.required&&prev.required[k]&&!cur.required[k])return{ok:false,why:`lost-${k}`};for(const k of ['units','buildings']){const a=+(prev.counts&&prev.counts[k]||0),b=+(cur.counts&&cur.counts[k]||0);if(a>0&&b>0&&Math.abs(b-a)/a>0.45)return{ok:false,why:`${k}-shape-changed:${a}->${b}`}}return{ok:true}}
   function clientFingerprintCheck() {const cur=clientFingerprintNow(),cmp=clientFingerprintCompatible(state.clientFingerprint,cur);if(!cmp.ok){state.safeMode=true;save(STORE.SAFE_MODE,true);gbLog(`SAFE MODE: Grepolis client compatibility check failed (${cmp.why})`);whyNote('system','client fingerprint','blocked',cmp.why);}else if(!state.clientFingerprint){state.clientFingerprint=cur;save(STORE.CLIENT_FP,cur);}else{state.clientFingerprint=cur;save(STORE.CLIENT_FP,cur);}return{current:cur,check:cmp}}
-  function safeModeBlock(feature,transport,endpoint,data){if(typeof gbNeverStop==='function'&&gbNeverStop())return null;if(!state.safeMode)return null;const f=String(feature||'');if(['attack','support','spy','favor','wonder','rurallevel','merchant','spell','airaw'].includes(f))return 'safe-mode-high-impact';if(f==='culture'){const a=transport==='bridge'?(data&&data.arguments||{}):(data||{});if(/olympic/i.test(String(a.celebration_type||endpoint||'')))return 'safe-mode-premium';}return null}
+  function safeModeBlock(feature,transport,endpoint,data){if(typeof gbNeverStop==='function'&&gbNeverStop())return null;if(!state.safeMode)return null;const f=String(feature||'');if(['attack','support','spy','favor','wonder','rurallevel','merchant','spell'].includes(f))return 'safe-mode-high-impact';if(f==='culture'){const a=transport==='bridge'?(data&&data.arguments||{}):(data||{});if(/olympic/i.test(String(a.celebration_type||endpoint||'')))return 'safe-mode-premium';}return null}
   const CIRCUIT_TRIP = 3;
   const CIRCUIT_STRUCTURAL_RE = /unknown.?action|invalid.?action|unknown.?model|model.?not.?found|unknown.?controller|controller.?not.?found|no.?such.?action|does.?not.?exist|unsupported.?action|invalid.?model|endpoint.?not.?found/i;
   function circuitSave() { save(STORE.CIRCUITS, state.circuits || {}); }
@@ -246,19 +258,17 @@
     'research', 'merchant', 'favor', 'wonder', 'militia', 'dodge', 'spell', 'recruit', 'villrecruit', 'quest', 'attack',
     'cancel', 'hero', 'pttrade',
 
-    'support', 'spy',
-
-    'airaw'
+    'support', 'spy'
   ]);
 
   // ===== Planner internals (moved from core.js in v6.0.50, REDESIGN §4.1 R3) =====
   function gbCfgNum(v, fallback) {
-    const n = +v;
-    return Number.isFinite(n) ? n : fallback;
+    const n = gbNum(v);
+    return n != null ? n : fallback;
   }
   function gbCfgClamp(v, lo, hi, fallback) {
-    const n = +v;
-    return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : fallback;
+    const n = gbNum(v);
+    return n != null ? Math.max(lo, Math.min(hi, n)) : fallback;
   }
   function gbServerDay() {
     try {
@@ -275,9 +285,10 @@
     const out = plannerZero();
     let known = false;
     for (const k of PLANNER_KEYS) {
-      if (v[k] != null && Number.isFinite(+v[k]) && +v[k] >= 0) { out[k] = +v[k]; known = true; }
+      const n = gbNum(v[k]);
+      if (n != null && n >= 0) { out[k] = n; known = true; }
     }
-    if (v.tradeCap != null && Number.isFinite(+v.tradeCap) && +v.tradeCap >= 0) { out.tradeCap = +v.tradeCap; known = true; }
+    const tradeCap = gbNum(v.tradeCap);
+    if (tradeCap != null && tradeCap >= 0) { out.tradeCap = tradeCap; known = true; }
     return known ? out : null;
   }
-

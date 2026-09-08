@@ -77,12 +77,12 @@
   const ORCH_CAPTCHA = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villageRecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
+    recruit: 'recruit', villrecruit: 'villrecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'spell',
   };
   const ORCH_JRN = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villageRecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'godspell',
+    recruit: 'recruit', villrecruit: 'villrecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'spell',
   };
   const ORCH_IDLE_TRIP = 4;
   const ORCH_IDLE_MAX = 8;
@@ -158,9 +158,11 @@
   }
 
   function orchIdleFactor(key) {
-    // v5.9: fixed independent cadences. An idle module never slows another one
-    // and never puts itself to sleep for 2x/4x/8x intervals.
-    return 1;
+    if (gbNeverStop() || state.orchAdaptive === false) return 1;
+    if (orchDeadlock.open && ORCH_DRAIN_KEYS.includes(key)) return 1;
+    const streak = orchIdle[key] || 0;
+    if (streak < ORCH_IDLE_TRIP) return 1;
+    return Math.min(ORCH_IDLE_MAX, 1 << Math.min(3, streak - ORCH_IDLE_TRIP + 1));
   }
   // v6.0.22: user-tunable orch cadence multiplier. Excludes trade/recruit/build
   // families because their cost is request-budget or capacity bound and a
@@ -173,7 +175,7 @@
     'build',
   ]);
   function orchCadence(key) {
-    const base = ORCH_CADENCE[key] || ORCH_MS;
+    const base = (ORCH_CADENCE[key] || ORCH_MS) * orchIdleFactor(key);
     if (ORCH_SCALE_EXCLUDE.has(key)) return base;
     const scale = (state && state.orchCadenceScale > 0) ? state.orchCadenceScale : 1;
     return Math.max(ORCH_CADENCE_FLOOR_MS, Math.round(base * scale));
@@ -220,42 +222,46 @@
     ORCH_HANDLERS[key]();
   }
   function orchTick() {
-    // Wake/manual poke: launch every enabled module independently. Staggering is
-    // only to avoid a burst of HTTP requests; it is not a priority mechanism.
     orchHousekeepingTick();
     if (automationPaused({})) return;
-    let idx = 0;
-    for (const key of orchDefaultOrder()) {
+    const configured = state.priorityOrder && state.priorityOrder.length ? state.priorityOrder : orchDefaultOrder();
+    let order = [...new Set(goalMandatoryModules().concat(configured, orchDefaultOrder()))];
+    if (orchDeadlockEval()) {
+      const drain = ORCH_DRAIN_KEYS.filter(k => order.includes(k));
+      order = drain.concat(order.filter(k => !drain.includes(k)));
+    }
+    const now = Date.now();
+    const due = [];
+    for (let rank = 0; rank < order.length; rank++) {
+      const key = order[rank];
       if (!ORCH_HANDLERS[key] || !orchFeatureEnabled(key)) continue;
-      const delay = idx++ * 120;
-      gbTimeout(() => orchModuleTick(key, 'poke'), delay);
+      const cap = ORCH_CAPTCHA[key];
+      if (cap && captchaPaused(cap)) continue;
+      const cadence = orchCadence(key);
+      const overdue = now - (orchLastRun[key] || 0) - cadence;
+      if (overdue >= 0) due.push({ key, rank, overdue, cadence });
     }
+    due.sort((a, b) => {
+      const gap = b.overdue - a.overdue;
+      const band = Math.max(a.cadence, b.cadence, ORCH_MS) * 2;
+      return Math.abs(gap) > band ? gap : a.rank - b.rank;
+    });
+    due.slice(0, ORCH_MAX_PER_TICK).forEach((item, idx) => {
+      const fire = () => orchModuleTick(item.key, 'orch');
+      if (idx === 0) fire();
+      else gbTimeout(fire, idx * ORCH_SPACING_MS + Math.floor(Math.random() * 200));
+    });
   }
-  const orchTimerIds=Object.create(null),orchBootTimerIds=Object.create(null);
+  let orchTimerId = 0, orchBootTimerId = 0;
   function orchStartIndependentTimers() {
-    let idx=0,created=0;
-    for(const key of orchDefaultOrder()){
-      if(!ORCH_HANDLERS[key])continue;
-      const cadence=orchCadence(key);
-      if(!orchBootTimerIds[key]){
-        orchBootTimerIds[key]=gbTimeout(()=>{orchBootTimerIds[key]=0;orchModuleTick(key,'boot')},500+(idx*120));
-      }
-      if(!orchTimerIds[key]){
-        orchTimerIds[key]=gbInterval(()=>orchModuleTick(key,'timer'),cadence);
-        created++;
-      }
-      idx++;
-    }
-    return created;
+    if (!orchBootTimerId) orchBootTimerId = gbTimeout(() => { orchBootTimerId = 0; orchTick(); }, 500);
+    if (!orchTimerId) orchTimerId = gbInterval(orchTick, ORCH_MS);
+    return orchTimerId ? 1 : 0;
   }
   // v6.0.22: re-register every interval after a scale change. gbInterval cadence
   // is fixed at creation time, so a slider tweak has to clear + recreate.
   function orchRestartTimers() {
-    for (const key of Object.keys(orchTimerIds)) {
-      const id = orchTimerIds[key];
-      if (id) { try { gbClearInterval(id); } catch (_) {} }
-      orchTimerIds[key] = 0;
-    }
+    if (orchTimerId) { try { gbClearInterval(orchTimerId); } catch (_) {} orchTimerId = 0; }
     orchStartIndependentTimers();
   }
   function intelPlayerKey(p) {

@@ -524,8 +524,8 @@
     const list = sec.querySelector('.quest-list');
     const hist = sec.querySelector('.quest-hist');
     if (!list) return;
-    list.replaceChildren();
     const entries = Object.values(state.questRewards || {}).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    gbPaint(list, list => {
     if (!entries.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#888;padding:6px 0';
@@ -564,6 +564,7 @@
         list.appendChild(row);
       });
     }
+    }, { key: entries.slice(0, 40).map(q=>q.questId).join('|') });
     if (hist) {
       const lines = (state.questHistory || []).slice(0, 30).map(h => {
         const when = new Date(h.ts).toLocaleTimeString();

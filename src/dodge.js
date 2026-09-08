@@ -1,4 +1,4 @@
-  function defenseLocalStrength(townId){const u=dodgeTownUnits(townId);let score=0,count=0;for(const[id,n0]of Object.entries(u)){const n=+n0||0,m=unitMeta(id);if(!m||m.is_naval)continue;const fn=classifyUnitFn(id);if(fn==='defense'||fn==='both'){score+=n*Math.max(1,+m.population||1);count+=n}}return{score,count}}
+  function defenseLocalStrength(townId){const u=dodgeTownUnits(townId);let score=0,count=0;for(const[id,n0]of Object.entries(u)){const n=gbNum(n0),m=unitMeta(id);if(n==null||!m||m.is_naval)continue;const fn=classifyUnitFn(id),pop=gbNum(m.population);if(fn==='defense'||fn==='both'){score+=n*Math.max(1,pop!=null?pop:1);count+=n}}return{score,count}}
   function defenseSupportOptions(dest,eta){const out=[];let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){};const target={town_id:+dest,id:+dest,kind:'town',...townCoords(dest)};for(const id of ids){if(String(id)===String(dest))continue;const units={};const live=townLiveUnits(id);for(const[k,n]of Object.entries(live)){const fn=classifyUnitFn(k),m=unitMeta(k);if(m&&!m.is_naval&&(fn==='defense'||fn==='both')&&+n>0)units[k]=+n}if(!Object.keys(units).length)continue;const same=isSameIsland(id,target),boats=boatCapacityCheck(units,same);if(!boats.ok)continue;const travel=computeTravelSeconds(id,target,units,true);if(travel!=null&&(eta==null||travel<eta))out.push({from:id,travel,units})}return out.sort((a,b)=>a.travel-b.travel)}
 
   const THREAT_CS_BASE = 60;
@@ -28,12 +28,12 @@
     const key = String(type || '').toLowerCase();
     const raw = table[key] != null ? table[key] : (THREAT_TYPE_RISK[key] != null ? THREAT_TYPE_RISK[key] : null);
     if (raw != null) {
-      const n = +raw;
-      return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : THREAT_TYPE_RISK._default;
+      const n = gbNum(raw);
+      return n != null ? Math.max(0, Math.min(100, n)) : THREAT_TYPE_RISK._default;
     }
 
-    const d = +(table._default != null ? table._default : THREAT_TYPE_RISK._default);
-    return Number.isFinite(d) ? Math.max(0, Math.min(100, d)) : THREAT_TYPE_RISK._default;
+    const d = gbNum(table._default != null ? table._default : THREAT_TYPE_RISK._default);
+    return d != null ? Math.max(0, Math.min(100, d)) : THREAT_TYPE_RISK._default;
   }
 
   const THREAT_BAND_HIGH = 45;

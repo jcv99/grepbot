@@ -71,9 +71,9 @@
       if (!entry || typeof entry !== 'object') return;
       const name = String(entry.name || '').toLowerCase();
       if (!name) return;
-      const costPer = +((entry.cost || {})[exchange]);
-      if (!Number.isFinite(costPer) || costPer <= 0) return;
-      const stock = Number.isFinite(+entry.amount) ? +entry.amount : null;
+      const costPer = gbNum((entry.cost || {})[exchange]);
+      if (costPer == null || costPer <= 0) return;
+      const stock = gbNum(entry.amount);
       offers.push({
         id: `${kind}:${name}`,
         kind, name, exchange, costPer,
@@ -119,8 +119,9 @@
 
       const m = String(ratioTxt).replace(',', '.').match(/(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)/);
       if (!m) return;
-      const recv = +m[1], costPer = +m[2] / (recv > 0 ? recv : 1);
-      if (!Number.isFinite(costPer) || costPer <= 0) return;
+      const recv = gbNum(m[1]), rawCost = gbNum(m[2]);
+      const costPer = recv != null && rawCost != null ? rawCost / (recv > 0 ? recv : 1) : null;
+      if (costPer == null || costPer <= 0) return;
       const id = `${kind}:${name}`;
       if (seen.has(id)) return;
       seen.add(id);

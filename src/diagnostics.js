@@ -118,7 +118,7 @@
     let used = null, total = null;
     try {
       const m = (typeof performance !== 'undefined') ? performance.memory : null;
-      if (m && Number.isFinite(+m.usedJSHeapSize)) { used = +m.usedJSHeapSize; total = +m.totalJSHeapSize; }
+      if (m) { used = gbNum(m.usedJSHeapSize); total = gbNum(m.totalJSHeapSize); }
     } catch (_) {}
     const maps = {};
     for (const k of MEM_MAPS) {
@@ -180,15 +180,14 @@
   function favorHudRead(fav, god) {
     let cur = typeof favorForGod === 'function' ? favorForGod(fav, god) : null;
     if (cur == null) {
-      const raw = +(fav[god] != null ? fav[god] : fav['favor_' + god]);
-      cur = Number.isFinite(raw) ? raw : null;
+      cur = gbNum(fav[god] != null ? fav[god] : fav['favor_' + god]);
     }
     let max = typeof favorMaxPool === 'function' ? favorMaxPool(fav) : null;
     if (max == null) {
       const maxRaw = fav['max_favor_' + god] != null ? fav['max_favor_' + god]
         : (fav['favor_' + god + '_max'] != null ? fav['favor_' + god + '_max'] : fav['max_' + god]);
-      const m = +maxRaw;
-      max = Number.isFinite(m) && m > 0 ? m : null;
+      const m = gbNum(maxRaw);
+      max = m != null && m > 0 ? m : null;
     }
     return { cur, max };
   }
@@ -213,7 +212,8 @@
       gbLogT('favor-hud-blind', 300000, 'favor HUD: god pools unreadable');
       return ['favor (dioses) no legible'];
     }
-    const thresh = Number.isFinite(+((state.favorCfg || {}).thresh)) ? +state.favorCfg.thresh : 200;
+    const threshold = gbNum((state.favorCfg || {}).thresh);
+    const thresh = threshold != null ? threshold : 200;
     const rows = [];
     for (const god of favorHudGods(fav)) {
       const r = favorHudRead(fav, god);
@@ -221,11 +221,11 @@
       const rate = r.cur == null ? null : favorHudRate(god, r.cur);
       let eta = '\u2014';
       if (r.cur != null && r.cur >= thresh) eta = 'ya';
-      else if (rate == null) eta = '\u2026';
+      else if (rate == null) eta = '\u2014';
       else if (rate > 0 && r.cur != null) eta = fmtSec(Math.round((thresh - r.cur) / rate));
-      rows.push(`  ${god.padEnd(11)}${String(r.cur == null ? '?' : Math.round(r.cur)).padStart(6)}` +
-        `${String(r.max == null ? '?' : Math.round(r.max)).padStart(7)}` +
-        `${(rate == null ? '\u2026' : (rate * 60).toFixed(1) + '/m').padStart(9)}` +
+      rows.push(`  ${god.padEnd(11)}${String(r.cur == null ? '\u2014' : Math.round(r.cur)).padStart(6)}` +
+        `${String(r.max == null ? '\u2014' : Math.round(r.max)).padStart(7)}` +
+        `${(rate == null ? '\u2014' : (rate * 60).toFixed(1) + '/m').padStart(9)}` +
         `  ${eta}`);
     }
     if (!rows.length) {
@@ -256,8 +256,8 @@
       if (!r || !r.ok) continue;
 
       const row = { t: now };
-      for (const k of GB_RES_KEYS) if (Number.isFinite(+r[k])) row[k] = +r[k];
-      if (Number.isFinite(+r.pop)) row.pop = +r.pop;
+      for (const k of GB_RES_KEYS) { const n = gbNum(r[k]); if (n != null) row[k] = n; }
+      const pop = gbNum(r.pop); if (pop != null) row.pop = pop;
       if (Object.keys(row).length < 2) continue;
       const list = H[key] || (H[key] = []);
       list.push(row);
@@ -270,7 +270,7 @@
     if (changed) save(STORE.TOWN_GROWTH_HIST, H);
   }
   function growthSpark(values) {
-    const v = values.filter(x => Number.isFinite(x));
+    const v = values.map(gbNum).filter(x => x != null);
     if (v.length < 2) return '';
     const min = Math.min(...v), max = Math.max(...v), span = max - min;
 
@@ -286,7 +286,7 @@
     const days = Math.max(0.1, spanMs / 86400000);
     const lines = [`crecimiento - ${townNameById(id)} (${id})  ${list.length} muestras / ${days.toFixed(1)}d`];
     for (const [key, label] of [['pop', 'pob  '], ['wood', 'mad  '], ['stone', 'pie  '], ['iron', 'pla  ']]) {
-      const vals = list.map(x => x[key]).filter(x => Number.isFinite(x));
+      const vals = list.map(x => gbNum(x[key])).filter(x => x != null);
       if (vals.length < 2) continue;
       const first = vals[0], last = vals[vals.length - 1], d = last - first;
       lines.push(`  ${label}${growthSpark(vals)}  ${fmt(first)} -> ${fmt(last)}  ` +
@@ -303,9 +303,20 @@
       return { name, ok: false, detail: String(e).slice(0, 80) };
     }
   }
+  function preflightTownId(ids) {
+    const list = Array.isArray(ids) ? ids : [];
+    if (!list.length) return null;
+    let current = null;
+    try { current = gameUw().Game && gameUw().Game.townId; } catch (_) {}
+    return list.find(id => String(id) === String(current)) || list[0];
+  }
   function preflightRun() {
     const out = [];
     const uw = gameUw();
+    // Reconciliation is read-only.  A user-requested preflight is a useful
+    // recovery point for transactions that became unknown while this tab was
+    // not leader; outcomes remain unknown unless live evidence proves them.
+    try { txReconcileUnknownOnLeader('preflight'); } catch (_) {}
     const bs = gameBridgeStatus();
     out.push(preflightProbe('bridge', () => ({
       ok: bs.MM && bs.gpAjax && bs.ITowns,
@@ -366,8 +377,8 @@
         detail: `${okRows} villages with data, action ${state.farmAction || 'not learned'}, misses ${st.misses || 0}`,
       };
     }));
-    out.push(preflightProbe('long farm claim', () => {
-      const sec = farmLongClaimDuration();
+    out.push(preflightProbe('10-minute farm claim', () => {
+      const sec = FARM_CLAIM_DURATION_SEC;
       const opt = farmOptionFor(sec);
       return {
         ok: opt != null,
@@ -414,7 +425,7 @@
         parts.push('olympic blocked (premium OFF)');
       }
       if (!ids.length) return { ok: false, warn: on, detail: parts.join(', ') + ', no towns readable' };
-      const tid = ids[0];
+      const tid = preflightTownId(ids);
       const info = researchTownTechs(tid);
       if (!info || info.academy == null) parts.push(`town ${tid} academy UNREADABLE`);
       else parts.push(`town ${tid} academy ${info.academy}`);
@@ -442,14 +453,15 @@
     }));
     out.push(preflightProbe('research', () => {
       const ids = (townsFromGame() || []).map(t => t.id);
-      const info = ids.length ? researchTownTechs(ids[0]) : null;
+      const tid = preflightTownId(ids);
+      const info = tid != null ? researchTownTechs(tid) : null;
       const n = info && info.techs ? Object.keys(info.techs).length : 0;
       return { ok: !!info && info.academy != null && info.academy >= 0 && n >= 0, warn: !n, detail: info ? `${n} researched-tech flags, academy ${info.academy == null ? 'UNREADABLE' : info.academy}` : 'academy techs unreadable' };
     }));
 
     out.push(preflightProbe('academy read path', () => {
       const ids = (townsFromGame() || []).map(t => t.id);
-      const tid = ids[0];
+      const tid = preflightTownId(ids);
       const info = tid != null ? researchTownTechs(tid) : null;
       if (!info) return { ok: false, detail: 'no readable town' };
       const parts = [];
@@ -462,13 +474,12 @@
       else parts.push(`academy ${info.academy}`);
       parts.push(info.library == null ? 'library UNREADABLE' : `library ${info.library}`);
       if (info.library == null) bad++;
-      parts.push(info.ordersKnown ? `real queue ${info.orders.length}/${researchQueueMax()}` : 'real queue UNREADABLE (open that town once)');
-      if (!info.ordersKnown) bad++;
+      parts.push(info.ordersKnown ? `real queue ${info.orders.length}/${researchQueueMax()}` : 'real queue UNREADABLE (server will validate capacity)');
       const pts = researchPointsAvailable(tid, info);
-      if (pts == null) { parts.push('research points UNREADABLE'); bad++; }
+      if (pts == null) { parts.push('research points UNREADABLE (server will validate)'); }
       else parts.push(`research points ${pts}`);
       parts.push(info.smallIsland == null ? 'small-island flag unreadable' : `small island ${info.smallIsland}`);
-      return { ok: bad === 0, warn: bad > 0, detail: parts.join(', ') };
+      return { ok: bad === 0, warn: bad > 0 || !info.ordersKnown || pts == null, detail: parts.join(', ') };
     }));
 
     out.push(preflightProbe('village recruit', () => {
@@ -817,7 +828,7 @@
     }));
     out.push(preflightProbe('cost reads', () => {
       const ids = (townsFromGame() || []).map(t => t.id);
-      const tid = ids[0];
+      const tid = preflightTownId(ids);
       const parts = [];
       let blind = 0;
       const cap = tid != null ? townResState(tid) : null;

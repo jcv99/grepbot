@@ -294,7 +294,7 @@
     const ok = waveArmCore({
       tag: 'refuerzo',
       maxArmMs: RF_ARM_MAX_MS,
-      rows, plan, lockToken: token,
+      rows, plan, lockName: 'support', lockToken: token,
       setArmed: v => { rfArmed = v; },
       getArmed: () => rfArmed,
       cancelArmed: rfCancelArmed,

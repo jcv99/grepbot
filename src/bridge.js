@@ -267,22 +267,6 @@
     const endpoint = String(controller) + '/' + String(action);
     return txRun(feature, 'ajax', endpoint, data, (done) => gameAjaxRaw(feature, controller, action, data, done), onDone);
   }
-  function txDomWrite(feature, endpoint, data, actionFn, verifyFn, onDone) {
-    return txRun(feature, 'dom', endpoint, data || {}, (done) => {
-      if (!gbInstanceAlive()) return done('disposed');
-      try { actionFn(); } catch (e) { return done(String(e)); }
-      let tries = 0;
-      const verify = () => {
-        if (!gbInstanceAlive()) return;
-        let ok = false;
-        try { ok = verifyFn ? verifyFn() === true : false; } catch (_) {}
-        if (ok) return done(null, { dom: true, reconciled: true });
-        if (++tries >= 4) return done('timeout');
-        gbTimeout(verify, 600 + tries * 500);
-      };
-      gbTimeout(verify, 500);
-    }, onDone);
-  }
   function dryRunFmt(payload) {
     try {
       const s = JSON.stringify(payload);
@@ -359,8 +343,8 @@
     let m = null;
     try { m = unitMeta(unitId); } catch (_) {}
     if (!m) return null;
-    const v = gbProbeAttr(m, LOOT_CARRY_ATTRS);
-    return Number.isFinite(v) && v > 0 ? v : null;
+    const v = gbNum(gbProbeAttr(m, LOOT_CARRY_ATTRS));
+    return v != null && v > 0 ? v : null;
   }
 
   function gbLootSplit(total) {
@@ -374,12 +358,14 @@
   function gbLootEstimate(ctx) {
     const kind = ctx && ctx.kind;
     if (kind === 'farm-claim') {
-      const dur = Math.max(0, +(ctx.durationSec) || 0);
-      const loyalty = ctx.loyalty != null ? +ctx.loyalty : 1.0;
-      const headroom = ctx.headroom != null ? +ctx.headroom : null;
-      const total = Math.round((dur / 3600) * LOOT_RATE_PER_HOUR * (Number.isFinite(loyalty) ? loyalty : 1));
+      const durationRead = gbNum(ctx.durationSec);
+      const loyaltyRead = gbNum(ctx.loyalty);
+      const headroom = gbNum(ctx.headroom);
+      const dur = Math.max(0, durationRead != null ? durationRead : 0);
+      const loyalty = loyaltyRead != null ? loyaltyRead : 1.0;
+      const total = Math.round((dur / 3600) * LOOT_RATE_PER_HOUR * loyalty);
 
-      const fits = (headroom != null && Number.isFinite(headroom)) ? total <= headroom * LOOT_SAFE_FILL_PCT : null;
+      const fits = headroom != null ? total <= headroom * LOOT_SAFE_FILL_PCT : null;
       const split = gbLootSplit(total);
       return {
         wood: split.wood, stone: split.stone, iron: split.iron, total,
@@ -428,18 +414,20 @@
     const free = gbTownPop(townId);
     let cap = null;
     const scraped = (state.townResources || {})[townId] || (state.townResources || {})[String(townId)] || null;
-    if (scraped && Number.isFinite(+scraped.cap) && +scraped.cap > 0) cap = +scraped.cap;
+    const scrapedCap = scraped ? gbNum(scraped.cap) : null;
+    if (scrapedCap != null && scrapedCap > 0) cap = scrapedCap;
     if (!(cap > 0)) cap = gbProbeNum(t, ['getPopulationCapacity', 'getMaxPopulation', 'getPopulationMax']);
     if (!(cap > 0)) {
       try {
         const r = t && t.resources && t.resources();
         const v = r && (r.population_max ?? r.populationMax);
-        if (Number.isFinite(+v) && +v > 0) cap = +v;
+        const n = gbNum(v);
+        if (n != null && n > 0) cap = n;
       } catch (_) {}
     }
     let used = null;
     if (free != null && cap > 0) used = Math.max(0, cap - free);
-    else if (scraped && Number.isFinite(+scraped.pop)) used = +scraped.pop;
+    else if (scraped) used = gbNum(scraped.pop);
     const usedPct = (used != null && cap > 0) ? Math.round(used / cap * 100) : null;
     const out = (free == null && used == null && !(cap > 0)) ? null : {
       free, used, cap: cap > 0 ? cap : null, usedPct,
@@ -487,7 +475,7 @@
     if (v != null) return v;
     try {
       const r = t.resources && t.resources();
-      if (r && r.population != null) return +r.population;
+      if (r && r.population != null) return gbNum(r.population);
     } catch (_) {}
     return null;
   }
@@ -497,7 +485,7 @@
       const p = uw.MM && uw.MM.getModelByNameAndPlayerId && uw.MM.getModelByNameAndPlayerId('Player');
       const v = gbProbeAttr(p, ['gold', 'premium_gold']);
       if (v != null) return v;
-      if (uw.Game && uw.Game.player_gold != null) return +uw.Game.player_gold;
+      if (uw.Game && uw.Game.player_gold != null) return gbNum(uw.Game.player_gold);
     } catch (_) {}
     return null;
   }

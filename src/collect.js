@@ -24,14 +24,15 @@
     save(wkey(STORE.COLLECT_TPL), u);
     gbLog('learned collect action', a);
   }
-  function collectPendingBlock(intent) {
-    const tx = state.txState && state.txState[intent];
-    if (!tx || !/^(planned|precheck|sending|confirming|reconciling|unknown|manual-review|dryrun)$/.test(tx.state || '')) return null;
-    const age = Date.now() - (+tx.unknownAt || +tx.updatedAt || +tx.createdAt || Date.now());
-    // Let txRun perform its own bounded reconciliation/expiry when eligible.
-    if (tx.state === 'unknown' && age >= TX_UNKNOWN_RECHECK_MS) return null;
-    if (tx.state === 'manual-review' && !txManualReviewPermanent(tx) && age > TX_MANUAL_REVIEW_TTL_MS) return null;
-    return tx.state || 'pending';
+  function collectLearnedEndpoint() {
+    let controller=null,action=null;
+    try {
+      const u=new URL(state.collectTpl,location.origin),parts=u.pathname.split('/').filter(Boolean);
+      action=u.searchParams.get('action');
+      controller=parts.length>=2&&parts[0]==='game'?parts[1]:parts[parts.length-1];
+      if(controller&&/\.php$/i.test(controller))controller=null;
+    } catch (_) {}
+    return controller&&action?{controller,action}:null;
   }
   function autoCollectResources() {
     if (!state.autoCollect) return;
@@ -42,6 +43,7 @@
     }
     const btns = Array.from(document.querySelectorAll(COLLECT_BTN_SEL));
     let attempted = 0, scanned = btns.length;
+    const eligible=[];
     const skipped = [];
     let currentTownId = null;
     try { currentTownId = gameUw().Game && gameUw().Game.townId; } catch (_) {}
@@ -63,36 +65,15 @@
         skipped.push('i18n:' + labelTxt.trim().slice(0, 12));
         continue;
       }
-      const beforeTime = (timeEl.textContent || '').trim();
-      const endpoint = `dom-collect:${currentTownId || '-'}:${min}:${bi}`;
-      const intent = txIntent('collect', 'dom', endpoint, { town_id: currentTownId, minutes: min, dom_index: bi }, null);
-      const pendingState = collectPendingBlock(intent);
-      if (pendingState) {
-        skipped.push('pending:' + pendingState);
-        gbLogT('collect-pending-' + intent, 30000, `auto-collect: ${min}min blocked by pending TX (${pendingState})`);
-        continue;
-      }
-      attempted++;
-
-      txDomWrite('collect', endpoint,
-        { town_id: currentTownId, minutes: min, dom_index: bi },
-        () => {
-          btn.dataset.grepbotClicked = String(Date.now());
-          btn.click();
-        },
-        () => {
-          if (!btn.isConnected || btn.disabled || btn.getAttribute('aria-disabled') === 'true') return true;
-          const nowTime = (card.querySelector('.action_time')?.textContent || '').trim();
-          return !!nowTime && nowTime !== beforeTime;
-        },
-        (err) => {
-          if (!err || err === 'dryrun') {
-            btn.dataset.grepbotClicked = String(Date.now());
-          } else if (btn.isConnected) {
-            delete btn.dataset.grepbotClicked;
-          }
-        });
+      eligible.push(btn);
     }
+    const method=collectLearnedEndpoint(),townId=gbNum(currentTownId);
+    if(eligible.length&&method&&townId!=null){
+      attempted=1;
+      gameAjaxPost('collect',method.controller,method.action,{town_id:townId},err=>{
+        if(!err||err==='dryrun')eligible.forEach(btn=>{btn.dataset.grepbotClicked=String(Date.now())});
+      });
+    }else if(eligible.length)skipped.push(method?'town-id-unreadable':'learned-endpoint-missing');
     updateCollectStateBadge(scanned, attempted);
     if (attempted) { gbLog(`auto-collect: attempted ${attempted}/${scanned} Recoger buttons`); flash(`auto-collect x${attempted}`); }
     else if (scanned > 0) gbLogT('collect-skip', 120000, `auto-collect: 0/${scanned} eligible`, skipped.slice(0, 4).join(', '));
@@ -131,17 +112,8 @@
     const n = state.towns.length;
     if (!n) { scheduleCollectBg(60_000); return; }
 
-    let collectCtrl = null, collectAction = null;
-    try {
-      const u = new URL(state.collectTpl, location.origin);
-      collectAction = u.searchParams.get('action');
-      const parts = u.pathname.split('/').filter(Boolean);
-
-      collectCtrl = parts.length >= 2 && parts[0] === 'game' ? parts[1] : parts[parts.length - 1];
-
-      if (collectCtrl && /\.php$/i.test(collectCtrl)) collectCtrl = null;
-    } catch (_) {}
-    if (!collectCtrl || !collectAction) {
+    const method=collectLearnedEndpoint();
+    if (!method) {
       gbLogT('collect-bg-nomethod', 120000, 'bg-collect: skip (learned URL method/controller unknown \u2014 no blind GET)');
       scheduleCollectBg(collectBgBackoff + Math.random() * 30_000);
       return;
@@ -172,7 +144,7 @@
           finish();
           return;
         }
-        gameAjaxPost('collect', collectCtrl, collectAction, { town_id: tid }, (err, res) => {
+        gameAjaxPost('collect', method.controller, method.action, { town_id: tid }, (err, res) => {
 
           if (err && !JRN_SKIP_ERRS[err] && err !== 'captcha') {
             errors++;

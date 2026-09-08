@@ -301,13 +301,17 @@
       if (!buildings) return { ok: false, blind: true, why: 'building levels unreadable' };
       for (const b of Object.keys(bdeps || {})) {
         const raw = bdeps[b];
-        const need = +(raw && typeof raw === 'object' ? (raw.level ?? raw.min_level ?? raw.value) : raw) || 0;
-        const have = +(buildings[b] || 0);
+        const need = gbNum(raw && typeof raw === 'object' ? (raw.level ?? raw.min_level ?? raw.value) : raw);
+        const have = gbNum(buildings[b]);
+        if (need == null || have == null) return { ok: false, blind: true, why: `${b} level unreadable` };
         if (have < need) return { ok: false, blind: false, why: `${b} ${have}/${need}` };
       }
-      const academyNeed = +(def.academy_level ?? def.required_academy_level ?? def.building_level ?? def.level ?? 0);
+      const academyRaw = def.academy_level ?? def.required_academy_level ?? def.building_level ?? def.level;
+      const academyNeed = academyRaw == null ? 0 : gbNum(academyRaw);
+      if (academyNeed == null) return { ok: false, blind: true, why: 'academy prerequisite unreadable' };
       if (academyNeed > 0 && info.academy == null) return { ok: false, blind: true, why: 'nivel de academia ilegible' };
-      if (academyNeed > 0 && +info.academy < academyNeed) return { ok: false, blind: false, why: `academia ${info.academy}/${academyNeed}` };
+      const academyHave = gbNum(info.academy);
+      if (academyNeed > 0 && academyHave != null && academyHave < academyNeed) return { ok: false, blind: false, why: `academia ${academyHave}/${academyNeed}` };
 
       if (def.requires_farming_villages && info.smallIsland === true) {
         return { ok: false, blind: false, why: 'isla peque\u00f1a: sin aldeas rurales' };
@@ -329,8 +333,10 @@
     return v.ok || v.blind;
   }
   function researchValidateJob(job) {
-    const info = researchTownTechs(job.townId);
-    if (!info) return { ok: false, why: 'research state unreadable' };
+    const read = researchTownTechs(job.townId);
+    const info = read || { town: gbTownModel(job.townId), academy: null, techs: null, orders: [], ordersKnown: false, library: null };
+    if (!read) gbLogT('research-state-blind-' + job.townId, 60000,
+      `research: state for town ${job.townId} unreadable; server will validate`);
 
     if (info.academy === 0) return { ok: false, why: 'sin academia' };
     if (info.academy == null) {
@@ -341,11 +347,10 @@
 
     if (!info.ordersKnown) {
       gbLogT('research-orders-unknown-' + job.townId, 600000,
-        `research: real research queue for town ${job.townId} unreadable (open that town once)`);
-      return { ok: false, why: 'cola real ilegible; abre esa ciudad una vez' };
+        `research: real queue for town ${job.townId} unreadable; server will validate capacity`);
     }
-    if ((info.orders || []).some(o => String(researchOrderTechId(o)) === String(job.tech))) return { ok: false, why: 'already queued' };
-    if ((info.orders || []).length >= researchQueueMax()) return { ok: false, why: 'queue full' };
+    if (info.ordersKnown && (info.orders || []).some(o => String(researchOrderTechId(o)) === String(job.tech))) return { ok: false, why: 'already queued' };
+    if (info.ordersKnown && (info.orders || []).length >= researchQueueMax()) return { ok: false, why: 'queue full' };
     if (!researchDepsOk(job.townId, info, job.tech)) return { ok: false, why: 'dependencies unavailable/unmet' };
     const aff = researchCanAfford(job.townId, job.tech, info);
     return { ok: aff.ok, why: aff.why };
@@ -406,17 +411,19 @@
       if (nativeQueuePlannerOwnsTown(tid)) { if(nativeQueuePlannerLaneBlocked(tid,'research')) continue; } else if (nativeQueueIsFifo(tid, 'research')) continue;
       const targets = goalEffectiveResearchTargets(tid, globalTargets);
       let ordered = Object.keys(targets).sort((a, b) => (+targets[a].order || 0) - (+targets[b].order || 0));
-      const info = researchTownTechs(tid);
+      const read = researchTownTechs(tid);
+      const info = read || { town: gbTownModel(tid), academy: null, techs: null, orders: [], ordersKnown: false, library: null };
 
-      if (!info || info.academy === 0) continue;
+      if (!read) gbLogT('research-state-blind-' + tid, 60000,
+        `research: state for town ${tid} unreadable; server will validate`);
+      if (info.academy === 0) continue;
 
       if (!info.ordersKnown) {
         gbLogT('research-orders-unknown-' + tid, 600000,
-          `research: town ${tid} real research queue unreadable - skipping (open that town once)`);
-        continue;
+          `research: town ${tid} real queue unreadable; server will validate capacity`);
       }
       const queueMax = researchQueueMax();
-      if (info.orders.length >= queueMax) continue;
+      if (info.ordersKnown && info.orders.length >= queueMax) continue;
       const queued = new Set();
       info.orders.forEach(o => {
         const id = researchOrderTechId(o);
@@ -425,7 +432,7 @@
 
       ordered = researchAdviseOrder(tid, ordered, targets, info);
       for (const tech of ordered) {
-        if (info.techs[tech]) continue;
+        if (info.techs && info.techs[tech]) continue;
         if (queued.has(String(tech))) continue;
         const tgt = targets[tech];
         if (!tgt || !tgt.tgt) continue;

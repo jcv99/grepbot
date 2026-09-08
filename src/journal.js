@@ -165,8 +165,9 @@
         return rec;
       }
     }
-    for (let i = list.length - 1, seen = 0; i >= 0 && seen < 40; i--, seen++) {
+    for (let i = list.length - 1; i >= 0; i--) {
       const r = list[i];
+      if (now - r.ts >= JRN_DEDUP_MS) break;
       if (r.f !== tag.f || r.a !== tag.a || r.k !== tag.k) continue;
       if (r.r === result && now - r.ts < JRN_DEDUP_MS) {
         r.n = (r.n || 1) + 1;
@@ -251,8 +252,9 @@
 
   function jrnSlice(opts) {
     const o = opts || {};
-    const since = Number.isFinite(+o.since) ? +o.since : 0;
-    const until = Number.isFinite(+o.until) ? +o.until : Infinity;
+    const sinceRead = gbNum(o.since), untilRead = gbNum(o.until);
+    const since = sinceRead != null ? sinceRead : 0;
+    const until = untilRead != null ? untilRead : Infinity;
     const feature = o.feature ? String(o.feature) : null;
     const result = o.result ? String(o.result) : null;
     const out = [];
@@ -344,4 +346,3 @@
   const seenThisRun = new Set();
 
   function seenKey(id) { return String(id); }
-

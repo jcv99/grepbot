@@ -374,9 +374,7 @@
     if (state.banditLog.length > 50) state.banditLog = state.banditLog.slice(-50);
     save(STORE.BANDIT_LOG, state.banditLog);
   }
-  const COLLECT_SAFETY_MS = 5000;
   banditScheduleNext();
-  gbInterval(autoCollectResources, COLLECT_SAFETY_MS);
   if (state.autoCollect && state.collectAll) collectAllBackground();
   const IB_CHECK_MS = 10000;
   const IB_RESCAN_AFTER_MS = 3000;

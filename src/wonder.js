@@ -81,16 +81,20 @@
     const tot = job.send.wood + job.send.stone + job.send.iron;
     const pav = plannerAvailable(job.townId, {allowSoft:false});
 
-    const wonderNum = (v) => (Number.isFinite(+v) ? +v : null);
-    const pvW = wonderNum(pav && pav.wood), pvS = wonderNum(pav && pav.stone), pvI = wonderNum(pav && pav.iron);
-    const frW = wonderNum(fresh && fresh.wood), frS = wonderNum(fresh && fresh.stone), frI = wonderNum(fresh && fresh.iron);
-    if (!fresh || !pav || pvW == null || pvS == null || pvI == null || frW == null || frS == null || frI == null
-      || !(wonderNum(fresh.tradeCap) >= tot) || pav.tradeCap == null || !(wonderNum(pav.tradeCap) >= tot)
-      || pvW < job.send.wood || pvS < job.send.stone || pvI < job.send.iron
-      || frW - job.send.wood < reserve || frS - job.send.stone < reserve || frI - job.send.iron < reserve
-      || wonderSpentToday.amount + tot > budget) {
+    const pvW = gbNum(pav && pav.wood), pvS = gbNum(pav && pav.stone), pvI = gbNum(pav && pav.iron);
+    const frW = gbNum(fresh && fresh.wood), frS = gbNum(fresh && fresh.stone), frI = gbNum(fresh && fresh.iron);
+    const freshCap = gbNum(fresh && fresh.tradeCap), plannerCap = gbNum(pav && pav.tradeCap);
+    const readableBlock = (freshCap != null && freshCap < tot) || (plannerCap != null && plannerCap < tot)
+      || (pvW != null && pvW < job.send.wood) || (pvS != null && pvS < job.send.stone) || (pvI != null && pvI < job.send.iron)
+      || (frW != null && frW - job.send.wood < reserve) || (frS != null && frS - job.send.stone < reserve) || (frI != null && frI - job.send.iron < reserve)
+      || wonderSpentToday.amount + tot > budget;
+    if (readableBlock) {
       gbLogT('wonder-stale-' + job.townId, 60000, 'wonder: final stock/capacity/budget precheck failed');
       return;
+    }
+    if (!fresh || !pav || [pvW,pvS,pvI,frW,frS,frI,freshCap,plannerCap].some(v => v == null)) {
+      gbLogT('wonder-final-blind-' + job.townId, 60000,
+        'wonder: final stock or capacity unreadable; server will validate');
     }
     const lockToken = gbLock('wonder');
     if (!lockToken) return;

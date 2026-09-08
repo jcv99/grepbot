@@ -251,7 +251,6 @@
       lifecycle: () => ({ disposed:gbDisposed, leader:gbTabLeader, lockHeld:!!gbTabLockRelease }),
       bridgePost,
       gameAjaxPost,
-      txDomWrite,
       txRun,
       txReconcileNow,
       txIntent,

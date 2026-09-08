@@ -150,21 +150,22 @@
         x.forEach(v => {
           if (!v || typeof v !== 'object') return;
           const id = v.building_id || v.building || v.id || v.type;
-          const lvl = +(v.level ?? v.min_level ?? v.value);
-          if (id && Number.isFinite(lvl)) out[id] = Math.max(out[id] || 0, lvl);
+          const lvl = gbNum(v.level ?? v.min_level ?? v.value);
+          if (id && lvl != null) out[id] = Math.max(out[id] || 0, lvl);
         });
       } else if (typeof x === 'object') {
         Object.entries(x).forEach(([id, raw]) => {
-          const lvl = +(raw && typeof raw === 'object' ? (raw.level ?? raw.min_level ?? raw.value) : raw);
-          if (Number.isFinite(lvl)) out[id] = Math.max(out[id] || 0, lvl);
+          const lvl = gbNum(raw && typeof raw === 'object' ? (raw.level ?? raw.min_level ?? raw.value) : raw);
+          if (lvl != null) out[id] = Math.max(out[id] || 0, lvl);
         });
       }
     };
     absorb(def.building_dependencies); absorb(def.required_buildings); absorb(def.requirements && def.requirements.buildings);
     if (def.required_building) {
       const id = typeof def.required_building === 'string' ? def.required_building : (def.required_building.id || def.required_building.building_id);
-      const lvl = typeof def.required_building === 'object' ? +(def.required_building.level ?? def.required_building.min_level ?? 1) : 1;
-      if (id) out[id] = Math.max(out[id] || 0, Number.isFinite(lvl) ? lvl : 1);
+      const rawLevel = typeof def.required_building === 'object' ? (def.required_building.level ?? def.required_building.min_level) : 1;
+      const lvl = rawLevel == null ? 1 : gbNum(rawLevel);
+      if (id && lvl != null) out[id] = Math.max(out[id] || 0, lvl);
     }
     return out;
   }
@@ -188,12 +189,7 @@
   }
   const _recruitBlindLog = new Set();
   function recruitFinite(v) {
-    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
-    if (typeof v === 'string' && v.trim() !== '') {
-      const n = +v;
-      return Number.isFinite(n) ? n : null;
-    }
-    return null;
+    return gbNum(v);
   }
   function recruitNumericFrom(v) {
     const direct = recruitFinite(v);
@@ -260,7 +256,7 @@
     } catch (_) {}
     try {
       const n = gbTownPop(townId);
-      if (n != null && Number.isFinite(+n)) return { value:+n, source:'gbTownPop' };
+      if (n != null) return { value:n, source:'gbTownPop' };
     } catch (_) {}
     return { value:null, source:'population-unreadable' };
   }
@@ -412,7 +408,7 @@
   // Favor *pool* still unreadable → do not block (server judges).
   function recruitFavorUnitCost(ec, def) {
     if (recruitCostFieldKnown(ec, 'favor')) {
-      return { cost: +ec.favor, source: 'authoritative' };
+      return { cost: gbNum(ec.favor), source: 'authoritative' };
     }
     const advisory = recruitDisplayCost(ec, 'favor')
       ?? gbNum(def && (def.favor ?? (def.resources && def.resources.favor)));
@@ -510,8 +506,8 @@
         if (!classRx.test(text)) continue;
         const m = countRx.exec(text);
         if (!m) continue;
-        const len = +m[1], max = +m[2];
-        if (Number.isFinite(len) && Number.isFinite(max) && max > 0 && len >= 0 && len <= max && max <= 50) {
+        const len = gbNum(m[1]), max = gbNum(m[2]);
+        if (len != null && max != null && max > 0 && len >= 0 && len <= max && max <= 50) {
           return { len, max, source:'dom-training-counter' };
         }
       }
@@ -576,16 +572,18 @@
   // Stamped only from the exact-match waiting-queue-full mapping, never guessed.
   function recruitQueueCapLearned(townId, queueClass) {
     const t = state.recruitQueueCap && state.recruitQueueCap[String(townId)];
-    const n = t && +t[queueClass];
-    return Number.isFinite(n) && n > 0 && n <= 50 ? n : null;
+    const n = gbNum(t && t[queueClass]);
+    return n != null && n > 0 && n <= 50 ? n : null;
   }
   function recruitQueueCapStamp(townId, queueClass, len) {
-    const n = Math.floor(+len);
-    if (!queueClass || queueClass === 'unknown' || !Number.isFinite(n) || n < 1 || n > 50) return;
+    const lenRead = gbNum(len);
+    const n = lenRead == null ? null : Math.floor(lenRead);
+    if (!queueClass || queueClass === 'unknown' || n == null || n < 1 || n > 50) return;
     if (!state.recruitQueueCap || typeof state.recruitQueueCap !== 'object') state.recruitQueueCap = {};
     const t = state.recruitQueueCap[String(townId)] || (state.recruitQueueCap[String(townId)] = {});
-    const cap = Math.min(+t[queueClass] || Infinity, n);
-    if (+t[queueClass] === cap) return;
+    const current = gbNum(t[queueClass]);
+    const cap = Math.min(current != null ? current : Infinity, n);
+    if (current === cap) return;
     t[queueClass] = cap;
     try { save(wkey(STORE.RECRUIT_QCAP), state.recruitQueueCap); } catch (_) {}
     gbLog(`recruit: learned queue cap ${cap} for town ${townId} ${queueClass} lane (server full at ${n})`);
@@ -656,7 +654,8 @@
       });
     }
     const cap = recruitQueueMaxProbe(col, townId, unitId);
-    const len = cap.domLen != null && Number.isFinite(+cap.domLen) ? +cap.domLen : models.length;
+    const domLen = gbNum(cap.domLen);
+    const len = domLen != null ? domLen : models.length;
     if (cap.max == null) {
       const key = `recruit-qcap-${townId}-${wantClass}`;
       let hints = '';
@@ -674,13 +673,20 @@
     for (const m of q.models || []) {
       const a = m.attributes || {};
       const uid = a.unit_type || a.unit_id || a.type;
-      if (String(uid) === String(unit)) queued += +(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)) || 0;
+      if (String(uid) === String(unit)) {
+        const count = gbNum(a.count != null ? a.count : (a.amount != null ? a.amount : a.units));
+        if (count != null) queued += count;
+      }
     }
     return queued;
   }
   function recruitQueueSpace(townId, unitId) {
     const q = recruitQueueInfo(townId, unitId);
-    if (!q.known) return { ok:false, full:null, blind:true, why:'queue-unknown', q };
+    if (!q.known) {
+      gbLogT(`recruit-queue-blind-${townId}-${unitId || 'all'}`, 60000,
+        `recruit: real queue unreadable @${townId}; server will validate capacity`);
+      return { ok:true, full:null, blind:true, why:'queue-unknown', q };
+    }
     if (q.max != null) {
       const full = q.len >= q.max;
       return { ok:!full, full, blind:false, why:full?'queue-full':'queue-space', q };
@@ -705,9 +711,10 @@
     if (!maxNow.known) blind.push('max-recruitable-unreadable');
     const apply = (name, have, cost, unreadableTag) => {
       if (!(cost > 0)) return;
-      if (have == null || !Number.isFinite(+have)) { blind.push(unreadableTag); return; }
-      const lim = Math.max(0, Math.floor(+have / cost));
-      limits[name] = { have:+have, cost, max:lim };
+      const haveN = gbNum(have);
+      if (haveN == null) { blind.push(unreadableTag); return; }
+      const lim = Math.max(0, Math.floor(haveN / cost));
+      limits[name] = { have:haveN, cost, max:lim };
       amount = Math.min(amount, lim);
     };
     for (const k of ['wood','stone','iron']) {
@@ -1228,10 +1235,11 @@
       }
     }
     const rs = t && t.resources && t.resources();
-    const haveWood = rs && Number.isFinite(+rs.wood) ? +rs.wood : null;
-    const haveStone = rs && Number.isFinite(+rs.stone) ? +rs.stone : null;
-    const haveIron = rs && Number.isFinite(+rs.iron) ? +rs.iron : null;
-    const havePop = (t && typeof t.getAvailablePopulation === 'function' && Number.isFinite(+t.getAvailablePopulation())) ? +t.getAvailablePopulation() : null;
+    const haveWood = gbNum(rs && rs.wood);
+    const haveStone = gbNum(rs && rs.stone);
+    const haveIron = gbNum(rs && rs.iron);
+    let havePop = null;
+    try { if (t && typeof t.getAvailablePopulation === 'function') havePop = gbNum(t.getAvailablePopulation()); } catch (_) {}
     const authoritative = !missing.length && !advisory.length;
     const fits = authoritative && haveWood != null && haveStone != null && haveIron != null && havePop != null
       ? wood <= haveWood && stone <= haveStone && iron <= haveIron && pop <= havePop : null;
@@ -1259,10 +1267,10 @@
       const ec = recruitEffectiveUnitCost(townId, unit);
       if (!ec) { blind.push('unit-cost-unreadable:' + unit); continue; }
       for (const k of ['wood','stone','iron']) {
-        if (recruitCostFieldKnown(ec,k)) need[k] += +ec[k] * amount;
+        if (recruitCostFieldKnown(ec,k)) need[k] += gbNum(ec[k]) * amount;
         else { known[k] = false; blind.push('effective-cost-unreadable:' + unit + ':' + k); }
       }
-      if (recruitCostFieldKnown(ec,'population')) need.pop += +ec.population * amount;
+      if (recruitCostFieldKnown(ec,'population')) need.pop += gbNum(ec.population) * amount;
       else { known.pop = false; blind.push('effective-cost-unreadable:' + unit + ':population'); }
       const baseFavor = gbNum(def.favor ?? (def.resources && def.resources.favor));
       if (baseFavor != null && baseFavor > 0) {
@@ -1432,35 +1440,36 @@
     const sumHost = sec.querySelector('#gb-batch-recruit-summary');
     if (!townSel || !rowsHost || !sumHost) return;
     const ids = batchRecruitUiTownIds();
+    const selected = String(townSel.value || '') || batchRecruitUiGetSelectedTown();
 
-    townSel.replaceChildren();
-    if (!ids.length) {
+    gbPaint(townSel, stage => {
+      if (!ids.length) {
       const opt = document.createElement('option');
       opt.value = ''; opt.textContent = '\u2014 sin ciudades \u2014';
-      townSel.appendChild(opt); townSel.disabled = true;
-    } else {
-      townSel.disabled = false;
+      stage.appendChild(opt);
+      } else {
       ids.forEach(id => {
         const opt = document.createElement('option');
         opt.value = id;
         const count = batchRecruitTownList(id).length;
         opt.textContent = `${batchRecruitUiTownName(id)}${count ? `  (${count})` : ''}`;
-        townSel.appendChild(opt);
+        stage.appendChild(opt);
       });
-      const cur = String(townSel.value || '') || batchRecruitUiGetSelectedTown();
-      townSel.value = ids.includes(cur) ? cur : ids[0];
-    }
+      }
+    }, { key: ids.join('|') });
+    townSel.disabled = !ids.length;
+    townSel.value = ids.includes(selected) ? selected : (ids[0] || '');
 
     const townId = townSel.value;
     const list = townId ? batchRecruitTownList(townId) : [];
-    rowsHost.replaceChildren();
     if (!townId) { sumHost.textContent = ''; return; }
-    if (!list.length) {
+    gbPaint(rowsHost, stage => {
+      if (!list.length) {
       const e = document.createElement('div');
       e.style.cssText = 'color:#888;font-size:10px;padding:4px 0';
       e.textContent = 'lista vac\u00eda \u2014 a\u00f1ade una l\u00ednea y elige unidad + cantidad';
-      rowsHost.appendChild(e);
-    } else {
+      stage.appendChild(e);
+      } else {
       const units = batchRecruitUiAllUnits();
       list.forEach((row, idx) => {
         const line = document.createElement('div');
@@ -1502,9 +1511,10 @@
         });
         line.appendChild(uSel); line.appendChild(qty);
         line.appendChild(costSpan); line.appendChild(trash);
-        rowsHost.appendChild(line);
+        stage.appendChild(line);
       });
-    }
+      }
+    }, { key: `${townId}|${list.map(row => String(row.unit || '')).join('|')}|${list.length}` });
 
     const preview = batchRecruitCostPreview(townId, list);
     if (!list.length) {
@@ -1526,7 +1536,7 @@
         ? ` (falta informaci\u00f3n de: ${preview.missing.join(', ')})`
         : (preview.fits ? ' \u2192 cabe \u2713' : ' \u2192 falta');
       const color = preview.fits ? '#7ddd96' : '#e5bf70';
-      sumHost.innerHTML = '';
+      sumHost.replaceChildren();
       const a = document.createElement('div');
       a.style.cssText = `color:${color};font-size:10px`;
       a.textContent = `total: ${totals || '0'} \u00b7 ciudad ahora: ${have.join(' / ') || '\u2014'}${tag}`;
@@ -1736,7 +1746,7 @@
   function trainTargetRowText(townId, unit, tgt) {
     let have = null, queued = null;
     try { const counts = goalUnitCounts(townId); have = counts && Object.prototype.hasOwnProperty.call(counts, unit) ? +counts[unit] || 0 : (counts ? 0 : null); } catch (_) {}
-    try { const q = recruitQueuedAmount(townId, unit); queued = Number.isFinite(+q) ? +q : null; } catch (_) {}
+    try { queued = gbNum(recruitQueuedAmount(townId, unit)); } catch (_) {}
     const haveTxt = have == null ? '\u2014' : String(have);
     const qTxt = queued == null ? '\u2014' : String(queued);
     const missing = (have == null || queued == null) ? null : Math.max(0, tgt - have - queued);

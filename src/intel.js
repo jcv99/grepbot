@@ -80,7 +80,9 @@
       const m = unitMeta(id);
       if (!m) { unknown += n; continue; }
       if (m.is_naval) { naval += n; continue; }
-      pop += n * Math.max(1, +m.population || 1);
+      const unitPop = gbNum(m.population);
+      if (unitPop == null || !(unitPop > 0)) { unknown += n; continue; }
+      pop += n * unitPop;
       known += n;
     }
     return { pop, known, unknown, naval };
@@ -143,8 +145,8 @@
       let sum = 0, any = false;
       for (const k of GB_RES_KEYS) {
         if (src[k] == null) continue;
-        const n = Number(src[k]);
-        if (!Number.isFinite(n)) continue;
+        const n = gbNum(src[k]);
+        if (n == null) continue;
         sum += n; any = true;
       }
 
@@ -193,25 +195,26 @@
 
   function intelDiffNum(prev, cur, unit) {
 
-    if (cur == null) return '?';
-    const b = Number(cur);
-    if (!Number.isFinite(b)) return '?';
+    if (cur == null) return '\u2014';
+    const b = gbNum(cur);
+    if (b == null) return '\u2014';
     const suffix = unit ? ' ' + unit : '';
     if (prev == null) return String(b) + suffix;
-    const a = Number(prev);
-    if (!Number.isFinite(a)) return String(b) + suffix;
+    const a = gbNum(prev);
+    if (a == null) return String(b) + suffix;
     const d = b - a;
     if (d === 0) return 'sin cambio';
     return (d > 0 ? '+' : '') + d + suffix + ` (${a}\u2192${b})`;
   }
   function intelDiffUnits(prev, cur) {
-    if (!cur || !Object.keys(cur).length) return 'unidades:?';
+    if (!cur || !Object.keys(cur).length) return 'unidades:\u2014';
     const keys = new Set(Object.keys(cur).concat(Object.keys(prev || {})));
     const parts = [];
     for (const k of Array.from(keys).sort()) {
-      const a = +(prev || {})[k] || 0, b = +cur[k] || 0;
-      if (!prev) { if (b) parts.push(`${k}:${b}`); continue; }
-      if (a !== b) parts.push(`${k} ${a}\u2192${b}`);
+      const aRead = gbNum((prev || {})[k]), bRead = gbNum(cur[k]);
+      if (!prev) { if (bRead != null && bRead) parts.push(`${k}:${bRead}`); continue; }
+      if (aRead == null || bRead == null) { if (aRead !== bRead) parts.push(`${k} ${aRead == null ? '\u2014' : aRead}\u2192${bRead == null ? '\u2014' : bRead}`); continue; }
+      if (aRead !== bRead) parts.push(`${k} ${aRead}\u2192${bRead}`);
     }
     return parts.length ? parts.join(', ') : 'sin cambio';
   }
@@ -222,13 +225,13 @@
     const parts = [];
     for (const k of GB_RES_KEYS) {
       if (c[k] == null) continue;
-      const b = Number(c[k]);
-      if (!Number.isFinite(b)) continue;
-      const a = p[k] == null ? null : Number(p[k]);
-      const d = (a != null && Number.isFinite(a)) ? b - a : null;
+      const b = gbNum(c[k]);
+      if (b == null) continue;
+      const a = gbNum(p[k]);
+      const d = a != null ? b - a : null;
       parts.push(`${INTEL_RES_ES[k]}${b}` + (d ? (d > 0 ? '+' : '') + d : ''));
     }
-    return parts.length ? parts.join(' ') : '?';
+    return parts.length ? parts.join(' ') : '\u2014';
   }
 
   function intelDiffPair(prev, cur) {
@@ -339,7 +342,8 @@
         }
         patchCells(tr, cells);
 
-        const wallRaw = (r.cur && r.cur.wall != null && Number.isFinite(+r.cur.wall)) ? String(+r.cur.wall) : '';
+        const wall = gbNum(r.cur && r.cur.wall);
+        const wallRaw = wall != null ? String(wall) : '';
         tr.dataset.sort = [g.label, String(r.ts), wallRaw, d.units, d.res, d.name, d.alliance, d.vacation, d.deep].join('\t');
       });
     }
@@ -381,7 +385,7 @@
         ageMs,
         vacation,
         abandoned,
-        wall: (last.wall != null && Number.isFinite(+last.wall)) ? +last.wall : null,
+        wall: gbNum(last.wall),
         alliance: last.alliance || null,
         reasons,
       });
@@ -409,7 +413,7 @@
         { cls: 'id', text: r.label },
         { cls: '', text: r.lastTs ? new Date(r.lastTs).toLocaleString() : '?' },
         { cls: '', text: ghostAgeLabel(r.ageMs) },
-        { cls: '', text: r.wall == null ? '?' : String(r.wall) },
+        { cls: '', text: r.wall == null ? '\u2014' : String(r.wall) },
         { cls: '', text: r.alliance || '?' },
         { cls: '', text: ghostReasonText(r) },
       ];
@@ -557,7 +561,7 @@
         html += `${t.hasCs ? '[CS] ' : ''}${t.type || 'atk'} \u2192 ${t.dest} from ${t.origin || '?'}` +
           (t.arrival ? ` @${t.arrival}` : '') +
           ` | riesgo ${da.band} ${da.risk} (${defenseFactorText(da.factors)})` +
-          ` | ETA ${da.eta==null?'?':fmtSec(da.eta)} | simult ${da.simultaneous}` +
+          ` | ETA ${da.eta==null?'\u2014':fmtSec(da.eta)} | simult ${da.simultaneous}` +
           ` | apoyo ${sup} | milicia ${da.militia && da.militia.ok ? 'si' : 'no'}` +
           ` | esquivar ${da.evac.ok?'si':'no'}${da.evac.ok?'':' ('+(da.evac.why||'?')+')'}` +
           (colonyKind[String(t.id)] ? ` | ${militaryColonyLabel(colonyKind[String(t.id)])}` : '') +
@@ -626,7 +630,7 @@
       html += '\n=== P\u00e9rdidas (verdicto del informe) ===\n';
       if (!loss.length) html += '(sin informes con resultado)\n';
       else loss.forEach(r => {
-        const wr = r.winRate == null ? '?' : Math.round(r.winRate * 100) + '%';
+        const wr = r.winRate == null ? '\u2014' : Math.round(r.winRate * 100) + '%';
         html += `${r.player}: ${r.battles} batallas (${r.asAttacker} como atacante) | ` +
           `${r.wins}G/${r.losses}P/${r.draws}E \u00b7 exito ${wr} | pob atac ${Math.round(r.popAtk)} def ${Math.round(r.popDef)}` +
           (r.unknownUnits ? ` | ${r.unknownUnits} sin metadatos` : '') + (r.navalUnits ? ` | ${r.navalUnits} navales excluidas` : '') + '\n';
@@ -635,7 +639,7 @@
       html += '\n=== Granjas top (botin por incursion) ===\n';
       if (!farms.length) html += '(sin incursiones a aldeas)\n';
       else farms.forEach(r => {
-        const sr = r.successRate == null ? '?' : Math.round(r.successRate * 100) + '%';
+        const sr = r.successRate == null ? '\u2014' : Math.round(r.successRate * 100) + '%';
         html += `${r.name || r.vill_id}: ${Math.round(r.perRaid)}/incursion \u00b7 ${r.raids} incursiones \u00b7 botin ${Math.round(r.haul)} \u00b7 exito ${sr}\n`;
       });
     }
@@ -741,8 +745,8 @@
 
   const COUNTER_INTEL_WINDOW_MS = 24 * 3600000;
   function counterIntelThreshold() {
-    const n = +((state.defenseCfg || {}).counterIntelMin);
-    return Number.isFinite(n) ? Math.max(1, Math.min(50, n)) : 3;
+    const n = gbNum((state.defenseCfg || {}).counterIntelMin);
+    return n != null ? Math.max(1, Math.min(50, n)) : 3;
   }
   function intelCounterIntelScan() {
     const now = Date.now();
@@ -809,7 +813,8 @@
     return n;
   }
   function intelAllianceMatrix(windowMs) {
-    const win = Number.isFinite(+windowMs) ? +windowMs : INTEL_MATRIX_WINDOW_MS;
+    const read = gbNum(windowMs);
+    const win = read != null ? read : INTEL_MATRIX_WINDOW_MS;
     const cutoffTs = Date.now() - win;
     const out = { alliances: [], towns: [], totalForAlliance: {}, totalForTown: {}, cells: {}, windowMs: win, cutoffTs };
     const me = intelMyIdentity();
@@ -951,7 +956,7 @@
     for (const t of (state.towns || [])) {
       const r = (state.townResources || {})[t.id];
       if (!r || !r.ok) continue;
-      for (const k of GB_RES_KEYS) if (Number.isFinite(+r[k])) own.totals[k] += +r[k];
+      for (const k of GB_RES_KEYS) { const n = gbNum(r[k]); if (n != null) own.totals[k] += n; }
       own.towns++;
       if (+r.ts > own.lastTs) own.lastTs = +r.ts;
     }
@@ -968,8 +973,8 @@
       const add = et();
       for (const k of GB_RES_KEYS) {
         if (f.resources[k] == null) continue;
-        const n = +f.resources[k];
-        if (!Number.isFinite(n)) continue;
+        const n = gbNum(f.resources[k]);
+        if (n == null) continue;
         add[k] = n; any = true;
       }
       if (!any) continue;
@@ -998,7 +1003,8 @@
   function intelMemberActivity(opts) {
     const o = opts || {};
     const filter = String(o.alliance || '').trim().toLowerCase();
-    const cut = Date.now() - ((Number.isFinite(+o.windowHours) ? +o.windowHours : 24 * 7) * 3600000);
+    const hours = gbNum(o.windowHours);
+    const cut = Date.now() - ((hours != null ? hours : 24 * 7) * 3600000);
     const me = intelMyIdentity();
     const byPlayer = {};
     for (const f of (state.findings || [])) {

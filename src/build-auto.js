@@ -1,19 +1,32 @@
   function abGetTown(townId) { return gbTownModel(townId); }
 
   const AB_OP_WATCHDOG_MS = 90000;
+  function abScriptLevel(levels, building) { return gbNum(levels && levels[building]); }
+  function abScriptAtLeast(levels, building, level) {
+    const current = abScriptLevel(levels, building);
+    return current != null && current >= level;
+  }
+  function abScriptBelow(levels, building, level) {
+    const current = abScriptLevel(levels, building);
+    return current == null || current < level;
+  }
+  function abScriptTargetAtLeast(levels, building, level) {
+    const current = abScriptLevel(levels, building);
+    return current == null ? level : Math.max(level, current);
+  }
   const AB_SCRIPT_PHASES = [
     { id:'tube', label:'Tubo (Senado 24 + Almac\u00e9n 30)',
-      gate:(l)=>(+l.main||0) < 24,
-      targets:(l)=>({ main:24, storage:Math.max(30, +l.storage||0) }) },
+      gate:(l)=>abScriptBelow(l,'main',24),
+      targets:(l)=>({ main:24, storage:abScriptTargetAtLeast(l,'storage',30) }) },
     { id:'academy7', label:'Academia 7',
-      gate:(l)=>(+l.main||0) >= 24 && (+l.academy||0) < 7,
-      targets:(l)=>({ main:24, storage:Math.max(30, +l.storage||0), academy:Math.max(7, +l.academy||0) }) },
+      gate:(l)=>abScriptAtLeast(l,'main',24) && abScriptBelow(l,'academy',7),
+      targets:(l)=>({ main:24, storage:abScriptTargetAtLeast(l,'storage',30), academy:abScriptTargetAtLeast(l,'academy',7) }) },
     { id:'theater', label:'Requisitos para Teatro',
-      gate:(l)=>(+l.academy||0) >= 7 && (+l.theater||0) < 1,
-      targets:(l)=>({ main:24, storage:Math.max(30, +l.storage||0), academy:Math.max(7, +l.academy||0), theater:1 }) },
+      gate:(l)=>abScriptAtLeast(l,'academy',7) && abScriptBelow(l,'theater',1),
+      targets:(l)=>({ main:24, storage:abScriptTargetAtLeast(l,'storage',30), academy:abScriptTargetAtLeast(l,'academy',7), theater:1 }) },
     { id:'academy30', label:'Academia 30',
-      gate:(l)=>(+l.theater||0) >= 1 && (+l.academy||0) < 30,
-      targets:(l)=>({ main:24, storage:Math.max(30, +l.storage||0), academy:30, theater:1 }) },
+      gate:(l)=>abScriptAtLeast(l,'theater',1) && abScriptBelow(l,'academy',30),
+      targets:(l)=>({ main:24, storage:abScriptTargetAtLeast(l,'storage',30), academy:30, theater:1 }) },
     { id:'maxall', label:'Todo al m\u00e1ximo',
       gate:()=>false,
       targets:(l)=>abScriptMaxTargets(l) },
@@ -95,7 +108,7 @@
       if (v == null) v = gbProbeNum(t, WALL_DAMAGE_FNS);
       if (v == null) v = gbProbeAttr(t, WALL_DAMAGE_ATTRS);
 
-      return (Number.isFinite(v) && v >= 0 && v <= 100) ? v : null;
+      return (v != null && v >= 0 && v <= 100) ? v : null;
     } catch (_) { return null; }
   }
 
@@ -129,10 +142,10 @@
       if (uw.GameDataConstructionQueue && uw.GameDataConstructionQueue.getBuildingOrdersQueueLength) {
         const n = gbNum(uw.GameDataConstructionQueue.getBuildingOrdersQueueLength());
         if (n != null && n > 0) return n;
-        if (n == null) gbLogT('ab-queue-max-blind', 300000, 'auto-queue: getBuildingOrdersQueueLength unreadable — using fallback 2');
+        if (n == null) gbLogT('ab-queue-max-blind', 300000, 'auto-queue: queue maximum unreadable; server will validate capacity');
       }
     } catch (_) {}
-    return 2;
+    return null;
   }
   function abQueueInfo(townId) {
     const t = abGetTown(townId);
@@ -143,7 +156,7 @@
     catch (_) { return { len: 0, max, orders: [], known: false }; }
     const list = models.map(m => {
       const a = m.attributes || m;
-      return { id: a.id, building_type: a.building_type, building_time: +(a.building_time || 0), to_be_completed_at: +(a.to_be_completed_at || 0), tear_down: !!a.tear_down };
+      return { id: a.id, building_type: a.building_type, building_time: gbNum(a.building_time), to_be_completed_at: gbNum(a.to_be_completed_at), tear_down: !!a.tear_down };
     });
     return { len: list.length, max, orders: list, known: true };
   }
@@ -192,8 +205,8 @@
           if (typeof v === 'string' && AB_BUILDINGS.includes(v)) map[v] = Math.max(map[v] || 0, 1);
           else if (v && typeof v === 'object') {
             const id = v.building_id || v.building || v.id || v.type;
-            const lvl = +(v.level != null ? v.level : (v.min_level != null ? v.min_level : v.value));
-            if (AB_BUILDINGS.includes(id) && Number.isFinite(lvl)) map[id] = Math.max(map[id] || 0, lvl);
+            const lvl = gbNum(v.level != null ? v.level : (v.min_level != null ? v.min_level : v.value));
+            if (AB_BUILDINGS.includes(id) && lvl != null) map[id] = Math.max(map[id] || 0, lvl);
           }
         });
         return;
@@ -201,8 +214,8 @@
       if (typeof x !== 'object') return;
       for (const [k, v] of Object.entries(x)) {
         if (AB_BUILDINGS.includes(k)) {
-          const lvl = +(v && typeof v === 'object' ? (v.level ?? v.min_level ?? v.value) : v);
-          if (Number.isFinite(lvl)) map[k] = Math.max(map[k] || 0, lvl);
+          const lvl = gbNum(v && typeof v === 'object' ? (v.level ?? v.min_level ?? v.value) : v);
+          if (lvl != null) map[k] = Math.max(map[k] || 0, lvl);
         }
       }
     };
@@ -232,8 +245,16 @@
       return { ok: false, why: 'resources', need, have, margin, popShort };
     }
     // Flag missing (other towns / senate closed): same as 5.10.64 — live stock vs cost.
-    if (!need) return { ok: false, why: 'cost unreadable' };
-    if (!have || pop == null) return { ok: false, why: 'resources/pop unreadable' };
+    if (!need) {
+      gbLogT(`ab-cost-blind-${townId}-${building}`, 60000,
+        `build: cost unreadable for ${building}; server will validate`);
+      return { ok: true, blind: true, need: null, have, margin, popShort: false };
+    }
+    if (!have || pop == null) {
+      gbLogT(`ab-stock-blind-${townId}-${building}`, 60000,
+        `build: resources or population unreadable for ${building}; server will validate`);
+      return { ok: true, blind: true, need, have, margin, popShort: false };
+    }
     if (need.popBlind) {
       gbLogT('ab-pop-blind-' + building, 900000, `build: population cost for ${building} unreadable - population check is blind, server decides`);
     }
@@ -371,16 +392,18 @@
     const targets = goalEffectiveBuildTargets(townId);
     for (const target of goalBuildOrder(townId,Object.keys(targets))) {
       const max = abMaxLevel(target);
-      if (max == null) { gbLogT('ab-max-' + target, 300000, `auto-queue: max level unreadable for ${target} \u2014 fail closed`); continue; }
+      if (max == null) gbLogT('ab-max-' + target, 300000, `auto-queue: max level unreadable for ${target}; server will validate`);
       const wantRaw = gbNum(targets[target]);
       if (wantRaw == null) { gbLogT('ab-want-' + target, 300000, `auto-queue: target unreadable for ${target} \u2014 fail closed`); continue; }
-      const want = Math.min(wantRaw, max);
+      const want = max == null ? wantRaw : Math.min(wantRaw, max);
 
       const haveLvl = gbNum(levels[target]);
-      if (haveLvl == null) { gbLogT('ab-level-' + townId + '-' + target, 300000, `auto-queue: level unreadable for ${target} \u2014 fail closed`); continue; }
-      const have = target === 'wall' ? abWallEffectiveLevel(townId, haveLvl) : haveLvl;
-      if (want <= 0 || have >= want) continue;
-      const resolved = abResolvePrerequisite(townId, target, levels);
+      if (haveLvl == null) gbLogT('ab-level-' + townId + '-' + target, 300000, `auto-queue: level unreadable for ${target}; server will validate`);
+      const have = haveLvl == null ? null : (target === 'wall' ? abWallEffectiveLevel(townId, haveLvl) : haveLvl);
+      if (want <= 0 || (have != null && have >= want)) continue;
+      const resolved = have == null
+        ? { building: target, reason: 'level unreadable; server validates' }
+        : abResolvePrerequisite(townId, target, levels);
       if (resolved && resolved.building && goalQueueSuppressed(townId,'build',resolved.building)) {
         gbLogT('ab-user-block-' + townId + '-' + resolved.building, 60000, `auto-queue: ${resolved.building} blocked by virtual queue`);
         continue;
@@ -403,31 +426,31 @@
   function abPickNext(townId) { return abPickNextFromLevels(townId, abCurrentLevels(townId)); }
   function abFinalValidate(townId, plan) {
     const q = abQueueInfo(townId);
-    if (!q.known) return { ok: false, why: 'queue-unreadable' };
-    if(plan&&plan.mode==='teardown'&&q.len!==0)return {ok:false,why:'teardown-queue-busy',detail:`demolición requiere cola real vacía (${q.len}/${q.max})`};
-    if (q.len >= q.max) return { ok: false, why: 'queue-full', detail:`cola real llena (${q.len}/${q.max})` };
+    if (!q.known) gbLogT(`ab-queue-blind-${townId}`, 60000, 'auto-queue: real queue unreadable; server will validate capacity');
+    if(plan&&plan.mode==='teardown'&&(!q.known||q.len!==0))return {ok:false,why:'teardown-queue-busy',detail:'demolición requiere una cola real legible y vacía'};
+    if (q.known && q.max != null && q.len >= q.max) return { ok: false, why: 'queue-full', detail:`cola real llena (${q.len}/${q.max})` };
     const levels = abCurrentLevels(townId);
-    if (!levels) return { ok: false, why: 'levels-unreadable' };
+    if (!levels && (!plan || !AB_BUILDINGS.includes(plan.building))) return { ok: false, why: 'levels-unreadable' };
     // Reject stale City Designer plans before recomputing the current plan.
     // Replanning can latch a safe strip; an obsolete revision must not trigger
     // any current-profile planning side effect before it is discarded.
     if(plan&&plan.cdRevision!=null&&+plan.cdRevision!==cdProfileRevision(townId))return {ok:false,why:'cd-revision-changed'};
-    const fresh = abPickNextFromLevels(townId, levels);
+    const fresh = levels ? abPickNextFromLevels(townId, levels) : Object.assign({}, plan);
     if (!fresh) return { ok: false, why: 'no-valid-build' };
     if(plan&&plan.nativeJobId&&fresh.nativeJobId!==plan.nativeJobId)return {ok:false,why:'native-head-changed'};
     if (plan && fresh.building !== plan.building) return { ok: false, why: `plan-changed:${plan.building}->${fresh.building}`, replan: fresh };
     if(fresh.mode==='teardown'){const actual=abActualLevels(townId);if(!actual)return {ok:false,why:'levels-unreadable'};const targetLevel=+(actual[fresh.building]||0)-1;if(targetLevel<0)return {ok:false,why:'min-level'};if(targetLevel!==+fresh.targetLevel)return {ok:false,why:'teardown-level-changed'};const gate=cdCanStartStrip(townId);if(!gate.ok)return {ok:false,why:'strip-'+gate.why};if(txRecentlyCommitted(`build:${townId}:${fresh.building}:${targetLevel}`,60000))return {ok:false,why:'recently-accepted-waiting-model'};return {ok:true,plan:Object.assign({},fresh,{targetLevel,mode:'teardown',cdRevision:cdProfileRevision(townId)})}}
-    const targetLevel=+(levels[fresh.building]||0)+1;
-    if(txRecentlyCommitted(`build:${townId}:${fresh.building}:${targetLevel}`,60000))return {ok:false,why:'recently-accepted-waiting-model'};
+    const curLvl = levels ? gbNum(levels[fresh.building]) : null;
+    const targetLevel = curLvl == null ? gbNum(fresh.targetLevel) : curLvl + 1;
+    if(targetLevel != null&&txRecentlyCommitted(`build:${townId}:${fresh.building}:${targetLevel}`,60000))return {ok:false,why:'recently-accepted-waiting-model'};
     const max = abMaxLevel(fresh.building);
-    const curLvl = gbNum(levels[fresh.building]);
-    if (max == null || curLvl == null || curLvl >= max) return { ok: false, why: curLvl == null ? 'levels-unreadable' : 'max-level' };
+    if (max != null && curLvl != null && curLvl >= max) return { ok: false, why: 'max-level' };
     const req = abRequirementMap(townId, fresh.building);
     if (req == null) return { ok: false, why: 'requirements-unreadable' };
-    for (const [dep, needRaw] of Object.entries(req)) {
+    for (const [dep, needRaw] of Object.entries(req || {})) {
       const need = gbNum(needRaw);
-      const have = gbNum(levels[dep]);
-      if (need == null || have == null || have < need) {
+      const have = levels ? gbNum(levels[dep]) : null;
+      if (need != null && have != null && have < need) {
         return { ok: false, why: `missing:${dep}:${have != null ? have : '\u2014'}/${need != null ? need : '\u2014'}` };
       }
     }
@@ -561,8 +584,8 @@
       const active=list.find(j=>j&&j.inflight);
       if(active){noteBlocked(id,active.reason||'envío en curso');return nextTown()}
       const q=abQueueInfo(id);
-      if(!q.known){if(first)nativeQueueSetJobState(first,'blocked','cola real ilegible');noteBlocked(id,'cola real ilegible');return nextTown()}
-      if(q.len>=q.max){const why=`cola real llena (${q.len}/${q.max})`;if(first)nativeQueueSetJobState(first,'waiting-queue',why);noteBlocked(id,why);return nextTown()}
+      if(!q.known)gbLogT(`ab-scan-queue-blind-${id}`,60000,`auto-queue: real queue unreadable @${id}; server will validate capacity`);
+      if(q.known&&q.max!=null&&q.len>=q.max){const why=`cola real llena (${q.len}/${q.max})`;if(first)nativeQueueSetJobState(first,'waiting-queue',why);noteBlocked(id,why);return nextTown()}
       const levels=abCurrentLevels(id);
       if(!levels){if(first)nativeQueueSetJobState(first,'blocked','niveles ilegibles');noteBlocked(id,'niveles ilegibles');return nextTown()}
       const plan=abPickNextFromLevels(id,levels);
@@ -633,8 +656,8 @@
       name.textContent = AB_LABELS[b] || b;
       name.style.color = '#aaa';
       const cur = document.createElement('span');
-      const curLvl = levels ? levels[b] : '?';
-      cur.textContent = String(curLvl);
+      const curLvl = levels ? gbNum(levels[b]) : null;
+      cur.textContent = curLvl == null ? '\u2014' : String(curLvl);
       const tgt = state.abTargets[b] || 0;
       const max = abMaxLevel(b);
       if (levels && curLvl >= tgt) cur.style.color = '#6dda7e';
@@ -650,7 +673,7 @@
         renderAbQueue();
       });
       const maxEl = document.createElement('span');
-      maxEl.textContent = max == null ? '?' : String(max);
+      maxEl.textContent = max == null ? '\u2014' : String(max);
       maxEl.style.color = '#666';
       const btns = document.createElement('span');
       btns.style.cssText = 'display:flex;gap:2px';
@@ -673,10 +696,10 @@
     }, { key: String(townId || '') + '|' + order.join(',') });
     if (status) {
       const q = townId ? abQueueInfo(townId) : null;
-      const next = townId && q && q.len < q.max ? abPickNext(townId) : null;
+      const next = townId && q && (!q.known || q.max == null || q.len < q.max) ? abPickNext(townId) : null;
       status.textContent = (gbLockList().some(k=>String(k).startsWith('build:')) ? 'queueing... ' : '')
         + (townId ? `town ${townId}` : 'no town')
-        + (q ? ` \u00b7 queue ${q.len}/${q.max}` : '')
+        + (q ? ` \u00b7 queue ${q.known ? q.len : '\u2014'}/${q.max == null ? '\u2014' : q.max}` : '')
         + (next ? ` \u00b7 next: ${AB_LABELS[next.building] || next.building}${next.forTarget !== next.building ? '\u2192' + (AB_LABELS[next.forTarget] || next.forTarget) : ''}` : ' \u00b7 idle')
         + (state.abAuto ? ' \u00b7 AUTO' : ' \u00b7 off');
     }

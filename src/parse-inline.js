@@ -210,24 +210,6 @@
   }
   function spyHistorySave() { save(STORE.SPY_HISTORY, spyLastSpy()); }
 
-  const SPY_INFLIGHT_TTL_MS = 120000;
-  const spyInFlightAt = Object.create(null);
-  function spyInFlightCount(id) {
-    const k = String(id), now = Date.now();
-    const list = (spyInFlightAt[k] || []).filter(t => now - t < SPY_INFLIGHT_TTL_MS);
-    if (list.length) spyInFlightAt[k] = list; else delete spyInFlightAt[k];
-    return list.length;
-  }
-  function spyInFlightAdd(id) {
-    const k = String(id);
-    if (!spyInFlightAt[k]) spyInFlightAt[k] = [];
-    spyInFlightAt[k].push(Date.now());
-  }
-  function spyInFlightDone(id) {
-    const k = String(id);
-    if (spyInFlightAt[k] && spyInFlightAt[k].length) spyInFlightAt[k].shift();
-    if (spyInFlightAt[k] && !spyInFlightAt[k].length) delete spyInFlightAt[k];
-  }
   function spyReports24h() {
     const since = Date.now() - 86400000;
     const byTown = Object.create(null);
@@ -267,16 +249,16 @@
     const out = [];
     for (const id of pool) {
 
-      const lastAt = Number.isFinite(+last[id]) ? +last[id] : now - SPY_STALE_MS;
+      const lastRead = gbNum(last[id]);
+      const lastAt = lastRead != null ? lastRead : now - SPY_STALE_MS;
       const age = now - lastAt;
       if (age < cfg.minGapMs) continue;
-      if (spyInFlightCount(id) >= cfg.maxConcurrent) continue;
       const watch = spyIsWatched(id);
       const r24 = reports[id] || 0;
       out.push({
         id,
         score: age + (watch ? SPY_WATCH_BONUS : 0) + SPY_REPORT_BONUS * Math.max(0, r24 - 1),
-        lastSpyAt: Number.isFinite(+last[id]) ? +last[id] : null,
+        lastSpyAt: lastRead,
         watch,
         reports24h: r24,
       });
@@ -319,9 +301,7 @@
         town_id: tpl.town_id,
       };
 
-      spyInFlightAdd(t.id);
       bridgePost('spy', payload, (err) => {
-        spyInFlightDone(t.id);
         if (err === 'captcha' || err === 'captcha-pause') { gbUnlock('spy', lockToken); return; }
         if (err === 'dryrun') {
           gbTimeout(next, 400);
@@ -387,7 +367,7 @@
   function cleanUnitBag(src) {
     if (!src || typeof src !== 'object' || Array.isArray(src)) return null;
     const u = {};
-    Object.keys(src).forEach(k => { const v = Number(src[k]); if (Number.isFinite(v) && v > 0) u[k] = Math.floor(v); });
+    Object.keys(src).forEach(k => { const v = gbNum(src[k]); if (v != null && v > 0) u[k] = Math.floor(v); });
     return Object.keys(u).length ? u : null;
   }
 
@@ -421,8 +401,8 @@
     if (!src || typeof src !== 'object' || Array.isArray(src)) return {};
     const out = {};
     for (const [k, raw] of Object.entries(src)) {
-      const n = Number(raw && typeof raw === 'object' ? (raw.level ?? raw.value) : raw);
-      if (!Number.isFinite(n) || n <= 0) continue;
+      const n = gbNum(raw && typeof raw === 'object' ? (raw.level ?? raw.value) : raw);
+      if (n == null || n <= 0) continue;
       out[String(k).toLowerCase()] = Math.floor(n);
     }
     return out;
@@ -451,12 +431,12 @@
   function parseHero(r) {
     const src = r.hero || r.hero_info || r.defender_hero;
     if (!src || typeof src !== 'object' || Array.isArray(src)) return null;
-    const lvl = Number(src.level ?? src.hero_level);
+    const lvl = gbNum(src.level ?? src.hero_level);
     const out = {
       id: src.id ?? src.hero_id ?? null,
       name: (typeof src.name === 'string' && src.name.trim()) ? src.name.trim()
         : (typeof src.hero_name === 'string' && src.hero_name.trim()) ? src.hero_name.trim() : null,
-      level: Number.isFinite(lvl) && lvl > 0 ? Math.floor(lvl) : null,
+      level: lvl != null && lvl > 0 ? Math.floor(lvl) : null,
       cls: (typeof src.class === 'string' && src.class.trim()) ? src.class.trim()
         : (typeof src.hero_class === 'string' && src.hero_class.trim()) ? src.hero_class.trim() : null,
     };
@@ -492,8 +472,8 @@
         const c = r[k];
         if (c == null || c === '') continue;
         if (typeof c === 'number' || (/^\d+(\.\d+)?$/.test(String(c)))) {
-          let n = +c;
-          if (!Number.isFinite(n) || n <= 0) continue;
+          let n = gbNum(c);
+          if (n == null || n <= 0) continue;
           if (n < 1e12) n *= 1000;
           return Math.floor(n);
         }
@@ -589,7 +569,7 @@
     }
     const popRaw = r.population ?? r.pop;
 
-    const popNum = typeof popRaw === 'number' || (typeof popRaw === 'string' && /^\d+$/.test(popRaw)) ? +popRaw : null;
+    const popNum = gbNum(popRaw);
     const pop = (popRaw && typeof popRaw === 'object') ? popRaw : {};
     const wood = pickNum(res_.wood, r.wood, json && json.wood);
     const stone = pickNum(res_.stone, r.stone, json && json.stone);
@@ -597,7 +577,7 @@
     return {
       wood, stone, iron,
       pop: pop.current ?? pop.pop ?? popNum ?? null,
-      cap: pop.max ?? pop.cap ?? (Number.isFinite(+r.population_max) ? +r.population_max : null) ?? null,
+      cap: pop.max ?? pop.cap ?? gbNum(r.population_max),
       name: r.name || r.town_name || null,
       got: wood != null || stone != null || iron != null || !!(r.name || r.town_name),
     };

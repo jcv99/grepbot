@@ -147,7 +147,7 @@
       if(!groups.has(town))groups.set(town,[]);groups.get(town).push({r,id,seq:seq++});
     }
     const heads=new Map();
-    const finite=(v,positive)=>{const n=+v;return Number.isFinite(n)&&(!positive||n>0)?n:null};
+    const finite=(v,positive)=>{const n=gbNum(v);return n!=null&&(!positive||n>0)?n:null};
     const uniqueMin=(rows,get)=>{const vals=rows.map(x=>get(x.r));if(vals.some(v=>v==null))return null;const min=Math.min(...vals),hits=vals.reduce((n,v)=>n+(v===min?1:0),0);return hits===1?rows[vals.indexOf(min)]:null};
     for(const [town,rows] of groups){if(rows.length===1){heads.set(town,rows[0].id);continue}
       const byPos=uniqueMin(rows,r=>finite(r.queue_position??r.position??r.queue_index??r.sort_index,false));

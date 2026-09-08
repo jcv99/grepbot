@@ -10,7 +10,7 @@
     for (const k of ['build','research','units','reserve','resource']) if (!g[k] || typeof g[k] !== 'object') g[k]={};
     if (!g.cd || typeof g.cd !== 'object' || Array.isArray(g.cd)) g.cd={};
 
-    if (g.defensive != null && !Number.isFinite(+g.defensive)) delete g.defensive;
+    if (g.defensive != null && gbNum(g.defensive) == null) delete g.defensive;
     return g;
   }
   function goalMergeMap(base, over) { const o=Object.assign({},base||{}); for(const [k,v] of Object.entries(over||{})) o[k]=v; return o; }
@@ -23,12 +23,13 @@
   }
 
   function goalDefensive(cfg,p) {
-    const v=Number.isFinite(+(cfg&&cfg.defensive))?+cfg.defensive:(Number.isFinite(+(p&&p.defensive))?+p.defensive:0.5);
+    const cfgValue=gbNum(cfg&&cfg.defensive),profileValue=gbNum(p&&p.defensive);
+    const v=cfgValue!=null?cfgValue:(profileValue!=null?profileValue:0.5);
     return Math.max(0,Math.min(1,v));
   }
   function goalResourceBias(cfg,p) {
     const merged=goalMergeMap((p&&p.resource)||{},(cfg&&cfg.resource)||{}),out={};
-    for(const k of GB_RES_KEYS){const n=+merged[k];out[k]=Number.isFinite(n)?Math.max(-1,Math.min(1,n)):0}
+    for(const k of GB_RES_KEYS){const n=gbNum(merged[k]);out[k]=n!=null?Math.max(-1,Math.min(1,n)):0}
     return out;
   }
   function goalReservePolicy(townId) { const e=goalEffective(townId); return e && e.reserve; }
@@ -144,8 +145,8 @@
   }
   function abOptBuildTimeMs(townId, building) {
     const bd = abBuildDataEntry(townId, building);
-    const sec = bd && +(bd.building_time ?? bd.build_time ?? bd.time);
-    return Number.isFinite(sec) && sec > 0 ? sec * 1000 : null;
+    const sec = gbNum(bd && (bd.building_time ?? bd.build_time ?? bd.time));
+    return sec != null && sec > 0 ? sec * 1000 : null;
   }
   function abOptimalOrderFor(townId) {
     const id = String(townId);
@@ -287,11 +288,11 @@
   function goalQueueToggleMandatory(townId,key){const q=goalQueueCfg(townId);if(q.mandatory[key])delete q.mandatory[key];else q.mandatory[key]=true;goalQueueSave();goalPlanTown(townId);return !!q.mandatory[key];}
   function goalQueueHide(townId,key){const q=goalQueueCfg(townId);q.hidden[key]=true;q.blocked[key]=true;goalQueueSave();goalPlanTown(townId);return true;}
   function goalQueueReset(townId){delete state.virtualQueueOverrides[String(townId)];goalQueueSave();goalPlanTown(townId);return true;}
-  function goalSetTownOverrides(townId,obj){if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;cdSyncTownGoal(townId);const g=goalTownCfg(townId),cleanMap=v=>{const o={};if(v&&typeof v==='object'&&!Array.isArray(v))for(const[k,n]of Object.entries(v))if(Number.isFinite(+n)&&+n>=0)o[k]=+n;return o;};if(obj.build!=null)g.build=cleanMap(obj.build);if(obj.research!=null)g.research=cleanMap(obj.research);if(obj.units!=null)g.units=cleanMap(obj.units);if(obj.reserve&&typeof obj.reserve==='object'){g.reserve={hard:cleanMap(obj.reserve.hard),soft:cleanMap(obj.reserve.soft)}}
+  function goalSetTownOverrides(townId,obj){if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;cdSyncTownGoal(townId);const g=goalTownCfg(townId),cleanMap=v=>{const o={};if(v&&typeof v==='object'&&!Array.isArray(v))for(const[k,n]of Object.entries(v)){const value=gbNum(n);if(value!=null&&value>=0)o[k]=value}return o;};if(obj.build!=null)g.build=cleanMap(obj.build);if(obj.research!=null)g.research=cleanMap(obj.research);if(obj.units!=null)g.units=cleanMap(obj.units);if(obj.reserve&&typeof obj.reserve==='object'){g.reserve={hard:cleanMap(obj.reserve.hard),soft:cleanMap(obj.reserve.soft)}}
 
-    if(obj.defensive!==undefined){if(obj.defensive===null||obj.defensive==='')delete g.defensive;else if(Number.isFinite(+obj.defensive))g.defensive=Math.max(0,Math.min(1,+obj.defensive));}
+    if(obj.defensive!==undefined){const value=gbNum(obj.defensive);if(value==null)delete g.defensive;else g.defensive=Math.max(0,Math.min(1,value));}
 
-    if(obj.resource!==undefined){const r={};if(obj.resource&&typeof obj.resource==='object'&&!Array.isArray(obj.resource))for(const k of GB_RES_KEYS){const n=+obj.resource[k];if(Number.isFinite(n))r[k]=Math.max(-1,Math.min(1,n))}g.resource=r;}
+    if(obj.resource!==undefined){const r={};if(obj.resource&&typeof obj.resource==='object'&&!Array.isArray(obj.resource))for(const k of GB_RES_KEYS){const n=gbNum(obj.resource[k]);if(n!=null)r[k]=Math.max(-1,Math.min(1,n))}g.resource=r;}
     cdPersistTownGoal(townId);goalPlanTown(townId);return true;}
   function goalProgress(townId){const e=goalEffective(townId),parts=[];const levels=abCurrentLevels(townId)||{};for(const[id,t]of Object.entries(e.build||{})){const tgt=+t||0;if(tgt>0)parts.push(Math.min(1,(+(levels[id]||0))/tgt))}let info=null;try{info=researchTownTechs(townId)}catch(_){};for(const[id,on]of Object.entries(e.research||{})){const onN=gbNum(on);if(onN==null||!onN)continue;parts.push(info&&info.techs&&info.techs[id]?1:0)}const units=goalUnitCounts(townId);for(const[id,t]of Object.entries(e.units||{})){const tgt=+t||0;if(tgt>0)parts.push(Math.min(1,(+(units[id]||0))/tgt))}return parts.length?Math.round(parts.reduce((a,b)=>a+b,0)/parts.length*100):100;}
   function goalMandatoryModules(){const out=[];for(const [tid,q] of Object.entries(state.virtualQueueOverrides||{})){if(!q||!q.mandatory)continue;for(const key of Object.keys(q.mandatory)){if(!q.mandatory[key]||q.blocked&&q.blocked[key]||q.hidden&&q.hidden[key])continue;const kind=String(key).split(':')[0],mod=kind==='build'?'build':kind==='research'?'research':kind==='recruit'?'recruit':null;if(mod&&!out.includes(mod))out.push(mod)}}return out;}
@@ -343,18 +344,19 @@
   }
   function abMaxLevel(building) {
     const d = abBuildingDef(building);
-    const n = d && d.max_level != null ? +d.max_level : null;
-    return Number.isFinite(n) && n >= 0 ? n : null;
+    const n = gbNum(d && d.max_level);
+    return n != null && n >= 0 ? n : null;
   }
   function abMinLevel(building) {
     const d = abBuildingDef(building);
-    const n = d && d.min_level != null ? +d.min_level : 0;
-    return Number.isFinite(n) && n >= 0 ? n : 0;
+    const n = gbNum(d && d.min_level);
+    return n != null && n >= 0 ? n : 0;
   }
   function abClampTarget(building, lvl) {
     const lo = abMinLevel(building);
     const hi = abMaxLevel(building);
-    const n = Math.max(lo, Math.floor(Number.isFinite(+lvl) ? +lvl : 0));
+    const raw = gbNum(lvl);
+    const n = Math.max(lo, Math.floor(raw == null ? lo : raw));
     return hi == null ? n : Math.min(hi, n);
   }
   function abSetTarget(building, lvl) {
@@ -371,4 +373,3 @@
   };
   const NATIVE_SPECIAL_GROUPS=[['theater','thermal','library','lighthouse'],['tower','statue','oracle','trade_office']];
   let nativeQueueInflightRestored=false;
-

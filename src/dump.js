@@ -1,7 +1,7 @@
   const DUMP_SURPLUS_SHARE = 0.5;
   function dumpCfgNum(map, key, def, lo, hi) {
-    const v = +((map || {})[key]);
-    return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : def;
+    const v = gbNum((map || {})[key]);
+    return v != null ? Math.max(lo, Math.min(hi, v)) : def;
   }
   function dumpThresholdFor(res) {
     return dumpCfgNum(state.dumpThreshold, res, res === 'iron' ? 90 : 95, 50, 100);
@@ -26,8 +26,8 @@
   function dumpProfileWants(townId, res) {
     try {
       const p = goalEffective(townId);
-      const v = p && p.resource ? +p.resource[res] : 0;
-      return Number.isFinite(v) ? v : 0;
+      const v = gbNum(p && p.resource && p.resource[res]);
+      return v != null ? v : 0;
     } catch (_) { return 0; }
   }
 

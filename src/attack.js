@@ -589,7 +589,8 @@
       gbLogT('attack-dest-id', 60000, 'attack: target town_id unreadable — no post');
       return onDone && onDone('bad-target');
     }
-    const tpl = state.attackTpl;
+    const feature = safeMission === 'support' ? 'support' : 'attack';
+    const tpl = safeMission === 'support' ? state.supportTpl : state.attackTpl;
     const settle = (err, data) => {
       if (err) { flash('ataque fallido: ' + err); return onDone && onDone(err); }
       flash('ataque enviado #' + srcTownId);
@@ -611,7 +612,7 @@
       const n = countUnits(sendUnits);
       if (state.exportRedact === false) gbLog('attack ajax:', JSON.stringify(params));
       else gbLog(`attack ajax: ${ATTACK_CONTROLLER}/send_units town ${srcTownId} -> ${destId} (${safeMission}, ${Object.keys(sendUnits).length} tipos / ${n} unidades)`);
-      return gameAjaxPost('attack', ATTACK_CONTROLLER, 'send_units', params, settle);
+      return gameAjaxPost(feature, ATTACK_CONTROLLER, 'send_units', params, settle);
     }
     const tplArgs = (tpl && tpl.arguments) || {};
     const args = {};
@@ -638,7 +639,7 @@
     const unitCount = countUnits(sendUnits);
     if (state.exportRedact === false) gbLog('attack bridge:', JSON.stringify(payload));
     else gbLog(`attack bridge: ${payload.action_name} town ${srcTownId} \u2192 ${destId} (${args.type || '?'}, ${Object.keys(sendUnits).length} tipos / ${unitCount} unidades)`);
-    bridgePost('attack', payload, settle);
+    bridgePost(feature, payload, settle);
   }
   function pushAttackHistory(entry) {
     state.attackHistory.unshift(entry);
@@ -648,6 +649,7 @@
   function cancelArmedAttack() {
     if (!attackArmed) return;
     (attackArmed.timers || []).forEach(id => gbClearTimeout(id));
+    if (attackArmed.token) gbUnlock('attack', attackArmed.token);
     gbLog('attack: cancelled armed wave');
     flash('ataque cancelado');
     attackArmed = null;
@@ -671,10 +673,16 @@
   }
   const ATTACK_ARM_MAX_MS = 90000;
   function armAttackWave(plan, rows) {
+    const token = gbLock('attack');
+    if (!token) {
+      gbLogT('attack-arm-busy', 60000, 'attack: lock held - not arming');
+      flash('ataques ocupados: hay un envio en curso');
+      return;
+    }
     const ok = waveArmCore({
       tag: 'attack',
       maxArmMs: ATTACK_ARM_MAX_MS,
-      rows, plan,
+      rows, plan, lockName: 'attack', lockToken: token,
       setArmed: v => { attackArmed = v; },
       getArmed: () => attackArmed,
       cancelArmed: cancelArmedAttack,
@@ -688,8 +696,10 @@
       }),
       patchStatus: patchAttackFireStatus,
       renderPanel: () => renderAttack(),
+      onExpire: (_timers, tok) => { if (tok) gbUnlock('attack', tok); },
     });
     if (!ok) {
+      gbUnlock('attack', token);
       flash('no se puede armar: objetivo no resuelto o no es una ciudad');
       gbLog('attack: arm blocked \u2014 need canonical town target (villages unsupported)');
     }
@@ -700,15 +710,21 @@
       flash('no se puede enviar: objetivo no resuelto o no es una ciudad');
       return;
     }
-    if (!confirm(`Enviar ${rows.filter(r => r.boats.ok && r.unitCount).length} ataque(s) ahora?`)) return;
-    let i = 0;
     const okRows = rows.filter(r => r.boats.ok && r.unitCount);
+    if (!okRows.length) { flash('sin ciudades listas'); return; }
+    if (!confirm(`Enviar ${okRows.length} ataque(s) ahora?`)) return;
+    cancelArmedAttack();
+    const token = gbLock('attack');
+    if (!token) { flash('ataques ocupados: hay un envio en curso'); return; }
+    let i = 0;
     (function next() {
       if (i >= okRows.length) {
+        gbUnlock('attack', token);
         pushAttackHistory({ ts: Date.now(), mode: 'send_now_immediate', targetId: plan.targetId, towns: okRows.map(r => r.townId) });
         flash(`ataques x${okRows.length}`);
         return;
       }
+      gbLockTouch('attack', token);
       const row = okRows[i++];
       const freshUnits = attackUnitsForTarget(row.townId, target, plan);
       const freshCount = countUnits(freshUnits);
@@ -783,7 +799,7 @@
         const hdr = document.createElement('div');
         hdr.style.cssText = 'display:grid;grid-template-columns:1.2fr .7fr .9fr .7fr .8fr;gap:4px;color:#888;font-size:9px;margin-bottom:2px';
 
-        hdr.innerHTML = '<span>town</span><span>travel</span><span>sendAt</span><span>boats</span><span>status</span>';
+        hdr.innerHTML = gbLit('<span>town</span><span>travel</span><span>sendAt</span><span>boats</span><span>status</span>');
         table.appendChild(hdr);
       }
       rows.forEach(r => {
@@ -922,10 +938,9 @@
     if (per) {
       per.hidden = plan.troopMode !== 'per_town';
       if (plan.troopMode === 'per_town') {
-        per.replaceChildren();
         const ids = Array.isArray(plan.sourceTownIds)
           ? plan.sourceTownIds : (state.towns || []).map(t => String(t.id));
-        ids.forEach(tid2 => {
+        gbPaint(per, stage => ids.forEach(tid2 => {
           const town = (state.towns || []).find(t => String(t.id) === String(tid2)) || { id: tid2, name: tid2 };
           const wrap = document.createElement('div');
           wrap.style.cssText = 'margin-bottom:4px';
@@ -943,8 +958,8 @@
             saveAttackPlan();
           });
           wrap.appendChild(lab); wrap.appendChild(ta);
-          per.appendChild(wrap);
-        });
+          stage.appendChild(wrap);
+        }), { key: ids.map(String).join('|') });
       }
     }
     renderAttackRoles(sec);
