@@ -137,6 +137,11 @@
       ts: Date.now(),
       expires: arrivalMs + SUPPORT_LEDGER_GRACE_MS,
       donorIds: donors.map(d => String(d.from)),
+      // The bridge response does not expose a canonical command id. Never
+      // infer ownership from matching donor towns: that can recall manual or
+      // unrelated automatic supports. Only exact, recorded command ids may be
+      // cancelled by this path.
+      commandIds: [],
       state: 'sent',
     };
     SUPPORT_LEDGER.save();
@@ -150,9 +155,18 @@
       gbLogT('support-recall-tpl', 600000, 'support: recall needs the cancel template - cancel one command by hand once');
       return;
     }
+    const commandIds = Array.isArray(e.commandIds) ? e.commandIds.map(String) : [];
+    if (!commandIds.length) {
+      e.state = 'manual-review';
+      e.why = 'exact-command-ids-unavailable';
+      SUPPORT_LEDGER.save();
+      gbLogT('support-recall-owned-' + movId, 600000,
+        'support: exact command ids unavailable; automatic recall skipped to preserve unrelated supports');
+      return;
+    }
     let outs = [];
     try { outs = militaryOutgoingMovements() || []; } catch (_) { return; }
-    const mine = outs.filter(m => /^(support|support_sea)$/.test(String(m.type || '')) && e.donorIds.includes(String(m.home)));
+    const mine = outs.filter(m => commandIds.includes(String(m.commandId)));
     if (!mine.length) { e.state = 'done'; SUPPORT_LEDGER.save(); return; }
     e.state = 'recalling'; SUPPORT_LEDGER.save();
     for (const m of mine) {

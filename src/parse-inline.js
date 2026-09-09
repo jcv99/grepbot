@@ -33,6 +33,29 @@
   }
   const reportRetry = Object.create(null);
   const REPORT_RETRY_MAX = 3;
+  const REPORT_RETRY_TTL_MS = 6 * 60 * 60 * 1000;
+  const REPORT_RETRY_MAX_ENTRIES = 1000;
+  let reportRetryPrunedAt = 0;
+  function reportRetryPrune(now) {
+    now = now || Date.now();
+    if (now - reportRetryPrunedAt < 60000 && Object.keys(reportRetry).length <= REPORT_RETRY_MAX_ENTRIES) return;
+    reportRetryPrunedAt = now;
+    const rows = [];
+    for (const [id, rec] of Object.entries(reportRetry)) {
+      if (!rec || !(rec.at > now - REPORT_RETRY_TTL_MS)) {
+        delete reportRetry[id];
+        seenThisRun.delete(seenKey(id));
+        continue;
+      }
+      rows.push([id, rec]);
+    }
+    if (rows.length <= REPORT_RETRY_MAX_ENTRIES) return;
+    rows.sort((a, b) => a[1].at - b[1].at);
+    for (let i = 0; i < rows.length - REPORT_RETRY_MAX_ENTRIES; i++) {
+      delete reportRetry[rows[i][0]];
+      seenThisRun.delete(seenKey(rows[i][0]));
+    }
+  }
   function scrapeInboxDom() {
     document.querySelectorAll('a[href*="action=report"][href*="id="]').forEach(a => {
 
@@ -43,8 +66,10 @@
   function queueReport(id, hintUrl) {
     if (!id) return;
     if (!hostEnabled() || automationPaused({}) || captchaPaused('report')) return;
+    reportRetryPrune();
     const k = seenKey(id);
-    if (seenThisRun.has(k) || state.seen[k]) return;
+    const retry = reportRetry[id];
+    if (seenThisRun.has(k) || state.seen[k] || (retry && retry.n >= REPORT_RETRY_MAX)) return;
     if (seenThisRun.size > 5000) seenThisRun.clear();
     seenThisRun.add(k);
     gbTimeout(() => fetchReport(id, hintUrl), 200 + Math.random() * 800);
@@ -78,8 +103,8 @@
   }
   function reportFetchFail(id, why) {
     gbLogT('report-fail-' + id, 30000, 'report fetch fail', id, why || '');
-    const n = (reportRetry[id] || 0) + 1;
-    reportRetry[id] = n;
+    const n = ((reportRetry[id] && reportRetry[id].n) || 0) + 1;
+    reportRetry[id] = { n, at: Date.now() };
     if (n < REPORT_RETRY_MAX) seenThisRun.delete(seenKey(id));
     else gbLogT('report-retry-cap', 60000, 'report retry capped for', id);
   }

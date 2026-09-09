@@ -10,10 +10,9 @@
     };
     const onMove = e => {
       if (!drag) return;
-      const cssMax = parseFloat(getComputedStyle(w).maxWidth) || w.offsetWidth;
-      const maxW = Math.min(w.offsetWidth || 0, Math.max(0, innerWidth - cssMax));
+      const maxW = Math.max(0, innerWidth - w.offsetWidth);
       const maxH = Math.max(0, innerHeight - w.offsetHeight);
-      w.style.left = Math.max(0, Math.min(innerWidth - maxW, e.clientX - drag.dx)) + 'px';
+      w.style.left = Math.max(0, Math.min(maxW, e.clientX - drag.dx)) + 'px';
       w.style.top = Math.max(0, Math.min(maxH, e.clientY - drag.dy)) + 'px';
       w.style.right = 'auto';
     };

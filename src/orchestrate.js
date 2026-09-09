@@ -3,6 +3,7 @@
   const ORCH_DRAIN_KEYS = ['cave', 'trade', 'ruraltrade'];
   const ORCH_PIN_RATIO = 0.97;
   const ORCH_UNIT_KEYS = ['recruit', 'villrecruit'];
+  const orchCadenceJitter = Object.create(null);
   let orchDeadlock = { open: false, towns: [], at: 0, stuckLoggedAt: 0 };
   function orchTownIds() {
     const ids = [];
@@ -111,29 +112,27 @@
     godspell:()=>orchSafe('godspell',()=>profTime('orch:godspell',()=>godSpellScan('orch'))),
   };
   function orchFeatureEnabled(key) {
-    return {
-      culture: state.autoCulture,
-      cave: state.autoCave,
-      build: state.abAuto || nativeQueueHasPending('build') || cityDesignerHasExecutableWork('build'),
-      research: state.autoResearch || nativeQueueHasPending('research') || cityDesignerHasExecutableWork('research'),
-      trade: state.autoTrade || state.islandShip || state.autoTransport || state.autoTradeRoutes || state.autoDump,
-      farm: state.autoFarm,
-      ruraltrade: state.autoRuralTrade,
-      rurallevel: state.autoRuralLevel,
-      recruit: state.autoRecruit || nativeRecruitPending() || cityDesignerHasExecutableWork('recruit'),
-      villrecruit: state.autoVillageRecruit,
-
-      batchrecruit: state.batchRecruit && batchRecruitHasAnyTown(),
-      merchant: state.autoMerchant,
-      pttrade: state.autoPtTrade,
-      favor: state.autoFavor,
-
-      godspell: state.autoFavor,
-      wonder: state.autoWonder,
-      spy: state.spyEnabled,
-
-      hero: (typeof heroesEnabled === 'function') ? heroesEnabled() : false,
-    }[key];
+    switch (key) {
+      case 'culture': return state.autoCulture;
+      case 'cave': return state.autoCave;
+      case 'build': return state.abAuto || nativeQueueHasPending('build') || cityDesignerHasExecutableWork('build');
+      case 'research': return state.autoResearch || nativeQueueHasPending('research') || cityDesignerHasExecutableWork('research');
+      case 'trade': return state.autoTrade || state.islandShip || state.autoTransport || state.autoTradeRoutes || state.autoDump;
+      case 'farm': return state.autoFarm;
+      case 'ruraltrade': return state.autoRuralTrade;
+      case 'rurallevel': return state.autoRuralLevel;
+      case 'recruit': return state.autoRecruit || nativeRecruitPending() || cityDesignerHasExecutableWork('recruit');
+      case 'villrecruit': return state.autoVillageRecruit;
+      case 'batchrecruit': return state.batchRecruit && batchRecruitHasAnyTown();
+      case 'merchant': return state.autoMerchant;
+      case 'pttrade': return state.autoPtTrade;
+      case 'favor': return state.autoFavor;
+      case 'godspell': return state.autoFavor;
+      case 'wonder': return state.autoWonder;
+      case 'spy': return state.spyEnabled;
+      case 'hero': return (typeof heroesEnabled === 'function') ? heroesEnabled() : false;
+      default: return false;
+    }
   }
   function orchDefaultOrder() {
     const out=[];
@@ -176,9 +175,9 @@
   ]);
   function orchCadence(key) {
     const base = (ORCH_CADENCE[key] || ORCH_MS) * orchIdleFactor(key);
-    if (ORCH_SCALE_EXCLUDE.has(key)) return base;
+    if (ORCH_SCALE_EXCLUDE.has(key)) return Math.round(base * (orchCadenceJitter[key] || 1));
     const scale = (state && state.orchCadenceScale > 0) ? state.orchCadenceScale : 1;
-    return Math.max(ORCH_CADENCE_FLOOR_MS, Math.round(base * scale));
+    return Math.max(ORCH_CADENCE_FLOOR_MS, Math.round(base * scale * (orchCadenceJitter[key] || 1)));
   }
   function orchNoteResult(key) {
     const since = orchJrnMark[key];
@@ -218,6 +217,7 @@
     // already in flight; it does not reserve resources for future actions.
     orchNoteResult(key);
     orchLastRun[key] = Date.now();
+    orchCadenceJitter[key] = 1 - ORCH_JITTER + Math.random() * ORCH_JITTER * 2;
     orchJrnMark[key] = Date.now();
     ORCH_HANDLERS[key]();
   }

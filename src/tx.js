@@ -8,6 +8,9 @@
   const TX_REVIEW_MIN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
   const TX_MANUAL_REVIEW_TTL_MS = 30 * 60 * 1000;
   let txSeq = 0;
+  function txTransportUncertain(err) {
+    return err === 'timeout' || err === 'neterr' || err === 'cancelled';
+  }
   if (!state.txState || typeof state.txState !== 'object' || Array.isArray(state.txState)) state.txState = {};
   function txManualReviewPermanent(tx) {
     return !!(tx && TX_WRITE_FEATURES.has(String(tx.feature || '')));
@@ -200,13 +203,27 @@
     const t = gbTownModel(townId);
     if (!t) return null;
     let have = null, queued = 0;
-    try { const u=t.units&&t.units(),o=t.unitsOuter&&t.unitsOuter();if(u)have=(+u[unit]||0)+(o?(+o[unit]||0):0); } catch (_) {}
+    try {
+      const u = t.units && t.units(), o = t.unitsOuter && t.unitsOuter();
+      const count = src => {
+        if (!src || !Object.prototype.hasOwnProperty.call(src, unit)) return 0;
+        return gbNum(src[unit]);
+      };
+      if (u) {
+        const home = count(u), outer = count(o);
+        if (home != null && outer != null) have = home + outer;
+      }
+    } catch (_) {}
     try {
       const col = t.getUnitOrdersCollection && t.getUnitOrdersCollection();
       for (const m of ((col && col.models) || [])) {
         const a = m.attributes || {};
         const uid = a.unit_type || a.unit_id || a.type;
-        if (String(uid) === String(unit)) queued += +(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)) || 0;
+        if (String(uid) === String(unit)) {
+          const n = gbNum(a.count != null ? a.count : (a.amount != null ? a.amount : a.units));
+          if (n == null) return null;
+          queued += n;
+        }
       }
     } catch (_) {}
     return have == null ? null : { have, queued, total: have + queued };
@@ -230,7 +247,9 @@
       const levels = abCurrentLevels(townId);
       const q = abQueueInfo(townId);
       if (!levels || !q) return null;
-      return { projectedLevel: +(levels[building] || 0), queueLen: q.len };
+      const level = gbNum(levels[building]);
+      if (level == null) return null;
+      return { projectedLevel: level, queueLen: q.len };
     } catch (_) { return null; }
   }
   function txFarmStatus(farmId) {
@@ -972,9 +991,10 @@
       if (!gbInstanceAlive() || tx.owner !== GB_INSTANCE_ID) return;
 
       if (state.txState[intent] !== tx || !/^(sending|confirming)$/.test(tx.state)) return;
-      if (err === 'timeout') {
-        tx.state = 'reconciling'; tx.unknownAt = Date.now(); tx.updatedAt = Date.now(); tx.detail = 'transport timeout; reconciling'; txSave();
-        markModuleHealth(feature, 'timeout', {latencyMs:Date.now()-tx.sentAt,error:'timeout',townId:metaTown,action:endpoint,intent});
+      if (txTransportUncertain(err)) {
+        const uncertain = String(err);
+        tx.state = 'reconciling'; tx.unknownAt = Date.now(); tx.updatedAt = Date.now(); tx.detail = `transport ${uncertain}; reconciling`; txSave();
+        markModuleHealth(feature, 'timeout', {latencyMs:Date.now()-tx.sentAt,error:uncertain,townId:metaTown,action:endpoint,intent});
         return txReconcile(tx, (r) => {
           if (!gbInstanceAlive() || state.txState[intent] !== tx) return;
           if (r === 'applied') {
@@ -983,13 +1003,13 @@
             markModuleHealth(feature, 'ok', {latencyMs:Date.now()-tx.sentAt}); circuitSuccess(feature);
             if (onDone) onDone(null, Object.assign({ reconciled: true }, result || {}));
           } else if (r === 'unchanged') {
-            tx.state = 'unknown'; tx.unknownAt = tx.unknownAt || Date.now(); tx.updatedAt = Date.now(); tx.detail = 'timeout; state remained unchanged; retry blocked'; plannerRelease(tx, 'timeout-unchanged'); txSave();
-            jrnPush(jtag, 'timeout', tx.detail, tx.id);
-            if (onDone) onDone('timeout', result);
+            tx.state = 'unknown'; tx.unknownAt = tx.unknownAt || Date.now(); tx.updatedAt = Date.now(); tx.detail = `transport ${uncertain}; state remained unchanged; retry blocked`; plannerRelease(tx, 'transport-unchanged'); txSave();
+            jrnPush(jtag, 'unknown', tx.detail, tx.id);
+            if (onDone) onDone('unknown', result);
           } else {
-            tx.state = 'unknown'; tx.unknownAt = tx.unknownAt || Date.now(); tx.updatedAt = Date.now(); tx.detail = 'timeout; unable to reconcile'; plannerRelease(tx, 'timeout-unknown'); txSave();
-            jrnPush(jtag, 'timeout', tx.detail, tx.id);
-            if (onDone) onDone('timeout_unknown', result);
+            tx.state = 'unknown'; tx.unknownAt = tx.unknownAt || Date.now(); tx.updatedAt = Date.now(); tx.detail = `transport ${uncertain}; unable to reconcile`; plannerRelease(tx, 'transport-unknown'); txSave();
+            jrnPush(jtag, 'unknown', tx.detail, tx.id);
+            if (onDone) onDone('unknown', result);
           }
         });
       }

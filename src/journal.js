@@ -56,7 +56,7 @@
   }
   function jrnPendingResult(r) {
     const s = String(r || '');
-    return s === 'timeout_unknown' || /^pending(?::|$)/i.test(s) || /^unknown outcome/i.test(s);
+    return s === 'unknown' || s === 'timeout_unknown' || /^pending(?::|$)/i.test(s) || /^unknown outcome/i.test(s);
   }
   function jrnHard(r) {
     const s = String(r || '');
@@ -252,10 +252,8 @@
       return false;
     }
     if (Date.now() >= s.until) {
-      s.trips = Math.max(0, (s.trips || 1) - 1);
       delete s.until;
       s.at = Date.now();
-      if (!s.trips) delete state.decisionSkips[key];
       jrnSave();
       return false;
     }

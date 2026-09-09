@@ -57,17 +57,40 @@
   }
   function snapshotTotalBytes() { return snapshotRing().reduce((n, s) => n + (+s.sizeBytes || 0), 0); }
 
+  function snapshotClone(v) {
+    try { return structuredClone(v); } catch (_) {}
+    try { return JSON.parse(JSON.stringify(v)); } catch (_) { return undefined; }
+  }
+  function snapshotRestoreTxState(v) {
+    const restored = snapshotClone(v);
+    if (!restored || typeof restored !== 'object' || Array.isArray(restored)) return false;
+    const live = state.txState;
+    if (live && typeof live === 'object' && !Array.isArray(live)) {
+      for (const [intent, tx] of Object.entries(live)) {
+        if (tx && /^(planned|precheck|sending|confirming|reconciling|unknown|manual-review)$/.test(String(tx.state || ''))) restored[intent] = tx;
+      }
+    }
+    state.txState = restored;
+    save(STORE.TX_STATE, restored);
+    return true;
+  }
   function snapshotRestore(slot) {
     if (state.safeMode) { flash('modo seguro: restaurar esta desactivado'); return false; }
     const s = snapshotRing()[slot];
     if (!s || !s.payload) return false;
     const p = s.payload;
-    const put = (key, store, v) => { if (v === undefined) return; state[key] = v; save(store, v); };
+    const put = (key, store, v) => {
+      if (v === undefined) return;
+      const copy = snapshotClone(v);
+      if (copy === undefined) return;
+      state[key] = copy;
+      save(store, copy);
+    };
     put('abTargets', STORE.AB_TARGETS, p.plans && p.plans.abTargets);
     put('researchTargets', STORE.RESEARCH_TARGETS, p.plans && p.plans.researchTargets);
     put('recruitTargets', STORE.RECRUIT_TARGETS, p.plans && p.plans.recruitTargets);
     put('merchantWish', STORE.MERCHANT_WISH, p.plans && p.plans.merchantWish);
-    put('txState', STORE.TX_STATE, p.txState);
+    snapshotRestoreTxState(p.txState);
     put('circuits', STORE.CIRCUITS, p.circuits);
     put('decisionSkips', STORE.DECISION_SKIPS, p.decisionSkips);
     put('farmOptionMap', STORE.FARM_OPTION_MAP, p.farmOptionMap);
@@ -773,8 +796,8 @@
         ok: true,
 
         warn: !!e.blind,
-        detail: `farm-claim ${e.total}/h` + (e.blind ? ` BLIND (${e.blindReason})` : '') +
-          ` \u00b7 attack-loot ${carry.blind ? 'ciego (' + carry.blindReason + ')' : carry.total}`,
+        detail: `reclamo de aldea ${e.total}/h` + (e.blind ? ` SIN LECTURA (${e.blindReason})` : '') +
+          ` \u00b7 botín de ataque ${carry.blind ? 'ciego (' + carry.blindReason + ')' : carry.total}`,
       };
     }));
     out.push(preflightProbe('composition advisor', () => {

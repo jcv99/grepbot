@@ -21,7 +21,9 @@
     for (const k of GB_RES_KEYS) {
       const raw = gbNum(p[k]);
       if (raw == null || raw < 0) { out[k] = null; continue; }
-      out[k] = raw > 100 ? raw / 3600 : raw;
+      // Town#getProduction exposes an hourly rate. Do not infer units from
+      // magnitude: low-production towns are still hourly.
+      out[k] = raw / 3600;
       any = true;
     }
     return any ? out : null;
@@ -71,7 +73,7 @@
       if (rate == null) { out[k + 'Free'] = null; out.blind = true; continue; }
       const grown = rate * (ms / 1000);
       const live = gbNum(st[k]);
-      const incoming = gbNum(mov[k]);
+      const incoming = Object.prototype.hasOwnProperty.call(mov, k) ? gbNum(mov[k]) : 0;
       if (live == null || incoming == null) { out[k + 'Free'] = null; out.blind = true; continue; }
       const projected = live + incoming + grown;
       out[k + 'Free'] = Math.max(0, st.cap - projected);

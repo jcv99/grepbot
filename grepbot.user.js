@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.69
+// @version      6.0.72
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -21,7 +21,7 @@
 
 (function () {
   'use strict';
-  const GB_RELEASE = '6.0.68';
+  const GB_RELEASE = '6.0.72';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -1491,7 +1491,7 @@ const STORE = {
       }
       return state[stateKey];
     }
-    function save() { save(storeKey, ensure()); }
+    function persist() { return save(storeKey, ensure()); }
     function prune(now) {
       if (!(pruneMs > 0)) return false;
       const L = ensure();
@@ -1500,10 +1500,10 @@ const STORE = {
       for (const [k, e] of Object.entries(L)) {
         if (!e || +(e[pruneField] || 0) < cut) { delete L[k]; changed = true; }
       }
-      if (changed) save();
+      if (changed) persist();
       return changed;
     }
-    return { ensure, save, prune };
+    return { ensure, save: persist, prune };
   }
   function noteTransportSuccess() {
     const now = Date.now();
@@ -2585,7 +2585,7 @@ const STORE = {
       gbLog(`CAPTCHA global kill: all features paused ${mins}m`);
     }
     gbLog(`CAPTCHA breaker: ${feature} paused ${mins}m`, detail || '');
-    flash(`captcha: ${feature} paused ${mins}m`);
+    flash(`captcha: ${feature} en pausa ${mins}m`);
     try { telegramCaptchaTripNotify(feature, mins); } catch (_) {}
     try { if (typeof alertWebhook === 'function') alertWebhook('captcha', { feature, mins, detail }); } catch (_) {}
     try { gbEventsEmit('captcha', { feature, mins, detail }); } catch (_) {}
@@ -2976,6 +2976,9 @@ const STORE = {
   const TX_REVIEW_MIN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
   const TX_MANUAL_REVIEW_TTL_MS = 30 * 60 * 1000;
   let txSeq = 0;
+  function txTransportUncertain(err) {
+    return err === 'timeout' || err === 'neterr' || err === 'cancelled';
+  }
   if (!state.txState || typeof state.txState !== 'object' || Array.isArray(state.txState)) state.txState = {};
   function txManualReviewPermanent(tx) {
     return !!(tx && TX_WRITE_FEATURES.has(String(tx.feature || '')));
@@ -3165,13 +3168,27 @@ const STORE = {
     const t = gbTownModel(townId);
     if (!t) return null;
     let have = null, queued = 0;
-    try { const u=t.units&&t.units(),o=t.unitsOuter&&t.unitsOuter();if(u)have=(+u[unit]||0)+(o?(+o[unit]||0):0); } catch (_) {}
+    try {
+      const u = t.units && t.units(), o = t.unitsOuter && t.unitsOuter();
+      const count = src => {
+        if (!src || !Object.prototype.hasOwnProperty.call(src, unit)) return 0;
+        return gbNum(src[unit]);
+      };
+      if (u) {
+        const home = count(u), outer = count(o);
+        if (home != null && outer != null) have = home + outer;
+      }
+    } catch (_) {}
     try {
       const col = t.getUnitOrdersCollection && t.getUnitOrdersCollection();
       for (const m of ((col && col.models) || [])) {
         const a = m.attributes || {};
         const uid = a.unit_type || a.unit_id || a.type;
-        if (String(uid) === String(unit)) queued += +(a.count != null ? a.count : (a.amount != null ? a.amount : a.units)) || 0;
+        if (String(uid) === String(unit)) {
+          const n = gbNum(a.count != null ? a.count : (a.amount != null ? a.amount : a.units));
+          if (n == null) return null;
+          queued += n;
+        }
       }
     } catch (_) {}
     return have == null ? null : { have, queued, total: have + queued };
@@ -3195,7 +3212,9 @@ const STORE = {
       const levels = abCurrentLevels(townId);
       const q = abQueueInfo(townId);
       if (!levels || !q) return null;
-      return { projectedLevel: +(levels[building] || 0), queueLen: q.len };
+      const level = gbNum(levels[building]);
+      if (level == null) return null;
+      return { projectedLevel: level, queueLen: q.len };
     } catch (_) { return null; }
   }
   function txFarmStatus(farmId) {
@@ -3900,9 +3919,10 @@ const STORE = {
       if (!gbInstanceAlive() || tx.owner !== GB_INSTANCE_ID) return;
 
       if (state.txState[intent] !== tx || !/^(sending|confirming)$/.test(tx.state)) return;
-      if (err === 'timeout') {
-        tx.state = 'reconciling'; tx.unknownAt = Date.now(); tx.updatedAt = Date.now(); tx.detail = 'transport timeout; reconciling'; txSave();
-        markModuleHealth(feature, 'timeout', {latencyMs:Date.now()-tx.sentAt,error:'timeout',townId:metaTown,action:endpoint,intent});
+      if (txTransportUncertain(err)) {
+        const uncertain = String(err);
+        tx.state = 'reconciling'; tx.unknownAt = Date.now(); tx.updatedAt = Date.now(); tx.detail = `transport ${uncertain}; reconciling`; txSave();
+        markModuleHealth(feature, 'timeout', {latencyMs:Date.now()-tx.sentAt,error:uncertain,townId:metaTown,action:endpoint,intent});
         return txReconcile(tx, (r) => {
           if (!gbInstanceAlive() || state.txState[intent] !== tx) return;
           if (r === 'applied') {
@@ -3911,13 +3931,13 @@ const STORE = {
             markModuleHealth(feature, 'ok', {latencyMs:Date.now()-tx.sentAt}); circuitSuccess(feature);
             if (onDone) onDone(null, Object.assign({ reconciled: true }, result || {}));
           } else if (r === 'unchanged') {
-            tx.state = 'unknown'; tx.unknownAt = tx.unknownAt || Date.now(); tx.updatedAt = Date.now(); tx.detail = 'timeout; state remained unchanged; retry blocked'; plannerRelease(tx, 'timeout-unchanged'); txSave();
-            jrnPush(jtag, 'timeout', tx.detail, tx.id);
-            if (onDone) onDone('timeout', result);
+            tx.state = 'unknown'; tx.unknownAt = tx.unknownAt || Date.now(); tx.updatedAt = Date.now(); tx.detail = `transport ${uncertain}; state remained unchanged; retry blocked`; plannerRelease(tx, 'transport-unchanged'); txSave();
+            jrnPush(jtag, 'unknown', tx.detail, tx.id);
+            if (onDone) onDone('unknown', result);
           } else {
-            tx.state = 'unknown'; tx.unknownAt = tx.unknownAt || Date.now(); tx.updatedAt = Date.now(); tx.detail = 'timeout; unable to reconcile'; plannerRelease(tx, 'timeout-unknown'); txSave();
-            jrnPush(jtag, 'timeout', tx.detail, tx.id);
-            if (onDone) onDone('timeout_unknown', result);
+            tx.state = 'unknown'; tx.unknownAt = tx.unknownAt || Date.now(); tx.updatedAt = Date.now(); tx.detail = `transport ${uncertain}; unable to reconcile`; plannerRelease(tx, 'transport-unknown'); txSave();
+            jrnPush(jtag, 'unknown', tx.detail, tx.id);
+            if (onDone) onDone('unknown', result);
           }
         });
       }
@@ -4152,8 +4172,10 @@ const STORE = {
       try {
         noteTransportSuccess();
         if (responseIsCaptcha(res)) {
+
+          finish('captcha', res);
           captchaTrip(feature, JSON.stringify(res).slice(0, 120));
-          return finish('captcha');
+          return;
         }
         const e = responseServerError(res);
         if (e) {
@@ -4759,7 +4781,7 @@ const STORE = {
   }
   function jrnPendingResult(r) {
     const s = String(r || '');
-    return s === 'timeout_unknown' || /^pending(?::|$)/i.test(s) || /^unknown outcome/i.test(s);
+    return s === 'unknown' || s === 'timeout_unknown' || /^pending(?::|$)/i.test(s) || /^unknown outcome/i.test(s);
   }
   function jrnHard(r) {
     const s = String(r || '');
@@ -4955,10 +4977,8 @@ const STORE = {
       return false;
     }
     if (Date.now() >= s.until) {
-      s.trips = Math.max(0, (s.trips || 1) - 1);
       delete s.until;
       s.at = Date.now();
-      if (!s.trips) delete state.decisionSkips[key];
       jrnSave();
       return false;
     }
@@ -5275,6 +5295,29 @@ const STORE = {
   }
   const reportRetry = Object.create(null);
   const REPORT_RETRY_MAX = 3;
+  const REPORT_RETRY_TTL_MS = 6 * 60 * 60 * 1000;
+  const REPORT_RETRY_MAX_ENTRIES = 1000;
+  let reportRetryPrunedAt = 0;
+  function reportRetryPrune(now) {
+    now = now || Date.now();
+    if (now - reportRetryPrunedAt < 60000 && Object.keys(reportRetry).length <= REPORT_RETRY_MAX_ENTRIES) return;
+    reportRetryPrunedAt = now;
+    const rows = [];
+    for (const [id, rec] of Object.entries(reportRetry)) {
+      if (!rec || !(rec.at > now - REPORT_RETRY_TTL_MS)) {
+        delete reportRetry[id];
+        seenThisRun.delete(seenKey(id));
+        continue;
+      }
+      rows.push([id, rec]);
+    }
+    if (rows.length <= REPORT_RETRY_MAX_ENTRIES) return;
+    rows.sort((a, b) => a[1].at - b[1].at);
+    for (let i = 0; i < rows.length - REPORT_RETRY_MAX_ENTRIES; i++) {
+      delete reportRetry[rows[i][0]];
+      seenThisRun.delete(seenKey(rows[i][0]));
+    }
+  }
   function scrapeInboxDom() {
     document.querySelectorAll('a[href*="action=report"][href*="id="]').forEach(a => {
 
@@ -5285,8 +5328,10 @@ const STORE = {
   function queueReport(id, hintUrl) {
     if (!id) return;
     if (!hostEnabled() || automationPaused({}) || captchaPaused('report')) return;
+    reportRetryPrune();
     const k = seenKey(id);
-    if (seenThisRun.has(k) || state.seen[k]) return;
+    const retry = reportRetry[id];
+    if (seenThisRun.has(k) || state.seen[k] || (retry && retry.n >= REPORT_RETRY_MAX)) return;
     if (seenThisRun.size > 5000) seenThisRun.clear();
     seenThisRun.add(k);
     gbTimeout(() => fetchReport(id, hintUrl), 200 + Math.random() * 800);
@@ -5320,8 +5365,8 @@ const STORE = {
   }
   function reportFetchFail(id, why) {
     gbLogT('report-fail-' + id, 30000, 'report fetch fail', id, why || '');
-    const n = (reportRetry[id] || 0) + 1;
-    reportRetry[id] = n;
+    const n = ((reportRetry[id] && reportRetry[id].n) || 0) + 1;
+    reportRetry[id] = { n, at: Date.now() };
     if (n < REPORT_RETRY_MAX) seenThisRun.delete(seenKey(id));
     else gbLogT('report-retry-cap', 60000, 'report retry capped for', id);
   }
@@ -7845,11 +7890,11 @@ const STORE = {
     if(eligible.length&&method&&townId!=null){
       attempted=1;
       gameAjaxPost('collect',method.controller,method.action,{town_id:townId},err=>{
-        if(!err||err==='dryrun')eligible.forEach(btn=>{btn.dataset.grepbotClicked=String(Date.now())});
+        if(!err)eligible.forEach(btn=>{btn.dataset.grepbotClicked=String(Date.now())});
       });
     }else if(eligible.length)skipped.push(method?'town-id-unreadable':'learned-endpoint-missing');
     updateCollectStateBadge(scanned, attempted);
-    if (attempted) { gbLog(`auto-collect: attempted ${attempted}/${scanned} Recoger buttons`); flash(`auto-collect x${attempted}`); }
+    if (attempted) { gbLog(`auto-collect: attempted ${attempted}/${scanned} Recoger buttons`); flash(`recolecci\u00f3n autom\u00e1tica x${attempted}`); }
     else if (scanned > 0) gbLogT('collect-skip', 120000, `auto-collect: 0/${scanned} eligible`, skipped.slice(0, 4).join(', '));
   }
   function updateCollectStateBadge(scanned, clicked) {
@@ -13446,7 +13491,8 @@ const STORE = {
     for (const k of GB_RES_KEYS) {
       const raw = gbNum(p[k]);
       if (raw == null || raw < 0) { out[k] = null; continue; }
-      out[k] = raw > 100 ? raw / 3600 : raw;
+
+      out[k] = raw / 3600;
       any = true;
     }
     return any ? out : null;
@@ -13496,7 +13542,7 @@ const STORE = {
       if (rate == null) { out[k + 'Free'] = null; out.blind = true; continue; }
       const grown = rate * (ms / 1000);
       const live = gbNum(st[k]);
-      const incoming = gbNum(mov[k]);
+      const incoming = Object.prototype.hasOwnProperty.call(mov, k) ? gbNum(mov[k]) : 0;
       if (live == null || incoming == null) { out[k + 'Free'] = null; out.blind = true; continue; }
       const projected = live + incoming + grown;
       out[k + 'Free'] = Math.max(0, st.cap - projected);
@@ -17039,7 +17085,7 @@ const STORE = {
 
     if (!state.autoFavor) return;
     if (!hostEnabled() || automationPaused({})) return;
-    if (captchaPaused('godspell')) return;
+    if (captchaPaused('spell')) return;
     if (gbLocked('godspell')) return;
     const cfg = state.favorCfg || {};
     const power = cfg.spellPower ? String(cfg.spellPower) : '';
@@ -20865,6 +20911,7 @@ const STORE = {
   const ORCH_DRAIN_KEYS = ['cave', 'trade', 'ruraltrade'];
   const ORCH_PIN_RATIO = 0.97;
   const ORCH_UNIT_KEYS = ['recruit', 'villrecruit'];
+  const orchCadenceJitter = Object.create(null);
   let orchDeadlock = { open: false, towns: [], at: 0, stuckLoggedAt: 0 };
   function orchTownIds() {
     const ids = [];
@@ -20973,29 +21020,27 @@ const STORE = {
     godspell:()=>orchSafe('godspell',()=>profTime('orch:godspell',()=>godSpellScan('orch'))),
   };
   function orchFeatureEnabled(key) {
-    return {
-      culture: state.autoCulture,
-      cave: state.autoCave,
-      build: state.abAuto || nativeQueueHasPending('build') || cityDesignerHasExecutableWork('build'),
-      research: state.autoResearch || nativeQueueHasPending('research') || cityDesignerHasExecutableWork('research'),
-      trade: state.autoTrade || state.islandShip || state.autoTransport || state.autoTradeRoutes || state.autoDump,
-      farm: state.autoFarm,
-      ruraltrade: state.autoRuralTrade,
-      rurallevel: state.autoRuralLevel,
-      recruit: state.autoRecruit || nativeRecruitPending() || cityDesignerHasExecutableWork('recruit'),
-      villrecruit: state.autoVillageRecruit,
-
-      batchrecruit: state.batchRecruit && batchRecruitHasAnyTown(),
-      merchant: state.autoMerchant,
-      pttrade: state.autoPtTrade,
-      favor: state.autoFavor,
-
-      godspell: state.autoFavor,
-      wonder: state.autoWonder,
-      spy: state.spyEnabled,
-
-      hero: (typeof heroesEnabled === 'function') ? heroesEnabled() : false,
-    }[key];
+    switch (key) {
+      case 'culture': return state.autoCulture;
+      case 'cave': return state.autoCave;
+      case 'build': return state.abAuto || nativeQueueHasPending('build') || cityDesignerHasExecutableWork('build');
+      case 'research': return state.autoResearch || nativeQueueHasPending('research') || cityDesignerHasExecutableWork('research');
+      case 'trade': return state.autoTrade || state.islandShip || state.autoTransport || state.autoTradeRoutes || state.autoDump;
+      case 'farm': return state.autoFarm;
+      case 'ruraltrade': return state.autoRuralTrade;
+      case 'rurallevel': return state.autoRuralLevel;
+      case 'recruit': return state.autoRecruit || nativeRecruitPending() || cityDesignerHasExecutableWork('recruit');
+      case 'villrecruit': return state.autoVillageRecruit;
+      case 'batchrecruit': return state.batchRecruit && batchRecruitHasAnyTown();
+      case 'merchant': return state.autoMerchant;
+      case 'pttrade': return state.autoPtTrade;
+      case 'favor': return state.autoFavor;
+      case 'godspell': return state.autoFavor;
+      case 'wonder': return state.autoWonder;
+      case 'spy': return state.spyEnabled;
+      case 'hero': return (typeof heroesEnabled === 'function') ? heroesEnabled() : false;
+      default: return false;
+    }
   }
   function orchDefaultOrder() {
     const out=[];
@@ -21034,9 +21079,9 @@ const STORE = {
   ]);
   function orchCadence(key) {
     const base = (ORCH_CADENCE[key] || ORCH_MS) * orchIdleFactor(key);
-    if (ORCH_SCALE_EXCLUDE.has(key)) return base;
+    if (ORCH_SCALE_EXCLUDE.has(key)) return Math.round(base * (orchCadenceJitter[key] || 1));
     const scale = (state && state.orchCadenceScale > 0) ? state.orchCadenceScale : 1;
-    return Math.max(ORCH_CADENCE_FLOOR_MS, Math.round(base * scale));
+    return Math.max(ORCH_CADENCE_FLOOR_MS, Math.round(base * scale * (orchCadenceJitter[key] || 1)));
   }
   function orchNoteResult(key) {
     const since = orchJrnMark[key];
@@ -21072,6 +21117,7 @@ const STORE = {
 
     orchNoteResult(key);
     orchLastRun[key] = Date.now();
+    orchCadenceJitter[key] = 1 - ORCH_JITTER + Math.random() * ORCH_JITTER * 2;
     orchJrnMark[key] = Date.now();
     ORCH_HANDLERS[key]();
   }
@@ -24827,6 +24873,8 @@ const STORE = {
       ts: Date.now(),
       expires: arrivalMs + SUPPORT_LEDGER_GRACE_MS,
       donorIds: donors.map(d => String(d.from)),
+
+      commandIds: [],
       state: 'sent',
     };
     SUPPORT_LEDGER.save();
@@ -24840,9 +24888,18 @@ const STORE = {
       gbLogT('support-recall-tpl', 600000, 'support: recall needs the cancel template - cancel one command by hand once');
       return;
     }
+    const commandIds = Array.isArray(e.commandIds) ? e.commandIds.map(String) : [];
+    if (!commandIds.length) {
+      e.state = 'manual-review';
+      e.why = 'exact-command-ids-unavailable';
+      SUPPORT_LEDGER.save();
+      gbLogT('support-recall-owned-' + movId, 600000,
+        'support: exact command ids unavailable; automatic recall skipped to preserve unrelated supports');
+      return;
+    }
     let outs = [];
     try { outs = militaryOutgoingMovements() || []; } catch (_) { return; }
-    const mine = outs.filter(m => /^(support|support_sea)$/.test(String(m.type || '')) && e.donorIds.includes(String(m.home)));
+    const mine = outs.filter(m => commandIds.includes(String(m.commandId)));
     if (!mine.length) { e.state = 'done'; SUPPORT_LEDGER.save(); return; }
     e.state = 'recalling'; SUPPORT_LEDGER.save();
     for (const m of mine) {
@@ -26065,17 +26122,40 @@ const STORE = {
   }
   function snapshotTotalBytes() { return snapshotRing().reduce((n, s) => n + (+s.sizeBytes || 0), 0); }
 
+  function snapshotClone(v) {
+    try { return structuredClone(v); } catch (_) {}
+    try { return JSON.parse(JSON.stringify(v)); } catch (_) { return undefined; }
+  }
+  function snapshotRestoreTxState(v) {
+    const restored = snapshotClone(v);
+    if (!restored || typeof restored !== 'object' || Array.isArray(restored)) return false;
+    const live = state.txState;
+    if (live && typeof live === 'object' && !Array.isArray(live)) {
+      for (const [intent, tx] of Object.entries(live)) {
+        if (tx && /^(planned|precheck|sending|confirming|reconciling|unknown|manual-review)$/.test(String(tx.state || ''))) restored[intent] = tx;
+      }
+    }
+    state.txState = restored;
+    save(STORE.TX_STATE, restored);
+    return true;
+  }
   function snapshotRestore(slot) {
     if (state.safeMode) { flash('modo seguro: restaurar esta desactivado'); return false; }
     const s = snapshotRing()[slot];
     if (!s || !s.payload) return false;
     const p = s.payload;
-    const put = (key, store, v) => { if (v === undefined) return; state[key] = v; save(store, v); };
+    const put = (key, store, v) => {
+      if (v === undefined) return;
+      const copy = snapshotClone(v);
+      if (copy === undefined) return;
+      state[key] = copy;
+      save(store, copy);
+    };
     put('abTargets', STORE.AB_TARGETS, p.plans && p.plans.abTargets);
     put('researchTargets', STORE.RESEARCH_TARGETS, p.plans && p.plans.researchTargets);
     put('recruitTargets', STORE.RECRUIT_TARGETS, p.plans && p.plans.recruitTargets);
     put('merchantWish', STORE.MERCHANT_WISH, p.plans && p.plans.merchantWish);
-    put('txState', STORE.TX_STATE, p.txState);
+    snapshotRestoreTxState(p.txState);
     put('circuits', STORE.CIRCUITS, p.circuits);
     put('decisionSkips', STORE.DECISION_SKIPS, p.decisionSkips);
     put('farmOptionMap', STORE.FARM_OPTION_MAP, p.farmOptionMap);
@@ -26779,8 +26859,8 @@ const STORE = {
         ok: true,
 
         warn: !!e.blind,
-        detail: `farm-claim ${e.total}/h` + (e.blind ? ` BLIND (${e.blindReason})` : '') +
-          ` \u00b7 attack-loot ${carry.blind ? 'ciego (' + carry.blindReason + ')' : carry.total}`,
+        detail: `reclamo de aldea ${e.total}/h` + (e.blind ? ` SIN LECTURA (${e.blindReason})` : '') +
+          ` \u00b7 bot\u00edn de ataque ${carry.blind ? 'ciego (' + carry.blindReason + ')' : carry.total}`,
       };
     }));
     out.push(preflightProbe('composition advisor', () => {
@@ -27023,7 +27103,7 @@ const STORE = {
     gbLog(`preflight: ${preflightLast.rows.length - bad}/${preflightLast.rows.length} checks pass`);
     preflightLast.rows.forEach(r => gbLog(`  ${r.ok ? (r.warn ? 'WARN' : 'ok  ') : 'FAIL'} ${r.name}: ${r.detail}`));
     renderStats();
-    flash(bad ? `preflight: ${bad} failing` : 'preflight: all pass');
+    flash(bad ? `verificaci\u00f3n previa: ${bad} fallo(s)` : 'verificaci\u00f3n previa: todas las comprobaciones superadas');
   }
   function renderStats() {
     const sec = panel && panel.querySelector('section[data-tab=stats]');
@@ -27109,7 +27189,7 @@ const STORE = {
     if (budgetSkips) lines.push(`  ${budgetSkips} accion(es) saltadas por presupuesto en la ventana`);
     if (preflightLast) {
       lines.push('');
-      lines.push(`preflight (${new Date(preflightLast.at).toLocaleTimeString()})`);
+      lines.push(`verificaci\u00f3n previa (${new Date(preflightLast.at).toLocaleTimeString()})`);
       preflightLast.rows.forEach(r => {
         lines.push(`  ${r.ok ? (r.warn ? '!' : '+') : 'x'} ${r.name}: ${r.detail}`);
       });
@@ -27677,10 +27757,9 @@ const STORE = {
     };
     const onMove = e => {
       if (!drag) return;
-      const cssMax = parseFloat(getComputedStyle(w).maxWidth) || w.offsetWidth;
-      const maxW = Math.min(w.offsetWidth || 0, Math.max(0, innerWidth - cssMax));
+      const maxW = Math.max(0, innerWidth - w.offsetWidth);
       const maxH = Math.max(0, innerHeight - w.offsetHeight);
-      w.style.left = Math.max(0, Math.min(innerWidth - maxW, e.clientX - drag.dx)) + 'px';
+      w.style.left = Math.max(0, Math.min(maxW, e.clientX - drag.dx)) + 'px';
       w.style.top = Math.max(0, Math.min(maxH, e.clientY - drag.dy)) + 'px';
       w.style.right = 'auto';
     };
@@ -32190,11 +32269,13 @@ const STORE = {
     LOCK_SWEEP_MS: 10000,
     DODGE_RETURN_MS: 15000,
     NATIVE_QUEUE_LOOP_MS: 60000,
+    HOUSEKEEPING_MS: 60000,
     QUEUE_CENTER_PAINT_MS: 5000,
     OVERVIEW_RENDER_MS: 15000,
 
     HUD_RESTORE_MS: 1500,
     FARM_WAKE_MS: 2500,
+    TELEGRAM_BOOT_MS: 3000,
     QUEST_SCAN_BOOT_MS: 5000,
     IB_SCAN_BOOT_MS: 8000,
     AB_TARGETS_MS: 12000,
@@ -32271,7 +32352,7 @@ const STORE = {
   if (!state.nextTownsScrape) { state.nextTownsScrape = Date.now() + BOOT_TIMING.FIRST_TOWNS_DEADLINE_MS; save(STORE.NEXT_TOWNS, state.nextTownsScrape); }
   gbTimeout(() => { if (state.autoFarm) farmScheduleClaimWake(null, 'boot', true); }, BOOT_TIMING.FARM_WAKE_MS);
 
-  gbTimeout(() => { gbTry(() => telegramMonitorTick()); }, 3000);
+  gbTimeout(() => { gbTry(() => telegramMonitorTick()); }, BOOT_TIMING.TELEGRAM_BOOT_MS);
   gbInterval(() => { gbTry(() => telegramMonitorTick()); }, TELEGRAM_MONITOR_POLL_MS);
   gbListen(window, 'focus', () => { gbTry(() => telegramMonitorTick()); });
   gbListen(window, 'online', () => { gbTry(() => telegramMonitorTick()); });
@@ -32343,7 +32424,7 @@ const STORE = {
 
   orchStartIndependentTimers();
   gbTimeout(() => { orchStartIndependentTimers(); if(hostEnabled())orchTick(); }, BOOT_TIMING.ORCH_FIRST_TICK_MS);
-  gbInterval(() => { orchStartIndependentTimers(); orchHousekeepingTick(); }, 60000);
+  gbInterval(() => { orchStartIndependentTimers(); orchHousekeepingTick(); }, BOOT_TIMING.HOUSEKEEPING_MS);
   gbInterval(() => {
 
     renderOverview();

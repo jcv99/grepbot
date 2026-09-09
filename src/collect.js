@@ -71,11 +71,11 @@
     if(eligible.length&&method&&townId!=null){
       attempted=1;
       gameAjaxPost('collect',method.controller,method.action,{town_id:townId},err=>{
-        if(!err||err==='dryrun')eligible.forEach(btn=>{btn.dataset.grepbotClicked=String(Date.now())});
+        if(!err)eligible.forEach(btn=>{btn.dataset.grepbotClicked=String(Date.now())});
       });
     }else if(eligible.length)skipped.push(method?'town-id-unreadable':'learned-endpoint-missing');
     updateCollectStateBadge(scanned, attempted);
-    if (attempted) { gbLog(`auto-collect: attempted ${attempted}/${scanned} Recoger buttons`); flash(`auto-collect x${attempted}`); }
+    if (attempted) { gbLog(`auto-collect: attempted ${attempted}/${scanned} Recoger buttons`); flash(`recolección automática x${attempted}`); }
     else if (scanned > 0) gbLogT('collect-skip', 120000, `auto-collect: 0/${scanned} eligible`, skipped.slice(0, 4).join(', '));
   }
   function updateCollectStateBadge(scanned, clicked) {

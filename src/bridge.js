@@ -196,8 +196,12 @@
       try {
         noteTransportSuccess();
         if (responseIsCaptcha(res)) {
+          // Settle this request before opening the captcha breaker. captchaTrip
+          // aborts feature watchers synchronously; doing it first would turn
+          // this authoritative captcha response into a generic cancellation.
+          finish('captcha', res);
           captchaTrip(feature, JSON.stringify(res).slice(0, 120));
-          return finish('captcha');
+          return;
         }
         const e = responseServerError(res);
         if (e) {

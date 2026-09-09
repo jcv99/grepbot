@@ -1,4 +1,4 @@
-  const GB_RELEASE = '6.0.68';
+  const GB_RELEASE = '6.0.72';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -1513,7 +1513,7 @@ const STORE = {
       }
       return state[stateKey];
     }
-    function save() { save(storeKey, ensure()); }
+    function persist() { return save(storeKey, ensure()); }
     function prune(now) {
       if (!(pruneMs > 0)) return false;
       const L = ensure();
@@ -1522,10 +1522,10 @@ const STORE = {
       for (const [k, e] of Object.entries(L)) {
         if (!e || +(e[pruneField] || 0) < cut) { delete L[k]; changed = true; }
       }
-      if (changed) save();
+      if (changed) persist();
       return changed;
     }
-    return { ensure, save, prune };
+    return { ensure, save: persist, prune };
   }
   function noteTransportSuccess() {
     const now = Date.now();
@@ -2619,7 +2619,7 @@ const STORE = {
       gbLog(`CAPTCHA global kill: all features paused ${mins}m`);
     }
     gbLog(`CAPTCHA breaker: ${feature} paused ${mins}m`, detail || '');
-    flash(`captcha: ${feature} paused ${mins}m`);
+    flash(`captcha: ${feature} en pausa ${mins}m`);
     try { telegramCaptchaTripNotify(feature, mins); } catch (_) {}
     try { if (typeof alertWebhook === 'function') alertWebhook('captcha', { feature, mins, detail }); } catch (_) {}
     try { gbEventsEmit('captcha', { feature, mins, detail }); } catch (_) {}

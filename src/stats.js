@@ -77,7 +77,7 @@
     gbLog(`preflight: ${preflightLast.rows.length - bad}/${preflightLast.rows.length} checks pass`);
     preflightLast.rows.forEach(r => gbLog(`  ${r.ok ? (r.warn ? 'WARN' : 'ok  ') : 'FAIL'} ${r.name}: ${r.detail}`));
     renderStats();
-    flash(bad ? `preflight: ${bad} failing` : 'preflight: all pass');
+    flash(bad ? `verificación previa: ${bad} fallo(s)` : 'verificación previa: todas las comprobaciones superadas');
   }
   function renderStats() {
     const sec = panel && panel.querySelector('section[data-tab=stats]');
@@ -163,7 +163,7 @@
     if (budgetSkips) lines.push(`  ${budgetSkips} accion(es) saltadas por presupuesto en la ventana`);
     if (preflightLast) {
       lines.push('');
-      lines.push(`preflight (${new Date(preflightLast.at).toLocaleTimeString()})`);
+      lines.push(`verificación previa (${new Date(preflightLast.at).toLocaleTimeString()})`);
       preflightLast.rows.forEach(r => {
         lines.push(`  ${r.ok ? (r.warn ? '!' : '+') : 'x'} ${r.name}: ${r.detail}`);
       });

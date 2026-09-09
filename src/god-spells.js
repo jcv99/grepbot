@@ -50,7 +50,7 @@
 
     if (!state.autoFavor) return;
     if (!hostEnabled() || automationPaused({})) return;
-    if (captchaPaused('godspell')) return;
+    if (captchaPaused('spell')) return;
     if (gbLocked('godspell')) return;
     const cfg = state.favorCfg || {};
     const power = cfg.spellPower ? String(cfg.spellPower) : '';

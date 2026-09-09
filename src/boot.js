@@ -13,11 +13,13 @@
     LOCK_SWEEP_MS: 10000,
     DODGE_RETURN_MS: 15000,
     NATIVE_QUEUE_LOOP_MS: 60000,
+    HOUSEKEEPING_MS: 60000,
     QUEUE_CENTER_PAINT_MS: 5000,
     OVERVIEW_RENDER_MS: 15000,
 
     HUD_RESTORE_MS: 1500,
     FARM_WAKE_MS: 2500,
+    TELEGRAM_BOOT_MS: 3000,
     QUEST_SCAN_BOOT_MS: 5000,
     IB_SCAN_BOOT_MS: 8000,
     AB_TARGETS_MS: 12000,
@@ -103,7 +105,7 @@
   // Dedicated out-of-band Telegram heartbeat. This is intentionally independent
   // from the automation/server pause scheduler; the ephemeral monitor Web Lock
   // prevents duplicate sends across tabs.
-  gbTimeout(() => { gbTry(() => telegramMonitorTick()); }, 3000);
+  gbTimeout(() => { gbTry(() => telegramMonitorTick()); }, BOOT_TIMING.TELEGRAM_BOOT_MS);
   gbInterval(() => { gbTry(() => telegramMonitorTick()); }, TELEGRAM_MONITOR_POLL_MS);
   gbListen(window, 'focus', () => { gbTry(() => telegramMonitorTick()); });
   gbListen(window, 'online', () => { gbTry(() => telegramMonitorTick()); });
@@ -177,7 +179,7 @@
   // This makes scheduler installation independent of the exact leader state at boot.
   orchStartIndependentTimers();
   gbTimeout(() => { orchStartIndependentTimers(); if(hostEnabled())orchTick(); }, BOOT_TIMING.ORCH_FIRST_TICK_MS);
-  gbInterval(() => { orchStartIndependentTimers(); orchHousekeepingTick(); }, 60000);
+  gbInterval(() => { orchStartIndependentTimers(); orchHousekeepingTick(); }, BOOT_TIMING.HOUSEKEEPING_MS);
   gbInterval(() => {
 
     renderOverview();
