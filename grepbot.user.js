@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.68
+// @version      6.0.69
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -1887,23 +1887,30 @@ const STORE = {
     return [5, 15, 60];
   }
   const logBuf = [];
-  let logHead = 0;
   const logThrottle = new Map();
-  const LOG_MAX = 200;
+
+  const LOG_TTL_MS = 24 * 60 * 60 * 1000;
+  const LOG_MAX = 5000;
+  function logTrim(now) {
+    const cut = (now || Date.now()) - LOG_TTL_MS;
+    let i = 0;
+    while (i < logBuf.length && logBuf[i].ts < cut) i++;
+    if (i > 0) logBuf.splice(0, i);
+    if (logBuf.length > LOG_MAX) logBuf.splice(0, logBuf.length - LOG_MAX);
+  }
   function gbLog(...args) {
     console.info('[grepbot]', ...args);
     const msg = args.map(a => (typeof a === 'string' ? a : (() => { try { return JSON.stringify(a); } catch (_) { return String(a); } })())).join(' ');
-    logBuf.push({ ts: Date.now(), msg });
-    if (logBuf.length - logHead > LOG_MAX) logHead = logBuf.length - LOG_MAX;
-    if (logHead > LOG_MAX) {
-      logBuf.splice(0, logHead);
-      logHead = 0;
-    }
+    const now = Date.now();
+    logBuf.push({ ts: now, msg });
+    logTrim(now);
     renderLog();
   }
 
   function gbLogDump(n) {
-    const start = Math.max(logHead, logBuf.length - (n > 0 ? n : LOG_MAX));
+    logTrim();
+    const cap = n > 0 ? Math.min(n, logBuf.length) : logBuf.length;
+    const start = Math.max(0, logBuf.length - cap);
     return logBuf.slice(start).map(l => ({ ts: l.ts, msg: l.msg }));
   }
   function gbLogDumpText(n) {
@@ -27321,7 +27328,7 @@ const STORE = {
       bundleSection('evidence', () => gbEvidence()),
       bundleSection('config', () => (typeof qolExportConfigForUi === 'function' ? qolExportConfigForUi() : '(no export path)')),
       bundleSection('decisions', () => ({ decisions: state.decisions || [], skips: state.decisionSkips || {} })),
-      bundleSection('log', () => gbLogDumpText(200)),
+      bundleSection('log', () => gbLogDumpText(0)),
       bundleSection('findings', () => (typeof redactFindingsExport === 'function'
         ? redactFindingsExport({ findings: state.findings, farms: state.farms })
         : '(no redaction path - refusing raw findings)')),
@@ -32128,9 +32135,9 @@ const STORE = {
     const flush = () => {
       logRenderQueued = false;
       if (sec.hidden || list.hidden) return;
-      const avail = logBuf.length - logHead;
-      const take = Math.min(avail, LOG_VIEW_MAX, Math.max(80, avail));
-      const start = Math.max(logHead, logBuf.length - take);
+      if (typeof logTrim === 'function') logTrim();
+      const take = Math.min(logBuf.length, LOG_VIEW_MAX);
+      const start = Math.max(0, logBuf.length - take);
       const lines = logBuf.slice(start);
       list.textContent = lines.map(l => new Date(l.ts).toLocaleTimeString() + ' ' + l.msg).join('\n');
       list.scrollTop = list.scrollHeight;

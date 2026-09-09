@@ -4079,9 +4079,9 @@
     const flush = () => {
       logRenderQueued = false;
       if (sec.hidden || list.hidden) return;
-      const avail = logBuf.length - logHead;
-      const take = Math.min(avail, LOG_VIEW_MAX, Math.max(80, avail));
-      const start = Math.max(logHead, logBuf.length - take);
+      if (typeof logTrim === 'function') logTrim();
+      const take = Math.min(logBuf.length, LOG_VIEW_MAX);
+      const start = Math.max(0, logBuf.length - take);
       const lines = logBuf.slice(start);
       list.textContent = lines.map(l => new Date(l.ts).toLocaleTimeString() + ' ' + l.msg).join('\n');
       list.scrollTop = list.scrollHeight;

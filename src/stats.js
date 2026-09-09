@@ -382,7 +382,7 @@
       bundleSection('evidence', () => gbEvidence()),
       bundleSection('config', () => (typeof qolExportConfigForUi === 'function' ? qolExportConfigForUi() : '(no export path)')),
       bundleSection('decisions', () => ({ decisions: state.decisions || [], skips: state.decisionSkips || {} })),
-      bundleSection('log', () => gbLogDumpText(200)),
+      bundleSection('log', () => gbLogDumpText(0)),
       bundleSection('findings', () => (typeof redactFindingsExport === 'function'
         ? redactFindingsExport({ findings: state.findings, farms: state.farms })
         : '(no redaction path - refusing raw findings)')),
