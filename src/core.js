@@ -1,4 +1,4 @@
-  const GB_RELEASE = '6.0.72';
+  const GB_RELEASE = '6.0.73';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',

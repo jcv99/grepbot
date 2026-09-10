@@ -932,7 +932,25 @@
     const lockToken = gbLock(lockName, 120000);
     if (!lockToken) return;
     const valid = recruitValidateJob(job);
-    if (!valid.ok) { gbUnlock(lockName, lockToken); gbLogT('recruit-stale-' + job.townId, 60000, `recruit: final precheck blocked (${valid.why})`); return; }
+    if (!valid.ok) {
+      if (job.nativeJobId) {
+        const head = nativeQueueList(job.townId, job.nativeLane, false).find(j => j && j.id === job.nativeJobId);
+        if (head) {
+          const why = String(valid.why || 'precheck');
+          const status = why === 'queue-full' ? 'waiting-slot'
+            : /^waiting-/.test(why) ? why
+            : 'blocked';
+          const detail = why === 'queue-full' && valid.queue
+            ? `cola real llena (${valid.queue.len}/${valid.queue.max})`
+            : why === 'requirements' ? 'requisitos/controlador'
+              : `comprobación final: ${why}`;
+          nativeQueueSetJobState(head, status, detail);
+        }
+      }
+      gbUnlock(lockName, lockToken);
+      gbLogT('recruit-stale-' + job.townId, 60000, `recruit: final precheck blocked (${valid.why})`);
+      return;
+    }
     if (job.nativeJobId && valid.amount < job.amount) {
       const head = nativeQueueList(job.townId, job.nativeLane, false).find(j=>j&&j.id===job.nativeJobId);
       const why = (valid.affordability && valid.affordability.why) || 'waiting-resources';
