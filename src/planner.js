@@ -137,10 +137,22 @@
       } else if (feature === 'recruit') {
         const unit=a.unit_id||a.unit_type, n=gbNum(a.amount), ec=recruitEffectiveUnitCost(townId, unit); if(n==null||!(n>0)) return null;
         if (!ec) return null;
+        const blind = reason => {
+          gbLogT(`planner-recruit-cost-blind-${townId}-${unit}`, 60000,
+            `planner: recruit cost ${reason} for ${unit}; no reservation, server authority`);
+          return [];
+        };
+        const costs={};
+        for (const k of ['wood','stone','iron','population']) {
+          const cost = gbNum(ec[k]);
+          if (cost != null && cost < 0) return null;
+          costs[k] = cost;
+        }
+        if (ec.authoritative !== true) return blind('advisory');
         const c={};
         for (const k of ['wood','stone','iron','population']) {
-          if (!recruitCostFieldKnown(ec,k)) return null;
-          const cost = gbNum(ec[k]);
+          const cost = costs[k];
+          if (!recruitCostFieldKnown(ec,k)) return blind(`unreadable-${k}`);
           if (cost == null || cost < 0) return null;
           c[k] = cost * n;
         }
