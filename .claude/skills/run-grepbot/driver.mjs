@@ -72,7 +72,7 @@ function buildAndCheck() {
   let expect = null;
   if (noBuild) {
     log('build: skipped (--no-build)');
-    const sv = readFileSync(resolve(repoRoot, 'src/header.js'), 'utf8').match(/@version\s+(\d+\.\d+\.\d+)/);
+    const sv = readFileSync(resolve(repoRoot, 'src/header.js'), 'utf8').match(/@version\s+(\d+(?:\.\d+)+)/);
     expect = sv && sv[1];
   } else {
     log('build: python3 build.py');
@@ -80,7 +80,7 @@ function buildAndCheck() {
     process.stdout.write(r.stdout || '');
     // build.py exits 1 on a gate failure (dup top-level decl / node --check).
     if (r.status !== 0) fail(`build.py exited ${r.status}\n${r.stderr}`);
-    const bv = (r.stdout || '').match(/\bv(\d+\.\d+\.\d+)\s*$/m);
+    const bv = (r.stdout || '').match(/\bv(\d+(?:\.\d+)+)\s*$/m);
     expect = bv && bv[1];
   }
 
@@ -90,7 +90,7 @@ function buildAndCheck() {
 
   const head = readFileSync(userJs, 'utf8').slice(0, 400);
   if (!head.includes('==UserScript==')) fail('userscript header missing in built artifact');
-  const vm = head.match(/@version\s+(\d+\.\d+\.\d+)/);
+  const vm = head.match(/@version\s+(\d+(?:\.\d+)+)/);
   if (!vm) fail('header @version not found in artifact');
 
   if (expect && expect !== vm[1]) {

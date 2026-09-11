@@ -60,6 +60,7 @@ MODULES = [
     'alerts.js',
     'merchant.js',
     'phoenician.js',
+    'gold.js',
     'favor.js',
     'god-spells.js',
     'wonder.js',

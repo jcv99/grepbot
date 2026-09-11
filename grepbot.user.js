@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.73
+// @version      6.0.75
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -21,7 +21,7 @@
 
 (function () {
   'use strict';
-  const GB_RELEASE = '6.0.73';
+  const GB_RELEASE = '6.0.75';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -168,6 +168,17 @@ const STORE = {
     NOTIFY_MUTED: 'grepbot:notify-muted',
     AUTO_MERCHANT: 'grepbot:auto-merchant',
     MERCHANT_WISH: 'grepbot:merchant-wish',
+    GOLD_ENABLED: 'grepbot:gold-enabled',
+    GOLD_BATCH: 'grepbot:gold-batch',
+    GOLD_TOWNS: 'grepbot:gold-towns-v1',
+    GOLD_ACTIONS: 'grepbot:gold-actions-v1',
+    GOLD_SEAS: 'grepbot:gold-seas-v1',
+    GOLD_REVIEWS: 'grepbot:gold-reviews-v1',
+    GOLD_HUB: 'grepbot:gold-hub',
+    GOLD_PENDING: 'grepbot:gold-pending',
+    GOLD_STATS: 'grepbot:gold-stats',
+    GOLD_LAST: 'grepbot:gold-last',
+    GOLD_SALE: 'grepbot:gold-sale-v1',
     AUTO_FAVOR: 'grepbot:auto-favor',
     FAVOR_CFG: 'grepbot:favor-cfg',
     AUTO_WONDER: 'grepbot:auto-wonder',
@@ -302,6 +313,8 @@ const STORE = {
     STORE.RESEARCH_TARGETS, STORE.CITY_TEMPLATES, STORE.TOWN_GROUPS, STORE.DUMP_SINKS,
     STORE.MERCHANT_WISH, STORE.FAVOR_CFG, STORE.WONDER_CFG, STORE.WONDER_SPENT,
     STORE.CULTURE_GOLD_SPENT,
+    STORE.GOLD_TOWNS, STORE.GOLD_ACTIONS, STORE.GOLD_SEAS, STORE.GOLD_REVIEWS,
+    STORE.GOLD_HUB, STORE.GOLD_PENDING, STORE.GOLD_STATS, STORE.GOLD_LAST, STORE.GOLD_SALE,
 
     STORE.RECRUIT_TARGETS, STORE.BATCH_RECRUIT_LISTS, STORE.PRIORITY_ORDER,
     STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES, STORE.NAP_STATUS, STORE.SPY_CFG, STORE.SPY_HISTORY, STORE.SPY_TPL, STORE.SPY_SEND_CFG, STORE.SPY_SEND_HISTORY,
@@ -325,6 +338,47 @@ const STORE = {
     else if (typeof raw !== 'number') return null;
     const v = Number(raw);
     return Number.isFinite(v) ? v : null;
+  }
+
+  const GB_REDACT_KEY_RE = /token|secret|password|authorization|cookie|csrf|captcha|\bmac\b|api[_-]?key|\bkey\b|telegram.*(?:token|chat)|bearer/i;
+  function gbRedact(value, opts, depth, seen, budget) {
+    const o = opts || {};
+    const maxDepth = gbNum(o.maxDepth) != null ? Math.max(1, Math.floor(gbNum(o.maxDepth))) : 6;
+    const maxEntries = gbNum(o.maxEntries) != null ? Math.max(1, Math.floor(gbNum(o.maxEntries))) : 240;
+    const maxString = gbNum(o.maxString) != null ? Math.max(16, Math.floor(gbNum(o.maxString))) : 240;
+    const d = depth || 0;
+    const visited = seen || new Set();
+    const left = budget || { n: maxEntries };
+    const text = raw => {
+      let s = String(raw == null ? '' : raw);
+
+      s = s
+        .replace(/([?&](?:token|secret|key|auth|authorization|csrf|captcha|mac)=)[^&#\s]*/ig, '$1[redacted]')
+        .replace(/((?:["']?\b(?:token|secret|password|authorization|cookie|csrf|captcha|mac|api[_-]?key|key)\b["']?)\s*[:=]\s*["']?)[^\s,;&"'}\[\]]+/ig, '$1[redacted]')
+        .replace(/(https?:\/\/api\.telegram\.org\/bot)[^/\s]+/ig, '$1[redacted]')
+        .replace(/(https?:\/\/discord(?:app)?\.com\/api\/webhooks\/\d+\/)[^\s/]+/ig, '$1[redacted]');
+      return s.length > maxString ? s.slice(0, maxString) + '\u2026' : s;
+    };
+    if (value == null || typeof value === 'boolean' || typeof value === 'number') return value;
+    if (typeof value === 'string') return text(value);
+    if (typeof value !== 'object') return text(value);
+    if (d >= maxDepth) return '[truncated-depth]';
+    if (visited.has(value)) return '[cycle]';
+    visited.add(value);
+    const out = Array.isArray(value) ? [] : Object.create(null);
+    const entries = Array.isArray(value) ? value.entries() : Object.entries(value);
+    for (const [key, item] of entries) {
+      if (left.n-- <= 0) {
+        if (Array.isArray(out)) out.push('[truncated]');
+        else out['[truncated]'] = true;
+        break;
+      }
+      const name = String(key);
+      if (name === '__proto__' || name === 'constructor' || name === 'prototype') continue;
+      out[key] = GB_REDACT_KEY_RE.test(name) ? '[redacted]' : gbRedact(item, o, d + 1, visited, left);
+    }
+    visited.delete(value);
+    return out;
   }
 
   const NAVAL_MYTHICAL_UNITS = new Set(['hydra']);
@@ -735,6 +789,7 @@ const STORE = {
     'telegram-monitor': 60000,
     militia: 60000,
     'pt-trade': 180000,
+    gold: 180000,
     'report-catchup': 300000,
     'quest-scan': 180000,
     'quest-auto': 180000,
@@ -986,6 +1041,18 @@ const STORE = {
     webhookEvents: load(STORE.WEBHOOK_EVENTS, { captcha: true, attack: true, warehouse: false, culture: false, cappingPreWarn: false, 'counter-intel': true, hero: false, 'intel-digest': true }),
     autoMerchant: load(STORE.AUTO_MERCHANT, false),
     merchantWish: load(STORE.MERCHANT_WISH, []),
+
+    goldEnabled: load(STORE.GOLD_ENABLED, false) === true,
+    goldBatch: load(STORE.GOLD_BATCH, 10000),
+    goldTowns: load(STORE.GOLD_TOWNS, {}) || {},
+    goldActions: load(STORE.GOLD_ACTIONS, {}) || {},
+    goldSeaByTown: load(STORE.GOLD_SEAS, {}) || {},
+    goldReviews: load(STORE.GOLD_REVIEWS, {}) || {},
+    goldHub: load(STORE.GOLD_HUB, null),
+    goldPending: load(STORE.GOLD_PENDING, null),
+    goldStats: load(STORE.GOLD_STATS, {}) || {},
+    goldLast: load(STORE.GOLD_LAST, {}) || {},
+    goldSale: load(STORE.GOLD_SALE, null),
     autoFavor: load(STORE.AUTO_FAVOR, false),
     favorCfg: load(STORE.FAVOR_CFG, { god: 'athena', unit: 'harpy', thresh: 200, maxConcurrent: 2 }),
     spellCooldown: load(STORE.SPELL_COOLDOWN, {}),
@@ -1765,6 +1832,7 @@ const STORE = {
     collect: 'collectTpl',
     pttrade: 'ptTradeTpl',
     wonder: 'wonderFavorTpl',
+    gold: 'goldActions', goldoffer: 'goldActions',
 
   };
 
@@ -1899,8 +1967,9 @@ const STORE = {
     if (logBuf.length > LOG_MAX) logBuf.splice(0, logBuf.length - LOG_MAX);
   }
   function gbLog(...args) {
-    console.info('[grepbot]', ...args);
-    const msg = args.map(a => (typeof a === 'string' ? a : (() => { try { return JSON.stringify(a); } catch (_) { return String(a); } })())).join(' ');
+    const clean = args.map(a => gbRedact(a, { maxDepth: 5, maxEntries: 80, maxString: 320 }));
+    console.info('[grepbot]', ...clean);
+    const msg = clean.map(a => (typeof a === 'string' ? a : (() => { try { return JSON.stringify(a); } catch (_) { return String(a); } })())).join(' ');
     const now = Date.now();
     logBuf.push({ ts: now, msg });
     logTrim(now);
@@ -2741,6 +2810,8 @@ const STORE = {
     for (const [tid, need] of Object.entries(grouped)) {
       const av = plannerAvailable(tid, { allowSoft:!!(opts && opts.allowSoft), excludeIntent:intent });
       if (!av) return { ok:false, why:`planner-live-unreadable:${tid}` };
+      const goldGate = (typeof goldConsumerGate === 'function') ? goldConsumerGate(intent, tid, need) : null;
+      if (goldGate) return { ok:false, why:goldGate.why || 'gold-hold' };
       for (const k of PLANNER_KEYS) if ((+need[k] || 0) > (+av[k] || 0)) return { ok:false, why:`planner-${k}:${Math.floor(av[k]||0)}/${Math.ceil(need[k]||0)}` };
       if ((+need.tradeCap || 0) > 0 && (av.tradeCap == null || +need.tradeCap > +av.tradeCap)) return { ok:false, why:`planner-tradeCap:${av.tradeCap}/${need.tradeCap}` };
     }
@@ -2810,6 +2881,14 @@ const STORE = {
           const c = CULTURE_COSTS[type];
           const cost=wireResources(c); if(!cost) return null; delete cost.tradeCap; out(townId,cost);
         }
+      } else if (feature === 'goldoffer') {
+
+        return [];
+      } else if (feature === 'gold') {
+        const resource = GB_RES_KEYS.find(k => gbNum(a[k]) != null && gbNum(a[k]) > 0);
+        const amount = resource ? gbNum(a[resource]) : null;
+        if (!resource || amount == null || !(amount > 0)) return null;
+        out(townId, { [resource]: amount });
       } else if (feature === 'cave' || feature === 'cave-emergency') {
         const iron=gbNum(a.iron_to_store); if(iron==null||!(iron>0)) return null; out(townId,{iron});
       } else return [];
@@ -2849,7 +2928,7 @@ const STORE = {
   }
   function clientFingerprintCompatible(prev,cur){if(!cur)return{ok:false,why:'fingerprint-unreadable'};for(const k of ['MM','gpAjax','ITowns','GameData'])if(!cur.required[k])return{ok:false,why:`missing-${k}`};if(!prev)return{ok:true,first:true};for(const k of ['MM','gpAjax','ITowns','GameData'])if(prev.required&&prev.required[k]&&!cur.required[k])return{ok:false,why:`lost-${k}`};for(const k of ['units','buildings']){const a=+(prev.counts&&prev.counts[k]||0),b=+(cur.counts&&cur.counts[k]||0);if(a>0&&b>0&&Math.abs(b-a)/a>0.45)return{ok:false,why:`${k}-shape-changed:${a}->${b}`}}return{ok:true}}
   function clientFingerprintCheck() {const cur=clientFingerprintNow(),cmp=clientFingerprintCompatible(state.clientFingerprint,cur);if(!cmp.ok){state.safeMode=true;save(STORE.SAFE_MODE,true);gbLog(`SAFE MODE: Grepolis client compatibility check failed (${cmp.why})`);whyNote('system','client fingerprint','blocked',cmp.why);}else if(!state.clientFingerprint){state.clientFingerprint=cur;save(STORE.CLIENT_FP,cur);}else{state.clientFingerprint=cur;save(STORE.CLIENT_FP,cur);}return{current:cur,check:cmp}}
-  function safeModeBlock(feature,transport,endpoint,data){if(typeof gbNeverStop==='function'&&gbNeverStop())return null;if(!state.safeMode)return null;const f=String(feature||'');if(['attack','support','spy','favor','wonder','rurallevel','merchant','spell'].includes(f))return 'safe-mode-high-impact';if(f==='culture'){const a=transport==='bridge'?(data&&data.arguments||{}):(data||{});if(/olympic/i.test(String(a.celebration_type||endpoint||'')))return 'safe-mode-premium';}return null}
+  function safeModeBlock(feature,transport,endpoint,data){if(typeof gbNeverStop==='function'&&gbNeverStop())return null;if(!state.safeMode)return null;const f=String(feature||'');if(['attack','support','spy','favor','wonder','rurallevel','merchant','spell','gold','goldoffer'].includes(f))return 'safe-mode-high-impact';if(f==='culture'){const a=transport==='bridge'?(data&&data.arguments||{}):(data||{});if(/olympic/i.test(String(a.celebration_type||endpoint||'')))return 'safe-mode-premium';}return null}
   const CIRCUIT_TRIP = 3;
   const CIRCUIT_STRUCTURAL_RE = /unknown.?action|invalid.?action|unknown.?model|model.?not.?found|unknown.?controller|controller.?not.?found|no.?such.?action|does.?not.?exist|unsupported.?action|invalid.?model|endpoint.?not.?found/i;
   function circuitSave() { save(STORE.CIRCUITS, state.circuits || {}); }
@@ -2933,7 +3012,7 @@ const STORE = {
     'research', 'merchant', 'favor', 'wonder', 'militia', 'dodge', 'spell', 'recruit', 'villrecruit', 'quest', 'attack',
     'cancel', 'hero', 'pttrade',
 
-    'support', 'spy'
+    'support', 'spy', 'goldoffer', 'gold'
   ]);
 
   function gbCfgNum(v, fallback) {
@@ -3034,6 +3113,44 @@ const STORE = {
 
     if (!gbTabLeader) return false;
     return save(STORE.TX_STATE, state.txState);
+  }
+  function txIdentityHash(value) {
+    const text = String(value == null ? '' : value);
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  function txEnsureIdentity(tx, key) {
+    if (!tx || typeof tx !== 'object') return null;
+    if (!tx.publicId) {
+      const basis = String(key || tx.intent || '') + '|' + String(tx.feature || '') + '|'
+        + String(tx.createdAt || '') + '|' + String(tx.id || '');
+      tx.publicId = 'tx-' + txIdentityHash(basis);
+    }
+    return tx.publicId;
+  }
+  function txDiagnosticSnapshot(tx) {
+    if (!tx || typeof tx !== 'object') return null;
+    const basis = String(tx.intent || '') + '|' + String(tx.feature || '') + '|'
+      + String(tx.createdAt || '') + '|' + String(tx.id || '');
+    const row = {
+      publicId: tx.publicId || ('tx-' + txIdentityHash(basis)), feature: tx.feature || null, endpoint: tx.endpoint || null,
+      state: tx.state || null, createdAt: tx.createdAt || 0, updatedAt: tx.updatedAt || 0,
+      unknownAt: tx.unknownAt || 0, owner: tx.owner ? 'present' : null,
+      meta: tx.meta || null, snapshot: tx.snapshot || null, detail: tx.detail || null,
+    };
+    return gbRedact(row, { maxDepth: 4, maxEntries: 80, maxString: 160 });
+  }
+  function txProbeEvidence(tx) {
+    if (!tx || typeof tx !== 'object') return { result:'unknown', why:'tx-unreadable' };
+    let result = 'unknown';
+    try { result = txReconcileNow(tx); } catch (_) {}
+    if (!/^(applied|unchanged|unknown)$/.test(result)) result = 'unknown';
+    return { result, diagnostic: txDiagnosticSnapshot(tx) };
   }
   function txCompactReview(t) {
     if (!t || !t.snapshot) return false;
@@ -3445,6 +3562,12 @@ const STORE = {
         const offerId = a.offer_id || a.offer || (d.model_url && String(d.model_url).split('/').pop());
         return { kind: 'pttrade', offerId, townId, before: txPtTradeStatus(townId, offerId) };
       }
+      if (feature === 'goldoffer') {
+        if (typeof goldOfferTxSnapshot === 'function') return goldOfferTxSnapshot(townId, a);
+        const resource = GB_RES_KEYS.find(k => gbNum(a[k]) != null && gbNum(a[k]) > 0) || null;
+        return { kind:'goldoffer', saleId:null, resource, amount: resource ? gbNum(a[resource]) : null, gold: gbNum(a.gold) };
+      }
+      if (feature === 'gold' && typeof goldTxSnapshot === 'function') return goldTxSnapshot(townId, a);
       if (feature === 'rurallevel') {
         const relId = String(d.model_url || '').split('/').pop();
         let status = null;
@@ -3503,6 +3626,12 @@ const STORE = {
     if (feature === 'culture') return `culture:${townId}:${a.celebration_type || endpoint}`;
     if (feature === 'merchant') return `merchant:${townId}:${a.offer_id || a.offer || a.id || endpoint}`;
     if (feature === 'pttrade') return `pttrade:${townId || '-'}:${a.offer_id || a.offer || (d.model_url ? String(d.model_url).split('/').pop() : '') || endpoint}`;
+    if (feature === 'goldoffer') {
+      if (snap && snap.saleId) return `goldoffer:${snap.saleId}`;
+      const resource = GB_RES_KEYS.find(k => gbNum(a[k]) != null && gbNum(a[k]) > 0) || '?';
+      return `goldoffer:${townId || '-'}:${resource}:${gbNum(a[resource]) || '?'}:${gbNum(a.gold) || '?'}`;
+    }
+    if (feature === 'gold') return `gold:${snap && snap.saleId ? snap.saleId : `${townId || '-'}:${snap && snap.resource || '?'}:${snap && snap.amount || '?'}`}`;
     return `${feature}:${townId || '-'}:${endpoint}:${JSON.stringify(txStableObj(a)).slice(0, 100)}`;
   }
   function txNum(v) { return gbNum(v); }
@@ -3516,6 +3645,7 @@ const STORE = {
     const s = tx.snapshot || {};
     const meta = tx.meta || {};
     try {
+      if (s.kind === 'gold') return (typeof goldTxProbeEvidence === 'function') ? goldTxProbeEvidence(tx) : 'unknown';
       if (s.kind === 'instant') return ibOrderStillPresent(s.orderId,s.orderKind) ? 'unknown' : 'applied';
       if (s.kind === 'build') {
         const cur = txBuildStatus(meta.townId, s.building);
@@ -3789,6 +3919,7 @@ const STORE = {
     let gate = txActionGate(feature, write, jtag);
     if (!gate && write) gate = safeModeBlock(feature, transport, endpoint, data);
     if (!gate && write && state.firstPostConfirm && !firstPostLiveOk(feature)) gate = 'first-post-confirm';
+    if (!gate && write && typeof goldTransportGuard === 'function') gate = goldTransportGuard(feature, transport, data);
     if (gate) {
       if (gate === 'dryrun') {
         gbLog(`DRY-RUN ${feature}: ${endpoint} ${dryRunFmt(data)}`);
@@ -3880,9 +4011,19 @@ const STORE = {
       intent, feature, transport, endpoint, state: 'planned', owner: GB_INSTANCE_ID,
       createdAt: Date.now(), updatedAt: Date.now(), snapshot, meta: { townId: metaTown },
     };
+    txEnsureIdentity(tx, intent);
     journalTxId = tx.id;
-    txSave();
-    tx.state = 'precheck'; tx.updatedAt = Date.now(); txSave();
+    if (!txSave() && (feature === 'gold' || feature === 'goldoffer')) {
+      delete state.txState[intent];
+      whyNote(feature, endpoint, 'blocked', 'tx-storage-unavailable');
+      return bail('storage-unavailable', 'tx-storage-unavailable');
+    }
+    tx.state = 'precheck'; tx.updatedAt = Date.now();
+    if (!txSave() && (feature === 'gold' || feature === 'goldoffer')) {
+      delete state.txState[intent];
+      whyNote(feature, endpoint, 'blocked', 'tx-storage-unavailable');
+      return bail('storage-unavailable', 'tx-storage-unavailable');
+    }
     const plannerEffects = plannerEffect(feature, transport, endpoint, data, snapshot);
     if (plannerEffects === null) {
       tx.state = 'aborted'; tx.detail = 'planner effect/cost unreadable'; tx.updatedAt = Date.now(); txSave();
@@ -3913,8 +4054,15 @@ const STORE = {
       whyNote(feature, endpoint, 'blocked', 'captcha-pause');
       return bail('captcha', 'captcha-pause');
     }
+    tx.state = 'sending'; tx.sentAt = Date.now(); tx.updatedAt = Date.now();
+    if (!txSave() && (feature === 'gold' || feature === 'goldoffer')) {
+      tx.state = 'aborted'; tx.updatedAt = Date.now();
+      plannerRelease(tx, 'storage-unavailable');
+      delete state.txState[intent];
+      whyNote(feature, endpoint, 'blocked', 'tx-storage-unavailable');
+      return bail('storage-unavailable', 'tx-storage-unavailable');
+    }
     reqBudgetMark('action');
-    tx.state = 'sending'; tx.sentAt = Date.now(); tx.updatedAt = Date.now(); txSave();
     rawSend((err, result) => {
       if (!gbInstanceAlive() || tx.owner !== GB_INSTANCE_ID) return;
 
@@ -4152,7 +4300,8 @@ const STORE = {
   }
   function ajaxTransportRaw(feature, opts, done) {
     const uw = gameUw();
-    if (!(uw.gpAjax && uw.gpAjax.ajaxPost)) return done('noajax');
+    const ajaxMethod = opts && opts.method === 'get' ? 'ajaxGet' : 'ajaxPost';
+    if (!(uw.gpAjax && typeof uw.gpAjax[ajaxMethod] === 'function')) return done('noajax');
     let settled = false;
     let watchEntry = null;
     const finish = (err, res) => {
@@ -4235,6 +4384,19 @@ const STORE = {
       send: (uw, classify) => uw.gpAjax.ajaxPost('frontend_bridge', 'execute', payload, false, classify),
     }, done);
   }
+
+  function bridgeGetRaw(feature, payload, done) {
+    selfBridgeNote(payload);
+    ajaxTransportRaw(feature, {
+      method: 'get',
+      timeoutKey: gbAjaxTimeoutKey('bridge-get', feature),
+      timeoutMsg: feature + ': bridge GET timeout ' + BRIDGE_TIMEOUT_MS + 'ms',
+      watchKey: 'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
+      watchFp: gbAjaxBridgeFp(payload),
+      authCsrf: true,
+      send: (uw, classify) => uw.gpAjax.ajaxGet('frontend_bridge', 'execute', payload, false, classify),
+    }, done);
+  }
   function gameAjaxRaw(feature, controller, action, data, done) {
     ajaxTransportRaw(feature, {
       timeoutKey: gbAjaxTimeoutKey('ajax', feature),
@@ -4250,13 +4412,17 @@ const STORE = {
     const endpoint = String(payload && payload.model_url || '') + '/' + String(payload && payload.action_name || '');
     return txRun(feature, 'bridge', endpoint, payload, (done) => bridgeRaw(feature, payload, done), onDone);
   }
+  function bridgeGet(feature, payload, onDone) {
+    const endpoint = String(payload && payload.model_url || '') + '/' + String(payload && payload.action_name || '');
+    return txRun(feature, 'bridge', endpoint, payload, (done) => bridgeGetRaw(feature, payload, done), onDone);
+  }
   function gameAjaxPost(feature, controller, action, data, onDone) {
     const endpoint = String(controller) + '/' + String(action);
     return txRun(feature, 'ajax', endpoint, data, (done) => gameAjaxRaw(feature, controller, action, data, done), onDone);
   }
   function dryRunFmt(payload) {
     try {
-      const s = JSON.stringify(payload);
+      const s = JSON.stringify(gbRedact(payload, { maxDepth: 5, maxEntries: 80, maxString: 160 }));
       return s.length > 220 ? s.slice(0, 220) + '\u2026' : s;
     } catch (_) { return String(payload); }
   }
@@ -4624,6 +4790,7 @@ const STORE = {
       ['autoTrade',STORE.AUTO_TRADE],['tradePreset',STORE.TRADE_PRESET],['tradeReservePct',STORE.TRADE_RESERVE],['tradeMinBatch',STORE.TRADE_MIN],['tradeTowns',STORE.TRADE_TOWNS],['tradeRoutes',STORE.TRADE_ROUTES],['autoTradeRoutes',STORE.AUTO_TRADE_ROUTES],['autoTransport',STORE.AUTO_TRANSPORT],['transportReserve',STORE.TRANSPORT_RESERVE],['transportMin',STORE.TRANSPORT_MIN],['autoDump',STORE.AUTO_DUMP],['dumpThreshold',STORE.DUMP_THRESHOLD],['dumpKeep',STORE.DUMP_KEEP],['dumpSinks',STORE.DUMP_SINKS],['islandShip',STORE.ISLAND_SHIP],
       ['autoRuralTrade',STORE.AUTO_RURAL_TRADE],['autoRuralLevel',STORE.AUTO_RURAL_LEVEL],['ruralLevelMax',STORE.RURAL_LEVEL_MAX],
       ['autoMerchant',STORE.AUTO_MERCHANT],['merchantWish',STORE.MERCHANT_WISH],['autoPtTrade',STORE.AUTO_PT_TRADE],['ptCfg',STORE.PT_CFG],
+      ['goldEnabled',STORE.GOLD_ENABLED],['goldBatch',STORE.GOLD_BATCH],['goldTowns',STORE.GOLD_TOWNS],
       ['autoFavor',STORE.AUTO_FAVOR],['favorCfg',STORE.FAVOR_CFG],['autoWonder',STORE.AUTO_WONDER],['wonderCfg',STORE.WONDER_CFG],['autoWonderFavor',STORE.AUTO_WONDER_FAVOR],
       ['autoDodge',STORE.AUTO_DODGE],['dodgeMode',STORE.DODGE_MODE],['dodgeFloor',STORE.DODGE_FLOOR],['defenseCfg',STORE.DEFENSE_CFG],['supportCfg',STORE.SUPPORT_CFG],['autoMilitia',STORE.AUTO_MILITIA],
       ['spyEnabled',STORE.AUTO_SPY],['spyCfg',STORE.SPY_CFG],
@@ -4633,6 +4800,14 @@ const STORE = {
       const v=load(store,state[field]);
       if(!gbStorageReadFailed(store))state[field]=v;
     }
+    state.goldEnabled = state.goldEnabled === true;
+    if (typeof goldBatch === 'function') state.goldBatch = goldBatch();
+    for (const [field, store] of [['goldActions',STORE.GOLD_ACTIONS], ['goldSeaByTown',STORE.GOLD_SEAS], ['goldReviews',STORE.GOLD_REVIEWS], ['goldStats',STORE.GOLD_STATS], ['goldLast',STORE.GOLD_LAST]]) {
+      const v = loadObj(store, {});
+      if (v) state[field] = v;
+    }
+    const goldSale = load(STORE.GOLD_SALE, state.goldSale);
+    if (!gbStorageReadFailed(STORE.GOLD_SALE)) state.goldSale = goldSale || null;
 
     const dodgeReturns=loadObj(STORE.DODGE_RETURNS,{});
     if(dodgeReturns)state.dodgeReturns=dodgeReturns;
@@ -4652,6 +4827,7 @@ const STORE = {
   function gbHandleLeadershipAcquired(reason) {
     if(!gbInstanceAlive()||!gbTabLeader)return false;
     try{gbReloadSharedRuntimeState(reason)}catch(e){gbLogT('leader-reload',60000,'leader state reload: '+String(e))}
+    try{goldRecoverLeaderPending(reason)}catch(e){gbLogT('leader-gold-recover',60000,'leader GOLD recovery: '+String(e))}
     try{migrateConfig()}catch(e){gbLogT('leader-migrate',60000,'leader migration: '+String(e))}
     try{orchStartIndependentTimers()}catch(e){gbLogT('leader-orch-ensure',60000,'leader scheduler ensure: '+String(e))}
     try{orchTick()}catch(e){gbLogT('leader-orch-poke',60000,'leader scheduler poke: '+String(e))}
@@ -5871,7 +6047,10 @@ const STORE = {
       if (!body || typeof body !== 'string' || !/frontend_bridge/.test(String(u))) return;
       const parsedSelfCheck = parseBodyLoose(body);
       if (parsedSelfCheck && isSelfBridge(parsedSelfCheck)) return;
-      if (/FarmTownPlayerRelation/.test(body)) {
+      if (/PremiumExchange/.test(body)) {
+        const j = parsedSelfCheck;
+        if (j && typeof goldLearnPayload === 'function') goldLearnPayload(j);
+      } else if (/FarmTownPlayerRelation/.test(body)) {
         gbLog('sniffed farm bridge call:', body.slice(0, 300));
         const j = parseBodyLoose(body);
         if (j && j.model_url && /claim/i.test(j.action_name || '')) {
@@ -10041,15 +10220,39 @@ const STORE = {
     job.updatedAt = Date.now();
     return true;
   }
-  function nativeQueueNormalizeRecruitLane(townId, lane) {
+  function nativeQueueNormalizeRecruitLane(townId, lane, quiet) {
     const list = nativeQueueList(townId, lane || 'recruit', false);
     let changed = 0;
-    for (const j of list) if (j && nativeQueueRecruitPromoteInfinite(j)) changed++;
-    if (changed) {
+    for (const j of list) {
+      if (!j) continue;
+      if (nativeQueueRecruitPromoteInfinite(j)) changed++;
+
+      if (nativeQueueRecruitIsInfinite(j) && !j.inflight && !j.manualReview &&
+          j.status === 'blocked' && j.reason === 'precheck') {
+        j.status = 'pending';
+        j.reason = `\u221e \u00b7 lotes de ${nativeQueueRecruitChunkOf(j)}`;
+        j.updatedAt = Date.now();
+        changed++;
+      }
+    }
+    if (changed && !quiet) {
       nativeQueueSave();
       try { scheduleNativeUiScan(); } catch (_) {}
       try { renderQueueCenter(); } catch (_) {}
       gbLog(`cola nativa: ${changed} entrada(s) >${NATIVE_RECRUIT_INF_THRESH} convertida(s) a \u221e en lotes @${townId}`);
+    }
+    return changed;
+  }
+  function nativeQueueNormalizeRecruitAll() {
+    let changed = 0;
+    for (const townId of Object.keys(nativeQueueRoot().towns)) {
+      for (const lane of NATIVE_RECRUIT_LANES) {
+        changed += nativeQueueNormalizeRecruitLane(townId, lane, true);
+      }
+    }
+    if (changed) {
+      nativeQueueSave();
+      gbLog(`cola nativa: ${changed} entrada(s) de reclutamiento actualizada(s)`);
     }
     return changed;
   }
@@ -16842,6 +17045,632 @@ const STORE = {
       return a;
     } catch (_) { return {}; }
   }
+
+  const GOLD_READ_FRESH_MS = 45000;
+  const GOLD_OFFER_TTL_MS = 120000;
+  const GOLD_CONSUMER_HOLD_MS = 5000;
+  const GOLD_CONFIRM_RETRY_COOLDOWN_MS = 60000;
+  const GOLD_MIN_BATCH = 100;
+  const GOLD_MAX_MAC_CHARS = 4096;
+  const GOLD_STATES = new Set(['REQUESTING_OFFER', 'OFFER_RECEIVED', 'CONFIRMING', 'CAPTCHA_PENDING', 'UNKNOWN', 'MANUAL_REVIEW', 'REVIEWED']);
+  const goldMarkets = new Map();
+  const goldReadFlights = new Map();
+  const goldQuoteSecrets = new Map();
+  const goldLocks = new Map();
+  let goldScanCursor = 0;
+
+  function goldPlainObject(value) {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  }
+  function goldReadNumber(value) {
+    const n = gbNum(value);
+    return n != null && n >= 0 ? n : null;
+  }
+  function goldPositiveInt(value) {
+    const n = gbNum(value);
+    return n != null && n > 0 && Number.isSafeInteger(n) ? n : null;
+  }
+  function goldText(value, max) {
+    const s = String(value == null ? '' : value).trim();
+    return s ? s.slice(0, max || 160) : '';
+  }
+  function goldStableId(value) {
+    const s = goldText(value, 120);
+    return /^[a-z0-9_.:-]+$/i.test(s) ? s : '';
+  }
+  function goldOwner() {
+    try {
+      const uw = gameUw();
+      const player = uw.MM && uw.MM.getModelByNameAndPlayerId && uw.MM.getModelByNameAndPlayerId('Player');
+      const a = player && (player.attributes || player);
+      for (const value of [a && (a.player_id != null ? a.player_id : a.id), uw.Game && uw.Game.player_id]) {
+        const id = goldStableId(value);
+        if (id) return id;
+      }
+    } catch (_) {}
+    return '';
+  }
+  function goldOwnership() {
+    const testWorld = GB_ROOT.__grepbotTestMode === true ? GB_ROOT.__grepbotTestWorld : '';
+    const world = goldText(location.hostname || testWorld, 120);
+    const player = goldOwner();
+    return world && player ? { world, player } : null;
+  }
+  function goldEnabled() { return state.goldEnabled === true; }
+  function goldTownEnabled(townId) {
+    return !!(state.goldTowns && state.goldTowns[String(townId)] === true);
+  }
+  function goldBatch() {
+    const n = goldPositiveInt(state.goldBatch);
+    return Math.max(GOLD_MIN_BATCH, Math.min(1000000, n == null ? 10000 : n));
+  }
+  function goldStatsRoot() {
+    const base = { reads:0, readErrors:0, offers:0, confirms:0, confirmed:0, captcha:0, unknown:0, rejected:0, lastAt:0, lastWhy:'' };
+    state.goldStats = Object.assign(base, goldPlainObject(state.goldStats) || {});
+    return state.goldStats;
+  }
+  function goldStatsSave() { return gbTabLeader && save(STORE.GOLD_STATS, goldStatsRoot()); }
+  function goldStat(field, why) {
+    const stats = goldStatsRoot();
+    stats[field] = (goldReadNumber(stats[field]) || 0) + 1;
+    stats.lastAt = Date.now();
+    stats.lastWhy = goldText(why, 120);
+    goldStatsSave();
+  }
+  function goldActionRoot() {
+    const raw = goldPlainObject(state.goldActions);
+    state.goldActions = raw || {};
+    return state.goldActions;
+  }
+  function goldAction(kind) {
+    const root = goldActionRoot();
+    const row = goldPlainObject(root[kind]);
+    if (!row || goldText(row.modelUrl, 80) !== 'PremiumExchange') return null;
+    const action = goldText(row.action, 120);
+    return action ? { modelUrl:'PremiumExchange', action } : null;
+  }
+  function goldActionsReady(writes) {
+    if (!goldAction('read')) return false;
+    return !writes || (!!goldAction('offer') && !!goldAction('confirm'));
+  }
+
+  function goldLearnPayload(payload) {
+    if (!gbTabLeader) return false;
+    const p = goldPlainObject(payload);
+    if (!p || goldText(p.model_url, 80) !== 'PremiumExchange') return false;
+    const action = goldText(p.action_name, 120);
+    if (!action) return false;
+    const lower = action.toLowerCase();
+    const kind = lower === 'read' ? 'read' : (/request.*offer/.test(lower) ? 'offer' : (/confirm.*offer/.test(lower) ? 'confirm' : ''));
+    if (!kind) return false;
+    const next = Object.assign({}, goldActionRoot(), { [kind]: { modelUrl:'PremiumExchange', action, learnedAt:Date.now() } });
+    if (!save(STORE.GOLD_ACTIONS, next)) return false;
+    state.goldActions = next;
+    try { tplHealthMarkLearned('goldActions'); } catch (_) {}
+    gbLog(`gold: learned PremiumExchange ${kind} action from manual traffic`);
+    return true;
+  }
+  function goldTownIds() {
+    const ids = [];
+    try {
+      const rows = typeof townsFromGame === 'function' ? townsFromGame() : null;
+      for (const row of rows || []) {
+        const id = goldStableId(row && row.id);
+        if (id && !ids.includes(id)) ids.push(id);
+      }
+    } catch (_) {}
+    if (!ids.length) {
+      try {
+        for (const id of Object.keys((gameUw().ITowns && gameUw().ITowns.towns) || {})) {
+          const safe = goldStableId(id);
+          if (safe && !ids.includes(safe)) ids.push(safe);
+        }
+      } catch (_) {}
+    }
+    return ids;
+  }
+  function goldSeaId(townId, payload) {
+    const direct = payload && goldStableId(payload.sea_id);
+    if (direct) return direct;
+    try {
+      const town = gbTownModel(townId);
+      const a = town && (town.attributes || town);
+      const modelSea = goldStableId(a && a.sea_id);
+      if (modelSea) return modelSea;
+    } catch (_) {}
+    return '';
+  }
+  function goldMarketKey(townId, payload) {
+    const sea = goldSeaId(townId, payload);
+    return sea ? 'sea:' + sea : 'town:' + String(townId);
+  }
+  function goldFindResultEnvelope(value, depth, seen) {
+    if (value == null || (depth || 0) > 7) return null;
+    let node = value;
+    if (typeof node === 'string') {
+      if (node.length > 262144) return null;
+      try { node = JSON.parse(node); } catch (_) { return null; }
+    }
+    if (!goldPlainObject(node)) return null;
+    const visited = seen || new Set();
+    if (visited.has(node)) return null;
+    visited.add(node);
+    if (typeof node.result === 'string') return node;
+    for (const key of ['json', 'data', 'response', 'plain']) {
+      const found = goldFindResultEnvelope(node[key], (depth || 0) + 1, visited);
+      if (found) return found;
+    }
+    return null;
+  }
+  function goldResultSuccess(value) {
+    const envelope = goldFindResultEnvelope(value, 0, new Set());
+    return envelope && String(envelope.result).toLowerCase() === 'success' ? envelope : null;
+  }
+  function goldFindMarket(value, depth, seen) {
+    if (value == null || (depth || 0) > 8 || !goldPlainObject(value)) return null;
+    const visited = seen || new Set();
+    if (visited.has(value)) return null;
+    visited.add(value);
+    const item = key => goldPlainObject(value[key]);
+    if (GB_RES_KEYS.every(key => {
+      const row = item(key);
+      return row && goldReadNumber(row.stock) != null && goldReadNumber(row.capacity) != null;
+    })) return value;
+    for (const child of Object.values(value)) {
+      const found = goldFindMarket(child, (depth || 0) + 1, visited);
+      if (found) return found;
+    }
+    return null;
+  }
+  function goldReadExchange(townId, onDone) {
+    const action = goldAction('read');
+    if (!action) return onDone && onDone('gold-read-action-unlearned');
+    const key = goldMarketKey(townId);
+    const hit = goldMarkets.get(key);
+    if (hit && Date.now() - hit.at < GOLD_READ_FRESH_MS) return onDone && onDone(null, hit.payload, { cached:true });
+    if (goldReadFlights.has(key)) { goldReadFlights.get(key).push(onDone); return; }
+    goldReadFlights.set(key, [onDone]);
+    const payload = { model_url:action.modelUrl, action_name:action.action, town_id:goldPositiveInt(townId), nl_init:true };
+    if (payload.town_id == null) {
+      goldReadFlights.delete(key);
+      return onDone && onDone('gold-town-unreadable');
+    }
+    bridgeGet('goldread', payload, (err, response) => {
+      let result = err || null;
+      const market = !result ? goldFindMarket(response, 0, new Set()) : null;
+      if (!result && !market) result = 'gold-market-unreadable';
+      if (!result) {
+        const actualKey = goldMarketKey(townId, market);
+        const entry = { at:Date.now(), key:actualKey, payload:market };
+        goldMarkets.set(key, entry);
+        goldMarkets.set(actualKey, entry);
+        const sea = goldSeaId(townId, market);
+        if (gbTabLeader && sea && state.goldSeaByTown[String(townId)] !== sea) {
+          const next = Object.assign({}, state.goldSeaByTown || {}, { [String(townId)]:sea });
+          if (save(STORE.GOLD_SEAS, next)) state.goldSeaByTown = next;
+        }
+        goldStat('reads', 'market-read');
+      } else goldStat('readErrors', result);
+      const waiters = goldReadFlights.get(key) || [];
+      goldReadFlights.delete(key);
+      for (const fn of waiters) if (typeof fn === 'function') fn(result, market || null, { cached:false });
+    });
+  }
+  function goldLiveResources(townId) {
+    const stateNow = townResState(townId);
+    if (!stateNow) return null;
+    const out = {};
+    for (const resource of GB_RES_KEYS) {
+      const n = goldReadNumber(stateNow[resource]);
+      if (n == null) return null;
+      out[resource] = n;
+    }
+    return out;
+  }
+  function goldResourceLabel(resource) {
+    return ({ wood:'madera', stone:'piedra', iron:'plata' })[resource] || resource;
+  }
+  function goldCandidate(townId, market) {
+    if (!goldTownEnabled(townId)) return null;
+    const resources = goldLiveResources(townId);
+    if (!resources) return null;
+    const candidates = [];
+    for (const resource of GB_RES_KEYS) {
+      const item = goldPlainObject(market && market[resource]);
+      const stock = item && goldReadNumber(item.stock);
+      const capacity = item && goldReadNumber(item.capacity);
+      if (stock == null || capacity == null || capacity < stock) continue;
+      const amount = Math.min(resources[resource], capacity - stock, goldBatch());
+      if (amount >= GOLD_MIN_BATCH) candidates.push({ townId:String(townId), resource, amount:Math.floor(amount) });
+    }
+    candidates.sort((a, b) => b.amount - a.amount || a.resource.localeCompare(b.resource));
+    return candidates[0] || null;
+  }
+  function goldSaleNormalize(raw) {
+    const sale = goldPlainObject(raw);
+    if (!sale) return null;
+    const ownership = goldOwnership();
+    const stateName = goldText(sale.state, 40);
+    const id = goldStableId(sale.id);
+    const townId = goldStableId(sale.townId);
+    const resource = goldText(sale.resource, 12);
+    const amount = goldPositiveInt(sale.offeredAmount);
+    const gold = goldPositiveInt(sale.offeredGold);
+    if (!id || !townId || !GB_RES_KEYS.includes(resource) || !amount || !gold || !GOLD_STATES.has(stateName)) return null;
+    if (!ownership || goldText(sale.world, 120) !== ownership.world || goldText(sale.owner, 120) !== ownership.player) return null;
+    return {
+      v:1, id, state:stateName, world:ownership.world, owner:ownership.player, townId, resource,
+      offeredAmount:amount, offeredGold:gold, requestedAmount:goldPositiveInt(sale.requestedAmount) || amount,
+      expiresAt:goldReadNumber(sale.expiresAt) || 0, createdAt:goldReadNumber(sale.createdAt) || 0,
+      updatedAt:goldReadNumber(sale.updatedAt) || 0, serverAckAt:goldReadNumber(sale.serverAckAt) || 0,
+      unknownAt:goldReadNumber(sale.unknownAt) || 0, reason:goldText(sale.reason, 160),
+    };
+  }
+  function goldSaleCurrent() {
+    const sale = goldSaleNormalize(state.goldSale);
+    if (sale) return sale;
+    if (state.goldSale) {
+      gbLogT('gold-sale-owner', 60000, 'gold: pending sale is unreadable or belongs to another world/player; blocked');
+    }
+    return null;
+  }
+  function goldPersistSale(raw) {
+    if (!gbTabLeader) return false;
+    const sale = raw == null ? null : goldSaleNormalize(raw);
+    if (raw != null && !sale) return false;
+    if (!save(STORE.GOLD_SALE, sale)) return false;
+    state.goldSale = sale;
+    return true;
+  }
+  function goldNewSale(candidate, offer) {
+    const ownership = goldOwnership();
+    if (!ownership) return null;
+    const now = Date.now();
+    const offeredAt = goldReadNumber(offer.offeredAt) || now;
+    const expiresAt = Math.min(now + GOLD_OFFER_TTL_MS, Math.max(now + 1000, offeredAt + GOLD_OFFER_TTL_MS));
+    return {
+      v:1, id:'gold-' + now.toString(36) + '-' + Math.random().toString(36).slice(2, 8), state:'OFFER_RECEIVED',
+      world:ownership.world, owner:ownership.player, townId:String(candidate.townId), resource:candidate.resource,
+      offeredAmount:offer.amount, offeredGold:offer.gold, requestedAmount:candidate.amount,
+      expiresAt, createdAt:now, updatedAt:now, serverAckAt:0, unknownAt:0, reason:'quote-received',
+    };
+  }
+  function goldUpdateSale(sale, patch) {
+    const next = Object.assign({}, sale, patch || {}, { updatedAt:Date.now() });
+    return goldPersistSale(next) ? goldSaleCurrent() : null;
+  }
+  function goldLockSale(sale) {
+    const name = `gold:${sale.townId}:${sale.resource}`;
+    const token = gbLock(name);
+    if (token) goldLocks.set(sale.id, { name, token });
+    return token;
+  }
+  function goldUnlockSale(sale) {
+    const held = sale && goldLocks.get(sale.id);
+    if (!held) return;
+    gbUnlock(held.name, held.token);
+    goldLocks.delete(sale.id);
+  }
+  function goldOfferValidate(response, candidate) {
+    const envelope = goldResultSuccess(response);
+    const offer = envelope && goldPlainObject(envelope.offer);
+    if (!offer || goldText(offer.type, 20) !== 'sell') return { ok:false, why:'gold-offer-envelope-invalid' };
+    if (offer.town_id != null && String(offer.town_id) !== String(candidate.townId)) return { ok:false, why:'gold-offer-town-mismatch' };
+    const resource = goldText(offer.resource_type, 12);
+    const amount = goldPositiveInt(offer.resource_amount);
+    const gold = goldPositiveInt(offer.gold);
+    const mac = goldText(offer.mac != null ? offer.mac : envelope.mac, GOLD_MAX_MAC_CHARS);
+    const explicitChallenge = offer.captcha_required;
+    if (resource !== candidate.resource || !amount || amount > candidate.amount || !gold) return { ok:false, why:'gold-offer-amount-mismatch' };
+    if (typeof explicitChallenge !== 'boolean') return { ok:false, why:'gold-offer-captcha-unreadable' };
+    if (!mac || mac.length > GOLD_MAX_MAC_CHARS || (offer.mac && envelope.mac && offer.mac !== envelope.mac)) return { ok:false, why:'gold-offer-token-invalid' };
+    let offeredAt = Date.now();
+    const rawTime = goldReadNumber(offer.offered_at);
+    if (rawTime != null) offeredAt = rawTime < 1000000000000 ? rawTime * 1000 : rawTime;
+    if (Math.abs(Date.now() - offeredAt) > GOLD_OFFER_TTL_MS) return { ok:false, why:'gold-offer-expired' };
+    return { ok:true, amount, gold, mac, offeredAt, captcha:explicitChallenge };
+  }
+  function goldArchiveReview(sale, reason) {
+    const current = sale || goldSaleCurrent();
+    if (!current) return false;
+    const review = Object.assign({}, current, { state:'MANUAL_REVIEW', unknownAt:Date.now(), updatedAt:Date.now(), reason:goldText(reason, 160) });
+    const reviews = Object.assign({}, goldPlainObject(state.goldReviews) || {}, { [review.id]:review });
+    if (!save(STORE.GOLD_REVIEWS, reviews)) return false;
+    state.goldReviews = reviews;
+    goldQuoteSecrets.delete(review.id);
+    goldUnlockSale(review);
+    return goldPersistSale(review);
+  }
+  function goldClearSale(sale) {
+    if (sale) { goldQuoteSecrets.delete(sale.id); goldUnlockSale(sale); }
+    return goldPersistSale(null);
+  }
+  function goldTxSnapshot(townId, args) {
+    const sale = goldSaleCurrent();
+    const resource = GB_RES_KEYS.find(key => goldPositiveInt(args && args[key])) || null;
+    if (!sale || String(sale.townId) !== String(townId) || resource !== sale.resource) return { kind:'gold', saleId:null };
+    return { kind:'gold', saleId:sale.id, resource, amount:goldPositiveInt(args[resource]), offerGold:goldPositiveInt(args.gold), owner:sale.owner, world:sale.world };
+  }
+  function goldOfferTxSnapshot(townId, args) {
+    const sale = goldSaleCurrent();
+    const resource = GB_RES_KEYS.find(key => goldPositiveInt(args && args[key])) || null;
+    const amount = resource ? goldPositiveInt(args[resource]) : null;
+    if (!sale || sale.state !== 'REQUESTING_OFFER' || String(sale.townId) !== String(townId)
+      || resource !== sale.resource || amount !== sale.requestedAmount) return { kind:'goldoffer', saleId:null, resource, amount, gold:goldPositiveInt(args && args.gold) };
+    return { kind:'goldoffer', saleId:sale.id, resource, amount, gold:goldPositiveInt(args && args.gold), owner:sale.owner, world:sale.world };
+  }
+  function goldTxProbeEvidence(tx) {
+    const snapshot = tx && tx.snapshot;
+    const sale = goldSaleCurrent();
+    if (!snapshot || !sale || !snapshot.saleId || snapshot.saleId !== sale.id) return 'unknown';
+
+    return sale.serverAckAt > 0 ? 'applied' : 'unknown';
+  }
+
+  function goldConsumerGate(intent, townId, need) {
+    if (/^gold(?:offer)?[:]/.test(String(intent || ''))) return null;
+    const sale = goldSaleCurrent();
+    if (!sale || sale.state !== 'OFFER_RECEIVED' || !goldQuoteSecrets.has(sale.id)) return null;
+    if (String(sale.townId) !== String(townId) || Date.now() >= sale.expiresAt) return null;
+    const amount = goldReadNumber(need && need[sale.resource]);
+    if (!(amount > 0)) return null;
+    const until = Math.min(sale.expiresAt, (sale.updatedAt || Date.now()) + GOLD_CONSUMER_HOLD_MS);
+    return until > Date.now() ? { why:`gold-hold:${sale.resource}`, until } : null;
+  }
+  function goldArgsResource(args) {
+    const a = goldPlainObject(args);
+    if (!a) return null;
+    let found = null;
+    for (const resource of GB_RES_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(a, resource)) continue;
+      const amount = goldPositiveInt(a[resource]);
+      if (amount == null || found) return null;
+      found = { resource, amount };
+    }
+    return found;
+  }
+
+  function goldTransportGuard(feature, transport, data) {
+    if (feature !== 'gold' && feature !== 'goldoffer') return null;
+
+    if (state.dryRun) return null;
+    if (!gbTabLeader || !goldEnabled() || transport !== 'bridge') return 'gold-disabled-or-follower';
+    const p = goldPlainObject(data);
+    const args = p && goldPlainObject(p.arguments);
+    const row = goldArgsResource(args);
+    const sale = goldSaleCurrent();
+    const action = goldAction(feature === 'gold' ? 'confirm' : 'offer');
+    if (!p || !args || !row || !sale || !action || goldText(p.model_url, 80) !== action.modelUrl
+      || goldText(p.action_name, 120) !== action.action || goldPositiveInt(p.town_id) == null
+      || String(p.town_id) !== String(sale.townId) || !goldTownEnabled(sale.townId)
+      || args.type !== 'sell' || Date.now() >= sale.expiresAt) return 'gold-payload-invalid';
+    const live = goldLiveResources(sale.townId);
+    if (!live || live[row.resource] < row.amount) return 'gold-resource-unreadable';
+    if (feature === 'goldoffer') {
+      return sale.state === 'REQUESTING_OFFER' && row.resource === sale.resource
+        && row.amount === sale.requestedAmount && goldPositiveInt(args.gold) === 1
+        && !Object.prototype.hasOwnProperty.call(args, 'mac') ? null : 'gold-offer-state-invalid';
+    }
+    const quote = goldQuoteSecrets.get(sale.id);
+    return sale.state === 'CONFIRMING' && quote && row.resource === sale.resource
+      && row.amount === sale.offeredAmount && goldPositiveInt(args.gold) === sale.offeredGold
+      && args.mac === quote.mac && args.offer_source === 'main' ? null : 'gold-confirm-state-invalid';
+  }
+  function goldConfirmOffer(sale) {
+    const current = goldSaleCurrent();
+    const quote = sale && goldQuoteSecrets.get(sale.id);
+    if (!current || !sale || current.id !== sale.id || !quote) return goldArchiveReview(sale, 'quote-secret-lost');
+    if (!goldEnabled() || !gbTabLeader || !goldAction('confirm') || !goldTownEnabled(sale.townId)) return goldClearSale(sale);
+    if (Date.now() >= sale.expiresAt) { goldClearSale(sale); return false; }
+    const live = goldLiveResources(sale.townId);
+    if (!live || live[sale.resource] < sale.offeredAmount) return goldArchiveReview(sale, 'resource-changed-before-confirm');
+    const action = goldAction('confirm');
+    const args = { type:'sell', gold:sale.offeredGold, mac:quote.mac, offer_source:'main', [sale.resource]:sale.offeredAmount };
+    const payload = { model_url:action.modelUrl, action_name:action.action, arguments:args, town_id:goldPositiveInt(sale.townId), nl_init:true };
+    if (payload.town_id == null || !goldUpdateSale(sale, { state:'CONFIRMING', reason:'confirm-dispatched' })) return false;
+    goldStat('confirms', 'confirm');
+    bridgePost('gold', payload, (err, response) => {
+      if (!gbTabLeader) return;
+      const nowSale = goldSaleCurrent();
+      if (!nowSale || nowSale.id !== sale.id) return;
+      if (!err && goldResultSuccess(response)) {
+        const acknowledged = goldUpdateSale(nowSale, { state:'CONFIRMING', serverAckAt:Date.now(), reason:'server-confirmed' });
+        if (!acknowledged) return;
+        goldStat('confirmed', 'server-confirmed');
+        goldClearSale(acknowledged);
+        whyNote('gold', 'PremiumExchange/confirmOffer', 'ok', 'server-acknowledged');
+        return;
+      }
+      if (err === 'dryrun') return goldClearSale(nowSale);
+      if (err === 'captcha' || err === 'captcha-pause') {
+        goldStat('captcha', 'confirm-captcha');
+        return goldArchiveReview(nowSale, 'confirm-captcha');
+      }
+      if (err === 'timeout' || err === 'neterr' || err === 'cancelled' || err === 'unknown') {
+        goldStat('unknown', 'confirm-uncertain');
+        return goldArchiveReview(nowSale, 'confirm-uncertain');
+      }
+
+      if (/^(disabled|paused|budget|circuit-open|first-post-confirm|safe-mode)/.test(String(err)) && Date.now() < nowSale.expiresAt) {
+        return goldClearSale(nowSale);
+      }
+      goldArchiveReview(nowSale, 'confirm-error:' + goldText(err, 80));
+    });
+    return true;
+  }
+  function goldBeginOffer(candidate) {
+    if (!candidate || !goldEnabled() || !gbTabLeader || !goldActionsReady(true)) return false;
+    const ownership = goldOwnership();
+    const action = goldAction('offer');
+    if (!ownership || !action || goldSaleCurrent()) return false;
+    const draft = {
+      v:1, id:'gold-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8), state:'REQUESTING_OFFER',
+      world:ownership.world, owner:ownership.player, townId:String(candidate.townId), resource:candidate.resource,
+      offeredAmount:candidate.amount, offeredGold:1, requestedAmount:candidate.amount,
+      expiresAt:Date.now() + GOLD_OFFER_TTL_MS, createdAt:Date.now(), updatedAt:Date.now(), serverAckAt:0, unknownAt:0, reason:'offer-requested',
+    };
+    if (!goldPersistSale(draft) || !goldLockSale(draft)) { goldClearSale(draft); return false; }
+    const args = { type:'sell', gold:1, [candidate.resource]:candidate.amount };
+    const payload = { model_url:action.modelUrl, action_name:action.action, arguments:args, town_id:goldPositiveInt(candidate.townId), nl_init:true };
+    if (payload.town_id == null) { goldClearSale(draft); return false; }
+    goldStat('offers', 'request-offer');
+    bridgePost('goldoffer', payload, (err, response) => {
+      if (!gbTabLeader) return;
+      const sale = goldSaleCurrent();
+      if (!sale || sale.id !== draft.id) return;
+      if (err === 'dryrun') return goldClearSale(sale);
+      if (err) {
+        if (err === 'captcha' || err === 'captcha-pause') { goldStat('captcha', 'offer-captcha'); return goldArchiveReview(sale, 'offer-captcha'); }
+        if (err === 'timeout' || err === 'neterr' || err === 'cancelled' || err === 'unknown') { goldStat('unknown', 'offer-uncertain'); return goldArchiveReview(sale, 'offer-uncertain'); }
+        goldStat('rejected', err); goldClearSale(sale); return;
+      }
+      const checked = goldOfferValidate(response, candidate);
+      if (!checked.ok) { goldStat('rejected', checked.why); goldClearSale(sale); return; }
+      const next = goldNewSale(candidate, checked);
+      if (!next || !goldPersistSale(next)) { goldClearSale(sale); return; }
+      goldQuoteSecrets.set(next.id, { mac:checked.mac });
+      goldUnlockSale(sale);
+      goldLockSale(next);
+      if (checked.captcha) { goldStat('captcha', 'offer-captcha-flag'); return goldUpdateSale(next, { state:'CAPTCHA_PENDING', reason:'offer-captcha' }); }
+      goldConfirmOffer(next);
+    });
+    return true;
+  }
+  function goldReviewResolve(id) {
+    const key = goldStableId(id);
+    const review = key && goldPlainObject(state.goldReviews) && state.goldReviews[key];
+    if (!review || !gbTabLeader) return false;
+    const normalized = goldSaleNormalize(review);
+    if (!normalized || !/^(UNKNOWN|MANUAL_REVIEW|CAPTCHA_PENDING)$/.test(normalized.state)) return false;
+    const next = Object.assign({}, state.goldReviews, { [key]:Object.assign({}, normalized, { state:'REVIEWED', updatedAt:Date.now(), reason:'explicit-user-review' }) });
+    if (!save(STORE.GOLD_REVIEWS, next)) return false;
+    state.goldReviews = next;
+    const live = goldSaleCurrent();
+    if (live && live.id === key) goldClearSale(live);
+
+    state.goldLast = Object.assign({}, goldPlainObject(state.goldLast) || {}, { nextAt:Date.now() + GOLD_CONFIRM_RETRY_COOLDOWN_MS });
+    save(STORE.GOLD_LAST, state.goldLast);
+    return true;
+  }
+  function goldPendingBlocked() {
+    const sale = goldSaleCurrent();
+    if (!sale) return false;
+    if (sale.state === 'OFFER_RECEIVED' && Date.now() >= sale.expiresAt) {
+      goldClearSale(sale);
+      return false;
+    }
+    if (sale.state === 'OFFER_RECEIVED' && !goldQuoteSecrets.has(sale.id)) {
+      goldArchiveReview(sale, 'quote-secret-lost-after-reload');
+      return true;
+    }
+    if (/^(REQUESTING_OFFER|CONFIRMING|CAPTCHA_PENDING|UNKNOWN)$/.test(sale.state) && !goldLocks.has(sale.id)) {
+      goldArchiveReview(sale, 'pending-sale-without-live-owner');
+      return true;
+    }
+    return sale.state !== 'REVIEWED';
+  }
+
+  function goldRecoverLeaderPending(reason) {
+    if (!gbTabLeader) return false;
+    const sale = goldSaleCurrent();
+    if (!sale) return false;
+    if (sale.state === 'OFFER_RECEIVED' && goldQuoteSecrets.has(sale.id)) return false;
+    if (sale.state === 'MANUAL_REVIEW' || sale.state === 'REVIEWED') return false;
+    return goldArchiveReview(sale, 'leader-recovery:' + goldText(reason, 80));
+  }
+  function goldScan(reason) {
+    if (!goldEnabled() || !gbTabLeader) return false;
+    if (goldPendingBlocked()) return false;
+    const last = goldPlainObject(state.goldLast) || {};
+    const nextAt = goldReadNumber(last.nextAt) || 0;
+    if (nextAt > Date.now()) return false;
+    if (!goldActionsReady(false)) {
+      markModuleHealth('gold', 'skip', { error:'PremiumExchange action not learned from manual traffic' });
+      return false;
+    }
+    const towns = goldTownIds();
+    if (!towns.length) return false;
+    const townId = towns[goldScanCursor++ % towns.length];
+    goldReadExchange(townId, (err, market) => {
+      if (err || !market || !goldEnabled() || goldPendingBlocked()) return;
+      const candidate = goldCandidate(townId, market);
+      if (!candidate || !goldActionsReady(true)) return;
+      goldBeginOffer(candidate);
+    });
+    return true;
+  }
+  function goldDiagnosticSnapshot() {
+    const sale = goldSaleCurrent();
+    const reviews = goldPlainObject(state.goldReviews) || {};
+    const actions = goldActionRoot();
+    return gbRedact({
+      enabled:goldEnabled(), learned:{ read:!!actions.read, offer:!!actions.offer, confirm:!!actions.confirm },
+      permittedTowns:Object.keys(state.goldTowns || {}).filter(id => state.goldTowns[id] === true).length,
+      sale:sale, reviews:Object.values(reviews).map(row => ({ id:row.id, state:row.state, townId:row.townId, resource:row.resource, updatedAt:row.updatedAt })),
+      markets:Array.from(goldMarkets.values()).map(row => ({ key:row.key, at:row.at })), stats:goldStatsRoot(),
+    }, { maxDepth:5, maxEntries:100, maxString:160 });
+  }
+  function goldRenderConfig(sec) {
+    if (!sec) return;
+    const status = sec.querySelector('#gb-gold-status');
+    if (status) {
+      const sale = goldSaleCurrent();
+      const learned = goldActionsReady(true) ? 'acciones aprendidas' : 'pulsa leer/solicitar/confirmar a mano para aprender las acciones';
+      status.textContent = sale ? `Venta ${sale.state}: ${sale.offeredAmount} ${goldResourceLabel(sale.resource)} -> ${sale.offeredGold} oro` : learned;
+    }
+    const host = sec.querySelector('.gold-towns');
+    if (!host) return;
+    const ids = goldTownIds();
+    const key = ids.join(',');
+    if (host.dataset.goldTownsKey === key) return;
+    host.replaceChildren();
+    host.dataset.goldTownsKey = key;
+    if (!ids.length) { host.textContent = 'No se pueden leer ciudades propias.'; return; }
+    for (const id of ids) {
+      const label = document.createElement('label');
+      label.className = 'gb-cfg-row gb-cfg-sub';
+      const input = document.createElement('input');
+      input.type = 'checkbox'; input.checked = goldTownEnabled(id); input.dataset.goldTown = id;
+      input.addEventListener('change', () => {
+        const next = Object.assign({}, state.goldTowns || {}, { [id]:input.checked === true });
+        if (save(STORE.GOLD_TOWNS, next)) state.goldTowns = next;
+        else input.checked = goldTownEnabled(id);
+        goldRenderConfig(sec);
+      });
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(' Permitir venta GOLD en ciudad ' + id));
+      host.appendChild(label);
+    }
+  }
+  function goldBindConfig(sec, bindNow) {
+    if (!sec) return;
+    const enabled = sec.querySelector('[data-cfg=gold-enabled]');
+    if (enabled) enabled.checked = goldEnabled();
+    const batch = sec.querySelector('[data-cfg=gold-batch]');
+    if (batch) batch.value = goldBatch();
+    if (bindNow && enabled) enabled.addEventListener('change', () => {
+      const next = enabled.checked === true;
+      if (save(STORE.GOLD_ENABLED, next)) state.goldEnabled = next;
+      else enabled.checked = goldEnabled();
+      goldRenderConfig(sec);
+    });
+    if (bindNow && batch) batch.addEventListener('change', () => {
+      const n = goldPositiveInt(batch.value);
+      const next = n == null ? 10000 : Math.max(GOLD_MIN_BATCH, Math.min(1000000, n));
+      if (save(STORE.GOLD_BATCH, next)) state.goldBatch = next;
+      batch.value = goldBatch();
+    });
+    if (bindNow) sec.querySelector('[data-cfg=gold-review]')?.addEventListener('click', () => {
+      const rows = Object.values(goldPlainObject(state.goldReviews) || {}).filter(r => r && /^(UNKNOWN|MANUAL_REVIEW|CAPTCHA_PENDING)$/.test(String(r.state || '')));
+      if (!rows.length) { flash('No hay ventas GOLD para revisar'); return; }
+      const id = prompt('ID de venta GOLD revisada:\n' + rows.map(r => `${r.id} (${r.state})`).join('\n'), rows[0].id);
+      if (!id) return;
+      if (!confirm('Cerrar esta venta como revisada sin repetir la confirmacion?')) return;
+      flash(goldReviewResolve(id) ? 'Venta GOLD marcada como revisada' : 'No se pudo cerrar la venta GOLD');
+      goldRenderConfig(sec);
+    });
+    goldRenderConfig(sec);
+  }
   const FAVOR_GODS = ['zeus', 'poseidon', 'hera', 'athena', 'hades', 'ares', 'artemis', 'aphrodite'];
   function favorForGod(fav, god) {
     if (!fav || !god) return null;
@@ -18775,6 +19604,7 @@ const STORE = {
   function recruitScan(reason) {
     const nativePending = nativeRecruitPending(), cdPending = cityDesignerHasExecutableWork('recruit');
     if (!hostEnabled() || (!state.autoRecruit && !nativePending && !cdPending) || captchaPaused('recruit')) return;
+    try { nativeQueueNormalizeRecruitAll(); } catch (_) {}
     try { recruitRefreshWaitingSlotJobs(); } catch (_) {}
     if (automationPaused({})) return;
 
@@ -20571,7 +21401,7 @@ const STORE = {
       return out;
     });
     dump.redacted = true;
-    return dump;
+    return gbRedact(dump, { maxDepth: 8, maxEntries: 1200, maxString: 320 });
   }
 
   const CONFIG_HISTORY_MAX = 20;
@@ -20582,6 +21412,7 @@ const STORE = {
     'predictCfg', 'defenseCfg', 'safeMode', 'autoTransport', 'transportReserve',
     'transportMin', 'tradeTowns', 'cityTemplates', 'townGroups', 'cultureTypes', 'favorCfg',
     'spyCfg', 'wonderCfg', 'merchantWish', 'priorityOrder',
+    'goldEnabled', 'goldBatch', 'goldTowns',
     'playerNotes', 'watchlist', 'recruitPacks', 'batchRecruitLists',
   ];
   function qolConfigSnapshot() {
@@ -20683,12 +21514,12 @@ const STORE = {
       abTargets:state.abTargets,abOrder:state.abOrder,researchTargets:state.researchTargets,recruitTargets:state.recruitTargets,
       plannerCfg:state.plannerCfg,goalProfiles:state.goalProfiles,townGoals:state.townGoals,virtualQueueOverrides:state.virtualQueueOverrides,nativeQueue:state.nativeQueue,predictCfg:state.predictCfg,defenseCfg:state.defenseCfg,safeMode:!!state.safeMode,
       autoTransport:!!state.autoTransport,transportReserve:+state.transportReserve||20,transportMin:+state.transportMin||1000,tradeTowns:state.tradeTowns,
-      cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,spyCfg:state.spyCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,playerNotes:state.playerNotes,watchlist:state.watchlist,recruitPacks:state.recruitPacks,batchRecruitLists:state.batchRecruitLists };
+      cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,spyCfg:state.spyCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,goldEnabled:state.goldEnabled === true,goldBatch:goldBatch(),goldTowns:state.goldTowns,playerNotes:state.playerNotes,watchlist:state.watchlist,recruitPacks:state.recruitPacks,batchRecruitLists:state.batchRecruitLists };
   }
   function qolImportConfig(obj, opts) {
     if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;if(obj.host&&String(obj.host)!==String(location.host)){gbLog(`config import refused: file host ${obj.host} != ${location.host}`);return false}if(obj.schema!=null&&+obj.schema>CONFIG_EXPORT_SCHEMA){gbLog(`config import refused: schema ${obj.schema} newer than supported ${CONFIG_EXPORT_SCHEMA}`);return false}
-    const clone=v=>structuredClone(v),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v),num=v=>gbNum(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>num(v)!=null,transportMin:v=>num(v)!=null,tradeTowns:isObj,cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,playerNotes:isObj,watchlist:Array.isArray,batchRecruit:v=>typeof v==='boolean',batchRecruitLists:isObj,recruitPacks:isObj};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,tradeTowns:STORE.TRADE_TOWNS,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,batchRecruit:STORE.BATCH_RECRUIT,batchRecruitLists:STORE.BATCH_RECRUIT_LISTS,recruitPacks:STORE.RECRUIT_PACKS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
-    for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='priorityOrder'){const allowed=new Set(ORCH_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(ORCH_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
+    const clone=v=>structuredClone(v),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v),num=v=>gbNum(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>num(v)!=null,transportMin:v=>num(v)!=null,tradeTowns:isObj,cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,goldEnabled:v=>typeof v==='boolean',goldBatch:v=>num(v)!=null&&num(v)>=100&&num(v)<=1000000,goldTowns:isObj,playerNotes:isObj,watchlist:Array.isArray,batchRecruit:v=>typeof v==='boolean',batchRecruitLists:isObj,recruitPacks:isObj};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,tradeTowns:STORE.TRADE_TOWNS,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,batchRecruit:STORE.BATCH_RECRUIT,batchRecruitLists:STORE.BATCH_RECRUIT_LISTS,recruitPacks:STORE.RECRUIT_PACKS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,goldEnabled:STORE.GOLD_ENABLED,goldBatch:STORE.GOLD_BATCH,goldTowns:STORE.GOLD_TOWNS,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
+    for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='goldEnabled'){v=v===true}else if(k==='goldBatch'){v=Math.floor(num(v))}else if(k==='goldTowns'){const c={};for(const[id,on]of Object.entries(v))if(/^\d+$/.test(id)&&on===true)c[id]=true;v=c}else if(k==='priorityOrder'){const allowed=new Set(ORCH_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(ORCH_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
       const clean={version:1,seq:Math.max(0,+v.seq||0),towns:{}},seen=new Set();
       const jobId=(raw,prefix)=>{let id=/^[A-Za-z0-9:._-]{1,160}$/.test(String(raw||''))?String(raw):'';if(!id||seen.has(id)){clean.seq++;id=`${prefix}:import:${clean.seq.toString(36)}`}seen.add(id);return id};
       for(const[tid,t]of Object.entries(v.towns||{}).slice(0,500)){if(!/^\d+$/.test(String(tid))||!isObj(t))continue;const townId=String(tid),build=[],recruit=[],recruitNaval=[],research=[];
@@ -20995,6 +21826,7 @@ const STORE = {
     batchrecruit: 30000,
     merchant: 45000,
     pttrade: 120000,
+    gold: 120000,
     favor: 60000,
     wonder: 180000,
     spy: 1800000,
@@ -21004,12 +21836,12 @@ const STORE = {
   const ORCH_CAPTCHA = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villrecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'spell',
+    recruit: 'recruit', villrecruit: 'villrecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', gold: ['gold', 'goldoffer'], favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'spell',
   };
   const ORCH_JRN = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villrecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'spell',
+    recruit: 'recruit', villrecruit: 'villrecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', gold: ['gold', 'goldoffer'], favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'spell',
   };
   const ORCH_IDLE_TRIP = 4;
   const ORCH_IDLE_MAX = 8;
@@ -21031,6 +21863,7 @@ const STORE = {
     batchrecruit:()=>orchSafe('batchrecruit',()=>profTime('orch:batchrecruit',()=>batchRecruitScan('orch'))),
     merchant:()=>orchSafe('merchant',()=>profTime('orch:merchant',()=>merchantScan('orch'))),
     pttrade:()=>orchSafe('pttrade',()=>profTime('orch:pttrade',()=>ptTradeScan('orch'))),
+    gold:()=>orchSafe('gold',()=>profTime('orch:gold',()=>goldScan('orch'))),
     favor:()=>orchSafe('favor',()=>profTime('orch:favor',()=>favorScan('orch'))),
     wonder:()=>orchSafe('wonder',()=>profTime('orch:wonder',()=>{wonderScan('orch');wonderFavorScan('orch')})),
     spy:()=>orchSafe('spy',()=>profTime('orch:spy',()=>spyCycle('orch'))),
@@ -21052,6 +21885,7 @@ const STORE = {
       case 'batchrecruit': return state.batchRecruit && batchRecruitHasAnyTown();
       case 'merchant': return state.autoMerchant;
       case 'pttrade': return state.autoPtTrade;
+      case 'gold': return state.goldEnabled === true;
       case 'favor': return state.autoFavor;
       case 'godspell': return state.autoFavor;
       case 'wonder': return state.autoWonder;
@@ -21069,14 +21903,15 @@ const STORE = {
   }
 
   function orchJrnOkSince(key, since) {
-    const f = ORCH_JRN[key];
-    if (!f || !(since > 0)) return 0;
+    const raw = ORCH_JRN[key];
+    const features = Array.isArray(raw) ? raw : [raw];
+    if (!features[0] || !(since > 0)) return 0;
     let n = 0;
     const list = state.decisions || [];
     for (let i = list.length - 1; i >= 0; i--) {
       const r = list[i];
       if (r.ts < since) break;
-      if (r.f === f && r.r === 'ok') n += r.n || 1;
+      if (features.includes(r.f) && r.r === 'ok') n += r.n || 1;
     }
     return n;
   }
@@ -21092,6 +21927,7 @@ const STORE = {
   const ORCH_CADENCE_FLOOR_MS = 5000;
   const ORCH_SCALE_EXCLUDE = new Set([
     'trade', 'pttrade', 'ruraltrade', 'rurallevel',
+    'gold',
     'recruit', 'batchrecruit', 'villrecruit',
     'build',
   ]);
@@ -21114,9 +21950,13 @@ const STORE = {
       on: !!orchFeatureEnabled(key),
       cadenceMs: orchCadence(key),
       idle: orchIdle[key] || 0,
-      captcha: captchaPaused(ORCH_CAPTCHA[key] || key),
+      captcha: orchCaptchaPaused(key),
       dueInMs: Math.max(0, ((orchLastRun[key] || 0) + orchCadence(key)) - now),
     }));
+  }
+  function orchCaptchaPaused(key) {
+    const raw = ORCH_CAPTCHA[key] || key;
+    return (Array.isArray(raw) ? raw : [raw]).some(feature => captchaPaused(feature));
   }
   function orchHousekeepingTick() {
     if (!hostEnabled()) return;
@@ -21130,8 +21970,7 @@ const STORE = {
     if (!hostEnabled()) return;
     if (automationPaused({})) return;
     if (!ORCH_HANDLERS[key] || !orchFeatureEnabled(key)) return;
-    const cap = ORCH_CAPTCHA[key];
-    if (cap && captchaPaused(cap)) return;
+    if (orchCaptchaPaused(key)) return;
 
     orchNoteResult(key);
     orchLastRun[key] = Date.now();
@@ -21153,8 +21992,7 @@ const STORE = {
     for (let rank = 0; rank < order.length; rank++) {
       const key = order[rank];
       if (!ORCH_HANDLERS[key] || !orchFeatureEnabled(key)) continue;
-      const cap = ORCH_CAPTCHA[key];
-      if (cap && captchaPaused(cap)) continue;
+      if (orchCaptchaPaused(key)) continue;
       const cadence = orchCadence(key);
       const overdue = now - (orchLastRun[key] || 0) - cadence;
       if (overdue >= 0) due.push({ key, rank, overdue, cadence });
@@ -26108,6 +26946,7 @@ const STORE = {
       farmOptionMap: state.farmOptionMap,
       farmUnitsOption: state.farmUnitsOption,
       lastSeenTs: state.lastSeenTs,
+      gold: typeof goldDiagnosticSnapshot === 'function' ? goldDiagnosticSnapshot() : null,
 
       decisions: jrn ? { ok: jrn.ok, err: jrn.err, total: jrn.total } : null,
     };
@@ -26428,7 +27267,7 @@ const STORE = {
     })));
     out.push(preflightProbe('csrf', () => ({
       ok: !!state.csrf,
-      detail: state.csrf ? state.csrf.slice(0, 6) + '\u2026' : 'not found (GM_xmlhttpRequest report fetch needs it)',
+      detail: state.csrf ? 'present' : 'not found (GM_xmlhttpRequest report fetch needs it)',
     })));
     out.push(preflightProbe('towns', () => {
       const t = (townsFromGame() || []);
@@ -26627,6 +27466,20 @@ const STORE = {
         ok: view || tpl || !on,
         warn: on && !(view && tpl),
         detail: `view ${view ? 'aprendida' : 'SIN aprender'}, tpl ${tpl ? 'aprendido' : 'SIN aprender'}, auto ${on ? 'ON' : 'OFF'}, ${parser}`,
+      };
+    }));
+    out.push(preflightProbe('gold', () => {
+      const diag = typeof goldDiagnosticSnapshot === 'function' ? goldDiagnosticSnapshot() : null;
+      if (!diag) return { ok:false, detail:'GOLD module unavailable' };
+      const learned = diag.learned || {};
+      const sale = diag.sale || null;
+      const ready = !!(learned.read && learned.offer && learned.confirm);
+      const reviews = Array.isArray(diag.reviews) ? diag.reviews.length : 0;
+      return {
+        ok: !diag.enabled || ready,
+        warn: !!diag.enabled && (!ready || !!sale || reviews > 0),
+        detail: `auto ${diag.enabled ? 'ON' : 'OFF'}, acciones leer/oferta/confirmar ${learned.read ? 'si' : 'no'}/${learned.offer ? 'si' : 'no'}/${learned.confirm ? 'si' : 'no'}, ${diag.permittedTowns || 0} ciudad(es) permitidas`
+          + (sale ? `, venta ${sale.state}` : '') + (reviews ? `, ${reviews} para revisar` : ''),
       };
     }));
     out.push(preflightProbe('native queue', () => {
@@ -27059,6 +27912,7 @@ const STORE = {
     'village recruit': 'Reclutar en aldeas',
     'tx registry': 'Registro de transacciones',
     'phoenician': 'Comercio fenicio',
+    'gold': 'Intercambio GOLD',
     'native queue': 'Colas del juego',
     'snapshots': 'Instant\u00e1neas',
     'profiler': 'Perfilador',
@@ -27290,7 +28144,7 @@ const STORE = {
       if (ok) lastOk[f] = ok;
       if (sk) lastSkip[f] = sk;
     });
-    return {
+    return gbRedact({
       at: new Date(now).toISOString(),
       build: {
         version: runningVersion(),
@@ -27299,7 +28153,7 @@ const STORE = {
         configVer: state.configVer,
         exportRedact: state.exportRedact !== false,
       },
-      csrf: { present: !!csrf, prefix: csrf ? csrf.slice(0, 6) : null },
+      csrf: { present: !!csrf },
       toggles,
       scheduler: typeof orchStatus === 'function' ? orchStatus() : [],
       templates,
@@ -27362,7 +28216,7 @@ const STORE = {
         });
         return out;
       })(),
-    };
+    }, { maxDepth: 7, maxEntries: 360, maxString: 240 });
   }
   function gbEvidenceText() {
     try { return JSON.stringify(gbEvidence(), null, 2); }
@@ -27417,7 +28271,7 @@ const STORE = {
       'host:    ' + location.host,
       'world:   ' + wkey(''),
       'redact:  ' + (redact ? 'ON (names/ids masked in evidence, config, findings)' : 'OFF'),
-      'note:    log lines ship verbatim - they are machine surface, not redacted',
+      'note:    diagnostics and logs are redacted before export',
       'dryRun:  ' + !!state.dryRun,
       '',
     ].join('\n');
@@ -27425,8 +28279,8 @@ const STORE = {
       head,
       bundleSection('evidence', () => gbEvidence()),
       bundleSection('config', () => (typeof qolExportConfigForUi === 'function' ? qolExportConfigForUi() : '(no export path)')),
-      bundleSection('decisions', () => ({ decisions: state.decisions || [], skips: state.decisionSkips || {} })),
-      bundleSection('log', () => gbLogDumpText(0)),
+      bundleSection('decisions', () => gbRedact({ decisions: state.decisions || [], skips: state.decisionSkips || {} })),
+      bundleSection('log', () => gbRedact(gbLogDumpText(0))),
       bundleSection('findings', () => (typeof redactFindingsExport === 'function'
         ? redactFindingsExport({ findings: state.findings, farms: state.farms })
         : '(no redaction path - refusing raw findings)')),
@@ -29887,6 +30741,13 @@ const STORE = {
             <button data-cfg="pt-now" class="gb-cfg-btn ok" data-gb-tip="Bombear hasta el ratio objetivo y luego enviar un trato grande">Bombear + comerciar ya</button>
             <button data-cfg="pt-copy" class="gb-cfg-btn" title="Copia el HTML de la ventana del mercader abierta - hace falta una vez para confirmar el analizador de ofertas">Copiar HTML de la oferta</button>
           </div>
+          <label class="gb-cfg-row gb-cfg-risk" data-gb-tip="ALTO RIESGO: vende recursos por oro mediante PremiumExchange. Empieza OFF; primero hay que usar leer, solicitar oferta y confirmar a mano para aprender las acciones."><input type="checkbox" data-cfg="gold-enabled"/> Venta GOLD automatica (ALTO RIESGO, OFF)</label>
+          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Maximo de un recurso que GOLD puede ofrecer en cada venta; la oferta real se valida antes de confirmar.">GOLD: lote maximo
+            <input class="gb-cfg-input" type="number" data-cfg="gold-batch" min="100" max="1000000" step="100" style="width:85px"/>
+          </label>
+          <div class="gb-cfg-sub gb-cfg-note" id="gb-gold-status"></div>
+          <div class="gb-cfg-sub gold-towns"></div>
+          <div class="gb-cfg-sub"><button data-cfg="gold-review" class="gb-cfg-btn" data-gb-tip="Cierra una venta incierta como revisada. Nunca reintenta la confirmacion.">Revisar venta GOLD pendiente</button></div>
           <label class="gb-cfg-row" data-gb-tip="Granja de favor desactivada por seguridad: ruta de objetivo insegura"><input type="checkbox" data-cfg="auto-favor" disabled/> Granja de favor (desactivada: ruta de objetivo insegura)</label>
           <label class="gb-cfg-num gb-cfg-sub" title="ALTO RIESGO. El favor gastado no vuelve. No se lanza NADA sin escribir aqui un id de poder explicito: nunca hay valor por defecto.">Hechizo divino:
             poder <input class="gb-cfg-input" data-cfg="godspell-power" placeholder="id exacto, sin valor por defecto" style="width:170px" data-gb-tip="ID exacto del poder a lanzar (sin valor por defecto)"/>
@@ -30088,7 +30949,7 @@ const STORE = {
     flash('log descargado');
   });
   panel.querySelector('[data-jrn=copy]')?.addEventListener('click', () => {
-    const text = JSON.stringify({ decisions: state.decisions, skips: state.decisionSkips }, null, 2);
+    const text = JSON.stringify(gbRedact({ decisions: state.decisions, skips: state.decisionSkips }), null, 2);
     navigator.clipboard.writeText(text).then(() => flash('bitacora copiada')).catch(() => flash('fallo al copiar'));
   });
 
@@ -30862,6 +31723,7 @@ const STORE = {
     setChk('[data-cfg=export-redact]', state.exportRedact !== false);
     setChk('[data-cfg=auto-merchant]', state.autoMerchant);
     setChk('[data-cfg=auto-pt-trade]', state.autoPtTrade);
+    if (typeof goldBindConfig === 'function') goldBindConfig(sec, bindNow);
     {
       const c = state.ptCfg || {};
       const want = c.wantRes || {};
@@ -32486,6 +33348,7 @@ const STORE = {
       TX_WRITE_FEATURES,
       load,
       save,
+      gbRedact,
       saveFlush,
       migrateConfig,
       migrateGlobalConfig,
@@ -32515,11 +33378,15 @@ const STORE = {
       gbLeaderHandoverFlush,
       lifecycle: () => ({ disposed:gbDisposed, leader:gbTabLeader, lockHeld:!!gbTabLockRelease }),
       bridgePost,
+      bridgeGet,
       gameAjaxPost,
       txRun,
       txReconcileNow,
       txIntent,
       txCapture,
+      txEnsureIdentity,
+      txDiagnosticSnapshot,
+      txProbeEvidence,
       txClearUnknown,
       txClearOne,
       circuitOpen,
@@ -32536,6 +33403,17 @@ const STORE = {
       plannerHold,
       plannerRelease,
       plannerCommit,
+      goldLearnPayload,
+      goldActionsReady,
+      goldScan,
+      goldConsumerGate,
+      goldTransportGuard,
+      goldOfferTxSnapshot,
+      goldTxSnapshot,
+      goldTxProbeEvidence,
+      goldDiagnosticSnapshot,
+      goldReviewResolve,
+      goldRecoverLeaderPending,
       goalProfiles,
       goalEffective,
       goalEffectiveBuildTargets,

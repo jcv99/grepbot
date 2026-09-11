@@ -15,6 +15,7 @@
     'village recruit': 'Reclutar en aldeas',
     'tx registry': 'Registro de transacciones',
     'phoenician': 'Comercio fenicio',
+    'gold': 'Intercambio GOLD',
     'native queue': 'Colas del juego',
     'snapshots': 'Instantáneas',
     'profiler': 'Perfilador',
@@ -246,7 +247,7 @@
       if (ok) lastOk[f] = ok;
       if (sk) lastSkip[f] = sk;
     });
-    return {
+    return gbRedact({
       at: new Date(now).toISOString(),
       build: {
         version: runningVersion(),
@@ -255,7 +256,7 @@
         configVer: state.configVer,
         exportRedact: state.exportRedact !== false,
       },
-      csrf: { present: !!csrf, prefix: csrf ? csrf.slice(0, 6) : null },
+      csrf: { present: !!csrf },
       toggles,
       scheduler: typeof orchStatus === 'function' ? orchStatus() : [],
       templates,
@@ -318,7 +319,7 @@
         });
         return out;
       })(),
-    };
+    }, { maxDepth: 7, maxEntries: 360, maxString: 240 });
   }
   function gbEvidenceText() {
     try { return JSON.stringify(gbEvidence(), null, 2); }
@@ -373,7 +374,7 @@
       'host:    ' + location.host,
       'world:   ' + wkey(''),
       'redact:  ' + (redact ? 'ON (names/ids masked in evidence, config, findings)' : 'OFF'),
-      'note:    log lines ship verbatim - they are machine surface, not redacted',
+      'note:    diagnostics and logs are redacted before export',
       'dryRun:  ' + !!state.dryRun,
       '',
     ].join('\n');
@@ -381,8 +382,8 @@
       head,
       bundleSection('evidence', () => gbEvidence()),
       bundleSection('config', () => (typeof qolExportConfigForUi === 'function' ? qolExportConfigForUi() : '(no export path)')),
-      bundleSection('decisions', () => ({ decisions: state.decisions || [], skips: state.decisionSkips || {} })),
-      bundleSection('log', () => gbLogDumpText(0)),
+      bundleSection('decisions', () => gbRedact({ decisions: state.decisions || [], skips: state.decisionSkips || {} })),
+      bundleSection('log', () => gbRedact(gbLogDumpText(0))),
       bundleSection('findings', () => (typeof redactFindingsExport === 'function'
         ? redactFindingsExport({ findings: state.findings, farms: state.farms })
         : '(no redaction path - refusing raw findings)')),

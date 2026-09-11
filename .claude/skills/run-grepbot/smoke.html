@@ -175,6 +175,20 @@ window.csrfToken = CSRF;
 window.GPWindowMgr = { _collections: { BuildingOrder: [] } };
 window.Movements = { models: [] };
 window.unsafeWindow = window;
+// file: origins in headless Chromium do not consistently expose Web Locks.
+// Model the exclusive lock closely enough to exercise the leader-owned paths;
+// the callback's pending promise holds it until GrepBot disposes the instance.
+if (!(navigator.locks && typeof navigator.locks.request === 'function')) {
+  const smokeLocks = new Set();
+  Object.defineProperty(navigator, 'locks', { configurable: true, value: {
+    request(name, opts, callback) {
+      if (smokeLocks.has(name) && opts && opts.ifAvailable) return Promise.resolve(callback(null));
+      smokeLocks.add(name);
+      return Promise.resolve(callback({ name, mode: (opts && opts.mode) || 'exclusive' }))
+        .finally(() => smokeLocks.delete(name));
+    }
+  }});
+}
 // NOTE: do NOT add window.<fn> stubs for helpers the bot defines itself
 // (scrapeInboxDom, refreshFarmsParsed, renderTimers, diagRun, ...). The
 // whole bot lives in one IIFE, so a `window.foo` assignment cannot shadow
@@ -199,6 +213,7 @@ window.GM_registerMenuCommand = () => {};
 // It is the only handle on the bot's internals -- everything else lives in
 // one sealed IIFE. Never true under Tampermonkey. Disable with ?notest.
 window.__grepbotTestMode = !location.search.includes('notest');
+window.__grepbotTestWorld = 'smoke.grepolis.test';
 // runningVersion() in src/core.js reads GM_info.script.version; without
 // this the panel header renders "GrepBot v0.0.0" and the driver's
 // stale-artifact check can never fire. Real version is patched in below,
@@ -216,7 +231,7 @@ window.$ = () => ({
 // Requires chromium's --allow-file-access-from-files.
 const ART = '../../../grepbot.user.js';
 fetch(ART).then(r => r.text()).then(src => {
-  const m = src.slice(0, 600).match(/@version\s+(\d+\.\d+\.\d+)/);
+  const m = src.slice(0, 600).match(/@version\s+(\d+(?:\.\d+)+)/);
   if (m) window.GM_info.script.version = m[1];
   const script = document.createElement('script');
   script.src = ART;   // load by src so throws carry a real filename/line

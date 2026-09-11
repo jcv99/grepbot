@@ -483,15 +483,41 @@
     job.updatedAt = Date.now();
     return true;
   }
-  function nativeQueueNormalizeRecruitLane(townId, lane) {
+  function nativeQueueNormalizeRecruitLane(townId, lane, quiet) {
     const list = nativeQueueList(townId, lane || 'recruit', false);
     let changed = 0;
-    for (const j of list) if (j && nativeQueueRecruitPromoteInfinite(j)) changed++;
-    if (changed) {
+    for (const j of list) {
+      if (!j) continue;
+      if (nativeQueueRecruitPromoteInfinite(j)) changed++;
+      // v6.0.73 persisted a generic "blocked · precheck" result for a
+      // final validation race. It carried no outcome evidence and was never a
+      // terminal FIFO state, so let the current scan validate the chunk again.
+      if (nativeQueueRecruitIsInfinite(j) && !j.inflight && !j.manualReview &&
+          j.status === 'blocked' && j.reason === 'precheck') {
+        j.status = 'pending';
+        j.reason = `\u221e \u00b7 lotes de ${nativeQueueRecruitChunkOf(j)}`;
+        j.updatedAt = Date.now();
+        changed++;
+      }
+    }
+    if (changed && !quiet) {
       nativeQueueSave();
       try { scheduleNativeUiScan(); } catch (_) {}
       try { renderQueueCenter(); } catch (_) {}
       gbLog(`cola nativa: ${changed} entrada(s) >${NATIVE_RECRUIT_INF_THRESH} convertida(s) a \u221e en lotes @${townId}`);
+    }
+    return changed;
+  }
+  function nativeQueueNormalizeRecruitAll() {
+    let changed = 0;
+    for (const townId of Object.keys(nativeQueueRoot().towns)) {
+      for (const lane of NATIVE_RECRUIT_LANES) {
+        changed += nativeQueueNormalizeRecruitLane(townId, lane, true);
+      }
+    }
+    if (changed) {
+      nativeQueueSave();
+      gbLog(`cola nativa: ${changed} entrada(s) de reclutamiento actualizada(s)`);
     }
     return changed;
   }

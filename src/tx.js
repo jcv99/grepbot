@@ -70,6 +70,45 @@
     if (!gbTabLeader) return false;
     return save(STORE.TX_STATE, state.txState);
   }
+  function txIdentityHash(value) {
+    const text = String(value == null ? '' : value);
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  }
+  // `intent` is the durable dedupe key. `publicId` is only a stable, redacted
+  // review handle; it never replaces intent or changes TX lifecycle semantics.
+  function txEnsureIdentity(tx, key) {
+    if (!tx || typeof tx !== 'object') return null;
+    if (!tx.publicId) {
+      const basis = String(key || tx.intent || '') + '|' + String(tx.feature || '') + '|'
+        + String(tx.createdAt || '') + '|' + String(tx.id || '');
+      tx.publicId = 'tx-' + txIdentityHash(basis);
+    }
+    return tx.publicId;
+  }
+  function txDiagnosticSnapshot(tx) {
+    if (!tx || typeof tx !== 'object') return null;
+    const basis = String(tx.intent || '') + '|' + String(tx.feature || '') + '|'
+      + String(tx.createdAt || '') + '|' + String(tx.id || '');
+    const row = {
+      publicId: tx.publicId || ('tx-' + txIdentityHash(basis)), feature: tx.feature || null, endpoint: tx.endpoint || null,
+      state: tx.state || null, createdAt: tx.createdAt || 0, updatedAt: tx.updatedAt || 0,
+      unknownAt: tx.unknownAt || 0, owner: tx.owner ? 'present' : null,
+      meta: tx.meta || null, snapshot: tx.snapshot || null, detail: tx.detail || null,
+    };
+    return gbRedact(row, { maxDepth: 4, maxEntries: 80, maxString: 160 });
+  }
+  function txProbeEvidence(tx) {
+    if (!tx || typeof tx !== 'object') return { result:'unknown', why:'tx-unreadable' };
+    let result = 'unknown';
+    try { result = txReconcileNow(tx); } catch (_) {}
+    if (!/^(applied|unchanged|unknown)$/.test(result)) result = 'unknown';
+    return { result, diagnostic: txDiagnosticSnapshot(tx) };
+  }
   function txCompactReview(t) {
     if (!t || !t.snapshot) return false;
     const s = t.snapshot;
@@ -482,6 +521,12 @@
         const offerId = a.offer_id || a.offer || (d.model_url && String(d.model_url).split('/').pop());
         return { kind: 'pttrade', offerId, townId, before: txPtTradeStatus(townId, offerId) };
       }
+      if (feature === 'goldoffer') {
+        if (typeof goldOfferTxSnapshot === 'function') return goldOfferTxSnapshot(townId, a);
+        const resource = GB_RES_KEYS.find(k => gbNum(a[k]) != null && gbNum(a[k]) > 0) || null;
+        return { kind:'goldoffer', saleId:null, resource, amount: resource ? gbNum(a[resource]) : null, gold: gbNum(a.gold) };
+      }
+      if (feature === 'gold' && typeof goldTxSnapshot === 'function') return goldTxSnapshot(townId, a);
       if (feature === 'rurallevel') {
         const relId = String(d.model_url || '').split('/').pop();
         let status = null;
@@ -542,6 +587,12 @@
     if (feature === 'culture') return `culture:${townId}:${a.celebration_type || endpoint}`;
     if (feature === 'merchant') return `merchant:${townId}:${a.offer_id || a.offer || a.id || endpoint}`;
     if (feature === 'pttrade') return `pttrade:${townId || '-'}:${a.offer_id || a.offer || (d.model_url ? String(d.model_url).split('/').pop() : '') || endpoint}`;
+    if (feature === 'goldoffer') {
+      if (snap && snap.saleId) return `goldoffer:${snap.saleId}`;
+      const resource = GB_RES_KEYS.find(k => gbNum(a[k]) != null && gbNum(a[k]) > 0) || '?';
+      return `goldoffer:${townId || '-'}:${resource}:${gbNum(a[resource]) || '?'}:${gbNum(a.gold) || '?'}`;
+    }
+    if (feature === 'gold') return `gold:${snap && snap.saleId ? snap.saleId : `${townId || '-'}:${snap && snap.resource || '?'}:${snap && snap.amount || '?'}`}`;
     return `${feature}:${townId || '-'}:${endpoint}:${JSON.stringify(txStableObj(a)).slice(0, 100)}`;
   }
   function txNum(v) { return gbNum(v); }
@@ -555,6 +606,7 @@
     const s = tx.snapshot || {};
     const meta = tx.meta || {};
     try {
+      if (s.kind === 'gold') return (typeof goldTxProbeEvidence === 'function') ? goldTxProbeEvidence(tx) : 'unknown';
       if (s.kind === 'instant') return ibOrderStillPresent(s.orderId,s.orderKind) ? 'unknown' : 'applied';
       if (s.kind === 'build') {
         const cur = txBuildStatus(meta.townId, s.building);
@@ -837,6 +889,7 @@
     let gate = txActionGate(feature, write, jtag);
     if (!gate && write) gate = safeModeBlock(feature, transport, endpoint, data);
     if (!gate && write && state.firstPostConfirm && !firstPostLiveOk(feature)) gate = 'first-post-confirm';
+    if (!gate && write && typeof goldTransportGuard === 'function') gate = goldTransportGuard(feature, transport, data);
     if (gate) {
       if (gate === 'dryrun') {
         gbLog(`DRY-RUN ${feature}: ${endpoint} ${dryRunFmt(data)}`);
@@ -949,9 +1002,19 @@
       intent, feature, transport, endpoint, state: 'planned', owner: GB_INSTANCE_ID,
       createdAt: Date.now(), updatedAt: Date.now(), snapshot, meta: { townId: metaTown },
     };
+    txEnsureIdentity(tx, intent);
     journalTxId = tx.id;
-    txSave();
-    tx.state = 'precheck'; tx.updatedAt = Date.now(); txSave();
+    if (!txSave() && (feature === 'gold' || feature === 'goldoffer')) {
+      delete state.txState[intent];
+      whyNote(feature, endpoint, 'blocked', 'tx-storage-unavailable');
+      return bail('storage-unavailable', 'tx-storage-unavailable');
+    }
+    tx.state = 'precheck'; tx.updatedAt = Date.now();
+    if (!txSave() && (feature === 'gold' || feature === 'goldoffer')) {
+      delete state.txState[intent];
+      whyNote(feature, endpoint, 'blocked', 'tx-storage-unavailable');
+      return bail('storage-unavailable', 'tx-storage-unavailable');
+    }
     const plannerEffects = plannerEffect(feature, transport, endpoint, data, snapshot);
     if (plannerEffects === null) {
       tx.state = 'aborted'; tx.detail = 'planner effect/cost unreadable'; tx.updatedAt = Date.now(); txSave();
@@ -985,8 +1048,15 @@
       whyNote(feature, endpoint, 'blocked', 'captcha-pause');
       return bail('captcha', 'captcha-pause');
     }
+    tx.state = 'sending'; tx.sentAt = Date.now(); tx.updatedAt = Date.now();
+    if (!txSave() && (feature === 'gold' || feature === 'goldoffer')) {
+      tx.state = 'aborted'; tx.updatedAt = Date.now();
+      plannerRelease(tx, 'storage-unavailable');
+      delete state.txState[intent];
+      whyNote(feature, endpoint, 'blocked', 'tx-storage-unavailable');
+      return bail('storage-unavailable', 'tx-storage-unavailable');
+    }
     reqBudgetMark('action');
-    tx.state = 'sending'; tx.sentAt = Date.now(); tx.updatedAt = Date.now(); txSave();
     rawSend((err, result) => {
       if (!gbInstanceAlive() || tx.owner !== GB_INSTANCE_ID) return;
 

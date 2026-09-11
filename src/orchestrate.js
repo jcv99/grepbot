@@ -69,6 +69,7 @@
     batchrecruit: 30000,
     merchant: 45000,
     pttrade: 120000,
+    gold: 120000,
     favor: 60000,
     wonder: 180000,
     spy: 1800000,
@@ -78,12 +79,12 @@
   const ORCH_CAPTCHA = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villrecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'spell',
+    recruit: 'recruit', villrecruit: 'villrecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', gold: ['gold', 'goldoffer'], favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'spell',
   };
   const ORCH_JRN = {
     culture: 'culture', cave: 'cave', build: 'build', research: 'research',
     trade: 'trade', farm: 'farm', ruraltrade: 'ruraltrade', rurallevel: 'rurallevel',
-    recruit: 'recruit', villrecruit: 'villrecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'spell',
+    recruit: 'recruit', villrecruit: 'villrecruit', batchrecruit: 'recruit', merchant: 'merchant', pttrade: 'pttrade', gold: ['gold', 'goldoffer'], favor: 'favor', wonder: 'wonder', spy: 'spy', hero: 'hero', godspell: 'spell',
   };
   const ORCH_IDLE_TRIP = 4;
   const ORCH_IDLE_MAX = 8;
@@ -105,6 +106,7 @@
     batchrecruit:()=>orchSafe('batchrecruit',()=>profTime('orch:batchrecruit',()=>batchRecruitScan('orch'))),
     merchant:()=>orchSafe('merchant',()=>profTime('orch:merchant',()=>merchantScan('orch'))),
     pttrade:()=>orchSafe('pttrade',()=>profTime('orch:pttrade',()=>ptTradeScan('orch'))),
+    gold:()=>orchSafe('gold',()=>profTime('orch:gold',()=>goldScan('orch'))),
     favor:()=>orchSafe('favor',()=>profTime('orch:favor',()=>favorScan('orch'))),
     wonder:()=>orchSafe('wonder',()=>profTime('orch:wonder',()=>{wonderScan('orch');wonderFavorScan('orch')})),
     spy:()=>orchSafe('spy',()=>profTime('orch:spy',()=>spyCycle('orch'))),
@@ -126,6 +128,7 @@
       case 'batchrecruit': return state.batchRecruit && batchRecruitHasAnyTown();
       case 'merchant': return state.autoMerchant;
       case 'pttrade': return state.autoPtTrade;
+      case 'gold': return state.goldEnabled === true;
       case 'favor': return state.autoFavor;
       case 'godspell': return state.autoFavor;
       case 'wonder': return state.autoWonder;
@@ -144,14 +147,15 @@
   }
 
   function orchJrnOkSince(key, since) {
-    const f = ORCH_JRN[key];
-    if (!f || !(since > 0)) return 0;
+    const raw = ORCH_JRN[key];
+    const features = Array.isArray(raw) ? raw : [raw];
+    if (!features[0] || !(since > 0)) return 0;
     let n = 0;
     const list = state.decisions || [];
     for (let i = list.length - 1; i >= 0; i--) {
       const r = list[i];
       if (r.ts < since) break;
-      if (r.f === f && r.r === 'ok') n += r.n || 1;
+      if (features.includes(r.f) && r.r === 'ok') n += r.n || 1;
     }
     return n;
   }
@@ -170,6 +174,7 @@
   const ORCH_CADENCE_FLOOR_MS = 5000;
   const ORCH_SCALE_EXCLUDE = new Set([
     'trade', 'pttrade', 'ruraltrade', 'rurallevel',
+    'gold',
     'recruit', 'batchrecruit', 'villrecruit',
     'build',
   ]);
@@ -192,9 +197,13 @@
       on: !!orchFeatureEnabled(key),
       cadenceMs: orchCadence(key),
       idle: orchIdle[key] || 0,
-      captcha: captchaPaused(ORCH_CAPTCHA[key] || key),
+      captcha: orchCaptchaPaused(key),
       dueInMs: Math.max(0, ((orchLastRun[key] || 0) + orchCadence(key)) - now),
     }));
+  }
+  function orchCaptchaPaused(key) {
+    const raw = ORCH_CAPTCHA[key] || key;
+    return (Array.isArray(raw) ? raw : [raw]).some(feature => captchaPaused(feature));
   }
   function orchHousekeepingTick() {
     if (!hostEnabled()) return;
@@ -209,8 +218,7 @@
     if (!hostEnabled()) return;
     if (automationPaused({})) return;
     if (!ORCH_HANDLERS[key] || !orchFeatureEnabled(key)) return;
-    const cap = ORCH_CAPTCHA[key];
-    if (cap && captchaPaused(cap)) return;
+    if (orchCaptchaPaused(key)) return;
 
     // Each handler owns its own gbLock and final affordability checks. No module
     // can suppress another module here. The tx planner only protects an action
@@ -235,8 +243,7 @@
     for (let rank = 0; rank < order.length; rank++) {
       const key = order[rank];
       if (!ORCH_HANDLERS[key] || !orchFeatureEnabled(key)) continue;
-      const cap = ORCH_CAPTCHA[key];
-      if (cap && captchaPaused(cap)) continue;
+      if (orchCaptchaPaused(key)) continue;
       const cadence = orchCadence(key);
       const overdue = now - (orchLastRun[key] || 0) - cadence;
       if (overdue >= 0) due.push({ key, rank, overdue, cadence });

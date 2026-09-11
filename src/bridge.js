@@ -176,7 +176,8 @@
   }
   function ajaxTransportRaw(feature, opts, done) {
     const uw = gameUw();
-    if (!(uw.gpAjax && uw.gpAjax.ajaxPost)) return done('noajax');
+    const ajaxMethod = opts && opts.method === 'get' ? 'ajaxGet' : 'ajaxPost';
+    if (!(uw.gpAjax && typeof uw.gpAjax[ajaxMethod] === 'function')) return done('noajax');
     let settled = false;
     let watchEntry = null;
     const finish = (err, res) => {
@@ -263,6 +264,22 @@
       send: (uw, classify) => uw.gpAjax.ajaxPost('frontend_bridge', 'execute', payload, false, classify),
     }, done);
   }
+  // Reads share the same timeout/watch/captcha pressure path as bridge writes.
+  // It is intentionally separate from bridgePost: only POSTs are writes and
+  // must enter TX_WRITE_FEATURES, while a PremiumExchange discovery read still
+  // needs request-budget and lifecycle guards through txRun.
+  function bridgeGetRaw(feature, payload, done) {
+    selfBridgeNote(payload);
+    ajaxTransportRaw(feature, {
+      method: 'get',
+      timeoutKey: gbAjaxTimeoutKey('bridge-get', feature),
+      timeoutMsg: feature + ': bridge GET timeout ' + BRIDGE_TIMEOUT_MS + 'ms',
+      watchKey: 'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
+      watchFp: gbAjaxBridgeFp(payload),
+      authCsrf: true,
+      send: (uw, classify) => uw.gpAjax.ajaxGet('frontend_bridge', 'execute', payload, false, classify),
+    }, done);
+  }
   function gameAjaxRaw(feature, controller, action, data, done) {
     ajaxTransportRaw(feature, {
       timeoutKey: gbAjaxTimeoutKey('ajax', feature),
@@ -278,13 +295,17 @@
     const endpoint = String(payload && payload.model_url || '') + '/' + String(payload && payload.action_name || '');
     return txRun(feature, 'bridge', endpoint, payload, (done) => bridgeRaw(feature, payload, done), onDone);
   }
+  function bridgeGet(feature, payload, onDone) {
+    const endpoint = String(payload && payload.model_url || '') + '/' + String(payload && payload.action_name || '');
+    return txRun(feature, 'bridge', endpoint, payload, (done) => bridgeGetRaw(feature, payload, done), onDone);
+  }
   function gameAjaxPost(feature, controller, action, data, onDone) {
     const endpoint = String(controller) + '/' + String(action);
     return txRun(feature, 'ajax', endpoint, data, (done) => gameAjaxRaw(feature, controller, action, data, done), onDone);
   }
   function dryRunFmt(payload) {
     try {
-      const s = JSON.stringify(payload);
+      const s = JSON.stringify(gbRedact(payload, { maxDepth: 5, maxEntries: 80, maxString: 160 }));
       return s.length > 220 ? s.slice(0, 220) + '\u2026' : s;
     } catch (_) { return String(payload); }
   }
@@ -661,6 +682,7 @@
       ['autoTrade',STORE.AUTO_TRADE],['tradePreset',STORE.TRADE_PRESET],['tradeReservePct',STORE.TRADE_RESERVE],['tradeMinBatch',STORE.TRADE_MIN],['tradeTowns',STORE.TRADE_TOWNS],['tradeRoutes',STORE.TRADE_ROUTES],['autoTradeRoutes',STORE.AUTO_TRADE_ROUTES],['autoTransport',STORE.AUTO_TRANSPORT],['transportReserve',STORE.TRANSPORT_RESERVE],['transportMin',STORE.TRANSPORT_MIN],['autoDump',STORE.AUTO_DUMP],['dumpThreshold',STORE.DUMP_THRESHOLD],['dumpKeep',STORE.DUMP_KEEP],['dumpSinks',STORE.DUMP_SINKS],['islandShip',STORE.ISLAND_SHIP],
       ['autoRuralTrade',STORE.AUTO_RURAL_TRADE],['autoRuralLevel',STORE.AUTO_RURAL_LEVEL],['ruralLevelMax',STORE.RURAL_LEVEL_MAX],
       ['autoMerchant',STORE.AUTO_MERCHANT],['merchantWish',STORE.MERCHANT_WISH],['autoPtTrade',STORE.AUTO_PT_TRADE],['ptCfg',STORE.PT_CFG],
+      ['goldEnabled',STORE.GOLD_ENABLED],['goldBatch',STORE.GOLD_BATCH],['goldTowns',STORE.GOLD_TOWNS],
       ['autoFavor',STORE.AUTO_FAVOR],['favorCfg',STORE.FAVOR_CFG],['autoWonder',STORE.AUTO_WONDER],['wonderCfg',STORE.WONDER_CFG],['autoWonderFavor',STORE.AUTO_WONDER_FAVOR],
       ['autoDodge',STORE.AUTO_DODGE],['dodgeMode',STORE.DODGE_MODE],['dodgeFloor',STORE.DODGE_FLOOR],['defenseCfg',STORE.DEFENSE_CFG],['supportCfg',STORE.SUPPORT_CFG],['autoMilitia',STORE.AUTO_MILITIA],
       ['spyEnabled',STORE.AUTO_SPY],['spyCfg',STORE.SPY_CFG],
@@ -670,6 +692,14 @@
       const v=load(store,state[field]);
       if(!gbStorageReadFailed(store))state[field]=v;
     }
+    state.goldEnabled = state.goldEnabled === true;
+    if (typeof goldBatch === 'function') state.goldBatch = goldBatch();
+    for (const [field, store] of [['goldActions',STORE.GOLD_ACTIONS], ['goldSeaByTown',STORE.GOLD_SEAS], ['goldReviews',STORE.GOLD_REVIEWS], ['goldStats',STORE.GOLD_STATS], ['goldLast',STORE.GOLD_LAST]]) {
+      const v = loadObj(store, {});
+      if (v) state[field] = v;
+    }
+    const goldSale = load(STORE.GOLD_SALE, state.goldSale);
+    if (!gbStorageReadFailed(STORE.GOLD_SALE)) state.goldSale = goldSale || null;
 
     const dodgeReturns=loadObj(STORE.DODGE_RETURNS,{});
     if(dodgeReturns)state.dodgeReturns=dodgeReturns;
@@ -689,6 +719,7 @@
   function gbHandleLeadershipAcquired(reason) {
     if(!gbInstanceAlive()||!gbTabLeader)return false;
     try{gbReloadSharedRuntimeState(reason)}catch(e){gbLogT('leader-reload',60000,'leader state reload: '+String(e))}
+    try{goldRecoverLeaderPending(reason)}catch(e){gbLogT('leader-gold-recover',60000,'leader GOLD recovery: '+String(e))}
     try{migrateConfig()}catch(e){gbLogT('leader-migrate',60000,'leader migration: '+String(e))}
     try{orchStartIndependentTimers()}catch(e){gbLogT('leader-orch-ensure',60000,'leader scheduler ensure: '+String(e))}
     try{orchTick()}catch(e){gbLogT('leader-orch-poke',60000,'leader scheduler poke: '+String(e))}

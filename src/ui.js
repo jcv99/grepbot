@@ -1573,6 +1573,13 @@
             <button data-cfg="pt-now" class="gb-cfg-btn ok" data-gb-tip="Bombear hasta el ratio objetivo y luego enviar un trato grande">Bombear + comerciar ya</button>
             <button data-cfg="pt-copy" class="gb-cfg-btn" title="Copia el HTML de la ventana del mercader abierta - hace falta una vez para confirmar el analizador de ofertas">Copiar HTML de la oferta</button>
           </div>
+          <label class="gb-cfg-row gb-cfg-risk" data-gb-tip="ALTO RIESGO: vende recursos por oro mediante PremiumExchange. Empieza OFF; primero hay que usar leer, solicitar oferta y confirmar a mano para aprender las acciones."><input type="checkbox" data-cfg="gold-enabled"/> Venta GOLD automatica (ALTO RIESGO, OFF)</label>
+          <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Maximo de un recurso que GOLD puede ofrecer en cada venta; la oferta real se valida antes de confirmar.">GOLD: lote maximo
+            <input class="gb-cfg-input" type="number" data-cfg="gold-batch" min="100" max="1000000" step="100" style="width:85px"/>
+          </label>
+          <div class="gb-cfg-sub gb-cfg-note" id="gb-gold-status"></div>
+          <div class="gb-cfg-sub gold-towns"></div>
+          <div class="gb-cfg-sub"><button data-cfg="gold-review" class="gb-cfg-btn" data-gb-tip="Cierra una venta incierta como revisada. Nunca reintenta la confirmacion.">Revisar venta GOLD pendiente</button></div>
           <label class="gb-cfg-row" data-gb-tip="Granja de favor desactivada por seguridad: ruta de objetivo insegura"><input type="checkbox" data-cfg="auto-favor" disabled/> Granja de favor (desactivada: ruta de objetivo insegura)</label>
           <label class="gb-cfg-num gb-cfg-sub" title="ALTO RIESGO. El favor gastado no vuelve. No se lanza NADA sin escribir aqui un id de poder explicito: nunca hay valor por defecto.">Hechizo divino:
             poder <input class="gb-cfg-input" data-cfg="godspell-power" placeholder="id exacto, sin valor por defecto" style="width:170px" data-gb-tip="ID exacto del poder a lanzar (sin valor por defecto)"/>
@@ -1785,7 +1792,7 @@
     flash('log descargado');
   });
   panel.querySelector('[data-jrn=copy]')?.addEventListener('click', () => {
-    const text = JSON.stringify({ decisions: state.decisions, skips: state.decisionSkips }, null, 2);
+    const text = JSON.stringify(gbRedact({ decisions: state.decisions, skips: state.decisionSkips }), null, 2);
     navigator.clipboard.writeText(text).then(() => flash('bitacora copiada')).catch(() => flash('fallo al copiar'));
   });
   // Clipboard copy of the live session log (same text "Copiar todo" embeds).
@@ -2644,6 +2651,7 @@
     setChk('[data-cfg=export-redact]', state.exportRedact !== false);
     setChk('[data-cfg=auto-merchant]', state.autoMerchant);
     setChk('[data-cfg=auto-pt-trade]', state.autoPtTrade);
+    if (typeof goldBindConfig === 'function') goldBindConfig(sec, bindNow);
     {
       const c = state.ptCfg || {};
       const want = c.wantRes || {};

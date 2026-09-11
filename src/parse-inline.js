@@ -612,7 +612,10 @@
       if (!body || typeof body !== 'string' || !/frontend_bridge/.test(String(u))) return;
       const parsedSelfCheck = parseBodyLoose(body);
       if (parsedSelfCheck && isSelfBridge(parsedSelfCheck)) return;
-      if (/FarmTownPlayerRelation/.test(body)) {
+      if (/PremiumExchange/.test(body)) {
+        const j = parsedSelfCheck;
+        if (j && typeof goldLearnPayload === 'function') goldLearnPayload(j);
+      } else if (/FarmTownPlayerRelation/.test(body)) {
         gbLog('sniffed farm bridge call:', body.slice(0, 300));
         const j = parseBodyLoose(body);
         if (j && j.model_url && /claim/i.test(j.action_name || '')) {

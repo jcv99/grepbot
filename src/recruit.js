@@ -794,6 +794,7 @@
   function recruitScan(reason) {
     const nativePending = nativeRecruitPending(), cdPending = cityDesignerHasExecutableWork('recruit');
     if (!hostEnabled() || (!state.autoRecruit && !nativePending && !cdPending) || captchaPaused('recruit')) return;
+    try { nativeQueueNormalizeRecruitAll(); } catch (_) {}
     try { recruitRefreshWaitingSlotJobs(); } catch (_) {}
     if (automationPaused({})) return;
 

@@ -25,6 +25,7 @@
       farmOptionMap: state.farmOptionMap,
       farmUnitsOption: state.farmUnitsOption,
       lastSeenTs: state.lastSeenTs,
+      gold: typeof goldDiagnosticSnapshot === 'function' ? goldDiagnosticSnapshot() : null,
 
       decisions: jrn ? { ok: jrn.ok, err: jrn.err, total: jrn.total } : null,
     };
@@ -347,7 +348,7 @@
     })));
     out.push(preflightProbe('csrf', () => ({
       ok: !!state.csrf,
-      detail: state.csrf ? state.csrf.slice(0, 6) + '\u2026' : 'not found (GM_xmlhttpRequest report fetch needs it)',
+      detail: state.csrf ? 'present' : 'not found (GM_xmlhttpRequest report fetch needs it)',
     })));
     out.push(preflightProbe('towns', () => {
       const t = (townsFromGame() || []);
@@ -546,6 +547,20 @@
         ok: view || tpl || !on,
         warn: on && !(view && tpl),
         detail: `view ${view ? 'aprendida' : 'SIN aprender'}, tpl ${tpl ? 'aprendido' : 'SIN aprender'}, auto ${on ? 'ON' : 'OFF'}, ${parser}`,
+      };
+    }));
+    out.push(preflightProbe('gold', () => {
+      const diag = typeof goldDiagnosticSnapshot === 'function' ? goldDiagnosticSnapshot() : null;
+      if (!diag) return { ok:false, detail:'GOLD module unavailable' };
+      const learned = diag.learned || {};
+      const sale = diag.sale || null;
+      const ready = !!(learned.read && learned.offer && learned.confirm);
+      const reviews = Array.isArray(diag.reviews) ? diag.reviews.length : 0;
+      return {
+        ok: !diag.enabled || ready,
+        warn: !!diag.enabled && (!ready || !!sale || reviews > 0),
+        detail: `auto ${diag.enabled ? 'ON' : 'OFF'}, acciones leer/oferta/confirmar ${learned.read ? 'si' : 'no'}/${learned.offer ? 'si' : 'no'}/${learned.confirm ? 'si' : 'no'}, ${diag.permittedTowns || 0} ciudad(es) permitidas`
+          + (sale ? `, venta ${sale.state}` : '') + (reviews ? `, ${reviews} para revisar` : ''),
       };
     }));
     out.push(preflightProbe('native queue', () => {
