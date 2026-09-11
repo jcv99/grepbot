@@ -1,4 +1,4 @@
-  const GB_RELEASE = '6.0.73';
+  const GB_RELEASE = '6.0.74';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -145,6 +145,17 @@ const STORE = {
     NOTIFY_MUTED: 'grepbot:notify-muted',
     AUTO_MERCHANT: 'grepbot:auto-merchant',
     MERCHANT_WISH: 'grepbot:merchant-wish',
+    GOLD_ENABLED: 'grepbot:gold-enabled',
+    GOLD_BATCH: 'grepbot:gold-batch',
+    GOLD_TOWNS: 'grepbot:gold-towns-v1',
+    GOLD_ACTIONS: 'grepbot:gold-actions-v1',
+    GOLD_SEAS: 'grepbot:gold-seas-v1',
+    GOLD_REVIEWS: 'grepbot:gold-reviews-v1',
+    GOLD_HUB: 'grepbot:gold-hub',
+    GOLD_PENDING: 'grepbot:gold-pending',
+    GOLD_STATS: 'grepbot:gold-stats',
+    GOLD_LAST: 'grepbot:gold-last',
+    GOLD_SALE: 'grepbot:gold-sale-v1',
     AUTO_FAVOR: 'grepbot:auto-favor',
     FAVOR_CFG: 'grepbot:favor-cfg',
     AUTO_WONDER: 'grepbot:auto-wonder',
@@ -279,6 +290,8 @@ const STORE = {
     STORE.RESEARCH_TARGETS, STORE.CITY_TEMPLATES, STORE.TOWN_GROUPS, STORE.DUMP_SINKS,
     STORE.MERCHANT_WISH, STORE.FAVOR_CFG, STORE.WONDER_CFG, STORE.WONDER_SPENT,
     STORE.CULTURE_GOLD_SPENT,
+    STORE.GOLD_TOWNS, STORE.GOLD_ACTIONS, STORE.GOLD_SEAS, STORE.GOLD_REVIEWS,
+    STORE.GOLD_HUB, STORE.GOLD_PENDING, STORE.GOLD_STATS, STORE.GOLD_LAST, STORE.GOLD_SALE,
 
     STORE.RECRUIT_TARGETS, STORE.BATCH_RECRUIT_LISTS, STORE.PRIORITY_ORDER,
     STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES, STORE.NAP_STATUS, STORE.SPY_CFG, STORE.SPY_HISTORY, STORE.SPY_TPL, STORE.SPY_SEND_CFG, STORE.SPY_SEND_HISTORY,
@@ -306,6 +319,50 @@ const STORE = {
     else if (typeof raw !== 'number') return null;
     const v = Number(raw);
     return Number.isFinite(v) ? v : null;
+  }
+  // Diagnostics and exports may contain arbitrary wire data. Keep redaction
+  // bounded and separate from operational payloads: callers explicitly opt in
+  // when producing human-visible data, never on a request that will be sent.
+  const GB_REDACT_KEY_RE = /token|secret|password|authorization|cookie|csrf|captcha|\bmac\b|api[_-]?key|\bkey\b|telegram.*(?:token|chat)|bearer/i;
+  function gbRedact(value, opts, depth, seen, budget) {
+    const o = opts || {};
+    const maxDepth = gbNum(o.maxDepth) != null ? Math.max(1, Math.floor(gbNum(o.maxDepth))) : 6;
+    const maxEntries = gbNum(o.maxEntries) != null ? Math.max(1, Math.floor(gbNum(o.maxEntries))) : 240;
+    const maxString = gbNum(o.maxString) != null ? Math.max(16, Math.floor(gbNum(o.maxString))) : 240;
+    const d = depth || 0;
+    const visited = seen || new Set();
+    const left = budget || { n: maxEntries };
+    const text = raw => {
+      let s = String(raw == null ? '' : raw);
+      // URLs often carry credentials in their query string. Do not preserve
+      // either the parameter value or a potentially signed whole URL.
+      s = s
+        .replace(/([?&](?:token|secret|key|auth|authorization|csrf|captcha|mac)=)[^&#\s]*/ig, '$1[redacted]')
+        .replace(/((?:["']?\b(?:token|secret|password|authorization|cookie|csrf|captcha|mac|api[_-]?key|key)\b["']?)\s*[:=]\s*["']?)[^\s,;&"'}\[\]]+/ig, '$1[redacted]')
+        .replace(/(https?:\/\/api\.telegram\.org\/bot)[^/\s]+/ig, '$1[redacted]')
+        .replace(/(https?:\/\/discord(?:app)?\.com\/api\/webhooks\/\d+\/)[^\s/]+/ig, '$1[redacted]');
+      return s.length > maxString ? s.slice(0, maxString) + '…' : s;
+    };
+    if (value == null || typeof value === 'boolean' || typeof value === 'number') return value;
+    if (typeof value === 'string') return text(value);
+    if (typeof value !== 'object') return text(value);
+    if (d >= maxDepth) return '[truncated-depth]';
+    if (visited.has(value)) return '[cycle]';
+    visited.add(value);
+    const out = Array.isArray(value) ? [] : Object.create(null);
+    const entries = Array.isArray(value) ? value.entries() : Object.entries(value);
+    for (const [key, item] of entries) {
+      if (left.n-- <= 0) {
+        if (Array.isArray(out)) out.push('[truncated]');
+        else out['[truncated]'] = true;
+        break;
+      }
+      const name = String(key);
+      if (name === '__proto__' || name === 'constructor' || name === 'prototype') continue;
+      out[key] = GB_REDACT_KEY_RE.test(name) ? '[redacted]' : gbRedact(item, o, d + 1, visited, left);
+    }
+    visited.delete(value);
+    return out;
   }
   // Naval mythicals train at the harbor (building_docks), not the temple.
   // GameData.is_naval is unreliable for this set in some worlds, so the
@@ -733,6 +790,7 @@ const STORE = {
     'telegram-monitor': 60000,
     militia: 60000,
     'pt-trade': 180000,
+    gold: 180000,
     'report-catchup': 300000,
     'quest-scan': 180000,
     'quest-auto': 180000,
@@ -985,6 +1043,20 @@ const STORE = {
     webhookEvents: load(STORE.WEBHOOK_EVENTS, { captcha: true, attack: true, warehouse: false, culture: false, cappingPreWarn: false, 'counter-intel': true, hero: false, 'intel-digest': true }),
     autoMerchant: load(STORE.AUTO_MERCHANT, false),
     merchantWish: load(STORE.MERCHANT_WISH, []),
+    // GOLD is deliberately opt-in. Operational records remain world-scoped
+    // under the existing storage rules; no player-scoping migration is folded
+    // into this feature.
+    goldEnabled: load(STORE.GOLD_ENABLED, false) === true,
+    goldBatch: load(STORE.GOLD_BATCH, 10000),
+    goldTowns: load(STORE.GOLD_TOWNS, {}) || {},
+    goldActions: load(STORE.GOLD_ACTIONS, {}) || {},
+    goldSeaByTown: load(STORE.GOLD_SEAS, {}) || {},
+    goldReviews: load(STORE.GOLD_REVIEWS, {}) || {},
+    goldHub: load(STORE.GOLD_HUB, null),
+    goldPending: load(STORE.GOLD_PENDING, null),
+    goldStats: load(STORE.GOLD_STATS, {}) || {},
+    goldLast: load(STORE.GOLD_LAST, {}) || {},
+    goldSale: load(STORE.GOLD_SALE, null),
     autoFavor: load(STORE.AUTO_FAVOR, false),
     favorCfg: load(STORE.FAVOR_CFG, { god: 'athena', unit: 'harpy', thresh: 200, maxConcurrent: 2 }),
     spellCooldown: load(STORE.SPELL_COOLDOWN, {}),
@@ -1790,6 +1862,7 @@ const STORE = {
     collect: 'collectTpl',
     pttrade: 'ptTradeTpl',
     wonder: 'wonderFavorTpl',
+    gold: 'goldActions', goldoffer: 'goldActions',
 
   };
 
@@ -1929,8 +2002,9 @@ const STORE = {
     if (logBuf.length > LOG_MAX) logBuf.splice(0, logBuf.length - LOG_MAX);
   }
   function gbLog(...args) {
-    console.info('[grepbot]', ...args);
-    const msg = args.map(a => (typeof a === 'string' ? a : (() => { try { return JSON.stringify(a); } catch (_) { return String(a); } })())).join(' ');
+    const clean = args.map(a => gbRedact(a, { maxDepth: 5, maxEntries: 80, maxString: 320 }));
+    console.info('[grepbot]', ...clean);
+    const msg = clean.map(a => (typeof a === 'string' ? a : (() => { try { return JSON.stringify(a); } catch (_) { return String(a); } })())).join(' ');
     const now = Date.now();
     logBuf.push({ ts: now, msg });
     logTrim(now);
