@@ -89,6 +89,12 @@
         const e = gbAjaxPending[i];
         if (e.fp === fp && sigs.indexOf(e.sig) >= 0) return gbAjaxPending.splice(i, 1)[0].settle;
       }
+      // Fingerprint is computable for this request but no watcher matches it.
+      // Falling back to sig-only lets an unrelated request to the same
+      // endpoint (mock post, parallel tab) claim the watcher and the real
+      // callback lands as a gpAjax-only settle — leaving the original feature
+      // to its timeout. Refuse instead.
+      return null;
     }
     const candidates = [];
     for (let i = 0; i < gbAjaxPending.length; i++) {

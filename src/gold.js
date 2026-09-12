@@ -494,7 +494,16 @@
       goldQuoteSecrets.set(next.id, { mac:checked.mac });
       goldUnlockSale(sale);
       goldLockSale(next);
-      if (checked.captcha) { goldStat('captcha', 'offer-captcha-flag'); return goldUpdateSale(next, { state:'CAPTCHA_PENDING', reason:'offer-captcha' }); }
+      if (checked.captcha) {
+        goldStat('captcha', 'offer-captcha-flag');
+        // CAPTCHA_PENDING without a review row leaks the lock and the
+        // session-only quote secret (goldUpdateSale only rewrites state).
+        // goldArchiveReview writes to state.goldReviews, deletes the quote
+        // secret, and unlocks the sale — matching the transport-timeout path
+        // so a captcha-flagged offer is resolvable from the same review
+        // surface as any other uncertain sale.
+        return goldArchiveReview(next, 'offer-captcha-flag');
+      }
       goldConfirmOffer(next);
     });
     return true;

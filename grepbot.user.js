@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.80
+// @version      6.0.81
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -21,7 +21,7 @@
 
 (function () {
   'use strict';
-  const GB_RELEASE = '6.0.80';
+  const GB_RELEASE = '6.0.81';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -3085,7 +3085,9 @@ const STORE = {
   const TX_MANUAL_REVIEW_TTL_MS = 30 * 60 * 1000;
   let txSeq = 0;
   function txTransportUncertain(err) {
-    return err === 'timeout' || err === 'neterr' || err === 'cancelled' || err === 'empty';
+
+    return err === 'timeout' || err === 'neterr' || err === 'cancelled' || err === 'empty'
+      || (typeof err === 'string' && /^http_5\d\d$/.test(err));
   }
   if (!state.txState || typeof state.txState !== 'object' || Array.isArray(state.txState)) state.txState = {};
   function txManualReviewPermanent(tx) {
@@ -4259,6 +4261,8 @@ const STORE = {
         const e = gbAjaxPending[i];
         if (e.fp === fp && sigs.indexOf(e.sig) >= 0) return gbAjaxPending.splice(i, 1)[0].settle;
       }
+
+      return null;
     }
     const candidates = [];
     for (let i = 0; i < gbAjaxPending.length; i++) {
@@ -16286,7 +16290,12 @@ const STORE = {
     x = x.replace(/\b\d{5,}:[A-Za-z0-9_-]{20,}\b/g, '[REDACTED_TELEGRAM_TOKEN]');
     x = x.replace(/https?:\/\/api\.telegram\.org\/bot[^/\s]+\//gi, 'https://api.telegram.org/bot[REDACTED]/');
     x = x.replace(/https?:\/\/(?:discord(?:app)?\.com)\/api\/webhooks\/\d+\/[A-Za-z0-9_-]+/gi, '[REDACTED_DISCORD_WEBHOOK]');
-    x = x.replace(/\b(csrf|authorization|cookie|bot[_ -]?token|access[_ -]?token)\b\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]');
+
+    x = x.replace(/("(?:csrf|authorization|cookie|password|bot[_ -]?token|access[_ -]?token)"\s*:\s*)"[^"]*"/gi, '$1"[REDACTED]"');
+
+    x = x.replace(/\bauthorization\s*[:=]\s*Bearer\s+\S+/gi, 'authorization=[REDACTED]');
+
+    x = x.replace(/\b(csrf|authorization|cookie|password|bot[_ -]?token|access[_ -]?token)\b\s*[:=]\s*[^\s,;}"]+/gi, '$1=[REDACTED]');
     const lim = Math.max(20, Math.min(24000, Number.isFinite(+maxLen) ? +maxLen : 400));
     return x.slice(0, lim);
   }
@@ -18291,7 +18300,11 @@ const STORE = {
       goldQuoteSecrets.set(next.id, { mac:checked.mac });
       goldUnlockSale(sale);
       goldLockSale(next);
-      if (checked.captcha) { goldStat('captcha', 'offer-captcha-flag'); return goldUpdateSale(next, { state:'CAPTCHA_PENDING', reason:'offer-captcha' }); }
+      if (checked.captcha) {
+        goldStat('captcha', 'offer-captcha-flag');
+
+        return goldArchiveReview(next, 'offer-captcha-flag');
+      }
       goldConfirmOffer(next);
     });
     return true;

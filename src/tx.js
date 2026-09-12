@@ -9,7 +9,13 @@
   const TX_MANUAL_REVIEW_TTL_MS = 30 * 60 * 1000;
   let txSeq = 0;
   function txTransportUncertain(err) {
-    return err === 'timeout' || err === 'neterr' || err === 'cancelled' || err === 'empty';
+    // 5xx is ambiguous: the gateway / load balancer may have applied the action
+    // before signalling the failure, so a follow-up post would double-spend.
+    // Route the same path as timeout / neterr — reconcile, leave the dedupe
+    // state in {reconciling,unknown,committed}, and let the model read settle
+    // whether the action landed.
+    return err === 'timeout' || err === 'neterr' || err === 'cancelled' || err === 'empty'
+      || (typeof err === 'string' && /^http_5\d\d$/.test(err));
   }
   if (!state.txState || typeof state.txState !== 'object' || Array.isArray(state.txState)) state.txState = {};
   function txManualReviewPermanent(tx) {

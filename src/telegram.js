@@ -218,7 +218,18 @@
     x = x.replace(/\b\d{5,}:[A-Za-z0-9_-]{20,}\b/g, '[REDACTED_TELEGRAM_TOKEN]');
     x = x.replace(/https?:\/\/api\.telegram\.org\/bot[^/\s]+\//gi, 'https://api.telegram.org/bot[REDACTED]/');
     x = x.replace(/https?:\/\/(?:discord(?:app)?\.com)\/api\/webhooks\/\d+\/[A-Za-z0-9_-]+/gi, '[REDACTED_DISCORD_WEBHOOK]');
-    x = x.replace(/\b(csrf|authorization|cookie|bot[_ -]?token|access[_ -]?token)\b\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]');
+    // Quoted JSON-style credentials: the value lives inside double quotes and
+    // the generic key=value rule below stops at the first quote, so it has to
+    // be handled before the generic pass and match the inner value as a unit.
+    x = x.replace(/("(?:csrf|authorization|cookie|password|bot[_ -]?token|access[_ -]?token)"\s*:\s*)"[^"]*"/gi, '$1"[REDACTED]"');
+    // Authorization: Bearer <token> — the bearer prefix is part of the
+    // credential, not a key. Strip the whole token-bearing span in one go;
+    // doing this with the generic rule leaves the actual JWT after the
+    // leading space.
+    x = x.replace(/\bauthorization\s*[:=]\s*Bearer\s+\S+/gi, 'authorization=[REDACTED]');
+    // Generic key=value / key: value. Stop on whitespace, JSON delimiters and
+    // quotes so quoted values (handled above) survive untouched here.
+    x = x.replace(/\b(csrf|authorization|cookie|password|bot[_ -]?token|access[_ -]?token)\b\s*[:=]\s*[^\s,;}"]+/gi, '$1=[REDACTED]');
     const lim = Math.max(20, Math.min(24000, Number.isFinite(+maxLen) ? +maxLen : 400));
     return x.slice(0, lim);
   }
