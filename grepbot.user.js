@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.79
+// @version      6.0.80
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -21,7 +21,7 @@
 
 (function () {
   'use strict';
-  const GB_RELEASE = '6.0.79';
+  const GB_RELEASE = '6.0.80';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -647,6 +647,8 @@ const STORE = {
       }
       if (a.nodeType !== 1) return false;
       if (a.tagName !== b.tagName) return false;
+
+      if (a.hasAttribute('data-gb-paint-island') && b.hasAttribute('data-gb-paint-island')) continue;
       const an = a.attributes, bn = b.attributes;
       for (let k = an.length - 1; k >= 0; k--) {
         if (a.tagName === 'DETAILS' && an[k].name === 'open') continue;
@@ -663,7 +665,7 @@ const STORE = {
       if (a === document.activeElement) continue;
       if (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT') {
         if (a.type === 'checkbox' || a.type === 'radio') {
-          if (a.checked !== b.checked) { a.checked = b.checked; wrote = 1; }
+          if (!a.hasAttribute('data-gb-paint-preserve') && a.checked !== b.checked) { a.checked = b.checked; wrote = 1; }
         } else if (a.value !== b.value) { a.value = b.value; wrote = 1; }
       }
     }
@@ -4840,7 +4842,8 @@ const STORE = {
       ['autoFavor',STORE.AUTO_FAVOR],['favorCfg',STORE.FAVOR_CFG],['autoWonder',STORE.AUTO_WONDER],['wonderCfg',STORE.WONDER_CFG],['autoWonderFavor',STORE.AUTO_WONDER_FAVOR],
       ['autoDodge',STORE.AUTO_DODGE],['dodgeMode',STORE.DODGE_MODE],['dodgeFloor',STORE.DODGE_FLOOR],['defenseCfg',STORE.DEFENSE_CFG],['supportCfg',STORE.SUPPORT_CFG],['autoMilitia',STORE.AUTO_MILITIA],
       ['spyEnabled',STORE.AUTO_SPY],['spyCfg',STORE.SPY_CFG],
-      ['plannerCfg',STORE.PLANNER_CFG],['goalProfiles',STORE.GOAL_PROFILES],['townGoals',STORE.TOWN_GOALS],['virtualQueue',STORE.VIRTUAL_QUEUE],['virtualQueueOverrides',STORE.VIRTUAL_QUEUE_OVERRIDES]
+      ['plannerCfg',STORE.PLANNER_CFG],['goalProfiles',STORE.GOAL_PROFILES],['townGoals',STORE.TOWN_GOALS],['virtualQueue',STORE.VIRTUAL_QUEUE],['virtualQueueOverrides',STORE.VIRTUAL_QUEUE_OVERRIDES],
+      ['roleAdvisorCfg',STORE.ROLE_ADVISOR_CFG],['roleAssignments',STORE.ROLE_ASSIGNMENTS],['resourceOptimizerCfg',STORE.RESOURCE_OPTIMIZER_CFG]
     ];
     for(const [field,store] of reloadFields){
       const v=load(store,state[field]);
@@ -9545,6 +9548,9 @@ const STORE = {
     f.fingerprint = JSON.stringify({ currentRole:f.currentRole, levels:f.levels, techs:f.techs, units:f.units, coast:f.coast, production:f.production, threatened:f.threatened, god:f.god, tags:f.tags });
     return f;
   }
+  function roleAdvisorFeatureReadable(feature) {
+    return !!(feature && feature.readable && Object.values(feature.readable).some(Boolean));
+  }
   function roleAdvisorProfileKind(profile) {
     const p = cdCanonicalProfile(profile);
     if (p === 'cd_defense') return 'defense';
@@ -9649,8 +9655,10 @@ const STORE = {
     const idKey = ids.join('|');
     if (!force && !roleAdvisorLast.unreadable && roleAdvisorLast.at && idKey === roleAdvisorLast.ids && now - roleAdvisorLast.at < ROLE_ADVISOR_SCAN_MIN_MS) return roleAdvisorLast;
     const features = ids.map(roleAdvisorFeature);
+    const readableFeatures = features.filter(roleAdvisorFeatureReadable);
+    const unreadableFeatures = features.filter(f => !roleAdvisorFeatureReadable(f));
     const dueMs = cfg.reassessmentHours * 3600000;
-    const stale = !!force || roleAdvisorLast.unreadable || idKey !== roleAdvisorLast.ids || features.some(f => {
+    const stale = !!force || roleAdvisorLast.unreadable || unreadableFeatures.length > 0 || idKey !== roleAdvisorLast.ids || readableFeatures.some(f => {
       const prev = current[f.id];
       return !prev || prev.fingerprint !== f.fingerprint || now - (+prev.assessedAt || 0) >= dueMs;
     });
@@ -9658,7 +9666,7 @@ const STORE = {
     const profiles = Object.keys(CD_PROFILE_DEFAULTS || {}).filter(cdIsProfile).sort();
     const initialCounts = Object.create(null);
     for (const f of features) if (profiles.includes(f.currentRole)) initialCounts[f.currentRole] = (initialCounts[f.currentRole] || 0) + 1;
-    const firstPicks = features.map(f => {
+    const firstPicks = readableFeatures.map(f => {
       const candidates = profiles.map(p => roleAdvisorCandidate(f, p, initialCounts, features.length, cfg));
       candidates.sort((a, b) => b.score - a.score || a.profile.localeCompare(b.profile));
       return candidates[0] && candidates[0].profile;
@@ -9666,7 +9674,17 @@ const STORE = {
     const proposalCounts = Object.create(null);
     firstPicks.forEach(p => { if (p) proposalCounts[p] = (proposalCounts[p] || 0) + 1; });
     const next = {}, rows = [];
-    for (const f of features) {
+    for (const f of features) if (!roleAdvisorFeatureReadable(f)) {
+      const prev = current[f.id] && typeof current[f.id] === 'object' ? current[f.id] : null;
+      if (prev) {
+        next[f.id] = prev;
+        rows.push(Object.assign({ id:f.id, unreadable:true }, prev, {
+          currentRole:f.currentRole,
+          reasons:(prev.reasons || []).concat('estado de ciudad no legible; propuesta conservada'),
+        }));
+      } else rows.push({ id:f.id, currentRole:f.currentRole, proposedRole:'\u2014', score:'\u2014', confidence:'sin datos', conversion:{ known:false }, reasons:['estado de ciudad no legible; sin propuesta'], unreadable:true, userLock:false });
+    }
+    for (const f of readableFeatures) {
       const candidates = profiles.map(p => roleAdvisorCandidate(f, p, proposalCounts, features.length, cfg));
       candidates.sort((a, b) => b.score - a.score || a.profile.localeCompare(b.profile));
       const prev = current[f.id] && typeof current[f.id] === 'object' ? current[f.id] : {};
@@ -9689,8 +9707,8 @@ const STORE = {
     const changed = JSON.stringify(current) !== JSON.stringify(next);
     state.roleAssignments = next;
     if (changed) save(STORE.ROLE_ASSIGNMENTS, next);
-    if (cfg.autoApply && !automationPaused({})) for (const row of rows) roleAdvisorApply(row.id, { auto:true, silent:true });
-    const signature = JSON.stringify(rows.map(r => [r.id,r.currentRole,r.proposedRole,r.score,r.userLock,r.fingerprint]));
+    if (cfg.autoApply && !automationPaused({})) for (const row of rows) if (!row.unreadable) roleAdvisorApply(row.id, { auto:true, silent:true });
+    const signature = JSON.stringify(rows.map(r => [r.id,r.currentRole,r.proposedRole,r.score,r.userLock,r.unreadable === true,r.fingerprint]));
     roleAdvisorLast = { enabled:true, at:now, signature, ids:idKey, rows, assignments:next };
     return roleAdvisorLast;
   }
@@ -9708,7 +9726,7 @@ const STORE = {
     if (!rec || rec.userLock || !cdIsProfile(rec.proposedRole)) return false;
     const currentRole = cdCanonicalProfile(goalTownCfg(id).profile);
     if (currentRole === rec.proposedRole) return true;
-    if (o.auto && cfg.lockExisting && currentRole !== 'custom') return false;
+    if (o.auto && cfg.lockExisting) return false;
     if (!goalSetProfile(id, rec.proposedRole)) return false;
     rec.priorRole = currentRole;
     rec.currentRole = rec.proposedRole;
@@ -9757,10 +9775,10 @@ const STORE = {
     body.appendChild(header);
     for (const row of snapshot.rows || []) {
       const line = document.createElement('div'); line.style.cssText = 'display:grid;grid-template-columns:18px 1.2fr 1fr 1fr .45fr 1fr 1.6fr 28px;gap:3px;border-bottom:1px solid #222;padding:2px;align-items:center';
-      const select = document.createElement('input'); select.type = 'checkbox'; select.dataset.roleApply = row.id; select.disabled = !!row.userLock || row.currentRole === row.proposedRole; line.appendChild(select);
+      const select = document.createElement('input'); select.type = 'checkbox'; select.dataset.roleApply = row.id; select.dataset.gbPaintPreserve = '1'; select.disabled = !!row.unreadable || !!row.userLock || row.currentRole === row.proposedRole; line.appendChild(select);
       const cells = [roleAdvisorName(row.id), row.currentRole, row.proposedRole, String(row.score), row.conversion && row.conversion.known ? `B${row.conversion.buildingLevels}/I${row.conversion.researches}/U${Math.floor(row.conversion.units)}` : '\u2014', (row.reasons || []).concat('confianza ' + row.confidence).join('; ')];
       cells.forEach(value => { const el = document.createElement('span'); el.textContent = value; line.appendChild(el); });
-      const lock = document.createElement('input'); lock.type = 'checkbox'; lock.checked = !!row.userLock; lock.title = 'Bloqueo persistente: el asesor no cambiara esta ciudad hasta quitarlo';
+      const lock = document.createElement('input'); lock.type = 'checkbox'; lock.checked = !!row.userLock; lock.disabled = !!row.unreadable; lock.title = 'Bloqueo persistente: el asesor no cambiara esta ciudad hasta quitarlo';
       lock.addEventListener('change', () => { roleAdvisorSetLock(row.id, lock.checked); rerender(); }); line.appendChild(lock);
       body.appendChild(line);
     }
@@ -21923,12 +21941,12 @@ const STORE = {
 
     const advisor=roleAdvisorReassess(false);
     const resourcePlan=resourceOptimizerPlan(false);
-    const membership=[ids.join(','),Object.keys(profiles).join(','),state.abOptimalOrderOn!==false?'1':'0',roleAdvisorMembership(advisor),resourceOptimizerMembership(resourcePlan)];
+    const membership=[ids.join(','),Object.keys(profiles).join(','),state.abOptimalOrderOn!==false?'1':'0'];
     for(const tid of ids){const p=goalPlanTown(tid);membership.push(tid+':'+p.profile+':'+(p.actions||[]).map(a=>a.queueKey||`${a.kind}:${a.id}`).join(','))}
     const rerender=()=>{renderGoals();renderPlanner();renderDashboard();};
     gbPaint(box, box => {
-    roleAdvisorRender(box,advisor,rerender);
-    resourceOptimizerRender(box,resourcePlan,rerender);
+    const advisorHost=document.createElement('div');advisorHost.dataset.gbPaintIsland='role-advisor';box.appendChild(advisorHost);
+    const resourceHost=document.createElement('div');resourceHost.dataset.gbPaintIsland='resource-optimizer';box.appendChild(resourceHost);
     for(const tid of ids){let name=tid;try{const t=gbTownModel(tid);name=(t&&t.getName&&t.getName())||name}catch(_){} const plan=goalPlanTown(tid);
       const head=document.createElement('div');head.style.cssText='display:flex;gap:4px;align-items:center;padding:4px;border-bottom:1px solid #333';const b=document.createElement('b');b.textContent=`${name} \u00b7 ${plan.progress}%`;head.appendChild(b);
       const edit=gbButton('Edit',{title:'Edit per-town goal overrides/reserves as JSON',style:'font-size:8px;padding:1px 4px',onClick:()=>{const cur=goalTownCfg(tid),raw=prompt('Overrides de objetivos por ciudad JSON\nClaves: build, research, units, reserve:{hard,soft}, defensive (0..1, null = hereda del perfil), resource:{wood,stone,iron} (-1..+1)',JSON.stringify({build:cur.build,research:cur.research,units:cur.units,reserve:cur.reserve,defensive:cur.defensive!=null?cur.defensive:null,resource:cur.resource||{}},null,2));if(raw==null)return;try{if(!goalSetTownOverrides(tid,JSON.parse(raw)))throw new Error('invalid object');rerender()}catch(e){flash('JSON de objetivos invalido')}}});head.appendChild(edit);
@@ -21948,6 +21966,10 @@ const STORE = {
       const lines=(plan.actions||[]).slice(0,12);if(!lines.length){const e=document.createElement('div');e.textContent='  objetivo cumplido / sin acciones';e.style.cssText='padding:2px 6px;color:#777';gbTip(e,'No hay acciones pendientes: o el plan esta cumplido o la ciudad no tiene objetivos');box.appendChild(e)}else for(const a of lines){const row=document.createElement('div');row.style.cssText='display:grid;grid-template-columns:1fr auto;gap:3px;padding:2px 4px;border-bottom:1px solid #1e1e1e;align-items:center';const text=document.createElement('span');const c=a.cost||{},cost=['wood','stone','iron'].map(k=>plannerFmt(c[k])).join('/');text.textContent=`${a.mandatory?'! ':''}${a.kind} ${a.id}${a.level?' \u2192 '+a.level:''}${a.amount?' \u00d7'+a.amount:''} \u00b7 ${a.status} \u00b7 ${cost}${a.why?' \u00b7 '+a.why:''}`;gbTip(text,'Accion del plan: tipo, nivel, cantidad, estado, coste y motivo');row.appendChild(text);const acts=document.createElement('span');acts.style.cssText='display:flex;gap:2px';const mk=(label,title,fn)=>{const x=document.createElement('button');x.textContent=label;gbTip(x,title);x.style.cssText='font-size:8px;padding:0 3px';x.addEventListener('click',()=>{fn();rerender()});acts.appendChild(x)};mk('\u2191','Subir en la cola virtual',()=>goalQueueMove(tid,a.queueKey,-1));mk('\u2193','Bajar en la cola virtual',()=>goalQueueMove(tid,a.queueKey,1));mk(a.status==='user-blocked'?'ON':'B','Bloquear o desbloquear esta accion',()=>goalQueueToggleBlock(tid,a.queueKey));mk(a.mandatory?'*':'!','Marcar o desmarcar como prioridad obligatoria',()=>goalQueueToggleMandatory(tid,a.queueKey));mk('\u00d7','Suprimir hasta Reset Q',()=>goalQueueHide(tid,a.queueKey));row.appendChild(acts);box.appendChild(row)}
     }
     }, { key: membership.join('|') });
+    const advisorHost=box.querySelector('[data-gb-paint-island=role-advisor]');
+    const resourceHost=box.querySelector('[data-gb-paint-island=resource-optimizer]');
+    gbPaint(advisorHost, stage => roleAdvisorRender(stage,advisor,rerender), { key:roleAdvisorMembership(advisor) });
+    gbPaint(resourceHost, stage => resourceOptimizerRender(stage,resourcePlan,rerender), { key:resourceOptimizerMembership(resourcePlan) });
   }
   function plannerFmt(n) { const v=gbNum(n);return v==null?'\u2014':Math.floor(v).toLocaleString(); }
   function renderPlanner() {

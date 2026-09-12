@@ -233,12 +233,12 @@
 
     const advisor=roleAdvisorReassess(false);
     const resourcePlan=resourceOptimizerPlan(false);
-    const membership=[ids.join(','),Object.keys(profiles).join(','),state.abOptimalOrderOn!==false?'1':'0',roleAdvisorMembership(advisor),resourceOptimizerMembership(resourcePlan)];
+    const membership=[ids.join(','),Object.keys(profiles).join(','),state.abOptimalOrderOn!==false?'1':'0'];
     for(const tid of ids){const p=goalPlanTown(tid);membership.push(tid+':'+p.profile+':'+(p.actions||[]).map(a=>a.queueKey||`${a.kind}:${a.id}`).join(','))}
     const rerender=()=>{renderGoals();renderPlanner();renderDashboard();};
     gbPaint(box, box => {
-    roleAdvisorRender(box,advisor,rerender);
-    resourceOptimizerRender(box,resourcePlan,rerender);
+    const advisorHost=document.createElement('div');advisorHost.dataset.gbPaintIsland='role-advisor';box.appendChild(advisorHost);
+    const resourceHost=document.createElement('div');resourceHost.dataset.gbPaintIsland='resource-optimizer';box.appendChild(resourceHost);
     for(const tid of ids){let name=tid;try{const t=gbTownModel(tid);name=(t&&t.getName&&t.getName())||name}catch(_){} const plan=goalPlanTown(tid);
       const head=document.createElement('div');head.style.cssText='display:flex;gap:4px;align-items:center;padding:4px;border-bottom:1px solid #333';const b=document.createElement('b');b.textContent=`${name} \u00b7 ${plan.progress}%`;head.appendChild(b);
       const edit=gbButton('Edit',{title:'Edit per-town goal overrides/reserves as JSON',style:'font-size:8px;padding:1px 4px',onClick:()=>{const cur=goalTownCfg(tid),raw=prompt('Overrides de objetivos por ciudad JSON\nClaves: build, research, units, reserve:{hard,soft}, defensive (0..1, null = hereda del perfil), resource:{wood,stone,iron} (-1..+1)',JSON.stringify({build:cur.build,research:cur.research,units:cur.units,reserve:cur.reserve,defensive:cur.defensive!=null?cur.defensive:null,resource:cur.resource||{}},null,2));if(raw==null)return;try{if(!goalSetTownOverrides(tid,JSON.parse(raw)))throw new Error('invalid object');rerender()}catch(e){flash('JSON de objetivos invalido')}}});head.appendChild(edit);
@@ -258,6 +258,10 @@
       const lines=(plan.actions||[]).slice(0,12);if(!lines.length){const e=document.createElement('div');e.textContent='  objetivo cumplido / sin acciones';e.style.cssText='padding:2px 6px;color:#777';gbTip(e,'No hay acciones pendientes: o el plan esta cumplido o la ciudad no tiene objetivos');box.appendChild(e)}else for(const a of lines){const row=document.createElement('div');row.style.cssText='display:grid;grid-template-columns:1fr auto;gap:3px;padding:2px 4px;border-bottom:1px solid #1e1e1e;align-items:center';const text=document.createElement('span');const c=a.cost||{},cost=['wood','stone','iron'].map(k=>plannerFmt(c[k])).join('/');text.textContent=`${a.mandatory?'! ':''}${a.kind} ${a.id}${a.level?' \u2192 '+a.level:''}${a.amount?' \u00d7'+a.amount:''} \u00b7 ${a.status} \u00b7 ${cost}${a.why?' \u00b7 '+a.why:''}`;gbTip(text,'Accion del plan: tipo, nivel, cantidad, estado, coste y motivo');row.appendChild(text);const acts=document.createElement('span');acts.style.cssText='display:flex;gap:2px';const mk=(label,title,fn)=>{const x=document.createElement('button');x.textContent=label;gbTip(x,title);x.style.cssText='font-size:8px;padding:0 3px';x.addEventListener('click',()=>{fn();rerender()});acts.appendChild(x)};mk('\u2191','Subir en la cola virtual',()=>goalQueueMove(tid,a.queueKey,-1));mk('\u2193','Bajar en la cola virtual',()=>goalQueueMove(tid,a.queueKey,1));mk(a.status==='user-blocked'?'ON':'B','Bloquear o desbloquear esta accion',()=>goalQueueToggleBlock(tid,a.queueKey));mk(a.mandatory?'*':'!','Marcar o desmarcar como prioridad obligatoria',()=>goalQueueToggleMandatory(tid,a.queueKey));mk('\u00d7','Suprimir hasta Reset Q',()=>goalQueueHide(tid,a.queueKey));row.appendChild(acts);box.appendChild(row)}
     }
     }, { key: membership.join('|') });
+    const advisorHost=box.querySelector('[data-gb-paint-island=role-advisor]');
+    const resourceHost=box.querySelector('[data-gb-paint-island=resource-optimizer]');
+    gbPaint(advisorHost, stage => roleAdvisorRender(stage,advisor,rerender), { key:roleAdvisorMembership(advisor) });
+    gbPaint(resourceHost, stage => resourceOptimizerRender(stage,resourcePlan,rerender), { key:resourceOptimizerMembership(resourcePlan) });
   }
   function plannerFmt(n) { const v=gbNum(n);return v==null?'\u2014':Math.floor(v).toLocaleString(); }
   function renderPlanner() {

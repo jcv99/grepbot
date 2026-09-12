@@ -134,6 +134,9 @@
     f.fingerprint = JSON.stringify({ currentRole:f.currentRole, levels:f.levels, techs:f.techs, units:f.units, coast:f.coast, production:f.production, threatened:f.threatened, god:f.god, tags:f.tags });
     return f;
   }
+  function roleAdvisorFeatureReadable(feature) {
+    return !!(feature && feature.readable && Object.values(feature.readable).some(Boolean));
+  }
   function roleAdvisorProfileKind(profile) {
     const p = cdCanonicalProfile(profile);
     if (p === 'cd_defense') return 'defense';
@@ -238,8 +241,10 @@
     const idKey = ids.join('|');
     if (!force && !roleAdvisorLast.unreadable && roleAdvisorLast.at && idKey === roleAdvisorLast.ids && now - roleAdvisorLast.at < ROLE_ADVISOR_SCAN_MIN_MS) return roleAdvisorLast;
     const features = ids.map(roleAdvisorFeature);
+    const readableFeatures = features.filter(roleAdvisorFeatureReadable);
+    const unreadableFeatures = features.filter(f => !roleAdvisorFeatureReadable(f));
     const dueMs = cfg.reassessmentHours * 3600000;
-    const stale = !!force || roleAdvisorLast.unreadable || idKey !== roleAdvisorLast.ids || features.some(f => {
+    const stale = !!force || roleAdvisorLast.unreadable || unreadableFeatures.length > 0 || idKey !== roleAdvisorLast.ids || readableFeatures.some(f => {
       const prev = current[f.id];
       return !prev || prev.fingerprint !== f.fingerprint || now - (+prev.assessedAt || 0) >= dueMs;
     });
@@ -247,7 +252,7 @@
     const profiles = Object.keys(CD_PROFILE_DEFAULTS || {}).filter(cdIsProfile).sort();
     const initialCounts = Object.create(null);
     for (const f of features) if (profiles.includes(f.currentRole)) initialCounts[f.currentRole] = (initialCounts[f.currentRole] || 0) + 1;
-    const firstPicks = features.map(f => {
+    const firstPicks = readableFeatures.map(f => {
       const candidates = profiles.map(p => roleAdvisorCandidate(f, p, initialCounts, features.length, cfg));
       candidates.sort((a, b) => b.score - a.score || a.profile.localeCompare(b.profile));
       return candidates[0] && candidates[0].profile;
@@ -255,7 +260,17 @@
     const proposalCounts = Object.create(null);
     firstPicks.forEach(p => { if (p) proposalCounts[p] = (proposalCounts[p] || 0) + 1; });
     const next = {}, rows = [];
-    for (const f of features) {
+    for (const f of features) if (!roleAdvisorFeatureReadable(f)) {
+      const prev = current[f.id] && typeof current[f.id] === 'object' ? current[f.id] : null;
+      if (prev) {
+        next[f.id] = prev;
+        rows.push(Object.assign({ id:f.id, unreadable:true }, prev, {
+          currentRole:f.currentRole,
+          reasons:(prev.reasons || []).concat('estado de ciudad no legible; propuesta conservada'),
+        }));
+      } else rows.push({ id:f.id, currentRole:f.currentRole, proposedRole:'\u2014', score:'\u2014', confidence:'sin datos', conversion:{ known:false }, reasons:['estado de ciudad no legible; sin propuesta'], unreadable:true, userLock:false });
+    }
+    for (const f of readableFeatures) {
       const candidates = profiles.map(p => roleAdvisorCandidate(f, p, proposalCounts, features.length, cfg));
       candidates.sort((a, b) => b.score - a.score || a.profile.localeCompare(b.profile));
       const prev = current[f.id] && typeof current[f.id] === 'object' ? current[f.id] : {};
@@ -278,8 +293,8 @@
     const changed = JSON.stringify(current) !== JSON.stringify(next);
     state.roleAssignments = next;
     if (changed) save(STORE.ROLE_ASSIGNMENTS, next);
-    if (cfg.autoApply && !automationPaused({})) for (const row of rows) roleAdvisorApply(row.id, { auto:true, silent:true });
-    const signature = JSON.stringify(rows.map(r => [r.id,r.currentRole,r.proposedRole,r.score,r.userLock,r.fingerprint]));
+    if (cfg.autoApply && !automationPaused({})) for (const row of rows) if (!row.unreadable) roleAdvisorApply(row.id, { auto:true, silent:true });
+    const signature = JSON.stringify(rows.map(r => [r.id,r.currentRole,r.proposedRole,r.score,r.userLock,r.unreadable === true,r.fingerprint]));
     roleAdvisorLast = { enabled:true, at:now, signature, ids:idKey, rows, assignments:next };
     return roleAdvisorLast;
   }
@@ -297,7 +312,7 @@
     if (!rec || rec.userLock || !cdIsProfile(rec.proposedRole)) return false;
     const currentRole = cdCanonicalProfile(goalTownCfg(id).profile);
     if (currentRole === rec.proposedRole) return true;
-    if (o.auto && cfg.lockExisting && currentRole !== 'custom') return false;
+    if (o.auto && cfg.lockExisting) return false;
     if (!goalSetProfile(id, rec.proposedRole)) return false;
     rec.priorRole = currentRole;
     rec.currentRole = rec.proposedRole;
@@ -346,10 +361,10 @@
     body.appendChild(header);
     for (const row of snapshot.rows || []) {
       const line = document.createElement('div'); line.style.cssText = 'display:grid;grid-template-columns:18px 1.2fr 1fr 1fr .45fr 1fr 1.6fr 28px;gap:3px;border-bottom:1px solid #222;padding:2px;align-items:center';
-      const select = document.createElement('input'); select.type = 'checkbox'; select.dataset.roleApply = row.id; select.disabled = !!row.userLock || row.currentRole === row.proposedRole; line.appendChild(select);
+      const select = document.createElement('input'); select.type = 'checkbox'; select.dataset.roleApply = row.id; select.dataset.gbPaintPreserve = '1'; select.disabled = !!row.unreadable || !!row.userLock || row.currentRole === row.proposedRole; line.appendChild(select);
       const cells = [roleAdvisorName(row.id), row.currentRole, row.proposedRole, String(row.score), row.conversion && row.conversion.known ? `B${row.conversion.buildingLevels}/I${row.conversion.researches}/U${Math.floor(row.conversion.units)}` : '\u2014', (row.reasons || []).concat('confianza ' + row.confidence).join('; ')];
       cells.forEach(value => { const el = document.createElement('span'); el.textContent = value; line.appendChild(el); });
-      const lock = document.createElement('input'); lock.type = 'checkbox'; lock.checked = !!row.userLock; lock.title = 'Bloqueo persistente: el asesor no cambiara esta ciudad hasta quitarlo';
+      const lock = document.createElement('input'); lock.type = 'checkbox'; lock.checked = !!row.userLock; lock.disabled = !!row.unreadable; lock.title = 'Bloqueo persistente: el asesor no cambiara esta ciudad hasta quitarlo';
       lock.addEventListener('change', () => { roleAdvisorSetLock(row.id, lock.checked); rerender(); }); line.appendChild(lock);
       body.appendChild(line);
     }

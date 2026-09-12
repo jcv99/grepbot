@@ -688,7 +688,8 @@
       ['autoFavor',STORE.AUTO_FAVOR],['favorCfg',STORE.FAVOR_CFG],['autoWonder',STORE.AUTO_WONDER],['wonderCfg',STORE.WONDER_CFG],['autoWonderFavor',STORE.AUTO_WONDER_FAVOR],
       ['autoDodge',STORE.AUTO_DODGE],['dodgeMode',STORE.DODGE_MODE],['dodgeFloor',STORE.DODGE_FLOOR],['defenseCfg',STORE.DEFENSE_CFG],['supportCfg',STORE.SUPPORT_CFG],['autoMilitia',STORE.AUTO_MILITIA],
       ['spyEnabled',STORE.AUTO_SPY],['spyCfg',STORE.SPY_CFG],
-      ['plannerCfg',STORE.PLANNER_CFG],['goalProfiles',STORE.GOAL_PROFILES],['townGoals',STORE.TOWN_GOALS],['virtualQueue',STORE.VIRTUAL_QUEUE],['virtualQueueOverrides',STORE.VIRTUAL_QUEUE_OVERRIDES]
+      ['plannerCfg',STORE.PLANNER_CFG],['goalProfiles',STORE.GOAL_PROFILES],['townGoals',STORE.TOWN_GOALS],['virtualQueue',STORE.VIRTUAL_QUEUE],['virtualQueueOverrides',STORE.VIRTUAL_QUEUE_OVERRIDES],
+      ['roleAdvisorCfg',STORE.ROLE_ADVISOR_CFG],['roleAssignments',STORE.ROLE_ASSIGNMENTS],['resourceOptimizerCfg',STORE.RESOURCE_OPTIMIZER_CFG]
     ];
     for(const [field,store] of reloadFields){
       const v=load(store,state[field]);

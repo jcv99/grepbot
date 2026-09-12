@@ -1,4 +1,4 @@
-  const GB_RELEASE = '6.0.79';
+  const GB_RELEASE = '6.0.80';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -644,6 +644,11 @@ const STORE = {
       }
       if (a.nodeType !== 1) return false;
       if (a.tagName !== b.tagName) return false;
+      // Nested keyed regions repaint themselves after their parent. Their
+      // staged placeholder deliberately has no children, so traversing it
+      // here would force the parent to replace user-owned controls on every
+      // dashboard refresh.
+      if (a.hasAttribute('data-gb-paint-island') && b.hasAttribute('data-gb-paint-island')) continue;
       const an = a.attributes, bn = b.attributes;
       for (let k = an.length - 1; k >= 0; k--) {
         if (a.tagName === 'DETAILS' && an[k].name === 'open') continue;
@@ -660,7 +665,7 @@ const STORE = {
       if (a === document.activeElement) continue;
       if (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT') {
         if (a.type === 'checkbox' || a.type === 'radio') {
-          if (a.checked !== b.checked) { a.checked = b.checked; wrote = 1; }
+          if (!a.hasAttribute('data-gb-paint-preserve') && a.checked !== b.checked) { a.checked = b.checked; wrote = 1; }
         } else if (a.value !== b.value) { a.value = b.value; wrote = 1; }
       }
     }
