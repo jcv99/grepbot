@@ -1382,6 +1382,10 @@
           <label class="gb-cfg-num gb-cfg-sub" title="Si la cabeza de la cola lleva bloqueada por recursos mas de estos minutos, Colas > Construccion ofrece ascender la siguiente orden que SI se puede pagar. Solo sugerencia: nunca reordena solo. 0 = desactivado.">Sugerir adelanto tras <input class="gb-cfg-input" type="number" data-cfg="build-swap-min" min="0" max="120" style="width:45px"/> min bloqueada</label>
           <label class="gb-cfg-row gb-cfg-sub" title="Muestra en Colas > Construccion una secuencia aconsejada. Solo consejo: la cola FIFO manda y nada se envia sin pulsar el boton."><input type="checkbox" data-cfg="ab-optimal-order"/> Secuencia optima de construccion (consejo)</label>
           <label class="gb-cfg-row" data-gb-tip="Lanzar la siguiente investigacion del plan automaticamente"><input type="checkbox" data-cfg="auto-research"/> Investigacion automatica</label>
+          <label class="gb-cfg-row" title="Propone perfiles City Designer desde datos legibles. No cambia un perfil existente ni encola trabajo por defecto."><input type="checkbox" data-cfg="role-advisor-enabled"/> Asesor de roles de ciudades</label>
+          <label class="gb-cfg-row gb-cfg-sub" title="No toca perfiles no personalizados en el modo de aplicacion automatica; los cambios manuales siguen disponibles en el asesor."><input type="checkbox" data-cfg="role-advisor-lock-existing"/> Bloquear perfiles existentes al autoaplicar</label>
+          <label class="gb-cfg-row gb-cfg-risk" title="ALTO RIESGO: aplica solo recomendaciones no bloqueadas. Conservar perfiles existentes sigue activo por defecto."><input type="checkbox" data-cfg="role-advisor-auto"/> Aplicar recomendaciones de roles automaticamente</label>
+          <label class="gb-cfg-num gb-cfg-sub" title="La propuesta solo cambia si supera la anterior por este margen, y se vuelve a valorar tras el intervalo.">Margen <input class="gb-cfg-input" type="number" data-cfg="role-advisor-gap" min="1" max="50" style="width:40px"/> · reevaluar <input class="gb-cfg-input" type="number" data-cfg="role-advisor-hours" min="1" max="168" style="width:45px"/> h</label>
           <button data-cfg="research-csfast" class="gb-cfg-btn gb-cfg-sub" data-gb-tip="Cargar el preset CS-fast (investigaciones recomendadas para CS)">Cargar CS-fast de investigacion</button>
           <div class="research-path gb-cfg-note" data-gb-tip="Camino de investigacion calculado para CS-fast"></div>
           <label class="gb-cfg-row" data-gb-tip="Cobrar el descuento de construccion que otorgan las misiones"><input type="checkbox" data-cfg="auto-quest-build"/> Cobrar el descuento de construccion de las misiones</label>
@@ -1417,6 +1421,11 @@
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Reserva y lote minimo para el transporte">Reserva % <input class="gb-cfg-input" type="number" data-cfg="transport-reserve" min="0" max="80" style="width:45px"/>
             Lote minimo <input class="gb-cfg-input" type="number" data-cfg="transport-min" min="100" max="10000" step="100" style="width:60px"/>
           </label>
+          <label class="gb-cfg-row" title="Analiza primero las colas y reservas para proponer transferencias. Por defecto solo asesora; nunca envia sin Auto transporte y modo vivo."><input type="checkbox" data-cfg="resource-optimizer-enabled"/> Optimizador de recursos por cola (asesor)</label>
+          <label class="gb-cfg-row gb-cfg-sub" title="Muestra y registra el plan, pero no llama a la capa de transacciones."><input type="checkbox" data-cfg="resource-optimizer-dry-run"/> Optimizador: solo simulacion</label>
+          <label class="gb-cfg-num gb-cfg-sub" title="Horizonte de colas, ganancia minima y maximo de envios planificados por ciclo.">Horizonte <input class="gb-cfg-input" type="number" data-cfg="resource-optimizer-horizon" min="1" max="48" style="width:40px"/> h · ganancia min <input class="gb-cfg-input" type="number" data-cfg="resource-optimizer-gain" min="1" max="240" style="width:45px"/> min · max <input class="gb-cfg-input" type="number" data-cfg="resource-optimizer-max" min="1" max="8" style="width:35px"/></label>
+          <label class="gb-cfg-num gb-cfg-sub" title="Porcentaje adicional que el optimizador conserva en la ciudad donante, ademas de la reserva del planificador.">Reserva adicional del donante <input class="gb-cfg-input" type="number" data-cfg="resource-optimizer-reserve" min="0" max="80" style="width:45px"/> %</label>
+          <label class="gb-cfg-row gb-cfg-sub" title="Solo usa duraciones presentes en movimientos Trade propios con inicio y llegada legibles; no adivina rutas nuevas."><input type="checkbox" data-cfg="resource-optimizer-route-learning"/> Aprender duraciones de rutas propias</label>
           <label class="gb-cfg-row gb-cfg-risk" title="ALTO RIESGO: vacia recursos por encima del umbral hacia otras ciudades. Sin vuelta atras. Envia solo la MITAD del excedente y nunca el hierro que la cueva todavia puede guardar."><input type="checkbox" data-cfg="auto-dump"/> Auto vaciado de recursos</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Umbral por encima del cual vaciar cada recurso">Vaciar por encima de %
             mad <input class="gb-cfg-input" type="number" data-cfg="dump-th-wood" min="50" max="100" style="width:45px"/>
@@ -2746,6 +2755,20 @@
     setNum('[data-cfg=trade-min]', state.tradeMinBatch);
     setNum('[data-cfg=transport-reserve]', state.transportReserve);
     setNum('[data-cfg=transport-min]', state.transportMin);
+    { const ro = resourceOptimizerCfg();
+      setChk('[data-cfg=resource-optimizer-enabled]', ro.enabled);
+      setChk('[data-cfg=resource-optimizer-dry-run]', ro.dryRun);
+      setNum('[data-cfg=resource-optimizer-horizon]', ro.horizonHours);
+      setNum('[data-cfg=resource-optimizer-gain]', ro.minGainMinutes);
+      setNum('[data-cfg=resource-optimizer-max]', ro.maxTransfersPerCycle);
+      setNum('[data-cfg=resource-optimizer-reserve]', ro.reservePct);
+      setChk('[data-cfg=resource-optimizer-route-learning]', ro.allowRouteLearning); }
+    { const ra = roleAdvisorCfg();
+      setChk('[data-cfg=role-advisor-enabled]', ra.enabled);
+      setChk('[data-cfg=role-advisor-lock-existing]', ra.lockExisting);
+      setChk('[data-cfg=role-advisor-auto]', ra.autoApply);
+      setNum('[data-cfg=role-advisor-gap]', ra.minScoreGap);
+      setNum('[data-cfg=role-advisor-hours]', ra.reassessmentHours); }
     const bindToggle = (sel, key, store, onOn) => {
       onCfg(sel, 'change', e => {
         const next = e.target.checked;
@@ -3110,6 +3133,18 @@
     saveNum('[data-cfg=transport-min]', v => {
       state.transportMin = Math.min(10000, gbCfgClamp(v, 100, Infinity, 1000)); save(STORE.TRANSPORT_MIN, state.transportMin);
     });
+    onCfg('[data-cfg=resource-optimizer-enabled]', 'change', e => resourceOptimizerSetCfg({ enabled:!!e.target.checked }));
+    onCfg('[data-cfg=resource-optimizer-dry-run]', 'change', e => resourceOptimizerSetCfg({ dryRun:!!e.target.checked }));
+    onCfg('[data-cfg=resource-optimizer-horizon]', 'change', e => resourceOptimizerSetCfg({ horizonHours:e.target.value }));
+    onCfg('[data-cfg=resource-optimizer-gain]', 'change', e => resourceOptimizerSetCfg({ minGainMinutes:e.target.value }));
+    onCfg('[data-cfg=resource-optimizer-max]', 'change', e => resourceOptimizerSetCfg({ maxTransfersPerCycle:e.target.value }));
+    onCfg('[data-cfg=resource-optimizer-reserve]', 'change', e => resourceOptimizerSetCfg({ reservePct:e.target.value }));
+    onCfg('[data-cfg=resource-optimizer-route-learning]', 'change', e => resourceOptimizerSetCfg({ allowRouteLearning:!!e.target.checked }));
+    onCfg('[data-cfg=role-advisor-enabled]', 'change', e => roleAdvisorSetCfg({ enabled:!!e.target.checked }));
+    onCfg('[data-cfg=role-advisor-lock-existing]', 'change', e => roleAdvisorSetCfg({ lockExisting:!!e.target.checked }));
+    onCfg('[data-cfg=role-advisor-auto]', 'change', e => roleAdvisorSetCfg({ autoApply:!!e.target.checked }));
+    onCfg('[data-cfg=role-advisor-gap]', 'change', e => roleAdvisorSetCfg({ minScoreGap:e.target.value }));
+    onCfg('[data-cfg=role-advisor-hours]', 'change', e => roleAdvisorSetCfg({ reassessmentHours:e.target.value }));
     onCfg('[data-cfg=research-csfast]', 'click', () => {
       researchLoadCsFast(); flash('CS-fast research');
     });

@@ -1,4 +1,4 @@
-  const GB_RELEASE = '6.0.76';
+  const GB_RELEASE = '6.0.79';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -118,6 +118,7 @@ const STORE = {
     DUMP_SINKS: 'grepbot:dump-sinks',
     TRANSPORT_RESERVE: 'grepbot:transport-reserve',
     TRANSPORT_MIN: 'grepbot:transport-min',
+    RESOURCE_OPTIMIZER_CFG: 'grepbot:resource-optimizer-cfg',
     AUTO_RURAL_TRADE: 'grepbot:auto-rural-trade',
     ISLAND_BENEFICIARIES: 'grepbot:island-beneficiaries-v1',
     AUTO_RURAL_LEVEL: 'grepbot:auto-rural-level',
@@ -220,6 +221,8 @@ const STORE = {
     PLANNER_CFG: 'grepbot:planner-cfg',
     GOAL_PROFILES: 'grepbot:goal-profiles',
     TOWN_GOALS: 'grepbot:town-goals',
+    ROLE_ADVISOR_CFG: 'grepbot:role-advisor-cfg',
+    ROLE_ASSIGNMENTS: 'grepbot:role-assignments',
     VIRTUAL_QUEUE: 'grepbot:virtual-queue',
     VIRTUAL_QUEUE_OVERRIDES: 'grepbot:virtual-queue-overrides',
     NATIVE_QUEUE: 'grepbot:native-action-queue',
@@ -274,7 +277,7 @@ const STORE = {
   // Technical iteration order only. It never reserves resources or gives a module economic priority.
   const ORCH_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
     'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'batchrecruit', 'merchant', 'pttrade', 'favor', 'wonder', 'hero', 'godspell', 'spy'];
-  const CONFIG_VER_CURRENT = 17;
+  const CONFIG_VER_CURRENT = 18;
   const GLOBAL_CONFIG_VER_CURRENT = 1;
   const WORLD_SCOPED_BASES = new Set([
     STORE.FINDINGS, STORE.FARMS, STORE.FARMS_PARSED, STORE.FARM_RES, STORE.SEEN,
@@ -297,7 +300,7 @@ const STORE = {
     STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES, STORE.NAP_STATUS, STORE.SPY_CFG, STORE.SPY_HISTORY, STORE.SPY_TPL, STORE.SPY_SEND_CFG, STORE.SPY_SEND_HISTORY,
     STORE.CAPTCHA_GLOBAL_UNTIL,
     STORE.SERVER_COOLDOWN, STORE.QUEST_CLAIM_FAIL, STORE.DODGE_QUEUE,
-    STORE.TRADE_TOWNS, STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.ISLAND_BENEFICIARIES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.REINFORCE_PLAN, STORE.REINFORCE_HISTORY, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.SNAPSHOTS, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER, STORE.CONFIG_UNDO, STORE.CONFIG_REDO,
+    STORE.TRADE_TOWNS, STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.ISLAND_BENEFICIARIES, STORE.RESOURCE_OPTIMIZER_CFG, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.ROLE_ADVISOR_CFG, STORE.ROLE_ASSIGNMENTS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.REINFORCE_PLAN, STORE.REINFORCE_HISTORY, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.SNAPSHOTS, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER, STORE.CONFIG_UNDO, STORE.CONFIG_REDO,
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
     STORE.SPELL_COOLDOWN, STORE.RECRUIT_QCAP,
@@ -1018,6 +1021,7 @@ const STORE = {
     dumpSinks: load(STORE.DUMP_SINKS, []),
     transportReserve: load(STORE.TRANSPORT_RESERVE, 20),
     transportMin: load(STORE.TRANSPORT_MIN, 1000),
+    resourceOptimizerCfg: load(STORE.RESOURCE_OPTIMIZER_CFG, {}) || {},
     autoRuralTrade: load(STORE.AUTO_RURAL_TRADE, false),
     autoRuralLevel: load(STORE.AUTO_RURAL_LEVEL, false),
     ruralLevelMax: load(STORE.RURAL_LEVEL_MAX, 3),
@@ -1121,6 +1125,8 @@ const STORE = {
     plannerCfg: load(STORE.PLANNER_CFG, { global: { hard: { wood:0, stone:0, iron:0, population:0 }, soft: { wood:0, stone:0, iron:0, population:0 } }, towns: {} }),
     goalProfiles: load(STORE.GOAL_PROFILES, {}),
     townGoals: load(STORE.TOWN_GOALS, {}),
+    roleAdvisorCfg: load(STORE.ROLE_ADVISOR_CFG, {}) || {},
+    roleAssignments: load(STORE.ROLE_ASSIGNMENTS, {}) || {},
     virtualQueue: load(STORE.VIRTUAL_QUEUE, {}),
     virtualQueueOverrides: load(STORE.VIRTUAL_QUEUE_OVERRIDES, {}),
     buildSwapThresholdMin: load(STORE.BUILD_SWAP_MIN, 5),
@@ -1438,6 +1444,15 @@ const STORE = {
       save(STORE.IB_ACTION, null);
       save(STORE.IB_ACTION_R, null);
       ver = 17;
+    }
+    if (ver < 18) {
+      if (!state.roleAdvisorCfg || typeof state.roleAdvisorCfg !== 'object' || Array.isArray(state.roleAdvisorCfg)) state.roleAdvisorCfg = {};
+      if (!state.roleAssignments || typeof state.roleAssignments !== 'object' || Array.isArray(state.roleAssignments)) state.roleAssignments = {};
+      if (!state.resourceOptimizerCfg || typeof state.resourceOptimizerCfg !== 'object' || Array.isArray(state.resourceOptimizerCfg)) state.resourceOptimizerCfg = {};
+      save(STORE.ROLE_ADVISOR_CFG, state.roleAdvisorCfg);
+      save(STORE.ROLE_ASSIGNMENTS, state.roleAssignments);
+      save(STORE.RESOURCE_OPTIMIZER_CFG, state.resourceOptimizerCfg);
+      ver = 18;
     }
     gbMigrationActive = false;
     if (gbMigrationWriteFailed) {

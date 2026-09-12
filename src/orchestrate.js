@@ -119,7 +119,7 @@
       case 'cave': return state.autoCave;
       case 'build': return state.abAuto || nativeQueueHasPending('build') || cityDesignerHasExecutableWork('build');
       case 'research': return state.autoResearch || nativeQueueHasPending('research') || cityDesignerHasExecutableWork('research');
-      case 'trade': return state.autoTrade || state.islandShip || state.autoTransport || state.autoTradeRoutes || state.autoDump;
+      case 'trade': return state.autoTrade || state.islandShip || state.autoTransport || state.autoTradeRoutes || state.autoDump || (typeof resourceOptimizerCfg === 'function' && resourceOptimizerCfg().enabled);
       case 'farm': return state.autoFarm;
       case 'ruraltrade': return state.autoRuralTrade;
       case 'rurallevel': return state.autoRuralLevel;
@@ -208,6 +208,7 @@
   function orchHousekeepingTick() {
     if (!hostEnabled()) return;
     try { orchDeadlockEval(); } catch (_) {}
+    try { roleAdvisorTick(); } catch (_) {}
     try { intelDigestTick(); } catch (_) {}
     try { townCapWatcher(); } catch (_) {}
     // Telegram monitoring is read-only and intentionally keeps running even when

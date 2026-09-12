@@ -666,6 +666,7 @@
       if(have==null||avail==null||dest==null||destCap==null)blind.push(k);
     }
     if(blind.length)gbLogT('trade-validate-blind-'+job.from+'-'+job.to,180000,`trade: validation blind (${Array.from(new Set(blind)).join(',')}) - server authoritative`);
+    if (job.resourceOptimizer && blind.length) return { ok:false, why:'optimizer-blind' };
     return { ok: true, blind };
   }
 
@@ -700,7 +701,8 @@
   }
   function tradeScan(reason, opts) {
     const o = opts || {};
-    if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes && !state.autoDump) || captchaPaused('trade')) return;
+    const optimizerEnabled = typeof resourceOptimizerCfg === 'function' && resourceOptimizerCfg().enabled;
+    if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes && !state.autoDump && !optimizerEnabled) || captchaPaused('trade')) return;
     if (automationPaused({})) return;
     const towns = tradeListTowns();
     if (towns.length < 2) { gbLogT('trade-towns', 180000, 'trade: need ≥2 towns'); return; }
@@ -717,6 +719,8 @@
       if (!autoPairOk && (state.autoTrade || state.autoTransport || state.autoDump || state.islandShip)) {
         gbLogT('trade-town-filter', 180000, `trade: only ${autoTowns.length} automatic town(s) enabled - need ≥2`);
       }
+      // Reserve optimizer choices in this ledger before legacy transport runs.
+      if (optimizerEnabled && autoPairOk) jobs = jobs.concat(resourceOptimizerJobs(autoTowns, ledger));
       if (state.autoTransport && autoPairOk) jobs = jobs.concat(transportBalanceJobs(autoTowns, ledger));
       if (state.autoDump && autoPairOk) jobs = jobs.concat(dumpJobs(autoTowns, ledger));
     }
@@ -775,8 +779,14 @@
         gbLogT('trade-stale-'+j.from+'-'+j.to,60000,`trade: stale job ${j.from}→${j.to} skipped (${valid.why})`);
         gbTimeout(next,100);return;
       }
+      if (j.resourceOptimizer && !resourceOptimizerClaimJob(j)) {
+        gbUnlock(lockName,lockToken);
+        gbLogT('trade-optimizer-token-'+j.from+'-'+j.to,60000,'trade optimizer: duplicate planning token skipped');
+        gbTimeout(next,100);return;
+      }
       tradeSend(j.from,j.to,j.wood,j.stone,j.iron,(err)=>{
         gbUnlock(lockName,lockToken);
+        if (j.resourceOptimizer) resourceOptimizerSettleJob(j,err);
         if(err==='captcha'||err==='captcha-pause'){stopped=true;return}
         if(!err){done++;gbLog(`trade: ${j.from}→${j.to} w${j.wood}/s${j.stone}/i${j.iron}`)}
         else gbLogT('trade-err',60000,`trade err ${err}`);

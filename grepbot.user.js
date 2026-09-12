@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.76
+// @version      6.0.79
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -21,7 +21,7 @@
 
 (function () {
   'use strict';
-  const GB_RELEASE = '6.0.76';
+  const GB_RELEASE = '6.0.79';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -141,6 +141,7 @@ const STORE = {
     DUMP_SINKS: 'grepbot:dump-sinks',
     TRANSPORT_RESERVE: 'grepbot:transport-reserve',
     TRANSPORT_MIN: 'grepbot:transport-min',
+    RESOURCE_OPTIMIZER_CFG: 'grepbot:resource-optimizer-cfg',
     AUTO_RURAL_TRADE: 'grepbot:auto-rural-trade',
     ISLAND_BENEFICIARIES: 'grepbot:island-beneficiaries-v1',
     AUTO_RURAL_LEVEL: 'grepbot:auto-rural-level',
@@ -243,6 +244,8 @@ const STORE = {
     PLANNER_CFG: 'grepbot:planner-cfg',
     GOAL_PROFILES: 'grepbot:goal-profiles',
     TOWN_GOALS: 'grepbot:town-goals',
+    ROLE_ADVISOR_CFG: 'grepbot:role-advisor-cfg',
+    ROLE_ASSIGNMENTS: 'grepbot:role-assignments',
     VIRTUAL_QUEUE: 'grepbot:virtual-queue',
     VIRTUAL_QUEUE_OVERRIDES: 'grepbot:virtual-queue-overrides',
     NATIVE_QUEUE: 'grepbot:native-action-queue',
@@ -297,7 +300,7 @@ const STORE = {
 
   const ORCH_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
     'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'batchrecruit', 'merchant', 'pttrade', 'favor', 'wonder', 'hero', 'godspell', 'spy'];
-  const CONFIG_VER_CURRENT = 17;
+  const CONFIG_VER_CURRENT = 18;
   const GLOBAL_CONFIG_VER_CURRENT = 1;
   const WORLD_SCOPED_BASES = new Set([
     STORE.FINDINGS, STORE.FARMS, STORE.FARMS_PARSED, STORE.FARM_RES, STORE.SEEN,
@@ -320,7 +323,7 @@ const STORE = {
     STORE.PLAYER_NOTES, STORE.WATCHLIST, STORE.ALLIANCE_NOTES, STORE.NAP_STATUS, STORE.SPY_CFG, STORE.SPY_HISTORY, STORE.SPY_TPL, STORE.SPY_SEND_CFG, STORE.SPY_SEND_HISTORY,
     STORE.CAPTCHA_GLOBAL_UNTIL,
     STORE.SERVER_COOLDOWN, STORE.QUEST_CLAIM_FAIL, STORE.DODGE_QUEUE,
-    STORE.TRADE_TOWNS, STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.ISLAND_BENEFICIARIES, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.REINFORCE_PLAN, STORE.REINFORCE_HISTORY, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.SNAPSHOTS, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER, STORE.CONFIG_UNDO, STORE.CONFIG_REDO,
+    STORE.TRADE_TOWNS, STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.ISLAND_BENEFICIARIES, STORE.RESOURCE_OPTIMIZER_CFG, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.ROLE_ADVISOR_CFG, STORE.ROLE_ASSIGNMENTS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.REINFORCE_PLAN, STORE.REINFORCE_HISTORY, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.SNAPSHOTS, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER, STORE.CONFIG_UNDO, STORE.CONFIG_REDO,
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
     STORE.SPELL_COOLDOWN, STORE.RECRUIT_QCAP,
@@ -1016,6 +1019,7 @@ const STORE = {
     dumpSinks: load(STORE.DUMP_SINKS, []),
     transportReserve: load(STORE.TRANSPORT_RESERVE, 20),
     transportMin: load(STORE.TRANSPORT_MIN, 1000),
+    resourceOptimizerCfg: load(STORE.RESOURCE_OPTIMIZER_CFG, {}) || {},
     autoRuralTrade: load(STORE.AUTO_RURAL_TRADE, false),
     autoRuralLevel: load(STORE.AUTO_RURAL_LEVEL, false),
     ruralLevelMax: load(STORE.RURAL_LEVEL_MAX, 3),
@@ -1117,6 +1121,8 @@ const STORE = {
     plannerCfg: load(STORE.PLANNER_CFG, { global: { hard: { wood:0, stone:0, iron:0, population:0 }, soft: { wood:0, stone:0, iron:0, population:0 } }, towns: {} }),
     goalProfiles: load(STORE.GOAL_PROFILES, {}),
     townGoals: load(STORE.TOWN_GOALS, {}),
+    roleAdvisorCfg: load(STORE.ROLE_ADVISOR_CFG, {}) || {},
+    roleAssignments: load(STORE.ROLE_ASSIGNMENTS, {}) || {},
     virtualQueue: load(STORE.VIRTUAL_QUEUE, {}),
     virtualQueueOverrides: load(STORE.VIRTUAL_QUEUE_OVERRIDES, {}),
     buildSwapThresholdMin: load(STORE.BUILD_SWAP_MIN, 5),
@@ -1426,6 +1432,15 @@ const STORE = {
       save(STORE.IB_ACTION, null);
       save(STORE.IB_ACTION_R, null);
       ver = 17;
+    }
+    if (ver < 18) {
+      if (!state.roleAdvisorCfg || typeof state.roleAdvisorCfg !== 'object' || Array.isArray(state.roleAdvisorCfg)) state.roleAdvisorCfg = {};
+      if (!state.roleAssignments || typeof state.roleAssignments !== 'object' || Array.isArray(state.roleAssignments)) state.roleAssignments = {};
+      if (!state.resourceOptimizerCfg || typeof state.resourceOptimizerCfg !== 'object' || Array.isArray(state.resourceOptimizerCfg)) state.resourceOptimizerCfg = {};
+      save(STORE.ROLE_ADVISOR_CFG, state.roleAdvisorCfg);
+      save(STORE.ROLE_ASSIGNMENTS, state.roleAssignments);
+      save(STORE.RESOURCE_OPTIMIZER_CFG, state.resourceOptimizerCfg);
+      ver = 18;
     }
     gbMigrationActive = false;
     if (gbMigrationWriteFailed) {
@@ -3068,7 +3083,7 @@ const STORE = {
   const TX_MANUAL_REVIEW_TTL_MS = 30 * 60 * 1000;
   let txSeq = 0;
   function txTransportUncertain(err) {
-    return err === 'timeout' || err === 'neterr' || err === 'cancelled';
+    return err === 'timeout' || err === 'neterr' || err === 'cancelled' || err === 'empty';
   }
   if (!state.txState || typeof state.txState !== 'object' || Array.isArray(state.txState)) state.txState = {};
   function txManualReviewPermanent(tx) {
@@ -3900,6 +3915,17 @@ const STORE = {
   function txFindExistingIntent(intent, feature, snapshot, townId) {
     const exact = state.txState && state.txState[intent];
     if (exact) return exact;
+    if (feature === 'trade') {
+
+      const route = /^trade:([^:]+):([^:]+):/.exec(String(intent));
+      if (route) {
+        const prefix = 'trade:' + route[1] + ':' + route[2] + ':';
+        for (const tx of Object.values(state.txState || {})) {
+          if (!tx || tx.feature !== 'trade' || !/^(planned|precheck|sending|confirming|reconciling|unknown|manual-review)$/.test(tx.state || '')) continue;
+          if (String(tx.intent || '').startsWith(prefix)) return tx;
+        }
+      }
+    }
     if (feature !== 'spy' || !snapshot) return null;
 
     for (const tx of Object.values(state.txState || {})) {
@@ -3928,6 +3954,7 @@ const STORE = {
       if (!jrnPendingResult(journalResult)) jrnPush(jtag, journalResult, why || err, journalTxId);
       if (onDone && gbInstanceAlive()) onDone(err);
     };
+    const gateExisting = write ? txFindExistingIntent(intent, feature, snapshot, metaTown) : null;
     let gate = txActionGate(feature, write, jtag);
     if (!gate && write) gate = safeModeBlock(feature, transport, endpoint, data);
     if (!gate && write && state.firstPostConfirm && !firstPostLiveOk(feature)) gate = 'first-post-confirm';
@@ -3936,6 +3963,11 @@ const STORE = {
       if (gate === 'dryrun') {
         gbLog(`DRY-RUN ${feature}: ${endpoint} ${dryRunFmt(data)}`);
         if (write) {
+          if (gateExisting && /^(planned|precheck|sending|confirming|reconciling|unknown|manual-review|dryrun)$/.test(gateExisting.state || '')) {
+            journalTxId = gateExisting.id;
+            gbLogT('tx-dup-' + intent, 30000, `tx: duplicate blocked ${intent} state=${gateExisting.state}`);
+            return bail('pending', 'pending:' + gateExisting.state);
+          }
           state.txState[intent] = { id: `${GB_INSTANCE_ID}:${++txSeq}`, intent, feature, state: 'dryrun', createdAt: Date.now(), updatedAt: Date.now(), owner: GB_INSTANCE_ID, snapshot, meta: { townId: metaTown } };
           journalTxId = state.txState[intent].id;
           txSave();
@@ -4025,13 +4057,13 @@ const STORE = {
     };
     txEnsureIdentity(tx, intent);
     journalTxId = tx.id;
-    if (!txSave() && (feature === 'gold' || feature === 'goldoffer')) {
+    if (!txSave()) {
       delete state.txState[intent];
       whyNote(feature, endpoint, 'blocked', 'tx-storage-unavailable');
       return bail('storage-unavailable', 'tx-storage-unavailable');
     }
     tx.state = 'precheck'; tx.updatedAt = Date.now();
-    if (!txSave() && (feature === 'gold' || feature === 'goldoffer')) {
+    if (!txSave()) {
       delete state.txState[intent];
       whyNote(feature, endpoint, 'blocked', 'tx-storage-unavailable');
       return bail('storage-unavailable', 'tx-storage-unavailable');
@@ -4067,7 +4099,7 @@ const STORE = {
       return bail('captcha', 'captcha-pause');
     }
     tx.state = 'sending'; tx.sentAt = Date.now(); tx.updatedAt = Date.now();
-    if (!txSave() && (feature === 'gold' || feature === 'goldoffer')) {
+    if (!txSave()) {
       tx.state = 'aborted'; tx.updatedAt = Date.now();
       plannerRelease(tx, 'storage-unavailable');
       delete state.txState[intent];
@@ -4393,6 +4425,8 @@ const STORE = {
       watchKey: 'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
       watchFp: gbAjaxBridgeFp(payload),
       authCsrf: true,
+      emptyBodyWait: true,
+      emptyBodyLogKey: 'bridge-empty-watch-' + feature,
       send: (uw, classify) => uw.gpAjax.ajaxPost('frontend_bridge', 'execute', payload, false, classify),
     }, done);
   }
@@ -9214,8 +9248,8 @@ const STORE = {
     if(c.breakthrough&&canon==='cd_slinger_50ls')roles.push('breakthrough');
     return [...new Set(roles)];
   }
-  function cdResearchTargets(townId){
-    const g=goalTownCfg(townId),canon=cdCanonicalProfile(g.profile);if(!cdIsProfile(canon))return {};
+  function cdResearchTargets(townId,profileOverride){
+    const g=goalTownCfg(townId),canon=cdCanonicalProfile(profileOverride==null?g.profile:profileOverride);if(!cdIsProfile(canon))return {};
     const out={},unresolved=[];let order=0;
     for(const role of cdResearchRoles(canon,townId)){const id=cdResearchId(role);if(id)out[id]={order:order++,tgt:1,cdRole:role};else unresolved.push(role)}
     out.__cdUnresolved=unresolved;return out;
@@ -9252,7 +9286,7 @@ const STORE = {
     return max==null?need:Math.min(max,need)
   }
   function cdBaseBuild(profile,townId){
-    const canon=cdCanonicalProfile(profile),cap=(id,fallback)=>{const n=abMaxLevel(id);return n==null?fallback:Math.max(0,+n||0)},rt=cdResearchTargets(townId),acad=cdAcademyTarget(townId,rt);
+    const canon=cdCanonicalProfile(profile),cap=(id,fallback)=>{const n=abMaxLevel(id);return n==null?fallback:Math.max(0,+n||0)},rt=cdResearchTargets(townId,canon),acad=cdAcademyTarget(townId,rt);
     const base={main:Math.min(24,cap('main',24)),storage:cap('storage',35),farm:cap('farm',45),academy:Math.min(acad,cap('academy',acad)),market:Math.min(20,cap('market',20)),hide:Math.min(10,cap('hide',10)),temple:Math.min(15,cap('temple',15))};
     if(canon==='cd_slinger_50ls')Object.assign(base,{barracks:cap('barracks',30),docks:cap('docks',30),lumber:Math.min(40,cap('lumber',40)),stoner:Math.min(40,cap('stoner',40)),ironer:Math.min(40,cap('ironer',40)),thermal:Math.min(1,cap('thermal',1))});
     if(canon==='cd_bireme')Object.assign(base,{barracks:Math.min(5,cap('barracks',5)),docks:cap('docks',30),lumber:Math.min(40,cap('lumber',40)),stoner:Math.min(40,cap('stoner',40)),ironer:Math.min(30,cap('ironer',30)),thermal:Math.min(1,cap('thermal',1))});
@@ -9287,8 +9321,8 @@ const STORE = {
     const zero=evalBlocks(0);if(zero.used>budget)return {feasible:false};let lo=0,hi=Math.floor(budget/den);while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(evalBlocks(mid).used<=budget)lo=mid;else hi=mid-1}
     const e=evalBlocks(lo);return {feasible:true,sword:e.sword,archer:e.archer,hoplite:e.hoplite,transport:e.transport,landPopulation:e.landPopulation,used:e.used,free:budget-e.used};
   }
-  function cdRecruitTargets(townId){
-    const g=goalTownCfg(townId),canon=cdCanonicalProfile(g.profile);if(!cdIsProfile(canon))return {};
+  function cdRecruitTargets(townId,profileOverride){
+    const g=goalTownCfg(townId),canon=cdCanonicalProfile(profileOverride==null?g.profile:profileOverride);if(!cdIsProfile(canon))return {};
     const free=cdAvailablePopulation(townId);if(free==null)return {__cdFeasible:false,__cdUnreadable:true,__cdReason:'population-unreadable'};
     const roles=canon==='cd_slinger_50ls'?['slinger','lightship','fast']:canon==='cd_bireme'?['bireme']:canon==='cd_lightship'?['lightship']:canon==='cd_trireme'?['trireme']:['sword','archer','hoplite','fast'];
     const ids={};for(const r of roles)ids[r]=cdUnitId(r);if(Object.values(ids).some(x=>!x))return {__cdFeasible:false,__cdUnreadable:true,__cdReason:'unit-model-unreadable'};
@@ -9377,6 +9411,361 @@ const STORE = {
   function cityDesignerHasExecutableWork(kind){if(!cdHasAnyTown())return false;let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){};for(const id of ids){if(!cdIsProfile(goalTownCfg(id).profile))continue;if(kind==='build'){const levels=abCurrentLevels(id);if(!levels)return true;const tar=cdBuildTargets(id);if(Object.entries(tar).some(([b,n])=>+n>0&&+(levels[b]||0)<+n))return true;if(cdDemolitionCandidate(id,levels))return true}else if(kind==='research'){if(cdResearchExecutable(id))return true}else if(kind==='recruit'){
         if(!cdBuildDone(id)||!cdCompositionResearchReady(id))continue;if(!cdArmyDone(id))return true}}return false}
   function cdEffective(townId){const g=goalTownCfg(townId),canon=cdCanonicalProfile(g.profile),p=CD_PROFILE_DEFAULTS[canon]||{label:canon};const rt=cdResearchTargets(townId),research={};for(const [id,v] of Object.entries(rt))if(id!=='__cdUnresolved'&&v&&v.tgt)research[id]=1;const units=cdRecruitTargets(townId),clean={};for(const [u,n] of Object.entries(units||{})){const value=gbNum(n);if(!u.startsWith('__')&&value!=null&&value>=0)clean[u]=value}return {profile:canon,label:p.label||canon,build:cdBuildTargets(townId),research,units:clean,reserve:{hard:{},soft:{}},defensive:canon==='cd_defense'?0.8:0.2,resource:{wood:0,stone:0,iron:0},cd:{revision:cdProfileRevision(townId),phase:cdPhase(townId),feasible:units&&units.__cdFeasible!==false,unresolvedResearch:rt.__cdUnresolved||[]}}}
+
+  const ROLE_ADVISOR_DEFAULTS = Object.freeze({
+    enabled: true,
+    autoApply: false,
+    lockExisting: true,
+    minScoreGap: 8,
+    reassessmentHours: 24,
+    weights: Object.freeze({ naval: 24, defense: 24, army: 18, research: 12, production: 10, conversion: 1, balance: 12 }),
+  });
+  const ROLE_ADVISOR_SCAN_MIN_MS = 60000;
+  let roleAdvisorLast = { at: 0, signature: 'none', ids: '', rows: [], assignments: {} };
+
+  function roleAdvisorClamp(raw, fallback, lo, hi) {
+    const n = gbNum(raw);
+    return n == null ? fallback : Math.max(lo, Math.min(hi, n));
+  }
+  function roleAdvisorCfg() {
+    const raw = state.roleAdvisorCfg && typeof state.roleAdvisorCfg === 'object' && !Array.isArray(state.roleAdvisorCfg) ? state.roleAdvisorCfg : {};
+    const weights = raw.weights && typeof raw.weights === 'object' && !Array.isArray(raw.weights) ? raw.weights : {};
+    const out = {
+      enabled: raw.enabled !== false,
+      autoApply: raw.autoApply === true,
+      lockExisting: raw.lockExisting !== false,
+      minScoreGap: roleAdvisorClamp(raw.minScoreGap, ROLE_ADVISOR_DEFAULTS.minScoreGap, 1, 50),
+      reassessmentHours: roleAdvisorClamp(raw.reassessmentHours, ROLE_ADVISOR_DEFAULTS.reassessmentHours, 1, 168),
+      weights: {},
+    };
+    for (const key of Object.keys(ROLE_ADVISOR_DEFAULTS.weights)) out.weights[key] = roleAdvisorClamp(weights[key], ROLE_ADVISOR_DEFAULTS.weights[key], 0, 100);
+    state.roleAdvisorCfg = out;
+    return out;
+  }
+  function roleAdvisorSetCfg(patch) {
+    const prev = roleAdvisorCfg(), next = Object.assign({}, prev, patch || {});
+    next.weights = Object.assign({}, prev.weights, patch && patch.weights || {});
+    state.roleAdvisorCfg = next;
+    const clean = roleAdvisorCfg();
+    save(STORE.ROLE_ADVISOR_CFG, clean);
+    roleAdvisorInvalidate();
+    return clean;
+  }
+  function roleAdvisorInvalidate() {
+    roleAdvisorLast.at = 0;
+    roleAdvisorLast.signature = 'none';
+  }
+  function roleAdvisorAssignments() {
+    if (!state.roleAssignments || typeof state.roleAssignments !== 'object' || Array.isArray(state.roleAssignments)) state.roleAssignments = {};
+    return state.roleAssignments;
+  }
+  function roleAdvisorTownIds() {
+    const ids = [];
+    let readable = false;
+    try {
+      const towns = townsFromGame();
+      if (Array.isArray(towns)) {
+        readable = true;
+        towns.forEach(t => { if (t && t.id != null) ids.push(String(t.id)); });
+      }
+    } catch (_) {}
+    try {
+      const towns = gameUw().ITowns && gameUw().ITowns.towns;
+      if (towns && typeof towns === 'object' && Object.keys(towns).length) {
+        readable = true;
+        Object.keys(towns).forEach(id => ids.push(String(id)));
+      }
+    } catch (_) {}
+    return readable ? [...new Set(ids)].sort() : null;
+  }
+  function roleAdvisorTownTags(townId) {
+    const id = String(townId), tags = [];
+    const hasTown = value => Array.isArray(value) ? value.map(String).includes(id) : !!(value && typeof value === 'object' && (value[id] === true || value[id] === 1 || value[id] === 'true'));
+    for (const [name, raw] of Object.entries(state.townGroups || {})) {
+      if (hasTown(raw) || (raw && typeof raw === 'object' && (hasTown(raw.towns) || hasTown(raw.members) || hasTown(raw.ids)))) tags.push(String(name));
+    }
+    return tags.sort();
+  }
+  function roleAdvisorCoast(town) {
+    let a = town && town.attributes;
+    if (!a && town && typeof town.toJSON === 'function') try { a = town.toJSON(); } catch (_) {}
+    if (!a || typeof a !== 'object') return null;
+    for (const key of ['coastal', 'is_coastal', 'on_small_island', 'is_on_small_island']) {
+      if (!Object.prototype.hasOwnProperty.call(a, key)) continue;
+      const v = a[key];
+      if (typeof v === 'boolean') return v;
+      const n = gbNum(v);
+      if (n != null) return n !== 0;
+    }
+    return null;
+  }
+  function roleAdvisorGod(town) {
+    const a = town && town.attributes;
+    if (!a || typeof a !== 'object') return null;
+    for (const key of ['god', 'god_id', 'current_god']) {
+      const v = a[key];
+      if (typeof v === 'string' && v.trim()) return v.trim().toLowerCase();
+    }
+    return null;
+  }
+  function roleAdvisorFeature(townId) {
+    const id = String(townId);
+    let town = null, levels = null, research = null, units = null, production = null;
+    try { town = gbTownModel(id); } catch (_) {}
+    try { levels = abActualLevels(id); } catch (_) {}
+    try { research = researchTownTechs(id); } catch (_) {}
+    try { units = goalUnitCountsState(id); } catch (_) {}
+    try { production = economyProductionRate(id); } catch (_) {}
+    let threat = { known: false, threatened: false };
+    try { threat = cdThreatState(id); } catch (_) {}
+    const currentRole = cdCanonicalProfile(goalTownCfg(id).profile);
+    const unitCounts = units && units.known && units.counts && typeof units.counts === 'object' ? units.counts : null;
+    const techs = research && research.techs && typeof research.techs === 'object' ? research.techs : null;
+    const productionRead = production && typeof production === 'object' && GB_RES_KEYS.every(key => { const n = gbNum(production[key]); return n != null && n >= 0; }) ? Object.fromEntries(GB_RES_KEYS.map(key => [key, gbNum(production[key])])) : null;
+    const f = {
+      id,
+      currentRole,
+      levels: levels && typeof levels === 'object' ? levels : null,
+      techs,
+      units: unitCounts,
+      coast: roleAdvisorCoast(town),
+      production: productionRead,
+      threatened: threat && threat.known === true ? !!threat.threatened : null,
+      god: roleAdvisorGod(town),
+      tags: roleAdvisorTownTags(id),
+    };
+    f.readable = {
+      buildings: !!f.levels,
+      research: !!f.techs,
+      units: !!f.units,
+      coast: typeof f.coast === 'boolean',
+      production: !!f.production,
+      threat: f.threatened != null,
+    };
+    f.fingerprint = JSON.stringify({ currentRole:f.currentRole, levels:f.levels, techs:f.techs, units:f.units, coast:f.coast, production:f.production, threatened:f.threatened, god:f.god, tags:f.tags });
+    return f;
+  }
+  function roleAdvisorProfileKind(profile) {
+    const p = cdCanonicalProfile(profile);
+    if (p === 'cd_defense') return 'defense';
+    if (p === 'cd_slinger_50ls') return 'mixed';
+    return 'naval';
+  }
+  function roleAdvisorTargetCompletion(feature, profile) {
+    let targets = null, done = 0, total = 0;
+    try { targets = cdResearchTargets(feature.id, profile); } catch (_) {}
+    if (!feature.techs || !targets) return { known: false, value: 0 };
+    for (const [tech, row] of Object.entries(targets)) {
+      if (tech === '__cdUnresolved' || !row || !row.tgt) continue;
+      total++;
+      if (feature.techs[tech]) done++;
+    }
+    return { known: true, value: total ? done / total : 0 };
+  }
+  function roleAdvisorUnitCompletion(feature, profile) {
+    let targets = null;
+    try { targets = cdRecruitTargets(feature.id, profile); } catch (_) {}
+    if (!targets || targets.__cdFeasible === false || !feature.units) return { known: false, value: 0 };
+    let done = 0, total = 0;
+    for (const [unit, raw] of Object.entries(targets)) {
+      if (unit.startsWith('__')) continue;
+      const want = gbNum(raw), have = gbNum(feature.units[unit]);
+      if (want == null || want <= 0 || have == null) continue;
+      total++;
+      done += Math.min(1, have / want);
+    }
+    return { known: total > 0, value: total ? done / total : 0 };
+  }
+  function roleAdvisorConversion(feature, profile) {
+    const result = { known: true, buildingLevels: 0, researches: 0, units: 0, unresolved: [] };
+    let build = null, research = null, recruits = null;
+    try { build = cdBaseBuild(profile, feature.id); } catch (_) { result.known = false; result.unresolved.push('build'); }
+    try { research = cdResearchTargets(feature.id, profile); } catch (_) { result.known = false; result.unresolved.push('research'); }
+    try { recruits = cdRecruitTargets(feature.id, profile); } catch (_) { result.known = false; result.unresolved.push('units'); }
+    if (!feature.levels) { result.known = false; result.unresolved.push('levels'); }
+    else for (const [building, raw] of Object.entries(build || {})) {
+      const want = gbNum(raw), have = gbNum(feature.levels[building]);
+      if (want == null || have == null) { result.known = false; continue; }
+      result.buildingLevels += Math.max(0, Math.floor(want - have));
+    }
+    if (!feature.techs) { result.known = false; result.unresolved.push('techs'); }
+    else for (const [tech, row] of Object.entries(research || {})) if (tech !== '__cdUnresolved' && row && row.tgt && !feature.techs[tech]) result.researches++;
+    if (!recruits || recruits.__cdFeasible === false || !feature.units) { result.known = false; result.unresolved.push('army'); }
+    else for (const [unit, raw] of Object.entries(recruits)) {
+      if (unit.startsWith('__')) continue;
+      const want = gbNum(raw), have = gbNum(feature.units[unit]);
+      if (want == null || have == null) { result.known = false; continue; }
+      result.units += Math.max(0, Math.floor(want - have));
+    }
+    result.points = result.buildingLevels + result.researches * 8 + Math.min(100, result.units / 100);
+    return result;
+  }
+  function roleAdvisorCandidate(feature, profile, profileCounts, totalTowns, cfg) {
+    const kind = roleAdvisorProfileKind(profile), reasons = [], components = {};
+    let fit = 18;
+    if (kind === 'naval') {
+      if (feature.coast === true) { fit += cfg.weights.naval; components.coast = cfg.weights.naval; reasons.push('capacidad naval leible'); }
+      else if (feature.coast === false) { fit -= cfg.weights.naval / 3; components.coast = -cfg.weights.naval / 3; reasons.push('sin indicador costero'); }
+      else reasons.push('costa no leible');
+      const docks = gbNum(feature.levels && feature.levels.docks);
+      if (docks != null) { const v = Math.min(12, docks / 30 * 12); fit += v; components.docks = v; }
+    } else if (kind === 'defense') {
+      if (feature.threatened === true) { fit += cfg.weights.defense; components.threat = cfg.weights.defense; reasons.push('amenaza entrante'); }
+      else if (feature.threatened === false) { fit += cfg.weights.defense * 0.25; components.threat = cfg.weights.defense * 0.25; reasons.push('sin amenaza entrante'); }
+      else reasons.push('amenazas no legibles');
+      const wall = gbNum(feature.levels && feature.levels.wall);
+      if (wall != null) { const v = Math.min(10, wall / 25 * 10); fit += v; components.wall = v; }
+    } else {
+      const slinger = gbNum(feature.units && feature.units.slinger);
+      if (slinger != null && slinger > 0) { const v = Math.min(12, slinger / 1000 * 12); fit += v; components.slinger = v; }
+      if (feature.coast === true) { fit += cfg.weights.naval * 0.45; components.coast = cfg.weights.naval * 0.45; reasons.push('mezcla terrestre/naval posible'); }
+    }
+    const research = roleAdvisorTargetCompletion(feature, profile);
+    if (research.known) { const v = research.value * cfg.weights.research; fit += v; components.research = v; }
+    else reasons.push('investigacion no legible');
+    const army = roleAdvisorUnitCompletion(feature, profile);
+    if (army.known) { const v = army.value * cfg.weights.army; fit += v; components.army = v; }
+    else reasons.push('ejercito no legible');
+    if (feature.production) {
+      const p = feature.production;
+      const raw = kind === 'defense' ? p.iron + p.stone : p.wood + p.iron;
+      const v = Math.min(cfg.weights.production, Math.max(0, raw) / 2000 * cfg.weights.production);
+      fit += v; components.production = v;
+    } else reasons.push('produccion no legible');
+    if (feature.tags.some(tag => /defen|naval|mar|fleet|flota/i.test(tag))) { fit += 6; components.group = 6; reasons.push('grupo de ciudad coincide'); }
+    if (feature.god) reasons.push('dios: ' + feature.god);
+    const conversion = roleAdvisorConversion(feature, profile);
+    const conversionPenalty = conversion.known ? Math.min(55, conversion.points * cfg.weights.conversion) : 0;
+    const balance = totalTowns ? ((profileCounts[profile] || 0) / totalTowns) * cfg.weights.balance : 0;
+    const score = Math.round(Math.max(0, fit - conversionPenalty - balance));
+    const readable = Object.values(feature.readable).filter(Boolean).length;
+    return { profile, fit:Math.round(fit), conversion, balance:Math.round(balance * 10) / 10, score, confidence:readable >= 5 ? 'alta' : readable >= 3 ? 'media' : 'baja', reasons, components };
+  }
+  function roleAdvisorReassess(force) {
+    const cfg = roleAdvisorCfg(), now = Date.now(), current = roleAdvisorAssignments();
+    if (!cfg.enabled) return roleAdvisorLast = { enabled:false, at:now, signature:'disabled', ids:'', rows:[], assignments:current };
+    const ids = roleAdvisorTownIds();
+    if (!ids) return roleAdvisorLast = { enabled:true, at:now, signature:'unreadable', ids:roleAdvisorLast.ids || '', rows:[], assignments:current, unreadable:true };
+    const idKey = ids.join('|');
+    if (!force && !roleAdvisorLast.unreadable && roleAdvisorLast.at && idKey === roleAdvisorLast.ids && now - roleAdvisorLast.at < ROLE_ADVISOR_SCAN_MIN_MS) return roleAdvisorLast;
+    const features = ids.map(roleAdvisorFeature);
+    const dueMs = cfg.reassessmentHours * 3600000;
+    const stale = !!force || roleAdvisorLast.unreadable || idKey !== roleAdvisorLast.ids || features.some(f => {
+      const prev = current[f.id];
+      return !prev || prev.fingerprint !== f.fingerprint || now - (+prev.assessedAt || 0) >= dueMs;
+    });
+    if (!stale && roleAdvisorLast.at) return roleAdvisorLast;
+    const profiles = Object.keys(CD_PROFILE_DEFAULTS || {}).filter(cdIsProfile).sort();
+    const initialCounts = Object.create(null);
+    for (const f of features) if (profiles.includes(f.currentRole)) initialCounts[f.currentRole] = (initialCounts[f.currentRole] || 0) + 1;
+    const firstPicks = features.map(f => {
+      const candidates = profiles.map(p => roleAdvisorCandidate(f, p, initialCounts, features.length, cfg));
+      candidates.sort((a, b) => b.score - a.score || a.profile.localeCompare(b.profile));
+      return candidates[0] && candidates[0].profile;
+    });
+    const proposalCounts = Object.create(null);
+    firstPicks.forEach(p => { if (p) proposalCounts[p] = (proposalCounts[p] || 0) + 1; });
+    const next = {}, rows = [];
+    for (const f of features) {
+      const candidates = profiles.map(p => roleAdvisorCandidate(f, p, proposalCounts, features.length, cfg));
+      candidates.sort((a, b) => b.score - a.score || a.profile.localeCompare(b.profile));
+      const prev = current[f.id] && typeof current[f.id] === 'object' ? current[f.id] : {};
+      let selected = candidates[0] || null;
+      const previousCandidate = candidates.find(c => c.profile === prev.proposedRole);
+      if (previousCandidate && selected && selected.profile !== previousCandidate.profile && selected.score - previousCandidate.score < cfg.minScoreGap) selected = previousCandidate;
+      if (prev.userLock === true) selected = candidates.find(c => c.profile === f.currentRole) || selected;
+      if (!selected) continue;
+      const changed = prev.proposedRole !== selected.profile;
+      const rec = {
+        currentRole:f.currentRole, proposedRole:selected.profile, score:selected.score, fit:selected.fit,
+        conversion:selected.conversion, balance:selected.balance, confidence:selected.confidence,
+        reasons:selected.reasons, components:selected.components,
+        priorRole:prev.currentRole || f.currentRole, userLock:prev.userLock === true,
+        fingerprint:f.fingerprint, assessedAt:now, proposedAt:changed ? now : (+prev.proposedAt || now), appliedAt:+prev.appliedAt || 0,
+      };
+      next[f.id] = rec;
+      rows.push(Object.assign({ id:f.id }, rec));
+    }
+    const changed = JSON.stringify(current) !== JSON.stringify(next);
+    state.roleAssignments = next;
+    if (changed) save(STORE.ROLE_ASSIGNMENTS, next);
+    if (cfg.autoApply && !automationPaused({})) for (const row of rows) roleAdvisorApply(row.id, { auto:true, silent:true });
+    const signature = JSON.stringify(rows.map(r => [r.id,r.currentRole,r.proposedRole,r.score,r.userLock,r.fingerprint]));
+    roleAdvisorLast = { enabled:true, at:now, signature, ids:idKey, rows, assignments:next };
+    return roleAdvisorLast;
+  }
+  function roleAdvisorSetLock(townId, locked) {
+    const id = String(townId), all = roleAdvisorAssignments(), rec = all[id];
+    if (!rec) return false;
+    rec.userLock = !!locked;
+    rec.lockedAt = locked ? Date.now() : 0;
+    save(STORE.ROLE_ASSIGNMENTS, all);
+    roleAdvisorLast.at = 0;
+    return rec.userLock;
+  }
+  function roleAdvisorApply(townId, opts) {
+    const o = opts || {}, id = String(townId), rec = roleAdvisorAssignments()[id], cfg = roleAdvisorCfg();
+    if (!rec || rec.userLock || !cdIsProfile(rec.proposedRole)) return false;
+    const currentRole = cdCanonicalProfile(goalTownCfg(id).profile);
+    if (currentRole === rec.proposedRole) return true;
+    if (o.auto && cfg.lockExisting && currentRole !== 'custom') return false;
+    if (!goalSetProfile(id, rec.proposedRole)) return false;
+    rec.priorRole = currentRole;
+    rec.currentRole = rec.proposedRole;
+    rec.appliedAt = Date.now();
+    save(STORE.ROLE_ASSIGNMENTS, roleAdvisorAssignments());
+    if (!o.silent) flash('perfil aplicado: ' + rec.proposedRole + ' en ' + id);
+    return true;
+  }
+  function roleAdvisorTick() {
+    const cfg = roleAdvisorCfg();
+    if (!cfg.enabled) return false;
+    roleAdvisorReassess(false);
+    return true;
+  }
+  function roleAdvisorMembership(snapshot) {
+    if (!snapshot) return 'none';
+    const ids = [...new Set((snapshot.rows || []).map(row => String(row.id)))].sort();
+    return (snapshot.enabled ? 'on' : 'off') + ':' + ids.join('|');
+  }
+  function roleAdvisorName(townId) {
+    try { const t = gbTownModel(townId); return (t && t.getName && t.getName()) || String(townId); } catch (_) { return String(townId); }
+  }
+  function roleAdvisorRender(host, snapshot, rerender) {
+    const wrap = document.createElement('details');
+    wrap.className = 'gb-section'; wrap.open = false;
+    const summary = document.createElement('summary');
+    summary.textContent = 'Asesor de roles de ciudades'; wrap.appendChild(summary);
+    const body = document.createElement('div'); body.className = 'gb-section-body'; body.style.cssText = 'font-size:9px;overflow:auto'; wrap.appendChild(body);
+    const controls = document.createElement('div'); controls.style.cssText = 'display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-bottom:5px';
+    const recalc = gbButton('Recalcular', { title:'Relee edificios, investigacion, ejercito, produccion y amenazas sin cambiar perfiles', style:'font-size:9px', onClick:() => { roleAdvisorReassess(true); rerender(); } });
+    controls.appendChild(recalc);
+    const apply = gbButton('Aplicar seleccionadas', { title:'Aplica perfiles solo a las filas marcadas. No encola acciones ni autoriza strip.', style:'font-size:9px', onClick:() => {
+      let n = 0;
+      body.querySelectorAll('input[data-role-apply]').forEach(input => { if (input.checked && roleAdvisorApply(input.dataset.roleApply, { auto:false })) n++; });
+      if (n) roleAdvisorReassess(true); else flash('ninguna propuesta aplicable seleccionada');
+      rerender();
+    } });
+    controls.appendChild(apply);
+    const note = document.createElement('span');
+    note.style.color = '#999';
+    note.textContent = snapshot.enabled ? 'Solo propone; strip/demolicion siguen bloqueados por sus propios gates.' : 'Asesor desactivado en Ajustes.';
+    controls.appendChild(note); body.appendChild(controls);
+    if (!snapshot.enabled) { host.appendChild(wrap); return; }
+    const header = document.createElement('div'); header.style.cssText = 'display:grid;grid-template-columns:18px 1.2fr 1fr 1fr .45fr 1fr 1.6fr 28px;gap:3px;color:#888;border-bottom:1px solid #333;padding:2px';
+    ['','ciudad','actual','propuesta','score','conversion','motivos','lock'].forEach(text => { const el = document.createElement('span'); el.textContent = text; header.appendChild(el); });
+    body.appendChild(header);
+    for (const row of snapshot.rows || []) {
+      const line = document.createElement('div'); line.style.cssText = 'display:grid;grid-template-columns:18px 1.2fr 1fr 1fr .45fr 1fr 1.6fr 28px;gap:3px;border-bottom:1px solid #222;padding:2px;align-items:center';
+      const select = document.createElement('input'); select.type = 'checkbox'; select.dataset.roleApply = row.id; select.disabled = !!row.userLock || row.currentRole === row.proposedRole; line.appendChild(select);
+      const cells = [roleAdvisorName(row.id), row.currentRole, row.proposedRole, String(row.score), row.conversion && row.conversion.known ? `B${row.conversion.buildingLevels}/I${row.conversion.researches}/U${Math.floor(row.conversion.units)}` : '\u2014', (row.reasons || []).concat('confianza ' + row.confidence).join('; ')];
+      cells.forEach(value => { const el = document.createElement('span'); el.textContent = value; line.appendChild(el); });
+      const lock = document.createElement('input'); lock.type = 'checkbox'; lock.checked = !!row.userLock; lock.title = 'Bloqueo persistente: el asesor no cambiara esta ciudad hasta quitarlo';
+      lock.addEventListener('change', () => { roleAdvisorSetLock(row.id, lock.checked); rerender(); }); line.appendChild(lock);
+      body.appendChild(line);
+    }
+    host.appendChild(wrap);
+  }
   function goalProfiles() {
     if (!state.goalProfiles || typeof state.goalProfiles !== 'object') state.goalProfiles={};
     return Object.assign({}, GOAL_PROFILE_DEFAULTS, CD_PROFILE_DEFAULTS, state.goalProfiles);
@@ -13561,6 +13950,7 @@ const STORE = {
       if(have==null||avail==null||dest==null||destCap==null)blind.push(k);
     }
     if(blind.length)gbLogT('trade-validate-blind-'+job.from+'-'+job.to,180000,`trade: validation blind (${Array.from(new Set(blind)).join(',')}) - server authoritative`);
+    if (job.resourceOptimizer && blind.length) return { ok:false, why:'optimizer-blind' };
     return { ok: true, blind };
   }
 
@@ -13595,7 +13985,8 @@ const STORE = {
   }
   function tradeScan(reason, opts) {
     const o = opts || {};
-    if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes && !state.autoDump) || captchaPaused('trade')) return;
+    const optimizerEnabled = typeof resourceOptimizerCfg === 'function' && resourceOptimizerCfg().enabled;
+    if (!hostEnabled() || (!state.autoTrade && !state.islandShip && !state.autoTransport && !state.autoTradeRoutes && !state.autoDump && !optimizerEnabled) || captchaPaused('trade')) return;
     if (automationPaused({})) return;
     const towns = tradeListTowns();
     if (towns.length < 2) { gbLogT('trade-towns', 180000, 'trade: need \u22652 towns'); return; }
@@ -13611,6 +14002,8 @@ const STORE = {
       if (!autoPairOk && (state.autoTrade || state.autoTransport || state.autoDump || state.islandShip)) {
         gbLogT('trade-town-filter', 180000, `trade: only ${autoTowns.length} automatic town(s) enabled - need \u22652`);
       }
+
+      if (optimizerEnabled && autoPairOk) jobs = jobs.concat(resourceOptimizerJobs(autoTowns, ledger));
       if (state.autoTransport && autoPairOk) jobs = jobs.concat(transportBalanceJobs(autoTowns, ledger));
       if (state.autoDump && autoPairOk) jobs = jobs.concat(dumpJobs(autoTowns, ledger));
     }
@@ -13669,8 +14062,14 @@ const STORE = {
         gbLogT('trade-stale-'+j.from+'-'+j.to,60000,`trade: stale job ${j.from}\u2192${j.to} skipped (${valid.why})`);
         gbTimeout(next,100);return;
       }
+      if (j.resourceOptimizer && !resourceOptimizerClaimJob(j)) {
+        gbUnlock(lockName,lockToken);
+        gbLogT('trade-optimizer-token-'+j.from+'-'+j.to,60000,'trade optimizer: duplicate planning token skipped');
+        gbTimeout(next,100);return;
+      }
       tradeSend(j.from,j.to,j.wood,j.stone,j.iron,(err)=>{
         gbUnlock(lockName,lockToken);
+        if (j.resourceOptimizer) resourceOptimizerSettleJob(j,err);
         if(err==='captcha'||err==='captcha-pause'){stopped=true;return}
         if(!err){done++;gbLog(`trade: ${j.from}\u2192${j.to} w${j.wood}/s${j.stone}/i${j.iron}`)}
         else gbLogT('trade-err',60000,`trade err ${err}`);
@@ -13874,6 +14273,337 @@ const STORE = {
   }
 
   const DUMP_MAX_JOBS = 4;
+
+  const RESOURCE_OPTIMIZER_DEFAULTS = Object.freeze({
+    enabled: false,
+    dryRun: true,
+    horizonHours: 6,
+    minGainMinutes: 10,
+    maxTransfersPerCycle: 4,
+    reservePct: 20,
+    allowRouteLearning: false,
+    excludedTowns: Object.freeze({}),
+  });
+  const RESOURCE_OPTIMIZER_PLAN_TTL_MS = 15000;
+  const RESOURCE_OPTIMIZER_TOKEN_TTL_MS = 180000;
+  const RESOURCE_OPTIMIZER_BLOCKED_MAX = 48;
+  let resourceOptimizerLast = { at: 0, signature: 'none', jobs: [], blocked: [], demands: [] };
+  let resourceOptimizerDryRunSignature = '';
+  const resourceOptimizerTokens = Object.create(null);
+
+  function resourceOptimizerClamp(raw, fallback, lo, hi) {
+    const n = gbNum(raw);
+    return n == null ? fallback : Math.max(lo, Math.min(hi, n));
+  }
+  function resourceOptimizerCfg() {
+    const raw = state.resourceOptimizerCfg && typeof state.resourceOptimizerCfg === 'object' && !Array.isArray(state.resourceOptimizerCfg) ? state.resourceOptimizerCfg : {};
+    const excluded = raw.excludedTowns && typeof raw.excludedTowns === 'object' && !Array.isArray(raw.excludedTowns) ? raw.excludedTowns : {};
+    const cleanExcluded = {};
+    for (const [id, on] of Object.entries(excluded)) if (/^\d+$/.test(String(id)) && on === true) cleanExcluded[String(id)] = true;
+    const out = {
+      enabled: raw.enabled === true,
+      dryRun: raw.dryRun !== false,
+      horizonHours: resourceOptimizerClamp(raw.horizonHours, RESOURCE_OPTIMIZER_DEFAULTS.horizonHours, 1, 48),
+      minGainMinutes: resourceOptimizerClamp(raw.minGainMinutes, RESOURCE_OPTIMIZER_DEFAULTS.minGainMinutes, 1, 240),
+      maxTransfersPerCycle: Math.floor(resourceOptimizerClamp(raw.maxTransfersPerCycle, RESOURCE_OPTIMIZER_DEFAULTS.maxTransfersPerCycle, 1, 8)),
+      reservePct: resourceOptimizerClamp(raw.reservePct, RESOURCE_OPTIMIZER_DEFAULTS.reservePct, 0, 80),
+      allowRouteLearning: raw.allowRouteLearning === true,
+      excludedTowns: cleanExcluded,
+    };
+    state.resourceOptimizerCfg = out;
+    return out;
+  }
+  function resourceOptimizerSetCfg(patch) {
+    const next = Object.assign({}, resourceOptimizerCfg(), patch || {});
+    state.resourceOptimizerCfg = next;
+    const clean = resourceOptimizerCfg();
+    save(STORE.RESOURCE_OPTIMIZER_CFG, clean);
+    resourceOptimizerInvalidate();
+    return clean;
+  }
+  function resourceOptimizerInvalidate() {
+    resourceOptimizerLast.at = 0;
+    resourceOptimizerDryRunSignature = '';
+  }
+  function resourceOptimizerMinBatch() {
+    return Math.max(100, Math.floor(resourceOptimizerClamp(state.transportMin, 1000, 100, 10000)));
+  }
+  function resourceOptimizerCost(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const out = {};
+    for (const key of GB_RES_KEYS) {
+      const n = gbNum(raw[key]);
+      if (n == null || n < 0) return null;
+      out[key] = Math.ceil(n);
+    }
+    return out;
+  }
+  function resourceOptimizerSnapshot(townId) {
+    let snap = null;
+    try { snap = plannerSnapshot(townId); } catch (_) {}
+    if (!snap || !snap.live || !snap.availableHard || !snap.availableSoft) return { ok:false, why:'planner-unreadable' };
+    const cap = gbNum(snap.live.cap), tradeCap = gbNum(snap.availableHard.tradeCap);
+    if (!(cap > 0) || tradeCap == null || tradeCap < 0) return { ok:false, why:'merchant-or-capacity-unreadable' };
+    for (const key of GB_RES_KEYS) {
+      const live = gbNum(snap.live[key]), hard = gbNum(snap.availableHard[key]), soft = gbNum(snap.availableSoft[key]), incoming = gbNum(snap.incoming && snap.incoming[key]);
+      if (live == null || hard == null || soft == null || incoming == null) return { ok:false, why:'resource-unreadable:' + key };
+    }
+    return { ok:true, snapshot:snap, cap, tradeCap };
+  }
+  function resourceOptimizerNativeHead(townId) {
+    const lanes = ['build', 'research', 'recruit', 'recruitNaval'];
+    for (const lane of lanes) {
+      let job = null;
+      try { job = nativeQueueList(townId, lane, false).find(x => x && !x.inflight && !x.manualReview); } catch (_) {}
+      if (!job) continue;
+      if (lane === 'build') {
+        const levels = abCurrentLevels(townId), now = levels && gbNum(levels[job.building]), to = gbNum(job.toLevel);
+        if (now == null || to == null || to !== now + 1) return { blocked:'native-build-cost-unreadable' };
+        const cost = resourceOptimizerCost(abBuildingCost(townId, job.building));
+        return cost ? { kind:'build', id:job.building, cost, source:'native-fifo' } : { blocked:'native-build-cost-unreadable' };
+      }
+      if (lane === 'research') {
+        const cost = resourceOptimizerCost(researchCost(job.tech, townId));
+        return cost ? { kind:'research', id:job.tech, cost, source:'native-fifo' } : { blocked:'native-research-cost-unreadable' };
+      }
+      const amount = gbNum(job.amount);
+      if (amount == null || !(amount > 0) || job.infinite) return { blocked:'native-recruit-cost-unbounded' };
+      const unit = String(job.unit || ''), per = recruitEffectiveUnitCost(townId, unit);
+      if (!per || !GB_RES_KEYS.every(key => recruitCostFieldKnown(per, key))) return { blocked:'native-recruit-cost-unreadable' };
+      const cost = {};
+      for (const key of GB_RES_KEYS) cost[key] = Math.ceil((gbNum(per[key]) || 0) * amount);
+      return { kind:'recruit', id:unit, cost, source:'native-fifo' };
+    }
+    return null;
+  }
+  function resourceOptimizerDemandForTown(townId, horizonHours) {
+    const id = String(townId), stateRead = resourceOptimizerSnapshot(id);
+    if (!stateRead.ok) return { id, blocked:stateRead.why };
+    let action = resourceOptimizerNativeHead(id);
+    if (action && action.blocked) return { id, blocked:action.blocked };
+    if (!action) {
+      let plan = null;
+      try { plan = goalPlanTown(id); } catch (_) {}
+      const eligible = (plan && plan.actions || []).find(a => a && /^(planned|planned-recalc|planned-cost-advisory|waiting-resources)$/.test(String(a.status || '')) && resourceOptimizerCost(a.cost));
+      if (!eligible) return { id, blocked:'no-executable-cost' };
+      action = { kind:eligible.kind, id:eligible.id, cost:resourceOptimizerCost(eligible.cost), source:'goal-plan' };
+    }
+    let production = null;
+    try { production = economyProductionRate(id); } catch (_) {}
+    if (!production || GB_RES_KEYS.some(key => { const n = gbNum(production[key]); return n == null || n < 0; })) return { id, blocked:'production-unreadable', action };
+    const available = {}, live = {};
+    for (const key of GB_RES_KEYS) { available[key] = gbNum(stateRead.snapshot.availableHard[key]); live[key] = gbNum(stateRead.snapshot.live[key]); }
+    const delay = resourceOptimizerDelay(action.cost, available, production);
+    if (delay == null) return { id, blocked:'start-time-unreadable', action };
+    return {
+      id, action, cost:action.cost, source:action.source, snapshot:stateRead.snapshot, cap:stateRead.cap,
+      tradeCap:stateRead.tradeCap, available, live, production, delayMinutes:delay,
+      earliestStartAt:Date.now() + delay * 60000,
+      hardReserve:Object.assign({}, stateRead.snapshot.reserve && stateRead.snapshot.reserve.hard || {}),
+      softReserve:Object.assign({}, stateRead.snapshot.reserve && stateRead.snapshot.reserve.soft || {}), confidence:'alta', horizonHours,
+    };
+  }
+  function resourceOptimizerDelay(cost, available, production) {
+    let minutes = 0;
+    for (const key of GB_RES_KEYS) {
+      const need = Math.max(0, (gbNum(cost && cost[key]) || 0) - (gbNum(available && available[key]) || 0));
+      if (!need) continue;
+      const rate = gbNum(production && production[key]);
+      if (!(rate > 0)) return null;
+      minutes = Math.max(minutes, need / rate * 60);
+    }
+    return minutes;
+  }
+  function resourceOptimizerSupplyForTown(townId, demand, cfg) {
+    const stateRead = resourceOptimizerSnapshot(townId);
+    if (!stateRead.ok) return { id:String(townId), blocked:stateRead.why };
+    const available = {}, floor = {}, projected = {};
+    for (const key of GB_RES_KEYS) {
+      const hard = gbNum(stateRead.snapshot.availableHard[key]);
+      const protectedAction = demand && demand.cost ? Math.min(hard, gbNum(demand.cost[key]) || 0) : 0;
+      floor[key] = Math.max(Math.ceil(stateRead.cap * cfg.reservePct / 100), protectedAction);
+      available[key] = Math.max(0, hard - floor[key]);
+      projected[key] = (gbNum(stateRead.snapshot.live[key]) || 0) + (gbNum(stateRead.snapshot.incoming[key]) || 0);
+    }
+    return { id:String(townId), snapshot:stateRead.snapshot, cap:stateRead.cap, tradeCap:stateRead.tradeCap, available, floor, projected, demand };
+  }
+  function resourceOptimizerTradeModels() {
+    const out = [], seen = new Set(), uw = gameUw();
+    const add = model => { if (model && !seen.has(model)) { seen.add(model); out.push(model); } };
+    const addCollection = value => {
+      if (Array.isArray(value)) value.forEach(addCollection);
+      else if (value && Array.isArray(value.models)) value.models.forEach(add);
+      else if (value && typeof value === 'object' && !value.attributes) Object.values(value).forEach(addCollection);
+    };
+    try { const maps = uw.MM && uw.MM.getModels && uw.MM.getModels(); if (maps && maps.Trade) addCollection(maps.Trade); } catch (_) {}
+    try { const all = uw.MM && uw.MM.getCollections && uw.MM.getCollections() || {}; for (const [name, value] of Object.entries(all)) if (/trade/i.test(name)) addCollection(value); } catch (_) {}
+    return out;
+  }
+  function resourceOptimizerMillis(raw) {
+    const n = gbNum(raw);
+    if (n == null || n <= 0) return null;
+    return n > 100000000000 ? n : n * 1000;
+  }
+  function resourceOptimizerRouteKey(from, to) { return String(from) + '>' + String(to); }
+  function resourceOptimizerLearnRoutes(cfg) {
+    const learned = Object.create(null);
+    if (!cfg.allowRouteLearning) return learned;
+    for (const model of resourceOptimizerTradeModels()) {
+      try {
+        const a = model.attributes || model;
+        const from = a.origin_town_id ?? a.source_town_id ?? a.sender_town_id ?? a.from_town_id ?? null;
+        const to = a.destination_town_id ?? a.target_town_id ?? a.receiving_town_id ?? a.receiver_town_id ?? a.to_town_id ?? null;
+        const start = resourceOptimizerMillis(a.started_at ?? a.started_time ?? a.departure_at ?? a.created_at);
+        const end = resourceOptimizerMillis(a.arrival_at ?? a.arrival_time ?? a.arrives_at ?? a.to_be_completed_at ?? a.end_at);
+        if (!/^\d+$/.test(String(from)) || !/^\d+$/.test(String(to)) || !(end > start)) continue;
+        const duration = end - start;
+        if (duration < 1000 || duration > 7 * 86400000) continue;
+        const key = resourceOptimizerRouteKey(from, to), prev = learned[key];
+        learned[key] = prev == null ? duration : Math.round((prev + duration) / 2);
+      } catch (_) {}
+    }
+    return learned;
+  }
+  function resourceOptimizerCandidate(demand, supply, resource, routeMs, cfg) {
+    const shortage = Math.max(0, demand.cost[resource] - demand.available[resource]);
+    if (!(shortage > 0) || !(supply.available[resource] > 0) || !(supply.tradeCap > 0)) return null;
+    if (!(routeMs > 0)) return { blocked:'route-time-unreadable' };
+    const receiverProjected = demand.live[resource] + (gbNum(demand.snapshot.incoming[resource]) || 0);
+    const room = Math.max(0, demand.cap - receiverProjected);
+    const amount = Math.floor(Math.min(shortage, supply.available[resource], supply.tradeCap, room));
+    if (!(amount > 0)) return null;
+    if (amount < resourceOptimizerMinBatch()) return { blocked:'minimum-batch' };
+    const beforeDelay = demand.delayMinutes;
+    const afterAvailable = Object.assign({}, demand.available, { [resource]: demand.available[resource] + amount });
+    const startAfterArrival = resourceOptimizerDelay(demand.cost, afterAvailable, demand.production);
+    if (startAfterArrival == null) return { blocked:'start-time-unreadable' };
+    const afterDelay = Math.max(routeMs / 60000, startAfterArrival);
+    const gain = Math.max(0, beforeDelay - afterDelay);
+    const donorBefore = supply.demand ? supply.demand.delayMinutes : 0;
+    const donorAfterAvailable = Object.assign({}, supply.demand && supply.demand.available || {}, { [resource]: Math.max(0, (supply.demand && supply.demand.available[resource] || 0) - amount) });
+    const donorAfter = supply.demand ? resourceOptimizerDelay(supply.demand.cost, donorAfterAvailable, supply.demand.production) : 0;
+    if (supply.demand && (donorAfter == null || donorAfter > donorBefore)) return { blocked:'donor-priority-delay' };
+    const produced = supply.demand && supply.demand.production ? (gbNum(supply.demand.production[resource]) || 0) * cfg.horizonHours : 0;
+    const overflowPrevented = Math.max(0, Math.min(amount, supply.projected[resource] + produced - supply.cap));
+    if (gain < cfg.minGainMinutes && !(overflowPrevented > 0)) return { blocked:'gain-below-minimum' };
+    return { amount, gainMinutes:gain, overflowPrevented, score:gain * 100 + overflowPrevented / Math.max(1, supply.cap) * 20, routeMs };
+  }
+  function resourceOptimizerPlan(force) {
+    const cfg = resourceOptimizerCfg(), now = Date.now();
+    if (!force && resourceOptimizerLast.at && now - resourceOptimizerLast.at < RESOURCE_OPTIMIZER_PLAN_TTL_MS) return resourceOptimizerLast;
+    const towns = tradeAutoTowns(tradeListTowns()).filter(t => !cfg.excludedTowns[String(t.id)]);
+    if (!cfg.enabled) return resourceOptimizerLast = { at:now, enabled:false, signature:'disabled', jobs:[], blocked:[], demands:[], cfg };
+    if (towns.length < 2) return resourceOptimizerLast = { at:now, enabled:true, signature:'towns', jobs:[], blocked:[{ why:'need-two-enabled-towns' }], demands:[], cfg };
+    const demands = towns.map(t => resourceOptimizerDemandForTown(t.id, cfg.horizonHours));
+    const supplyById = Object.create(null), blocked = [], blockedSeen = new Set();
+    const noteBlocked = row => {
+      const key = [row.townId || '', row.from || '', row.resource || '', row.why || ''].join('|');
+      if (blocked.length >= RESOURCE_OPTIMIZER_BLOCKED_MAX || blockedSeen.has(key)) return;
+      blockedSeen.add(key);
+      blocked.push(row);
+    };
+    for (const demand of demands) {
+      if (demand.blocked) { noteBlocked({ townId:demand.id, why:demand.blocked }); continue; }
+      supplyById[demand.id] = resourceOptimizerSupplyForTown(demand.id, demand, cfg);
+    }
+    const routes = resourceOptimizerLearnRoutes(cfg), jobs = [], tokenBase = 'ro:' + now.toString(36);
+    while (jobs.length < cfg.maxTransfersPerCycle) {
+      let best = null;
+      for (const demand of demands) {
+        if (demand.blocked) continue;
+        for (const supply of Object.values(supplyById)) {
+          if (!supply || supply.blocked || supply.id === demand.id) continue;
+          for (const resource of GB_RES_KEYS) {
+            const candidate = resourceOptimizerCandidate(demand, supply, resource, routes[resourceOptimizerRouteKey(supply.id, demand.id)], cfg);
+            if (candidate && candidate.blocked) { noteBlocked({ townId:demand.id, from:supply.id, resource, why:candidate.blocked }); continue; }
+            if (!candidate) continue;
+            const row = { demand, supply, resource, candidate };
+            if (!best || candidate.score > best.candidate.score || (candidate.score === best.candidate.score && String(supply.id).localeCompare(String(best.supply.id)) < 0)) best = row;
+          }
+        }
+      }
+      if (!best) break;
+      const { demand, supply, resource, candidate } = best;
+      const job = { from:supply.id, to:demand.id, wood:0, stone:0, iron:0, resourceOptimizer:true, optimizerToken:tokenBase + ':' + jobs.length, optimizerResource:resource, reason:'queue-delay', timeSavedMinutes:Math.round(candidate.gainMinutes * 10) / 10, overflowPrevented:Math.floor(candidate.overflowPrevented), travelMs:candidate.routeMs, confidence:'learned-route' };
+      job[resource] = candidate.amount;
+      jobs.push(job);
+      supply.available[resource] -= candidate.amount;
+      supply.tradeCap -= candidate.amount;
+      supply.projected[resource] -= candidate.amount;
+      demand.available[resource] += candidate.amount;
+      demand.live[resource] += candidate.amount;
+      demand.delayMinutes = resourceOptimizerDelay(demand.cost, demand.available, demand.production);
+    }
+    const signature = JSON.stringify({ cfg, jobs:jobs.map(j => [j.from,j.to,j.optimizerResource,j[j.optimizerResource],j.timeSavedMinutes]), blocked:blocked.map(b => [b.townId,b.from,b.resource,b.why]), demands:demands.map(d => [d.id,d.blocked,d.action && d.action.id]) });
+    return resourceOptimizerLast = { at:now, enabled:true, cfg, jobs, blocked, demands, routeCount:Object.keys(routes).length, signature };
+  }
+  function resourceOptimizerTokenKey(job) { return String(job.from) + '>' + String(job.to) + '>' + String(job.optimizerResource || ''); }
+  function resourceOptimizerPruneTokens() {
+    const now = Date.now();
+    for (const [key, rec] of Object.entries(resourceOptimizerTokens)) if (!rec || rec.until <= now) delete resourceOptimizerTokens[key];
+  }
+  function resourceOptimizerClaimJob(job) {
+    resourceOptimizerPruneTokens();
+    const key = resourceOptimizerTokenKey(job);
+    if (resourceOptimizerTokens[key]) return false;
+    resourceOptimizerTokens[key] = { token:job.optimizerToken, until:Date.now() + RESOURCE_OPTIMIZER_TOKEN_TTL_MS };
+    return true;
+  }
+  function resourceOptimizerSettleJob(job, err) {
+    const key = resourceOptimizerTokenKey(job), rec = resourceOptimizerTokens[key];
+    if (!rec || rec.token !== job.optimizerToken) return;
+    if (err) delete resourceOptimizerTokens[key];
+  }
+  function resourceOptimizerJobs(towns, ledger) {
+    const plan = resourceOptimizerPlan(true), cfg = resourceOptimizerCfg();
+    if (!cfg.enabled || !plan.jobs.length) return [];
+    if (cfg.dryRun || state.dryRun || !state.autoTransport) {
+      if (resourceOptimizerDryRunSignature !== plan.signature) {
+        resourceOptimizerDryRunSignature = plan.signature;
+        for (const job of plan.jobs) {
+          try { jrnPush({ f:'resource-optimizer', a:'trade', k:job.optimizerToken }, 'skip:dryrun'); } catch (_) {}
+          whyNote('resource-optimizer', job.from + '>' + job.to, 'skip:dryrun', job.optimizerResource + ' ' + job[job.optimizerResource]);
+        }
+      }
+      return [];
+    }
+    const out = [];
+    for (const job of plan.jobs) {
+      if (out.length >= cfg.maxTransfersPerCycle) break;
+      if (ledger) tradeApplyJob(ledger, job);
+      out.push(job);
+    }
+    return out;
+  }
+  function resourceOptimizerMembership(plan) {
+    if (!plan) return 'none';
+    const jobs = [...new Set((plan.jobs || []).map(job => [job.from, job.to, job.optimizerResource].join('>')))].sort();
+    const blocked = [...new Set((plan.blocked || []).slice(0, 12).map(row => [row.townId || '', row.from || '', row.resource || ''].join('>')))].sort();
+    return (plan.enabled ? 'on' : 'off') + '|jobs:' + jobs.join('|') + '|blocked:' + blocked.join('|');
+  }
+  function resourceOptimizerRender(host, plan, rerender) {
+    const wrap = document.createElement('details'); wrap.className = 'gb-section';
+    const summary = document.createElement('summary'); summary.textContent = 'Plan de recursos'; wrap.appendChild(summary);
+    const body = document.createElement('div'); body.className = 'gb-section-body'; body.style.cssText = 'font-size:9px;overflow:auto'; wrap.appendChild(body);
+    const controls = document.createElement('div'); controls.style.cssText = 'display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-bottom:5px';
+    controls.appendChild(gbButton('Recalcular', { title:'Recalcula demanda, reserva, mercantes y rutas aprendidas; no envia nada', style:'font-size:9px', onClick:() => { resourceOptimizerPlan(true); rerender(); } }));
+    const mode = document.createElement('span'); mode.style.color = '#999';
+    mode.textContent = !plan.enabled ? 'Desactivado en Ajustes.' : (plan.cfg.dryRun ? 'Simulacion local: cero escrituras.' : 'Vivo solo con Auto transporte activo.') + ' Rutas aprendidas: ' + (plan.routeCount || 0);
+    controls.appendChild(mode); body.appendChild(controls);
+    const header = document.createElement('div'); header.style.cssText = 'display:grid;grid-template-columns:1fr 1fr .8fr 1.4fr .7fr 1fr;gap:3px;color:#888;border-bottom:1px solid #333;padding:2px';
+    ['origen','destino','cantidad','motivo','ahorro','confianza/bloqueo'].forEach(text => { const el = document.createElement('span'); el.textContent = text; header.appendChild(el); }); body.appendChild(header);
+    for (const job of plan.jobs || []) {
+      const row = document.createElement('div'); row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr .8fr 1.4fr .7fr 1fr;gap:3px;border-bottom:1px solid #222;padding:2px';
+      const values = [String(job.from), String(job.to), job.optimizerResource + ' ' + Math.floor(job[job.optimizerResource]), job.reason + (job.overflowPrevented ? ' + evita overflow' : ''), job.timeSavedMinutes + ' min', job.confidence];
+      values.forEach(value => { const el = document.createElement('span'); el.textContent = value; row.appendChild(el); }); body.appendChild(row);
+    }
+    for (const block of (plan.blocked || []).slice(0, 12)) {
+      const row = document.createElement('div'); row.style.cssText = 'color:#b98;padding:2px;border-bottom:1px solid #222';
+      row.textContent = 'bloqueado ' + (block.from ? block.from + ' -> ' : '') + (block.townId || '') + (block.resource ? ' ' + block.resource : '') + ': ' + block.why; body.appendChild(row);
+    }
+    if (!(plan.jobs || []).length && !(plan.blocked || []).length) { const empty = document.createElement('div'); empty.style.color = '#888'; empty.textContent = 'Sin transferencias necesarias.'; body.appendChild(empty); }
+    host.appendChild(wrap);
+  }
   const DUMP_SURPLUS_SHARE = 0.5;
   function dumpCfgNum(map, key, def, lo, hi) {
     const v = gbNum((map || {})[key]);
@@ -21191,10 +21921,14 @@ const STORE = {
     const sec=panel&&panel.querySelector('section[data-tab=overview]');if(!sec||sec.hidden)return;const box=sec.querySelector('.goals-panel');if(!box)return;
     let ids=[];try{ids=Object.keys((gameUw().ITowns&&gameUw().ITowns.towns)||{})}catch(_){};const profiles=goalProfiles();
 
-    const membership=[ids.join(','),Object.keys(profiles).join(','),state.abOptimalOrderOn!==false?'1':'0'];
+    const advisor=roleAdvisorReassess(false);
+    const resourcePlan=resourceOptimizerPlan(false);
+    const membership=[ids.join(','),Object.keys(profiles).join(','),state.abOptimalOrderOn!==false?'1':'0',roleAdvisorMembership(advisor),resourceOptimizerMembership(resourcePlan)];
     for(const tid of ids){const p=goalPlanTown(tid);membership.push(tid+':'+p.profile+':'+(p.actions||[]).map(a=>a.queueKey||`${a.kind}:${a.id}`).join(','))}
     const rerender=()=>{renderGoals();renderPlanner();renderDashboard();};
     gbPaint(box, box => {
+    roleAdvisorRender(box,advisor,rerender);
+    resourceOptimizerRender(box,resourcePlan,rerender);
     for(const tid of ids){let name=tid;try{const t=gbTownModel(tid);name=(t&&t.getName&&t.getName())||name}catch(_){} const plan=goalPlanTown(tid);
       const head=document.createElement('div');head.style.cssText='display:flex;gap:4px;align-items:center;padding:4px;border-bottom:1px solid #333';const b=document.createElement('b');b.textContent=`${name} \u00b7 ${plan.progress}%`;head.appendChild(b);
       const edit=gbButton('Edit',{title:'Edit per-town goal overrides/reserves as JSON',style:'font-size:8px;padding:1px 4px',onClick:()=>{const cur=goalTownCfg(tid),raw=prompt('Overrides de objetivos por ciudad JSON\nClaves: build, research, units, reserve:{hard,soft}, defensive (0..1, null = hereda del perfil), resource:{wood,stone,iron} (-1..+1)',JSON.stringify({build:cur.build,research:cur.research,units:cur.units,reserve:cur.reserve,defensive:cur.defensive!=null?cur.defensive:null,resource:cur.resource||{}},null,2));if(raw==null)return;try{if(!goalSetTownOverrides(tid,JSON.parse(raw)))throw new Error('invalid object');rerender()}catch(e){flash('JSON de objetivos invalido')}}});head.appendChild(edit);
@@ -21420,7 +22154,7 @@ const STORE = {
   const CONFIG_HISTORY_TTL_MS = 7 * 86400000;
   const CONFIG_SNAPSHOT_KEYS = [
     'abTargets', 'abOrder', 'researchTargets', 'recruitTargets', 'plannerCfg',
-    'goalProfiles', 'townGoals', 'virtualQueueOverrides', 'nativeQueue',
+    'goalProfiles', 'townGoals', 'roleAdvisorCfg', 'roleAssignments', 'resourceOptimizerCfg', 'virtualQueueOverrides', 'nativeQueue',
     'predictCfg', 'defenseCfg', 'safeMode', 'autoTransport', 'transportReserve',
     'transportMin', 'tradeTowns', 'cityTemplates', 'townGroups', 'cultureTypes', 'favorCfg',
     'spyCfg', 'wonderCfg', 'merchantWish', 'priorityOrder',
@@ -21524,13 +22258,13 @@ const STORE = {
   function qolExportConfig() {
     return { schema:CONFIG_EXPORT_SCHEMA, ver:state.configVer||1, host:location.host,
       abTargets:state.abTargets,abOrder:state.abOrder,researchTargets:state.researchTargets,recruitTargets:state.recruitTargets,
-      plannerCfg:state.plannerCfg,goalProfiles:state.goalProfiles,townGoals:state.townGoals,virtualQueueOverrides:state.virtualQueueOverrides,nativeQueue:state.nativeQueue,predictCfg:state.predictCfg,defenseCfg:state.defenseCfg,safeMode:!!state.safeMode,
+      plannerCfg:state.plannerCfg,goalProfiles:state.goalProfiles,townGoals:state.townGoals,roleAdvisorCfg:state.roleAdvisorCfg,roleAssignments:state.roleAssignments,resourceOptimizerCfg:state.resourceOptimizerCfg,virtualQueueOverrides:state.virtualQueueOverrides,nativeQueue:state.nativeQueue,predictCfg:state.predictCfg,defenseCfg:state.defenseCfg,safeMode:!!state.safeMode,
       autoTransport:!!state.autoTransport,transportReserve:+state.transportReserve||20,transportMin:+state.transportMin||1000,tradeTowns:state.tradeTowns,
       cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,spyCfg:state.spyCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,goldEnabled:state.goldEnabled === true,goldBatch:goldBatch(),goldTowns:state.goldTowns,playerNotes:state.playerNotes,watchlist:state.watchlist,recruitPacks:state.recruitPacks,batchRecruitLists:state.batchRecruitLists };
   }
   function qolImportConfig(obj, opts) {
     if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;if(obj.host&&String(obj.host)!==String(location.host)){gbLog(`config import refused: file host ${obj.host} != ${location.host}`);return false}if(obj.schema!=null&&+obj.schema>CONFIG_EXPORT_SCHEMA){gbLog(`config import refused: schema ${obj.schema} newer than supported ${CONFIG_EXPORT_SCHEMA}`);return false}
-    const clone=v=>structuredClone(v),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v),num=v=>gbNum(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>num(v)!=null,transportMin:v=>num(v)!=null,tradeTowns:isObj,cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,goldEnabled:v=>typeof v==='boolean',goldBatch:v=>num(v)!=null&&num(v)>=100&&num(v)<=1000000,goldTowns:isObj,playerNotes:isObj,watchlist:Array.isArray,batchRecruit:v=>typeof v==='boolean',batchRecruitLists:isObj,recruitPacks:isObj};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,tradeTowns:STORE.TRADE_TOWNS,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,batchRecruit:STORE.BATCH_RECRUIT,batchRecruitLists:STORE.BATCH_RECRUIT_LISTS,recruitPacks:STORE.RECRUIT_PACKS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,goldEnabled:STORE.GOLD_ENABLED,goldBatch:STORE.GOLD_BATCH,goldTowns:STORE.GOLD_TOWNS,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
+    const clone=v=>structuredClone(v),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v),num=v=>gbNum(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,roleAdvisorCfg:isObj,roleAssignments:isObj,resourceOptimizerCfg:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>num(v)!=null,transportMin:v=>num(v)!=null,tradeTowns:isObj,cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,goldEnabled:v=>typeof v==='boolean',goldBatch:v=>num(v)!=null&&num(v)>=100&&num(v)<=1000000,goldTowns:isObj,playerNotes:isObj,watchlist:Array.isArray,batchRecruit:v=>typeof v==='boolean',batchRecruitLists:isObj,recruitPacks:isObj};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,roleAdvisorCfg:STORE.ROLE_ADVISOR_CFG,roleAssignments:STORE.ROLE_ASSIGNMENTS,resourceOptimizerCfg:STORE.RESOURCE_OPTIMIZER_CFG,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,tradeTowns:STORE.TRADE_TOWNS,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,batchRecruit:STORE.BATCH_RECRUIT,batchRecruitLists:STORE.BATCH_RECRUIT_LISTS,recruitPacks:STORE.RECRUIT_PACKS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,goldEnabled:STORE.GOLD_ENABLED,goldBatch:STORE.GOLD_BATCH,goldTowns:STORE.GOLD_TOWNS,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
     for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='goldEnabled'){v=v===true}else if(k==='goldBatch'){v=Math.floor(num(v))}else if(k==='goldTowns'){const c={};for(const[id,on]of Object.entries(v))if(/^\d+$/.test(id)&&on===true)c[id]=true;v=c}else if(k==='priorityOrder'){const allowed=new Set(ORCH_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(ORCH_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
       const clean={version:1,seq:Math.max(0,+v.seq||0),towns:{}},seen=new Set();
       const jobId=(raw,prefix)=>{let id=/^[A-Za-z0-9:._-]{1,160}$/.test(String(raw||''))?String(raw):'';if(!id||seen.has(id)){clean.seq++;id=`${prefix}:import:${clean.seq.toString(36)}`}seen.add(id);return id};
@@ -21542,7 +22276,7 @@ const STORE = {
         clean.towns[townId]={build,recruit,recruitNaval,research,paused:{build:!!(t.paused&&t.paused.build),recruit:!!(t.paused&&t.paused.recruit),recruitNaval:!!(t.paused&&(t.paused.recruitNaval!=null?t.paused.recruitNaval:t.paused.recruit)),research:!!(t.paused&&t.paused.research)},mode:{build:build.length||t.mode&&t.mode.build==='fifo'?'fifo':'legacy',recruit:recruit.length||t.mode&&t.mode.recruit==='fifo'?'fifo':'legacy',recruitNaval:recruitNaval.length||t.mode&&(t.mode.recruitNaval==='fifo'||t.mode.recruitNaval==null&&t.mode.recruit==='fifo')?'fifo':'legacy',research:research.length||t.mode&&t.mode.research==='fifo'?'fifo':'legacy'}}
       }v=clean
     }else if(k==='watchlist')v=v.slice(0,500);else if(k==='merchantWish')v=v.slice(0,100).filter(x=>isObj(x)&&(x.item||x.id)&&num(x.maxPrice)!=null&&num(x.maxPrice)>0);state[k]=v;save(storeFor[k],v);applied++}
-    state.configVer=CONFIG_VER_CURRENT;save(STORE.CONFIG_VER,CONFIG_VER_CURRENT);goalPlanAll();
+    state.configVer=CONFIG_VER_CURRENT;save(STORE.CONFIG_VER,CONFIG_VER_CURRENT);if(applied>0){if(typeof roleAdvisorInvalidate==='function')roleAdvisorInvalidate();if(typeof resourceOptimizerInvalidate==='function')resourceOptimizerInvalidate()}goalPlanAll();
 
     if (applied > 0 && !(opts && opts.history === false)) qolHistoryPush(before, (opts && opts.source) || 'import');
     gbLog(`config imported: ${applied} validated section(s)`);return applied>0;
@@ -21888,7 +22622,7 @@ const STORE = {
       case 'cave': return state.autoCave;
       case 'build': return state.abAuto || nativeQueueHasPending('build') || cityDesignerHasExecutableWork('build');
       case 'research': return state.autoResearch || nativeQueueHasPending('research') || cityDesignerHasExecutableWork('research');
-      case 'trade': return state.autoTrade || state.islandShip || state.autoTransport || state.autoTradeRoutes || state.autoDump;
+      case 'trade': return state.autoTrade || state.islandShip || state.autoTransport || state.autoTradeRoutes || state.autoDump || (typeof resourceOptimizerCfg === 'function' && resourceOptimizerCfg().enabled);
       case 'farm': return state.autoFarm;
       case 'ruraltrade': return state.autoRuralTrade;
       case 'rurallevel': return state.autoRuralLevel;
@@ -21973,6 +22707,7 @@ const STORE = {
   function orchHousekeepingTick() {
     if (!hostEnabled()) return;
     try { orchDeadlockEval(); } catch (_) {}
+    try { roleAdvisorTick(); } catch (_) {}
     try { intelDigestTick(); } catch (_) {}
     try { townCapWatcher(); } catch (_) {}
 
@@ -30562,6 +31297,10 @@ const STORE = {
           <label class="gb-cfg-num gb-cfg-sub" title="Si la cabeza de la cola lleva bloqueada por recursos mas de estos minutos, Colas > Construccion ofrece ascender la siguiente orden que SI se puede pagar. Solo sugerencia: nunca reordena solo. 0 = desactivado.">Sugerir adelanto tras <input class="gb-cfg-input" type="number" data-cfg="build-swap-min" min="0" max="120" style="width:45px"/> min bloqueada</label>
           <label class="gb-cfg-row gb-cfg-sub" title="Muestra en Colas > Construccion una secuencia aconsejada. Solo consejo: la cola FIFO manda y nada se envia sin pulsar el boton."><input type="checkbox" data-cfg="ab-optimal-order"/> Secuencia optima de construccion (consejo)</label>
           <label class="gb-cfg-row" data-gb-tip="Lanzar la siguiente investigacion del plan automaticamente"><input type="checkbox" data-cfg="auto-research"/> Investigacion automatica</label>
+          <label class="gb-cfg-row" title="Propone perfiles City Designer desde datos legibles. No cambia un perfil existente ni encola trabajo por defecto."><input type="checkbox" data-cfg="role-advisor-enabled"/> Asesor de roles de ciudades</label>
+          <label class="gb-cfg-row gb-cfg-sub" title="No toca perfiles no personalizados en el modo de aplicacion automatica; los cambios manuales siguen disponibles en el asesor."><input type="checkbox" data-cfg="role-advisor-lock-existing"/> Bloquear perfiles existentes al autoaplicar</label>
+          <label class="gb-cfg-row gb-cfg-risk" title="ALTO RIESGO: aplica solo recomendaciones no bloqueadas. Conservar perfiles existentes sigue activo por defecto."><input type="checkbox" data-cfg="role-advisor-auto"/> Aplicar recomendaciones de roles automaticamente</label>
+          <label class="gb-cfg-num gb-cfg-sub" title="La propuesta solo cambia si supera la anterior por este margen, y se vuelve a valorar tras el intervalo.">Margen <input class="gb-cfg-input" type="number" data-cfg="role-advisor-gap" min="1" max="50" style="width:40px"/> \u00b7 reevaluar <input class="gb-cfg-input" type="number" data-cfg="role-advisor-hours" min="1" max="168" style="width:45px"/> h</label>
           <button data-cfg="research-csfast" class="gb-cfg-btn gb-cfg-sub" data-gb-tip="Cargar el preset CS-fast (investigaciones recomendadas para CS)">Cargar CS-fast de investigacion</button>
           <div class="research-path gb-cfg-note" data-gb-tip="Camino de investigacion calculado para CS-fast"></div>
           <label class="gb-cfg-row" data-gb-tip="Cobrar el descuento de construccion que otorgan las misiones"><input type="checkbox" data-cfg="auto-quest-build"/> Cobrar el descuento de construccion de las misiones</label>
@@ -30597,6 +31336,11 @@ const STORE = {
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Reserva y lote minimo para el transporte">Reserva % <input class="gb-cfg-input" type="number" data-cfg="transport-reserve" min="0" max="80" style="width:45px"/>
             Lote minimo <input class="gb-cfg-input" type="number" data-cfg="transport-min" min="100" max="10000" step="100" style="width:60px"/>
           </label>
+          <label class="gb-cfg-row" title="Analiza primero las colas y reservas para proponer transferencias. Por defecto solo asesora; nunca envia sin Auto transporte y modo vivo."><input type="checkbox" data-cfg="resource-optimizer-enabled"/> Optimizador de recursos por cola (asesor)</label>
+          <label class="gb-cfg-row gb-cfg-sub" title="Muestra y registra el plan, pero no llama a la capa de transacciones."><input type="checkbox" data-cfg="resource-optimizer-dry-run"/> Optimizador: solo simulacion</label>
+          <label class="gb-cfg-num gb-cfg-sub" title="Horizonte de colas, ganancia minima y maximo de envios planificados por ciclo.">Horizonte <input class="gb-cfg-input" type="number" data-cfg="resource-optimizer-horizon" min="1" max="48" style="width:40px"/> h \u00b7 ganancia min <input class="gb-cfg-input" type="number" data-cfg="resource-optimizer-gain" min="1" max="240" style="width:45px"/> min \u00b7 max <input class="gb-cfg-input" type="number" data-cfg="resource-optimizer-max" min="1" max="8" style="width:35px"/></label>
+          <label class="gb-cfg-num gb-cfg-sub" title="Porcentaje adicional que el optimizador conserva en la ciudad donante, ademas de la reserva del planificador.">Reserva adicional del donante <input class="gb-cfg-input" type="number" data-cfg="resource-optimizer-reserve" min="0" max="80" style="width:45px"/> %</label>
+          <label class="gb-cfg-row gb-cfg-sub" title="Solo usa duraciones presentes en movimientos Trade propios con inicio y llegada legibles; no adivina rutas nuevas."><input type="checkbox" data-cfg="resource-optimizer-route-learning"/> Aprender duraciones de rutas propias</label>
           <label class="gb-cfg-row gb-cfg-risk" title="ALTO RIESGO: vacia recursos por encima del umbral hacia otras ciudades. Sin vuelta atras. Envia solo la MITAD del excedente y nunca el hierro que la cueva todavia puede guardar."><input type="checkbox" data-cfg="auto-dump"/> Auto vaciado de recursos</label>
           <label class="gb-cfg-num gb-cfg-sub" data-gb-tip="Umbral por encima del cual vaciar cada recurso">Vaciar por encima de %
             mad <input class="gb-cfg-input" type="number" data-cfg="dump-th-wood" min="50" max="100" style="width:45px"/>
@@ -31827,6 +32571,20 @@ const STORE = {
     setNum('[data-cfg=trade-min]', state.tradeMinBatch);
     setNum('[data-cfg=transport-reserve]', state.transportReserve);
     setNum('[data-cfg=transport-min]', state.transportMin);
+    { const ro = resourceOptimizerCfg();
+      setChk('[data-cfg=resource-optimizer-enabled]', ro.enabled);
+      setChk('[data-cfg=resource-optimizer-dry-run]', ro.dryRun);
+      setNum('[data-cfg=resource-optimizer-horizon]', ro.horizonHours);
+      setNum('[data-cfg=resource-optimizer-gain]', ro.minGainMinutes);
+      setNum('[data-cfg=resource-optimizer-max]', ro.maxTransfersPerCycle);
+      setNum('[data-cfg=resource-optimizer-reserve]', ro.reservePct);
+      setChk('[data-cfg=resource-optimizer-route-learning]', ro.allowRouteLearning); }
+    { const ra = roleAdvisorCfg();
+      setChk('[data-cfg=role-advisor-enabled]', ra.enabled);
+      setChk('[data-cfg=role-advisor-lock-existing]', ra.lockExisting);
+      setChk('[data-cfg=role-advisor-auto]', ra.autoApply);
+      setNum('[data-cfg=role-advisor-gap]', ra.minScoreGap);
+      setNum('[data-cfg=role-advisor-hours]', ra.reassessmentHours); }
     const bindToggle = (sel, key, store, onOn) => {
       onCfg(sel, 'change', e => {
         const next = e.target.checked;
@@ -32179,6 +32937,18 @@ const STORE = {
     saveNum('[data-cfg=transport-min]', v => {
       state.transportMin = Math.min(10000, gbCfgClamp(v, 100, Infinity, 1000)); save(STORE.TRANSPORT_MIN, state.transportMin);
     });
+    onCfg('[data-cfg=resource-optimizer-enabled]', 'change', e => resourceOptimizerSetCfg({ enabled:!!e.target.checked }));
+    onCfg('[data-cfg=resource-optimizer-dry-run]', 'change', e => resourceOptimizerSetCfg({ dryRun:!!e.target.checked }));
+    onCfg('[data-cfg=resource-optimizer-horizon]', 'change', e => resourceOptimizerSetCfg({ horizonHours:e.target.value }));
+    onCfg('[data-cfg=resource-optimizer-gain]', 'change', e => resourceOptimizerSetCfg({ minGainMinutes:e.target.value }));
+    onCfg('[data-cfg=resource-optimizer-max]', 'change', e => resourceOptimizerSetCfg({ maxTransfersPerCycle:e.target.value }));
+    onCfg('[data-cfg=resource-optimizer-reserve]', 'change', e => resourceOptimizerSetCfg({ reservePct:e.target.value }));
+    onCfg('[data-cfg=resource-optimizer-route-learning]', 'change', e => resourceOptimizerSetCfg({ allowRouteLearning:!!e.target.checked }));
+    onCfg('[data-cfg=role-advisor-enabled]', 'change', e => roleAdvisorSetCfg({ enabled:!!e.target.checked }));
+    onCfg('[data-cfg=role-advisor-lock-existing]', 'change', e => roleAdvisorSetCfg({ lockExisting:!!e.target.checked }));
+    onCfg('[data-cfg=role-advisor-auto]', 'change', e => roleAdvisorSetCfg({ autoApply:!!e.target.checked }));
+    onCfg('[data-cfg=role-advisor-gap]', 'change', e => roleAdvisorSetCfg({ minScoreGap:e.target.value }));
+    onCfg('[data-cfg=role-advisor-hours]', 'change', e => roleAdvisorSetCfg({ reassessmentHours:e.target.value }));
     onCfg('[data-cfg=research-csfast]', 'click', () => {
       researchLoadCsFast(); flash('CS-fast research');
     });
@@ -33440,10 +34210,15 @@ const STORE = {
       cdProfileRevision,
       cdEffective,
       cdBuildTargets,
+      cdBaseBuild,
       cdActualLevels,
       abActualLevels,
       cdResearchTargets,
       cdRecruitTargets,
+      roleAdvisorCfg,
+      roleAdvisorReassess,
+      roleAdvisorApply,
+      roleAdvisorSetLock,
       cdPhase,
       cdBuildDone,
       cdResearchDone,
@@ -33487,6 +34262,10 @@ const STORE = {
       economyForecast,
       tradeRouteJobs,
       tradeRoutesSave,
+      resourceOptimizerCfg,
+      resourceOptimizerPlan,
+      resourceOptimizerJobs,
+      resourceOptimizerSetCfg,
       defenseAssessment,
       defenseThreatWeights,
       defenseThreatBand,

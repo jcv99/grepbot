@@ -261,6 +261,8 @@
       watchKey: 'bridge:' + String(payload && payload.model_url || '') + '|' + String(payload && payload.action_name || ''),
       watchFp: gbAjaxBridgeFp(payload),
       authCsrf: true,
+      emptyBodyWait: true,
+      emptyBodyLogKey: 'bridge-empty-watch-' + feature,
       send: (uw, classify) => uw.gpAjax.ajaxPost('frontend_bridge', 'execute', payload, false, classify),
     }, done);
   }

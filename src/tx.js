@@ -9,7 +9,7 @@
   const TX_MANUAL_REVIEW_TTL_MS = 30 * 60 * 1000;
   let txSeq = 0;
   function txTransportUncertain(err) {
-    return err === 'timeout' || err === 'neterr' || err === 'cancelled';
+    return err === 'timeout' || err === 'neterr' || err === 'cancelled' || err === 'empty';
   }
   if (!state.txState || typeof state.txState !== 'object' || Array.isArray(state.txState)) state.txState = {};
   function txManualReviewPermanent(tx) {
@@ -857,6 +857,20 @@
   function txFindExistingIntent(intent, feature, snapshot, townId) {
     const exact = state.txState && state.txState[intent];
     if (exact) return exact;
+    if (feature === 'trade') {
+      // Trade amounts are deliberately part of the exact intent, but an
+      // unresolved transfer still owns its origin/destination route. A fresh
+      // optimizer estimate must reconcile that post, never evade it by picking
+      // a new amount for the same route.
+      const route = /^trade:([^:]+):([^:]+):/.exec(String(intent));
+      if (route) {
+        const prefix = 'trade:' + route[1] + ':' + route[2] + ':';
+        for (const tx of Object.values(state.txState || {})) {
+          if (!tx || tx.feature !== 'trade' || !/^(planned|precheck|sending|confirming|reconciling|unknown|manual-review)$/.test(tx.state || '')) continue;
+          if (String(tx.intent || '').startsWith(prefix)) return tx;
+        }
+      }
+    }
     if (feature !== 'spy' || !snapshot) return null;
     // Compatibility with 6.0.14 spy keys, which included mutable cave silver.
     // Match only the same spy item; unrelated towns/targets keep running.
@@ -886,6 +900,7 @@
       if (!jrnPendingResult(journalResult)) jrnPush(jtag, journalResult, why || err, journalTxId);
       if (onDone && gbInstanceAlive()) onDone(err);
     };
+    const gateExisting = write ? txFindExistingIntent(intent, feature, snapshot, metaTown) : null;
     let gate = txActionGate(feature, write, jtag);
     if (!gate && write) gate = safeModeBlock(feature, transport, endpoint, data);
     if (!gate && write && state.firstPostConfirm && !firstPostLiveOk(feature)) gate = 'first-post-confirm';
@@ -894,6 +909,11 @@
       if (gate === 'dryrun') {
         gbLog(`DRY-RUN ${feature}: ${endpoint} ${dryRunFmt(data)}`);
         if (write) {
+          if (gateExisting && /^(planned|precheck|sending|confirming|reconciling|unknown|manual-review|dryrun)$/.test(gateExisting.state || '')) {
+            journalTxId = gateExisting.id;
+            gbLogT('tx-dup-' + intent, 30000, `tx: duplicate blocked ${intent} state=${gateExisting.state}`);
+            return bail('pending', 'pending:' + gateExisting.state);
+          }
           state.txState[intent] = { id: `${GB_INSTANCE_ID}:${++txSeq}`, intent, feature, state: 'dryrun', createdAt: Date.now(), updatedAt: Date.now(), owner: GB_INSTANCE_ID, snapshot, meta: { townId: metaTown } };
           journalTxId = state.txState[intent].id;
           txSave();
@@ -1004,13 +1024,13 @@
     };
     txEnsureIdentity(tx, intent);
     journalTxId = tx.id;
-    if (!txSave() && (feature === 'gold' || feature === 'goldoffer')) {
+    if (!txSave()) {
       delete state.txState[intent];
       whyNote(feature, endpoint, 'blocked', 'tx-storage-unavailable');
       return bail('storage-unavailable', 'tx-storage-unavailable');
     }
     tx.state = 'precheck'; tx.updatedAt = Date.now();
-    if (!txSave() && (feature === 'gold' || feature === 'goldoffer')) {
+    if (!txSave()) {
       delete state.txState[intent];
       whyNote(feature, endpoint, 'blocked', 'tx-storage-unavailable');
       return bail('storage-unavailable', 'tx-storage-unavailable');
@@ -1049,7 +1069,7 @@
       return bail('captcha', 'captcha-pause');
     }
     tx.state = 'sending'; tx.sentAt = Date.now(); tx.updatedAt = Date.now();
-    if (!txSave() && (feature === 'gold' || feature === 'goldoffer')) {
+    if (!txSave()) {
       tx.state = 'aborted'; tx.updatedAt = Date.now();
       plannerRelease(tx, 'storage-unavailable');
       delete state.txState[intent];
