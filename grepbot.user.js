@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.81
+// @version      6.0.83
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -21,7 +21,8 @@
 
 (function () {
   'use strict';
-  const GB_RELEASE = '6.0.81';
+  const __gbStart = () => {
+  const GB_RELEASE = '6.0.83';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -5548,6 +5549,7 @@ const STORE = {
     }
   }
   function scrapeInboxDom() {
+    if (document.hidden || !hostEnabled()) return;
     document.querySelectorAll('a[href*="action=report"][href*="id="]').forEach(a => {
 
       const m = a.href.match(/[?&]id=(\d+)/);
@@ -8223,6 +8225,16 @@ const STORE = {
     }
   }
   let gbDomObserverSig = '';
+  let gbDomObserverWorkTimer = 0;
+  function gbScheduleDomObserverWork() {
+    if (document.hidden || gbDomObserverWorkTimer) return;
+    gbDomObserverWorkTimer = gbTimeout(() => {
+      gbDomObserverWorkTimer = 0;
+      if (state.autoCollect) scheduleAutoCollect();
+      if (state.autoBandit) scheduleBanditScan();
+      scheduleNativeUiScan();
+    }, 250);
+  }
   function ensureDomObserver() {
     if (!gbDomObserver) {
       gbDomObserver = new MutationObserver((records) => {
@@ -8233,14 +8245,20 @@ const STORE = {
         const ownRecord = (r) => {
           const t = r.target && r.target.nodeType === 1 ? r.target : r.target && r.target.parentElement;
           if (ownEl(t)) return true;
-          const els = [...(r.addedNodes || []), ...(r.removedNodes || [])].filter(n => n && n.nodeType === 1);
-          return els.length > 0 && els.every(ownEl);
+          let any = false;
+          for (const list of [r.addedNodes, r.removedNodes]) {
+            if (!list) continue;
+            for (const n of list) {
+              if (!n || n.nodeType !== 1) continue;
+              any = true;
+              if (!ownEl(n)) return false;
+            }
+          }
+          return any;
         };
         const ownOnly = (records || []).length && (records || []).every(ownRecord);
         if (ownOnly) return;
-        scheduleAutoCollect();
-        if (state.autoBandit) scheduleBanditScan();
-        scheduleNativeUiScan();
+        gbScheduleDomObserverWork();
       });
     }
 
@@ -10289,8 +10307,18 @@ const STORE = {
   function nativeQueueMove(townId,lane,jobId,delta) {
     nativeQueueReconcile(townId,lane);
     const list=nativeQueueList(townId,lane,false);if(list.some(j=>j&&j.inflight))return false;const i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return false;
-    const j=Math.max(0,Math.min(list.length-1,i+(+delta||0)));if(i===j)return false;
-    const item=list.splice(i,1)[0];list.splice(j,0,item);if(lane==='build')nativeQueueRebaseBuild(townId);nativeQueueSave();return true;
+    const item=list.splice(i,1)[0];
+    let j=i+(+delta||0);
+
+    if(NATIVE_RECRUIT_LANES.includes(lane)){
+      if(nativeQueueRecruitIsInfinite(item))j=list.length;
+      else{
+        const firstInfinite=list.findIndex(job=>job&&nativeQueueRecruitIsInfinite(job));
+        j=Math.max(0,Math.min(firstInfinite<0?list.length:firstInfinite,j));
+      }
+    }else j=Math.max(0,Math.min(list.length,j));
+    if(i===j){list.splice(i,0,item);return false}
+    list.splice(j,0,item);if(lane==='build')nativeQueueRebaseBuild(townId);nativeQueueSave();return true;
   }
   function nativeQueueRemove(townId,lane,jobId,opts) {
     nativeQueueReconcile(townId,lane);
@@ -10596,6 +10624,22 @@ const STORE = {
   function nativeQueueRecruitIsInfinite(job) {
     return !!(job && (job.infinite || +job.amount === -1));
   }
+  function nativeQueueRecruitInsertFinite(list, job) {
+
+    const firstInfinite=list.findIndex(item=>item&&nativeQueueRecruitIsInfinite(item));
+    if(firstInfinite<0)list.push(job);
+    else list.splice(firstInfinite,0,job);
+  }
+  function nativeQueueRecruitMoveInfinitiesToTail(list) {
+    let firstInfinite=list.findIndex(item=>item&&nativeQueueRecruitIsInfinite(item));
+    if(firstInfinite<0)return 0;
+    let moved=0;
+    for(let i=firstInfinite+1;i<list.length;i++){
+      const job=list[i];if(!job||nativeQueueRecruitIsInfinite(job))continue;
+      list.splice(i,1);list.splice(firstInfinite,0,job);firstInfinite++;moved++;
+    }
+    return moved;
+  }
   function nativeQueueRecruitChunkOf(job, unit) {
     const cs = Math.max(0, Math.floor(+(job && job.chunkSize) || 0));
     if (cs > 0) return cs;
@@ -10658,11 +10702,12 @@ const STORE = {
         changed++;
       }
     }
+    changed+=nativeQueueRecruitMoveInfinitiesToTail(list);
     if (changed && !quiet) {
       nativeQueueSave();
       try { scheduleNativeUiScan(); } catch (_) {}
       try { renderQueueCenter(); } catch (_) {}
-      gbLog(`cola nativa: ${changed} entrada(s) >${NATIVE_RECRUIT_INF_THRESH} convertida(s) a \u221e en lotes @${townId}`);
+      gbLog(`cola nativa: ${changed} entrada(s) de reclutamiento normalizada(s) @${townId}`);
     }
     return changed;
   }
@@ -10716,7 +10761,7 @@ const STORE = {
 
     const cs=Math.max(0,Math.floor(+chunkSize||0));
     if(cs>0&&cs<n)job.chunkSize=cs;
-    town[lane].push(job);
+    nativeQueueRecruitInsertFinite(town[lane],job);
     nativeQueueSave();
     const label=`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): ${n}\u00d7 ${nativeUnitLabel(unit)} @${townId}`;
     gbLog(job.chunkSize?`${label} en lotes de ${job.chunkSize}`:label);
@@ -10770,7 +10815,7 @@ const STORE = {
     const town=nativeQueueTown(townId,true);
     town.mode[lane]='fifo';
     const job={id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:T,chunkSize:C,status:'pending',reason:`${Math.ceil(T/C)} \u00d7 ${C}`,createdAt:Date.now()};
-    town[lane].push(job);
+    nativeQueueRecruitInsertFinite(town[lane],job);
     nativeQueueSave();
     gbLog(`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): lote ${T}\u00d7 ${nativeUnitLabel(unit)} en ${Math.ceil(T/C)} env\u00edo(s) de ${C} @${townId}`);
     gbTimeout(()=>recruitScan('native'),80);
@@ -11269,7 +11314,7 @@ const STORE = {
   `);
   let nativeUiTimer=0;
   function scheduleNativeUiScan() {
-    if(nativeUiTimer)return;nativeUiTimer=gbTimeout(()=>{nativeUiTimer=0;nativeUiScan()},80);
+    if(nativeUiTimer || document.hidden)return;nativeUiTimer=gbTimeout(()=>{nativeUiTimer=0;nativeUiScan()},250);
   }
   function nativeEnsureBuildingIds() {
     try{const all=gameUw().GameData&&gameUw().GameData.buildings||{};for(const [id,d] of Object.entries(all)){if(id==='place'||id==='main_place')continue;const max=+(d&&d.max_level);if(max>0&&!AB_BUILDINGS.includes(id))AB_BUILDINGS.push(id)}}catch(_){}
@@ -11703,7 +11748,7 @@ const STORE = {
     },{key});
   }
   function nativeUiScan() {
-    if(!gbInstanceAlive()||!document.body)return;nativeEnsureBuildingIds();
+    if(!gbInstanceAlive()||!document.body||document.hidden)return;nativeEnsureBuildingIds();
     const candidates=[...document.querySelectorAll('.window_content,.gpwindow_content,#unit_order')].filter((x,i,a)=>a.indexOf(x)===i&&!x.closest('#grepbot-panel'));
     const roots=candidates.filter(x=>!candidates.some(y=>y!==x&&y.contains(x)));
     const mountedTowns=new Set();
@@ -29111,12 +29156,14 @@ const STORE = {
     }
   }
 
-  const CTX_SCAN_MS = 750;
+  const CTX_SCAN_MS = 3000;
+  const CTX_EVENT_DELAY_MS = 120;
   const CTX_POPUP_SEL = '.ui-dialog-content, .gpwindow_content, .town_info, .context_menu';
   const CTX_ID_ATTRS = ['data-townid', 'data-town-id', 'data-id'];
   let ctxMenuEl = null;
   let ctxMenuTown = null;
   let ctxTimer = 0;
+  let ctxHooksBound = false;
   function ctxReadTownId(popup) {
     for (const a of CTX_ID_ATTRS) {
       const holder = popup.matches && popup.matches('[' + a + ']') ? popup : popup.querySelector('[' + a + ']');
@@ -29254,7 +29301,17 @@ const STORE = {
       if (!ctxTimer && gbInstanceAlive()) ctxTimer = gbTimeout(contextMenuScan, CTX_SCAN_MS);
     }
   }
+  function contextMenuKick(delay) {
+    if (state.contextMenu === false || document.hidden) return;
+    if (ctxTimer) { try { gbClearTimeout(ctxTimer); } catch (_) {} ctxTimer = 0; }
+    ctxTimer = gbTimeout(contextMenuScan, delay == null ? CTX_EVENT_DELAY_MS : delay);
+  }
   function contextMenuStart() {
+    if (!ctxHooksBound) {
+      ctxHooksBound = true;
+      gbListen(document, 'click', () => contextMenuKick(), true);
+      gbListen(window, 'resize', () => contextMenuKick(80), { passive: true });
+    }
     if (ctxTimer) return;
     ctxTimer = gbTimeout(contextMenuScan, CTX_SCAN_MS);
   }
@@ -31942,6 +31999,7 @@ const STORE = {
   }
 
   function renderTownSwitch() {
+    if (document.hidden || (panel && panel.classList.contains('collapsed'))) return;
     const sel = panel && panel.querySelector('[data-qs=town]');
     if (!sel) return;
     let ids = [];
@@ -33554,7 +33612,7 @@ const STORE = {
   let _statusCsLast = '';
   let _statusPanicLast = null;
   function updateStatus() {
-    if (!panel) return;
+    if (!panel || document.hidden || panel.classList.contains('collapsed')) return;
     const el = panel.querySelector('#gb-status');
     if (!el) return;
     const csrfShort = state.csrf ? state.csrf.slice(0, 6) + '\u2026' : 'NONE';
@@ -33627,9 +33685,8 @@ const STORE = {
   }
   let _timerFarmLast = '', _timerTownLast = '';
   function renderTimers() {
-    if (!panel) return;
+    if (!panel || document.hidden || panel.classList.contains('collapsed')) return;
 
-    if (document.hidden) return;
     const fe = panel.querySelector('#gb-next-farms');
     const te = panel.querySelector('#gb-next-towns');
     if (fe) {
@@ -34063,7 +34120,7 @@ const STORE = {
     try { reportCatchUpEnqueue(); } catch (e) { gbLogT('boot-catchup', 60000, 'catchup: ' + String(e?.message || e).slice(0, 80)); }
     try { gbWake('ibScan', () => ibScan(), { priority: 10 }); } catch (e) { gbLogT('boot-wake-ib', 60000, 'wake ibScan: ' + String(e?.message || e).slice(0, 80)); }
     try { orchStartIndependentTimers(); gbWake('orchTick', () => orchTick(), { priority: 30 }); } catch (e) { gbLogT('boot-wake-orch', 60000, 'wake orchTick: ' + String(e?.message || e).slice(0, 80)); }
-    try { nativeQueueSweep('visible'); } catch (e) { gbLogT('boot-nqs-visible', 60000, 'nqs visible: ' + String(e?.message || e).slice(0, 80)); }
+    try { scheduleNativeUiScan(); nativeQueueSweep('visible'); } catch (e) { gbLogT('boot-nqs-visible', 60000, 'nqs visible: ' + String(e?.message || e).slice(0, 80)); }
 
     try { renderTimers(); renderFarms(); renderWorld(); updateStatus(); } catch (e) { gbLogT('boot-repaint-visible', 60000, 'repaint visible: ' + String(e?.message || e).slice(0, 80)); }
   });
@@ -34460,4 +34517,12 @@ const STORE = {
       dispose: GB_ROOT.__grepbotDispose,
     };
   }
+  };
+
+  const __gbBoot = () => {
+    try { __gbStart(); }
+    catch (e) { try { console.error('[grepbot] deferred startup failed', e); } catch (_) {} }
+  };
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(__gbBoot, { timeout: 2200 });
+  else setTimeout(__gbBoot, 600);
 })();

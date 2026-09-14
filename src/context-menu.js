@@ -3,6 +3,7 @@
   let ctxMenuEl = null;
   let ctxMenuTown = null;
   let ctxTimer = 0;
+  let ctxHooksBound = false;
   function ctxReadTownId(popup) {
     for (const a of CTX_ID_ATTRS) {
       const holder = popup.matches && popup.matches('[' + a + ']') ? popup : popup.querySelector('[' + a + ']');
@@ -140,7 +141,17 @@
       if (!ctxTimer && gbInstanceAlive()) ctxTimer = gbTimeout(contextMenuScan, CTX_SCAN_MS);
     }
   }
+  function contextMenuKick(delay) {
+    if (state.contextMenu === false || document.hidden) return;
+    if (ctxTimer) { try { gbClearTimeout(ctxTimer); } catch (_) {} ctxTimer = 0; }
+    ctxTimer = gbTimeout(contextMenuScan, delay == null ? CTX_EVENT_DELAY_MS : delay);
+  }
   function contextMenuStart() {
+    if (!ctxHooksBound) {
+      ctxHooksBound = true;
+      gbListen(document, 'click', () => contextMenuKick(), true);
+      gbListen(window, 'resize', () => contextMenuKick(80), { passive: true });
+    }
     if (ctxTimer) return;
     ctxTimer = gbTimeout(contextMenuScan, CTX_SCAN_MS);
   }

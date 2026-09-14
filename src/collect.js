@@ -172,6 +172,16 @@
     }
   }
   let gbDomObserverSig = '';
+  let gbDomObserverWorkTimer = 0;
+  function gbScheduleDomObserverWork() {
+    if (document.hidden || gbDomObserverWorkTimer) return;
+    gbDomObserverWorkTimer = gbTimeout(() => {
+      gbDomObserverWorkTimer = 0;
+      if (state.autoCollect) scheduleAutoCollect();
+      if (state.autoBandit) scheduleBanditScan();
+      scheduleNativeUiScan();
+    }, 250);
+  }
   function ensureDomObserver() {
     if (!gbDomObserver) {
       gbDomObserver = new MutationObserver((records) => {
@@ -182,14 +192,20 @@
         const ownRecord = (r) => {
           const t = r.target && r.target.nodeType === 1 ? r.target : r.target && r.target.parentElement;
           if (ownEl(t)) return true;
-          const els = [...(r.addedNodes || []), ...(r.removedNodes || [])].filter(n => n && n.nodeType === 1);
-          return els.length > 0 && els.every(ownEl);
+          let any = false;
+          for (const list of [r.addedNodes, r.removedNodes]) {
+            if (!list) continue;
+            for (const n of list) {
+              if (!n || n.nodeType !== 1) continue;
+              any = true;
+              if (!ownEl(n)) return false;
+            }
+          }
+          return any;
         };
         const ownOnly = (records || []).length && (records || []).every(ownRecord);
         if (ownOnly) return;
-        scheduleAutoCollect();
-        if (state.autoBandit) scheduleBanditScan();
-        scheduleNativeUiScan();
+        gbScheduleDomObserverWork();
       });
     }
 

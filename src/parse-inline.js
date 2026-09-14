@@ -57,6 +57,7 @@
     }
   }
   function scrapeInboxDom() {
+    if (document.hidden || !hostEnabled()) return;
     document.querySelectorAll('a[href*="action=report"][href*="id="]').forEach(a => {
 
       const m = a.href.match(/[?&]id=(\d+)/);

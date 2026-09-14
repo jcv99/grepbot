@@ -432,4 +432,5 @@
     }
   }
 
-  const CTX_SCAN_MS = 750;
+  const CTX_SCAN_MS = 3000;
+  const CTX_EVENT_DELAY_MS = 120;

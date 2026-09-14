@@ -129,8 +129,19 @@
   function nativeQueueMove(townId,lane,jobId,delta) {
     nativeQueueReconcile(townId,lane);
     const list=nativeQueueList(townId,lane,false);if(list.some(j=>j&&j.inflight))return false;const i=list.findIndex(j=>j&&j.id===jobId);if(i<0)return false;
-    const j=Math.max(0,Math.min(list.length-1,i+(+delta||0)));if(i===j)return false;
-    const item=list.splice(i,1)[0];list.splice(j,0,item);if(lane==='build')nativeQueueRebaseBuild(townId);nativeQueueSave();return true;
+    const item=list.splice(i,1)[0];
+    let j=i+(+delta||0);
+    // Recurring recruit jobs are standing fallbacks, not work that may block
+    // a finite order. Preserve that tail position through manual reordering.
+    if(NATIVE_RECRUIT_LANES.includes(lane)){
+      if(nativeQueueRecruitIsInfinite(item))j=list.length;
+      else{
+        const firstInfinite=list.findIndex(job=>job&&nativeQueueRecruitIsInfinite(job));
+        j=Math.max(0,Math.min(firstInfinite<0?list.length:firstInfinite,j));
+      }
+    }else j=Math.max(0,Math.min(list.length,j));
+    if(i===j){list.splice(i,0,item);return false}
+    list.splice(j,0,item);if(lane==='build')nativeQueueRebaseBuild(townId);nativeQueueSave();return true;
   }
   function nativeQueueRemove(townId,lane,jobId,opts) {
     nativeQueueReconcile(townId,lane);
@@ -436,6 +447,23 @@
   function nativeQueueRecruitIsInfinite(job) {
     return !!(job && (job.infinite || +job.amount === -1));
   }
+  function nativeQueueRecruitInsertFinite(list, job) {
+    // Infinite jobs are recurring fallbacks. Finite work always joins ahead of
+    // that tail while retaining the order in which finite jobs were added.
+    const firstInfinite=list.findIndex(item=>item&&nativeQueueRecruitIsInfinite(item));
+    if(firstInfinite<0)list.push(job);
+    else list.splice(firstInfinite,0,job);
+  }
+  function nativeQueueRecruitMoveInfinitiesToTail(list) {
+    let firstInfinite=list.findIndex(item=>item&&nativeQueueRecruitIsInfinite(item));
+    if(firstInfinite<0)return 0;
+    let moved=0;
+    for(let i=firstInfinite+1;i<list.length;i++){
+      const job=list[i];if(!job||nativeQueueRecruitIsInfinite(job))continue;
+      list.splice(i,1);list.splice(firstInfinite,0,job);firstInfinite++;moved++;
+    }
+    return moved;
+  }
   function nativeQueueRecruitChunkOf(job, unit) {
     const cs = Math.max(0, Math.floor(+(job && job.chunkSize) || 0));
     if (cs > 0) return cs;
@@ -500,11 +528,12 @@
         changed++;
       }
     }
+    changed+=nativeQueueRecruitMoveInfinitiesToTail(list);
     if (changed && !quiet) {
       nativeQueueSave();
       try { scheduleNativeUiScan(); } catch (_) {}
       try { renderQueueCenter(); } catch (_) {}
-      gbLog(`cola nativa: ${changed} entrada(s) >${NATIVE_RECRUIT_INF_THRESH} convertida(s) a \u221e en lotes @${townId}`);
+      gbLog(`cola nativa: ${changed} entrada(s) de reclutamiento normalizada(s) @${townId}`);
     }
     return changed;
   }
@@ -558,7 +587,7 @@
 
     const cs=Math.max(0,Math.floor(+chunkSize||0));
     if(cs>0&&cs<n)job.chunkSize=cs;
-    town[lane].push(job);
+    nativeQueueRecruitInsertFinite(town[lane],job);
     nativeQueueSave();
     const label=`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): ${n}\u00d7 ${nativeUnitLabel(unit)} @${townId}`;
     gbLog(job.chunkSize?`${label} en lotes de ${job.chunkSize}`:label);
@@ -612,7 +641,7 @@
     const town=nativeQueueTown(townId,true);
     town.mode[lane]='fifo';
     const job={id:nativeQueueId('u'),kind:'recruit',townId:String(townId),unit:String(unit),amount:T,chunkSize:C,status:'pending',reason:`${Math.ceil(T/C)} \u00d7 ${C}`,createdAt:Date.now()};
-    town[lane].push(job);
+    nativeQueueRecruitInsertFinite(town[lane],job);
     nativeQueueSave();
     gbLog(`cola nativa (${lane==='recruitNaval'?'puerto':'cuartel'}): lote ${T}\u00d7 ${nativeUnitLabel(unit)} en ${Math.ceil(T/C)} env\u00edo(s) de ${C} @${townId}`);
     gbTimeout(()=>recruitScan('native'),80);
@@ -1119,7 +1148,7 @@
   `);
   let nativeUiTimer=0;
   function scheduleNativeUiScan() {
-    if(nativeUiTimer)return;nativeUiTimer=gbTimeout(()=>{nativeUiTimer=0;nativeUiScan()},80);
+    if(nativeUiTimer || document.hidden)return;nativeUiTimer=gbTimeout(()=>{nativeUiTimer=0;nativeUiScan()},250);
   }
   function nativeEnsureBuildingIds() {
     try{const all=gameUw().GameData&&gameUw().GameData.buildings||{};for(const [id,d] of Object.entries(all)){if(id==='place'||id==='main_place')continue;const max=+(d&&d.max_level);if(max>0&&!AB_BUILDINGS.includes(id))AB_BUILDINGS.push(id)}}catch(_){}
@@ -1554,7 +1583,7 @@
     },{key});
   }
   function nativeUiScan() {
-    if(!gbInstanceAlive()||!document.body)return;nativeEnsureBuildingIds();
+    if(!gbInstanceAlive()||!document.body||document.hidden)return;nativeEnsureBuildingIds();
     const candidates=[...document.querySelectorAll('.window_content,.gpwindow_content,#unit_order')].filter((x,i,a)=>a.indexOf(x)===i&&!x.closest('#grepbot-panel'));
     const roots=candidates.filter(x=>!candidates.some(y=>y!==x&&y.contains(x)));
     const mountedTowns=new Set();

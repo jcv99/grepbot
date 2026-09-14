@@ -2025,6 +2025,7 @@
   // the value would ship a bad town_id to the server (CLAUDE.md UI-language
   // rule, the [data-atk=mission] precedent).
   function renderTownSwitch() {
+    if (document.hidden || (panel && panel.classList.contains('collapsed'))) return;
     const sel = panel && panel.querySelector('[data-qs=town]');
     if (!sel) return;
     let ids = [];
@@ -3747,7 +3748,7 @@
   let _statusCsLast = '';
   let _statusPanicLast = null;
   function updateStatus() {
-    if (!panel) return;
+    if (!panel || document.hidden || panel.classList.contains('collapsed')) return;
     const el = panel.querySelector('#gb-status');
     if (!el) return;
     const csrfShort = state.csrf ? state.csrf.slice(0, 6) + '…' : 'NONE';
@@ -3828,11 +3829,10 @@
   }
   let _timerFarmLast = '', _timerTownLast = '';
   function renderTimers() {
-    if (!panel) return;
+    if (!panel || document.hidden || panel.classList.contains('collapsed')) return;
 
     // 1s cadence. Bail on hidden tab — nobody can read the countdown.
     // boot.js re-renders on visibilitychange / pageshow.
-    if (document.hidden) return;
     const fe = panel.querySelector('#gb-next-farms');
     const te = panel.querySelector('#gb-next-towns');
     if (fe) {
