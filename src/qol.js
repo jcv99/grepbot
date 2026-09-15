@@ -97,6 +97,7 @@
     'preflight': { label: 'Comprobar sistema', run: () => { showTab('stats'); preflightRunAndRender(); } },
     'copy-findings': { label: 'Copiar hallazgos', run: () => { const b = panel && panel.querySelector('footer button[data-act=copy]'); if (b) b.click(); } },
     'copy-all': { label: 'Copiar todo (log + datos)', run: () => bundleCopy() },
+    'copy-registry': { label: 'Registro del bot (JSON)', run: () => registryCopy() },
     'queue-center': { label: 'Abrir Colas', run: () => openQueueCenter() },
     'rescan-inbox': { label: 'Releer bandeja', run: () => scrapeInboxDom() },
     'diag': { label: 'Diagnostico', run: () => diagRun() },
@@ -126,6 +127,7 @@
     'Ctrl+Shift+L': 'toggle-pause',
     'Ctrl+Shift+D': 'diag',
     'Ctrl+Shift+B': 'copy-all',
+    'Ctrl+Shift+Y': 'copy-registry',
     'Ctrl+Shift+Backspace': 'panic',
     'Ctrl+Alt+P': 'toggle-profiler',
   };

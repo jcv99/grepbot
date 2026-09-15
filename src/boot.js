@@ -382,6 +382,7 @@
       qolExportConfig,
       qolImportConfig,
       preflightRun,
+      gbRegistryJson,
       autoCollectResources,
       abScan,
       abPickNext,

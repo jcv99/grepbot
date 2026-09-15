@@ -1677,6 +1677,8 @@
           <button type="button" data-act="bundle" title="Copia TODO en un solo texto: evidencia, configuracion, bitacora de decisiones, log, hallazgos, puente y preflight. Respeta la opcion de anonimizado. No envia nada.">Copiar todo para un informe</button>
           <button type="button" data-act="bundle-file" title="Lo mismo que Copiar todo, pero guardado en un archivo .txt.">Guardar un informe (.txt)</button>
           <button type="button" data-act="evidence" title="Instantanea de solo lectura y anonimizada para las validaciones de TASKS. Copia JSON. No envia nada.">Evidencia</button>
+          <button type="button" data-act="registry" title="Copia TODO el estado del bot en un solo JSON legible por máquina: evidencia, bitacora, registro, hallazgos, configuracion (anonimizada), cola nativa, plantillas, salud de plantillas, bloqueos, presupuesto, scheduler y preflight. Respeta anonimizado. No envia nada.">Registro del bot (JSON)</button>
+          <button type="button" data-act="registry-file" title="Lo mismo que Registro del bot, pero guardado como archivo .json.">Guardar registro (.json)</button>
           <button type="button" data-act="clear" data-gb-tip="Borrar los hallazgos de inteligencia almacenados">Limpiar hallazgos</button>
           <div class="gb-menu-h">Diagnóstico</div>
           <button type="button" data-act="first-post-live" title="Autoriza el primer envio real de cada modulo de escritura en este mundo. Solo se pide una vez por modulo.">Autorizar envios en vivo</button>
@@ -2208,6 +2210,12 @@
   });
   panel.querySelectorAll('button[data-act=bundle-file]').forEach(btn => {
     btn.addEventListener('click', () => { bundleDownload(); });
+  });
+  panel.querySelectorAll('button[data-act=registry]').forEach(btn => {
+    btn.addEventListener('click', () => { registryCopy(); });
+  });
+  panel.querySelectorAll('button[data-act=registry-file]').forEach(btn => {
+    btn.addEventListener('click', () => { registryDownload(); });
   });
   panel.querySelector('footer button[data-act=diag]').addEventListener('click', () => {
     diagRun();

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.86
+// @version      6.0.87
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -22,7 +22,7 @@
 (function () {
   'use strict';
   const __gbStart = () => {
-  const GB_RELEASE = '6.0.86';
+  const GB_RELEASE = '6.0.87';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -21889,6 +21889,7 @@ const STORE = {
     'preflight': { label: 'Comprobar sistema', run: () => { showTab('stats'); preflightRunAndRender(); } },
     'copy-findings': { label: 'Copiar hallazgos', run: () => { const b = panel && panel.querySelector('footer button[data-act=copy]'); if (b) b.click(); } },
     'copy-all': { label: 'Copiar todo (log + datos)', run: () => bundleCopy() },
+    'copy-registry': { label: 'Registro del bot (JSON)', run: () => registryCopy() },
     'queue-center': { label: 'Abrir Colas', run: () => openQueueCenter() },
     'rescan-inbox': { label: 'Releer bandeja', run: () => scrapeInboxDom() },
     'diag': { label: 'Diagnostico', run: () => diagRun() },
@@ -21918,6 +21919,7 @@ const STORE = {
     'Ctrl+Shift+L': 'toggle-pause',
     'Ctrl+Shift+D': 'diag',
     'Ctrl+Shift+B': 'copy-all',
+    'Ctrl+Shift+Y': 'copy-registry',
     'Ctrl+Shift+Backspace': 'panic',
     'Ctrl+Alt+P': 'toggle-profiler',
   };
@@ -29182,6 +29184,133 @@ const STORE = {
     }
   }
 
+  function nativeQueueShape(nq) {
+    if (!nq || typeof nq !== 'object') return null;
+    try {
+      const out = { version: nq.version || 0, seq: nq.seq || 0, towns: {} };
+      const towns = nq.towns || {};
+      const laneShape = (l) => {
+        if (!l) return null;
+        const items = Array.isArray(l.items) ? l.items : [];
+        const head = items[0] || null;
+        const pausedKeys = l.paused && typeof l.paused === 'object' ? Object.keys(l.paused).filter(k => l.paused[k]) : [];
+        return {
+          count: items.length,
+          paused: pausedKeys,
+          mode: l.mode || 'legacy',
+          head: head ? { kind: head.kind || null, id: head.id || null, n: head.n != null ? head.n : null } : null,
+        };
+      };
+      Object.keys(towns).forEach(tid => {
+        const tn = towns[tid] || {};
+        out.towns[tid] = {
+          build: laneShape(tn.build),
+          recruit: laneShape(tn.recruit),
+          recruitNaval: laneShape(tn.recruitNaval),
+          research: laneShape(tn.research),
+          manualReview: !!tn.manualReview,
+          inflightAgeMs: tn.inflightAt ? Date.now() - tn.inflightAt : null,
+        };
+      });
+      return out;
+    } catch (e) { return { error: String(e).slice(0, 120) }; }
+  }
+  function gbRegistryJson() {
+    const now = Date.now();
+    const pauseInfo = {};
+    let paused = false;
+    try {
+      if (typeof automationPaused === 'function') paused = !!automationPaused(pauseInfo);
+    } catch (_) {}
+    let evidence = null;
+    try { evidence = (typeof gbEvidence === 'function') ? gbEvidence() : null; }
+    catch (e) { evidence = { error: String(e).slice(0, 120) }; }
+    let logRing = [];
+    try { logRing = (typeof gbLogDump === 'function') ? gbLogDump(0) : []; }
+    catch (_) {}
+    return gbRedact({
+      meta: {
+        at: new Date(now).toISOString(),
+        version: runningVersion(),
+        host: location.host,
+        worldKey: wkey(''),
+        redact: state.exportRedact !== false,
+        dryRun: !!state.dryRun,
+        safeMode: !!state.safeMode,
+        neverStop: typeof gbNeverStop === 'function' ? !!gbNeverStop() : false,
+        panicActive: typeof gbPanicActive === 'function' ? !!gbPanicActive() : false,
+        paused,
+        pausedReason: pauseInfo.reason || null,
+      },
+      toggles: (evidence && evidence.toggles) || {},
+      scheduler: (evidence && evidence.scheduler) || [],
+      templates: (evidence && evidence.templates) || {},
+      captcha: (evidence && evidence.captcha) || {},
+      server: (evidence && evidence.server) || {},
+      locks: (evidence && evidence.locks) || [],
+      budget: (evidence && evidence.budget) || {},
+      counts: (evidence && evidence.counts) || {},
+      recentByFeature: (evidence && evidence.recentByFeature) || {},
+      lastOk: (evidence && evidence.lastOk) || {},
+      lastSkip: (evidence && evidence.lastSkip) || {},
+      decisionSkips: (evidence && evidence.decisionSkips) || [],
+      scrapes: (evidence && evidence.scrapes) || {},
+      wake: (evidence && evidence.wake) || {},
+      tplHealth: (evidence && evidence.tplHealth) || {},
+      decisions: { ring: state.decisions || [], skips: state.decisionSkips || {}, len: (state.decisions || []).length },
+      log: { entries: logRing, len: logRing.length },
+      findings: (typeof redactFindingsExport === 'function')
+        ? redactFindingsExport({ findings: state.findings, farms: state.farms })
+        : '(redaction unavailable)',
+      config: (typeof qolExportConfigForUi === 'function') ? qolExportConfigForUi() : null,
+      nativeQueue: nativeQueueShape(state.nativeQueue),
+      bridge: (typeof gameBridgeStatus === 'function') ? gameBridgeStatus() : null,
+      preflight: (typeof preflightRun === 'function') ? preflightRun() : null,
+    }, { maxDepth: 8, maxEntries: 800, maxString: 360 });
+  }
+  function gbRegistryJsonText() {
+    try { return JSON.stringify(gbRegistryJson(), null, 2); }
+    catch (e) { return '{"error":' + JSON.stringify(String(e).slice(0, 120)) + '}'; }
+  }
+  function registryCopy() {
+    const text = gbRegistryJsonText();
+    const ok = () => {
+      flash('registro copiado (' + Math.round(text.length / 1024) + ' KB)');
+      gbLog('registry: copied ' + text.length + ' chars');
+    };
+    const fail = () => {
+      console.groupCollapsed('[grepbot] registry');
+      console.log(text);
+      console.groupEnd();
+      flash('registro en la consola');
+      gbLog('registry: clipboard fail - expand [grepbot] registry in console');
+    };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(ok, fail);
+        return;
+      }
+    } catch (_) {}
+    fail();
+  }
+  function registryDownload() {
+    const text = gbRegistryJsonText();
+    try {
+      const blob = new Blob([text], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'grepbot-registry-' + location.host + '-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.json';
+      a.click();
+      gbTimeout(() => { try { URL.revokeObjectURL(url); } catch (_) {} }, 0);
+      flash('registro descargado');
+      gbLog('registry: downloaded ' + text.length + ' chars');
+    } catch (e) {
+      gbLog('registry: download failed ' + String(e).slice(0, 120));
+      flash('fallo la descarga');
+    }
+  }
+
   const CTX_SCAN_MS = 3000;
   const CTX_EVENT_DELAY_MS = 120;
   const CTX_POPUP_SEL = '.ui-dialog-content, .gpwindow_content, .town_info, .context_menu';
@@ -31710,6 +31839,8 @@ const STORE = {
           <button type="button" data-act="bundle" title="Copia TODO en un solo texto: evidencia, configuracion, bitacora de decisiones, log, hallazgos, puente y preflight. Respeta la opcion de anonimizado. No envia nada.">Copiar todo para un informe</button>
           <button type="button" data-act="bundle-file" title="Lo mismo que Copiar todo, pero guardado en un archivo .txt.">Guardar un informe (.txt)</button>
           <button type="button" data-act="evidence" title="Instantanea de solo lectura y anonimizada para las validaciones de TASKS. Copia JSON. No envia nada.">Evidencia</button>
+          <button type="button" data-act="registry" title="Copia TODO el estado del bot en un solo JSON legible por m\u00e1quina: evidencia, bitacora, registro, hallazgos, configuracion (anonimizada), cola nativa, plantillas, salud de plantillas, bloqueos, presupuesto, scheduler y preflight. Respeta anonimizado. No envia nada.">Registro del bot (JSON)</button>
+          <button type="button" data-act="registry-file" title="Lo mismo que Registro del bot, pero guardado como archivo .json.">Guardar registro (.json)</button>
           <button type="button" data-act="clear" data-gb-tip="Borrar los hallazgos de inteligencia almacenados">Limpiar hallazgos</button>
           <div class="gb-menu-h">Diagn\u00f3stico</div>
           <button type="button" data-act="first-post-live" title="Autoriza el primer envio real de cada modulo de escritura en este mundo. Solo se pide una vez por modulo.">Autorizar envios en vivo</button>
@@ -32201,6 +32332,12 @@ const STORE = {
   });
   panel.querySelectorAll('button[data-act=bundle-file]').forEach(btn => {
     btn.addEventListener('click', () => { bundleDownload(); });
+  });
+  panel.querySelectorAll('button[data-act=registry]').forEach(btn => {
+    btn.addEventListener('click', () => { registryCopy(); });
+  });
+  panel.querySelectorAll('button[data-act=registry-file]').forEach(btn => {
+    btn.addEventListener('click', () => { registryDownload(); });
   });
   panel.querySelector('footer button[data-act=diag]').addEventListener('click', () => {
     diagRun();
@@ -34407,6 +34544,7 @@ const STORE = {
       qolExportConfig,
       qolImportConfig,
       preflightRun,
+      gbRegistryJson,
       autoCollectResources,
       abScan,
       abPickNext,
