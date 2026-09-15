@@ -46,6 +46,9 @@ const keepOpen = argv.includes('--keep-open');
 // Suppress smoke.html's __grepbotTestMode, i.e. boot exactly as Tampermonkey
 // does. Costs you window.__grepbotTest and everything built on it.
 const noTest = argv.includes('--notest');
+// `dump` mode: --out PATH for the registry JSON (default data/registry-<host>-<ts>.json).
+const outIdx = argv.indexOf('--out');
+const outArg = (outIdx >= 0 && argv[outIdx + 1]) ? argv[outIdx + 1] : null;
 
 // Panel tab ids, in nav order (src/ui.js TAB_GROUPS).
 const TABS = ['overview', 'attack', 'reinforce', 'train', 'spy', 'intel', 'config', 'stats', 'log'];
@@ -713,4 +716,45 @@ async function runRepl() {
 }
 
 if (mode === 'repl') await runRepl();
+else if (mode === 'dump') await runDump();
 else await runSmoke();
+
+// `dump` mode is the agent-facing one-shot path: build the artifact, boot it
+// in headless chromium, call window.__grepbotTest.gbRegistryJson() once, write
+// the JSON to disk, print a one-line summary, exit. No REPL, no screenshots.
+// Claude Code invokes this directly without the user opening the panel.
+async function runDump() {
+  buildAndCheck();
+  const d = await launch();
+  try {
+    await settle(d.evaluate, 12000);
+    const t0 = Date.now();
+    while (Date.now() - t0 < 30000) {
+      const v = await d.evaluate(`${T} && typeof ${T}.gbRegistryJson === 'function' ? 'ready' : 'pending'`);
+      if (v === 'ready') break;
+      await wait(200);
+    }
+    const ready = await d.evaluate(`${T} && typeof ${T}.gbRegistryJson === 'function' ? 'ready' : 'missing'`);
+    if (ready !== 'ready') fail('window.__grepbotTest.gbRegistryJson missing after 30s (was __grepbotTestMode enabled?)');
+
+    const jsonText = await d.evaluate(`(() => { try { return JSON.stringify(${T}.gbRegistryJson()); } catch (e) { return '__ERR__' + (e && e.message || e); } })()`);
+    if (typeof jsonText !== 'string' || jsonText.startsWith('__ERR__')) {
+      fail(`gbRegistryJson failed: ${String(jsonText).slice(0, 200)}`);
+    }
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const outPath = outArg ? resolve(repoRoot, outArg) : resolve(repoRoot, 'data', `registry-${stamp}.json`);
+    mkdirSync(dirname(outPath), { recursive: true });
+    writeFileSync(outPath, jsonText);
+
+    let summary = {};
+    try { summary = JSON.parse(jsonText); } catch (_) {}
+    const meta = summary.meta || {};
+    const sizes = Object.fromEntries(Object.entries(summary).map(([k, v]) => [k, Array.isArray(v) ? v.length : (v && typeof v === 'object' ? Object.keys(v).length : 0)]));
+    log(`registry: wrote ${jsonText.length} bytes -> ${outPath}`);
+    log(`registry: version=${meta.version || '?'} host=${meta.host || '?'} world=${meta.worldKey || '?'} redact=${meta.redact === false ? 'OFF' : 'ON'} dryRun=${meta.dryRun ? 'ON' : 'off'}`);
+    log(`registry: sizes=${JSON.stringify(sizes)}`);
+  } finally {
+    d.close();
+  }
+}

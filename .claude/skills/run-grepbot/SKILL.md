@@ -1,6 +1,6 @@
 ---
 name: run-grepbot
-description: Build, syntax-check and headlessly drive the GrepBot Tampermonkey userscript. Runs python3 build.py, node --check on grepbot.user.js, then boots the artifact in headless Chromium over CDP, clicks every panel tab, opens the Queue Center, runs Actions > Preflight, pushes a real write through bridgePost in dry run, and screenshots each step. Ships an interactive REPL that also reaches the bot's internals (state, planner, txRun, every *Scan) through the __grepbotTest export. Use when asked to "build the bot", "run/start GrepBot", "smoke-test GrepBot", "screenshot the panel", "call a bot internal", or to validate a src/ edit before manual in-game testing.
+description: Build, syntax-check and headlessly drive the GrepBot Tampermonkey userscript. Runs python3 build.py, node --check on grepbot.user.js, then boots the artifact in headless Chromium over CDP, clicks every panel tab, opens the Queue Center, runs Actions > Preflight, pushes a real write through bridgePost in dry run, and screenshots each step. Ships an interactive REPL that also reaches the bot's internals (state, planner, txRun, every *Scan) through the __grepbotTest export. A `dump` mode calls __grepbotTest.gbRegistryJson() once and writes the full bot state to a JSON file on disk for agent inspection without user interaction. Use when asked to "build the bot", "run/start GrepBot", "smoke-test GrepBot", "screenshot the panel", "call a bot internal", "dump the bot's state/log/registry", or to validate a src/ edit before manual in-game testing.
 ---
 
 # run-grepbot
@@ -196,6 +196,30 @@ printf 'arm\npost farm { town_id: 7, x: 1 }\njournal 1\nquit\n' \
 ```
 
 `arm` is not optional and not cosmetic — see the two gates in Gotchas.
+
+### One-shot registry dump — agent path
+
+The `dump` mode is the no-questions path for an agent to pull the bot's
+full state to disk: build → boot → call `__grepbotTest.gbRegistryJson()`
+once → write JSON → print summary → exit. No REPL, no panel clicks, no
+user intervention.
+
+```sh
+node .claude/skills/run-grepbot/driver.mjs dump --out data/registry.json
+# [driver] artifact OK: 1774051 bytes, v6.0.87, node --check clean
+# [driver] registry: wrote 12245 bytes -> data/registry.json
+# [driver] registry: version=6.0.87 host=… world=… redact=ON dryRun=off
+# [driver] registry: sizes={meta:11, toggles:30, scheduler:19, …, preflight:57}
+```
+
+Default output is `data/registry-<ISO-timestamp>.json`. The JSON is one
+object covering meta + toggles + scheduler + templates + captcha + server
++ locks + budget + counts + recentByFeature + lastOk/Skip + decisionSkips
++ scrapes + wake + tplHealth + decisions + log + findings + masked config
++ native queue + bridge + preflight. `state.exportRedact` (default ON) is
+honored end-to-end. This is what `registryCopy()` / `registryDownload()`
+on the panel call into, so the agent path and the user path return the
+same object.
 
 For a pure-parser edit that touches no init wiring, the cheap check is
 still just:
