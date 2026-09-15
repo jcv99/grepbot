@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.83
+// @version      6.0.86
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -22,7 +22,7 @@
 (function () {
   'use strict';
   const __gbStart = () => {
-  const GB_RELEASE = '6.0.83';
+  const GB_RELEASE = '6.0.86';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -4224,7 +4224,9 @@ const STORE = {
     const u = String(url || '');
     const out = { sigs: [], fp: '' };
     let j = null;
-    if (typeof body === 'string') { try { j = parseBodyLoose(body); } catch (_) {} }
+    let bodyText = typeof body === 'string' ? body : '';
+    try { if (!bodyText && typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) bodyText = body.toString(); } catch (_) {}
+    if (bodyText) { try { j = parseBodyLoose(bodyText); } catch (_) {} }
     if (/frontend_bridge/.test(u)) {
       if (j && j.model_url) {
         out.sigs.push('bridge:' + j.model_url + '|' + String(j.action_name || ''));
@@ -4232,17 +4234,19 @@ const STORE = {
       }
       return out;
     }
-    const ctrl = (u.match(/[?&]controller=([a-z_0-9]+)/i) || u.match(/\/game\/([a-z_0-9]+)/i) || [])[1] || '';
-    const act = (u.match(/[?&]action=([a-z_0-9]+)/i) || [])[1] || '';
+    let payload = j;
+    if (payload && payload.json != null) {
+      let inner = payload.json;
+      if (typeof inner === 'string') { try { inner = JSON.parse(inner); } catch (_) { inner = null; } }
+      if (inner && typeof inner === 'object') payload = inner;
+    }
+    const route = /\/game\/([a-z_0-9]+)(?:\/([a-z_0-9]+))?/i.exec(u) || [];
+    const ctrl = (u.match(/[?&]controller=([a-z_0-9]+)/i) || [])[1]
+      || route[1] || String((payload && payload.controller) || '');
+    const act = (u.match(/[?&]action=([a-z_0-9]+)/i) || [])[1]
+      || route[2] || String((payload && (payload.action || payload.action_name)) || '');
     if (ctrl && act) {
       out.sigs.push('ajax:' + ctrl + '/' + act);
-
-      let payload = j;
-      if (payload && payload.json != null) {
-        let inner = payload.json;
-        if (typeof inner === 'string') { try { inner = JSON.parse(inner); } catch (_) { inner = null; } }
-        if (inner && typeof inner === 'object') payload = inner;
-      }
       if (payload) out.fp = gbAjaxFp(payload);
     }
     return out;
@@ -5330,10 +5334,12 @@ const STORE = {
     if (!gbHookOrig.fetch) gbHookOrig.fetch = uw.fetch;
     const orig = gbHookOrig.fetch;
     const patched = function (...args) {
+      const input = args[0];
+      const u = String((input && typeof input === 'object' && input.url) || input || '');
+      const body = args[1] && args[1].body != null ? args[1].body : null;
+      let settle = null;
       if (gbInstanceAlive()) {
         try {
-          const [url] = args;
-          const u = String(url || '');
           const reportCtrl = /\/game\/report(?:\?|$)/.test(u) || /[?&]controller=report(?:&|$)/.test(u);
           const m = u.match(/[?&]action=(report|reports|combat_reports|tombstone|attack_planner)(?:&|$)/)
             || (reportCtrl && u.match(/[?&]action=(view|index|delete)(?:&|$)/));
@@ -5342,10 +5348,30 @@ const STORE = {
           else if (m || reportCtrl) queueReportList(u);
           learnCollectAction(u);
           learnFarmAction(u);
-          try { ptLearnFromXhr(u, args[1] && args[1].body); } catch (_) {}
+          try { ptLearnFromXhr(u, body); } catch (_) {}
+          sniffBridgeBody(u, body);
         } catch (_) {}
+        try { settle = gbAjaxClaim(u, body); } catch (_) {}
       }
-      return orig.apply(this, args);
+      let result;
+      try { result = orig.apply(this, args); }
+      catch (err) {
+        if (settle) { try { settle(0, null); } catch (_) {} }
+        throw err;
+      }
+      if (settle && result && typeof result.then === 'function') {
+        Promise.resolve(result).then(response => {
+          const status = response && Number(response.status);
+          let text = null;
+          try { text = response && response.clone && response.clone().text(); } catch (_) {}
+          Promise.resolve(text).then(rawText => {
+            let raw = null;
+            try { raw = tryParseJson(rawText || ''); } catch (_) {}
+            try { settle(Number.isFinite(status) ? status : 0, raw); } catch (_) {}
+          }, () => { try { settle(Number.isFinite(status) ? status : 0, null); } catch (_) {} });
+        }, () => { try { settle(0, null); } catch (_) {} });
+      }
+      return result;
     };
     patched._grepbot = true;
     patched.__grepbotOwner = GB_INSTANCE_ID;

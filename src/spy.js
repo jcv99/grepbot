@@ -6,10 +6,12 @@
     if (!gbHookOrig.fetch) gbHookOrig.fetch = uw.fetch;
     const orig = gbHookOrig.fetch;
     const patched = function (...args) {
+      const input = args[0];
+      const u = String((input && typeof input === 'object' && input.url) || input || '');
+      const body = args[1] && args[1].body != null ? args[1].body : null;
+      let settle = null;
       if (gbInstanceAlive()) {
         try {
-          const [url] = args;
-          const u = String(url || '');
           const reportCtrl = /\/game\/report(?:\?|$)/.test(u) || /[?&]controller=report(?:&|$)/.test(u);
           const m = u.match(/[?&]action=(report|reports|combat_reports|tombstone|attack_planner)(?:&|$)/)
             || (reportCtrl && u.match(/[?&]action=(view|index|delete)(?:&|$)/));
@@ -18,10 +20,30 @@
           else if (m || reportCtrl) queueReportList(u);
           learnCollectAction(u);
           learnFarmAction(u);
-          try { ptLearnFromXhr(u, args[1] && args[1].body); } catch (_) {}
+          try { ptLearnFromXhr(u, body); } catch (_) {}
+          sniffBridgeBody(u, body);
         } catch (_) {}
+        try { settle = gbAjaxClaim(u, body); } catch (_) {}
       }
-      return orig.apply(this, args);
+      let result;
+      try { result = orig.apply(this, args); }
+      catch (err) {
+        if (settle) { try { settle(0, null); } catch (_) {} }
+        throw err;
+      }
+      if (settle && result && typeof result.then === 'function') {
+        Promise.resolve(result).then(response => {
+          const status = response && Number(response.status);
+          let text = null;
+          try { text = response && response.clone && response.clone().text(); } catch (_) {}
+          Promise.resolve(text).then(rawText => {
+            let raw = null;
+            try { raw = tryParseJson(rawText || ''); } catch (_) {}
+            try { settle(Number.isFinite(status) ? status : 0, raw); } catch (_) {}
+          }, () => { try { settle(Number.isFinite(status) ? status : 0, null); } catch (_) {} });
+        }, () => { try { settle(0, null); } catch (_) {} });
+      }
+      return result;
     };
     patched._grepbot = true;
     patched.__grepbotOwner = GB_INSTANCE_ID;

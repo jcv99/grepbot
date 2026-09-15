@@ -51,7 +51,9 @@
     const u = String(url || '');
     const out = { sigs: [], fp: '' };
     let j = null;
-    if (typeof body === 'string') { try { j = parseBodyLoose(body); } catch (_) {} }
+    let bodyText = typeof body === 'string' ? body : '';
+    try { if (!bodyText && typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) bodyText = body.toString(); } catch (_) {}
+    if (bodyText) { try { j = parseBodyLoose(bodyText); } catch (_) {} }
     if (/frontend_bridge/.test(u)) {
       if (j && j.model_url) {
         out.sigs.push('bridge:' + j.model_url + '|' + String(j.action_name || ''));
@@ -59,17 +61,19 @@
       }
       return out;
     }
-    const ctrl = (u.match(/[?&]controller=([a-z_0-9]+)/i) || u.match(/\/game\/([a-z_0-9]+)/i) || [])[1] || '';
-    const act = (u.match(/[?&]action=([a-z_0-9]+)/i) || [])[1] || '';
+    let payload = j;
+    if (payload && payload.json != null) {
+      let inner = payload.json;
+      if (typeof inner === 'string') { try { inner = JSON.parse(inner); } catch (_) { inner = null; } }
+      if (inner && typeof inner === 'object') payload = inner;
+    }
+    const route = /\/game\/([a-z_0-9]+)(?:\/([a-z_0-9]+))?/i.exec(u) || [];
+    const ctrl = (u.match(/[?&]controller=([a-z_0-9]+)/i) || [])[1]
+      || route[1] || String((payload && payload.controller) || '');
+    const act = (u.match(/[?&]action=([a-z_0-9]+)/i) || [])[1]
+      || route[2] || String((payload && (payload.action || payload.action_name)) || '');
     if (ctrl && act) {
       out.sigs.push('ajax:' + ctrl + '/' + act);
-
-      let payload = j;
-      if (payload && payload.json != null) {
-        let inner = payload.json;
-        if (typeof inner === 'string') { try { inner = JSON.parse(inner); } catch (_) { inner = null; } }
-        if (inner && typeof inner === 'object') payload = inner;
-      }
       if (payload) out.fp = gbAjaxFp(payload);
     }
     return out;
