@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.99
+// @version      6.1.00
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -24,7 +24,7 @@
 (function () {
   'use strict';
   const __gbStart = () => {
-  const GB_RELEASE = '6.0.99';
+  const GB_RELEASE = '6.1.00';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -9955,33 +9955,32 @@ const STORE = {
     parseSelectors: Object.freeze({
       window: '.window_main_container.notes, .gpwindow_content.notes',
       preview: '.preview_box, .notes_preview',
-      textarea: 'textarea[name*="note"], .editable_note textarea',
+      textarea: 'textarea[name="note"], .editable_note textarea',
     }),
   });
   const CITY_SCHEME_TICK_MIN_MS = 60000;
   let citySchemeLast = { at: 0, fingerprint: 'none', rows: 0, pairs: 0 };
 
-  function citySchemeCfg() {
-    const raw = state.citySchemeCfg && typeof state.citySchemeCfg === 'object' && !Array.isArray(state.citySchemeCfg) ? state.citySchemeCfg : {};
-    const out = {
-      enabled: raw.enabled !== false,
-      pairTarget: gbCfgClamp(raw.pairTarget, 1, 6, CITY_SCHEME_DEFAULTS.pairTarget),
-      fireShipsOnAttack: gbCfgClamp(raw.fireShipsOnAttack, 0, 50, CITY_SCHEME_DEFAULTS.fireShipsOnAttack),
-      mythicalPerCity: gbCfgClamp(raw.mythicalPerCity, 0, 500, CITY_SCHEME_DEFAULTS.mythicalPerCity),
-      bigTransporterMythical: gbCfgClamp(raw.bigTransporterMythical, 0, 10, CITY_SCHEME_DEFAULTS.bigTransporterMythical),
-      triremesPerTransportCity: gbCfgClamp(raw.triremesPerTransportCity, 0, 50, CITY_SCHEME_DEFAULTS.triremesPerTransportCity),
+  function citySchemeNormalizeCfg(raw) {
+    const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    return {
+      enabled: src.enabled !== false,
+      pairTarget: gbCfgClamp(src.pairTarget, 1, 6, CITY_SCHEME_DEFAULTS.pairTarget),
+      fireShipsOnAttack: gbCfgClamp(src.fireShipsOnAttack, 0, 50, CITY_SCHEME_DEFAULTS.fireShipsOnAttack),
+      mythicalPerCity: gbCfgClamp(src.mythicalPerCity, 0, 500, CITY_SCHEME_DEFAULTS.mythicalPerCity),
+      bigTransporterMythical: gbCfgClamp(src.bigTransporterMythical, 0, 10, CITY_SCHEME_DEFAULTS.bigTransporterMythical),
+      triremesPerTransportCity: gbCfgClamp(src.triremesPerTransportCity, 0, 50, CITY_SCHEME_DEFAULTS.triremesPerTransportCity),
+      gods: src.gods && typeof src.gods === 'object' && !Array.isArray(src.gods) ? Object.assign({}, src.gods) : null,
+      keywordOverrides: src.keywordOverrides && typeof src.keywordOverrides === 'object' && !Array.isArray(src.keywordOverrides) ? Object.assign({}, src.keywordOverrides) : null,
     };
-    state.citySchemeCfg = out;
-    return out;
   }
+  function citySchemeCfg() { return citySchemeNormalizeCfg(state.citySchemeCfg); }
   function citySchemeSetCfg(patch) {
-    const prev = citySchemeCfg();
-    const next = Object.assign({}, prev, patch || {});
+    const next = citySchemeNormalizeCfg(Object.assign({}, state.citySchemeCfg, patch || {}));
     state.citySchemeCfg = next;
-    const clean = citySchemeCfg();
-    save(STORE.CITY_SCHEME_CFG, clean);
+    save(STORE.CITY_SCHEME_CFG, next);
     citySchemeInvalidate();
-    return clean;
+    return next;
   }
   function citySchemeInvalidate() {
     citySchemeLast.at = 0;
@@ -10015,27 +10014,28 @@ const STORE = {
   }
   function citySchemeNotesScrape() {
     const sel = CITY_SCHEME_DEFAULTS.parseSelectors;
-    const textarea = citySchemeProbe(sel.textarea);
-    if (textarea && typeof textarea.value === 'string' && textarea.value) return textarea.value;
+    const fromModel = citySchemeModelScrape();
+    if (fromModel && fromModel.trim()) return fromModel;
     const win = citySchemeProbe(sel.window);
     const preview = win ? win.querySelector(sel.preview) : citySchemeProbe(sel.preview);
     if (preview) {
       const text = preview.textContent != null ? preview.textContent : citySchemePreviewFromHtml(preview.innerHTML);
       if (text && text.trim()) return text;
     }
-    const fromModel = citySchemeModelScrape();
-    if (fromModel && fromModel.trim()) return fromModel;
+
+    const textarea = citySchemeProbe(sel.textarea);
+    if (textarea && typeof textarea.value === 'string' && textarea.value.trim()) return textarea.value;
     return null;
   }
   const CITY_SCHEME_MYTHICAL_GOD = Object.freeze(Object.assign(Object.create(null), {
     hydra: 'poseidon',
-    ladon: 'poseidon',
+    ladon: 'ares',
     griffin: 'zeus',
     grifo: 'zeus',
     harpy: 'athena',
     harpia: 'athena',
-    manticore: 'athena',
-    manticora: 'athena',
+    manticore: 'zeus',
+    manticora: 'zeus',
   }));
   const CITY_SCHEME_KEYWORDS = Object.freeze({
     'ataque tierra': { role:'ataque_tierra', mythical:null, god:null },
@@ -10046,10 +10046,10 @@ const STORE = {
     'def':           { role:'def_tierra',    mythical:null, god:null },
     'hoplitas':      { role:'ataque_tierra', mythical:'hoplite', god:'ares' },
     'hydra':         { role:'ataque_agua',   mythical:'hydra',   god:'poseidon' },
-    'ladon':         { role:'ataque_tierra', mythical:'ladon',   god:'poseidon' },
+    'ladon':         { role:'ataque_tierra', mythical:'ladon',   god:'ares' },
     'grifo':         { role:'ataque_tierra', mythical:'griffin', god:'zeus' },
     'harpia':        { role:'ataque_tierra', mythical:'harpy',   god:'athena' },
-    'manticora':     { role:'ataque_agua',   mythical:'manticore', god:'athena' },
+    'manticora':     { role:'ataque_agua',   mythical:'manticore', god:'zeus' },
     'trireme':       { role:'ataque_agua',   mythical:null, god:null, transport:'trireme' },
   });
 
@@ -10077,7 +10077,7 @@ const STORE = {
     return out.size ? out : null;
   }
 
-  function citySchemeResolveTownId(hint, townMap, modelFallback) {
+  function citySchemeResolveTownId(hint, townMap) {
     if (!hint || !townMap) return null;
     if (townMap.has(hint)) return { id: townMap.get(hint), match: 'exact' };
     const hintLower = hint.toLowerCase();
@@ -10089,12 +10089,6 @@ const STORE = {
         return { id, match: 'prefix' };
       }
     }
-    if (modelFallback) {
-      try {
-        const probe = gbTownModel(hint);
-        if (probe && probe.id != null) return { id: String(probe.id), match: 'model' };
-      } catch (_) {}
-    }
     return null;
   }
   function citySchemeBuildRow(token, townId, cfg, keywordMap) {
@@ -10104,7 +10098,8 @@ const STORE = {
     if (!mapped) return Object.assign(base, { unknownKeyword: token.keyword, pairing: null });
     const cfgGods = (cfg && cfg.gods && typeof cfg.gods === 'object') ? cfg.gods : null;
     const mythicalKey = (mapped.mythical && (!cfgGods || cfgGods[mapped.mythical])) ? mapped.mythical : null;
-    const god = (mythicalKey && mapped.god) || (mythicalKey && CITY_SCHEME_MYTHICAL_GOD[mythicalKey]) || (cfgGods && mythicalKey && cfgGods[mythicalKey]) || null;
+
+    const god = mythicalKey ? (mapped.god || CITY_SCHEME_MYTHICAL_GOD[mythicalKey] || null) : null;
     return Object.assign(base, {
       role: mapped.role,
       mythical: mythicalKey,
@@ -10128,7 +10123,7 @@ const STORE = {
         if (line && line.trim()) unparseable.push(line);
         continue;
       }
-      const resolved = citySchemeResolveTownId(token.cityHint, townMap, true);
+      const resolved = citySchemeResolveTownId(token.cityHint, townMap);
       if (!resolved) {
         unparseable.push(line);
         continue;
@@ -10173,17 +10168,19 @@ const STORE = {
     const recruit = {};
     const transport = {};
     let blind = false;
+    let mythicalPopPerUnit = null;
 
     if (row.mythical) {
       const cost = (() => {
         try { return recruitEffectiveUnitCost(row.id, row.mythical); } catch (_) { return null; }
       })();
       const popPerUnit = cost && cost.population != null ? gbNum(cost.population) : null;
+      mythicalPopPerUnit = popPerUnit;
       if (popPerUnit == null || popPerUnit <= 0) blind = true;
       recruit[row.mythical] = blind ? null : cfg.mythicalPerCity;
     }
 
-    const navalAttack = row.role === 'ataque_agua' || (row.mythical && CITY_SCHEME_MYTHICAL_GOD[row.mythical] === 'poseidon');
+    const navalAttack = row.role === 'ataque_agua';
     if (navalAttack) recruit.fire_ship = cfg.fireShipsOnAttack;
 
     const coast = roleAdvisorCoast(tryGetTown(row.id));
@@ -10192,25 +10189,20 @@ const STORE = {
     const needsBoat = !!(row.mythical && CITY_SCHEME_MYTHICAL_GOD[row.mythical] === 'poseidon' && coast === false);
     if (needsBoat) transport.big_transporter = cfg.bigTransporterMythical;
 
-    let farmLevelsBuildable = null;
-    try {
-      const pop = gbTownPop(row.id);
-      const maxFarm = gbProbeNum(row.id, ['farm_max', 'farmMax', 'max_farm']);
-      if (pop != null && maxFarm != null) farmLevelsBuildable = Math.max(0, Math.min(5, Math.floor(maxFarm - (pop.built != null ? pop.built : 0))));
-    } catch (_) { farmLevelsBuildable = null; }
+    row.farmLevelsBuildable = null;
 
     let popHeadroom = null;
     try {
-      const pop = gbTownPop(row.id);
-      const cap = pop && pop.capacity != null ? gbNum(pop.capacity) : null;
-      const used = pop && pop.used != null ? gbNum(pop.used) : 0;
-      const recruitPop = Object.values(recruit).reduce((s, n) => s + (gbNum(n) || 0) * 1, 0);
-      if (cap != null) popHeadroom = Math.max(0, cap - used - recruitPop);
+      const freePop = gbNum(gbTownPop(row.id));
+      let recruitPop = 0;
+      if (mythicalPopPerUnit != null && mythicalPopPerUnit > 0 && recruit[row.mythical] != null) {
+        recruitPop = mythicalPopPerUnit * recruit[row.mythical];
+      }
+      if (freePop != null) popHeadroom = Math.max(0, freePop - recruitPop);
     } catch (_) { popHeadroom = null; }
 
     row.recruit = recruit;
     row.transportNeeded = transport;
-    row.farmLevelsBuildable = farmLevelsBuildable;
     row.popHeadroom = popHeadroom;
     row.recruitPlanBlind = blind;
     return row;
@@ -10221,11 +10213,15 @@ const STORE = {
     const coast = roleAdvisorCoast(town);
     let threat = null;
     try { threat = cdThreatState(townId); } catch (_) { threat = null; }
-    let role = 'ataque_tierra';
-    if (coast === true && !(threat && threat.threatened === true)) role = 'ataque_agua';
-    else if (threat && threat.threatened === true) role = 'def_tierra';
-    const line = name + ' - ' + role;
-    return { id: String(townId), hint: name, role, line, coast, threatened: !!(threat && threat.threatened === true) };
+    const knownThreat = !!(threat && threat.known === true);
+    const threatened = knownThreat && threat.threatened === true;
+
+    let role = null;
+    if (knownThreat && threatened) role = 'def_tierra';
+    else if (coast === true) role = 'ataque_agua';
+    else if (coast === false) role = 'ataque_tierra';
+    const line = role ? name + ' - ' + role : name + ' - (datos no legibles)';
+    return { id: String(townId), hint: name, role, line, coast, threatened, unreadable: role == null };
   }
 
   function citySchemeFingerprint(rows) {
@@ -10237,6 +10233,11 @@ const STORE = {
     if (!cfg.enabled) return false;
     const raw = citySchemeNotesScrape();
     if (raw == null) {
+
+      state.citySchemeRows = [];
+      state.citySchemePairs = { groups: {}, deltas: [] };
+      state.citySchemeNewTowns = [];
+      state.citySchemeNotes = { fingerprint: 'unreadable', at: Date.now(), raw: '', unparseable: [] };
       citySchemeLast = { at: Date.now(), fingerprint: 'unreadable', rows: 0, pairs: 0, unreadable: true };
       return false;
     }
@@ -10248,18 +10249,20 @@ const STORE = {
     parsed.rows.forEach(r => citySchemeRecruitPlan(r, cfg));
     const paired = citySchemePairing(parsed.rows, cfg);
     const knownIds = new Set(parsed.rows.map(r => r.id));
-    const newTowns = (citySchemeTownMap() ? Array.from(citySchemeTownMap().keys()) : [])
-      .filter(n => !knownIds.has(citySchemeTownMap().get(n)))
+    const newTowns = (townMap ? Array.from(townMap.keys()) : [])
+      .filter(n => !knownIds.has(townMap.get(n)))
       .map(name => {
-        const id = citySchemeTownMap().get(name);
+        const id = townMap.get(name);
         const town = (() => { try { return gbTownModel(id); } catch (_) { return null; } })();
         return citySchemeNewCityTemplate(id, town, cfg);
-      });
+      })
+      .filter(t => t.role != null);
     state.citySchemeRows = parsed.rows;
     state.citySchemePairs = paired;
     state.citySchemeNewTowns = newTowns;
     state.citySchemeNotes = { fingerprint: fp, at: Date.now(), raw, unparseable: parsed.unparseable };
-    save(STORE.CITY_SCHEME_NOTES, state.citySchemeNotes);
+
+    saveSoon(STORE.CITY_SCHEME_NOTES, state.citySchemeNotes);
     save(STORE.CITY_SCHEME_ROWS, parsed.rows);
     save(STORE.CITY_SCHEME_PAIRS, paired);
     citySchemeLast = { at: Date.now(), fingerprint: citySchemeFingerprint(parsed.rows), rows: parsed.rows.length, pairs: Object.keys(paired.groups).length };
