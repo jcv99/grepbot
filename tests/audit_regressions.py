@@ -334,6 +334,33 @@ def check_follower_queue_rollback() -> None:
     leader_reload = _function_body(bridge, "gbReloadSharedRuntimeState")
     _expect("leader-reload-nq-failed" in leader_reload and "storage unreadable; runtime queue disabled" in leader_reload,
             "leader promotion must disable cached queue work after a storage read failure")
+
+
+def check_native_recruit_unknown_reconciliation() -> None:
+    native = _read(SRC / "native-ui.js")
+    recruit = _read(SRC / "recruit.js")
+    reconcile = _function_body(native, "nativeQueueReconcileRecruit")
+    normalize = _function_body(native, "nativeQueueNormalizeRecruitLane")
+    recover = _function_body(native, "nativeQueueRecruitUnknownTx")
+    scan = _function_body(recruit, "recruitScan")
+    _expect("txUnitStatus" in reconcile and "totalBefore" in reconcile,
+            "native recruit reconciliation must include trained units after the real queue drains")
+    _expect("TX_UNKNOWN_MAX_MS" in reconcile and "manualReview=true" in reconcile,
+            "native recruit uncertainty must have a bounded automatic reconciliation window")
+    _expect("totalBefore:unitBefore&&gbNum(unitBefore.total)" in scan,
+            "native recruit inflight evidence must capture total units before posting")
+    _expect("err === 'unknown'" in scan,
+            "native recruit callback must classify txRun's canonical unknown result as ambiguous")
+    _expect("head.inflight&&!head.reconcile" in scan and "head.manualReview=!!" in scan,
+            "pending recruit reconciliation must preserve its original age without blocking retries immediately")
+    _expect("state.txState" in recover and "snapshot" in recover and "TX_UNKNOWN_MAX_MS" in recover,
+            "persisted recruit unknowns must recover only from the matching bounded transaction evidence")
+    _expect("nativeQueueRecruitUnknownTx" in normalize and "totalBefore" in normalize,
+            "v6.0.92 manual-review rows must restore their original pre-send total when possible")
+    _expect("sin evidencia suficiente" in normalize and "manualReview=false" in normalize,
+            "legacy rows without transaction evidence must open a bounded reconcile window instead of staying wedged")
+
+
 def check_focused_build_gate_is_fatal() -> None:
     build = _read(ROOT / "build.py")
     gate = _python_function_source(build, "audit_regression_gate")
@@ -361,6 +388,7 @@ CHECKS = (
     ("Phoenician transaction safety", check_phoenician_transaction_contract),
     ("remote config propagation", check_remote_config_changes),
     ("follower queue rollback", check_follower_queue_rollback),
+    ("native recruit unknown reconciliation", check_native_recruit_unknown_reconciliation),
     ("focused build gate", check_focused_build_gate_is_fatal),
 )
 

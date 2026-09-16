@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.92
+// @version      6.0.94
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -24,7 +24,7 @@
 (function () {
   'use strict';
   const __gbStart = () => {
-  const GB_RELEASE = '6.0.92';
+  const GB_RELEASE = '6.0.94';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -10829,6 +10829,24 @@ const STORE = {
     job.updatedAt = Date.now();
     return true;
   }
+  function nativeQueueRecruitUnknownTx(townId, job) {
+    if(!job||!job.unit)return null;
+    const amount=gbNum(job.reconcile&&job.reconcile.amount);
+    const ref=gbNum(job.reconcile&&job.reconcile.at)||gbNum(job.updatedAt);
+    let best=null,bestGap=Infinity;
+    for(const tx of Object.values(state.txState||{})){
+      if(!tx||tx.feature!=='recruit'||!/^(sending|confirming|reconciling|unknown|manual-review)$/.test(String(tx.state||'')))continue;
+      const snap=tx.snapshot||{},status=snap.status||{},txAmount=gbNum(snap.amount);
+      if(snap.kind!=='recruit'||String((tx.meta||{}).townId)!==String(townId)||String(snap.unit)!==String(job.unit))continue;
+      if(amount!=null&&txAmount!=null&&amount!==txAmount)continue;
+      const at=gbNum(tx.createdAt)||gbNum(tx.sentAt)||0;
+      const gap=ref!=null&&at?Math.abs(ref-at):0;
+      if(gap>TX_UNKNOWN_MAX_MS||gap>=bestGap)continue;
+      if(gbNum(status.total)==null)continue;
+      best=tx;bestGap=gap;
+    }
+    return best;
+  }
   function nativeQueueNormalizeRecruitLane(townId, lane, quiet) {
     const list = nativeQueueList(townId, lane || 'recruit', false);
     let changed = 0;
@@ -10842,6 +10860,26 @@ const STORE = {
         j.reason = `\u221e \u00b7 lotes de ${nativeQueueRecruitChunkOf(j)}`;
         j.updatedAt = Date.now();
         changed++;
+      }
+
+      if(j.manualReview&&j.status==='unknown'&&j.reconcile&&gbNum(j.reconcile.totalBefore)==null){
+        const tx=nativeQueueRecruitUnknownTx(townId,j),snap=tx&&tx.snapshot,status=snap&&snap.status;
+        if(status&&gbNum(status.total)!=null){
+          j.reconcile=Object.assign({},j.reconcile,{
+            amount:gbNum(snap.amount),queuedBefore:gbNum(status.queued),totalBefore:gbNum(status.total),
+            at:gbNum(tx.createdAt)||gbNum(j.reconcile.at)||Date.now(),unit:String(snap.unit||j.unit),
+          });
+          const age=Date.now()-(+j.reconcile.at||0);
+          j.manualReview=String(tx.state)==='manual-review'||age>TX_UNKNOWN_MAX_MS;
+          j.reason=j.manualReview?'resultado sin confirmar tras 10 min; revisi\u00f3n manual requerida para esta unidad':'resultado recuperado; se volver\u00e1 a comprobar sin reenviar a ciegas';
+          j.updatedAt=Date.now();changed++;
+        }else if(j.reason==='resultado desconocido; se reconciliar\u00e1 sin bloquear otras unidades'){
+
+          j.manualReview=false;
+          j.reconcile=Object.assign({},j.reconcile,{at:Date.now()});
+          j.reason='resultado anterior sin evidencia suficiente; reintento diferido hasta evidencia';
+          j.updatedAt=Date.now();changed++;
+        }
       }
     }
     changed+=nativeQueueRecruitMoveInfinitiesToTail(list);
@@ -11156,7 +11194,7 @@ const STORE = {
   }
 
   function nativeQueueReconcileRecruit(townId,lane) {
-    const lanes=lane?[lane]:NATIVE_RECRUIT_LANES;let changed=false;
+    const lanes=lane?[lane]:NATIVE_RECRUIT_LANES;let changed=false;const nowMs=Date.now();
     let queueKnown=false;
     try{queueKnown=!!(recruitQueueInfo(townId)||{}).known}catch(_){}
     for(const ln of lanes){
@@ -11164,20 +11202,35 @@ const STORE = {
       for(const j of list){
         if(!j)continue;
         const fl=j.inflight||j.reconcile;
-        if(fl&&queueKnown&&fl.queuedBefore!=null&&j.unit){
-          let now=null;
-          try{now=recruitQueuedAmount(townId,j.unit)}catch(_){now=null}
-          if(now!=null&&now>=(+fl.queuedBefore||0)+(+fl.amount||0)){
-            const amount=+fl.amount||0;
+        if(fl&&queueKnown&&j.unit){
+          const amount=gbNum(fl.amount);let applied=false;
+          const totalBefore=gbNum(fl.totalBefore);
+          if(amount!=null&&amount>0&&totalBefore!=null){
+            let status=null;
+            try{status=txUnitStatus(townId,j.unit)}catch(_){status=null}
+            const totalNow=status&&gbNum(status.total);
+            applied=totalNow!=null&&totalNow>=totalBefore+amount;
+          }
+          if(!applied&&amount!=null&&amount>0){
+            const queuedBefore=gbNum(fl.queuedBefore);let queuedNow=null;
+            try{queuedNow=recruitQueuedAmount(townId,j.unit)}catch(_){queuedNow=null}
+            applied=queuedBefore!=null&&queuedNow!=null&&queuedNow>=queuedBefore+amount;
+          }
+          if(applied){
 
             nativeQueueRecruitApplied(townId,ln,j.id,amount,j.inflight&&j.inflight.token||null);
             changed=true;continue;
           }
         }
-        if(j.inflight&&Date.now()-(+j.inflight.at||0)>120000){
-          j.reconcile=Object.assign({},j.inflight);
-          j.inflight=null;j.manualReview=true;j.status='unknown';
-          j.reason='la cola real no se actualiz\u00f3; este trabajo queda en revisi\u00f3n sin bloquear otras unidades';
+        if(j.inflight&&nowMs-(+j.inflight.at||0)>120000){
+          if(!j.reconcile)j.reconcile=Object.assign({},j.inflight);
+          j.inflight=null;j.manualReview=false;j.status='unknown';
+          j.reason='la cola real no se actualiz\u00f3; se volver\u00e1 a comprobar sin reenviar a ciegas';
+          j.updatedAt=Date.now();changed=true;
+        }
+        if(j.reconcile&&!j.inflight&&!j.manualReview&&nowMs-(+j.reconcile.at||0)>TX_UNKNOWN_MAX_MS){
+          j.manualReview=true;j.status='unknown';
+          j.reason='resultado sin confirmar tras 10 min; revisi\u00f3n manual requerida para esta unidad';
           j.updatedAt=Date.now();changed=true;
         }
       }
@@ -20749,7 +20802,8 @@ const STORE = {
       head.manualReview=false;
 
       job.nativeToken = nativeQueueId('f');
-      head.inflight = { amount:job.amount, at:Date.now(), unit:job.unit, queuedBefore:recruitQueuedAmount(job.townId, job.unit), token:job.nativeToken };
+      const unitBefore=txUnitStatus(job.townId,job.unit);
+      head.inflight = { amount:job.amount, at:Date.now(), unit:job.unit, queuedBefore:recruitQueuedAmount(job.townId, job.unit), totalBefore:unitBefore&&gbNum(unitBefore.total), token:job.nativeToken };
       nativeQueueSave();
     }
     recruitBuild(job.townId, job.unit, job.amount, (err) => {
@@ -20758,7 +20812,7 @@ const STORE = {
         gbLog(`recruit: town ${job.townId} ${job.amount}\u00d7 ${job.unit}`);
         if (job.nativeJobId) nativeQueueRecruitApplied(job.townId, job.nativeLane, job.nativeJobId, job.amount, job.nativeToken);
       } else {
-        const ambiguous=err === 'pending' || err === 'timeout_unknown';
+        const ambiguous=err === 'unknown' || err === 'pending' || err === 'timeout_unknown';
         const expectedWait=gbExpectedServerReject('recruit', err);
 
         if (!ambiguous && expectedWait === 'waiting-queue-full' && valid && valid.queue) {
@@ -20769,11 +20823,12 @@ const STORE = {
           if (head) {
 
             if (!ambiguous && expectedWait === 'waiting-queue-full') head.slotRetryAt = Date.now() + 300000;
-            if(ambiguous&&head.inflight)head.reconcile=Object.assign({},head.inflight);
-            head.inflight = null;head.manualReview=ambiguous;
+            if(ambiguous&&head.inflight&&!head.reconcile)head.reconcile=Object.assign({},head.inflight);
+            head.inflight = null;
+            head.manualReview=!!(ambiguous&&head.reconcile&&Date.now()-(+head.reconcile.at||0)>TX_UNKNOWN_MAX_MS);
             nativeQueueSetJobState(head,
               ambiguous ? 'unknown' : (expectedWait || 'blocked'),
-              ambiguous ? 'resultado desconocido; se reconciliar\u00e1 sin bloquear otras unidades' : (expectedWait ? (expectedWait + ': ' + String(err)) : String(err)));
+              ambiguous ? (head.manualReview ? 'resultado sin confirmar tras 10 min; revisi\u00f3n manual requerida para esta unidad' : 'resultado desconocido; se volver\u00e1 a comprobar sin reenviar a ciegas') : (expectedWait ? (expectedWait + ': ' + String(err)) : String(err)));
           }
         }
         gbLogT('recruit-err', 60000, `recruit err ${err}`);

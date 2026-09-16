@@ -526,6 +526,24 @@
     job.updatedAt = Date.now();
     return true;
   }
+  function nativeQueueRecruitUnknownTx(townId, job) {
+    if(!job||!job.unit)return null;
+    const amount=gbNum(job.reconcile&&job.reconcile.amount);
+    const ref=gbNum(job.reconcile&&job.reconcile.at)||gbNum(job.updatedAt);
+    let best=null,bestGap=Infinity;
+    for(const tx of Object.values(state.txState||{})){
+      if(!tx||tx.feature!=='recruit'||!/^(sending|confirming|reconciling|unknown|manual-review)$/.test(String(tx.state||'')))continue;
+      const snap=tx.snapshot||{},status=snap.status||{},txAmount=gbNum(snap.amount);
+      if(snap.kind!=='recruit'||String((tx.meta||{}).townId)!==String(townId)||String(snap.unit)!==String(job.unit))continue;
+      if(amount!=null&&txAmount!=null&&amount!==txAmount)continue;
+      const at=gbNum(tx.createdAt)||gbNum(tx.sentAt)||0;
+      const gap=ref!=null&&at?Math.abs(ref-at):0;
+      if(gap>TX_UNKNOWN_MAX_MS||gap>=bestGap)continue;
+      if(gbNum(status.total)==null)continue;
+      best=tx;bestGap=gap;
+    }
+    return best;
+  }
   function nativeQueueNormalizeRecruitLane(townId, lane, quiet) {
     const list = nativeQueueList(townId, lane || 'recruit', false);
     let changed = 0;
@@ -541,6 +559,40 @@
         j.reason = `\u221e \u00b7 lotes de ${nativeQueueRecruitChunkOf(j)}`;
         j.updatedAt = Date.now();
         changed++;
+      }
+      // v6.0.92 treated txRun's canonical `unknown` as a hard error.  The next
+      // duplicate check then stored a post-state queue baseline and wedged the
+      // row at manualReview.  Recover the original transaction snapshot when
+      // it is still available; without that evidence, fall back to a bounded
+      // reconcile window that uses the real queue length as proof.
+      if(j.manualReview&&j.status==='unknown'&&j.reconcile&&gbNum(j.reconcile.totalBefore)==null){
+        const tx=nativeQueueRecruitUnknownTx(townId,j),snap=tx&&tx.snapshot,status=snap&&snap.status;
+        if(status&&gbNum(status.total)!=null){
+          j.reconcile=Object.assign({},j.reconcile,{
+            amount:gbNum(snap.amount),queuedBefore:gbNum(status.queued),totalBefore:gbNum(status.total),
+            at:gbNum(tx.createdAt)||gbNum(j.reconcile.at)||Date.now(),unit:String(snap.unit||j.unit),
+          });
+          const age=Date.now()-(+j.reconcile.at||0);
+          j.manualReview=String(tx.state)==='manual-review'||age>TX_UNKNOWN_MAX_MS;
+          j.reason=j.manualReview?'resultado sin confirmar tras 10 min; revisión manual requerida para esta unidad':'resultado recuperado; se volverá a comprobar sin reenviar a ciegas';
+          j.updatedAt=Date.now();changed++;
+        }else if(j.reason==='resultado desconocido; se reconciliará sin bloquear otras unidades'){
+          // No tx snapshot reachable (state.txState pruned, town model
+          // unreadable, amount mismatch).  Old wording promised
+          // reconciliation but the row stayed wedged at manualReview.  Open
+          // a fresh bounded window so the reconcile pass can re-check via
+          // queuedBefore+amount (always present in v6.0.92 payloads) and
+          // apply the row itself if the real queue grew.  If the queue did
+          // NOT grow, dispatch re-enters through txRun -> txReconcile,
+          // whose txUnitStatus gate (CLAUDE.md hard rule: irreversible
+          // writes cannot blindly re-post) returns 'unchanged' for stale
+          // model reads, so no double-spend.  After TX_UNKNOWN_MAX_MS the
+          // reconcile pass moves the row back to manualReview.
+          j.manualReview=false;
+          j.reconcile=Object.assign({},j.reconcile,{at:Date.now()});
+          j.reason='resultado anterior sin evidencia suficiente; reintento diferido hasta evidencia';
+          j.updatedAt=Date.now();changed++;
+        }
       }
     }
     changed+=nativeQueueRecruitMoveInfinitiesToTail(list);
@@ -862,7 +914,7 @@
   }
 
   function nativeQueueReconcileRecruit(townId,lane) {
-    const lanes=lane?[lane]:NATIVE_RECRUIT_LANES;let changed=false;
+    const lanes=lane?[lane]:NATIVE_RECRUIT_LANES;let changed=false;const nowMs=Date.now();
     let queueKnown=false;
     try{queueKnown=!!(recruitQueueInfo(townId)||{}).known}catch(_){}
     for(const ln of lanes){
@@ -870,20 +922,35 @@
       for(const j of list){
         if(!j)continue;
         const fl=j.inflight||j.reconcile;
-        if(fl&&queueKnown&&fl.queuedBefore!=null&&j.unit){
-          let now=null;
-          try{now=recruitQueuedAmount(townId,j.unit)}catch(_){now=null}
-          if(now!=null&&now>=(+fl.queuedBefore||0)+(+fl.amount||0)){
-            const amount=+fl.amount||0;
+        if(fl&&queueKnown&&j.unit){
+          const amount=gbNum(fl.amount);let applied=false;
+          const totalBefore=gbNum(fl.totalBefore);
+          if(amount!=null&&amount>0&&totalBefore!=null){
+            let status=null;
+            try{status=txUnitStatus(townId,j.unit)}catch(_){status=null}
+            const totalNow=status&&gbNum(status.total);
+            applied=totalNow!=null&&totalNow>=totalBefore+amount;
+          }
+          if(!applied&&amount!=null&&amount>0){
+            const queuedBefore=gbNum(fl.queuedBefore);let queuedNow=null;
+            try{queuedNow=recruitQueuedAmount(townId,j.unit)}catch(_){queuedNow=null}
+            applied=queuedBefore!=null&&queuedNow!=null&&queuedNow>=queuedBefore+amount;
+          }
+          if(applied){
             // Apply by stable job id. Manual-review jobs have no inflight token.
             nativeQueueRecruitApplied(townId,ln,j.id,amount,j.inflight&&j.inflight.token||null);
             changed=true;continue;
           }
         }
-        if(j.inflight&&Date.now()-(+j.inflight.at||0)>120000){
-          j.reconcile=Object.assign({},j.inflight);
-          j.inflight=null;j.manualReview=true;j.status='unknown';
-          j.reason='la cola real no se actualizó; este trabajo queda en revisión sin bloquear otras unidades';
+        if(j.inflight&&nowMs-(+j.inflight.at||0)>120000){
+          if(!j.reconcile)j.reconcile=Object.assign({},j.inflight);
+          j.inflight=null;j.manualReview=false;j.status='unknown';
+          j.reason='la cola real no se actualizó; se volverá a comprobar sin reenviar a ciegas';
+          j.updatedAt=Date.now();changed=true;
+        }
+        if(j.reconcile&&!j.inflight&&!j.manualReview&&nowMs-(+j.reconcile.at||0)>TX_UNKNOWN_MAX_MS){
+          j.manualReview=true;j.status='unknown';
+          j.reason='resultado sin confirmar tras 10 min; revisión manual requerida para esta unidad';
           j.updatedAt=Date.now();changed=true;
         }
       }
