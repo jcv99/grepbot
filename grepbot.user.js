@@ -10096,8 +10096,8 @@ const STORE = {
     const mapped = keywordMap[token.keyword];
     if (!mapped) return Object.assign(base, { unknownKeyword: token.keyword, pairing: null });
     const cfgGods = (cfg && cfg.gods && typeof cfg.gods === 'object') ? cfg.gods : null;
-    const mythicalKey = mapped.mythical && cfgGods && cfgGods[mapped.mythical] ? mapped.mythical : mapped.mythical;
-    const god = (mapped.god || (mythicalKey && CITY_SCHEME_MYTHICAL_GOD[mythicalKey]) || (cfgGods && mythicalKey && cfgGods[mythicalKey])) || null;
+    const mythicalKey = (mapped.mythical && (!cfgGods || cfgGods[mapped.mythical])) ? mapped.mythical : null;
+    const god = (mythicalKey && mapped.god) || (mythicalKey && CITY_SCHEME_MYTHICAL_GOD[mythicalKey]) || (cfgGods && mythicalKey && cfgGods[mythicalKey]) || null;
     return Object.assign(base, {
       role: mapped.role,
       mythical: mythicalKey,
