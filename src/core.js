@@ -1,4 +1,4 @@
-  const GB_RELEASE = '6.0.94';
+  const GB_RELEASE = '6.0.96';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -224,6 +224,10 @@ const STORE = {
     TOWN_GOALS: 'grepbot:town-goals',
     ROLE_ADVISOR_CFG: 'grepbot:role-advisor-cfg',
     ROLE_ASSIGNMENTS: 'grepbot:role-assignments',
+    CITY_SCHEME_CFG: 'grepbot:city-scheme-cfg',
+    CITY_SCHEME_NOTES: 'grepbot:city-scheme-notes',
+    CITY_SCHEME_ROWS: 'grepbot:city-scheme-rows',
+    CITY_SCHEME_PAIRS: 'grepbot:city-scheme-pairs',
     VIRTUAL_QUEUE: 'grepbot:virtual-queue',
     VIRTUAL_QUEUE_OVERRIDES: 'grepbot:virtual-queue-overrides',
     NATIVE_QUEUE: 'grepbot:native-action-queue',

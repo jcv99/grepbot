@@ -45,6 +45,7 @@ MODULES = [
     'build-tab.js',
     'city-designer.js',
     'role-advisor.js',
+    'city-scheme.js',
     'goals.js',
     'native-ui.js',
     'build-auto.js',
