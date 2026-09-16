@@ -1,4 +1,4 @@
-  const GB_RELEASE = '6.0.87';
+  const GB_RELEASE = '6.0.92';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -195,6 +195,7 @@ const STORE = {
     INTEL_ALLY_FILTER: 'grepbot:intel-alliance-filter',
     INTEL_BATTLE_STATS: 'grepbot:intel-battle-stats',
     CONFIG_VER: 'grepbot:config-ver',
+    CONFIG_REV: 'grepbot:config-rev',
     GLOBAL_CONFIG_VER: 'grepbot:global-config-ver',
     LEGACY_WORLD_MIGRATION: 'grepbot:legacy-world-migration-v1',
     CONFIG_UNDO: 'grepbot:config-undo',
@@ -276,8 +277,8 @@ const STORE = {
   };
   // Technical iteration order only. It never reserves resources or gives a module economic priority.
   const ORCH_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
-    'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'batchrecruit', 'merchant', 'pttrade', 'favor', 'wonder', 'hero', 'godspell', 'spy'];
-  const CONFIG_VER_CURRENT = 18;
+    'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'batchrecruit', 'merchant', 'pttrade', 'gold', 'favor', 'wonder', 'hero', 'godspell', 'spy'];
+  const CONFIG_VER_CURRENT = 19;
   const GLOBAL_CONFIG_VER_CURRENT = 1;
   const WORLD_SCOPED_BASES = new Set([
     STORE.FINDINGS, STORE.FARMS, STORE.FARMS_PARSED, STORE.FARM_RES, STORE.SEEN,
@@ -303,7 +304,7 @@ const STORE = {
     STORE.TRADE_TOWNS, STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.ISLAND_BENEFICIARIES, STORE.RESOURCE_OPTIMIZER_CFG, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.ROLE_ADVISOR_CFG, STORE.ROLE_ASSIGNMENTS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.REINFORCE_PLAN, STORE.REINFORCE_HISTORY, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.SNAPSHOTS, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER, STORE.CONFIG_UNDO, STORE.CONFIG_REDO,
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
-    STORE.SPELL_COOLDOWN, STORE.RECRUIT_QCAP,
+    STORE.SPELL_COOLDOWN, STORE.RECRUIT_QCAP, STORE.CONFIG_REV,
 
     STORE.FARM_SCRAPE, STORE.FARM_SCRAPE_STATE, STORE.TOWN_ACTION, STORE.TOWN_LIST_ACTION,
     STORE.PT_TRADE_TPL, STORE.PT_VIEW_URL,
@@ -726,6 +727,7 @@ const STORE = {
     if (gbTabLeader) gbLeaderHandoverFlush();
 
     try { if (typeof gbAjaxDispose === 'function') gbAjaxDispose(); } catch (_) {}
+    try { if (typeof gbConfigSyncDispose === 'function') gbConfigSyncDispose(); } catch (_) {}
     try { if (typeof banditClearLoop === 'function') banditClearLoop(); } catch (_) {}
     try { if (typeof banditClearScan === 'function') banditClearScan(); } catch (_) {}
     gbClearTimers();
@@ -739,6 +741,7 @@ const STORE = {
       try { gbDomObserver.disconnect(); } catch (_) {}
       gbDomObserver = null;
     }
+    try { if (_gbEvents) _gbEvents.close(); _gbEvents = null; } catch (_) {}
     try {
       if (typeof GB_ROOT.__grepbotQuestDispose === 'function') GB_ROOT.__grepbotQuestDispose();
     } catch (_) {}
@@ -779,7 +782,6 @@ const STORE = {
     'rural-trade': 180000,
     'rural-level': 180000,
     research: 180000,
-    merchant: 180000,
     favor: 180000,
     godspell: 180000,
     wonder: 180000,
@@ -1458,6 +1460,20 @@ const STORE = {
       save(STORE.ROLE_ASSIGNMENTS, state.roleAssignments);
       save(STORE.RESOURCE_OPTIMIZER_CFG, state.resourceOptimizerCfg);
       ver = 18;
+    }
+    if (ver < 19) {
+      const cur = Array.isArray(state.priorityOrder) ? state.priorityOrder.filter(k => typeof k === 'string') : [];
+      state.priorityOrder = [...new Set(cur.filter(k => ORCH_ORDER_DEFAULT.includes(k)))];
+      if (!state.priorityOrder.includes('gold')) {
+        const after = state.priorityOrder.indexOf('pttrade');
+        const before = state.priorityOrder.indexOf('favor');
+        if (after >= 0) state.priorityOrder.splice(after + 1, 0, 'gold');
+        else if (before >= 0) state.priorityOrder.splice(before, 0, 'gold');
+        else state.priorityOrder.push('gold');
+      }
+      for (const key of ORCH_ORDER_DEFAULT) if (!state.priorityOrder.includes(key)) state.priorityOrder.push(key);
+      save(STORE.PRIORITY_ORDER, state.priorityOrder);
+      ver = 19;
     }
     gbMigrationActive = false;
     if (gbMigrationWriteFailed) {
@@ -2480,6 +2496,7 @@ const STORE = {
     }
     try {
       GM_setValue(k, val);
+      try { if (typeof gbConfigSyncPublish === 'function') gbConfigSyncPublish(key); } catch (_) {}
       return true;
     } catch (e) {
       const isQuota = e && (e.name === 'QuotaExceededError' || /quota.?exceeded/i.test(String(e.message || e)));
@@ -2487,6 +2504,7 @@ const STORE = {
         const pruned = storagePruneForQuota();
         try {
           GM_setValue(k, val);
+          try { if (typeof gbConfigSyncPublish === 'function') gbConfigSyncPublish(key); } catch (_) {}
           storageWarnUntil = Date.now() + 5 * 60000;
           storageWarnMsg = 'quota:pruned';
           gbLog('storage: QuotaExceeded on', key, '- pruned ~' + pruned + 'B and retried OK');

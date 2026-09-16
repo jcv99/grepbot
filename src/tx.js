@@ -6,8 +6,15 @@
   const TX_INFLIGHT_MAX_MS = 10 * 60 * 1000;
   const TX_REVIEW_MAX = 100;
   const TX_REVIEW_MIN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-  const TX_MANUAL_REVIEW_TTL_MS = 30 * 60 * 1000;
+  const txLocalHints = new WeakMap();
   let txSeq = 0;
+  function txSetLocalHint(data, hint) {
+    if (data && typeof data === 'object' && hint && typeof hint === 'object') txLocalHints.set(data, hint);
+    return data;
+  }
+  function txLocalHint(data) {
+    return data && typeof data === 'object' ? (txLocalHints.get(data) || null) : null;
+  }
   function txTransportUncertain(err) {
     // 5xx is ambiguous: the gateway / load balancer may have applied the action
     // before signalling the failure, so a follow-up post would double-spend.
@@ -18,9 +25,6 @@
       || (typeof err === 'string' && /^http_5\d\d$/.test(err));
   }
   if (!state.txState || typeof state.txState !== 'object' || Array.isArray(state.txState)) state.txState = {};
-  function txManualReviewPermanent(tx) {
-    return !!(tx && TX_WRITE_FEATURES.has(String(tx.feature || '')));
-  }
   function txLoadNormalize(reason) {
     const now = Date.now();
     let changed = false;
@@ -415,52 +419,41 @@
       return { count, gold: gbPlayerGold(), res: txTownResourceSnap(townId) };
     } catch (_) { return null; }
   }
-  function txMerchantStatus(offerId) {
+  function txMerchantStatus(townId, hint) {
     try {
       const uw = gameUw();
       let model = null;
+      let collectionSeen = false;
+      const offerId = hint && hint.offerId;
+      const item = String((hint && hint.item) || '').toLowerCase();
       for (const name of ['PhoenicianSalesmanOffer', 'MerchantOffer', 'PremiumExchangeOffer']) {
         const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName(name);
         if (!col || !col.models) continue;
-        model = col.models.find(m => String((m.attributes || {}).id ?? m.id) === String(offerId));
-        if (model) break;
-      }
-      if (!model) return { exists: false, gold: gbPlayerGold(), price: null };
-      const a = model.attributes || model;
-      const price = gbNum(a.price != null ? a.price : a.gold);
-      return { exists: true, gold: gbPlayerGold(), price };
-    } catch (_) { return null; }
-  }
-  function txPtTradeStatus(townId, offerId) {
-    try {
-      const uw = gameUw();
-      let model = null;
-      const tryCols = ['PhoenicianSalesmanOffer', 'MerchantOffer', 'PremiumExchangeOffer'];
-      for (const name of tryCols) {
-        const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName(name);
-        if (!col || !col.models) continue;
+        collectionSeen = true;
         model = col.models.find(m => {
           const a = m.attributes || m;
-          if (offerId != null && String(a.id ?? m.id) !== String(offerId)) return false;
           if (townId != null && a.town_id != null && String(a.town_id) !== String(townId)) return false;
-          return true;
+          const idMatch = offerId != null && String(a.id ?? m.id) === String(offerId);
+          const modelItem = String(a.unit_name || a.resource_name || a.name || a.item_id || a.type || '').toLowerCase();
+          return idMatch || (!!item && modelItem === item);
         });
         if (model) break;
       }
-      const before = txTownResourceSnap(townId);
-      const tradeCap = (function () {
-        try { const t = gbTownModel(townId); return t && t.getAvailableTradeCapacity ? gbNum(t.getAvailableTradeCapacity()) : null; } catch (_) { return null; }
-      })();
-      if (!model) return { exists: false, tradeCap, res: before };
+      const res = txTownResourceSnap(townId);
+      const unit = hint && hint.offerKind === 'unit' && hint.item ? txUnitStatus(townId, hint.item) : null;
+      if (!model) return { exists: collectionSeen ? false : null, stock: null, res, unit };
       const a = model.attributes || model;
-      const amount = gbNum(a.amount != null ? a.amount : a.trade_amount != null ? a.trade_amount : a.current_amount);
-      return { exists: true, tradeCap, res: before, amount };
+      const stock = gbNum(a.amount != null ? a.amount
+        : a.stock != null ? a.stock
+          : a.available_amount != null ? a.available_amount : a.current_amount);
+      return { exists: true, stock, res, unit };
     } catch (_) { return null; }
   }
   function txCapture(feature, transport, endpoint, data) {
     const d = data || {};
     const a = transport === 'bridge' ? (d.arguments || {}) : d;
     const townId = d.town_id != null ? d.town_id : a.town_id;
+    const localHint = txLocalHint(d);
     try {
       if (feature === 'build' || feature === 'instant-build' || feature === 'instant-research') {
         if (a.order_id != null) {
@@ -519,13 +512,25 @@
         const typ = a.celebration_type || endpoint;
         return { kind: 'culture', type: typ, before: txCultureStatus(townId, typ) };
       }
-      if (feature === 'merchant') {
-        const offerId = a.offer_id || a.offer || String(d.model_url || '').split('/').pop();
-        return { kind: 'merchant', offerId, before: txMerchantStatus(offerId) };
-      }
-      if (feature === 'pttrade') {
-        const offerId = a.offer_id || a.offer || (d.model_url && String(d.model_url).split('/').pop());
-        return { kind: 'pttrade', offerId, townId, before: txPtTradeStatus(townId, offerId) };
+      if (feature === 'merchant' || feature === 'pttrade') {
+        const hint = localHint || {};
+        const hintTown = gbNum(hint.townId != null ? hint.townId : townId);
+        const offerId = hint.offerId != null ? String(hint.offerId)
+          : (a.offer_id || a.offer || (d.model_url && String(d.model_url).split('/').pop()));
+        const snap = {
+          kind: feature,
+          townId: hintTown,
+          offerId,
+          offerKind: hint.offerKind === 'unit' ? 'unit' : 'resource',
+          item: hint.item != null ? String(hint.item) : null,
+          payResource: hint.payResource != null ? String(hint.payResource) : null,
+          receiveResource: hint.receiveResource != null ? String(hint.receiveResource) : null,
+          amount: gbNum(hint.amount),
+          cost: gbNum(hint.cost),
+          stock: gbNum(hint.stock),
+        };
+        snap.before = txMerchantStatus(hintTown, snap);
+        return snap;
       }
       if (feature === 'goldoffer') {
         if (typeof goldOfferTxSnapshot === 'function') return goldOfferTxSnapshot(townId, a);
@@ -591,8 +596,14 @@
     }
     if (feature === 'rurallevel' || feature === 'ruraltrade') return `${feature}:${townId}:${a.farm_town_id || String(d.model_url || '').split('/').pop()}:${endpoint}`;
     if (feature === 'culture') return `culture:${townId}:${a.celebration_type || endpoint}`;
-    if (feature === 'merchant') return `merchant:${townId}:${a.offer_id || a.offer || a.id || endpoint}`;
-    if (feature === 'pttrade') return `pttrade:${townId || '-'}:${a.offer_id || a.offer || (d.model_url ? String(d.model_url).split('/').pop() : '') || endpoint}`;
+    if (feature === 'merchant' || feature === 'pttrade') {
+      const offer = snap && (snap.offerId || snap.item) || a.offer_id || a.offer || a.id
+        || (d.model_url ? String(d.model_url).split('/').pop() : '') || endpoint;
+      // Both modules consume the same Phoenician offer pool. They must share
+      // one intent namespace as well as one lock, or an uncertain merchant
+      // post can be followed by a pttrade post for the same offer.
+      return `pttrade:${(snap&&snap.townId)||townId||'-'}:${offer}`;
+    }
     if (feature === 'goldoffer') {
       if (snap && snap.saleId) return `goldoffer:${snap.saleId}`;
       const resource = GB_RES_KEYS.find(k => gbNum(a[k]) != null && gbNum(a[k]) > 0) || '?';
@@ -741,25 +752,46 @@
           && (txNe(cur.res.wood, s.before.res.wood) || txNe(cur.res.stone, s.before.res.stone) || txNe(cur.res.iron, s.before.res.iron));
         return cur.count === s.before.count && !goldChanged && !resChanged ? 'unchanged' : 'unknown';
       }
-      if (s.kind === 'merchant') {
-        const cur = txMerchantStatus(s.offerId);
+      if (s.kind === 'merchant' || s.kind === 'pttrade') {
+        const cur = txMerchantStatus(s.townId != null ? s.townId : meta.townId, s);
         if (!cur || !s.before) return 'unknown';
-        if (s.before.exists && !cur.exists) return 'applied';
-        if (cur.exists === s.before.exists && txNum(cur.gold) != null && txNum(s.before.gold) != null
-          && !txNe(cur.gold, s.before.gold)) return 'unchanged';
-        return 'unknown';
-      }
-      if (s.kind === 'pttrade') {
-        const cur = txPtTradeStatus(meta.townId, s.offerId);
-        if (!cur || !s.before) return 'unknown';
-        if (s.before.exists && !cur.exists) return 'applied';
-        if (cur.exists !== s.before.exists) return 'unknown';
-        if (txNum(cur.amount) == null || txNum(s.before.amount) == null) return 'unknown';
-        if (txNum(cur.tradeCap) == null || txNum(s.before.tradeCap) == null) return 'unknown';
-        if (!txResTriadReadable(cur.res) || !txResTriadReadable(s.before.res)) return 'unknown';
-        const changed = txNe(cur.amount, s.before.amount) || txNe(cur.tradeCap, s.before.tradeCap)
-          || txNe(cur.res.wood, s.before.res.wood) || txNe(cur.res.stone, s.before.res.stone) || txNe(cur.res.iron, s.before.res.iron);
-        return changed ? 'unknown' : 'unchanged';
+        if (s.before.exists === true && cur.exists === false) return 'applied';
+        const amount = txNum(s.amount), cost = txNum(s.cost);
+        const beforeStock = txNum(s.before.stock), currentStock = txNum(cur.stock);
+        if (amount != null && amount > 0 && beforeStock != null && currentStock != null
+          && currentStock <= beforeStock - amount) return 'applied';
+
+        const beforeRes = s.before.res, currentRes = cur.res;
+        const pay = String(s.payResource || '');
+        const resourceEvidence = txResTriadReadable(beforeRes) && txResTriadReadable(currentRes)
+          && GB_RES_KEYS.indexOf(pay) !== -1 && cost != null && cost > 0;
+        const paid = resourceEvidence && txNum(beforeRes[pay]) - txNum(currentRes[pay]) >= cost;
+        let received = false, receivedReadable = false;
+        if (s.offerKind === 'unit') {
+          const beforeTotal = s.before.unit && txNum(s.before.unit.total);
+          const currentTotal = cur.unit && txNum(cur.unit.total);
+          receivedReadable = beforeTotal != null && currentTotal != null;
+          received = receivedReadable && amount != null && amount > 0 && currentTotal >= beforeTotal + amount;
+        } else {
+          const get = String(s.receiveResource || '');
+          receivedReadable = txResTriadReadable(beforeRes) && txResTriadReadable(currentRes)
+            && GB_RES_KEYS.indexOf(get) !== -1;
+          received = receivedReadable && amount != null && amount > 0
+            && txNum(currentRes[get]) >= txNum(beforeRes[get]) + amount;
+        }
+        if (paid && received) return 'applied';
+
+        const existenceStable = cur.exists == null || s.before.exists == null || cur.exists === s.before.exists;
+        const stockStable = beforeStock == null || currentStock == null || beforeStock === currentStock;
+        const paymentStable = resourceEvidence && txNum(beforeRes[pay]) === txNum(currentRes[pay]);
+        let receivedStable = false;
+        if (s.offerKind === 'unit') {
+          receivedStable = receivedReadable && txNum(s.before.unit.total) === txNum(cur.unit.total);
+        } else if (receivedReadable) {
+          const get = String(s.receiveResource || '');
+          receivedStable = txNum(beforeRes[get]) === txNum(currentRes[get]);
+        }
+        return existenceStable && stockStable && paymentStable && receivedStable ? 'unchanged' : 'unknown';
       }
       if (s.kind === 'bandit-attack' || (s.kind === 'bandit' && /\/attack$/i.test(String(tx.endpoint || '')))) {
         return banditMovementReconcileResult(tx, banditMovementEvidence(gameUw(), meta.townId));

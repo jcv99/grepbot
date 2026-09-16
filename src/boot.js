@@ -90,6 +90,7 @@
     gbListen(window, 'hashchange', () => gbTimeout(ensurePanelMounted, 50));
   }
   hookSpaNav();
+  try { gbConfigSyncStart(); } catch (e) { gbLogT('boot-config-sync', 60000, 'config sync: ' + String(e?.message || e).slice(0, 80)); }
   try { qolBindActivityPause(); } catch (_) {}
 
   bootStartLoops();

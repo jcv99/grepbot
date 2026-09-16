@@ -7,7 +7,6 @@
   function merchantScan(reason) {
     if (!hostEnabled() || !state.autoMerchant || captchaPaused('merchant')) return;
     if (automationPaused({})) return;
-    if (gbLocked('merchant')) return;
     if (gbLocked('pt-trade')) return;
     const wish = state.merchantWish || [];
     if (!wish.length) {
@@ -81,17 +80,17 @@
       return;
     }
     const cost = Math.ceil(amount * offer.costPer);
-    const merchantLock = gbLock('merchant', 180000);
-    if (!merchantLock) return;
+    const ptLock = gbLock('pt-trade', 180000);
+    if (!ptLock) return;
 
     const fresh = ptRoom(job.townId, exchange, exchange);
     if (fresh.out == null || fresh.out < cost || offer.costPer > job.maxPrice) {
-      gbUnlock('merchant', merchantLock);
+      gbUnlock('pt-trade', ptLock);
       gbLogT('merchant-stale', 60000, 'merchant: final precheck failed; balance or price moved');
       return;
     }
     ptTradePost(job.townId, offer, amount, (err) => {
-      gbUnlock('merchant', merchantLock);
+      gbUnlock('pt-trade', ptLock);
       if (err === 'dryrun') {
         gbLog(`merchant: DRY-RUN compraria ${amount} ${offer.name} por ${cost} ${exchange}`);
         return;

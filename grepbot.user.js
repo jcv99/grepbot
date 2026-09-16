@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.87
+// @version      6.0.92
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -10,6 +10,8 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_addValueChangeListener
+// @grant        GM_removeValueChangeListener
 // @grant        GM_addStyle
 // @grant        GM_registerMenuCommand
 // @grant        GM_unregisterMenuCommand
@@ -22,7 +24,7 @@
 (function () {
   'use strict';
   const __gbStart = () => {
-  const GB_RELEASE = '6.0.87';
+  const GB_RELEASE = '6.0.92';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -219,6 +221,7 @@ const STORE = {
     INTEL_ALLY_FILTER: 'grepbot:intel-alliance-filter',
     INTEL_BATTLE_STATS: 'grepbot:intel-battle-stats',
     CONFIG_VER: 'grepbot:config-ver',
+    CONFIG_REV: 'grepbot:config-rev',
     GLOBAL_CONFIG_VER: 'grepbot:global-config-ver',
     LEGACY_WORLD_MIGRATION: 'grepbot:legacy-world-migration-v1',
     CONFIG_UNDO: 'grepbot:config-undo',
@@ -300,8 +303,8 @@ const STORE = {
   };
 
   const ORCH_ORDER_DEFAULT = ['culture', 'cave', 'build', 'research', 'trade', 'farm',
-    'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'batchrecruit', 'merchant', 'pttrade', 'favor', 'wonder', 'hero', 'godspell', 'spy'];
-  const CONFIG_VER_CURRENT = 18;
+    'ruraltrade', 'rurallevel', 'recruit', 'villrecruit', 'batchrecruit', 'merchant', 'pttrade', 'gold', 'favor', 'wonder', 'hero', 'godspell', 'spy'];
+  const CONFIG_VER_CURRENT = 19;
   const GLOBAL_CONFIG_VER_CURRENT = 1;
   const WORLD_SCOPED_BASES = new Set([
     STORE.FINDINGS, STORE.FARMS, STORE.FARMS_PARSED, STORE.FARM_RES, STORE.SEEN,
@@ -327,7 +330,7 @@ const STORE = {
     STORE.TRADE_TOWNS, STORE.TRADE_ROUTES, STORE.AUTO_TRADE_ROUTES, STORE.ISLAND_BENEFICIARIES, STORE.RESOURCE_OPTIMIZER_CFG, STORE.TX_STATE, STORE.CIRCUITS, STORE.AB_ORDER, STORE.AB_OPTIMAL_ORDER, STORE.PLANNER_CFG, STORE.GOAL_PROFILES, STORE.TOWN_GOALS, STORE.ROLE_ADVISOR_CFG, STORE.ROLE_ASSIGNMENTS, STORE.VIRTUAL_QUEUE, STORE.VIRTUAL_QUEUE_OVERRIDES, STORE.NATIVE_QUEUE, STORE.BUILD_SWAP_IGNORE, STORE.PREDICT_CFG, STORE.DEFENSE_CFG, STORE.DEFENSE_HISTORY, STORE.MILITIA_CFG, STORE.SUPPORT_CFG, STORE.SUPPORT_LAST_SEND, STORE.SUPPORT_TEMPLATE, STORE.REINFORCE_PLAN, STORE.REINFORCE_HISTORY, STORE.DODGE_RETURNS, STORE.HEALTH, STORE.SNAPSHOTS, STORE.CLIENT_FP, STORE.SAFE_MODE, STORE.SIM_CFG, STORE.WHY_LOG, STORE.DECISIONS, STORE.DECISION_SKIPS, STORE.CONFIG_VER, STORE.CONFIG_UNDO, STORE.CONFIG_REDO,
     STORE.FARM_LOYALTY_SEEN, STORE.FARM_TEACH_BANNER,
     STORE.TPL_HEALTH, STORE.LAST_SEEN_TS, STORE.WATCH_HITS, STORE.WONDER_FAVOR_TPL,
-    STORE.SPELL_COOLDOWN, STORE.RECRUIT_QCAP,
+    STORE.SPELL_COOLDOWN, STORE.RECRUIT_QCAP, STORE.CONFIG_REV,
 
     STORE.FARM_SCRAPE, STORE.FARM_SCRAPE_STATE, STORE.TOWN_ACTION, STORE.TOWN_LIST_ACTION,
     STORE.PT_TRADE_TPL, STORE.PT_VIEW_URL,
@@ -725,6 +728,7 @@ const STORE = {
     if (gbTabLeader) gbLeaderHandoverFlush();
 
     try { if (typeof gbAjaxDispose === 'function') gbAjaxDispose(); } catch (_) {}
+    try { if (typeof gbConfigSyncDispose === 'function') gbConfigSyncDispose(); } catch (_) {}
     try { if (typeof banditClearLoop === 'function') banditClearLoop(); } catch (_) {}
     try { if (typeof banditClearScan === 'function') banditClearScan(); } catch (_) {}
     gbClearTimers();
@@ -738,6 +742,7 @@ const STORE = {
       try { gbDomObserver.disconnect(); } catch (_) {}
       gbDomObserver = null;
     }
+    try { if (_gbEvents) _gbEvents.close(); _gbEvents = null; } catch (_) {}
     try {
       if (typeof GB_ROOT.__grepbotQuestDispose === 'function') GB_ROOT.__grepbotQuestDispose();
     } catch (_) {}
@@ -776,7 +781,6 @@ const STORE = {
     'rural-trade': 180000,
     'rural-level': 180000,
     research: 180000,
-    merchant: 180000,
     favor: 180000,
     godspell: 180000,
     wonder: 180000,
@@ -1444,6 +1448,20 @@ const STORE = {
       save(STORE.ROLE_ASSIGNMENTS, state.roleAssignments);
       save(STORE.RESOURCE_OPTIMIZER_CFG, state.resourceOptimizerCfg);
       ver = 18;
+    }
+    if (ver < 19) {
+      const cur = Array.isArray(state.priorityOrder) ? state.priorityOrder.filter(k => typeof k === 'string') : [];
+      state.priorityOrder = [...new Set(cur.filter(k => ORCH_ORDER_DEFAULT.includes(k)))];
+      if (!state.priorityOrder.includes('gold')) {
+        const after = state.priorityOrder.indexOf('pttrade');
+        const before = state.priorityOrder.indexOf('favor');
+        if (after >= 0) state.priorityOrder.splice(after + 1, 0, 'gold');
+        else if (before >= 0) state.priorityOrder.splice(before, 0, 'gold');
+        else state.priorityOrder.push('gold');
+      }
+      for (const key of ORCH_ORDER_DEFAULT) if (!state.priorityOrder.includes(key)) state.priorityOrder.push(key);
+      save(STORE.PRIORITY_ORDER, state.priorityOrder);
+      ver = 19;
     }
     gbMigrationActive = false;
     if (gbMigrationWriteFailed) {
@@ -2439,6 +2457,7 @@ const STORE = {
     }
     try {
       GM_setValue(k, val);
+      try { if (typeof gbConfigSyncPublish === 'function') gbConfigSyncPublish(key); } catch (_) {}
       return true;
     } catch (e) {
       const isQuota = e && (e.name === 'QuotaExceededError' || /quota.?exceeded/i.test(String(e.message || e)));
@@ -2446,6 +2465,7 @@ const STORE = {
         const pruned = storagePruneForQuota();
         try {
           GM_setValue(k, val);
+          try { if (typeof gbConfigSyncPublish === 'function') gbConfigSyncPublish(key); } catch (_) {}
           storageWarnUntil = Date.now() + 5 * 60000;
           storageWarnMsg = 'quota:pruned';
           gbLog('storage: QuotaExceeded on', key, '- pruned ~' + pruned + 'B and retried OK');
@@ -2911,6 +2931,12 @@ const STORE = {
           const c = CULTURE_COSTS[type];
           const cost=wireResources(c); if(!cost) return null; delete cost.tradeCap; out(townId,cost);
         }
+      } else if (feature === 'merchant' || feature === 'pttrade') {
+        const resource = snapshot && String(snapshot.payResource || '');
+        const cost = snapshot && gbNum(snapshot.cost);
+        const hintTown = snapshot && gbNum(snapshot.townId);
+        if (GB_RES_KEYS.indexOf(resource) === -1 || cost == null || !(cost > 0) || hintTown == null || !(hintTown > 0)) return null;
+        out(hintTown, { [resource]: cost });
       } else if (feature === 'goldoffer') {
 
         return [];
@@ -3083,17 +3109,21 @@ const STORE = {
   const TX_INFLIGHT_MAX_MS = 10 * 60 * 1000;
   const TX_REVIEW_MAX = 100;
   const TX_REVIEW_MIN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-  const TX_MANUAL_REVIEW_TTL_MS = 30 * 60 * 1000;
+  const txLocalHints = new WeakMap();
   let txSeq = 0;
+  function txSetLocalHint(data, hint) {
+    if (data && typeof data === 'object' && hint && typeof hint === 'object') txLocalHints.set(data, hint);
+    return data;
+  }
+  function txLocalHint(data) {
+    return data && typeof data === 'object' ? (txLocalHints.get(data) || null) : null;
+  }
   function txTransportUncertain(err) {
 
     return err === 'timeout' || err === 'neterr' || err === 'cancelled' || err === 'empty'
       || (typeof err === 'string' && /^http_5\d\d$/.test(err));
   }
   if (!state.txState || typeof state.txState !== 'object' || Array.isArray(state.txState)) state.txState = {};
-  function txManualReviewPermanent(tx) {
-    return !!(tx && TX_WRITE_FEATURES.has(String(tx.feature || '')));
-  }
   function txLoadNormalize(reason) {
     const now = Date.now();
     let changed = false;
@@ -3482,52 +3512,41 @@ const STORE = {
       return { count, gold: gbPlayerGold(), res: txTownResourceSnap(townId) };
     } catch (_) { return null; }
   }
-  function txMerchantStatus(offerId) {
+  function txMerchantStatus(townId, hint) {
     try {
       const uw = gameUw();
       let model = null;
+      let collectionSeen = false;
+      const offerId = hint && hint.offerId;
+      const item = String((hint && hint.item) || '').toLowerCase();
       for (const name of ['PhoenicianSalesmanOffer', 'MerchantOffer', 'PremiumExchangeOffer']) {
         const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName(name);
         if (!col || !col.models) continue;
-        model = col.models.find(m => String((m.attributes || {}).id ?? m.id) === String(offerId));
-        if (model) break;
-      }
-      if (!model) return { exists: false, gold: gbPlayerGold(), price: null };
-      const a = model.attributes || model;
-      const price = gbNum(a.price != null ? a.price : a.gold);
-      return { exists: true, gold: gbPlayerGold(), price };
-    } catch (_) { return null; }
-  }
-  function txPtTradeStatus(townId, offerId) {
-    try {
-      const uw = gameUw();
-      let model = null;
-      const tryCols = ['PhoenicianSalesmanOffer', 'MerchantOffer', 'PremiumExchangeOffer'];
-      for (const name of tryCols) {
-        const col = uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName(name);
-        if (!col || !col.models) continue;
+        collectionSeen = true;
         model = col.models.find(m => {
           const a = m.attributes || m;
-          if (offerId != null && String(a.id ?? m.id) !== String(offerId)) return false;
           if (townId != null && a.town_id != null && String(a.town_id) !== String(townId)) return false;
-          return true;
+          const idMatch = offerId != null && String(a.id ?? m.id) === String(offerId);
+          const modelItem = String(a.unit_name || a.resource_name || a.name || a.item_id || a.type || '').toLowerCase();
+          return idMatch || (!!item && modelItem === item);
         });
         if (model) break;
       }
-      const before = txTownResourceSnap(townId);
-      const tradeCap = (function () {
-        try { const t = gbTownModel(townId); return t && t.getAvailableTradeCapacity ? gbNum(t.getAvailableTradeCapacity()) : null; } catch (_) { return null; }
-      })();
-      if (!model) return { exists: false, tradeCap, res: before };
+      const res = txTownResourceSnap(townId);
+      const unit = hint && hint.offerKind === 'unit' && hint.item ? txUnitStatus(townId, hint.item) : null;
+      if (!model) return { exists: collectionSeen ? false : null, stock: null, res, unit };
       const a = model.attributes || model;
-      const amount = gbNum(a.amount != null ? a.amount : a.trade_amount != null ? a.trade_amount : a.current_amount);
-      return { exists: true, tradeCap, res: before, amount };
+      const stock = gbNum(a.amount != null ? a.amount
+        : a.stock != null ? a.stock
+          : a.available_amount != null ? a.available_amount : a.current_amount);
+      return { exists: true, stock, res, unit };
     } catch (_) { return null; }
   }
   function txCapture(feature, transport, endpoint, data) {
     const d = data || {};
     const a = transport === 'bridge' ? (d.arguments || {}) : d;
     const townId = d.town_id != null ? d.town_id : a.town_id;
+    const localHint = txLocalHint(d);
     try {
       if (feature === 'build' || feature === 'instant-build' || feature === 'instant-research') {
         if (a.order_id != null) {
@@ -3586,13 +3605,25 @@ const STORE = {
         const typ = a.celebration_type || endpoint;
         return { kind: 'culture', type: typ, before: txCultureStatus(townId, typ) };
       }
-      if (feature === 'merchant') {
-        const offerId = a.offer_id || a.offer || String(d.model_url || '').split('/').pop();
-        return { kind: 'merchant', offerId, before: txMerchantStatus(offerId) };
-      }
-      if (feature === 'pttrade') {
-        const offerId = a.offer_id || a.offer || (d.model_url && String(d.model_url).split('/').pop());
-        return { kind: 'pttrade', offerId, townId, before: txPtTradeStatus(townId, offerId) };
+      if (feature === 'merchant' || feature === 'pttrade') {
+        const hint = localHint || {};
+        const hintTown = gbNum(hint.townId != null ? hint.townId : townId);
+        const offerId = hint.offerId != null ? String(hint.offerId)
+          : (a.offer_id || a.offer || (d.model_url && String(d.model_url).split('/').pop()));
+        const snap = {
+          kind: feature,
+          townId: hintTown,
+          offerId,
+          offerKind: hint.offerKind === 'unit' ? 'unit' : 'resource',
+          item: hint.item != null ? String(hint.item) : null,
+          payResource: hint.payResource != null ? String(hint.payResource) : null,
+          receiveResource: hint.receiveResource != null ? String(hint.receiveResource) : null,
+          amount: gbNum(hint.amount),
+          cost: gbNum(hint.cost),
+          stock: gbNum(hint.stock),
+        };
+        snap.before = txMerchantStatus(hintTown, snap);
+        return snap;
       }
       if (feature === 'goldoffer') {
         if (typeof goldOfferTxSnapshot === 'function') return goldOfferTxSnapshot(townId, a);
@@ -3656,8 +3687,12 @@ const STORE = {
     }
     if (feature === 'rurallevel' || feature === 'ruraltrade') return `${feature}:${townId}:${a.farm_town_id || String(d.model_url || '').split('/').pop()}:${endpoint}`;
     if (feature === 'culture') return `culture:${townId}:${a.celebration_type || endpoint}`;
-    if (feature === 'merchant') return `merchant:${townId}:${a.offer_id || a.offer || a.id || endpoint}`;
-    if (feature === 'pttrade') return `pttrade:${townId || '-'}:${a.offer_id || a.offer || (d.model_url ? String(d.model_url).split('/').pop() : '') || endpoint}`;
+    if (feature === 'merchant' || feature === 'pttrade') {
+      const offer = snap && (snap.offerId || snap.item) || a.offer_id || a.offer || a.id
+        || (d.model_url ? String(d.model_url).split('/').pop() : '') || endpoint;
+
+      return `pttrade:${(snap&&snap.townId)||townId||'-'}:${offer}`;
+    }
     if (feature === 'goldoffer') {
       if (snap && snap.saleId) return `goldoffer:${snap.saleId}`;
       const resource = GB_RES_KEYS.find(k => gbNum(a[k]) != null && gbNum(a[k]) > 0) || '?';
@@ -3798,25 +3833,46 @@ const STORE = {
           && (txNe(cur.res.wood, s.before.res.wood) || txNe(cur.res.stone, s.before.res.stone) || txNe(cur.res.iron, s.before.res.iron));
         return cur.count === s.before.count && !goldChanged && !resChanged ? 'unchanged' : 'unknown';
       }
-      if (s.kind === 'merchant') {
-        const cur = txMerchantStatus(s.offerId);
+      if (s.kind === 'merchant' || s.kind === 'pttrade') {
+        const cur = txMerchantStatus(s.townId != null ? s.townId : meta.townId, s);
         if (!cur || !s.before) return 'unknown';
-        if (s.before.exists && !cur.exists) return 'applied';
-        if (cur.exists === s.before.exists && txNum(cur.gold) != null && txNum(s.before.gold) != null
-          && !txNe(cur.gold, s.before.gold)) return 'unchanged';
-        return 'unknown';
-      }
-      if (s.kind === 'pttrade') {
-        const cur = txPtTradeStatus(meta.townId, s.offerId);
-        if (!cur || !s.before) return 'unknown';
-        if (s.before.exists && !cur.exists) return 'applied';
-        if (cur.exists !== s.before.exists) return 'unknown';
-        if (txNum(cur.amount) == null || txNum(s.before.amount) == null) return 'unknown';
-        if (txNum(cur.tradeCap) == null || txNum(s.before.tradeCap) == null) return 'unknown';
-        if (!txResTriadReadable(cur.res) || !txResTriadReadable(s.before.res)) return 'unknown';
-        const changed = txNe(cur.amount, s.before.amount) || txNe(cur.tradeCap, s.before.tradeCap)
-          || txNe(cur.res.wood, s.before.res.wood) || txNe(cur.res.stone, s.before.res.stone) || txNe(cur.res.iron, s.before.res.iron);
-        return changed ? 'unknown' : 'unchanged';
+        if (s.before.exists === true && cur.exists === false) return 'applied';
+        const amount = txNum(s.amount), cost = txNum(s.cost);
+        const beforeStock = txNum(s.before.stock), currentStock = txNum(cur.stock);
+        if (amount != null && amount > 0 && beforeStock != null && currentStock != null
+          && currentStock <= beforeStock - amount) return 'applied';
+
+        const beforeRes = s.before.res, currentRes = cur.res;
+        const pay = String(s.payResource || '');
+        const resourceEvidence = txResTriadReadable(beforeRes) && txResTriadReadable(currentRes)
+          && GB_RES_KEYS.indexOf(pay) !== -1 && cost != null && cost > 0;
+        const paid = resourceEvidence && txNum(beforeRes[pay]) - txNum(currentRes[pay]) >= cost;
+        let received = false, receivedReadable = false;
+        if (s.offerKind === 'unit') {
+          const beforeTotal = s.before.unit && txNum(s.before.unit.total);
+          const currentTotal = cur.unit && txNum(cur.unit.total);
+          receivedReadable = beforeTotal != null && currentTotal != null;
+          received = receivedReadable && amount != null && amount > 0 && currentTotal >= beforeTotal + amount;
+        } else {
+          const get = String(s.receiveResource || '');
+          receivedReadable = txResTriadReadable(beforeRes) && txResTriadReadable(currentRes)
+            && GB_RES_KEYS.indexOf(get) !== -1;
+          received = receivedReadable && amount != null && amount > 0
+            && txNum(currentRes[get]) >= txNum(beforeRes[get]) + amount;
+        }
+        if (paid && received) return 'applied';
+
+        const existenceStable = cur.exists == null || s.before.exists == null || cur.exists === s.before.exists;
+        const stockStable = beforeStock == null || currentStock == null || beforeStock === currentStock;
+        const paymentStable = resourceEvidence && txNum(beforeRes[pay]) === txNum(currentRes[pay]);
+        let receivedStable = false;
+        if (s.offerKind === 'unit') {
+          receivedStable = receivedReadable && txNum(s.before.unit.total) === txNum(cur.unit.total);
+        } else if (receivedReadable) {
+          const get = String(s.receiveResource || '');
+          receivedStable = txNum(beforeRes[get]) === txNum(currentRes[get]);
+        }
+        return existenceStable && stockStable && paymentStable && receivedStable ? 'unchanged' : 'unknown';
       }
       if (s.kind === 'bandit-attack' || (s.kind === 'bandit' && /\/attack$/i.test(String(tx.endpoint || '')))) {
         return banditMovementReconcileResult(tx, banditMovementEvidence(gameUw(), meta.townId));
@@ -4812,6 +4868,73 @@ const STORE = {
     save(STORE.ENABLED_HOSTS,state.enabledHosts);
     return save(STORE.ENABLED_HOSTS+'@host:'+h,v);
   }
+
+  const GB_SHARED_CONFIG_FIELDS = [
+    ['configVer',STORE.CONFIG_VER],['enabledHosts',STORE.ENABLED_HOSTS],
+    ['pauseOnActivity',STORE.PAUSE_ON_ACTIVITY],['pauseActivityMs',STORE.PAUSE_ACTIVITY_MS],['nightPause',STORE.NIGHT_PAUSE],['nightStart',STORE.NIGHT_START],['nightEnd',STORE.NIGHT_END],['neverStop',STORE.NEVER_STOP],['orchDeadlockResolve',STORE.ORCH_DEADLOCK],
+    ['dryRun',STORE.DRY_RUN],['firstPostConfirm',STORE.FIRST_POST_CONFIRM],['firstPostLive',STORE.FIRST_POST_LIVE],['safeMode',STORE.SAFE_MODE],['circuitAutoClear',STORE.CIRCUIT_AUTO_CLEAR],['decisionMemory',STORE.DECISION_MEM],['captchaGlobalKill',STORE.CAPTCHA_GLOBAL],['captchaLadder',STORE.CAPTCHA_LADDER],['reqBudgetPerMin',STORE.REQ_BUDGET],['postsPerMinSoftPct',STORE.POSTS_SOFT_PCT],
+    ['autoCollect',STORE.AUTO_COLLECT],['collectAll',STORE.COLLECT_ALL],['collectMaxMin',STORE.COLLECT_MAX_MIN],['autoBandit',STORE.AUTO_BANDIT],['banditCfg',STORE.BANDIT_CFG],
+    ['autoFarm',STORE.AUTO_FARM],['farmScrape',STORE.FARM_SCRAPE],['farmSkipFull',STORE.FARM_SKIP_FULL],['farmFullMode',STORE.FARM_FULL_MODE],['farmMinMs',STORE.FARM_MIN],['farmMaxMs',STORE.FARM_MAX],['farmOptionMap',STORE.FARM_OPTION_MAP],['farmLongClaims',STORE.FARM_LONG_CLAIMS],['adaptiveFarm',STORE.ADAPTIVE_FARM],['farmDropPressurePct',STORE.FARM_DROP_PCT],['farmTravelSecPerUnit',STORE.FARM_TRAVEL],['farmUnitsMode',STORE.FARM_UNITS_MODE],['farmUnitsPref',STORE.FARM_UNITS_PREF],['farmUnitsOption',STORE.FARM_UNITS_OPTION],['farmLoyaltyTech',STORE.FARM_LOYALTY_TECH],
+    ['ibAuto',STORE.IB_AUTO],['ibFreeThresh',STORE.IB_FREE_THRESH],['ibResearch',STORE.IB_RESEARCH],['questAutoBuild',STORE.QUEST_AUTO_BUILD],['questAutoRes',STORE.QUEST_AUTO_RES],
+    ['abAuto',STORE.AB_AUTO],['abRandom',STORE.AB_RANDOM],['abTargets',STORE.AB_TARGETS],['abOrder',STORE.AB_ORDER],['abOptimalOrder',STORE.AB_OPTIMAL_ORDER],['abOptimalOrderOn',STORE.AB_OPTIMAL_ORDER_ON],['autoWallRepair',STORE.AUTO_WALL_REPAIR],['popRescueFarm',STORE.POP_RESCUE_FARM],['buildSwapThresholdMin',STORE.BUILD_SWAP_MIN],['buildSwapIgnore',STORE.BUILD_SWAP_IGNORE],
+    ['autoResearch',STORE.AUTO_RESEARCH],['researchTargets',STORE.RESEARCH_TARGETS],
+    ['autoRecruit',STORE.AUTO_RECRUIT],['recruitTargets',STORE.RECRUIT_TARGETS],['recruitSpells',STORE.RECRUIT_SPELLS],['batchRecruit',STORE.BATCH_RECRUIT],['batchRecruitLists',STORE.BATCH_RECRUIT_LISTS],['recruitPacks',STORE.RECRUIT_PACKS],['autoVillageRecruit',STORE.AUTO_VILLAGE_RECRUIT],['villageRecruitFillPct',STORE.VILLAGE_RECRUIT_FILL],['villageRecruitAmount',STORE.VILLAGE_RECRUIT_AMOUNT],
+    ['autoCave',STORE.AUTO_CAVE],['caveThreshPct',STORE.CAVE_THRESH],['caveTowns',STORE.CAVE_TOWNS],['emergencyCaveAuto',STORE.EMERGENCY_CAVE_AUTO],['emergencyCaveConfirm',STORE.EMERGENCY_CAVE_CONFIRM],['emergencyCaveMinIron',STORE.EMERGENCY_CAVE_MIN],
+    ['autoCulture',STORE.AUTO_CULTURE],['cultureTypes',STORE.CULTURE_TYPES],['allowPremiumCulture',STORE.ALLOW_PREMIUM_CULTURE],['cultureGoldBudget',STORE.CULTURE_GOLD_BUDGET],
+    ['autoTrade',STORE.AUTO_TRADE],['tradePreset',STORE.TRADE_PRESET],['tradeReservePct',STORE.TRADE_RESERVE],['tradeMinBatch',STORE.TRADE_MIN],['tradeTowns',STORE.TRADE_TOWNS],['tradeOverflowPct',STORE.TRADE_OVERFLOW],['tradeTransferPct',STORE.TRADE_TRANSFER_PCT],['tradeReceiverPct',STORE.TRADE_RECEIVER_PCT],['tradeRoutes',STORE.TRADE_ROUTES],['autoTradeRoutes',STORE.AUTO_TRADE_ROUTES],['autoTransport',STORE.AUTO_TRANSPORT],['transportReserve',STORE.TRANSPORT_RESERVE],['transportMin',STORE.TRANSPORT_MIN],['autoDump',STORE.AUTO_DUMP],['dumpThreshold',STORE.DUMP_THRESHOLD],['dumpKeep',STORE.DUMP_KEEP],['dumpSinks',STORE.DUMP_SINKS],['islandShip',STORE.ISLAND_SHIP],['islandBeneficiaries',STORE.ISLAND_BENEFICIARIES],
+    ['autoRuralTrade',STORE.AUTO_RURAL_TRADE],['autoRuralLevel',STORE.AUTO_RURAL_LEVEL],['ruralLevelMax',STORE.RURAL_LEVEL_MAX],
+    ['autoMerchant',STORE.AUTO_MERCHANT],['merchantWish',STORE.MERCHANT_WISH],['autoPtTrade',STORE.AUTO_PT_TRADE],['ptCfg',STORE.PT_CFG],
+    ['goldEnabled',STORE.GOLD_ENABLED],['goldBatch',STORE.GOLD_BATCH],['goldTowns',STORE.GOLD_TOWNS],
+    ['autoFavor',STORE.AUTO_FAVOR],['favorCfg',STORE.FAVOR_CFG],['autoWonder',STORE.AUTO_WONDER],['wonderCfg',STORE.WONDER_CFG],['autoWonderFavor',STORE.AUTO_WONDER_FAVOR],
+    ['autoDodge',STORE.AUTO_DODGE],['dodgeMode',STORE.DODGE_MODE],['dodgeFloor',STORE.DODGE_FLOOR],['predictCfg',STORE.PREDICT_CFG],['defenseCfg',STORE.DEFENSE_CFG],['militiaCfg',STORE.MILITIA_CFG],['supportCfg',STORE.SUPPORT_CFG],['autoMilitia',STORE.AUTO_MILITIA],['csAlert',STORE.CS_ALERT],
+    ['spyEnabled',STORE.AUTO_SPY],['spyCfg',STORE.SPY_CFG],
+    ['plannerCfg',STORE.PLANNER_CFG],['goalProfiles',STORE.GOAL_PROFILES],['townGoals',STORE.TOWN_GOALS],['virtualQueue',STORE.VIRTUAL_QUEUE],['virtualQueueOverrides',STORE.VIRTUAL_QUEUE_OVERRIDES],['roleAdvisorCfg',STORE.ROLE_ADVISOR_CFG],['roleAssignments',STORE.ROLE_ASSIGNMENTS],['resourceOptimizerCfg',STORE.RESOURCE_OPTIMIZER_CFG],
+    ['priorityOrder',STORE.PRIORITY_ORDER],['orchCadenceScale',STORE.ORCH_CADENCE_SCALE],['townMinMs',STORE.TOWN_MIN],['townMaxMs',STORE.TOWN_MAX],
+    ['webhookUrl',STORE.WEBHOOK_URL],['webhookEvents',STORE.WEBHOOK_EVENTS],['notifyEnabled',STORE.NOTIFY_ENABLED],['notifyEvents',STORE.NOTIFY_EVENTS],['notifyVolume',STORE.NOTIFY_VOLUME],['notifyMuted',STORE.NOTIFY_MUTED],['intelDigest',STORE.INTEL_DIGEST],
+    ['telegramEnabled',STORE.TELEGRAM_ENABLED],['telegramChatId',STORE.TELEGRAM_CHAT_ID],['telegramCaptcha',STORE.TELEGRAM_CAPTCHA],['telegramCaptchaResolved',STORE.TELEGRAM_CAPTCHA_RESOLVED],['telegramEvents',STORE.TELEGRAM_EVENTS],['telegramWarehousePct',STORE.TELEGRAM_WAREHOUSE_PCT],['telegramWarehouseMin',STORE.TELEGRAM_WAREHOUSE_MIN],
+    ['theme',STORE.THEME],['contextMenu',STORE.CONTEXT_MENU],['keyboardShortcuts',STORE.KEYBOARD_SHORTCUTS],['keybindings',STORE.KEYBINDINGS],['hudProduction',STORE.HUD_PRODUCTION],['hudCountdown',STORE.HUD_COUNTDOWN],['grepodataIndex',STORE.GREPODATA_INDEX],['intelBattleStats',STORE.INTEL_BATTLE_STATS],['exportRedact',STORE.EXPORT_REDACT],['snapshotsOn',STORE.SNAPSHOTS_ON],['profilerOn',STORE.PROFILER_ON],['memProbeOn',STORE.MEM_PROBE_ON]
+  ];
+  const GB_SHARED_CONFIG_STORES = new Set(GB_SHARED_CONFIG_FIELDS.map(x=>x[1]));
+  let gbConfigSyncListener = null, gbConfigSyncTimer = 0, gbConfigSyncSeq = 0;
+  function gbConfigStoreBase(key){const raw=String(key||'');const at=raw.indexOf('@');return at<0?raw:raw.slice(0,at)}
+  function gbConfigSyncPublish(key){
+    const base=gbConfigStoreBase(key);
+    if(!GB_SHARED_CONFIG_STORES.has(base))return false;
+    try{GM_setValue(wkey(STORE.CONFIG_REV),`${Date.now()}:${++gbConfigSyncSeq}:${GB_INSTANCE_ID}:${base}`);return true}
+    catch(e){gbLogT('config-sync-publish',60000,'config sync publish: '+String(e));return false}
+  }
+  function gbReloadSharedConfigState(reason){
+    let loaded=0;
+    for(const [field,store] of GB_SHARED_CONFIG_FIELDS){
+      const v=load(store,state[field]);
+      if(!gbStorageReadFailed(store)){state[field]=v;loaded++}
+    }
+    state.goldEnabled=state.goldEnabled===true;
+    if(typeof goldBatch==='function')state.goldBatch=goldBatch();
+    try{if(typeof bindConfig==='function')bindConfig()}catch(_){}
+    try{if(typeof renderCaveTowns==='function')renderCaveTowns()}catch(_){}
+    try{if(typeof updateStatus==='function')updateStatus()}catch(_){}
+    gbLogT('config-sync-reload',30000,`config sync: ${loaded} settings reloaded (${reason||'remote'})`);
+    return loaded;
+  }
+  function gbConfigSyncStart(){
+    if(gbConfigSyncListener!=null||typeof GM_addValueChangeListener!=='function')return gbConfigSyncListener;
+    try{
+      gbConfigSyncListener=GM_addValueChangeListener(wkey(STORE.CONFIG_REV),(_key,_oldValue,newValue,remote)=>{
+        if(!remote||!gbInstanceAlive())return;
+        if(gbConfigSyncTimer)gbClearTimeout(gbConfigSyncTimer);
+        gbConfigSyncTimer=gbTimeout(()=>{gbConfigSyncTimer=0;gbReloadSharedConfigState('remote:'+String(newValue||'change').slice(0,120))},100);
+      });
+
+      gbReloadSharedConfigState('subscribe');
+    }catch(e){gbConfigSyncListener=null;gbLogT('config-sync-start',60000,'config sync listener: '+String(e))}
+    return gbConfigSyncListener;
+  }
+  function gbConfigSyncDispose(){
+    if(gbConfigSyncTimer){try{gbClearTimeout(gbConfigSyncTimer)}catch(_){}gbConfigSyncTimer=0}
+    if(gbConfigSyncListener!=null&&typeof GM_removeValueChangeListener==='function')try{GM_removeValueChangeListener(gbConfigSyncListener)}catch(_){}
+    gbConfigSyncListener=null;
+  }
   function gbReloadSharedRuntimeState(reason) {
     if(!gbTabLeader)return false;
     const loadObj=(store,fallback)=>{
@@ -4826,6 +4949,11 @@ const STORE = {
       state.nativeQueue=nq;nativeQueueInflightRestored=false;
       try{nativeRecruitSplitDone.clear()}catch(_){}
       try{nativeQueueRoot()}catch(e){gbLogT('leader-reload-nq',60000,'leader reload native queue: '+String(e))}
+    }else{
+
+      state.nativeQueue={version:1,seq:0,towns:{}};nativeQueueInflightRestored=true;
+      try{nativeRecruitSplitDone.clear()}catch(_){}
+      gbLogT('leader-reload-nq-failed',60000,'leader reload native queue: storage unreadable; runtime queue disabled');
     }
     const circuits=loadObj(STORE.CIRCUITS,{});
     if(circuits)state.circuits=circuits;
@@ -4834,32 +4962,7 @@ const STORE = {
     const skips=loadObj(STORE.DECISION_SKIPS,{});
     if(skips)state.decisionSkips=skips;
 
-    const reloadFields = [
-      ['configVer',STORE.CONFIG_VER],['dryRun',STORE.DRY_RUN],['firstPostConfirm',STORE.FIRST_POST_CONFIRM],['safeMode',STORE.SAFE_MODE],
-      ['autoCollect',STORE.AUTO_COLLECT],['collectAll',STORE.COLLECT_ALL],['autoBandit',STORE.AUTO_BANDIT],['banditCfg',STORE.BANDIT_CFG],
-      ['autoFarm',STORE.AUTO_FARM],['farmScrape',STORE.FARM_SCRAPE],['farmOptionMap',STORE.FARM_OPTION_MAP],['farmLongClaims',STORE.FARM_LONG_CLAIMS],
-      ['ibAuto',STORE.IB_AUTO],['ibResearch',STORE.IB_RESEARCH],['questAutoBuild',STORE.QUEST_AUTO_BUILD],['questAutoRes',STORE.QUEST_AUTO_RES],
-      ['abAuto',STORE.AB_AUTO],['abRandom',STORE.AB_RANDOM],['abTargets',STORE.AB_TARGETS],['abOrder',STORE.AB_ORDER],['autoWallRepair',STORE.AUTO_WALL_REPAIR],['popRescueFarm',STORE.POP_RESCUE_FARM],['buildSwapThresholdMin',STORE.BUILD_SWAP_MIN],['buildSwapIgnore',STORE.BUILD_SWAP_IGNORE],
-      ['autoResearch',STORE.AUTO_RESEARCH],['researchTargets',STORE.RESEARCH_TARGETS],
-      ['autoRecruit',STORE.AUTO_RECRUIT],['recruitTargets',STORE.RECRUIT_TARGETS],['recruitSpells',STORE.RECRUIT_SPELLS],['batchRecruit',STORE.BATCH_RECRUIT],['batchRecruitLists',STORE.BATCH_RECRUIT_LISTS],['recruitPacks',STORE.RECRUIT_PACKS],['autoVillageRecruit',STORE.AUTO_VILLAGE_RECRUIT],['villageRecruitFillPct',STORE.VILLAGE_RECRUIT_FILL],['villageRecruitAmount',STORE.VILLAGE_RECRUIT_AMOUNT],
-      ['autoCave',STORE.AUTO_CAVE],['caveThreshPct',STORE.CAVE_THRESH],['caveTowns',STORE.CAVE_TOWNS],['emergencyCaveAuto',STORE.EMERGENCY_CAVE_AUTO],['emergencyCaveConfirm',STORE.EMERGENCY_CAVE_CONFIRM],['emergencyCaveMinIron',STORE.EMERGENCY_CAVE_MIN],
-      ['autoCulture',STORE.AUTO_CULTURE],['cultureTypes',STORE.CULTURE_TYPES],['allowPremiumCulture',STORE.ALLOW_PREMIUM_CULTURE],['cultureGoldBudget',STORE.CULTURE_GOLD_BUDGET],
-      ['autoTrade',STORE.AUTO_TRADE],['tradePreset',STORE.TRADE_PRESET],['tradeReservePct',STORE.TRADE_RESERVE],['tradeMinBatch',STORE.TRADE_MIN],['tradeTowns',STORE.TRADE_TOWNS],['tradeRoutes',STORE.TRADE_ROUTES],['autoTradeRoutes',STORE.AUTO_TRADE_ROUTES],['autoTransport',STORE.AUTO_TRANSPORT],['transportReserve',STORE.TRANSPORT_RESERVE],['transportMin',STORE.TRANSPORT_MIN],['autoDump',STORE.AUTO_DUMP],['dumpThreshold',STORE.DUMP_THRESHOLD],['dumpKeep',STORE.DUMP_KEEP],['dumpSinks',STORE.DUMP_SINKS],['islandShip',STORE.ISLAND_SHIP],
-      ['autoRuralTrade',STORE.AUTO_RURAL_TRADE],['autoRuralLevel',STORE.AUTO_RURAL_LEVEL],['ruralLevelMax',STORE.RURAL_LEVEL_MAX],
-      ['autoMerchant',STORE.AUTO_MERCHANT],['merchantWish',STORE.MERCHANT_WISH],['autoPtTrade',STORE.AUTO_PT_TRADE],['ptCfg',STORE.PT_CFG],
-      ['goldEnabled',STORE.GOLD_ENABLED],['goldBatch',STORE.GOLD_BATCH],['goldTowns',STORE.GOLD_TOWNS],
-      ['autoFavor',STORE.AUTO_FAVOR],['favorCfg',STORE.FAVOR_CFG],['autoWonder',STORE.AUTO_WONDER],['wonderCfg',STORE.WONDER_CFG],['autoWonderFavor',STORE.AUTO_WONDER_FAVOR],
-      ['autoDodge',STORE.AUTO_DODGE],['dodgeMode',STORE.DODGE_MODE],['dodgeFloor',STORE.DODGE_FLOOR],['defenseCfg',STORE.DEFENSE_CFG],['supportCfg',STORE.SUPPORT_CFG],['autoMilitia',STORE.AUTO_MILITIA],
-      ['spyEnabled',STORE.AUTO_SPY],['spyCfg',STORE.SPY_CFG],
-      ['plannerCfg',STORE.PLANNER_CFG],['goalProfiles',STORE.GOAL_PROFILES],['townGoals',STORE.TOWN_GOALS],['virtualQueue',STORE.VIRTUAL_QUEUE],['virtualQueueOverrides',STORE.VIRTUAL_QUEUE_OVERRIDES],
-      ['roleAdvisorCfg',STORE.ROLE_ADVISOR_CFG],['roleAssignments',STORE.ROLE_ASSIGNMENTS],['resourceOptimizerCfg',STORE.RESOURCE_OPTIMIZER_CFG]
-    ];
-    for(const [field,store] of reloadFields){
-      const v=load(store,state[field]);
-      if(!gbStorageReadFailed(store))state[field]=v;
-    }
-    state.goldEnabled = state.goldEnabled === true;
-    if (typeof goldBatch === 'function') state.goldBatch = goldBatch();
+    gbReloadSharedConfigState('leader:'+String(reason||'acquired'));
     for (const [field, store] of [['goldActions',STORE.GOLD_ACTIONS], ['goldSeaByTown',STORE.GOLD_SEAS], ['goldReviews',STORE.GOLD_REVIEWS], ['goldStats',STORE.GOLD_STATS], ['goldLast',STORE.GOLD_LAST]]) {
       const v = loadObj(store, {});
       if (v) state[field] = v;
@@ -10278,9 +10381,21 @@ const STORE = {
   function nativeQueueRejectManualWhenPlanner(townId){if(nativeQueueManualAllowed(townId))return false;flash('La cola FIFO solo est\u00e1 disponible en Personalizado');gbLogT('native-fifo-planner-'+townId,60000,`cola FIFO @${townId}: ignorada porque el planificador de objetivos est\u00e1 activo; cambia a Personalizado para usar FIFO`);return true}
 
   let nativeQueueSaveTimer=0;
+  const nativeQueueClone = q => { try{return structuredClone(q)}catch(_){return {version:1,seq:0,towns:{}}} };
+  function nativeQueueFollowerRestore() {
+    const stored=load(STORE.NATIVE_QUEUE,{version:1,seq:0,towns:{}});
+    const readable=!gbStorageReadFailed(STORE.NATIVE_QUEUE)&&stored&&typeof stored==='object'&&!Array.isArray(stored);
+
+    state.nativeQueue=readable?nativeQueueClone(stored):{version:1,seq:0,towns:{}};nativeQueueInflightRestored=false;
+    try{nativeRecruitSplitDone.clear()}catch(_){}
+    try{nativeQueueRoot()}catch(_){}
+    flash('Cola no modificada: usa la pesta\u00f1a l\u00edder');
+    gbLogT('native-queue-follower-save',60000,'native queue: follower mutation rejected and storage state restored');
+    return false;
+  }
   function nativeQueueSaveNow() {
     if(nativeQueueSaveTimer){try{gbClearTimeout(nativeQueueSaveTimer)}catch(_){}nativeQueueSaveTimer=0}
-    if(!gbTabLeader){gbLogT('native-queue-follower-save',60000,'native queue: follower save skipped');return false}
+    if(!gbTabLeader)return nativeQueueFollowerRestore();
     return save(STORE.NATIVE_QUEUE,nativeQueueRoot());
   }
   function nativeQueueSaveSoon() {
@@ -10290,10 +10405,11 @@ const STORE = {
   }
   function nativeQueueSaveFlush(){if(nativeQueueSaveTimer)nativeQueueSaveNow()}
   function nativeQueueSave() {
-    nativeQueueSaveNow();
+    const saved=nativeQueueSaveNow();
     try{scheduleNativeUiScan()}catch(_){}
     try{renderAbQueue()}catch(_){}
     try{renderQueueCenter()}catch(_){}
+    return saved;
   }
   function nativeQueueId(prefix){const q=nativeQueueRoot();q.seq++;return `${prefix}:${Date.now().toString(36)}:${q.seq.toString(36)}`;}
   function nativeQueueHasPending(lane,townId) {
@@ -17322,7 +17438,6 @@ const STORE = {
   function merchantScan(reason) {
     if (!hostEnabled() || !state.autoMerchant || captchaPaused('merchant')) return;
     if (automationPaused({})) return;
-    if (gbLocked('merchant')) return;
     if (gbLocked('pt-trade')) return;
     const wish = state.merchantWish || [];
     if (!wish.length) {
@@ -17396,17 +17511,17 @@ const STORE = {
       return;
     }
     const cost = Math.ceil(amount * offer.costPer);
-    const merchantLock = gbLock('merchant', 180000);
-    if (!merchantLock) return;
+    const ptLock = gbLock('pt-trade', 180000);
+    if (!ptLock) return;
 
     const fresh = ptRoom(job.townId, exchange, exchange);
     if (fresh.out == null || fresh.out < cost || offer.costPer > job.maxPrice) {
-      gbUnlock('merchant', merchantLock);
+      gbUnlock('pt-trade', ptLock);
       gbLogT('merchant-stale', 60000, 'merchant: final precheck failed; balance or price moved');
       return;
     }
     ptTradePost(job.townId, offer, amount, (err) => {
-      gbUnlock('merchant', merchantLock);
+      gbUnlock('pt-trade', ptLock);
       if (err === 'dryrun') {
         gbLog(`merchant: DRY-RUN compraria ${amount} ${offer.name} por ${cost} ${exchange}`);
         return;
@@ -17735,8 +17850,28 @@ const STORE = {
     data[kind + '_amount'] = Math.max(1, Math.floor(amount));
     return { action: 'trade_' + kind + 's', data };
   }
+  function ptTxHint(townId, offer, amount) {
+    const tid = gbNum(townId);
+    const qty = gbNum(amount);
+    const costPer = gbNum(offer && offer.costPer);
+    const payResource = String((offer && (offer.exchange || offer.give)) || '');
+    if (tid == null || tid <= 0 || qty == null || qty <= 0 || costPer == null || costPer <= 0
+      || PT_RES.indexOf(payResource) === -1) return null;
+    return {
+      townId: tid,
+      offerId: offer && offer.id != null ? String(offer.id) : null,
+      offerKind: offer && offer.kind === 'unit' ? 'unit' : 'resource',
+      item: offer && offer.name ? String(offer.name) : null,
+      payResource,
+      receiveResource: offer && offer.kind !== 'unit' && offer.get ? String(offer.get) : null,
+      amount: Math.floor(qty),
+      cost: Math.ceil(qty * costPer),
+      stock: gbNum(offer && offer.stock),
+    };
+  }
   function ptTradePost(townId, offer, amount, onDone, feature) {
     const feat = feature || 'pttrade';
+    const hint = ptTxHint(townId, offer, amount);
     const tpl = state.ptTradeTpl;
     if (tpl && tpl.action && ptAmountKey(tpl)) {
       const key = ptAmountKey(tpl);
@@ -17751,6 +17886,7 @@ const STORE = {
           else if (/offer(_id)?$/i.test(k) && offer.id != null) data[k] = offer.id;
         });
       }
+      txSetLocalHint(data, hint);
       gameAjaxPost(feat, tpl.controller || 'phoenician_salesman', tpl.action, data, onDone);
       return;
     }
@@ -17763,6 +17899,7 @@ const STORE = {
     const data = Object.assign({}, canon.data);
     const tid = gbNum(townId);
     if (tid != null && tid > 0) data.town_id = tid;
+    txSetLocalHint(data, hint);
     gameAjaxPost(feat, 'phoenician_salesman', canon.action, data, onDone);
   }
 
@@ -22373,7 +22510,7 @@ const STORE = {
   function qolImportConfig(obj, opts) {
     if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;if(obj.host&&String(obj.host)!==String(location.host)){gbLog(`config import refused: file host ${obj.host} != ${location.host}`);return false}if(obj.schema!=null&&+obj.schema>CONFIG_EXPORT_SCHEMA){gbLog(`config import refused: schema ${obj.schema} newer than supported ${CONFIG_EXPORT_SCHEMA}`);return false}
     const clone=v=>structuredClone(v),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v),num=v=>gbNum(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,roleAdvisorCfg:isObj,roleAssignments:isObj,resourceOptimizerCfg:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>num(v)!=null,transportMin:v=>num(v)!=null,tradeTowns:isObj,cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,goldEnabled:v=>typeof v==='boolean',goldBatch:v=>num(v)!=null&&num(v)>=100&&num(v)<=1000000,goldTowns:isObj,playerNotes:isObj,watchlist:Array.isArray,batchRecruit:v=>typeof v==='boolean',batchRecruitLists:isObj,recruitPacks:isObj};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,roleAdvisorCfg:STORE.ROLE_ADVISOR_CFG,roleAssignments:STORE.ROLE_ASSIGNMENTS,resourceOptimizerCfg:STORE.RESOURCE_OPTIMIZER_CFG,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,tradeTowns:STORE.TRADE_TOWNS,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,batchRecruit:STORE.BATCH_RECRUIT,batchRecruitLists:STORE.BATCH_RECRUIT_LISTS,recruitPacks:STORE.RECRUIT_PACKS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,goldEnabled:STORE.GOLD_ENABLED,goldBatch:STORE.GOLD_BATCH,goldTowns:STORE.GOLD_TOWNS,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
-    for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='goldEnabled'){v=v===true}else if(k==='goldBatch'){v=Math.floor(num(v))}else if(k==='goldTowns'){const c={};for(const[id,on]of Object.entries(v))if(/^\d+$/.test(id)&&on===true)c[id]=true;v=c}else if(k==='priorityOrder'){const allowed=new Set(ORCH_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(ORCH_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
+    for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(k==='nativeQueue'&&!gbTabLeader){gbLog('config import: nativeQueue ignored in follower tab; import it from the leader tab');continue}if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='goldEnabled'){v=v===true}else if(k==='goldBatch'){v=Math.floor(num(v))}else if(k==='goldTowns'){const c={};for(const[id,on]of Object.entries(v))if(/^\d+$/.test(id)&&on===true)c[id]=true;v=c}else if(k==='priorityOrder'){const allowed=new Set(ORCH_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(ORCH_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
       const clean={version:1,seq:Math.max(0,+v.seq||0),towns:{}},seen=new Set();
       const jobId=(raw,prefix)=>{let id=/^[A-Za-z0-9:._-]{1,160}$/.test(String(raw||''))?String(raw):'';if(!id||seen.has(id)){clean.seq++;id=`${prefix}:import:${clean.seq.toString(36)}`}seen.add(id);return id};
       for(const[tid,t]of Object.entries(v.towns||{}).slice(0,500)){if(!/^\d+$/.test(String(tid))||!isObj(t))continue;const townId=String(tid),build=[],recruit=[],recruitNaval=[],research=[];
@@ -22488,7 +22625,9 @@ const STORE = {
   }
   const ORCH_MODE = 'independent-v5.9.2';
   const ORCH_MS = 20000;
-  const ORCH_MAX_PER_TICK = 3;
+
+  const ORCH_MAX_PER_TICK = 6;
+  const ORCH_PRESSURE_MAX_PER_TICK = 3;
   const ORCH_SPACING_MS = 450;
 
   function qolBindActivityPause() {
@@ -22702,6 +22841,17 @@ const STORE = {
   const orchLastRun = {};
   const orchIdle = {};
   const orchJrnMark = {};
+  const orchCapacity = { ticks:0, saturatedTicks:0, lastDue:0, lastDispatched:0, lastDeferred:0, maxDue:0, maxOverdueMs:0, lastAt:0, pressureLimited:false };
+  function orchCapacityStatus(){
+    return {
+      ticks:orchCapacity.ticks,
+      saturatedTicks:orchCapacity.saturatedTicks,
+      saturationPct:orchCapacity.ticks?Math.round(orchCapacity.saturatedTicks*1000/orchCapacity.ticks)/10:0,
+      lastDue:orchCapacity.lastDue,lastDispatched:orchCapacity.lastDispatched,lastDeferred:orchCapacity.lastDeferred,
+      maxDue:orchCapacity.maxDue,maxOverdueMs:orchCapacity.maxOverdueMs,lastAt:orchCapacity.lastAt,
+      pressureLimited:orchCapacity.pressureLimited,maxPerTick:ORCH_MAX_PER_TICK,pressureMaxPerTick:ORCH_PRESSURE_MAX_PER_TICK
+    };
+  }
   function orchSafe(key,fn){try{return fn()}catch(e){const msg=String(e&&e.stack||e).slice(0,220);gbLog(`orch ${key} exception: ${msg}`);markModuleHealth(key,'err',{error:msg});whyNote(key,'orchestrator','error',msg);orchIdle[key]=0;return null}}
   const ORCH_HANDLERS = {
     culture:()=>orchSafe('culture',()=>profTime('orch:culture',()=>cultureScan('orch'))),
@@ -22849,7 +22999,7 @@ const STORE = {
       if (!ORCH_HANDLERS[key] || !orchFeatureEnabled(key)) continue;
       if (orchCaptchaPaused(key)) continue;
       const cadence = orchCadence(key);
-      const overdue = now - (orchLastRun[key] || 0) - cadence;
+      const overdue = orchLastRun[key] ? now - orchLastRun[key] - cadence : 0;
       if (overdue >= 0) due.push({ key, rank, overdue, cadence });
     }
     due.sort((a, b) => {
@@ -22857,7 +23007,19 @@ const STORE = {
       const band = Math.max(a.cadence, b.cadence, ORCH_MS) * 2;
       return Math.abs(gap) > band ? gap : a.rank - b.rank;
     });
-    due.slice(0, ORCH_MAX_PER_TICK).forEach((item, idx) => {
+    const pressureLimited=typeof reqBudgetSoftDelayMs==='function'&&reqBudgetSoftDelayMs()>0;
+    const limit=pressureLimited?ORCH_PRESSURE_MAX_PER_TICK:ORCH_MAX_PER_TICK;
+    const selected=due.slice(0,limit);
+    orchCapacity.ticks++;
+    orchCapacity.lastDue=due.length;
+    orchCapacity.lastDispatched=selected.length;
+    orchCapacity.lastDeferred=Math.max(0,due.length-selected.length);
+    orchCapacity.maxDue=Math.max(orchCapacity.maxDue,due.length);
+    orchCapacity.maxOverdueMs=Math.max(orchCapacity.maxOverdueMs,due.reduce((m,x)=>Math.max(m,x.overdue),0));
+    orchCapacity.lastAt=now;
+    orchCapacity.pressureLimited=pressureLimited;
+    if(due.length>limit)orchCapacity.saturatedTicks++;
+    selected.forEach((item, idx) => {
       const fire = () => orchModuleTick(item.key, 'orch');
       if (idx === 0) fire();
       else gbTimeout(fire, idx * ORCH_SPACING_MS + Math.floor(Math.random() * 200));
@@ -29011,6 +29173,7 @@ const STORE = {
       csrf: { present: !!csrf },
       toggles,
       scheduler: typeof orchStatus === 'function' ? orchStatus() : [],
+      schedulerCapacity: typeof orchCapacityStatus === 'function' ? orchCapacityStatus() : null,
       templates,
       captcha: {
         globalKill: state.captchaGlobalKill !== false,
@@ -29228,8 +29391,11 @@ const STORE = {
     let logRing = [];
     try { logRing = (typeof gbLogDump === 'function') ? gbLogDump(0) : []; }
     catch (_) {}
-    return gbRedact({
-      meta: {
+
+    const section = (value, maxEntries) => gbRedact(value, { maxDepth: 8, maxEntries: maxEntries || 800, maxString: 360 });
+    const decisions = Array.isArray(state.decisions) ? state.decisions : [];
+    return {
+      meta: section({
         at: new Date(now).toISOString(),
         version: runningVersion(),
         host: location.host,
@@ -29241,32 +29407,33 @@ const STORE = {
         panicActive: typeof gbPanicActive === 'function' ? !!gbPanicActive() : false,
         paused,
         pausedReason: pauseInfo.reason || null,
-      },
-      toggles: (evidence && evidence.toggles) || {},
-      scheduler: (evidence && evidence.scheduler) || [],
-      templates: (evidence && evidence.templates) || {},
-      captcha: (evidence && evidence.captcha) || {},
-      server: (evidence && evidence.server) || {},
-      locks: (evidence && evidence.locks) || [],
-      budget: (evidence && evidence.budget) || {},
-      counts: (evidence && evidence.counts) || {},
-      recentByFeature: (evidence && evidence.recentByFeature) || {},
-      lastOk: (evidence && evidence.lastOk) || {},
-      lastSkip: (evidence && evidence.lastSkip) || {},
-      decisionSkips: (evidence && evidence.decisionSkips) || [],
-      scrapes: (evidence && evidence.scrapes) || {},
-      wake: (evidence && evidence.wake) || {},
-      tplHealth: (evidence && evidence.tplHealth) || {},
-      decisions: { ring: state.decisions || [], skips: state.decisionSkips || {}, len: (state.decisions || []).length },
-      log: { entries: logRing, len: logRing.length },
-      findings: (typeof redactFindingsExport === 'function')
+      }, 80),
+      toggles: section((evidence && evidence.toggles) || {}),
+      scheduler: section((evidence && evidence.scheduler) || []),
+      schedulerCapacity: section((evidence && evidence.schedulerCapacity) || null),
+      templates: section((evidence && evidence.templates) || {}),
+      captcha: section((evidence && evidence.captcha) || {}),
+      server: section((evidence && evidence.server) || {}),
+      locks: section((evidence && evidence.locks) || []),
+      budget: section((evidence && evidence.budget) || {}),
+      counts: section((evidence && evidence.counts) || {}),
+      recentByFeature: section((evidence && evidence.recentByFeature) || {}),
+      lastOk: section((evidence && evidence.lastOk) || {}),
+      lastSkip: section((evidence && evidence.lastSkip) || {}),
+      decisionSkips: section((evidence && evidence.decisionSkips) || []),
+      scrapes: section((evidence && evidence.scrapes) || {}),
+      wake: section((evidence && evidence.wake) || {}),
+      tplHealth: section((evidence && evidence.tplHealth) || {}),
+      decisions: section({ ring: decisions, skips: state.decisionSkips || {}, len: decisions.length }),
+      log: section({ entries: logRing, len: logRing.length }),
+      findings: section((typeof redactFindingsExport === 'function')
         ? redactFindingsExport({ findings: state.findings, farms: state.farms })
-        : '(redaction unavailable)',
-      config: (typeof qolExportConfigForUi === 'function') ? qolExportConfigForUi() : null,
-      nativeQueue: nativeQueueShape(state.nativeQueue),
-      bridge: (typeof gameBridgeStatus === 'function') ? gameBridgeStatus() : null,
-      preflight: (typeof preflightRun === 'function') ? preflightRun() : null,
-    }, { maxDepth: 8, maxEntries: 800, maxString: 360 });
+        : '(redaction unavailable)'),
+      config: section((typeof qolExportConfigForUi === 'function') ? qolExportConfigForUi() : null),
+      nativeQueue: section(nativeQueueShape(state.nativeQueue)),
+      bridge: section((typeof gameBridgeStatus === 'function') ? gameBridgeStatus() : null),
+      preflight: section((typeof preflightRun === 'function') ? preflightRun() : null),
+    };
   }
   function gbRegistryJsonText() {
     try { return JSON.stringify(gbRegistryJson(), null, 2); }
@@ -34257,6 +34424,7 @@ const STORE = {
     gbListen(window, 'hashchange', () => gbTimeout(ensurePanelMounted, 50));
   }
   hookSpaNav();
+  try { gbConfigSyncStart(); } catch (e) { gbLogT('boot-config-sync', 60000, 'config sync: ' + String(e?.message || e).slice(0, 80)); }
   try { qolBindActivityPause(); } catch (_) {}
 
   bootStartLoops();

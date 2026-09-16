@@ -3,8 +3,9 @@
 
 Exit 0 if equal; exit 1 with a structured report otherwise.
 
-Used as build.py gate 5 (REDESIGN §5.1) and run manually after every
-R-step. The diff walks dicts recursively so a missing/declared helper,
+Retained as a manual structural-drift diagnostic. The committed baseline has
+broad intentional historical drift, so build.py instead runs the focused fatal
+contracts in audit_regressions.py. This diff walks dicts recursively so a missing/declared helper,
 a STORE.* key delta, a sentinel call-site count, or a complexity
 regression all surface as a single entry in the report.
 
@@ -15,8 +16,8 @@ Schema:
 If <current.json> is omitted, runs `tests/snapshot.py` against the
 live src/ and diffs against the baseline.
 
---warn-only exits 0 even on diff. Used by R0a first run so the
-infra ships clean before the baseline is committed.
+--warn-only exits 0 even on diff and is the expected mode for the stale
+pre-refactor baseline.
 """
 import json
 import os

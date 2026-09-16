@@ -306,8 +306,28 @@
     data[kind + '_amount'] = Math.max(1, Math.floor(amount));
     return { action: 'trade_' + kind + 's', data };
   }
+  function ptTxHint(townId, offer, amount) {
+    const tid = gbNum(townId);
+    const qty = gbNum(amount);
+    const costPer = gbNum(offer && offer.costPer);
+    const payResource = String((offer && (offer.exchange || offer.give)) || '');
+    if (tid == null || tid <= 0 || qty == null || qty <= 0 || costPer == null || costPer <= 0
+      || PT_RES.indexOf(payResource) === -1) return null;
+    return {
+      townId: tid,
+      offerId: offer && offer.id != null ? String(offer.id) : null,
+      offerKind: offer && offer.kind === 'unit' ? 'unit' : 'resource',
+      item: offer && offer.name ? String(offer.name) : null,
+      payResource,
+      receiveResource: offer && offer.kind !== 'unit' && offer.get ? String(offer.get) : null,
+      amount: Math.floor(qty),
+      cost: Math.ceil(qty * costPer),
+      stock: gbNum(offer && offer.stock),
+    };
+  }
   function ptTradePost(townId, offer, amount, onDone, feature) {
     const feat = feature || 'pttrade';
+    const hint = ptTxHint(townId, offer, amount);
     const tpl = state.ptTradeTpl;
     if (tpl && tpl.action && ptAmountKey(tpl)) {
       const key = ptAmountKey(tpl);
@@ -322,6 +342,7 @@
           else if (/offer(_id)?$/i.test(k) && offer.id != null) data[k] = offer.id;
         });
       }
+      txSetLocalHint(data, hint);
       gameAjaxPost(feat, tpl.controller || 'phoenician_salesman', tpl.action, data, onDone);
       return;
     }
@@ -334,6 +355,7 @@
     const data = Object.assign({}, canon.data);
     const tid = gbNum(townId);
     if (tid != null && tid > 0) data.town_id = tid;
+    txSetLocalHint(data, hint);
     gameAjaxPost(feat, 'phoenician_salesman', canon.action, data, onDone);
   }
 

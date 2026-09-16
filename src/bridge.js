@@ -655,6 +655,77 @@
     save(STORE.ENABLED_HOSTS,state.enabledHosts);
     return save(STORE.ENABLED_HOSTS+'@host:'+h,v);
   }
+  // A follower tab may own the visible Config panel while another tab owns the
+  // Web Lock and all automation. Persisted settings therefore need an explicit
+  // invalidation signal; promotion-time reload alone leaves the active leader
+  // running stale safety gates and feature toggles indefinitely.
+  const GB_SHARED_CONFIG_FIELDS = [
+    ['configVer',STORE.CONFIG_VER],['enabledHosts',STORE.ENABLED_HOSTS],
+    ['pauseOnActivity',STORE.PAUSE_ON_ACTIVITY],['pauseActivityMs',STORE.PAUSE_ACTIVITY_MS],['nightPause',STORE.NIGHT_PAUSE],['nightStart',STORE.NIGHT_START],['nightEnd',STORE.NIGHT_END],['neverStop',STORE.NEVER_STOP],['orchDeadlockResolve',STORE.ORCH_DEADLOCK],
+    ['dryRun',STORE.DRY_RUN],['firstPostConfirm',STORE.FIRST_POST_CONFIRM],['firstPostLive',STORE.FIRST_POST_LIVE],['safeMode',STORE.SAFE_MODE],['circuitAutoClear',STORE.CIRCUIT_AUTO_CLEAR],['decisionMemory',STORE.DECISION_MEM],['captchaGlobalKill',STORE.CAPTCHA_GLOBAL],['captchaLadder',STORE.CAPTCHA_LADDER],['reqBudgetPerMin',STORE.REQ_BUDGET],['postsPerMinSoftPct',STORE.POSTS_SOFT_PCT],
+    ['autoCollect',STORE.AUTO_COLLECT],['collectAll',STORE.COLLECT_ALL],['collectMaxMin',STORE.COLLECT_MAX_MIN],['autoBandit',STORE.AUTO_BANDIT],['banditCfg',STORE.BANDIT_CFG],
+    ['autoFarm',STORE.AUTO_FARM],['farmScrape',STORE.FARM_SCRAPE],['farmSkipFull',STORE.FARM_SKIP_FULL],['farmFullMode',STORE.FARM_FULL_MODE],['farmMinMs',STORE.FARM_MIN],['farmMaxMs',STORE.FARM_MAX],['farmOptionMap',STORE.FARM_OPTION_MAP],['farmLongClaims',STORE.FARM_LONG_CLAIMS],['adaptiveFarm',STORE.ADAPTIVE_FARM],['farmDropPressurePct',STORE.FARM_DROP_PCT],['farmTravelSecPerUnit',STORE.FARM_TRAVEL],['farmUnitsMode',STORE.FARM_UNITS_MODE],['farmUnitsPref',STORE.FARM_UNITS_PREF],['farmUnitsOption',STORE.FARM_UNITS_OPTION],['farmLoyaltyTech',STORE.FARM_LOYALTY_TECH],
+    ['ibAuto',STORE.IB_AUTO],['ibFreeThresh',STORE.IB_FREE_THRESH],['ibResearch',STORE.IB_RESEARCH],['questAutoBuild',STORE.QUEST_AUTO_BUILD],['questAutoRes',STORE.QUEST_AUTO_RES],
+    ['abAuto',STORE.AB_AUTO],['abRandom',STORE.AB_RANDOM],['abTargets',STORE.AB_TARGETS],['abOrder',STORE.AB_ORDER],['abOptimalOrder',STORE.AB_OPTIMAL_ORDER],['abOptimalOrderOn',STORE.AB_OPTIMAL_ORDER_ON],['autoWallRepair',STORE.AUTO_WALL_REPAIR],['popRescueFarm',STORE.POP_RESCUE_FARM],['buildSwapThresholdMin',STORE.BUILD_SWAP_MIN],['buildSwapIgnore',STORE.BUILD_SWAP_IGNORE],
+    ['autoResearch',STORE.AUTO_RESEARCH],['researchTargets',STORE.RESEARCH_TARGETS],
+    ['autoRecruit',STORE.AUTO_RECRUIT],['recruitTargets',STORE.RECRUIT_TARGETS],['recruitSpells',STORE.RECRUIT_SPELLS],['batchRecruit',STORE.BATCH_RECRUIT],['batchRecruitLists',STORE.BATCH_RECRUIT_LISTS],['recruitPacks',STORE.RECRUIT_PACKS],['autoVillageRecruit',STORE.AUTO_VILLAGE_RECRUIT],['villageRecruitFillPct',STORE.VILLAGE_RECRUIT_FILL],['villageRecruitAmount',STORE.VILLAGE_RECRUIT_AMOUNT],
+    ['autoCave',STORE.AUTO_CAVE],['caveThreshPct',STORE.CAVE_THRESH],['caveTowns',STORE.CAVE_TOWNS],['emergencyCaveAuto',STORE.EMERGENCY_CAVE_AUTO],['emergencyCaveConfirm',STORE.EMERGENCY_CAVE_CONFIRM],['emergencyCaveMinIron',STORE.EMERGENCY_CAVE_MIN],
+    ['autoCulture',STORE.AUTO_CULTURE],['cultureTypes',STORE.CULTURE_TYPES],['allowPremiumCulture',STORE.ALLOW_PREMIUM_CULTURE],['cultureGoldBudget',STORE.CULTURE_GOLD_BUDGET],
+    ['autoTrade',STORE.AUTO_TRADE],['tradePreset',STORE.TRADE_PRESET],['tradeReservePct',STORE.TRADE_RESERVE],['tradeMinBatch',STORE.TRADE_MIN],['tradeTowns',STORE.TRADE_TOWNS],['tradeOverflowPct',STORE.TRADE_OVERFLOW],['tradeTransferPct',STORE.TRADE_TRANSFER_PCT],['tradeReceiverPct',STORE.TRADE_RECEIVER_PCT],['tradeRoutes',STORE.TRADE_ROUTES],['autoTradeRoutes',STORE.AUTO_TRADE_ROUTES],['autoTransport',STORE.AUTO_TRANSPORT],['transportReserve',STORE.TRANSPORT_RESERVE],['transportMin',STORE.TRANSPORT_MIN],['autoDump',STORE.AUTO_DUMP],['dumpThreshold',STORE.DUMP_THRESHOLD],['dumpKeep',STORE.DUMP_KEEP],['dumpSinks',STORE.DUMP_SINKS],['islandShip',STORE.ISLAND_SHIP],['islandBeneficiaries',STORE.ISLAND_BENEFICIARIES],
+    ['autoRuralTrade',STORE.AUTO_RURAL_TRADE],['autoRuralLevel',STORE.AUTO_RURAL_LEVEL],['ruralLevelMax',STORE.RURAL_LEVEL_MAX],
+    ['autoMerchant',STORE.AUTO_MERCHANT],['merchantWish',STORE.MERCHANT_WISH],['autoPtTrade',STORE.AUTO_PT_TRADE],['ptCfg',STORE.PT_CFG],
+    ['goldEnabled',STORE.GOLD_ENABLED],['goldBatch',STORE.GOLD_BATCH],['goldTowns',STORE.GOLD_TOWNS],
+    ['autoFavor',STORE.AUTO_FAVOR],['favorCfg',STORE.FAVOR_CFG],['autoWonder',STORE.AUTO_WONDER],['wonderCfg',STORE.WONDER_CFG],['autoWonderFavor',STORE.AUTO_WONDER_FAVOR],
+    ['autoDodge',STORE.AUTO_DODGE],['dodgeMode',STORE.DODGE_MODE],['dodgeFloor',STORE.DODGE_FLOOR],['predictCfg',STORE.PREDICT_CFG],['defenseCfg',STORE.DEFENSE_CFG],['militiaCfg',STORE.MILITIA_CFG],['supportCfg',STORE.SUPPORT_CFG],['autoMilitia',STORE.AUTO_MILITIA],['csAlert',STORE.CS_ALERT],
+    ['spyEnabled',STORE.AUTO_SPY],['spyCfg',STORE.SPY_CFG],
+    ['plannerCfg',STORE.PLANNER_CFG],['goalProfiles',STORE.GOAL_PROFILES],['townGoals',STORE.TOWN_GOALS],['virtualQueue',STORE.VIRTUAL_QUEUE],['virtualQueueOverrides',STORE.VIRTUAL_QUEUE_OVERRIDES],['roleAdvisorCfg',STORE.ROLE_ADVISOR_CFG],['roleAssignments',STORE.ROLE_ASSIGNMENTS],['resourceOptimizerCfg',STORE.RESOURCE_OPTIMIZER_CFG],
+    ['priorityOrder',STORE.PRIORITY_ORDER],['orchCadenceScale',STORE.ORCH_CADENCE_SCALE],['townMinMs',STORE.TOWN_MIN],['townMaxMs',STORE.TOWN_MAX],
+    ['webhookUrl',STORE.WEBHOOK_URL],['webhookEvents',STORE.WEBHOOK_EVENTS],['notifyEnabled',STORE.NOTIFY_ENABLED],['notifyEvents',STORE.NOTIFY_EVENTS],['notifyVolume',STORE.NOTIFY_VOLUME],['notifyMuted',STORE.NOTIFY_MUTED],['intelDigest',STORE.INTEL_DIGEST],
+    ['telegramEnabled',STORE.TELEGRAM_ENABLED],['telegramChatId',STORE.TELEGRAM_CHAT_ID],['telegramCaptcha',STORE.TELEGRAM_CAPTCHA],['telegramCaptchaResolved',STORE.TELEGRAM_CAPTCHA_RESOLVED],['telegramEvents',STORE.TELEGRAM_EVENTS],['telegramWarehousePct',STORE.TELEGRAM_WAREHOUSE_PCT],['telegramWarehouseMin',STORE.TELEGRAM_WAREHOUSE_MIN],
+    ['theme',STORE.THEME],['contextMenu',STORE.CONTEXT_MENU],['keyboardShortcuts',STORE.KEYBOARD_SHORTCUTS],['keybindings',STORE.KEYBINDINGS],['hudProduction',STORE.HUD_PRODUCTION],['hudCountdown',STORE.HUD_COUNTDOWN],['grepodataIndex',STORE.GREPODATA_INDEX],['intelBattleStats',STORE.INTEL_BATTLE_STATS],['exportRedact',STORE.EXPORT_REDACT],['snapshotsOn',STORE.SNAPSHOTS_ON],['profilerOn',STORE.PROFILER_ON],['memProbeOn',STORE.MEM_PROBE_ON]
+  ];
+  const GB_SHARED_CONFIG_STORES = new Set(GB_SHARED_CONFIG_FIELDS.map(x=>x[1]));
+  let gbConfigSyncListener = null, gbConfigSyncTimer = 0, gbConfigSyncSeq = 0;
+  function gbConfigStoreBase(key){const raw=String(key||'');const at=raw.indexOf('@');return at<0?raw:raw.slice(0,at)}
+  function gbConfigSyncPublish(key){
+    const base=gbConfigStoreBase(key);
+    if(!GB_SHARED_CONFIG_STORES.has(base))return false;
+    try{GM_setValue(wkey(STORE.CONFIG_REV),`${Date.now()}:${++gbConfigSyncSeq}:${GB_INSTANCE_ID}:${base}`);return true}
+    catch(e){gbLogT('config-sync-publish',60000,'config sync publish: '+String(e));return false}
+  }
+  function gbReloadSharedConfigState(reason){
+    let loaded=0;
+    for(const [field,store] of GB_SHARED_CONFIG_FIELDS){
+      const v=load(store,state[field]);
+      if(!gbStorageReadFailed(store)){state[field]=v;loaded++}
+    }
+    state.goldEnabled=state.goldEnabled===true;
+    if(typeof goldBatch==='function')state.goldBatch=goldBatch();
+    try{if(typeof bindConfig==='function')bindConfig()}catch(_){}
+    try{if(typeof renderCaveTowns==='function')renderCaveTowns()}catch(_){}
+    try{if(typeof updateStatus==='function')updateStatus()}catch(_){}
+    gbLogT('config-sync-reload',30000,`config sync: ${loaded} settings reloaded (${reason||'remote'})`);
+    return loaded;
+  }
+  function gbConfigSyncStart(){
+    if(gbConfigSyncListener!=null||typeof GM_addValueChangeListener!=='function')return gbConfigSyncListener;
+    try{
+      gbConfigSyncListener=GM_addValueChangeListener(wkey(STORE.CONFIG_REV),(_key,_oldValue,newValue,remote)=>{
+        if(!remote||!gbInstanceAlive())return;
+        if(gbConfigSyncTimer)gbClearTimeout(gbConfigSyncTimer);
+        gbConfigSyncTimer=gbTimeout(()=>{gbConfigSyncTimer=0;gbReloadSharedConfigState('remote:'+String(newValue||'change').slice(0,120))},100);
+      });
+      // Subscribe first, then read: a write racing boot is either present in
+      // this reload or delivered by the listener, never lost between them.
+      gbReloadSharedConfigState('subscribe');
+    }catch(e){gbConfigSyncListener=null;gbLogT('config-sync-start',60000,'config sync listener: '+String(e))}
+    return gbConfigSyncListener;
+  }
+  function gbConfigSyncDispose(){
+    if(gbConfigSyncTimer){try{gbClearTimeout(gbConfigSyncTimer)}catch(_){}gbConfigSyncTimer=0}
+    if(gbConfigSyncListener!=null&&typeof GM_removeValueChangeListener==='function')try{GM_removeValueChangeListener(gbConfigSyncListener)}catch(_){}
+    gbConfigSyncListener=null;
+  }
   function gbReloadSharedRuntimeState(reason) {
     if(!gbTabLeader)return false;
     const loadObj=(store,fallback)=>{
@@ -669,6 +740,12 @@
       state.nativeQueue=nq;nativeQueueInflightRestored=false;
       try{nativeRecruitSplitDone.clear()}catch(_){}
       try{nativeQueueRoot()}catch(e){gbLogT('leader-reload-nq',60000,'leader reload native queue: '+String(e))}
+    }else{
+      // Never execute a cached follower queue after promotion if authoritative
+      // storage is unreadable; it may contain jobs another leader completed.
+      state.nativeQueue={version:1,seq:0,towns:{}};nativeQueueInflightRestored=true;
+      try{nativeRecruitSplitDone.clear()}catch(_){}
+      gbLogT('leader-reload-nq-failed',60000,'leader reload native queue: storage unreadable; runtime queue disabled');
     }
     const circuits=loadObj(STORE.CIRCUITS,{});
     if(circuits)state.circuits=circuits;
@@ -677,36 +754,7 @@
     const skips=loadObj(STORE.DECISION_SKIPS,{});
     if(skips)state.decisionSkips=skips;
 
-    // A follower can remain open for hours. On promotion, refresh the config
-    // that controls server writes before any scheduler is poked. Storage is the
-    // source of truth; current in-memory values are only fallbacks if a key is
-    // missing, never replacements after a read error.
-    const reloadFields = [
-      ['configVer',STORE.CONFIG_VER],['dryRun',STORE.DRY_RUN],['firstPostConfirm',STORE.FIRST_POST_CONFIRM],['safeMode',STORE.SAFE_MODE],
-      ['autoCollect',STORE.AUTO_COLLECT],['collectAll',STORE.COLLECT_ALL],['autoBandit',STORE.AUTO_BANDIT],['banditCfg',STORE.BANDIT_CFG],
-      ['autoFarm',STORE.AUTO_FARM],['farmScrape',STORE.FARM_SCRAPE],['farmOptionMap',STORE.FARM_OPTION_MAP],['farmLongClaims',STORE.FARM_LONG_CLAIMS],
-      ['ibAuto',STORE.IB_AUTO],['ibResearch',STORE.IB_RESEARCH],['questAutoBuild',STORE.QUEST_AUTO_BUILD],['questAutoRes',STORE.QUEST_AUTO_RES],
-      ['abAuto',STORE.AB_AUTO],['abRandom',STORE.AB_RANDOM],['abTargets',STORE.AB_TARGETS],['abOrder',STORE.AB_ORDER],['autoWallRepair',STORE.AUTO_WALL_REPAIR],['popRescueFarm',STORE.POP_RESCUE_FARM],['buildSwapThresholdMin',STORE.BUILD_SWAP_MIN],['buildSwapIgnore',STORE.BUILD_SWAP_IGNORE],
-      ['autoResearch',STORE.AUTO_RESEARCH],['researchTargets',STORE.RESEARCH_TARGETS],
-      ['autoRecruit',STORE.AUTO_RECRUIT],['recruitTargets',STORE.RECRUIT_TARGETS],['recruitSpells',STORE.RECRUIT_SPELLS],['batchRecruit',STORE.BATCH_RECRUIT],['batchRecruitLists',STORE.BATCH_RECRUIT_LISTS],['recruitPacks',STORE.RECRUIT_PACKS],['autoVillageRecruit',STORE.AUTO_VILLAGE_RECRUIT],['villageRecruitFillPct',STORE.VILLAGE_RECRUIT_FILL],['villageRecruitAmount',STORE.VILLAGE_RECRUIT_AMOUNT],
-      ['autoCave',STORE.AUTO_CAVE],['caveThreshPct',STORE.CAVE_THRESH],['caveTowns',STORE.CAVE_TOWNS],['emergencyCaveAuto',STORE.EMERGENCY_CAVE_AUTO],['emergencyCaveConfirm',STORE.EMERGENCY_CAVE_CONFIRM],['emergencyCaveMinIron',STORE.EMERGENCY_CAVE_MIN],
-      ['autoCulture',STORE.AUTO_CULTURE],['cultureTypes',STORE.CULTURE_TYPES],['allowPremiumCulture',STORE.ALLOW_PREMIUM_CULTURE],['cultureGoldBudget',STORE.CULTURE_GOLD_BUDGET],
-      ['autoTrade',STORE.AUTO_TRADE],['tradePreset',STORE.TRADE_PRESET],['tradeReservePct',STORE.TRADE_RESERVE],['tradeMinBatch',STORE.TRADE_MIN],['tradeTowns',STORE.TRADE_TOWNS],['tradeRoutes',STORE.TRADE_ROUTES],['autoTradeRoutes',STORE.AUTO_TRADE_ROUTES],['autoTransport',STORE.AUTO_TRANSPORT],['transportReserve',STORE.TRANSPORT_RESERVE],['transportMin',STORE.TRANSPORT_MIN],['autoDump',STORE.AUTO_DUMP],['dumpThreshold',STORE.DUMP_THRESHOLD],['dumpKeep',STORE.DUMP_KEEP],['dumpSinks',STORE.DUMP_SINKS],['islandShip',STORE.ISLAND_SHIP],
-      ['autoRuralTrade',STORE.AUTO_RURAL_TRADE],['autoRuralLevel',STORE.AUTO_RURAL_LEVEL],['ruralLevelMax',STORE.RURAL_LEVEL_MAX],
-      ['autoMerchant',STORE.AUTO_MERCHANT],['merchantWish',STORE.MERCHANT_WISH],['autoPtTrade',STORE.AUTO_PT_TRADE],['ptCfg',STORE.PT_CFG],
-      ['goldEnabled',STORE.GOLD_ENABLED],['goldBatch',STORE.GOLD_BATCH],['goldTowns',STORE.GOLD_TOWNS],
-      ['autoFavor',STORE.AUTO_FAVOR],['favorCfg',STORE.FAVOR_CFG],['autoWonder',STORE.AUTO_WONDER],['wonderCfg',STORE.WONDER_CFG],['autoWonderFavor',STORE.AUTO_WONDER_FAVOR],
-      ['autoDodge',STORE.AUTO_DODGE],['dodgeMode',STORE.DODGE_MODE],['dodgeFloor',STORE.DODGE_FLOOR],['defenseCfg',STORE.DEFENSE_CFG],['supportCfg',STORE.SUPPORT_CFG],['autoMilitia',STORE.AUTO_MILITIA],
-      ['spyEnabled',STORE.AUTO_SPY],['spyCfg',STORE.SPY_CFG],
-      ['plannerCfg',STORE.PLANNER_CFG],['goalProfiles',STORE.GOAL_PROFILES],['townGoals',STORE.TOWN_GOALS],['virtualQueue',STORE.VIRTUAL_QUEUE],['virtualQueueOverrides',STORE.VIRTUAL_QUEUE_OVERRIDES],
-      ['roleAdvisorCfg',STORE.ROLE_ADVISOR_CFG],['roleAssignments',STORE.ROLE_ASSIGNMENTS],['resourceOptimizerCfg',STORE.RESOURCE_OPTIMIZER_CFG]
-    ];
-    for(const [field,store] of reloadFields){
-      const v=load(store,state[field]);
-      if(!gbStorageReadFailed(store))state[field]=v;
-    }
-    state.goldEnabled = state.goldEnabled === true;
-    if (typeof goldBatch === 'function') state.goldBatch = goldBatch();
+    gbReloadSharedConfigState('leader:'+String(reason||'acquired'));
     for (const [field, store] of [['goldActions',STORE.GOLD_ACTIONS], ['goldSeaByTown',STORE.GOLD_SEAS], ['goldReviews',STORE.GOLD_REVIEWS], ['goldStats',STORE.GOLD_STATS], ['goldLast',STORE.GOLD_LAST]]) {
       const v = loadObj(store, {});
       if (v) state[field] = v;

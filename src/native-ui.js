@@ -74,9 +74,23 @@
   function nativeQueueRejectManualWhenPlanner(townId){if(nativeQueueManualAllowed(townId))return false;flash('La cola FIFO solo está disponible en Personalizado');gbLogT('native-fifo-planner-'+townId,60000,`cola FIFO @${townId}: ignorada porque el planificador de objetivos está activo; cambia a Personalizado para usar FIFO`);return true}
 
   let nativeQueueSaveTimer=0;
+  const nativeQueueClone = q => { try{return structuredClone(q)}catch(_){return {version:1,seq:0,towns:{}}} };
+  function nativeQueueFollowerRestore() {
+    const stored=load(STORE.NATIVE_QUEUE,{version:1,seq:0,towns:{}});
+    const readable=!gbStorageReadFailed(STORE.NATIVE_QUEUE)&&stored&&typeof stored==='object'&&!Array.isArray(stored);
+    // A stale cached queue can contain jobs another leader already completed.
+    // On read failure, clear the local runtime queue until storage can be read
+    // again; missing automation is safer than resurrecting an irreversible job.
+    state.nativeQueue=readable?nativeQueueClone(stored):{version:1,seq:0,towns:{}};nativeQueueInflightRestored=false;
+    try{nativeRecruitSplitDone.clear()}catch(_){}
+    try{nativeQueueRoot()}catch(_){}
+    flash('Cola no modificada: usa la pestaña líder');
+    gbLogT('native-queue-follower-save',60000,'native queue: follower mutation rejected and storage state restored');
+    return false;
+  }
   function nativeQueueSaveNow() {
     if(nativeQueueSaveTimer){try{gbClearTimeout(nativeQueueSaveTimer)}catch(_){}nativeQueueSaveTimer=0}
-    if(!gbTabLeader){gbLogT('native-queue-follower-save',60000,'native queue: follower save skipped');return false}
+    if(!gbTabLeader)return nativeQueueFollowerRestore();
     return save(STORE.NATIVE_QUEUE,nativeQueueRoot());
   }
   function nativeQueueSaveSoon() {
@@ -86,10 +100,11 @@
   }
   function nativeQueueSaveFlush(){if(nativeQueueSaveTimer)nativeQueueSaveNow()}
   function nativeQueueSave() {
-    nativeQueueSaveNow();
+    const saved=nativeQueueSaveNow();
     try{scheduleNativeUiScan()}catch(_){}
     try{renderAbQueue()}catch(_){}
     try{renderQueueCenter()}catch(_){}
+    return saved;
   }
   function nativeQueueId(prefix){const q=nativeQueueRoot();q.seq++;return `${prefix}:${Date.now().toString(36)}:${q.seq.toString(36)}`;}
   function nativeQueueHasPending(lane,townId) {

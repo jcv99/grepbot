@@ -11,6 +11,7 @@ Now the artifact is checked before it is written off as done:
   3. reminder when src/ changed but @version in src/header.js did not
   4. the JS body is \\u-escaped to pure ASCII, so no install path can decode it
      as Latin-1 and turn every accent into mojibake
+  5. focused cross-module regression contracts from tests/audit_regressions.py
 
 Also strips // and /* */ comments from the artifact (UserScript header kept).
 src/ retains comments for humans; only grepbot.user.js is cleaned.
@@ -27,7 +28,6 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(ROOT, 'src')
 OUT = os.path.join(ROOT, 'grepbot.user.js')
 STAMP = os.path.join(ROOT, '.build-stamp.json')
-BASELINE = os.path.join(ROOT, 'tests', 'snapshots', 'pre-refactor.json')
 
 MODULES = [
     'header.js',
@@ -660,35 +660,23 @@ def newer_artifact_gate(dest, version):
     return False
 
 
-def snapshot_diff_gate():
-    """Gate 5 (REDESIGN §5.1): tests/diff.py against the committed baseline.
+def audit_regression_gate():
+    """Run focused, fatal contracts for cross-module audit invariants.
 
-    R0a first run has no baseline yet — skip with a note. From R0b onward
-    the baseline exists; the gate runs --warn-only until R1 ships, then
-    fatal. `--no-snapshot` on the build command skips the gate entirely
-    (escape hatch for one-off forensic builds).
+    The historical pre-refactor snapshot remains a manual diagnostic because
+    it contains broad intentional drift. Treating thousands of known diffs as
+    a warning during every build produced green output without protection.
     """
-    if '--no-snapshot' in sys.argv:
-        print('snapshot diff gate: skipped (--no-snapshot)')
-        return True
-    if not os.path.exists(BASELINE):
-        print(f'snapshot diff gate: no baseline at {BASELINE}; '
-              f'run `python3 tests/snapshot.py write` to capture one '
-              f'(R0a bootstrap, not yet fatal).')
-        return True
     res = subprocess.run(
-        [sys.executable, os.path.join(ROOT, 'tests', 'diff.py'),
-         BASELINE, '--warn-only'],
+        [sys.executable, os.path.join(ROOT, 'tests', 'audit_regressions.py')],
         capture_output=True, text=True,
     )
     if res.stdout:
         print(res.stdout.rstrip())
-    if res.returncode != 0 and '--warn-only' not in sys.argv:
+    if res.returncode != 0:
         if res.stderr:
             print(res.stderr.rstrip())
-        print('snapshot diff gate: FAIL — src/ drifted from baseline. '
-              'Inspect tests/snapshots/pre-refactor.json and run '
-              '`python3 tests/snapshot.py write` only if the change is intentional.')
+        print('audit regression gate: FAIL')
         return False
     return True
 
@@ -726,7 +714,7 @@ def build():
         os.remove(tmp)
         raise SystemExit(1)
     version = version_of(parts)
-    if not snapshot_diff_gate():
+    if not audit_regression_gate():
         os.remove(tmp)
         raise SystemExit(1)
     if not version_gate(parts, version):

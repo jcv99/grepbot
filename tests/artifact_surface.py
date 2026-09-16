@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Post-build checks against the assembled grepbot.user.js artifact.
 
-build.py gates 1/2/4 catch dup decls, syntax, ASCII. Gate 5 (snapshot
-diff, in build.py) catches src/ drift. This script (REDESIGN §5.3) is
+build.py gates catch duplicate declarations, syntax, ASCII, and focused audit
+contracts. The historical snapshot diff remains diagnostic. This script is
 a separate cross-check that the *concat* preserved what the snapshot
 expected to survive:
 

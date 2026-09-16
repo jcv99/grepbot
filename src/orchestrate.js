@@ -91,6 +91,17 @@
   const orchLastRun = {};
   const orchIdle = {};
   const orchJrnMark = {};
+  const orchCapacity = { ticks:0, saturatedTicks:0, lastDue:0, lastDispatched:0, lastDeferred:0, maxDue:0, maxOverdueMs:0, lastAt:0, pressureLimited:false };
+  function orchCapacityStatus(){
+    return {
+      ticks:orchCapacity.ticks,
+      saturatedTicks:orchCapacity.saturatedTicks,
+      saturationPct:orchCapacity.ticks?Math.round(orchCapacity.saturatedTicks*1000/orchCapacity.ticks)/10:0,
+      lastDue:orchCapacity.lastDue,lastDispatched:orchCapacity.lastDispatched,lastDeferred:orchCapacity.lastDeferred,
+      maxDue:orchCapacity.maxDue,maxOverdueMs:orchCapacity.maxOverdueMs,lastAt:orchCapacity.lastAt,
+      pressureLimited:orchCapacity.pressureLimited,maxPerTick:ORCH_MAX_PER_TICK,pressureMaxPerTick:ORCH_PRESSURE_MAX_PER_TICK
+    };
+  }
   function orchSafe(key,fn){try{return fn()}catch(e){const msg=String(e&&e.stack||e).slice(0,220);gbLog(`orch ${key} exception: ${msg}`);markModuleHealth(key,'err',{error:msg});whyNote(key,'orchestrator','error',msg);orchIdle[key]=0;return null}}
   const ORCH_HANDLERS = {
     culture:()=>orchSafe('culture',()=>profTime('orch:culture',()=>cultureScan('orch'))),
@@ -246,7 +257,7 @@
       if (!ORCH_HANDLERS[key] || !orchFeatureEnabled(key)) continue;
       if (orchCaptchaPaused(key)) continue;
       const cadence = orchCadence(key);
-      const overdue = now - (orchLastRun[key] || 0) - cadence;
+      const overdue = orchLastRun[key] ? now - orchLastRun[key] - cadence : 0;
       if (overdue >= 0) due.push({ key, rank, overdue, cadence });
     }
     due.sort((a, b) => {
@@ -254,7 +265,19 @@
       const band = Math.max(a.cadence, b.cadence, ORCH_MS) * 2;
       return Math.abs(gap) > band ? gap : a.rank - b.rank;
     });
-    due.slice(0, ORCH_MAX_PER_TICK).forEach((item, idx) => {
+    const pressureLimited=typeof reqBudgetSoftDelayMs==='function'&&reqBudgetSoftDelayMs()>0;
+    const limit=pressureLimited?ORCH_PRESSURE_MAX_PER_TICK:ORCH_MAX_PER_TICK;
+    const selected=due.slice(0,limit);
+    orchCapacity.ticks++;
+    orchCapacity.lastDue=due.length;
+    orchCapacity.lastDispatched=selected.length;
+    orchCapacity.lastDeferred=Math.max(0,due.length-selected.length);
+    orchCapacity.maxDue=Math.max(orchCapacity.maxDue,due.length);
+    orchCapacity.maxOverdueMs=Math.max(orchCapacity.maxOverdueMs,due.reduce((m,x)=>Math.max(m,x.overdue),0));
+    orchCapacity.lastAt=now;
+    orchCapacity.pressureLimited=pressureLimited;
+    if(due.length>limit)orchCapacity.saturatedTicks++;
+    selected.forEach((item, idx) => {
       const fire = () => orchModuleTick(item.key, 'orch');
       if (idx === 0) fire();
       else gbTimeout(fire, idx * ORCH_SPACING_MS + Math.floor(Math.random() * 200));

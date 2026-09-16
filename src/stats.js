@@ -259,6 +259,7 @@
       csrf: { present: !!csrf },
       toggles,
       scheduler: typeof orchStatus === 'function' ? orchStatus() : [],
+      schedulerCapacity: typeof orchCapacityStatus === 'function' ? orchCapacityStatus() : null,
       templates,
       captcha: {
         globalKill: state.captchaGlobalKill !== false,
@@ -483,8 +484,13 @@
     let logRing = [];
     try { logRing = (typeof gbLogDump === 'function') ? gbLogDump(0) : []; }
     catch (_) {}
-    return gbRedact({
-      meta: {
+    // Each section owns its own redaction budget. A single root budget let the
+    // decision ring consume all 800 entries and silently dropped every later
+    // diagnostic section from the exported object.
+    const section = (value, maxEntries) => gbRedact(value, { maxDepth: 8, maxEntries: maxEntries || 800, maxString: 360 });
+    const decisions = Array.isArray(state.decisions) ? state.decisions : [];
+    return {
+      meta: section({
         at: new Date(now).toISOString(),
         version: runningVersion(),
         host: location.host,
@@ -496,32 +502,33 @@
         panicActive: typeof gbPanicActive === 'function' ? !!gbPanicActive() : false,
         paused,
         pausedReason: pauseInfo.reason || null,
-      },
-      toggles: (evidence && evidence.toggles) || {},
-      scheduler: (evidence && evidence.scheduler) || [],
-      templates: (evidence && evidence.templates) || {},
-      captcha: (evidence && evidence.captcha) || {},
-      server: (evidence && evidence.server) || {},
-      locks: (evidence && evidence.locks) || [],
-      budget: (evidence && evidence.budget) || {},
-      counts: (evidence && evidence.counts) || {},
-      recentByFeature: (evidence && evidence.recentByFeature) || {},
-      lastOk: (evidence && evidence.lastOk) || {},
-      lastSkip: (evidence && evidence.lastSkip) || {},
-      decisionSkips: (evidence && evidence.decisionSkips) || [],
-      scrapes: (evidence && evidence.scrapes) || {},
-      wake: (evidence && evidence.wake) || {},
-      tplHealth: (evidence && evidence.tplHealth) || {},
-      decisions: { ring: state.decisions || [], skips: state.decisionSkips || {}, len: (state.decisions || []).length },
-      log: { entries: logRing, len: logRing.length },
-      findings: (typeof redactFindingsExport === 'function')
+      }, 80),
+      toggles: section((evidence && evidence.toggles) || {}),
+      scheduler: section((evidence && evidence.scheduler) || []),
+      schedulerCapacity: section((evidence && evidence.schedulerCapacity) || null),
+      templates: section((evidence && evidence.templates) || {}),
+      captcha: section((evidence && evidence.captcha) || {}),
+      server: section((evidence && evidence.server) || {}),
+      locks: section((evidence && evidence.locks) || []),
+      budget: section((evidence && evidence.budget) || {}),
+      counts: section((evidence && evidence.counts) || {}),
+      recentByFeature: section((evidence && evidence.recentByFeature) || {}),
+      lastOk: section((evidence && evidence.lastOk) || {}),
+      lastSkip: section((evidence && evidence.lastSkip) || {}),
+      decisionSkips: section((evidence && evidence.decisionSkips) || []),
+      scrapes: section((evidence && evidence.scrapes) || {}),
+      wake: section((evidence && evidence.wake) || {}),
+      tplHealth: section((evidence && evidence.tplHealth) || {}),
+      decisions: section({ ring: decisions, skips: state.decisionSkips || {}, len: decisions.length }),
+      log: section({ entries: logRing, len: logRing.length }),
+      findings: section((typeof redactFindingsExport === 'function')
         ? redactFindingsExport({ findings: state.findings, farms: state.farms })
-        : '(redaction unavailable)',
-      config: (typeof qolExportConfigForUi === 'function') ? qolExportConfigForUi() : null,
-      nativeQueue: nativeQueueShape(state.nativeQueue),
-      bridge: (typeof gameBridgeStatus === 'function') ? gameBridgeStatus() : null,
-      preflight: (typeof preflightRun === 'function') ? preflightRun() : null,
-    }, { maxDepth: 8, maxEntries: 800, maxString: 360 });
+        : '(redaction unavailable)'),
+      config: section((typeof qolExportConfigForUi === 'function') ? qolExportConfigForUi() : null),
+      nativeQueue: section(nativeQueueShape(state.nativeQueue)),
+      bridge: section((typeof gameBridgeStatus === 'function') ? gameBridgeStatus() : null),
+      preflight: section((typeof preflightRun === 'function') ? preflightRun() : null),
+    };
   }
   function gbRegistryJsonText() {
     try { return JSON.stringify(gbRegistryJson(), null, 2); }

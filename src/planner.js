@@ -168,6 +168,12 @@
           const c = CULTURE_COSTS[type];
           const cost=wireResources(c); if(!cost) return null; delete cost.tradeCap; out(townId,cost);
         }
+      } else if (feature === 'merchant' || feature === 'pttrade') {
+        const resource = snapshot && String(snapshot.payResource || '');
+        const cost = snapshot && gbNum(snapshot.cost);
+        const hintTown = snapshot && gbNum(snapshot.townId);
+        if (GB_RES_KEYS.indexOf(resource) === -1 || cost == null || !(cost > 0) || hintTown == null || !(hintTown > 0)) return null;
+        out(hintTown, { [resource]: cost });
       } else if (feature === 'goldoffer') {
         // Acquiring a quote has no resource effect. It still takes the guarded
         // write path because the server can create a stateful offer/captcha.
