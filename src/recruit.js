@@ -965,7 +965,8 @@
       head.manualReview=false;
 
       job.nativeToken = nativeQueueId('f');
-      head.inflight = { amount:job.amount, at:Date.now(), unit:job.unit, queuedBefore:recruitQueuedAmount(job.townId, job.unit), token:job.nativeToken };
+      const unitBefore=txUnitStatus(job.townId,job.unit);
+      head.inflight = { amount:job.amount, at:Date.now(), unit:job.unit, queuedBefore:recruitQueuedAmount(job.townId, job.unit), totalBefore:unitBefore&&gbNum(unitBefore.total), token:job.nativeToken };
       nativeQueueSave();
     }
     recruitBuild(job.townId, job.unit, job.amount, (err) => {
@@ -974,7 +975,7 @@
         gbLog(`recruit: town ${job.townId} ${job.amount}\u00d7 ${job.unit}`);
         if (job.nativeJobId) nativeQueueRecruitApplied(job.townId, job.nativeLane, job.nativeJobId, job.amount, job.nativeToken);
       } else {
-        const ambiguous=err === 'pending' || err === 'timeout_unknown';
+        const ambiguous=err === 'unknown' || err === 'pending' || err === 'timeout_unknown';
         const expectedWait=gbExpectedServerReject('recruit', err);
         // Server says the lane is full while the client said it had room: the
         // observed length is an authoritative cap — learn it so later scans
@@ -989,11 +990,12 @@
             // back the head off instead of burning a budget slot and stacking
             // decision-memory strikes every cadence.
             if (!ambiguous && expectedWait === 'waiting-queue-full') head.slotRetryAt = Date.now() + 300000;
-            if(ambiguous&&head.inflight)head.reconcile=Object.assign({},head.inflight);
-            head.inflight = null;head.manualReview=ambiguous;
+            if(ambiguous&&head.inflight&&!head.reconcile)head.reconcile=Object.assign({},head.inflight);
+            head.inflight = null;
+            head.manualReview=!!(ambiguous&&head.reconcile&&Date.now()-(+head.reconcile.at||0)>TX_UNKNOWN_MAX_MS);
             nativeQueueSetJobState(head,
               ambiguous ? 'unknown' : (expectedWait || 'blocked'),
-              ambiguous ? 'resultado desconocido; se reconciliará sin bloquear otras unidades' : (expectedWait ? (expectedWait + ': ' + String(err)) : String(err)));
+              ambiguous ? (head.manualReview ? 'resultado sin confirmar tras 10 min; revisión manual requerida para esta unidad' : 'resultado desconocido; se volverá a comprobar sin reenviar a ciegas') : (expectedWait ? (expectedWait + ': ' + String(err)) : String(err)));
           }
         }
         gbLogT('recruit-err', 60000, `recruit err ${err}`);
