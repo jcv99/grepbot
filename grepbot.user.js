@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.0.97
+// @version      6.0.98
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -24,7 +24,7 @@
 (function () {
   'use strict';
   const __gbStart = () => {
-  const GB_RELEASE = '6.0.97';
+  const GB_RELEASE = '6.0.98';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -9924,7 +9924,11 @@ const STORE = {
     note.style.color = '#999';
     note.textContent = snapshot.enabled ? 'Solo propone; strip/demolicion siguen bloqueados por sus propios gates.' : 'Asesor desactivado en Ajustes.';
     controls.appendChild(note); body.appendChild(controls);
-    if (!snapshot.enabled) { host.appendChild(wrap); return; }
+    if (!snapshot.enabled) {
+      if (typeof citySchemeRender === 'function') citySchemeRender(host, rerender);
+      host.appendChild(wrap);
+      return;
+    }
     const header = document.createElement('div'); header.style.cssText = 'display:grid;grid-template-columns:18px 1.2fr 1fr 1fr .45fr 1fr 1.6fr 28px;gap:3px;color:#888;border-bottom:1px solid #333;padding:2px';
     ['','ciudad','actual','propuesta','score','conversion','motivos','lock'].forEach(text => { const el = document.createElement('span'); el.textContent = text; header.appendChild(el); });
     body.appendChild(header);
@@ -9937,6 +9941,7 @@ const STORE = {
       lock.addEventListener('change', () => { roleAdvisorSetLock(row.id, lock.checked); rerender(); }); line.appendChild(lock);
       body.appendChild(line);
     }
+    if (typeof citySchemeRender === 'function') citySchemeRender(host, rerender);
     host.appendChild(wrap);
   }
 
@@ -9946,6 +9951,7 @@ const STORE = {
     fireShipsOnAttack: 10,
     mythicalPerCity: 30,
     bigTransporterMythical: 1,
+    triremesPerTransportCity: 8,
     parseSelectors: Object.freeze({
       window: '.window_main_container.notes, .gpwindow_content.notes',
       preview: '.preview_box, .notes_preview',
@@ -9963,6 +9969,7 @@ const STORE = {
       fireShipsOnAttack: gbCfgClamp(raw.fireShipsOnAttack, 0, 50, CITY_SCHEME_DEFAULTS.fireShipsOnAttack),
       mythicalPerCity: gbCfgClamp(raw.mythicalPerCity, 0, 500, CITY_SCHEME_DEFAULTS.mythicalPerCity),
       bigTransporterMythical: gbCfgClamp(raw.bigTransporterMythical, 0, 10, CITY_SCHEME_DEFAULTS.bigTransporterMythical),
+      triremesPerTransportCity: gbCfgClamp(raw.triremesPerTransportCity, 0, 50, CITY_SCHEME_DEFAULTS.triremesPerTransportCity),
     };
     state.citySchemeCfg = out;
     return out;
@@ -10178,9 +10185,10 @@ const STORE = {
 
     const navalAttack = row.role === 'ataque_agua' || (row.mythical && CITY_SCHEME_MYTHICAL_GOD[row.mythical] === 'poseidon');
     if (navalAttack) recruit.fire_ship = cfg.fireShipsOnAttack;
-    if (row.transport === 'trireme' && !row.mythical) recruit.trireme = 8;
 
     const coast = roleAdvisorCoast(tryGetTown(row.id));
+    if (row.transport === 'trireme' && !row.mythical && coast === true) recruit.trireme = cfg.triremesPerTransportCity;
+
     const needsBoat = !!(row.mythical && CITY_SCHEME_MYTHICAL_GOD[row.mythical] === 'poseidon' && coast === false);
     if (needsBoat) transport.big_transporter = cfg.bigTransporterMythical;
 
@@ -10220,16 +10228,46 @@ const STORE = {
     return { id: String(townId), hint: name, role, line, coast, threatened: !!(threat && threat.threatened === true) };
   }
 
+  function citySchemeFingerprint(rows) {
+    if (!Array.isArray(rows) || !rows.length) return 'empty';
+    return rows.map(r => [r.id, r.mythical || '-', r.god || '-', r.role || '-', r.pairing || '-']).join('|');
+  }
   function citySchemeTick() {
     const cfg = citySchemeCfg();
     if (!cfg.enabled) return false;
-
+    const raw = citySchemeNotesScrape();
+    if (raw == null) {
+      citySchemeLast = { at: Date.now(), fingerprint: 'unreadable', rows: 0, pairs: 0, unreadable: true };
+      return false;
+    }
+    const cache = state.citySchemeNotes || {};
+    const fp = raw.length + ':' + (raw.slice(0, 64) || '');
+    if (cache.fingerprint === fp && cache.at && Date.now() - cache.at < CITY_SCHEME_TICK_MIN_MS) return false;
+    const townMap = citySchemeTownMap();
+    const parsed = citySchemeParse(raw, townMap, cfg);
+    parsed.rows.forEach(r => citySchemeRecruitPlan(r, cfg));
+    const paired = citySchemePairing(parsed.rows, cfg);
+    const knownIds = new Set(parsed.rows.map(r => r.id));
+    const newTowns = (citySchemeTownMap() ? Array.from(citySchemeTownMap().keys()) : [])
+      .filter(n => !knownIds.has(citySchemeTownMap().get(n)))
+      .map(name => {
+        const id = citySchemeTownMap().get(name);
+        const town = (() => { try { return gbTownModel(id); } catch (_) { return null; } })();
+        return citySchemeNewCityTemplate(id, town, cfg);
+      });
+    state.citySchemeRows = parsed.rows;
+    state.citySchemePairs = paired;
+    state.citySchemeNewTowns = newTowns;
+    state.citySchemeNotes = { fingerprint: fp, at: Date.now(), raw, unparseable: parsed.unparseable };
+    save(STORE.CITY_SCHEME_NOTES, state.citySchemeNotes);
+    save(STORE.CITY_SCHEME_ROWS, parsed.rows);
+    save(STORE.CITY_SCHEME_PAIRS, paired);
+    citySchemeLast = { at: Date.now(), fingerprint: citySchemeFingerprint(parsed.rows), rows: parsed.rows.length, pairs: Object.keys(paired.groups).length };
     return true;
   }
 
   function citySchemeRender(host, rerender) {
     if (!host) return;
-
     const wrap = document.createElement('details');
     wrap.className = 'gb-section'; wrap.open = false;
     const summary = document.createElement('summary');
@@ -10237,9 +10275,86 @@ const STORE = {
     wrap.appendChild(summary);
     const body = document.createElement('div');
     body.className = 'gb-section-body';
-    body.style.cssText = 'font-size:9px;overflow:auto';
-    body.textContent = 'Cargando...';
+    body.style.cssText = 'font-size:9px;overflow:auto;display:grid;gap:4px';
     wrap.appendChild(body);
+
+    const cfg = citySchemeCfg();
+    const rows = Array.isArray(state.citySchemeRows) ? state.citySchemeRows : [];
+    const pairs = state.citySchemePairs || { groups: {}, deltas: [] };
+    const notes = state.citySchemeNotes || {};
+
+    const controls = document.createElement('div');
+    controls.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;align-items:center';
+    const recalc = gbButton('Recalcular', { title:'Vuelve a leer Notas y recalcula', style:'font-size:9px', onClick:() => { citySchemeInvalidate(); citySchemeTick(); if (typeof rerender === 'function') rerender(); } });
+    controls.appendChild(recalc);
+    const enabledLabel = document.createElement('label');
+    enabledLabel.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:9px';
+    const enabledCb = document.createElement('input'); enabledCb.type = 'checkbox'; enabledCb.checked = cfg.enabled;
+    enabledCb.addEventListener('change', () => { citySchemeSetCfg({ enabled: enabledCb.checked }); if (typeof rerender === 'function') rerender(); });
+    enabledLabel.appendChild(enabledCb);
+    enabledLabel.appendChild(document.createTextNode('asesor activo'));
+    controls.appendChild(enabledLabel);
+    body.appendChild(controls);
+
+    const lastAt = citySchemeLast && citySchemeLast.at ? new Date(citySchemeLast.at).toLocaleTimeString() : '\u2014';
+    const meta = document.createElement('div'); meta.style.cssText = 'color:#888;font-size:9px';
+    meta.textContent = 'filas: ' + rows.length + ' \u00b7 pares: ' + Object.keys(pairs.groups || {}).length + ' \u00b7 \u00faltima: ' + lastAt + (citySchemeLast && citySchemeLast.unreadable ? ' \u00b7 Notas no legible' : '');
+    body.appendChild(meta);
+
+    if (notes.unparseable && notes.unparseable.length) {
+      const warn = document.createElement('div'); warn.style.cssText = 'color:#c66;font-size:9px';
+      warn.textContent = 'l\u00edneas no reconocidas: ' + notes.unparseable.length;
+      body.appendChild(warn);
+    }
+
+    const header = document.createElement('div');
+    header.style.cssText = 'display:grid;grid-template-columns:1.2fr .9fr .9fr .9fr 1fr 1fr .6fr .6fr;gap:3px;color:#888;border-bottom:1px solid #333;padding:2px';
+    ['ciudad','rol','m\u00edtico','dios','recluta','transporte','granjas','estado'].forEach(t => { const el = document.createElement('span'); el.textContent = t; header.appendChild(el); });
+    body.appendChild(header);
+
+    if (!rows.length) {
+      const empty = document.createElement('div'); empty.style.cssText = 'color:#888;font-size:9px;padding:4px';
+      empty.textContent = 'Sin filas. Abre la ventana Notas en el juego y vuelve a Recalcular.';
+      body.appendChild(empty);
+    }
+    for (const r of rows) {
+      const line = document.createElement('div');
+      line.style.cssText = 'display:grid;grid-template-columns:1.2fr .9fr .9fr .9fr 1fr 1fr .6fr .6fr;gap:3px;border-bottom:1px solid #222;padding:2px;align-items:center';
+      const name = (() => { try { const t = gbTownModel(r.id); return (t && typeof t.getName === 'function' ? t.getName() : (t && t.name) || r.id); } catch (_) { return r.id; } })();
+      const recruitSummary = Object.entries(r.recruit || {}).map(([k,v]) => k + ':' + (v == null ? '\u2014' : v)).join(' ') || '\u2014';
+      const transportSummary = Object.entries(r.transportNeeded || {}).map(([k,v]) => k + ':' + v).join(' ') || '\u2014';
+      const pairing = r.pairing === 'ok' ? 'par ok' : r.pairing === 'under' ? 'falta par' : r.pairing === 'over' ? 'sobra par' : '\u2014';
+      const cells = [name, r.role || '\u2014', r.mythical || '\u2014', r.god || '\u2014', recruitSummary, transportSummary, r.farmLevelsBuildable == null ? '\u2014' : String(r.farmLevelsBuildable), pairing];
+      cells.forEach(value => { const el = document.createElement('span'); el.textContent = value; line.appendChild(el); });
+      body.appendChild(line);
+    }
+
+    const deltas = (pairs.deltas || []);
+    if (deltas.length) {
+      const head = document.createElement('div'); head.style.cssText = 'margin-top:6px;color:#aaa;font-size:9px';
+      head.textContent = 'Propuestas de apareamiento';
+      body.appendChild(head);
+      for (const d of deltas) {
+        const row = document.createElement('div'); row.style.cssText = 'color:#bbb;font-size:9px;padding:2px';
+        if (d.kind === 'add-mate') row.textContent = '+ a\u00f1ade un par para ' + d.god + ' \u00b7 ' + d.mythical + ' (actual ' + d.currentCount + '/' + d.targetCount + ')';
+        else if (d.kind === 'demote') row.textContent = '- sobra ' + d.mythical + ' (' + d.god + '): mant\u00e9n ' + d.keep.join(', ') + ', reasigna ' + d.demote.map(x => x.hint + '\u2192ataque tierra').join(', ');
+        body.appendChild(row);
+      }
+    }
+
+    const newTowns = (state.citySchemeNewTowns || []);
+    if (newTowns.length) {
+      const head = document.createElement('div'); head.style.cssText = 'margin-top:6px;color:#aaa;font-size:9px';
+      head.textContent = 'Ciudades nuevas (l\u00edneas para Notas)';
+      body.appendChild(head);
+      const list = document.createElement('div'); list.style.cssText = 'font-size:9px;display:flex;flex-direction:column;gap:2px';
+      newTowns.forEach(t => {
+        const row = document.createElement('div'); row.textContent = t.line + (t.threatened ? '   (amenaza)' : '   (nueva)');
+        list.appendChild(row);
+      });
+      body.appendChild(list);
+    }
+
     host.appendChild(wrap);
   }
 
@@ -10258,6 +10373,7 @@ const STORE = {
   window.__grepbotTest.citySchemeBuildRow = citySchemeBuildRow;
   window.__grepbotTest.citySchemeRecruitPlan = citySchemeRecruitPlan;
   window.__grepbotTest.citySchemeNewCityTemplate = citySchemeNewCityTemplate;
+  window.__grepbotTest.citySchemeFingerprint = citySchemeFingerprint;
   window.__grepbotTest.tryGetTown = tryGetTown;
   function goalProfiles() {
     if (!state.goalProfiles || typeof state.goalProfiles !== 'object') state.goalProfiles={};
@@ -22884,11 +23000,11 @@ const STORE = {
       abTargets:state.abTargets,abOrder:state.abOrder,researchTargets:state.researchTargets,recruitTargets:state.recruitTargets,
       plannerCfg:state.plannerCfg,goalProfiles:state.goalProfiles,townGoals:state.townGoals,roleAdvisorCfg:state.roleAdvisorCfg,roleAssignments:state.roleAssignments,resourceOptimizerCfg:state.resourceOptimizerCfg,virtualQueueOverrides:state.virtualQueueOverrides,nativeQueue:state.nativeQueue,predictCfg:state.predictCfg,defenseCfg:state.defenseCfg,safeMode:!!state.safeMode,
       autoTransport:!!state.autoTransport,transportReserve:+state.transportReserve||20,transportMin:+state.transportMin||1000,tradeTowns:state.tradeTowns,
-      cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,spyCfg:state.spyCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,goldEnabled:state.goldEnabled === true,goldBatch:goldBatch(),goldTowns:state.goldTowns,playerNotes:state.playerNotes,watchlist:state.watchlist,recruitPacks:state.recruitPacks,batchRecruitLists:state.batchRecruitLists };
+      cityTemplates:state.cityTemplates,townGroups:state.townGroups,cultureTypes:state.cultureTypes,favorCfg:state.favorCfg,spyCfg:state.spyCfg,wonderCfg:state.wonderCfg,merchantWish:state.merchantWish,priorityOrder:state.priorityOrder,goldEnabled:state.goldEnabled === true,goldBatch:goldBatch(),goldTowns:state.goldTowns,playerNotes:state.playerNotes,watchlist:state.watchlist,recruitPacks:state.recruitPacks,batchRecruitLists:state.batchRecruitLists,citySchemeCfg:state.citySchemeCfg };
   }
   function qolImportConfig(obj, opts) {
     if(!obj||typeof obj!=='object'||Array.isArray(obj))return false;if(obj.host&&String(obj.host)!==String(location.host)){gbLog(`config import refused: file host ${obj.host} != ${location.host}`);return false}if(obj.schema!=null&&+obj.schema>CONFIG_EXPORT_SCHEMA){gbLog(`config import refused: schema ${obj.schema} newer than supported ${CONFIG_EXPORT_SCHEMA}`);return false}
-    const clone=v=>structuredClone(v),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v),num=v=>gbNum(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,roleAdvisorCfg:isObj,roleAssignments:isObj,resourceOptimizerCfg:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>num(v)!=null,transportMin:v=>num(v)!=null,tradeTowns:isObj,cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,goldEnabled:v=>typeof v==='boolean',goldBatch:v=>num(v)!=null&&num(v)>=100&&num(v)<=1000000,goldTowns:isObj,playerNotes:isObj,watchlist:Array.isArray,batchRecruit:v=>typeof v==='boolean',batchRecruitLists:isObj,recruitPacks:isObj};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,roleAdvisorCfg:STORE.ROLE_ADVISOR_CFG,roleAssignments:STORE.ROLE_ASSIGNMENTS,resourceOptimizerCfg:STORE.RESOURCE_OPTIMIZER_CFG,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,tradeTowns:STORE.TRADE_TOWNS,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,batchRecruit:STORE.BATCH_RECRUIT,batchRecruitLists:STORE.BATCH_RECRUIT_LISTS,recruitPacks:STORE.RECRUIT_PACKS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,goldEnabled:STORE.GOLD_ENABLED,goldBatch:STORE.GOLD_BATCH,goldTowns:STORE.GOLD_TOWNS,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST};let applied=0;
+    const clone=v=>structuredClone(v),isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v),num=v=>gbNum(v);const validators={abTargets:isObj,abOrder:Array.isArray,researchTargets:isObj,recruitTargets:isObj,plannerCfg:isObj,goalProfiles:isObj,townGoals:isObj,roleAdvisorCfg:isObj,roleAssignments:isObj,resourceOptimizerCfg:isObj,virtualQueueOverrides:isObj,nativeQueue:isObj,predictCfg:isObj,defenseCfg:isObj,safeMode:v=>typeof v==='boolean',autoTransport:v=>typeof v==='boolean',transportReserve:v=>num(v)!=null,transportMin:v=>num(v)!=null,tradeTowns:isObj,cityTemplates:isObj,townGroups:isObj,cultureTypes:isObj,favorCfg:isObj,spyCfg:isObj,wonderCfg:isObj,merchantWish:Array.isArray,priorityOrder:Array.isArray,goldEnabled:v=>typeof v==='boolean',goldBatch:v=>num(v)!=null&&num(v)>=100&&num(v)<=1000000,goldTowns:isObj,playerNotes:isObj,watchlist:Array.isArray,batchRecruit:v=>typeof v==='boolean',batchRecruitLists:isObj,recruitPacks:isObj,citySchemeCfg:isObj};const before=qolConfigSnapshot();const storeFor={abTargets:STORE.AB_TARGETS,abOrder:STORE.AB_ORDER,researchTargets:STORE.RESEARCH_TARGETS,recruitTargets:STORE.RECRUIT_TARGETS,plannerCfg:STORE.PLANNER_CFG,goalProfiles:STORE.GOAL_PROFILES,townGoals:STORE.TOWN_GOALS,roleAdvisorCfg:STORE.ROLE_ADVISOR_CFG,roleAssignments:STORE.ROLE_ASSIGNMENTS,resourceOptimizerCfg:STORE.RESOURCE_OPTIMIZER_CFG,virtualQueueOverrides:STORE.VIRTUAL_QUEUE_OVERRIDES,nativeQueue:STORE.NATIVE_QUEUE,predictCfg:STORE.PREDICT_CFG,defenseCfg:STORE.DEFENSE_CFG,safeMode:STORE.SAFE_MODE,autoTransport:STORE.AUTO_TRANSPORT,transportReserve:STORE.TRANSPORT_RESERVE,transportMin:STORE.TRANSPORT_MIN,tradeTowns:STORE.TRADE_TOWNS,cityTemplates:STORE.CITY_TEMPLATES,townGroups:STORE.TOWN_GROUPS,batchRecruit:STORE.BATCH_RECRUIT,batchRecruitLists:STORE.BATCH_RECRUIT_LISTS,recruitPacks:STORE.RECRUIT_PACKS,cultureTypes:STORE.CULTURE_TYPES,favorCfg:STORE.FAVOR_CFG,spyCfg:STORE.SPY_CFG,wonderCfg:STORE.WONDER_CFG,merchantWish:STORE.MERCHANT_WISH,priorityOrder:STORE.PRIORITY_ORDER,goldEnabled:STORE.GOLD_ENABLED,goldBatch:STORE.GOLD_BATCH,goldTowns:STORE.GOLD_TOWNS,playerNotes:STORE.PLAYER_NOTES,watchlist:STORE.WATCHLIST,citySchemeCfg:STORE.CITY_SCHEME_CFG};let applied=0;
     for(const k of Object.keys(validators)){if(obj[k]==null)continue;if(k==='nativeQueue'&&!gbTabLeader){gbLog('config import: nativeQueue ignored in follower tab; import it from the leader tab');continue}if(!validators[k](obj[k])){gbLog(`config import: ignored invalid ${k}`);continue}let v=clone(obj[k]);if(k==='goldEnabled'){v=v===true}else if(k==='goldBatch'){v=Math.floor(num(v))}else if(k==='goldTowns'){const c={};for(const[id,on]of Object.entries(v))if(/^\d+$/.test(id)&&on===true)c[id]=true;v=c}else if(k==='priorityOrder'){const allowed=new Set(ORCH_ORDER_DEFAULT);v=v.map(String).filter((x,i,a)=>allowed.has(x)&&a.indexOf(x)===i);v=v.concat(ORCH_ORDER_DEFAULT.filter(x=>!v.includes(x)))}else if(k==='abOrder'){v=v.map(String).filter((x,i,a)=>AB_BUILDINGS.includes(x)&&a.indexOf(x)===i);v=v.concat(AB_BUILDINGS.filter(x=>!v.includes(x)))}else if(k==='abTargets'){const c={};for(const[b,n]of Object.entries(v))if(AB_BUILDINGS.includes(b))c[b]=abClampTarget(b,n);v=c}else if(k==='nativeQueue'){
       const clean={version:1,seq:Math.max(0,+v.seq||0),towns:{}},seen=new Set();
       const jobId=(raw,prefix)=>{let id=/^[A-Za-z0-9:._-]{1,160}$/.test(String(raw||''))?String(raw):'';if(!id||seen.has(id)){clean.seq++;id=`${prefix}:import:${clean.seq.toString(36)}`}seen.add(id);return id};
@@ -23345,6 +23461,7 @@ const STORE = {
     if (!hostEnabled()) return;
     try { orchDeadlockEval(); } catch (_) {}
     try { roleAdvisorTick(); } catch (_) {}
+    try { citySchemeTick(); } catch (_) {}
     try { intelDigestTick(); } catch (_) {}
     try { townCapWatcher(); } catch (_) {}
 
@@ -35021,6 +35138,11 @@ const STORE = {
       roleAdvisorReassess,
       roleAdvisorApply,
       roleAdvisorSetLock,
+      citySchemeTick, citySchemeCfg, citySchemeRender, citySchemeNotesScrape,
+      citySchemeTokenize, citySchemeTownMap, citySchemeResolveTownId,
+      citySchemeParse, citySchemePairing, citySchemeBuildRow,
+      citySchemeRecruitPlan, citySchemeNewCityTemplate, citySchemeFingerprint,
+      CITY_SCHEME_KEYWORDS, CITY_SCHEME_MYTHICAL_GOD,
       cdPhase,
       cdBuildDone,
       cdResearchDone,

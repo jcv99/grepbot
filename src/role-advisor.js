@@ -355,7 +355,11 @@
     note.style.color = '#999';
     note.textContent = snapshot.enabled ? 'Solo propone; strip/demolicion siguen bloqueados por sus propios gates.' : 'Asesor desactivado en Ajustes.';
     controls.appendChild(note); body.appendChild(controls);
-    if (!snapshot.enabled) { host.appendChild(wrap); return; }
+    if (!snapshot.enabled) {
+      if (typeof citySchemeRender === 'function') citySchemeRender(host, rerender);
+      host.appendChild(wrap);
+      return;
+    }
     const header = document.createElement('div'); header.style.cssText = 'display:grid;grid-template-columns:18px 1.2fr 1fr 1fr .45fr 1fr 1.6fr 28px;gap:3px;color:#888;border-bottom:1px solid #333;padding:2px';
     ['','ciudad','actual','propuesta','score','conversion','motivos','lock'].forEach(text => { const el = document.createElement('span'); el.textContent = text; header.appendChild(el); });
     body.appendChild(header);
@@ -368,5 +372,6 @@
       lock.addEventListener('change', () => { roleAdvisorSetLock(row.id, lock.checked); rerender(); }); line.appendChild(lock);
       body.appendChild(line);
     }
+    if (typeof citySchemeRender === 'function') citySchemeRender(host, rerender);
     host.appendChild(wrap);
   }

@@ -220,6 +220,7 @@
     if (!hostEnabled()) return;
     try { orchDeadlockEval(); } catch (_) {}
     try { roleAdvisorTick(); } catch (_) {}
+    try { citySchemeTick(); } catch (_) {}
     try { intelDigestTick(); } catch (_) {}
     try { townCapWatcher(); } catch (_) {}
     // Telegram monitoring is read-only and intentionally keeps running even when
