@@ -530,16 +530,18 @@
     if(!job||!job.unit)return null;
     const amount=gbNum(job.reconcile&&job.reconcile.amount);
     const ref=gbNum(job.reconcile&&job.reconcile.at)||gbNum(job.updatedAt);
+    const intentPrefix='recruit:'+String(townId)+':'+String(job.unit)+':';
+    const intentSuffix=amount!=null?('+'+String(amount)):null;
     let best=null,bestGap=Infinity;
     for(const tx of Object.values(state.txState||{})){
       if(!tx||tx.feature!=='recruit'||!/^(sending|confirming|reconciling|unknown|manual-review)$/.test(String(tx.state||'')))continue;
-      const snap=tx.snapshot||{},status=snap.status||{},txAmount=gbNum(snap.amount);
-      if(snap.kind!=='recruit'||String((tx.meta||{}).townId)!==String(townId)||String(snap.unit)!==String(job.unit))continue;
-      if(amount!=null&&txAmount!=null&&amount!==txAmount)continue;
+      const snap=tx.snapshot||{},txAmount=gbNum(snap.amount);
+      const intent=String(tx.intent||''),intentMatch=intent.startsWith(intentPrefix)&&(!intentSuffix||intent.endsWith(intentSuffix));
+      const snapshotMatch=snap.kind==='recruit'&&String(snap.unit)===String(job.unit)&&(amount==null||txAmount==null||amount===txAmount);
+      if(String((tx.meta||{}).townId)!==String(townId)||(!intentMatch&&!snapshotMatch))continue;
       const at=gbNum(tx.createdAt)||gbNum(tx.sentAt)||0;
       const gap=ref!=null&&at?Math.abs(ref-at):0;
       if(gap>TX_UNKNOWN_MAX_MS||gap>=bestGap)continue;
-      if(gbNum(status.total)==null)continue;
       best=tx;bestGap=gap;
     }
     return best;
@@ -1013,6 +1015,28 @@
     if(removed)list.splice(i,1);else{job.status='pending';job.reason='resto del lote';job.updatedAt=Date.now()}
     nativeQueueSave();
     try { jrnPush({ f:'recruit', a:'chunk-drain', k:String(townId)+'|'+String(job.unit||'')+'|'+jobId }, 'ok', removed ? 'drained' : ('rest '+job.amount)); } catch (_) {}
+  }
+
+  function nativeQueueResolveRecruitReview(townId,lane,jobId,outcome) {
+    if(!gbTabLeader||!NATIVE_RECRUIT_LANES.includes(lane))return false;
+    const list=nativeQueueList(townId,lane,false),job=list.find(j=>j&&j.id===jobId);
+    if(!job||job.inflight||!job.manualReview||!job.reconcile)return false;
+    const decision=String(outcome||'');
+    if(decision!=='applied'&&decision!=='not-applied')return false;
+    const appliedAmount=decision==='applied'?gbNum(job.reconcile.amount):null;
+    if(decision==='applied'&&(appliedAmount==null||!(appliedAmount>0)))return false;
+    const tx=nativeQueueRecruitUnknownTx(townId,job);
+    if(tx&&!txClearOne(tx.intent))return false;
+    if(decision==='applied'){
+      nativeQueueRecruitApplied(townId,lane,job.id,appliedAmount,null);
+    }else{
+      job.inflight=null;job.reconcile=null;job.manualReview=false;
+      job.status='pending';job.reason='revisión manual: no se aplicó; listo para reintentar';job.updatedAt=Date.now();
+      nativeQueueSave();
+    }
+    try{jrnPush({f:'recruit',a:'manual-review',k:String(townId)+'|'+String(job.unit||'')+'|'+jobId},'ok',decision)}catch(_){}
+    gbTimeout(()=>{try{recruitScan('manual-review')}catch(_){}},500);
+    return true;
   }
 
   function nativeResearchLabel(tech) {

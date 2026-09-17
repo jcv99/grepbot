@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.1.00
+// @version      6.1.02
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
 // @match        https://*.grepolis.com/*
@@ -24,7 +24,7 @@
 (function () {
   'use strict';
   const __gbStart = () => {
-  const GB_RELEASE = '6.1.00';
+  const GB_RELEASE = '6.1.02';
 const STORE = {
     FINDINGS: 'grepbot:findings',
     FARMS:    'grepbot:farms',
@@ -11276,16 +11276,18 @@ const STORE = {
     if(!job||!job.unit)return null;
     const amount=gbNum(job.reconcile&&job.reconcile.amount);
     const ref=gbNum(job.reconcile&&job.reconcile.at)||gbNum(job.updatedAt);
+    const intentPrefix='recruit:'+String(townId)+':'+String(job.unit)+':';
+    const intentSuffix=amount!=null?('+'+String(amount)):null;
     let best=null,bestGap=Infinity;
     for(const tx of Object.values(state.txState||{})){
       if(!tx||tx.feature!=='recruit'||!/^(sending|confirming|reconciling|unknown|manual-review)$/.test(String(tx.state||'')))continue;
-      const snap=tx.snapshot||{},status=snap.status||{},txAmount=gbNum(snap.amount);
-      if(snap.kind!=='recruit'||String((tx.meta||{}).townId)!==String(townId)||String(snap.unit)!==String(job.unit))continue;
-      if(amount!=null&&txAmount!=null&&amount!==txAmount)continue;
+      const snap=tx.snapshot||{},txAmount=gbNum(snap.amount);
+      const intent=String(tx.intent||''),intentMatch=intent.startsWith(intentPrefix)&&(!intentSuffix||intent.endsWith(intentSuffix));
+      const snapshotMatch=snap.kind==='recruit'&&String(snap.unit)===String(job.unit)&&(amount==null||txAmount==null||amount===txAmount);
+      if(String((tx.meta||{}).townId)!==String(townId)||(!intentMatch&&!snapshotMatch))continue;
       const at=gbNum(tx.createdAt)||gbNum(tx.sentAt)||0;
       const gap=ref!=null&&at?Math.abs(ref-at):0;
       if(gap>TX_UNKNOWN_MAX_MS||gap>=bestGap)continue;
-      if(gbNum(status.total)==null)continue;
       best=tx;bestGap=gap;
     }
     return best;
@@ -11735,6 +11737,28 @@ const STORE = {
     if(removed)list.splice(i,1);else{job.status='pending';job.reason='resto del lote';job.updatedAt=Date.now()}
     nativeQueueSave();
     try { jrnPush({ f:'recruit', a:'chunk-drain', k:String(townId)+'|'+String(job.unit||'')+'|'+jobId }, 'ok', removed ? 'drained' : ('rest '+job.amount)); } catch (_) {}
+  }
+
+  function nativeQueueResolveRecruitReview(townId,lane,jobId,outcome) {
+    if(!gbTabLeader||!NATIVE_RECRUIT_LANES.includes(lane))return false;
+    const list=nativeQueueList(townId,lane,false),job=list.find(j=>j&&j.id===jobId);
+    if(!job||job.inflight||!job.manualReview||!job.reconcile)return false;
+    const decision=String(outcome||'');
+    if(decision!=='applied'&&decision!=='not-applied')return false;
+    const appliedAmount=decision==='applied'?gbNum(job.reconcile.amount):null;
+    if(decision==='applied'&&(appliedAmount==null||!(appliedAmount>0)))return false;
+    const tx=nativeQueueRecruitUnknownTx(townId,job);
+    if(tx&&!txClearOne(tx.intent))return false;
+    if(decision==='applied'){
+      nativeQueueRecruitApplied(townId,lane,job.id,appliedAmount,null);
+    }else{
+      job.inflight=null;job.reconcile=null;job.manualReview=false;
+      job.status='pending';job.reason='revisi\u00f3n manual: no se aplic\u00f3; listo para reintentar';job.updatedAt=Date.now();
+      nativeQueueSave();
+    }
+    try{jrnPush({f:'recruit',a:'manual-review',k:String(townId)+'|'+String(job.unit||'')+'|'+jobId},'ok',decision)}catch(_){}
+    gbTimeout(()=>{try{recruitScan('manual-review')}catch(_){}},500);
+    return true;
   }
 
   function nativeResearchLabel(tech) {
@@ -30453,7 +30477,26 @@ const STORE = {
     dn.disabled = frozen || i === list.length - 1;
     bot.disabled = frozen || i === list.length - 1;
     del.disabled = !!job.inflight;
-    acts.append(top, up, dn, bot, del); r.append(numEl, descEl, acts); return r;
+    acts.append(top, up, dn, bot);
+    if(job.manualReview&&NATIVE_RECRUIT_LANES.includes(lane)){
+      acts.append(
+        queueCenterButton('\u2713','Confirmar que el lote incierto s\u00ed se aplic\u00f3',()=>queueCenterResolveRecruitReview(townId,lane,job,'applied')),
+        queueCenterButton('\u21bb','Confirmar que el lote incierto no se aplic\u00f3 y permitir reintento',()=>queueCenterResolveRecruitReview(townId,lane,job,'not-applied'))
+      );
+    }
+    acts.append(del); r.append(numEl, descEl, acts); return r;
+  }
+
+  function queueCenterResolveRecruitReview(townId,lane,job,outcome) {
+    const applied=outcome==='applied';let ok=false;
+    const action=applied
+      ? 'Se descontar\u00e1 solo el lote incierto de la cola virtual y continuar\u00e1 con el resto.'
+      : 'Se cerrar\u00e1 la transacci\u00f3n desconocida y este lote quedar\u00e1 habilitado para reintento.';
+    try{ok=gameUw().confirm(`Comprueba primero la cola real y el total de ${nativeUnitLabel(job.unit)}.\n\n\u00bfConfirmas que el lote ${applied?'S\u00cd':'NO'} se aplic\u00f3?\n\n${action}`)}catch(_){ok=false}
+    if(!ok)return false;
+    const resolved=nativeQueueResolveRecruitReview(townId,lane,job.id,outcome);
+    flash(resolved?(applied?'Lote marcado como aplicado':'Lote habilitado para reintento'):'No se pudo resolver: el estado cambi\u00f3; vuelve a comprobarlo');
+    return resolved;
   }
 
   function queueCenterRemove(townId, lane, job, frozen) {
@@ -35242,6 +35285,7 @@ const STORE = {
       nativeQueueBuildPlan,
       nativeQueueBuildApplied,
       nativeQueueRecruitApplied,
+      nativeQueueResolveRecruitReview,
       nativeUiScan,
 
       nativeWindowTownId,

@@ -414,6 +414,7 @@
       nativeQueueBuildPlan,
       nativeQueueBuildApplied,
       nativeQueueRecruitApplied,
+      nativeQueueResolveRecruitReview,
       nativeUiScan,
 
       nativeWindowTownId,

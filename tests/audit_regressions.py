@@ -342,6 +342,7 @@ def check_native_recruit_unknown_reconciliation() -> None:
     reconcile = _function_body(native, "nativeQueueReconcileRecruit")
     normalize = _function_body(native, "nativeQueueNormalizeRecruitLane")
     recover = _function_body(native, "nativeQueueRecruitUnknownTx")
+    resolve = _function_body(native, "nativeQueueResolveRecruitReview")
     scan = _function_body(recruit, "recruitScan")
     _expect("txUnitStatus" in reconcile and "totalBefore" in reconcile,
             "native recruit reconciliation must include trained units after the real queue drains")
@@ -353,12 +354,27 @@ def check_native_recruit_unknown_reconciliation() -> None:
             "native recruit callback must classify txRun's canonical unknown result as ambiguous")
     _expect("head.inflight&&!head.reconcile" in scan and "head.manualReview=!!" in scan,
             "pending recruit reconciliation must preserve its original age without blocking retries immediately")
-    _expect("state.txState" in recover and "snapshot" in recover and "TX_UNKNOWN_MAX_MS" in recover,
-            "persisted recruit unknowns must recover only from the matching bounded transaction evidence")
+    _expect("state.txState" in recover and "snapshot" in recover and "tx.intent" in recover
+            and "TX_UNKNOWN_MAX_MS" in recover,
+            "persisted recruit unknowns must recover from matching bounded snapshot or compacted intent evidence")
     _expect("nativeQueueRecruitUnknownTx" in normalize and "totalBefore" in normalize,
             "v6.0.92 manual-review rows must restore their original pre-send total when possible")
     _expect("sin evidencia suficiente" in normalize and "manualReview=false" in normalize,
             "legacy rows without transaction evidence must open a bounded reconcile window instead of staying wedged")
+    _expect("txClearOne" in resolve and "nativeQueueRecruitApplied" in resolve,
+            "manual applied resolution must clear the tx tombstone and consume only the uncertain chunk")
+    _expect("txPrune" not in resolve,
+            "manual resolution must identify its tx before pruning can compact the evidence")
+    _expect("decision!=='applied'&&decision!=='not-applied'" in resolve and "job.manualReview=false" in resolve,
+            "manual not-applied resolution must explicitly reopen the job for retry")
+    queue_center = _read(SRC / "queue-center.js")
+    row = _function_body(queue_center, "queueCenterJobRow")
+    dialog = _function_body(queue_center, "queueCenterResolveRecruitReview")
+    _expect("job.manualReview&&NATIVE_RECRUIT_LANES.includes(lane)" in row
+            and "'applied'" in row and "'not-applied'" in row,
+            "Queue Center must expose both recruit manual-review decisions only on recruit lanes")
+    _expect("gameUw().confirm" in dialog and "Comprueba primero la cola real" in dialog,
+            "manual recruit resolution must require explicit operator confirmation")
 
 
 def check_focused_build_gate_is_fatal() -> None:

@@ -174,7 +174,26 @@
     dn.disabled = frozen || i === list.length - 1;
     bot.disabled = frozen || i === list.length - 1;
     del.disabled = !!job.inflight;
-    acts.append(top, up, dn, bot, del); r.append(numEl, descEl, acts); return r;
+    acts.append(top, up, dn, bot);
+    if(job.manualReview&&NATIVE_RECRUIT_LANES.includes(lane)){
+      acts.append(
+        queueCenterButton('\u2713','Confirmar que el lote incierto sí se aplicó',()=>queueCenterResolveRecruitReview(townId,lane,job,'applied')),
+        queueCenterButton('\u21bb','Confirmar que el lote incierto no se aplicó y permitir reintento',()=>queueCenterResolveRecruitReview(townId,lane,job,'not-applied'))
+      );
+    }
+    acts.append(del); r.append(numEl, descEl, acts); return r;
+  }
+
+  function queueCenterResolveRecruitReview(townId,lane,job,outcome) {
+    const applied=outcome==='applied';let ok=false;
+    const action=applied
+      ? 'Se descontará solo el lote incierto de la cola virtual y continuará con el resto.'
+      : 'Se cerrará la transacción desconocida y este lote quedará habilitado para reintento.';
+    try{ok=gameUw().confirm(`Comprueba primero la cola real y el total de ${nativeUnitLabel(job.unit)}.\n\n¿Confirmas que el lote ${applied?'SÍ':'NO'} se aplicó?\n\n${action}`)}catch(_){ok=false}
+    if(!ok)return false;
+    const resolved=nativeQueueResolveRecruitReview(townId,lane,job.id,outcome);
+    flash(resolved?(applied?'Lote marcado como aplicado':'Lote habilitado para reintento'):'No se pudo resolver: el estado cambió; vuelve a comprobarlo');
+    return resolved;
   }
 
   function queueCenterRemove(townId, lane, job, frozen) {
