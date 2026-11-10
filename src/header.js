@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         GrepBot
 // @namespace    grepbot
-// @version      6.1.02
+// @version      6.1.03
 // @description  Automatizacion de Grepolis: explorar/granjas/construir/comerciar/cultura/reclutar. Los ToS prohiben la automatizacion; riesgo = ban.
 // @author       j
+// @license      GPL-3.0-or-later
 // @match        https://*.grepolis.com/*
 // @run-at       document-idle
 // @noframes
